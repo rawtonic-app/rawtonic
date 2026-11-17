@@ -407,7 +407,7 @@ pub fn resolve_local(stored: StoredRef<'_>) -> LocalAdjustments<'_> {
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
-                .take(4)
+                .take(color::MAX_COLOR_RANGES)
                 .map(|v| color::ColorRange::resolve(StoredRef::new(v)))
                 .collect()
         } else {

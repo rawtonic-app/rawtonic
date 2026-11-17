@@ -565,6 +565,40 @@ impl MultiView {
             .chain(region.map(|t| (t, CellLayer::Region)))
     }
 
+    /// Each cell's layers as drawn now (area, texture size and key, extent,
+    /// placement, clip), for the log: a cell drawn outside its area shows
+    /// the background only.
+    pub fn describe(&self) -> String {
+        let mut out = String::new();
+        for cell in &self.cells {
+            let primary = self.primary.as_deref() == Some(cell.path.as_str());
+            let name = cell.path.rsplit(['/', '\\']).next().unwrap_or(&cell.path);
+            out += &format!(
+                "\n  {name}{} area {:?} zoom {:?}:",
+                if primary { " (primary)" } else { "" },
+                cell.area,
+                self.zoom_of(&cell.path).map(|z| (z.scale, z.center))
+            );
+            let mut any = false;
+            for (texture, layer) in self.layers(&cell.path) {
+                any = true;
+                out += &format!(
+                    " [{layer:?} {}x{} key {} extent {:?} at {:?} clip {:?}]",
+                    texture.width,
+                    texture.height,
+                    texture.key,
+                    texture.extent.map(|e| (e.shown, e.region)),
+                    self.placement(&cell.path, cell.area, texture),
+                    self.clip(&cell.path, cell.area, texture, layer)
+                );
+            }
+            if !any {
+                out += " nothing";
+            }
+        }
+        out
+    }
+
     /// Writes each cell's placement for a `window` (device px) frame.
     pub(crate) fn prepare(&self, queue: &wgpu::Queue, window: [f32; 2], background: [f32; 4]) {
         for cell in &self.cells {

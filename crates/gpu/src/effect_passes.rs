@@ -346,8 +346,8 @@ impl EffectPasses {
         let tiles = pass.map(|_| {
             self.split_tiles.get_or_init(|| {
                 [
-                    processor.float_tile("Split Before Tone Tile"),
-                    processor.float_tile("Split Tone Tile"),
+                    processor.float_tile("Split Before Tone Tile", TILE_SIZE),
+                    processor.float_tile("Split Tone Tile", TILE_SIZE),
                 ]
             })
         });
@@ -410,8 +410,8 @@ impl EffectPasses {
     pub(super) fn terms_tiles(&self, processor: &GpuProcessor) -> &[HighPrecisionTile; 2] {
         self.terms_tiles.get_or_init(|| {
             [
-                processor.float_tile("Glow Terms Tile"),
-                processor.float_tile("Halation Terms Tile"),
+                processor.float_tile("Glow Terms Tile", TILE_SIZE),
+                processor.float_tile("Halation Terms Tile", TILE_SIZE),
             ]
         })
     }
@@ -491,7 +491,7 @@ impl EffectPasses {
     /// The tile a main pass stores its colour in.
     pub(super) fn colour_tile(&self, processor: &GpuProcessor) -> &HighPrecisionTile {
         self.colour_tile
-            .get_or_init(|| processor.float_tile("Main Pass Colour Tile"))
+            .get_or_init(|| processor.float_tile("Main Pass Colour Tile", TILE_SIZE))
     }
 
     /// The texture a main pass stores its view values in: the tile when
@@ -499,7 +499,7 @@ impl EffectPasses {
     pub(super) fn views(&self, processor: &GpuProcessor, wanted: bool) -> &HighPrecisionTile {
         if wanted {
             self.views_tile
-                .get_or_init(|| processor.float_tile("Main Pass Views Tile"))
+                .get_or_init(|| processor.float_tile("Main Pass Views Tile", TILE_SIZE))
         } else {
             &self.no_views
         }

@@ -53,6 +53,8 @@ import { useTextMetadataCache } from './components/studio/StudioMetadata';
 import { useLibraryStore } from './store/useLibraryStore';
 import { useEditorStore } from './store/useEditorStore';
 import { useProcessStore } from './store/useProcessStore';
+import { useMultiViewStore } from './store/useMultiViewStore';
+import { windowClearOverNative } from './utils/viewerDisplay';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useThumbnails } from './hooks/useThumbnails';
@@ -129,6 +131,7 @@ function App() {
   );
   // Develop, the Library's loupe or the full screen: the native viewer shows.
   const viewerOn = useUIStore(viewerShown);
+  const multiViewActive = useMultiViewStore((state) => state.active);
   // Shift+Tab also hides the top bar (Lightroom); the workspace shows a strip instead.
   const barsHidden = useUIStore(
     (state) => !readModuleLayout(state.uiVisibility.modules, moduleOf(state.activeView)).bars
@@ -537,11 +540,14 @@ function App() {
   // Transparent over the native display once it shows the photograph: a
   // preview proxy frame before the full decode, or the previous frame held
   // while the next photograph opens.
-  const isWgpuActive =
-    viewerOn &&
-    appSettings?.useWgpuRenderer !== false &&
+  const isWgpuActive = windowClearOverNative({
+    viewerOn,
+    nativeRenderer: appSettings?.useWgpuRenderer !== false,
     // (hasRenderedFirstFrame is only set by a frame of the selected photo.)
-    (hasRenderedFirstFrame || holdingNativeFrame);
+    firstFrame: hasRenderedFirstFrame,
+    holdingFrame: holdingNativeFrame,
+    nativeMultiView: multiViewActive && osPlatform !== 'linux'
+  });
   const hasNativeMacTitlebar = osPlatform === 'macos';
   // Windows and Linux draw their own window controls at the right end of the
   // session bar (no separate title strip); with the system's native title bar

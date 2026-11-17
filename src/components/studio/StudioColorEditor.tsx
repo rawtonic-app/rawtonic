@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useEditorStore } from '../../store/useEditorStore';
 import { capturingAdjustments } from '../../hooks/useEditorActions';
-import { MAX_COLOR_RANGES, MAX_LAYER_COLOR_RANGES, type Adjustments, type ColorRange } from '../../utils/adjustments';
+import { MAX_COLOR_RANGES, type Adjustments, type ColorRange } from '../../utils/adjustments';
 import { applyColorPick, colorRangesOf, invalidatePendingColorPicks, skinRangeOf } from '../../utils/colorRanges';
 import { oklchCss } from '../../utils/oklab';
 import AdjustmentControl from './AdjustmentControl';
@@ -82,7 +82,7 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
     change({
       colorRanges: ranges.map((r) => (r.id === active.id ? { ...r, ...patch } : r))
     });
-  const limit = layerId ? MAX_LAYER_COLOR_RANGES : MAX_COLOR_RANGES;
+  const limit = MAX_COLOR_RANGES;
   const hue = t('adjustments.color.hue');
   const saturation = t('adjustments.color.saturation');
   const lightness = t('studio.color.editor.lightness');

@@ -2,13 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
-import {
-  MAX_COLOR_RANGES,
-  MAX_LAYER_COLOR_RANGES,
-  newColorRange,
-  type Adjustments,
-  type ColorRange
-} from './adjustments';
+import { MAX_COLOR_RANGES, newColorRange, type Adjustments, type ColorRange } from './adjustments';
 import { srgbToOklch } from './oklab';
 
 /** Colour ranges of a recipe, or none. */
@@ -92,7 +86,7 @@ export async function pickColorRange(path: string, target: string, x: number, y:
                   ...mask,
                   adjustments: {
                     ...mask.adjustments,
-                    colorRanges: next(colorRangesOf(mask.adjustments), MAX_LAYER_COLOR_RANGES)
+                    colorRanges: next(colorRangesOf(mask.adjustments), MAX_COLOR_RANGES)
                   }
                 }
               : mask

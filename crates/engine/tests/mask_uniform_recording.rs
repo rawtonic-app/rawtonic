@@ -14,11 +14,33 @@
 //! every recorded case exactly (proven against the recording when it was
 //! compacted, notes: plans/arch-cleanup-list-2026-11-06.md row 68).
 use rawtonic_engine::image_processing::{
-    get_all_adjustments_from_json, get_all_adjustments_with_masks, mask_definitions_from_json,
+    MaskAdjustments, get_all_adjustments_from_json, get_all_adjustments_with_masks,
+    mask_definitions_from_json,
 };
 use rawtonic_engine::recipe_versions::RecipeVersions;
 use serde_json::Value;
 use std::fmt::Write as _;
+
+/// Colour range bytes of a layer in the recording: four ranges of four vec4.
+const RECORDED_RANGE_BYTES: usize = 4 * 4 * 16;
+
+/// `recipe` with each layer's colour ranges cut to the four the recording's
+/// renderer read (it ignored the rest). Since LPC2 (2026-11-17) a layer
+/// holds eight; the synthetic layers here list six, which no app version
+/// could save (the editor and every importer kept four per layer).
+fn recorded_ranges(recipe: &Value) -> Value {
+    let mut recipe = recipe.clone();
+    for layer in recipe["masks"].as_array_mut().into_iter().flatten() {
+        if let Some(ranges) = layer
+            .get_mut("adjustments")
+            .and_then(|a| a.get_mut("colorRanges"))
+            .and_then(Value::as_array_mut)
+        {
+            ranges.truncate(4);
+        }
+    }
+    recipe
+}
 
 /// `{"$ref": name}` → `localAdjustments[name]`, everywhere in `value`.
 fn substitute(value: &Value, blocks: &Value) -> Value {
@@ -124,8 +146,9 @@ fn mask_adjustments_and_containers_match_recorded_main() {
     let fixture: Value =
         serde_json::from_str(include_str!("../src/fixtures/mask_adjustments.json")).unwrap();
     for case in &expand(&fixture) {
+        let recipe = recorded_ranges(&case["recipe"]);
         let prepared =
-            get_all_adjustments_from_json(&case["recipe"], case["isRaw"].as_bool().unwrap(), None);
+            get_all_adjustments_from_json(&recipe, case["isRaw"].as_bool().unwrap(), None);
         assert_eq!(
             prepared.uniforms.mask_count,
             case["maskCount"].as_u64().unwrap() as u32,
@@ -139,7 +162,18 @@ fn mask_adjustments_and_containers_match_recorded_main() {
             .iter()
             .take(prepared.uniforms.mask_count as usize)
         {
-            for byte in bytemuck::bytes_of(slot) {
+            // The recording's layers hold four colour ranges: the slots of
+            // ranges five to eight stay empty and are left out, every other
+            // byte is compared.
+            let bytes = bytemuck::bytes_of(slot);
+            let at = std::mem::offset_of!(MaskAdjustments, color_ranges) + RECORDED_RANGE_BYTES;
+            let added = std::mem::size_of_val(&slot.color_ranges) - RECORDED_RANGE_BYTES;
+            assert!(
+                bytes[at..at + added].iter().all(|b| *b == 0),
+                "{}: ranges beyond the recorded four",
+                case["name"]
+            );
+            for byte in bytes[..at].iter().chain(&bytes[at + added..]) {
                 write!(actual, "{byte:02x}").unwrap();
             }
         }
@@ -168,11 +202,11 @@ fn mask_adjustments_and_containers_match_recorded_main() {
         // by the caller give the same uniforms.
         let is_raw = case["isRaw"].as_bool().unwrap();
         let with_masks = get_all_adjustments_with_masks(
-            &case["recipe"],
+            &recipe,
             is_raw,
             None,
-            &definitions,
-            &RecipeVersions::of(&case["recipe"], is_raw),
+            &mask_definitions_from_json(&recipe),
+            &RecipeVersions::of(&recipe, is_raw),
         );
         assert_eq!(
             bytemuck::bytes_of(&*with_masks.uniforms),

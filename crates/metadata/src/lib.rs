@@ -472,7 +472,20 @@ fn parse_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
     let mut pick: Option<i8> = None;
     let mut flat = Vec::new();
     let mut hierarchical = Vec::new();
-    for node in doc.descendants().filter(|n| n.is_element()) {
+    for node in doc.descendants().filter(|n| {
+        n.is_element()
+            && (packet_property(*n)
+                || (n.ancestors().any(|a| {
+                    a.has_tag_name((IPTC_CORE, "CreatorContactInfo")) && packet_property(a)
+                }) && (contact_key(n.tag_name().namespace(), n.tag_name().name()).is_some()
+                    || n.has_tag_name((RDF, "Description"))))
+                || (n.has_tag_name((RDF, "Description"))
+                    && n.parent().is_some_and(|root| {
+                        root.has_tag_name((RDF, "RDF"))
+                            && doc.descendants().find(|x| x.has_tag_name((RDF, "RDF")))
+                                == Some(root)
+                    })))
+    }) {
         let name = node.tag_name();
         for attr in node.attributes() {
             match (attr.namespace(), attr.name()) {
@@ -502,18 +515,7 @@ fn parse_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
                 }
             }
         }
-        let value = || {
-            node.descendants()
-                .find(|n| {
-                    n.is_element()
-                        && n.tag_name().namespace() == Some(RDF)
-                        && n.tag_name().name() == "li"
-                })
-                .and_then(|n| n.text())
-                .or_else(|| node.text())
-                .unwrap_or("")
-                .to_string()
-        };
+        let value = || property_text(node);
         match (name.namespace(), name.name()) {
             (Some(XMP), "Rating") => {
                 let rating: i8 = value().parse()?;
@@ -663,6 +665,19 @@ fn iptc_namespaces(metadata: &Metadata) -> String {
 
 /// The first value of a simple property (attribute or element text, or the
 /// first `rdf:li`) anywhere in the packet.
+fn property_text(node: roxmltree::Node) -> String {
+    let default = node.descendants().find(|n| {
+        n.has_tag_name((RDF, "li"))
+            && n.attribute(("http://www.w3.org/XML/1998/namespace", "lang")) == Some("x-default")
+    });
+    default
+        .or_else(|| node.descendants().find(|n| n.has_tag_name((RDF, "li"))))
+        .map(|n| n.text().unwrap_or_default())
+        .or_else(|| node.text())
+        .unwrap_or_default()
+        .to_string()
+}
+
 fn property(root: roxmltree::Node, namespace: &str, name: &str) -> Option<String> {
     root.descendants()
         .filter(|n| n.is_element())
@@ -670,14 +685,8 @@ fn property(root: roxmltree::Node, namespace: &str, name: &str) -> Option<String
             if let Some(value) = node.attribute((namespace, name)) {
                 return Some(value.to_string());
             }
-            node.has_tag_name((namespace, name)).then(|| {
-                node.descendants()
-                    .find(|n| n.has_tag_name((RDF, "li")))
-                    .and_then(|n| n.text())
-                    .or_else(|| node.text())
-                    .unwrap_or("")
-                    .to_string()
-            })
+            node.has_tag_name((namespace, name))
+                .then(|| property_text(node))
         })
 }
 
@@ -830,6 +839,153 @@ pub fn merge_xmp(
     Ok(merge_packet(existing, metadata, recipe)?)
 }
 
+// Tokenize the start tag: quoted attribute values may contain literal `>`.
+fn opening_tag(raw: &str) -> Result<(usize, String, bool)> {
+    let mut reader = quick_xml::Reader::from_str(raw);
+    let event = reader.read_event()?;
+    let (tag, empty) = match event {
+        quick_xml::events::Event::Start(tag) => (tag, false),
+        quick_xml::events::Event::Empty(tag) => (tag, true),
+        _ => anyhow::bail!("Expected an XML opening tag"),
+    };
+    Ok((
+        reader.buffer_position() as usize - 1,
+        std::str::from_utf8(tag.name().as_ref())?.to_string(),
+        empty,
+    ))
+}
+
+fn packet_property(node: roxmltree::Node) -> bool {
+    node.parent().is_some_and(|parent| {
+        parent.has_tag_name((RDF, "Description"))
+            && parent.parent().is_some_and(|root| {
+                root.has_tag_name((RDF, "RDF"))
+                    && root
+                        .document()
+                        .descendants()
+                        .find(|n| n.has_tag_name((RDF, "RDF")))
+                        == Some(root)
+            })
+    })
+}
+
+fn retained_language_array(node: roxmltree::Node) -> bool {
+    node.children()
+        .find(|n| n.has_tag_name((RDF, "Alt")))
+        .is_some_and(|alt| {
+            alt.children()
+                .filter(|n| n.has_tag_name((RDF, "li")))
+                .any(|n| {
+                    n.attribute(("http://www.w3.org/XML/1998/namespace", "lang"))
+                        != Some("x-default")
+                })
+        })
+}
+
+// Edit language arrays in their original namespace context. Unrelated items,
+// qualifiers, whitespace and entity spellings remain byte-for-byte untouched.
+fn edit_language_alternatives(
+    base: &str,
+    metadata: &Metadata,
+) -> Result<(String, Vec<(String, String)>)> {
+    let doc = roxmltree::Document::parse(base)?;
+    let mut edits = Vec::new();
+    let mut kept = Vec::new();
+    for node in doc
+        .descendants()
+        .filter(|n| n.is_element() && packet_property(*n))
+    {
+        let ns = node.tag_name().namespace().unwrap_or_default();
+        let name = node.tag_name().name();
+        let value = match (ns, name) {
+            (DC, "title") => Some(&metadata.title),
+            (DC, "description") => Some(&metadata.description),
+            (DC, "rights") => Some(&metadata.copyright),
+            _ => IPTC_FIELDS
+                .iter()
+                .find_map(|(key, namespace, field, kind)| {
+                    (*namespace == ns && *field == name && *kind == IptcKind::Alt)
+                        .then(|| metadata.iptc.get(*key))
+                        .flatten()
+                }),
+        };
+        let Some(value) = value else { continue };
+        let Some(alt) = node.children().find(|n| n.has_tag_name((RDF, "Alt"))) else {
+            continue;
+        };
+        // A single default has no foreign language work to retain; the normal
+        // writer canonicalizes it alongside the other owned properties.
+        if alt
+            .children()
+            .filter(|n| n.has_tag_name((RDF, "li")))
+            .all(|n| {
+                n.attribute(("http://www.w3.org/XML/1998/namespace", "lang")) == Some("x-default")
+            })
+        {
+            continue;
+        }
+        kept.push((ns.to_string(), name.to_string()));
+        let items: Vec<_> = alt
+            .children()
+            .filter(|n| n.has_tag_name((RDF, "li")))
+            .collect();
+        let default = items.iter().find(|n| {
+            n.attribute(("http://www.w3.org/XML/1998/namespace", "lang")) == Some("x-default")
+        });
+        let previous = default.and_then(|n| n.text()).unwrap_or_default();
+        for item in &items {
+            let is_default = Some(item) == default;
+            // A clear affects only the displayed value; translated work survives.
+            let synchronized = !value.is_empty()
+                && default.is_some()
+                && item.text().unwrap_or_default() == previous;
+            if !is_default && !synchronized {
+                continue;
+            }
+            if item.text().unwrap_or_default() == value {
+                continue;
+            }
+            let raw = &base[item.range()];
+            let (end, prefix, empty) = opening_tag(raw)?;
+            let replacement = if empty {
+                format!("{}>{}</{prefix}>", &raw[..end - 1], escape(value))
+            } else {
+                let close = raw
+                    .rfind("</")
+                    .context("Missing language item closing tag")?;
+                format!("{}{}{}", &raw[..=end], escape(value), &raw[close..])
+            };
+            edits.push((item.range(), replacement));
+        }
+        if default.is_none() {
+            let raw = &base[alt.range()];
+            let (end, prefix, empty) = opening_tag(raw)?;
+            let rdf_prefix = prefix.strip_suffix("Alt").unwrap_or("rdf:");
+            let item = format!(
+                "<{rdf_prefix}li xml:lang=\"x-default\">{}</{rdf_prefix}li>",
+                escape(value)
+            );
+            if empty {
+                let end = end - 1;
+                edits.push((alt.range(), format!("{}>{item}</{prefix}>", &raw[..end])));
+            } else {
+                let at = alt.range().start + end + 1;
+                edits.push((at..at, item));
+            }
+        }
+    }
+    edits.sort_by_key(|(range, _)| range.start);
+    let mut out = String::new();
+    let mut cursor = 0;
+    for (range, replacement) in edits {
+        out.push_str(&base[cursor..range.start]);
+        out.push_str(&replacement);
+        cursor = range.end;
+    }
+    out.push_str(&base[cursor..]);
+    Ok((out, kept))
+}
+
 fn merge_packet(
     existing: Option<&str>,
     metadata: &Metadata,
@@ -851,6 +1007,8 @@ fn merge_packet(
     };
     let base = existing.unwrap_or("<?xml version=\"1.0\" encoding=\"UTF-8\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"></rdf:RDF></x:xmpmeta>");
     ensure!(base.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
+    let (patched, language_alternatives) = edit_language_alternatives(base, metadata)?;
+    let base = patched.as_str();
     let doc = roxmltree::Document::parse(base)?;
     let root = doc
         .descendants()
@@ -923,13 +1081,20 @@ fn merge_packet(
             || (own_original && namespace == Some(EXIF) && name == "DateTimeOriginal")
             || (own_created && namespace == Some(PHOTOSHOP) && name == "DateCreated")
     };
-    let owned =
-        |node: roxmltree::Node| managed(node.tag_name().namespace(), node.tag_name().name());
+    let owned = |node: roxmltree::Node| {
+        packet_property(node)
+            && managed(node.tag_name().namespace(), node.tag_name().name())
+            && !(retained_language_array(node)
+                && language_alternatives
+                    .iter()
+                    .any(|(ns, name)| node.has_tag_name((ns.as_str(), name.as_str()))))
+    };
     // A description left with nothing but our removed properties goes as a
     // whole; otherwise every rewrite left an empty one behind and the sidecar
     // grew with each save. Foreign properties keep their description.
     let emptied = |node: roxmltree::Node| {
         node.has_tag_name((RDF, "Description"))
+            && node.parent() == Some(root)
             && node.attributes().all(|attr| {
                 managed(attr.namespace(), attr.name())
                     || (attr.namespace() == Some(RDF) && attr.name() == "about")
@@ -957,7 +1122,10 @@ fn merge_packet(
             continue;
         }
         for attr in node.attributes() {
-            if managed(attr.namespace(), attr.name()) {
+            if node.has_tag_name((RDF, "Description"))
+                && node.parent() == Some(root)
+                && managed(attr.namespace(), attr.name())
+            {
                 removals.push(attr.range());
             }
         }
@@ -1005,6 +1173,12 @@ fn merge_packet(
         ("description", &metadata.description),
         ("rights", &metadata.copyright),
     ] {
+        if language_alternatives
+            .iter()
+            .any(|(ns, field)| ns == DC && field == tag)
+        {
+            continue;
+        }
         out.push_str(&format!(
             "<dc:{tag}><rdf:Alt><rdf:li xml:lang=\"x-default\">{}</rdf:li></rdf:Alt></dc:{tag}>",
             escape(val)
@@ -1044,7 +1218,16 @@ fn merge_packet(
     } else {
         ForeignContact::default()
     };
-    out.push_str(&iptc_elements(metadata, &kept_contact, &foreign));
+    let mut remaining = metadata.clone();
+    for (key, ns, name, _) in IPTC_FIELDS {
+        if language_alternatives
+            .iter()
+            .any(|(a, b)| a == ns && b == name)
+        {
+            remaining.iptc.remove(*key);
+        }
+    }
+    out.push_str(&iptc_elements(&remaining, &kept_contact, &foreign));
     if let Some(time) = corrected {
         let value = escape(&time.to_xmp());
         out.push_str(&format!(
@@ -1245,6 +1428,142 @@ pub fn write_xmp_announced(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn packet_edges_keep_foreign_subtrees_and_duplicates() {
+        let nested = "<f:box><dc:title><rdf:Alt><rdf:li xml:lang='fr'>Nested</rdf:li></rdf:Alt></dc:title></f:box>";
+        let source = format!(
+            "<rdf:RDF xmlns:rdf='{RDF}' xmlns:dc='{DC}' xmlns:f='urn:foreign'><rdf:Description dc:title='stale'><dc:title>stale</dc:title><dc:title><rdf:Alt><rdf:li xml:lang='x-default' f:q='qualifier'>Old</rdf:li><rdf:li xml:lang='fr'>French</rdf:li></rdf:Alt></dc:title>{nested}</rdf:Description></rdf:RDF>"
+        );
+        let metadata = Metadata {
+            title: "New".into(),
+            ..Metadata::default()
+        };
+        let out = merge_xmp(Some(&source), &metadata, None).unwrap();
+        assert!(out.contains(nested), "{out}");
+        assert!(!out.contains("stale"), "{out}");
+        assert_eq!(read_xmp(&out).unwrap().0.title, "New");
+        assert!(out.contains("f:q='qualifier'>New</rdf:li>"), "{out}");
+        roxmltree::Document::parse(&out).unwrap();
+    }
+
+    #[test]
+    fn packet_edges_parse_quoted_tag_boundaries() {
+        for item in [
+            "<rdf:li xml:lang='x-default' f:q='a > b'>Old</rdf:li>",
+            "<rdf:li xml:lang='x-default' f:q='a > b'/>",
+            "",
+        ] {
+            let source = format!(
+                "<rdf:RDF xmlns:rdf='{RDF}' xmlns:dc='{DC}' xmlns:f='urn:foreign'><rdf:Description><dc:title><rdf:Alt f:q='a > b'>{item}<rdf:li xml:lang='fr'>French</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF>"
+            );
+            let metadata = Metadata {
+                title: "New".into(),
+                ..Metadata::default()
+            };
+            let out = merge_xmp(Some(&source), &metadata, None).unwrap();
+            assert_eq!(read_xmp(&out).unwrap().0.title, "New", "{out}");
+            assert!(out.contains("<rdf:Alt f:q='a > b'>"), "{out}");
+            assert!(
+                out.contains("<rdf:li xml:lang='fr'>French</rdf:li>"),
+                "{out}"
+            );
+            if !item.is_empty() {
+                assert!(out.contains("f:q='a > b'>New</rdf:li>"), "{out}");
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_metadata_leaves_sidecar_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.xmp");
+        let source = merge_xmp(None, &Metadata::default(), None).unwrap();
+        fs::write(&path, &source).unwrap();
+        let metadata = Metadata {
+            title: "bad\u{1}text".into(),
+            ..Metadata::default()
+        };
+        assert!(write_xmp(&path, &metadata, None, None).is_err());
+        assert_eq!(fs::read_to_string(path).unwrap(), source);
+    }
+
+    #[test]
+    fn missing_or_nonfirst_default_does_not_replace_translations() {
+        for array in [
+            "<r:li xml:lang='fr'>Bonjour</r:li>",
+            "<r:li xml:lang='fr'>Bonjour</r:li><r:li xml:lang='x-default'/>",
+        ] {
+            let source = format!(
+                "<r:RDF xmlns:r='{RDF}'><r:Description xmlns:d='{DC}'><d:title><r:Alt>{array}</r:Alt></d:title></r:Description></r:RDF>"
+            );
+            let metadata = Metadata {
+                title: "Edited".into(),
+                ..Metadata::default()
+            };
+            let result = merge_xmp(Some(&source), &metadata, None).unwrap();
+            assert!(result.contains("<r:li xml:lang='fr'>Bonjour</r:li>"));
+            assert_eq!(read_xmp(&result).unwrap().0.title, "Edited");
+            let cleared = merge_xmp(Some(&result), &Metadata::default(), None).unwrap();
+            assert_eq!(read_xmp(&cleared).unwrap().0.title, "");
+            assert!(cleared.contains("<r:li xml:lang='fr'>Bonjour</r:li>"));
+        }
+    }
+
+    #[test]
+    fn language_alternatives_survive_edits_and_clears() {
+        for (ns, field, key) in [
+            (DC, "title", "title"),
+            (DC, "description", "description"),
+            (DC, "rights", "rights"),
+            (XMP_RIGHTS, "UsageTerms", "usageTerms"),
+            (IPTC_EXT, "Event", "event"),
+        ] {
+            let french = "<r:li xml:lang='fr'>Un &amp; deux</r:li>";
+            let german = "<r:li xml:lang='de-DE'>Deutsch</r:li>";
+            let source = format!(
+                "<r:RDF xmlns:r='{RDF}'><r:Description xmlns:p='{ns}'><p:{field}><r:Alt><r:li xml:lang='x-default'>Old</r:li><r:li xml:lang='en'>Old</r:li>{german}{french}</r:Alt></p:{field}><p:Unknown>keep</p:Unknown></r:Description></r:RDF>"
+            );
+            let (mut metadata, _) = read_xmp(&source).unwrap();
+            for value in ["New & value", ""] {
+                match key {
+                    "title" => metadata.title = value.into(),
+                    "description" => metadata.description = value.into(),
+                    "rights" => metadata.copyright = value.into(),
+                    _ => {
+                        metadata.iptc.insert(key.into(), value.into());
+                    }
+                }
+                let result = merge_xmp(Some(&source), &metadata, None).unwrap();
+                assert!(result.contains(french));
+                assert!(result.contains(german));
+                assert!(result.contains("<p:Unknown>keep</p:Unknown>"));
+                let doc = roxmltree::Document::parse(&result).unwrap();
+                let items: Vec<_> = doc
+                    .descendants()
+                    .filter(|n| {
+                        n.has_tag_name((RDF, "li"))
+                            && n.parent().is_some_and(|p| p.has_tag_name((RDF, "Alt")))
+                    })
+                    .collect();
+                let text = |lang| {
+                    items
+                        .iter()
+                        .find(|n| {
+                            n.attribute(("http://www.w3.org/XML/1998/namespace", "lang"))
+                                == Some(lang)
+                        })
+                        .unwrap()
+                        .text()
+                        .unwrap_or_default()
+                };
+                assert_eq!(text("x-default"), value);
+                assert_eq!(text("en"), if value.is_empty() { "Old" } else { value });
+                let again = merge_xmp(Some(&result), &metadata, None).unwrap();
+                assert_eq!(result, again);
+            }
+        }
+    }
+
     #[test]
     fn a_changed_sidecar_is_a_typed_conflict_and_stays_as_it_is() {
         let dir = tempfile::tempdir().unwrap();

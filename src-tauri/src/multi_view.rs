@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -268,6 +268,10 @@ fn show_cells(
         );
         display.render(&context.device, &context.queue);
         let multi = display.multi_view();
+        #[cfg(feature = "performance-profiling")]
+        if multi.is_zoomed() {
+            log::info!("[multi_view] cells shown, drawn:{}", multi.describe());
+        }
         let bare: Vec<(String, (u32, u32))> = cells
             .iter()
             .filter(|cell| primary.as_deref() != Some(cell.path.as_str()))
@@ -964,15 +968,23 @@ fn prepare_in(
                 None => load_source(app_handle, &todo.path, &todo.recipe)?,
             };
             if source_scale < 1.0 {
+                let interims = &mut memory.lock().unwrap_or_else(|e| e.into_inner()).interims;
+                let used: usize = interims.values().map(|i| i.image.as_bytes().len()).sum();
+                // Within the memory free for such work, too.
+                let budget =
+                    crate::memory_pressure::work_headroom().map_or(interim_budget(), |room| {
+                        interim_budget()
+                            .min(used.saturating_add(usize::try_from(room).unwrap_or(usize::MAX)))
+                    });
                 keep_interim(
-                    &mut memory.lock().unwrap_or_else(|e| e.into_inner()).interims,
+                    interims,
                     &todo.path,
                     Interim {
                         image: Arc::clone(&source),
                         scale: source_scale,
                         facts,
                     },
-                    interim_budget(),
+                    budget,
                 );
             }
             let scale =
@@ -1522,6 +1534,120 @@ fn region_threads() -> usize {
 /// memory or the bands of a 1:1 preview): a few megabytes each.
 const READY_REGION_THREADS: usize = 4;
 
+/// Bytes per pixel a full RAW decode takes at its peak while it runs (the
+/// sensor data, the 32-bit RGB result and the develop's scratch): 2.5 GB for
+/// 61 MP (2026-10-12), 2.6–3.3 GB for two of 50 and 61 MP at once (Mac mini
+/// M4 Pro, 2026-11-17).
+pub(crate) const DECODE_BYTES_PER_PIXEL: u64 = 40;
+
+/// Bytes per pixel of the whole photograph warped at a zoom below 100 %
+/// (per pixel at that scale): 1.5–2 GB for 36–61 MP at 80–100 % (Mac mini
+/// M4 Pro, 2026-11-17, four of them at once: 8 GB).
+const WARP_BYTES_PER_PIXEL: u64 = 40;
+
+/// A photograph's pixels when its size is not known yet: 61 MP.
+pub(crate) const UNKNOWN_PIXELS: u64 = 61_000_000;
+
+/// What a region that is not ready (`region_source_ready`) takes while it
+/// is made: a decode of the RAW unless it is in memory, and the whole
+/// photograph warped at the zoom's scale below 100 % or for a recipe that
+/// needs all of it.
+fn heavy_region_bytes(pixels: Option<u64>, scale: f32, decode: bool, whole: bool) -> u64 {
+    let pixels = pixels.unwrap_or(UNKNOWN_PIXELS);
+    let decode = if decode {
+        pixels * DECODE_BYTES_PER_PIXEL
+    } else {
+        0
+    };
+    let warp = if whole || scale < 1.0 {
+        let s = f64::from(scale.clamp(0.0, 1.0));
+        (pixels as f64 * s * s) as u64 * WARP_BYTES_PER_PIXEL
+    } else {
+        0
+    };
+    decode + warp
+}
+
+/// Admits the regions that are not ready by the memory they take
+/// (`heavy_region_bytes`): one always, so that the cells are developed
+/// however short memory is, more beside it while their bytes fit in the
+/// memory free for such work (`memory_pressure::work_headroom`, which
+/// counts an export running in the app too). Without it a 14 GB laptop with
+/// a Radeon 680M reached 10.4 GB with seven 39–61 MP RAWs at 100 %
+/// (11.9 GB during an export) and a 24 GB Mac 18.8 GB (G76/WG74, MEM9).
+#[derive(Default)]
+struct HeavyGate {
+    /// Regions admitted and not done, and the bytes they were admitted with.
+    under_way: Mutex<(usize, u64)>,
+    done: std::sync::Condvar,
+}
+
+/// A region admitted by [`HeavyGate::admit`], under way until dropped.
+struct Admitted<'a> {
+    gate: &'a HeavyGate,
+    bytes: u64,
+}
+
+impl Drop for Admitted<'_> {
+    fn drop(&mut self) {
+        let mut under_way = self
+            .gate
+            .under_way
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        under_way.0 -= 1;
+        under_way.1 -= self.bytes;
+        HEAVY_UNDER_WAY.fetch_sub(self.bytes, Ordering::SeqCst);
+        self.gate.done.notify_all();
+    }
+}
+
+/// Bytes the regions admitted by a [`HeavyGate`] and not done were admitted
+/// with.
+static HEAVY_UNDER_WAY: AtomicU64 = AtomicU64::new(0);
+
+/// [`HEAVY_UNDER_WAY`]: the decodes held for 1:1 previews are not let go
+/// for memory these regions take only while they are made (they would be
+/// decoded again for the next pan or step).
+pub(crate) fn heavy_under_way() -> u64 {
+    HEAVY_UNDER_WAY.load(Ordering::SeqCst)
+}
+
+impl HeavyGate {
+    /// Waits until a region of `bytes` may start (None: `cancelled` first).
+    fn admit(&self, bytes: u64, cancelled: impl Fn() -> bool) -> Option<Admitted<'_>> {
+        let mut under_way = self.under_way.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if cancelled() {
+                return None;
+            }
+            let (count, reserved) = *under_way;
+            if may_admit(
+                count,
+                reserved,
+                bytes,
+                crate::memory_pressure::work_headroom(),
+            ) {
+                *under_way = (count + 1, reserved + bytes);
+                HEAVY_UNDER_WAY.fetch_add(bytes, Ordering::SeqCst);
+                return Some(Admitted { gate: self, bytes });
+            }
+            under_way = self
+                .done
+                .wait_timeout(under_way, std::time::Duration::from_millis(100))
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+    }
+}
+
+/// Whether a region of `bytes` may start beside `count` others admitted
+/// with `reserved` bytes, with `headroom` free for such work (None: not
+/// known).
+fn may_admit(count: usize, reserved: u64, bytes: u64, headroom: Option<u64>) -> bool {
+    count == 0 || headroom.is_none_or(|room| reserved + bytes <= room)
+}
+
 #[derive(Clone, Copy, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ZoomPayload {
@@ -1657,6 +1783,8 @@ pub(crate) async fn set_multi_view_zoom(
             display.set_multi_view_zooms(shared, individual);
             display.render(&context.device, &context.queue);
             let multi = display.multi_view();
+            #[cfg(feature = "performance-profiling")]
+            log::info!("[multi_view] zoomed cells drawn:{}", multi.describe());
             multi
                 .cells()
                 .iter()
@@ -2175,8 +2303,9 @@ fn whole_pixels(wanted: [f32; 4]) -> [u32; 4] {
     [x, y, w, h]
 }
 
-/// Whether the region of `path` can be developed from a source that is
-/// ready (the decode in memory or a 1:1 preview), not a RAW decoded now.
+/// Whether the region of `path` can be developed from the rows of a
+/// source that is ready (the decode in memory or a 1:1 preview), not from
+/// a RAW decoded now or a whole photograph warped (below 100 %).
 fn region_source_ready(
     app_handle: &tauri::AppHandle,
     path: &str,
@@ -2187,10 +2316,12 @@ fn region_source_ready(
     let (source_path, _) = parse_virtual_path(path);
     let settings = crate::state::settings::current(app_handle);
     let in_memory = decode_in_memory(&develop, path, recipe, &settings).is_some();
-    in_memory
-        || (zoom.scale >= 1.0
-            && crate::preview_proxy::stands_for(&source_path, recipe)
-            && crate::preview_proxy::has_full(&source_path, &settings))
+    // Below 100 % the region is cut from the whole photograph warped at
+    // the zoom's scale, which takes as much memory as a decode.
+    zoom.scale >= 1.0
+        && (in_memory
+            || (crate::preview_proxy::stands_for(&source_path, recipe)
+                && crate::preview_proxy::has_full(&source_path, &settings)))
 }
 
 /// The kept region base of `path` that still covers what its cell `area`
@@ -2593,6 +2724,24 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                 || (region_from_rows_possible(recipe)
                     && region_source_ready(app_handle, path, *zoom, recipe))
         });
+    let develop = app_handle.state::<DevelopSession>();
+    let settings = crate::state::settings::current(app_handle);
+    let heavy_bytes: HashMap<String, u64> = heavy
+        .iter()
+        .map(|(path, _, zoom, recipe, _)| {
+            let pixels = facts
+                .as_ref()
+                .and_then(|f| f.get(path))
+                .map(|f| f.full_width as u64 * f.full_height as u64);
+            let decode = decode_in_memory(&develop, path, recipe, &settings).is_none();
+            let whole = !region_from_rows_possible(recipe);
+            (
+                path.clone(),
+                heavy_region_bytes(pixels, zoom.scale, decode, whole),
+            )
+        })
+        .collect();
+    let gate = HeavyGate::default();
     let heavy = heavy_order(heavy, |path, recipe| {
         let pending = crate::multi_view_prefetch::decoding_now(&decoded_key(path, recipe));
         let pixels = facts
@@ -2654,7 +2803,40 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
             }
         }
     };
-    let (work, ready, heavy, current_ref) = (&work, &ready, &heavy, &current);
+    // The heavy ones each once admitted by their memory (`HeavyGate`).
+    let heavy_work = |queue: &Mutex<std::vec::IntoIter<RegionTodo>>,
+                      sender: std::sync::mpsc::Sender<RegionResult>| {
+        loop {
+            let Some((path, area, zoom, recipe, key)) =
+                queue.lock().unwrap_or_else(|e| e.into_inner()).next()
+            else {
+                return;
+            };
+            let bytes = heavy_bytes.get(&path).copied().unwrap_or(0);
+            let Some(_admitted) = gate.admit(bytes, || {
+                worker.generation.load(Ordering::SeqCst) != job.generation
+            }) else {
+                return;
+            };
+            let result = develop_region(
+                app_handle,
+                &context,
+                &worker.bases,
+                &path,
+                area,
+                zoom,
+                recipe,
+                key,
+                CELL_RENDER,
+            )
+            .map(|region| (region, zoom.scale));
+            if sender.send((path, result)).is_err() {
+                return;
+            }
+        }
+    };
+    let (work, heavy_work, ready, heavy, current_ref) =
+        (&work, &heavy_work, &ready, &heavy, &current);
     std::thread::scope(|scope| {
         for _ in 0..READY_REGION_THREADS.min(ready_count) {
             let sender = sender.clone();
@@ -2674,7 +2856,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                     rawtonic_runtime::spawn_scoped_render_thread(
                         decodes,
                         "multi-view-region",
-                        move || work(heavy, sender),
+                        move || heavy_work(heavy, sender),
                     );
                 }
             });
@@ -2725,6 +2907,18 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
         "[multi_view] {shown} of {count} zoomed regions developed in {:.1} ms",
         start.elapsed().as_secs_f64() * 1e3
     );
+    #[cfg(feature = "performance-profiling")]
+    if let Some(display) = context
+        .display
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
+        log::info!(
+            "[multi_view] after the regions, drawn:{}",
+            display.multi_view().describe()
+        );
+    }
     #[cfg(feature = "performance-profiling")]
     log::info!(
         "[PERF] {}",
@@ -3476,6 +3670,37 @@ mod tests {
         // No budget (short of memory): nothing more.
         keep_interim(&mut kept, "d", interim(), 0);
         assert!(!kept.contains_key("d"));
+    }
+
+    #[test]
+    fn regions_not_ready_are_admitted_by_their_memory() {
+        let mp = 1_000_000;
+        // A decode now: its peak; below 100 % the whole photograph warped
+        // at the zoom's scale beside it.
+        assert_eq!(
+            heavy_region_bytes(Some(50 * mp), 1.0, true, false),
+            2_000 * mp
+        );
+        assert_eq!(
+            heavy_region_bytes(Some(50 * mp), 0.5, false, false),
+            500 * mp
+        );
+        assert_eq!(
+            heavy_region_bytes(Some(50 * mp), 0.5, true, false),
+            2_500 * mp
+        );
+        // A recipe that needs the whole photograph at 100 %.
+        assert_eq!(
+            heavy_region_bytes(Some(50 * mp), 2.0, false, true),
+            2_000 * mp
+        );
+        // Unknown size: 61 MP.
+        assert_eq!(heavy_region_bytes(None, 1.0, true, false), 2_440 * mp);
+        // One always starts; more beside it only while they fit.
+        assert!(may_admit(0, 0, 3_000 * mp, Some(0)));
+        assert!(may_admit(1, 2_000 * mp, 1_000 * mp, Some(3_000 * mp)));
+        assert!(!may_admit(1, 2_000 * mp, 1_500 * mp, Some(3_000 * mp)));
+        assert!(may_admit(1, 2_000 * mp, 1_500 * mp, None));
     }
 
     #[test]

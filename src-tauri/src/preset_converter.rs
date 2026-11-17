@@ -252,32 +252,75 @@ fn point_color_ranges(xmp_one_line: &str) -> Vec<Value> {
         })
         .unwrap_or_default()
     };
-    point_color_ranges_from(&seq("PointColors"), &seq("ColorVariance"), 8)
+    point_color_ranges_from(&seq("PointColors"), &seq("ColorVariance"))
+}
+
+/// The 19 numbers of a Point Color swatch, when it has them and has an
+/// effect: Camera Raw ignores a swatch whose own saturation or luminance lies
+/// outside its trapezoid's plateau (notes: reference/point-color.md).
+fn effective_swatch(swatch: &str) -> Option<Vec<f64>> {
+    let v: Vec<f64> = swatch
+        .split(',')
+        .filter_map(|x| x.trim().parse().ok())
+        .collect();
+    if v.len() < 19 {
+        return None;
+    }
+    let (s, value) = (v[1], v[2]);
+    let (sat_t, lum_t) = (&v[11..15], &v[15..19]);
+    let lum = value.max(0.0).powf(1.0 / 2.2);
+    let ignored = s < sat_t[1] - 1.0e-4
+        || s > sat_t[2] + 1.0e-4
+        || lum < lum_t[1] - 1.0e-4
+        || lum > lum_t[2] + 1.0e-4;
+    (!ignored).then_some(v)
+}
+
+/// Point Color swatches with an effect beyond the Color editor's
+/// [`recipe_color::MAX_COLOR_RANGES`], summed over the photo's
+/// `crs:PointColors` and every mask's `crs:LocalPointColors`: what an import
+/// of `xmp` leaves out. Lightroom itself takes eight per photo and per mask,
+/// so only a record edited elsewhere holds more.
+pub fn point_color_overflow(xmp: &str) -> usize {
+    let one_line = xmp.split('\n').collect::<Vec<_>>().join(" ");
+    regex!(r"<crs:(?:Local)?PointColors>\s*<rdf:Seq>(.*?)</rdf:Seq>")
+        .captures_iter(&one_line)
+        .map(|seq| {
+            regex!(r"<rdf:li>([^<]*)</rdf:li>")
+                .captures_iter(&seq[1])
+                .filter(|li| effective_swatch(&li[1]).is_some())
+                .count()
+                .saturating_sub(recipe_color::MAX_COLOR_RANGES)
+        })
+        .sum()
+}
+
+/// The import report's line for [`point_color_overflow`], if any.
+pub fn point_color_overflow_warning(xmp: &str) -> Option<String> {
+    let extra = point_color_overflow(xmp);
+    (extra > 0).then(|| {
+        format!(
+            "Point Color: could not convert {extra} swatch(es) beyond the {} the Color Editor holds per photo and per mask.",
+            recipe_color::MAX_COLOR_RANGES
+        )
+    })
 }
 
 /// Colour editor ranges for Point Color swatches (19 numbers each), at most
-/// `limit` (8 for the photo, 4 per layer).
-fn point_color_ranges_from(swatches: &[String], variances: &[String], limit: usize) -> Vec<Value> {
+/// [`recipe_color::MAX_COLOR_RANGES`] (the photo's and each mask layer's
+/// limit; [`point_color_overflow`] reports the rest).
+fn point_color_ranges_from(swatches: &[String], variances: &[String]) -> Vec<Value> {
     let mut ranges = Vec::new();
     for (index, swatch) in swatches.iter().enumerate() {
-        let v: Vec<f64> = swatch
-            .split(',')
-            .filter_map(|x| x.trim().parse().ok())
-            .collect();
-        if v.len() < 19 || ranges.len() >= limit {
-            continue;
+        if ranges.len() >= recipe_color::MAX_COLOR_RANGES {
+            break;
         }
+        let Some(v) = effective_swatch(swatch) else {
+            continue;
+        };
         let (h, s, value) = (v[0], v[1], v[2]);
         let (hue_shift, sat_shift, lum_shift, range) = (v[3], v[4], v[5], v[6]);
         let (hue_t, sat_t, lum_t) = (&v[7..11], &v[11..15], &v[15..19]);
-        let lum = value.max(0.0).powf(1.0 / 2.2);
-        if s < sat_t[1] - 1.0e-4
-            || s > sat_t[2] + 1.0e-4
-            || lum < lum_t[1] - 1.0e-4
-            || lum > lum_t[2] + 1.0e-4
-        {
-            continue;
-        }
         let (l0, c0, h0) = prophoto_hsv_to_oklab(h, s, value);
         // Hue window: half-weight points of the trapezoid in HSV degrees,
         // as Oklab half-width (widened to match Camera Raw's smooth edges).
@@ -1786,7 +1829,7 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                 .collect()
         };
         let ranges =
-            point_color_ranges_from(&texts("LocalPointColors"), &texts("LocalColorVariance"), 4);
+            point_color_ranges_from(&texts("LocalPointColors"), &texts("LocalColorVariance"));
         if !ranges.is_empty() {
             adjustments.insert(
                 recipe_color::COLOR_RANGES.name().into(),
@@ -1873,6 +1916,9 @@ pub fn untranslated_settings(xmp_content: &str) -> (Vec<&'static str>, Option<St
     }
     if nonzero("PerspectiveUpright") {
         out.push("upright");
+    }
+    if point_color_overflow(xmp_content) > 0 {
+        out.push("colorEditor");
     }
     (out, profile)
 }
@@ -2118,7 +2164,10 @@ mod tests {
         );
     }
 
-    use super::convert_xmp_to_preset;
+    use super::{
+        convert_xmp_to_preset, point_color_overflow, point_color_overflow_warning,
+        untranslated_settings,
+    };
     use serde_json::json;
 
     #[test]
@@ -2899,19 +2948,29 @@ mod tests {
         assert!((10.0..60.0).contains(&width), "{width}");
     }
 
-    #[test]
-    fn layer_point_colors_become_the_layers_colour_ranges() {
-        // A mask's Point Color (`crs:LocalPointColors`, with its own
-        // `crs:LocalColorVariance`) takes the photo's mapping, at most four
-        // ranges per layer; swatches outside their plateau are ignored.
-        let swatch = "0.500000, 0.700000, 0.300000, 0.150000, -0.130000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.520000, 1.000000, 1.000000, 0.000000, 0.400000, 0.760000, 1.000000";
-        let ignored = "3.700000, 0.300000, 0.300000, 0.000000, -1.000000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.500000, 0.600000, 1.000000, 1.000000, 0.000000, 0.400000, 0.760000, 1.000000";
+    /// Eight Point Color swatches of different hues (Lightroom's limit per
+    /// photo and per mask), as `crs:PointColors` items.
+    fn eight_swatches() -> Vec<String> {
+        (0..8)
+            .map(|i| {
+                format!(
+                    "{:.6}, 0.700000, 0.300000, 0.150000, -0.130000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.520000, 1.000000, 1.000000, 0.000000, 0.400000, 0.760000, 1.000000",
+                    0.1 + 0.72 * i as f64
+                )
+            })
+            .collect()
+    }
+
+    fn point_color_xmp(photo: &[String], layer: &[String], variance: &[&str]) -> String {
         let items = |list: &[&str]| -> String {
             list.iter()
                 .map(|x| format!("<rdf:li>{x}</rdf:li>"))
                 .collect()
         };
-        let xmp = format!(
+        fn strs(list: &[String]) -> Vec<&str> {
+            list.iter().map(String::as_str).collect()
+        }
+        format!(
             r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
  <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
   <crs:PointColors><rdf:Seq>{photo}</rdf:Seq></crs:PointColors>
@@ -2925,23 +2984,46 @@ mod tests {
    </rdf:Description></rdf:li>
   </rdf:Seq></crs:MaskGroupBasedCorrections>
  </rdf:Description></rdf:RDF></x:xmpmeta>"#,
-            photo = items(&[swatch]),
-            layer = items(&[ignored, swatch, swatch, swatch, swatch, swatch]),
-            variance = items(&["0", "-0.4", "0", "0", "0", "0"]),
+            photo = items(&strs(photo)),
+            layer = items(&strs(layer)),
+            variance = items(variance),
+        )
+    }
+
+    fn without_id(range: &serde_json::Value) -> serde_json::Value {
+        let mut range = range.clone();
+        range.as_object_mut().unwrap().remove("id");
+        range
+    }
+
+    #[test]
+    fn layer_point_colors_become_the_layers_colour_ranges() {
+        // A mask's Point Color (`crs:LocalPointColors`, with its own
+        // `crs:LocalColorVariance`) takes the photo's mapping, all eight
+        // swatches Lightroom allows per mask, in order; swatches outside
+        // their plateau are ignored.
+        let ignored = "3.700000, 0.300000, 0.300000, 0.000000, -1.000000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.500000, 0.600000, 1.000000, 1.000000, 0.000000, 0.400000, 0.760000, 1.000000".to_string();
+        let eight = eight_swatches();
+        let layer: Vec<String> = std::iter::once(ignored).chain(eight.clone()).collect();
+        let xmp = point_color_xmp(
+            &eight,
+            &layer,
+            &["0", "-0.4", "0", "0", "0", "0", "0", "0", "0"],
         );
         let adjustments = convert_xmp_to_preset(&xmp).unwrap().adjustments;
-        let without_id = |range: &serde_json::Value| {
-            let mut range = range.clone();
-            range.as_object_mut().unwrap().remove("id");
-            range
-        };
-        let photo = without_id(&adjustments["colorRanges"][0]);
+        let photo = adjustments["colorRanges"].as_array().unwrap();
         let layer = adjustments["masks"][0]["adjustments"]["colorRanges"]
             .as_array()
             .unwrap();
-        assert_eq!(layer.len(), 4, "at most four ranges per layer");
+        assert_eq!(photo.len(), 8, "all eight of the photo's swatches");
+        assert_eq!(layer.len(), 8, "all eight of the layer's swatches");
+        let hues: Vec<f64> = photo.iter().map(|r| r["hue"].as_f64().unwrap()).collect();
+        assert!(
+            hues.windows(2).all(|w| (w[0] - w[1]).abs() > 5.0),
+            "distinct: {hues:?}"
+        );
         // The first valid swatch carries the variance of its own position.
-        let mut expected = photo.clone();
+        let mut expected = without_id(&photo[0]);
         for key in [
             "hueUniformity",
             "saturationUniformity",
@@ -2950,9 +3032,38 @@ mod tests {
             expected[key] = json!(40.0);
         }
         assert_eq!(without_id(&layer[0]), expected);
-        for range in &layer[1..] {
-            assert_eq!(without_id(range), photo);
+        for (range, photo) in layer[1..].iter().zip(&photo[1..]) {
+            assert_eq!(without_id(range), without_id(photo));
         }
+        assert_eq!(point_color_overflow(&xmp), 0);
+        assert_eq!(point_color_overflow_warning(&xmp), None);
+        assert!(!untranslated_settings(&xmp).0.contains(&"colorEditor"));
+    }
+
+    #[test]
+    fn point_colors_beyond_eight_are_reported_not_dropped_silently() {
+        // Lightroom takes eight; a record edited elsewhere may hold more.
+        let mut ten = eight_swatches();
+        ten.extend(eight_swatches().into_iter().take(2));
+        let mut nine = eight_swatches();
+        nine.push(ten[9].clone());
+        let xmp = point_color_xmp(&ten, &nine, &[]);
+        let adjustments = convert_xmp_to_preset(&xmp).unwrap().adjustments;
+        assert_eq!(adjustments["colorRanges"].as_array().unwrap().len(), 8);
+        assert_eq!(
+            adjustments["masks"][0]["adjustments"]["colorRanges"]
+                .as_array()
+                .unwrap()
+                .len(),
+            8
+        );
+        assert_eq!(point_color_overflow(&xmp), 3);
+        assert!(
+            point_color_overflow_warning(&xmp)
+                .unwrap()
+                .contains("could not convert 3 swatch(es)")
+        );
+        assert!(untranslated_settings(&xmp).0.contains(&"colorEditor"));
     }
 
     #[test]

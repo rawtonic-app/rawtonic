@@ -3,7 +3,7 @@ use rawtonic_engine::recipe_versions::RecipeVersions;
 use rawtonic_recipe::effects;
 use rawtonic_recipe::masks;
 use std::borrow::Cow;
-use std::io::Cursor;
+use std::io::{Cursor, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -22,9 +22,9 @@ use crate::adjustment_utils::{apply_transformations_after_warp, apply_warp, crop
 use crate::cache_utils::calculate_full_job_hash;
 use crate::gpu_processing::{
     GpuContext, GpuImageCache, GpuProcessorSlot, MaskUploader, ReadbackShader, RenderOutput,
-    RenderOutputPrecision, RenderRequest, RenderSource, process_and_get_dynamic_image_inner,
-    process_and_get_dynamic_images, upload_fringed_render_source, upload_render_source,
-    upload_warped_render_source,
+    RenderOutputPrecision, RenderRequest, RenderSource, WarpedUpload,
+    process_and_get_dynamic_image_inner, process_and_get_dynamic_images,
+    upload_fringed_render_source, upload_render_source, upload_warped_render_source,
 };
 use crate::image_processing::{
     AllAdjustments, MAX_MASKS, PreparedAdjustments, get_all_adjustments_with_masks,
@@ -1175,8 +1175,54 @@ pub fn export_marks_generated(js_adjustments: &Value, settings: &ExportSettings)
 /// EXIF tag names and display values, as the app caches them per source.
 pub type ExifMap = std::collections::HashMap<String, String>;
 
-/// Writes encoded export bytes to a path, given the lower-case extension.
-pub type WriteExport = dyn Fn(&Path, &str, Vec<u8>) -> Result<(), String>;
+/// Writes an encoded export to a path, given the lower-case extension
+/// (`crate::output::write_new_export` in the app and the CLI).
+pub type WriteExport = dyn Fn(&Path, &str, EncodedExport) -> Result<(), String>;
+
+/// An encoded export, ready for its file. A TIFF is encoded into the file
+/// itself as it is written ([`EncodedExport::write_to`]), so no full-size
+/// encoded copy is held in memory (6 bytes per pixel at 16 bit, the 60 MP
+/// export's peak; notes: benchmark-results/mem13-2026-11-17). Its bytes are
+/// those of [`encode_with_metadata`].
+pub struct EncodedExport(Encoded);
+
+enum Encoded {
+    Bytes(Vec<u8>),
+    Tiff {
+        /// RGB, alpha dropped.
+        image: DynamicImage,
+        bit_depth: TiffBitDepth,
+        color_space: OutputColorSpace,
+        metadata: Option<crate::exif_processing::ExportMetadata>,
+    },
+}
+
+impl EncodedExport {
+    /// Writes the file into `file`, which starts empty at position 0.
+    pub fn write_to<S: Read + Write + Seek>(self, file: &mut S) -> Result<(), String> {
+        match self.0 {
+            Encoded::Bytes(bytes) => file.write_all(&bytes).map_err(|e| e.to_string()),
+            Encoded::Tiff {
+                image,
+                bit_depth,
+                color_space,
+                metadata,
+            } => write_tiff(&image, bit_depth, color_space, metadata.as_ref(), file),
+        }
+    }
+
+    /// The file's bytes in memory.
+    pub fn into_bytes(self) -> Result<Vec<u8>, String> {
+        match self.0 {
+            Encoded::Bytes(bytes) => Ok(bytes),
+            tiff => {
+                let mut file = Cursor::new(Vec::new());
+                EncodedExport(tiff).write_to(&mut file)?;
+                Ok(file.into_inner())
+            }
+        }
+    }
+}
 
 /// Where an export's file goes and where its metadata comes from: the app
 /// reads its EXIF cache and the session catalog and may write to the
@@ -1289,10 +1335,10 @@ pub fn save_export_image(
     } else {
         metadata
     };
-    let image_bytes = encode_with_metadata(image, &extension, export_settings, metadata.as_ref())?;
+    let encoded = encode_export(image, &extension, export_settings, metadata)?;
     #[cfg(feature = "performance-profiling")]
     let _write_stage = crate::performance::PerformanceStage::new("export_write");
-    (output.write)(output.path, &extension, image_bytes)
+    (output.write)(output.path, &extension, encoded)
 }
 
 /// Renders the main export file of a photo and saves it. With separate mask
@@ -1323,12 +1369,16 @@ pub fn render_and_save(
     )?;
     #[cfg(feature = "performance-profiling")]
     drop(render_stage);
-    render_prepared_and_save(
+    let processed = render_prepared(&prepared, export_settings, env, output)?;
+    // Its textures are not read again: freed before the resize and encode
+    // (notes: benchmark-results/mem11-2026-11-17).
+    drop(prepared);
+    crate::gpu_processing::free_dropped_resources(&env.context.device);
+    save_rendered_export(
+        processed,
         source_path_str,
-        &prepared,
         js_adjustments,
         export_settings,
-        env,
         output,
         cancelled,
     )
@@ -1362,23 +1412,7 @@ pub fn render_prepared_and_save(
     output: &ExportOutput,
     cancelled: &dyn Fn() -> Result<(), String>,
 ) -> Result<(), String> {
-    let actual_output_format = output
-        .path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .unwrap_or(output.format);
-
-    #[cfg(feature = "performance-profiling")]
-    let render_stage = crate::performance::PerformanceStage::new("export_render");
-    let processed = render_prepared_export(
-        prepared,
-        env,
-        "process_image_for_export",
-        render_output_precision(actual_output_format, export_settings),
-        export_settings.color_space,
-    )?;
-    #[cfg(feature = "performance-profiling")]
-    drop(render_stage);
+    let processed = render_prepared(prepared, export_settings, env, output)?;
     save_rendered_export(
         processed,
         source_path_str,
@@ -1386,6 +1420,30 @@ pub fn render_prepared_and_save(
         export_settings,
         output,
         cancelled,
+    )
+}
+
+/// One recipe's render of its main export file.
+fn render_prepared(
+    prepared: &PreparedExport,
+    export_settings: &ExportSettings,
+    env: &RenderEnv,
+    output: &ExportOutput,
+) -> Result<DynamicImage, String> {
+    let actual_output_format = output
+        .path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or(output.format);
+
+    #[cfg(feature = "performance-profiling")]
+    let _render_stage = crate::performance::PerformanceStage::new("export_render");
+    render_prepared_export(
+        prepared,
+        env,
+        "process_image_for_export",
+        render_output_precision(actual_output_format, export_settings),
+        export_settings.color_space,
     )
 }
 
@@ -1564,28 +1622,41 @@ pub fn prepare_export_render(
     // warp before it stays on the GPU too (notes: parity-gaps/G43, tasks
     // BX7, GW). The warp keeps the frame's size.
     let (source_w, source_h) = source.base().dimensions();
+    let (photo_w, photo_h) = source.pristine.dimensions();
     let after_fringe = crop_after_fringe(js_adjustments, source_w, source_h);
+    // The pixels the transform reads. Only parametric mask layers read the
+    // photo again (as decoded); otherwise this export's references go with
+    // the upload, so a source loaded for this export alone is freed before
+    // the warped frame is allocated (notes: benchmark-results/mem11-2026-11-17).
+    let ExportSource {
+        pristine, patched, ..
+    } = source;
+    let mask_source = mask_definitions
+        .iter()
+        .any(MaskDefinition::requires_warped_image)
+        .then(|| pristine.clone());
+    let base = patched.unwrap_or(pristine);
     let mut transform_path = "gpu_warp";
-    let on_gpu = after_fringe
-        .map(|(window, offset)| {
-            upload_warped_render_source(
-                context,
-                source.base(),
-                js_adjustments,
-                is_raw,
-                window,
-                unique_hash,
-                color_noise,
-            )
-            .map(|uploaded| uploaded.map(|uploaded| (uploaded, window, offset)))
-        })
-        .transpose()?
-        .flatten();
-    let (warped, fringed) = match on_gpu {
-        Some(uploaded) => (None, Some(uploaded)),
-        None => {
+    let (base, on_gpu) = match after_fringe {
+        Some((window, offset)) => match upload_warped_render_source(
+            context,
+            base,
+            js_adjustments,
+            is_raw,
+            window,
+            unique_hash,
+            color_noise,
+        )? {
+            WarpedUpload::Uploaded(uploaded) => (None, Some((uploaded, window, offset))),
+            WarpedUpload::NotOnGpu(base) => (Some(base), None),
+        },
+        None => (Some(base), None),
+    };
+    let (warped, fringed) = match (on_gpu, &base) {
+        (Some(uploaded), _) => (None, Some(uploaded)),
+        (None, Some(base)) => {
             transform_path = "gpu_fringe";
-            let warped = apply_warp(Cow::Borrowed(source.base()), js_adjustments, is_raw)?;
+            let warped = apply_warp(Cow::Borrowed(&**base), js_adjustments, is_raw)?;
             let fringed = after_fringe
                 .map(|(window, offset)| {
                     upload_fringed_render_source(
@@ -1602,6 +1673,7 @@ pub fn prepare_export_render(
                 .flatten();
             (Some(warped), fringed)
         }
+        (None, None) => unreachable!("the source unless uploaded"),
     };
     let (transformed_image, uploaded, (img_w, img_h), unscaled_crop_offset) = match fringed {
         Some((uploaded, [_, _, width, height], offset)) => {
@@ -1619,12 +1691,11 @@ pub fn prepare_export_render(
     #[cfg(feature = "performance-profiling")]
     drop(transform_stage);
 
-    let warped_image = mask_definitions
-        .iter()
-        .any(MaskDefinition::requires_warped_image)
-        .then(|| prepare_parametric_mask_source(&source.pristine, is_raw, 1.0, js_adjustments))
+    let warped_image = mask_source
+        .as_deref()
+        .map(|pristine| prepare_parametric_mask_source(pristine, is_raw, 1.0, js_adjustments))
         .transpose()?;
-    let (photo_w, photo_h) = source.pristine.dimensions();
+    drop(mask_source);
     let mask_geometry =
         PhotoGeometry::from_adjustments(js_adjustments).with_decoded_size(photo_w, photo_h);
     if let Some(inputs) = env.render_inputs {
@@ -1702,7 +1773,7 @@ pub fn prepare_export_render(
     // The GPU holds the pixels now. A source shared with the editor stays
     // alive there; a source loaded for this export is freed (0.6 GB at 50 MP).
     drop(transformed_image);
-    drop(source);
+    drop(base);
     crate::allocator::release_freed_memory();
 
     // Layers are independent: generated side by side, as some (Auto Mask
@@ -2007,6 +2078,31 @@ const MASK_GENERATORS: usize = 4;
 // one pixel); see `encode_lossless_jxl`.
 const LOSSLESS_JXL_EFFORT: u8 = 4;
 
+fn is_tiff(extension: &str) -> bool {
+    extension.eq_ignore_ascii_case("tif") || extension.eq_ignore_ascii_case("tiff")
+}
+
+/// [`encode_with_metadata`] for an export's file: a TIFF is encoded only as
+/// it is written ([`EncodedExport`]), other formats now.
+pub fn encode_export(
+    image: DynamicImage,
+    extension: &str,
+    export_settings: &ExportSettings,
+    metadata: Option<crate::exif_processing::ExportMetadata>,
+) -> Result<EncodedExport, String> {
+    if is_tiff(extension) {
+        // TIFF stores RGB; the 8- or 16-bit render matches the chosen depth.
+        return Ok(EncodedExport(Encoded::Tiff {
+            image: drop_alpha_in_place(image),
+            bit_depth: export_settings.tiff_bit_depth,
+            color_space: export_settings.color_space,
+            metadata,
+        }));
+    }
+    encode_with_metadata(image, extension, export_settings, metadata.as_ref())
+        .map(|bytes| EncodedExport(Encoded::Bytes(bytes)))
+}
+
 /// Encodes an export render for `extension` and embeds `metadata` (EXIF and
 /// XMP from [`exif_processing::export_metadata_with`](crate::exif_processing::export_metadata_with)).
 pub fn encode_with_metadata(
@@ -2015,15 +2111,21 @@ pub fn encode_with_metadata(
     export_settings: &ExportSettings,
     metadata: Option<&crate::exif_processing::ExportMetadata>,
 ) -> Result<Vec<u8>, String> {
+    if is_tiff(extension) {
+        let image = drop_alpha_in_place(image);
+        let mut bytes = Vec::with_capacity(tiff_capacity(&image, export_settings.tiff_bit_depth));
+        write_tiff(
+            &image,
+            export_settings.tiff_bit_depth,
+            export_settings.color_space,
+            metadata,
+            &mut Cursor::new(&mut bytes),
+        )?;
+        return Ok(bytes);
+    }
     let mut image_bytes = {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("export_encode");
-        // TIFF stores RGB; the 8- or 16-bit render matches the chosen depth.
-        let image = if matches!(extension, "tif" | "tiff") {
-            drop_alpha_in_place(image)
-        } else {
-            image
-        };
         let avif_exif = match (metadata, extension) {
             (Some(metadata), "avif") => metadata
                 .exif
@@ -2323,27 +2425,10 @@ pub fn encode_image_to_bytes(
                 .map_err(|e| e.to_string())?;
         }
         "tif" | "tiff" => {
-            // Uncompressed: reserve the pixel data and headers up front rather
-            // than growing by doubling (up to 1.5x the file in flight).
-            let (width, height) = image.dimensions();
-            let bytes_per_pixel = match tiff_bit_depth {
-                TiffBitDepth::Eight => 3,
-                TiffBitDepth::Sixteen => 6,
-            };
             cursor
                 .get_mut()
-                .reserve(width as usize * height as usize * bytes_per_pixel + 64 * 1024);
-            let image_to_encode = match tiff_bit_depth {
-                TiffBitDepth::Eight if image.as_rgb8().is_some() => Cow::Borrowed(image),
-                TiffBitDepth::Sixteen if image.as_rgb16().is_some() => Cow::Borrowed(image),
-                TiffBitDepth::Eight => Cow::Owned(DynamicImage::ImageRgb8(image.to_rgb8())),
-                TiffBitDepth::Sixteen => Cow::Owned(DynamicImage::ImageRgb16(image.to_rgb16())),
-            };
-            let mut encoder = image::codecs::tiff::TiffEncoder::new(&mut cursor);
-            encoder.set_icc_profile(icc()).map_err(|e| e.to_string())?;
-            image_to_encode
-                .write_with_encoder(encoder)
-                .map_err(|e| e.to_string())?;
+                .reserve(tiff_capacity(image, tiff_bit_depth));
+            write_tiff(image, tiff_bit_depth, color_space, None, &mut cursor)?;
         }
         "avif" => {
             // The export's quality as for JPEG and WebP (rav1e speed 4, as
@@ -2372,6 +2457,81 @@ pub fn encode_image_to_bytes(
         _ => return Err(format!("Unsupported file format: {}", output_format)),
     };
     Ok(image_bytes)
+}
+
+/// An uncompressed TIFF's size with room for its headers: reserved up front
+/// rather than growing by doubling (up to 1.5x the file in flight).
+fn tiff_capacity(image: &DynamicImage, tiff_bit_depth: TiffBitDepth) -> usize {
+    let (width, height) = image.dimensions();
+    let bytes_per_pixel = match tiff_bit_depth {
+        TiffBitDepth::Eight => 3,
+        TiffBitDepth::Sixteen => 6,
+    };
+    width as usize * height as usize * bytes_per_pixel + 64 * 1024
+}
+
+/// The TIFF encoder's writes are gathered into pieces of this size.
+const TIFF_WRITE_BUFFER: usize = 1 << 20;
+
+/// Encodes an uncompressed TIFF with the output space's ICC profile into
+/// `file` (empty, at position 0) and appends `metadata`'s directories
+/// ([`crate::tiff_exif::append_exif_to`]): the strips go to the file as the
+/// encoder writes them. Metadata that cannot be written is left out with a
+/// warning, but a photo with generated areas is never written without its
+/// AI marking: then the marking alone, else an error.
+fn write_tiff<S: Read + Write + Seek>(
+    image: &DynamicImage,
+    tiff_bit_depth: TiffBitDepth,
+    color_space: OutputColorSpace,
+    metadata: Option<&crate::exif_processing::ExportMetadata>,
+    file: &mut S,
+) -> Result<(), String> {
+    {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("export_encode");
+        let image = match tiff_bit_depth {
+            TiffBitDepth::Eight if image.as_rgb8().is_some() => Cow::Borrowed(image),
+            TiffBitDepth::Sixteen if image.as_rgb16().is_some() => Cow::Borrowed(image),
+            TiffBitDepth::Eight => Cow::Owned(DynamicImage::ImageRgb8(image.to_rgb8())),
+            TiffBitDepth::Sixteen => Cow::Owned(DynamicImage::ImageRgb16(image.to_rgb16())),
+        };
+        let mut writer = std::io::BufWriter::with_capacity(TIFF_WRITE_BUFFER, &mut *file);
+        let mut encoder = image::codecs::tiff::TiffEncoder::new(&mut writer);
+        encoder
+            .set_icc_profile(crate::icc_profile::for_space(color_space).to_vec())
+            .map_err(|e| e.to_string())?;
+        image
+            .write_with_encoder(encoder)
+            .map_err(|e| e.to_string())?;
+        writer.flush().map_err(|e| e.to_string())?;
+    }
+    let Some(metadata) = metadata else {
+        return Ok(());
+    };
+    #[cfg(feature = "performance-profiling")]
+    let _stage = crate::performance::PerformanceStage::new("export_metadata");
+    use crate::tiff_exif::{AppendError, append_exif_to};
+    let append = |file: &mut S, metadata: &crate::exif_processing::ExportMetadata| {
+        append_exif_to(
+            file,
+            &metadata.exif,
+            metadata.xmp.as_deref().map(str::as_bytes),
+        )
+    };
+    match append(file, metadata) {
+        Ok(()) => Ok(()),
+        Err(AppendError::Io(e)) => Err(format!("Failed to write metadata: {e}")),
+        // The file is unchanged.
+        Err(AppendError::Metadata(e)) => {
+            log::warn!("Failed to write metadata: {}", e);
+            if metadata.generated {
+                crate::exif_processing::ExportMetadata::marking_only()
+                    .and_then(|marking| append(file, &marking).map_err(|e| e.to_string()))
+                    .map_err(|e| format!("The AI marking could not be written: {e}"))?;
+            }
+            Ok(())
+        }
+    }
 }
 
 /// Lossless JPEG XL with libjxl's fast-lossless method (zune-jpegxl): an
@@ -3489,8 +3649,8 @@ mod encoding_input_tests {
             let written = Arc::new(std::sync::Mutex::new(None));
             let write = {
                 let written = written.clone();
-                move |_: &Path, _: &str, bytes: Vec<u8>| {
-                    *written.lock().unwrap() = Some(bytes);
+                move |_: &Path, _: &str, encoded: EncodedExport| {
+                    *written.lock().unwrap() = Some(encoded.into_bytes()?);
                     Ok(())
                 }
             };
@@ -3544,8 +3704,8 @@ mod encoding_input_tests {
         let written = Arc::new(std::sync::Mutex::new(None));
         let write = {
             let written = written.clone();
-            move |_: &Path, extension: &str, bytes: Vec<u8>| {
-                *written.lock().unwrap() = Some((extension.to_string(), bytes));
+            move |_: &Path, extension: &str, encoded: EncodedExport| {
+                *written.lock().unwrap() = Some((extension.to_string(), encoded.into_bytes()?));
                 Ok(())
             }
         };

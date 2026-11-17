@@ -83,9 +83,13 @@ impl ColorRange {
     }
 }
 
+/// The most colour editor ranges the photo and each mask layer hold
+/// (Lightroom's Point Color takes up to eight swatches per photo and per mask).
+pub const MAX_COLOR_RANGES: usize = 8;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ColorRanges {
-    pub ranges: [ColorRange; 8],
+    pub ranges: [ColorRange; MAX_COLOR_RANGES],
     pub count: usize,
     pub shown: Option<usize>,
 }
@@ -532,7 +536,7 @@ impl Color {
             let root = stored.as_value();
             let shown = root.get(COLOR_RANGE_SHOW.name()).and_then(Value::as_str);
             if let Some(ranges) = root.get(COLOR_RANGES.name()).and_then(Value::as_array) {
-                for (i, range) in ranges.iter().take(8).enumerate() {
+                for (i, range) in ranges.iter().take(MAX_COLOR_RANGES).enumerate() {
                     color_ranges.ranges[i] = ColorRange::resolve(StoredRef::new(range));
                     if color_ranges.shown.is_none()
                         && shown.is_some()

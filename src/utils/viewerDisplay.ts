@@ -212,3 +212,28 @@ export function photoScreenRect(
     height: fitted.height * transform.scale
   };
 }
+
+export interface NativeDisplayState {
+  /** Develop, the Library's loupe or the full screen is on screen. */
+  viewerOn: boolean;
+  /** The native (wgpu) renderer is on in Preferences. */
+  nativeRenderer: boolean;
+  /** The selected photograph's own first native frame was presented. */
+  firstFrame: boolean;
+  /** The previous photograph's native frame is held while the next opens. */
+  holdingFrame: boolean;
+  /** The multi view is shown with natively drawn cells (not Linux's browser cells). */
+  nativeMultiView: boolean;
+}
+
+/**
+ * Whether the window is clear over the native display. The multi view's
+ * cells always have a native frame of their own (their render, a stand-in or
+ * the old primary's frame), so the window stays clear over them while the
+ * next primary's first frame is on its way; the viewer then covers only the
+ * primary's cell. An opaque window hid every other cell for as long as that
+ * decode took (5-44 s on a slow Windows laptop).
+ */
+export function windowClearOverNative(state: NativeDisplayState): boolean {
+  return state.viewerOn && state.nativeRenderer && (state.firstFrame || state.holdingFrame || state.nativeMultiView);
+}

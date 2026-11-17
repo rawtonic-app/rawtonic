@@ -4817,7 +4817,7 @@ pub struct MaskAdjustments {
     pub color_grading_blending: f32,
     pub color_grading_balance: f32,
     pub grading_active: u32,
-    /// Number of colour editor ranges in `color_ranges` (at most four).
+    /// Number of colour editor ranges in `color_ranges` (at most eight).
     pub color_range_count: u32,
 
     pub hsl: [HslColor; 8],
@@ -4836,7 +4836,7 @@ pub struct MaskAdjustments {
     _pad_end7: f32,
     pub grading_lut: [[f32; 4]; GRADING_LUT_SIZE],
     /// Colour editor ranges of the layer, packed like the photo's.
-    pub color_ranges: [[f32; 4]; 16],
+    pub color_ranges: [[f32; 4]; 4 * COLOR_RANGES_LIMIT],
     /// Moiré of the layer, like the photo's (`moire_settings`).
     pub moire: [f32; 4],
     /// The layer's Luminance curve, like the photo's.
@@ -5931,7 +5931,7 @@ impl GlobalAdjustments {
 pub const SHOW_CLIPPING_HIGHLIGHTS: u32 = 0x4000_0001;
 pub const SHOW_CLIPPING_SHADOWS: u32 = 0x4000_0002;
 /// The most colour ranges the shader holds (shader.wgsl `color_ranges`).
-pub const COLOR_RANGES_LIMIT: usize = 8;
+pub const COLOR_RANGES_LIMIT: usize = rawtonic_recipe::color::MAX_COLOR_RANGES;
 
 /// `showClipping` from the payload as `show_clipping`: missing or false is
 /// off, true the both-sides value 1, a number as it is (the side flags).
@@ -6649,7 +6649,7 @@ fn get_mask_adjustments(
         _pad_end6: 0.0,
         _pad_end7: 0.0,
         grading_lut: [[0.0; 4]; GRADING_LUT_SIZE],
-        color_ranges: [[0.0; 4]; 16],
+        color_ranges: [[0.0; 4]; 4 * COLOR_RANGES_LIMIT],
         moire: resolved_moire_settings(local.moire_amount.get(), local.moire_pattern.get()),
         luminance_curve: convert_points_to_aligned(luminance_points.clone()),
         luminance_curve_count: luminance_points.len().min(16) as u32,
@@ -9483,11 +9483,16 @@ mod editing_tool_tests {
             true,
             None,
         );
-        // Eight for the photo, four per layer; the shown range is the third.
+        // Eight for the photo and per layer; the shown range is the third.
         assert_eq!(all.global.color_range_count[0], 8);
         assert_eq!(all.global.show_clipping, 2 + 2);
-        assert_eq!(all.mask_adjustments[0].color_range_count, 4);
+        assert_eq!(all.mask_adjustments[0].color_range_count, 8);
         assert!((all.mask_adjustments[0].color_ranges[4][0] - 30.0).abs() < 1e-6);
+        assert!((all.mask_adjustments[0].color_ranges[28][0] - 210.0).abs() < 1e-6);
+        assert_eq!(
+            all.mask_adjustments[0].color_ranges, all.global.color_ranges,
+            "a layer packs its ranges as the photo does"
+        );
         assert!((all.mask_adjustments[0].color_ranges[2][0] - 25.0).abs() < 1e-6);
     }
 

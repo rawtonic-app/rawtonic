@@ -506,6 +506,15 @@ impl Library {
             let new_path = plain(&path);
             let volume_path = volume_path.as_deref().map(plain);
             let new_id = external_root_key(Path::new(&new_path));
+            if new_id == id {
+                // The root may already be plain while its recorded mount is
+                // still verbatim. Keep its identity and all photo rows intact.
+                tx.execute(
+                    "UPDATE roots SET path=?,volume_path=? WHERE id=?",
+                    params![new_path, volume_path, id],
+                )?;
+                continue;
+            }
             // Only the folder's record changes: every photograph keeps its
             // row as it is (trashed, missing, edits, albums), moved to the
             // record under the new id.

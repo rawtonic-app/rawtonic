@@ -413,8 +413,10 @@ fn reduced_base_dims((full_width, full_height): (u32, u32), scale: f32) -> (u32,
 /// `reduced_preview_base` with `interim`: `source` (a reduced copy) stands
 /// in only until the photograph's decode is in, so its warp does not
 /// measure the automatic lateral CA on it (`warp_image_geometry_interim`).
-/// `correction`: the full-resolution colour noise correction added to the
-/// reduced copy before it is warped (`color_noise_view`).
+/// `render_input`: the export's render input reduced to this base's
+/// pre-crop size (`color_noise_view`: warp, edge-fringe pass and colour
+/// noise reduction at full resolution), which stands in for the base's own
+/// reduction, retouching, warp and edge-fringe pass.
 #[allow(clippy::too_many_arguments)]
 fn build_reduced_preview_base(
     source: &DynamicImage,
@@ -425,20 +427,25 @@ fn build_reduced_preview_base(
     preview_dim: u32,
     scale: f32,
     interim: bool,
-    correction: Option<&image::Rgb32FImage>,
+    render_input: Option<&image::Rgb32FImage>,
 ) -> Result<preview_cache::PreviewBase, String> {
     let scale = scale.min(source_scale);
     let (width, height) = reduced_base_dims((full_width, full_height), scale);
-    let reduced = if width < source.width() || height < source.height() {
-        Cow::Owned(resample_f32_image(source, width, height))
-    } else {
-        Cow::Borrowed(source)
-    };
-    let reduced = match correction {
-        Some(delta) => Cow::Owned(DynamicImage::ImageRgb32F(
-            rawtonic_engine::color_noise::add_reduced_correction(reduced.to_rgb32f(), delta),
+    let reduced = match render_input {
+        Some(input) => Cow::Owned(DynamicImage::ImageRgb32F(
+            if input.dimensions() == (width, height) {
+                input.clone()
+            } else {
+                // Ringing cut at 0, as `resample_f32_image` cuts it.
+                let mut resized = rawtonic_engine::lanczos::resize_signed(input, width, height);
+                resized.iter_mut().for_each(|v| *v = v.max(0.0));
+                resized
+            },
         )),
-        None => reduced,
+        None if width < source.width() || height < source.height() => {
+            Cow::Owned(resample_f32_image(source, width, height))
+        }
+        None => Cow::Borrowed(source),
     };
     // The actual scale after rounding to whole pixels.
     let scale = reduced.width() as f32 / full_width as f32;
@@ -453,7 +460,8 @@ fn build_reduced_preview_base(
             }
         }
     }
-    let retouched = if crate::image_loader::has_base_retouch(adjustments) {
+    let retouched = if render_input.is_none() && crate::image_loader::has_base_retouch(adjustments)
+    {
         Cow::Owned(
             crate::image_loader::composite_patches_on_scaled_image(&reduced, adjustments, scale)
                 .map_err(|e| format!("Failed to composite retouching: {e}"))?,
@@ -461,21 +469,24 @@ fn build_reduced_preview_base(
     } else {
         reduced
     };
-    if source_scale >= 1.0 {
-        #[cfg(feature = "performance-profiling")]
-        let _stage = crate::performance::PerformanceStage::new("preview_base_ca_share");
-        share_lateral_ca(source, &retouched, adjustments);
-    }
-    let warped = {
-        #[cfg(feature = "performance-profiling")]
-        let _stage = crate::performance::PerformanceStage::new("preview_base_warp");
-        if interim {
-            crate::image_processing::apply_geometry_warp_interim(retouched, &scaled, is_raw)?
-        } else {
-            apply_geometry_warp(retouched, &scaled, is_raw)?
+    let warped = if render_input.is_some() {
+        // Warped and fringe-treated already, at full resolution.
+        retouched
+    } else {
+        if source_scale >= 1.0 {
+            #[cfg(feature = "performance-profiling")]
+            let _stage = crate::performance::PerformanceStage::new("preview_base_ca_share");
+            share_lateral_ca(source, &retouched, adjustments);
         }
-    };
-    let warped = {
+        let warped = {
+            #[cfg(feature = "performance-profiling")]
+            let _stage = crate::performance::PerformanceStage::new("preview_base_warp");
+            if interim {
+                crate::image_processing::apply_geometry_warp_interim(retouched, &scaled, is_raw)?
+            } else {
+                apply_geometry_warp(retouched, &scaled, is_raw)?
+            }
+        };
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("preview_base_fringe");
         rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, scale)?
@@ -1684,10 +1695,11 @@ struct FitColorNoise<'a> {
     number: Option<u64>,
 }
 
-/// The base a final fit frame renders from at Color 0 with the export's
-/// colour noise reduction in it (`color_noise_view::corrected_base`), when
-/// its base is a reduced copy of the full decode and the recipe's colour
-/// noise reduction applies; None renders the frame as before.
+/// The base a final fit frame renders from at Color 0: the export's render
+/// input reduced (warp, edge-fringe pass and colour noise reduction at full
+/// resolution, `color_noise_view::corrected_base`), when its base is a
+/// reduced copy of the full decode and the recipe is one that input stands
+/// for (`color_noise_view::applies`); None renders the frame as before.
 fn fit_color_noise_base(
     develop: &DevelopSession,
     loaded_image: &LoadedImage,
@@ -1697,7 +1709,7 @@ fn fit_color_noise_base(
 ) -> Option<Arc<DynamicImage>> {
     if !frame.eligible
         || !crate::color_noise_view::enabled()
-        || !crate::color_noise_view::applies(adjustments, loaded_image.is_raw)
+        || !crate::color_noise_view::applies(adjustments, frame.adjustments, loaded_image.is_raw)
     {
         return None;
     }
@@ -1717,10 +1729,12 @@ fn fit_color_noise_base(
             number: frame.number,
             source: &loaded_image.image,
             path: &loaded_image.path,
+            recipe: frame.adjustments,
+            is_raw: loaded_image.is_raw,
             base: frame.base,
             reduced_dims: reduced_base_dims(frame.full_dims, scale.min(1.0)),
         },
-        |delta| {
+        |input| {
             build_reduced_preview_base(
                 &loaded_image.image,
                 1.0,
@@ -1730,7 +1744,7 @@ fn fit_color_noise_base(
                 frame.base_dim,
                 scale,
                 false,
-                Some(delta),
+                Some(input),
             )
             .map(|base| base.image)
         },
@@ -2069,9 +2083,9 @@ pub(crate) fn process_preview_job(
         crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
     );
     final_adjustments.global.detail_scale = effective_scale;
-    // A final fit frame of the full decode shows the export's colour noise
-    // reduction: from the base with the full-resolution correction added,
-    // rendered at Color 0 (`color_noise_view`).
+    // A final fit frame of the full decode shows the export's render input
+    // reduced (warp, edge-fringe pass and colour noise reduction at full
+    // resolution), rendered at Color 0 (`color_noise_view`).
     let (processing_image, render_transform_hash) = match fit_color_noise_base(
         &develop,
         &loaded_image,
