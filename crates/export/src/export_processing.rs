@@ -3,7 +3,7 @@ use rawtonic_engine::recipe_versions::RecipeVersions;
 use rawtonic_recipe::effects;
 use rawtonic_recipe::masks;
 use std::borrow::Cow;
-use std::io::Cursor;
+use std::io::{Cursor, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1175,8 +1175,54 @@ pub fn export_marks_generated(js_adjustments: &Value, settings: &ExportSettings)
 /// EXIF tag names and display values, as the app caches them per source.
 pub type ExifMap = std::collections::HashMap<String, String>;
 
-/// Writes encoded export bytes to a path, given the lower-case extension.
-pub type WriteExport = dyn Fn(&Path, &str, Vec<u8>) -> Result<(), String>;
+/// Writes an encoded export to a path, given the lower-case extension
+/// (`crate::output::write_new_export` in the app and the CLI).
+pub type WriteExport = dyn Fn(&Path, &str, EncodedExport) -> Result<(), String>;
+
+/// An encoded export, ready for its file. A TIFF is encoded into the file
+/// itself as it is written ([`EncodedExport::write_to`]), so no full-size
+/// encoded copy is held in memory (6 bytes per pixel at 16 bit, the 60 MP
+/// export's peak; notes: benchmark-results/mem13-2026-11-17). Its bytes are
+/// those of [`encode_with_metadata`].
+pub struct EncodedExport(Encoded);
+
+enum Encoded {
+    Bytes(Vec<u8>),
+    Tiff {
+        /// RGB, alpha dropped.
+        image: DynamicImage,
+        bit_depth: TiffBitDepth,
+        color_space: OutputColorSpace,
+        metadata: Option<crate::exif_processing::ExportMetadata>,
+    },
+}
+
+impl EncodedExport {
+    /// Writes the file into `file`, which starts empty at position 0.
+    pub fn write_to<S: Read + Write + Seek>(self, file: &mut S) -> Result<(), String> {
+        match self.0 {
+            Encoded::Bytes(bytes) => file.write_all(&bytes).map_err(|e| e.to_string()),
+            Encoded::Tiff {
+                image,
+                bit_depth,
+                color_space,
+                metadata,
+            } => write_tiff(&image, bit_depth, color_space, metadata.as_ref(), file),
+        }
+    }
+
+    /// The file's bytes in memory.
+    pub fn into_bytes(self) -> Result<Vec<u8>, String> {
+        match self.0 {
+            Encoded::Bytes(bytes) => Ok(bytes),
+            tiff => {
+                let mut file = Cursor::new(Vec::new());
+                EncodedExport(tiff).write_to(&mut file)?;
+                Ok(file.into_inner())
+            }
+        }
+    }
+}
 
 /// Where an export's file goes and where its metadata comes from: the app
 /// reads its EXIF cache and the session catalog and may write to the
@@ -1289,10 +1335,10 @@ pub fn save_export_image(
     } else {
         metadata
     };
-    let image_bytes = encode_with_metadata(image, &extension, export_settings, metadata.as_ref())?;
+    let encoded = encode_export(image, &extension, export_settings, metadata)?;
     #[cfg(feature = "performance-profiling")]
     let _write_stage = crate::performance::PerformanceStage::new("export_write");
-    (output.write)(output.path, &extension, image_bytes)
+    (output.write)(output.path, &extension, encoded)
 }
 
 /// Renders the main export file of a photo and saves it. With separate mask
@@ -2032,6 +2078,31 @@ const MASK_GENERATORS: usize = 4;
 // one pixel); see `encode_lossless_jxl`.
 const LOSSLESS_JXL_EFFORT: u8 = 4;
 
+fn is_tiff(extension: &str) -> bool {
+    extension.eq_ignore_ascii_case("tif") || extension.eq_ignore_ascii_case("tiff")
+}
+
+/// [`encode_with_metadata`] for an export's file: a TIFF is encoded only as
+/// it is written ([`EncodedExport`]), other formats now.
+pub fn encode_export(
+    image: DynamicImage,
+    extension: &str,
+    export_settings: &ExportSettings,
+    metadata: Option<crate::exif_processing::ExportMetadata>,
+) -> Result<EncodedExport, String> {
+    if is_tiff(extension) {
+        // TIFF stores RGB; the 8- or 16-bit render matches the chosen depth.
+        return Ok(EncodedExport(Encoded::Tiff {
+            image: drop_alpha_in_place(image),
+            bit_depth: export_settings.tiff_bit_depth,
+            color_space: export_settings.color_space,
+            metadata,
+        }));
+    }
+    encode_with_metadata(image, extension, export_settings, metadata.as_ref())
+        .map(|bytes| EncodedExport(Encoded::Bytes(bytes)))
+}
+
 /// Encodes an export render for `extension` and embeds `metadata` (EXIF and
 /// XMP from [`exif_processing::export_metadata_with`](crate::exif_processing::export_metadata_with)).
 pub fn encode_with_metadata(
@@ -2040,15 +2111,21 @@ pub fn encode_with_metadata(
     export_settings: &ExportSettings,
     metadata: Option<&crate::exif_processing::ExportMetadata>,
 ) -> Result<Vec<u8>, String> {
+    if is_tiff(extension) {
+        let image = drop_alpha_in_place(image);
+        let mut bytes = Vec::with_capacity(tiff_capacity(&image, export_settings.tiff_bit_depth));
+        write_tiff(
+            &image,
+            export_settings.tiff_bit_depth,
+            export_settings.color_space,
+            metadata,
+            &mut Cursor::new(&mut bytes),
+        )?;
+        return Ok(bytes);
+    }
     let mut image_bytes = {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("export_encode");
-        // TIFF stores RGB; the 8- or 16-bit render matches the chosen depth.
-        let image = if matches!(extension, "tif" | "tiff") {
-            drop_alpha_in_place(image)
-        } else {
-            image
-        };
         let avif_exif = match (metadata, extension) {
             (Some(metadata), "avif") => metadata
                 .exif
@@ -2348,27 +2425,10 @@ pub fn encode_image_to_bytes(
                 .map_err(|e| e.to_string())?;
         }
         "tif" | "tiff" => {
-            // Uncompressed: reserve the pixel data and headers up front rather
-            // than growing by doubling (up to 1.5x the file in flight).
-            let (width, height) = image.dimensions();
-            let bytes_per_pixel = match tiff_bit_depth {
-                TiffBitDepth::Eight => 3,
-                TiffBitDepth::Sixteen => 6,
-            };
             cursor
                 .get_mut()
-                .reserve(width as usize * height as usize * bytes_per_pixel + 64 * 1024);
-            let image_to_encode = match tiff_bit_depth {
-                TiffBitDepth::Eight if image.as_rgb8().is_some() => Cow::Borrowed(image),
-                TiffBitDepth::Sixteen if image.as_rgb16().is_some() => Cow::Borrowed(image),
-                TiffBitDepth::Eight => Cow::Owned(DynamicImage::ImageRgb8(image.to_rgb8())),
-                TiffBitDepth::Sixteen => Cow::Owned(DynamicImage::ImageRgb16(image.to_rgb16())),
-            };
-            let mut encoder = image::codecs::tiff::TiffEncoder::new(&mut cursor);
-            encoder.set_icc_profile(icc()).map_err(|e| e.to_string())?;
-            image_to_encode
-                .write_with_encoder(encoder)
-                .map_err(|e| e.to_string())?;
+                .reserve(tiff_capacity(image, tiff_bit_depth));
+            write_tiff(image, tiff_bit_depth, color_space, None, &mut cursor)?;
         }
         "avif" => {
             // The export's quality as for JPEG and WebP (rav1e speed 4, as
@@ -2397,6 +2457,81 @@ pub fn encode_image_to_bytes(
         _ => return Err(format!("Unsupported file format: {}", output_format)),
     };
     Ok(image_bytes)
+}
+
+/// An uncompressed TIFF's size with room for its headers: reserved up front
+/// rather than growing by doubling (up to 1.5x the file in flight).
+fn tiff_capacity(image: &DynamicImage, tiff_bit_depth: TiffBitDepth) -> usize {
+    let (width, height) = image.dimensions();
+    let bytes_per_pixel = match tiff_bit_depth {
+        TiffBitDepth::Eight => 3,
+        TiffBitDepth::Sixteen => 6,
+    };
+    width as usize * height as usize * bytes_per_pixel + 64 * 1024
+}
+
+/// The TIFF encoder's writes are gathered into pieces of this size.
+const TIFF_WRITE_BUFFER: usize = 1 << 20;
+
+/// Encodes an uncompressed TIFF with the output space's ICC profile into
+/// `file` (empty, at position 0) and appends `metadata`'s directories
+/// ([`crate::tiff_exif::append_exif_to`]): the strips go to the file as the
+/// encoder writes them. Metadata that cannot be written is left out with a
+/// warning, but a photo with generated areas is never written without its
+/// AI marking: then the marking alone, else an error.
+fn write_tiff<S: Read + Write + Seek>(
+    image: &DynamicImage,
+    tiff_bit_depth: TiffBitDepth,
+    color_space: OutputColorSpace,
+    metadata: Option<&crate::exif_processing::ExportMetadata>,
+    file: &mut S,
+) -> Result<(), String> {
+    {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("export_encode");
+        let image = match tiff_bit_depth {
+            TiffBitDepth::Eight if image.as_rgb8().is_some() => Cow::Borrowed(image),
+            TiffBitDepth::Sixteen if image.as_rgb16().is_some() => Cow::Borrowed(image),
+            TiffBitDepth::Eight => Cow::Owned(DynamicImage::ImageRgb8(image.to_rgb8())),
+            TiffBitDepth::Sixteen => Cow::Owned(DynamicImage::ImageRgb16(image.to_rgb16())),
+        };
+        let mut writer = std::io::BufWriter::with_capacity(TIFF_WRITE_BUFFER, &mut *file);
+        let mut encoder = image::codecs::tiff::TiffEncoder::new(&mut writer);
+        encoder
+            .set_icc_profile(crate::icc_profile::for_space(color_space).to_vec())
+            .map_err(|e| e.to_string())?;
+        image
+            .write_with_encoder(encoder)
+            .map_err(|e| e.to_string())?;
+        writer.flush().map_err(|e| e.to_string())?;
+    }
+    let Some(metadata) = metadata else {
+        return Ok(());
+    };
+    #[cfg(feature = "performance-profiling")]
+    let _stage = crate::performance::PerformanceStage::new("export_metadata");
+    use crate::tiff_exif::{AppendError, append_exif_to};
+    let append = |file: &mut S, metadata: &crate::exif_processing::ExportMetadata| {
+        append_exif_to(
+            file,
+            &metadata.exif,
+            metadata.xmp.as_deref().map(str::as_bytes),
+        )
+    };
+    match append(file, metadata) {
+        Ok(()) => Ok(()),
+        Err(AppendError::Io(e)) => Err(format!("Failed to write metadata: {e}")),
+        // The file is unchanged.
+        Err(AppendError::Metadata(e)) => {
+            log::warn!("Failed to write metadata: {}", e);
+            if metadata.generated {
+                crate::exif_processing::ExportMetadata::marking_only()
+                    .and_then(|marking| append(file, &marking).map_err(|e| e.to_string()))
+                    .map_err(|e| format!("The AI marking could not be written: {e}"))?;
+            }
+            Ok(())
+        }
+    }
 }
 
 /// Lossless JPEG XL with libjxl's fast-lossless method (zune-jpegxl): an
@@ -3514,8 +3649,8 @@ mod encoding_input_tests {
             let written = Arc::new(std::sync::Mutex::new(None));
             let write = {
                 let written = written.clone();
-                move |_: &Path, _: &str, bytes: Vec<u8>| {
-                    *written.lock().unwrap() = Some(bytes);
+                move |_: &Path, _: &str, encoded: EncodedExport| {
+                    *written.lock().unwrap() = Some(encoded.into_bytes()?);
                     Ok(())
                 }
             };
@@ -3569,8 +3704,8 @@ mod encoding_input_tests {
         let written = Arc::new(std::sync::Mutex::new(None));
         let write = {
             let written = written.clone();
-            move |_: &Path, extension: &str, bytes: Vec<u8>| {
-                *written.lock().unwrap() = Some((extension.to_string(), bytes));
+            move |_: &Path, extension: &str, encoded: EncodedExport| {
+                *written.lock().unwrap() = Some((extension.to_string(), encoded.into_bytes()?));
                 Ok(())
             }
         };

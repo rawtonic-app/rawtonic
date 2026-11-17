@@ -672,14 +672,13 @@ fn save_image_with_metadata(
     )
 }
 
-/// Writes export bytes to a new file (never over an existing one).
+/// Writes an export to a new file (never over an existing one).
 fn write_export_bytes(
     output_path: &std::path::Path,
     _extension: &str,
-    image_bytes: Vec<u8>,
+    encoded: rawtonic_export::export_processing::EncodedExport,
 ) -> Result<(), String> {
-    crate::session_bridge::write_new_output(output_path, image_bytes)
-        .map_err(|e| format!("Failed to write file to '{}': {}", output_path.display(), e))
+    rawtonic_export::output::write_new_export(output_path, encoded)
 }
 
 #[allow(clippy::too_many_arguments)]

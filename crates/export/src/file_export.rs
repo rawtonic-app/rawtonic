@@ -11,11 +11,12 @@ use serde_json::Value;
 
 use crate::exif_processing::{capture_date_with, read_exif_data_from_bytes};
 use crate::export_processing::{
-    Enlarger, ExportOutput, ExportSettings, ExportSource, RenderEnv, prepare_export_source,
-    process_image_for_export_pipeline, render_and_save, set_capture_file_times,
+    EncodedExport, Enlarger, ExportOutput, ExportSettings, ExportSource, RenderEnv,
+    prepare_export_source, process_image_for_export_pipeline, render_and_save,
+    set_capture_file_times,
 };
 use crate::gpu_processing::{GpuContext, GpuImageCache, GpuProcessorSlot, RenderOutputPrecision};
-use crate::output::write_new_output;
+use crate::output::write_new_export;
 use crate::render_inputs::RenderInputs;
 use rawtonic_engine::ai_selections::{SelectionDetector, detect_missing};
 use rawtonic_engine::file_io::read_file_mapped;
@@ -311,10 +312,8 @@ impl FileExporter {
         // extracted the same way here.
         let exif_sidecar = || source_exif(job.source, job.capture.as_ref());
         let catalog = || job.catalog.clone();
-        let write = |path: &Path, _extension: &str, bytes: Vec<u8>| {
-            write_new_output(path, bytes)
-                .map_err(|e| format!("Failed to write file to '{}': {}", path.display(), e))
-        };
+        let write =
+            |path: &Path, _extension: &str, encoded: EncodedExport| write_new_export(path, encoded);
         self.with_env(|env| {
             render_and_save(
                 source_path_str,
