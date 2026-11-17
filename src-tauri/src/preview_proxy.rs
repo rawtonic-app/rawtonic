@@ -1063,6 +1063,14 @@ fn read_header(path: &Path) -> Option<Header> {
     parse_header(&head).map(|(header, _)| header)
 }
 
+/// Whether the Standard proxy's header passes the same source/engine checks
+/// as `read`, without loading/decompressing its pixels.
+pub(crate) fn standard_header_is_current(source: &Path, settings: &AppSettings) -> bool {
+    proxy_path(source)
+        .and_then(|path| read_header(&path))
+        .is_some_and(|header| header_is_current(&header, source, settings))
+}
+
 /// The long edge of the Standard proxy stored for `source`, if current
 /// (made from the photograph as it is now, in the current encoding).
 pub fn stored_size(source: &Path, settings: &AppSettings) -> Option<u32> {

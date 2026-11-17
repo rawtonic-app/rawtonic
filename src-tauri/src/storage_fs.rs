@@ -50,6 +50,31 @@ pub(crate) fn remove_if_unpinned(path: &Path) -> bool {
     while_unpinned(path, || fs::remove_file(path).is_ok()).unwrap_or(false)
 }
 
+/// Remove one app-owned cache entry without walking the whole cache.
+/// Active readers and descendant links have the same protection as eviction.
+pub(crate) fn remove_cache_entry(root: &Path, directory: &Path, name: &str) -> io::Result<bool> {
+    if Path::new(name).components().count() != 1
+        || !matches!(
+            Path::new(name).components().next(),
+            Some(Component::Normal(_))
+        )
+    {
+        return Err(refused());
+    }
+    let directory = owned_directory(root, directory)?;
+    let path = directory.join(name);
+    let Some(meta) = if_present(fs::symlink_metadata(&path))? else {
+        return Ok(false);
+    };
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return Err(refused());
+    }
+    while_unpinned(&path, || {
+        remove_owned_file(root, &directory, std::ffi::OsStr::new(name)).map(|()| true)
+    })
+    .unwrap_or(Ok(false))
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Usage {
     pub bytes: u64,
