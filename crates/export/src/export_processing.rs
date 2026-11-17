@@ -2305,20 +2305,25 @@ pub fn render_prepared_exports(
     )
 }
 
-/// One render of a group ([`save_group_rendering_first`]).
+/// One render of a group ([`save_group_rendering`]).
 pub enum GroupRender {
     Image(DynamicImage),
     /// Written into its file while the group rendered.
     Saved,
+    /// Its file could not be written (the other renders are unaffected).
+    Failed(String),
 }
 
 /// The renders of a recipe group ([`render_prepared_exports`] of
-/// `outputs`, whose first is `output`'s): when `output`'s file streams its
-/// render ([`streams_into_file`]) it is written while the group renders and
-/// comes back [`GroupRender::Saved`], so its render is never held whole
-/// beside the others. `cancelled` as in [`save_rendered_export`].
+/// `outputs`), rendered for its member `own` (an index into `outputs`),
+/// which is `output`'s and the first of the group still to be saved: when
+/// `output`'s file streams its render ([`streams_into_file`]) it is written
+/// while the group renders and comes back [`GroupRender::Saved`], so its
+/// render is never held whole beside the others; a failed write comes back
+/// [`GroupRender::Failed`] beside the others' renders. `cancelled` as in
+/// [`save_rendered_export`].
 #[allow(clippy::too_many_arguments)]
-pub fn save_group_rendering_first(
+pub fn save_group_rendering(
     source_path_str: &str,
     prepared: &PreparedExport,
     js_adjustments: &Value,
@@ -2328,12 +2333,13 @@ pub fn save_group_rendering_first(
     cancelled: &dyn Fn() -> Result<(), String>,
     debug_tag: &str,
     outputs: &[(RenderOutputPrecision, OutputColorSpace)],
+    own: usize,
 ) -> Result<Vec<GroupRender>, String> {
-    let images = |images: Vec<DynamicImage>| images.into_iter().map(GroupRender::Image).collect();
-    if !streams_into_file(prepared, export_settings, output) {
-        return render_prepared_exports(prepared, env, debug_tag, outputs, &mut []).map(images);
+    let render_all = || render_prepared_exports(prepared, env, debug_tag, outputs, &mut []);
+    if own >= outputs.len() || !streams_into_file(prepared, export_settings, output) {
+        return render_all().map(|images| images.into_iter().map(GroupRender::Image).collect());
     }
-    let mut others = Vec::new();
+    let mut rendered = None;
     let encoded = streamed_export(
         source_path_str,
         prepared.size(),
@@ -2342,15 +2348,45 @@ pub fn save_group_rendering_first(
         output,
         cancelled,
         |stream| {
-            others =
-                render_prepared_exports(prepared, env, debug_tag, outputs, &mut [Some(stream)])?;
+            let mut streams: Vec<Option<RowStream<'_>>> = outputs.iter().map(|_| None).collect();
+            streams[own] = Some(stream);
+            rendered = Some(render_prepared_exports(
+                prepared,
+                env,
+                debug_tag,
+                outputs,
+                &mut streams,
+            )?);
             Ok(())
         },
     )?;
-    (output.write)(output.path, &output_extension(output), encoded)?;
-    let mut renders: Vec<GroupRender> = images(others);
-    if let Some(first) = renders.first_mut() {
-        *first = GroupRender::Saved;
+    let written = (output.write)(output.path, &output_extension(output), encoded);
+    group_renders_after_write(own, rendered, written, render_all)
+}
+
+/// The renders of a group whose member `own` streamed into its file
+/// ([`save_group_rendering`]): `rendered` when the render completed (the
+/// streamed member's entry empty), else rendered again by `render_again`
+/// for the others (the file could not be created, or the render or its
+/// write stopped part-way); `own` is [`GroupRender::Saved`] or carries its
+/// write's error.
+fn group_renders_after_write(
+    own: usize,
+    rendered: Option<Vec<DynamicImage>>,
+    written: Result<(), String>,
+    render_again: impl FnOnce() -> Result<Vec<DynamicImage>, String>,
+) -> Result<Vec<GroupRender>, String> {
+    let images = match (rendered, &written) {
+        (Some(images), _) => images,
+        (None, Ok(())) => return Err("A streamed export wrote no render.".to_string()),
+        (None, Err(_)) => render_again()?,
+    };
+    let mut renders: Vec<GroupRender> = images.into_iter().map(GroupRender::Image).collect();
+    if let Some(entry) = renders.get_mut(own) {
+        *entry = match written {
+            Ok(()) => GroupRender::Saved,
+            Err(e) => GroupRender::Failed(e),
+        };
     }
     Ok(renders)
 }
@@ -4620,5 +4656,44 @@ mod tiff_rows_tests {
             write(&[(0, 10)], TiffBitDepth::Eight).is_err(),
             "other precision"
         );
+    }
+    fn image(value: u8) -> DynamicImage {
+        DynamicImage::ImageRgba8(ImageBuffer::from_pixel(2, 1, image::Rgba([value; 4])))
+    }
+
+    fn kinds(renders: &[GroupRender]) -> Vec<String> {
+        renders
+            .iter()
+            .map(|render| match render {
+                GroupRender::Image(image) => format!("image {}", image.as_bytes()[0]),
+                GroupRender::Saved => "saved".to_string(),
+                GroupRender::Failed(e) => format!("failed {e}"),
+            })
+            .collect()
+    }
+
+    /// The member that streamed (not always the group's first: earlier ones
+    /// may have been skipped) is marked saved or failed in its own place;
+    /// a failed write never takes the other recipes' renders with it.
+    #[test]
+    fn a_streamed_member_of_a_group_fails_alone() {
+        let rendered = || Some(vec![image(1), DynamicImage::new_rgba8(0, 0), image(3)]);
+        let never = || -> Result<Vec<DynamicImage>, String> { panic!("rendered again") };
+        let again = || Ok(vec![image(1), image(2), image(3)]);
+
+        let saved = group_renders_after_write(1, rendered(), Ok(()), never).unwrap();
+        assert_eq!(kinds(&saved), ["image 1", "saved", "image 3"]);
+
+        // The file failed after the render (disk full): the others keep it.
+        let failed = group_renders_after_write(1, rendered(), Err("full".into()), never).unwrap();
+        assert_eq!(kinds(&failed), ["image 1", "failed full", "image 3"]);
+
+        // The file could not be created, or the render stopped part-way:
+        // the others are rendered again.
+        let failed = group_renders_after_write(1, None, Err("read-only".into()), again).unwrap();
+        assert_eq!(kinds(&failed), ["image 1", "failed read-only", "image 3"]);
+
+        let lost = group_renders_after_write(0, None, Err("gpu".into()), || Err("gpu".into()));
+        assert!(lost.is_err(), "a render that fails again fails the group");
     }
 }
