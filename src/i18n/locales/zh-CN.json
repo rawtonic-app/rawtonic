@@ -4748,12 +4748,14 @@
         "FillLight": "补光",
         "filmCurve": "胶片曲线",
         "HighlightRecovery": "高光恢复",
+        "legacyToneCurve": "tone curve from an old Lightroom process (imported approximately; may look different)",
         "lens": "镜头和梯形校正",
         "lensProfile": "镜头配置文件",
         "noiseReduction": "降噪",
         "profile": "配置文件",
         "profileNamed": "配置文件“{{name}}”",
         "Shadows": "阴影",
+        "toneCurveMissingPoints": "named tone curve without explicit points",
         "upright": "Upright",
         "whiteBalance": "白平衡"
       }

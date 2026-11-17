@@ -535,23 +535,37 @@ fn tone_curve_family(xmp: &str, attrs: &HashMap<String, String>) -> Vec<(String,
     .collect()
 }
 
-/// Names are descriptive metadata, never a source of proprietary curve data.
+// The old default belongs to its base tone, not to a photographer's edit.
+// Detect it by name only: never embed Adobe's curve values.
+fn legacy_default_curve(xmp: &str, attrs: &HashMap<String, String>) -> bool {
+    tone_curve_family(xmp, attrs)[0].0 == "ToneCurve"
+        && attrs
+            .get("ToneCurveName")
+            .is_some_and(|name| name == "Medium Contrast")
+}
+
+/// Warns about missing explicit points or an imported legacy curve's approximation.
 pub fn tone_curve_warning(xmp: &str) -> Option<String> {
     let attrs = crs_attributes(xmp);
+    if legacy_default_curve(xmp, &attrs) {
+        return None;
+    }
     let family = tone_curve_family(xmp, &attrs);
-    let base = &family[0].0;
-    let name_key = if base == "ToneCurve" {
-        "ToneCurveName"
-    } else {
-        "ToneCurveName2012"
-    };
-    let name = attrs.get(name_key).or_else(|| {
-        // A name without any points still needs to be reported.
-        attrs
-            .get("ToneCurveName")
-            .filter(|_| !xmp.contains("<crs:ToneCurve"))
-    })?;
-    (!name.is_empty() && extract_tone_curve_points(xmp, base).is_none()).then(|| {
+    let old = family[0].0 == "ToneCurve";
+    let has_points = family
+        .iter()
+        .any(|(key, _)| extract_tone_curve_points(xmp, key).is_some());
+    if has_points {
+        return old.then(|| "Tone curve imported from an old Lightroom process; it may look different (approximation).".to_string());
+    }
+    let name = attrs
+        .get(if old {
+            "ToneCurveName"
+        } else {
+            "ToneCurveName2012"
+        })
+        .or_else(|| attrs.get("ToneCurveName"))?;
+    (!name.is_empty()).then(|| {
         format!("Lightroom tone curve '{name}' has no explicit points; could not convert it.")
     })
 }
@@ -588,6 +602,9 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     let xmp_one_line = xmp_content.split('\n').collect::<Vec<_>>().join(" ");
     let mut attrs = crs_attributes(xmp_content);
     let legacy = legacy_process(&attrs);
+    // Select before legacy slider translation mutates the process evidence.
+    let curve_family = tone_curve_family(xmp_content, &attrs);
+    let skip_default_curve = legacy_default_curve(xmp_content, &attrs);
     if legacy {
         // Inactive 2012 controls may coexist with the active old-process ones.
         for key in MODERN_CONTROLS {
@@ -1029,8 +1046,10 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         );
     }
 
-    for (xmp_curve, rr_curve) in tone_curve_family(xmp_content, &attrs) {
-        if let Some(points) = extract_tone_curve_points(xmp_content, &xmp_curve) {
+    for (xmp_curve, rr_curve) in curve_family {
+        if !skip_default_curve
+            && let Some(points) = extract_tone_curve_points(xmp_content, &xmp_curve)
+        {
             curves_map.insert(rr_curve.to_string(), Value::Array(points));
         }
     }
@@ -1967,6 +1986,13 @@ pub fn untranslated_settings(xmp_content: &str) -> (Vec<&'static str>, Option<St
     if point_color_overflow(xmp_content) > 0 {
         out.push("colorEditor");
     }
+    if let Some(warning) = tone_curve_warning(xmp_content) {
+        out.push(if warning.contains("no explicit points") {
+            "toneCurveMissingPoints"
+        } else {
+            "legacyToneCurve"
+        });
+    }
     (out, profile)
 }
 
@@ -1980,7 +2006,7 @@ mod tests {
             .replace("ToneCurve", "ToneCurvePV2012")
             .replace("128, 110", "128, 128");
         for (pv, name, curves, expected) in [
-            ("5.7", "Medium Contrast", format!("{legacy}{modern}"), 110.0),
+            ("5.7", "Strong Contrast", format!("{legacy}{modern}"), 110.0),
             ("6.7", "Medium Contrast", format!("{legacy}{modern}"), 128.0),
             ("5.0", "Custom", legacy.to_string(), 110.0),
             ("", "Custom", legacy.to_string(), 110.0),
@@ -2034,6 +2060,49 @@ mod tests {
     }
 
     #[test]
+    fn legacy_default_is_omitted_and_unversioned_edits_keep_their_curve() {
+        let lua = r#"s = { Exposure = 1, ToneCurveName = "Medium Contrast", ToneCurve = {0,0,128,110,255,255}, ToneCurvePV2012 = {0,0,255,255} }"#;
+        let xmp = rawtonic_interop::lightroom_settings::to_xmp(lua).unwrap();
+        assert!(
+            super::convert_xmp_to_preset(&xmp)
+                .unwrap()
+                .adjustments
+                .get("curves")
+                .is_none()
+        );
+        assert!(super::tone_curve_warning(&xmp).is_none());
+        for name in ["Custom", "Strong Contrast", "Linear"] {
+            let edit = xmp.replace("Medium Contrast", name);
+            let preset = super::convert_xmp_to_preset(&edit).unwrap();
+            assert!(
+                (rendered(
+                    preset.adjustments["curves"]["luma"].as_array().unwrap(),
+                    128.0
+                ) - 110.0)
+                    .abs()
+                    < 0.3
+            );
+            assert!(
+                super::tone_curve_warning(&edit)
+                    .unwrap()
+                    .contains("old Lightroom process")
+            );
+            assert!(
+                super::untranslated_settings(&edit)
+                    .0
+                    .contains(&"legacyToneCurve")
+            );
+        }
+        let rgb = r#"s = { ProcessVersion = "5.7", ToneCurveName = "Custom", ToneCurveRed = {0,0,128,140,255,255} }"#;
+        let rgb = rawtonic_interop::lightroom_settings::to_xmp(rgb).unwrap();
+        assert!(
+            !super::tone_curve_warning(&rgb)
+                .unwrap()
+                .contains("no explicit points")
+        );
+    }
+
+    #[test]
     fn named_tone_curve_without_points_is_reported() {
         for (pv, key) in [("5.7", "ToneCurveName"), ("6.7", "ToneCurveName2012")] {
             let xmp =
@@ -2046,6 +2115,11 @@ mod tests {
                     .is_none()
             );
             assert!(super::tone_curve_warning(&xmp).unwrap().contains("Custom"));
+            assert!(
+                super::untranslated_settings(&xmp)
+                    .0
+                    .contains(&"toneCurveMissingPoints")
+            );
         }
     }
 
