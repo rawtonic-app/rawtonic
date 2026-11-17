@@ -36,10 +36,10 @@ export function featherOf(params: RadialParams): number {
   return typeof feather === 'number' && Number.isFinite(feather) ? clamp(feather, 0, MAX_FEATHER) : 0.5;
 }
 
-/** Whether the gradient falls off as a bell (`gradientVersion` 2+). */
+/** Whether the gradient falls off as a bell (`gradientVersion` 2). Version 3
+ * (Capture One imports) eases the straight ramp: same lines as version 1. */
 function isBell(params: RadialParams): boolean {
-  const version = params.gradientVersion;
-  return typeof version === 'number' && version >= 2;
+  return params.gradientVersion === 2;
 }
 
 /** Feather → (50% distance in radii, reciprocal sharpness), linear in
