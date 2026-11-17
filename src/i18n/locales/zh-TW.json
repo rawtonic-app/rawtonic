@@ -521,6 +521,7 @@
       "label": "打開方式",
       "none": "沒有可打開這些檔案的應用程式",
       "other": "其他…",
+      "pickFailed": "無法選擇該程式：{{error}}",
       "reading": "正在尋找應用程式…",
       "unsupported": "Linux 上尚未提供"
     },

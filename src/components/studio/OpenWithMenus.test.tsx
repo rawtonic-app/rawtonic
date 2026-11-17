@@ -18,7 +18,7 @@ vi.mock('../../activity/notify', () => ({
 }));
 vi.mock('../../utils/editWith', async (original) => ({
   ...(await original<typeof import('../../utils/editWith')>()),
-  runEditWith: vi.fn(async () => ({ rendered: 2, cancelled: 0, failed: 0, linked: 2, problems: [] }))
+  runEditWith: vi.fn(async () => ({ rendered: 2, cancelled: 0, failed: 0, failedPaths: [], linked: 2, problems: [] }))
 }));
 const mockInvoke = vi.mocked(invoke);
 
@@ -207,7 +207,14 @@ it('edits the selection with the remembered recipe in the chosen program', async
 
 it('reports a cancelled batch row as information without a failure', async () => {
   const { notify } = await import('../../activity/notify');
-  vi.mocked(runEditWith).mockResolvedValueOnce({ rendered: 2, cancelled: 1, failed: 0, linked: 2, problems: [] });
+  vi.mocked(runEditWith).mockResolvedValueOnce({
+    rendered: 2,
+    cancelled: 1,
+    failed: 0,
+    failedPaths: [],
+    linked: 2,
+    problems: []
+  });
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
     if (command === 'edit_with_apps') return apps;
@@ -216,6 +223,61 @@ it('reports a cancelled batch row as information without a failure', async () =>
   fireEvent.click(await screen.findByRole('menuitem', { name: /Preview/ }));
   await vi.waitFor(() => expect(notify.info).toHaveBeenCalledWith('1 cancelled, 2 rendered.'));
   expect(notify.error).not.toHaveBeenCalled();
+});
+
+it('offers Try again after a failed render, which renders only the photographs that failed', async () => {
+  const { notify } = await import('../../activity/notify');
+  vi.mocked(notify.error).mockClear();
+  vi.mocked(runEditWith).mockResolvedValueOnce({
+    rendered: 1,
+    cancelled: 0,
+    failed: 1,
+    failedPaths: ['/b.NEF'],
+    linked: 1,
+    problems: []
+  });
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
+    if (command === 'edit_with_apps') return apps;
+  });
+  const rendered = vi.fn();
+  render(<EditWithSubMenu paths={['/a.NEF', '/b.NEF']} hideContextMenu={vi.fn()} onRendered={rendered} />);
+  fireEvent.click(await screen.findByRole('menuitem', { name: /Preview/ }));
+  await vi.waitFor(() => expect(notify.error).toHaveBeenCalled());
+  const [text, options] = vi.mocked(notify.error).mock.lastCall!;
+  expect(text).toBe('1 of 2 photographs could not be rendered.');
+  expect(options?.paths).toEqual(['/b.NEF']);
+  const retry = options?.actions?.find((action) => action.label === 'Try again');
+  expect(retry).toBeDefined();
+  const calls = vi.mocked(runEditWith).mock.calls.length;
+  await retry!.run();
+  expect(vi.mocked(runEditWith).mock.calls.length).toBe(calls + 1);
+  const [again, recipe, program] = vi.mocked(runEditWith).mock.lastCall!;
+  // The finished render of a.NEF is not made a second time (WEW3: a manual
+  // re-run duplicated it).
+  expect(again).toEqual(['/b.NEF']);
+  expect(recipe.id).toBe('builtin-tiff16-adobe');
+  expect(program).toBe('/System/Applications/Preview.app');
+  expect(rendered).toHaveBeenCalledTimes(2);
+});
+
+it('on Windows says why Browse for a program… failed instead of doing nothing', async () => {
+  const { notify } = await import('../../activity/notify');
+  useSettingsStore.setState({ osPlatform: 'windows' });
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === 'open_with_apps') return apps;
+    if (command === 'open_with_pick') throw 'C:\\x\\tool.txt is not a program file.';
+  });
+  try {
+    render(<OpenWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Browse for a program…/ }));
+    await vi.waitFor(() =>
+      expect(notify.error).toHaveBeenCalledWith('Could not choose that program: C:\\x\\tool.txt is not a program file.')
+    );
+    expect(mockInvoke).not.toHaveBeenCalledWith('open_with_open', expect.anything());
+  } finally {
+    useSettingsStore.setState({ osPlatform: '' });
+  }
 });
 
 it('says Edit With is not available for photographs with generated areas', async () => {

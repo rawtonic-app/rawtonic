@@ -559,6 +559,7 @@
       "label": "Ouvrir avec",
       "none": "Aucune application n’ouvre ces fichiers",
       "other": "Autre…",
+      "pickFailed": "Impossible de choisir ce programme : {{error}}",
       "reading": "Recherche des applications…",
       "unsupported": "Pas encore disponible sous Linux"
     },

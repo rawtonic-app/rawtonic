@@ -584,6 +584,7 @@
       "label": "Otwórz za pomocą",
       "none": "Żaden program nie otwiera tych plików",
       "other": "Inny…",
+      "pickFailed": "Nie udało się wybrać tego programu: {{error}}",
       "reading": "Wyszukiwanie programów…",
       "unsupported": "Jeszcze niedostępne w systemie Linux"
     },

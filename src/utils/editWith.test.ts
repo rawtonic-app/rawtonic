@@ -155,7 +155,15 @@ describe('runEditWith', () => {
     useLibraryStore.setState({ sessionDirectory: '/s' });
     const paths = targets.map((t) => t.source);
     const result = await runEditWith(paths, BUILT_IN_EDIT_RECIPES[0], '/Applications/Preview.app');
-    expect(result).toEqual({ rendered: 2, cancelled: 0, failed: 1, linked: 2, problems: [] });
+    // Only the failed photograph is for Try again, not the finished ones.
+    expect(result).toEqual({
+      rendered: 2,
+      cancelled: 0,
+      failed: 1,
+      failedPaths: ['/s/Capture/B.NEF'],
+      linked: 2,
+      problems: []
+    });
     expect(invoke).toHaveBeenCalledWith('stacks_list', { directory: '/s' });
     const calls = vi.mocked(invoke).mock.calls;
     // The program goes with the jobs: a quit offers this Edit With again.
@@ -187,7 +195,7 @@ describe('runEditWith', () => {
         BUILT_IN_EDIT_RECIPES[0],
         '/P.app'
       )
-    ).toEqual({ rendered: 2, cancelled: 1, failed: 0, linked: 2, problems: [] });
+    ).toEqual({ rendered: 2, cancelled: 1, failed: 0, failedPaths: [], linked: 2, problems: [] });
     expect(invoke).toHaveBeenCalledWith('edit_with_finish', { items: [targets[0], targets[2]], program: '/P.app' });
   });
 

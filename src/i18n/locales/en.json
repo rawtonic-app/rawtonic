@@ -534,6 +534,7 @@
       "label": "Open With",
       "none": "No program opens these files",
       "other": "Other…",
+      "pickFailed": "Could not choose that program: {{error}}",
       "reading": "Looking for programs…",
       "unsupported": "Not available on Linux yet"
     },

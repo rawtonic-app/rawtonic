@@ -47,6 +47,17 @@ const otherLabel = (t: TFunction) =>
     ? t('contextMenus.openWith.browse')
     : t('contextMenus.openWith.other');
 
+/** "Browse for a program…": the picked program, or null when the user
+ * cancelled; a picker that failed says why instead of doing nothing. */
+async function browseForProgram(t: TFunction): Promise<string | null> {
+  try {
+    return await pickApplication(t('contextMenus.openWith.chooseTitle'));
+  } catch (e) {
+    notify.error(t('contextMenus.openWith.pickFailed', { error: errorMessage(e) }));
+    return null;
+  }
+}
+
 async function displayName(program: string): Promise<string> {
   const choice = await invoke<AppChoice | null>(Invokes.OpenWithDescribe, { program }).catch(() => null);
   return choice?.name || programName(program);
@@ -81,7 +92,24 @@ async function editPhotosWith(
     notify.dismiss(progress);
     await onRendered?.();
     if (result.failed > 0)
-      notify.error(t('contextMenus.editWith.someFailed', { failed: result.failed, total: paths.length }));
+      // Try again renders only the photographs that failed: the finished
+      // renders were handed off already and are not rendered a second time.
+      notify.error(t('contextMenus.editWith.someFailed', { failed: result.failed, total: paths.length }), {
+        // Its own entry: another batch failing as often keeps its own Try again.
+        toastId: `edit-with-failed:${program}:${result.failedPaths.join('\n')}`,
+        source: 'export',
+        paths: result.failedPaths,
+        actions: [
+          {
+            label: t('activity.tryAgain'),
+            settles: true,
+            run: () => {
+              console.info(`Edit With in ${program}: Try again for ${result.failedPaths.join(', ')}`);
+              return editPhotosWith(result.failedPaths, recipe, program, t, onRendered, name);
+            }
+          }
+        ]
+      });
     if (result.cancelled > 0)
       notify.info(t('contextMenus.editWith.cancelled', { cancelled: result.cancelled, rendered: result.rendered }));
     if (result.problems.length)
@@ -176,10 +204,7 @@ function programOptions(choices: AppChoices, t: TFunction, onPick: (path: string
     {
       icon: FolderOpen,
       label: otherLabel(t),
-      onClick: () =>
-        void pickApplication(t('contextMenus.openWith.chooseTitle'))
-          .catch(() => null)
-          .then(async (path) => path && onPick(path, await displayName(path)))
+      onClick: () => void browseForProgram(t).then(async (path) => path && onPick(path, await displayName(path)))
     }
   ];
 }
@@ -260,7 +285,7 @@ function AppRows({ choices, onPick }: { choices: AppChoices | null; onPick(path:
         role="menuitem"
         className="rawtonic-menu-item"
         onClick={async () => {
-          const path = await pickApplication(t('contextMenus.openWith.chooseTitle')).catch(() => null);
+          const path = await browseForProgram(t);
           if (path) onPick(path, await displayName(path));
         }}
       >

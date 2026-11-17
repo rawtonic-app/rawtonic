@@ -194,6 +194,9 @@ export interface EditWithRun extends EditWithResult {
   rendered: number;
   cancelled: number;
   failed: number;
+  /** The photographs whose render failed (neither done nor cancelled):
+   * what Try again renders, the finished ones are kept and handed off. */
+  failedPaths: string[];
 }
 
 /** Renders `paths` with `recipe` beside their originals, adds the renders to
@@ -217,11 +220,16 @@ export async function runEditWith(paths: string[], recipe: EditRecipe, program: 
   const cancelled = new Set<string>();
   const done = await waitForJobs(jobs, cancelled);
   const rendered = targets.filter((_, i) => done.has(jobs[i]));
+  const failedPaths = targets
+    .filter((_, i) => !done.has(jobs[i]) && !cancelled.has(jobs[i]))
+    .map((target) => target.source);
   const counts = {
     rendered: rendered.length,
     cancelled: cancelled.size,
-    failed: targets.length - rendered.length - cancelled.size
+    failed: failedPaths.length,
+    failedPaths
   };
+  if (failedPaths.length) console.warn(`Edit With in ${program}: not rendered: ${failedPaths.join(', ')}`);
   if (!rendered.length) return { ...counts, linked: 0, problems: [] };
   const result = await invoke<EditWithResult>(Invokes.EditWithFinish, { items: rendered, program });
   await refreshStacks();
