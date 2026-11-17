@@ -18518,7 +18518,7 @@ fn render_source(
 #[ignore = "requires a native GPU"]
 fn fit_view_render_input_is_the_exports() {
     let context = context();
-    let image = chroma_noise_frame(2300, 300);
+    let image = Arc::new(chroma_noise_frame(2300, 300));
     let cpu: color_noise_view::CpuRunner<'_> = &|work| work();
     let input = |recipe: &serde_json::Value, dims, stop: &(dyn Fn() -> bool + Sync)| {
         let global = get_all_adjustments_from_json(recipe, true, Some(1)).global;
@@ -18584,7 +18584,7 @@ fn fit_view_render_input_is_the_exports() {
         Arc::clone(&context.queue),
     );
     let cpu_pass = rawtonic_engine::edge_fringe::apply_for_recipe(
-        std::borrow::Cow::Borrowed(&image),
+        std::borrow::Cow::Borrowed(&*image),
         &fringe,
         1.0,
     )
@@ -24055,6 +24055,7 @@ fn tpx5_color_noise_cost() {
     // Develop fit view's pre-crop sizes (fit 1536 and 2070 of a 6000 px
     // photo), at Color 0 and 50; `TPX7_RECIPE` (a recipe file, e.g. the
     // app's own with its lens corrections) in place of this one.
+    let full = Arc::new(full);
     let view_recipe: serde_json::Value = match std::env::var_os("TPX7_RECIPE") {
         Some(path) => serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap(),
         None => recipe.clone(),

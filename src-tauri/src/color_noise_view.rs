@@ -539,7 +539,7 @@ const APPLE_SILICON: bool = cfg!(all(target_os = "macos", target_arch = "aarch64
 /// for recipes the GPU pass does not take and on errors (logged).
 fn on_gpu(
     app: &tauri::AppHandle,
-    source: &DynamicImage,
+    source: &Arc<DynamicImage>,
     wanted: &Wanted,
     stop: &(dyn Fn() -> bool + Sync),
 ) -> Option<(Option<Rgb32FImage>, std::time::Instant)> {

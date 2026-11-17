@@ -198,18 +198,25 @@ pub type CpuRunner<'a> = &'a (dyn Fn(&mut (dyn FnMut() + Send)) + Sync);
 /// None beyond the GPU's texture size.
 fn upload_render_input(
     context: &GpuContext,
-    source: &DynamicImage,
+    source: &Arc<DynamicImage>,
     recipe: &serde_json::Value,
     is_raw: bool,
 ) -> Result<Option<UploadedImage>, String> {
     let (width, height) = source.dimensions();
     let window = [0, 0, width, height];
-    if let Some(uploaded) =
-        upload_warped_render_source(context, source, recipe, is_raw, window, 0, None)?
-    {
-        return Ok(Some(uploaded));
-    }
-    let warped = rawtonic_engine::adjustment_utils::apply_warp(source, recipe, is_raw)?;
+    let source = match upload_warped_render_source(
+        context,
+        Arc::clone(source),
+        recipe,
+        is_raw,
+        window,
+        0,
+        None,
+    )? {
+        WarpedUpload::Uploaded(uploaded) => return Ok(Some(uploaded)),
+        WarpedUpload::NotOnGpu(source) => source,
+    };
+    let warped = rawtonic_engine::adjustment_utils::apply_warp(&*source, recipe, is_raw)?;
     if let Some(uploaded) = upload_fringed_render_source(context, &warped, recipe, window, 0, None)?
     {
         return Ok(Some(uploaded));
@@ -234,7 +241,7 @@ fn upload_render_input(
 /// each step waits for a running one. `cpu` runs the CPU work.
 pub fn reduced_render_input(
     context: &GpuContext,
-    source: &DynamicImage,
+    source: &Arc<DynamicImage>,
     recipe: &serde_json::Value,
     global: &crate::image_processing::GlobalAdjustments,
     (width, height): (u32, u32),
