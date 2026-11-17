@@ -42,14 +42,34 @@ pub(crate) const BUILD_IDLE: std::time::Duration = std::time::Duration::from_mil
 /// photograph reduces less; beyond this the view keeps its own base.
 const MAX_PIXELS: u64 = 6_000_000;
 
-/// Builds slower than this per 24 MP stop them for the session: the
-/// fit view keeps its own base and quick filter. On a Radeon 680M laptop (Ryzen CPU) the
-/// CPU build of a 24 MP colour noise correction took 2.1–2.9 s with +1.3–1.85 GB of
-/// private memory and a drag right after stuttered (gaps up to 402 ms;
-/// G17/WTPX4); an M5 Pro takes 0.4 s, the GPU build there (TPX5) less.
+/// [`SLOW_IN_A_ROW`] builds in a row slower than this per 24 MP stop them
+/// for the session: the fit view keeps its own base and quick filter. On a
+/// Radeon 680M laptop (Ryzen CPU) the CPU build of a 24 MP colour noise
+/// correction took 2.1–2.9 s with +1.3–1.85 GB of private memory and a drag
+/// right after stuttered (gaps up to 402 ms; G17/WTPX4); an M5 Pro takes
+/// 0.4 s, the GPU build there (TPX5) less, an RTX 3080 0.48–0.61 s with the
+/// warp and edge-fringe pass (TPX7).
 const MAX_MS_PER_24MP: f64 = 1000.0;
 
+/// One slow build is not enough: a build beside a photograph's opening
+/// (decode, thumbnails) took 1026 ms on the RTX 3080 where the next ones
+/// took 0.5 s (TPX7); a machine too slow for it is slow every time.
+const SLOW_IN_A_ROW: u32 = 2;
+
 static TOO_SLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Slow builds in a row so far.
+static SLOW_BUILDS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Counts a build of `ms_per_24mp`; true when it stops the builds for the
+/// session ([`SLOW_IN_A_ROW`] slow ones in a row).
+fn note_build_time(ms_per_24mp: f64) -> bool {
+    if ms_per_24mp <= MAX_MS_PER_24MP {
+        SLOW_BUILDS.store(0, Ordering::Relaxed);
+        return false;
+    }
+    SLOW_BUILDS.fetch_add(1, Ordering::Relaxed) + 1 >= SLOW_IN_A_ROW
+}
 
 /// Whether render inputs are built here: while no build was too slow and
 /// the system is not short of memory.
@@ -598,7 +618,7 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
         started.elapsed().as_secs_f64() * 1000.0
     );
     let megapixels = f64::from(source.width()) * f64::from(source.height()) / 1e6;
-    if started.elapsed().as_secs_f64() * 1000.0 * 24.0 / megapixels.max(1.0) > MAX_MS_PER_24MP {
+    if note_build_time(started.elapsed().as_secs_f64() * 1000.0 * 24.0 / megapixels.max(1.0)) {
         TOO_SLOW.store(true, Ordering::Relaxed);
         log::warn!("Colour noise view: too slow here, off for this session");
     }
@@ -734,6 +754,16 @@ mod tests {
             dims,
             frame,
         }
+    }
+
+    #[test]
+    fn two_slow_builds_in_a_row_stop_them() {
+        SLOW_BUILDS.store(0, Ordering::Relaxed);
+        assert!(!note_build_time(1026.0));
+        assert!(!note_build_time(500.0), "a fast one in between");
+        assert!(!note_build_time(1100.0));
+        assert!(note_build_time(1200.0));
+        SLOW_BUILDS.store(0, Ordering::Relaxed);
     }
 
     #[test]
