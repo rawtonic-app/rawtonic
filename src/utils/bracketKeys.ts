@@ -35,8 +35,10 @@ export function bracketKey(e: KeyboardEvent): BracketKey | undefined {
   const combos = buildComboMap(appSettings?.keybinds);
   const combo = normalizeCombo(e, osPlatform);
   const bound = combos.get(combo.join('+')) ?? [];
-  const exact = rotateStep(bound) ?? (bound.length ? undefined : PLACES[e.code]);
+  const exact = rotateStep(bound);
   if (exact) return { step: exact, shifted: false };
+  const place = bound.length ? undefined : PLACES[e.code];
+  if (place) return { step: place, shifted: e.shiftKey };
   if (!e.shiftKey) return undefined;
   const plainCombo = combo.filter((part) => part !== 'shift').join('+');
   const plainBound = combos.get(plainCombo) ?? [];

@@ -36,6 +36,12 @@ it('sizes with the bracket places on German and Swiss layouts unless the key the
   expect(bracketStep(key({ key: '+', code: 'BracketRight' }))).toBe(1);
   expect(bracketStep(key({ key: '¨', code: 'BracketRight' }))).toBe(1);
   expect(bracketKey(key({ key: '*', code: 'BracketRight', shiftKey: true }))).toEqual({ step: 1, shifted: true });
+  // With Shift's own binding (Move down in stack) turned off, Shift on the
+  // place is still the hardness, not the size.
+  useSettingsStore.setState({
+    appSettings: { keybinds: { rotate_right: ['KeyW'], stack_move_down: [] } } as never
+  });
+  expect(bracketKey(key({ key: '*', code: 'BracketRight', shiftKey: true }))).toEqual({ step: 1, shifted: true });
   // Bound to another command: that command keeps the key.
   useSettingsStore.setState({
     appSettings: { keybinds: { toggle_crop: ['BracketLeft'], rotate_left: ['KeyQ'] } } as never
