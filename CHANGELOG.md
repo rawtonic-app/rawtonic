@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- **Lightroom catalog imports keep Guided Upright.** A photo corrected with Lightroom's Guided Upright arrived uncorrected; its guide lines now become Rawtonic's Guided Upright lines on the same edges, also where Lightroom's lens profile was on, with Constrain crop unless Lightroom's own crop came along.
+- **Lightroom catalog imports keep Guided Upright.** A photo corrected with Lightroom's Guided Upright arrived uncorrected; its guide lines now become Rawtonic's Guided Upright lines on the same edges, also where Lightroom's lens profile was on, with Constrain crop unless Lightroom's own crop came along. Not yet for Sony RAWs set to another aspect ratio in the camera, which still arrive uncorrected.
 
 - **Point Color from Lightroom catalogs.** A catalog import dropped each photo's Point Color swatches (Lightroom keeps them in a different form there than in XMP); they now become Color editor ranges as presets already did. A mask's own swatch variance (`LocalColorVariance`) now carries over too.
 

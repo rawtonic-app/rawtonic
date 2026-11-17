@@ -2,9 +2,12 @@
 //! as Rawtonic's guided perspective lines.
 //!
 //! Lightroom stores each guide as `crs:UprightFourSegments_N="x1,y1,x2,y2"`
-//! (`UprightFourSegmentsCount` of them), normalised to the whole sensor
-//! image (before the camera's aspect crop, as its crop) in the raw's own,
-//! unoriented frame, and *before* the lens profile (`LensProfileEnable`,
+//! (`UprightFourSegmentsCount` of them), normalised to Lightroom's whole
+//! image in the raw's own, unoriented frame (a guide drawn on a photo shown
+//! turned is stored unturned): the sensor image before the camera's aspect
+//! crop, as its crop (a Panasonic 1:1 photo is a crop of the 4:3 image; a
+//! Sony ARW set to another aspect ratio is not settled and left out). The
+//! guides lie *before* the lens profile (`LensProfileEnable`,
 //! an Adobe or the camera's "Camera Settings" profile): a guide drawn on the
 //! corrected photo is stored at the uncorrected position of its ends.
 //! Without a profile the stored ends are where they were drawn, on the photo
@@ -62,24 +65,35 @@ pub fn segments(xmp: &str) -> Vec<[f64; 4]> {
         .collect()
 }
 
-/// Rawtonic guide lines for Lightroom's `segments` on a photo whose developed
-/// frame is `frame` within the sensor image `sensor` (x, y, width, height in
-/// the raw's unoriented buffer pixels), through `warp` (the photo's lens
-/// correction only, built for the frame's size; None: stored on the
-/// corrected photo). Ends the correction cannot place drop their guide.
+/// Rawtonic guide lines for Lightroom's `segments` normalised to `whole`, on
+/// a photo whose developed frame is `frame` (both x, y, width, height in the
+/// raw's unoriented buffer pixels) shown with EXIF `orientation`, through
+/// `warp` (the photo's lens correction only, built for the oriented frame;
+/// None: stored on the corrected photo). Rawtonic's guides are normalised to
+/// the photo as decoded (oriented). Ends the correction cannot place drop
+/// their guide.
 pub fn guide_lines(
     segments: &[[f64; 4]],
-    sensor: [f64; 4],
+    whole: [f64; 4],
     frame: [f64; 4],
+    orientation: u16,
     warp: Option<&WarpPoints>,
 ) -> Vec<GuideLine> {
-    let [sx, sy, sw, sh] = sensor;
+    let [sx, sy, sw, sh] = whole;
     let [fx, fy, fw, fh] = frame;
     if !(sw > 0.0 && sh > 0.0 && fw > 0.0 && fh > 0.0) {
         return Vec::new();
     }
+    // The oriented frame's size.
+    let (fw, fh) = if (5..=8).contains(&orientation) {
+        (fh, fw)
+    } else {
+        (fw, fh)
+    };
     let place = |x: f64, y: f64| -> Option<GuidePoint> {
-        let (px, py) = (sx + x * sw - fx, sy + y * sh - fy);
+        let (ux, uy) = ((sx + x * sw - fx) / frame[2], (sy + y * sh - fy) / frame[3]);
+        let (nx, ny) = crate::lightroom_retouch::orient_point(orientation, ux, uy);
+        let (px, py) = (nx * fw, ny * fh);
         let (ox, oy) = match warp {
             Some(warp) => warp
                 .to_output(px as f32, py as f32)
@@ -158,10 +172,34 @@ pub fn lines_for_file(
     ) else {
         return Vec::new();
     };
+    // A Sony ARW set to another aspect ratio in the camera (16:9 on a 3:2
+    // sensor): which image Lightroom's numbers refer to is not settled (on
+    // B488 neither the sensor nor the camera's frame puts both guides on
+    // their edges; notes: benchmark-results/guq1-2026-11-17), so its guides
+    // are left out rather than placed on other edges.
+    let sony =
+        crate::source_frame::extension_of(&path.to_string_lossy()).eq_ignore_ascii_case("arw");
+    if sony
+        && rawtonic_rawdecode::source_frame::frame(&source, 1)
+            .is_some_and(|aspect| aspect.rect != sensor)
+    {
+        return Vec::new();
+    }
     let [_, _, w, h] = frame.rect;
+    let (w, h) = if (5..=8).contains(&frame.orientation) {
+        (h, w)
+    } else {
+        (w, h)
+    };
     let warp = profile.then(|| lens_warp(adjustments, path, w as u32, h as u32));
     let f = |r: [usize; 4]| r.map(|v| v as f64);
-    guide_lines(&segments, f(sensor), f(frame.rect), warp.as_ref())
+    guide_lines(
+        &segments,
+        f(sensor),
+        f(frame.rect),
+        frame.orientation,
+        warp.as_ref(),
+    )
 }
 
 /// Sets `guidedPerspective` from Lightroom's Guided Upright, with Rawtonic's
@@ -235,7 +273,7 @@ mod tests {
         let sensor = [0.0, 0.0, 4000.0, 3000.0];
         // A 3:2 aspect crop of the 4:3 sensor.
         let frame = [0.0, 167.0, 4000.0, 2666.0];
-        let lines = guide_lines(&segments(XMP), sensor, frame, None);
+        let lines = guide_lines(&segments(XMP), sensor, frame, 1, None);
         assert_eq!(lines.len(), 2);
         let near = |a: f64, b: f64| (a - b).abs() < 1e-4;
         let l = &lines[0];
@@ -249,8 +287,25 @@ mod tests {
             "{l:?}"
         );
         let flat = [[0.1, 0.5, 0.9, 0.52]];
-        let lines = guide_lines(&flat, sensor, sensor, None);
+        let lines = guide_lines(&flat, sensor, sensor, 1, None);
         assert_eq!(lines[0].orientation, GuideOrientation::Horizontal);
+    }
+
+    /// A photo shown turned (EXIF 6): Lightroom keeps the guide in the raw's
+    /// unturned frame, Rawtonic in the photo as decoded, where a building's
+    /// edge along the sensor's long side stands upright.
+    #[test]
+    fn guides_of_a_turned_photo_land_in_the_decoded_photo() {
+        let sensor = [0.0, 0.0, 4000.0, 3000.0];
+        let lines = guide_lines(&[[0.1, 0.5, 0.9, 0.52]], sensor, sensor, 6, None);
+        let l = &lines[0];
+        assert_eq!(l.orientation, GuideOrientation::Vertical, "{l:?}");
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(near(l.p1.x, 0.5) && near(l.p1.y, 0.1), "{l:?}");
+        assert!(near(l.p2.x, 0.48) && near(l.p2.y, 0.9), "{l:?}");
+        // Turned the other way (EXIF 8).
+        let l = &guide_lines(&[[0.1, 0.5, 0.9, 0.52]], sensor, sensor, 8, None)[0];
+        assert!(near(l.p1.x, 0.5) && near(l.p1.y, 0.9), "{l:?}");
     }
 
     /// With the profile an end stored at its uncorrected place lands
@@ -265,7 +320,7 @@ mod tests {
         let params = get_geometry_params_from_json(&recipe);
         let warp = WarpPoints::new(&params, w, h);
         let sensor = [0.0, 0.0, f64::from(w), f64::from(h)];
-        let lines = guide_lines(&[[0.1, 0.1, 0.12, 0.9]], sensor, sensor, Some(&warp));
+        let lines = guide_lines(&[[0.1, 0.1, 0.12, 0.9]], sensor, sensor, 1, Some(&warp));
         assert_eq!(lines.len(), 1);
         for (p, (x, y)) in [(lines[0].p1, (0.1, 0.1)), (lines[0].p2, (0.12, 0.9))] {
             let (sx, sy) = warp
