@@ -22179,9 +22179,20 @@ fn gpu_warp_display_and_export_develop_the_same_input() {
         let read_back = upload_fringed_render_source(&context, &warped, &recipe, window, 0, None)
             .unwrap()
             .expect("runs into the texture");
-        let on_gpu = upload_warped_render_source(&context, &image, &recipe, true, window, 0, None)
-            .unwrap()
-            .expect("warps on the GPU");
+        let on_gpu = match upload_warped_render_source(
+            &context,
+            Arc::new(image.clone()),
+            &recipe,
+            true,
+            window,
+            0,
+            None,
+        )
+        .unwrap()
+        {
+            WarpedUpload::Uploaded(uploaded) => uploaded,
+            WarpedUpload::NotOnGpu(_) => panic!("warps on the GPU"),
+        };
         for (path, uploaded) in [("read back", read_back), ("on the GPU", on_gpu)] {
             let texels = read_texture_data_roi(
                 &context.device,
@@ -22256,9 +22267,17 @@ fn a_failing_gpu_warp_fails_the_render() {
     );
     let window = [0, 0, w, h];
     failed(
-        upload_warped_render_source(&context, &image, &recipe, true, window, 0, None)
-            .map(|_| ())
-            .unwrap_err(),
+        upload_warped_render_source(
+            &context,
+            Arc::new(image.clone()),
+            &recipe,
+            true,
+            window,
+            0,
+            None,
+        )
+        .map(|_| ())
+        .unwrap_err(),
     );
     // Warped on the CPU: unaffected.
     let saved = at_render_version(&recipe, 6);
