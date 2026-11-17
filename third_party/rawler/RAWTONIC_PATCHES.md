@@ -445,7 +445,9 @@ caller; it is now a debug line without a backtrace.
   it (sign incl. U+2212, two hour digits, any colons or spaces, two minute
   digits, anything after, less than a day), and local wall time as
   chrono's `earliest()` gave it at daylight-saving changes (a repeated hour
-  takes the offset after the change, the first second of a skipped hour
-  the offset before it, a later second of it is no time).
+  takes the offset after the change on Unix and the one before it on
+  Windows, whose chrono backend ordered the pair the other way; the first
+  second of a skipped hour the offset before it, a later second of it is
+  no time; `local_earliest_in` and its unit test cover both).
   `tests/rawtonic_last_modified.rs` pins them; it passed with chrono before
   the change and with jiff after it.

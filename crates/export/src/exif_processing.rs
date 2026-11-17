@@ -291,25 +291,62 @@ fn nanosecond_fraction(text: &str) -> std::borrow::Cow<'_, str> {
 }
 
 /// The instant of a capture time without a UTC offset: the camera's wall
-/// time in the computer's time zone (`creation_datetime_in`).
+/// time in the computer's time zone, by the rules of this platform
+/// (`LocalRules`).
 pub fn creation_datetime_to_utc(dt: DateTime) -> Timestamp {
-    creation_datetime_in(&TimeZone::system(), dt)
+    let rules = if cfg!(windows) {
+        LocalRules::Windows
+    } else {
+        LocalRules::Unix
+    };
+    creation_datetime_in(&TimeZone::system(), dt, rules)
 }
 
-/// The instant of wall time `dt` in `zone`, read as Rawtonic always read
-/// it (chrono 0.4 until 2026-11, pinned by tests/local_capture_time.rs): a
-/// time the clocks passed twice takes the offset after the change (its
-/// later instant), the first moment of a time the clocks skipped takes the
-/// offset before it, and a later moment the clocks skipped is read as UTC.
-/// Outside the instants jiff holds, the nearest one.
-pub fn creation_datetime_in(zone: &TimeZone, dt: DateTime) -> Timestamp {
-    let offset = match zone.to_ambiguous_timestamp(dt).offset() {
-        AmbiguousOffset::Unambiguous { offset } => offset,
-        AmbiguousOffset::Fold { after, .. } => after,
-        AmbiguousOffset::Gap { before, .. } => {
-            let gap_start = before.to_timestamp(dt).ok().filter(|instant| {
+/// How a wall time at a daylight-saving change becomes an instant: as
+/// chrono 0.4 read it until 2026-11 (DEPC1), whose two backends differed.
+/// Pinned by `tests/local_capture_time.rs` (Unix, the computer's zone) and
+/// the tests below (both rules, an explicit zone).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalRules {
+    /// chrono's tz database lookup on whole seconds: a wall time the clocks
+    /// passed twice, its end included, takes the offset after the change
+    /// (the later instant); the first second of a skipped hour the offset
+    /// before it; a later skipped second is read as UTC.
+    Unix,
+    /// chrono's Windows lookup at full precision: a wall time the clocks
+    /// passed twice, both ends included, takes the offset before the change
+    /// (the earlier instant); a skipped hour's exact start the offset before
+    /// it, its exact end the offset after it, anything between is read as
+    /// UTC.
+    Windows,
+}
+
+/// The instant of wall time `dt` in `zone` by `rules`. Outside the instants
+/// jiff holds, the nearest one.
+pub fn creation_datetime_in(zone: &TimeZone, dt: DateTime, rules: LocalRules) -> Timestamp {
+    let probe = match rules {
+        LocalRules::Unix => dt.with().subsec_nanosecond(0).build().unwrap_or(dt),
+        LocalRules::Windows => dt,
+    };
+    let nanosecond = jiff::SignedDuration::from_nanos(1);
+    let offset = match (zone.to_ambiguous_timestamp(probe).offset(), rules) {
+        (AmbiguousOffset::Fold { after, .. }, LocalRules::Unix) => after,
+        (AmbiguousOffset::Fold { before, .. }, LocalRules::Windows) => before,
+        (AmbiguousOffset::Unambiguous { offset }, LocalRules::Windows) => {
+            // The end of a fold still counts as the fold.
+            let previous = probe
+                .checked_sub(nanosecond)
+                .map(|p| zone.to_ambiguous_timestamp(p).offset());
+            match previous {
+                Ok(AmbiguousOffset::Fold { before, after }) if after == offset => before,
+                _ => offset,
+            }
+        }
+        (AmbiguousOffset::Unambiguous { offset }, LocalRules::Unix) => offset,
+        (AmbiguousOffset::Gap { before, .. }, _) => {
+            let gap_start = before.to_timestamp(probe).ok().filter(|instant| {
                 instant
-                    .checked_sub(jiff::SignedDuration::from_nanos(1))
+                    .checked_sub(nanosecond)
                     .is_ok_and(|just_before| zone.to_offset(just_before) == before)
             });
             if gap_start.is_some() {
@@ -1984,6 +2021,89 @@ pub fn record_lightroom_orientation(recipe: &mut Value, source: &Path) {
 
 #[cfg(test)]
 mod tests {
+
+    /// chrono 0.4's readings of local wall times at both daylight-saving
+    /// changes of 2026 in Zurich, for each of its backends (DEPC1). Unix
+    /// values were measured with chrono on macOS; Windows values follow
+    /// chrono's `lookup_with_dst_transitions` (offset/local/mod.rs).
+    #[test]
+    fn local_wall_times_at_daylight_saving_changes_read_as_chrono_did() {
+        use super::{LocalRules, creation_datetime_in};
+        let zone = jiff::tz::TimeZone::get("Europe/Zurich").unwrap();
+        let read = |text: &str, rules| {
+            let dt = jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S%.f", text).unwrap();
+            let t = creation_datetime_in(&zone, dt, rules);
+            (t.as_second(), t.subsec_nanosecond())
+        };
+        for (text, unix, windows) in [
+            (
+                "2026-07-01 12:00:00",
+                (1_782_900_000, 0),
+                (1_782_900_000, 0),
+            ),
+            // Spring forward, 02:00 → 03:00.
+            (
+                "2026-03-29 01:59:59",
+                (1_774_745_999, 0),
+                (1_774_745_999, 0),
+            ),
+            (
+                "2026-03-29 02:00:00",
+                (1_774_746_000, 0),
+                (1_774_746_000, 0),
+            ),
+            (
+                "2026-03-29 02:00:00.5",
+                (1_774_746_000, 500_000_000),
+                (1_774_749_600, 500_000_000),
+            ),
+            (
+                "2026-03-29 02:30:00",
+                (1_774_751_400, 0),
+                (1_774_751_400, 0),
+            ),
+            (
+                "2026-03-29 02:59:59.5",
+                (1_774_753_199, 500_000_000),
+                (1_774_753_199, 500_000_000),
+            ),
+            (
+                "2026-03-29 03:00:00",
+                (1_774_746_000, 0),
+                (1_774_746_000, 0),
+            ),
+            // Fall back, 03:00 → 02:00.
+            (
+                "2026-10-25 01:59:59",
+                (1_792_886_399, 0),
+                (1_792_886_399, 0),
+            ),
+            (
+                "2026-10-25 02:00:00",
+                (1_792_890_000, 0),
+                (1_792_886_400, 0),
+            ),
+            (
+                "2026-10-25 02:30:00",
+                (1_792_891_800, 0),
+                (1_792_888_200, 0),
+            ),
+            (
+                "2026-10-25 03:00:00",
+                (1_792_893_600, 0),
+                (1_792_890_000, 0),
+            ),
+            (
+                "2026-10-25 03:00:00.5",
+                (1_792_893_600, 500_000_000),
+                (1_792_893_600, 500_000_000),
+            ),
+        ] {
+            assert_eq!(read(text, LocalRules::Unix), unix, "Unix {text}");
+            assert_eq!(read(text, LocalRules::Windows), windows, "Windows {text}");
+        }
+    }
+
     use super::*;
 
     #[test]

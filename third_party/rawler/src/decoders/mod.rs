@@ -360,24 +360,66 @@ fn fixed_offset(text: &str) -> Option<jiff::tz::Offset> {
   (seconds < 86_400).then(|| jiff::tz::Offset::from_seconds(if negative { -seconds } else { seconds }).expect("less than a day"))
 }
 
-/// Rawtonic patch (DEPC1): wall time `dt` in the computer's time zone as
-/// chrono 0.4's `Local.from_local_datetime(..).earliest()` gave it: a time
-/// the clocks passed twice takes the offset after the change, the first
-/// moment of a time the clocks skipped the offset before it, a later
-/// moment the clocks skipped is none.
+/// Rawtonic patch (DEPC1): wall time `dt` (whole seconds) in the
+/// computer's time zone as chrono 0.4's
+/// `Local.from_local_datetime(..).earliest()` gave it (`local_earliest_in`).
 fn local_earliest(dt: jiff::civil::DateTime) -> Option<jiff::Timestamp> {
+  local_earliest_in(&jiff::tz::TimeZone::system(), dt, cfg!(windows))
+}
+
+/// Rawtonic patch (DEPC1): chrono 0.4's `earliest()` reading of `dt` in
+/// `zone`. A time the clocks passed twice, its end included, takes the
+/// offset after the change on Unix and the offset before it on Windows
+/// (chrono's backends ordered the pair differently); the first second of a
+/// skipped hour takes the offset before it; a later skipped second is none.
+fn local_earliest_in(zone: &jiff::tz::TimeZone, dt: jiff::civil::DateTime, windows: bool) -> Option<jiff::Timestamp> {
   use jiff::tz::AmbiguousOffset;
-  let zone = jiff::tz::TimeZone::system();
+  let nanosecond = jiff::SignedDuration::from_nanos(1);
   let offset = match zone.to_ambiguous_timestamp(dt).offset() {
-    AmbiguousOffset::Unambiguous { offset } => offset,
-    AmbiguousOffset::Fold { after, .. } => after,
+    AmbiguousOffset::Fold { before, after } => {
+      if windows {
+        before
+      } else {
+        after
+      }
+    }
+    AmbiguousOffset::Unambiguous { offset } => match dt.checked_sub(nanosecond).map(|p| zone.to_ambiguous_timestamp(p).offset()) {
+      // The end of a fold still counts as the fold on Windows.
+      Ok(AmbiguousOffset::Fold { before, after }) if windows && after == offset => before,
+      _ => offset,
+    },
     AmbiguousOffset::Gap { before, .. } => {
       let instant = before.to_timestamp(dt).ok()?;
-      let just_before = instant.checked_sub(jiff::SignedDuration::from_nanos(1)).ok()?;
+      let just_before = instant.checked_sub(nanosecond).ok()?;
       (zone.to_offset(just_before) == before).then_some(before)?
     }
   };
   offset.to_timestamp(dt).ok()
+}
+
+#[cfg(test)]
+mod rawtonic_local_tests {
+  /// Rawtonic patch (DEPC1): both chrono backends' readings in Zurich.
+  #[test]
+  fn local_wall_times_read_as_chrono_did_on_each_platform() {
+    let zone = jiff::tz::TimeZone::get("Europe/Zurich").unwrap();
+    let read = |text: &str, windows| {
+      let dt = jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S", text).unwrap();
+      super::local_earliest_in(&zone, dt, windows).map(|t| t.as_second())
+    };
+    for (text, unix, windows) in [
+      ("2026-03-29 02:00:00", Some(1_774_746_000), Some(1_774_746_000)),
+      ("2026-03-29 02:30:00", None, None),
+      ("2026-03-29 03:00:00", Some(1_774_746_000), Some(1_774_746_000)),
+      ("2026-10-25 02:00:00", Some(1_792_890_000), Some(1_792_886_400)),
+      ("2026-10-25 02:30:00", Some(1_792_891_800), Some(1_792_888_200)),
+      ("2026-10-25 03:00:00", Some(1_792_893_600), Some(1_792_890_000)),
+      ("2026-10-25 03:00:01", Some(1_792_893_601), Some(1_792_893_601)),
+    ] {
+      assert_eq!(read(text, false), unix, "Unix {text}");
+      assert_eq!(read(text, true), windows, "Windows {text}");
+    }
+  }
 }
 
 pub trait Decoder: Send {
