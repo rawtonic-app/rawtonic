@@ -131,6 +131,14 @@ fn a_plain_root_with_a_verbatim_drive_is_migrated_once() {
     drop(lib);
     let database = catalog.join(database_name(Mode::Catalog));
     let db = Connection::open(&database).unwrap();
+    // Volume discovery can be unavailable on the runner. Seed the recorded
+    // drive explicitly so the fixture always represents the migration case.
+    let drive = root.ancestors().last().unwrap().to_string_lossy();
+    db.execute(
+        "UPDATE roots SET volume_path=? WHERE external=1",
+        [drive.as_ref()],
+    )
+    .unwrap();
     let before: (String, String, String) = db
         .query_row(
             "SELECT id,path,volume_path FROM roots WHERE external=1",
