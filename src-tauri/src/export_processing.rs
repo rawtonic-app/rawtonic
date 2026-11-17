@@ -1765,8 +1765,8 @@ fn export_photo(
             .filter(|definition| definition.produces_bitmap())
             .take(crate::image_processing::MAX_MASKS)
             .count();
-    let plan = |target: usize| {
-        let output_path = planned.once(target, || {
+    let plan_file = |target: usize| {
+        planned.once(target, || {
             plan_output_path(
                 &targets[target],
                 &item,
@@ -1776,7 +1776,10 @@ fn export_photo(
                 mask_layers,
                 used_paths,
             )
-        })?;
+        })
+    };
+    let plan = |target: usize| {
+        let output_path = plan_file(target)?;
         if let Some(tracking) = &targets[target].tracking {
             tracking.started(item.global_index, &output_path);
         }
@@ -2039,6 +2042,45 @@ fn export_photo(
                     .iter()
                     .position(|&member| member == target)
                     .unwrap_or(group.len());
+                // The group's later TIFFs are written while it renders too,
+                // into temporary files published at their turn: their files
+                // are planned now. That is the file each gets at its turn
+                // (`plan_file` plans a recipe's file once; it and its mask
+                // files are reserved when planned, so the recipes before
+                // it count as written); one that cannot be planned is
+                // planned and fails at its turn as before.
+                let later_paths: Vec<(usize, std::path::PathBuf)> = group
+                    .iter()
+                    .enumerate()
+                    .skip(own.saturating_add(1))
+                    .filter(|&(_, &member)| {
+                        matches!(
+                            targets[member].output_format.to_ascii_lowercase().as_str(),
+                            "tif" | "tiff"
+                        )
+                    })
+                    .filter_map(|(index, &member)| plan_file(member).ok().map(|path| (index, path)))
+                    .collect();
+                let later_outputs: Vec<ExportOutput> = later_paths
+                    .iter()
+                    .map(|(index, path)| ExportOutput {
+                        path,
+                        format: targets[group[*index]].output_format.as_str(),
+                        exif_sidecar: &exif_sidecar,
+                        catalog: &catalog,
+                        write: &write_export_bytes,
+                        enlarger: Some(&enlarger),
+                    })
+                    .collect();
+                let later: Vec<GroupFile> = later_paths
+                    .iter()
+                    .zip(&later_outputs)
+                    .map(|((index, _), output)| GroupFile {
+                        index: *index,
+                        export_settings: &targets[group[*index]].export_settings,
+                        output,
+                    })
+                    .collect();
                 save_group_rendering(
                     &source_path_str,
                     prepared,
@@ -2050,11 +2092,24 @@ fn export_photo(
                     "process_image_for_export",
                     &outputs,
                     own,
+                    &later,
                 )
             });
             match render {
                 Some(processed) => match processed? {
                     GroupRender::Saved => {}
+                    GroupRender::Staged(staged) => {
+                        if staged.path() != output_path {
+                            return Err(format!(
+                                "The file written for '{}' was planned as '{}'.",
+                                output_path.display(),
+                                staged.path().display()
+                            ));
+                        }
+                        staged.publish().map_err(|e| {
+                            format!("Failed to write file to '{}': {}", output_path.display(), e)
+                        })?
+                    }
                     GroupRender::Failed(e) => return Err(e),
                     GroupRender::Image(processed) => save_rendered_export(
                         processed,

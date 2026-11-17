@@ -30,6 +30,43 @@ pub fn write_new_output_with(
     path: &Path,
     fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
 ) -> io::Result<()> {
+    stage_new_output_with(path, fill)?.publish()
+}
+
+/// A file written and synced beside its `path` but not published yet
+/// ([`stage_new_output_with`]): [`StagedOutput::publish`] puts it at its
+/// path; dropped unpublished, it is removed and nothing is published.
+pub struct StagedOutput {
+    temp: tempfile::NamedTempFile,
+    path: std::path::PathBuf,
+}
+
+impl StagedOutput {
+    /// The file it is published as.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Publishes the file at its path; fails if a file is there by now.
+    pub fn publish(self) -> io::Result<()> {
+        let parent = output_folder(&self.path)
+            .ok_or_else(|| io::Error::other("Missing output folder"))?
+            .to_path_buf();
+        rawtonic_fs::no_clobber::persist(self.temp, &self.path)?;
+        rawtonic_fs::sync_dir(&parent)?;
+        Ok(())
+    }
+}
+
+/// The first half of [`write_new_output_with`]: the file written by `fill`
+/// into a synced temporary file beside `path`, to be published later (a
+/// file of a render group written while an earlier recipe's render runs,
+/// published at its own turn). When `fill` fails, the temporary file is
+/// removed.
+pub fn stage_new_output_with(
+    path: &Path,
+    fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
+) -> io::Result<StagedOutput> {
     let parent = output_folder(path).ok_or_else(|| io::Error::other("Missing output folder"))?;
     let prefix = rawtonic_fs::temp::prefix_for(path);
     let mut builder = tempfile::Builder::new();
@@ -42,9 +79,10 @@ pub fn write_new_output_with(
     let mut temp = builder.tempfile_in(parent)?;
     fill(temp.as_file_mut())?;
     temp.as_file().sync_all()?;
-    rawtonic_fs::no_clobber::persist(temp, path)?;
-    rawtonic_fs::sync_dir(parent)?;
-    Ok(())
+    Ok(StagedOutput {
+        temp,
+        path: path.to_path_buf(),
+    })
 }
 
 /// Writes an export file to a new file at `path` (never over an existing
@@ -54,6 +92,18 @@ pub fn write_new_export(
     encoded: crate::export_processing::EncodedExport,
 ) -> Result<(), String> {
     write_new_output_with(path, |file| {
+        encoded.write_to(file).map_err(io::Error::other)
+    })
+    .map_err(|e| format!("Failed to write file to '{}': {}", path.display(), e))
+}
+
+/// [`write_new_export`] staged, to be published later
+/// ([`stage_new_output_with`]).
+pub fn stage_new_export(
+    path: &Path,
+    encoded: crate::export_processing::EncodedExport,
+) -> Result<StagedOutput, String> {
+    stage_new_output_with(path, |file| {
         encoded.write_to(file).map_err(io::Error::other)
     })
     .map_err(|e| format!("Failed to write file to '{}': {}", path.display(), e))
@@ -93,5 +143,29 @@ mod tests {
         });
         assert!(failed.is_err());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_staged_file_is_published_only_when_asked_and_never_over_a_file() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.tif");
+        let staged = stage_new_output_with(&path, |file| file.write_all(b"staged")).unwrap();
+        assert!(!path.exists());
+        assert_eq!(staged.path(), path);
+        staged.publish().unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"staged");
+
+        // Dropped unpublished: nothing is left.
+        let other = dir.path().join("other.tif");
+        drop(stage_new_output_with(&other, |file| file.write_all(b"x")).unwrap());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+
+        // A file that appeared meanwhile is never replaced.
+        let staged = stage_new_output_with(&other, |file| file.write_all(b"late")).unwrap();
+        fs::write(&other, b"first").unwrap();
+        assert!(staged.publish().is_err());
+        assert_eq!(fs::read(&other).unwrap(), b"first");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
     }
 }
