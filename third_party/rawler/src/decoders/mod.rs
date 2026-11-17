@@ -364,7 +364,8 @@ fn fixed_offset(text: &str) -> Option<jiff::tz::Offset> {
 /// computer's time zone as chrono 0.4's
 /// `Local.from_local_datetime(..).earliest()` gave it (`local_earliest_in`).
 fn local_earliest(dt: jiff::civil::DateTime) -> Option<jiff::Timestamp> {
-  local_earliest_in(&jiff::tz::TimeZone::system(), dt, cfg!(windows))
+  // Rawtonic patch: honor the same local zone as the editor.
+  local_earliest_in(&rawtonic_runtime::local_time::zone(), dt, cfg!(windows))
 }
 
 /// Rawtonic patch (DEPC1): chrono 0.4's `earliest()` reading of `dt` in

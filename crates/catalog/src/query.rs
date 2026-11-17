@@ -432,7 +432,7 @@ impl<'a> Compiler<'a> {
             params: Vec::new(),
             expanding: HashSet::new(),
             expansions: 0,
-            today: jiff::ZonedDateTime::now().date(),
+            today: rawtonic_runtime::local_time::now().date(),
             metadata: false,
             roots: false,
             duplicates: false,

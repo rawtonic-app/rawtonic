@@ -72,7 +72,9 @@ pub struct ProofSheetPreview {
 }
 
 fn today() -> String {
-    jiff::ZonedDateTime::now().strftime("%Y-%m-%d").to_string()
+    rawtonic_runtime::local_time::now()
+        .strftime("%Y-%m-%d")
+        .to_string()
 }
 
 impl ProofSheetRequest {

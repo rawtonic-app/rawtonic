@@ -137,8 +137,8 @@ impl ImportMetadata {
                 .and_then(|m| m.modified())
                 .ok()
                 .and_then(|time| jiff::Timestamp::try_from(time).ok())
-                .map(|time| time.to_zoned_datetime(jiff::tz::TimeZone::system()))
-                .unwrap_or_else(jiff::ZonedDateTime::now);
+                .map(|time| time.to_zoned_datetime(rawtonic_runtime::local_time::zone()))
+                .unwrap_or_else(rawtonic_runtime::local_time::now);
             i32::from(local.year())
         });
         Ok(Embedded { metadata, year })

@@ -29,7 +29,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 | `fs` | file-safety kernel: atomic write, no-clobber publish, temporary and staging files; volume detection | none | `lib`, `no_clobber`, `temp`, `staging`, `volume` | `core:test` |
 | `metadata` | XMP sidecars, provenance, labels, hierarchical keyword paths (levels joined by a pipe, TS twin `src/utils/keywordTree.ts`), photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs`, `recipe` | `lib`, `provenance`, `labels`, `keywords`, `photo_ref` | `core:test` |
 | `fileops` | journaled rename/move/trash, `purge` | `fs` | `lib`, `volume`, `tree` | `core:test`; crash hooks |
-| `naming` | strict filename templates | none | `lib` | `core:test` |
+| `naming` | strict filename templates | runtime | `lib` | `core:test` |
 | `ingest` | verified no-clobber copy, queue | catalog, fs, metadata, naming | `copy`, `queue` | `core:test` |
 | `interop` | other editors' settings → ours | `metadata` | `lightroom`, `capture_one`, `capture_one_masks` (`.comask` layer masks), `capture_one_tiles` (their compressed raster tiles) | `-p rawtonic-interop` |
 | `tether` | camera tethering helper (ADR 0012) | `fs` | `protocol`, `staging`, `client` | `--mock` camera |
@@ -41,7 +41,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 
 | Crate | Owns | Depends on | Key modules | Tests/hooks |
 |---|---|---|---|---|
-| `runtime` | stage timing, allocator release | none | `performance`, `allocator` | none special |
+| `runtime` | stage timing, allocator release, shared local time | none | `performance`, `allocator`, `local_time` | Windows zone override regression test |
 | `rawdecode` | RAW bytes → oriented linear RGB | `rawler`, `runtime` | `raw_processing`, `demosaic` | fixtures |
 | `recipe` | stored + resolved develop recipe, typed keys | serde, serde_json only | `stored`, `tone`, `color`, `detail`, `geometry`, `effects`, `lens`, `masks`, `resources` | `-p recipe` |
 | `engine` | develop model, masks, looks, lens | fs, metadata, rawdecode, recipe, runtime | `image_processing` | `-p engine` |

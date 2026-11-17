@@ -318,7 +318,7 @@ const MONTHS: [&str; 12] = [
 impl Context {
     pub fn new(original: impl Into<String>, sequence: u64) -> Self {
         Self {
-            captured: jiff::ZonedDateTime::now().datetime(),
+            captured: rawtonic_runtime::local_time::now().datetime(),
             original: original.into(),
             sequence,
             sequence_start: 1,

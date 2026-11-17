@@ -391,7 +391,7 @@ mod tests {
         );
         // Its file times follow the corrected date.
         let date = crate::exif_processing::capture_date_with(&source, &|| Some(corrected.clone()));
-        let local = date.to_zoned_datetime(jiff::tz::TimeZone::system());
+        let local = date.to_zoned_datetime(rawtonic_runtime::local_time::zone());
         assert_eq!((local.day(), local.hour(), local.minute()), (31, 0, 30));
     }
 }
