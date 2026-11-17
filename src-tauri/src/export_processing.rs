@@ -1997,9 +1997,11 @@ fn export_photo(
     // A group whose first TIFF is a full-size one renders for it: that
     // TIFF is saved first, its file written while the group renders, so no
     // TIFF render is held whole beside a JPEG's (`streaming_tiff_first`;
-    // it passes only files of other formats, so every name stays). Recipes
-    // with separate mask files keep the asked order, as mask files of any
-    // recipe may take each other's names.
+    // it passes only files of other formats, so every name stays). Only
+    // within a group whose recipes all write into the same folder (a file
+    // could otherwise take the name of another recipe's subfolder), and
+    // recipes with separate mask files keep the asked order, as mask files
+    // of any recipe may take each other's names.
     let mut images = images;
     if !images.iter().any(|&target| with_mask_files(target)) {
         let is_tiff = |target: usize| {
@@ -2016,7 +2018,23 @@ fn export_photo(
                         if render_is_file(&targets[target].export_settings, prepared.size())
                 )
         };
+        let folder = |target: usize| {
+            let (t, settings) = (&targets[target], &targets[target].export_settings);
+            (
+                &t.output_folder_or_file,
+                &t.base_origin_folders,
+                &settings.destination_type,
+                &settings.subfolder,
+                settings.preserve_folders,
+            )
+        };
         for group in &mut groups {
+            if group
+                .iter()
+                .any(|&target| folder(target) != folder(group[0]))
+            {
+                continue;
+            }
             let Some(start) = images.iter().position(|&target| target == group[0]) else {
                 continue;
             };
