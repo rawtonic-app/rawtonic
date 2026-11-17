@@ -3163,8 +3163,8 @@
         "title": "AI results"
       },
       "compiledModels": {
-        "description": "Small completion markers for model preparation. Clearing makes preparation run again; compiled weights inside downloaded models are included in their size.",
-        "title": "Model first-run markers"
+        "description": "Model preparation: first-run markers and the optimized AI graphs that make later AI masks start faster (about 1 GB for Subject; the AI result limit applies to them too). Clearing makes preparation run again on the next use; compiled weights inside downloaded models are included in their size.",
+        "title": "Prepared AI models"
       },
       "decoded": {
         "description": "Decoded pixel data retained in RAM, not on disk. Clearing releases cache references; pixels used by the viewer or exports stay in memory.",

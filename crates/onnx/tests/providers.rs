@@ -173,6 +173,7 @@ fn the_first_load_uses_the_cpu_and_a_later_one_the_idle_checks_verdict() {
         plugin_dirs: default_plugin_dirs(),
         checks_file: Some(file.clone()),
         check_when_idle: true,
+        optimized_graphs: None,
     });
     let started = std::time::Instant::now();
     let first =

@@ -2858,8 +2858,8 @@
         "title": "KI-Ergebnisse"
       },
       "compiledModels": {
-        "description": "Kleine Abschlussmarkierungen der Modellvorbereitung. Nach dem Leeren wird die Vorbereitung wiederholt. Kompilierte Gewichte im Modellordner zählen zu dessen Größe.",
-        "title": "Markierungen der Modellvorbereitung"
+        "description": "Modellvorbereitung: Markierungen und die optimierten KI-Graphen, mit denen spätere KI-Masken schneller starten (etwa 1 GB für Motiv; das Limit für KI-Ergebnisse gilt auch für sie). Nach dem Leeren wird die Vorbereitung bei der nächsten Verwendung wiederholt. Kompilierte Gewichte im Modellordner zählen zu dessen Größe.",
+        "title": "Vorbereitete KI-Modelle"
       },
       "decoded": {
         "description": "Dekodierte Bilddaten im RAM, nicht auf der Festplatte. Leeren gibt Cache-Verweise frei; von Ansicht oder Export verwendete Bilddaten bleiben im Speicher.",

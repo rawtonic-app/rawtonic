@@ -87,6 +87,16 @@ fn app_owned(app: &tauri::AppHandle, category: Category) -> Result<Option<OwnedD
     Ok(Some(OwnedDirectory { root, directory }))
 }
 
+/// Where CPU sessions keep the models' optimized graphs (rawtonic-onnx
+/// `Settings::optimized_graphs`): a subfolder of the compiled-model
+/// category, so Storage counts and clears it with that category.
+const OPTIMIZED_GRAPHS: &str = "onnx-graphs";
+
+pub(crate) fn optimized_graphs_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let owned = app_owned(app, Category::CompiledModels).ok()??;
+    Some(owned.directory.join(OPTIMIZED_GRAPHS))
+}
+
 fn pinned(path: &Path) -> bool {
     // Atomic writers' staging names and entries just handed to the webview or
     // read by a worker remain protected. A later maintenance pass retries.
@@ -410,8 +420,33 @@ pub(crate) fn apply_limits(app: &tauri::AppHandle) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
     }
+    // The optimized graphs (about 1 GB for the Subject model) are rebuilt
+    // on the next use: under the AI cache limit too, least recently used
+    // first. Removing one file of an entry makes the next use rebuild it.
+    let ai_gb = settings.ai_cache_limit_gb.unwrap_or(5);
+    if ai_gb > 0
+        && let Some(owned) = app_owned(app, Category::CompiledModels)?
+    {
+        let directory = owned.directory.join(OPTIMIZED_GRAPHS);
+        if directory.exists() {
+            storage_fs::evict(
+                &owned.root,
+                &directory,
+                u64::from(ai_gb) * 1_000_000_000,
+                optimized_graph_file,
+                pinned,
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
     SIZES.lock().unwrap_or_else(|e| e.into_inner()).clear();
     Ok(())
+}
+
+fn optimized_graph_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| rawtonic_onnx::OPTIMIZED_GRAPH_EXTENSIONS.contains(&ext))
 }
 
 #[tauri::command]
