@@ -1001,7 +1001,8 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                     let exporting = app_handle
                         .state::<crate::state::export::ExportState>()
                         .running();
-                    let no_room = match &step {
+                    let mut step = step;
+                    let mut no_room = match &step {
                         Step::Decode(path, _) => !decode_fits(
                             crate::multi_view::full_size_of(path)
                                 .map(|(w, h)| u64::from(w) * u64::from(h)),
@@ -1009,6 +1010,18 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                         ),
                         Step::Write => false,
                     };
+                    // No room for the next decode: a decode held and not
+                    // written yet is written meanwhile (it may go after).
+                    if no_room
+                        && HELD
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .iter()
+                            .any(|h| !h.written)
+                    {
+                        step = Step::Write;
+                        no_room = false;
+                    }
                     if !exporting && !no_room && may_start(quiet, busy, short_of_memory) {
                         waiting_for = "";
                         break step;
