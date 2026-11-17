@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- **The multi view shows every photo right away.** Selecting several photos with the multi view on (⌘A on 12) showed the other photos one after another over about a third of a second; now each shows its stored preview one frame after the new layout appears, and its developed version replaces it in place a moment later (12 photos on a Mac mini M4 Pro: all shown after 0.10 s instead of 0.34 s, from a screen recording).
 - **Lightroom catalog imports keep Guided Upright.** A photo corrected with Lightroom's Guided Upright arrived uncorrected; its guide lines now become Rawtonic's Guided Upright lines on the same edges, also where Lightroom's lens profile was on, with Constrain crop unless Lightroom's own crop came along. Not yet for Sony RAWs set to another aspect ratio in the camera, which still arrive uncorrected.
 
 - **Point Color from Lightroom catalogs.** A catalog import dropped each photo's Point Color swatches (Lightroom keeps them in a different form there than in XMP); they now become Color editor ranges as presets already did. A mask's own swatch variance (`LocalColorVariance`) now carries over too.
