@@ -1,6 +1,8 @@
 import '../../i18n';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, act } from '@testing-library/react';
+import { useEditorStore, debouncedSetHistory } from '../../store/useEditorStore';
+import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
 import AdjustmentControl, { dragPrecision } from './AdjustmentControl';
 import { histogramBins } from './StudioHistogram';
 import { visibleRange } from './StudioBrowser';
@@ -10,6 +12,7 @@ import { KELVIN_SCALE } from '../../utils/whiteBalance';
 beforeEach(() => vi.stubGlobal('requestAnimationFrame', (fn: FrameRequestCallback) => setTimeout(() => fn(0), 16)));
 afterEach(() => {
   cleanup();
+  debouncedSetHistory.cancel();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -64,22 +67,23 @@ describe('professional adjustment control', () => {
     fireEvent.pointerUp(slider, { pointerId: 1 });
     expect(change).toHaveBeenLastCalledWith(-3);
   });
-  it('folds both clicks and the reset into one interaction, and settles a single click', () => {
+  it('ends draft rendering at each release but keeps a double-click reset in one undo step', () => {
     vi.useFakeTimers();
-    const commits: number[] = [];
-    let current = 4.55;
-    const interaction = vi.fn((active: boolean) => {
-      if (!active) commits.push(current);
-    });
+    const store = () => useEditorStore.getState();
+    useEditorStore.setState(useEditorStore.getInitialState());
+    store().resetHistory({ ...INITIAL_ADJUSTMENTS, exposure: 4.55 });
+    const interaction = vi.fn((active: boolean) => store().setEditor({ isSliderDragging: active }));
     render(
       <AdjustmentControl
         label="Exposure"
-        value={current}
+        value={4.55}
         min={-5}
         max={5}
         step={0.01}
-        onChange={(v) => {
-          current = v;
+        onChange={(exposure) => {
+          const adjustments = { ...store().adjustments, exposure };
+          store().setEditor({ adjustments });
+          debouncedSetHistory(adjustments);
         }}
         onInteraction={interaction}
       />
@@ -90,18 +94,21 @@ describe('professional adjustment control', () => {
     const click = () => {
       fireEvent.pointerDown(slider, { button: 0, clientX: 84.5, clientY: 10, pointerId: 1 });
       fireEvent.pointerUp(slider, { pointerId: 1 });
+      expect(store().isSliderDragging).toBe(false);
     };
     click();
+    expect(store().adjustments.exposure).toBe(3);
     act(() => vi.advanceTimersByTime(100));
     click();
     fireEvent.doubleClick(slider);
-    expect(commits).toEqual([0]);
-    expect(interaction.mock.calls).toEqual([[true], [false]]);
+    expect(store().isSliderDragging).toBe(false);
     act(() => vi.advanceTimersByTime(600));
-    expect(commits).toEqual([0]);
+    expect(store().history.map((r) => r.exposure)).toEqual([4.55, 0]);
+    act(() => store().undo());
+    expect(store().adjustments.exposure).toBe(4.55);
     click();
     act(() => vi.advanceTimersByTime(500));
-    expect(commits).toEqual([0, 3]);
+    expect(store().history.map((r) => r.exposure)).toEqual([4.55, 3]);
   });
   it('settles a click before a command or another label starts an interaction', () => {
     vi.useFakeTimers();
@@ -164,12 +171,27 @@ describe('professional adjustment control', () => {
   });
   it('settles a track click before focus leaves for another control', () => {
     vi.useFakeTimers();
-    const { slider } = exposure();
+    const interaction = vi.fn();
+    render(
+      <AdjustmentControl
+        label="Exposure"
+        value={0}
+        min={-5}
+        max={5}
+        step={0.01}
+        onChange={() => {}}
+        onInteraction={interaction}
+      />
+    );
+    const slider = screen.getByRole('slider');
+    vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue(box);
+    slider.setPointerCapture = vi.fn();
     fireEvent.pointerDown(slider, { button: 0, clientX: 84.5, clientY: 10, pointerId: 1 });
     fireEvent.pointerUp(slider, { pointerId: 1 });
+    expect(interaction.mock.calls).toEqual([[true], [false]]);
     fireEvent.blur(slider);
-    expect(slider.closest('.adjustment-control')!.classList.contains('is-active')).toBe(false);
     act(() => vi.advanceTimersByTime(600));
+    expect(interaction.mock.calls).toEqual([[true], [false]]);
   });
   it('moves less per pixel the farther the pointer is from the track', () => {
     const { slider, change } = exposure();

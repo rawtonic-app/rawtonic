@@ -260,8 +260,12 @@ export default function ActivityCentre() {
           {running.length > 0 && <ProgressRing fraction={runningFraction(running)} />}
           {running.length > 1 && <span className="activity-slot-count">{running.length}</span>}
           {running.length > 0 && <span className="activity-slot-text">{lead.title}</span>}
-          {attention.length > 0 && <span className="activity-slot-count">{attention.length}</span>}
-          {attention.length > 0 && <span className={`activity-dot is-${failure ? 'failure' : 'warning'}`} />}
+          {attention.length > 0 && (
+            <span className="activity-slot-attention">
+              <span className={`activity-dot is-${failure ? 'failure' : 'warning'}`} />
+              <span>{attention.length}</span>
+            </span>
+          )}
         </button>
       )}
       {/* In the page's body, not in the top bar, so that they work while the

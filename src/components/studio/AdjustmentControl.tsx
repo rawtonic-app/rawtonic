@@ -1,5 +1,6 @@
 import { memo, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { capturePendingSliderClick } from '../../store/useEditorStore';
 import { selectOnFocus } from '../../utils/selectOnFocus';
 import { MIN_SEND_INTERVAL_MS } from '../../hooks/useDragSend';
 import { resolveKeySteps, stepOf, type KeySteps, type StepSet } from './sliderFeel';
@@ -41,8 +42,8 @@ export interface AdjustmentControlProps {
 const THUMB = 9;
 /** A press this close to the thumb's centre grabs it without a jump. */
 const GRAB = 8;
-// Keep a stationary track click open for the desktop double-click gesture.
-// The image responds at once; a reset replaces the click in that history step.
+// Recognize a following click while its history entry is still pending.
+// Rendering always leaves drag mode at pointer-up.
 const CLICK_SETTLE_MS = 500;
 
 /**
@@ -119,6 +120,7 @@ export default memo(function AdjustmentControl({
   const trackRef = useRef<HTMLInputElement | null>(null);
   const active = useRef(false);
   const clickEnd = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const joinClick = useRef<(() => void) | null>(null);
   const trackMoved = useRef(false);
   const clickPosition = useRef({ x: 0, y: 0 });
   const frame = useRef<number | null>(null);
@@ -220,6 +222,7 @@ export default memo(function AdjustmentControl({
   const begin = () => {
     if (clickEnd.current !== null) clearTimeout(clickEnd.current);
     clickEnd.current = null;
+    joinClick.current = null;
     setDragging(true);
     if (active.current) return;
     active.current = true;
@@ -228,6 +231,7 @@ export default memo(function AdjustmentControl({
   const end = () => {
     if (clickEnd.current !== null) clearTimeout(clickEnd.current);
     clickEnd.current = null;
+    joinClick.current = null;
     // The view ends first: the drag's last frame shows the photo.
     showView(false);
     flush();
@@ -242,16 +246,18 @@ export default memo(function AdjustmentControl({
       end();
       return;
     }
-    // Release the pressed appearance/view immediately; only history waits.
-    showView(false);
-    flush();
-    fine.current = null;
-    setDragging(false);
-    clickEnd.current = setTimeout(end, CLICK_SETTLE_MS);
+    end();
+    joinClick.current = capturePendingSliderClick();
+    clickEnd.current = setTimeout(() => {
+      clickEnd.current = null;
+      joinClick.current = null;
+    }, CLICK_SETTLE_MS);
   };
   const settleClick = useRef<() => void>(() => {});
   settleClick.current = () => {
-    if (clickEnd.current !== null) end();
+    if (clickEnd.current !== null) clearTimeout(clickEnd.current);
+    clickEnd.current = null;
+    joinClick.current = null;
   };
   useEffect(() => {
     // A different control or command starts its own undo step, even if it
@@ -413,9 +419,10 @@ export default memo(function AdjustmentControl({
             // Two distinct track positions are two clicks, not a reset gesture.
             if (
               clickEnd.current !== null &&
-              Math.hypot(e.clientX - clickPosition.current.x, e.clientY - clickPosition.current.y) > GRAB
-            )
-              end();
+              Math.hypot(e.clientX - clickPosition.current.x, e.clientY - clickPosition.current.y) <= GRAB
+            ) {
+              joinClick.current?.();
+            }
             clickPosition.current = { x: e.clientX, y: e.clientY };
             begin();
             trackMoved.current = false;
@@ -457,6 +464,7 @@ export default memo(function AdjustmentControl({
         onPointerUp={trackEnd}
         onPointerCancel={end}
         onBlur={() => {
+          settleClick.current();
           if (active.current) end();
         }}
         onKeyDown={keys}

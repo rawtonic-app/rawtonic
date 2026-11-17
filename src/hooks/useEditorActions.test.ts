@@ -23,7 +23,7 @@ import {
   writeRecipeRepair
 } from './useEditorActions';
 import { useUIStore } from '../store/useUIStore';
-import { useEditorStore } from '../store/useEditorStore';
+import { capturePendingSliderClick, useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
@@ -725,6 +725,28 @@ describe('slider drag drafts', () => {
     expect(useEditorStore.getState().history.map((r) => r.exposure)).toEqual([-2, 0.1, 0.2]);
     useEditorStore.getState().undo();
     expect(useEditorStore.getState().adjustments.exposure).toBe(0.1);
+    unregister();
+  });
+
+  it('joins a click reset in history after ending the renderer draft at each release', () => {
+    vi.useFakeTimers();
+    const unregister = registerSliderDraftRenderer(() => true);
+    useEditorStore.setState({ isSliderDragging: true });
+    updateAdjustments({ exposure: 3 });
+    useEditorStore.setState({ isSliderDragging: false });
+    expect(useEditorStore.getState().adjustments.exposure).toBe(3);
+    const join = capturePendingSliderClick();
+    vi.advanceTimersByTime(100);
+    join();
+    useEditorStore.setState({ isSliderDragging: true });
+    updateAdjustments({ exposure: 0 });
+    useEditorStore.setState({ isSliderDragging: false });
+    expect(useEditorStore.getState().isSliderDragging).toBe(false);
+    expect(useEditorStore.getState().adjustments.exposure).toBe(0);
+    vi.advanceTimersByTime(600);
+    expect(useEditorStore.getState().history.map((r) => r.exposure)).toEqual([-2, 0]);
+    useEditorStore.getState().undo();
+    expect(useEditorStore.getState().adjustments.exposure).toBe(-2);
     unregister();
   });
 

@@ -34,6 +34,19 @@ it('shows running work with a ring, the count and the leading task', () => {
   expect(slot()!.getAttribute('aria-label')).toBe('Activity: 2 tasks running');
 });
 
+it('groups attention count with its dot separately from the running count', () => {
+  render(<ActivityCentre />);
+  act(() => {
+    store().start({ id: 'a', source: 'export', title: 'Exporting' });
+    store().start({ id: 'b', source: 'ai', title: 'Sky' });
+    store().report('warning', { id: 'w', source: 'xmp', title: 'XMP pending' });
+  });
+  expect(slot()!.querySelector('.activity-slot-count')!.textContent).toBe('2');
+  const attention = slot()!.querySelector('.activity-slot-attention')!;
+  expect(attention.textContent).toBe('1');
+  expect(attention.querySelector('.activity-dot.is-warning')).toBeTruthy();
+});
+
 it('keeps a dot for a failure until it is dismissed, red before amber', () => {
   render(<ActivityCentre />);
   act(() => void store().report('warning', { id: 'w', source: 'xmp', title: '3 XMP not updated' }));
