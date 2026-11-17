@@ -475,6 +475,10 @@ fn parse_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
     for node in doc.descendants().filter(|n| {
         n.is_element()
             && (packet_property(*n)
+                || (n.ancestors().any(|a| {
+                    a.has_tag_name((IPTC_CORE, "CreatorContactInfo")) && packet_property(a)
+                }) && (contact_key(n.tag_name().namespace(), n.tag_name().name()).is_some()
+                    || n.has_tag_name((RDF, "Description"))))
                 || (n.has_tag_name((RDF, "Description"))
                     && n.parent().is_some_and(|root| {
                         root.has_tag_name((RDF, "RDF"))
