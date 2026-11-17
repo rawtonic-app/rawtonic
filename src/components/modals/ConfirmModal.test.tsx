@@ -59,6 +59,30 @@ describe('ConfirmModal', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it.each([false, true])(
+    'focuses Cancel when a destructive follow-up reuses the dialog (close first: %s)',
+    (closeFirst) => {
+      const onConfirm = vi.fn();
+      const onClose = vi.fn();
+      const props = { isOpen: true, confirmVariant: 'destructive', cancelText: 'Cancel', onConfirm, onClose };
+      const view = render(<ConfirmModal {...props} title="Empty Trash?" confirmText="Move to Computer Trash" />);
+      const firstConfirm = screen.getByRole('button', { name: 'Move to Computer Trash' });
+      firstConfirm.focus();
+      if (closeFirst)
+        view.rerender(
+          <ConfirmModal {...props} isOpen={false} title="Empty Trash?" confirmText="Move to Computer Trash" />
+        );
+      // The OS failure arrives before the 300 ms unmount animation completes.
+      view.rerender(<ConfirmModal {...props} title="Delete Permanently?" confirmText="Delete Permanently" />);
+      const cancel = screen.getByRole('button', { name: 'Cancel' });
+      expect(document.activeElement).toBe(cancel);
+      expect(classes(cancel)).toContain('is-default');
+      fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
+      expect(onConfirm).not.toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalledOnce();
+    }
+  );
+
   it('confirms a destructive confirmation only from its own button', () => {
     const { onConfirm } = open('destructive');
     const confirm = screen.getByRole('button', { name: 'Delete Permanently' });

@@ -473,7 +473,7 @@ impl Library {
     fn known_assets(&self) -> Result<Vec<Known>> {
         let mut query = self.conn.prepare(
             "SELECT a.id,a.rel_path,r.path,r.external,a.size,a.mtime,a.fingerprint,a.sha256
-             FROM assets a JOIN roots r ON r.id=a.root_id ORDER BY a.rowid",
+             FROM assets a JOIN roots r ON r.id=a.root_id WHERE a.trashed=0 ORDER BY a.rowid",
         )?;
         let mut parents = HashMap::<PathBuf, PathBuf>::new();
         let rows = query.query_map([], |r| {

@@ -428,9 +428,14 @@ export interface TrashContents {
   entries: number;
   /** Set when some files could not be deleted yet. */
   note?: string | null;
+  operations?: FileOperationSummary[];
+  failures?: string[];
+  /** Successful entries relative to the library Trash folder. */
+  movedEntries?: string[];
+  remaining?: TrashContents | null;
 }
 
-/** The Empty Trash dialog's text: what goes for good, and that it cannot be undone. */
+/** Counts, destination and recovery for the Empty Trash dialog. */
 export function describeEmptyTrash(contents: TrashContents): string {
   const t = i18next.t.bind(i18next);
   const what =
@@ -439,7 +444,7 @@ export function describeEmptyTrash(contents: TrashContents): string {
       : contents.files > 0
         ? t('studio.library.trash.messageOnlyFiles', { count: contents.files, ...kind() })
         : t('studio.library.trash.messageEmptyFolders', kind());
-  return `${what} ${t('studio.library.trash.cannotUndo')}`;
+  return `${what} ${t('studio.library.trash.restoreHint')}`;
 }
 
 /** What a finished file operation did, with how to undo it (`hint`). */
@@ -690,8 +695,7 @@ export function useFileOperations(
     }
   }, [refreshImageList, refreshAllFolderTrees, followMoves]);
 
-  /** Empties the session's Trash folder for good, after a dialog naming
-   * what goes and saying it cannot be undone. */
+  /** Moves library Trash entries to the computer Trash after confirmation. */
   const handleEmptySessionTrash = useCallback(async () => {
     const { sessionDirectory } = useLibraryStore.getState();
     if (!sessionDirectory) return;
@@ -718,33 +722,91 @@ export function useFileOperations(
         confirmVariant: 'destructive',
         onConfirm: async () => {
           try {
-            await saveEditsFirst();
+            if (!(await saveEditsFirst([trashFolder]))) return;
             const result = await invoke<TrashContents>(Invokes.EmptySessionTrash, {
               session: sessionDirectory,
               photos: contents.photos,
               files: contents.files,
               entries: contents.entries
             });
-            clearFileUndoHistory();
-            if (result?.note) {
+            for (const operation of result?.operations ?? []) {
+              // Every returned operation committed a move, including folders and sidecar-only entries.
+              await fileAction(
+                () => Promise.resolve(operation),
+                'trash',
+                () => true
+              );
+            }
+            if (result?.failures?.length) {
+              const remaining = result.remaining;
+              useUIStore.getState().setUI({
+                confirmModalState: {
+                  isOpen: true,
+                  title: t('studio.library.trash.permanentTitle'),
+                  message: `${t('studio.library.trash.moveFailed')} ${t('studio.library.trash.messageFiles', { count: remaining?.files ?? 0 })}\n${result.failures.join('\n')}\n${t('studio.library.trash.cannotUndo')}`,
+                  confirmText: t('studio.library.trash.permanentConfirm'),
+                  confirmVariant: 'destructive',
+                  onConfirm: async () => {
+                    if (!remaining?.entries) return;
+                    try {
+                      const purged = await invoke<TrashContents>(Invokes.EmptySessionTrash, {
+                        session: sessionDirectory,
+                        photos: remaining.photos,
+                        files: remaining.files,
+                        entries: remaining.entries,
+                        permanently: true
+                      });
+                      clearFileUndoHistory();
+                      const editor = useEditorStore.getState();
+                      if (editor.selectedImage && inTrash(editor.selectedImage.path)) {
+                        if (useUIStore.getState().activeView === 'editor') handleBackToLibrary();
+                        editor.setEditor({ selectedImage: null });
+                      }
+                      const library = useLibraryStore.getState();
+                      library.setLibrary({
+                        multiSelectedPaths: library.multiSelectedPaths.filter((path) => !inTrash(path)),
+                        libraryActivePath:
+                          library.libraryActivePath && inTrash(library.libraryActivePath)
+                            ? null
+                            : library.libraryActivePath
+                      });
+                      if (purged?.note) notify.warn(purged.note, { autoClose: false });
+                      await refreshAllFolderTrees();
+                      await refreshImageList();
+                      void recountAfterFileOperation();
+                    } catch (error) {
+                      notify.error(t('studio.library.trash.failed', { error: String(error) }));
+                    }
+                  }
+                }
+              });
+            } else if (result?.note) {
               notify.warn(t('studio.library.trash.incomplete', { note: result.note }), { autoClose: false });
             } else if (contents.photos > 0) {
               notify.success(t('studio.library.trash.emptied', { count: contents.photos, ...kind() }));
             } else {
               notify.success(t('studio.library.trash.emptiedNow'));
             }
-            // Nothing from the Trash stays selected or open.
+            const moved = (path: string) =>
+              result?.movedEntries
+                ? result.movedEntries.some((entry) => {
+                    const separator = trashFolder.includes('\\') && !trashFolder.includes('/') ? '\\' : '/';
+                    const movedPath = `${trashFolder}${separator}${entry.replace(/[\\/]/g, separator)}`;
+                    return sourceOf(path) === movedPath || isBelow(sourceOf(path), movedPath);
+                  })
+                : !result?.failures?.length && inTrash(path);
+            // Keep selection only for entries that stayed in the library Trash.
             const { selectedImage, setEditor } = useEditorStore.getState();
-            if (selectedImage && inTrash(selectedImage.path)) {
+            if (selectedImage && moved(selectedImage.path)) {
               if (useUIStore.getState().activeView === 'editor') handleBackToLibrary();
               setEditor({ selectedImage: null });
             }
             const library = useLibraryStore.getState();
-            const kept = library.multiSelectedPaths.filter((p) => !inTrash(p));
+            const kept = library.multiSelectedPaths.filter((p) => !moved(p));
             library.setLibrary({
               multiSelectedPaths: kept,
               libraryActivePath:
-                library.libraryActivePath && inTrash(library.libraryActivePath) ? null : library.libraryActivePath,
+                library.libraryActivePath && moved(library.libraryActivePath) ? null : library.libraryActivePath,
               ...(library.currentFolderPath && isBelow(library.currentFolderPath, trashFolder)
                 ? { currentFolderPath: trashFolder }
                 : {})

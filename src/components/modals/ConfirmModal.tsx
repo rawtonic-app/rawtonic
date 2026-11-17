@@ -38,6 +38,7 @@ export default function ConfirmModal({
   const { t } = useTranslation();
   const [isMounted, setIsMounted] = useState(false);
   const [show, setShow] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const secondaryRef = useRef<HTMLButtonElement>(null);
   // A destructive confirmation (Delete Permanently, …) is never the default: Cancel
@@ -63,6 +64,15 @@ export default function ConfirmModal({
       return () => clearTimeout(timer);
     }
   }, [isOpen]);
+
+  // autoFocus only runs when the button mounts. A quick OS failure can open
+  // the next confirmation while these buttons still exist for the close
+  // animation, retaining focus on the previously clicked destructive button.
+  useEffect(() => {
+    if (isOpen && isMounted) {
+      (destructive ? cancelRef : confirmRef).current?.focus({ preventScroll: true });
+    }
+  }, [isOpen, isMounted, destructive, title, confirmText]);
 
   const handleConfirm = useCallback(() => {
     if (onConfirm) {
@@ -126,10 +136,11 @@ export default function ConfirmModal({
         <h2 className="studio-dialog-title" id="confirm-modal-title">
           {title}
         </h2>
-        <p className="m-0 whitespace-pre-wrap wrap-anywhere">{message}</p>
+        <p className="m-0 max-h-[50vh] overflow-y-auto whitespace-pre-wrap wrap-anywhere">{message}</p>
         <div className="studio-dialog-footer">
           <Button
             // The default button shows that it is: Enter cancels.
+            ref={cancelRef}
             className={destructive ? 'is-default' : undefined}
             onClick={handleCancel}
             variant="ghost"
