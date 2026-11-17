@@ -492,6 +492,22 @@ describe('Dropping photographs onto the window', () => {
       expect(offer).toBeTruthy();
       offer!.run();
       expect(shown).toHaveBeenCalledTimes(1);
+
+      // Another library open: that import's Show opens nothing there.
+      const library = useLibraryStore.getState().sessionDirectory;
+      useLibraryStore.setState({ sessionDirectory: '/jobs/Other' });
+      offer!.run();
+      expect(shown).toHaveBeenCalledTimes(1);
+      useLibraryStore.setState({ sessionDirectory: library });
+
+      // The next import withdraws the last one's Show.
+      vi.mocked(toast.success).mockReturnValueOnce('import-show');
+      drop(['/Volumes/CARD/DCIM']);
+      await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
+      await waitFor(() => expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'session_ingest')).toHaveLength(2));
+      drop(['/Volumes/CARD/DCIM']);
+      await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
+      await waitFor(() => expect(toast.dismiss).toHaveBeenCalledWith('import-show'));
     } finally {
       window.removeEventListener(SHOW_PREVIOUS_IMPORT, shown);
     }

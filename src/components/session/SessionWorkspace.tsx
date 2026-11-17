@@ -38,6 +38,8 @@ import {
   X
 } from 'lucide-react';
 import { notify } from '../../activity/notify';
+/** A notice's id (`notify`). */
+type NoticeId = ReturnType<typeof notify.success>;
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -202,7 +204,8 @@ function reportIngest(
     /** Offered as Show: the user worked meanwhile, so the view stayed. */
     show?: () => void;
   }
-) {
+): NoticeId | null {
+  let showNotice: NoticeId | null = null;
   const failures = results.filter((r) => r.error);
   // A companion JPEG is part of its RAW's photograph, not one of its own.
   const photos = results.filter((r) => !r.companion_of);
@@ -249,7 +252,7 @@ function reportIngest(
       .join(' · ');
     if (show) {
       const label = i18n.t('session.toasts.showImported');
-      notify.success(
+      showNotice = notify.success(
         ({ closeToast }) => (
           <div>
             <span>{summary}</span>{' '}
@@ -276,6 +279,7 @@ function reportIngest(
     notify.error(i18n.t('session.toasts.albumAddFailed', { name: album, error: albumError }), {
       autoClose: false
     });
+  return showNotice;
 }
 /** Mirrors `ingest::queue::JobSummary` (`session_ingest_jobs`). */
 interface IngestJobSummary {
@@ -1839,6 +1843,16 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
    * Folder… in a catalog, which adds where they are): one task of the
    * activity centre with Cancel, the photographs appearing as each comes
    * in, the result reported, the library's counts refreshed. */
+  /** The notice offering Show for the last import (`reportIngest`). */
+  const importShowNotice = useRef<NoticeId | null>(null);
+  // Another library: the last import's Show is not for it.
+  useEffect(
+    () => () => {
+      notify.dismiss(importShowNotice.current ?? undefined);
+      importShowNotice.current = null;
+    },
+    [session?.directory]
+  );
   const runIngest = async (
     files: string[],
     {
@@ -1863,6 +1877,9 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
   ) => {
     if (!session) return;
     cancelRequested.current = false;
+    // The last import's Show would open this one's photographs.
+    notify.dismiss(importShowNotice.current ?? undefined);
+    importShowNotice.current = null;
     setImporting(true);
     setProgress({ current: 0, total: files.length, mbps: 0 });
     let activity: UserActivity | null = null;
@@ -1912,11 +1929,18 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
             albumError = String(e);
           }
       }
+      const card = cancelRequested.current ? null : cardToEject(eject, files, results);
+      if (card)
+        void invoke(Invokes.SessionEjectCard, { mountPoint: card })
+          .then(() => notify.success(t('session.ingest.ejected', { name: cardName(card) })))
+          .catch((e) => notify.warn(t('session.ingest.ejectFailed', { name: cardName(card), error: String(e) })));
+      await refresh();
       // Lightroom shows the new photographs after Import; a dated destination
       // (Photos/2026/2026-10-31) would otherwise leave the shown folder empty.
       // A photograph open in Develop, the loupe or full screen stays open, and
       // so does whatever the user culls while the import runs: the view, its
       // selection and their rating keys stay theirs, the notice offers Show.
+      // Decided now, after the refresh, with what is shown now.
       const endView = importEndView({
         // A JPEG joining a RAW already there forms no import batch.
         imported: results.some((r) => r.destination && !r.skipped && !r.error && !r.companion_of),
@@ -1925,19 +1949,22 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
         acted: activity.acted()
       });
       activity.stop();
-      reportIngest(results, {
+      const directory = session.directory;
+      importShowNotice.current = reportIngest(results, {
         adding,
         cancelled: results.length < files.length,
         album: album?.name ?? null,
         albumError,
-        show: endView === 'offer' ? () => window.dispatchEvent(new Event(SHOW_PREVIOUS_IMPORT)) : undefined
+        // Only for this library, while this import is its newest: the notice
+        // goes when the library changes or the next import starts.
+        show:
+          endView === 'offer'
+            ? () => {
+                if (useLibraryStore.getState().sessionDirectory === directory)
+                  window.dispatchEvent(new Event(SHOW_PREVIOUS_IMPORT));
+              }
+            : undefined
       });
-      const card = cancelRequested.current ? null : cardToEject(eject, files, results);
-      if (card)
-        void invoke(Invokes.SessionEjectCard, { mountPoint: card })
-          .then(() => notify.success(t('session.ingest.ejected', { name: cardName(card) })))
-          .catch((e) => notify.warn(t('session.ingest.ejectFailed', { name: cardName(card), error: String(e) })));
-      await refresh();
       if (endView === 'show') window.dispatchEvent(new Event(SHOW_PREVIOUS_IMPORT));
     } catch (e) {
       notify.error(String(e), { autoClose: false });
