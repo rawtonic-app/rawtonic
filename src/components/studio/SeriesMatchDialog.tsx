@@ -1,3 +1,4 @@
+import { formatNumber } from '../../utils/formatNumber';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -77,7 +78,7 @@ export function proposalValues(proposal: MatchProposal): Record<string, unknown>
 }
 
 const fileName = (path: string) => sourceFileName(path);
-const signed = (value: number, digits = 2) => `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(digits)}`;
+const signed = (value: number, digits = 2) => formatNumber(value, digits, { signed: true });
 
 export function SeriesMatchDialogHost() {
   const request = useSeriesMatchDialog((s) => s.request);
