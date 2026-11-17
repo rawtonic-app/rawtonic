@@ -112,7 +112,10 @@ beforeEach(() => {
         return new ArrayBuffer(0);
       case 'session_ingest_capture_info':
         return { iso: 'ISO 200', exposure: '1/500 s', aperture: 'f/4', focalLength: '85 mm' };
+      case 'session_previous_import':
+        return { batch: { id: importBatch, kind: 'ingest', created_at: '', count: 2 }, paths: [] };
       case 'session_ingest': {
+        importBatch += 1;
         const { sources, folder } = args as { sources: string[]; folder: string | null };
         return sources.map((source) => ({
           source,
@@ -127,6 +130,8 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+/** The newest import batch's id (`session_previous_import`). */
+let importBatch = 0;
 
 /** The workspace with the last session reopened and the window's drop handler attached. */
 async function open(navigate = vi.fn(async () => {})) {
@@ -491,14 +496,22 @@ describe('Dropping photographs onto the window', () => {
       const offer = options?.actions?.find((action) => action.label === 'Show');
       expect(offer).toBeTruthy();
       offer!.run();
-      expect(shown).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(shown).toHaveBeenCalledTimes(1));
 
       // Another library open: that import's Show opens nothing there.
       const library = useLibraryStore.getState().sessionDirectory;
       useLibraryStore.setState({ sessionDirectory: '/jobs/Other' });
       offer!.run();
+      await act(async () => {});
       expect(shown).toHaveBeenCalledTimes(1);
       useLibraryStore.setState({ sessionDirectory: library });
+
+      // A newer batch (a hot folder's or a tethered camera's capture): Show
+      // would open other photographs, so it does nothing.
+      importBatch += 1;
+      offer!.run();
+      await act(async () => {});
+      expect(shown).toHaveBeenCalledTimes(1);
 
       // The next import withdraws the last one's Show.
       vi.mocked(toast.success).mockReturnValueOnce('import-show');

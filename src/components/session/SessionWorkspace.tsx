@@ -1950,18 +1950,26 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       });
       activity.stop();
       const directory = session.directory;
+      // Show opens this import's batch only: a newer one (the next import, a
+      // hot folder's or a tethered camera's capture) makes it do nothing, and
+      // another library open too; the notice goes when either changes here.
+      const batch =
+        endView === 'offer' ? ((await previousImport(directory).catch(() => null))?.batch?.id ?? null) : null;
       importShowNotice.current = reportIngest(results, {
         adding,
         cancelled: results.length < files.length,
         album: album?.name ?? null,
         albumError,
-        // Only for this library, while this import is its newest: the notice
-        // goes when the library changes or the next import starts.
         show:
-          endView === 'offer'
+          batch !== null
             ? () => {
-                if (useLibraryStore.getState().sessionDirectory === directory)
-                  window.dispatchEvent(new Event(SHOW_PREVIOUS_IMPORT));
+                if (useLibraryStore.getState().sessionDirectory !== directory) return;
+                void previousImport(directory)
+                  .then(({ batch: newest }) => {
+                    if (newest?.id === batch && useLibraryStore.getState().sessionDirectory === directory)
+                      window.dispatchEvent(new Event(SHOW_PREVIOUS_IMPORT));
+                  })
+                  .catch(() => {});
               }
             : undefined
       });
