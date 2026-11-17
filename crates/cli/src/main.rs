@@ -1502,7 +1502,7 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
         job: args.job,
         date: args
             .date
-            .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string()),
+            .unwrap_or_else(|| jiff::ZonedDateTime::now().strftime("%Y-%m-%d").to_string()),
         count: total,
     };
     let written =

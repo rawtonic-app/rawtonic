@@ -7,8 +7,10 @@ use std::time::Duration;
 
 use crate::formats::is_raw_file;
 use crate::output_color_space::OutputColorSpace;
-use chrono::{DateTime, Local, LocalResult, NaiveDateTime, TimeZone, Utc};
 use exif::Exif;
+use jiff::Timestamp;
+use jiff::civil::DateTime;
+use jiff::tz::{AmbiguousOffset, Offset, TimeZone};
 use little_exif::exif_tag::ExifTag;
 use little_exif::filetype::FileExtension;
 use little_exif::ifd::ExifTagGroup;
@@ -233,7 +235,7 @@ pub fn clean_creation_datetime_str(s: &str) -> &str {
 
 pub fn fmt_date_str(s: String) -> String {
     if let Some(dt) = parse_creation_datetime(&s) {
-        return dt.format("%Y-%m-%d %H:%M:%S").to_string();
+        return dt.strftime("%Y-%m-%d %H:%M:%S").to_string();
     }
     clean_creation_datetime_str(&s).to_string()
 }
@@ -242,9 +244,25 @@ pub fn fmt_date_str(s: String) -> String {
 /// display, and readers such as ImageIO drop dates in that form.
 pub fn exif_datetime(s: &str) -> String {
     match parse_creation_datetime(s) {
-        Some(dt) => dt.format("%Y:%m:%d %H:%M:%S").to_string(),
+        Some(dt) => {
+            let mut text = dt.strftime("%Y:%m:%d %H:%M:%S").to_string();
+            // A leap second stays one: jiff reads `:60` as `:59`, chrono
+            // kept it (DEPC1).
+            if dt.second() == 59 && leap_second(clean_creation_datetime_str(s)) {
+                text.replace_range(text.len() - 2.., "60");
+            }
+            text
+        }
         None => clean_creation_datetime_str(s).to_string(),
     }
+}
+
+/// `text` (a date and time) says second 60.
+fn leap_second(text: &str) -> bool {
+    text.split([' ', 'T'])
+        .nth(1)
+        .and_then(|time| time.split(':').nth(2))
+        .is_some_and(|seconds| seconds.get(..2) == Some("60"))
 }
 
 pub fn normalize_creation_datetime(s: &str) -> Option<String> {
@@ -253,7 +271,7 @@ pub fn normalize_creation_datetime(s: &str) -> Option<String> {
     Some(format!("{} {}", date.replace(':', "-"), time))
 }
 
-pub fn parse_creation_datetime(s: &str) -> Option<NaiveDateTime> {
+pub fn parse_creation_datetime(s: &str) -> Option<DateTime> {
     let clean = clean_creation_datetime_str(s);
     if clean.is_empty() {
         return None;
@@ -261,13 +279,14 @@ pub fn parse_creation_datetime(s: &str) -> Option<NaiveDateTime> {
 
     let normalized = normalize_creation_datetime(clean);
     for candidate in std::iter::once(clean).chain(normalized.as_deref()) {
+        let candidate = &*nanosecond_fraction(candidate);
         for format in [
             "%Y:%m:%d %H:%M:%S",
             "%Y:%m:%d %H:%M:%S%.f",
             "%Y-%m-%d %H:%M:%S",
             "%Y-%m-%d %H:%M:%S%.f",
         ] {
-            if let Ok(dt) = NaiveDateTime::parse_from_str(candidate, format) {
+            if let Ok(dt) = DateTime::strptime(format, candidate) {
                 return Some(dt);
             }
         }
@@ -276,20 +295,95 @@ pub fn parse_creation_datetime(s: &str) -> Option<NaiveDateTime> {
     None
 }
 
-pub fn creation_datetime_to_utc(dt: NaiveDateTime) -> DateTime<Utc> {
-    match Local.from_local_datetime(&dt) {
-        LocalResult::Single(local_dt) | LocalResult::Ambiguous(local_dt, _) => {
-            local_dt.with_timezone(&Utc)
+/// `text` with a fraction of a second after its last `.` cut to nine
+/// digits (nanoseconds; further digits are dropped, as they always were).
+fn nanosecond_fraction(text: &str) -> std::borrow::Cow<'_, str> {
+    match text.rsplit_once('.') {
+        Some((_, digits)) if digits.len() > 9 && digits.bytes().all(|b| b.is_ascii_digit()) => {
+            text[..text.len() - (digits.len() - 9)].into()
         }
-        LocalResult::None => DateTime::from_naive_utc_and_offset(dt, Utc),
+        _ => text.into(),
     }
 }
 
-pub fn parse_creation_field(field: &exif::Field) -> Option<DateTime<Utc>> {
+/// The instant of a capture time without a UTC offset: the camera's wall
+/// time in the computer's time zone, by the rules of this platform
+/// (`LocalRules`).
+pub fn creation_datetime_to_utc(dt: DateTime) -> Timestamp {
+    let rules = if cfg!(windows) {
+        LocalRules::Windows
+    } else {
+        LocalRules::Unix
+    };
+    creation_datetime_in(&TimeZone::system(), dt, rules)
+}
+
+/// How a wall time at a daylight-saving change becomes an instant: as
+/// chrono 0.4 read it until 2026-11 (DEPC1), whose two backends differed.
+/// Pinned by `tests/local_capture_time.rs` (Unix, the computer's zone) and
+/// the tests below (both rules, an explicit zone).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalRules {
+    /// chrono's tz database lookup on whole seconds: a wall time the clocks
+    /// passed twice, its end included, takes the offset after the change
+    /// (the later instant); the first second of a skipped hour the offset
+    /// before it; a later skipped second is read as UTC.
+    Unix,
+    /// chrono's Windows lookup at full precision: a wall time the clocks
+    /// passed twice, both ends included, takes the offset before the change
+    /// (the earlier instant); a skipped hour's exact start the offset before
+    /// it, its exact end the offset after it, anything between is read as
+    /// UTC.
+    Windows,
+}
+
+/// The instant of wall time `dt` in `zone` by `rules`. Outside the instants
+/// jiff holds, the nearest one.
+pub fn creation_datetime_in(zone: &TimeZone, dt: DateTime, rules: LocalRules) -> Timestamp {
+    let probe = match rules {
+        LocalRules::Unix => dt.with().subsec_nanosecond(0).build().unwrap_or(dt),
+        LocalRules::Windows => dt,
+    };
+    let nanosecond = jiff::SignedDuration::from_nanos(1);
+    let offset = match (zone.to_ambiguous_timestamp(probe).offset(), rules) {
+        (AmbiguousOffset::Fold { after, .. }, LocalRules::Unix) => after,
+        (AmbiguousOffset::Fold { before, .. }, LocalRules::Windows) => before,
+        (AmbiguousOffset::Unambiguous { offset }, LocalRules::Windows) => {
+            // The end of a fold still counts as the fold.
+            let previous = probe
+                .checked_sub(nanosecond)
+                .map(|p| zone.to_ambiguous_timestamp(p).offset());
+            match previous {
+                Ok(AmbiguousOffset::Fold { before, after }) if after == offset => before,
+                _ => offset,
+            }
+        }
+        (AmbiguousOffset::Unambiguous { offset }, LocalRules::Unix) => offset,
+        (AmbiguousOffset::Gap { before, .. }, _) => {
+            let gap_start = before.to_timestamp(probe).ok().filter(|instant| {
+                instant
+                    .checked_sub(nanosecond)
+                    .is_ok_and(|just_before| zone.to_offset(just_before) == before)
+            });
+            if gap_start.is_some() {
+                before
+            } else {
+                Offset::UTC
+            }
+        }
+    };
+    offset.to_timestamp(dt).unwrap_or(if dt.year() < 0 {
+        Timestamp::MIN
+    } else {
+        Timestamp::MAX
+    })
+}
+
+pub fn parse_creation_field(field: &exif::Field) -> Option<Timestamp> {
     parse_creation_datetime(&field.display_value().to_string()).map(creation_datetime_to_utc)
 }
 
-pub fn parse_raw_creation_date(date_str: Option<&str>) -> Option<DateTime<Utc>> {
+pub fn parse_raw_creation_date(date_str: Option<&str>) -> Option<Timestamp> {
     parse_creation_datetime(date_str?).map(creation_datetime_to_utc)
 }
 
@@ -819,7 +913,7 @@ pub fn extract_metadata(file_bytes: &[u8]) -> Option<HashMap<String, String>> {
 pub fn try_capture_date_with(
     path: &Path,
     exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
-) -> Option<DateTime<Utc>> {
+) -> Option<Timestamp> {
     if let Some(map) = exif_sidecar()
         && let Some(dt_str) = map.get("DateTimeOriginal").or(map.get("CreateDate"))
         && let Some(dt) = parse_creation_datetime(dt_str)
@@ -864,7 +958,7 @@ pub fn try_capture_date_with(
 pub fn capture_date_with(
     path: &Path,
     exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
-) -> DateTime<Utc> {
+) -> Timestamp {
     if let Some(dt) = try_capture_date_with(path, exif_sidecar) {
         return dt;
     }
@@ -872,8 +966,8 @@ pub fn capture_date_with(
     fs::metadata(path)
         .ok()
         .and_then(|m| m.created().ok())
-        .map(DateTime::<Utc>::from)
-        .unwrap_or_else(Utc::now)
+        .and_then(|time| Timestamp::try_from(time).ok())
+        .unwrap_or_else(Timestamp::now)
 }
 
 pub fn copy_full_exif_from_source(
@@ -1943,6 +2037,102 @@ pub fn record_lightroom_orientation(recipe: &mut Value, source: &Path) {
 
 #[cfg(test)]
 mod tests {
+
+    /// chrono kept a leap second when it wrote the EXIF form (DEPC1).
+    #[test]
+    fn a_leap_second_is_written_as_it_was_read() {
+        for (kept, written) in [
+            ("2016:12:31 23:59:60", "2016:12:31 23:59:60"),
+            ("2016-12-31 23:59:60", "2016:12:31 23:59:60"),
+            ("2016-12-31T23:59:60.5", "2016:12:31 23:59:60"),
+            ("2016:12:31 23:59:59", "2016:12:31 23:59:59"),
+        ] {
+            assert_eq!(super::exif_datetime(kept), written, "{kept}");
+        }
+    }
+
+    /// chrono 0.4's readings of local wall times at both daylight-saving
+    /// changes of 2026 in Zurich, for each of its backends (DEPC1). Unix
+    /// values were measured with chrono on macOS; Windows values follow
+    /// chrono's `lookup_with_dst_transitions` (offset/local/mod.rs).
+    #[test]
+    fn local_wall_times_at_daylight_saving_changes_read_as_chrono_did() {
+        use super::{LocalRules, creation_datetime_in};
+        let zone = jiff::tz::TimeZone::get("Europe/Zurich").unwrap();
+        let read = |text: &str, rules| {
+            let dt = jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S%.f", text).unwrap();
+            let t = creation_datetime_in(&zone, dt, rules);
+            (t.as_second(), t.subsec_nanosecond())
+        };
+        for (text, unix, windows) in [
+            (
+                "2026-07-01 12:00:00",
+                (1_782_900_000, 0),
+                (1_782_900_000, 0),
+            ),
+            // Spring forward, 02:00 → 03:00.
+            (
+                "2026-03-29 01:59:59",
+                (1_774_745_999, 0),
+                (1_774_745_999, 0),
+            ),
+            (
+                "2026-03-29 02:00:00",
+                (1_774_746_000, 0),
+                (1_774_746_000, 0),
+            ),
+            (
+                "2026-03-29 02:00:00.5",
+                (1_774_746_000, 500_000_000),
+                (1_774_749_600, 500_000_000),
+            ),
+            (
+                "2026-03-29 02:30:00",
+                (1_774_751_400, 0),
+                (1_774_751_400, 0),
+            ),
+            (
+                "2026-03-29 02:59:59.5",
+                (1_774_753_199, 500_000_000),
+                (1_774_753_199, 500_000_000),
+            ),
+            (
+                "2026-03-29 03:00:00",
+                (1_774_746_000, 0),
+                (1_774_746_000, 0),
+            ),
+            // Fall back, 03:00 → 02:00.
+            (
+                "2026-10-25 01:59:59",
+                (1_792_886_399, 0),
+                (1_792_886_399, 0),
+            ),
+            (
+                "2026-10-25 02:00:00",
+                (1_792_890_000, 0),
+                (1_792_886_400, 0),
+            ),
+            (
+                "2026-10-25 02:30:00",
+                (1_792_891_800, 0),
+                (1_792_888_200, 0),
+            ),
+            (
+                "2026-10-25 03:00:00",
+                (1_792_893_600, 0),
+                (1_792_890_000, 0),
+            ),
+            (
+                "2026-10-25 03:00:00.5",
+                (1_792_893_600, 500_000_000),
+                (1_792_893_600, 500_000_000),
+            ),
+        ] {
+            assert_eq!(read(text, LocalRules::Unix), unix, "Unix {text}");
+            assert_eq!(read(text, LocalRules::Windows), windows, "Windows {text}");
+        }
+    }
+
     use super::*;
 
     #[test]

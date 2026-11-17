@@ -84,7 +84,7 @@ impl CaptureFacts {
             captured: self
                 .captured
                 .as_ref()
-                .filter(|t| chrono::NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S").is_ok())
+                .filter(|t| jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S", t).is_ok())
                 .cloned(),
             // Beside a time only, in the forms XMP can state them.
             captured_subsec: self

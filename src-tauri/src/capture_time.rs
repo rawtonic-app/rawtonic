@@ -76,7 +76,7 @@ fn source_time(path: &Path) -> Option<(CaptureTime, String)> {
     if matches!(capture.date_source, DateSource::Modified | DateSource::Now) {
         return None;
     }
-    let local = capture.captured?.format("%Y-%m-%d %H:%M:%S").to_string();
+    let local = capture.captured?.strftime("%Y-%m-%d %H:%M:%S").to_string();
     let time =
         CaptureTime::new(&local, capture.subsec.as_deref(), capture.offset.as_deref()).ok()?;
     Some((time, capture.camera().unwrap_or_default()))
@@ -705,8 +705,9 @@ mod tests {
         let exif = pinned[0].exif(&b).unwrap();
         assert_eq!(exif["DateTimeOriginal"], "2026-10-31 00:45:00");
         assert!(exif.contains_key(crate::exif_processing::CAPTURE_CORRECTED));
-        use chrono::{Datelike, Timelike};
-        let date = pinned[0].capture_date(&b).with_timezone(&chrono::Local);
+        let date = pinned[0]
+            .capture_date(&b)
+            .to_zoned_datetime(jiff::tz::TimeZone::system());
         assert_eq!((date.day(), date.hour(), date.minute()), (31, 0, 45));
         let untouched =
             crate::export_processing::pin_photos(std::slice::from_ref(&a_path), None, None, None)

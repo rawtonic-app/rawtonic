@@ -400,16 +400,17 @@ fn auto_stack_on_ten_thousand_rows() {
         .iter()
         .map(|p| lib.asset_at(p).unwrap().unwrap().id)
         .collect();
-    let start = chrono::NaiveDate::from_ymd_opt(2026, 10, 30)
-        .unwrap()
-        .and_hms_opt(8, 0, 0)
-        .unwrap();
+    let start = jiff::civil::date(2026, 10, 30).at(8, 0, 0, 0);
     for (i, id) in ids.iter().enumerate() {
         let (burst, frame) = (i / 5, i % 5);
-        let time = start + chrono::Duration::seconds((burst * 30 + frame / 3) as i64);
+        let time = start
+            .checked_add(jiff::SignedDuration::from_secs(
+                (burst * 30 + frame / 3) as i64,
+            ))
+            .unwrap();
         let bracket = burst % 10 == 0;
         let f = facts(
-            &time.format("%Y-%m-%d %H:%M:%S").to_string(),
+            &time.strftime("%Y-%m-%d %H:%M:%S").to_string(),
             Some(if bracket { 2 } else { 0 }),
             Some(if bracket {
                 [0.0, -1.0, 1.0, -2.0, 2.0][frame]

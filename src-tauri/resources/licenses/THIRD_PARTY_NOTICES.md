@@ -404,10 +404,15 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | javascriptcore-rs | 1.1.2 | MIT |
 | javascriptcore-rs-sys | 1.1.1 | MIT |
 | jiff | 0.2.35 | Unlicense OR MIT |
+| jiff | 1.0.0 | Unlicense OR MIT |
 | jiff-core | 0.1.0 | Unlicense OR MIT |
+| jiff-core | 1.0.0 | Unlicense OR MIT |
 | jiff-static | 0.2.35 | Unlicense OR MIT |
+| jiff-static | 1.0.0 | Unlicense OR MIT |
 | jiff-tzdb | 0.1.8 | Unlicense OR MIT |
+| jiff-tzdb | 1.0.0 | Unlicense OR MIT |
 | jiff-tzdb-platform | 0.1.3 | Unlicense OR MIT |
+| jiff-tzdb-platform | 1.0.0 | Unlicense OR MIT |
 | jni | 0.21.1 | MIT/Apache-2.0 |
 | jni | 0.22.4 | MIT OR Apache-2.0 |
 | jni-macros | 0.22.4 | MIT OR Apache-2.0 |
@@ -807,7 +812,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | tracing-attributes | 0.1.31 | MIT |
 | tracing-core | 0.1.36 | MIT |
 | transpose | 0.2.3 | MIT OR Apache-2.0 |
-| trash | 5.2.6 | MIT |
+| trash | 5.4.0 | MIT |
 | tray-icon | 0.25.1 | MIT OR Apache-2.0 |
 | try-lock | 0.2.5 | MIT |
 | turbojpeg | 1.5.1 | Unlicense OR MIT |

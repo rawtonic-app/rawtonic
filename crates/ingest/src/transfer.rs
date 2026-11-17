@@ -408,7 +408,7 @@ pub fn copy_library(
     let mut receipt = Receipt {
         version: 1,
         purpose: purpose.into(),
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: receipt_time(),
         photographs: assets.len(),
         files: BTreeMap::new(),
         missing_resources: copier.missing.len(),
@@ -601,4 +601,42 @@ pub(crate) fn flush_staged(path: PathBuf) -> Result<()> {
     fs::File::open(&path)
         .and_then(|file| file.sync_all())
         .with_context(|| format!("Cannot flush {}", path.display()))
+}
+
+/// When a copy was made, as its receipt states it: RFC 3339 in UTC with a
+/// `+00:00` offset and the fraction in groups of three digits (none when
+/// zero), as receipts always said it.
+fn receipt_time() -> String {
+    let now = jiff::Timestamp::now();
+    let fraction = match now.subsec_nanosecond() {
+        0 => String::new(),
+        n if n % 1_000_000 == 0 => format!(".{:03}", n / 1_000_000),
+        n if n % 1_000 == 0 => format!(".{:06}", n / 1_000),
+        n => format!(".{n:09}"),
+    };
+    format!("{}{fraction}+00:00", now.strftime("%Y-%m-%dT%H:%M:%S"))
+}
+
+#[cfg(test)]
+mod tests {
+    /// The receipt's time keeps its spelling (pinned before the date library
+    /// changed, DEPC1).
+    #[test]
+    fn receipt_times_keep_their_spelling() {
+        let shape = |text: &str, pattern: &str| {
+            text.len() == pattern.len()
+                && text.bytes().zip(pattern.bytes()).all(|(t, p)| match p {
+                    b'd' => t.is_ascii_digit(),
+                    _ => t == p,
+                })
+        };
+        let time = super::receipt_time();
+        let fraction = ["", ".ddd", ".dddddd", ".ddddddddd"];
+        assert!(
+            fraction
+                .iter()
+                .any(|f| shape(&time, &format!("dddd-dd-ddTdd:dd:dd{f}+00:00"))),
+            "{time}"
+        );
+    }
 }

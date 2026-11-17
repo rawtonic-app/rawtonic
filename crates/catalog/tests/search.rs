@@ -410,8 +410,11 @@ fn rules_that_cannot_be_evaluated_are_refused() {
 fn relative_dates_count_back_from_today() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids) = library(d.path());
-    let today = chrono::Local::now().date_naive();
-    let day = |n: u64| format!("{} 09:00:00", today - chrono::Days::new(n));
+    let today = jiff::ZonedDateTime::now().date();
+    let day = |n: i64| {
+        let date = today.checked_sub(jiff::Span::new().days(n)).unwrap();
+        format!("{date} 09:00:00")
+    };
     for (id, captured) in ids.iter().zip([day(0), day(6), day(7), day(400)]) {
         lib.record_facts(
             id,

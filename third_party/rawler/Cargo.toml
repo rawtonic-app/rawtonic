@@ -27,7 +27,7 @@ samplecheck = []
 backtrace = "0.3"
 bitstream-io = "4.1"
 byteorder = "1"
-chrono = "0.4"
+jiff = "1.0.0"
 clap = { version = "4.4.0", optional = true }
 enumn = "0.1"
 hex = "0.4"

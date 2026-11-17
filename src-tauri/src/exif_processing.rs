@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::image_processing::ImageMetadata;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 pub fn load_sidecar(sidecar_path: &Path) -> ImageMetadata {
     if let Some(value) = crate::session_bridge::read_editor_sidecar(sidecar_path)
@@ -98,11 +98,11 @@ pub fn read_rrexif_sidecar(image_path: &Path) -> Option<HashMap<String, String>>
     None
 }
 
-pub fn try_get_exif_creation_date(path: &Path) -> Option<DateTime<Utc>> {
+pub fn try_get_exif_creation_date(path: &Path) -> Option<Timestamp> {
     try_capture_date_with(path, &|| read_rrexif_sidecar(path))
 }
 
-pub fn get_creation_date_from_path(path: &Path) -> DateTime<Utc> {
+pub fn get_creation_date_from_path(path: &Path) -> Timestamp {
     capture_date_with(path, &|| read_rrexif_sidecar(path))
 }
 
