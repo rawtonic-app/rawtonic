@@ -502,18 +502,7 @@ fn parse_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
                 }
             }
         }
-        let value = || {
-            node.descendants()
-                .find(|n| {
-                    n.is_element()
-                        && n.tag_name().namespace() == Some(RDF)
-                        && n.tag_name().name() == "li"
-                })
-                .and_then(|n| n.text())
-                .or_else(|| node.text())
-                .unwrap_or("")
-                .to_string()
-        };
+        let value = || property_text(node);
         match (name.namespace(), name.name()) {
             (Some(XMP), "Rating") => {
                 let rating: i8 = value().parse()?;
@@ -663,6 +652,19 @@ fn iptc_namespaces(metadata: &Metadata) -> String {
 
 /// The first value of a simple property (attribute or element text, or the
 /// first `rdf:li`) anywhere in the packet.
+fn property_text(node: roxmltree::Node) -> String {
+    let default = node.descendants().find(|n| {
+        n.has_tag_name((RDF, "li"))
+            && n.attribute(("http://www.w3.org/XML/1998/namespace", "lang")) == Some("x-default")
+    });
+    default
+        .or_else(|| node.descendants().find(|n| n.has_tag_name((RDF, "li"))))
+        .map(|n| n.text().unwrap_or_default())
+        .or_else(|| node.text())
+        .unwrap_or_default()
+        .to_string()
+}
+
 fn property(root: roxmltree::Node, namespace: &str, name: &str) -> Option<String> {
     root.descendants()
         .filter(|n| n.is_element())
@@ -670,19 +672,8 @@ fn property(root: roxmltree::Node, namespace: &str, name: &str) -> Option<String
             if let Some(value) = node.attribute((namespace, name)) {
                 return Some(value.to_string());
             }
-            node.has_tag_name((namespace, name)).then(|| {
-                let default = node.descendants().find(|n| {
-                    n.has_tag_name((RDF, "li"))
-                        && n.attribute(("http://www.w3.org/XML/1998/namespace", "lang"))
-                            == Some("x-default")
-                });
-                default
-                    .or_else(|| node.descendants().find(|n| n.has_tag_name((RDF, "li"))))
-                    .map(|n| n.text().unwrap_or_default())
-                    .or_else(|| node.text())
-                    .unwrap_or("")
-                    .to_string()
-            })
+            node.has_tag_name((namespace, name))
+                .then(|| property_text(node))
         })
 }
 
