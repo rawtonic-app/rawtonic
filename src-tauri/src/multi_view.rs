@@ -268,6 +268,10 @@ fn show_cells(
         );
         display.render(&context.device, &context.queue);
         let multi = display.multi_view();
+        #[cfg(feature = "performance-profiling")]
+        if multi.is_zoomed() {
+            log::info!("[multi_view] cells shown, drawn:{}", multi.describe());
+        }
         let bare: Vec<(String, (u32, u32))> = cells
             .iter()
             .filter(|cell| primary.as_deref() != Some(cell.path.as_str()))
@@ -1779,6 +1783,8 @@ pub(crate) async fn set_multi_view_zoom(
             display.set_multi_view_zooms(shared, individual);
             display.render(&context.device, &context.queue);
             let multi = display.multi_view();
+            #[cfg(feature = "performance-profiling")]
+            log::info!("[multi_view] zoomed cells drawn:{}", multi.describe());
             multi
                 .cells()
                 .iter()
@@ -2901,6 +2907,18 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
         "[multi_view] {shown} of {count} zoomed regions developed in {:.1} ms",
         start.elapsed().as_secs_f64() * 1e3
     );
+    #[cfg(feature = "performance-profiling")]
+    if let Some(display) = context
+        .display
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
+        log::info!(
+            "[multi_view] after the regions, drawn:{}",
+            display.multi_view().describe()
+        );
+    }
     #[cfg(feature = "performance-profiling")]
     log::info!(
         "[PERF] {}",
