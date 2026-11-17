@@ -526,10 +526,8 @@ pub(crate) async fn render_browser_view(
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(width.round() as u32).to_le_bytes());
         bytes.extend_from_slice(&(height.round() as u32).to_le_bytes());
-        bytes.extend(crate::editor_preview::encode_browser_preview(
-            &rgba,
-            crate::preview_jpeg::settled_quality(scale),
-        )?);
+        // As the editor's settled frame (a Before/After snapshot beside it).
+        bytes.extend(crate::preview_jpeg::encode_settled(&rgba, scale)?);
         Ok(tauri::ipc::Response::new(bytes))
     })
     .await

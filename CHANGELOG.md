@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- **Linux: the settled fit view shows the fine colour noise the export has.** On Linux the Develop view reaches the page as an image; its settled frame at fit was a JPEG (quality 94) that removed most of the faint fine colour noise of a high-ISO photo after colour noise reduction (down to half of the export's at ISO 12800), so it looked cleaner than the export. A settled reduced frame is now sent lossless and matches the export as on macOS and Windows; drag frames and the 100 % view stay JPEG. The frame shows about 25 ms later after a change (1536 × 1024 view), drags are unchanged.
+- **Linux: the settled fit view keeps the fine colour noise.** On Linux the Develop view reaches the page as an image; its settled frame at fit (and a Before/After snapshot or multi-view cell beside it) was a JPEG at quality 94, which removed most of the faint fine colour noise of a high-ISO photo after colour noise reduction, so the view looked cleaner than the export. Settled reduced frames up to 2560 × 1707 pixels are now sent lossless. On four high-ISO test photos at Color 0–100 the fit view's fine colour noise now stays within 15 % of the export's (the JPEG was off by up to half), as measured for macOS and Windows. Drag frames, the 100 % view and larger frames stay JPEG. In a 1536 × 1024 view the decoded frame is ready about 25 ms later after a change; drags are unchanged.
 
 - **Local times follow Windows Settings.** Export file times, capture-time tools and filename date tokens now use the Windows time zone even when the app is launched with a `TZ` environment variable.
 

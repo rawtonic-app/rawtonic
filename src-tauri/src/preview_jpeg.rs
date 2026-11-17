@@ -1,5 +1,5 @@
 //! Browser preview JPEGs (Linux drafts and frames, multi-view cells) and the
-//! lossless PNG of the editor's settled reduced frame ([`settled_lossless`]),
+//! lossless PNG of a settled reduced frame ([`settled_lossless`]),
 //! encoded in horizontal strips on several threads. One 4:4:4 encode of a
 //! 1.5 MP drag draft took ~6.5 ms of the ~14 ms native job on a Ryzen 5
 //! 3600X (notes: benchmark-results/linux-slider-drag-2026-10-17/).
@@ -34,24 +34,43 @@ pub(crate) fn settled_quality(scale: f32) -> u8 {
     }
 }
 
-/// Whether the editor's settled frame with `scale` goes to the webview
-/// lossless (PNG) instead of as a JPEG. Against the export, every JPEG
-/// quality moved a reduced frame's fine chroma out of the ±15 % bar (q94
-/// 0.45–1.27; q98–q100 up to 1.6–2.1, 8-bit quantisation noise the
-/// noise-reduced export lacks); the lossless frame stays within it as the
-/// native displays do. In the app (1536 × 1024, Ryzen 5 3600X) it costs
-/// ~13 ms to encode, 2.6 MB and ~25 ms more until the frame shows; drags
-/// keep their JPEG. At 100 % the frame is the whole photograph (24 MP:
-/// ~62 MB as PNG, twice the JPEG's decode time), so it stays a JPEG (notes:
+/// The largest settled frame sent lossless, in pixels: a 2560-px-wide
+/// fit view (2560 × 1707). PNG costs grow with the pixels (~22–27 ms and
+/// ~7 MB at 3.7 MP, ~50–60 ms and 13–18 MB at 8 MP on one thread), and a
+/// larger frame (a 4K window, or 1:1 on a 2× display without full-DPI
+/// rendering) stays a JPEG.
+const LOSSLESS_MAX_PIXELS: u64 = 4_500_000;
+
+/// Whether a settled browser frame of `size` px with `scale` frame px per
+/// full-resolution px goes to the webview lossless (PNG) instead of as a
+/// JPEG. Against the export, every JPEG quality moved a reduced frame's
+/// fine chroma out of the ±15 % bar (q94 0.45–1.27; q98–q100 up to
+/// 1.6–2.1, 8-bit quantisation noise the noise-reduced export lacks); the
+/// lossless frame stayed within it (1.00–1.15), as the native displays do.
+/// In the app (1536 × 1024, Ryzen 5 3600X) it took ~13 ms to encode,
+/// 2.6 MB, and the decoded frame was ready ~25 ms later; drags keep their
+/// JPEG. At 100 % the frame is the whole photograph (24 MP: ~62 MB as PNG,
+/// twice the JPEG's decode time), so it stays a JPEG (notes:
 /// benchmark-results/lnxj1-2026-11-17/).
-pub(crate) fn settled_lossless(scale: f32) -> bool {
-    scale < 0.999
+pub(crate) fn settled_lossless(scale: f32, size: (u32, u32)) -> bool {
+    scale < 0.999 && u64::from(size.0) * u64::from(size.1) <= LOSSLESS_MAX_PIXELS
+}
+
+/// A settled browser frame (the editor's on Linux, a multi-view cell or a
+/// Before/After snapshot) encoded as [`settled_lossless`] and
+/// [`settled_quality`] choose, so both sides of a comparison travel alike.
+pub(crate) fn encode_settled(image: &image::RgbaImage, scale: f32) -> Result<Vec<u8>, String> {
+    if settled_lossless(scale, image.dimensions()) {
+        encode_png_rgb(image)
+    } else {
+        encode_rgbx_444(image, settled_quality(scale))
+    }
 }
 
 /// `image` as an 8-bit RGB PNG (alpha ignored), with fast compression and
 /// the Up filter (the fastest of the filters at about the adaptive one's
 /// size on photographs).
-pub(crate) fn encode_png_rgb(image: &image::RgbaImage) -> Result<Vec<u8>, String> {
+fn encode_png_rgb(image: &image::RgbaImage) -> Result<Vec<u8>, String> {
     use image::ImageEncoder;
     use image::codecs::png::{CompressionType, FilterType, PngEncoder};
     let rgb: Vec<u8> = image
@@ -283,8 +302,12 @@ mod tests {
                 .collect();
             assert!(decoded.as_raw() == &rgb, "{width}×{height} changed");
         }
-        assert!(settled_lossless(0.25) && settled_lossless(0.998));
-        assert!(!settled_lossless(1.0) && !settled_lossless(2.0));
+        assert!(settled_lossless(0.25, (1536, 1024)) && settled_lossless(0.998, (2560, 1707)));
+        assert!(!settled_lossless(1.0, (1536, 1024)) && !settled_lossless(2.0, (512, 512)));
+        assert!(!settled_lossless(0.64, (3840, 2560)));
+        let small = photo_like(64, 48);
+        assert!(encode_settled(&small, 0.5).unwrap().starts_with(b"\x89PNG"));
+        assert!(encode_settled(&small, 1.0).unwrap().starts_with(&[0xFF, 0xD8]));
     }
 
     #[test]
