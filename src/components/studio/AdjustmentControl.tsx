@@ -1,5 +1,6 @@
 import { memo, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { capturePendingSliderClick, useEditorStore } from '../../store/useEditorStore';
 import { selectOnFocus } from '../../utils/selectOnFocus';
 import { MIN_SEND_INTERVAL_MS } from '../../hooks/useDragSend';
 import { resolveKeySteps, stepOf, type KeySteps, type StepSet } from './sliderFeel';
@@ -41,6 +42,9 @@ export interface AdjustmentControlProps {
 const THUMB = 9;
 /** A press this close to the thumb's centre grabs it without a jump. */
 const GRAB = 8;
+// Recognize a following click while its history entry is still pending.
+// Rendering always leaves drag mode at pointer-up.
+const CLICK_SETTLE_MS = 500;
 
 /**
  * How much of the track's own movement a drag makes per pixel when the
@@ -115,6 +119,10 @@ export default memo(function AdjustmentControl({
   const keySteps = resolveKeySteps(step, keyOverride);
   const trackRef = useRef<HTMLInputElement | null>(null);
   const active = useRef(false);
+  const clickEnd = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const joinClick = useRef<(() => void) | null>(null);
+  const trackMoved = useRef(false);
+  const clickPosition = useRef({ x: 0, y: 0 });
   const frame = useRef<number | null>(null);
   const pending = useRef(value);
   const lastSent = useRef(value);
@@ -181,6 +189,7 @@ export default memo(function AdjustmentControl({
     () => () => {
       if (viewShown.current) optionViewCallback.current?.(false);
       keyHold.current?.();
+      if (clickEnd.current !== null) clearTimeout(clickEnd.current);
       if (frame.current !== null) cancelAnimationFrame(frame.current);
       if (active.current) {
         if (lastSent.current !== pending.current) callback.current(pending.current);
@@ -211,11 +220,18 @@ export default memo(function AdjustmentControl({
     else if (frame.current === null) frame.current = requestAnimationFrame(flush);
   };
   const begin = () => {
-    active.current = true;
+    if (clickEnd.current !== null) clearTimeout(clickEnd.current);
+    clickEnd.current = null;
+    joinClick.current = null;
     setDragging(true);
+    if (active.current) return;
+    active.current = true;
     onInteraction?.(true);
   };
   const end = () => {
+    if (clickEnd.current !== null) clearTimeout(clickEnd.current);
+    clickEnd.current = null;
+    joinClick.current = null;
     // The view ends first: the drag's last frame shows the photo.
     showView(false);
     flush();
@@ -225,6 +241,39 @@ export default memo(function AdjustmentControl({
     setDragging(false);
     onInteraction?.(false);
   };
+  const trackEnd = () => {
+    if (!fine.current || trackMoved.current) {
+      end();
+      return;
+    }
+    const editorDrag = useEditorStore.getState().isSliderDragging;
+    end();
+    joinClick.current = editorDrag ? capturePendingSliderClick() : null;
+    clickEnd.current = setTimeout(() => {
+      clickEnd.current = null;
+      joinClick.current = null;
+    }, CLICK_SETTLE_MS);
+  };
+  const settleClick = useRef<() => void>(() => {});
+  settleClick.current = () => {
+    if (clickEnd.current !== null) clearTimeout(clickEnd.current);
+    clickEnd.current = null;
+    joinClick.current = null;
+  };
+  useEffect(() => {
+    // A different control or command starts its own undo step, even if it
+    // keeps keyboard focus on this track (labels prevent the focus move).
+    const pointer = (event: globalThis.PointerEvent) => {
+      if (event.target !== trackRef.current) settleClick.current();
+    };
+    const key = () => settleClick.current();
+    window.addEventListener('pointerdown', pointer, true);
+    window.addEventListener('keydown', key, true);
+    return () => {
+      window.removeEventListener('pointerdown', pointer, true);
+      window.removeEventListener('keydown', key, true);
+    };
+  }, []);
   const reset = () => {
     if (disabled) return;
     update(defaultValue);
@@ -368,7 +417,16 @@ export default memo(function AdjustmentControl({
             // The interaction starts before any value is sent: a jump to the
             // pointer is part of the drag (one history step), not a step of
             // its own before it.
+            // Two distinct track positions are two clicks, not a reset gesture.
+            if (
+              clickEnd.current !== null &&
+              Math.hypot(e.clientX - clickPosition.current.x, e.clientY - clickPosition.current.y) <= GRAB
+            ) {
+              joinClick.current?.();
+            }
+            clickPosition.current = { x: e.clientX, y: e.clientY };
             begin();
+            trackMoved.current = false;
             showView(e.altKey);
             // pending, not local: focusing the track just committed a typed value
             // whose state has not rendered yet.
@@ -393,6 +451,7 @@ export default memo(function AdjustmentControl({
           if (!fine.current) return;
           showView(e.altKey);
           const drag = fine.current;
+          if (e.clientX !== drag.x) trackMoved.current = true;
           const factor = slowsDrag(e.altKey) ? 0.1 : dragPrecision(Math.abs(e.clientY - drag.centreY));
           // Each move adds its own distance at the precision of the moment:
           // moving away from the track never makes the value jump.
@@ -403,9 +462,10 @@ export default memo(function AdjustmentControl({
           drag.x = e.clientX;
           update(fromTrack(drag.value), factor < 1 ? step / 10 : step);
         }}
-        onPointerUp={end}
+        onPointerUp={trackEnd}
         onPointerCancel={end}
         onBlur={() => {
+          settleClick.current();
           if (active.current) end();
         }}
         onKeyDown={keys}

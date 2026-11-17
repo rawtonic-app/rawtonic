@@ -587,6 +587,23 @@ fn recipe_for(develop: &Develop, path: &Path) -> Option<(Value, bool)> {
         let attrs = crate::preset_converter::crs_attributes(xmp);
         lightroom_lens(&attrs, path, &mut adjustments);
         clipped = lightroom_crop(&attrs, path, &mut adjustments);
+        // Guided Upright's guides, through the photo's own lens correction;
+        // Lightroom's crop, when imported, frames the corrected photo.
+        if crate::formats::is_raw_file(path) {
+            let has_crop = adjustments
+                .get(geometry::CROP.name())
+                .is_some_and(|c| !c.is_null());
+            let profile = attrs
+                .get("LensProfileEnable")
+                .is_some_and(|v| v.trim() == "1");
+            rawtonic_engine::lightroom_upright::apply(
+                &mut adjustments,
+                xmp,
+                path,
+                profile,
+                has_crop,
+            );
+        }
     }
     // Lightroom's spots, red eye corrections and mask geometry render from
     // its own geometry once they know the photo's orientation, a fact of
@@ -1202,6 +1219,19 @@ mod tests {
         assert!(translate(&Develop::None).is_none());
     }
 
+    /// A catalog's Guided Upright (its develop settings as Lua) keeps its
+    /// guides on the way to the XMP the import reads them from.
+    #[test]
+    fn lightroom_catalog_guided_upright_keeps_its_guides() {
+        let lua = r#"s = { PerspectiveUpright = 5, UprightFourSegmentsCount = 2, UprightFourSegments_0 = "0.2,0.1,0.25,0.9", UprightFourSegments_1 = "0.8,0.1,0.75,0.9", UprightVersion = 151388160 }"#;
+        let xmp = rawtonic_interop::lightroom_settings::to_xmp(lua).unwrap();
+        assert_eq!(
+            rawtonic_engine::lightroom_upright::segments(&xmp),
+            vec![[0.2, 0.1, 0.25, 0.9], [0.8, 0.1, 0.75, 0.9]],
+            "{xmp}"
+        );
+    }
+
     #[test]
     fn photos_metadata_edits_and_albums_land_in_the_catalog_and_repeat_safely() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1774,6 +1804,38 @@ mod tests {
         assert!(crate::image_loader::has_base_retouch(adjustments));
         // Nothing was written beside the photograph.
         assert_eq!(fs::read(&path).unwrap(), jpeg);
+    }
+
+    #[test]
+    fn lightroom_catalog_point_color_reaches_the_photo_and_its_mask() {
+        // Lightroom Classic 15.6 keeps the photo's swatches as tables and a
+        // mask's as strings in its catalog (values written for this test).
+        let swatch = "0.532900, 0.510200, 0.375800, 0.600000, 0.000000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.330200, 1.000000, 1.000000, 0.000000, 0.465912, 0.825912, 1.000000";
+        let lua = format!(
+            r#"s = {{ MaskGroupBasedCorrections = {{ {{ CorrectionActive = true, CorrectionAmount = 1,
+CorrectionMasks = {{ {{ FullX = 0.4, FullY = 0.5, MaskValue = 1, What = "Mask/Gradient", ZeroX = 0.6, ZeroY = 0.5 }} }},
+LocalColorVariance = {{ "-0.500000" }},
+LocalPointColors = {{ "{swatch}" }},
+What = "Correction" }} }},
+PointColors = {{ {{ HueRange = {{ LowerFull = 0.33, LowerNone = 0, UpperFull = 0.67, UpperNone = 1 }},
+HueShift = 0.3, LumRange = {{ LowerFull = 0.47, LowerNone = 0, UpperFull = 0.83, UpperNone = 1 }},
+LumScale = 0, RangeAmount = 0.5,
+SatRange = {{ LowerFull = 0.33, LowerNone = 0, UpperFull = 1, UpperNone = 1 }},
+SatScale = -0.5, SrcHue = 0.5329, SrcLum = 0.3758, SrcSat = 0.5102, Variance = -0.3 }} }},
+ProcessVersion = "15.4" }}"#
+        );
+        let xmp = rawtonic_interop::lightroom_settings::to_xmp(&lua).unwrap();
+        let adjustments = translate(&Develop::LightroomXmp(xmp)).unwrap();
+        let photo = &adjustments["colorRanges"][0];
+        assert!(photo["hueShift"].as_f64().unwrap() > 0.0, "{photo}");
+        assert!(photo["saturation"].as_f64().unwrap() < 0.0, "{photo}");
+        assert_eq!(photo["hueUniformity"], 30.0);
+        let layer = adjustments["masks"][0]["adjustments"]["colorRanges"]
+            .as_array()
+            .unwrap();
+        assert_eq!(layer.len(), 1);
+        assert!(layer[0]["hueShift"].as_f64().unwrap() > photo["hueShift"].as_f64().unwrap());
+        assert_eq!(layer[0]["hueUniformity"], 50.0);
     }
 
     #[test]

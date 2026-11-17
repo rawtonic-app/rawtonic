@@ -2091,6 +2091,7 @@
       "ingestResumeFailed": "中断された読み込みを完了できませんでした: {{error}}",
       "ingestRetry": "今すぐ読み込む",
       "ingestWaiting": "中断された読み込みの {{n}} 枚がカードまたはドライブを待っています。接続した状態でライブラリを開くと読み込みが再開されます。",
+      "showImported": "表示",
       "sidecarsCopied_other": "XMP サイドカー {{count}} 件をコピー",
       "watching": "{{folder}} で新しい写真を監視しています。",
       "watchingMissing": "監視フォルダ {{folder}} が見つかりません。戻ると監視を続けます。",
@@ -3694,7 +3695,7 @@
         "clear": "保護をクリア",
         "feather": "ぼかし",
         "featherAria": "保護ブラシのぼかし",
-        "hint": "レタッチで残したいそばかす、ほくろ、ビューティーマークの上を塗ります。Alt（Option）を押しながらで消去、[ と ] でサイズを変更します。",
+        "hint": "レタッチで残したいそばかす、ほくろ、ビューティーマークの上を塗ります。Alt（Option）を押しながらで消去、{{smaller}} と {{larger}} でサイズを変更します。",
         "modes": {
           "erase": "消去",
           "off": "オフ",
@@ -4186,6 +4187,7 @@
         "empty": "写真を選択してください",
         "title": "ナビゲーター"
       },
+      "noPhotoToRate": "写真が選択されていません。評価、フラグ、ラベルを付ける写真を選択してください。",
       "searchFailed": "ライブラリを検索できませんでした: {{error}}",
       "smartAlbums": {
         "addGroup": "ルールのグループ",

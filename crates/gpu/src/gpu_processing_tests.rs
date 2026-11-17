@@ -9495,9 +9495,11 @@ fn tone_split_drag_render_time() {
     // A measurement, not a check (G76/COLD4): display frames at 2560 x
     // 1440 through the effect passes with one main pass and with the main
     // pass split at the tone stage (`tone_split`: two Rgba32Float tiles
-    // stored and read per frame), while Exposure is dragged, for a Basic
-    // edit and the same with Glow and Halation. Each time runs until the
-    // GPU has finished the frame; the modes take turns, ten frames each.
+    // stored and read per frame), and in one pass without the effect passes
+    // (the display path without a compile limit before G76/FEW1), while
+    // Exposure is dragged, for a Basic edit and the same with Glow and
+    // Halation. Each time runs until the GPU has finished the frame; the
+    // modes take turns, ten frames each.
     let context = context();
     let _limit = DeviceCompileLimit::set(&context);
     let (width, height) = (2560, 1440);
@@ -9509,15 +9511,16 @@ fn tone_split_drag_render_time() {
     glow["halationAmount"] = json!(30);
     for (name, profile) in [("basic", basic), ("glow_halation", glow)] {
         let adjustments = get_all_adjustments_from_json(&profile, true, Some(3));
-        let processors = [false, true].map(|split| {
+        // (effect passes, split)
+        let processors = [(true, false), (true, true), (false, false)].map(|(passes, split)| {
             tone_split::FORCED.with(|forced| forced.set(Some(split)));
-            let processor = effect_pass_processor(&context, width, height, true);
+            let processor = effect_pass_processor(&context, width, height, passes);
             prepare_preview_pipeline(&processor, preview_features(&adjustments));
             processor
         });
         tone_split::FORCED.with(|forced| forced.set(None));
         effect_passes::FORCED.with(|forced| forced.set(None));
-        let mut times = [Vec::new(), Vec::new()];
+        let mut times = [Vec::new(), Vec::new(), Vec::new()];
         for round in 0..12 {
             for (mode, processor) in processors.iter().enumerate() {
                 for step in 0..10 {
@@ -9554,7 +9557,7 @@ fn tone_split_drag_render_time() {
                 .tone_split()
                 .is_some_and(|split| split.main_passes() > 0)
         );
-        let [one, split] = times.map(|mut times| {
+        let [one, split, no_passes] = times.map(|mut times| {
             times.sort_by(f64::total_cmp);
             (times[times.len() / 2], times[times.len() * 9 / 10])
         });
@@ -9563,7 +9566,10 @@ fn tone_split_drag_render_time() {
             json!({"probe":"tone_split_drag","edit":name,"width":width,"height":height,
                 "one_main_pass_p50_ms":one.0,"one_main_pass_p90_ms":one.1,
                 "split_p50_ms":split.0,"split_p90_ms":split.1,
-                "added_p50_ms":split.0 - one.0,"added_p90_ms":split.1 - one.1})
+                "added_p50_ms":split.0 - one.0,"added_p90_ms":split.1 - one.1,
+                "no_passes_p50_ms":no_passes.0,"no_passes_p90_ms":no_passes.1,
+                "split_vs_no_passes_p50_ms":split.0 - no_passes.0,
+                "split_vs_no_passes_p90_ms":split.1 - no_passes.1})
         );
     }
 }
@@ -10365,6 +10371,9 @@ fn a_compile_limit_refuses_only_export_variants_over_the_ceiling() {
 
 #[test]
 fn effects_compile_only_where_a_recipe_has_them() {
+    // One main pass (forced): with the effect passes grain is the finish
+    // pass's alone and sets no bit.
+    effect_passes::FORCED.with(|forced| forced.set(Some(false)));
     let features = |profile: serde_json::Value| {
         preview_features(&get_all_adjustments_from_json(&profile, true, Some(1))) & EFFECTS_FEATURES
     };

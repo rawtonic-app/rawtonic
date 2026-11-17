@@ -2169,6 +2169,7 @@
       "ingestResumeFailed": "Der unterbrochene Import konnte nicht abgeschlossen werden: {{error}}",
       "ingestRetry": "Jetzt importieren",
       "ingestWaiting": "{{n}} Fotos eines unterbrochenen Imports warten auf ihre Karte oder ihr Laufwerk; der Import geht weiter, sobald die Bibliothek mit angeschlossenem Datenträger geöffnet wird.",
+      "showImported": "Anzeigen",
       "sidecarsCopied_one": "{{count}} XMP-Sidecar-Datei kopiert",
       "sidecarsCopied_other": "{{count}} XMP-Sidecar-Dateien kopiert",
       "watching": "{{folder}} wird auf neue Fotos überwacht.",
@@ -3797,7 +3798,7 @@
         "clear": "Schutz entfernen",
         "feather": "Weiche Kante",
         "featherAria": "Weiche Kante des Schutzpinsels",
-        "hint": "Male über Sommersprossen, Leberflecke und Schönheitsflecke, die die Retusche unverändert lassen soll. Alt (Wahl) gedrückt halten zum Radieren; [ und ] ändern die Größe.",
+        "hint": "Male über Sommersprossen, Leberflecke und Schönheitsflecke, die die Retusche unverändert lassen soll. Alt (Wahl) gedrückt halten zum Radieren; {{smaller}} und {{larger}} ändern die Größe.",
         "modes": {
           "erase": "Radieren",
           "off": "Aus",
@@ -4306,6 +4307,7 @@
         "empty": "Foto auswählen",
         "title": "Navigator"
       },
+      "noPhotoToRate": "Kein Foto ausgewählt: Wähle ein Foto aus, um es zu bewerten, zu markieren oder mit einer Farbe zu versehen.",
       "searchFailed": "Die Bibliothek konnte nicht durchsucht werden: {{error}}",
       "smartAlbums": {
         "addGroup": "Regelgruppe",

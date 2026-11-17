@@ -12,6 +12,7 @@ import { useProcessStore } from '../store/useProcessStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
 import { errorMessage } from '../shared/ipc/errors';
+import { preciseScrollReport, wheelAction } from '../utils/viewerWheel';
 
 type Params = Record<string, unknown>;
 
@@ -472,6 +473,54 @@ function dialogAnswers(params: Params): DialogAnswer[] {
   return [params.path];
 }
 
+/** Wheel and pinch events the page received since `ui.wheel_log` `start`
+ * (`forget` drops the platform's device report, as a reload would):
+ * what WebKit hands the page for native scrolls, with the platform's
+ * precise-scroll report at that moment and the viewer's reading of it. */
+const wheelLog: Record<string, unknown>[] = [];
+let wheelLogListening = false;
+
+function recordWheel(event: Event) {
+  if (wheelLog.length >= 2000) return;
+  const entry: Record<string, unknown> = { t: Math.round(event.timeStamp * 10) / 10, type: event.type };
+  if (event instanceof WheelEvent) {
+    const settings = useSettingsStore.getState().appSettings;
+    const legacy = event as WheelEvent & { wheelDeltaX?: number; wheelDeltaY?: number };
+    Object.assign(entry, {
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      deltaMode: event.deltaMode,
+      wheelDeltaX: legacy.wheelDeltaX,
+      wheelDeltaY: legacy.wheelDeltaY,
+      ctrlKey: event.ctrlKey,
+      precise: preciseScrollReport() ?? null,
+      action: wheelAction(event, settings?.canvasInputMode, settings?.zoomSpeedMultiplier ?? 1).kind,
+      zoom: useEditorStore.getState().zoom
+    });
+  } else {
+    entry.scale = (event as Event & { scale?: number }).scale;
+  }
+  wheelLog.push(entry);
+}
+
+function wheelLogRequest(params: Params) {
+  if (params.action === 'start') {
+    wheelLog.length = 0;
+    if (!wheelLogListening) {
+      for (const type of ['wheel', 'gesturestart', 'gesturechange', 'gestureend'])
+        window.addEventListener(type, recordWheel, { capture: true, passive: true });
+      wheelLogListening = true;
+    }
+    return { listening: true };
+  }
+  // As a reloaded page: no report of the device until the app sends one.
+  if (params.action === 'forget') {
+    delete window.__rawtonicScrollPrecise;
+    return { forgotten: true };
+  }
+  return wheelLog.slice();
+}
+
 export async function handleQaRequest(method: string, params: Params): Promise<unknown> {
   const maxArray = typeof params.max_array === 'number' ? params.max_array : 50;
   switch (method) {
@@ -544,6 +593,8 @@ export async function handleQaRequest(method: string, params: Params): Promise<u
       return dialogState();
     case 'dialog.clear':
       return clearDialogAnswers();
+    case 'ui.wheel_log':
+      return wheelLogRequest(params);
     default:
       throw new Error(`unknown method ${method}`);
   }

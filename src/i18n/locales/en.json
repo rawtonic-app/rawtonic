@@ -2169,6 +2169,7 @@
       "ingestResumeFailed": "The interrupted import could not be finished: {{error}}",
       "ingestRetry": "Import now",
       "ingestWaiting": "{{n}} photos of an interrupted import wait for their card or drive; the import continues when the library is opened with it connected.",
+      "showImported": "Show",
       "sidecarsCopied_one": "{{count}} XMP sidecar copied",
       "sidecarsCopied_other": "{{count}} XMP sidecars copied",
       "watching": "Watching {{folder}} for new photos.",
@@ -3797,7 +3798,7 @@
         "clear": "Clear protection",
         "feather": "Feather",
         "featherAria": "Protection brush feather",
-        "hint": "Paint over freckles, moles and beauty marks the retouch should leave as they are. Hold Alt (Option) to erase; [ and ] change the size.",
+        "hint": "Paint over freckles, moles and beauty marks the retouch should leave as they are. Hold Alt (Option) to erase; {{smaller}} and {{larger}} change the size.",
         "modes": {
           "erase": "Erase",
           "off": "Off",
@@ -4306,6 +4307,7 @@
         "empty": "Select a photo",
         "title": "Navigator"
       },
+      "noPhotoToRate": "No photo selected: select a photo to rate, flag or label it.",
       "searchFailed": "The library could not be searched: {{error}}",
       "smartAlbums": {
         "addGroup": "Group of rules",

@@ -112,6 +112,8 @@ beforeEach(() => {
         return new ArrayBuffer(0);
       case 'session_ingest_capture_info':
         return { iso: 'ISO 200', exposure: '1/500 s', aperture: 'f/4', focalLength: '85 mm' };
+      case 'session_previous_import':
+        return { batch: { id: 1, kind: 'ingest', created_at: '', count: newestBatch.length }, paths: newestBatch };
       case 'session_ingest': {
         const { sources, folder } = args as { sources: string[]; folder: string | null };
         return sources.map((source) => ({
@@ -127,6 +129,8 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+/** The photographs of the newest import batch (`session_previous_import`). */
+let newestBatch: string[] = [];
 
 /** The workspace with the last session reopened and the window's drop handler attached. */
 async function open(navigate = vi.fn(async () => {})) {
@@ -461,6 +465,84 @@ describe('Dropping photographs onto the window', () => {
       expect(shown).toHaveBeenCalledTimes(1);
     } finally {
       useUIStore.setState({ libraryLoupe: false });
+      window.removeEventListener(SHOW_PREVIOUS_IMPORT, shown);
+    }
+  });
+
+  // RATE2 (Lenovo WRATE2 set D): culling in the grid while the import ran,
+  // its end switched to Previous Import and emptied the selection; every
+  // rating key after it rated nothing.
+  it('keeps the view of a user who works while the import runs and offers Show instead', async () => {
+    const user = userEvent.setup();
+    const shown = vi.fn();
+    window.addEventListener(SHOW_PREVIOUS_IMPORT, shown);
+    try {
+      await open();
+      const base = vi.mocked(invoke).getMockImplementation()!;
+      // A tethered capture arriving while the card copies forms its own,
+      // newer batch (only in the second half of this test).
+      let captureDuringImport = false;
+      vi.mocked(invoke).mockImplementation(async (command, args) => {
+        if (command !== 'session_ingest') return base(command, args);
+        // A rating key in the grid while the photographs are copied.
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '3', code: 'Digit3', bubbles: true }));
+        const results = (await base(command, args)) as { destination: string }[];
+        newestBatch = captureDuringImport ? ['/jobs/Acme/Capture/TETHER_0001.ARW'] : results.map((r) => r.destination);
+        return results;
+      });
+      drop(['/Volumes/CARD/DCIM']);
+      await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
+      await waitFor(() => expect(toast.success).toHaveBeenCalled());
+      await act(async () => {});
+      expect(shown).not.toHaveBeenCalled();
+      const [content, options] = vi.mocked(toast.success).mock.calls.at(-1)!;
+      expect(typeof content).toBe('function');
+      const offer = options?.actions?.find((action) => action.label === 'Show');
+      expect(offer).toBeTruthy();
+      offer!.run();
+      await waitFor(() => expect(shown).toHaveBeenCalledTimes(1));
+
+      // Another library open: that import's Show opens nothing there.
+      const library = useLibraryStore.getState().sessionDirectory;
+      useLibraryStore.setState({ sessionDirectory: '/jobs/Other' });
+      offer!.run();
+      await act(async () => {});
+      expect(shown).toHaveBeenCalledTimes(1);
+      useLibraryStore.setState({ sessionDirectory: library });
+
+      // A newer batch (a hot folder's or a tethered camera's capture): Show
+      // would open other photographs, so it does nothing.
+      const ours = newestBatch;
+      newestBatch = ['/jobs/Acme/Hot/H0001.ARW'];
+      offer!.run();
+      await act(async () => {});
+      expect(shown).toHaveBeenCalledTimes(1);
+      newestBatch = ours;
+
+      // Also when that capture began while the import still ran.
+      captureDuringImport = true;
+      vi.mocked(toast.success).mockClear();
+      drop(['/Volumes/CARD/DCIM']);
+      await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
+      await waitFor(() => expect(toast.success).toHaveBeenCalled());
+      const during = vi
+        .mocked(toast.success)
+        .mock.calls.at(-1)![1]
+        ?.actions?.find((a) => a.label === 'Show');
+      during!.run();
+      await act(async () => {});
+      expect(shown).toHaveBeenCalledTimes(1);
+      captureDuringImport = false;
+
+      // The next import withdraws the last one's Show.
+      vi.mocked(toast.success).mockReturnValueOnce('import-show');
+      drop(['/Volumes/CARD/DCIM']);
+      await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
+      await waitFor(() => expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === 'session_ingest')).toHaveLength(3));
+      drop(['/Volumes/CARD/DCIM']);
+      await user.click(await screen.findByRole('button', { name: 'Copy 2 photos' }));
+      await waitFor(() => expect(toast.dismiss).toHaveBeenCalledWith('import-show'));
+    } finally {
       window.removeEventListener(SHOW_PREVIOUS_IMPORT, shown);
     }
   });

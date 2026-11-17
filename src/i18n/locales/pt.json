@@ -2291,6 +2291,7 @@
       "ingestResumeFailed": "Não foi possível concluir a importação interrompida: {{error}}",
       "ingestRetry": "Importar agora",
       "ingestWaiting": "{{n}} fotos de uma importação interrompida aguardam o seu cartão ou disco; a importação continua quando a biblioteca for aberta com ele ligado.",
+      "showImported": "Mostrar",
       "sidecarsCopied_one": "{{count}} arquivo XMP associado copiado",
       "sidecarsCopied_many": "{{count}} arquivos XMP associados copiados",
       "sidecarsCopied_other": "{{count}} arquivos XMP associados copiados",
@@ -3961,7 +3962,7 @@
         "clear": "Remover proteção",
         "feather": "Suavização",
         "featherAria": "Suavização do pincel de proteção",
-        "hint": "Pinte sobre sardas, sinais e pintas que o retoque deve deixar como estão. Mantenha Alt (Option) para apagar; [ e ] alteram o tamanho.",
+        "hint": "Pinte sobre sardas, sinais e pintas que o retoque deve deixar como estão. Mantenha Alt (Option) para apagar; {{smaller}} e {{larger}} alteram o tamanho.",
         "modes": {
           "erase": "Apagar",
           "off": "Desligado",
@@ -4494,6 +4495,7 @@
         "empty": "Selecione uma foto",
         "title": "Navegador"
       },
+      "noPhotoToRate": "Nenhuma foto selecionada: selecione uma foto para avaliar, marcar ou etiquetar.",
       "searchFailed": "Não foi possível pesquisar na biblioteca: {{error}}",
       "smartAlbums": {
         "addGroup": "Grupo de regras",

@@ -481,6 +481,6 @@ export const useAppInitialization = ({
     const root = document.documentElement;
 
     // Rawtonic uses the platform's interface font throughout.
-    root.style.setProperty('--font-family', '-apple-system, BlinkMacSystemFont, system-ui, sans-serif');
+    root.style.setProperty('--font-family', 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif');
   }, []);
 };

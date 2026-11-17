@@ -419,11 +419,24 @@ function listenSafely<T>(event: string, handler: (payload: T) => void): Promise<
 
 type DownloadProgress = { model: string; received: number; total: number; batchReceived?: number; batchTotal?: number };
 
+/** Reports the export entries still shown again in the interface's
+ * language. The queue's first snapshot (an export the app quit during, to
+ * Resume) arrives before the macOS language is applied, and an entry keeps
+ * the words it was reported with. Dismissed entries stay dismissed. */
+function retranslateExportJobs() {
+  const shown = new Set(useActivityStore.getState().entries.map((entry) => entry.id));
+  for (const id of [...exportReported.keys()]) if (shown.has(`export:${id}`)) exportReported.delete(id);
+  const { exportQueue, exportQueueHeld } = useProcessStore.getState();
+  syncExportJobs(exportQueue, exportQueueHeld);
+}
+
 /** Starts every bridge; returns their stop. */
 export function startActivityBridges(): () => void {
   const stops: (() => void)[] = [];
   const process = useProcessStore.getState();
   syncExportJobs(process.exportQueue, process.exportQueueHeld);
+  i18n.on('languageChanged', retranslateExportJobs);
+  stops.push(() => i18n.off('languageChanged', retranslateExportJobs));
   syncAiTasks(process.activeAiTasks);
   stops.push(
     useProcessStore.subscribe((state, previous) => {

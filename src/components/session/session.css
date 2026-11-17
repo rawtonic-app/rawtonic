@@ -311,6 +311,17 @@
   padding: 27px 28px 22px;
   border-bottom: 1px solid var(--app-border-color);
 }
+/* Let the heading consume spare space so window actions stay together. */
+.session-dialog-header > div:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.session-dialog-header {
+  gap: 8px;
+}
+.session-dialog-header > .session-icon-button {
+  flex-shrink: 0;
+}
 .session-dialog h2 {
   font-size: 21px;
   line-height: 1.3;

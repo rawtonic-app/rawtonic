@@ -24,6 +24,7 @@ import { uiHoldsShortcuts } from '../../../hooks/useKeyboardShortcuts';
 
 import { brushCursorOutlines } from './brushCursor';
 import { isContextClick } from './brushGesture';
+import { bracketStep } from '../../../utils/bracketKeys';
 
 /** Whether `e` is the key bound to Find another source (`spot_new_source`). */
 function isNewSourceKey(e: KeyboardEvent): boolean {
@@ -816,13 +817,14 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         e.preventDefault();
         e.stopImmediatePropagation();
         void findAnotherSource(id);
-      } else if (e.key === '[' || e.key === ']') {
+      } else if (bracketStep(e)) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        const factor = e.key === ']' ? 1.15 : 1 / 1.15;
+        const larger = bracketStep(e)! > 0;
+        const factor = larger ? 1.15 : 1 / 1.15;
         const spot = adjustments.spots?.find((s) => s.id === id);
         if (spot) commit({ ...spot, radius: Math.max(2, spot.radius * factor) });
-        else setEditor({ spotSettings: { ...spotSettings, size: resizedBrush(spotSettings.size, e.key === ']') } });
+        else setEditor({ spotSettings: { ...spotSettings, size: resizedBrush(spotSettings.size, larger) } });
       } else if (e.key === 'Escape' && filling.current.length) {
         e.preventDefault();
         e.stopImmediatePropagation();

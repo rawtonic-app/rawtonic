@@ -2291,6 +2291,7 @@
       "ingestResumeFailed": "Impossibile completare l'importazione interrotta: {{error}}",
       "ingestRetry": "Importa ora",
       "ingestWaiting": "{{n}} foto di un'importazione interrotta attendono la loro scheda o unità; l'importazione riprende quando la libreria viene aperta con essa collegata.",
+      "showImported": "Mostra",
       "sidecarsCopied_one": "{{count}} file XMP associato copiato",
       "sidecarsCopied_many": "{{count}} file XMP associati copiati",
       "sidecarsCopied_other": "{{count}} file XMP associati copiati",
@@ -3961,7 +3962,7 @@
         "clear": "Rimuovi protezione",
         "feather": "Sfumatura",
         "featherAria": "Sfumatura del pennello di protezione",
-        "hint": "Dipingi su lentiggini, nei e segni di bellezza che il ritocco deve lasciare come sono. Tieni premuto Alt (Opzione) per cancellare; [ e ] cambiano la dimensione.",
+        "hint": "Dipingi su lentiggini, nei e segni di bellezza che il ritocco deve lasciare come sono. Tieni premuto Alt (Opzione) per cancellare; {{smaller}} e {{larger}} cambiano la dimensione.",
         "modes": {
           "erase": "Cancella",
           "off": "Disattivato",
@@ -4494,6 +4495,7 @@
         "empty": "Seleziona una foto",
         "title": "Navigatore"
       },
+      "noPhotoToRate": "Nessuna foto selezionata: seleziona una foto per valutarla, contrassegnarla o etichettarla.",
       "searchFailed": "Impossibile cercare nella libreria: {{error}}",
       "smartAlbums": {
         "addGroup": "Gruppo di regole",

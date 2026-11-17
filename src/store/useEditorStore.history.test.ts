@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { debouncedSetHistory, useEditorStore } from './useEditorStore';
+import { capturePendingSliderClick, debouncedSetHistory, useEditorStore } from './useEditorStore';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from '../utils/adjustments';
 
 const state = () => useEditorStore.getState();
@@ -159,4 +159,29 @@ it('makes each key press its own undo step, also quick taps, and a held key one 
   expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 1, 2, 8]);
   state().undo();
   expect(state().adjustments.relightSkinReflections).toBe(2);
+});
+
+it('a click reset cannot cancel a different later edit or an already committed history entry', () => {
+  edit(20);
+  const cancelClick = capturePendingSliderClick();
+  edit(40);
+  cancelClick();
+  vi.advanceTimersByTime(600);
+  expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 40]);
+  edit(60);
+  const committedClick = capturePendingSliderClick();
+  debouncedSetHistory.flush();
+  committedClick();
+  expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 40, 60]);
+});
+
+it('a continued click remains undoable even when its following press is cancelled', () => {
+  edit(20);
+  const join = capturePendingSliderClick();
+  join();
+  state().setEditor({ isSliderDragging: true });
+  state().setEditor({ isSliderDragging: false });
+  state().undo();
+  expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 20]);
+  expect(state().adjustments.relightSkinReflections).toBe(0);
 });

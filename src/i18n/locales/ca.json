@@ -2291,6 +2291,7 @@
       "ingestResumeFailed": "No s'ha pogut acabar la importació interrompuda: {{error}}",
       "ingestRetry": "Importa ara",
       "ingestWaiting": "{{n}} fotos d'una importació interrompuda esperen la seva targeta o unitat; la importació continua quan s'obre la biblioteca amb la unitat connectada.",
+      "showImported": "Mostra",
       "sidecarsCopied_one": "{{count}} fitxer XMP complementari copiat",
       "sidecarsCopied_many": "{{count}} fitxers XMP complementaris copiats",
       "sidecarsCopied_other": "{{count}} fitxers XMP complementaris copiats",
@@ -3961,7 +3962,7 @@
         "clear": "Treu la protecció",
         "feather": "Difuminat",
         "featherAria": "Difuminat del pinzell de protecció",
-        "hint": "Pinta sobre pigues, lunars i marques de bellesa que el retoc ha de deixar com són. Mantén Alt (Opció) per esborrar; [ i ] canvien la mida.",
+        "hint": "Pinta sobre pigues, lunars i marques de bellesa que el retoc ha de deixar com són. Mantén Alt (Opció) per esborrar; {{smaller}} i {{larger}} canvien la mida.",
         "modes": {
           "erase": "Esborra",
           "off": "Desactivat",
@@ -4494,6 +4495,7 @@
         "empty": "Selecciona una foto",
         "title": "Navegador"
       },
+      "noPhotoToRate": "Cap foto seleccionada: selecciona una foto per valorar-la, marcar-la o etiquetar-la.",
       "searchFailed": "No s'ha pogut cercar a la biblioteca: {{error}}",
       "smartAlbums": {
         "addGroup": "Grup de regles",

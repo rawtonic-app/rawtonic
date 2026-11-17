@@ -128,6 +128,9 @@ const resetTargets = (s: ShortcutState): string[] =>
       ? [s.editor.selectedImage.path]
       : []
     : flagTargets(s.ui, s.editor.selectedImage?.path, s.library.multiSelectedPaths);
+/** Rating, flag and colour label keys: they act on the photographs shown or selected. */
+const CULLING_ACTIONS = /^(rate_\d|color_label_\w+|flag_(pick|unflag|reject))$/;
+const NO_PHOTO_NOTICE = 'no-photo-to-rate';
 const hasPhotoTarget = (s: ShortcutState) =>
   flagTargets(s.ui, s.editor.selectedImage?.path, s.library.multiSelectedPaths).length > 0 ||
   (s.ui.activeView === 'editor' && !!s.editor.selectedImage);
@@ -1500,6 +1503,14 @@ export const useKeyboardShortcuts = ({
       for (const action of comboMap.get(normalized.join('+')) ?? []) {
         if (rangeOwnsKey) continue;
         if (recipeHeld(action, state)) continue;
+        // A rating, flag or label key with no photograph to act on says so
+        // instead of doing nothing (an import that ended had emptied the
+        // selection, and a whole cull's stars went nowhere: RATE2).
+        if (CULLING_ACTIONS.test(action) && !hasPhotoTarget(state)) {
+          event.preventDefault();
+          notify.info(i18n.t('studio.library.noPhotoToRate'), { toastId: NO_PHOTO_NOTICE });
+          return;
+        }
         const handler = actions[action];
         if (handler) {
           if (!handler.shouldFire || handler.shouldFire(state)) {

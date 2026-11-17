@@ -17,6 +17,8 @@ import { errorCode } from '../../shared/ipc/errors';
 import AdjustmentControl from './AdjustmentControl';
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../../utils/geometryKeys';
 import { frameGeometry as shownGeometry, reframePoint } from '../../utils/maskGeometry';
+import { useSettingsStore } from '../../store/useSettingsStore';
+import { bracketKeyLabels } from '../../utils/bracketKeys';
 
 /** Geometry keys that correct colour, not where a pixel is (the engine's
  * `face_retouch::COLOUR_ONLY_KEYS`): faces stay valid when they change. */
@@ -184,6 +186,8 @@ const SLIDERS = [
  */
 export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dragging: boolean): void }) {
   const { t } = useTranslation();
+  const osPlatform = useSettingsStore((s) => s.osPlatform);
+  const sizeKeys = bracketKeyLabels(osPlatform);
   const path = useEditorStore((s) => s.selectedImage?.path);
   const ready = useEditorStore((s) => Boolean(s.selectedImage?.isReady));
   const adjustments = useEditorStore((s) => s.adjustments);
@@ -434,7 +438,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
             className="studio-segments"
             role="radiogroup"
             aria-label={t('studio.faceRetouch.protect.brush')}
-            title={t('studio.faceRetouch.protect.hint')}
+            title={t('studio.faceRetouch.protect.hint', sizeKeys)}
           >
             {(['off', 'paint', 'erase'] as const).map((mode) => {
               const on = protectBrush.painting && (mode === 'erase') === protectBrush.erase;
@@ -485,7 +489,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
                   setEditor({ faceProtect: { ...useEditorStore.getState().faceProtect, feather } })
                 }
               />
-              <p className="studio-hint">{t('studio.faceRetouch.protect.hint')}</p>
+              <p className="studio-hint">{t('studio.faceRetouch.protect.hint', sizeKeys)}</p>
             </>
           )}
           <label className="studio-check">
