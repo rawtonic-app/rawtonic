@@ -152,10 +152,10 @@ describe('point curve reading aids (UXR1 D3)', () => {
     expect(container.querySelector('svg')!.firstElementChild).toBe(shown());
     fireEvent.click(screen.getByRole('button', { name: 'R' }));
     expect(shown()?.getAttribute('data-channel')).toBe('red');
-    // The height of bin 3 is unique to the red histogram (the luminance bins
-    // are flat, green and blue empty), so a path left stale at another
-    // channel's bins fails here however often the channel label changes.
-    expect(shown()?.getAttribute('d')).toContain('L191.25 95.00');
+    // Red alone starts with a full first bin (luminance and blue start at 0,
+    // green at the bottom), so a path left stale at another channel's bins
+    // fails here however often the channel label changes.
+    expect(shown()?.getAttribute('d')).toContain('L0.00 15.00');
     // Drawn without rendering the curve; without a histogram, nothing.
     act(() => useEditorStore.setState({ histogram: null }));
     expect(shown()?.hasAttribute('d')).toBe(false);

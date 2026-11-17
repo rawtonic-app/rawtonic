@@ -4880,14 +4880,14 @@
         "FillLight": "Aufhelllicht",
         "filmCurve": "Filmkurve",
         "HighlightRecovery": "Lichterwiederherstellung",
-        "legacyToneCurve": "Tonekurve aus einem alten Lightroom-Prozess (nur angenähert importiert, kann anders aussehen)",
+        "legacyToneCurve": "Gradationskurve aus einem alten Lightroom-Prozess (nur angenähert importiert, kann anders aussehen)",
         "lens": "Objektiv und Keystone",
         "lensProfile": "Objektivprofil",
         "noiseReduction": "Rauschreduzierung",
         "profile": "Profil",
         "profileNamed": "Profil „{{name}}“",
         "Shadows": "Tiefen",
-        "toneCurveMissingPoints": "Tonekurve in Lightroom benannt, aber ohne Punkte",
+        "toneCurveMissingPoints": "Gradationskurve in Lightroom benannt, aber ohne Punkte",
         "upright": "Upright",
         "whiteBalance": "Weißabgleich"
       }
