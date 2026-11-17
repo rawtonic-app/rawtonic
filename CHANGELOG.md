@@ -72,7 +72,7 @@
 
 ### Changes
 
-- **Color Grading tints coloured tones closer to Lightroom** (new edits). A wheel's tint now also depends on the colour it lands on, not only on its lightness: half of the tint is applied to each colour channel by that channel's own level, which brings coloured areas closer to how Lightroom renders the same wheel settings. Measured on 24 photographs the fit never saw, against Camera Raw's (Lightroom's engine) renders of 71 wheel, Luminance, Blending and Balance settings: 47 now match closely and 24 are near (before 39 and 30), and the two settings that were clearly off are now near — a strong magenta Midtones tint (hue 300°, saturation 100) and a strong green Highlights tint (hue 120°, saturation 100). Edits saved before keep their look.
+- **Color Grading tints coloured tones closer to Lightroom** (new edits). A wheel's tint now also depends on the colour it lands on, not only on its lightness: half of the tint is applied to each colour channel by that channel's own level, which brings coloured areas closer to how Lightroom renders the same wheel settings. Measured on 24 photographs the fit never saw, against Camera Raw's (Lightroom's engine) renders of 71 wheel, Luminance, Blending and Balance settings: 47 now match closely and 24 are near (before 39 and 30); the two settings that were clearly off there are now near — a strong green Highlights tint (hue 120°, saturation 100) and a strong blue Midtones tint (hue 210°, saturation 100). On the photographs it was fitted on, the strong magenta Midtones tint (hue 300°, saturation 100) is no longer clearly off either. Edits saved before keep their look.
 
 - Updated frontend libraries (minor versions).
 

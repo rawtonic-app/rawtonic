@@ -985,20 +985,20 @@ mod tests {
                     .collect()
             })
             .collect();
-        // Never over an existing file (nor through a link): delete the old
-        // fixture by hand first.
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(std::env::var("GRADING_TABLES").unwrap())
-            .expect("GRADING_TABLES must name a file that does not exist yet");
-        file.write_all(
+        // Never over an existing file: a synced temporary file beside it,
+        // published without clobbering (delete the old fixture by hand).
+        let path = std::path::PathBuf::from(std::env::var("GRADING_TABLES").unwrap());
+        let mut temp = rawtonic_fs::temp::file_for(&path).unwrap();
+        std::io::Write::write_all(
+            &mut temp,
             serde_json::to_string(&json!({ "versions": [1, 2, 3, 4], "tables": tables }))
                 .unwrap()
                 .as_bytes(),
         )
         .unwrap();
+        temp.as_file().sync_all().unwrap();
+        rawtonic_fs::no_clobber::persist(temp, &path)
+            .expect("GRADING_TABLES must name a file that does not exist yet");
     }
 
     /// Saved edits keep their colour grading: every shipped version's whole
