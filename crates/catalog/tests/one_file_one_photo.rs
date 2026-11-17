@@ -212,6 +212,17 @@ fn two_records_of_one_folder_become_one_photograph_keeping_the_work_of_both() {
     lib.check_integrity().unwrap();
     // Saved before, said once, done once.
     assert_eq!(backups(&w.catalog).len(), 1);
+    // `<database>.before-duplicate-repair-YYYYMMDD`, today's local date
+    // (pinned before the date library changed, DEPC1).
+    let date = backups(&w.catalog)[0]
+        .rsplit('-')
+        .next()
+        .unwrap()
+        .to_string();
+    assert!(
+        date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit()),
+        "{date}"
+    );
     let backup = Connection::open(w.catalog.join(&backups(&w.catalog)[0])).unwrap();
     let before: i64 = backup
         .query_row("SELECT count(*) FROM assets", [], |r| r.get(0))

@@ -1689,6 +1689,22 @@ fn ensure_album(
 #[cfg(test)]
 mod tests {
     use super::Digests;
+
+    /// `text` has the form `pattern`, `d` standing for a digit.
+    fn shape(text: &str, pattern: &str) -> bool {
+        text.len() == pattern.len()
+            && text.bytes().zip(pattern.bytes()).all(|(t, p)| match p {
+                b'd' => t.is_ascii_digit(),
+                _ => t == p,
+            })
+    }
+
+    /// When a record was recorded: UTC to the millisecond (pinned, DEPC1).
+    #[test]
+    fn records_are_dated_in_utc_to_the_millisecond() {
+        let now = super::now();
+        assert!(shape(&now, "dddd-dd-ddTdd:dd:dd.dddZ"), "{now}");
+    }
     use serde_json::json;
     use std::collections::HashMap;
 

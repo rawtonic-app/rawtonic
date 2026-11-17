@@ -941,6 +941,43 @@ mod tests {
         );
     }
 
+    /// Every spelling a capture time is stored or written in is read, in
+    /// one normal form, and what is not a time is refused with its reason
+    /// (pinned before the date library changed, DEPC1).
+    #[test]
+    fn stored_spellings_are_read_in_one_form() {
+        for (text, expected) in [
+            ("2026-10-30 14:05:09", Ok("2026-10-30 14:05:09")),
+            ("2026:10:30 14:05:09", Ok("2026-10-30 14:05:09")),
+            ("2026-10-30T14:05:09", Ok("2026-10-30 14:05:09")),
+            ("  2026-10-30 14:05:09\t", Ok("2026-10-30 14:05:09")),
+            ("2026-1-3 4:5:9", Ok("2026-01-03 04:05:09")),
+            ("2024-02-29 00:00:00", Ok("2024-02-29 00:00:00")),
+            ("0001-01-01 00:00:00", Ok("0001-01-01 00:00:00")),
+            ("9999-12-31 23:59:59", Ok("9999-12-31 23:59:59")),
+            ("0000-12-31 23:59:59", Err(TimeError::OutOfRange)),
+            ("2023-02-29 00:00:00", Err(TimeError::Invalid)),
+            ("2026-10-30 24:00:00", Err(TimeError::Invalid)),
+            ("2026-10-30 14:05", Err(TimeError::Invalid)),
+            ("2026-10-30 14:05:09.5", Err(TimeError::Invalid)),
+            ("2026-10-30 14:05:09+02:00", Err(TimeError::Invalid)),
+            ("2026-10-30", Err(TimeError::Invalid)),
+            ("", Err(TimeError::Invalid)),
+        ] {
+            let read = CaptureTime::new(text, None, None).map(|t| t.local);
+            assert_eq!(read.as_deref(), expected.as_ref().map(|s| *s), "{text:?}");
+        }
+        // Across the whole EXIF range, exact to the nanosecond.
+        let first = at("0001-01-01 00:00:00", None);
+        let last = at("9999-12-31 23:59:59", Some("999999999"));
+        let s = first.shift_to("9999-12-31 23:59:59.999999999").unwrap();
+        assert_eq!(first.shifted(&s).unwrap(), last);
+        assert_eq!(
+            last.nanos().unwrap() - first.nanos().unwrap(),
+            315_537_897_599_999_999_999
+        );
+    }
+
     #[test]
     fn overlay_sets_only_a_map_that_is_there() {
         let t = CaptureTime::new("2026-10-30 14:05:09", None, Some("+01:00")).unwrap();

@@ -1793,6 +1793,69 @@ mod tests {
     use super::*;
     use crate::Mode;
 
+    fn date(text: &str) -> chrono::NaiveDate {
+        day(&serde_json::json!(text)).unwrap()
+    }
+
+    fn text(d: chrono::NaiveDate) -> String {
+        d.format("%Y-%m-%d").to_string()
+    }
+
+    /// Dates and periods of a search, pinned before the date library
+    /// changed (DEPC1): a month back from a longer month ends on the
+    /// shorter month's last day, a period counts today.
+    #[test]
+    fn search_dates_and_periods_are_pinned() {
+        for (written, read) in [
+            ("2026-10-30", Some("2026-10-30")),
+            ("2026-10-30 14:05:09", Some("2026-10-30")),
+            ("2026-10-30T14:05:09Z", Some("2026-10-30")),
+            ("2026-1-3", Some("2026-01-03")),
+            ("2024-02-29", Some("2024-02-29")),
+            ("2023-02-29", None),
+            ("30.10.2026", None),
+            ("", None),
+        ] {
+            let got = day(&serde_json::json!(written)).ok().map(text);
+            assert_eq!(got.as_deref(), read, "{written:?}");
+        }
+        assert!(day(&serde_json::json!(5)).is_err());
+        let period = |amount: u64, unit: &str, today: &str| {
+            since(
+                &serde_json::json!({"amount": amount, "unit": unit}),
+                date(today),
+            )
+            .map(text)
+            .map_err(|e| e.to_string())
+        };
+        for (amount, unit, today, first) in [
+            (1, "days", "2026-03-01", "2026-03-01"),
+            (2, "days", "2026-03-01", "2026-02-28"),
+            (1, "weeks", "2026-03-01", "2026-02-23"),
+            (1, "months", "2026-03-31", "2026-03-01"),
+            (1, "months", "2026-05-31", "2026-05-01"),
+            (3, "months", "2026-05-31", "2026-03-01"),
+            (1, "months", "2026-01-15", "2025-12-16"),
+            (1, "years", "2024-02-29", "2023-03-01"),
+            (4, "years", "2024-02-29", "2020-03-01"),
+            (10000, "days", "2026-10-30", "1999-06-15"),
+            (10000, "weeks", "2026-10-30", "1835-03-07"),
+            (10000, "months", "2026-10-30", "1193-07-01"),
+        ] {
+            assert_eq!(
+                period(amount, unit, today).as_deref(),
+                Ok(first),
+                "{amount} {unit} {today}"
+            );
+        }
+        assert_eq!(
+            period(10000, "years", "2026-10-30").as_deref(),
+            Ok("-7974-10-31")
+        );
+        assert!(period(0, "days", "2026-10-30").is_err());
+        assert!(period(1, "fortnights", "2026-10-30").is_err());
+    }
+
     /// A photograph directly in the file system's root is in "/" (the
     /// root keeps its separator).
     #[cfg(unix)]

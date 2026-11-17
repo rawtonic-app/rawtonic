@@ -1537,6 +1537,30 @@ fn the_losing_sides_work_is_kept() {
     let kept: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
     assert_eq!(kept["from"], "Laptop");
     assert_eq!(kept["setAside"][0]["there"]["rating"], 5);
+    // The report's name and time keep their spelling (pinned, DEPC1):
+    // `YYYY-MM-DD HHMMSS.mmm <id>.json` and RFC 3339 UTC to the millisecond,
+    // the same instant.
+    let shape = |text: &str, pattern: &str| {
+        text.len() == pattern.len()
+            && text.bytes().zip(pattern.bytes()).all(|(t, p)| match p {
+                b'd' => t.is_ascii_digit(),
+                _ => t == p,
+            })
+    };
+    let name = file.file_name().unwrap().to_str().unwrap();
+    let stamp = &name[.."dddd-dd-dd dddddd.ddd".len()];
+    assert!(shape(stamp, "dddd-dd-dd dddddd.ddd"), "{name}");
+    let at = kept["importedAt"].as_str().unwrap();
+    assert!(shape(at, "dddd-dd-ddTdd:dd:dd.dddZ"), "{at}");
+    let same = format!(
+        "{} {}{}{}{}",
+        &at[..10],
+        &at[11..13],
+        &at[14..16],
+        &at[17..19],
+        &at[19..23]
+    );
+    assert_eq!(same, stamp, "{name} {at}");
     // Importing again adds no second snapshot of the same edit.
     let again = import(&w.main, &w.laptop.directory, &opts, &go(), |_| {}).unwrap();
     assert_eq!(again.report.snapshots_kept, 0);
