@@ -152,6 +152,25 @@ export function lumaRangeFromSample(
 }
 
 /**
+ * A luma range's parameters with `patch` applied as the user's own range:
+ * a range imported from Lightroom (`lrRange`, in percentiles) gives way, and
+ * a new falloff replaces the separate falloffs below and above the range that
+ * a Capture One import brings (`falloffLow`/`falloffHigh`), which would
+ * otherwise keep overriding it.
+ */
+export function replaceLumaRange(
+  parameters: Record<string, unknown>,
+  patch: Partial<LumaRangeBounds & { falloff: number }>
+): Record<string, unknown> {
+  const { lrRange: _imported, ...rest } = parameters;
+  if (patch.falloff !== undefined) {
+    delete rest.falloffLow;
+    delete rest.falloffHigh;
+  }
+  return { ...rest, ...patch };
+}
+
+/**
  * Samples the open photo's tones (`sample_luma_range`) and sets the luma
  * range of layer `layerId` from them (replacing a range imported from
  * Lightroom, as moving its sliders does). Returns false when nothing was
@@ -189,7 +208,10 @@ export async function sampleLumaRange(layerId: string, sample: LumaSampleArea, a
               };
               changed = true;
               // The sample replaces an imported Lightroom range (in percentiles).
-              return { ...sub, parameters: { ...parameters, ...lumaRangeFromSample(tones, area, current, add) } };
+              return {
+                ...sub,
+                parameters: replaceLumaRange(parameters, lumaRangeFromSample(tones, area, current, add))
+              };
             })
           }
     )

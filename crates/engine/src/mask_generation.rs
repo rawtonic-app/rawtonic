@@ -938,12 +938,18 @@ impl RadialMaskParameters {
     /// Coverage at elliptical distance `dist` (1 = on the ellipse).
     fn coverage(&self, dist: f32) -> f32 {
         let feather = self.feather.clamp(0.0, 1.0);
-        if GradientVersion::of(self.gradient_version).bell() && feather > 0.0 {
+        let version = GradientVersion::of(self.gradient_version);
+        if version.bell() && feather > 0.0 {
             return bell_falloff(dist, feather);
         }
         // Preserve the exact arithmetic of every existing radial mask.
         let inner_bound = 1.0 - feather;
-        (1.0 - (dist - inner_bound) / (1.0 - inner_bound).max(0.01)).clamp(0.0, 1.0)
+        let ramp = (1.0 - (dist - inner_bound) / (1.0 - inner_bound).max(0.01)).clamp(0.0, 1.0);
+        if version.smooth() {
+            eased_ramp(ramp)
+        } else {
+            ramp
+        }
     }
 }
 
@@ -958,8 +964,11 @@ impl GradientVersion {
     }
 
     fn bell(self) -> bool {
-        self.0
-            .is_some_and(|v| v >= crate::recipe_versions::gradient::BELL)
+        self.0 == Some(crate::recipe_versions::gradient::BELL)
+    }
+
+    fn smooth(self) -> bool {
+        self.0 == Some(crate::recipe_versions::gradient::SMOOTH)
     }
 }
 
@@ -4580,6 +4589,12 @@ struct LumaRangeParameters {
     range_high: f32,
     #[serde(default = "default_luma_falloff")]
     falloff: f32,
+    /// Separate falloffs below `rangeLow` and above `rangeHigh` (percent;
+    /// Capture One keeps one per side). Absent: `falloff` on both sides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    falloff_low: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    falloff_high: Option<f32>,
     /// Lightroom's Luminance Range from an imported preset: zero, full,
     /// full, zero points (0–1) in the photo's luminance percentiles, which is
     /// what Camera Raw selects by (the share of the photo covered follows
@@ -4638,16 +4653,28 @@ fn default_luma_falloff() -> f32 {
 }
 
 /// Coverage of a tone (percent of white) in a luma range.
+#[cfg(test)]
 fn luma_range_coverage(tone: f32, low: f32, high: f32, falloff: f32) -> f32 {
-    let (low, high) = if low <= high {
-        (low, high)
+    luma_range_coverage_sided(tone, low, high, falloff, falloff)
+}
+
+/// [`luma_range_coverage`] with its own falloff below and above the range.
+fn luma_range_coverage_sided(
+    tone: f32,
+    low: f32,
+    high: f32,
+    falloff_low: f32,
+    falloff_high: f32,
+) -> f32 {
+    let (low, high, falloff_low, falloff_high) = if low <= high {
+        (low, high, falloff_low, falloff_high)
     } else {
-        (high, low)
+        (high, low, falloff_high, falloff_low)
     };
-    let distance = if tone < low {
-        low - tone
+    let (distance, falloff) = if tone < low {
+        (low - tone, falloff_low)
     } else if tone > high {
-        tone - high
+        (tone - high, falloff_high)
     } else {
         return 1.0;
     };
@@ -4673,6 +4700,8 @@ fn generate_luma_range_bitmap(
         params.range_high.clamp(0.0, 100.0),
     );
     let falloff = params.falloff.clamp(0.0, 100.0);
+    let falloff_low = params.falloff_low.map_or(falloff, |f| f.clamp(0.0, 100.0));
+    let falloff_high = params.falloff_high.map_or(falloff, |f| f.clamp(0.0, 100.0));
     let percentiles = params.lr_range.map(|_| luma_percentiles(&source.image));
     Some(luma_mask(
         width,
@@ -4687,7 +4716,7 @@ fn generate_luma_range_bitmap(
                     table[((luma * 4.0) as usize).min(1023)],
                     range.map(|v| v.clamp(0.0, 1.0)),
                 ),
-                _ => luma_range_coverage(luma / 2.55, low, high, falloff),
+                _ => luma_range_coverage_sided(luma / 2.55, low, high, falloff_low, falloff_high),
             };
             (coverage > 0.0).then_some(coverage)
         },
@@ -8045,6 +8074,49 @@ mod parallel_shape_tests {
         // Swapped bounds mean the same range; no falloff is a hard edge.
         assert_eq!(luma_range_coverage(50.0, 60.0, 40.0, 0.0), 1.0);
         assert_eq!(luma_range_coverage(39.9, 40.0, 60.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn luma_range_falloffs_can_differ_below_and_above() {
+        // Capture One's 30–60–170–210 (of 255): 30 below, 40 above.
+        let (low, high) = (60.0 / 2.55, 170.0 / 2.55);
+        let (fl, fh) = (30.0 / 2.55, 40.0 / 2.55);
+        let half_below = luma_range_coverage_sided(low - fl / 2.0, low, high, fl, fh);
+        let half_above = luma_range_coverage_sided(high + fh / 2.0, low, high, fl, fh);
+        assert!((half_below - 0.5).abs() < 1e-5 && (half_above - 0.5).abs() < 1e-5);
+        assert_eq!(
+            luma_range_coverage_sided(low - fl - 0.1, low, high, fl, fh),
+            0.0
+        );
+        assert!(luma_range_coverage_sided(high + fl + 1.0, low, high, fl, fh) > 0.0);
+        // Swapped bounds swap their falloffs with them.
+        assert_eq!(
+            luma_range_coverage_sided(high + fh / 2.0, high, low, fh, fl),
+            half_above
+        );
+    }
+
+    #[test]
+    fn smooth_radial_eases_the_straight_ramp() {
+        let radial = |version: Option<u32>| RadialMaskParameters {
+            feather: 0.5,
+            gradient_version: version,
+            ..Default::default()
+        };
+        let straight = radial(None);
+        let smooth = radial(Some(crate::recipe_versions::gradient::SMOOTH));
+        for (dist, ramp) in [
+            (0.2, 1.0),
+            (0.5, 1.0),
+            (0.6, 0.8),
+            (0.75, 0.5),
+            (0.9, 0.2),
+            (1.0, 0.0),
+        ] {
+            assert!((straight.coverage(dist) - ramp).abs() < 1e-5);
+            let eased = ramp * ramp * (3.0 - 2.0 * ramp);
+            assert!((smooth.coverage(dist) - eased).abs() < 1e-5, "{dist}");
+        }
     }
 
     #[test]
