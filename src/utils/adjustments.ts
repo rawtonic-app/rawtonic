@@ -270,9 +270,9 @@ export interface ColorRange {
   lightnessUniformity: number;
 }
 
+/** Ranges the photo and each mask layer hold (Lightroom's Point Color takes
+ * up to eight swatches per photo and per mask). */
 export const MAX_COLOR_RANGES = 8;
-/** Ranges a mask layer can hold (the renderer keeps four per layer). */
-export const MAX_LAYER_COLOR_RANGES = 4;
 
 export function newColorRange(hue: number, chroma: number, lightness: number, kind?: 'skin'): ColorRange {
   return {

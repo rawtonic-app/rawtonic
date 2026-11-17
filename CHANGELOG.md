@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- **Eight Color Editor ranges in every mask.** A mask held at most four Color Editor ranges, so a Lightroom catalog or preset with more Point Color swatches in a mask (Lightroom allows eight) lost the fifth to eighth without a word. Masks now hold eight, as the photo does, and imports bring all of them over; a record with even more swatches (only possible outside Lightroom) is named in the import report. Saved edits render as before.
 - XMP sidecar edits preserve title, caption, rights and IPTC language alternatives; clearing the displayed default preserves translations.
 
 - Multi-view cells now load missing exposure metadata even when the photo has not been opened as primary.
