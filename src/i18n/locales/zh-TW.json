@@ -2091,6 +2091,7 @@
       "ingestResumeFailed": "無法完成中斷的匯入：{{error}}",
       "ingestRetry": "立即匯入",
       "ingestWaiting": "中斷的匯入中有 {{n}} 張照片正在等待其記憶卡或磁碟機；連接後開啟圖庫即可繼續匯入。",
+      "showImported": "顯示",
       "sidecarsCopied_other": "已複製 {{count}} 個 XMP 附屬檔案",
       "watching": "正在監看 {{folder}} 中的新照片。",
       "watchingMissing": "找不到監看資料夾 {{folder}}；恢復後將繼續監看。",
@@ -4186,6 +4187,7 @@
         "empty": "請選擇一張照片",
         "title": "導覽器"
       },
+      "noPhotoToRate": "未選取相片：請選取一張相片來評等、標記或加上色彩標籤。",
       "searchFailed": "無法搜尋資料庫：{{error}}",
       "smartAlbums": {
         "addGroup": "規則群組",

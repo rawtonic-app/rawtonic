@@ -371,6 +371,8 @@ describe('table-driven view and flag keys', () => {
   ])('uses the rebound command handler for %s', (action, original) => {
     const run = vi.fn();
     const stop = registerAppCommands({ [action]: { run } });
+    // A flag key needs a photograph to act on (without one it says so).
+    useLibraryStore.setState({ multiSelectedPaths: ['/s/a.NEF'] });
     useSettingsStore.setState({ appSettings: { keybinds: { [action]: ['ctrl', 'alt', 'KeyK'] } } as AppSettings });
     press(original, action === 'flag_reject' ? { shiftKey: true } : {});
     expect(run).not.toHaveBeenCalled();

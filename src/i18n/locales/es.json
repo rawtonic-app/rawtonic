@@ -2291,6 +2291,7 @@
       "ingestResumeFailed": "No se pudo terminar la importación interrumpida: {{error}}",
       "ingestRetry": "Importar ahora",
       "ingestWaiting": "{{n}} fotos de una importación interrumpida esperan su tarjeta o unidad; la importación continúa al abrir la biblioteca con ella conectada.",
+      "showImported": "Mostrar",
       "sidecarsCopied_one": "{{count}} archivo XMP complementario copiado",
       "sidecarsCopied_many": "{{count}} archivos XMP complementarios copiados",
       "sidecarsCopied_other": "{{count}} archivos XMP complementarios copiados",
@@ -4494,6 +4495,7 @@
         "empty": "Selecciona una foto",
         "title": "Navegador"
       },
+      "noPhotoToRate": "Ninguna foto seleccionada: selecciona una foto para valorarla, marcarla o etiquetarla.",
       "searchFailed": "No se pudo buscar en la biblioteca: {{error}}",
       "smartAlbums": {
         "addGroup": "Grupo de reglas",

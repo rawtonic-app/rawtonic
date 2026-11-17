@@ -2291,6 +2291,7 @@
       "ingestResumeFailed": "L'importation interrompue n'a pas pu être terminée : {{error}}",
       "ingestRetry": "Importer maintenant",
       "ingestWaiting": "{{n}} photos d'une importation interrompue attendent leur carte ou leur disque ; l'importation reprend à l'ouverture de la bibliothèque avec celui-ci connecté.",
+      "showImported": "Afficher",
       "sidecarsCopied_one": "{{count}} fichier annexe XMP copié",
       "sidecarsCopied_many": "{{count}} fichiers annexes XMP copiés",
       "sidecarsCopied_other": "{{count}} fichiers annexes XMP copiés",
@@ -4494,6 +4495,7 @@
         "empty": "Sélectionnez une photo",
         "title": "Navigation"
       },
+      "noPhotoToRate": "Aucune photo sélectionnée : sélectionnez une photo pour la noter, la marquer ou lui attribuer une couleur.",
       "searchFailed": "La recherche dans la bibliothèque a échoué : {{error}}",
       "smartAlbums": {
         "addGroup": "Groupe de règles",

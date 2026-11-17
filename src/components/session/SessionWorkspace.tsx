@@ -38,6 +38,8 @@ import {
   X
 } from 'lucide-react';
 import { notify } from '../../activity/notify';
+/** A notice's id (`notify`). */
+type NoticeId = ReturnType<typeof notify.success>;
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -62,11 +64,12 @@ import {
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { useSessionBar } from './sessionBar';
 import { SESSION_ALBUMS_CHANGED, openSessionAlbum, type SessionAlbum } from '../studio/StudioAlbums';
-import { holdSavedView, isInside, savedView, settleSavedView, type SavedView } from '../../utils/restoreView';
+import { holdSavedView, isInside, samePath, savedView, settleSavedView, type SavedView } from '../../utils/restoreView';
 import { outermost, type CatalogFoldersView } from '../../utils/catalogFolders';
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, openMissingView, watchVolumes } from '../../utils/offline';
 import { watchXmpSidecars } from '../../utils/xmpCheck';
 import { requestAutoAdvance } from '../../utils/photoStepping';
+import { importEndView, watchUserActivity, type UserActivity } from '../../utils/importInteraction';
 import { hotFolderCommand } from '../../utils/hotFolderCommands';
 import {
   FOLDER_SYNC_APPLIED,
@@ -190,9 +193,19 @@ function reportIngest(
     resumed = false,
     cancelled = false,
     album = null,
-    albumError = null
-  }: { adding?: boolean; resumed?: boolean; cancelled?: boolean; album?: string | null; albumError?: string | null }
-) {
+    albumError = null,
+    show
+  }: {
+    adding?: boolean;
+    resumed?: boolean;
+    cancelled?: boolean;
+    album?: string | null;
+    albumError?: string | null;
+    /** Offered as Show: the user worked meanwhile, so the view stayed. */
+    show?: () => void;
+  }
+): NoticeId | null {
+  let showNotice: NoticeId | null = null;
   const failures = results.filter((r) => r.error);
   // A companion JPEG is part of its RAW's photograph, not one of its own.
   const photos = results.filter((r) => !r.companion_of);
@@ -215,30 +228,49 @@ function reportIngest(
       }),
       { autoClose: false }
     );
-  else if (results.length || !resumed)
-    notify.success(
-      [
-        resumed
-          ? i18n.t('session.toasts.ingestResumed', { n: copied })
-          : adding
-            ? i18n.t('session.toasts.added', { count: copied })
-            : i18n.t('session.toasts.ingested', { count: copied }),
-        duplicates.length
-          ? i18n.t('session.toasts.duplicatesSkipped', {
-              count: duplicates.length,
-              name: sourceFileName(duplicates[0].duplicate_of ?? ''),
-              file: sourceFileName(duplicates[0].source)
-            })
-          : null,
-        registered ? i18n.t('session.toasts.alreadyInLibrary', { count: registered }) : null,
-        sidecars ? i18n.t('session.toasts.sidecarsCopied', { count: sidecars }) : null,
-        companions ? i18n.t('session.toasts.companionsKept', { n: companions }) : null,
-        album && !albumError ? i18n.t('session.toasts.addedToAlbum', { name: album }) : null,
-        cancelled ? i18n.t('session.toasts.ingestCancelled') : null
-      ]
-        .filter(Boolean)
-        .join(' · ')
-    );
+  else if (results.length || !resumed) {
+    const summary = [
+      resumed
+        ? i18n.t('session.toasts.ingestResumed', { n: copied })
+        : adding
+          ? i18n.t('session.toasts.added', { count: copied })
+          : i18n.t('session.toasts.ingested', { count: copied }),
+      duplicates.length
+        ? i18n.t('session.toasts.duplicatesSkipped', {
+            count: duplicates.length,
+            name: sourceFileName(duplicates[0].duplicate_of ?? ''),
+            file: sourceFileName(duplicates[0].source)
+          })
+        : null,
+      registered ? i18n.t('session.toasts.alreadyInLibrary', { count: registered }) : null,
+      sidecars ? i18n.t('session.toasts.sidecarsCopied', { count: sidecars }) : null,
+      companions ? i18n.t('session.toasts.companionsKept', { n: companions }) : null,
+      album && !albumError ? i18n.t('session.toasts.addedToAlbum', { name: album }) : null,
+      cancelled ? i18n.t('session.toasts.ingestCancelled') : null
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    if (show) {
+      const label = i18n.t('session.toasts.showImported');
+      showNotice = notify.success(
+        ({ closeToast }) => (
+          <div>
+            <span>{summary}</span>{' '}
+            <button
+              type="button"
+              onClick={() => {
+                closeToast();
+                show();
+              }}
+            >
+              {label}
+            </button>
+          </div>
+        ),
+        { title: summary, closeOnClick: false, autoClose: 8000, actions: [{ label, run: show, settles: true }] }
+      );
+    } else notify.success(summary);
+  }
   if (warnings.length)
     notify.warning(i18n.t('session.toasts.importWarnings', { count: warnings.length, error: warnings[0].warning }), {
       autoClose: false
@@ -247,6 +279,7 @@ function reportIngest(
     notify.error(i18n.t('session.toasts.albumAddFailed', { name: album, error: albumError }), {
       autoClose: false
     });
+  return showNotice;
 }
 /** Mirrors `ingest::queue::JobSummary` (`session_ingest_jobs`). */
 interface IngestJobSummary {
@@ -1810,6 +1843,16 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
    * Folder… in a catalog, which adds where they are): one task of the
    * activity centre with Cancel, the photographs appearing as each comes
    * in, the result reported, the library's counts refreshed. */
+  /** The notice offering Show for the last import (`reportIngest`). */
+  const importShowNotice = useRef<NoticeId | null>(null);
+  // Another library: the last import's Show is not for it.
+  useEffect(
+    () => () => {
+      if (importShowNotice.current != null) notify.dismiss(importShowNotice.current);
+      importShowNotice.current = null;
+    },
+    [session?.directory]
+  );
   const runIngest = async (
     files: string[],
     {
@@ -1834,8 +1877,12 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
   ) => {
     if (!session) return;
     cancelRequested.current = false;
+    // The last import's Show would open this one's photographs.
+    if (importShowNotice.current != null) notify.dismiss(importShowNotice.current);
+    importShowNotice.current = null;
     setImporting(true);
     setProgress({ current: 0, total: files.length, mbps: 0 });
+    let activity: UserActivity | null = null;
     try {
       // The grid shows where the photographs go, and they appear in it as
       // each is copied (useTauriListeners, `session-ingest-imported`).
@@ -1849,6 +1896,8 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       if (useUIStore.getState().activeView !== 'editor') await onNavigate(destination);
       // The view this import shows; still shown afterwards, it changes to Previous Import.
       const shownView = useLibraryStore.getState().currentFolderPath;
+      // From here on a key, click or scroll means the user works meanwhile.
+      activity = watchUserActivity();
       // Cancel pressed before the ingest started (the backend clears its
       // cancel flag when it starts): nothing is copied.
       if (cancelRequested.current) return;
@@ -1880,12 +1929,6 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
             albumError = String(e);
           }
       }
-      reportIngest(results, {
-        adding,
-        cancelled: results.length < files.length,
-        album: album?.name ?? null,
-        albumError
-      });
       const card = cancelRequested.current ? null : cardToEject(eject, files, results);
       if (card)
         void invoke(Invokes.SessionEjectCard, { mountPoint: card })
@@ -1894,17 +1937,50 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       await refresh();
       // Lightroom shows the new photographs after Import; a dated destination
       // (Photos/2026/2026-10-31) would otherwise leave the shown folder empty.
-      // A photograph open in Develop, the loupe or full screen stays open.
-      if (
+      // A photograph open in Develop, the loupe or full screen stays open, and
+      // so does whatever the user culls while the import runs: the view, its
+      // selection and their rating keys stay theirs, the notice offers Show.
+      // Decided now, after the refresh, with what is shown now.
+      const endView = importEndView({
         // A JPEG joining a RAW already there forms no import batch.
-        results.some((r) => r.destination && !r.skipped && !r.error && !r.companion_of) &&
-        !viewerShown(useUIStore.getState()) &&
-        useLibraryStore.getState().currentFolderPath === shownView
-      )
-        window.dispatchEvent(new Event(SHOW_PREVIOUS_IMPORT));
+        imported: results.some((r) => r.destination && !r.skipped && !r.error && !r.companion_of),
+        viewerShown: viewerShown(useUIStore.getState()),
+        sameView: useLibraryStore.getState().currentFolderPath === shownView,
+        acted: activity.acted()
+      });
+      activity.stop();
+      const directory = session.directory;
+      // Show opens Previous Import only while that is this import's batch:
+      // a newer one (the next import, a hot folder's or a tethered camera's
+      // capture, also one that began while this import ran) holds other
+      // photographs, and Show then does nothing; so in another library.
+      const mine = results.find((r) => r.destination && !r.skipped && !r.error && !r.companion_of)?.destination;
+      importShowNotice.current = reportIngest(results, {
+        adding,
+        cancelled: results.length < files.length,
+        album: album?.name ?? null,
+        albumError,
+        show:
+          endView === 'offer' && mine
+            ? () => {
+                if (useLibraryStore.getState().sessionDirectory !== directory) return;
+                void previousImport(directory)
+                  .then(({ paths }) => {
+                    if (
+                      useLibraryStore.getState().sessionDirectory === directory &&
+                      paths.some((path) => samePath(path, mine))
+                    )
+                      window.dispatchEvent(new Event(SHOW_PREVIOUS_IMPORT));
+                  })
+                  .catch(() => {});
+              }
+            : undefined
+      });
+      if (endView === 'show') window.dispatchEvent(new Event(SHOW_PREVIOUS_IMPORT));
     } catch (e) {
       notify.error(String(e), { autoClose: false });
     } finally {
+      activity?.stop();
       setImporting(false);
       window.dispatchEvent(new Event(IMPORTS_CHANGED));
     }

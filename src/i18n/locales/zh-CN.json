@@ -2091,6 +2091,7 @@
       "ingestResumeFailed": "无法完成中断的导入：{{error}}",
       "ingestRetry": "立即导入",
       "ingestWaiting": "中断的导入中有 {{n}} 张照片正在等待其存储卡或驱动器；连接后打开图库即可继续导入。",
+      "showImported": "显示",
       "sidecarsCopied_other": "已复制 {{count}} 个 XMP 附属文件",
       "watching": "正在监视 {{folder}} 中的新照片。",
       "watchingMissing": "找不到监视文件夹 {{folder}}；恢复后将继续监视。",
@@ -4186,6 +4187,7 @@
         "empty": "请选择一张照片",
         "title": "导航器"
       },
+      "noPhotoToRate": "未选择照片：请选择一张照片来评级、标记或添加颜色标签。",
       "searchFailed": "无法搜索资料库：{{error}}",
       "smartAlbums": {
         "addGroup": "规则组",
