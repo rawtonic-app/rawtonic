@@ -826,6 +826,49 @@ pub fn merge_xmp(
     Ok(merge_packet(existing, metadata, recipe)?)
 }
 
+// Tokenize the start tag: quoted attribute values may contain literal `>`.
+fn opening_tag(raw: &str) -> Result<(usize, String, bool)> {
+    let mut reader = quick_xml::Reader::from_str(raw);
+    let event = reader.read_event()?;
+    let (tag, empty) = match event {
+        quick_xml::events::Event::Start(tag) => (tag, false),
+        quick_xml::events::Event::Empty(tag) => (tag, true),
+        _ => anyhow::bail!("Expected an XML opening tag"),
+    };
+    Ok((
+        reader.buffer_position() as usize - 1,
+        std::str::from_utf8(tag.name().as_ref())?.to_string(),
+        empty,
+    ))
+}
+
+fn packet_property(node: roxmltree::Node) -> bool {
+    node.parent().is_some_and(|parent| {
+        parent.has_tag_name((RDF, "Description"))
+            && parent.parent().is_some_and(|root| {
+                root.has_tag_name((RDF, "RDF"))
+                    && root
+                        .document()
+                        .descendants()
+                        .find(|n| n.has_tag_name((RDF, "RDF")))
+                        == Some(root)
+            })
+    })
+}
+
+fn retained_language_array(node: roxmltree::Node) -> bool {
+    node.children()
+        .find(|n| n.has_tag_name((RDF, "Alt")))
+        .is_some_and(|alt| {
+            alt.children()
+                .filter(|n| n.has_tag_name((RDF, "li")))
+                .any(|n| {
+                    n.attribute(("http://www.w3.org/XML/1998/namespace", "lang"))
+                        != Some("x-default")
+                })
+        })
+}
+
 // Edit language arrays in their original namespace context. Unrelated items,
 // qualifiers, whitespace and entity spellings remain byte-for-byte untouched.
 fn edit_language_alternatives(
@@ -835,7 +878,10 @@ fn edit_language_alternatives(
     let doc = roxmltree::Document::parse(base)?;
     let mut edits = Vec::new();
     let mut kept = Vec::new();
-    for node in doc.descendants().filter(|n| n.is_element()) {
+    for node in doc
+        .descendants()
+        .filter(|n| n.is_element() && packet_property(*n))
+    {
         let ns = node.tag_name().namespace().unwrap_or_default();
         let name = node.tag_name().name();
         let value = match (ns, name) {
@@ -887,13 +933,8 @@ fn edit_language_alternatives(
                 continue;
             }
             let raw = &base[item.range()];
-            let end = raw.find('>').context("Missing language item opening tag")?;
-            let replacement = if raw[..end].ends_with('/') {
-                let prefix = raw[1..end]
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or("rdf:li")
-                    .trim_end_matches('/');
+            let (end, prefix, empty) = opening_tag(raw)?;
+            let replacement = if empty {
                 format!("{}>{}</{prefix}>", &raw[..end - 1], escape(value))
             } else {
                 let close = raw
@@ -905,20 +946,17 @@ fn edit_language_alternatives(
         }
         if default.is_none() {
             let raw = &base[alt.range()];
-            let prefix = raw[1..]
-                .split(|c: char| c.is_whitespace() || c == '>' || c == '/')
-                .next()
-                .unwrap_or("rdf:Alt");
+            let (end, prefix, empty) = opening_tag(raw)?;
             let rdf_prefix = prefix.strip_suffix("Alt").unwrap_or("rdf:");
             let item = format!(
                 "<{rdf_prefix}li xml:lang=\"x-default\">{}</{rdf_prefix}li>",
                 escape(value)
             );
-            if raw.trim_end().ends_with("/>") {
-                let end = raw.rfind("/>").unwrap();
+            if empty {
+                let end = end - 1;
                 edits.push((alt.range(), format!("{}>{item}</{prefix}>", &raw[..end])));
             } else {
-                let at = alt.range().start + raw.find('>').unwrap() + 1;
+                let at = alt.range().start + end + 1;
                 edits.push((at..at, item));
             }
         }
@@ -1024,25 +1062,26 @@ fn merge_packet(
     // empty clears. This also applies to Keep library: an old catalog never
     // observed fields added to the model later and must not erase them.
     let managed = |namespace: Option<&str>, name: &str| {
-        if language_alternatives
-            .iter()
-            .any(|(ns, field)| Some(ns.as_str()) == namespace && field == name)
-        {
-            return false;
-        }
         (managed(namespace, name) && !(keep_label && namespace == Some(XMP) && name == "Label"))
             || iptc_key(namespace, name).is_some_and(|k| metadata.iptc.contains_key(k))
             || (has_contact && namespace == Some(IPTC_CORE) && name == "CreatorContactInfo")
             || (own_original && namespace == Some(EXIF) && name == "DateTimeOriginal")
             || (own_created && namespace == Some(PHOTOSHOP) && name == "DateCreated")
     };
-    let owned =
-        |node: roxmltree::Node| managed(node.tag_name().namespace(), node.tag_name().name());
+    let owned = |node: roxmltree::Node| {
+        packet_property(node)
+            && managed(node.tag_name().namespace(), node.tag_name().name())
+            && !(retained_language_array(node)
+                && language_alternatives
+                    .iter()
+                    .any(|(ns, name)| node.has_tag_name((ns.as_str(), name.as_str()))))
+    };
     // A description left with nothing but our removed properties goes as a
     // whole; otherwise every rewrite left an empty one behind and the sidecar
     // grew with each save. Foreign properties keep their description.
     let emptied = |node: roxmltree::Node| {
         node.has_tag_name((RDF, "Description"))
+            && node.parent() == Some(root)
             && node.attributes().all(|attr| {
                 managed(attr.namespace(), attr.name())
                     || (attr.namespace() == Some(RDF) && attr.name() == "about")
@@ -1070,7 +1109,10 @@ fn merge_packet(
             continue;
         }
         for attr in node.attributes() {
-            if managed(attr.namespace(), attr.name()) {
+            if node.has_tag_name((RDF, "Description"))
+                && node.parent() == Some(root)
+                && managed(attr.namespace(), attr.name())
+            {
                 removals.push(attr.range());
             }
         }
@@ -1200,6 +1242,7 @@ fn merge_packet(
     out.push_str("</rdf:Description>\n");
     out.push_str(&base[close..]);
     // Refuse to persist if our preservation logic produced malformed XML.
+    roxmltree::Document::parse(&out)?;
     read_xmp(&out)?;
     Ok(out)
 }
@@ -1373,6 +1416,64 @@ pub fn write_xmp_announced(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn packet_edges_keep_foreign_subtrees_and_duplicates() {
+        let nested = "<f:box><dc:title><rdf:Alt><rdf:li xml:lang='fr'>Nested</rdf:li></rdf:Alt></dc:title></f:box>";
+        let source = format!(
+            "<rdf:RDF xmlns:rdf='{RDF}' xmlns:dc='{DC}' xmlns:f='urn:foreign'><rdf:Description dc:title='stale'>{nested}<dc:title>stale</dc:title><dc:title><rdf:Alt><rdf:li xml:lang='x-default' f:q='qualifier'>Old</rdf:li><rdf:li xml:lang='fr'>French</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF>"
+        );
+        let metadata = Metadata {
+            title: "New".into(),
+            ..Metadata::default()
+        };
+        let out = merge_xmp(Some(&source), &metadata, None).unwrap();
+        assert!(out.contains(nested), "{out}");
+        assert!(!out.contains("stale"), "{out}");
+        assert!(out.contains("f:q='qualifier'>New</rdf:li>"), "{out}");
+        roxmltree::Document::parse(&out).unwrap();
+    }
+
+    #[test]
+    fn packet_edges_parse_quoted_tag_boundaries() {
+        for item in [
+            "<rdf:li xml:lang='x-default' f:q='a > b'>Old</rdf:li>",
+            "<rdf:li xml:lang='x-default' f:q='a > b'/>",
+            "",
+        ] {
+            let source = format!(
+                "<rdf:RDF xmlns:rdf='{RDF}' xmlns:dc='{DC}' xmlns:f='urn:foreign'><rdf:Description><dc:title><rdf:Alt f:q='a > b'>{item}<rdf:li xml:lang='fr'>French</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF>"
+            );
+            let metadata = Metadata {
+                title: "New".into(),
+                ..Metadata::default()
+            };
+            let out = merge_xmp(Some(&source), &metadata, None).unwrap();
+            assert_eq!(read_xmp(&out).unwrap().0.title, "New", "{out}");
+            assert!(out.contains("<rdf:Alt f:q='a > b'>"), "{out}");
+            assert!(
+                out.contains("<rdf:li xml:lang='fr'>French</rdf:li>"),
+                "{out}"
+            );
+            if !item.is_empty() {
+                assert!(out.contains("f:q='a > b'>New</rdf:li>"), "{out}");
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_generated_xml_leaves_sidecar_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.xmp");
+        let source = merge_xmp(None, &Metadata::default(), None).unwrap();
+        fs::write(&path, &source).unwrap();
+        let metadata = Metadata {
+            title: "bad\u{1}text".into(),
+            ..Metadata::default()
+        };
+        assert!(write_xmp(&path, &metadata, None, None).is_err());
+        assert_eq!(fs::read_to_string(path).unwrap(), source);
+    }
+
     #[test]
     fn missing_or_nonfirst_default_does_not_replace_translations() {
         for array in [
