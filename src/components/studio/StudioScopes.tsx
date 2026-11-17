@@ -1,6 +1,7 @@
-import { memo } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/useEditorStore';
+import { useEditorStoreDom } from '../../hooks/useEditorStoreDom';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import type { WaveformData } from '../ui/AppProperties';
 
@@ -27,9 +28,12 @@ export function waveformY(percent: number): number {
  * or null when it was not computed. The `<img>` decodes it off the main
  * thread: unpacking raw RGBA here delayed the live preview during drags. */
 export function scopeImage(waveform: WaveformData | null, mode: ScopeMode): string | null {
-  const encoded = waveform?.[mode];
-  if (!encoded || waveform.width !== SIZE || waveform.height !== SIZE) return null;
-  return `data:image/png;base64,${encoded}`;
+  return hasScopeImage(waveform, mode) ? `data:image/png;base64,${waveform?.[mode]}` : null;
+}
+
+/** Whether `waveform` holds `mode`'s image (without building its URL). */
+export function hasScopeImage(waveform: WaveformData | null, mode: ScopeMode): boolean {
+  return !!waveform?.[mode] && waveform.width === SIZE && waveform.height === SIZE;
 }
 
 function WaveformGraticule({ parade }: { parade: boolean }) {
@@ -46,22 +50,28 @@ function WaveformGraticule({ parade }: { parade: boolean }) {
   );
 }
 
-function VectorscopeGraticule({ waveform }: { waveform: WaveformData | null }) {
+function VectorscopeGraticule({
+  skinLineDegrees,
+  targets
+}: {
+  skinLineDegrees: number | undefined;
+  targets: NonNullable<WaveformData['vectorscopeTargets']>;
+}) {
   const c = SIZE / 2;
-  const angle = ((waveform?.skinLineDegrees ?? 123) * Math.PI) / 180;
+  const angle = ((skinLineDegrees ?? 123) * Math.PI) / 180;
   return (
     <g className="studio-scope-graticule">
       <line x1="0" x2={SIZE} y1={c} y2={c} />
       <line x1={c} x2={c} y1="0" y2={SIZE} />
       <line
         className="studio-scope-skin"
-        data-degrees={waveform?.skinLineDegrees}
+        data-degrees={skinLineDegrees}
         x1={c}
         y1={c}
         x2={c + 124 * Math.cos(angle)}
         y2={c - 124 * Math.sin(angle)}
       />
-      {(waveform?.vectorscopeTargets ?? []).map((t) => {
+      {targets.map((t) => {
         const half = t.percent === 100 ? 4 : 3;
         return (
           <g key={`${t.name}${t.percent}`} className={`studio-scope-target is-${t.percent}`}>
@@ -84,14 +94,33 @@ function VectorscopeGraticule({ waveform }: { waveform: WaveformData | null }) {
   );
 }
 
+const selectWaveform = (s: ReturnType<typeof useEditorStore.getState>) => s.waveform;
+
 /** Waveform, RGB waveform, parade and vectorscope of the shown frame, in its
  * output space (`analytics-update`). Shown with the Analysis shortcut. */
 export default memo(function StudioScopes() {
   const { t } = useTranslation();
-  const waveform = useEditorStore((s) => s.waveform);
   const mode = scopeMode(useEditorStore((s) => s.activeWaveformChannel));
   const setEditor = useEditorStore((s) => s.setEditor);
-  const image = scopeImage(waveform, mode);
+  // Small, stable values only: the scope image itself goes to the <img>
+  // without rendering (ten updates a second during drags, useEditorStoreDom).
+  const hasImage = useEditorStore((s) => hasScopeImage(s.waveform, mode));
+  const skinLineDegrees = useEditorStore((s) => s.waveform?.skinLineDegrees);
+  const targetsKey = useEditorStore((s) => JSON.stringify(s.waveform?.vectorscopeTargets ?? []));
+  const targets = useMemo(
+    () => JSON.parse(targetsKey) as NonNullable<WaveformData['vectorscopeTargets']>,
+    [targetsKey]
+  );
+  const img = useRef<HTMLImageElement>(null);
+  useEditorStoreDom(
+    selectWaveform,
+    (waveform) => {
+      const src = scopeImage(waveform, mode);
+      // Within a mode the old image stays until the next is decoded.
+      if (src && img.current && img.current.getAttribute('src') !== src) img.current.src = src;
+    },
+    [mode, hasImage]
+  );
 
   const choose = (next: ScopeMode) => {
     setEditor({ activeWaveformChannel: next });
@@ -133,15 +162,15 @@ export default memo(function StudioScopes() {
         {/* Keyed by mode: a switch never shows the last mode's image while
             the new one decodes; within a mode the old image stays until the
             next is decoded. */}
-        {image && <img key={mode} src={image} alt="" decoding="async" draggable={false} aria-hidden="true" />}
+        {hasImage && <img ref={img} key={mode} alt="" decoding="async" draggable={false} aria-hidden="true" />}
         <svg
           viewBox={`0 0 ${SIZE} ${SIZE}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label={image ? labels[mode][1] : t('studio.scopes.empty')}
+          aria-label={hasImage ? labels[mode][1] : t('studio.scopes.empty')}
         >
           {vectorscope ? (
-            <VectorscopeGraticule waveform={waveform} />
+            <VectorscopeGraticule skinLineDegrees={skinLineDegrees} targets={targets} />
           ) : (
             <WaveformGraticule parade={mode === 'parade'} />
           )}

@@ -228,7 +228,9 @@ export function StudioLevels({ values, disabled, change, onInteraction, toggle, 
   const channel = useEditorStore((s) => s.levelsChannel);
   const tatTarget = useEditorStore((s) => s.tatTarget);
   const setEditor = useEditorStore((s) => s.setEditor);
-  const histogram = useEditorStore((s) => s.histogram);
+  // Whether there is one, not each new one: scope updates arrive ten times
+  // a second during drags, and Auto reads the current one when pressed.
+  const hasHistogram = useEditorStore((s) => !!s.histogram);
   const [open, setOpen] = useState(false);
   const inputCounts = useLevelsInputCounts(open);
   const levels: Levels = { ...INITIAL_LEVELS, ...values.levels };
@@ -337,6 +339,7 @@ export function StudioLevels({ values, disabled, change, onInteraction, toggle, 
   );
   const max = Math.max(1, ...bins.flat());
   const auto = () => {
+    const histogram = useEditorStore.getState().histogram;
     if (!histogram) return;
     const bins = shown.map((c) => histogramBins(histogram[c]));
     const next = autoLevels(bins, current);
@@ -373,7 +376,7 @@ export function StudioLevels({ values, disabled, change, onInteraction, toggle, 
           type="button"
           className="studio-tool-auto"
           aria-label={t('studio.tone.levels.autoAria')}
-          disabled={disabled || !histogram}
+          disabled={disabled || !hasHistogram}
           title={t('studio.tone.levels.autoTitle')}
           onClick={(e) => {
             e.preventDefault();
