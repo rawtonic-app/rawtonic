@@ -2144,13 +2144,66 @@ pub struct RenderOutput {
 
 /// Where a render's tiles go: the output tile read back for one output and,
 /// for deferred outputs, the encode pass that fills it.
-struct TileTarget<'a> {
+struct TileTarget<'a, 's> {
     texture: &'a wgpu::Texture,
     bytes_per_pixel: u32,
+    /// The whole output, or with `stream` one band of rows (a tile's height).
     pixels: RenderedPixels,
     pending: Option<(PendingReadback, TilePlacement)>,
     encode: Option<(&'a wgpu::ComputePipeline, wgpu::BindGroup, RenderOutput)>,
+    stream: Option<RowStream<'s>>,
+    /// The output row `pixels` starts at when streamed.
+    band_start: u32,
 }
+
+impl TileTarget<'_, '_> {
+    /// Copies a read-back tile into the output pixels and, when streamed,
+    /// hands the band of rows on once its last tile is in (tiles are read
+    /// back row by row, left to right).
+    fn store(
+        &mut self,
+        tile: TilePlacement,
+        out_width: u32,
+        rows: &[u8],
+        stride: usize,
+    ) -> Result<(), String> {
+        let Some(stream) = self.stream.as_mut() else {
+            store_tile(&mut self.pixels, tile, out_width, rows, stride);
+            return Ok(());
+        };
+        let in_band = TilePlacement {
+            y: tile.y - self.band_start,
+            ..tile
+        };
+        store_tile(&mut self.pixels, in_band, out_width, rows, stride);
+        if tile.x + tile.width == out_width {
+            stream(self.pixels.band(self.band_start, out_width, tile.height))?;
+            self.band_start += tile.height;
+        }
+        Ok(())
+    }
+}
+
+/// Rows of an export render, handed on as they are read back
+/// ([`RowStream`]): `rows` rows of `width` RGBA pixels from `first_row` on.
+pub struct RowBand<'a> {
+    pub first_row: u32,
+    pub width: u32,
+    pub rows: u32,
+    pub pixels: BandPixels<'a>,
+}
+
+/// RGBA samples of a [`RowBand`] at the render's precision.
+pub enum BandPixels<'a> {
+    U8(&'a [u8]),
+    U16(&'a [u16]),
+}
+
+/// Receives an export render's rows top to bottom, in bands of a tile's
+/// height, so that the render holds one band instead of the whole photo
+/// (8 bytes a pixel at 16 bit; notes: benchmark-results/mem14-2026-11-17).
+/// An error stops the render.
+pub type RowStream<'a> = &'a mut dyn FnMut(RowBand<'_>) -> Result<(), String>;
 
 /// Shader family for a CPU-readback render.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -6077,6 +6130,22 @@ struct HighPrecisionTile {
 enum RenderedPixels {
     U8(Vec<u8>),
     U16(Vec<u16>),
+}
+
+impl RenderedPixels {
+    /// The first `rows` rows of `width` pixels, as rows from `first_row` on.
+    fn band(&self, first_row: u32, width: u32, rows: u32) -> RowBand<'_> {
+        let samples = width as usize * rows as usize * 4;
+        RowBand {
+            first_row,
+            width,
+            rows,
+            pixels: match self {
+                RenderedPixels::U8(pixels) => BandPixels::U8(&pixels[..samples]),
+                RenderedPixels::U16(pixels) => BandPixels::U16(&pixels[..samples]),
+            },
+        }
+    }
 }
 
 /// 16-bit exports write 32-bit floats: a float16 tile (10-bit mantissa)
@@ -10112,8 +10181,11 @@ impl GpuProcessor {
         chroma: Option<(&wgpu::TextureView, &wgpu::TextureView)>,
         uploaded_masks: Option<&UploadedMasks>,
         outputs: &[RenderOutput],
+        streams: &mut [Option<RowStream<'_>>],
     ) -> Result<Vec<(RenderedPixels, u32, u32)>, String> {
-        let run = |request: RenderRequest, outputs: &[RenderOutput]| {
+        let run = |request: RenderRequest,
+                   outputs: &[RenderOutput],
+                   streams: &mut [Option<RowStream<'_>>]| {
             self.render_window(
                 input_texture_view,
                 width,
@@ -10132,6 +10204,7 @@ impl GpuProcessor {
                 None,
                 uploaded_masks,
                 outputs,
+                streams,
                 false,
             )
         };
@@ -10159,6 +10232,7 @@ impl GpuProcessor {
                     roi: request.roi,
                 },
                 &[],
+                &mut [streams.get_mut(index).and_then(Option::take)],
             )?;
             let pixels = pixels
                 .into_iter()
@@ -10173,7 +10247,13 @@ impl GpuProcessor {
             .map(|(output, _)| *output)
             .collect();
         if !shared.is_empty() {
-            let (pixels, out_w, out_h, _, _) = run(request, &shared)?;
+            let mut shared_streams: Vec<_> = streams
+                .iter_mut()
+                .zip(&alone)
+                .filter(|(_, alone)| !**alone)
+                .map(|(stream, _)| stream.take())
+                .collect();
+            let (pixels, out_w, out_h, _, _) = run(request, &shared, &mut shared_streams)?;
             let mut pixels = pixels.into_iter();
             for (slot, _) in rendered
                 .iter_mut()
@@ -10697,6 +10777,7 @@ impl GpuProcessor {
             flare_samples,
             uploaded_masks,
             &[],
+            &mut [],
             false,
         )?;
         Ok((pixels.remove(0), out_width, out_height, x, y))
@@ -10723,6 +10804,7 @@ impl GpuProcessor {
         flare_samples: Option<&wgpu::TextureView>,
         uploaded_masks: Option<&UploadedMasks>,
         outputs: &[RenderOutput],
+        streams: &mut [Option<RowStream<'_>>],
         readback_analytics: bool,
     ) -> Result<(Vec<RenderedPixels>, u32, u32, u32, u32), String> {
         let mut request = request;
@@ -11387,9 +11469,20 @@ impl GpuProcessor {
         } else {
             (out_width * out_height * 4) as usize
         };
-        let pixels_of = |precision| match precision {
-            RenderOutputPrecision::EightBit => RenderedPixels::U8(vec![0u8; output_len]),
-            RenderOutputPrecision::SixteenBit => RenderedPixels::U16(vec![0u16; output_len]),
+        // A streamed output holds one band of a tile's height.
+        let band_len = (tile_size * out_width * 4) as usize;
+        let mut streams = streams.iter_mut().map(Option::take);
+        let mut stream_of = || streams.next().flatten();
+        let pixels_of = |precision, stream: &Option<RowStream>| {
+            let len = if stream.is_some() {
+                band_len.min(output_len)
+            } else {
+                output_len
+            };
+            match precision {
+                RenderOutputPrecision::EightBit => RenderedPixels::U8(vec![0u8; len]),
+                RenderOutputPrecision::SixteenBit => RenderedPixels::U16(vec![0u16; len]),
+            }
         };
         let mut targets = if deferred {
             outputs
@@ -11424,31 +11517,39 @@ impl GpuProcessor {
                             },
                         ],
                     });
+                    let stream = stream_of();
                     Ok(TileTarget {
                         texture,
                         bytes_per_pixel,
-                        pixels: pixels_of(output.precision),
+                        pixels: pixels_of(output.precision, &stream),
                         pending: None,
                         encode: Some((self.encode_pipeline(high_precision)?, bind_group, *output)),
+                        stream,
+                        band_start: 0,
                     })
                 })
                 .collect::<Result<Vec<_>, String>>()?
         } else {
+            let stream = stream_of();
             vec![TileTarget {
                 texture: output_tile_texture,
                 bytes_per_pixel,
-                pixels: pixels_of(output_precision),
+                pixels: pixels_of(output_precision, &stream),
                 pending: None,
                 encode: None,
+                stream,
+                band_start: 0,
             }]
         };
         if readback_analytics && let Some((texture, _)) = analytics_tile {
             targets.push(TileTarget {
                 texture,
                 bytes_per_pixel: 4,
-                pixels: pixels_of(RenderOutputPrecision::EightBit),
+                pixels: pixels_of(RenderOutputPrecision::EightBit, &None),
                 pending: None,
                 encode: None,
+                stream: None,
+                band_start: 0,
             });
         }
 
@@ -12373,15 +12474,9 @@ impl GpuProcessor {
                                 previous,
                                 Some(&self.readback_pool),
                                 |rows, stride, _| {
-                                    store_tile(
-                                        &mut target.pixels,
-                                        previous_placement,
-                                        out_width,
-                                        rows,
-                                        stride,
-                                    )
+                                    target.store(previous_placement, out_width, rows, stride)
                                 },
-                            )?;
+                            )??;
                         }
                     }
                 }
@@ -12397,10 +12492,8 @@ impl GpuProcessor {
                     device,
                     previous,
                     Some(&self.readback_pool),
-                    |rows, stride, _| {
-                        store_tile(&mut target.pixels, placement, out_width, rows, stride)
-                    },
-                )?;
+                    |rows, stride, _| target.store(placement, out_width, rows, stride),
+                )??;
             }
         }
 
@@ -13303,12 +13396,50 @@ pub fn process_and_get_dynamic_image_inner(
             analytics_config,
             display_identity,
             readback_shader,
+            None,
         )
     };
     if output_to_display {
         return render();
     }
     processor_slot.scoped(|| gpu_scoped(&context.device, render).and_then(|image| image))
+}
+
+/// [`process_and_get_dynamic_image_inner`] of an export (`ReadbackShader::Export`)
+/// whose rows go to `stream` as they are read back: the same pixels, with
+/// one band of rows held instead of the whole render. A photo beyond the
+/// GPU's texture limits renders in windows first and streams once.
+#[allow(clippy::too_many_arguments)]
+pub fn stream_export_image(
+    context: &GpuContext,
+    processor_slot: &GpuProcessorSlot,
+    image_cache: &Mutex<Option<GpuImageCache>>,
+    source: RenderSource,
+    request: RenderRequest,
+    caller_id: &str,
+    output_precision: RenderOutputPrecision,
+    stream: RowStream<'_>,
+) -> Result<(), String> {
+    processor_slot.scoped(|| {
+        gpu_scoped(&context.device, || {
+            render_dynamic_image(
+                context,
+                processor_slot,
+                image_cache,
+                source,
+                request,
+                caller_id,
+                output_precision,
+                false,
+                None,
+                None,
+                ReadbackShader::Export,
+                Some(stream),
+            )
+        })
+        .and_then(|image| image)
+        .map(|_| ())
+    })
 }
 
 /// Renders the analytics of a whole frame for the scopes from `proxy`, a
@@ -13402,7 +13533,9 @@ const SCOPE_ANALYTICS_CALLER: &str = "scope_analytics";
 /// (`DEFER_OUTPUT`), each encoded for its own precision and colour space:
 /// the same pixels as one export render per output
 /// ([`process_and_get_dynamic_image_inner`] with `ReadbackShader::Export`
-/// and the output's precision and space), in `outputs` order.
+/// and the output's precision and space), in `outputs` order. An output
+/// with a stream in `streams` (by index; missing ones collect) hands its
+/// rows to it as they are read back and comes back as an empty image.
 pub fn process_and_get_dynamic_images(
     context: &GpuContext,
     processor_slot: &GpuProcessorSlot,
@@ -13410,10 +13543,19 @@ pub fn process_and_get_dynamic_images(
     request: RenderRequest,
     caller_id: &str,
     outputs: &[RenderOutput],
+    streams: &mut [Option<RowStream<'_>>],
 ) -> Result<Vec<DynamicImage>, String> {
     processor_slot.scoped(|| {
         gpu_scoped(&context.device, || {
-            render_outputs(context, processor_slot, kept, request, caller_id, outputs)
+            render_outputs(
+                context,
+                processor_slot,
+                kept,
+                request,
+                caller_id,
+                outputs,
+                streams,
+            )
         })
         .and_then(|images| images)
     })
@@ -13426,7 +13568,11 @@ fn render_outputs(
     request: RenderRequest,
     caller_id: &str,
     outputs: &[RenderOutput],
+    streams: &mut [Option<RowStream<'_>>],
 ) -> Result<Vec<DynamicImage>, String> {
+    let streamed: Vec<bool> = (0..outputs.len())
+        .map(|index| streams.get(index).is_some_and(Option::is_some))
+        .collect();
     let start_time = Instant::now();
     // The photo's own upload: no other render waits for it.
     let mut cache_lock = kept.cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -13455,6 +13601,7 @@ fn render_outputs(
         chroma.as_ref().map(|(packed, energy)| (packed, energy)),
         kept.masks.as_deref(),
         outputs,
+        streams,
     )?;
     let (out_w, out_h) = rendered.first().map_or((0, 0), |r| (r.1, r.2));
     #[cfg(feature = "performance-profiling")]
@@ -13469,7 +13616,14 @@ fn render_outputs(
     );
     rendered
         .into_iter()
-        .map(|(pixels, width, height)| rendered_image(pixels, width, height))
+        .zip(streamed)
+        .map(|((pixels, width, height), streamed)| {
+            if streamed {
+                Ok(DynamicImage::new_rgba8(0, 0))
+            } else {
+                rendered_image(pixels, width, height)
+            }
+        })
         .collect()
 }
 
@@ -13529,7 +13683,9 @@ fn render_dynamic_image(
     analytics_config: Option<AnalyticsConfig>,
     display_identity: Option<DisplayFrameIdentity>,
     readback_shader: ReadbackShader,
+    stream: Option<RowStream<'_>>,
 ) -> Result<DynamicImage, String> {
+    let streamed = stream.is_some();
     let mut request = request;
     let tool_view = request.adjustments.global.show_clipping != 0;
     if output_to_display {
@@ -13554,15 +13710,24 @@ fn render_dynamic_image(
     let max_dim = context.limits.max_texture_dimension_2d;
     if width > max_dim || height > max_dim {
         return match source {
-            RenderSource::Image { image, .. } if !output_to_display => render_in_windows(
-                context,
-                processor_slot,
-                image,
-                request,
-                caller_id,
-                output_precision,
-                readback_shader,
-            ),
+            RenderSource::Image { image, .. } if !output_to_display => {
+                let rendered = render_in_windows(
+                    context,
+                    processor_slot,
+                    image,
+                    request,
+                    caller_id,
+                    output_precision,
+                    readback_shader,
+                )?;
+                match stream {
+                    Some(stream) => {
+                        stream_whole_image(&rendered, stream)?;
+                        Ok(DynamicImage::new_rgba8(0, 0))
+                    }
+                    None => Ok(rendered),
+                }
+            }
             _ => Err(texture_limit_error(width, height, max_dim)),
         };
     }
@@ -13729,6 +13894,7 @@ fn render_dynamic_image(
         None,
         uploaded_masks,
         &[],
+        &mut [stream],
         readback_analytics,
     )?;
     let analytics_pixels = readback_analytics.then(|| rendered.pop()).flatten();
@@ -13987,7 +14153,26 @@ fn render_dynamic_image(
         fps
     );
 
+    if streamed {
+        return Ok(DynamicImage::new_rgba8(0, 0));
+    }
     rendered_image(processed_pixels, out_w, out_h)
+}
+
+/// Hands a whole RGBA render to `stream` as one band.
+fn stream_whole_image(image: &DynamicImage, stream: RowStream<'_>) -> Result<(), String> {
+    let (width, rows) = image.dimensions();
+    let pixels = match image {
+        DynamicImage::ImageRgba8(image) => BandPixels::U8(image.as_raw()),
+        DynamicImage::ImageRgba16(image) => BandPixels::U16(image.as_raw()),
+        _ => return Err("An export render is not RGBA.".to_string()),
+    };
+    stream(RowBand {
+        first_row: 0,
+        width,
+        rows,
+        pixels,
+    })
 }
 
 fn rendered_image(pixels: RenderedPixels, width: u32, height: u32) -> Result<DynamicImage, String> {

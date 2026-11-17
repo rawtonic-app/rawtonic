@@ -5612,6 +5612,7 @@ dependencies = [
  "serde_json",
  "skrifa",
  "tempfile",
+ "tiff",
  "turbojpeg",
  "unicode-bidi",
  "uuid",
