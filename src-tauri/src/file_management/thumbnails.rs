@@ -160,6 +160,18 @@ pub(crate) fn compute_thumbnail_cache_hash(
     path_str: &str,
     adjustments_bytes: &[u8],
 ) -> Option<String> {
+    thumbnail_hash_for_engine(
+        path_str,
+        adjustments_bytes,
+        crate::preview_proxy::ENGINE_VERSION,
+    )
+}
+
+fn thumbnail_hash_for_engine(
+    path_str: &str,
+    adjustments_bytes: &[u8],
+    engine: u32,
+) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
     let img_mod_time = source_mtime(&source_path)?;
@@ -199,7 +211,7 @@ pub(crate) fn compute_thumbnail_cache_hash(
         hasher.update(b"\0embedded-raw-orientation-v1");
         // Developed RAW pixels change with the decode engine (e.g. highlight
         // reconstruction), so thumbnails follow its version.
-        hasher.update(format!("\0raw-engine-{}", crate::preview_proxy::ENGINE_VERSION).as_bytes());
+        hasher.update(format!("\0raw-engine-{engine}").as_bytes());
         // With a preview proxy the thumbnail is developed from it (not the
         // camera JPEG), so a new proxy makes a new thumbnail.
         if crate::preview_proxy::proxy_path(&source_path).is_some_and(|p| p.is_file()) {
@@ -278,6 +290,22 @@ pub fn generate_thumbnail_data(
     preloaded_image: Option<&DynamicImage>,
     app_handle: &AppHandle,
 ) -> anyhow::Result<DynamicImage> {
+    generate_thumbnail_with_source(
+        path_str,
+        gpu_context,
+        preloaded_image,
+        app_handle,
+        &mut false,
+    )
+}
+
+fn generate_thumbnail_with_source(
+    path_str: &str,
+    gpu_context: Option<&GpuContext>,
+    preloaded_image: Option<&DynamicImage>,
+    app_handle: &AppHandle,
+    embedded: &mut bool,
+) -> anyhow::Result<DynamicImage> {
     let (source_path, sidecar_path) = parse_virtual_path(path_str);
     let metadata: Option<ImageMetadata> = if is_cloud_placeholder(&sidecar_path) {
         enqueue_metadata(
@@ -290,13 +318,14 @@ pub fn generate_thumbnail_data(
     } else {
         thumbnail_metadata(&source_path, &sidecar_path)
     };
-    develop_thumbnail(
+    develop_thumbnail_with_source(
         path_str,
         path_str,
         metadata,
         gpu_context,
         preloaded_image,
         app_handle,
+        embedded,
     )
 }
 
@@ -355,6 +384,27 @@ pub(crate) fn develop_thumbnail(
     gpu_context: Option<&GpuContext>,
     preloaded_image: Option<&DynamicImage>,
     app_handle: &AppHandle,
+) -> anyhow::Result<DynamicImage> {
+    develop_thumbnail_with_source(
+        path_str,
+        cache_key,
+        metadata,
+        gpu_context,
+        preloaded_image,
+        app_handle,
+        &mut false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn develop_thumbnail_with_source(
+    path_str: &str,
+    cache_key: &str,
+    metadata: Option<ImageMetadata>,
+    gpu_context: Option<&GpuContext>,
+    preloaded_image: Option<&DynamicImage>,
+    app_handle: &AppHandle,
+    embedded: &mut bool,
 ) -> anyhow::Result<DynamicImage> {
     let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     let (source_path, _) = parse_virtual_path(path_str);
@@ -442,6 +492,7 @@ pub(crate) fn develop_thumbnail(
         && !always_decode_raw
         && let Some(preview) = try_load_embedded_raw_preview(&source_path)
     {
+        *embedded = true;
         return Ok(preview);
     }
 
@@ -1254,9 +1305,75 @@ fn cache_thumbnail(path: &Path, bytes: &[u8]) -> Result<()> {
     rawtonic_fs::atomic_write(path, bytes)
 }
 
+/// Camera pixels depend on the source and orientation decoder, not the RAW
+/// renderer. This key is written only after an embedded preview was decoded.
+fn embedded_thumbnail_hash(path_str: &str) -> Option<String> {
+    let (source, _) = parse_virtual_path(path_str);
+    if !is_raw_file(&source) {
+        return None;
+    }
+    let mut hash = blake3::Hasher::new();
+    hash.update(cache_label(path_str, &source).as_bytes());
+    hash.update(&source_mtime(&source)?.to_le_bytes());
+    hash.update(b"embedded-raw-orientation-v1");
+    Some(hash.finalize().to_hex().to_string())
+}
+
+fn preferred_thumbnail_hash<'a>(
+    directory: &Path,
+    developed: &'a str,
+    embedded: Option<&'a str>,
+    allowed: bool,
+) -> &'a str {
+    embedded
+        .filter(|hash| {
+            allowed
+                && directory.join(format!("{hash}_small.jpg")).is_file()
+                && directory.join(format!("{hash}_medium.jpg")).is_file()
+        })
+        .unwrap_or(developed)
+}
+
+fn embedded_thumbnail_allowed(path_str: &str, adjustments: &[u8], settings: &AppSettings) -> bool {
+    let (source, _) = parse_virtual_path(path_str);
+    (adjustments.is_empty() || adjustments == b"null")
+        && is_raw_file(&source)
+        && !settings.always_decode_raw_thumbnails.unwrap_or(false)
+        && rawtonic_engine::develop_defaults::for_path(&source).is_none()
+        && !crate::preview_proxy::proxy_path(&source).is_some_and(|p| p.is_file())
+}
+
+/// Track one current developed recipe per photo/copy. Only strict cache file
+/// names from our manifest are eligible; anchored eviction refuses links and
+/// respects active readers. Originals and embedded previews are never eligible.
+fn supersede_thumbnail(directory: &Path, path_str: &str, hash: &str) -> Result<()> {
+    static UPDATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _update = lock_recover(&UPDATE);
+    let (source, _) = parse_virtual_path(path_str);
+    let owner = blake3::hash(cache_label(path_str, &source).as_bytes()).to_hex();
+    let index = directory.join(format!("{owner}.latest"));
+    let previous = fs::read_to_string(&index).ok();
+    cache_thumbnail(&index, hash.as_bytes())?;
+    if let Some(previous) = previous
+        .filter(|old| old != hash && old.len() == 64 && old.bytes().all(|b| b.is_ascii_hexdigit()))
+    {
+        let root = directory
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("No thumbnail cache root"))?;
+        let small = format!("{previous}_small.jpg");
+        let medium = format!("{previous}_medium.jpg");
+        for name in [small, medium] {
+            crate::storage_fs::remove_cache_entry(root, directory, &name)?;
+        }
+    }
+    Ok(())
+}
+
 /// Where `path_str`'s thumbnails are cached for its file and recipe as they
 /// are now, with the rating and edit state read from its sidecar.
 struct ThumbnailCacheEntry {
+    developed_hash: String,
+    embedded_hash: Option<String>,
     small: PathBuf,
     medium: PathBuf,
     rating: Option<u8>,
@@ -1305,12 +1422,56 @@ impl ThumbnailCacheEntry {
         };
 
         let cache_hash = compute_thumbnail_cache_hash(path_str, &adjustments_bytes)?;
+        let embedded_hash = embedded_thumbnail_hash(path_str);
+        let selected = preferred_thumbnail_hash(
+            thumb_cache_dir,
+            &cache_hash,
+            embedded_hash.as_deref(),
+            embedded_thumbnail_allowed(path_str, &adjustments_bytes, settings),
+        );
         Some(Self {
-            small: thumb_cache_dir.join(format!("{}_small.jpg", cache_hash)),
-            medium: thumb_cache_dir.join(format!("{}_medium.jpg", cache_hash)),
+            developed_hash: cache_hash.clone(),
+            embedded_hash: embedded_hash.clone(),
+            small: thumb_cache_dir.join(format!("{}_small.jpg", selected)),
+            medium: thumb_cache_dir.join(format!("{}_medium.jpg", selected)),
             rating,
             is_edited,
         })
+    }
+
+    fn save(
+        &mut self,
+        path_str: &str,
+        image: &DynamicImage,
+        embedded: bool,
+        settings: &AppSettings,
+    ) -> Result<()> {
+        let directory = self
+            .small
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("No cache directory"))?
+            .to_path_buf();
+        let hash = if embedded {
+            self.embedded_hash.as_ref().unwrap_or(&self.developed_hash)
+        } else {
+            &self.developed_hash
+        };
+        self.small = directory.join(format!("{hash}_small.jpg"));
+        self.medium = directory.join(format!("{hash}_medium.jpg"));
+        let _small_use = crate::storage_fs::pin_file(&self.small);
+        let _medium_use = crate::storage_fs::pin_file(&self.medium);
+        cache_thumbnail(
+            &self.small,
+            &encode_thumbnail(image, settings.small_thumbnail_resolution.unwrap_or(480))?,
+        )?;
+        cache_thumbnail(
+            &self.medium,
+            &encode_thumbnail(image, settings.medium_thumbnail_resolution.unwrap_or(1280))?,
+        )?;
+        if !embedded && let Err(error) = supersede_thumbnail(&directory, path_str, hash) {
+            log::warn!("Superseded thumbnail of {path_str} not removed: {error:#}");
+        }
+        Ok(())
     }
 
     /// Both files, marked used, if the cache has them.
@@ -1355,10 +1516,7 @@ pub(crate) fn generate_single_thumbnail_and_cache(
     app_handle: &AppHandle,
     settings: &AppSettings,
 ) -> Option<CachedThumbnails> {
-    let entry = ThumbnailCacheEntry::of(path_str, thumb_cache_dir, app_handle, settings)?;
-    let (small_path, medium_path) = (&entry.small, &entry.medium);
-    let _small_use = crate::storage_fs::pin_file(small_path);
-    let _medium_use = crate::storage_fs::pin_file(medium_path);
+    let mut entry = ThumbnailCacheEntry::of(path_str, thumb_cache_dir, app_handle, settings)?;
 
     if !force_regenerate && let Some(cached) = entry.cached() {
         return Some(cached);
@@ -1369,22 +1527,15 @@ pub(crate) fn generate_single_thumbnail_and_cache(
         return None;
     }
 
-    let target_width_small = settings.small_thumbnail_resolution.unwrap_or(480);
-    let target_width_medium = settings.medium_thumbnail_resolution.unwrap_or(1280);
-
-    // A failure is logged: the tile otherwise keeps its placeholder with
-    // nothing anywhere saying why (WFQ: two blank thumbnails, no log line).
-    let made = generate_thumbnail_data(path_str, gpu_context, preloaded_image, app_handle)
-        .and_then(|image| {
-            Ok((
-                encode_thumbnail(&image, target_width_small)?,
-                encode_thumbnail(&image, target_width_medium)?,
-            ))
-        })
-        .and_then(|(small_data, medium_data)| {
-            cache_thumbnail(small_path, &small_data)?;
-            cache_thumbnail(medium_path, &medium_data)
-        });
+    let mut embedded = false;
+    let made = generate_thumbnail_with_source(
+        path_str,
+        gpu_context,
+        preloaded_image,
+        app_handle,
+        &mut embedded,
+    )
+    .and_then(|image| entry.save(path_str, &image, embedded, settings));
     if let Err(error) = made {
         log::warn!("Thumbnail of {path_str} not made: {error:#}");
         return None;
@@ -1772,23 +1923,12 @@ pub fn get_thumb_cache_dir(app_handle: &AppHandle) -> Result<PathBuf, String> {
     Ok(thumb_cache_dir)
 }
 
-pub fn get_cache_key_hash(path_str: &str) -> Option<String> {
-    let (source_path, sidecar_path) = parse_virtual_path(path_str);
-
-    let adjustments_bytes = thumbnail_metadata(&source_path, &sidecar_path)
-        .map(|meta| serde_json::to_vec(&meta.adjustments).unwrap_or_default())
-        .unwrap_or_default();
-
-    compute_thumbnail_cache_hash(path_str, &adjustments_bytes)
-}
-
 /// The medium thumbnail cached for `path_str` as it is stored now (recipe
 /// and file), if there is one; nothing is generated.
 pub(crate) fn cached_medium_thumbnail(app_handle: &AppHandle, path_str: &str) -> Option<PathBuf> {
-    let hash = get_cache_key_hash(path_str)?;
-    let path = get_thumb_cache_dir(app_handle)
-        .ok()?
-        .join(format!("{hash}_medium.jpg"));
+    let settings = crate::state::settings::current(app_handle);
+    let directory = get_thumb_cache_dir(app_handle).ok()?;
+    let path = ThumbnailCacheEntry::of(path_str, &directory, app_handle, &settings)?.medium;
     if path.is_file() {
         // The pin protects the timestamp update from eviction; the returned
         // path is subsequently protected by its recent-use lease.
@@ -1807,49 +1947,147 @@ pub fn get_cached_or_generate_thumbnail_image(
 ) -> Result<DynamicImage> {
     let thumb_cache_dir = get_thumb_cache_dir(app_handle).map_err(|e| anyhow::anyhow!(e))?;
     let settings = crate::state::settings::current(app_handle);
-    let target_width_small = settings.small_thumbnail_resolution.unwrap_or(480);
-    let target_width_medium = settings.medium_thumbnail_resolution.unwrap_or(1280);
-
-    if let Some(cache_hash) = get_cache_key_hash(path_str) {
-        let cache_path = thumb_cache_dir.join(format!("{}_medium.jpg", cache_hash));
-        let _medium_use = crate::storage_fs::pin_file(&cache_path);
-        let _small_use =
-            crate::storage_fs::pin_file(&thumb_cache_dir.join(format!("{}_small.jpg", cache_hash)));
-
-        if cache_path.exists() {
-            if let Ok(image) = image::open(&cache_path) {
-                crate::storage_fs::mark_used(&cache_path);
-                return Ok(image);
-            }
-            eprintln!(
-                "Could not open cached thumbnail, regenerating: {:?}",
-                cache_path
-            );
-        }
-
-        let thumb_image = generate_thumbnail_data(path_str, gpu_context, None, app_handle)?;
-        if let (Ok(small_data), Ok(medium_data)) = (
-            encode_thumbnail(&thumb_image, target_width_small),
-            encode_thumbnail(&thumb_image, target_width_medium),
-        ) {
-            let _ = cache_thumbnail(
-                &thumb_cache_dir.join(format!("{}_small.jpg", cache_hash)),
-                &small_data,
-            );
-            let _ = cache_thumbnail(
-                &thumb_cache_dir.join(format!("{}_medium.jpg", cache_hash)),
-                &medium_data,
-            );
-        }
-
-        Ok(thumb_image)
-    } else {
-        generate_thumbnail_data(path_str, gpu_context, None, app_handle)
+    let Some(mut entry) =
+        ThumbnailCacheEntry::of(path_str, &thumb_cache_dir, app_handle, &settings)
+    else {
+        return generate_thumbnail_data(path_str, gpu_context, None, app_handle);
+    };
+    let _medium_use = crate::storage_fs::pin_file(&entry.medium);
+    if let Ok(image) = image::open(&entry.medium) {
+        crate::storage_fs::mark_used(&entry.medium);
+        return Ok(image);
     }
+    let mut embedded = false;
+    let image =
+        generate_thumbnail_with_source(path_str, gpu_context, None, app_handle, &mut embedded)?;
+    if let Err(error) = entry.save(path_str, &image, embedded, &settings) {
+        log::warn!("Thumbnail of {path_str} not cached: {error:#}");
+    }
+    Ok(image)
 }
 
 #[cfg(test)]
 mod source_preview_tests {
+    #[test]
+    fn embedded_pixels_survive_an_engine_upgrade_but_decoded_pixels_do_not() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.ARW");
+        std::fs::write(&source, b"source unchanged").unwrap();
+        let path = source.to_str().unwrap();
+        let camera = super::embedded_thumbnail_hash(path).unwrap();
+        let old = super::thumbnail_hash_for_engine(path, b"null", 1).unwrap();
+        let new = super::thumbnail_hash_for_engine(path, b"null", 2).unwrap();
+        assert_ne!(old, new);
+        assert_ne!(camera, old);
+        assert_ne!(camera, new);
+        let cache = temp.path().join("thumbnails");
+        std::fs::create_dir(&cache).unwrap();
+        let mut entry = super::ThumbnailCacheEntry {
+            developed_hash: old,
+            embedded_hash: Some(camera.clone()),
+            small: cache.join("unused"),
+            medium: cache.join("unused"),
+            rating: None,
+            is_edited: None,
+        };
+        let image = image::DynamicImage::new_rgb8(8, 8);
+        let settings = crate::AppSettings::default();
+        entry.save(path, &image, true, &settings).unwrap();
+        let before = std::fs::read(&entry.medium).unwrap();
+        assert_eq!(
+            super::preferred_thumbnail_hash(&cache, &new, Some(&camera), true),
+            camera
+        );
+        assert_eq!(
+            super::preferred_thumbnail_hash(&cache, &new, Some(&camera), false),
+            new
+        );
+        entry.developed_hash = new;
+        // The same camera key still names the persisted pixels after upgrade.
+        assert_eq!(super::embedded_thumbnail_hash(path).unwrap(), camera);
+        assert_eq!(
+            std::fs::read(cache.join(format!("{camera}_medium.jpg"))).unwrap(),
+            before
+        );
+        // A decode fallback is saved under the new engine key, never camera's.
+        entry.save(path, &image, false, &settings).unwrap();
+        assert_ne!(entry.medium, cache.join(format!("{camera}_medium.jpg")));
+        assert_eq!(
+            std::fs::read(cache.join(format!("{camera}_medium.jpg"))).unwrap(),
+            before
+        );
+        assert!(!super::embedded_thumbnail_allowed(
+            path,
+            br#"{"exposure":1}"#,
+            &settings
+        ));
+        let mut decode = settings;
+        decode.always_decode_raw_thumbnails = Some(true);
+        assert!(!super::embedded_thumbnail_allowed(path, b"null", &decode));
+    }
+
+    #[test]
+    fn saving_many_edits_keeps_one_pair_and_preserves_camera_and_other_copies() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache = temp.path().join("thumbnails");
+        std::fs::create_dir(&cache).unwrap();
+        let path = temp.path().join("photo.ARW").to_string_lossy().into_owned();
+        let camera = "c".repeat(64);
+        let copy = "d".repeat(64);
+        for hash in [&camera, &copy] {
+            for size in ["small", "medium"] {
+                std::fs::write(cache.join(format!("{hash}_{size}.jpg")), b"keep").unwrap();
+            }
+        }
+        super::supersede_thumbnail(&cache, &format!("{path}?vc=1"), &copy).unwrap();
+        for edit in 0..20 {
+            let hash = blake3::hash(&[edit]).to_hex().to_string();
+            for size in ["small", "medium"] {
+                std::fs::write(cache.join(format!("{hash}_{size}.jpg")), b"edit").unwrap();
+            }
+            super::supersede_thumbnail(&cache, &path, &hash).unwrap();
+        }
+        assert_eq!(
+            std::fs::read_dir(&cache).unwrap().count(),
+            8,
+            "three pairs plus two per-copy indexes"
+        );
+        assert_eq!(
+            std::fs::read(cache.join(format!("{camera}_small.jpg"))).unwrap(),
+            b"keep"
+        );
+        assert_eq!(
+            std::fs::read(cache.join(format!("{copy}_medium.jpg"))).unwrap(),
+            b"keep"
+        );
+    }
+
+    #[test]
+    fn superseded_cache_removal_respects_readers_and_refuses_escape() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache = temp.path().join("thumbnails");
+        std::fs::create_dir(&cache).unwrap();
+        let file = cache.join("cached.jpg");
+        std::fs::write(&file, b"cache").unwrap();
+        let pin = crate::storage_fs::pin_file(&file);
+        assert!(!crate::storage_fs::remove_cache_entry(temp.path(), &cache, "cached.jpg").unwrap());
+        drop(pin);
+        assert!(crate::storage_fs::remove_cache_entry(temp.path(), &cache, "cached.jpg").unwrap());
+        assert!(
+            crate::storage_fs::remove_cache_entry(temp.path(), &cache, "../original.ARW").is_err()
+        );
+        #[cfg(unix)]
+        {
+            let original = temp.path().join("original.ARW");
+            std::fs::write(&original, b"original").unwrap();
+            std::os::unix::fs::symlink(&original, cache.join("link.jpg")).unwrap();
+            assert!(
+                crate::storage_fs::remove_cache_entry(temp.path(), &cache, "link.jpg").is_err()
+            );
+            assert_eq!(std::fs::read(original).unwrap(), b"original");
+        }
+    }
+
     #[tokio::test]
     async fn restoration_jobs_are_bounded_before_decoder_work() {
         use std::sync::{
