@@ -2219,6 +2219,7 @@
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "Tauri bundler": "Windows용 NSIS 설치 프로그램 템플릿으로, 사용자별 설치와 모든 사용자용 설치가 함께 유지되도록 수정했습니다.",
         "SQLite / rusqlite": "라이브러리 데이터베이스. Windows의 WAL 잠금 처리에 Rawtonic 수정 사항을 적용했습니다.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
