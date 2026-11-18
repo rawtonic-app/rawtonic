@@ -6625,8 +6625,8 @@ fn display_targets_follow_current_image_without_retaining_peak() {
     let context = context();
     let processor = GpuProcessor::new(context.clone(), 4096, 4096).unwrap();
     assert!(processor.display_targets.lock().unwrap().is_none());
-    assert_eq!(processor.tile_output_texture.width(), 2304);
-    assert_eq!(processor.tile_output_texture.height(), 2304);
+    assert_eq!(processor.tile_output_size.width, 2304);
+    assert_eq!(processor.tile_output_size.height, 2304);
     processor
         .force_general_pipeline
         .store(true, Ordering::Relaxed);
@@ -17537,6 +17537,89 @@ fn export_renders_paused_between_tiles_keep_their_pixels() {
             paused > 0,
             "round {round}: the export render paused for the frames"
         );
+    }
+}
+
+/// Between two photos an export processor keeps its pipelines but not its
+/// tiles and readback buffers (notes: benchmark-results/mem16-2026-11-18):
+/// each render remakes them, byte for byte as before, in both precisions.
+/// The shared processor (Develop) keeps them for its next frame.
+#[test]
+#[ignore = "requires a native GPU"]
+fn export_processors_free_their_tiles_between_renders() {
+    let context = context();
+    // 2 x 2 tiles.
+    let (width, height) = (2600, 2300);
+    let image = DynamicImage::ImageRgba32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let n = ((x * 7919 + y * 104_729) % 251) as f32 / 251.0;
+        Rgba([
+            0.2 + 0.5 * x as f32 / width as f32 + 0.05 * n,
+            0.3 + 0.2 * n,
+            0.6 * y as f32 / height as f32 + 0.1 * (1.0 - n),
+            1.0,
+        ])
+    }));
+    let recipe = json!({"exposure":0.4,"contrast":15,"clarity":30,"sharpness":40,
+        "lumaNoiseReduction":20,"colorNoiseReduction":25,"colorNoiseVersion":2,
+        "flareAmount":30,"vignetteAmount":-20});
+    let render = |slot: &GpuProcessorSlot, precision| {
+        process_and_get_dynamic_image_inner(
+            &context,
+            slot,
+            &Mutex::new(None),
+            RenderSource::Image {
+                image: &image,
+                transform_hash: 1,
+            },
+            RenderRequest {
+                adjustments: get_all_adjustments_from_json(&recipe, true, Some(2)),
+                mask_bitmaps: &[],
+                lut: None,
+                roi: None,
+            },
+            "export_test",
+            precision,
+            false,
+            None,
+            None,
+            ReadbackShader::Export,
+        )
+        .expect("renders")
+    };
+    let holds_tiles = |slot: &GpuProcessorSlot| {
+        let guard = slot.lock().unwrap();
+        let processor = &guard.as_ref().unwrap().processor;
+        processor.tile_output.get().is_some()
+            || processor.ping_pong.get().is_some()
+            || processor
+                .high_precision_tile
+                .iter()
+                .chain(&processor.deferred_tile)
+                .chain(&processor.export_detail_tile)
+                .any(|tile| tile.get().is_some())
+    };
+    let shared = ProcessorSlot::new(None);
+    let exports = ProcessorSlot::background(None);
+    for precision in [
+        RenderOutputPrecision::EightBit,
+        RenderOutputPrecision::SixteenBit,
+    ] {
+        let expected = render(&shared, precision);
+        assert!(
+            holds_tiles(&shared),
+            "{precision:?}: Develop keeps its tiles"
+        );
+        for round in 0..2 {
+            let image = render(&exports, precision);
+            assert!(
+                image.as_bytes() == expected.as_bytes(),
+                "{precision:?}, round {round}: the pixels differ"
+            );
+            assert!(
+                !holds_tiles(&exports),
+                "{precision:?}, round {round}: the export processor kept its tiles"
+            );
+        }
     }
 }
 

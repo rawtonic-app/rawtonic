@@ -4608,10 +4608,11 @@ pub struct GpuProcessor {
     /// made the first time a recipe needs it; `no_film_grain` stands in.
     film_grain_tile: std::sync::OnceLock<wgpu::Buffer>,
     no_film_grain: wgpu::Buffer,
-    ping_pong_view: wgpu::TextureView,
-
-    pub tile_output_texture: wgpu::Texture,
-    pub tile_output_texture_view: wgpu::TextureView,
+    /// The blurs' intermediate tile (Rgba16Float, `tile_output_size`),
+    /// made on first use.
+    ping_pong: std::sync::OnceLock<wgpu::TextureView>,
+    /// The 8-bit output tile (`tile_output_size`), made on first use.
+    tile_output: std::sync::OnceLock<(wgpu::Texture, wgpu::TextureView)>,
     /// `analytics_output` of a tile (shader.wgsl), made for the first render
     /// with analytics; `no_analytics_output` (8-bit, high precision) stands
     /// in for the others.
@@ -8542,37 +8543,6 @@ impl GpuProcessor {
             depth_or_array_layers: 1,
         };
 
-        let reusable_texture_desc = wgpu::TextureDescriptor {
-            label: None,
-            size: clamped_tile_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
-            view_formats: &[],
-        };
-
-        let ping_pong_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Ping Pong Texture"),
-            ..reusable_texture_desc
-        });
-        let ping_pong_view = ping_pong_texture.create_view(&Default::default());
-
-        let tile_output_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Tile Output Texture"),
-            size: clamped_tile_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let tile_output_texture_view = tile_output_texture.create_view(&Default::default());
-
         let processor = Self {
             context,
             blur_bgl,
@@ -8696,9 +8666,8 @@ impl GpuProcessor {
             no_lut_shaper,
             film_grain_tile: std::sync::OnceLock::new(),
             no_film_grain,
-            ping_pong_view,
-            tile_output_texture,
-            tile_output_texture_view,
+            ping_pong: std::sync::OnceLock::new(),
+            tile_output: std::sync::OnceLock::new(),
             tile_analytics: std::sync::OnceLock::new(),
             no_analytics_output,
             display_targets: Mutex::new(None),
@@ -9509,6 +9478,90 @@ impl GpuProcessor {
         )))
     }
 
+    /// The 8-bit output tile.
+    fn tile_output(&self) -> &(wgpu::Texture, wgpu::TextureView) {
+        self.tile_output.get_or_init(|| {
+            let texture = self
+                .context
+                .device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Tile Output Texture"),
+                    size: self.tile_output_size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::STORAGE_BINDING
+                        | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                });
+            let view = texture.create_view(&Default::default());
+            (texture, view)
+        })
+    }
+
+    /// The blurs' intermediate tile.
+    fn ping_pong_view(&self) -> &wgpu::TextureView {
+        self.ping_pong.get_or_init(|| {
+            self.context
+                .device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Ping Pong Texture"),
+                    size: self.tile_output_size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::STORAGE_BINDING,
+                    view_formats: &[],
+                })
+                .create_view(&Default::default())
+        })
+    }
+
+    /// Frees, on a processor for exports only, the tiles and caches a
+    /// render made that the next photo's render does not need kept: the
+    /// output, float, blur and analytics tiles (remade at its first tile),
+    /// the readback buffers and Relight's photo-specific textures. The
+    /// compiled pipelines stay. Between two photos of a batch the processor
+    /// otherwise held 0.12 GB of them on Metal while the next photo decoded,
+    /// warped and filled its fringe pass (notes:
+    /// benchmark-results/mem16-2026-11-18). Every render fills each tile it
+    /// reads before reading it, so a fresh tile gives the same pixels (the
+    /// first photo of a batch always rendered on fresh ones).
+    fn release_export_scratch(&mut self) {
+        if !self.small_export_tiles {
+            return;
+        }
+        for tiles in [
+            &mut self.high_precision_tile,
+            &mut self.deferred_tile,
+            &mut self.export_detail_tile,
+        ] {
+            for tile in tiles.iter_mut() {
+                tile.take();
+            }
+        }
+        self.tile_output.take();
+        self.ping_pong.take();
+        self.tile_analytics.take();
+        self.readback_pool
+            .0
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        *self
+            .relight_depth_cache
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .relight_pattern_cache
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
     /// The tile `main` writes its `analytics_output` to, as large as the
     /// 8-bit output tile.
     fn tile_analytics(&self) -> &(wgpu::Texture, wgpu::TextureView) {
@@ -9518,7 +9571,7 @@ impl GpuProcessor {
                 .device
                 .create_texture(&wgpu::TextureDescriptor {
                     label: Some("Tile Analytics Texture"),
-                    size: self.tile_output_texture.size(),
+                    size: self.tile_output_size,
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
@@ -11107,8 +11160,8 @@ impl GpuProcessor {
             (
                 pipeline,
                 &self.main_bgl,
-                &self.tile_output_texture,
-                &self.tile_output_texture_view,
+                &self.tile_output().0,
+                &self.tile_output().1,
                 4,
             )
         };
@@ -11586,7 +11639,7 @@ impl GpuProcessor {
                         let tile = self.high_precision_tile(tile_size);
                         (&tile.texture, &tile.view, 16)
                     } else {
-                        (&self.tile_output_texture, &self.tile_output_texture_view, 4)
+                        (&self.tile_output().0, &self.tile_output().1, 4)
                     };
                     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("Encode Deferred Bind Group"),
@@ -11842,7 +11895,7 @@ impl GpuProcessor {
                                 .create_view(&Default::default())
                         })
                     } else {
-                        &self.ping_pong_view
+                        self.ping_pong_view()
                     };
 
                     let params = BlurParams {
@@ -12153,8 +12206,7 @@ impl GpuProcessor {
                 let terms = terms_pass.as_ref().map(|(pipeline, passes)| {
                     let tiles = passes.terms_tiles(self);
                     let mut entries = bind_group_entries.clone();
-                    entries[1].resource =
-                        wgpu::BindingResource::TextureView(&self.tile_output_texture_view);
+                    entries[1].resource = wgpu::BindingResource::TextureView(&self.tile_output().1);
                     entries.push(wgpu::BindGroupEntry {
                         binding: 14,
                         resource: wgpu::BindingResource::TextureView(&self.dummy_blur_view),
@@ -12270,7 +12322,7 @@ impl GpuProcessor {
                     // The detail layout's (unwritten) output is the 8-bit
                     // tile; an export's main pass writes the float one.
                     detail_entries[1].resource =
-                        wgpu::BindingResource::TextureView(&self.tile_output_texture_view);
+                        wgpu::BindingResource::TextureView(&self.tile_output().1);
                     detail_entries.push(wgpu::BindGroupEntry {
                         binding: 14,
                         resource: wgpu::BindingResource::TextureView(&self.dummy_blur_view),
@@ -12319,7 +12371,7 @@ impl GpuProcessor {
                 });
                 if main_pass_layout {
                     bind_group_entries[1].resource =
-                        wgpu::BindingResource::TextureView(&self.tile_output_texture_view);
+                        wgpu::BindingResource::TextureView(&self.tile_output().1);
                 }
                 // The parts of a split main pass: its resources, with their
                 // own tiles to write and read.
@@ -12468,7 +12520,7 @@ impl GpuProcessor {
                     let tile_analytics = &analytics_tile.expect("display frames write analytics").0;
                     for retained in &retained_regions {
                         for (from, to) in [
-                            (&self.tile_output_texture, &targets.working_texture),
+                            (&self.tile_output().0, &targets.working_texture),
                             (tile_analytics, &targets.analytics_texture),
                         ] {
                             main_encoder.copy_texture_to_texture(
@@ -13366,6 +13418,27 @@ pub fn create_processor(
     }
 }
 
+/// A render's turn on its processor: when the render ends (also with an
+/// error), an export processor frees its scratch
+/// ([`GpuProcessor::release_export_scratch`]).
+struct ProcessorLock<'a>(processor_turns::TurnGuard<'a, Option<GpuProcessorState>>);
+
+impl std::ops::Deref for ProcessorLock<'_> {
+    type Target = Option<GpuProcessorState>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Drop for ProcessorLock<'_> {
+    fn drop(&mut self) {
+        if let Some(state) = self.0.as_mut() {
+            state.processor.release_export_scratch();
+        }
+    }
+}
+
 /// The caller's processor, created (or replaced by a larger one) for a
 /// `width` x `height` input texture, taken in turn
 /// ([`processor_turns`]: foreground renders first).
@@ -13375,7 +13448,7 @@ fn lock_processor<'a>(
     width: u32,
     height: u32,
     foreground: bool,
-) -> Result<processor_turns::TurnGuard<'a, Option<GpuProcessorState>>, String> {
+) -> Result<ProcessorLock<'a>, String> {
     let max_dim = context.limits.max_texture_dimension_2d;
     #[cfg(feature = "performance-profiling")]
     let wait_stage = crate::performance::PerformanceStage::new("gpu_processor_wait");
@@ -13442,7 +13515,7 @@ fn lock_processor<'a>(
         state.processor.pauses_for_foreground = pauses;
     }
 
-    Ok(processor_lock)
+    Ok(ProcessorLock(processor_lock))
 }
 
 pub enum RenderSource<'a> {
