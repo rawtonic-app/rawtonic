@@ -181,11 +181,6 @@ impl BesideHelper {
     pub fn now(helper: Option<u32>) -> Option<Self> {
         let level = level_now();
         let mut system = sysinfo::System::new();
-        system.refresh_memory();
-        let total = system.total_memory();
-        if total == 0 {
-            return None;
-        }
         let own = app_memory(&mut system);
         // Resident memory only (the working set on Windows): its Private
         // Bytes include committed pages not yet in physical memory, which
@@ -199,6 +194,13 @@ impl BesideHelper {
             );
             system.process(pid).map(|process| process.memory())
         });
+        // After the helper's resident memory: pages it takes meanwhile then
+        // count off the available memory, not as both.
+        system.refresh_memory();
+        let total = system.total_memory();
+        if total == 0 {
+            return None;
+        }
         Some(Self {
             total,
             available: system.available_memory(),
@@ -299,8 +301,14 @@ pub fn guard_idle_compiles(app_handle: &tauri::AppHandle) {
         if !rawtonic_gpu::gpu_processing::idle_compiles_in_helpers() {
             export_hold(since_export)?;
         }
-        // Masking models nobody uses now go before the compile, not beside it.
-        crate::ai_lifecycle::before_idle_compile(&app);
+        // Masking models nobody uses now go before the compile, not beside
+        // it. A compile in the app counts them in its private memory below;
+        // beside a helper the memory decides once the compile may start and
+        // the caches are released (`ai_lifecycle::before_idle_compile`).
+        let in_helpers = rawtonic_gpu::gpu_processing::idle_compiles_in_helpers();
+        if !in_helpers {
+            crate::ai_lifecycle::before_idle_compile(&app, false);
+        }
         let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
         let (system, last_pressure) = &mut *state;
         let level = level_now();
@@ -336,6 +344,9 @@ pub fn guard_idle_compiles(app_handle: &tauri::AppHandle) {
             // frees (mimalloc) go back to the system on every worker thread
             // (without waiting for busy ones) and this one.
             release_rebuildable_memory(&app);
+            if in_helpers {
+                crate::ai_lifecycle::before_idle_compile(&app, true);
+            }
         }
         verdict
     }));

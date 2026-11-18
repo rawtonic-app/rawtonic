@@ -348,8 +348,10 @@ const IDLE_COMPILE_UNLOAD: Duration = Duration::from_secs(20);
 /// Radeon 680M laptop (G76/WSMOKE14; coordinator decisions WCC11 D4, D6).
 /// The next masking use loads them again (7–9 s there), which made every
 /// later Subject mask take 21 s instead of 12 s (G76/WAIW1; AIW3).
-pub fn before_idle_compile(app: &tauri::AppHandle) {
-    unload_unused_before_compile(app, true);
+/// `in_helper`: the compile runs in a helper process and may start, the
+/// rebuildable caches already released.
+pub fn before_idle_compile(app: &tauri::AppHandle, in_helper: bool) {
+    unload_unused_before_compile(app, true, in_helper);
 }
 
 /// Before the compile an export of the shown photo waits for
@@ -357,10 +359,10 @@ pub fn before_idle_compile(app: &tauri::AppHandle) {
 /// models unused for `IDLE_COMPILE_UNLOAD` go (G76/WCOLD2: the app held
 /// 2.45 GB beside that helper's 4.44 GB).
 pub fn before_export_compile(app: &tauri::AppHandle) {
-    unload_unused_before_compile(app, false);
+    unload_unused_before_compile(app, false, false);
 }
 
-fn unload_unused_before_compile(app: &tauri::AppHandle, may_keep: bool) {
+fn unload_unused_before_compile(app: &tauri::AppHandle, may_keep: bool, in_helper: bool) {
     let ai_state = app.state::<AiState>();
     if !(ai_state
         .lifecycle
@@ -370,12 +372,8 @@ fn unload_unused_before_compile(app: &tauri::AppHandle, may_keep: bool) {
         return;
     }
     let when = "before an idle shader compile";
-    if memory_may_keep(
-        may_keep,
-        rawtonic_gpu::gpu_processing::idle_compiles_in_helpers(),
-        export_runs(app),
-    ) {
-        if keeps_models_beside_helper(app, None, when) {
+    if memory_may_keep(may_keep, in_helper, export_runs(app)) {
+        if keeps_models_beside_helper(None, when) {
             return;
         }
     } else {
@@ -385,6 +383,11 @@ fn unload_unused_before_compile(app: &tauri::AppHandle, may_keep: bool) {
         );
     }
     unload_and_notify(app, UnloadReason::Idle);
+    if in_helper {
+        // The release ran before the decision: the models' freed pages go
+        // back to the system too.
+        crate::memory_pressure::release_rebuildable_memory(app);
+    }
 }
 
 /// Whether the memory decides if loaded masking models stay beside a
@@ -394,11 +397,6 @@ fn unload_unused_before_compile(app: &tauri::AppHandle, may_keep: bool) {
 /// memory, and exports keep the earlier rule (AIW3).
 fn memory_may_keep(idle: bool, in_helper: bool, export_runs: bool) -> bool {
     idle && in_helper && !export_runs
-}
-
-/// `memory_pressure::release_rebuildable_memory`.
-fn release_rebuildable(app: &tauri::AppHandle) {
-    crate::memory_pressure::release_rebuildable_memory(app);
 }
 
 fn export_runs(app: &tauri::AppHandle) -> bool {
@@ -415,25 +413,16 @@ const KEPT_LOG_EVERY: Duration = Duration::from_secs(30);
 /// Whether the loaded masking models stay beside a helper process's idle
 /// compile (`helper`: its process id once it runs), by
 /// `memory_pressure::models_beside_helper`; one INFO line with the numbers
-/// either way (the "kept" line at most every `KEPT_LOG_EVERY`). When the
-/// memory does not cover it, the caches that rebuild on demand go first
-/// (they go before the compile anyway) and the memory is read again. Memory
-/// that cannot be read unloads, as before.
-fn keeps_models_beside_helper(app: &tauri::AppHandle, helper: Option<u32>, when: &str) -> bool {
+/// either way (the "kept" line at most every `KEPT_LOG_EVERY`), read after
+/// the caches that rebuild on demand went (callers release them first).
+/// Memory that cannot be read unloads, as before.
+fn keeps_models_beside_helper(helper: Option<u32>, when: &str) -> bool {
     use crate::memory_pressure::{BesideHelper, models_beside_helper};
     let Some(memory) = BesideHelper::now(helper) else {
         log::info!("AI models: unloading them {when}: the memory cannot be read");
         return false;
     };
-    // What the compile would release anyway goes first: the decision is
-    // made on the memory left after it, not before (review AIW3 r1).
-    let decision = models_beside_helper(&memory).or_else(|_| {
-        release_rebuildable(app);
-        BesideHelper::now(helper)
-            .ok_or_else(|| "the memory cannot be read".to_string())
-            .and_then(|memory| models_beside_helper(&memory))
-    });
-    match decision {
+    match models_beside_helper(&memory) {
         Ok(numbers) => {
             let mut logged = lock_recover(&KEPT_LOGGED);
             if logged.is_none_or(|at| at.elapsed() >= KEPT_LOG_EVERY) {
@@ -507,16 +496,23 @@ pub async fn export_turn(app: &tauri::AppHandle) -> rawtonic_gpu::memory_turns::
 pub fn release_for_cold_helper_compiles(app: &tauri::AppHandle) {
     let app = app.clone();
     rawtonic_gpu::gpu_processing::set_on_cold_helper_compile(Box::new(move |helper| {
+        // What rebuilds on demand goes first: the models' decision is made
+        // on the memory left after it (review AIW3 r1).
+        crate::memory_pressure::release_rebuildable_memory(&app);
         if models_loaded(&app.state::<AiState>()) {
             let when = "beside a cold shader compile";
-            if !memory_may_keep(true, true, export_runs(&app)) {
+            let unload = if memory_may_keep(true, true, export_runs(&app)) {
+                !keeps_models_beside_helper(Some(helper), when)
+            } else {
                 log::info!("AI models: unloading them {when}");
+                true
+            };
+            if unload {
                 unload_and_notify(&app, UnloadReason::Idle);
-            } else if !keeps_models_beside_helper(&app, Some(helper), when) {
-                unload_and_notify(&app, UnloadReason::Idle);
+                // Their freed pages go back to the system too.
+                crate::memory_pressure::release_rebuildable_memory(&app);
             }
         }
-        crate::memory_pressure::release_rebuildable_memory(&app);
         // Seen in a first session only (a few lines per cold compile).
         log::info!("Rebuildable memory released beside a cold shader compile");
     }));
