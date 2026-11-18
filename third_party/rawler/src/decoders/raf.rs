@@ -291,11 +291,11 @@ impl<'a> Decoder for RafDecoder<'a> {
       // Some fuji SuperCCD cameras include a second raw image next to the first one
       // that is identical but darker to the first. The two combined can produce
       // a higher dynamic range image. Right now we're ignoring it.
-      decode_16le_skiplines(&src, width, height, dummy)
+      decode_16le_skiplines(&src, width, height, dummy)?
     } else if self.camera.find_hint("jpeg32") {
       match bps {
-        12 => decode_12be_msb32(&src, width, height, dummy),
-        14 => decode_14be_msb32(&src, width, height, dummy),
+        12 => decode_12be_msb32(&src, width, height, dummy)?,
+        14 => decode_14be_msb32(&src, width, height, dummy)?,
         _ => return Err(RawlerError::unsupported(&self.camera, format!("RAF: Don't know how to decode bps {}", bps))),
       }
     } else if self.camera.clean_model == "DBP for GX680" {
@@ -312,13 +312,13 @@ impl<'a> Decoder for RafDecoder<'a> {
       }
     } else {
       match bps {
-        12 => decode_12le(&src, width, height, dummy),
-        14 => decode_14le_unpacked(&src, width, height, dummy),
+        12 => decode_12le(&src, width, height, dummy)?,
+        14 => decode_14le_unpacked(&src, width, height, dummy)?,
         16 => {
           if self.ifd.endian == Endian::Little {
-            decode_16le(&src, width, height, dummy)
+            decode_16le(&src, width, height, dummy)?
           } else {
-            decode_16be(&src, width, height, dummy)
+            decode_16be(&src, width, height, dummy)?
           }
         }
         _ => {
@@ -359,7 +359,7 @@ impl<'a> Decoder for RafDecoder<'a> {
         blacklevel,
         None,
         dummy,
-      );
+      )?;
 
       if rotate_for_dng {
         image.add_dng_tag(TiffCommonTag::CFARepeatPatternDim, [2, 4]);
@@ -391,7 +391,7 @@ impl<'a> Decoder for RafDecoder<'a> {
         None
       };
       let photometric = RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&camera));
-      let mut image = RawImage::new(camera, image, cpp, normalize_wb(self.get_wb()?), photometric, blacklevel, whitelevel, dummy);
+      let mut image = RawImage::new(camera, image, cpp, normalize_wb(self.get_wb()?), photometric, blacklevel, whitelevel, dummy)?;
 
       // Overwrite crop if available in metadata
       if let Some(crop) = self.get_crop()? {
@@ -538,7 +538,8 @@ impl<'a> RafDecoder<'a> {
                 _ => 'X', // Unknown, let CFA::new() fail...
               })
               .collect();
-            Some(CFA::new(&patname))
+            // Rawtonic patch (RWH1): an error for an unknown layout, not a panic.
+            Some(CFA::try_new(&patname)?)
           }
           _ => {
             return Err("Invalid XTransLayout data type".into());

@@ -67,12 +67,12 @@ impl<'a> Decoder for ErfDecoder<'a> {
     let offset = fetch_tiff_tag!(raw, TiffCommonTag::StripOffsets).force_usize(0);
     let src = file.subview_until_eof(offset as u64)?;
 
-    let image = decode_12be_wcontrol(src, width, height, dummy);
+    let image = decode_12be_wcontrol(src, width, height, dummy)?;
     let cpp = 1;
 
     let blacklevel = self.get_blacklevel(cpp);
     let photometric = RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&self.camera));
-    let img = RawImage::new(self.camera.clone(), image, cpp, self.get_wb()?, photometric, blacklevel, None, dummy);
+    let img = RawImage::new(self.camera.clone(), image, cpp, self.get_wb()?, photometric, blacklevel, None, dummy)?;
     Ok(img)
   }
 

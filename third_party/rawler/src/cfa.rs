@@ -87,8 +87,21 @@ impl Default for CFA {
 }
 
 impl CFA {
+  /// Rawtonic patch (RWH1; dnglab a59cfd69): [`CFA::new`] for a pattern
+  /// read from a file, an error for an unknown size or color instead of a
+  /// panic.
+  pub fn try_new(patname: &str) -> Result<CFA, String> {
+    if ![0, 4, 16, 36, 144].contains(&patname.len()) {
+      return Err(format!("Unknown CFA size \"{}\"", patname));
+    }
+    for c in patname.chars() {
+      CFAColor::try_from(c)?;
+    }
+    Ok(Self::new(patname))
+  }
+
   #[doc(hidden)]
-  pub fn new_from_tag(pat: &Value) -> CFA {
+  pub fn new_from_tag(pat: &Value) -> Result<CFA, String> {
     let mut patname = String::new();
     for i in 0..pat.count() {
       patname.push(match pat.force_u32(i as usize) {
@@ -101,7 +114,7 @@ impl CFA {
         _ => 'U',
       });
     }
-    CFA::new(&patname)
+    CFA::try_new(&patname)
   }
 
   /// Create a new CFA from a string describing it. For simplicity the pattern is specified

@@ -65,7 +65,8 @@ impl<'a> Decoder for DngDecoder<'a> {
       1 => RawPhotometricInterpretation::BlackIsZero,
       32803 => RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&cam)),
       34892 => RawPhotometricInterpretation::LinearRaw,
-      _ => todo!(),
+      // Rawtonic patch (RWH1): an error, not a panic.
+      other => return Err(RawlerError::DecoderFailed(format!("DNG: unsupported PhotometricInterpretation {}", other))),
     };
 
     // RAWTONIC: a dummy (metadata-only) decode skips the pixels, as the other
@@ -84,7 +85,7 @@ impl<'a> Decoder for DngDecoder<'a> {
       self.apply_transparency_mask(file, &mut raw_data, width, height, blacklevel.as_ref());
     }
     let wb_coeffs = self.get_wb(&cam)?;
-    let mut image = RawImage::new_with_data(cam, raw_data, width * cpp, height, cpp, wb_coeffs, photometric, blacklevel, whitelevel, dummy);
+    let mut image = RawImage::new_with_data(cam, raw_data, width * cpp, height, cpp, wb_coeffs, photometric, blacklevel, whitelevel, dummy)?;
     image.orientation = orientation;
     // Rawtonic: DNGs that state no black level but mark masked (covered)
     // sensor areas carry the black there; Camera Raw measures it (Adobe DNG
@@ -457,7 +458,8 @@ impl<'a> DngDecoder<'a> {
           log::warn!("File has BlackLevelRepeatDim tag but with invalid length: {}", value.len());
         }
       }
-      Ok(Some(BlackLevel::new(&levels, repeat.1, repeat.0, cpp)))
+      // Rawtonic patch (RWH1): levels that don't fit the repeat dimensions are an error.
+      Ok(Some(BlackLevel::try_new(&levels, repeat.1, repeat.0, cpp)?))
     } else {
       Ok(None)
     }
@@ -478,7 +480,11 @@ impl<'a> DngDecoder<'a> {
 
   fn get_cfa(&self, raw: &IFD) -> Result<CFA> {
     let pattern = fetch_tiff_tag!(raw, TiffCommonTag::CFAPattern);
-    let cfa = CFA::new_from_tag(pattern);
+    // Rawtonic patch (RWH1): an invalid or empty pattern is an error.
+    let cfa = CFA::new_from_tag(pattern)?;
+    if cfa.width == 0 || cfa.height == 0 {
+      return Err(RawlerError::DecoderFailed("DNG: empty CFA pattern".to_string()));
+    }
     // If DNG has active area, we need to calulate back the CFA pattern,
     // because for DNG the CFAPattern is relative to ActiveArea and we
     // use (0, 0) as starting point.

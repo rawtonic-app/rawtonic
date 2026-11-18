@@ -217,15 +217,25 @@ impl LookupTable {
       let center = table[i];
       let lower = if i > 0 { table[i - 1] } else { center };
       let upper = if i < (table.len() - 1) { table[i + 1] } else { center };
-      let base = if center == 0 { 0 } else { center - ((upper - lower + 2) / 4) };
-      let delta = upper - lower;
+      // Rawtonic patch (RWH1): explicit wrapping, as release builds computed
+      // it before (decreasing curves of damaged files overflowed in debug).
+      let base = if center == 0 {
+        0
+      } else {
+        center.wrapping_sub(upper.wrapping_sub(lower).wrapping_add(2) / 4)
+      };
+      let delta = upper.wrapping_sub(lower);
       tbl[i] = (center, base, delta);
     }
     LookupTable { table: tbl }
   }
 
   pub fn new_with_bits(table: &[u16], bits: u32) -> LookupTable {
-    assert!(!table.is_empty());
+    // Rawtonic patch (RWH1): an empty table stays empty (`dither` gives 0)
+    // instead of panicking.
+    if table.is_empty() {
+      return Self::new(table);
+    }
     if table.len() >= 1 << bits {
       Self::new(table)
     } else {
@@ -243,7 +253,13 @@ impl LookupTable {
 
   #[inline(always)]
   pub fn dither(&self, value: u16, rand: &mut u32) -> u16 {
-    let (_, sbase, sdelta) = self.table[value as usize];
+    // Rawtonic patch (RWH1; dnglab 182b56ff): values beyond the table use its
+    // last entry instead of panicking (a damaged file's samples exceed a short
+    // linearization table); values inside it are unchanged.
+    let (_, sbase, sdelta) = match self.table.get(value as usize) {
+      Some(entry) => *entry,
+      None => self.table.last().copied().unwrap_or_default(),
+    };
     let base = sbase as u32;
     let delta = sdelta as u32;
     let pixel = base + ((delta * (*rand & 2047) + 1024) >> 12);

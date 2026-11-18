@@ -20,7 +20,8 @@ impl DeflateDecompressor {
         3 => 1,
         34894 => 2,
         34895 => 4,
-        _ => todo!(),
+        // Rawtonic patch (RWH1): `decompress` reports other predictors.
+        _ => 0,
       };
     Self { pred_factor, bps }
   }
@@ -48,14 +49,23 @@ fn decode_fp_delta_row<NARROW: FloatingPointParameters>(line: &mut [f32], row: &
 impl<'a> Decompressor<'a, f32> for DeflateDecompressor {
   fn decompress(&self, src: &[u8], skip_rows: usize, lines: impl LineIteratorMut<'a, f32>, line_width: usize) -> std::result::Result<(), String> {
     //eprintln!("Deflate: {:?}", self);
-    let mut decoder = Decoder::new(src).unwrap();
+    // Rawtonic patch (RWH1): errors instead of unwraps and asserts for damaged
+    // or unsupported data.
+    if self.pred_factor == 0 {
+      return Err("Deflate: unsupported predictor".to_string());
+    }
+    let mut decoder = Decoder::new(src).map_err(|err| format!("Deflate: {err}"))?;
     let mut decoded_data = Vec::new();
-    decoder.read_to_end(&mut decoded_data).unwrap();
+    decoder.read_to_end(&mut decoded_data).map_err(|err| format!("Deflate: {err}"))?;
 
     let bytesps = self.bps as usize / 8;
-    assert!(bytesps >= 2 && bytesps <= 4);
+    if !(2..=4).contains(&bytesps) {
+      return Err(format!("Deflate: {} bits per sample", self.bps));
+    }
 
-    assert_eq!(decoded_data.len(), bytesps * line_width * lines.len());
+    if decoded_data.len() != bytesps * line_width * lines.len() {
+      return Err("Deflate: tile size doesn't match the image".to_string());
+    }
 
     for (line, row) in lines.zip(decoded_data.chunks_exact_mut(bytesps as usize * line_width)).skip(skip_rows) {
       assert_eq!(line.len(), line_width);
@@ -65,7 +75,7 @@ impl<'a> Decompressor<'a, f32> for DeflateDecompressor {
         16 => decode_fp_delta_row::<Binary16>(line, row, line_width),
         24 => decode_fp_delta_row::<Binary24>(line, row, line_width),
         32 => decode_fp_delta_row::<Binary32>(line, row, line_width),
-        _ => unimplemented!(),
+        _ => return Err(format!("Deflate: {} bits per sample", self.bps)),
       }
     }
 

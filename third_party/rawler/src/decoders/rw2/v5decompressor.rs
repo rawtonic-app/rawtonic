@@ -5,7 +5,7 @@ use crate::{
 };
 
 /// This works for 12 and 14 bit depth images
-pub(crate) fn decode_panasonic_v5(buf: &[u8], width: usize, height: usize, bps: u32, dummy: bool) -> PixU16 {
+pub(crate) fn decode_panasonic_v5(buf: &[u8], width: usize, height: usize, bps: u32, dummy: bool) -> Result<PixU16> {
   // Raw data is divided into blocks of same size
   const V5_BLOCK_SIZE: usize = 0x4000;
   // Each block is splitted and swapped, we need to swap back
@@ -18,16 +18,22 @@ pub(crate) fn decode_panasonic_v5(buf: &[u8], width: usize, height: usize, bps: 
   let pixels_per_packet = match bps {
     12 => 10,
     14 => 9,
-    _ => unreachable!(),
+    // Rawtonic patch (RWH1; dnglab 5ab840c0, b4630649): unsupported bit
+    // depths and data shorter than the image's blocks are errors.
+    _ => return Err(RawlerError::DecoderFailed(format!("RW2 v5: unsupported bit depth {}", bps))),
   };
   // Pixel count per full block
   let pixels_per_block = V5_PACKETS_PER_BLOCK * pixels_per_packet;
+  crate::packed::check_image("RW2 v5", width, height)?;
+  if !dummy && buf.len() < (width * height).div_ceil(pixels_per_block) * V5_BLOCK_SIZE {
+    return Err(RawlerError::DecoderFailed("RW2 v5: image data too short".to_string()));
+  }
 
   log::debug!("RW2 V5 decoder: pixels per block: {}, bps: {}", pixels_per_block, bps);
 
   // We decode chunked at pixels_per_block boundary
   // Each block delivers the same amount of pixels.
-  decode_threaded_chunked(
+  Ok(decode_threaded_chunked(
     width,
     height,
     pixels_per_block,
@@ -46,5 +52,5 @@ pub(crate) fn decode_panasonic_v5(buf: &[u8], width: usize, height: usize, bps: 
         out.iter_mut().for_each(|p| *p = pump.get_bits(bps) as u16);
       }
     }),
-  )
+  ))
 }

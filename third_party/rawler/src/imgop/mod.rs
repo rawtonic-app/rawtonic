@@ -124,20 +124,25 @@ impl Rect {
   }
 
   // left, top, right, bottom
+  // Rawtonic patch (RWH1; dnglab 89a6bfab, 83958470, ffebd90d drop such
+  // areas in the decoders): swapped corners or borders beyond the size of a
+  // damaged file give an empty rectangle instead of a panic. Valid
+  // rectangles are unchanged.
   pub fn new_with_points(p1: Point, p2: Point) -> Self {
-    assert!(p1.x <= p2.x);
-    assert!(p1.y <= p2.y);
     Self {
       p: p1,
       d: Dim2 {
-        w: p2.x - p1.x,
-        h: p2.y - p1.y,
+        w: p2.x.saturating_sub(p1.x),
+        h: p2.y.saturating_sub(p1.y),
       },
     }
   }
 
   pub fn new_with_borders(dim: Dim2, borders: &[usize; 4]) -> Self {
-    Self::new_with_points(Point::new(borders[0], borders[1]), Point::new(dim.w - borders[2], dim.h - borders[3]))
+    Self::new_with_points(
+      Point::new(borders[0], borders[1]),
+      Point::new(dim.w.saturating_sub(borders[2]), dim.h.saturating_sub(borders[3])),
+    )
   }
 
   /// DNG used top-left-bottom-right for all rectangles
@@ -161,7 +166,14 @@ impl Rect {
 
   /// Return as offsets from each side (LTRB)
   pub fn as_ltrb_offsets(&self, width: usize, height: usize) -> [usize; 4] {
-    [self.p.x, self.p.y, width - (self.p.x + self.d.w), height - (self.p.y + self.d.h)]
+    // Rawtonic patch (RWH1): wrapping, as release builds computed it; a
+    // rectangle beyond the image gives borders `RawImage` drops.
+    [
+      self.p.x,
+      self.p.y,
+      width.wrapping_sub(self.p.x.wrapping_add(self.d.w)),
+      height.wrapping_sub(self.p.y.wrapping_add(self.d.h)),
+    ]
   }
 
   /// Return as offsets from each side (TLBR)

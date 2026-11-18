@@ -116,18 +116,14 @@ pub fn decode_ljpeg(ljpeg: &LjpegDecompressor, out: &mut [u16], x: usize, stripw
   Ok(())
 }
 
+// Rawtonic patch (RWH1): no debug asserts on the sample values here; damaged
+// data gives negative values, which the `as u16` casts truncate as in
+// release builds).
 fn set_yuv_420(out: &mut [u16], row: usize, col: usize, width: usize, y1: i32, y2: i32, y3: i32, y4: i32, cb: i32, cr: i32) {
   let pix1 = row * width + col;
   let pix2 = pix1 + 3;
   let pix3 = (row + 1) * width + col;
   let pix4 = pix3 + 3;
-
-  debug_assert!(!y1.is_negative());
-  debug_assert!(!y2.is_negative());
-  debug_assert!(!y3.is_negative());
-  debug_assert!(!y4.is_negative());
-  debug_assert!(!cb.is_negative());
-  debug_assert!(!cr.is_negative());
 
   out[pix1 + 0] = y1 as u16;
   out[pix1 + 1] = cb as u16;
@@ -272,11 +268,6 @@ pub fn decode_ljpeg_420(ljpeg: &LjpegDecompressor, out: &mut [u16], width: usize
 fn set_yuv_422(out: &mut [u16], row: usize, col: usize, width: usize, y1: i32, y2: i32, cb: i32, cr: i32) {
   let pix1 = row * width + col;
   let pix2 = pix1 + 3;
-
-  debug_assert!(!y1.is_negative());
-  debug_assert!(!y2.is_negative());
-  debug_assert!(!cb.is_negative());
-  debug_assert!(!cr.is_negative());
 
   out[pix1 + 0] = y1 as u16;
   out[pix1 + 1] = cb as u16;

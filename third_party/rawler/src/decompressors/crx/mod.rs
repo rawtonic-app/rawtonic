@@ -113,7 +113,9 @@ pub struct CodecParams {
 impl CodecParams {
   #[inline(always)]
   fn get_header<'a>(&self, mdat: &'a [u8]) -> &'a [u8] {
-    &mdat[..self.mdat_hdr_size as usize]
+    // Rawtonic patch (RWH1): clamped to the data; a short header then fails
+    // to parse instead of panicking here.
+    &mdat[..(self.mdat_hdr_size as usize).min(mdat.len())]
   }
 
   /// The MDAT section contains the raw pixel data.
@@ -127,7 +129,8 @@ impl CodecParams {
   /// |-----|-----------|-----|-----------|------------|--------------|-----|
   #[inline(always)]
   fn get_data<'a>(&self, mdat: &'a [u8]) -> &'a [u8] {
-    &mdat[self.mdat_hdr_size as usize..]
+    // Rawtonic patch (RWH1): empty when the header claims more than the data.
+    mdat.get(self.mdat_hdr_size as usize..).unwrap_or_default()
   }
 
   fn resolution(&self) -> usize {

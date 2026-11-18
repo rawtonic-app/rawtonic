@@ -58,8 +58,13 @@ pub(super) fn from_makernote(makernote: &IFD) -> Result<Option<NefLensData>> {
     let mut buf = levels.get_data().clone();
 
     let mut version: u32 = 0;
+    // Rawtonic patch (RWH1; dnglab cbfe1400): short lens data is an error;
+    // the digit arithmetic wraps as release builds computed it.
+    if buf.len() < 4 {
+      return Err("NEF: lens data too short".into());
+    }
     for i in 0..4 {
-      version = (version << 4) + (buf[i] - b'0') as u32;
+      version = (version << 4).wrapping_add(buf[i].wrapping_sub(b'0') as u32);
     }
 
     let lensdata = match version {
@@ -95,7 +100,8 @@ pub(super) fn from_makernote(makernote: &IFD) -> Result<Option<NefLensData>> {
         parse_lensdata_0x800(version, &buf)?
       }
 
-      _ => todo!("Lensdata version: 0x{:x} not implemented", version),
+      // Rawtonic patch (RWH1; dnglab cbfe1400): an error, not a panic.
+      _ => return Err(format!("NEF: lens data version 0x{:x} not supported", version).into()),
     };
 
     log::debug!("NEF lens data version: 0x{:x}, lensdata: {:?}", version, lensdata);

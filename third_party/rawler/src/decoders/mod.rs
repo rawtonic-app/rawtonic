@@ -565,7 +565,7 @@ pub(crate) fn ok_cfa_image(camera: Camera, cpp: usize, wb_coeffs: [f32; 4], imag
     None,
     None,
     dummy,
-  ))
+  )?)
 }
 
 pub(crate) fn ok_cfa_image_with_blacklevels(camera: Camera, cpp: usize, wb_coeffs: [f32; 4], blacks: [u32; 4], image: PixU16, dummy: bool) -> Result<RawImage> {
@@ -580,7 +580,7 @@ pub(crate) fn ok_cfa_image_with_blacklevels(camera: Camera, cpp: usize, wb_coeff
     Some(blacklevel),
     None,
     dummy,
-  );
+  )?;
   Ok(img)
 }
 
@@ -598,7 +598,7 @@ pub(crate) fn ok_cfa_image_with_black_white(camera: Camera, cpp: usize, wb_coeff
     Some(blacklevel),
     Some(whitelevel),
     dummy,
-  );
+  )?;
   Ok(img)
 }
    */
@@ -629,7 +629,8 @@ pub(crate) fn dynamic_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result
             ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(tiff_width as u32, tiff_height as u32, buf.to_vec())
               .ok_or(RawlerError::DecoderFailed(format!("Create RGB thumbnail from strip failed")))?,
           )),
-          _ => unimplemented!(),
+          // Rawtonic patch (RWH1): errors, not panics, for other sample counts.
+          _ => Err(RawlerError::DecoderFailed(format!("Unsupported thumbnail with {} samples per pixel", cpp))),
         }
       }
       9..=16 => {
@@ -647,10 +648,11 @@ pub(crate) fn dynamic_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result
             ImageBuffer::<Rgb<u16>, Vec<u16>>::from_raw((tiff_width) as u32, tiff_height as u32, samples)
               .ok_or(RawlerError::DecoderFailed(format!("Create RGB image failed")))?,
           )),
-          _ => unimplemented!(),
+          // Rawtonic patch (RWH1): errors, not panics, for other sample counts.
+          _ => Err(RawlerError::DecoderFailed(format!("Unsupported thumbnail with {} samples per pixel", cpp))),
         }
       }
-      _ => unimplemented!(),
+      _ => Err(RawlerError::DecoderFailed(format!("Unsupported image with {} samples per pixel", cpp))),
     },
     RawImageData::Float(samples) => match cpp {
       3 => Ok(DynamicImage::ImageRgb32F(
@@ -658,7 +660,7 @@ pub(crate) fn dynamic_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result
         ImageBuffer::<Rgb<f32>, Vec<f32>>::from_raw(tiff_width as u32, tiff_height as u32, samples)
           .ok_or(RawlerError::DecoderFailed(format!("Create RGB image failed")))?,
       )),
-      _ => unimplemented!(),
+      _ => Err(RawlerError::DecoderFailed(format!("Unsupported image with {} samples per pixel", cpp))),
     },
   }
 }
@@ -697,14 +699,30 @@ pub(crate) fn plain_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result<R
     endian,
   );
 
+  // Rawtonic patch (RWH1; dnglab a03f99d0, ab0672e5 check the same): an
+  // error for an empty image, empty tiles or a size beyond the limits of
+  // `alloc_image_plain!` (which panicked), before the buffer is allocated.
+  if tiff_width == 0 || tiff_height == 0 || cpp == 0 {
+    return Err(RawlerError::DecoderFailed(format!(
+      "TIFF: invalid image size {}x{} with {} samples",
+      tiff_width, tiff_height, cpp
+    )));
+  }
   let (decode_width, decode_height) = match ifd.data_mode()? {
     DataMode::Strips => (tiff_width, tiff_height),
     DataMode::Tiles => {
       let twidth = fetch_tiff_tag!(ifd, TiffCommonTag::TileWidth).force_usize(0);
       let tlength = fetch_tiff_tag!(ifd, TiffCommonTag::TileLength).force_usize(0);
-      (((tiff_width - 1) / twidth + 1) * twidth, ((tiff_height - 1) / tlength + 1) * tlength)
+      if twidth == 0 || tlength == 0 {
+        return Err(RawlerError::DecoderFailed(format!("TIFF: invalid tile size {}x{}", twidth, tlength)));
+      }
+      (
+        tiff_width.div_ceil(twidth).saturating_mul(twidth),
+        tiff_height.div_ceil(tlength).saturating_mul(tlength),
+      )
     }
   };
+  crate::packed::check_image("TIFF", decode_width.saturating_mul(cpp), decode_height)?;
 
   match sample_format {
     SampleFormat::Uint => {
@@ -773,7 +791,8 @@ pub(crate) fn plain_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result<R
           // Make sure pixbuf is properly cropped (e.g. LJPEG padding)
           pixbuf = deinterleave2x2(&pixbuf)?;
         }
-        _ => todo!(),
+        // Rawtonic patch (RWH1): an error, not a panic.
+        _ => return Err(RawlerError::DecoderFailed(format!("Unsupported row/column interleave {}x{}", row_ilf, col_ilf))),
       }
       return Ok(RawImageData::Integer(pixbuf.into_inner()));
     }
@@ -811,7 +830,8 @@ pub(crate) fn plain_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result<R
 
       return Ok(RawImageData::Float(pixbuf.into_inner()));
     }
-    _ => unimplemented!("other sample-formats"),
+    // Rawtonic patch (RWH1): an error, not a panic.
+    _ => Err(RawlerError::DecoderFailed(format!("Unsupported sample format {:?}", sample_format))),
   }
 }
 
@@ -823,6 +843,11 @@ where
   let (strips, cont) = raw.strip_data(file)?;
   let height = fetch_tiff_tag!(raw, TiffCommonTag::ImageLength).force_usize(0);
   let rows_per_strip = raw.get_entry(TiffCommonTag::RowsPerStrip).map(|tag| tag.force_usize(0)).unwrap_or(height);
+  // Rawtonic patch (RWH1; dnglab a03f99d0): no strips of 0 rows, and fewer
+  // strips than the rows need is an error instead of an index panic.
+  if rows_per_strip == 0 || pixbuf.width == 0 {
+    return Err(RawlerError::DecoderFailed("TIFF: strips of 0 rows or 0 samples".to_string()));
+  }
   let line_width = pixbuf.width;
   // If we have a continous buffer, we can optimize decompression of multiple strips.
   if let Some(src) = cont {
@@ -835,7 +860,7 @@ where
     }
   } else {
     decode_threaded_multiline_prealloc(pixbuf, rows_per_strip, &|lines, strip, _row| {
-      let src = strips[strip];
+      let src = strips.get(strip).ok_or_else(|| format!("TIFF: strip {} is missing", strip))?;
       dc.decompress(src, 0, lines, line_width)
     })?;
   }
@@ -857,9 +882,16 @@ where
   let cpp = fetch_tiff_tag!(raw, TiffCommonTag::SamplesPerPixel).force_usize(0);
   let twidth = fetch_tiff_tag!(raw, TiffCommonTag::TileWidth).force_usize(0); // * cpp;
   let tlength = fetch_tiff_tag!(raw, TiffCommonTag::TileLength).force_usize(0);
-  let coltiles = (width - 1) / twidth + 1;
-  let rowtiles = (height - 1) / tlength + 1;
-  if coltiles * rowtiles != tiles_src.len() as usize {
+  // Rawtonic patch (RWH1; dnglab a03f99d0): checked tile geometry.
+  if width == 0 || height == 0 || cpp == 0 || twidth == 0 || tlength == 0 {
+    return Err(RawlerError::DecoderFailed(format!(
+      "TIFF: invalid tile geometry {}x{} in {}x{}",
+      twidth, tlength, width, height
+    )));
+  }
+  let coltiles = width.div_ceil(twidth);
+  let rowtiles = height.div_ceil(tlength);
+  if coltiles.checked_mul(rowtiles) != Some(tiles_src.len()) {
     return Err(format_args!("DNG: trying to decode {} tiles from {} offsets", coltiles * rowtiles, tiles_src.len()).into());
   }
 
@@ -881,6 +913,15 @@ where
   Ok(())
 }
 
+/// Rawtonic patch (RWH1; dnglab 2284d01e): the dither seed of a row, the
+/// first four bytes (zero-padded for rows shorter than that, which panicked).
+pub(crate) fn dither_seed(bytes: &[u8]) -> u32 {
+  let mut seed = [0_u8; 4];
+  let n = bytes.len().min(4);
+  seed[..n].copy_from_slice(&bytes[..n]);
+  u32::from_le_bytes(seed)
+}
+
 pub(crate) fn apply_linearization(image: &mut PixU16, tbl: &Value, bits: u32) {
   match tbl {
     Value::Short(points) => {
@@ -889,7 +930,7 @@ pub(crate) fn apply_linearization(image: &mut PixU16, tbl: &Value, bits: u32) {
       }
       let table = LookupTable::new_with_bits(points, bits);
       image.par_pixel_rows_mut().for_each(|row| {
-        let mut random = LEu32(row.as_bytes(), 0);
+        let mut random = dither_seed(row.as_bytes());
         row.iter_mut().for_each(|p| {
           *p = table.dither(*p, &mut random);
         })

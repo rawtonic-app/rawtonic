@@ -26,7 +26,13 @@ impl<R: Read + Seek> ReadBox<&mut R> for FtypBox {
     if header.size % 4 != 0 {
       return Err(BmffError::Parse("invalid ftyp size".into()));
     }
-    let brand_count = (header.size - 16) / 4; // header + major + minor
+    // Rawtonic patch (RWH1; dnglab ad9a62bb): from the payload, an error for
+    // a box shorter than its fields (the count wrapped to billions).
+    let brand_count = header
+      .size
+      .checked_sub(16)
+      .ok_or_else(|| BmffError::Parse("ftyp box shorter than its fields".into()))?
+      / 4; // header + major + minor
 
     let mut brands = Vec::new();
     for _ in 0..brand_count {

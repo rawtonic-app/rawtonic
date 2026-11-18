@@ -38,10 +38,9 @@ impl WhiteLevel {
   }
 
   pub fn new_bits(bits: u32, cpp: usize) -> Self {
-    if bits > 32 {
-      panic!("Whitelevel can only be calculated for max. 32 bits, but {} bits given", bits);
-    }
-    let level: u32 = ((1_u64 << bits) - 1) as u32;
+    // Rawtonic patch (RWH1; dnglab ab0672e5 checks the bits per sample): a
+    // damaged file's bit count above 32 gives the 32-bit level, not a panic.
+    let level: u32 = ((1_u64 << bits.min(32)) - 1) as u32;
     Self(vec![level; cpp])
   }
 
@@ -85,6 +84,24 @@ impl std::fmt::Debug for BlackLevel {
 }
 
 impl BlackLevel {
+  /// Rawtonic patch (RWH1): [`BlackLevel::new`] for levels and repeat
+  /// dimensions read from a file, an error when they don't match.
+  pub fn try_new<T>(levels: &[T], width: usize, height: usize, cpp: usize) -> crate::Result<Self>
+  where
+    T: Copy + Into<Rational>,
+  {
+    if width.checked_mul(height).and_then(|n| n.checked_mul(cpp)) != Some(levels.len()) || levels.is_empty() {
+      return Err(crate::RawlerError::DecoderFailed(format!(
+        "{} black levels don't fit {}x{} with {} samples",
+        levels.len(),
+        width,
+        height,
+        cpp
+      )));
+    }
+    Ok(Self::new(levels, width, height, cpp))
+  }
+
   pub fn new<T>(levels: &[T], width: usize, height: usize, cpp: usize) -> Self
   where
     T: Copy + Into<Rational>,
@@ -190,6 +207,13 @@ impl CFAConfig {
   }
 }
 
+/// Rawtonic patch (RWH1, dnglab 89a6bfab): the area inside `dim` without the
+/// borders (left, top, right, bottom) of a camera definition, or `None` when
+/// the borders exceed `dim` (a damaged file stating a smaller image).
+fn area_with_borders(dim: Dim2, borders: &[usize; 4]) -> Option<Rect> {
+  (borders[0].checked_add(borders[2])? <= dim.w && borders[1].checked_add(borders[3])? <= dim.h).then(|| Rect::new_with_borders(dim, borders))
+}
+
 /// All the data needed to process this raw image, including the image data itself as well
 /// as all the needed metadata
 #[derive(Debug, Clone)]
@@ -274,7 +298,10 @@ impl RawImage {
     if x == 0 {
       return None;
     }
-    assert!(!image.is_empty());
+    // Rawtonic patch (RWH1): no black level from an empty image.
+    if image.is_empty() {
+      return None;
+    }
 
     #[derive(Clone, Copy)]
     struct Sample {
@@ -317,30 +344,39 @@ impl RawImage {
     blacklevel: Option<BlackLevel>,
     whitelevel: Option<WhiteLevel>,
     dummy: bool,
-  ) -> RawImage {
-    assert_eq!(image.width % cpp, 0);
+  ) -> crate::Result<RawImage> {
+    // Rawtonic patch (RWH1; dnglab 848c3e53, 89a6bfab): errors instead of
+    // panics for a damaged file's sample count or a missing white level;
+    // camera areas whose borders exceed the (damaged) image are dropped.
+    if cpp == 0 || image.width % cpp != 0 {
+      return Err(crate::RawlerError::DecoderFailed(format!(
+        "Image width {} doesn't fit {} samples per pixel",
+        image.width, cpp
+      )));
+    }
     assert_eq!(dummy, !image.is_initialized());
     let sample_width = image.width;
     let pixel_width = image.width / cpp;
 
     let mut blackareas: Vec<Rect> = Vec::new();
 
-    let active_area = cam.active_area.map(|area| Rect::new_with_borders(Dim2::new(pixel_width, image.height), &area));
+    let active_area = cam.active_area.and_then(|area| area_with_borders(Dim2::new(pixel_width, image.height), &area));
 
     let blackarea_base = active_area.unwrap_or_else(|| Rect::new(Point::zero(), Dim2::new(sample_width, image.height)));
+    let blackarea_limit = (sample_width, image.height);
 
     // For now, we only use masked areas when cpp is 1. For color images (RGB)
     // like Canon SRAW, we ignore it (it isn't provided anyway).
     if cpp == 1 {
       // Build black areas
       // First value (.0) is start and (.1) is length!
-      if let Some(ah) = cam.blackareah {
+      if let Some(ah) = cam.blackareah.filter(|ah| ah.0 + ah.1 <= blackarea_limit.1) {
         blackareas.push(Rect::new_with_points(
           Point::new(blackarea_base.p.x, ah.0),
           Point::new(blackarea_base.p.x + blackarea_base.d.w, ah.0 + ah.1),
         ));
       }
-      if let Some(av) = cam.blackareav {
+      if let Some(av) = cam.blackareav.filter(|av| av.0 + av.1 <= blackarea_limit.0) {
         blackareas.push(Rect::new_with_points(
           Point::new(av.0, blackarea_base.p.y),
           Point::new(av.0 + av.1, blackarea_base.p.y + blackarea_base.d.h),
@@ -363,11 +399,11 @@ impl RawImage {
     let whitelevel = cam
       .make_whitelevel(cpp)
       .or(whitelevel)
-      .unwrap_or_else(|| panic!("Need whitelevel in config: {}", cam.clean_model));
+      .ok_or_else(|| crate::RawlerError::DecoderFailed(format!("Need whitelevel in config: {}", cam.clean_model)))?;
 
-    let crop_area = cam.crop_area.map(|area| Rect::new_with_borders(Dim2::new(pixel_width, image.height), &area));
+    let crop_area = cam.crop_area.and_then(|area| area_with_borders(Dim2::new(pixel_width, image.height), &area));
 
-    RawImage {
+    Ok(RawImage {
       camera: cam.clone(),
       make: cam.make.clone(),
       model: cam.model.clone(),
@@ -389,7 +425,7 @@ impl RawImage {
       orientation: Orientation::Normal, //cam.orientation, // TODO fixme
       color_matrix: cam.color_matrix,
       dng_tags: HashMap::new(),
-    }
+    })
   }
 
   #[doc(hidden)]
@@ -404,29 +440,34 @@ impl RawImage {
     blacklevel: Option<BlackLevel>,
     whitelevel: Option<WhiteLevel>,
     dummy: bool,
-  ) -> RawImage {
+  ) -> crate::Result<RawImage> {
     //assert_eq!(image.width % cpp, 0);
     //assert_eq!(dummy, !image.is_initialized());
+    // Rawtonic patch (RWH1): as in `new`.
+    if cpp == 0 {
+      return Err(crate::RawlerError::DecoderFailed("Image with 0 samples per pixel".to_string()));
+    }
     let pixel_width = sample_width / cpp;
 
     let mut blackareas: Vec<Rect> = Vec::new();
 
-    let active_area = cam.active_area.map(|area| Rect::new_with_borders(Dim2::new(pixel_width, height), &area));
+    let active_area = cam.active_area.and_then(|area| area_with_borders(Dim2::new(pixel_width, height), &area));
 
     let blackarea_base = active_area.unwrap_or_else(|| Rect::new(Point::zero(), Dim2::new(sample_width, height)));
+    let blackarea_limit = (sample_width, height);
 
     // For now, we only use masked areas when cpp is 1. For color images (RGB)
     // like Canon SRAW, we ignore it (it isn't provided anyway).
     if cpp == 1 {
       // Build black areas
       // First value (.0) is start and (.1) is length!
-      if let Some(ah) = cam.blackareah {
+      if let Some(ah) = cam.blackareah.filter(|ah| ah.0 + ah.1 <= blackarea_limit.1) {
         blackareas.push(Rect::new_with_points(
           Point::new(blackarea_base.p.x, ah.0),
           Point::new(blackarea_base.p.x + blackarea_base.d.w, ah.0 + ah.1),
         ));
       }
-      if let Some(av) = cam.blackareav {
+      if let Some(av) = cam.blackareav.filter(|av| av.0 + av.1 <= blackarea_limit.0) {
         blackareas.push(Rect::new_with_points(
           Point::new(av.0, blackarea_base.p.y),
           Point::new(av.0 + av.1, blackarea_base.p.y + blackarea_base.d.h),
@@ -452,11 +493,11 @@ impl RawImage {
     let whitelevel = cam
       .make_whitelevel(cpp)
       .or(whitelevel)
-      .unwrap_or_else(|| panic!("Need whitelvel in config: {}", cam.clean_model));
+      .ok_or_else(|| crate::RawlerError::DecoderFailed(format!("Need whitelevel in config: {}", cam.clean_model)))?;
 
-    let crop_area = cam.crop_area.map(|area| Rect::new_with_borders(Dim2::new(pixel_width, height), &area));
+    let crop_area = cam.crop_area.and_then(|area| area_with_borders(Dim2::new(pixel_width, height), &area));
 
-    RawImage {
+    Ok(RawImage {
       camera: cam.clone(),
       make: cam.make.clone(),
       model: cam.model.clone(),
@@ -478,7 +519,7 @@ impl RawImage {
       orientation: Orientation::Normal, //cam.orientation, // TODO fixme
       color_matrix: cam.color_matrix,
       dng_tags: HashMap::new(),
-    }
+    })
   }
 
   pub fn dim(&self) -> Dim2 {
