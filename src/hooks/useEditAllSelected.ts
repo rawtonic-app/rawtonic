@@ -17,6 +17,7 @@ import { registerLibrarySwitchReset, registerRetryAfterAsking } from '../utils/q
 import {
   sameAdjustmentValue,
   withLutSelection,
+  LUT_SELECTION_KEYS,
   withBwVersion,
   withColourVersions,
   withDetailVersions,
@@ -131,9 +132,14 @@ onRecipeWritten((path, keys) => {
   for (const [id, failed] of failedWrites) {
     const changes = failed.unsaved.get(path);
     if (!changes) continue;
-    const rest = keys
-      ? Object.fromEntries(Object.entries(changes).filter(([key]) => isVersionKey(key) || !keys.includes(key)))
-      : {};
+    // A LUT choice written since supersedes the failed one whole, its
+    // reading too (which belongs with that LUT, not with other settings).
+    const lutWritten = keys?.some((key) => (LUT_SELECTION_KEYS as readonly string[]).includes(key)) ?? false;
+    const superseded = (key: string) =>
+      lutWritten && (LUT_SELECTION_KEYS as readonly string[]).includes(key)
+        ? true
+        : !isVersionKey(key) && keys!.includes(key);
+    const rest = keys ? Object.fromEntries(Object.entries(changes).filter(([key]) => !superseded(key))) : {};
     if (Object.keys(rest).some((key) => !isVersionKey(key))) failed.unsaved.set(path, rest);
     else failed.unsaved.delete(path);
     if (failed.unsaved.size === 0) forget(id);

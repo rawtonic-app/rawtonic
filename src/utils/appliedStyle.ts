@@ -87,6 +87,21 @@ const changePath = (change: StyleChange) =>
     ? change.path
     : null;
 
+/** A setting of the LUT choice (`LUT_SELECTION_KEYS`). */
+const lutKey = (path: string[] | null) =>
+  path !== null && path.length === 1 && (LUT_SELECTION_KEYS as readonly string[]).includes(path[0]);
+
+/** Whether the user changed a part of the LUT choice a style set (another
+ * LUT, the same one chosen again): the LUT choice then is the user's whole
+ * and leaves the style's record, so neither its Amount nor taking it back
+ * splits a LUT from its reading. */
+function lutChoiceChanged(recipe: unknown, changes: StyleChange[] | undefined): boolean {
+  return (changes ?? []).some((change) => {
+    const path = changePath(change);
+    return lutKey(path) && !stillHolds(recipe, change, path!);
+  });
+}
+
 /** Whether `recipe` still holds the value `change` set (else the user changed it). */
 function stillHolds(recipe: unknown, change: StyleChange, path: string[]): boolean {
   return holds(get(recipe, path), change.to);
@@ -108,14 +123,7 @@ export function revertStyle<T extends object>(recipe: T): { recipe: T; kept: str
   delete out[APPLIED_STYLE];
   const kept: string[][] = [];
   let removed = false;
-  // A LUT choice goes back whole or not at all: once the user changed a part
-  // of it (another LUT, the same one chosen again), the user's stays whole.
-  const lutKey = (path: string[] | null) =>
-    path !== null && path.length === 1 && (LUT_SELECTION_KEYS as readonly string[]).includes(path[0]);
-  const lutChanged = (applied.changes ?? []).some((change) => {
-    const path = changePath(change);
-    return lutKey(path) && !stillHolds(out, change, path!);
-  });
+  const lutChanged = lutChoiceChanged(out, applied.changes);
   for (const change of applied.changes ?? []) {
     const path = changePath(change);
     if (!path) continue;
@@ -225,9 +233,10 @@ export function withStyleAmount<T extends object>(
   const a = Math.min(100, Math.max(0, amount)) / 100;
   let out = recipe as Recipe;
   const changes: StyleChange[] = [];
+  const lutChanged = lutChoiceChanged(recipe, applied.changes);
   for (const change of applied.changes ?? []) {
     const path = changePath(change);
-    if (!path || !stillHolds(recipe, change, path)) continue;
+    if (!path || !stillHolds(recipe, change, path) || (lutChanged && lutKey(path))) continue;
     // Its value at full strength as recorded on this photo, else the style's.
     const full = 'full' in change ? change.full : applied.amount >= 100 ? change.to : get(values, path);
     const own = get(base, path);

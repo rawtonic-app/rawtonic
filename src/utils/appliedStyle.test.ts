@@ -64,6 +64,16 @@ describe('applied style', () => {
     expect(revertStyle(recipe).recipe).toEqual({ saturation: -30, contrast: 0 });
   });
 
+  it('lets a LUT the user chose leave the record whole through an Amount move', () => {
+    const before = { lutPath: '/old.cube', lutVersion: 1, exposure: 0 };
+    const values = { lutPath: '/style.cube', lutVersion: 2, exposure: 1 };
+    let recipe = recordStyle(before, { ...before, ...values }, values, 'look');
+    recipe = { ...recipe, lutPath: '/user.cube' };
+    recipe = withStyleAmount(recipe, revertStyle(recipe).recipe, values, 60);
+    expect(appliedStyleOf(recipe)!.changes.map((c) => c.path[0])).toEqual(['exposure']);
+    expect(revertStyle(recipe).recipe).toEqual({ lutPath: '/user.cube', lutVersion: 2, exposure: 0 });
+  });
+
   it("blends from the editor's value where a saved recipe had none, and removes it again", () => {
     // A sparse saved recipe without exposure; the style set +1.
     let recipe = recordStyle(
