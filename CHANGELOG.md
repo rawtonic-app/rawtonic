@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.17 — 2026-11-18
+
 The seventeenth alpha. Color Grading tints coloured tones closer to Lightroom, .cube LUTs with their own input range import, and Capture One imports bring local adjustment layers and the lens correction along, while Lightroom imports keep all eight Point Color ranges in a mask, Guided Upright and old-process curves. Exports of large RAWs need far less memory on a Mac, the multi view on Windows no longer hides its other photos while the next one opens, and on a Windows laptop whose AI runs on the processor, later AI Subject masks the app had prepared ahead were ready within a second of the click. On Linux the settled fit view is sent lossless and the 100 % view stays sharp with a mask tool open. Damage the RAW decoders can detect now gives an error instead of a crash. Many smaller fixes from three UX reviews (macOS, Windows, Linux) make culling, menus, keys and dialogs behave as a photographer expects.
 
 ### Highlights
