@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-A privacy release. Earlier releases let the AI runtime (Microsoft's ONNX Runtime) report usage data to Microsoft; this release sets the runtime's own switches against it before the runtime starts (measured on macOS and Linux: no connection; on Windows the switch is set but not yet measured) — the affected releases, what was sent and where its files are, below. Also: Panasonic DC-FZ83 files open, screen readers name more controls, Develop's scopes are in the View menu, and two small speed-ups. Updating from alpha.17: replace the app as usual; your libraries, sessions and edits stay as they are.
+A privacy release. Earlier releases let the AI runtime (Microsoft's ONNX Runtime) report usage data to Microsoft; this release sets the runtime's own switches against it before the runtime starts (measured on macOS and Linux with an AI model running on the processor: no connection; with the Linux GPU plugin and on Windows the switches are set but not yet measured) — the affected releases, what was sent and where its files are, below. Also: Panasonic DC-FZ83 files open, screen readers name more controls, Develop's scopes are in the View menu, and two small speed-ups. Updating from alpha.17: replace the app as usual; your libraries, sessions and edits stay as they are.
 
 ### Highlights
 
@@ -24,6 +24,22 @@ A privacy release. Earlier releases let the AI runtime (Microsoft's ONNX Runtime
 - **Entering the multi view shows every photo in its first frame.** On macOS and Windows (the native renderer), this applies when the live photo is shown at fit and the photos' thumbnails are still cached and were shown in the filmstrip recently (the app keeps up to 10,000 of them in mind). The thumbnails are then decoded while the cells are laid out, and the live photo is placed into its cell at once, so all of them appear in the layout's first frame. Before, they came one frame later. Any other cell gets its thumbnail as before, a frame after the layout. Mac mini M4 Pro, 60 fps screen recording, ⌘A to all 12 shown: 102–116 → 84–86 ms (median, n = 10 per block). Lightroom Classic's Survey took 80 ms on the same Mac.
 
 - **A tool's Before at 100 % shows faster.** On macOS and Windows (the native renderer), holding a tool's reset with ⌥ when zoomed in now draws the visible part of the photo first and then the rest; Linux is unchanged. Holding Before (the whole photograph's peek) uses the same path but was not timed. On a 24 MP photo: 188 → 92 ms on press and 175 → 96 ms on release (Mac mini M4 Pro, 60 fps recording, n = 10). Lightroom Classic's panel switch took 104/118 ms and Capture One 252/243 ms. The visible part can differ from the finished frame by a few levels in about 2 % of its pixels until the rest arrives, about 0.1 s later.
+
+### Known gaps
+
+These are measured shortfalls or open work; they stay open until they are closed by measurement.
+
+- **Export memory on a 14 GB Windows laptop (Radeon 680M):** seven 50–61 MP RAWs as 16-bit TIFF and JPEG, two at a time, still peak at 7.5 GB, above the 6.6 GB target (6.1 GB one at a time); this release's TIFF streaming did not lower it there. The multi view with large RAWs still reaches 7.8–8.8 GB on that laptop, and in one Windows test after the fix a cell stayed empty for 2.3 s.
+- **The first AI Subject mask on a fresh Windows computer** (Radeon 680M laptop, AI on the processor) still takes about 24 s: about 9 s to prepare the model, 1.6 s to keep its optimized form and 15 s to compute the mask. Later masks were ready within a second in our test when the app had computed them ahead.
+- **Scopes:** on Linux an open scope still costs a few milliseconds per frame in the fit view while dragging (within the measurement's resolution on the latest Linux run); on a Mac the measured cost is within the noise.
+- **.cube LUTs with their own input range:** the check that saved edits export byte for byte as before is done on Apple silicon, not yet on NVIDIA under Linux.
+- **Imports:** Lightroom's pre-2012 curves are an approximation and not yet compared with Lightroom's renders. Guided Upright from Lightroom catalogs is not yet imported for Sony RAWs set to another aspect ratio in the camera. Capture One's brush strokes and colour ranges come over as fixed masks that cannot be edited as strokes or ranges, and a Capture One linear gradient on a lens-corrected photo stays within 2.3 % (0.3 % on average) of a mask that follows the correction exactly, because a straight Rawtonic gradient cannot follow the correction's slight bow.
+- **Multi view:** entering 12 photos now shows them in about 0.085 s; Lightroom shows them about 0.08 s on the same Mac.
+- **Sidecars:** an XMP sidecar with more than 250,000 XML elements (far beyond normal brush work) is refused and treated as changed elsewhere.
+- **Accessibility:** contrast is not yet checked automatically; a few summary headers and the photo tiles are excluded from the automatic check until they are restructured.
+- **Windows** stays experimental: unsigned, tested on one NVIDIA card and one AMD Radeon 680M laptop.
+- **Privacy (Windows, Linux GPU plugin):** the runtime's switches against usage reporting are set but not yet measured there (see Highlights).
+- The known gaps of alpha.17 and earlier not named here remain.
 
 ## 0.1.0-alpha.17 — 2026-11-18
 
