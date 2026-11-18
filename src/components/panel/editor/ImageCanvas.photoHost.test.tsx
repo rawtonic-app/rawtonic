@@ -1,4 +1,5 @@
 import { cleanup, render } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import '../../../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import ImageCanvas from './ImageCanvas';
@@ -51,7 +52,7 @@ function renderCanvas(photoHost: HTMLElement | null, picker: boolean) {
     photoHost,
     hasRenderedFirstFrame: false
   };
-  return render(<ImageCanvas {...(props as never)} />);
+  return render(<ImageCanvas {...(props as unknown as ComponentProps<typeof ImageCanvas>)} />);
 }
 
 beforeEach(() => {
