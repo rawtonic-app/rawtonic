@@ -230,6 +230,14 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   /** Side by side: the before pane left of the viewer (the after pane). */
   const beforePaneRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  // Linux: the photograph's frames, drawn beside the zoomed viewer with the
+  // same transform (ImageCanvas `photoHost`).
+  const photoPaneRef = useRef<HTMLDivElement | null>(null);
+  const [photoPane, setPhotoPane] = useState<HTMLDivElement | null>(null);
+  const registerPhotoPane = useCallback((element: HTMLDivElement | null) => {
+    photoPaneRef.current = element;
+    setPhotoPane(element);
+  }, []);
   /** The viewer shows browser frames (Linux), not the native display. */
   const browserFramesRef = useRef(false);
   const transformStateRef = useRef<TransformState>(transformState);
@@ -628,10 +636,16 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
       if (contentRef.current) {
         const shown = shownTransform({ positionX: x, positionY: y, scale });
-        contentRef.current.style.transform = `translate(${shown.positionX}px, ${shown.positionY}px) scale(${scale})`;
+        const transform = `translate(${shown.positionX}px, ${shown.positionY}px) scale(${scale})`;
+        contentRef.current.style.transform = transform;
         // Browser frames (Linux): composited only while moving, so at rest
         // WebKit paints the frame at the zoom, not a magnified raster.
         if (browserFramesRef.current) compositeWhileMoving(contentRef.current);
+        const photo = photoPaneRef.current;
+        if (photo) {
+          photo.style.transform = transform;
+          if (browserFramesRef.current) compositeWhileMoving(photo);
+        }
       }
 
       if (!isTransitioningRef.current) {
@@ -2708,6 +2722,20 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             </div>
           )}
 
+          {osPlatform === 'linux' && (
+            // The photograph outside the zoomed viewer: the mask and tool
+            // canvases in it make WebKitGTK composite the viewer, rasterised
+            // at the fit size and magnified (a 100 % view far softer than the
+            // export). Moved with the viewer (`applyTransform`); nothing in it
+            // is composited at rest, so it is painted at the zoom.
+            <div
+              ref={registerPhotoPane}
+              className="absolute inset-0 origin-top-left pointer-events-none"
+              style={{
+                transform: `translate(${shownView.positionX}px, ${shownView.positionY}px) scale(${shownView.scale})`
+              }}
+            />
+          )}
           <div
             ref={contentRef}
             className="w-full h-full flex items-center justify-center origin-top-left"
@@ -2756,6 +2784,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
               liveRotation={liveRotation}
               transformState={transformState}
               zoomTarget={zoomTarget}
+              photoHost={osPlatform === 'linux' ? photoPane : null}
               hasRenderedFirstFrame={hasRenderedFirstFrame}
               maskHitTestRef={maskHitTestRef}
             />
