@@ -332,12 +332,16 @@ pub fn guard_idle_compiles(app_handle: &tauri::AppHandle) {
                 }
             })
         });
-        let verdict = idle_compile_verdict(
-            private,
-            system.total_memory(),
-            level,
-            last_pressure.map(|at| now.duration_since(at)),
-        );
+        let since_pressure = last_pressure.map(|at| now.duration_since(at));
+        let verdict = idle_compile_verdict(private, system.total_memory(), level, since_pressure);
+        let pressure_holds = level.is_some()
+            || since_pressure.is_some_and(|since| since < IDLE_COMPILE_PRESSURE_HOLD);
+        if verdict.is_err() && in_helpers && !pressure_holds {
+            // Held by the app's private memory alone: masking models unused
+            // for a while go as before, so the next ask may start the
+            // helper (review AIW3 r3).
+            crate::ai_lifecycle::before_idle_compile(&app, false);
+        }
         if verdict.is_ok() {
             // The compile may start: what rebuilds on demand goes first, and
             // the pages the allocator keeps committed per thread after
