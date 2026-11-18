@@ -110,6 +110,17 @@ fn set(recipe: &mut Value, path: &[String], value: Option<&Value>) {
 }
 
 /// The id of the style last applied to `recipe`, if any.
+/// The settings of one LUT choice (`LUT_SELECTION` in
+/// src/utils/appliedStyle.ts): they go back together.
+pub const LUT_SELECTION: [&str; 6] = [
+    "lutPath",
+    "lutName",
+    "lutSize",
+    "lutData",
+    "lutIsSceneReferred",
+    "lutVersion",
+];
+
 pub fn applied_style_id(recipe: &Value) -> Option<&str> {
     recipe.get(APPLIED_STYLE)?.get("id")?.as_str()
 }
@@ -126,27 +137,29 @@ pub fn revert(recipe: &mut Value) -> Vec<Vec<String>> {
         return Vec::new();
     };
     let mut kept = Vec::new();
-    for change in applied
+    let changes: Vec<(Vec<String>, &Value)> = applied
         .get("changes")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-    {
-        let Some(path) = change
-            .get("path")
-            .and_then(Value::as_array)
-            .and_then(|path| {
-                path.iter()
-                    .map(|key| key.as_str().map(str::to_owned))
-                    .collect::<Option<Vec<_>>>()
-            })
-        else {
-            continue;
-        };
-        if path.is_empty() {
-            continue;
-        }
-        if holds(get(recipe, &path), change.get("to")) {
+        .filter_map(|change| {
+            let path = change
+                .get("path")
+                .and_then(Value::as_array)?
+                .iter()
+                .map(|key| key.as_str().map(str::to_owned))
+                .collect::<Option<Vec<_>>>()?;
+            (!path.is_empty()).then_some((path, change))
+        })
+        .collect();
+    // A LUT choice goes back whole or not at all: once the user changed a
+    // part of it (another LUT, the same one chosen again), the user's stays.
+    let lut_key = |path: &[String]| path.len() == 1 && LUT_SELECTION.contains(&path[0].as_str());
+    let lut_changed = changes
+        .iter()
+        .any(|(path, change)| lut_key(path) && !holds(get(recipe, path), change.get("to")));
+    for (path, change) in changes {
+        if holds(get(recipe, &path), change.get("to")) && !(lut_changed && lut_key(&path)) {
             set(recipe, &path, change.get("from"));
         } else {
             kept.push(path);

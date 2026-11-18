@@ -189,7 +189,8 @@ class Smoke:
                   f"{stats['colors']} colours, top colour {stats['top_share']:.0%}")
 
     def export(self):
-        self.qa.call("ui.click", {"name": "Export photos"})
+        # By class, not by the label: a fresh profile starts in the system language (#837).
+        self.qa.call("ui.click", {"selector": ".studio-export-button"})
         self.qa.call("ui.wait", {"selector": ".studio-export-submit", "timeout_ms": 10000})
         self.qa.call("ui.click", {"selector": ".studio-export-submit"})
         self.wait_state("process.exportState.status", "success", 180000)

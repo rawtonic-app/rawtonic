@@ -676,6 +676,7 @@ pub async fn precompute_ai_subject_mask(
             return Ok(());
         }
         if cancelled() {
+            log::info!("AI object mask: not encoded ahead, the task was cancelled");
             return Ok(());
         }
         load_turn = sam_load_turn(&ai_state, false).await;
@@ -701,7 +702,12 @@ pub async fn precompute_ai_subject_mask(
         .await
         .ok()
         .map(|l| l.path);
-    if current.as_deref() != Some(path.as_str()) || cancelled() {
+    if let Some(reason) = ahead_photo_skip(current.as_deref(), &path) {
+        log::info!("AI object mask: not encoded ahead, {reason}");
+        return Ok(());
+    }
+    if cancelled() {
+        log::info!("AI object mask: not encoded ahead, the task was cancelled");
         return Ok(());
     }
     let start = std::time::Instant::now();
@@ -1105,6 +1111,14 @@ async fn sky_mask(
     .await
 }
 
+fn ahead_photo_skip(current: Option<&str>, requested: &str) -> Option<&'static str> {
+    match current {
+        None => Some("the photo is not ready"),
+        Some(current) if current != requested => Some("the photo has changed"),
+        Some(_) => None,
+    }
+}
+
 /// Computes the open photo's Subject or Sky mask in the background, so the
 /// selection answers at once. Only with a model that is already installed
 /// (nothing is downloaded) and while the system is not short of memory;
@@ -1127,7 +1141,8 @@ async fn precompute(
         .await
         .ok()
         .map(|l| l.path);
-    if current.as_deref() != Some(path.as_str()) {
+    if let Some(reason) = ahead_photo_skip(current.as_deref(), &path) {
+        log::info!("AI {} mask: not computed ahead, {reason}", kind.name());
         return Ok(());
     }
     // Ahead of a click only with memory to spare: a run holds about 1.6 GB
@@ -1171,7 +1186,10 @@ async fn precompute(
             );
             Ok(())
         }
-        Err(e) => Err(e.into()),
+        Err(e) => {
+            log::warn!("AI {} mask: ahead computation failed: {e}", kind.name());
+            Err(e.into())
+        }
     }
 }
 
@@ -1259,14 +1277,24 @@ pub async fn preload_ai_mask_models(
     }
     let _running = ai_state.lifecycle.run();
     let _turn = crate::ai_lifecycle::turn(false).await;
-    let start = std::time::Instant::now();
-    for &kind in preload_kinds(rawtonic_onnx::models_run_on_cpu_only()) {
-        network(&ai_state, &app_handle, kind, false).await?;
+    let on_cpu = rawtonic_onnx::models_run_on_cpu_only();
+    if on_cpu {
+        log::info!("AI sky mask: model not loaded ahead, AI is running on the CPU");
     }
-    log::info!(
-        "AI masks: models loaded ahead after {} ms",
-        start.elapsed().as_millis()
-    );
+    for &kind in preload_kinds(on_cpu) {
+        let start = std::time::Instant::now();
+        let name = kind.name();
+        if network(&ai_state, &app_handle, kind, false)
+            .await
+            .inspect_err(|e| log::warn!("AI {name} mask: ahead model load failed: {e}"))?
+            .is_some()
+        {
+            log::info!(
+                "AI {name} mask: model ready ahead after {} ms",
+                start.elapsed().as_millis()
+            );
+        }
+    }
     Ok(())
 }
 
@@ -1656,6 +1684,19 @@ pub async fn load_relight_pattern(path: String) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ahead_masks_report_why_the_requested_photo_is_unavailable() {
+        assert_eq!(
+            super::ahead_photo_skip(None, "a"),
+            Some("the photo is not ready")
+        );
+        assert_eq!(
+            super::ahead_photo_skip(Some("b"), "a"),
+            Some("the photo has changed")
+        );
+        assert_eq!(super::ahead_photo_skip(Some("a"), "a"), None);
+    }
+
     use super::{AutoMask, WarmUp, preload_kinds, warm_up_model};
     use std::cell::{Cell, RefCell};
 

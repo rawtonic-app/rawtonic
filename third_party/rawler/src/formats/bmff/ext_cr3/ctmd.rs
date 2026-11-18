@@ -59,7 +59,10 @@ impl<R: Read + Seek> ReadBox<&mut R> for CtmdBox {
       //current = reader.seek(SeekFrom::Current(0))?;
     }
 
-    assert!(reader.stream_position()? == header.end_offset());
+    // Rawtonic patch (RWH1): an error instead of the assert.
+    if reader.stream_position()? != header.end_offset() {
+      return Err(super::super::BmffError::Parse("CTMD box size doesn't match its records".to_string()));
+    }
 
     reader.seek(SeekFrom::Start(header.end_offset()))?;
 

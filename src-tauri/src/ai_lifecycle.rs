@@ -73,12 +73,20 @@ pub struct Lifecycle {
 
 /// A computation with a model is running while this lives (no idle unload).
 /// Owns its handle, so a computation can take it into a blocking task.
-pub struct Running(Arc<Lifecycle>);
+pub struct Running {
+    lifecycle: Arc<Lifecycle>,
+    generation: u64,
+}
 
 impl Drop for Running {
     fn drop(&mut self) {
-        let mut usage = self.0.usage();
+        let mut usage = self.lifecycle.usage();
         usage.busy = usage.busy.saturating_sub(1);
+        if usage.generation == self.generation {
+            // Ending a run restarts the idle clock without counting as a
+            // new user action (the warm-up checks the user action count).
+            usage.last_use = Some(Instant::now());
+        }
     }
 }
 
@@ -152,8 +160,12 @@ impl Lifecycle {
 
     /// Marks a computation with a model as running until the guard drops.
     pub fn run(self: &Arc<Self>) -> Running {
-        self.usage().busy += 1;
-        Running(Arc::clone(self))
+        let mut usage = self.usage();
+        usage.busy += 1;
+        Running {
+            lifecycle: Arc::clone(self),
+            generation: usage.generation,
+        }
     }
 
     /// Whether the models have been unused for `idle` and nothing runs.
@@ -338,25 +350,103 @@ pub(crate) fn footprint_mb() -> Option<f64> {
 const IDLE_COMPILE_UNLOAD: Duration = Duration::from_secs(20);
 
 /// Before an idle shader compile under a compile limit (AMD's Windows
-/// Vulkan driver, `memory_pressure::guard_idle_compiles`): drops the
-/// masking models when none ran or was used for `IDLE_COMPILE_UNLOAD`, as
-/// an idle unload does (opening photos then loads them only after the next
-/// masking use). One compile there commits 4–5 GB on top of the app; with
-/// the Subject model loaded the export dialog's compile peaked at 7.6 GB on
-/// a 15 GB Radeon 680M laptop (G76/WSMOKE14; coordinator decisions WCC11
-/// D4, D6). The next masking use loads them again (~7 s there).
-pub fn before_idle_compile(app: &tauri::AppHandle) {
+/// Vulkan driver, `memory_pressure::guard_idle_compiles`): masking models
+/// that none ran or used for `IDLE_COMPILE_UNLOAD` stay loaded when the compile
+/// runs in a helper process and the memory covers that helper's peak
+/// beside them (`keeps_models_beside_helper`); else they go, as an idle
+/// unload does (opening photos then loads them only after the next masking
+/// use). One compile there commits 4–5 GB; with the Subject model loaded
+/// the export dialog's compile in the app peaked at 7.6 GB on a 15 GB
+/// Radeon 680M laptop (G76/WSMOKE14; coordinator decisions WCC11 D4, D6).
+/// The next masking use loads them again (7–9 s there), which made every
+/// later Subject mask take 21 s instead of 12 s (G76/WAIW1; AIW3).
+/// `in_helper`: the compile runs in a helper process and may start, the
+/// rebuildable caches already released.
+pub fn before_idle_compile(app: &tauri::AppHandle, in_helper: bool) {
+    unload_unused_before_compile(app, true, in_helper);
+}
+
+/// Before the compile an export of the shown photo waits for
+/// (`rawtonic_gpu::gpu_processing::set_before_export_compile`): masking
+/// models unused for `IDLE_COMPILE_UNLOAD` go (G76/WCOLD2: the app held
+/// 2.45 GB beside that helper's 4.44 GB).
+pub fn before_export_compile(app: &tauri::AppHandle) {
+    unload_unused_before_compile(app, false, false);
+}
+
+fn unload_unused_before_compile(app: &tauri::AppHandle, may_keep: bool, in_helper: bool) {
     let ai_state = app.state::<AiState>();
-    if ai_state
+    if !(ai_state
         .lifecycle
         .idle_at(Instant::now(), IDLE_COMPILE_UNLOAD)
-        && models_loaded(&ai_state)
+        && models_loaded(&ai_state))
     {
+        return;
+    }
+    let when = "before an idle shader compile";
+    if memory_may_keep(may_keep, in_helper, export_runs(app)) {
+        if keeps_models_beside_helper(None, when) {
+            return;
+        }
+    } else {
         log::info!(
-            "AI models unused for {} s: unloading them before an idle shader compile",
+            "AI models unused for {} s: unloading them {when}",
             IDLE_COMPILE_UNLOAD.as_secs()
         );
-        unload_and_notify(app, UnloadReason::Idle);
+    }
+    unload_and_notify(app, UnloadReason::Idle);
+    if in_helper {
+        // The release ran before the decision: the models' freed pages go
+        // back to the system too.
+        crate::memory_pressure::release_rebuildable_memory(app);
+    }
+}
+
+/// Whether the memory decides if loaded masking models stay beside a
+/// compile (`keeps_models_beside_helper`): only for an idle compile
+/// (`idle`: not the compile an export waits for) in a helper process while
+/// no export runs. A compile in the app commits its 4–5 GB in the app's own
+/// memory, and exports keep the earlier rule (AIW3).
+fn memory_may_keep(idle: bool, in_helper: bool, export_runs: bool) -> bool {
+    idle && in_helper && !export_runs
+}
+
+fn export_runs(app: &tauri::AppHandle) -> bool {
+    app.state::<crate::state::export::ExportState>().running()
+}
+
+/// When the last "kept" line was logged: the memory guard asks before
+/// every idle compile and every 2 s while it holds one, a cold helper every
+/// 10 s.
+static KEPT_LOGGED: Mutex<Option<Instant>> = Mutex::new(None);
+/// At most one "kept" line this often.
+const KEPT_LOG_EVERY: Duration = Duration::from_secs(30);
+
+/// Whether the loaded masking models stay beside a helper process's idle
+/// compile (`helper`: its process id once it runs), by
+/// `memory_pressure::models_beside_helper`; one INFO line with the numbers
+/// either way (the "kept" line at most every `KEPT_LOG_EVERY`), read after
+/// the caches that rebuild on demand went (callers release them first).
+/// Memory that cannot be read unloads, as before.
+fn keeps_models_beside_helper(helper: Option<u32>, when: &str) -> bool {
+    use crate::memory_pressure::{BesideHelper, models_beside_helper};
+    let Some(memory) = BesideHelper::now(helper) else {
+        log::info!("AI models: unloading them {when}: the memory cannot be read");
+        return false;
+    };
+    match models_beside_helper(&memory) {
+        Ok(numbers) => {
+            let mut logged = lock_recover(&KEPT_LOGGED);
+            if logged.is_none_or(|at| at.elapsed() >= KEPT_LOG_EVERY) {
+                *logged = Some(Instant::now());
+                log::info!("AI models kept loaded {when}: {numbers}");
+            }
+            true
+        }
+        Err(why) => {
+            log::info!("AI models: unloading them {when}: {why}");
+            false
+        }
     }
 }
 
@@ -406,22 +496,35 @@ pub async fn export_turn(app: &tauri::AppHandle) -> rawtonic_gpu::memory_turns::
 /// When a helper process of the idle shader compiles turns out to compile
 /// cold, and every 10 s while it runs
 /// (`rawtonic_gpu::gpu_processing::set_on_cold_helper_compile`): the
-/// masking models go, whenever they were last used, and so does what
-/// rebuilds on demand. `before_idle_compile` keeps models used in the last
-/// 20 s, so someone working with the brush or a mask kept them beside every
-/// compile: the app held 3.8 GB beside a helper's 4.4 GB on a Radeon 680M
-/// (G76/WSMOKE20). No masking computation runs beside the helper there
-/// (`turn`); one that waits for it loads its model again (~7 s there), once
-/// per variant and computer: afterwards the pipeline cache answers the
-/// helper before this is called.
+/// masking models go, whenever they were last used, unless the memory
+/// covers the rest of the helper's peak beside them
+/// (`keeps_models_beside_helper`; never while an export runs), and what
+/// rebuilds on demand goes. `before_idle_compile` keeps models used in the
+/// last 20 s whatever the memory, so someone working with the brush or a
+/// mask kept them beside every compile: the app held 3.8 GB beside a
+/// helper's 4.4 GB on a Radeon 680M (G76/WSMOKE20). No masking computation
+/// runs beside the helper there (`turn`); one that waits for it after an
+/// unload loads its model again (7–9 s there, G76/WAIW1).
 pub fn release_for_cold_helper_compiles(app: &tauri::AppHandle) {
     let app = app.clone();
-    rawtonic_gpu::gpu_processing::set_on_cold_helper_compile(Box::new(move || {
-        if models_loaded(&app.state::<AiState>()) {
-            log::info!("AI models: unloading them beside a cold shader compile");
-            unload_and_notify(&app, UnloadReason::Idle);
-        }
+    rawtonic_gpu::gpu_processing::set_on_cold_helper_compile(Box::new(move |helper| {
+        // What rebuilds on demand goes first: the models' decision is made
+        // on the memory left after it (review AIW3 r1).
         crate::memory_pressure::release_rebuildable_memory(&app);
+        if models_loaded(&app.state::<AiState>()) {
+            let when = "beside a cold shader compile";
+            let unload = if memory_may_keep(true, true, export_runs(&app)) {
+                !keeps_models_beside_helper(Some(helper), when)
+            } else {
+                log::info!("AI models: unloading them {when}");
+                true
+            };
+            if unload {
+                unload_and_notify(&app, UnloadReason::Idle);
+                // Their freed pages go back to the system too.
+                crate::memory_pressure::release_rebuildable_memory(&app);
+            }
+        }
         // Seen in a first session only (a few lines per cold compile).
         log::info!("Rebuildable memory released beside a cold shader compile");
     }));
@@ -491,6 +594,17 @@ pub fn note_ai_mask_use(ai_state: tauri::State<'_, AiState>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only an idle compile in a helper while no export runs asks the
+    /// memory; the compile an export waits for, a compile in the app and
+    /// a helper beside an export unload unused models as before (AIW3).
+    #[test]
+    fn only_idle_helper_compiles_may_keep_the_models() {
+        assert!(memory_may_keep(true, true, false));
+        assert!(!memory_may_keep(false, true, false));
+        assert!(!memory_may_keep(true, false, false));
+        assert!(!memory_may_keep(true, true, true));
+    }
     use crate::ai_processing::{CachedDepthMap, CachedMask, ImageEmbeddings};
 
     fn mask(key: &str) -> CachedMask {
@@ -542,16 +656,28 @@ mod tests {
     #[test]
     fn nothing_is_unloaded_for_idleness_while_a_computation_runs() {
         let lifecycle = Arc::new(Lifecycle::new());
-        let t0 = Instant::now();
-        let idle = Duration::from_secs(300);
-        lifecycle.touch_at(t0);
+        let idle = IDLE_COMPILE_UNLOAD;
+        lifecycle.touch_at(Instant::now() - idle * 2);
+        let uses = lifecycle.uses();
         let run = lifecycle.run();
         let second = lifecycle.run();
-        assert!(!lifecycle.idle_at(t0 + idle * 3, idle));
+        assert!(!lifecycle.idle_at(Instant::now(), idle));
         drop(run);
-        assert!(!lifecycle.idle_at(t0 + idle * 3, idle));
+        assert!(!lifecycle.idle_at(Instant::now() + idle * 2, idle));
         drop(second);
-        assert!(lifecycle.idle_at(t0 + idle * 3, idle));
+        assert!(!lifecycle.idle_at(Instant::now(), idle));
+        assert!(lifecycle.idle_at(Instant::now() + idle, idle));
+        assert_eq!(lifecycle.uses(), uses);
+    }
+
+    #[test]
+    fn finishing_after_an_unload_does_not_restart_the_idle_clock() {
+        let lifecycle = Arc::new(Lifecycle::new());
+        lifecycle.touch();
+        let run = lifecycle.run();
+        lifecycle.unloaded(UnloadReason::MemoryPressure);
+        drop(run);
+        assert!(!lifecycle.idle_at(Instant::now() + IDLE_UNLOAD, IDLE_UNLOAD));
     }
 
     /// The tagging models outlive Library and idle unloads, but a load

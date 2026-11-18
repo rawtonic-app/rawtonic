@@ -40,6 +40,11 @@ impl<'a> Decoder for DngDecoder<'a> {
     let height = fetch_tiff_tag!(raw, TiffCommonTag::ImageLength).force_usize(0);
     let cpp = fetch_tiff_tag!(raw, TiffCommonTag::SamplesPerPixel).force_usize(0);
     let bits = fetch_tiff_tag!(raw, TiffCommonTag::BitsPerSample).force_u32(0);
+    // Rawtonic patch (RWH1; dnglab ab0672e5): 1 to 4 samples per pixel,
+    // checked before anything is sized by it.
+    if !(1..=4).contains(&cpp) {
+      return Err(RawlerError::DecoderFailed(format!("DNG: {} samples per pixel", cpp)));
+    }
     let orientation = Orientation::from_tiff(self.tiff.root_ifd());
 
     let mut cam = self.make_camera(raw, width, height)?;
@@ -59,13 +64,16 @@ impl<'a> Decoder for DngDecoder<'a> {
     }
 
     let blacklevel = self.get_blacklevels(raw)?;
-    let whitelevel = self.get_whitelevels(raw)?.or(Some(WhiteLevel::new_bits(bits, cpp)));
+    // Rawtonic patch (RWH1): `get_whitelevels` checks the sample count first,
+    // and the default is only built when the file has no levels.
+    let whitelevel = self.get_whitelevels(raw)?.or_else(|| Some(WhiteLevel::new_bits(bits, cpp)));
 
     let photometric = match fetch_tiff_tag!(raw, TiffCommonTag::PhotometricInt).force_u32(0) {
       1 => RawPhotometricInterpretation::BlackIsZero,
       32803 => RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&cam)),
       34892 => RawPhotometricInterpretation::LinearRaw,
-      _ => todo!(),
+      // Rawtonic patch (RWH1): an error, not a panic.
+      other => return Err(RawlerError::DecoderFailed(format!("DNG: unsupported PhotometricInterpretation {}", other))),
     };
 
     // RAWTONIC: a dummy (metadata-only) decode skips the pixels, as the other
@@ -84,7 +92,7 @@ impl<'a> Decoder for DngDecoder<'a> {
       self.apply_transparency_mask(file, &mut raw_data, width, height, blacklevel.as_ref());
     }
     let wb_coeffs = self.get_wb(&cam)?;
-    let mut image = RawImage::new_with_data(cam, raw_data, width * cpp, height, cpp, wb_coeffs, photometric, blacklevel, whitelevel, dummy);
+    let mut image = RawImage::new_with_data(cam, raw_data, width * cpp, height, cpp, wb_coeffs, photometric, blacklevel, whitelevel, dummy)?;
     image.orientation = orientation;
     // Rawtonic: DNGs that state no black level but mark masked (covered)
     // sensor areas carry the black there; Camera Raw measures it (Adobe DNG
@@ -457,7 +465,8 @@ impl<'a> DngDecoder<'a> {
           log::warn!("File has BlackLevelRepeatDim tag but with invalid length: {}", value.len());
         }
       }
-      Ok(Some(BlackLevel::new(&levels, repeat.1, repeat.0, cpp)))
+      // Rawtonic patch (RWH1): levels that don't fit the repeat dimensions are an error.
+      Ok(Some(BlackLevel::try_new(&levels, repeat.1, repeat.0, cpp)?))
     } else {
       Ok(None)
     }
@@ -465,6 +474,11 @@ impl<'a> DngDecoder<'a> {
 
   fn get_whitelevels(&self, raw: &IFD) -> Result<Option<WhiteLevel>> {
     let cpp = fetch_tiff_tag!(raw, TiffCommonTag::SamplesPerPixel).force_usize(0);
+    // Rawtonic patch (RWH1; dnglab ab0672e5): a raw image has 1 to 4 samples
+    // per pixel; a damaged count allocated one level per claimed sample.
+    if !(1..=4).contains(&cpp) {
+      return Err(RawlerError::DecoderFailed(format!("DNG: {} samples per pixel", cpp)));
+    }
     if let Some(levels) = raw.get_entry(TiffCommonTag::WhiteLevel) {
       let mut whitelevels = WhiteLevel((0..levels.count()).map(|i| levels.force_u32(i as usize)).collect());
       // Fixes a bug where only a single whitelevel value is given.
@@ -478,7 +492,11 @@ impl<'a> DngDecoder<'a> {
 
   fn get_cfa(&self, raw: &IFD) -> Result<CFA> {
     let pattern = fetch_tiff_tag!(raw, TiffCommonTag::CFAPattern);
-    let cfa = CFA::new_from_tag(pattern);
+    // Rawtonic patch (RWH1): an invalid or empty pattern is an error.
+    let cfa = CFA::new_from_tag(pattern)?;
+    if cfa.width == 0 || cfa.height == 0 {
+      return Err(RawlerError::DecoderFailed("DNG: empty CFA pattern".to_string()));
+    }
     // If DNG has active area, we need to calulate back the CFA pattern,
     // because for DNG the CFAPattern is relative to ActiveArea and we
     // use (0, 0) as starting point.

@@ -330,10 +330,19 @@ fn depth_map(invert: bool) -> Value {
 
 /// A small `.cube` LUT file in a folder kept for the test run.
 fn lut_file(name: &str, swap: bool) -> Value {
+    lut_file_with(name, swap, "")
+}
+
+/// A 3D table over another domain than 0–1, which `lutVersion` reads.
+fn domain_lut_file() -> Value {
+    lut_file_with("domain.cube", false, "DOMAIN_MAX 2 2 2\n")
+}
+
+fn lut_file_with(name: &str, swap: bool, header: &str) -> Value {
     static DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
     let dir = DIR.get_or_init(|| tempfile::tempdir().unwrap());
     let path = dir.path().join(name);
-    let mut text = String::from("LUT_3D_SIZE 2\n");
+    let mut text = format!("{header}LUT_3D_SIZE 2\n");
     for b in 0..2 {
         for g in 0..2 {
             for r in 0..2 {
@@ -412,6 +421,7 @@ fn contexts() -> Vec<(&'static str, Value)> {
                                          "upright": "vertical"}}),
         ),
         ("/lutPath", json!({})),
+        ("/lutVersion", json!({"lutPath": domain_lut_file()})),
     ]
 }
 

@@ -335,5 +335,77 @@
         "hue"
       ]
     ]
+  },
+  {
+    "name": "a LUT the user chose after the style stays with its reading and input space",
+    "recipe": {
+      "lutPath": "/user.cube",
+      "lutName": "user.cube",
+      "lutVersion": 2,
+      "lutIsSceneReferred": false,
+      "exposure": 1,
+      "appliedStyle": {
+        "id": "s",
+        "amount": 100,
+        "changes": [
+          {
+            "path": [
+              "lutPath"
+            ],
+            "from": "/old.cube",
+            "to": "/style.cube"
+          },
+          {
+            "path": [
+              "lutName"
+            ],
+            "from": "old.cube",
+            "to": "style.cube"
+          },
+          {
+            "path": [
+              "lutVersion"
+            ],
+            "from": 1,
+            "to": 2
+          },
+          {
+            "path": [
+              "lutIsSceneReferred"
+            ],
+            "from": true,
+            "to": false
+          },
+          {
+            "path": [
+              "exposure"
+            ],
+            "from": 0,
+            "to": 1
+          }
+        ]
+      }
+    },
+    "reverted": {
+      "lutPath": "/user.cube",
+      "lutName": "user.cube",
+      "lutVersion": 2,
+      "lutIsSceneReferred": false,
+      "exposure": 0
+    },
+    "kept": [
+      [
+        "lutPath"
+      ],
+      [
+        "lutName"
+      ],
+      [
+        "lutVersion"
+      ],
+      [
+        "lutIsSceneReferred"
+      ]
+    ]
   }
 ]

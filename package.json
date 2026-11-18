@@ -58,6 +58,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.3.0",
+    "axe-core": "^4.14.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.15.0",
     "eslint-plugin-i18next": "^6.1.5",
@@ -75,7 +76,7 @@
     "@swc/core@1.16.21": true,
     "esbuild@0.28.2": true
   },
-  "version": "0.1.0-alpha.16",
+  "version": "0.1.0-alpha.17.1",
   "license": "AGPL-3.0-or-later",
   "overrides": {
     "minimatch": "^11.0.4"

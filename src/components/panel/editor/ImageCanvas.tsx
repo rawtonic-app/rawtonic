@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, memo, useMemo, type MutableRefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { useCropGestures, useToolGesture } from '../../../utils/cropGesture';
 import ReactCrop from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
@@ -233,6 +234,15 @@ interface ImageCanvasProps {
   isMaxZoom?: boolean;
   liveRotation?: number | null;
   transformState: { scale: number; positionX: number; positionY: number };
+  zoomTarget?: number;
+  /**
+   * Linux: where the photograph's frames are drawn instead of inside the
+   * zoomed viewer (Editor's photo pane). The mask and tool canvases make
+   * WebKitGTK composite the zoomed viewer, which it rasterises at the fit
+   * size and magnifies; the photograph outside it keeps the zoom's
+   * resolution, as the side-by-side before pane always did.
+   */
+  photoHost?: HTMLElement | null;
   hasRenderedFirstFrame: boolean;
   /** Filled with a test for whether a screen point presses a mask handle. */
   maskHitTestRef?: MutableRefObject<((clientX: number, clientY: number) => boolean) | null>;
@@ -1372,6 +1382,8 @@ const ImageCanvas = memo(
     isMaxZoom,
     liveRotation,
     transformState,
+    zoomTarget,
+    photoHost,
     hasRenderedFirstFrame,
     maskHitTestRef
   }: ImageCanvasProps) => {
@@ -3333,6 +3345,69 @@ const ImageCanvas = memo(
     }, [nativeOverlay]);
     useEffect(() => () => useEditorStore.getState().setEditor({ nativeMaskOverlay: null }), []);
 
+    // The photograph's frames: in place, or in Editor's photo pane (Linux).
+    const photoFrames = (
+      <svg
+        ref={imageRectRef}
+        className="pointer-events-none"
+        style={
+          imageRenderSize.width > 0 && imageRenderSize.height > 0
+            ? {
+                position: 'absolute',
+                left: `${imageRenderSize.offsetX}px`,
+                top: `${imageRenderSize.offsetY}px`,
+                width: `${imageRenderSize.width}px`,
+                height: `${imageRenderSize.height}px`,
+                overflow: 'visible'
+              }
+            : {
+                position: 'absolute',
+                inset: '0px',
+                width: '100%',
+                height: '100%',
+                overflow: 'visible'
+              }
+        }
+      >
+        {displayBase && !isWgpuActive && !holdingNativeFrame && !hasRenderedFirstFrame && (
+          <image
+            href={displayBase}
+            onLoad={() => {
+              reportImagePlaceholderLoad(selectedImage.path, displayBase);
+              reportBrowserPreviewLoad(displayBase, true);
+            }}
+            x="0"
+            y="0"
+            width="100%"
+            height="100%"
+            style={{ imageRendering: isMaxZoom || baseOneToOne ? 'pixelated' : 'auto' }}
+          />
+        )}
+
+        {visiblePatch && !isWgpuActive && (
+          <image
+            href={visiblePatch.url}
+            onLoad={() => reportBrowserPreviewLoad(visiblePatch.url, true)}
+            x={`${visiblePatch.normX * 100}%`}
+            y={`${visiblePatch.normY * 100}%`}
+            width={`${visiblePatch.normW * 100}%`}
+            height={`${visiblePatch.normH * 100}%`}
+            preserveAspectRatio="none"
+            style={{ imageRendering: isMaxZoom ? 'pixelated' : 'auto' }}
+          />
+        )}
+        <BrowserSplitImage
+          path={selectedImage.path}
+          adjustments={adjustments}
+          size={imageRenderSize}
+          transform={transformState}
+          zoomTarget={zoomTarget}
+          enabled={!isWgpuActive && !isCropping && canRenderSource(selectedImage)}
+          decoded={selectedImage.isDecoded}
+        />
+      </svg>
+    );
+
     return (
       <div ref={canvasRootRef} className="relative" style={{ width: '100%', height: '100%', cursor: effectiveCursor }}>
         {brushGesture && (
@@ -3379,64 +3454,18 @@ const ImageCanvas = memo(
             }}
           >
             <div className="absolute inset-0 w-full h-full">
-              <svg
-                ref={imageRectRef}
-                className="pointer-events-none"
-                style={
-                  imageRenderSize.width > 0 && imageRenderSize.height > 0
-                    ? {
-                        position: 'absolute',
-                        left: `${imageRenderSize.offsetX}px`,
-                        top: `${imageRenderSize.offsetY}px`,
-                        width: `${imageRenderSize.width}px`,
-                        height: `${imageRenderSize.height}px`,
-                        overflow: 'visible'
-                      }
-                    : {
-                        position: 'absolute',
-                        inset: '0px',
-                        width: '100%',
-                        height: '100%',
-                        overflow: 'visible'
-                      }
-                }
-              >
-                {displayBase && !isWgpuActive && !holdingNativeFrame && !hasRenderedFirstFrame && (
-                  <image
-                    href={displayBase}
-                    onLoad={() => {
-                      reportImagePlaceholderLoad(selectedImage.path, displayBase);
-                      reportBrowserPreviewLoad(displayBase, true);
-                    }}
-                    x="0"
-                    y="0"
-                    width="100%"
-                    height="100%"
-                    style={{ imageRendering: isMaxZoom || baseOneToOne ? 'pixelated' : 'auto' }}
-                  />
-                )}
-
-                {visiblePatch && !isWgpuActive && (
-                  <image
-                    href={visiblePatch.url}
-                    onLoad={() => reportBrowserPreviewLoad(visiblePatch.url, true)}
-                    x={`${visiblePatch.normX * 100}%`}
-                    y={`${visiblePatch.normY * 100}%`}
-                    width={`${visiblePatch.normW * 100}%`}
-                    height={`${visiblePatch.normH * 100}%`}
-                    preserveAspectRatio="none"
-                    style={{ imageRendering: isMaxZoom ? 'pixelated' : 'auto' }}
-                  />
-                )}
-                <BrowserSplitImage
-                  path={selectedImage.path}
-                  adjustments={adjustments}
-                  size={imageRenderSize}
-                  transform={transformState}
-                  enabled={!isWgpuActive && !isCropping && canRenderSource(selectedImage)}
-                  decoded={selectedImage.isDecoded}
-                />
-              </svg>
+              {photoHost
+                ? createPortal(
+                    // The crop view fades the photograph out as it does in place.
+                    <div
+                      className="absolute inset-0 w-full h-full transition-opacity duration-200"
+                      style={{ opacity: cropLayerVisible ? 0 : 1 }}
+                    >
+                      {photoFrames}
+                    </div>,
+                    photoHost
+                  )
+                : photoFrames}
               {/* Slider-drag drafts of the browser renderer (utils/browserDraftPatch.ts). */}
               <div
                 ref={registerDraftPatchHost}

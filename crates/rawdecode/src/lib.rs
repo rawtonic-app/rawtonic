@@ -28,6 +28,7 @@ pub mod noise_level;
 mod order_statistic;
 pub mod orientation;
 pub mod raw_processing;
+pub mod raw_tiff;
 pub mod source_frame;
 pub mod unit_calibration;
 pub mod unit_calibration_table;

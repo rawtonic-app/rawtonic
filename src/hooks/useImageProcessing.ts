@@ -76,6 +76,9 @@ interface PreviewRequest {
   dispatchAt?: number;
   /** The uncommitted brush stroke a live frame shows. */
   liveStroke?: LiveStroke;
+  /** A held before starts or ends (a tool's, the whole photograph's peek):
+   * zoomed in, the native side shows the visible region before the whole frame. */
+  regionFirst?: boolean;
 }
 
 // The native worker drops requests older than the newest it has taken. Job ids
@@ -123,6 +126,8 @@ export function useImageProcessing(
   const isWaveformVisible = useEditorStore((state) => state.isWaveformVisible);
   const activeWaveformChannel = useEditorStore((state) => state.activeWaveformChannel);
   const displaySize = useEditorStore((state) => state.displaySize);
+  const browserFullZoom = useEditorStore((state) => os === 'linux' && state.browserFullZoom);
+  const submittedFullZoom = useRef(false);
   const baseRenderSize = useEditorStore((state) => state.baseRenderSize);
   const originalSize = useEditorStore((state) => state.originalSize);
   // The recipe being rendered: a hovered preset's grain too.
@@ -137,6 +142,8 @@ export function useImageProcessing(
   const appSettings = useSettingsStore((state) => state.appSettings);
 
   const uncroppedJobIdRef = useRef(0);
+  // Whether the frame last rendered showed a held before, to tell its start and end.
+  const beforeHeldRef = useRef(false);
   const latestUncroppedJobIdRef = useRef(0);
 
   const lastAnalyticsTimeRef = useRef<number>(0);
@@ -214,7 +221,8 @@ export function useImageProcessing(
       live = false,
       inputAt = 0,
       dispatchAt = 0,
-      liveStroke?: LiveStroke
+      liveStroke?: LiveStroke,
+      regionFirst = false
     ) => {
       const enteredAt = performanceDiagnosticsEnabled ? performance.now() : 0;
       const currentPath = selectedImage?.path;
@@ -259,6 +267,8 @@ export function useImageProcessing(
         stripSentBitmaps(payload, patchesSentToBackend).forEach((id) => newlySentPatches.add(id));
       }
 
+      const fullZoom = os === 'linux' && useEditorStore.getState().browserFullZoom;
+      if (!dragging) submittedFullZoom.current = fullZoom;
       const jobId = ++previewJobIdRef.current;
       const roi = cropEdit ? null : calculateROI();
       const performanceStart = performanceDiagnosticsEnabled ? performance.now() : 0;
@@ -281,7 +291,9 @@ export function useImageProcessing(
             cropEdit,
             // Large Linux patches go directly to the image loader. Small
             // frames, final previews and other platforms retain binary replies.
-            browserPreviewUri: import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0'
+            browserPreviewUri: import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0',
+            ...(fullZoom ? { browserFullZoom: true } : {}),
+            ...(regionFirst && roi && !dragging && !live && !cropEdit ? { regionFirst: true } : {})
           },
           os === 'linux' && dragging && import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0'
         );
@@ -372,7 +384,7 @@ export function useImageProcessing(
             }
 
             setEditor((state) => {
-              const prevUrl = state.finalPreviewUrl;
+              const prevUrl = state.finalPreview?.url;
               if (prevUrl && prevUrl.startsWith('blob:') && !globalImageCache.isProtected(prevUrl)) {
                 setTimeout(() => {
                   if (!globalImageCache.isProtected(prevUrl)) {
@@ -381,8 +393,7 @@ export function useImageProcessing(
                 }, 250);
               }
               return {
-                finalPreviewUrl: url,
-                finalPreviewLossless: type === 'image/png',
+                finalPreview: { url, lossless: type === 'image/png', fullZoom },
                 previewFrames: state.previewFrames + 1
               };
             });
@@ -453,7 +464,8 @@ export function useImageProcessing(
           request.live,
           request.inputAt,
           request.dispatchAt,
-          request.liveStroke
+          request.liveStroke,
+          request.regionFirst
         );
       }, 4),
     []
@@ -715,7 +727,7 @@ export function useImageProcessing(
   ]);
 
   const applyAdjustments = useCallback(
-    (currentAdjustments: Adjustments, dragging: boolean = false, targetRes?: number) => {
+    (currentAdjustments: Adjustments, dragging: boolean = false, targetRes?: number, regionFirst = false) => {
       if (!canRenderSource(selectedImage)) return;
       previewQueue.submit({
         path: selectedImage!.path,
@@ -723,7 +735,8 @@ export function useImageProcessing(
         dragging,
         targetRes,
         inputAt: dragging && performanceDiagnosticsEnabled ? latestPointerInputTime() : 0,
-        dispatchAt: dragging && performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0
+        dispatchAt: dragging && performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0,
+        ...(regionFirst ? { regionFirst } : {})
       });
     },
     [selectedImage, previewQueue]
@@ -828,13 +841,16 @@ export function useImageProcessing(
     () =>
       debounce((targetRes: number) => {
         const { adjustments, previewOverride } = useEditorStore.getState();
-        if (needsFrameSize(targetRes, currentResRef.current, ((previewOverride ?? adjustments).grainAmount ?? 0) > 0)) {
+        if (
+          browserFullZoom !== submittedFullZoom.current ||
+          needsFrameSize(targetRes, currentResRef.current, ((previewOverride ?? adjustments).grainAmount ?? 0) > 0)
+        ) {
           currentResRef.current = targetRes;
           const renderAdjustments = previewOverride ?? adjustments;
           applyAdjustments(renderAdjustments, false, targetRes);
         }
       }, 50),
-    [applyAdjustments, currentResRef]
+    [applyAdjustments, browserFullZoom, currentResRef]
   );
 
   useEffect(() => {
@@ -847,7 +863,7 @@ export function useImageProcessing(
       }
       const finalRes = Math.round(baseRes);
 
-      if (needsFrameSize(finalRes, currentResRef.current, hasGrain)) {
+      if (browserFullZoom !== submittedFullZoom.current || needsFrameSize(finalRes, currentResRef.current, hasGrain)) {
         requestHiFiZoom(finalRes);
       }
     }
@@ -858,6 +874,7 @@ export function useImageProcessing(
     viewerOn,
     displaySize.width,
     displaySize.height,
+    browserFullZoom,
     calculateTargetRes,
     selectedImage?.isReady,
     selectedImage?.isPreviewReady,
@@ -888,7 +905,14 @@ export function useImageProcessing(
     } else {
       currentResRef.current = targetRes;
 
-      applyAdjustments(renderAdjustments, false, targetRes);
+      // A held before (a tool's, or the whole photograph's peek) starting
+      // or ending shows its visible region first; other previews in place
+      // of the edit (a hovered style or preset) render as before.
+      const { toolBefore, showOriginal } = useEditorStore.getState();
+      const beforeHeld = previewOverride !== null && (toolBefore !== null || showOriginal);
+      const regionFirst = beforeHeld !== beforeHeldRef.current;
+      beforeHeldRef.current = beforeHeld;
+      applyAdjustments(renderAdjustments, false, targetRes, regionFirst);
 
       if (previewOverride) return;
 

@@ -16,7 +16,9 @@ import type { TransformWrapperHandle } from '../panel/Editor';
 import {
   captureLine,
   captureValues,
+  cellAreas,
   cellsFor,
+  expectedCells,
   fileName,
   orderedSelection,
   packGrid,
@@ -291,13 +293,8 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
     if (box.width <= 0 || box.height <= 0 || grid.cells.length === 0) return;
     wasActive.current = true;
     const dpr = window.devicePixelRatio || 1;
-    const cells = shown.map((path, i) => {
-      const { photo } = grid.cells[i];
-      return {
-        path,
-        area: [(box.left + photo.x) * dpr, (box.top + photo.y) * dpr, photo.width * dpr, photo.height * dpr]
-      };
-    });
+    const stage = { x: box.left, y: box.top, width: box.width, height: box.height };
+    const cells = cellAreas(shown, grid, stage, dpr);
     invoke<boolean>(Invokes.SetMultiView, { primary, cells })
       .then((shownNatively) => {
         if (shownNatively === false) setUnavailable(true);
@@ -308,6 +305,49 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
     () => () => {
       if (wasActive.current) void invoke(Invokes.SetMultiView, { primary: null, cells: [] }).catch(() => {});
     },
+    []
+  );
+
+  // A new selection: the native side decodes the cells' filmstrip
+  // thumbnails while React lays them out, so the layout's first frame shows
+  // every cell (Lightroom's Survey shows all in one frame).
+  const ahead = {
+    ready:
+      viewer &&
+      !fullScreen &&
+      (develop ? enabled : libraryEnabled) &&
+      osPlatform !== 'linux' &&
+      useWgpu &&
+      !unavailable,
+    files,
+    primary,
+    reference,
+    box,
+    aspect,
+    margin
+  };
+  const aheadRef = useRef(ahead);
+  useLayoutEffect(() => {
+    aheadRef.current = ahead;
+  });
+  useEffect(
+    () =>
+      useLibraryStore.subscribe((state, previous) => {
+        if (state.multiSelectedPaths === previous.multiSelectedPaths) return;
+        const a = aheadRef.current;
+        if (!a.ready) return;
+        const cells = expectedCells(
+          a.files.map((file) => file.path),
+          state.multiSelectedPaths,
+          a.primary,
+          a.reference,
+          { x: a.box.left, y: a.box.top, width: a.box.width, height: a.box.height },
+          a.aspect,
+          a.margin,
+          window.devicePixelRatio || 1
+        );
+        if (cells.length > 0) void invoke(Invokes.PrepareMultiViewStandIns, { cells }).catch(() => {});
+      }),
     []
   );
 

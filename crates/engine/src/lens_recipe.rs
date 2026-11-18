@@ -366,19 +366,7 @@ fn shot_facts(
 /// downloaded (reading that starts the download; as the app's
 /// `preview_proxy::source_available`).
 pub fn readable(source: &Path) -> bool {
-    std::fs::File::open(source).is_ok() && !is_cloud_placeholder(source)
-}
-
-#[cfg(target_os = "macos")]
-fn is_cloud_placeholder(source: &Path) -> bool {
-    use std::os::macos::fs::MetadataExt;
-    const SF_DATALESS: u32 = 0x4000_0000;
-    std::fs::symlink_metadata(source).is_ok_and(|m| m.st_flags() & SF_DATALESS != 0)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn is_cloud_placeholder(_source: &Path) -> bool {
-    false
+    !rawtonic_fs::is_cloud_placeholder(source) && std::fs::File::open(source).is_ok()
 }
 
 /// Whether the recipe was saved while its lens parameters could not be

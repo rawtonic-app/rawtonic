@@ -4904,6 +4904,9 @@ pub struct PreparedAdjustments {
     /// The global point curves sampled (point_curve.rs) when a channel has
     /// more than 16 points; `global.region_curve_active[1]` is 1 then.
     pub curve_table: Option<std::sync::Arc<Vec<[f32; 4]>>>,
+    /// The LUT is read through the stage its file names that the earlier
+    /// reader ignored (`lutVersion` 2, `lut::Lut::stage`).
+    pub lut_file_stage: bool,
 }
 impl std::ops::Deref for PreparedAdjustments {
     type Target = AllAdjustments;
@@ -4929,6 +4932,7 @@ impl From<AllAdjustments> for PreparedAdjustments {
             specialized_export: false,
             detail_pass_export: false,
             curve_table: None,
+            lut_file_stage: false,
         }
     }
 }
@@ -6410,6 +6414,10 @@ pub fn new_edit_responses(is_raw: bool) -> serde_json::Map<String, serde_json::V
         json!(COLOR_GRADING_VERSION),
     );
     map.insert(GRAIN_VERSION_KEY.into(), json!(GRAIN_VERSION));
+    map.insert(
+        crate::lut::LUT_VERSION_KEY.into(),
+        json!(crate::lut::LUT_VERSION),
+    );
     if is_raw {
         map.insert(
             crate::recipe_versions::AI_DENOISE_VERSION_KEY.into(),
@@ -6865,6 +6873,7 @@ fn get_all_adjustments_with_locals<'a>(
         specialized_export: versions.render.specialized_export(),
         detail_pass_export: versions.render.detail_pass_export(),
         curve_table,
+        lut_file_stage: versions.lut.file_stage(),
         uniforms: Box::new(AllAdjustments {
             global,
             mask_adjustments,

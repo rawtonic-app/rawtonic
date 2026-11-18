@@ -34,14 +34,15 @@ use rawtonic_recipe::lens;
 use rawtonic_recipe::masks;
 use rawtonic_recipe::tone;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, LazyLock, Mutex};
 use tauri::AppHandle;
 use tauri::{Emitter, Manager};
 
@@ -1842,6 +1843,46 @@ fn complete_thumbnail_progress(thumbnails: &ThumbnailState, count: usize, app_ha
     }
 }
 
+/// The medium thumbnail last announced to the webview for each photograph
+/// (what its filmstrip tile shows), so the multi view can show it in a cell
+/// without resolving the cache entry again (the recipe read that takes up to
+/// ~30 ms per photograph).
+static ANNOUNCED_MEDIUM: LazyLock<Mutex<HashMap<String, PathBuf>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Paths kept in [`ANNOUNCED_MEDIUM`] at most (about 2 MB); past it the map
+/// starts again from the photographs announced next.
+const ANNOUNCED_MEDIUM_LIMIT: usize = 10_000;
+
+fn note_announced_medium(path: &str, medium: &str) {
+    if medium.is_empty() {
+        return;
+    }
+    let mut announced = ANNOUNCED_MEDIUM.lock().unwrap_or_else(|e| e.into_inner());
+    if announced.len() >= ANNOUNCED_MEDIUM_LIMIT && !announced.contains_key(path) {
+        announced.clear();
+    }
+    announced.insert(path.to_string(), PathBuf::from(medium));
+}
+
+/// The medium thumbnail the webview was last told about for `path_str`,
+/// while that file is still in the cache: the image its filmstrip tile
+/// shows now (it may predate a recipe change whose thumbnail is still being
+/// made). Nothing is resolved or generated.
+pub(crate) fn announced_medium_thumbnail(path_str: &str) -> Option<PathBuf> {
+    let path = ANNOUNCED_MEDIUM
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(path_str)
+        .cloned()?;
+    let _file_use = crate::storage_fs::pin_file(&path);
+    if !path.is_file() {
+        return None;
+    }
+    crate::storage_fs::mark_used(&path);
+    Some(path)
+}
+
 pub(crate) fn emit_thumbnail_generated(
     app_handle: &AppHandle,
     path: &str,
@@ -1850,6 +1891,7 @@ pub(crate) fn emit_thumbnail_generated(
     rating: Option<u8>,
     is_edited: Option<bool>,
 ) {
+    note_announced_medium(path, medium_thumbnail_path);
     let _ = app_handle.emit(
         "thumbnail-generated",
         serde_json::json!({
@@ -1871,6 +1913,7 @@ fn emit_thumbnails_generated(app_handle: &AppHandle, found: &[(String, CachedThu
     let batch: Vec<_> = found
         .iter()
         .map(|(path, (small, medium, rating, is_edited))| {
+            note_announced_medium(path, medium);
             serde_json::json!({
                 "path": path,
                 "thumbnailPath": small,
@@ -1991,6 +2034,23 @@ pub fn get_cached_or_generate_thumbnail_image(
 
 #[cfg(test)]
 mod source_preview_tests {
+    #[test]
+    fn an_announced_medium_thumbnail_is_found_while_its_file_is_cached() {
+        let temp = tempfile::tempdir().unwrap();
+        let medium = temp.path().join("hash_medium.jpg");
+        std::fs::write(&medium, b"jpeg").unwrap();
+        let photo = temp.path().join("photo.ARW");
+        let photo = photo.to_str().unwrap();
+        assert_eq!(super::announced_medium_thumbnail(photo), None);
+        super::note_announced_medium(photo, medium.to_str().unwrap());
+        assert_eq!(
+            super::announced_medium_thumbnail(photo),
+            Some(medium.clone())
+        );
+        std::fs::remove_file(&medium).unwrap();
+        assert_eq!(super::announced_medium_thumbnail(photo), None);
+    }
+
     #[test]
     fn embedded_pixels_survive_an_engine_upgrade_but_decoded_pixels_do_not() {
         let temp = tempfile::tempdir().unwrap();

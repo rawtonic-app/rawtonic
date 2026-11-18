@@ -1,7 +1,3 @@
-use std::io::Read;
-
-use libflate::zlib::Decoder;
-
 use crate::{
   bits::{Binary16, Binary24, Binary32, Endian, FloatingPointParameters, extend_binary_floating_point},
   decompressors::{Decompressor, LineIteratorMut},
@@ -20,7 +16,8 @@ impl DeflateDecompressor {
         3 => 1,
         34894 => 2,
         34895 => 4,
-        _ => todo!(),
+        // Rawtonic patch (RWH1): `decompress` reports other predictors.
+        _ => 0,
       };
     Self { pred_factor, bps }
   }
@@ -48,24 +45,41 @@ fn decode_fp_delta_row<NARROW: FloatingPointParameters>(line: &mut [f32], row: &
 impl<'a> Decompressor<'a, f32> for DeflateDecompressor {
   fn decompress(&self, src: &[u8], skip_rows: usize, lines: impl LineIteratorMut<'a, f32>, line_width: usize) -> std::result::Result<(), String> {
     //eprintln!("Deflate: {:?}", self);
-    let mut decoder = Decoder::new(src).unwrap();
-    let mut decoded_data = Vec::new();
-    decoder.read_to_end(&mut decoded_data).unwrap();
-
+    // Rawtonic patch (RWH1): errors instead of unwraps and asserts for damaged
+    // or unsupported data.
+    if self.pred_factor == 0 {
+      return Err("Deflate: unsupported predictor".to_string());
+    }
     let bytesps = self.bps as usize / 8;
-    assert!(bytesps >= 2 && bytesps <= 4);
+    if !(2..=4).contains(&bytesps) {
+      return Err(format!("Deflate: {} bits per sample", self.bps));
+    }
+    // The tile's size; inflating stops there, so a damaged stream can't
+    // inflate without bound (a few bytes can expand to gigabytes).
+    let expected = bytesps
+      .checked_mul(line_width)
+      .and_then(|n| n.checked_mul(lines.len()))
+      .ok_or("Deflate: tile size overflows")?;
+    // miniz_oxide stops at the limit (libflate expanded a whole deflate block
+    // into its own buffer first, so a damaged block could still exhaust
+    // memory). Output beyond the tile's size is an error.
+    let mut decoded_data = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(src, expected).map_err(|err| format!("Deflate: {:?}", err.status))?;
 
-    assert_eq!(decoded_data.len(), bytesps * line_width * lines.len());
+    if decoded_data.len() != expected {
+      return Err("Deflate: tile size doesn't match the image".to_string());
+    }
 
     for (line, row) in lines.zip(decoded_data.chunks_exact_mut(bytesps as usize * line_width)).skip(skip_rows) {
-      assert_eq!(line.len(), line_width);
+      if line.len() != line_width {
+        return Err("Deflate: line width doesn't match the tile".to_string());
+      }
       decode_delta_bytes(row, self.pred_factor);
 
       match self.bps {
         16 => decode_fp_delta_row::<Binary16>(line, row, line_width),
         24 => decode_fp_delta_row::<Binary24>(line, row, line_width),
         32 => decode_fp_delta_row::<Binary32>(line, row, line_width),
-        _ => unimplemented!(),
+        _ => return Err(format!("Deflate: {} bits per sample", self.bps)),
       }
     }
 

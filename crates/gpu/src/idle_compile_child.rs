@@ -72,7 +72,7 @@ const COLD_AGAIN: Duration = Duration::from_secs(10);
 
 /// What the app gives back when a helper turns out to compile cold
 /// (`set_on_cold_helper_compile`).
-static ON_COLD: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+static ON_COLD: std::sync::OnceLock<Box<dyn Fn(u32) + Send + Sync>> = std::sync::OnceLock::new();
 
 /// Sets what the app does once a helper turns out to compile cold (`COLD`)
 /// and every `COLD_AGAIN` while it still runs:
@@ -80,8 +80,9 @@ static ON_COLD: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::On
 /// 4.4 GB, not beside one the cache answers in half a second (the AI
 /// models: with them loaded and the masking tools in use, the app held
 /// 3.8 GB beside a helper on a Radeon 680M, 8.25 GB together;
-/// G76/WSMOKE20). Once per process.
-pub fn set_on_cold_helper_compile(release: Box<dyn Fn() + Send + Sync>) {
+/// G76/WSMOKE20). It gets the helper's process id (what the helper holds
+/// already counts towards its peak). Once per process.
+pub fn set_on_cold_helper_compile(release: Box<dyn Fn(u32) + Send + Sync>) {
     if ON_COLD.set(release).is_err() {
         log::warn!("GPU idle compiles: the cold-compile release was already set");
     }
@@ -263,7 +264,7 @@ pub(super) fn compile_in_helper(
         if started.elapsed() >= COLD && released.is_none_or(|at| at.elapsed() >= COLD_AGAIN) {
             released = Some(Instant::now());
             if let Some(release) = ON_COLD.get() {
-                release();
+                release(child.id());
             }
         }
         std::thread::sleep(POLL);

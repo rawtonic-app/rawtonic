@@ -231,21 +231,24 @@ impl<'a> Decoder for NefDecoder<'a> {
     let coeffs = normalize_wb(self.get_wb()?);
     debug!("WB coeff: {:?}", coeffs);
 
-    assert_eq!(self.tiff.little_endian(), self.makernote.endian == Endian::Little);
+    // Rawtonic patch (RWH1): an error instead of the assert.
+    if self.tiff.little_endian() != (self.makernote.endian == Endian::Little) {
+      return Err(RawlerError::DecoderFailed("NEF: maker note and file byte order differ".to_string()));
+    }
 
     let image = if self.camera.model == "NIKON D100" {
       width = 3040;
-      decode_12be_wcontrol(&src, width, height, dummy)
+      decode_12be_wcontrol(&src, width, height, dummy)?
     } else if self.camera.find_hint("coolpixsplit") {
-      decode_12be_interlaced_unaligned(&src, width, height, dummy)
+      decode_12be_interlaced_unaligned(&src, width, height, dummy)?
     } else if self.camera.find_hint("msb32") {
-      decode_12be_msb32(&src, width, height, dummy)
+      decode_12be_msb32(&src, width, height, dummy)?
     } else if self.camera.find_hint("unpacked") {
       // P7800 and others is LE, but data is BE, so we use hints here
       if (self.tiff.little_endian() || self.camera.find_hint("little_endian")) && !self.camera.find_hint("big_endian") {
-        decode_16le(&src, width, height, dummy)
+        decode_16le(&src, width, height, dummy)?
       } else {
-        decode_16be(&src, width, height, dummy)
+        decode_16be(&src, width, height, dummy)?
       }
     } else if let Some(padding) = self.is_uncompressed(raw)? {
       debug!("NEF uncompressed row padding: {}, little-endian: {}", padding, self.tiff.little_endian());
@@ -253,9 +256,9 @@ impl<'a> Decoder for NefDecoder<'a> {
         16 => {
           // Used by Coolscan scanners
           if self.tiff.little_endian() {
-            decode_16le(&src, width * cpp, height, dummy)
+            decode_16le(&src, width * cpp, height, dummy)?
           } else {
-            decode_16be(&src, width * cpp, height, dummy)
+            decode_16be(&src, width * cpp, height, dummy)?
           }
         }
         14 => {
@@ -263,19 +266,19 @@ impl<'a> Decoder for NefDecoder<'a> {
             // Models like D6 uses packed instead of unpacked 14le encoding. And D6 uses
             // row padding.
             if matches!(nef_compression, Some(NefCompression::Packed14Bits)) {
-              decode_14le_padded(&src, width, height, (width * bps / u8::BITS as usize) + padding, dummy)
+              decode_14le_padded(&src, width, height, (width * bps / u8::BITS as usize) + padding, dummy)?
             } else {
-              decode_14le_unpacked(&src, width, height, dummy)
+              decode_14le_unpacked(&src, width, height, dummy)?
             }
           } else {
-            decode_14be_unpacked(&src, width, height, dummy)
+            decode_14be_unpacked(&src, width, height, dummy)?
           }
         }
         12 => {
           if (self.tiff.little_endian() || self.camera.find_hint("little_endian")) && !self.camera.find_hint("big_endian") {
-            decode_12le_padded(&src, width, height, (width * bps / u8::BITS as usize) + padding, dummy)
+            decode_12le_padded(&src, width, height, (width * bps / u8::BITS as usize) + padding, dummy)?
           } else {
-            decode_12be(&src, width, height, dummy)
+            decode_12be(&src, width, height, dummy)?
           }
         }
         x => return Err(RawlerError::unsupported(&self.camera, format!("Don't know uncompressed bps {}", x))),
@@ -295,9 +298,10 @@ impl<'a> Decoder for NefDecoder<'a> {
     let photometric = match cpp {
       1 => RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&self.camera)),
       3 => RawPhotometricInterpretation::LinearRaw,
-      _ => todo!(),
+      // Rawtonic patch (RWH1): an error, not a panic.
+      _ => return Err(RawlerError::DecoderFailed(format!("NEF: {} samples per pixel", cpp))),
     };
-    let mut img = RawImage::new(self.camera.clone(), image, cpp, coeffs, photometric, blacklevel, whitelevel, dummy);
+    let mut img = RawImage::new(self.camera.clone(), image, cpp, coeffs, photometric, blacklevel, whitelevel, dummy)?;
     if let Some(crop) = self.get_crop()? {
       debug!("RAW Crops: {:?}", crop);
       img.crop_area = Some(crop);
@@ -431,16 +435,22 @@ impl<'a> NefDecoder<'a> {
       Ok([levels.force_f32(0), 1.0, 1.0, levels.force_f32(1)])
     } else if let Some(levels) = self.makernote.get_entry(TiffCommonTag::NrwWB) {
       let data = levels.get_data();
-      if data[0..3] == b"NRW"[..] {
+      // Rawtonic patch (RWH1; dnglab 0c6150e2): the levels must be in the tag.
+      if data.get(0..3) == Some(&b"NRW"[..]) && data.len() >= 8 {
         let offset = if data[4..8] == b"0100"[..] { 1556 } else { 56 };
+        if data.len() < offset + 16 {
+          return Err(RawlerError::DecoderFailed("NRW: white balance tag too short".to_string()));
+        }
         Ok([
           (LEu32(data, offset) << 2) as f32,
           (LEu32(data, offset + 4) + LEu32(data, offset + 8)) as f32,
           (LEu32(data, offset + 4) + LEu32(data, offset + 8)) as f32,
           (LEu32(data, offset + 12) << 2) as f32,
         ])
-      } else {
+      } else if data.len() >= 1252 {
         Ok([BEu16(data, 1248) as f32, 256.0, 256.0, BEu16(data, 1250) as f32])
+      } else {
+        Err(RawlerError::DecoderFailed("NRW: white balance tag too short".to_string()))
       }
     } else if let Some(levels) = self.makernote.get_entry(TiffCommonTag::NefWB1) {
       let mut version: u32 = 0;
@@ -596,7 +606,10 @@ impl<'a> NefDecoder<'a> {
 
     let mut huff_select = 0;
     if v0 == 73 || v1 == 88 {
-      assert!(stream.remaining_bytes() >= 2110);
+      // Rawtonic patch (RWH1; dnglab 9e2a257f): an error instead of the assert.
+      if stream.remaining_bytes() < 2110 {
+        return Err(RawlerError::DecoderFailed("NEF: compression metadata too short".to_string()));
+      }
       stream.consume_bytes(2110);
     }
     if v0 == 70 {

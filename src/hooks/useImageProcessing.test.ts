@@ -2,6 +2,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { nextAnalyticsTime, useImageProcessing, withViewStates } from './useImageProcessing';
+import browserFullZoomArgs from '../contracts/browserFullZoom.json';
 import sharpenViewPayloads from '../../crates/engine/tests/fixtures/sharpen-view-payloads.json';
 import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
@@ -16,6 +17,7 @@ import { flushSliderDraft, renderDraft } from '../utils/sliderDraft';
 import { forgetLiveStroke } from '../utils/liveMaskRender';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => useSettingsStore.getState().osPlatform }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 vi.mock('./useEditorActions', () => ({ debouncedSave: vi.fn(), registerScheduledRecipe: vi.fn(() => () => {}) }));
 vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
@@ -70,6 +72,7 @@ beforeEach(() => {
     isSliderDragging: false,
     isWaveformVisible: false,
     displaySize: { width: 0, height: 0 },
+    browserFullZoom: false,
     originalSize: { width: 4000, height: 3000 },
     interactivePatch: null,
     patchesSentToBackend: new Set(),
@@ -83,7 +86,7 @@ beforeEach(() => {
     nativeMaskOverlay: null
   });
   useUIStore.setState({ activeView: 'editor' });
-  useSettingsStore.setState({ appSettings: null });
+  useSettingsStore.setState({ appSettings: null, osPlatform: '' });
   useLibraryStore.setState({ multiSelectedPaths: [] });
   useMultiViewStore.setState({ active: false, editAll: false });
 });
@@ -251,6 +254,52 @@ it('keeps original-preview overrides out of saved adjustments', async () => {
   );
   expect(calls()[1][1]).toMatchObject({ jsAdjustments: { exposure: -2 } });
   expect(debouncedSave).not.toHaveBeenCalled();
+  await finish();
+});
+
+it('asks for the visible region first when a held before starts or ends zoomed in', async () => {
+  useEditorStore.setState({
+    baseRenderSize: { width: 1000, height: 600, offsetX: 0, offsetY: 0, containerWidth: 1000, containerHeight: 600 }
+  } as never);
+  const zoomed = { current: { instance: { targetTransformState: { scale: 4, positionX: -1500, positionY: -900 } } } };
+  renderHook(() =>
+    useImageProcessing(
+      zoomed as never,
+      { current: null },
+      {
+        previewJobIdRef: { current: 0 },
+        latestRenderedJobIdRef: { current: 0 },
+        currentResRef: { current: 1920 }
+      }
+    )
+  );
+  await finish();
+  expect(calls()[0][1]).not.toHaveProperty('regionFirst');
+  // The per-tool before held, then let go.
+  act(() =>
+    useEditorStore.setState({ toolBefore: 'exposure', previewOverride: { ...INITIAL_ADJUSTMENTS, exposure: -2 } })
+  );
+  expect(calls()[1][1]).toMatchObject({ regionFirst: true, isInteractive: false, roi: expect.any(Array) });
+  await finish();
+  act(() => useEditorStore.setState({ toolBefore: null, previewOverride: null }));
+  expect(calls()[2][1]).toMatchObject({ regionFirst: true, jsAdjustments: { exposure: 0 } });
+  await finish();
+  // An edit, or a hovered preset shown in place of the edit, renders the whole frame as before.
+  act(() => useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } }));
+  expect(calls()[3][1]).not.toHaveProperty('regionFirst');
+  await finish();
+  act(() => useEditorStore.setState({ previewOverride: { ...INITIAL_ADJUSTMENTS, exposure: 3 } }));
+  expect(calls()[4][1]).not.toHaveProperty('regionFirst');
+  await finish();
+  act(() => useEditorStore.setState({ previewOverride: null }));
+  expect(calls()[5][1]).not.toHaveProperty('regionFirst');
+  await finish();
+  // The whole photograph's before held (the peek).
+  act(() => useEditorStore.setState({ showOriginal: true, previewOverride: { ...INITIAL_ADJUSTMENTS } }));
+  expect(calls()[6][1]).toMatchObject({ regionFirst: true });
+  await finish();
+  act(() => useEditorStore.setState({ showOriginal: false, previewOverride: null }));
+  expect(calls()[7][1]).toMatchObject({ regionFirst: true });
   await finish();
 });
 
@@ -638,4 +687,19 @@ describe('sharpening view payload', () => {
     // The recipe itself never carries it.
     expect('sharpenView' in useEditorStore.getState().adjustments).toBe(false);
   });
+});
+
+it('requests JPEG at the Linux full zoom target even when no larger frame is needed', async () => {
+  useSettingsStore.setState({ osPlatform: 'linux' });
+  useEditorStore.setState({ displaySize: { width: 4000, height: 3000 } });
+  mount();
+  await finish();
+  expect(calls()[0][1]).not.toHaveProperty('browserFullZoom');
+  act(() => useEditorStore.setState({ browserFullZoom: true }));
+  act(() => vi.advanceTimersByTime(60));
+  expect(calls()[1][1]).toMatchObject(browserFullZoomArgs);
+  await finish();
+  act(() => useEditorStore.setState({ browserFullZoom: false }));
+  act(() => vi.advanceTimersByTime(60));
+  expect(calls()[2][1]).not.toHaveProperty('browserFullZoom');
 });

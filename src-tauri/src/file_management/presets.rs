@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
+use std::io::BufReader;
 use std::path::Path;
 use tauri::AppHandle;
 use tauri::Manager;
@@ -263,9 +264,15 @@ pub(crate) fn parse_preset_file_reporting(
         })
     };
     let lower_path = file_path.to_lowercase();
+    if lower_path.ends_with(".zip") || lower_path.ends_with(".costylepack") {
+        return Err(
+            "Preset archives are unsupported. Import individual preset or style files.".into(),
+        );
+    }
     if lower_path.ends_with(".costyle") || lower_path.ends_with(".cos") {
-        let content = fs::read_to_string(file_path)
+        let content = rawtonic_metadata::read_xmp_text(Path::new(file_path))
             .map_err(|e| format!("Failed to read Capture One style: {}", e))?;
+        rawtonic_metadata::check_xmp_input(&content).map_err(|error| error.to_string())?;
         let stem = Path::new(file_path).file_stem().map_or_else(
             || "Capture One style".to_string(),
             |s| s.to_string_lossy().to_string(),
@@ -277,14 +284,14 @@ pub(crate) fn parse_preset_file_reporting(
     let is_legacy = lower_path.ends_with(".xmp") || lower_path.ends_with(".lrtemplate");
 
     if !is_legacy {
-        let content = fs::read_to_string(file_path)
-            .map_err(|e| format!("Failed to read preset file: {}", e))?;
-        let preset_file: PresetFile = serde_json::from_str(&content)
+        let file =
+            fs::File::open(file_path).map_err(|e| format!("Failed to read preset file: {}", e))?;
+        let preset_file: PresetFile = serde_json::from_reader(BufReader::new(file))
             .map_err(|e| format!("Failed to parse preset file: {}", e))?;
         return Ok((preset_file.presets, None));
     }
 
-    let content = fs::read_to_string(file_path)
+    let content = rawtonic_metadata::read_xmp_text(Path::new(file_path))
         .map_err(|e| format!("Failed to read legacy preset file: {}", e))?;
 
     let xmp_content = if lower_path.ends_with(".lrtemplate") {
@@ -472,6 +479,22 @@ pub async fn handle_export_presets_to_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preset_import_rejects_archives_before_opening_them() {
+        let directory = tempfile::tempdir().unwrap();
+        for name in ["presets.ZIP", "styles.costylepack"] {
+            let path = directory.path().join(name);
+            assert!(
+                parse_preset_file_reporting(path.to_str().unwrap())
+                    .unwrap_err()
+                    .starts_with("Preset archives are unsupported.")
+            );
+        }
+        let renamed = directory.path().join("renamed.rrpreset");
+        rawtonic_fs::atomic_write(&renamed, b"PK\x03\x04").unwrap();
+        assert!(parse_preset_file_reporting(renamed.to_str().unwrap()).is_err());
+    }
 
     #[test]
     fn saving_presets_keeps_ai_parameters_without_photo_detection_data() {

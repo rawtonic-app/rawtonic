@@ -630,7 +630,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | raw-window-metal | 1.1.0 | MIT OR Apache-2.0 |
 | rawler | 0.7.1 | LGPL-2.1 |
 | rawpointer | 0.2.1 | MIT/Apache-2.0 |
-| rawtonic-app | 0.1.0-alpha.16 | AGPL-3.0-or-later |
+| rawtonic-app | 0.1.0-alpha.17.1 | AGPL-3.0-or-later |
 | rawtonic-catalog | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-cli | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-denoise | 0.1.0 | AGPL-3.0-or-later |
@@ -1269,6 +1269,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | ansi-styles | 5.2.0 | MIT |
 | aria-query | 5.3.0 | Apache-2.0 |
 | assertion-error | 2.0.1 | MIT |
+| axe-core | 4.14.0 | MPL-2.0 |
 | balanced-match | 4.0.4 | MIT |
 | baseline-browser-mapping | 2.11.27 | Apache-2.0 |
 | baseline-browser-mapping | 2.11.35 | Apache-2.0 |

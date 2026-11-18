@@ -157,6 +157,22 @@ pub struct IiqDecoder<'a> {
   makernotes: IiqMakernotes,
 }
 
+/// Rawtonic patch (RWH1; dnglab bddf34c1): size checked, one strip offset
+/// per row in the strip table and every row starting inside the data.
+fn check_strips(buffer: &[u8], strips: &[u8], width: usize, height: usize, dummy: bool) -> Result<()> {
+  crate::packed::check_image("IIQ", width, height)?;
+  if dummy {
+    return Ok(());
+  }
+  if strips.len() < height * 4 {
+    return Err(RawlerError::DecoderFailed("IIQ: strip table too short".to_string()));
+  }
+  if (0..height).any(|row| LEu32(strips, row * 4) as usize > buffer.len()) {
+    return Err(RawlerError::DecoderFailed("IIQ: a row starts behind the data".to_string()));
+  }
+  Ok(())
+}
+
 impl<'a> IiqDecoder<'a> {
   pub fn new(file: &RawSource, tiff: GenericTiffReader, rawloader: &'a RawLoader) -> Result<IiqDecoder<'a>> {
     debug!("IIQ decoder choosen");
@@ -175,7 +191,14 @@ fn new_makernote(file: &RawSource, moffset: u64) -> std::io::Result<HashMap<u32,
   // All makernote offsets are not absolute to file, but to start of makernote data.
   // The makernote data starts straight after the TIFF header (8 bytes).
   // If this may change in future, offsets must be revalidated.
-  assert_eq!(moffset, 8);
+  // Rawtonic patch (RWH1; dnglab 4a14b786 reads through views): errors
+  // instead of the assert, and entry tables or values that claim more bytes
+  // than the file holds are refused before they are allocated.
+  let invalid = |what: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("IIQ makernote: {}", what));
+  if moffset != 8 {
+    return Err(invalid("unexpected offset"));
+  }
+  let file_len = file.buf().len();
   let stream = &mut file.reader();
   stream.seek(SeekFrom::Start(moffset + 8))?; // Skip first 8 bytes of makernote
   let ifd = stream.read_u32::<LittleEndian>()? as u64;
@@ -183,6 +206,9 @@ fn new_makernote(file: &RawSource, moffset: u64) -> std::io::Result<HashMap<u32,
   let entry_count = stream.read_u32::<LittleEndian>()? as usize; // Skip 8 bytes in IFD
 
   let _ = stream.read_u32::<LittleEndian>()?; // Skip it
+  if entry_count.checked_mul(16).is_none_or(|len| len > file_len) {
+    return Err(invalid("entry table larger than the file"));
+  }
   let mut buf = vec![0; entry_count * 16];
   stream.read_exact(&mut buf)?;
 
@@ -202,6 +228,9 @@ fn new_makernote(file: &RawSource, moffset: u64) -> std::io::Result<HashMap<u32,
       }
       // Others should be just ASCII strings
       1 => {
+        if byte_count > file_len {
+          return Err(invalid("value larger than the file"));
+        }
         let mut v = vec![0; byte_count];
         stream.seek(SeekFrom::Start(moffset + data as u64))?; // skip header
         stream.read_exact(&mut v)?;
@@ -252,13 +281,13 @@ impl<'a> Decoder for IiqDecoder<'a> {
       .map_err(|ioerr| RawlerError::with_io_error("load IIQ strips", file.path(), ioerr))?;
 
     let mut image = match fmt {
-      IiqCompression::Raw1 => todo!(),
-      IiqCompression::Raw2 => todo!(),
-      IiqCompression::Uncompressed => Self::decode_uncompressed(data, width, height, 14, dummy),
-      IiqCompression::IIQ_L => Self::decode_compressed(data, strips, width, height, 14, dummy),
-      IiqCompression::IIQ_L16 => Self::decode_compressed(data, strips, width, height, 16, dummy),
-      IiqCompression::IIQ_S => Self::decode_nonlinear(data, strips, width, height, 14, dummy),
-      IiqCompression::IIQ_Sv2 => Self::decode_compressed_sv2(data, strips, width, height, 14, dummy),
+      // Rawtonic patch (RWH1; dnglab 8c6d1bb5): unsupported, not a panic.
+      IiqCompression::Raw1 | IiqCompression::Raw2 => return Err(RawlerError::unsupported(&self.camera, "IIQ Raw1/Raw2 compression")),
+      IiqCompression::Uncompressed => Self::decode_uncompressed(data, width, height, 14, dummy)?,
+      IiqCompression::IIQ_L => Self::decode_compressed(data, strips, width, height, 14, dummy)?,
+      IiqCompression::IIQ_L16 => Self::decode_compressed(data, strips, width, height, 16, dummy)?,
+      IiqCompression::IIQ_S => Self::decode_nonlinear(data, strips, width, height, 14, dummy)?,
+      IiqCompression::IIQ_Sv2 => Self::decode_compressed_sv2(data, strips, width, height, 14, dummy)?,
     };
 
     let black = self.blacklevel().unwrap_or(0);
@@ -990,10 +1019,10 @@ impl<'a> IiqDecoder<'a> {
 
   /// Decode IIQ S format
   /// Same as IIQ L, but requires a linearization curve
-  fn decode_nonlinear(buffer: &[u8], strips: &[u8], width: usize, height: usize, bits: u8, dummy: bool) -> PixU16 {
+  fn decode_nonlinear(buffer: &[u8], strips: &[u8], width: usize, height: usize, bits: u8, dummy: bool) -> Result<PixU16> {
     // We fake the bit count as 16, then no shift happens in decoding.
     // Then we can linearize back the data.
-    let mut img = Self::decode_compressed(buffer, strips, width, height, 16, dummy);
+    let mut img = Self::decode_compressed(buffer, strips, width, height, 16, dummy)?;
 
     let value_shift: u32 = MAX_BITDEPTH - (bits as u32);
 
@@ -1008,13 +1037,19 @@ impl<'a> IiqDecoder<'a> {
       // Use the linearization curve to get back original data.
       img.for_each(|pix| if pix < 256 { curve[pix as usize] << value_shift } else { pix });
     }
-    img
+    Ok(img)
   }
 
   /// Decoder for IIQ uncompressed
-  fn decode_uncompressed(buffer: &[u8], width: usize, height: usize, bits: u8, dummy: bool) -> PixU16 {
+  fn decode_uncompressed(buffer: &[u8], width: usize, height: usize, bits: u8, dummy: bool) -> Result<PixU16> {
+    // Rawtonic patch (RWH1; dnglab bddf34c1, 1d3d0fe7 check the same): size
+    // checked and the data must hold every row.
+    crate::packed::check_image("IIQ", width, height)?;
+    if !dummy && buffer.len() < width * height * 2 {
+      return Err(RawlerError::DecoderFailed("IIQ: image data too short".to_string()));
+    }
     let value_shift: u32 = MAX_BITDEPTH - (bits as u32);
-    decode_threaded(
+    Ok(decode_threaded(
       width,
       height,
       dummy,
@@ -1023,14 +1058,15 @@ impl<'a> IiqDecoder<'a> {
           *word = LEu16(buffer, row * (width * 2) + i * 2) << value_shift;
         }
       }),
-    )
+    ))
   }
 
   /// Decoder for IIQ L / S data
-  pub(crate) fn decode_compressed(buffer: &[u8], strips: &[u8], width: usize, height: usize, bits: u8, dummy: bool) -> PixU16 {
+  pub(crate) fn decode_compressed(buffer: &[u8], strips: &[u8], width: usize, height: usize, bits: u8, dummy: bool) -> Result<PixU16> {
+    check_strips(buffer, strips, width, height, dummy)?;
     let value_shift: u32 = MAX_BITDEPTH - (bits as u32);
     let lens: [u32; 10] = [8, 7, 6, 9, 11, 10, 5, 12, 14, 13];
-    decode_threaded(
+    Ok(decode_threaded(
       width,
       height,
       dummy,
@@ -1058,21 +1094,26 @@ impl<'a> IiqDecoder<'a> {
           pred[col & 1] = if i == 14 {
             pump.get_bits(16)
           } else {
-            pred[col & 1] + pump.get_bits(i) + 1 - (1 << (i - 1))
+            // Rawtonic patch (RWH1): explicit wrapping, what release builds computed (damaged data overflowed in debug builds).
+            pred[col & 1]
+              .wrapping_add(pump.get_bits(i))
+              .wrapping_add(1)
+              .wrapping_sub(1_u32.wrapping_shl(i.wrapping_sub(1)))
           };
           pixout[0] = (pred[col & 1] as u16) << value_shift;
         }
       }),
-    )
+    ))
   }
 
   /// Decoder for IIQ S v2
   /// This compression stores row pixels in clusters of 8 pixels.
-  fn decode_compressed_sv2(buffer: &[u8], strips: &[u8], width: usize, height: usize, bits: u8, dummy: bool) -> PixU16 {
+  fn decode_compressed_sv2(buffer: &[u8], strips: &[u8], width: usize, height: usize, bits: u8, dummy: bool) -> Result<PixU16> {
+    check_strips(buffer, strips, width, height, dummy)?;
     // Correction shift for pixel values
     let value_shift: u32 = MAX_BITDEPTH - (bits as u32);
     // We can decode each row independently
-    decode_threaded(
+    Ok(decode_threaded(
       width,
       height,
       dummy,
@@ -1160,7 +1201,7 @@ impl<'a> IiqDecoder<'a> {
           }
         }
       }),
-    )
+    ))
   }
 }
 

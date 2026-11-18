@@ -1352,6 +1352,8 @@ export default function StudioWorkspace(props: Props) {
         {toolsShown && (
           <aside
             className={`studio-primary-panel ${develop ? 'is-develop' : 'is-library'}${panels[toolsSide] ? '' : ' is-peek'}`}
+            // Two side panels are two landmarks; each says what it holds.
+            aria-label={develop ? t('studio.workspace.errors.developTools') : t('studio.workspace.errors.libraryTools')}
             {...panelProps(toolsSide)}
           >
             <ErrorBoundary
@@ -1399,7 +1401,11 @@ export default function StudioWorkspace(props: Props) {
           </aside>
         )}
         {libraryBesideShown && (
-          <aside className={`studio-secondary-panel${panels.left ? '' : ' is-peek'}`} {...panelProps('left')}>
+          <aside
+            className={`studio-secondary-panel${panels.left ? '' : ' is-peek'}`}
+            aria-label={t('studio.workspace.errors.libraryTools')}
+            {...panelProps('left')}
+          >
             <ErrorBoundary name={t('studio.workspace.errors.libraryTools')}>{navigation}</ErrorBoundary>
           </aside>
         )}
@@ -1430,7 +1436,7 @@ export default function StudioWorkspace(props: Props) {
                   <div className="studio-toolbar-divider studio-viewer-history" />
                   <button
                     className="studio-viewer-history"
-                    title={withShortcut(getUndoLabel(), '⌘Z')}
+                    title={withShortcut(getUndoLabel(), hint('undo'))}
                     aria-label={t('studio.workspace.viewer.undo')}
                     disabled={!panelsReady || !canUndo()}
                     onClick={() => {
@@ -1441,7 +1447,10 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                   <button
                     className="studio-viewer-history"
-                    title={withShortcut(getRedoLabel(), '⇧⌘Z')}
+                    title={withShortcut(
+                      getRedoLabel(),
+                      osPlatform === 'macos' && keybinds?.redo === undefined ? '⇧⌘Z' : hint('redo')
+                    )}
                     aria-label={t('studio.workspace.viewer.redo')}
                     disabled={!panelsReady || !canRedo()}
                     onClick={() => {
@@ -1864,7 +1873,8 @@ export default function StudioWorkspace(props: Props) {
           if (e.target === e.currentTarget) closeTools();
         }}
       >
-        <header>
+        {/* The dialog's title bar, not a second banner of the page. */}
+        <header role="none">
           <strong id="studio-export-title">{drawer ? t('studio.workspace.export.title') : ''}</strong>
           <button aria-label={t('studio.workspace.export.close')} onClick={closeTools}>
             <X size={17} />

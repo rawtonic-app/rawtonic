@@ -162,16 +162,26 @@ impl Header {
 }
 
 impl Strip {
-  fn decompress_strip(&self, src: &PaddedBuf, header: &Header, params: &Params, q_bases: Option<&[u8]>, out: &mut PixU16) {
+  fn decompress_strip(&self, src: &PaddedBuf, header: &Header, params: &Params, q_bases: Option<&[u8]>, out: &mut PixU16) -> std::result::Result<(), String> {
     let mut info_block = CompressedBlock::new(header, params);
     log::debug!("Fuji strip offset: {}, len: {}", self.offset, self.size);
 
+    // Rawtonic patch (RWH1; dnglab 3a97f152, c0fdedec): a strip outside the
+    // data, missing Q bases, an invalid code or data that ends early is an
+    // error instead of a panic. The slices are the same for valid files.
     let mut pump = if self.offset + self.size == src.len() {
       BitPumpMSB::new(&src[self.offset..]) // use extra bytes from PaddedBuf
     } else {
       let extra_bytes = 16;
-      BitPumpMSB::new(&src[self.offset..self.offset + self.size + extra_bytes])
+      BitPumpMSB::new(
+        src
+          .get(self.offset..self.offset + self.size + extra_bytes)
+          .ok_or_else(|| format!("RAF: strip {} is behind the end of the data", self.n))?,
+      )
     };
+    if q_bases.is_some_and(|q_bases| q_bases.len() < self.height() as usize) {
+      return Err("RAF: Q bases are missing".to_string());
+    }
 
     let mtable = [
       (XT_LINE_R0, XT_LINE_R3),
@@ -232,6 +242,9 @@ impl Strip {
       } else {
         info_block.copy_line_to_bayer(self, cur_line, out);
       }
+      if pump.overrun() {
+        return Err(format!("RAF: strip {} has invalid or too short data", self.n));
+      }
 
       for i in ztable.iter() {
         // Rest all lines
@@ -245,6 +258,7 @@ impl Strip {
         info_block.linebuf[i.0][params.line_width + 1] = info_block.linebuf[i.0 - 1][params.line_width];
       }
     }
+    Ok(())
   }
 }
 
@@ -271,11 +285,10 @@ pub(super) fn decompress_fuji(buf: &PaddedBuf, width: usize, height: usize, _bps
   if !header.is_valid() {
     return Err("Fuji header is not valid".into());
   }
-  assert_eq!(
-    Dim2::new(width, height),
-    Dim2::new(header.raw_width.into(), header.raw_height.into()),
-    "RAF header specifies different dimensions!"
-  );
+  // Rawtonic patch (RWH1): errors instead of the asserts and panics below.
+  if Dim2::new(width, height) != Dim2::new(header.raw_width.into(), header.raw_height.into()) {
+    return Err("RAF header specifies different dimensions!".into());
+  }
 
   let params = Params::new(&header);
   log::debug!("Params: {:?}", params);
@@ -286,7 +299,7 @@ pub(super) fn decompress_fuji(buf: &PaddedBuf, width: usize, height: usize, _bps
       let color = corrected_cfa.cfa_color_at(i, j);
       match color {
         CFAColor::RED | CFAColor::GREEN | CFAColor::BLUE => cfa[i][j] = color,
-        _ => panic!("Got unexpected color: {:?}", color),
+        _ => return Err(format!("RAF: unexpected CFA color {:?}", color).into()),
       }
     }
   }
@@ -324,20 +337,28 @@ pub(super) fn decompress_fuji(buf: &PaddedBuf, width: usize, height: usize, _bps
     })
     .collect();
 
-  assert!(stream.remaining_bytes() <= 16);
+  if stream.remaining_bytes() > 16 || stream.get_pos() > buf.len() {
+    return Err("RAF: compressed strips don't fit the data".into());
+  }
+  if q_bases
+    .as_ref()
+    .is_some_and(|q_bases| q_bases.len() < block_sizes.len() * ((header.total_lines as usize + 0xF) & !0xF))
+  {
+    return Err("RAF: Q bases are missing".into());
+  }
 
   let out = SharedPix2D::new(PixU16::new(width, height));
 
   // Process each strip
-  strips.par_iter().for_each(|strip| {
+  strips.par_iter().try_for_each(|strip| {
     let line_step = (header.total_lines as usize + 0xF) & !0xF;
     // Each strip has it's own q_bases
     let q_bases_strip = q_bases.as_ref().map(|buf| &buf[strip.n * line_step..]);
     // DANGEROUS: We need multiple mut refs here. This should be
     // safe as be only write pixels to pre-allocated memory.
     let outbuf = unsafe { out.inner_mut() };
-    strip.decompress_strip(buf, &header, &params, q_bases_strip, outbuf);
-  });
+    strip.decompress_strip(buf, &header, &params, q_bases_strip, outbuf)
+  })?;
 
   Ok(out.into_inner())
 }
@@ -880,7 +901,10 @@ impl Params {
 #[inline(always)]
 fn fuji_zerobits(pump: &mut BitPumpMSB) -> u32 {
   let count = pump.consume_zerobits();
-  debug_assert_eq!(pump.peek_bits(1), 1);
+  // Rawtonic patch (RWH1): peek first, so a stream that ended inside the
+  // zero run (the pump is overrun) has a bit to consume.
+  let one = pump.peek_bits(1);
+  debug_assert!(one == 1 || pump.overrun());
   pump.consume_bits(1); // consume the next bit which is 0b1
   count
 }
@@ -916,7 +940,10 @@ fn read_code(pump: &mut BitPumpMSB, params: &Params, gradient: &mut Gradient, q_
   };
   // Validate code
   if code < 0 || code >= q_table.total_values as i32 {
-    panic!("Invalid code: {}", code);
+    // Rawtonic patch (RWH1; dnglab 3a97f152): the strip is reported as
+    // damaged (`decompress_strip` checks the pump) instead of a panic.
+    pump.mark_damaged();
+    code = 0;
   }
   // Adjust code
   if (code & 1) != 0 {

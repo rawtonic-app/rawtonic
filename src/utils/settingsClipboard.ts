@@ -33,8 +33,9 @@ export interface SettingsGroup {
 
 /** Versions that belong to one tool's data rather than to the processing:
  * the camera CA and geometry versions go with the camera's lens data (Lens
- * Correction), which a never-edited photograph gets with the current ones. */
-const TOOL_VERSIONS = new Set(['cameraCaVersion', 'cameraGeometryVersion']);
+ * Correction), which a never-edited photograph gets with the current ones;
+ * the LUT reading with its LUT. */
+const TOOL_VERSIONS = new Set(['cameraCaVersion', 'cameraGeometryVersion', 'lutVersion']);
 
 /** The photo-wide processing versions (responses) settings are rendered
  * with: Lightroom's Process Version, an entry of its own in the picker, off

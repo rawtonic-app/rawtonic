@@ -1189,8 +1189,13 @@ fn export(args: ExportArgs) -> Result<()> {
             .map(
                 |(index, photo, appearance, explicit_vc)| -> Result<(String, PathBuf)> {
                     let (path, _) = parse_virtual_path(&photo);
-                    let capture =
-                        rawtonic_export::exif_processing::capture_date_with(&path, &|| None);
+                    // Naming must not fetch a TIFF that its export will skip.
+                    let capture = if rawtonic_export::file_export::require_local_tiff(&path).is_ok()
+                    {
+                        rawtonic_export::exif_processing::capture_date_with(&path, &|| None)
+                    } else {
+                        jiff::Timestamp::now()
+                    };
                     let naming =
                         settings.naming_context(&path, index + 1, total, &capture, &format, None);
                     let stem = export_stem(
@@ -1255,6 +1260,8 @@ fn export(args: ExportArgs) -> Result<()> {
                 .zip(recipes)
                 .map(|((photo, _), recipe)| {
                     let source = parse_virtual_path(photo).0;
+                    rawtonic_export::file_export::require_local_tiff(&source)
+                        .map_err(anyhow::Error::msg)?;
                     with_face_retouch(
                         &source.to_string_lossy(),
                         recipe.unwrap_or_default(),
@@ -1313,6 +1320,9 @@ fn export(args: ExportArgs) -> Result<()> {
         let (photo, output) = &jobs[i];
         let recipe = &recipes[i];
         let (source, sidecar) = parse_virtual_path(photo);
+        if let Err(error) = rawtonic_export::file_export::require_local_tiff(&source) {
+            return Err(serde_json::json!({"source": photo, "error": error}));
+        }
         let library = library_of(&source);
         if let Some(resource) = recipe
             .as_ref()
@@ -1450,6 +1460,12 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
     let mut generated = false;
     for (index, (photo, recipe)) in photos.iter().zip(recipes).enumerate() {
         let (source, sidecar) = parse_virtual_path(photo);
+        if let Err(error) = rawtonic_export::file_export::require_local_tiff(&source) {
+            failed.push(serde_json::json!({"source": photo, "error": error}));
+            cells.push(None);
+            captions.push(String::new());
+            continue;
+        }
         let metadata = photo_metadata(photo, &source, &sidecar);
         let date = rawtonic_export::exif_processing::capture_date_with(&source, &|| None);
         let (sequence, last) = settings.filename_counter(index, total);
@@ -1720,6 +1736,8 @@ static ONNX_RUNTIME_USED: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 const COMMAND_STACK_SIZE: usize = rawtonic_runtime::RENDER_STACK_SIZE;
 
 fn main() {
+    // Before any thread starts (ONNX Runtime's usage uploader, PRIVACY.md).
+    rawtonic_onnx::opt_out_of_runtime_telemetry();
     let result = std::thread::Builder::new()
         .name("rawtonic-command".into())
         .stack_size(COMMAND_STACK_SIZE)

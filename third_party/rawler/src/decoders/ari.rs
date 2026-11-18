@@ -46,9 +46,9 @@ impl<'a> Decoder for AriDecoder<'a> {
     let src = file.subview_until_eof_padded(offset as u64)?;
 
     let image = if self.camera.find_hint("little-endian") {
-      decode_12le(&src, width, height, dummy)
+      decode_12le(&src, width, height, dummy)?
     } else {
-      decode_12be_msb32(&src, width, height, dummy)
+      decode_12be_msb32(&src, width, height, dummy)?
     };
 
     let cpp = 1;

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { useEffect, useMemo } from 'react';
+import { useEffect, useId, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Trash2 } from 'lucide-react';
 import Switch from '../ui/Switch';
 import Dropdown, { type OptionItem } from '../ui/Dropdown';
 import Text from '../ui/Text';
+import { SettingFieldContext } from '../ui/settingField';
 import { TextVariants } from '../../types/typography';
 import { type AppSettings, type Preset } from '../ui/AppProperties';
 import { loadPresetLibrary, usePresetStore } from '../../hooks/usePresets';
@@ -64,13 +65,21 @@ export default function DevelopDefaultsSettings({
     );
   };
   const cameras = defaults.cameras ?? [];
+  // This row carries a third line (where the default comes from), so it is
+  // laid out here rather than by SettingItem; the setting still names its combobox.
+  const fieldId = useId();
+  const globalField = { labelId: `${fieldId}-label`, descriptionId: `${fieldId}-description` };
   return (
     <div className="space-y-4" data-testid="develop-defaults">
       <p className="pref-description">{t('developDefaults.settings.intro')}</p>
       <div className="pref-row">
         <div className="pref-text">
-          <div className="pref-label">{t('developDefaults.settings.global')}</div>
-          <p className="pref-description">{t('developDefaults.settings.globalDesc')}</p>
+          <div className="pref-label" id={globalField.labelId}>
+            {t('developDefaults.settings.global')}
+          </div>
+          <p className="pref-description" id={globalField.descriptionId}>
+            {t('developDefaults.settings.globalDesc')}
+          </p>
           {defaults.global && chosen === null && (
             <Text variant={TextVariants.small} color="secondary">
               {t('developDefaults.settings.globalFrom', { name: defaults.global.name ?? '' })}
@@ -78,13 +87,15 @@ export default function DevelopDefaultsSettings({
           )}
         </div>
         <div className="pref-control">
-          <Dropdown
-            value={chosen}
-            options={options}
-            placeholder={defaults.global?.name ?? t('developDefaults.settings.globalNone')}
-            onChange={chooseGlobal}
-            triggerClassName="bg-bg-primary"
-          />
+          <SettingFieldContext.Provider value={globalField}>
+            <Dropdown
+              value={chosen}
+              options={options}
+              placeholder={defaults.global?.name ?? t('developDefaults.settings.globalNone')}
+              onChange={chooseGlobal}
+              triggerClassName="bg-bg-primary"
+            />
+          </SettingFieldContext.Provider>
         </div>
       </div>
       <div className="pref-row">

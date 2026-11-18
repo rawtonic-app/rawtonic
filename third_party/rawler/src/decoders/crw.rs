@@ -74,7 +74,7 @@ impl<'a> Decoder for CrwDecoder<'a> {
   fn raw_image(&self, file: &RawSource, _params: &RawDecodeParams, dummy: bool) -> Result<RawImage> {
     let image = if self.camera.model == "Canon PowerShot Pro70" {
       let src = file.subview_until_eof(26)?;
-      decode_10le_lsb16(src, 1552, 1024, dummy)
+      decode_10le_lsb16(src, 1552, 1024, dummy)?
     } else {
       let sensorinfo = fetch_ciff_tag!(self.ciff, CiffTag::SensorInfo);
       let width = sensorinfo.get_usize(1);

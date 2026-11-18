@@ -2487,14 +2487,22 @@ pub fn encode_with_metadata(
                 .ok(),
             _ => None,
         };
-        encode_image_to_bytes(
-            &image,
-            extension,
-            export_settings.jpeg_quality,
-            export_settings.tiff_bit_depth,
-            export_settings.color_space,
-            avif_exif,
-        )?
+        if extension.eq_ignore_ascii_case("jxl") {
+            encode_jxl(
+                Cow::Owned(image),
+                export_settings.jpeg_quality,
+                export_settings.color_space,
+            )?
+        } else {
+            encode_image_to_bytes(
+                &image,
+                extension,
+                export_settings.jpeg_quality,
+                export_settings.tiff_bit_depth,
+                export_settings.color_space,
+                avif_exif,
+            )?
+        }
     };
     #[cfg(feature = "performance-profiling")]
     let metadata_stage = crate::performance::PerformanceStage::new("export_metadata");
@@ -2644,6 +2652,7 @@ pub fn build_single_mask_adjustments(
         specialized_export: all.specialized_export,
         detail_pass_export: all.detail_pass_export,
         curve_table: all.curve_table.clone(),
+        lut_file_stage: all.lut_file_stage,
     }
 }
 
@@ -2673,34 +2682,7 @@ pub fn encode_image_to_bytes(
     let mut cursor = Cursor::new(&mut image_bytes);
 
     match output_format.to_lowercase().as_str() {
-        "jxl" if color_space.is_wide() => {
-            return encode_wide_jxl(image, jpeg_quality, color_space);
-        }
-        "jxl" => {
-            let (width, height) = image.dimensions();
-            let has_alpha = image.color().has_alpha();
-
-            let jxl_data = if jpeg_quality == 100 {
-                encode_lossless_jxl(image, color_space)?
-            } else {
-                let jxl_quality = calibrated_jxl_quality(jpeg_quality as f32);
-                let distance = quality_to_distance(jxl_quality);
-
-                if has_alpha {
-                    let rgba = image.to_rgba8();
-                    LossyConfig::new(distance)
-                        .encode(rgba.as_raw(), width, height, PixelLayout::Rgba8)
-                        .map_err(|e| format!("Failed to encode lossy JXL: {}", e))?
-                } else {
-                    let rgb = image.to_rgb8();
-                    LossyConfig::new(distance)
-                        .encode(rgb.as_raw(), width, height, PixelLayout::Rgb8)
-                        .map_err(|e| format!("Failed to encode lossy JXL: {}", e))?
-                }
-            };
-
-            return Ok(jxl_data);
-        }
+        "jxl" => return encode_jxl(Cow::Borrowed(image), jpeg_quality, color_space),
         "webp" => {
             let encoder = webp::Encoder::from_image(image)
                 .map_err(|_| "Failed to create WebP encoder".to_string())?;
@@ -3011,6 +2993,49 @@ where
     image.finish().map_err(tiff_error)
 }
 
+fn encode_jxl(
+    image: Cow<'_, DynamicImage>,
+    quality: u8,
+    space: OutputColorSpace,
+) -> Result<Vec<u8>, String> {
+    // RAW readback also uses RGBA, so inspect the samples before choosing a
+    // channel layout. Keep alpha if any pixel is less than fully opaque.
+    let has_alpha = match image.as_ref() {
+        DynamicImage::ImageRgba8(rgba) => rgba.pixels().any(|p| p.0[3] != u8::MAX),
+        DynamicImage::ImageRgba16(rgba) => rgba.pixels().any(|p| p.0[3] != u16::MAX),
+        DynamicImage::ImageRgba32F(rgba) => rgba.pixels().any(|p| p.0[3] != 1.0),
+        DynamicImage::ImageLumaA8(la) => la.pixels().any(|p| p.0[1] != u8::MAX),
+        DynamicImage::ImageLumaA16(la) => la.pixels().any(|p| p.0[1] != u16::MAX),
+        _ => false,
+    };
+
+    if quality == 100 {
+        // Compact owned GPU readbacks in place to keep the fast lossless
+        // encoder from needing a second full-resolution buffer.
+        let image = match image {
+            Cow::Owned(image @ DynamicImage::ImageRgba8(_)) if !has_alpha => {
+                Cow::Owned(drop_alpha_in_place(image))
+            }
+            image => image,
+        };
+        return encode_lossless_jxl(&image, space, has_alpha);
+    }
+
+    let distance = quality_to_distance(calibrated_jxl_quality(quality as f32));
+    if space.is_wide() {
+        return encode_wide_lossy_jxl(&image, distance, space, has_alpha);
+    }
+
+    let (width, height) = image.dimensions();
+    let encoder = LossyConfig::new(distance);
+    let result = if has_alpha {
+        encoder.encode(image.to_rgba8().as_raw(), width, height, PixelLayout::Rgba8)
+    } else {
+        encoder.encode(image.to_rgb8().as_raw(), width, height, PixelLayout::Rgb8)
+    };
+    result.map_err(|e| format!("Failed to encode lossy JXL: {e}"))
+}
+
 /// Lossless JPEG XL with libjxl's fast-lossless method (zune-jpegxl): an
 /// 8-bit render is read in place, and the encoder holds little beyond its
 /// output. On the 36 MP benchmark it peaks at 1.7× an uncompressed TIFF's
@@ -3023,14 +3048,17 @@ where
 /// with the space's colour encoding in front of zune's frame, which starts on
 /// the byte after its own image header. (jxl-encoder 0.3.1's lossless encoder
 /// declared sRGB whatever colour encoding it was given.)
-fn encode_lossless_jxl(image: &DynamicImage, space: OutputColorSpace) -> Result<Vec<u8>, String> {
+fn encode_lossless_jxl(
+    image: &DynamicImage,
+    space: OutputColorSpace,
+    has_alpha: bool,
+) -> Result<Vec<u8>, String> {
     use zune_core::{bit_depth::BitDepth, colorspace::ColorSpace, options::EncoderOptions};
     let (width, height) = image.dimensions();
-    let has_alpha = image.color().has_alpha();
     let converted;
     let pixels: &[u8] = match image {
         DynamicImage::ImageRgb8(rgb) => rgb.as_raw(),
-        DynamicImage::ImageRgba8(rgba) => rgba.as_raw(),
+        DynamicImage::ImageRgba8(rgba) if has_alpha => rgba.as_raw(),
         _ if has_alpha => {
             converted = image.to_rgba8().into_raw();
             &converted
@@ -3137,21 +3165,17 @@ fn jxl_color_encoding(space: OutputColorSpace) -> jxl_encoder::ColorEncoding {
     encoding
 }
 
-/// JPEG XL in a wide output space. Lossless keeps the rendered values and
-/// declares the space. Lossy takes them linear in the space's primaries; the
-/// encoder converts those to linear sRGB for XYB as if every white were D65,
-/// so ProPhoto's D50 values are first adapted to compensate.
-fn encode_wide_jxl(
+/// Lossy JPEG XL takes linear values in the space's primaries. The encoder
+/// converts those to linear sRGB for XYB as if every white were D65, so
+/// ProPhoto's D50 values are first adapted to compensate.
+fn encode_wide_lossy_jxl(
     image: &DynamicImage,
-    jpeg_quality: u8,
+    distance: f32,
     space: OutputColorSpace,
+    has_alpha: bool,
 ) -> Result<Vec<u8>, String> {
     let (width, height) = image.dimensions();
-    let has_alpha = image.color().has_alpha();
     let encoding = jxl_color_encoding(space);
-    if jpeg_quality == 100 {
-        return encode_lossless_jxl(image, space);
-    }
     let compensate = (space.white() != OutputColorSpace::Srgb.white()).then(|| {
         use crate::output_color_space::{invert, multiply};
         multiply(
@@ -3190,7 +3214,6 @@ fn encode_wide_jxl(
     } else {
         PixelLayout::RgbLinearF32
     };
-    let distance = quality_to_distance(calibrated_jxl_quality(jpeg_quality as f32));
     LossyConfig::new(distance)
         .encode_request(width, height, layout)
         .with_color_encoding(encoding)
@@ -3440,6 +3463,17 @@ mod super_resolution_tests {
 }
 
 #[cfg(test)]
+fn export_settings(resize: Option<ResizeOptions>) -> ExportSettings {
+    let mut settings: ExportSettings = serde_json::from_value(serde_json::json!({
+        "jpegQuality": 90, "keepMetadata": true, "stripGps": false,
+        "filenameTemplate": null, "watermark": null,
+    }))
+    .unwrap();
+    settings.resize = resize;
+    settings
+}
+
+#[cfg(test)]
 mod resize_tests {
     use super::*;
 
@@ -3454,16 +3488,6 @@ mod resize_tests {
                 second_value: 0.0,
             },
         )
-    }
-
-    fn export_settings(resize: Option<ResizeOptions>) -> ExportSettings {
-        let mut settings: ExportSettings = serde_json::from_value(serde_json::json!({
-            "jpegQuality": 90, "keepMetadata": true, "stripGps": false,
-            "filenameTemplate": null, "watermark": null,
-        }))
-        .unwrap();
-        settings.resize = resize;
-        settings
     }
 
     #[test]
@@ -3867,32 +3891,68 @@ mod encoding_memory_tests {
         render.image_all_channels().buf().to_vec()
     }
 
+    #[test]
+    fn jxl_exports_alpha_only_when_a_pixel_is_transparent() {
+        let mut settings = export_settings(None);
+        for space in [OutputColorSpace::Srgb, OutputColorSpace::DisplayP3] {
+            settings.color_space = space;
+            for quality in [90, 100] {
+                settings.jpeg_quality = quality;
+                for alpha in [255, 127] {
+                    let mut rgba = wide_test_image().to_rgba8();
+                    rgba.get_pixel_mut(32, 32).0[3] = alpha;
+                    let source = DynamicImage::ImageRgba8(rgba);
+                    let borrowed = encode_image_to_bytes(
+                        &source,
+                        "jxl",
+                        quality,
+                        TiffBitDepth::Eight,
+                        space,
+                        None,
+                    )
+                    .unwrap();
+                    let owned =
+                        encode_with_metadata(source.clone(), "jxl", &settings, None).unwrap();
+                    assert_eq!(borrowed, owned);
+                    let decoder =
+                        jxl_oxide::integration::JxlDecoder::new(Cursor::new(owned)).unwrap();
+                    let decoded = DynamicImage::from_decoder(decoder).unwrap();
+                    let case = format!("{space:?}, quality {quality}, alpha {alpha}");
+                    assert_eq!(
+                        decoded.color().channel_count(),
+                        if alpha == 255 { 3 } else { 4 },
+                        "{case}"
+                    );
+                    if quality == 100 {
+                        assert_eq!(decoded.to_rgba8(), source.to_rgba8(), "{case}");
+                    }
+                    assert_eq!(decoded.to_rgba8().get_pixel(32, 32).0[3], alpha, "{case}");
+                }
+            }
+        }
+    }
+
     /// Multi-group encoding must also decode, not just the single-group
     /// colour swatches. Run with --ignored on native QA hosts.
     #[test]
     #[ignore = "36 MP encoder regression; requires the independent djxl executable"]
     fn lossless_jxl_36mp_export_preserves_every_sample() {
         let mut state = 123456789u32;
-        let original = DynamicImage::ImageRgb8(image::RgbImage::from_fn(7360, 4912, |x, y| {
+        let original = DynamicImage::ImageRgba8(image::RgbaImage::from_fn(7360, 4912, |x, y| {
             state ^= state << 13;
             state ^= state >> 17;
             state ^= state << 5;
             let noise = (state & 15) as u8;
-            image::Rgb([
+            image::Rgba([
                 ((x * 255 / 7360) as u8).saturating_add(noise),
                 ((y * 255 / 4912) as u8).saturating_add(noise),
                 (((x + y) * 255 / 12272) as u8).saturating_add(noise),
+                255,
             ])
         }));
-        let bytes = encode_image_to_bytes(
-            &original,
-            "jxl",
-            100,
-            TiffBitDepth::Eight,
-            OutputColorSpace::Srgb,
-            None,
-        )
-        .unwrap();
+        let mut settings = export_settings(None);
+        settings.jpeg_quality = 100;
+        let bytes = encode_with_metadata(original.clone(), "jxl", &settings, None).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("export.jxl");
         crate::output::write_new_output(&source, bytes).unwrap();

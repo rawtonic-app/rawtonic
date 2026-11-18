@@ -5,8 +5,12 @@ clean_model = "DC-FZ80"
 
 model_aliases = [
   ["DC-FZ80D", "DC-FZ80D"],
+  # Rawtonic patch (RAWC1): Panasonic ships one firmware for DC-FZ80/FZ81/FZ82/FZ83
+  # (regional names of one camera); the FZ83 RW2 has the FZ80's sensor geometry and format.
+  # DC-FZ81 is left out until a sample is verified.
   ["DC-FZ82", "DC-FZ82"],
   ["DC-FZ82D", "DC-FZ82D"],
+  ["DC-FZ83", "DC-FZ83"],
   ["DC-FZ85", "DC-FZ85"],
   ["DC-FZ85D", "DC-FZ85D"],
 ]

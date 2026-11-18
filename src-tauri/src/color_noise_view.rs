@@ -655,6 +655,7 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
         sequence: None,
         adjustments: refresh.adjustments,
         is_interactive: false,
+        browser_full_zoom: false,
         target_resolution: refresh.target_resolution,
         roi: None,
         request_analytics: refresh.request_analytics,
@@ -662,6 +663,7 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
         active_waveform_channel: refresh.active_waveform_channel,
         mask_overlay: refresh.mask_overlay,
         crop_edit: false,
+        region_first: false,
         responder,
     };
     app.state::<crate::app_state::AppState>()

@@ -27,7 +27,7 @@ use serde::Deserialize;
 /// Command items' ids start with this; the rest names the webview command.
 pub const COMMAND_PREFIX: &str = "cmd:";
 /// The event a chosen command item sends to the main webview.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 const COMMAND_EVENT: &str = "app-menu-command";
 /// More items than a menu bar could ever hold means a broken tree.
 const MAX_NODES: usize = 2000;
@@ -668,6 +668,9 @@ pub fn set_app_menu_state(app: tauri::AppHandle, items: Vec<ItemState>) -> Resul
                     }
                 }
                 Some(MenuItemKind::Check(item)) => {
+                    if let Some(label) = &update.label {
+                        item.set_text(label).map_err(|e| e.to_string())?;
+                    }
                     if let Some(enabled) = update.enabled {
                         item.set_enabled(enabled).map_err(|e| e.to_string())?;
                     }
@@ -759,6 +762,30 @@ mod tests {
     /// keys), written by `src/utils/appMenu.test.ts`; that test fails when
     /// the table and this file drift apart.
     const WEBVIEW_TREE: &str = include_str!("../tests/fixtures/app-menu-en.json");
+
+    #[test]
+    fn scopes_menu_event_matches_the_webview_listener() {
+        let spec: MenuSpec = serde_json::from_str(WEBVIEW_TREE).unwrap();
+        let mut nodes = Vec::new();
+        walk(&spec.menus, &mut nodes);
+        let id = nodes
+            .into_iter()
+            .find_map(|node| match node {
+                MenuNode::Item {
+                    id,
+                    checked: Some(false),
+                    shortcut: None,
+                    ..
+                } if id == "cmd:toggle_analytics" => Some(id),
+                _ => None,
+            })
+            .expect("the webview's scopes check item");
+        let command = command_of(id).unwrap();
+        let emitted = serde_json::to_string(command).unwrap();
+        let received: String = serde_json::from_str(&emitted).unwrap();
+        assert_eq!(COMMAND_EVENT, "app-menu-command");
+        assert_eq!(received, "toggle_analytics");
+    }
 
     fn walk<'a>(nodes: &'a [MenuNode], out: &mut Vec<&'a MenuNode>) {
         for node in nodes {

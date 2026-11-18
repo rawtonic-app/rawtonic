@@ -73,12 +73,17 @@ impl<'a> Decoder for KdcDecoder<'a> {
     if self.camera.clean_model == "DC120" {
       let width = 848;
       let height = 976;
-      let raw = self.tiff.find_ifds_with_tag(TiffCommonTag::CFAPattern)[0];
+      // Rawtonic patch (RWH1): an error instead of an index panic.
+      let raw = *self
+        .tiff
+        .find_ifds_with_tag(TiffCommonTag::CFAPattern)
+        .first()
+        .ok_or("KDC: no IFD with a CFA pattern")?;
       let off = fetch_tiff_tag!(raw, TiffCommonTag::StripOffsets).force_usize(0);
       let mut white = self.camera.whitelevel.clone().expect("KDC needs a whitelevel in camera config")[0];
       let src = file.subview_until_eof(off as u64)?;
       let image = match fetch_tiff_tag!(raw, TiffCommonTag::Compression).force_usize(0) {
-        1 => Self::decode_dc120(src, width, height, dummy),
+        1 => Self::decode_dc120(src, width, height, dummy)?,
         7 => {
           white = 0xFF << 1;
           Self::decode_dc120_jpeg(src, width, height, dummy)?
@@ -93,12 +98,17 @@ impl<'a> Decoder for KdcDecoder<'a> {
       let cpp = 1;
       let whitelevel = Some(WhiteLevel::new(vec![white; cpp]));
       let photometric = RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&self.camera));
-      let img = RawImage::new(self.camera.clone(), image, cpp, [1.0, 1.0, 1.0, f32::NAN], photometric, None, whitelevel, dummy);
+      let img = RawImage::new(self.camera.clone(), image, cpp, [1.0, 1.0, 1.0, f32::NAN], photometric, None, whitelevel, dummy)?;
       return Ok(img);
     }
 
     if self.camera.clean_model == "DC50" {
-      let raw = self.tiff.find_ifds_with_tag(TiffCommonTag::CFAPattern)[0];
+      // Rawtonic patch (RWH1): an error instead of an index panic.
+      let raw = *self
+        .tiff
+        .find_ifds_with_tag(TiffCommonTag::CFAPattern)
+        .first()
+        .ok_or("KDC: no IFD with a CFA pattern")?;
       let width = self.camera.raw_width;
       let height = self.camera.raw_height;
       let off = fetch_tiff_tag!(raw, TiffCommonTag::StripOffsets).force_usize(0);
@@ -114,7 +124,7 @@ impl<'a> Decoder for KdcDecoder<'a> {
       let cpp = 1;
       let whitelevel = Some(WhiteLevel::new(vec![white; cpp]));
       let photometric = RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&self.camera));
-      let img = RawImage::new(self.camera.clone(), image, cpp, [1.0, 1.0, 1.0, f32::NAN], photometric, None, whitelevel, dummy);
+      let img = RawImage::new(self.camera.clone(), image, cpp, [1.0, 1.0, 1.0, f32::NAN], photometric, None, whitelevel, dummy)?;
       return Ok(img);
     }
 
@@ -137,7 +147,7 @@ impl<'a> Decoder for KdcDecoder<'a> {
     }
 
     let src = file.subview_until_eof(off as u64)?;
-    let image = decode_12be(src, width, height, dummy);
+    let image = decode_12be(src, width, height, dummy)?;
     let cpp = 1;
     ok_cfa_image(self.camera.clone(), cpp, self.get_wb()?, image, dummy)
   }
@@ -205,8 +215,14 @@ impl<'a> KdcDecoder<'a> {
     }
   }
 
-  pub(crate) fn decode_dc120(src: &[u8], width: usize, height: usize, dummy: bool) -> PixU16 {
-    let mut out = alloc_image!(width, height, dummy);
+  pub(crate) fn decode_dc120(src: &[u8], width: usize, height: usize, dummy: bool) -> Result<PixU16> {
+    // Rawtonic patch (RWH1; dnglab 7738ea62 checks the KDC sizes): each row
+    // reads `width` bytes from its start.
+    crate::packed::check_image("KDC DC120", width, height)?;
+    if !dummy && src.len() < width * height {
+      return Err(RawlerError::DecoderFailed("KDC DC120: image data too short".to_string()));
+    }
+    let mut out = alloc_image_ok!(width, height, dummy);
 
     let mul: [usize; 4] = [162, 192, 187, 92];
     let add: [usize; 4] = [0, 636, 424, 212];
@@ -216,7 +232,7 @@ impl<'a> KdcDecoder<'a> {
         out[row * width + col] = src[row * width + ((col + shift) % 848)] as u16;
       }
     }
-    out
+    Ok(out)
   }
 
   pub(crate) fn decode_dc120_jpeg(src: &[u8], width: usize, height: usize, dummy: bool) -> Result<PixU16> {
@@ -227,9 +243,14 @@ impl<'a> KdcDecoder<'a> {
     let img = image::load_from_memory_with_format(&swapped_src, image::ImageFormat::Jpeg)
       .map_err(|err| RawlerError::DecoderFailed(format!("Failed to read JPEG image: {:?}", err)))?;
 
-    assert_eq!(width, img.width() as usize);
-    assert_eq!(height, img.height() as usize * 2);
-    let buf = img.as_flat_samples_u8().unwrap();
+    // Rawtonic patch (RWH1): errors instead of asserts.
+    if width != img.width() as usize || height != img.height() as usize * 2 || width % 2 != 0 {
+      return Err(RawlerError::DecoderFailed("KDC DC120: JPEG size doesn't match the image".to_string()));
+    }
+    let buf = img.as_flat_samples_u8().ok_or("KDC DC120: JPEG is not 8-bit")?;
+    if buf.as_slice().len() < width * 3 * img.height() as usize {
+      return Err(RawlerError::DecoderFailed("KDC DC120: JPEG is not RGB".to_string()));
+    }
     let jpeg = buf.as_slice();
 
     for irow in 0..img.height() as usize {

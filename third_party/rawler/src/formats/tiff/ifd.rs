@@ -49,6 +49,9 @@ pub struct IFD {
 }
 
 // TODO: fixme
+// Rawtonic patch (RWH1; dnglab 6cef535c checks them): the offset sums
+// below wrap explicitly, as release builds computed them; damaged offsets
+// then fail to read instead of panicking in debug builds.
 impl IFD {
   /// Construct new IFD from reader at specific base
   pub fn new_root<R: Read + Seek>(reader: &mut R, base: u32) -> Result<IFD> {
@@ -56,7 +59,7 @@ impl IFD {
   }
 
   pub fn new_root_with_correction<R: Read + Seek>(reader: &mut R, offset: u32, base: u32, corr: i32, max_chain: usize, sub_tags: &[u16]) -> Result<IFD> {
-    reader.seek(SeekFrom::Start((base + offset) as u64))?;
+    reader.seek(SeekFrom::Start(base.wrapping_add(offset) as u64))?;
     let endian = match reader.read_u16::<LittleEndian>()? {
       0x4949 => Endian::Little,
       0x4d4d => Endian::Big,
@@ -114,7 +117,7 @@ impl IFD {
   }
 
   fn new_within<R: Read + Seek>(reader: &mut R, offset: u32, base: u32, corr: i32, endian: Endian, sub_tags: &[u16], budget: &mut u64) -> Result<IFD> {
-    reader.seek(SeekFrom::Start((base + offset) as u64))?;
+    reader.seek(SeekFrom::Start(base.wrapping_add(offset) as u64))?;
     let mut sub_ifd_offsets = HashMap::new();
     let mut reader = EndianReader::new(reader, endian);
     let entry_count = reader.read_u16()?;
@@ -173,8 +176,11 @@ impl IFD {
               Value::Long(offsets) => {
                 sub_ifd_offsets.insert(tag, offsets.clone());
               }
+              // Rawtonic patch (RWH1): no offset for an empty value.
               Value::Unknown(tag, offsets) => {
-                sub_ifd_offsets.insert(*tag, vec![offsets[0] as u32]);
+                if let Some(first) = offsets.first() {
+                  sub_ifd_offsets.insert(*tag, vec![*first as u32]);
+                }
               }
               Value::Undefined(_) => {
                 sub_ifd_offsets.insert(tag, vec![entry.offset().unwrap() as u32]);
@@ -260,7 +266,7 @@ impl IFD {
 
   /*
   pub fn new<R: Read + Seek>(reader: &mut R, offset: u32, base: u32, corr: i32, endian: Endian, sub_tags: &[u16]) -> Result<Self> {
-    reader.seek(SeekFrom::Start((base + offset) as u64))?;
+    reader.seek(SeekFrom::Start(base.wrapping_add(offset) as u64))?;
     let mut sub_ifd_offsets = Vec::new();
     let mut reader = EndianReader::new(reader, endian);
     let entry_count = reader.read_u16()?;
@@ -275,8 +281,9 @@ impl IFD {
           Value::Long(offsets) => {
             sub_ifd_offsets.extend_from_slice(&offsets);
           }
+          // Rawtonic patch (RWH1; dnglab 9860d717): an error, not a panic.
           _ => {
-            todo!()
+            return Err(TiffError::General(format!("Sub-IFD tag {:#x} holds no offsets", tag)));
           }
         }
       } else {
@@ -323,7 +330,8 @@ impl IFD {
         }
         val => {
           debug!("Found IFD offset tag, but type mismatch: {:?}", val);
-          todo!()
+          // Rawtonic patch (RWH1; dnglab 9860d717): an error, not a panic.
+          Err(TiffError::General("IFD offset tag of another type".to_string()))
         }
       }
     } else {
@@ -388,7 +396,7 @@ impl IFD {
       return Ok(Some(RawEntry {
         entry,
         endian: self.endian,
-        data: read_from_file(file, self.base + entry.offset().unwrap() as u32, entry.byte_size())?,
+        data: read_from_file(file, self.base.wrapping_add(entry.offset().unwrap() as u32), entry.byte_size())?,
       }));
     }
     Ok(None)
@@ -400,7 +408,7 @@ impl IFD {
       return Ok(Some(RawEntry {
         entry,
         endian: self.endian,
-        data: read_from_file(file, self.base + entry.offset().unwrap() as u32, len)?,
+        data: read_from_file(file, self.base.wrapping_add(entry.offset().unwrap() as u32), len)?,
       }));
     }
     Ok(None)
@@ -491,7 +499,10 @@ impl IFD {
   }
 
   pub fn singlestrip_data_rawsource<'a>(&self, rawsource: &'a RawSource) -> Result<&'a [u8]> {
-    assert!(self.contains_singlestrip_image());
+    // Rawtonic patch (RWH1; dnglab ff431472): an error instead of the assert.
+    if !self.contains_singlestrip_image() {
+      return Err(TiffError::General("IFD has no single strip".to_string()));
+    }
 
     let offset = self
       .get_entry(TiffCommonTag::StripOffsets)
@@ -504,7 +515,7 @@ impl IFD {
       .value
       .force_usize(0);
 
-    Ok(rawsource.subview((self.base + offset) as u64, len as u64)?)
+    Ok(rawsource.subview(self.base.wrapping_add(offset) as u64, len as u64)?)
   }
 
   /// Return byte slices to strip data.
@@ -534,21 +545,22 @@ impl IFD {
     }
 
     // Check if all slices are continous
-    let (is_continous, end_off) =
-      offsets.iter().zip(sizes.iter()).fold(
-        (true, offsets[0]),
-        |acc, val| {
-          if acc.0 && acc.1 == *val.0 { (true, acc.1 + *val.1) } else { (false, 0) }
-        },
-      );
+    let (is_continous, end_off) = offsets.iter().zip(sizes.iter()).fold((true, offsets[0]), |acc, val| {
+      // Rawtonic patch (RWH1): wrapping, as release builds computed it.
+      if acc.0 && acc.1 == *val.0 {
+        (true, acc.1.wrapping_add(*val.1))
+      } else {
+        (false, 0)
+      }
+    });
 
     let mut subviews = Vec::with_capacity(offsets.len());
     for (offset, size) in offsets.iter().zip(sizes.iter()) {
-      subviews.push(rawsource.subview((self.base + *offset) as u64, *size as u64)?);
+      subviews.push(rawsource.subview(self.base.wrapping_add(*offset) as u64, *size as u64)?);
     }
 
     let continous = if is_continous {
-      Some(rawsource.subview((self.base + offsets[0]) as u64, (end_off - offsets[0]) as u64)?)
+      Some(rawsource.subview(self.base.wrapping_add(offsets[0]) as u64, end_off.wrapping_sub(offsets[0]) as u64)?)
     } else {
       None
     };
@@ -632,13 +644,13 @@ impl IFD {
             // so wie use the offset as correction value.
             let corr = offset as i32;
             // The IFD itself starts 10 bytes after tag offset.
-            return Ok(Some(IFD::new(reader, offset + 10, self.base, corr, endian, sub_tags)?));
+            return Ok(Some(IFD::new(reader, offset.wrapping_add(10), self.base, corr, endian, sub_tags)?));
           }
 
           if data[0..7] == b"Nikon\0\x02"[..] {
             off += 10;
             let endian = if data[off..off + 2] == b"II"[..] { Endian::Little } else { Endian::Big };
-            return Ok(Some(IFD::new(reader, 8, self.base + offset + 10, 0, endian, sub_tags)?));
+            return Ok(Some(IFD::new(reader, 8, self.base.wrapping_add(offset).wrapping_add(10), 0, endian, sub_tags)?));
           }
 
           // Some have MM or II to indicate endianness - read that
@@ -652,11 +664,18 @@ impl IFD {
           }
 
           match offset_mode {
-            OffsetMode::Absolute => Ok(Some(IFD::new(reader, offset + off as u32, self.base, self.corr, endian, sub_tags)?)),
+            OffsetMode::Absolute => Ok(Some(IFD::new(reader, offset.wrapping_add(off as u32), self.base, self.corr, endian, sub_tags)?)),
             OffsetMode::RelativeToIFD => {
               // Value offsets are relative to IFD offset
-              let corr = offset + off as u32;
-              Ok(Some(IFD::new(reader, offset + off as u32, self.base, corr as i32, endian, sub_tags)?))
+              let corr = offset.wrapping_add(off as u32);
+              Ok(Some(IFD::new(
+                reader,
+                offset.wrapping_add(off as u32),
+                self.base,
+                corr as i32,
+                endian,
+                sub_tags,
+              )?))
             }
           }
         }

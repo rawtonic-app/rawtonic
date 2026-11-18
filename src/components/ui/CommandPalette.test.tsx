@@ -5,8 +5,9 @@ import { registerAppCommands, runAppCommand, notifyAppCommandsChanged } from '..
 import { menuCommandEnabled } from '../../hooks/useAppMenu';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useSettingsStore } from '../../store/useSettingsStore';
+import { useEditorStore } from '../../store/useEditorStore';
 import { useUIStore } from '../../store/useUIStore';
-import { type AppSettings } from './AppProperties';
+import { type AppSettings, type SelectedImage } from './AppProperties';
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(() => Promise.resolve())
 }));
@@ -80,6 +81,38 @@ it('opens through the rebindable table key, searches and runs the registered han
   press('Escape');
   expect(screen.queryByRole('dialog')).toBeNull();
 });
+it('finds scopes by each search keyword and toggles them from the palette', () => {
+  useUIStore.setState({ activeView: 'editor' });
+  useEditorStore.setState({
+    selectedImage: { path: '/qa/photo.dng', isReady: true } as SelectedImage,
+    isWaveformVisible: false
+  });
+  render(<Harness />);
+  try {
+    act(() => {
+      runAppCommand('command_palette');
+    });
+    const search = screen.getByRole('combobox');
+    for (const keyword of ['scopes', 'waveform', 'parade', 'vectorscope', 'histogram']) {
+      fireEvent.change(search, { target: { value: keyword } });
+      const match = screen.getAllByRole('option')[0];
+      expect(match.textContent).toContain('appMenu.items.show_scopes');
+      expect(match.querySelector('kbd')?.textContent).toBe('A');
+    }
+    press('Enter');
+    expect(useEditorStore.getState().isWaveformVisible).toBe(true);
+    act(() => {
+      runAppCommand('command_palette');
+    });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'histogram' } });
+    expect(screen.getAllByRole('option')[0].textContent).toContain('appMenu.items.hide_scopes');
+    press('Enter');
+    expect(useEditorStore.getState().isWaveformVisible).toBe(false);
+  } finally {
+    useEditorStore.setState({ selectedImage: null, isWaveformVisible: false });
+  }
+});
+
 it('does not trigger in text inputs and honors a rebound shortcut', () => {
   render(<Harness />);
   screen.getByLabelText('outside').focus();

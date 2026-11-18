@@ -324,6 +324,7 @@
   "lutPath": null,
   "lutSize": 0,
   "lutIsSceneReferred": false,
+  "lutVersion": 2,
   "masks": [],
   "orientationSteps": 0,
   "rotation": 0,
