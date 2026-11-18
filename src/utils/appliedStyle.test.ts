@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import cases from '../../crates/engine/src/applied_style_cases.json';
 import rustSource from '../../crates/engine/src/applied_style.rs?raw';
 import { rustRecipeKeys } from '../contracts/recipeKeys.testSupport';
+import { LUT_SELECTION_KEYS } from './adjustments';
 import {
   APPLIED_STYLE,
   PHOTO_OWN_KEYS,
@@ -18,6 +19,11 @@ describe('applied style', () => {
     const { recipe, kept } = revertStyle(c.recipe);
     expect(recipe).toEqual(c.reverted);
     expect(kept).toEqual(c.kept);
+  });
+
+  it('goes back with the same LUT choice as the backend', () => {
+    const rust = rustSource.match(/pub const LUT_SELECTION: \[&str; \d+\] = \[([^\]]*)\]/)![1];
+    expect([...rust.matchAll(/"(\w+)"/g)].map((m) => m[1])).toEqual([...LUT_SELECTION_KEYS]);
   });
 
   it('records every setting a style sets, nested settings one by one', () => {

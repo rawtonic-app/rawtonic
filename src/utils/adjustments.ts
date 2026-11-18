@@ -426,6 +426,28 @@ export const withLutVersion = <T extends Partial<Adjustments>>(
   return { ...picked, lutVersion: source?.lutVersion ?? 1 };
 };
 
+/** The settings that make up one LUT choice: its file, name, table, input
+ * space and reading. They go together (Edit all selected, style take-back:
+ * `applied_style::LUT_SELECTION`). */
+export const LUT_SELECTION_KEYS = [
+  'lutPath',
+  'lutName',
+  'lutSize',
+  'lutData',
+  'lutIsSceneReferred',
+  'lutVersion'
+] as const;
+
+/** `changed` with the whole LUT choice of `source` when it changes a part of
+ * it: a reading changed on its own (the same LUT chosen again, or undone)
+ * describes the source's LUT, never another photo's. */
+export const withLutSelection = <T extends Partial<Adjustments>>(changed: T, source: Partial<Adjustments>): T => {
+  if (!LUT_SELECTION_KEYS.some((key) => Object.prototype.hasOwnProperty.call(changed, key))) return changed;
+  const out: Record<string, unknown> = { ...changed };
+  for (const key of LUT_SELECTION_KEYS) out[key] = source[key] ?? null;
+  return withLutVersion(out as T, source);
+};
+
 /** Film grain (version 3) has no structures; its Colour sets how independent
  * the dye layers are. */
 export const isFilmGrain = (adjustments: Partial<Adjustments>): boolean =>

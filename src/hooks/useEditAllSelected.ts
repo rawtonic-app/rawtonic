@@ -16,7 +16,7 @@ import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerLibrarySwitchReset, registerRetryAfterAsking } from '../utils/quit';
 import {
   sameAdjustmentValue,
-  withLutVersion,
+  withLutSelection,
   withBwVersion,
   withColourVersions,
   withDetailVersions,
@@ -365,9 +365,10 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       ) {
         return;
       }
-      // A LUT chosen goes with the primary's reading of it, which a new edit
-      // has already (so the diff leaves it out).
-      const changed = withLutVersion(changedCopyableKeys(previous.adjustments, state.adjustments), state.adjustments);
+      // A LUT choice goes whole: its reading (which a new edit has already,
+      // so the diff may leave it out) with its file, and a reading changed
+      // on its own only with the primary's LUT.
+      const changed = withLutSelection(changedCopyableKeys(previous.adjustments, state.adjustments), state.adjustments);
       // A setting the primary no longer has (As Shot over a custom white
       // balance) is taken away from the others too: `null` reaches them.
       for (const key of Object.keys(changed) as (keyof Adjustments)[]) {

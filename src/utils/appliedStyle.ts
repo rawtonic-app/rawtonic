@@ -1,3 +1,5 @@
+import { LUT_SELECTION_KEYS } from './adjustments';
+
 /**
  * The style last applied to a photograph, kept in its recipe so that the
  * next style replaces it and clicking it again removes it, also after
@@ -106,10 +108,18 @@ export function revertStyle<T extends object>(recipe: T): { recipe: T; kept: str
   delete out[APPLIED_STYLE];
   const kept: string[][] = [];
   let removed = false;
+  // A LUT choice goes back whole or not at all: once the user changed a part
+  // of it (another LUT, the same one chosen again), the user's stays whole.
+  const lutKey = (path: string[] | null) =>
+    path !== null && path.length === 1 && (LUT_SELECTION_KEYS as readonly string[]).includes(path[0]);
+  const lutChanged = (applied.changes ?? []).some((change) => {
+    const path = changePath(change);
+    return lutKey(path) && !stillHolds(out, change, path!);
+  });
   for (const change of applied.changes ?? []) {
     const path = changePath(change);
     if (!path) continue;
-    if (stillHolds(out, change, path)) {
+    if (stillHolds(out, change, path) && !(lutChanged && lutKey(path))) {
       out = set(out, path, 'from' in change ? change.from : undefined);
       if (!('from' in change)) removed = true;
     } else kept.push(path);
