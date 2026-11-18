@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Exports need less memory on computers with integrated graphics (e.g. a Radeon 680M laptop).** Memory freed during an export is returned to the system at once around the photo's GPU upload, and integrated GPUs start with small graphics-memory blocks that grow to 256 MB instead of large ones. Radeon 680M laptop, Windows, seven 12–61 MP RAWs as 16-bit TIFF and JPEG: one export at a time 5,964 → about 5,425 MB, two at a time without the window about 4,494 → 4,234 MB, the command line with two at a time 4,788 → 3,689 MB, same time; drags at 100 % keep their frame rate; exports are byte-identical. Macs are unchanged (Metal ignores the hint).
+
 ## 0.1.0-alpha.17.1 — 2026-11-18
 
 A privacy release. Earlier releases let the AI runtime (Microsoft's ONNX Runtime) report usage data to Microsoft; this release sets the runtime's own switches against it before the runtime starts (measured on macOS and Linux with an AI model running on the processor: no connection; with the Linux GPU plugin and on Windows the switches are set but not yet measured) — the affected releases, what was sent and where its files are, below. Also: Panasonic DC-FZ83 files open, screen readers name more controls, Develop's scopes are in the View menu, and two small speed-ups. Updating from alpha.17: replace the app as usual; your libraries, sessions and edits stay as they are.
