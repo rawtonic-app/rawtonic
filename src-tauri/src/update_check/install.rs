@@ -291,11 +291,15 @@ pub async fn update_install(app: AppHandle, version: String) -> Result<(), Updat
             Ok(())
         }
         Ok(Placed::SetupStarted) => {
-            // The quit's own path (lib.rs ExitRequested): logs, window
-            // state and the clean-exit mark are written, then the process
-            // ends; the passive setup closes it if it still runs and
-            // starts the new version.
+            // Everything was written before the setup started; the clean
+            // exit is marked now, then the quit's own path (lib.rs
+            // ExitRequested, whose writes are then no-ops) ends the process.
+            // The passive setup closes it if it still runs and starts the
+            // new version.
             log::info!("Update {version}: setup started, Rawtonic ends");
+            rawtonic_onnx::stop_checks();
+            crate::contribute::clean_exit();
+            crate::startup::flush_logs();
             app.exit(0);
             Ok(())
         }
@@ -369,6 +373,15 @@ fn put_in_place(app: &AppHandle, update: &Update, bytes: &[u8]) -> Result<Placed
         rawtonic_fs::atomic_write(&setup, bytes).map_err(|e| io_failure(&e))?;
         // Passive (a progress bar, no questions, no administrator prompt for
         // the per-user setup), as an update, and start Rawtonic when done.
+        // What the process still writes on its way out (the photo, settings
+        // and library writes were drained before this command) is written
+        // now, while the app keeps running: the window states (atomic
+        // writes) and the log. If the setup cannot start, nothing is lost;
+        // once it runs, its check for a running Rawtonic finds nothing left
+        // to cut off.
+        crate::window_state::flush();
+        crate::second_window::flush();
+        crate::startup::flush_logs();
         std::process::Command::new(&setup)
             .args(["/P", "/UPDATE", "/R"])
             .spawn()
