@@ -109,7 +109,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
   const adjustments = useEditorStore((s) => s.adjustments);
   const histogram = useEditorStore((s) => s.histogram);
   const waveform = useEditorStore((s) => s.waveform);
-  const finalPreviewUrl = useEditorStore((s) => s.finalPreviewUrl);
+  const finalPreview = useEditorStore((s) => s.finalPreview);
   const uncroppedAdjustedPreviewUrl = useEditorStore((s) => s.uncroppedAdjustedPreviewUrl);
   const originalSize = useEditorStore((s) => s.originalSize);
   const previewSize = useEditorStore((s) => s.previewSize);
@@ -188,7 +188,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                   current.selectedImage.isReady ||
                   current.selectedImage.thumbnailUrl ||
                   current.hasRenderedFirstFrame ||
-                  current.finalPreviewUrl
+                  current.finalPreview
                 )
                   return;
                 const url = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
@@ -200,7 +200,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                 // Optional preview extraction must never fail the full image load.
               });
           };
-          if (!selectedImage.thumbnailUrl && !useEditorStore.getState().finalPreviewUrl) {
+          if (!selectedImage.thumbnailUrl && !useEditorStore.getState().finalPreview) {
             void storedProxy.then((proxy) => {
               if (!proxy && isEffectActive) showCameraPreview();
             });
@@ -503,12 +503,12 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
   }, [selectedImage?.path, selectedImage?.isDecoded, appSettings?.editorPreviewResolution, setEditor, setLibrary]);
 
   useEffect(() => {
-    if (selectedImage?.path && selectedImage.isReady && (finalPreviewUrl || isWgpuActive)) {
+    if (selectedImage?.path && selectedImage.isReady && (finalPreview || isWgpuActive)) {
       cachedEditStateRef.current = {
         adjustments,
         histogram,
         waveform,
-        finalPreviewUrl,
+        finalPreview,
         uncroppedPreviewUrl: uncroppedAdjustedPreviewUrl,
         selectedImage,
         originalSize,
@@ -522,7 +522,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
     adjustments,
     histogram,
     waveform,
-    finalPreviewUrl,
+    finalPreview,
     uncroppedAdjustedPreviewUrl,
     originalSize,
     previewSize,

@@ -44,7 +44,7 @@ export function useBrowserViewPreview(
   lossless: boolean | null = null
 ) {
   const key = JSON.stringify([path, recipe, resolution, revision, lossless]);
-  const contentKey = JSON.stringify([path, recipe, revision]);
+  const contentKey = JSON.stringify([path, recipe, revision, lossless]);
   const [frame, setFrame] = useState<BrowserViewFrame | null>(null);
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
   const urlRef = useRef<string | null>(null);
@@ -83,7 +83,7 @@ export function useBrowserViewPreview(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [path, recipe, resolution, revision, key, contentKey]);
+  }, [path, recipe, resolution, lossless, key, contentKey]);
   useEffect(
     () => () => {
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);

@@ -10,7 +10,7 @@ export interface ImageCacheEntry {
   adjustments: Adjustments;
   histogram: EditorState['histogram'];
   waveform: EditorState['waveform'];
-  finalPreviewUrl: string | null;
+  finalPreview: EditorState['finalPreview'];
   uncroppedPreviewUrl: string | null;
   selectedImage: SelectedImage;
   originalSize: { width: number; height: number };
@@ -33,7 +33,7 @@ class ImageLRUCache {
     this.cache.delete(key);
     this.cache.set(key, entry);
 
-    if (entry.finalPreviewUrl) this.protectedBlobUrls.delete(entry.finalPreviewUrl);
+    if (entry.finalPreview) this.protectedBlobUrls.delete(entry.finalPreview.url);
     if (entry.uncroppedPreviewUrl) this.protectedBlobUrls.delete(entry.uncroppedPreviewUrl);
 
     return entry;
@@ -57,8 +57,8 @@ class ImageLRUCache {
       }
     }
 
-    if (entry.finalPreviewUrl?.startsWith('blob:')) {
-      this.protectedBlobUrls.add(entry.finalPreviewUrl);
+    if (entry.finalPreview?.url.startsWith('blob:')) {
+      this.protectedBlobUrls.add(entry.finalPreview.url);
     }
     if (entry.uncroppedPreviewUrl?.startsWith('blob:')) {
       this.protectedBlobUrls.add(entry.uncroppedPreviewUrl);
@@ -98,13 +98,13 @@ class ImageLRUCache {
   private cleanupEntry(old: ImageCacheEntry, replacement?: ImageCacheEntry): void {
     const revokeIfUnused = (url: string | null) => {
       if (!url?.startsWith('blob:')) return;
-      const reused = replacement && (replacement.finalPreviewUrl === url || replacement.uncroppedPreviewUrl === url);
+      const reused = replacement && (replacement.finalPreview?.url === url || replacement.uncroppedPreviewUrl === url);
       if (!reused) {
         this.protectedBlobUrls.delete(url);
         URL.revokeObjectURL(url);
       }
     };
-    revokeIfUnused(old.finalPreviewUrl);
+    revokeIfUnused(old.finalPreview?.url ?? null);
     revokeIfUnused(old.uncroppedPreviewUrl);
   }
 }

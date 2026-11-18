@@ -43,6 +43,7 @@ pub struct PreviewJob {
     pub sequence: Option<u64>,
     pub adjustments: serde_json::Value,
     pub is_interactive: bool,
+    pub browser_full_zoom: bool,
     pub target_resolution: Option<u32>,
     pub roi: Option<(f32, f32, f32, f32)>,
     pub request_analytics: bool,

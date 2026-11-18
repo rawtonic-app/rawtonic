@@ -655,6 +655,7 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
         sequence: None,
         adjustments: refresh.adjustments,
         is_interactive: false,
+        browser_full_zoom: false,
         target_resolution: refresh.target_resolution,
         roi: None,
         request_analytics: refresh.request_analytics,

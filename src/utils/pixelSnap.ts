@@ -14,6 +14,11 @@ export function isOneToOne(zoom: number, fitScale: number, dpr: number): boolean
   return fitScale > 0 && Math.abs(zoom * fitScale * dpr - 1) < 1e-3;
 }
 
+/** Whether the viewer targets one device pixel per photo pixel or closer. */
+export function isFullPreviewZoom(zoom: number, fitScale: number, dpr: number): boolean {
+  return zoom * fitScale * dpr >= 0.999;
+}
+
 /**
  * The pan (`position`, CSS px) nearest to it at which the photograph's
  * left (top) edge, `offset` CSS px into the scaled content, lies on a whole

@@ -49,7 +49,7 @@ import SplitViewOverlay, { ViewerBeforeBadge } from './editor/SplitViewOverlay';
 import { anchoredAt, keepMagnification } from '../../utils/beforeAfter';
 import BrowserBeforePane from './editor/BrowserBeforePane';
 import { compositeWhileMoving } from '../../utils/layerWhileMoving';
-import { isOneToOne, snapToDevicePixel } from '../../utils/pixelSnap';
+import { isFullPreviewZoom, isOneToOne, snapToDevicePixel } from '../../utils/pixelSnap';
 import {
   MIN_VIEWER_ZOOM,
   cropModeBox,
@@ -165,7 +165,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const selectedImage = useEditorStore((s) => s.selectedImage);
   const adjustments = useEditorStore((s) => s.adjustments);
   const layerSolo = useEditorStore((s) => s.layerSolo);
-  const finalPreviewUrl = useEditorStore((s) => s.finalPreviewUrl);
+  const finalPreviewUrl = useEditorStore((s) => s.finalPreview?.url ?? null);
   const uncroppedAdjustedPreviewUrl = useEditorStore((s) => s.uncroppedAdjustedPreviewUrl);
   const interactivePatch = useEditorStore((s) => s.interactivePatch);
   const showOriginal = useEditorStore((s) => s.showOriginal);
@@ -358,8 +358,13 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   }, []);
 
   const handleDisplaySizeChange = useCallback(
-    (size: RenderSize) => {
-      setEditor({ displaySize: { width: size.width, height: size.height } });
+    (size: RenderSize, fitScale: number) => {
+      setEditor({
+        displaySize: { width: size.width, height: size.height },
+        ...(osPlatform === 'linux'
+          ? { browserFullZoom: isFullPreviewZoom(size.scale, fitScale, window.devicePixelRatio || 1) }
+          : {})
+      });
       if (size.scale) {
         const baseWidth = size.width / size.scale;
         const baseHeight = size.height / size.scale;
@@ -374,7 +379,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         setEditor({ baseRenderSize: newSize });
       }
     },
-    [setEditor]
+    [osPlatform, setEditor]
   );
 
   const handleZoomed = useCallback(
@@ -506,15 +511,18 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     (scale: number) => {
       const size = imageRenderSizeRef.current;
       if (size.width <= 0) return;
-      handleDisplaySizeChange({
-        width: size.width * scale,
-        height: size.height * scale,
-        scale,
-        offsetX: size.offsetX,
-        offsetY: size.offsetY,
-        containerWidth: imageContainerRef.current?.clientWidth || 0,
-        containerHeight: imageContainerRef.current?.clientHeight || 0
-      });
+      handleDisplaySizeChange(
+        {
+          width: size.width * scale,
+          height: size.height * scale,
+          scale,
+          offsetX: size.offsetX,
+          offsetY: size.offsetY,
+          containerWidth: imageContainerRef.current?.clientWidth || 0,
+          containerHeight: imageContainerRef.current?.clientHeight || 0
+        },
+        size.scale
+      );
     },
     [handleDisplaySizeChange]
   );
@@ -2591,6 +2599,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   browserFramesRef.current = !isWgpuActive;
   // Both panes draw the same snapped pan (side by side's before pane too).
   const shownView = shownTransform(transformState);
+  const zoomTarget = animationTargetRef.current?.scale ?? transformState.scale;
   // The before pane only navigates: the zoom and pan cursors of the viewer.
   const beforePaneCursor =
     isPanningState && (isMiddleMousePanning.current || isZoomActionActive)
@@ -2662,6 +2671,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
                 adjustments={adjustments}
                 size={imageRenderSize}
                 transform={shownView}
+                zoomTarget={zoomTarget}
                 enabled={canRenderSource(selectedImage)}
                 decoded={selectedImage.isDecoded}
               />
@@ -2745,6 +2755,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
               isMaxZoom={isMaxZoom}
               liveRotation={liveRotation}
               transformState={transformState}
+              zoomTarget={zoomTarget}
               hasRenderedFirstFrame={hasRenderedFirstFrame}
               maskHitTestRef={maskHitTestRef}
             />

@@ -15,7 +15,7 @@ it('does not retain full camera JPEG placeholders in the twenty-image editor cac
     adjustments: INITIAL_ADJUSTMENTS,
     histogram: null,
     waveform: null,
-    finalPreviewUrl: null,
+    finalPreview: null,
     uncroppedPreviewUrl: null,
     selectedImage: { thumbnailUrl: url, thumbnailSource: 'embedded' } as SelectedImage,
     originalSize: { width: 1, height: 1 },

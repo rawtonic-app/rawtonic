@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **Linux Before/After zoom keeps both sides in the same format.** When zooming to 100%, Before waits for the JPEG After frame. Cached previews retain their format when switching photos.
+
 - **XMP sidecars and XML presets have bounded reads and parsing.** The app limits packet size, nesting and XML structure when reading or merging sidecars and importing Lightroom presets or Capture One styles.
 
 - **Windows laptops with integrated AMD graphics: loaded AI models can stay loaded beside a background shader compile.** Before such a compile the app unloaded the AI masking models, so the next Subject mask loaded them again (7–9 s on a Radeon 680M laptop; a later Subject mask took 21 s instead of 12 s). The models now stay loaded when, after the caches the compile frees anyway, the memory available beside the compile covers its expected peak (4.5 GB) with 2 GB to spare and the app is within its share; otherwise, under memory pressure and around exports they are unloaded as before. The app log gives the numbers of each decision. Whether later masks on that laptop now skip the reload is not measured yet.

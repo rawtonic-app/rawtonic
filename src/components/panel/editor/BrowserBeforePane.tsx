@@ -14,6 +14,7 @@ export default function BrowserBeforePane({
   adjustments,
   size,
   transform,
+  zoomTarget,
   enabled,
   decoded
 }: {
@@ -21,12 +22,20 @@ export default function BrowserBeforePane({
   adjustments: Adjustments;
   size: RenderSize;
   transform: { scale: number; positionX: number; positionY: number };
+  zoomTarget?: number;
   enabled: boolean;
   decoded?: boolean;
 }) {
   const linux = useSettingsStore((s) => s.osPlatform === 'linux');
   const active = linux && enabled && size.width > 0 && size.height > 0;
-  const { frame, error } = useBrowserBeforeFrame({ path, adjustments, size, transform, active, decoded });
+  const { frame, error } = useBrowserBeforeFrame({
+    path,
+    adjustments,
+    size,
+    zoomTarget: zoomTarget ?? transform.scale,
+    active,
+    decoded
+  });
   if (!active) return null;
   return (
     <div
