@@ -133,19 +133,123 @@ fn app_memory(system: &mut sysinfo::System) -> Option<u64> {
     #[cfg(not(target_os = "macos"))]
     {
         let pid = sysinfo::get_current_pid().ok()?;
-        system.refresh_processes_specifics(
-            sysinfo::ProcessesToUpdate::Some(&[pid]),
-            false,
-            sysinfo::ProcessRefreshKind::nothing().with_memory(),
-        );
-        system.process(pid).map(|process| {
-            if cfg!(windows) {
-                process.virtual_memory()
-            } else {
-                process.memory()
-            }
+        process_memory(system, pid)
+    }
+}
+
+/// Private memory a helper process of an idle shader compile reaches when
+/// it compiles cold, the most measured on a Radeon 680M for the planned
+/// variants: 4379 MB (WCC11 r19), 4.44 GB (WCOLD2), 4024–4692 MB
+/// (WCOLD2B/C); a helper the pipeline cache answers stays near 0.3 GB. The
+/// once-per-computer Glow + Halation helper (5113 MB, WCOLD2B) still leaves
+/// more than `low_threshold` free inside the margin of
+/// `models_beside_helper` (G76).
+pub const COLD_HELPER_PEAK: u64 = 4_500_000_000;
+
+/// Memory now, for whether the loaded AI models may stay beside a helper
+/// process's idle compile (`models_beside_helper`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BesideHelper {
+    /// Physical memory.
+    pub total: u64,
+    /// What the system has available.
+    pub available: u64,
+    /// The app's own memory (`app_memory`, the loaded models included).
+    pub own: Option<u64>,
+    /// What the helper may still commit: `COLD_HELPER_PEAK` less what it
+    /// holds already.
+    pub helper_more: u64,
+    /// The system's memory pressure.
+    pub level: Option<Level>,
+}
+
+impl BesideHelper {
+    /// Reads the memory now; `helper`: the running helper's process id
+    /// (None: the compile has not started, it may still commit all of
+    /// `COLD_HELPER_PEAK`). None when the memory cannot be read.
+    pub fn now(helper: Option<u32>) -> Option<Self> {
+        let level = level_now();
+        let mut system = sysinfo::System::new();
+        system.refresh_memory();
+        let total = system.total_memory();
+        if total == 0 {
+            return None;
+        }
+        let own = app_memory(&mut system);
+        let held = helper.and_then(|pid| process_memory(&mut system, sysinfo::Pid::from_u32(pid)));
+        Some(Self {
+            total,
+            available: system.available_memory(),
+            own,
+            helper_more: helper_more(held),
+            level,
         })
     }
+}
+
+/// What a helper holding `held` (None: not started) may still commit.
+fn helper_more(held: Option<u64>) -> u64 {
+    COLD_HELPER_PEAK.saturating_sub(held.unwrap_or(0))
+}
+
+/// Whether the loaded AI models may stay loaded beside a helper process's
+/// idle shader compile: `Ok` when the app, models included, is within its
+/// share of the physical memory (`WORK_SHARE`) and the system keeps twice
+/// `low_threshold` available after the helper reaches its peak; `Err`
+/// (unload) otherwise and under memory pressure. The text gives the
+/// numbers either way, for the log line.
+///
+/// A mask the photographer clicks should not pay a model reload (7–9 s on
+/// a Radeon 680M, a Subject mask 21 s instead of 12 s) because the app
+/// compiles in the background (coordinator decision AIW3, G76/WAIW1). The
+/// models are already counted in the app's and the system's memory; a
+/// network does not run beside the helper (`ai_lifecycle::turn`), so
+/// keeping them costs only their resident memory (Subject on the CPU about
+/// 1 GB). The helper is another process: its peak comes off the system's
+/// available memory, not the app's share.
+pub fn models_beside_helper(memory: &BesideHelper) -> Result<String, String> {
+    const GB: f64 = 1e9;
+    let margin = 2 * low_threshold(memory.total);
+    let share = (memory.total as f64 * WORK_SHARE) as u64;
+    let own = memory.own.map_or_else(
+        || "unknown".to_string(),
+        |own| format!("{:.1} GB", own as f64 / GB),
+    );
+    let numbers = format!(
+        "{:.1} GB available of {:.1} GB, the helper may commit {:.1} GB more, {:.1} GB kept free; app {own} (share {:.1} GB)",
+        memory.available as f64 / GB,
+        memory.total as f64 / GB,
+        memory.helper_more as f64 / GB,
+        margin as f64 / GB,
+        share as f64 / GB,
+    );
+    if let Some(level) = memory.level {
+        return Err(format!("memory pressure ({level:?}); {numbers}"));
+    }
+    if memory.own.is_some_and(|own| own > share) {
+        return Err(format!("the app is above its share; {numbers}"));
+    }
+    if memory.available < memory.helper_more.saturating_add(margin) {
+        return Err(format!("too little available beside the helper; {numbers}"));
+    }
+    Ok(numbers)
+}
+
+/// A process's own memory, as `app_memory` counts it (Private Bytes on
+/// Windows, resident memory elsewhere).
+fn process_memory(system: &mut sysinfo::System, pid: sysinfo::Pid) -> Option<u64> {
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&[pid]),
+        false,
+        sysinfo::ProcessRefreshKind::nothing().with_memory(),
+    );
+    system.process(pid).map(|process| {
+        if cfg!(windows) {
+            process.virtual_memory()
+        } else {
+            process.memory()
+        }
+    })
 }
 
 /// Share of the physical memory above which the app's private memory holds
@@ -236,7 +340,7 @@ pub fn guard_idle_compiles(app_handle: &tauri::AppHandle) {
     // beside 4.44 GB on a Radeon 680M).
     let app = app_handle.clone();
     rawtonic_gpu::gpu_processing::set_before_export_compile(Box::new(move || {
-        crate::ai_lifecycle::before_idle_compile(&app);
+        crate::ai_lifecycle::before_export_compile(&app);
         release_rebuildable_memory(&app);
     }));
 }
@@ -514,6 +618,58 @@ mod tests {
         assert_eq!(idle_compile_verdict(Some(GB), total, None, later), Ok(()));
         // Unknown readings do not hold.
         assert_eq!(idle_compile_verdict(None, 0, None, None), Ok(()));
+    }
+
+    /// The Radeon 680M laptop (14 GB) of G76/WAIW1 Run A: app 1.9 GB + the
+    /// Subject model on the CPU 1.0 GB, a cold helper up to 4.5 GB. The
+    /// models stay when the system keeps 2 GiB free beside the helper's
+    /// peak, and go when it would not, the app is above its share or the
+    /// system is short of memory.
+    #[test]
+    fn loaded_models_stay_beside_a_helper_when_the_memory_covers_it() {
+        let total = 14 * GB;
+        let app = Some(29 * GB / 10);
+        let memory = |available, held, level| BesideHelper {
+            total,
+            available,
+            own: app,
+            helper_more: helper_more(held),
+            level,
+        };
+        // Before the compile (the helper may commit all 4.5 GB): 8 GiB
+        // available covers it with 2 GiB to spare, 6 GiB does not.
+        let kept = models_beside_helper(&memory(8 * GB, None, None));
+        assert!(kept.unwrap().contains("4.5 GB more"));
+        let short = models_beside_helper(&memory(6 * GB, None, None));
+        assert!(short.unwrap_err().starts_with("too little available"));
+        // A helper holding 1.1 GB already may commit 3.4 GB more: 6 GiB
+        // available covers that; 5 GiB does not.
+        let held = Some(1_100_000_000);
+        assert!(models_beside_helper(&memory(6 * GB, held, None)).is_ok());
+        assert!(models_beside_helper(&memory(5 * GB, held, None)).is_err());
+        // At or past its peak it commits nothing more.
+        assert_eq!(helper_more(Some(COLD_HELPER_PEAK + 1)), 0);
+        // Memory pressure unloads however much is available.
+        for level in [Level::Warn, Level::Critical] {
+            let pressure = models_beside_helper(&memory(10 * GB, None, Some(level)));
+            assert!(pressure.unwrap_err().starts_with("memory pressure"));
+        }
+        // The app above its share (45 % of 14 GiB = 6.3 GiB) unloads.
+        let large = BesideHelper {
+            own: Some(65 * GB / 10),
+            ..memory(10 * GB, None, None)
+        };
+        assert!(
+            models_beside_helper(&large)
+                .unwrap_err()
+                .starts_with("the app is above")
+        );
+        // An unknown app memory leaves the system's check.
+        let unknown = BesideHelper {
+            own: None,
+            ..memory(8 * GB, None, None)
+        };
+        assert!(models_beside_helper(&unknown).is_ok());
     }
 
     #[test]
