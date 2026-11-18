@@ -32,14 +32,16 @@
 //! when older than `rawtonic_fs::temp::STALE_AGE`.
 
 use std::collections::BTreeSet;
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
+use rawtonic_fs::anchored::Directory;
 
 use crate::ModelKind;
 
@@ -101,6 +103,7 @@ pub(crate) struct Entry {
 pub(crate) struct Save {
     entry_key: String,
     dir: PathBuf,
+    directory: Directory,
     /// The temporary name ONNX Runtime writes the graph to.
     pub(crate) graph_temp: PathBuf,
     graph: PathBuf,
@@ -120,11 +123,7 @@ impl Entry {
     /// its parent) that is a link is refused: the cache writes and removes
     /// files only in a folder of the app's own.
     fn for_runtime(dir: &Path, source: &Path, kind: ModelKind, runtime: &str) -> Result<Self> {
-        ensure!(
-            !is_linked(dir),
-            "{} is a link or not a folder",
-            dir.display()
-        );
+        refuse_linked(dir)?;
         let meta = fs::metadata(source).with_context(|| format!("reading {}", source.display()))?;
         let text = key_text(source, &meta, kind, runtime);
         let key = blake3::hash(text.as_bytes()).to_hex()[..32].to_string();
@@ -138,7 +137,11 @@ impl Entry {
     }
 
     fn manifest_path(&self) -> PathBuf {
-        self.dir.join(format!("{}.{MANIFEST}", self.key))
+        self.dir.join(self.manifest_name())
+    }
+
+    fn manifest_name(&self) -> String {
+        format!("{}.{MANIFEST}", self.key)
     }
 
     /// The entry, when it is there and intact (an error: it is there and
@@ -208,17 +211,25 @@ impl Entry {
     /// Removes the entry: its manifest first (so nothing uses it), then the
     /// files it names. Only plain files of this key in the folder go.
     pub(crate) fn discard(&self) {
-        let manifest = fs::read_to_string(self.manifest_path())
-            .ok()
-            .and_then(|text| Manifest::parse(&text).ok());
-        remove_file(&self.manifest_path());
+        let Ok(directory) = open_directory(&self.dir) else {
+            return;
+        };
+        let manifest = self.read_manifest(&directory);
+        let _ = directory.remove_file(OsStr::new(&self.manifest_name()), None);
         if let Some(manifest) = manifest {
             for file in manifest.graph.iter().chain(manifest.data.as_ref()) {
                 if self.is_entry_file(&file.name) {
-                    remove_file(&self.dir.join(&file.name));
+                    let _ = directory.remove_file(OsStr::new(&file.name), None);
                 }
             }
         }
+    }
+
+    fn read_manifest(&self, directory: &Directory) -> Option<Manifest> {
+        let text = directory
+            .read_to_string(OsStr::new(&self.manifest_name()))
+            .ok()?;
+        Manifest::parse(&text).ok()
     }
 
     /// Starts a save: checks that the folder takes a file and has the free
@@ -235,11 +246,14 @@ impl Entry {
                 .contains(&self.key),
             "it failed before in this process"
         );
+        refuse_linked(&self.dir)?;
         fs::create_dir_all(&self.dir)
             .with_context(|| format!("creating {}", self.dir.display()))?;
+        let directory = open_directory(&self.dir)?;
+        let now = SystemTime::now();
         // Before the space check: an interrupted save of any key (an older
         // runtime or model) may be what fills the disk.
-        sweep_staging(&self.dir, SystemTime::now());
+        sweep_staging(&self.dir, &directory, now);
         drop(
             rawtonic_fs::temp::file_for(&self.manifest_path())
                 .with_context(|| format!("{} takes no file", self.dir.display()))?,
@@ -252,7 +266,7 @@ impl Entry {
             free >> 20,
             needed >> 20
         );
-        self.remove_leftovers(SystemTime::now());
+        self.remove_leftovers(&directory, now);
         let id = unique_id();
         let graph = self.dir.join(format!("{}-{id}.{GRAPH}", self.key));
         let graph_temp = self
@@ -261,6 +275,7 @@ impl Entry {
         Ok(Save {
             entry_key: self.text.clone(),
             dir: self.dir.clone(),
+            directory,
             graph_temp,
             graph,
             data_name: format!("{}-{id}.{DATA}", self.key),
@@ -270,37 +285,32 @@ impl Entry {
     /// Files of this key that no manifest names and that are older than a
     /// save can take, and this key's stale temporary files: only names that
     /// start with the key (32 hex digits) are ever removed.
-    fn remove_leftovers(&self, now: SystemTime) {
+    fn remove_leftovers(&self, directory: &Directory, now: SystemTime) {
         // The graph's (`<prefix>K-ID.onnx-part`) and the manifest's
         // (`<prefix>K.manifest-…`) temporary names.
         let temp = format!("{}{}", rawtonic_fs::temp::TEMP_PREFIX, self.key);
-        let named: Vec<String> = fs::read_to_string(self.manifest_path())
-            .ok()
-            .and_then(|text| Manifest::parse(&text).ok())
-            .map(|m| m.graph.into_iter().chain(m.data).map(|f| f.name).collect())
-            .unwrap_or_default();
+        let manifest = self.read_manifest(directory);
+        let Some(cutoff) = now.checked_sub(rawtonic_fs::temp::STALE_AGE) else {
+            return;
+        };
         let Ok(entries) = fs::read_dir(&self.dir) else {
             return;
         };
+        // Directory entries supply candidate names only. The manifest,
+        // file type, age and removal all use the held directory handle.
         for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with(&temp) {
-                if !is_linked(&self.dir) {
-                    let _ = rawtonic_fs::temp::remove_stale(&entry.path(), now);
-                }
+            let name = entry.file_name();
+            let Some(text) = name.to_str() else {
                 continue;
-            }
-            if !self.is_entry_file(&name) || named.contains(&name) {
-                continue;
-            }
-            let old = fs::symlink_metadata(entry.path())
-                .ok()
-                .filter(|m| m.is_file())
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| now.duration_since(t).ok())
-                .is_some_and(|age| age >= rawtonic_fs::temp::STALE_AGE);
-            if old {
-                remove_file(&entry.path());
+            };
+            let named = manifest.as_ref().is_some_and(|m| {
+                m.graph
+                    .iter()
+                    .chain(m.data.as_ref())
+                    .any(|f| f.name == text)
+            });
+            if text.starts_with(&temp) || (self.is_entry_file(text) && !named) {
+                let _ = directory.remove_file(&name, Some(cutoff));
             }
         }
     }
@@ -345,8 +355,8 @@ impl Save {
         rawtonic_fs::rename_no_clobber(&self.graph_temp, &self.graph)?;
         let result = self.write_manifest(entry, Some(&self.graph), has_data.then_some(&data));
         if result.is_err() {
-            remove_file(&self.graph);
-            remove_file(&data);
+            self.remove_output(&self.graph);
+            self.remove_output(&data);
         }
         result.map(|()| Kept::Yes)
     }
@@ -397,8 +407,16 @@ impl Save {
     }
 
     fn abandon_files(&self) {
-        remove_file(&self.graph_temp);
-        remove_file(&self.dir.join(&self.data_name));
+        self.remove_output(&self.graph_temp);
+        let _ = self
+            .directory
+            .remove_file(OsStr::new(&self.data_name), None);
+    }
+
+    fn remove_output(&self, path: &Path) {
+        if let Some(name) = path.file_name() {
+            let _ = self.directory.remove_file(name, None);
+        }
     }
 }
 
@@ -515,43 +533,76 @@ fn touch(path: &Path, now: SystemTime) {
 /// Removes the stale temporary files of every entry's saves in `dir`
 /// (`<prefix>K…` with `K` 32 hex digits): Storage keeps dot-prefixed
 /// staging files, and an older key's are never swept by its own saves.
-fn sweep_staging(dir: &Path, now: SystemTime) {
+fn sweep_staging(dir: &Path, directory: &Directory, now: SystemTime) {
+    let Some(cutoff) = now.checked_sub(rawtonic_fs::temp::STALE_AGE) else {
+        return;
+    };
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
+        let name = entry.file_name();
         let ours = name
-            .strip_prefix(rawtonic_fs::temp::TEMP_PREFIX)
+            .to_str()
+            .and_then(|name| name.strip_prefix(rawtonic_fs::temp::TEMP_PREFIX))
             .and_then(|rest| rest.get(..32))
             .is_some_and(|key| key.bytes().all(|b| b.is_ascii_hexdigit()));
-        if ours && !is_linked(dir) {
-            let _ = rawtonic_fs::temp::remove_stale(&entry.path(), now);
+        if ours {
+            let _ = directory.remove_file(&name, Some(cutoff));
         }
     }
 }
 
-/// Whether `dir` or its parent is a link (or not a folder) now. Checked
-/// when the entry is made and again right before every removal, so a cache
-/// folder replaced by a link meanwhile loses nothing (and only names that
-/// start with an entry's key are ever removed).
-fn is_linked(dir: &Path) -> bool {
-    [Some(dir), dir.parent()]
+#[derive(Debug)]
+pub(crate) struct LinkedCache;
+
+impl std::fmt::Display for LinkedCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("optimized graph cache folder or its parent is a link or not a folder")
+    }
+}
+
+impl std::error::Error for LinkedCache {}
+
+fn report_linked(dir: &Path) -> LinkedCache {
+    static LOGGED: AtomicBool = AtomicBool::new(false);
+    if !LOGGED.swap(true, Ordering::Relaxed) {
+        log::warn!("{}: {LinkedCache}", dir.display());
+    }
+    LinkedCache
+}
+
+/// Preflight for lookup and save, which also work before the folder exists.
+/// Removal uses a no-follow directory handle independently of this check.
+fn refuse_linked(dir: &Path) -> Result<()> {
+    let invalid = [Some(dir), dir.parent()]
         .into_iter()
         .flatten()
         .any(|folder| {
-            fs::symlink_metadata(folder).is_ok_and(|m| !m.is_dir() || m.file_type().is_symlink())
-        })
+            fs::symlink_metadata(folder).is_ok_and(|meta| {
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::MetadataExt;
+                    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+                    if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                        return true;
+                    }
+                }
+                !meta.is_dir() || meta.file_type().is_symlink()
+            })
+        });
+    if invalid {
+        return Err(report_linked(dir).into());
+    }
+    Ok(())
 }
 
-/// Removes a plain file of ours; a missing one is fine, a link stays, and
-/// nothing goes when its folder became a link (`is_linked`).
-fn remove_file(path: &Path) {
-    if path.parent().is_some_and(is_linked) {
-        return;
-    }
-    if fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
-        let _ = fs::remove_file(path);
+fn open_directory(dir: &Path) -> Result<Directory> {
+    match Directory::open(dir) {
+        Ok(directory) => Ok(directory),
+        Err(error) if error.kind() == io::ErrorKind::InvalidInput => Err(report_linked(dir).into()),
+        Err(error) => Err(error).with_context(|| format!("opening {}", dir.display())),
     }
 }
 
@@ -778,9 +829,13 @@ mod tests {
         let unrelated = cache.join("notes.txt");
         fs::write(&orphan, b"orphan").unwrap();
         fs::write(&unrelated, b"not ours").unwrap();
-        entry.remove_leftovers(SystemTime::now());
+        let directory = open_directory(&cache).unwrap();
+        entry.remove_leftovers(&directory, SystemTime::now());
         assert!(orphan.exists());
-        entry.remove_leftovers(SystemTime::now() + rawtonic_fs::temp::STALE_AGE * 2);
+        entry.remove_leftovers(
+            &directory,
+            SystemTime::now() + rawtonic_fs::temp::STALE_AGE * 2,
+        );
         assert!(!orphan.exists());
         assert!(unrelated.exists());
         let _ = fs::remove_dir_all(dir);
@@ -823,15 +878,25 @@ mod tests {
         let _ = fs::remove_dir_all(dir);
     }
 
-    #[cfg(unix)]
     #[test]
-    fn a_linked_cache_folder_is_refused_and_other_temporary_files_stay() {
+    fn a_linked_cache_folder_is_refused() {
+        #[cfg(unix)]
+        use std::os::unix::fs::symlink as symlink_dir;
+        #[cfg(windows)]
+        use std::os::windows::fs::symlink_dir;
+
         let dir = scratch("links");
         let source = dir.join("model.onnx");
         fs::write(&source, b"source model").unwrap();
         let photos = dir.join("photos");
         fs::create_dir(&photos).unwrap();
-        std::os::unix::fs::symlink(&photos, dir.join("linked")).unwrap();
+        symlink_dir(&photos, dir.join("linked")).unwrap();
+        assert!(
+            open_directory(&dir.join("linked"))
+                .err()
+                .unwrap()
+                .is::<LinkedCache>()
+        );
         let error = test_entry(&dir.join("linked"), &source, ModelKind::Subject)
             .err()
             .expect("refused");
@@ -853,7 +918,7 @@ mod tests {
         fs::create_dir(&swapped).unwrap();
         let entry = test_entry(&swapped, &source, ModelKind::Subject).unwrap();
         fs::rename(&swapped, dir.join("old-cache")).unwrap();
-        std::os::unix::fs::symlink(&photos, &swapped).unwrap();
+        symlink_dir(&photos, &swapped).unwrap();
         let named = photos.join(format!("{}-1.{DATA}", entry.key));
         let temp = photos.join(format!(
             "{}{}.manifest-x",
@@ -867,14 +932,22 @@ mod tests {
             b"not ours",
         )
         .unwrap();
-        entry.remove_leftovers(SystemTime::now() + rawtonic_fs::temp::STALE_AGE * 2);
+        assert!(entry.start_save().err().unwrap().is::<LinkedCache>());
         entry.discard();
         assert!(named.exists() && temp.exists());
         assert!(photos.join(format!("{}.{MANIFEST}", entry.key)).exists());
+        let _ = fs::remove_dir_all(dir);
+    }
 
+    #[test]
+    fn only_optimized_cache_staging_files_are_swept() {
+        let dir = scratch("staging");
+        let source = dir.join("model.onnx");
+        fs::write(&source, b"source model").unwrap();
         // Another job's old temporary file in the cache folder stays.
         let cache = dir.join("cache");
         fs::create_dir(&cache).unwrap();
+        let directory = open_directory(&cache).unwrap();
 
         // An older key's stale staging file goes with the next save of any
         // key; one not yet stale stays.
@@ -884,9 +957,13 @@ mod tests {
             "0123456789abcdef0123456789abcdef"
         ));
         fs::write(&old_key, b"old").unwrap();
-        sweep_staging(&cache, SystemTime::now());
+        sweep_staging(&cache, &directory, SystemTime::now());
         assert!(old_key.exists());
-        sweep_staging(&cache, SystemTime::now() + rawtonic_fs::temp::STALE_AGE * 2);
+        sweep_staging(
+            &cache,
+            &directory,
+            SystemTime::now() + rawtonic_fs::temp::STALE_AGE * 2,
+        );
         assert!(!old_key.exists());
 
         let other = cache.join(format!("{}photo.jpg-x", rawtonic_fs::temp::TEMP_PREFIX));
@@ -903,7 +980,10 @@ mod tests {
             .keep()
             .unwrap();
         fs::write(&ours, b"ours").unwrap();
-        entry.remove_leftovers(SystemTime::now() + rawtonic_fs::temp::STALE_AGE * 2);
+        entry.remove_leftovers(
+            &directory,
+            SystemTime::now() + rawtonic_fs::temp::STALE_AGE * 2,
+        );
         assert!(other.exists());
         assert!(!ours.exists());
         assert!(!manifest_temp.exists());

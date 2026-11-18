@@ -738,6 +738,7 @@ fn session_with(
             Ok(entry) => {
                 return cpu_session_cached(path, kind, threads, &entry, optimized::KEEP_FROM);
             }
+            Err(e) if e.is::<optimized::LinkedCache>() => {}
             Err(e) => log::info!("AI {}: no optimized graph: {e:#}", kind.name()),
         }
     }
@@ -793,7 +794,9 @@ fn cpu_session_cached(
     let save = match entry.start_save() {
         Ok(save) => save,
         Err(e) => {
-            log::info!("AI {}: optimized graph not saved: {e:#}", kind.name());
+            if !e.is::<optimized::LinkedCache>() {
+                log::info!("AI {}: optimized graph not saved: {e:#}", kind.name());
+            }
             return Ok(builder(kind, None, threads)?.commit_from_file(path)?);
         }
     };

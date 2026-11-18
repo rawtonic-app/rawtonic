@@ -4,6 +4,8 @@
 //! deletes or replaces a file other than the one a caller names to be
 //! replaced. It also detects volumes ([`volume`]).
 #![warn(clippy::undocumented_unsafe_blocks)]
+#[cfg(any(unix, windows))]
+pub mod anchored;
 pub mod no_clobber;
 mod rename;
 pub mod staging;
