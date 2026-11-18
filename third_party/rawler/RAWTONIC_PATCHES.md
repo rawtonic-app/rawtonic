@@ -542,3 +542,11 @@ non-zero shift. The mutation suites run in separate test processes so the
 watchdog can kill and reap a stuck decoder. The synthetic suite allows
 5 seconds without progress and 120 seconds total, and the optional corpus
 suite allows 120 seconds without progress and 600 seconds total.
+
+## Header-only file access (2026-11-18, RAWC2, G61)
+
+- `src/rawsource.rs` (`RawSource::new_lazy`): maps a file without
+  `populate` and without read-ahead advice. `rawtonic-rawdecode::raw_tiff`
+  uses it to tell raw TIFFs (Phase One, Canon EOS-1D/1Ds, Kodak DCS) from
+  RGB TIFFs while listing folders, where `RawSource::new` would read every
+  TIFF in full on Linux. Evidence: notes benchmark-results/rawc2-2026-11-18/.

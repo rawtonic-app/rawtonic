@@ -26,6 +26,31 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Whether this metadata describes a file evicted by macOS File Provider.
+#[cfg(target_os = "macos")]
+pub fn is_cloud_placeholder_metadata(metadata: &fs::Metadata) -> bool {
+    use std::os::macos::fs::MetadataExt;
+
+    const SF_DATALESS: u32 = 0x4000_0000;
+    metadata.st_flags() & SF_DATALESS != 0
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn is_cloud_placeholder_metadata(_metadata: &fs::Metadata) -> bool {
+    false
+}
+
+/// Whether a path points to an evicted cloud file, without opening it.
+#[cfg(target_os = "macos")]
+pub fn is_cloud_placeholder(path: &Path) -> bool {
+    fs::metadata(path).is_ok_and(|metadata| is_cloud_placeholder_metadata(&metadata))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn is_cloud_placeholder(_path: &Path) -> bool {
+    false
+}
+
 /// Lowercase hex of `bytes` (a digest), two digits per byte.
 pub fn hex(bytes: impl AsRef<[u8]>) -> String {
     use std::fmt::Write as _;

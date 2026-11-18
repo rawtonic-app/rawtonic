@@ -10,6 +10,7 @@ use crate::state::library::{LibraryState, PendingMetadata};
 use crate::state::lock::lock_recover;
 use crate::state::thumbnails::ThumbnailState;
 use rawtonic_fs::Canonical;
+pub use rawtonic_fs::is_cloud_placeholder;
 use rawtonic_metadata::photo_ref::{self, CopyId, PhotoRef};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -789,25 +790,6 @@ pub fn list_images_recursive(
     ));
     assign_group_ids(&mut result_list, &settings);
     Ok(result_list)
-}
-
-/// Checks if the given path exists and is an iCloud placeholder file on macOS.
-#[cfg(target_os = "macos")]
-pub fn is_cloud_placeholder(path: &Path) -> bool {
-    const SF_DATALESS: u32 = 0x4000_0000;
-
-    let c_path = match rawtonic_fs::c_path(path) {
-        Ok(p) => p,
-        Err(_) => return false,
-    };
-    let mut stat_buf: libc::stat = unsafe { std::mem::zeroed() };
-    let ret = unsafe { libc::lstat(c_path.as_ptr(), &mut stat_buf) };
-    ret == 0 && (stat_buf.st_flags & SF_DATALESS) != 0
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn is_cloud_placeholder(_path: &Path) -> bool {
-    false
 }
 
 #[cfg(test)]

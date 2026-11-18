@@ -114,9 +114,10 @@ impl ProofSheetRequest {
                 generated |=
                     rawtonic_engine::image_loader::has_generated_areas(&pinned.adjustments);
                 let Some(template) = template else {
-                    return String::new();
+                    return Ok(String::new());
                 };
                 let (source, _) = crate::file_management::parse_virtual_path(path);
+                rawtonic_export::file_export::require_local_tiff(&source)?;
                 let (sequence, last) = naming.filename_counter(first + offset, total);
                 let capture = rawtonic_naming::needs_capture(template)
                     .then(|| naming_capture(&source, pinned.metadata.as_ref()));
@@ -128,9 +129,9 @@ impl ProofSheetRequest {
                     "jpg",
                     capture.as_ref(),
                 );
-                caption(template, &context)
+                Ok(caption(template, &context))
             })
-            .collect();
+            .collect::<Result<Vec<_>, String>>()?;
         Ok((captions, generated))
     }
 

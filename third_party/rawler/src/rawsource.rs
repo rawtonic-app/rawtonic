@@ -38,6 +38,19 @@ impl RawSource {
     })
   }
 
+  // Rawtonic patch (RAWC2): new constructor.
+  /// Maps the file without reading it ahead (no `populate`, no
+  /// read-ahead advice), for callers that only look at a file's headers,
+  /// e.g. telling a raw TIFF from an RGB one while listing a folder.
+  pub fn new_lazy(path: &Path) -> std::io::Result<Self> {
+    let file = File::open(path)?;
+    let mmap = unsafe { MmapOptions::new().map(&file)? };
+    Ok(Self {
+      path: path.to_owned(),
+      inner: RawSourceImpl::Memmap(mmap),
+    })
+  }
+
   pub fn new_from_shared_vec(buf: Arc<Vec<u8>>) -> Self {
     Self {
       path: PathBuf::default(),
