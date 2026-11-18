@@ -258,6 +258,12 @@ fn show_cells(
         let Some(display) = display.as_mut() else {
             return false;
         };
+        // A newer layout (leaving the multi view while these stand-ins were
+        // decoded) is applied by its own request: this one must not
+        // overwrite it.
+        if worker.generation.load(Ordering::SeqCst) != generation {
+            return true;
+        }
         display.set_multi_view(
             &context.device,
             &context.queue,

@@ -76,8 +76,8 @@ interface PreviewRequest {
   dispatchAt?: number;
   /** The uncommitted brush stroke a live frame shows. */
   liveStroke?: LiveStroke;
-  /** A held preview starts or ends (a tool's before, the before peek): zoomed
-   * in, the native side shows the visible region before the whole frame. */
+  /** A held before starts or ends (a tool's, the whole photograph's peek):
+   * zoomed in, the native side shows the visible region before the whole frame. */
   regionFirst?: boolean;
 }
 
@@ -142,8 +142,8 @@ export function useImageProcessing(
   const appSettings = useSettingsStore((state) => state.appSettings);
 
   const uncroppedJobIdRef = useRef(0);
-  // The held preview last rendered (`previewOverride`), to tell its start and end.
-  const heldPreviewRef = useRef<Adjustments | null>(null);
+  // Whether the frame last rendered showed a held before, to tell its start and end.
+  const beforeHeldRef = useRef(false);
   const latestUncroppedJobIdRef = useRef(0);
 
   const lastAnalyticsTimeRef = useRef<number>(0);
@@ -905,10 +905,14 @@ export function useImageProcessing(
     } else {
       currentResRef.current = targetRes;
 
-      // A held preview starting or ending shows its visible region first.
-      const held = previewOverride !== heldPreviewRef.current;
-      heldPreviewRef.current = previewOverride;
-      applyAdjustments(renderAdjustments, false, targetRes, held);
+      // A held before (a tool's, or the whole photograph's peek) starting
+      // or ending shows its visible region first; other previews in place
+      // of the edit (a hovered style or preset) render as before.
+      const { toolBefore, showOriginal } = useEditorStore.getState();
+      const beforeHeld = previewOverride !== null && (toolBefore !== null || showOriginal);
+      const regionFirst = beforeHeld !== beforeHeldRef.current;
+      beforeHeldRef.current = beforeHeld;
+      applyAdjustments(renderAdjustments, false, targetRes, regionFirst);
 
       if (previewOverride) return;
 

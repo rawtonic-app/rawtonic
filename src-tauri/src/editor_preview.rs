@@ -1093,6 +1093,26 @@ pub(crate) async fn update_wgpu_transform(
     Ok(())
 }
 
+/// The pixels of a `width` × `height` frame that the normalised region
+/// `(x, y, w, h)` covers: its edges rounded and kept inside the frame (the
+/// size is taken from the rounded edges, so the region never ends past the
+/// frame's last pixel). None when nothing is left.
+fn pixel_region(
+    (nx, ny, nw, nh): (f32, f32, f32, f32),
+    width: u32,
+    height: u32,
+) -> Option<crate::gpu_processing::Roi> {
+    let edge = |v: f32, size: u32| ((v * size as f32).round().max(0.0) as u32).min(size);
+    let (x0, y0) = (edge(nx, width), edge(ny, height));
+    let (x1, y1) = (edge(nx + nw, width), edge(ny + nh, height));
+    (x1 > x0 && y1 > y0).then(|| crate::gpu_processing::Roi {
+        x: x0,
+        y: y0,
+        width: x1 - x0,
+        height: y1 - y0,
+    })
+}
+
 /// Prefix of preview errors where rendering itself failed (for example an
 /// invalid GPU shader), as opposed to a superseded or not-yet-loaded job.
 /// The webview matches it to tell the user instead of keeping a stale frame.
@@ -1964,12 +1984,7 @@ pub(crate) fn process_preview_job(
     // A drag's frame, or the first pass of a held preview's final frame
     // (`PreviewJob::region_first`): the visible region only.
     let pixel_roi = if is_interactive || region_only {
-        roi.map(|(nx, ny, nw, nh)| crate::gpu_processing::Roi {
-            x: (nx * preview_width as f32).round() as u32,
-            y: (ny * preview_height as f32).round() as u32,
-            width: (nw * preview_width as f32).round() as u32,
-            height: (nh * preview_height as f32).round() as u32,
-        })
+        roi.and_then(|roi| pixel_region(roi, preview_width, preview_height))
     } else {
         None
     };
@@ -2563,9 +2578,15 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                     },
                 );
             }
-            let result = gpu_processing::supersedable(
-                newer_request_waits(&app_handle, newest_sequence),
-                || {
+            // A newer request (the release of a held before) waiting after
+            // the region pass takes the worker before this whole frame.
+            let newer = newer_request_waits(&app_handle, newest_sequence);
+            let result = if region_first && newer() {
+                Err(CommandError::cancelled(
+                    "Superseded after the visible region".to_string(),
+                ))
+            } else {
+                gpu_processing::supersedable(newer, || {
                     process_preview_job(
                         &app_handle,
                         state,
@@ -2583,8 +2604,8 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                         job.generation,
                         false,
                     )
-                },
-            );
+                })
+            };
             #[cfg(feature = "performance-profiling")]
             log::info!(
                 "[PERF] {}",
@@ -4325,6 +4346,21 @@ mod preview_memory_tests {
         assert!(draft_warmup_of(&job(true, None, false)).is_none());
         assert!(draft_warmup_of(&job(false, Some((0.0, 0.0, 0.5, 0.5)), false)).is_none());
         assert!(draft_warmup_of(&job(false, None, true)).is_none());
+    }
+
+    #[test]
+    fn a_region_at_the_frames_edge_ends_inside_it() {
+        // The padded region at the right edge of a 6000 px frame: rounding
+        // its origin and size apart gave 2793 + 3208 = 6001.
+        let roi = pixel_region((0.4654, 0.1, 0.5347, 0.5), 6000, 4000).unwrap();
+        assert_eq!(roi.x + roi.width, 6000);
+        assert_eq!((roi.y, roi.height), (400, 2000));
+        assert!(pixel_region((0.2, 0.2, 0.0, 0.5), 6000, 4000).is_none());
+        let whole = pixel_region((-0.01, -0.01, 1.05, 1.05), 300, 200).unwrap();
+        assert_eq!(
+            (whole.x, whole.y, whole.width, whole.height),
+            (0, 0, 300, 200)
+        );
     }
 
     #[test]
