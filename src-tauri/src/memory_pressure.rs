@@ -133,7 +133,18 @@ fn app_memory(system: &mut sysinfo::System) -> Option<u64> {
     #[cfg(not(target_os = "macos"))]
     {
         let pid = sysinfo::get_current_pid().ok()?;
-        process_memory(system, pid)
+        system.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::Some(&[pid]),
+            false,
+            sysinfo::ProcessRefreshKind::nothing().with_memory(),
+        );
+        system.process(pid).map(|process| {
+            if cfg!(windows) {
+                process.virtual_memory()
+            } else {
+                process.memory()
+            }
+        })
     }
 }
 
@@ -156,8 +167,8 @@ pub struct BesideHelper {
     pub available: u64,
     /// The app's own memory (`app_memory`, the loaded models included).
     pub own: Option<u64>,
-    /// What the helper may still commit: `COLD_HELPER_PEAK` less what it
-    /// holds already.
+    /// What the helper may still take: `COLD_HELPER_PEAK` less what it
+    /// holds resident already.
     pub helper_more: u64,
     /// The system's memory pressure.
     pub level: Option<Level>,
@@ -176,7 +187,18 @@ impl BesideHelper {
             return None;
         }
         let own = app_memory(&mut system);
-        let held = helper.and_then(|pid| process_memory(&mut system, sysinfo::Pid::from_u32(pid)));
+        // Resident memory only (the working set on Windows): its Private
+        // Bytes include committed pages not yet in physical memory, which
+        // the available memory does not count off yet.
+        let held = helper.and_then(|pid| {
+            let pid = sysinfo::Pid::from_u32(pid);
+            system.refresh_processes_specifics(
+                sysinfo::ProcessesToUpdate::Some(&[pid]),
+                false,
+                sysinfo::ProcessRefreshKind::nothing().with_memory(),
+            );
+            system.process(pid).map(|process| process.memory())
+        });
         Some(Self {
             total,
             available: system.available_memory(),
@@ -233,23 +255,6 @@ pub fn models_beside_helper(memory: &BesideHelper) -> Result<String, String> {
         return Err(format!("too little available beside the helper; {numbers}"));
     }
     Ok(numbers)
-}
-
-/// A process's own memory, as `app_memory` counts it (Private Bytes on
-/// Windows, resident memory elsewhere).
-fn process_memory(system: &mut sysinfo::System, pid: sysinfo::Pid) -> Option<u64> {
-    system.refresh_processes_specifics(
-        sysinfo::ProcessesToUpdate::Some(&[pid]),
-        false,
-        sysinfo::ProcessRefreshKind::nothing().with_memory(),
-    );
-    system.process(pid).map(|process| {
-        if cfg!(windows) {
-            process.virtual_memory()
-        } else {
-            process.memory()
-        }
-    })
 }
 
 /// Share of the physical memory above which the app's private memory holds

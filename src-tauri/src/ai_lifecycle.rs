@@ -375,7 +375,7 @@ fn unload_unused_before_compile(app: &tauri::AppHandle, may_keep: bool) {
         rawtonic_gpu::gpu_processing::idle_compiles_in_helpers(),
         export_runs(app),
     ) {
-        if keeps_models_beside_helper(None, when) {
+        if keeps_models_beside_helper(app, None, when) {
             return;
         }
     } else {
@@ -396,6 +396,11 @@ fn memory_may_keep(idle: bool, in_helper: bool, export_runs: bool) -> bool {
     idle && in_helper && !export_runs
 }
 
+/// `memory_pressure::release_rebuildable_memory`.
+fn release_rebuildable(app: &tauri::AppHandle) {
+    crate::memory_pressure::release_rebuildable_memory(app);
+}
+
 fn export_runs(app: &tauri::AppHandle) -> bool {
     app.state::<crate::state::export::ExportState>().running()
 }
@@ -410,15 +415,25 @@ const KEPT_LOG_EVERY: Duration = Duration::from_secs(30);
 /// Whether the loaded masking models stay beside a helper process's idle
 /// compile (`helper`: its process id once it runs), by
 /// `memory_pressure::models_beside_helper`; one INFO line with the numbers
-/// either way (the "kept" line at most every `KEPT_LOG_EVERY`). Memory that
-/// cannot be read unloads, as before.
-fn keeps_models_beside_helper(helper: Option<u32>, when: &str) -> bool {
+/// either way (the "kept" line at most every `KEPT_LOG_EVERY`). When the
+/// memory does not cover it, the caches that rebuild on demand go first
+/// (they go before the compile anyway) and the memory is read again. Memory
+/// that cannot be read unloads, as before.
+fn keeps_models_beside_helper(app: &tauri::AppHandle, helper: Option<u32>, when: &str) -> bool {
     use crate::memory_pressure::{BesideHelper, models_beside_helper};
     let Some(memory) = BesideHelper::now(helper) else {
         log::info!("AI models: unloading them {when}: the memory cannot be read");
         return false;
     };
-    match models_beside_helper(&memory) {
+    // What the compile would release anyway goes first: the decision is
+    // made on the memory left after it, not before (review AIW3 r1).
+    let decision = models_beside_helper(&memory).or_else(|_| {
+        release_rebuildable(app);
+        BesideHelper::now(helper)
+            .ok_or_else(|| "the memory cannot be read".to_string())
+            .and_then(|memory| models_beside_helper(&memory))
+    });
+    match decision {
         Ok(numbers) => {
             let mut logged = lock_recover(&KEPT_LOGGED);
             if logged.is_none_or(|at| at.elapsed() >= KEPT_LOG_EVERY) {
@@ -497,7 +512,7 @@ pub fn release_for_cold_helper_compiles(app: &tauri::AppHandle) {
             if !memory_may_keep(true, true, export_runs(&app)) {
                 log::info!("AI models: unloading them {when}");
                 unload_and_notify(&app, UnloadReason::Idle);
-            } else if !keeps_models_beside_helper(Some(helper), when) {
+            } else if !keeps_models_beside_helper(&app, Some(helper), when) {
                 unload_and_notify(&app, UnloadReason::Idle);
             }
         }
