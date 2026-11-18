@@ -456,10 +456,10 @@ CUDA = [
 ORT130_OWN = [
     ("libonnxruntime-1.30.0-notelemetry-macos-aarch64.dylib",
      "49a8b6906c0e09c26e078bec8b53b1cfcb2be366e70cfa58b95bf812f9c57cde",
-     "Runtime for all models on Apple silicon Macs (bundled by the opt-in build, RAWTONIC_BUNDLE_ONNX=1)"),
+     "Candidate runtime for all models on Apple silicon Macs; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
     ("libonnxruntime-1.30.0-notelemetry-linux-x86_64.so",
      "620d32796c8ff40f23431e37bf417107635bf3f3d40398c5ffbbf370de3f1ad4",
-     "Runtime for all models on Linux x86_64 (bundled by the opt-in build, RAWTONIC_BUNDLE_ONNX=1)"),
+     "Candidate runtime for all models on Linux x86_64; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
 ]
 ORT130_OWN_ENTRY = {
     "source": "ONNX Runtime 1.30.0 (commit f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7), built by Rawtonic without telemetry (scripts/models/build_onnxruntime.sh)",
@@ -545,8 +545,15 @@ def main() -> None:
     args = parser.parse_args()
     if args.own_runtime is not None:
         # Before anything is written: a missing or rebuilt library (another
-        # SHA-256) fails here, not halfway through the pack.
+        # SHA-256) fails here, not halfway through the pack. Libraries the
+        # previous pack carries are checked against the pins when carried.
+        in_previous = set()
+        if args.previous is not None:
+            in_previous = {entry["file"] for entry in
+                           json.loads((args.previous / "models.json").read_text())["files"]}
         for name, expected, _ in ORT130_OWN:
+            if name in in_previous:
+                continue
             source = args.own_runtime / name
             if not source.is_file():
                 sys.exit(f"{source} missing")
