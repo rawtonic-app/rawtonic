@@ -144,7 +144,7 @@ impl Entry {
       }
       *budget -= bytesize as u64;
     }
-    reader.goto(base + offset)?;
+    reader.goto(base.wrapping_add(offset))?; // Rawtonic patch (RWH1): wraps as in release builds
     let entry = match typ {
       TYPE_BYTE => {
         let mut v = vec![0; count as usize];

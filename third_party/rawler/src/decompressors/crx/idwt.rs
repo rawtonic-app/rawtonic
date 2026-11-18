@@ -83,20 +83,23 @@ impl WaveletTransform {
     result
   }
 
+  // Rawtonic patch (RWH1): a damaged header whose subband sizes don't match
+  // the transform reads 0 past a band's line instead of panicking; valid
+  // files never read there.
   pub(super) fn band0(&mut self, offset: usize) -> i32 {
-    self.band0_buf[self.band0_pos + offset]
+    self.band0_buf.get(self.band0_pos + offset).copied().unwrap_or(0)
   }
 
   pub(super) fn band1(&mut self, offset: usize) -> i32 {
-    self.band1_buf[self.band1_pos + offset]
+    self.band1_buf.get(self.band1_pos + offset).copied().unwrap_or(0)
   }
 
   pub(super) fn band2(&mut self, offset: usize) -> i32 {
-    self.band2_buf[self.band2_pos + offset]
+    self.band2_buf.get(self.band2_pos + offset).copied().unwrap_or(0)
   }
 
   pub(super) fn band3(&mut self, offset: usize) -> i32 {
-    self.band3_buf[self.band3_pos + offset]
+    self.band3_buf.get(self.band3_pos + offset).copied().unwrap_or(0)
   }
 
   pub(super) fn advance_bufs(&mut self, count: usize) {

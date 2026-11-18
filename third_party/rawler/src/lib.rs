@@ -93,6 +93,10 @@ pub mod rawsource;
 pub mod tags;
 pub mod tiles;
 
+// Rawtonic patch (RWH1): damaged-file regression and stress tests.
+#[cfg(test)]
+mod rawtonic_hardening_tests;
+
 #[doc(hidden)]
 pub use cfa::CFA;
 pub use decoders::Orientation;

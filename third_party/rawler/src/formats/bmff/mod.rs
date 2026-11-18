@@ -82,6 +82,13 @@ impl BoxHeader {
     }
 
     let current = reader.stream_position()?;
+    // Rawtonic patch (RWH1; dnglab 94fa6789): a box shorter than its own
+    // header (size 0 included, which rawler doesn't support as "to the end
+    // of the file") is an error. Such a box left the parsers at the same
+    // position, so they read it again forever and ran out of memory.
+    if size < current - start || start.checked_add(size).is_none() {
+      return Err(BmffError::Parse(format!("Box of {} bytes is shorter than its header", size)));
+    }
     Ok(BoxHeader {
       size,
       typ,

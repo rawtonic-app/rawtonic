@@ -54,9 +54,9 @@ impl<'a> Decoder for MosDecoder<'a> {
     let image = match fetch_tiff_tag!(raw, TiffCommonTag::Compression).force_usize(0) {
       1 => {
         if self.tiff.little_endian() {
-          decode_16le(src, width, height, dummy)
+          decode_16le(src, width, height, dummy)?
         } else {
-          decode_16be(src, width, height, dummy)
+          decode_16be(src, width, height, dummy)?
         }
       }
       7 | 99 => self.decode_compressed(&self.camera, src, width, height, dummy)?,

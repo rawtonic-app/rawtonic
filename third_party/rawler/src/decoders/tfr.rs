@@ -87,7 +87,7 @@ impl<'a> Decoder for TfrDecoder<'a> {
           height
         )));
       }
-      decode_16le(src, width, height, dummy)
+      decode_16le(src, width, height, dummy)?
     } else {
       self.decode_compressed(src, width, height, dummy)?
     };
@@ -137,7 +137,7 @@ impl<'a> Decoder for TfrDecoder<'a> {
 
     let cpp = 1;
     let photometric = RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&camera));
-    let mut img = RawImage::new(camera, image, cpp, self.get_wb()?, photometric, blacklevel, whitelevel, dummy);
+    let mut img = RawImage::new(camera, image, cpp, self.get_wb()?, photometric, blacklevel, whitelevel, dummy)?;
 
     img.crop_area = crop;
 
@@ -157,7 +157,8 @@ impl<'a> Decoder for TfrDecoder<'a> {
     let height = fetch_tiff_tag!(root_ifd, TiffCommonTag::ImageLength).force_usize(0);
     if compression == 1 {
       Ok(Some(DynamicImage::ImageRgb8(
-        ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(width as u32, height as u32, buf.to_vec()).unwrap(),
+        // Rawtonic patch (RWH1): an error for a strip that doesn't fit the size.
+        ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(width as u32, height as u32, buf.to_vec()).ok_or("3FR: preview strip doesn't fit its size")?,
       )))
     } else {
       let img = image::load_from_memory_with_format(buf, image::ImageFormat::Jpeg)

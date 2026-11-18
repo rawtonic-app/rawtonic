@@ -17,20 +17,28 @@ impl PackedDecompressor {
   }
 }
 
+// Rawtonic patch (RWH1; dnglab a03f99d0 checks the strip geometry): the
+// unpackers return an error for a row that starts behind the data of a
+// strip or tile instead of panicking. Rows inside it are unchanged.
+#[cold]
+fn row_past_end() -> String {
+  "packed: row starts behind the end of the data".to_string()
+}
+
 impl<'a> Decompressor<'a, u16> for PackedDecompressor {
   fn decompress(&self, src: &[u8], skip_rows: usize, lines: impl LineIteratorMut<'a, u16>, line_width: usize) -> std::result::Result<(), String> {
     match (self.endian, self.bps) {
       // 16 bits, encoding depends on TIFF endianess
-      (Endian::Big, 16) => unpack_16be(lines, src, skip_rows, line_width),
-      (Endian::Little, 16) => unpack_16le(lines, src, skip_rows, line_width),
+      (Endian::Big, 16) => unpack_16be(lines, src, skip_rows, line_width)?,
+      (Endian::Little, 16) => unpack_16le(lines, src, skip_rows, line_width)?,
       // 12 Bits, DNG spec says it must be always encoded as big-endian
-      (_, 12) => unpack_12be(lines, src, skip_rows, line_width),
+      (_, 12) => unpack_12be(lines, src, skip_rows, line_width)?,
       // 10 Bits, DNG spec says it must be always encoded as big-endian
-      (_, 10) => unpack_10be(lines, src, skip_rows, line_width),
+      (_, 10) => unpack_10be(lines, src, skip_rows, line_width)?,
       // 8 bits
-      (_, 8) => unpack_8bit(lines, src, skip_rows, line_width),
+      (_, 8) => unpack_8bit(lines, src, skip_rows, line_width)?,
       // Generic MSB decoder for exotic packed bit sizes
-      (_, bps) if bps > 0 && bps < 16 => unpack_generic_msb(lines, src, skip_rows, line_width, self.bps),
+      (_, bps) if bps > 0 && bps < 16 => unpack_generic_msb(lines, src, skip_rows, line_width, self.bps)?,
       // Unhandled bits
       (_, bps) => return Err(format_args!("DNG: Don't know how to handle DNG with {} bps", bps).to_string()),
     }
@@ -47,29 +55,31 @@ impl<'a> Decompressor<'a, u16> for PackedDecompressor {
 }
 
 #[multiversion(targets("x86_64+avx+avx2", "x86+sse", "aarch64+neon"))]
-fn unpack_16be<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: usize, width: usize) {
+fn unpack_16be<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: usize, width: usize) -> std::result::Result<(), String> {
   for (row, line) in lines.enumerate() {
-    let inb = &src[((skip_rows + row) * width * 2)..];
+    let inb = src.get(((skip_rows + row) * width * 2)..).ok_or_else(row_past_end)?;
     for (out, bytes) in line.iter_mut().zip(inb.chunks_exact(2)) {
       *out = BEu16(bytes, 0);
     }
   }
+  Ok(())
 }
 
 #[multiversion(targets("x86_64+avx+avx2", "x86+sse", "aarch64+neon"))]
-fn unpack_16le<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: usize, width: usize) {
+fn unpack_16le<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: usize, width: usize) -> std::result::Result<(), String> {
   for (row, line) in lines.enumerate() {
-    let inb = &src[((skip_rows + row) * width * 2)..];
+    let inb = src.get(((skip_rows + row) * width * 2)..).ok_or_else(row_past_end)?;
     for (i, bytes) in (0..width).zip(inb.chunks_exact(2)) {
       line[i] = LEu16(bytes, 0);
     }
   }
+  Ok(())
 }
 
 #[multiversion(targets("x86_64+avx+avx2", "x86+sse", "aarch64+neon"))]
-fn unpack_12be<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: usize, width: usize) {
+fn unpack_12be<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: usize, width: usize) -> std::result::Result<(), String> {
   for (row, line) in lines.enumerate() {
-    let inb = &src[((skip_rows + row) * width * 12 / 8)..];
+    let inb = src.get(((skip_rows + row) * width * 12 / 8)..).ok_or_else(row_past_end)?;
     for (o, i) in line.chunks_exact_mut(2).zip(inb.chunks_exact(3)) {
       let g1: u16 = i[0] as u16;
       let g2: u16 = i[1] as u16;
@@ -79,12 +89,13 @@ fn unpack_12be<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: 
       o[1] = ((g2 & 0x0f) << 8) | g3;
     }
   }
+  Ok(())
 }
 
 #[multiversion(targets("x86_64+avx+avx2", "x86+sse", "aarch64+neon"))]
-fn unpack_10be<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: usize, width: usize) {
+fn unpack_10be<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: usize, width: usize) -> std::result::Result<(), String> {
   for (row, line) in lines.enumerate() {
-    let inb = &src[((skip_rows + row) * width * 10 / 8)..];
+    let inb = src.get(((skip_rows + row) * width * 10 / 8)..).ok_or_else(row_past_end)?;
 
     for (o, i) in line.chunks_exact_mut(4).zip(inb.chunks_exact(5)) {
       let g1: u16 = i[0] as u16;
@@ -99,27 +110,31 @@ fn unpack_10be<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: 
       o[3] = ((g4 & 0x03) << 8) | g5;
     }
   }
+  Ok(())
 }
 
 #[multiversion(targets("x86_64+avx+avx2", "x86+sse", "aarch64+neon"))]
-fn unpack_8bit<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: usize, width: usize) {
+fn unpack_8bit<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: usize, width: usize) -> std::result::Result<(), String> {
   for (row, line) in lines.enumerate() {
-    let inb = &src[((skip_rows + row) * width)..];
+    let inb = src.get(((skip_rows + row) * width)..).ok_or_else(row_past_end)?;
     for (o, i) in line.iter_mut().zip(inb.iter()) {
       *o = *i as u16;
     }
   }
+  Ok(())
 }
 
 #[multiversion(targets("x86_64+avx+avx2", "x86+sse", "aarch64+neon"))]
-fn unpack_generic_msb<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: usize, width: usize, bits: u32) {
-  assert!(bits <= 16);
+fn unpack_generic_msb<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip_rows: usize, width: usize, bits: u32) -> std::result::Result<(), String> {
+  if bits > 16 {
+    return Err(format!("packed: {} bits per sample", bits));
+  }
 
   let skip_bits = skip_rows * width * bits as usize;
   let skip_bytes = skip_bits / 8;
   let skip_rem = (skip_bits % 8) as u32;
 
-  let mut pump = BitPumpMSB::new(&src[skip_bytes..]);
+  let mut pump = BitPumpMSB::new(src.get(skip_bytes..).ok_or_else(row_past_end)?);
 
   if skip_rem > 0 {
     pump.get_bits(skip_rem);
@@ -130,20 +145,24 @@ fn unpack_generic_msb<'a>(lines: impl LineIteratorMut<'a, u16>, src: &[u8], skip
       *p = pump.get_bits(bits) as u16;
     }
   }
+  if pump.overrun() {
+    return Err("packed: image data ends early".to_string());
+  }
+  Ok(())
 }
 
 impl<'a> Decompressor<'a, f32> for PackedDecompressor {
   fn decompress(&self, src: &[u8], skip_rows: usize, lines: impl LineIteratorMut<'a, f32>, line_width: usize) -> std::result::Result<(), String> {
     match (self.endian, self.bps) {
       // 16 bits, encoding depends on TIFF endianess
-      (Endian::Big, 32) => unpack_f32be(lines, src, skip_rows, line_width),
-      (Endian::Little, 32) => unpack_f32le(lines, src, skip_rows, line_width),
+      (Endian::Big, 32) => unpack_f32be(lines, src, skip_rows, line_width)?,
+      (Endian::Little, 32) => unpack_f32le(lines, src, skip_rows, line_width)?,
 
-      (Endian::Big, 24) => unpack_f24be(lines, src, skip_rows, line_width),
-      (Endian::Little, 24) => unpack_f24le(lines, src, skip_rows, line_width),
+      (Endian::Big, 24) => unpack_f24be(lines, src, skip_rows, line_width)?,
+      (Endian::Little, 24) => unpack_f24le(lines, src, skip_rows, line_width)?,
 
-      (Endian::Big, 16) => unpack_f16be(lines, src, skip_rows, line_width),
-      (Endian::Little, 16) => unpack_f16le(lines, src, skip_rows, line_width),
+      (Endian::Big, 16) => unpack_f16be(lines, src, skip_rows, line_width)?,
+      (Endian::Little, 16) => unpack_f16le(lines, src, skip_rows, line_width)?,
 
       // Unhandled bits
       (_, bps) => return Err(format_args!("DNG: Don't know how to handle FP DNG with {} bps", bps).to_string()),
@@ -161,65 +180,71 @@ impl<'a> Decompressor<'a, f32> for PackedDecompressor {
 }
 
 #[multiversion(targets("x86_64+avx+avx2", "x86+sse", "aarch64+neon"))]
-fn unpack_f32be<'a>(lines: impl LineIteratorMut<'a, f32>, src: &[u8], skip_rows: usize, width: usize) {
+fn unpack_f32be<'a>(lines: impl LineIteratorMut<'a, f32>, src: &[u8], skip_rows: usize, width: usize) -> std::result::Result<(), String> {
   for (row, line) in lines.enumerate() {
-    let inb = &src[((skip_rows + row) * width * size_of::<f32>())..];
+    let inb = src.get(((skip_rows + row) * width * size_of::<f32>())..).ok_or_else(row_past_end)?;
     for (i, bytes) in (0..width).zip(inb.chunks_exact(4)) {
       line[i] = BEf32(bytes, 0);
     }
   }
+  Ok(())
 }
 
 #[multiversion(targets("x86_64+avx+avx2", "x86+sse", "aarch64+neon"))]
-fn unpack_f32le<'a>(lines: impl LineIteratorMut<'a, f32>, src: &[u8], skip_rows: usize, width: usize) {
+fn unpack_f32le<'a>(lines: impl LineIteratorMut<'a, f32>, src: &[u8], skip_rows: usize, width: usize) -> std::result::Result<(), String> {
   for (row, line) in lines.enumerate() {
-    let inb = &src[((skip_rows + row) * width * size_of::<f32>())..];
+    let inb = src.get(((skip_rows + row) * width * size_of::<f32>())..).ok_or_else(row_past_end)?;
     for (i, bytes) in (0..width).zip(inb.chunks_exact(4)) {
       line[i] = LEf32(bytes, 0);
     }
   }
+  Ok(())
 }
 
 #[multiversion(targets("x86_64+avx+avx2", "x86+sse", "aarch64+neon"))]
-fn unpack_f24le<'a>(lines: impl LineIteratorMut<'a, f32>, src: &[u8], skip_rows: usize, width: usize) {
+fn unpack_f24le<'a>(lines: impl LineIteratorMut<'a, f32>, src: &[u8], skip_rows: usize, width: usize) -> std::result::Result<(), String> {
   const SIZEOF_FP24: usize = 3;
   for (row, line) in lines.enumerate() {
-    let inb = &src[((skip_rows + row) * width * SIZEOF_FP24)..];
+    let inb = src.get(((skip_rows + row) * width * SIZEOF_FP24)..).ok_or_else(row_past_end)?;
     for (i, bytes) in (0..width).zip(inb.chunks_exact(SIZEOF_FP24)) {
       line[i] = LEf24(bytes, 0);
     }
   }
+  Ok(())
 }
 
 #[multiversion(targets("x86_64+avx+avx2", "x86+sse", "aarch64+neon"))]
-fn unpack_f24be<'a>(lines: impl LineIteratorMut<'a, f32>, src: &[u8], skip_rows: usize, width: usize) {
+fn unpack_f24be<'a>(lines: impl LineIteratorMut<'a, f32>, src: &[u8], skip_rows: usize, width: usize) -> std::result::Result<(), String> {
   const SIZEOF_FP24: usize = 3;
   for (row, line) in lines.enumerate() {
-    let inb = &src[((skip_rows + row) * width * SIZEOF_FP24)..];
+    let inb = src.get(((skip_rows + row) * width * SIZEOF_FP24)..).ok_or_else(row_past_end)?;
     for (i, bytes) in (0..width).zip(inb.chunks_exact(SIZEOF_FP24)) {
       line[i] = BEf24(bytes, 0);
     }
   }
+  Ok(())
 }
 
 #[multiversion(targets("x86_64+avx+avx2", "x86+sse", "aarch64+neon"))]
-fn unpack_f16le<'a>(lines: impl LineIteratorMut<'a, f32>, src: &[u8], skip_rows: usize, width: usize) {
+fn unpack_f16le<'a>(lines: impl LineIteratorMut<'a, f32>, src: &[u8], skip_rows: usize, width: usize) -> std::result::Result<(), String> {
   const SIZEOF_FP16: usize = 2;
   for (row, line) in lines.enumerate() {
-    let inb = &src[((skip_rows + row) * width * SIZEOF_FP16)..];
+    let inb = src.get(((skip_rows + row) * width * SIZEOF_FP16)..).ok_or_else(row_past_end)?;
     for (i, bytes) in (0..width).zip(inb.chunks_exact(SIZEOF_FP16)) {
       line[i] = LEf16(bytes, 0);
     }
   }
+  Ok(())
 }
 
 #[multiversion(targets("x86_64+avx+avx2", "x86+sse", "aarch64+neon"))]
-fn unpack_f16be<'a>(lines: impl LineIteratorMut<'a, f32>, src: &[u8], skip_rows: usize, width: usize) {
+fn unpack_f16be<'a>(lines: impl LineIteratorMut<'a, f32>, src: &[u8], skip_rows: usize, width: usize) -> std::result::Result<(), String> {
   const SIZEOF_FP16: usize = 2;
   for (row, line) in lines.enumerate() {
-    let inb = &src[((skip_rows + row) * width * SIZEOF_FP16)..];
+    let inb = src.get(((skip_rows + row) * width * SIZEOF_FP16)..).ok_or_else(row_past_end)?;
     for (i, bytes) in (0..width).zip(inb.chunks_exact(SIZEOF_FP16)) {
       line[i] = BEf16(bytes, 0);
     }
   }
+  Ok(())
 }

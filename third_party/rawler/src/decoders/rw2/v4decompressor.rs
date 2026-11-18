@@ -1,6 +1,9 @@
 use crate::{decoders::*, pumps::BitPump};
 
-pub(crate) fn decode_panasonic_v4(buf: &[u8], width: usize, height: usize, split: bool, dummy: bool) -> PixU16 {
+pub(crate) fn decode_panasonic_v4(buf: &[u8], width: usize, height: usize, split: bool, dummy: bool) -> Result<PixU16> {
+  // Rawtonic patch (RWH1; dnglab 207d6510 checks the row offsets too): rows
+  // that start behind the data and data that ends early are errors.
+  crate::packed::check_image("RW2 v4", width, height)?;
   decode_threaded_multiline(
     width,
     height,
@@ -9,7 +12,9 @@ pub(crate) fn decode_panasonic_v4(buf: &[u8], width: usize, height: usize, split
     &(|out: &mut [u16], row| {
       let skip = ((width * row * 9) + (width / 14 * 2 * row)) / 8;
       let blocks = skip / 0x4000;
-      let src = &buf[blocks * 0x4000..];
+      let src = buf
+        .get(blocks * 0x4000..)
+        .ok_or_else(|| format!("RW2 v4: row {} starts behind the data", row))?;
       let mut pump = BitPumpPanasonic::new(src, split);
       for _ in 0..(skip % 0x4000) {
         pump.get_bits(8);
@@ -42,10 +47,13 @@ pub(crate) fn decode_panasonic_v4(buf: &[u8], width: usize, height: usize, split
           out[i] = pred[i & 1] as u16;
         }
       }
+      if pump.overrun {
+        return Err("RW2 v4: compressed data ends early".to_string());
+      }
       Ok(())
     }),
   )
-  .expect("Failed to decode") // Decoder should never fail
+  .map_err(RawlerError::DecoderFailed)
 }
 
 pub struct BitPumpPanasonic<'a> {
@@ -53,6 +61,8 @@ pub struct BitPumpPanasonic<'a> {
   pos: usize,
   nbits: u32,
   split: bool,
+  // Rawtonic patch (RWH1): a byte past the end of the data was read (as 0).
+  overrun: bool,
 }
 
 impl<'a> BitPumpPanasonic<'a> {
@@ -62,18 +72,27 @@ impl<'a> BitPumpPanasonic<'a> {
       pos: 0,
       nbits: 0,
       split,
+      overrun: false,
     }
   }
 }
 
 impl BitPumpPanasonic<'_> {
   // Rawtonic patch: byte `i` of the current block as LibRaw's block buffer holds it.
-  fn block_byte(&self, i: usize) -> u8 {
+  fn block_byte(&mut self, i: usize) -> u8 {
     if i >= 0x4000 {
       return 0;
     }
     let file_offset = if self.split { (i + 0x4000 - 0x2008) % 0x4000 } else { i };
-    self.buffer[self.pos - 0x4000 + file_offset]
+    // Rawtonic patch (RWH1): a block cut short by the end of the data reads
+    // zeros and marks the pump overrun instead of panicking.
+    match self.buffer.get(self.pos - 0x4000 + file_offset) {
+      Some(byte) => *byte,
+      None => {
+        self.overrun = true;
+        0
+      }
+    }
   }
 }
 

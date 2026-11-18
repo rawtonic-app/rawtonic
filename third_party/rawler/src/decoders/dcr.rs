@@ -5,6 +5,7 @@ use crate::RawLoader;
 use crate::RawlerError;
 use crate::Result;
 use crate::alloc_image;
+use crate::alloc_image_ok;
 use crate::analyze::FormatDump;
 use crate::bits::BEu16;
 use crate::bits::Endian;
@@ -71,7 +72,7 @@ impl<'a> Decoder for DcrDecoder<'a> {
       LookupTable::new(&points)
     };
 
-    let image = DcrDecoder::decode_kodak65000(&src, &curve, width, height, dummy);
+    let image = DcrDecoder::decode_kodak65000(&src, &curve, width, height, dummy)?;
 
     let cpp = 1;
     ok_cfa_image(self.camera.clone(), cpp, self.get_wb()?, image, dummy)
@@ -119,8 +120,11 @@ impl<'a> DcrDecoder<'a> {
     }
   }
 
-  pub(crate) fn decode_kodak65000(buf: &[u8], curve: &LookupTable, width: usize, height: usize, dummy: bool) -> PixU16 {
-    let mut out = alloc_image!(width, height, dummy);
+  pub(crate) fn decode_kodak65000(buf: &[u8], curve: &LookupTable, width: usize, height: usize, dummy: bool) -> Result<PixU16> {
+    // Rawtonic patch (RWH1; dnglab f738645d): size checked, a negative pixel
+    // or data that ends early is an error instead of a panic.
+    crate::packed::check_image("DCR", width, height)?;
+    let mut out = alloc_image_ok!(width, height, dummy);
     let mut input = ByteStream::new(buf, Endian::Little);
 
     let mut random: u32 = 0;
@@ -131,14 +135,17 @@ impl<'a> DcrDecoder<'a> {
         for (i, val) in buf.iter().enumerate() {
           pred[i & 1] += *val;
           if pred[i & 1] < 0 {
-            panic!("Found a negative pixel!");
+            return Err(RawlerError::DecoderFailed("DCR: negative pixel, file corrupted".to_string()));
           }
           out[row * width + col + i] = curve.dither(pred[i & 1] as u16, &mut random);
         }
       }
+      if input.remaining_bytes() == 0 && input.get_pos() > buf.len() {
+        return Err(RawlerError::DecoderFailed("DCR: image data ends early".to_string()));
+      }
     }
 
-    out
+    Ok(out)
   }
 
   fn decode_segment(input: &mut ByteStream, size: usize) -> Vec<i32> {

@@ -72,6 +72,10 @@ impl<'a> Rw2Decoder<'a> {
     let width = fetch_tiff_tag!(raw, TiffCommonTag::PanaWidth).force_usize(0);
     let height = fetch_tiff_tag!(raw, TiffCommonTag::PanaLength).force_usize(0);
 
+    // Rawtonic patch (RWH1; dnglab d31f883f): an error for an empty image.
+    if width == 0 || height == 0 {
+      return Err(RawlerError::DecoderFailed(format!("RW2: invalid image size {}x{}", width, height)));
+    }
     let mode = {
       let ratio = width * 100 / height;
       if ratio < 125 {
@@ -157,9 +161,9 @@ impl<'a> Decoder for Rw2Decoder<'a> {
         let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
 
         if src.len() >= width * height * 2 {
-          decode_12le_unpacked_left_aligned(&src, width, height, dummy)
+          decode_12le_unpacked_left_aligned(&src, width, height, dummy)?
         } else if src.len() >= width * height * 3 / 2 {
-          decode_12le_wcontrol(&src, width, height, dummy)
+          decode_12le_wcontrol(&src, width, height, dummy)?
         } else {
           Rw2Decoder::decode_panasonic(file, &src, width, height, split, raw_format, bps, self.tiff.root_ifd(), dummy)?
         }
@@ -193,7 +197,7 @@ impl<'a> Decoder for Rw2Decoder<'a> {
       }
     }
     let photometric = RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&camera));
-    let mut img = RawImage::new(camera, image, cpp, normalize_wb(self.get_wb()?), photometric, blacklevel, None, dummy);
+    let mut img = RawImage::new(camera, image, cpp, normalize_wb(self.get_wb()?), photometric, blacklevel, None, dummy)?;
 
     if let Some(area) = self.get_active_area()? {
       img.active_area = Some(area);
@@ -364,6 +368,11 @@ impl<'a> Rw2Decoder<'a> {
       let sensor_top = fetch_tiff_tag!(self.tiff, PanasonicTag::SensorTopBorder).force_usize(0);
       let sensor_right = fetch_tiff_tag!(self.tiff, PanasonicTag::SensorRightBorder).force_usize(0);
       let sensor_bottom = fetch_tiff_tag!(self.tiff, PanasonicTag::SensorBottomBorder).force_usize(0);
+      // Rawtonic patch (RWH1; dnglab d31f883f): borders in the wrong order
+      // (damaged file) give no sensor area instead of a wrapped size.
+      if sensor_right < sensor_left || sensor_bottom < sensor_top {
+        return Ok(None);
+      }
       Ok(Some(Rect::new(
         Point::new(sensor_left, sensor_top),
         Dim2::new(sensor_right - sensor_left, sensor_bottom - sensor_top),
@@ -386,13 +395,14 @@ impl<'a> Rw2Decoder<'a> {
   ) -> Result<PixU16> {
     log::debug!("width: {}, height: {}, bps: {}", width, height, bps);
     Ok(match raw_format {
-      3 => decode_panasonic_v4(buf, width, height, split, dummy),
-      4 => decode_panasonic_v4(buf, width, height, split, dummy),
-      5 => decode_panasonic_v5(buf, width, height, bps, dummy),
-      6 => decode_panasonic_v6(buf, width, height, bps, dummy),
-      7 => decode_panasonic_v7(buf, width, height, bps, dummy),
+      3 => decode_panasonic_v4(buf, width, height, split, dummy)?,
+      4 => decode_panasonic_v4(buf, width, height, split, dummy)?,
+      5 => decode_panasonic_v5(buf, width, height, bps, dummy)?,
+      6 => decode_panasonic_v6(buf, width, height, bps, dummy)?,
+      7 => decode_panasonic_v7(buf, width, height, bps, dummy)?,
       8 => decode_panasonic_v8(file, width, height, bps, ifd, dummy)?,
-      _ => todo!("Format {} is not implemented", raw_format), // TODO: return error
+      // Rawtonic patch (RWH1; dnglab 3a919463): an error, not a panic.
+      _ => return Err(RawlerError::DecoderFailed(format!("RW2: raw format {} is not supported", raw_format))),
     })
   }
 }

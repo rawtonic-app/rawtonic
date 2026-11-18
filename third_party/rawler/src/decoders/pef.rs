@@ -29,6 +29,7 @@ use crate::lens::LensDescription;
 use crate::lens::LensResolver;
 use crate::packed::*;
 use crate::pixarray::PixU16;
+use crate::pumps::BitPump;
 use crate::pumps::BitPumpMSB;
 use crate::pumps::ByteStream;
 use crate::rawimage::CFAConfig;
@@ -114,8 +115,8 @@ impl<'a> Decoder for PefDecoder<'a> {
     let src = file.subview_until_eof(offset as u64)?;
 
     let image = match fetch_tiff_tag!(raw, TiffCommonTag::Compression).get_u32(0) {
-      Ok(Some(1)) => decode_16be(src, width, height, dummy),
-      Ok(Some(32773)) => decode_12be(src, width, height, dummy),
+      Ok(Some(1)) => decode_16be(src, width, height, dummy)?,
+      Ok(Some(32773)) => decode_12be(src, width, height, dummy)?,
       Ok(Some(65535)) => self.decode_compressed(src, width, height, dummy)?,
       Ok(Some(c)) => return Err(RawlerError::unsupported(&self.camera, format!("PEF: Don't know how to read compression {}", c))),
       _ => return Err(RawlerError::unsupported(&self.camera, "PEF: No compression tag found")),
@@ -131,7 +132,7 @@ impl<'a> Decoder for PefDecoder<'a> {
     } else {
       RawPhotometricInterpretation::LinearRaw
     };
-    Ok(RawImage::new(self.camera.clone(), image, cpp, wb, photometric, blacklevel, whitelevel, dummy))
+    Ok(RawImage::new(self.camera.clone(), image, cpp, wb, photometric, blacklevel, whitelevel, dummy)?)
   }
 
   fn full_image(&self, file: &RawSource, params: &RawDecodeParams) -> Result<Option<DynamicImage>> {
@@ -164,7 +165,8 @@ impl<'a> Decoder for PefDecoder<'a> {
           None
         }
       }
-      _ => todo!(),
+      // Rawtonic patch (RWH1): no preview for other tag types, not a panic.
+      _ => None,
     };
 
     if let Some(image) = image {
@@ -184,7 +186,8 @@ impl<'a> Decoder for PefDecoder<'a> {
       }
     }
 
-    todo!()
+    // Rawtonic patch (RWH1): no preview instead of a panic.
+    Ok(None)
   }
 
   fn raw_metadata(&self, _file: &RawSource, _params: &RawDecodeParams) -> Result<RawMetadata> {
@@ -230,7 +233,9 @@ impl<'a> PefDecoder<'a> {
     if let Some(Entry {
       value: Value::Byte(settings), ..
     }) = self.makernote.get_entry(PefMakernote::LensRec)
+      && settings.len() >= 2
     {
+      // Rawtonic patch (RWH1; dnglab 915c5c7e): only a tag with both bytes.
       let lens_id = (settings[0] as u32, settings[1] as u32);
       debug!("LensRec tag: {:?}", lens_id);
       if [0, 1, 2].contains(&lens_id.0) {
@@ -253,7 +258,8 @@ impl<'a> PefDecoder<'a> {
     if let Some(huff) = self.makernote.get_entry(PefMakernote::HuffmanTable) {
       match &huff.value {
         Value::Undefined(data) => Self::do_decode(src, Some((data, self.tiff.get_endian())), width, height, dummy),
-        _ => todo!(), // should not happen!
+        // Rawtonic patch (RWH1): an error, not a panic.
+        _ => Err(RawlerError::DecoderFailed("PEF: Huffman table of unexpected type".to_string())),
       }
     } else {
       Self::do_decode(src, None, width, height, dummy)
@@ -261,6 +267,13 @@ impl<'a> PefDecoder<'a> {
   }
 
   pub(crate) fn do_decode(src: &[u8], huff: Option<(&[u8], Endian)>, width: usize, height: usize, dummy: bool) -> Result<PixU16> {
+    // Rawtonic patch (RWH1; dnglab 59c61c00 checks the same): pixels are
+    // decoded in pairs, the in-file code lengths index a 17-entry table, and
+    // data that ends early is an error.
+    crate::packed::check_image("PEF", width, height)?;
+    if width % 2 != 0 {
+      return Err(RawlerError::DecoderFailed(format!("PEF: odd image width {}", width)));
+    }
     let mut out = alloc_image_ok!(width, height, dummy);
     let mut htable = HuffTable::empty();
 
@@ -285,6 +298,9 @@ impl<'a> PefDecoder<'a> {
       // Calculate codes and store bitcounts
       let mut v2: [u32; 16] = [0; 16];
       for c in 0..depth {
+        if v1[c] > 12 {
+          return Err(RawlerError::DecoderFailed(format!("PEF: Huffman code length {}", v1[c])));
+        }
         v2[c] = v0[c] >> (12 - v1[c]);
         htable.bits[v1[c] as usize] += 1;
       }
@@ -336,6 +352,9 @@ impl<'a> PefDecoder<'a> {
         pred_left2 += htable.huff_decode(&mut pump)?;
         out[row * width + col + 0] = pred_left1 as u16;
         out[row * width + col + 1] = pred_left2 as u16;
+      }
+      if pump.overrun() {
+        return Err(RawlerError::DecoderFailed("PEF: compressed data ends early".to_string()));
       }
     }
     Ok(out)

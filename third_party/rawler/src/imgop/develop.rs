@@ -473,7 +473,8 @@ mod linear_in_place_tests {
       Some(BlackLevel::new(&[256u32, 256, 256], 1, 1, 3)),
       Some(WhiteLevel::new(vec![16000u32, 16000, 16000])),
       false,
-    );
+    )
+    .expect("test image");
     if float {
       image.data = crate::RawImageData::Float(samples.iter().map(|&v| v as f32 * 1.37).collect());
     }

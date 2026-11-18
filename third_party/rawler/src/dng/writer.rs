@@ -91,7 +91,8 @@ where
     let blacklevel = Some(BlackLevel::new(&[0_u32, 0, 0], 1, 1, 3));
     let whitelevel = Some(WhiteLevel::new_bits(8, cpp));
     let photometric = RawPhotometricInterpretation::LinearRaw;
-    let rawimage = RawImage::new(cam, rawimagedata, cpp, wb_coeffs, photometric, blacklevel, whitelevel, false);
+    let rawimage =
+      RawImage::new(cam, rawimagedata, cpp, wb_coeffs, photometric, blacklevel, whitelevel, false).map_err(|err| TiffError::General(err.to_string()))?;
     self.raw_image(&rawimage, CropMode::None, compression, DngPhotometricConversion::Original, predictor)
   }
 
@@ -105,7 +106,8 @@ where
     let blacklevel = Some(BlackLevel::new(&[0_u32, 0, 0], 1, 1, 3));
     let whitelevel = Some(WhiteLevel::new_bits(16, cpp));
     let photometric = RawPhotometricInterpretation::LinearRaw;
-    let rawimage = RawImage::new(cam, rawimagedata, cpp, wb_coeffs, photometric, blacklevel, whitelevel, false);
+    let rawimage =
+      RawImage::new(cam, rawimagedata, cpp, wb_coeffs, photometric, blacklevel, whitelevel, false).map_err(|err| TiffError::General(err.to_string()))?;
     self.raw_image(&rawimage, CropMode::None, compression, DngPhotometricConversion::Original, predictor)
   }
 
