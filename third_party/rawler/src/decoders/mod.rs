@@ -430,7 +430,7 @@ mod rawtonic_local_tests {
     let cameras = loader.get_cameras();
     let base: Vec<_> = cameras.values().filter(|c| c.make == "Panasonic" && c.model == "DC-FZ80").collect();
     assert!(base.len() >= 2, "DC-FZ80 modes: {}", base.len());
-    for alias in ["DC-FZ81", "DC-FZ83"] {
+    for alias in ["DC-FZ83"] {
       for cam in &base {
         let found = loader
           .check_supported_with_everything("Panasonic", alias, &cam.mode)

@@ -180,9 +180,10 @@ Converter 18.7 (white/black levels from the DNG's raw IFD, AsShotNeutral):
 - `data/cameras/hasselblad/cfv_50c_fff.toml`: Hasselblad CFV-50c FFF files
   (lossless-compressed, named "Hasselblad CFV-50c"; dE 0.6-1.2 to Camera Raw).
   X1D II FFF and CFV-50c 3FR still fail.
-- `data/cameras/panasonic/fz80.toml`: aliases `DC-FZ81` and `DC-FZ83` (Panasonic's
-  firmware update service lists DC-FZ80/FZ81/FZ82/FZ83 as one model; the FZ83
-  RW2 has the FZ80's sensor size, borders, raw format and bit depth). Test:
+- `data/cameras/panasonic/fz80.toml`: alias `DC-FZ83` (Panasonic's firmware
+  update service lists DC-FZ80/FZ81/FZ82/FZ83 as one model; the FZ83 RW2 has
+  the FZ80's sensor size, borders, raw format and bit depth; checked on the
+  four raw.pixls.us FZ83 samples). DC-FZ81 has no sample and stays unlisted. Test:
   `regional_aliases_resolve_to_the_base_camera_in_every_mode`.
 - `data/cameras/sony/fx2.toml`: Sony ILME-FX2 (33 MP sensor of the ILCE-7M4;
   Adobe Standard profile matrices, identical to the ILCE-7M4's).
