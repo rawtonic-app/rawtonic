@@ -160,7 +160,7 @@ The **Develop** room gives the photograph the space: a filmstrip (under the phot
   <a href="docs/images/readme-retouch.jpg"><img src="docs/images/readme-retouch.jpg" alt="Face retouch on a studio portrait: small blemishes healed and dark circles softened, skin texture kept" width="860"></a>
 </p>
 
-**Portrait retouch.** Rawtonic finds the faces and heals blemishes, evens out skin, softens dark circles and shine, each with one slider, for everyone in the photo or one person at a time, and keeps the skin's texture. Heal, clone and remove distractions by hand where you need to; a ring on the photo shows the brush, and a right-click on the photo sets its size (for Heal and Clone also feather and opacity) right there. **Find dust** marks sensor dust on flat areas and turns it into ordinary heal spots, and can add the same spots to other photos from the same camera.
+**Portrait retouch.** Rawtonic finds the faces and heals blemishes, evens out skin, softens dark circles and shine, each with one slider, for everyone in the photo or one person at a time, and keeps the skin's texture. Heal, clone and remove distractions by hand where you need to; when you retouch with a brush, a ring on the photo shows it and a right-click on the photo sets its size right there. **Find dust** marks sensor dust on flat areas and turns it into ordinary heal spots, and can add the same spots to other photos from the same camera.
 
 **Relight** _(experimental)_. Add up to four lights to a photograph after the fact. Rawtonic estimates the depth, the people's surfaces and the photo's own lighting, so a new light brightens a face's shadow side, the original light can be turned down and the subject casts its shadow on the background.
 
@@ -221,7 +221,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | **⇧Return** / **⌘Return**    | pin / clear the reference      |
 | **C** / **R** / **B**        | crop / straighten / brush      |
 | **M**                        | show or hide the mask overlay  |
-| **[** / **]**                | with a brush or retouch tool: smaller / larger brush (mask brush with ⇧: hardness); otherwise rotate left / right |
+| **[** / **]**                | with a brush or retouch tool: smaller / larger brush (mask brush with ⇧: hardness) |
 | **A**                        | scopes (with the mask brush: Auto Mask) |
 | **J**                        | clipping warnings              |
 | **Alt+X**                    | proof margin                   |
@@ -234,7 +234,7 @@ To see one tool's part of the edit, hold its reset button with ⌥/Alt pressed (
 
 The before / after split shows in the single view only: turning on the multi view turns the split off, and turning on the split leaves the multi view.
 
-On Windows and Linux, **Ctrl** takes the place of **⌘** (Ctrl+Z, Ctrl+Return …), and F10 or Alt opens the menu. Menus show the key of each command that has one, named as your keyboard layout types it. The keys follow what photographers already know from the big editors, and the command shortcuts can be changed in Settings.
+On Windows and Linux, **Ctrl** takes the place of **⌘** (Ctrl+Z, Ctrl+Return …), and F10 or Alt opens the menu. Menus show most commands' keys, named as your keyboard layout types them. The keys follow what photographers already know from the big editors, and most shortcuts can be changed in Settings.
 
 ## Status and known limitations
 
