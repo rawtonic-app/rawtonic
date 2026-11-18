@@ -152,6 +152,7 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_original: (s) => !!s.editor.showOriginal,
   toggle_multi_view: () => useMultiViewStore.getState().active,
   toggle_second_window: () => useSecondWindowStore.getState().state.open,
+  toggle_analytics: (s) => !!s.editor.isWaveformVisible,
   toggle_clipping: (s) => !!s.editor.clipHighlights || !!s.editor.clipShadows,
   toggle_soft_proof: (s) => !!s.editor.softProof,
   // Checked only while the camera JPEG is on screen (`enabled` says
@@ -185,9 +186,20 @@ interface ShortcutState {
   process: ReturnType<typeof useProcessStore.getState>;
 }
 
+function toggleScopes(s: ShortcutState): void {
+  const nextVisibility = !s.editor.isWaveformVisible;
+  s.editor.setEditor({ isWaveformVisible: nextVisibility });
+  // Treated as loaded settings; a null value is spread unchanged, as before.
+  s.settings.handleSettingsChange({
+    ...s.settings.appSettings!,
+    isWaveformVisible: nextVisibility
+  });
+}
+
 interface ShortcutAction {
   shouldFire?(s: ShortcutState): boolean | undefined;
   execute(e: KeyboardEvent, s: ShortcutState): void;
+  executeCommand?(s: ShortcutState): void;
 }
 
 export const useKeyboardShortcuts = ({
@@ -992,14 +1004,9 @@ export const useKeyboardShortcuts = ({
             s.editor.setEditor({ brushSettings: { ...brush, autoMask: !brush.autoMask } });
             return;
           }
-          const nextVisibility = !s.editor.isWaveformVisible;
-          s.editor.setEditor({ isWaveformVisible: nextVisibility });
-          // Treated as loaded settings; a null value is spread unchanged, as before.
-          s.settings.handleSettingsChange({
-            ...s.settings.appSettings!,
-            isWaveformVisible: nextVisibility
-          });
-        }
+          toggleScopes(s);
+        },
+        executeCommand: toggleScopes
       },
       toggle_export: {
         shouldFire: () => true,
@@ -1420,7 +1427,11 @@ export const useKeyboardShortcuts = ({
             (!handler.shouldFire || !!handler.shouldFire(state))
           );
         },
-        run: () => handler.execute(new KeyboardEvent('keydown'), getStoreState()),
+        run: () => {
+          const state = getStoreState();
+          if (handler.executeCommand) handler.executeCommand(state);
+          else handler.execute(new KeyboardEvent('keydown'), state);
+        },
         ...(checked ? { checked: () => checked(getStoreState()) } : {})
       };
     }

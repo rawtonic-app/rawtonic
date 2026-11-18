@@ -919,6 +919,14 @@
         },
         {
           "kind": "item",
+          "id": "cmd:toggle_analytics",
+          "label": "Show Scopes (A)",
+          "enabled": false,
+          "shortcutLabel": "A",
+          "checked": false
+        },
+        {
+          "kind": "item",
           "id": "cmd:toggle_clipping",
           "label": "Clipping Warnings",
           "enabled": false,
