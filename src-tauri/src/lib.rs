@@ -300,6 +300,9 @@ fn start(args: Vec<String>) {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
+        // In-app update after the photographer's click (update_check::install);
+        // the webview gets none of the plugin's own commands.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(PinchZoomDisablePlugin)
         .on_window_event(|window, event| {
@@ -900,6 +903,7 @@ fn start(args: Vec<String>) {
             Ok(())
         })
         .manage(AppState::default())
+        .manage(update_check::install::UpdateInstall::default())
         .manage(state::luts::LutState::default())
         .manage(state::settings::SettingsStore::default())
         .manage(state::develop::DevelopSession::default())
@@ -1067,6 +1071,10 @@ fn start(args: Vec<String>) {
             storage::storage_clear,
             storage::storage_apply_limits,
             update_check::check_updates,
+            update_check::install::update_download,
+            update_check::install::update_cancel_download,
+            update_check::install::update_ready,
+            update_check::install::update_install,
             privacy_notice::privacy_notice_pending,
             privacy_notice::privacy_notice_acknowledge,
             contribute::contribution_app_info,
@@ -1332,13 +1340,7 @@ fn start(args: Vec<String>) {
                 // saved its pending edits (app_quit.rs).
                 tauri::RunEvent::ExitRequested { api, code, .. } => {
                     api.prevent_exit();
-                    // A GPU check of an AI model running in the background
-                    // stops without a verdict.
-                    rawtonic_onnx::stop_checks();
-                    contribute::clean_exit();
-                    window_state::flush();
-                    second_window::flush();
-                    startup::flush_logs();
+                    app_quit::before_process_exit();
                     let exit_code = if app_quit::is_restart(code) {
                         app_quit::start_new_instance(app_handle);
                         // A failed restart logs its error; write it out too.
@@ -1357,11 +1359,7 @@ fn start(args: Vec<String>) {
                     std::process::exit(exit_code);
                 }
                 tauri::RunEvent::Exit => {
-                    rawtonic_onnx::stop_checks();
-                    contribute::clean_exit();
-                    window_state::flush();
-                    second_window::flush();
-                    startup::flush_logs();
+                    app_quit::before_process_exit();
                     #[cfg(any(target_os = "macos", target_os = "linux"))]
                     unsafe { libc::_exit(0); }
 
