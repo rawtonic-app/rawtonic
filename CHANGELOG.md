@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.17.1 — 2026-11-18
+
 A privacy release. Earlier releases let the AI runtime (Microsoft's ONNX Runtime) report usage data to Microsoft; this release sets the runtime's own switches against it before the runtime starts (measured on macOS and Linux with an AI model running on the processor: no connection; with the Linux GPU plugin and on Windows the switches are set but not yet measured) — the affected releases, what was sent and where its files are, below. Also: Panasonic DC-FZ83 files open, screen readers name more controls, Develop's scopes are in the View menu, and two small speed-ups. Updating from alpha.17: replace the app as usual; your libraries, sessions and edits stay as they are.
 
 ### Highlights
