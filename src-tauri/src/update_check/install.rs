@@ -145,7 +145,7 @@ pub async fn update_download(app: AppHandle, version: String) -> Result<(), Upda
 
 /// Stops a running download; nothing of it is kept.
 #[tauri::command]
-pub fn update_cancel_download(app: AppHandle) {
+pub async fn update_cancel_download(app: AppHandle) {
     let state = app.state::<UpdateInstall>();
     if let Some((_, version, handle)) = crate::state::lock::lock_recover(&state.download).take() {
         handle.abort();
