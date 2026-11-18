@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **Panasonic Lumix DC-FZ83 (and DC-FZ81) RAW files open.** They failed with "Unknown camera". Panasonic ships one firmware for the DC-FZ80, FZ81, FZ82 and FZ83, and the FZ83's RAW files have the FZ80's sensor layout and format, so they now develop with the FZ80's camera data, like the FZ82 and FZ85 already did. Checked on the four public FZ83 samples of raw.pixls.us (all aspect ratios); other cameras' files decode as before.
+
 - Open Develop’s scopes from the View menu or search for them in the command palette. The Undo and Redo toolbar tooltips show your configured keys.
 
 - **Entering the multi view shows every photo in its first frame.** On macOS and Windows (the native renderer), this applies when the live photo is shown at fit and the photos' thumbnails are still cached and were shown in the filmstrip recently (the app keeps up to 10,000 of them in mind). The thumbnails are then decoded while the cells are laid out, and the live photo is placed into its cell at once, so all of them appear in the layout's first frame. Before, they came one frame later. Any other cell gets its thumbnail as before, a frame after the layout. Mac mini M4 Pro, 60 fps screen recording, ⌘A to all 12 shown: 102–116 → 84–86 ms (median, n = 10 per block). Lightroom Classic's Survey took 80 ms on the same Mac.

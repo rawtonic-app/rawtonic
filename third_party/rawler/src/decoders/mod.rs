@@ -421,6 +421,28 @@ mod rawtonic_local_tests {
       assert_eq!(read(text, true), windows, "Windows {text}");
     }
   }
+
+  /// Rawtonic patch (RAWC1): regional names of one camera resolve to its
+  /// entry in every mode, with its parameters and its canonical name.
+  #[test]
+  fn regional_aliases_resolve_to_the_base_camera_in_every_mode() {
+    let loader = super::RawLoader::new();
+    let cameras = loader.get_cameras();
+    let base: Vec<_> = cameras.values().filter(|c| c.make == "Panasonic" && c.model == "DC-FZ80").collect();
+    assert!(base.len() >= 2, "DC-FZ80 modes: {}", base.len());
+    for alias in ["DC-FZ81", "DC-FZ83"] {
+      for cam in &base {
+        let found = loader
+          .check_supported_with_everything("Panasonic", alias, &cam.mode)
+          .unwrap_or_else(|e| panic!("{alias} {}: {e}", cam.mode));
+        assert_eq!(found.canonical_model, "DC-FZ80");
+        assert_eq!(found.clean_model, alias);
+        assert_eq!(found.active_area, cam.active_area, "{alias} {}", cam.mode);
+        assert_eq!(found.color_matrix, cam.color_matrix);
+        assert_eq!(found.whitelevel, cam.whitelevel);
+      }
+    }
+  }
 }
 
 pub trait Decoder: Send {
