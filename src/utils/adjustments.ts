@@ -441,7 +441,10 @@ export const LUT_SELECTION_KEYS = [
 /** `changed` with the whole LUT choice of `source` when it changes a part of
  * it: a reading changed on its own (the same LUT chosen again, or undone)
  * describes the source's LUT, never another photo's. */
-export const withLutSelection = <T extends Partial<Adjustments>>(changed: T, source: Partial<Adjustments>): T => {
+export const withLutSelection = <T extends Partial<Adjustments>>(
+  changed: T,
+  source: Partial<Adjustments>
+): T & Pick<Partial<Adjustments>, (typeof LUT_SELECTION_KEYS)[number]> => {
   if (!LUT_SELECTION_KEYS.some((key) => Object.prototype.hasOwnProperty.call(changed, key))) return changed;
   const out: Record<string, unknown> = { ...changed };
   for (const key of LUT_SELECTION_KEYS) out[key] = source[key] ?? null;
