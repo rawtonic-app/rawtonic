@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changes to existing exports
+
+- Super Resolution exports using the ONNX Runtime CPU path may round differently from earlier versions. In a 24 MP test, the largest difference was 0.00000232 on a 0–1 scale before rounding, which can change an 8-bit channel by at most 1/255.
+
 ### Fixes
 
 - Windows: paths in the library and export dialogs no longer mix `/` and `\`.
