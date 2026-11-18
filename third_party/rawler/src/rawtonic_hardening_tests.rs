@@ -10,8 +10,9 @@
 // The decoder fixes these tests cover are listed in RAWTONIC_PATCHES.md
 // ("Damaged files return errors").
 
-use std::io::Cursor;
-use std::sync::Arc;
+use std::io::{BufRead, BufReader, Cursor};
+use std::process::{Command, Stdio};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use crate::bits::{Endian, LookupTable};
@@ -58,22 +59,89 @@ fn decode_all(data: Vec<u8>) {
   let _ = decoder.xpacket(&src, &params);
 }
 
-/// [`decode_all`] on its own thread; a decode that doesn't return within
-/// `limit` (an endless loop) fails the test instead of hanging it. A panic
-/// on that thread fails it too.
-fn decode_within(data: Vec<u8>, limit: Duration, case: usize) {
-  let (done, finished) = std::sync::mpsc::channel();
-  let worker = std::thread::spawn(move || {
-    decode_all(data);
-    let _ = done.send(());
-  });
-  match finished.recv_timeout(limit) {
-    Ok(()) => worker.join().expect("decode thread"),
-    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-      worker.join().expect("decode panicked");
+// Rawtonic patch (RWH2): one child per stress test, so a stuck decoder
+// can be killed without starting a new executable for each mutation.
+const CASE_PREFIX: &str = "RAWLER_STRESS_CASE ";
+const COMPLETE: &str = "completed";
+const CHILD_MODE: &str = "RAWLER_STRESS_CHILD_MODE";
+
+fn run_stress_child(mode: &str, case_limit: Duration, total_limit: Duration) {
+  let start = Instant::now();
+  let mut child = Command::new(std::env::current_exe().expect("rawler test executable"))
+    .args([
+      "--ignored",
+      "--exact",
+      "rawtonic_hardening_tests::stress_decode_child",
+      "--nocapture",
+      "--quiet",
+    ])
+    .env(CHILD_MODE, mode)
+    .stdout(Stdio::piped())
+    .spawn()
+    .expect("start rawler stress child");
+
+  let stdout = child.stdout.take().expect("child stdout");
+  let (send, progress) = mpsc::sync_channel(64);
+  let reader = std::thread::spawn(move || {
+    for line in BufReader::new(stdout).lines() {
+      let line = line.expect("read stress child stdout");
+      if let Some(case) = line.strip_prefix(CASE_PREFIX)
+        && send.send(case.to_owned()).is_err()
+      {
+        break;
+      }
     }
-    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!("mutation {case} did not finish within {limit:?}"),
+  });
+
+  let deadline = start + total_limit;
+  let mut case = "startup".to_owned();
+  let mut case_deadline = start + case_limit;
+  let result = loop {
+    let remaining = deadline.min(case_deadline).saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+      break Err(if deadline <= case_deadline { "total deadline" } else { "case deadline" });
+    }
+    match progress.recv_timeout(remaining) {
+      Ok(next) => {
+        case = next;
+        case_deadline = Instant::now() + case_limit;
+      }
+      Err(mpsc::RecvTimeoutError::Timeout) => continue,
+      Err(mpsc::RecvTimeoutError::Disconnected) => match child.try_wait() {
+        Ok(Some(status)) => break Ok(status),
+        Ok(None) => std::thread::sleep(remaining.min(Duration::from_millis(10))),
+        Err(_) => break Err("wait error"),
+      },
+    }
+  };
+  drop(progress);
+
+  if let Err(reason) = result {
+    let kill = child.kill();
+    let status = child.wait();
+    reader.join().expect("stress progress reader");
+    panic!(
+      "{mode} stress child PID {} at {case}: {reason} (case {case_limit:?}, total {total_limit:?}); kill {kill:?}, exit {status:?}",
+      child.id()
+    );
   }
+  reader.join().expect("stress progress reader");
+  let status = result.expect("stress child status");
+  assert!(status.success(), "{mode} stress child failed at {case}: {status}");
+  assert_eq!(case, COMPLETE, "{mode} stress child exited without completing the stress test");
+}
+
+/// This libtest entry point is invoked only by the two supervised stress tests.
+#[test]
+#[ignore]
+fn stress_decode_child() {
+  match std::env::var(CHILD_MODE).as_deref() {
+    Ok("headers") => stress_mutated_headers(),
+    Ok("corpus") => stress_mutated_corpus(&std::env::var_os("RAWLER_STRESS_CORPUS").expect("corpus directory")),
+    Err(std::env::VarError::NotPresent) => return,
+    mode => panic!("unknown stress child mode: {mode:?}"),
+  }
+  println!("{CASE_PREFIX}{COMPLETE}");
 }
 
 /// A 64 x 48 Bayer DNG written by rawler's DNG writer.
@@ -222,9 +290,14 @@ fn truncated_and_overwritten_dngs_never_panic() {
 /// Header mutations of the synthetic DNGs and the crafted container headers
 /// for a fixed number of iterations, under a time bound (debug build).
 /// `RAWLER_STRESS_ITERATIONS` and `RAWLER_STRESS_SEED` run it longer or with
-/// other mutations locally; the defaults are what CI runs.
+/// other mutations locally; the defaults are what CI runs. The child is
+/// killed and reaped after 5 seconds without progress or 120 seconds total.
 #[test]
 fn mutated_headers_stress_under_time_bound() {
+  run_stress_child("headers", Duration::from_secs(5), Duration::from_secs(120));
+}
+
+fn stress_mutated_headers() {
   let env = |name: &str, default: u64| std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
   let iterations = env("RAWLER_STRESS_ITERATIONS", 20_000) as usize;
   let mut seeds = vec![synthetic_dng(DngCompression::Uncompressed), synthetic_dng(DngCompression::Lossless)];
@@ -235,14 +308,14 @@ fn mutated_headers_stress_under_time_bound() {
   for i in 0..iterations {
     let seed = &seeds[i % seeds.len()];
     let data = mutate(seed, &mut rng);
+    println!("{CASE_PREFIX}mutation {i}");
     let case = Instant::now();
-    decode_within(data, Duration::from_secs(10), i);
+    decode_all(data);
     slowest = slowest.max(case.elapsed());
   }
   let total = start.elapsed();
   eprintln!("{iterations} mutated files in {total:?}, slowest {slowest:?}");
   assert!(slowest < Duration::from_secs(5), "one mutated file took {slowest:?}");
-  assert!(total < Duration::from_secs(120), "{iterations} mutated files took {total:?}");
 }
 
 #[test]
@@ -419,13 +492,18 @@ fn camera_areas_beyond_a_damaged_image_are_dropped() {
 
 /// The same mutations on real RAW files: `RAWLER_STRESS_CORPUS` names a
 /// directory of (copies of) RAW files, which are only read. Without it the
-/// test prints SKIP; that is not a pass.
+/// test prints SKIP; that is not a pass. The child is killed and reaped after
+/// 120 seconds without progress or 600 seconds total.
 #[test]
 fn mutated_corpus_files_never_panic() {
-  let Some(dir) = std::env::var_os("RAWLER_STRESS_CORPUS") else {
+  if std::env::var_os("RAWLER_STRESS_CORPUS").is_none() {
     eprintln!("SKIP: RAWLER_STRESS_CORPUS is not set");
     return;
-  };
+  }
+  run_stress_child("corpus", Duration::from_secs(120), Duration::from_secs(600));
+}
+
+fn stress_mutated_corpus(dir: &std::ffi::OsStr) {
   let per_file = std::env::var("RAWLER_STRESS_ITERATIONS").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
   let mut files: Vec<_> = std::fs::read_dir(dir)
     .expect("corpus directory")
@@ -442,7 +520,8 @@ fn mutated_corpus_files_never_panic() {
     }
     let start = Instant::now();
     for i in 0..per_file {
-      decode_within(mutate(&orig, &mut rng), Duration::from_secs(120), i);
+      println!("{CASE_PREFIX}{path:?} mutation {i}");
+      decode_all(mutate(&orig, &mut rng));
     }
     eprintln!("{}: {per_file} mutations in {:?}", path.display(), start.elapsed());
   }
@@ -541,4 +620,128 @@ fn dng_with_a_damaged_sample_count_is_an_error() {
   // The unchanged file still decodes
   let dng = dng_with_samples_per_pixel(1);
   assert!(crate::decode(&RawSource::new_from_slice(&dng), &RawDecodeParams::default()).is_ok());
+}
+
+// Rawtonic patch (RWH2): exercise the v8 decoder with CF2 tags and packed
+// strip data. Four 2x2 strips each encode a single Bayer group.
+mod rw2_v8 {
+  use super::*;
+  use crate::decoders::rw2::{PanasonicTag, v8decompressor::decode_panasonic_v8};
+  use crate::formats::tiff::{Entry, IFD};
+
+  fn add_tag(ifd: &mut IFD, tag: PanasonicTag, value: impl Into<Value>) {
+    let tag = tag as u16;
+    ifd.entries.insert(
+      tag,
+      Entry {
+        tag,
+        value: value.into(),
+        embedded: None,
+      },
+    );
+  }
+
+  fn cf2_list<const N: usize>(items: impl IntoIterator<Item = [u8; N]>) -> Value {
+    let data: Vec<u8> = items.into_iter().flatten().collect();
+    let mut bytes = ((data.len() / N) as u16).to_le_bytes().to_vec();
+    bytes.extend(data);
+    Value::Undefined(bytes)
+  }
+
+  fn fixture(codes: &[(u16, u16)], shifted: bool) -> (RawSource, IFD) {
+    use PanasonicTag::*;
+
+    let mut ifd = IFD::default();
+    add_tag(&mut ifd, CF2StripHeight, 2_u32);
+    add_tag(&mut ifd, CF2StripWidth, 2_u32);
+    add_tag(&mut ifd, CF2Unknown1, cf2_list([65536_u32.to_le_bytes(); 6]));
+    add_tag(&mut ifd, CF2Unknown2, cf2_list([0_u32.to_le_bytes(); 6]));
+    add_tag(&mut ifd, CF2ClipVal, 4095_u16);
+    for (tag, base) in [(CF2HufInitVal0, 100_u16), (CF2HufInitVal1, 200), (CF2HufInitVal2, 300), (CF2HufInitVal3, 400)] {
+      add_tag(&mut ifd, tag, base);
+    }
+    let table = codes.iter().map(|&(len, symbol)| {
+      let [a, b] = len.to_le_bytes();
+      let [c, d] = symbol.to_le_bytes();
+      [a, b, c, d]
+    });
+    add_tag(&mut ifd, CF2HufTable, cf2_list(table));
+    // Supply all shifts so that accidentally accepting an unused slot could
+    // produce pixels instead of failing during indexing.
+    let mut shifts = [0_u16; 17];
+    shifts[1] = u16::from(shifted);
+    add_tag(&mut ifd, CF2HufShiftDown, cf2_list(shifts.map(u16::to_le_bytes)));
+    add_tag(&mut ifd, CF2NumberOfStripsH, 2_u16);
+    add_tag(&mut ifd, CF2NumberOfStripsV, 2_u16);
+    add_tag(&mut ifd, CF2StripByteOffsets, cf2_list([0_u32, 4, 8, 12].map(u32::to_le_bytes)));
+    add_tag(
+      &mut ifd,
+      CF2StripLineOffsets,
+      cf2_list([[0, 0, 0, 0], [2, 0, 0, 0], [0, 0, 2, 0], [2, 0, 2, 0]]),
+    );
+    add_tag(&mut ifd, CF2StripDataSize, cf2_list([32_u32.to_le_bytes(); 4]));
+    add_tag(&mut ifd, CF2StripWidths, cf2_list([2_u16.to_le_bytes(); 4]));
+    add_tag(&mut ifd, CF2StripHeights, cf2_list([2_u16.to_le_bytes(); 4]));
+
+    // Code 0 leaves the predictor unchanged. Code 10 followed by 1
+    // increases it by one. The stream stores each byte least-significant bit first.
+    let data: Vec<_> = [0b0000_0000_u8, 0b1010_0000, 0b0101_0000, 0b0010_1000]
+      .into_iter()
+      .flat_map(|byte| [byte.reverse_bits(), 0, 0, 0])
+      .collect();
+    (RawSource::new_from_slice(&data), ifd)
+  }
+
+  const CODES: [(u16, u16); 2] = [(1, 0), (2, 0b10)];
+
+  fn assert_decode_error(source: &RawSource, ifd: &IFD, message: &str) {
+    match decode_panasonic_v8(source, 4, 4, 12, ifd, false) {
+      Err(crate::RawlerError::DecoderFailed(error)) => assert!(error.contains(message), "{error}"),
+      _ => panic!("expected RW2 v8 decoding to fail with {message}"),
+    }
+  }
+
+  #[test]
+  fn decodes_four_strips_at_their_declared_offsets() {
+    let (source, ifd) = fixture(&CODES, false);
+    let pixels = decode_panasonic_v8(&source, 4, 4, 12, &ifd, false).expect("valid RW2 v8 strips");
+    assert_eq!(
+      pixels.pixels(),
+      &[100, 200, 101, 200, 300, 400, 300, 400, 100, 200, 100, 201, 301, 400, 300, 400]
+    );
+  }
+
+  #[test]
+  fn unused_slots_cannot_supply_a_code() {
+    let (source, ifd) = fixture(&[], false);
+    assert_decode_error(&source, &ifd, "starts with no valid Huffman code");
+  }
+
+  #[test]
+  fn prefix_without_a_declared_code_fails() {
+    let (source, ifd) = fixture(&CODES[..1], false);
+    assert_decode_error(&source, &ifd, "starts with no valid Huffman code");
+  }
+
+  #[test]
+  fn nonzero_huffman_shift_fails() {
+    let (source, ifd) = fixture(&CODES, true);
+    assert_decode_error(&source, &ifd, "CF2HufShiftDown samples required");
+  }
+
+  #[test]
+  fn short_cf2_tables_fail() {
+    use PanasonicTag::*;
+
+    let (source, ifd) = fixture(&CODES, false);
+    let mut short_gamma = ifd.clone();
+    add_tag(&mut short_gamma, CF2Unknown1, cf2_list([65536_u32.to_le_bytes(); 5]));
+    assert_decode_error(&source, &short_gamma, "invalid gamma or Huffman tables");
+    let mut short_shift = ifd.clone();
+    add_tag(&mut short_shift, CF2HufShiftDown, cf2_list([0_u16.to_le_bytes()]));
+    assert_decode_error(&source, &short_shift, "invalid gamma or Huffman tables");
+    let mut truncated_codes = ifd;
+    add_tag(&mut truncated_codes, CF2HufTable, Value::Undefined(vec![2, 0, 1, 0, 0, 0]));
+    assert_decode_error(&source, &truncated_codes, "CF2 list shorter than its count");
+  }
 }
