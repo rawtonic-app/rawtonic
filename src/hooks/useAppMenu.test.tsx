@@ -10,8 +10,9 @@ import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
-import { AppSettings, Invokes, Panel } from '../components/ui/AppProperties';
-import { menuCommands } from '../utils/appMenu';
+import { AppSettings, Invokes, Panel, type SelectedImage } from '../components/ui/AppProperties';
+import { overflowCommands } from '../utils/commandPalette';
+import { menuCommands, type Translate } from '../utils/appMenu';
 import { appCommand, registerAppCommands } from '../utils/appCommands';
 
 const listeners = new Map<string, (event: { payload: unknown }) => void>();
@@ -255,6 +256,39 @@ describe('the macOS menu bar', () => {
     useUIStore.setState({ gridColumns: 7 });
     await wait();
     expect(updates()).toHaveLength(2);
+  });
+
+  it('toggles scopes from the native menu, then updates its label and check when A hides them', async () => {
+    useUIStore.setState({ activeView: 'editor' });
+    useEditorStore.setState({ selectedImage: { path: '/qa/photo.dng', isReady: true } as SelectedImage });
+    choose('toggle_analytics');
+    expect(useEditorStore.getState().isWaveformVisible).toBe(true);
+    const wait = () => act(() => new Promise((resolve) => setTimeout(resolve, 150)));
+    const expectItem = (label: string, checked: boolean) =>
+      expect(invoke).toHaveBeenCalledWith(Invokes.SetAppMenuState, {
+        items: expect.arrayContaining([{ id: 'cmd:toggle_analytics', label, enabled: true, checked }])
+      });
+    await wait();
+    expectItem('Hide Scopes (A)', true);
+    press('a');
+    expect(useEditorStore.getState().isWaveformVisible).toBe(false);
+    await wait();
+    expectItem('Show Scopes (A)', false);
+  });
+
+  it.each(['windows', 'linux'])('toggles the checked View item on %s', (platform) => {
+    useUIStore.setState({ activeView: 'editor' });
+    useEditorStore.setState({ selectedImage: { path: '/qa/photo.dng', isReady: true } as SelectedImage });
+    const view = () =>
+      overflowCommands(platform, i18n.t.bind(i18n) as Translate).find((item) => item.label === 'View')!.submenu!;
+    const show = view().find((item) => item.label === 'Show Scopes');
+    expect(show).toMatchObject({ shortcut: 'A', checked: false, disabled: false });
+    act(() => show!.onClick?.());
+    expect(useEditorStore.getState().isWaveformVisible).toBe(true);
+    const hide = view().find((item) => item.label === 'Hide Scopes');
+    expect(hide).toMatchObject({ shortcut: 'A', checked: true, disabled: false });
+    act(() => hide!.onClick?.());
+    expect(useEditorStore.getState().isWaveformVisible).toBe(false);
   });
 
   it('sends a chosen check item its state again (AppKit flipped its mark)', async () => {

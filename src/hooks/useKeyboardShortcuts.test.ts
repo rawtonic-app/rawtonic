@@ -1,3 +1,4 @@
+import { runAppCommand } from '../utils/appCommands';
 import '../i18n';
 import { notify as toast } from '../activity/notify';
 import { cleanup, renderHook } from '@testing-library/react';
@@ -281,6 +282,9 @@ it('toggles Auto Mask with A while a brush component is active (Lightroom)', () 
   expect(useEditorStore.getState().brushSettings?.autoMask).toBe(true);
   expect(useEditorStore.getState().isWaveformVisible).toBe(false);
   press('KeyA', 'a');
+  expect(useEditorStore.getState().brushSettings?.autoMask).toBe(false);
+  expect(runAppCommand('toggle_analytics')).toBe(true);
+  expect(useEditorStore.getState().isWaveformVisible).toBe(true);
   expect(useEditorStore.getState().brushSettings?.autoMask).toBe(false);
 });
 

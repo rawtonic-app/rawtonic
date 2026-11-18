@@ -9,6 +9,7 @@ export interface PaletteCommand {
   enabled: boolean;
   shortcut?: string | null;
   disabledHint?: string;
+  keywords?: string[];
 }
 
 export function paletteCommands(
@@ -23,7 +24,7 @@ export function paletteCommands(
       if (node.kind === 'item') labels.set(node.id.slice(MENU_ID_PREFIX.length), node.label);
       if (node.kind === 'submenu') walk(node.items);
     });
-  walk(buildMenuSpec(t, keybinds, enabled).spec.menus);
+  walk(buildMenuSpec(t, keybinds, enabled, 'Rawtonic', {}, platform, false).spec.menus);
   for (const [id, command] of registeredAppCommands()) {
     if (!labels.has(id)) {
       const def = KEYBIND_DEFINITIONS.find((def) => def.action === id);
@@ -40,6 +41,7 @@ export function paletteCommands(
     label,
     enabled: enabled(id),
     shortcut: shortcutHint(id, keybinds, platform),
+    ...(id === 'toggle_analytics' ? { keywords: ['scopes', 'waveform', 'parade', 'vectorscope', 'histogram'] } : {}),
     ...(!enabled(id) ? { disabledHint: appCommand(id)?.disabledHint?.() } : {})
   }));
 }
@@ -65,7 +67,11 @@ export function rankCommands(commands: PaletteCommand[], query: string, recent: 
   };
   const recency = (id: string) => (recent.includes(id) ? recent.length - recent.indexOf(id) : 0);
   return commands
-    .map((command, index) => ({ command, index, score: score(command.label) }))
+    .map((command, index) => ({
+      command,
+      index,
+      score: Math.max(score(command.label), ...(command.keywords ?? []).map(score))
+    }))
     .filter((row) => row.score >= 0)
     .sort((a, b) => b.score - a.score || recency(b.command.id) - recency(a.command.id) || a.index - b.index)
     .map((row) => row.command);

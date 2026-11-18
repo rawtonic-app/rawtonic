@@ -16,7 +16,7 @@
  * in View (both), Copy/Paste Settings in Edit (Capture One's Adjustments
  * menu splits them from Undo), File for libraries, import and export.
  */
-import { comboKeyChar, effectiveCombos, formatCombo, KEYBIND_DEFINITIONS } from './keyboardUtils';
+import { comboKeyChar, effectiveCombos, formatCombo, KEYBIND_DEFINITIONS, shortcutHint } from './keyboardUtils';
 import { appCommand, appCommandEnabled, appMenuCommands } from './appCommands';
 
 export type NativeRole =
@@ -196,6 +196,7 @@ export const MENU_LAYOUT: TopMenu[] = [
       c('toggle_original', { check: true }),
       c('toggle_multi_view', { check: true }),
       'separator',
+      c('toggle_analytics', { check: true }),
       c('toggle_clipping', { check: true }),
       c('toggle_pointer_readout', { check: true }),
       // Shift+\ stays the webview's alone (no ⌘: not a key equivalent).
@@ -294,6 +295,7 @@ export interface BuiltMenu {
   /** Commands shown with a check mark. */
   checks: Set<string>;
   commands: string[];
+  liveLabels: Map<string, () => string>;
 }
 
 export const MENU_ID_PREFIX = 'cmd:';
@@ -345,11 +347,13 @@ export function buildMenuSpec(
   enabled: (command: string) => boolean = appCommandEnabled,
   app = 'Rawtonic',
   historyLabels: Partial<Record<'undo' | 'redo', string>> = {},
-  platform = 'macos'
+  platform = 'macos',
+  native = platform === 'macos'
 ): BuiltMenu {
   const definitions = new Map(KEYBIND_DEFINITIONS.map((def) => [def.action, def]));
   const combos = new Map<string, string>();
   const checks = new Set<string>();
+  const liveLabels = new Map<string, () => string>();
   const taken = new Set(Object.values(NATIVE_COMBOS));
 
   const item = (entry: Extract<Entry, { command: string }>): MenuNode => {
@@ -363,7 +367,19 @@ export function buildMenuSpec(
       label: entry.command === 'undo' || entry.command === 'redo' ? (historyLabels[entry.command] ?? label) : label,
       enabled: enabled(entry.command)
     };
-    if (def) {
+    if (entry.command === 'toggle_analytics') {
+      // A belongs to the webview so it can still toggle Auto Mask on a brush.
+      const shortcut = shortcutHint(entry.command, keybinds, platform);
+      const scopesLabel = () => {
+        const label = t(
+          appCommand(entry.command)?.checked?.() ? 'appMenu.items.hide_scopes' : 'appMenu.items.show_scopes'
+        );
+        return native && shortcut ? t('studio.workspace.withShortcut', { label, shortcut }) : label;
+      };
+      liveLabels.set(entry.command, scopesLabel);
+      node.label = scopesLabel();
+      if (shortcut) node.shortcutLabel = shortcut;
+    } else if (def) {
       const bound = effectiveCombos(def, keybinds);
       const preferred = entry.preferCombo && bound.find((combo) => combo.join('+') === entry.preferCombo!.join('+'));
       for (const combo of preferred ? [preferred, ...bound] : bound) {
@@ -372,7 +388,7 @@ export function buildMenuSpec(
         if (!shortcut || taken.has(key)) continue;
         taken.add(key);
         combos.set(entry.command, key);
-        if (platform === 'macos') node.shortcut = shortcut;
+        if (native) node.shortcut = shortcut;
         node.shortcutLabel = formatCombo(combo, platform);
         break;
       }
@@ -421,7 +437,7 @@ export function buildMenuSpec(
       if (node.kind === 'submenu') collect(node.items);
     });
   collect(menus);
-  return { spec: { menus }, combos, checks, commands };
+  return { spec: { menus }, combos, checks, commands, liveLabels };
 }
 
 /** Every command the layout places. */
@@ -459,6 +475,8 @@ export function menuItemStates(
       const label = historyLabels[command];
       if (label !== undefined) state.label = label;
     }
+    const liveLabel = menu.liveLabels.get(command);
+    if (liveLabel) state.label = liveLabel();
     if (menu.checks.has(command)) state.checked = !!appCommand(command)?.checked?.();
     return state;
   });

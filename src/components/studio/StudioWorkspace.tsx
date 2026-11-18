@@ -1430,7 +1430,7 @@ export default function StudioWorkspace(props: Props) {
                   <div className="studio-toolbar-divider studio-viewer-history" />
                   <button
                     className="studio-viewer-history"
-                    title={withShortcut(getUndoLabel(), '⌘Z')}
+                    title={withShortcut(getUndoLabel(), hint('undo'))}
                     aria-label={t('studio.workspace.viewer.undo')}
                     disabled={!panelsReady || !canUndo()}
                     onClick={() => {
@@ -1441,7 +1441,10 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                   <button
                     className="studio-viewer-history"
-                    title={withShortcut(getRedoLabel(), '⇧⌘Z')}
+                    title={withShortcut(
+                      getRedoLabel(),
+                      osPlatform === 'macos' && keybinds?.redo === undefined ? '⇧⌘Z' : hint('redo')
+                    )}
                     aria-label={t('studio.workspace.viewer.redo')}
                     disabled={!panelsReady || !canRedo()}
                     onClick={() => {

@@ -84,7 +84,7 @@ it('sends the open photo to Paste and Reset instead of the click event or old Li
   expect(copy).toHaveBeenCalledTimes(1);
 });
 
-it('has one Before/After button: it toggles the split and names both keys', () => {
+it('names Undo and Redo and shows configured keys alongside the Before/After controls', () => {
   useSettingsStore.setState({ appSettings: { keybinds: {} } as unknown as AppSettings, osPlatform: 'macos' });
   useEditorStore.setState({ splitView: false, showOriginal: false });
   const noop = vi.fn();
@@ -110,6 +110,15 @@ it('has one Before/After button: it toggles the split and names both keys', () =
       onSettings={noop}
     />
   );
+  expect(screen.getByRole('button', { name: 'Undo' }).title).toBe('Undo (⌘Z)');
+  act(() =>
+    useSettingsStore.setState({
+      osPlatform: 'linux',
+      appSettings: { keybinds: { redo: ['ctrl', 'shift', 'KeyZ'] } } as unknown as AppSettings
+    })
+  );
+  expect(screen.getByRole('button', { name: 'Undo' }).title).toBe('Undo (Ctrl+Z)');
+  expect(screen.getByRole('button', { name: 'Redo' }).title).toBe('Redo (Ctrl+Shift+Z)');
   expect(screen.queryByRole('button', { name: 'Before' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Split' })).toBeNull();
   const button = screen.getByRole('button', { name: 'Before/After' });
