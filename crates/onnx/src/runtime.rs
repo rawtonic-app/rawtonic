@@ -226,8 +226,11 @@ pub const TELEMETRY_OPT_OUT: (&str, &str) = ("ORT_DISABLE_TELEMETRY", "1");
 pub fn opt_out_of_runtime_telemetry() {
     let (name, value) = TELEMETRY_OPT_OUT;
     if std::env::var_os(name).is_none_or(|v| v != value) {
-        // SAFETY: callers run this before other threads start (`main`), or
-        // (`load`) before ONNX Runtime exists, the only reader of this name.
+        // SAFETY: `main` calls it before other threads start. `load` only
+        // sets it when a tool or test binary skipped that call; other
+        // threads may exist then, and a native `getenv` of any name racing
+        // with this change is undefined on Unix. Accepted for those
+        // binaries: without it the runtime reports to Microsoft.
         unsafe { std::env::set_var(name, value) };
     }
 }
@@ -374,10 +377,9 @@ mod tests {
     }
 
     #[test]
-    fn the_uploader_opt_out_is_in_the_environment() {
-        opt_out_of_runtime_telemetry();
-        let (name, value) = TELEMETRY_OPT_OUT;
-        assert_eq!(std::env::var(name).as_deref(), Ok(value));
+    fn the_uploader_opt_out_comes_before_the_environment() {
+        // ONNX Runtime's full opt-out (posix/telemetry.cc, Initialize).
+        assert_eq!(TELEMETRY_OPT_OUT, ("ORT_DISABLE_TELEMETRY", "1"));
         // `load` sets it before the environment exists, for tools and tests
         // whose `main` did not.
         let load = include_str!("runtime.rs")

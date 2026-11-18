@@ -594,6 +594,15 @@ mod tests {
                 lines.push(line);
             }
         }
-        std::fs::write(&out, lines.join("\n") + "\n").unwrap();
+        // Never over an earlier run's digest (the baseline to compare with).
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&out)
+            .unwrap_or_else(|e| panic!("{}: {e}", out.display()));
+        file.write_all((lines.join("\n") + "\n").as_bytes())
+            .unwrap();
+        file.sync_all().unwrap();
     }
 }

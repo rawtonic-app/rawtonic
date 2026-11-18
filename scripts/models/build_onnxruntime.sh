@@ -5,7 +5,9 @@
 # Windows' telemetry group); `build.py` turns both on by default, and
 # `--no_telemetry` builds neither. Everything else follows Microsoft's release
 # build of the same platform, so the CPU kernels are the same source and flags
-# (outputs bit-identical on every pack model, macOS arm64:
+# (macOS arm64: CPU outputs bit-identical on the 15 ONNX files of the QA model
+# folder, one synthetic input; Moebius, SDXL VAE and the Super Resolution CPU
+# graphs not compared yet —
 # notes: benchmark-results/ortt2-2026-11-18/REPORT.md).
 #
 # Usage: scripts/models/build_onnxruntime.sh SOURCE_ARCHIVE BUILD_DIR
@@ -25,7 +27,7 @@ SOURCE_COMMIT=f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7
 # GitHub's archive of that commit, fetched 2026-11-18.
 SOURCE_SHA256=1b4ec55fa26ee8fe622ea256894dfe9381bdfa99d41489994a1961720f556c48
 
-[ $# -eq 2 ] || { sed -n '2,21p' "$0"; exit 2; }
+[ $# -eq 2 ] || { sed -n '2,23p' "$0"; exit 2; }
 archive=$1
 build=$2
 python=${PYTHON:-python3}

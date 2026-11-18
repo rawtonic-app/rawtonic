@@ -445,7 +445,9 @@ CUDA = [
 # Apple silicon without Microsoft's usage uploader: ONNX Runtime 1.30.0
 # built by scripts/models/build_onnxruntime.sh (`--no_telemetry`, otherwise
 # Microsoft's macOS release flags) from the commit Microsoft's library names;
-# CPU outputs bit-identical to Microsoft's library on every pack model
+# CPU outputs bit-identical to Microsoft's library on the 15 ONNX files of
+# the QA model folder (one synthetic input; Moebius, SDXL VAE and the Super
+# Resolution CPU graphs not compared yet)
 # (notes: benchmark-results/ortt2-2026-11-18/REPORT.md). Builds are not
 # byte-reproducible across build directories (embedded paths), so the
 # library comes from `--own-runtime DIR` and its SHA-256 is pinned here.
@@ -723,7 +725,10 @@ def main() -> None:
         if not todo({name: expected}):
             continue
         if args.own_runtime is None:
-            sys.exit(f"{name}: build it with scripts/models/build_onnxruntime.sh and pass --own-runtime")
+            # Optional until a pack carries it: a pack built without it
+            # keeps Microsoft's library for that platform.
+            print(f"{name}: left out (no --own-runtime)", file=sys.stderr)
+            continue
         entries.append(place(args.own_runtime / name, args.out, name, expected) | ORT130_OWN_ENTRY)
 
     licenses = args.out / "licenses"
