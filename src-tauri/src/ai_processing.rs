@@ -273,11 +273,16 @@ pub fn configure_acceleration(app_handle: &tauri::AppHandle, resources: &Path, g
         .app_data_dir()
         .ok()
         .map(|d| d.join("ai-gpu-checks.tsv"));
+    // CPU sessions keep their models' optimized graphs in the app's cache
+    // (Storage: "Prepared AI models", under the AI cache limit), so later
+    // sessions skip the graph optimization (gap G76, AIW2).
+    let optimized_graphs = crate::storage::optimized_graphs_dir(app_handle);
     rawtonic_onnx::configure(rawtonic_onnx::Settings {
         gpu,
         plugin_dirs,
         checks_file,
         check_when_idle: true,
+        optimized_graphs,
     });
 }
 
