@@ -19,15 +19,19 @@
 #
 # Needs Python 3.10+, CMake and Ninja or Make; it downloads the third-party
 # sources pinned in the archive's cmake/deps.txt. Prints the library's
-# SHA-256 and checks it holds no uploader. macOS arm64 only so far; Linux
-# and Windows (with the WebGPU and CUDA plugins) are open in gap G65.
+# SHA-256 and checks it holds no uploader. macOS arm64 and Linux x86_64
+# (Docker) so far; Linux aarch64 and Windows (with the WebGPU and CUDA
+# plugins) are open in gap G65.
 set -eu
 
 SOURCE_COMMIT=f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7
 # GitHub's archive of that commit, fetched 2026-11-18.
 SOURCE_SHA256=1b4ec55fa26ee8fe622ea256894dfe9381bdfa99d41489994a1961720f556c48
 
-[ $# -eq 2 ] || { sed -n '2,23p' "$0"; exit 2; }
+# Linux x86_64 builds in this image (pinned by digest, pulled 2026-11-18).
+LINUX_IMAGE=quay.io/pypa/manylinux_2_28_x86_64@sha256:d086f64cddcace250ef0f0073583c51b8298159303290a730c9f59bd91edfd2c
+
+[ $# -eq 2 ] || { sed -n '2,24p' "$0"; exit 2; }
 archive=$1
 build=$2
 python=${PYTHON:-python3}
@@ -47,6 +51,7 @@ if [ -e "$build" ] && [ -n "$(ls -A "$build")" ]; then
   exit 1
 fi
 mkdir -p "$build"
+build=$(cd "$build" && pwd)  # absolute: Docker mounts it at the same path
 tar -xzf "$archive" -C "$build"
 src=$build/onnxruntime-$SOURCE_COMMIT
 [ "$(cat "$src/VERSION_NUMBER")" = 1.30.0 ] || { echo "build_onnxruntime: not 1.30.0" >&2; exit 1; }
@@ -65,6 +70,23 @@ case "$(uname -s)-$(uname -m)" in
       --cmake_extra_defines CMAKE_OSX_ARCHITECTURES=arm64 CMAKE_POLICY_VERSION_MINIMUM=3.5
     library=$build/out/Release/libonnxruntime.1.30.0.dylib
     name=libonnxruntime-1.30.0-notelemetry-macos-aarch64.dylib
+    ;;
+  Linux-x86_64)
+    # Microsoft's Linux packaging job (c-api-linux-cpu.yml: AlmaLinux 8 with
+    # gcc-toolset-14, `--enable_lto --use_binskim_compliant_compile_flags
+    # --build_shared_lib --config Release`), less Java, Node.js and vcpkg
+    # (deps.txt pins the same versions). Built in the manylinux_2_28 image
+    # (AlmaLinux 8, gcc-toolset-14) so the library needs glibc 2.28 like
+    # Microsoft's, whatever the host has; needs Docker. The build directory
+    # is mounted at the same path, so the embedded paths are the host's.
+    docker run --rm --user "$(id -u):$(id -g)" -e HOME="$build" \
+      --volume "$build:$build" --workdir "$build" "$LINUX_IMAGE" \
+      /opt/python/cp312-cp312/bin/python3 "$src/tools/ci_build/build.py" \
+      --update --build --build_dir "$build/out" --skip_submodule_sync --parallel \
+      --use_binskim_compliant_compile_flags --build_shared_lib --config Release \
+      --enable_lto --no_telemetry --skip_tests
+    library=$build/out/Release/libonnxruntime.so.1.30.0
+    name=libonnxruntime-1.30.0-notelemetry-linux-x86_64.so
     ;;
   *)
     echo "build_onnxruntime: $(uname -s)-$(uname -m) is not scripted yet (gap G65)" >&2
