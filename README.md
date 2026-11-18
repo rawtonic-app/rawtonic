@@ -7,13 +7,13 @@
 
 <p align="center">
   A free, open-source <b>RAW developer</b> for photographers.<br>
-  <b>Ingest → select → develop → retouch → deliver</b>, on your own Mac or Linux PC, with your originals left untouched.
+  <b>Ingest → select → develop → retouch → deliver</b>, on your own Mac, Linux or Windows PC, with your originals left untouched.
 </p>
 
 <p align="center">
   <a href="https://github.com/rawtonic-app/rawtonic/releases"><img alt="Release" src="https://img.shields.io/github/v/release/rawtonic-app/rawtonic?include_prereleases&label=release&color=e8590c"></a>
   <img alt="Status: early alpha" src="https://img.shields.io/badge/status-early%20alpha-e8590c">
-  <img alt="Platform: macOS Apple Silicon (Intel experimental) and Linux x86-64" src="https://img.shields.io/badge/platform-macOS%20Apple%20Silicon%20(Intel%20experimental)%20%C2%B7%20Linux%20x86--64-1f6feb">
+  <img alt="Platform: macOS Apple Silicon (Intel experimental), Linux x86-64 and Windows x64 (experimental)" src="https://img.shields.io/badge/platform-macOS%20Apple%20Silicon%20(Intel%20experimental)%20%C2%B7%20Linux%20x86--64%20%C2%B7%20Windows%20x64%20(experimental)-1f6feb">
   <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
 </p>
 
@@ -33,7 +33,7 @@
 </p>
 
 > [!WARNING]
-> **Rawtonic is an early alpha.** It is usable for real work, but features are still missing and you will run into bugs. Keep your originals backed up, as with any new software. Rawtonic never changes your RAW files: edits live beside them, in a project database and XMP sidecars.
+> **Rawtonic is an early alpha.** It is usable for real work, but features are still missing and you will run into bugs. Keep your originals backed up, as with any new software. Rawtonic never changes your RAW files: edits live beside them, in a library database and XMP sidecars.
 
 ## About
 
@@ -73,7 +73,7 @@ chmod +x Rawtonic_*_amd64.AppImage
 
 It runs on current distributions (Ubuntu 22.04 or later, Debian 12, Fedora and others with glibc 2.35 or later). If it does not start, install FUSE 2 (`sudo apt install libfuse2t64` on Ubuntu 24.04, `libfuse2` on older Ubuntu and Debian) or start it with `--appimage-extract-and-run`. The very first start can take a minute or two before the first photo appears while the graphics driver prepares Rawtonic's shaders; later starts are quick.
 
-To update, use [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) or [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever): the AppImage names its GitHub releases as its update source, and they download only the changed parts. Rawtonic checks for new releases at startup at most once per day; you can turn this off in Preferences. It never downloads or installs updates itself.
+To update, use [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) or [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever): the AppImage names its GitHub releases as its update source, and they download only the changed parts. Rawtonic checks for new releases at startup at most once per day; you can turn this off in Settings. It never downloads or installs updates itself.
 
 ### Windows (experimental)
 
@@ -106,13 +106,13 @@ Other systems are not supported yet; you can try to [build from source](docs/DEV
 
 ### 1 · Bring the shoot in
 
-Start a **project** for a portrait sitting, a wedding or a product shoot. **Ingest** copies the photographs from the card, checks every copy against the original before it counts as safe, and can write a backup to a second drive at the same time. In the import dialog you can check photos at 100 % for focus (Z or a click, real pixels, not an enlarged preview) rate them and choose which to import before anything is copied; inserting a memory card opens the import with that card, and it can be ejected once every photo is copied and verified. The card is never changed. You can also drag photographs from the Finder or your file manager straight onto the window. Shooting tethered into a folder? **Hot folder** picks up each new file as it arrives (optionally from subfolders too) and can apply a preset or the previous photo's settings, a rating and keywords straight away; it keeps watching when you reopen the project, and picks up what arrived while Rawtonic was closed.
+Start a **session** for a portrait sitting, a wedding or a product shoot. **Import** copies the photographs from the card, checks every copy against the original before it counts as safe, and can write a backup to a second drive at the same time. In the import dialog you can check photos at 100 % for focus (Z or a click, real pixels, not an enlarged preview) rate them and choose which to import before anything is copied; inserting a memory card opens the import with that card, and it can be ejected once every photo is copied and verified. The card is never changed. You can also drag photographs from the Finder or your file manager straight onto the window. Shooting tethered into a folder? **Hot folder** picks up each new file as it arrives (optionally from subfolders too) and can apply a preset or the previous photo's settings, a rating and keywords straight away; it keeps watching when you reopen the session, and picks up what arrived while Rawtonic was closed.
 
 Use a **catalog** for a growing photo collection. Imports copy into its own `Photos/year/date` folders by default; you can also keep photos in their existing folders. Albums organize photographs without moving them. Moved, renamed, added or deleted files outside Rawtonic? **Synchronize Folder** finds the changes, follows moved photos with their edits and lets you review everything before it is applied. The library menu can create a **portable copy** for another computer, make a **full verified backup**, or **restore a backup** into a new folder—including external originals and required edit resources.
 
-**Session Folders…** sets where a project's captures, selects and exports go, inside the project or on another drive. **Find Duplicates** lists photos whose files hold identical image data, even under other names, and moves only the ones you mark to the Trash; visually similar photos are not found. **Empty Trash** on a session's or catalog's Trash folder moves its contents to the computer's Trash, with Undo; deleting permanently is a separate, explicit step. **Export as Catalog…** takes a job to another computer, and **Import from Catalog…** brings the edits made there back, with a review first and one Undo step.
+**Session Folders…** sets where a session's captures, selects and exports go, inside the project or on another drive. **Find Duplicates** lists photos whose files hold identical image data, even under other names, and moves only the ones you mark to the Trash; visually similar photos are not found. **Empty Trash** on a session's or catalog's Trash folder moves its contents to the computer's Trash, with Undo; deleting permanently is a separate, explicit step. **Export as Catalog…** takes a job to another computer, and **Import from Catalog…** brings the edits made there back, with a review first and one Undo step.
 
-Already have a Lightroom Classic catalog or a Capture One session or catalog? Rawtonic can import it, with ratings, labels, keywords, albums, smart collections, virtual copies, snapshots, stacks (Lightroom) and translated edits. Capture One's local adjustment layers come along: gradients, filled masks and Luma Ranges as editable masks, brush, colour range and AI masks as fixed bitmaps. Lightroom catalog imports keep Point Color (also on masks) and Guided Upright with its guide lines.
+Already have a Lightroom Classic catalog or a Capture One session or catalog (`.cocatalog` too)? Rawtonic can import it, with ratings, labels, keywords, albums, smart collections, virtual copies, snapshots, stacks (Lightroom) and translated edits. Capture One's local adjustment layers come along: gradients, filled masks and Luma Ranges as editable masks, brush, colour range and AI masks as fixed bitmaps; its lens distortion correction becomes Rawtonic's profile for that lens with the same amounts. Lightroom imports keep all eight Point Color ranges (also on masks), Guided Upright with its guide lines, and Exposure and tone curves from edits made before process version 2012.
 
 ### 2 · Find the keepers
 
@@ -124,7 +124,7 @@ The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P a
 
 ### 3 · Develop
 
-The **Develop** room gives the photograph the space: a filmstrip (under the photo, or docked beside it as a vertical grid with its own quick filter), a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After** (Y), line up a series side by side in the **multi view** (N) and edit them all at once, see the photograph alone in **full screen** (F, also from the Library; I shows its facts), step back through **History** (⌥/Alt-click a tool group's name resets that group), copy settings across a series and save your own presets. Drag a slider to explore, move the pointer away from it while dragging for a finer drag, step it with the arrow keys, or type a number to be exact. A **second window** (Window ▸ Second Window, ⇧F) shows the photo live on another display, with its own zoom and a lock that keeps one photo while you move on. The **Profile** browser shows the open photo with every camera profile and look; hover to preview, click to apply. **Match Light** gives a series the exposure and white balance that make it look lit like a reference photo. **Develop defaults** set what unedited photos start with — globally, per camera model or per single camera body — and Reset goes back to them.
+The **Develop** room gives the photograph the space: a filmstrip (under the photo, or docked beside it as a vertical grid with its own quick filter), a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After** (Y), line up a series side by side in the **multi view** (N) and edit them all at once, see the photograph alone in **full screen** (F, also from the Library; I shows its facts), step back through **History** (⌥/Alt-click a tool group's name resets that group), copy settings across a series and save your own presets. Drag a slider to explore, move the pointer away from it while dragging for a finer drag, step it with the arrow keys, or type a number to be exact (Tab commits it and moves to the next value). On a Mac a two-finger swipe pans the zoomed photo and a pinch zooms. A **second window** (Window ▸ Second Window, ⇧F) shows the photo live on another display, with its own zoom and a lock that keeps one photo while you move on. The **Profile** browser shows the open photo with every camera profile and look; hover to preview, click to apply. **Match Light** gives a series the exposure and white balance that make it look lit like a reference photo. **Develop defaults** set what unedited photos start with — globally, per camera model or per single camera body — and Reset goes back to them.
 
 <p align="center">
   <a href="docs/images/readme-filmstrip.jpg"><img src="docs/images/readme-filmstrip.jpg" alt="Develop with the filmstrip docked to the right of the photo as a two-column grid with its quick filter, a cat photograph open" width="860"></a>
@@ -160,7 +160,7 @@ The **Develop** room gives the photograph the space: a filmstrip (under the phot
   <a href="docs/images/readme-retouch.jpg"><img src="docs/images/readme-retouch.jpg" alt="Face retouch on a studio portrait: small blemishes healed and dark circles softened, skin texture kept" width="860"></a>
 </p>
 
-**Portrait retouch.** Rawtonic finds the faces and heals blemishes, evens out skin, softens dark circles and shine, each with one slider, for everyone in the photo or one person at a time, and keeps the skin's texture. Heal, clone and remove distractions by hand where you need to. **Find dust** marks sensor dust on flat areas and turns it into ordinary heal spots, and can add the same spots to other photos from the same camera.
+**Portrait retouch.** Rawtonic finds the faces and heals blemishes, evens out skin, softens dark circles and shine, each with one slider, for everyone in the photo or one person at a time, and keeps the skin's texture. Heal, clone and remove distractions by hand where you need to; a ring on the photo shows the brush, and a right-click on the photo sets its size, feather, opacity and flow right there. **Find dust** marks sensor dust on flat areas and turns it into ordinary heal spots, and can add the same spots to other photos from the same camera.
 
 **Relight** _(experimental)_. Add up to four lights to a photograph after the fact. Rawtonic estimates the depth, the people's surfaces and the photo's own lighting, so a new light brightens a face's shadow side, the original light can be turned down and the subject casts its shadow on the background.
 
@@ -176,7 +176,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 
 ## What it does
 
-- **Originals stay yours.** Your RAW files are never modified or deleted. Ingest verifies every copy; edits live in a portable project and XMP sidecars.
+- **Originals stay yours.** Your RAW files are never modified or deleted. Ingest verifies every copy; edits live in a portable session or catalog and XMP sidecars.
 - **Fast, on the graphics card.** The photograph is rendered on the GPU (on a Mac natively beneath the interface), so sliders, brushes and masks respond while you drag.
 - **Light.** Exposure, highlights, shadows, whites and blacks, levels, point and region curves, clarity, structure, dehaze.
 - **Colour.** RAW white balance, colour editor, colour grading, vibrance, black-and-white mix, camera profiles, CUBE LUTs, soft proofing for print and web colour spaces.
@@ -199,6 +199,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | :--------------------------- | :----------------------------- |
 | **G** / **E** / **D**        | grid / loupe / Develop         |
 | ← / →                        | previous / next photograph     |
+| Home / End                   | first / last photograph        |
 | **1**–**5** / **0**          | star rating / clear it         |
 | **P** / **X** / **U**       | pick / reject / clear the flag (⇧X also rejects) |
 | **6**–**9**                  | red / yellow / green / blue label |
@@ -220,18 +221,20 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | **⇧Return** / **⌘Return**    | pin / clear the reference      |
 | **C** / **R** / **B**        | crop / straighten / brush      |
 | **M**                        | show or hide the mask overlay  |
+| **[** / **]**                | smaller / larger brush (with ⇧: softer / harder) |
+| **A**                        | scopes (with a brush: Auto Mask) |
 | **J**                        | clipping warnings              |
 | **Alt+X**                    | proof margin                   |
 | **Tab** (on the photograph)  | hide or show the panels        |
 | ⌘Z / ⇧⌘Z                     | undo / redo                    |
 
-The before / after button’s menu (chevron or right-click) chooses Off, Split left-right, Split top-bottom or Side by side. Side by side shows the whole photograph twice, before on the left and after on the right, at the same zoom and pan; the wheel zooms both from either pane. The divider follows a drag or the arrow keys along its axis (Shift for a larger step), Home/End moves to an edge, and double-click centres it. The choice and divider position are remembered per project or catalog, while zoom and pan stay in place when switching modes.
+The before / after button’s menu (chevron or right-click) chooses Off, Split left-right, Split top-bottom or Side by side. Side by side shows the whole photograph twice, before on the left and after on the right, at the same zoom and pan; the wheel zooms both from either pane. The divider follows a drag or the arrow keys along its axis (Shift for a larger step), Home/End moves to an edge, and double-click centres it. The choice and divider position are remembered per session or catalog, while zoom and pan stay in place when switching modes.
 
 To see one tool's part of the edit, hold its reset button with ⌥/Alt pressed (or hold it for a moment without): the photograph shows without that tool — on the active layer only when a layer is selected — until you let go. Nothing is reset and no history step is made; a short click still resets the tool.
 
 The before / after split shows in the single view only: turning on the multi view turns the split off, and turning on the split leaves the multi view.
 
-On Linux, **Ctrl** takes the place of **⌘** (Ctrl+Z, Ctrl+Return …). The keys follow what photographers already know from the big editors, and every shortcut can be changed in Settings.
+On Windows and Linux, **Ctrl** takes the place of **⌘** (Ctrl+Z, Ctrl+Return …), and F10 or Alt opens the menu. Menus show each command's key, named as your keyboard layout types it. The keys follow what photographers already know from the big editors, and every shortcut can be changed in Settings.
 
 ## Status and known limitations
 
@@ -239,7 +242,7 @@ Rawtonic's goal is simple to state and hard to reach: every tool should be at le
 
 - **macOS on Apple Silicon and Linux (x86-64 AppImage); Windows experimental.** The Intel Mac build is experimental (not yet run on Intel hardware), and so is the unsigned Windows installer (so far tested with one NVIDIA graphics card and one AMD Radeon 680M laptop). On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu, Debian and Fedora).
 - **Cameras.** The focus is on professional and popular cameras and phones of the last ten years (Canon, Nikon, Sony, Fujifilm, Panasonic, OM System/Olympus, Leica, DJI, iPhone ProRAW and other DNGs). Older or rarer cameras may open with less accurate colour, or not at all. Nikon _High Efficiency_ NEFs are not supported yet; use lossless compressed RAW for now.
-- **Importing from Lightroom or Capture One** brings over metadata, albums, smart collections, virtual copies, snapshots, stacks (Lightroom) and most edits, but not everything: Remove spots, Lightroom's history steps, virtual copies' names and album membership, the strokes and colour ranges behind Capture One's brush, colour range and AI layers (their masks come over as fixed images) and some smart-collection rules (edit date, has adjustments, video) don't transfer, Select Subject can pick a larger subject than Lightroom's, and photos can look different.
+- **Importing from Lightroom or Capture One** brings over metadata, albums, smart collections, virtual copies, snapshots, stacks (Lightroom) and most edits, but not everything: Remove spots, Lightroom's history steps, virtual copies' names and album membership, the strokes and colour ranges behind Capture One's brush, colour range and AI layers (their masks come over as fixed images) and some smart-collection rules (edit date, has adjustments, video) don't transfer, Lightroom's curves from before process version 2012 are approximated, Select Subject can pick a larger subject than Lightroom's, and photos can look different.
 - **Batch export is still slower than Capture One.** Measured on one MacBook Pro M5 Pro on November 16, 2026 (20 Nikon NEFs, full-size JPEGs, the same edit in all three: exposure, contrast, highlights, shadows, noise reduction and sharpening), Rawtonic took 9.3–10 s, Capture One 5.7 s and Lightroom Classic 11.7 s. An earlier comparison that showed Lightroom at 3.3 s had exported without the edits applied. The gap to Capture One is partly the graphics card's work per photo and partly the processor work before it; both are being worked on.[^batch-export]
 - **Relight is experimental.** The original light's own cast shadows stay in the photo, and the subject's shadow on the background does not touch the ground.
 - **Tethering is experimental.** The Tether tool (session bar) connects a camera on USB through libgphoto2 in a separate helper process, fires it, shows its settings and live view and copies each photo into Capture. It has been tested on a Mac with a Sony a7 III and a7 IV and a Fujifilm X-H2S and GFX 50R (capture, settings, focus, cable pulled and plugged in again, long series); Fujifilm live view does not work yet, the GFX 50R shows a new photo a little later than Capture One, Canon cameras are not supported yet, and other cameras and Linux have not been tried with a body. The tether panel's **Camera test** checks a camera step by step and makes an anonymous report you can send in one click (after seeing exactly what is sent) or paste into a camera report; tested and reported cameras are listed in [docs/TETHER_CAMERAS.md](docs/TETHER_CAMERAS.md). The hot folder works with your camera maker's tethering app.
@@ -251,7 +254,7 @@ Rawtonic's goal is simple to state and hard to reach: every tool should be at le
 
 Please [**open a GitHub issue**](https://github.com/rawtonic-app/rawtonic/issues/new) for bugs, questions and feature ideas, rather than an e-mail. Issues keep the details, screenshots and follow-ups in one place, other photographers with the same problem can find them, and you are notified when a fix ships.
 
-A useful bug report says which Rawtonic version you run (Settings → About), your system (macOS version and Mac model, or Linux distribution and graphics card), and, for photos that don't open or look wrong, the camera model and file type (for example Sony `.ARW`).
+A useful bug report says which Rawtonic version you run (Settings → About), your system (macOS version and Mac model, or Windows or Linux version and graphics card), and, for photos that don't open or look wrong, the camera model and file type (for example Sony `.ARW`).
 
 ## Support
 
