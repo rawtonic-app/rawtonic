@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- **Linux: the 100 % view stays sharp while a mask tool or the white balance picker is active.** Their drawing layer made the viewer a composited layer, which the Linux webview showed as the fit-size picture enlarged; the after side and the single view at 100 % were then far softer than the export. The photograph is now drawn beside that layer, as the side-by-side Before side already was: with a mask selected it matches the export (Laplacian variance 1.12–1.13× the export's, was 0.01×). Slider drags are unchanged.
+- **Linux: the 100 % view stays sharp while a mask tool or the white balance picker is active.** Their drawing layer made the viewer a composited layer, which the Linux webview showed as the fit-size picture enlarged, so the after side and the single view at 100 % were far softer. The photograph is now drawn beside that layer, as the side-by-side Before side already was. Measured on a 24 MP NEF on one NVIDIA/KDE Wayland PC with a mask tool active: detail at 100 % (Laplacian variance of screen crops relative to a lossless export of the same edit) went from 0.01× to 1.12–1.13×; Exposure slider drag timings (input to preview) were within run-to-run noise of the previous build.
 
 - **Linux Before/After zoom keeps both sides in the same format.** When zooming to 100%, Before waits for the JPEG After frame. Cached previews retain their format when switching photos.
 
