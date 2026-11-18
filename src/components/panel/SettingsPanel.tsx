@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import {
   Cpu,
   ExternalLink as ExternalLinkIcon,
@@ -25,6 +25,7 @@ import Dropdown, { OptionItem } from '../ui/Dropdown';
 import Switch from '../ui/Switch';
 import Input from '../ui/Input';
 import Slider from '../ui/Slider';
+import SettingItem from './SettingItem';
 import { useTranslation } from 'react-i18next';
 import type { ParseKeys } from 'i18next';
 import { interfaceShade } from '../../utils/themes';
@@ -93,12 +94,6 @@ interface KeybindRowProps {
   recordingAction: string | null;
   onStartRecording: (action: string) => void;
   isConflicting: boolean;
-}
-
-interface SettingItemProps {
-  children: React.ReactNode;
-  description?: string;
-  label: string;
 }
 
 interface SettingsPanelProps {
@@ -176,6 +171,21 @@ const zoomMultiplierOptions: OptionItem<number>[] = [
   { value: 0.25, label: '0.25x' }
 ];
 
+/** Removing a chip from the keyboard keeps the focus in the list: on the next
+ * chip, else the previous one, else the field that adds new ones. Chips
+ * removed before stay in the page during their exit animation and are
+ * skipped (`remaining` holds the values still listed). */
+const keepFocusAfterChipRemoval = (chip: HTMLElement, remaining: string[]) => {
+  if (!chip.contains(document.activeElement)) return;
+  const chips = Array.from(
+    chip.parentElement?.querySelectorAll<HTMLElement>(':scope > button[data-chip]') ?? []
+  ).filter((other) => other === chip || remaining.includes(other.dataset.chip ?? ''));
+  const at = chips.indexOf(chip);
+  const target =
+    chips[at + 1] ?? chips[at - 1] ?? chip.closest('.pref-control')?.querySelector<HTMLElement>('input[type="text"]');
+  target?.focus();
+};
+
 const KeybindRow = ({
   def,
   currentCombo,
@@ -209,11 +219,15 @@ const KeybindRow = ({
     return () => window.removeEventListener('keydown', handler, { capture: true });
   }, [recording, def.action, onSave, onStartRecording, osPlatform]);
 
-  const displayCombo = currentCombo !== undefined ? (currentCombo.length ? currentCombo : null) : def.defaultCombo;
+  // An action without a key (none set, or none by default) says so instead of an empty key cap.
+  const combo = currentCombo !== undefined ? currentCombo : def.defaultCombo;
+  const displayCombo = combo?.length ? combo : null;
+  // The button is named by the action and its key ("Undo ⌘ Z"), not by the key alone.
+  const id = useId();
 
   return (
     <div className="flex justify-between items-center py-2">
-      <Text variant={TextVariants.label}>
+      <Text variant={TextVariants.label} id={`${id}-action`}>
         {t(
           (def.action === 'show_in_finder' && osPlatform !== 'macos'
             ? 'settings.keybinds.actions.show_in_file_manager'
@@ -222,7 +236,12 @@ const KeybindRow = ({
       </Text>
       <div className="flex items-center gap-1">
         {isConflicting && <span className="text-yellow-400 text-xs">⚠</span>}
-        <button onClick={() => onStartRecording(def.action)} className="flex items-center gap-1 flex-wrap shrink-0">
+        <button
+          id={`${id}-key`}
+          aria-labelledby={`${id}-action ${id}-key`}
+          onClick={() => onStartRecording(def.action)}
+          className="flex items-center gap-1 flex-wrap shrink-0"
+        >
           {recording ? (
             <Text
               as="kbd"
@@ -255,16 +274,6 @@ const KeybindRow = ({
 };
 
 /** One preference: what it is and does on the left, its control on the right. */
-const SettingItem = ({ children, description, label }: SettingItemProps) => (
-  <div className="pref-row">
-    <div className="pref-text">
-      <div className="pref-label">{label}</div>
-      {description && <p className="pref-description">{description}</p>}
-    </div>
-    <div className="pref-control">{children}</div>
-  </div>
-);
-
 const DataActionItem = ({
   buttonAction,
   buttonText,
@@ -1034,12 +1043,14 @@ export default function SettingsPanel({
                             value={tempLensMaker}
                             onChange={handleTempMakerChange}
                             placeholder={t('settings.lenses.manufacturerPlaceholder')}
+                            aria-label={t('settings.lenses.manufacturerPlaceholder')}
                           />
                           <Dropdown
                             options={lensModels.map((m) => ({ label: m, value: m }))}
                             value={tempLensModel}
                             onChange={setTempLensModel}
                             placeholder={t('settings.lenses.modelPlaceholder')}
+                            aria-label={t('settings.lenses.modelPlaceholder')}
                             disabled={!tempLensMaker}
                           />
                           <Button
@@ -1081,6 +1092,7 @@ export default function SettingsPanel({
                                 onClick={() => handleRemoveLens(index)}
                                 className="p-2 text-text-secondary hover:text-red-400 hover:bg-bg-primary rounded-md transition-colors"
                                 data-tooltip={t('settings.lenses.removeTooltip')}
+                                aria-label={t('settings.lenses.removeTooltip')}
                               >
                                 <Trash2 size={16} />
                               </button>
@@ -1157,15 +1169,24 @@ export default function SettingsPanel({
                                       <AnimatePresence>
                                         {customAiTags.length > 0 ? (
                                           customAiTags.map((tag: string) => (
-                                            <motion.div
+                                            <motion.button
+                                              type="button"
                                               key={tag}
+                                              data-chip={tag}
                                               layout
                                               variants={shortcutTagVariants}
                                               initial={false}
                                               animate="visible"
                                               exit="exit"
-                                              onClick={() => handleRemoveAiTag(tag)}
+                                              onClick={(e) => {
+                                                keepFocusAfterChipRemoval(
+                                                  e.currentTarget,
+                                                  customAiTags.filter((other) => other !== tag)
+                                                );
+                                                handleRemoveAiTag(tag);
+                                              }}
                                               data-tooltip={t('settings.tagging.removeCustomTooltip', { tag })}
+                                              aria-label={t('settings.tagging.removeCustomTooltip', { tag })}
                                               className="flex items-center gap-1 bg-surface px-2 py-1 rounded-sm group cursor-pointer"
                                             >
                                               <Text variant={TextVariants.label} color={TextColors.primary}>
@@ -1174,7 +1195,7 @@ export default function SettingsPanel({
                                               <span className="rounded-full group-hover:bg-black/20 p-0.5 transition-colors">
                                                 <X size={14} />
                                               </span>
-                                            </motion.div>
+                                            </motion.button>
                                           ))
                                         ) : (
                                           <motion.span
@@ -1206,6 +1227,7 @@ export default function SettingsPanel({
                                           onClick={handleAddAiTag}
                                           className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-full text-text-secondary hover:text-text-primary hover:bg-surface"
                                           data-tooltip={t('settings.tagging.addCustomTooltip')}
+                                          aria-label={t('settings.tagging.addCustomTooltip')}
                                         >
                                           <Plus size={18} />
                                         </button>
@@ -1215,6 +1237,7 @@ export default function SettingsPanel({
                                         disabled={customAiTags.length === 0}
                                         className="p-2 text-text-secondary hover:text-red-400 hover:bg-surface rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary disabled:hover:bg-transparent"
                                         data-tooltip={t('settings.tagging.clearCustomTooltip')}
+                                        aria-label={t('settings.tagging.clearCustomTooltip')}
                                       >
                                         <Trash2 size={18} />
                                       </button>
@@ -1236,15 +1259,24 @@ export default function SettingsPanel({
                             <AnimatePresence>
                               {taggingShortcuts.length > 0 ? (
                                 taggingShortcuts.map((shortcut: string) => (
-                                  <motion.div
+                                  <motion.button
+                                    type="button"
                                     key={shortcut}
+                                    data-chip={shortcut}
                                     layout
                                     variants={shortcutTagVariants}
                                     initial={false}
                                     animate="visible"
                                     exit="exit"
-                                    onClick={() => handleRemoveShortcut(shortcut)}
+                                    onClick={(e) => {
+                                      keepFocusAfterChipRemoval(
+                                        e.currentTarget,
+                                        taggingShortcuts.filter((other) => other !== shortcut)
+                                      );
+                                      handleRemoveShortcut(shortcut);
+                                    }}
                                     data-tooltip={t('settings.tagging.removeShortcutTooltip', { shortcut })}
+                                    aria-label={t('settings.tagging.removeShortcutTooltip', { shortcut })}
                                     className="flex items-center gap-1 bg-surface px-2 py-1 rounded-sm group cursor-pointer"
                                   >
                                     <Text variant={TextVariants.label} color={TextColors.primary}>
@@ -1253,7 +1285,7 @@ export default function SettingsPanel({
                                     <span className="rounded-full group-hover:bg-black/20 p-0.5 transition-colors">
                                       <X size={14} />
                                     </span>
-                                  </motion.div>
+                                  </motion.button>
                                 ))
                               ) : (
                                 <motion.span
@@ -1284,6 +1316,7 @@ export default function SettingsPanel({
                                 onClick={handleAddShortcut}
                                 className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-full text-text-secondary hover:text-text-primary hover:bg-surface"
                                 data-tooltip={t('settings.tagging.addShortcutTooltip')}
+                                aria-label={t('settings.tagging.addShortcutTooltip')}
                               >
                                 <Plus size={18} />
                               </button>
@@ -1293,6 +1326,7 @@ export default function SettingsPanel({
                               disabled={taggingShortcuts.length === 0}
                               className="p-2 text-text-secondary hover:text-red-400 hover:bg-surface rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary disabled:hover:bg-transparent"
                               data-tooltip={t('settings.tagging.clearShortcutsTooltip')}
+                              aria-label={t('settings.tagging.clearShortcutsTooltip')}
                             >
                               <Trash2 size={18} />
                             </button>

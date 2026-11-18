@@ -3,6 +3,7 @@ import clsx from 'clsx';
 import { motion } from 'framer-motion';
 import Text from './Text';
 import { TextVariants } from '../../types/typography';
+import { useSettingField } from './settingField';
 
 interface SwitchProps {
   checked: boolean;
@@ -35,6 +36,10 @@ const Switch = ({
   trackClassName
 }: SwitchProps) => {
   const uniqueId = `switch-${label.replace(/\s+/g, '-').toLowerCase()}`;
+  // In a preference row the switch keeps its own label and is described by
+  // the setting's name and description.
+  const field = useSettingField();
+  const describedBy = field ? [field.labelId, field.descriptionId].filter(Boolean).join(' ') : undefined;
 
   const spring = {
     type: 'spring',
@@ -61,6 +66,7 @@ const Switch = ({
           className="sr-only"
           disabled={disabled}
           id={uniqueId}
+          aria-describedby={describedBy}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => !disabled && onChange(e.target.checked)}
           type="checkbox"
         />
