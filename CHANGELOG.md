@@ -8,6 +8,10 @@
 
 - **A tool's Before at 100 % shows faster.** Holding a tool's reset with ⌥ at 100 % now draws the visible part of the photo first and then the rest. Holding Before uses the same path but was not timed. On a 24 MP photo: 188 → 92 ms on press and 175 → 96 ms on release (Mac mini M4 Pro, 60 fps recording, n = 10). Lightroom Classic's panel switch took 104/118 ms and Capture One 252/243 ms. The visible part can differ from the finished frame by a few levels in about 2 % of its pixels until the rest arrives, about 0.1 s later.
 
+- **Linux: the 100 % view stays sharp while a mask tool or the white balance picker is active.** Their drawing layer made the viewer a composited layer, which the Linux webview showed as the fit-size picture enlarged, so the after side and the single view at 100 % were far softer. The photograph is now drawn beside that layer, as the side-by-side Before side already was. Measured on a 24 MP NEF on one NVIDIA/KDE Wayland PC with a mask tool active: detail at 100 % (Laplacian variance of screen crops relative to a lossless export of the same edit) went from 0.01× to 1.12–1.13×; Exposure slider drag timings (input to preview) were within run-to-run noise of the previous build.
+
+- JPEG XL exports of opaque photos use three RGB channels. If the rendered image contains transparency, JPEG XL keeps its alpha channel.
+
 - **Linux Before/After zoom keeps both sides in the same format.** When zooming to 100%, Before waits for the JPEG After frame. Cached previews retain their format when switching photos.
 
 - **A long AI mask run counts as recent use when it finishes.** The idle timer now starts again when a run ends, so the next shader compile no longer treats the models as already idle just because the mask took more than 20 seconds.
