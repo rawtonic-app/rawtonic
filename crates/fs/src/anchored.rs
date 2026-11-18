@@ -72,6 +72,20 @@ mod tests {
     #[cfg(windows)]
     use std::os::windows::fs::{symlink_dir, symlink_file};
 
+    /// Windows: symbolic links need Developer Mode or the symlink privilege;
+    /// without it (ERROR_PRIVILEGE_NOT_HELD) the test is skipped, SKIP printed.
+    fn link_or_skip(made: io::Result<()>) -> bool {
+        match made {
+            Ok(()) => true,
+            #[cfg(windows)]
+            Err(e) if e.raw_os_error() == Some(1314) => {
+                eprintln!("SKIP: no right to make symbolic links ({e})");
+                false
+            }
+            Err(e) => panic!("cannot make a symbolic link: {e}"),
+        }
+    }
+
     #[test]
     fn directory_replaced_after_open_cannot_redirect_removal() {
         let root = tempfile::tempdir().unwrap();
@@ -86,7 +100,9 @@ mod tests {
 
         let directory = Directory::open(&cache).unwrap();
         fs::rename(&cache, &moved).unwrap();
-        symlink_dir(&other, &cache).unwrap();
+        if !link_or_skip(symlink_dir(&other, &cache)) {
+            return;
+        }
 
         directory.remove_file(name, None).unwrap();
         assert!(!moved.join(name).exists());
@@ -110,7 +126,9 @@ mod tests {
             .unwrap()
             .file_name();
         fs::remove_file(&path).unwrap();
-        symlink_file(&other, &path).unwrap();
+        if !link_or_skip(symlink_file(&other, &path)) {
+            return;
+        }
 
         assert!(directory.remove_file(&name, None).is_err());
         assert!(fs::symlink_metadata(path).unwrap().is_symlink());
