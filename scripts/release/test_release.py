@@ -114,6 +114,8 @@ class Notes(unittest.TestCase):
                                  "## What's new since beta.0")
         sums = SUMS + "ff  Rawtonic_0.2.0-beta.2_x64.msi\n11  Rawtonic_0.2.0-beta.2_x64-portable.zip\n"
         text = notes.notes("0.2.0-beta.2", "0.2.0-beta.1", CHANGELOG, body, sums)
+        self.assertIn("### Windows (unsigned)", text)
+        self.assertNotIn("experimental", text)
         self.assertIn("- `Rawtonic_0.2.0-beta.2_x64.msi`: **the recommended download.**", text)
         self.assertIn("`Rawtonic_0.2.0-beta.2_x64-portable.zip`: portable", text)
         self.assertIn("start `Rawtonic\\rawtonic-app.exe`", text)
