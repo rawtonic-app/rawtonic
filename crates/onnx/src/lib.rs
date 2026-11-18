@@ -37,10 +37,12 @@ mod background;
 pub mod bench;
 mod check;
 mod dxc;
+mod optimized;
 mod runtime;
 mod vc_runtime;
 mod watch;
 
+pub use optimized::EXTENSIONS as OPTIMIZED_GRAPH_EXTENSIONS;
 pub use runtime::{
     RUNTIME_UNAVAILABLE, RuntimeError, RuntimeErrorKind, ensure_runtime, environment, library_path,
 };
@@ -251,6 +253,27 @@ impl ModelKind {
         }
     }
 
+    /// Whether CPU sessions keep this model's optimized graph (`optimized`):
+    /// every model whose output from the saved graph was measured
+    /// bit-identical to today's (AIW2). Not the SigLIP 2 text encoder (the
+    /// content-search file keeps its weights in a separate `.data` file the
+    /// cache key does not cover, mapped to save memory), nor Moebius (only
+    /// on GPU providers, not measured on the CPU), nor the export steps
+    /// Super Resolution and AI Denoise (kept out until full exports with
+    /// and without the saved graph are compared byte for byte; their
+    /// sessions take milliseconds anyway).
+    pub fn keeps_optimized_graph(self) -> bool {
+        !matches!(
+            self,
+            ModelKind::TagText
+                | ModelKind::Denoise
+                | ModelKind::SuperResolution
+                | ModelKind::MoebiusUnet
+                | ModelKind::MoebiusEncoder
+                | ModelKind::MoebiusDecoder
+        )
+    }
+
     /// Options for `provider` when it runs this model, each a measurement.
     pub fn provider_options(self, provider: Provider) -> &'static [(&'static str, &'static str)] {
         match (self, provider) {
@@ -279,6 +302,9 @@ pub struct Settings {
     /// verdict is known (the app), instead of before the model's first use
     /// (the CLI, a forced provider).
     pub check_when_idle: bool,
+    /// Where CPU sessions keep their models' optimized graphs (the app's
+    /// cache; `None`: every session optimizes the graph, `optimized`).
+    pub optimized_graphs: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -288,6 +314,7 @@ impl Default for Settings {
             plugin_dirs: default_plugin_dirs(),
             checks_file: None,
             check_when_idle: false,
+            optimized_graphs: None,
         }
     }
 }
@@ -693,12 +720,152 @@ pub(crate) fn session(path: &Path, kind: ModelKind, device: Option<&Device>) -> 
 /// `session` with at most `threads` threads inside each operator (`None`:
 /// ONNX Runtime's default, one per core) that sleep instead of spinning
 /// between operators: for background work beside the photographer's.
+///
+/// On the CPU with `Settings::optimized_graphs` set, the session comes from
+/// the model's saved optimized graph when there is one, else the graph is
+/// saved while this session is created (`optimized`).
 fn session_with(
     path: &Path,
     kind: ModelKind,
     device: Option<&Device>,
     threads: Option<usize>,
 ) -> Result<Session> {
+    if device.is_none()
+        && kind.keeps_optimized_graph()
+        && let Some(dir) = settings().optimized_graphs
+    {
+        match optimized::Entry::new(&dir, path, kind) {
+            Ok(entry) => {
+                return cpu_session_cached(path, kind, threads, &entry, optimized::KEEP_FROM);
+            }
+            Err(e) => log::info!("AI {}: no optimized graph: {e:#}", kind.name()),
+        }
+    }
+    Ok(builder(kind, device, threads)?.commit_from_file(path)?)
+}
+
+/// A CPU session of `path` through its optimized-graph cache `entry`; a
+/// graph saved by a session that took less than `keep_from` is not kept.
+fn cpu_session_cached(
+    path: &Path,
+    kind: ModelKind,
+    threads: Option<usize>,
+    entry: &optimized::Entry,
+    keep_from: std::time::Duration,
+) -> Result<Session> {
+    let started = Instant::now();
+    match entry.lookup() {
+        Ok(optimized::Lookup::NotKept) => {
+            return Ok(builder(kind, None, threads)?.commit_from_file(path)?);
+        }
+        Ok(optimized::Lookup::Graph(graph)) => {
+            let session = builder(kind, None, threads)?
+                .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Disable)
+                .map_err(|e| anyhow!("optimization level: {e}"))?
+                .commit_from_file(&graph);
+            match session {
+                Ok(session) => {
+                    log::info!(
+                        "AI {}: CPU session from the saved optimized graph in {} ms",
+                        kind.name(),
+                        started.elapsed().as_millis()
+                    );
+                    return Ok(session);
+                }
+                Err(e) => {
+                    log::warn!(
+                        "AI {}: saved optimized graph not usable, rebuilt: {e}",
+                        kind.name()
+                    );
+                    entry.discard();
+                }
+            }
+        }
+        Ok(optimized::Lookup::Missing) => {}
+        Err(e) => {
+            log::warn!(
+                "AI {}: saved optimized graph not used, rebuilt: {e:#}",
+                kind.name()
+            );
+            entry.discard();
+        }
+    }
+    let save = match entry.start_save() {
+        Ok(save) => save,
+        Err(e) => {
+            log::info!("AI {}: optimized graph not saved: {e:#}", kind.name());
+            return Ok(builder(kind, None, threads)?.commit_from_file(path)?);
+        }
+    };
+    let started = Instant::now();
+    let saving =
+        saving_builder(kind, threads, &save).and_then(|mut b| Ok(b.commit_from_file(path)?));
+    match saving {
+        Ok(session) => {
+            let created = started.elapsed();
+            match save.publish(entry, created >= keep_from) {
+                Ok(optimized::Kept::Yes) => log::info!(
+                    "AI {}: CPU session in {} ms, optimized graph saved in {} ms more",
+                    kind.name(),
+                    created.as_millis(),
+                    (started.elapsed() - created).as_millis()
+                ),
+                Ok(optimized::Kept::No) => log::info!(
+                    "AI {}: CPU session in {} ms, quick enough without a saved graph",
+                    kind.name(),
+                    created.as_millis()
+                ),
+                Err(e) => {
+                    entry.failed();
+                    log::info!("AI {}: optimized graph not saved: {e:#}", kind.name());
+                }
+            }
+            Ok(session)
+        }
+        // A save that fails (a full disk while ONNX Runtime writes) fails
+        // the session: created again without saving.
+        Err(e) => {
+            save.abandon();
+            entry.failed();
+            log::info!("AI {}: optimized graph not saved: {e:#}", kind.name());
+            Ok(builder(kind, None, threads)?.commit_from_file(path)?)
+        }
+    }
+}
+
+/// `builder` for the CPU that saves the optimized graph and its weights
+/// where `save` says.
+fn saving_builder(
+    kind: ModelKind,
+    threads: Option<usize>,
+    save: &optimized::Save,
+) -> Result<SessionBuilder> {
+    let options = |e: ort::Error<SessionBuilder>| anyhow!("optimized graph options: {e}");
+    let builder = builder(kind, None, threads)?
+        .with_optimized_model_path(&save.graph_temp)
+        .map_err(options)?
+        .with_config_entry("session.save_model_format", "ONNX")
+        .map_err(options)?
+        .with_config_entry(
+            "session.optimized_model_external_initializers_file_name",
+            &save.data_name,
+        )
+        .map_err(options)?
+        .with_config_entry(
+            "session.optimized_model_external_initializers_min_size_in_bytes",
+            optimized::EXTERNAL_MIN_BYTES,
+        )
+        .map_err(options)?;
+    Ok(builder)
+}
+
+/// The session options every session has: `threads` (as `session_with`),
+/// no CPU memory arena, `device`'s provider or the CPU.
+fn builder(
+    kind: ModelKind,
+    device: Option<&Device>,
+    threads: Option<usize>,
+) -> Result<SessionBuilder> {
     let mut builder = Session::builder(runtime::environment()?)?;
     if let Some(threads) = threads {
         builder = builder
@@ -728,7 +895,7 @@ fn session_with(
             check(append_cpu(builder.ptr_mut(), 0))?;
         }
     }
-    Ok(builder.commit_from_file(path)?)
+    Ok(builder)
 }
 
 /// An error if any value is NaN or infinite: a GPU kernel that went wrong
@@ -954,6 +1121,7 @@ mod tests {
             plugin_dirs: Vec::new(),
             checks_file: None,
             check_when_idle: false,
+            optimized_graphs: None,
         }
     }
 
@@ -1035,6 +1203,25 @@ mod tests {
         assert_eq!(
             candidates(ModelKind::Subject, &settings(false), Some(Provider::Cpu)),
             vec![Provider::Cpu]
+        );
+    }
+
+    #[test]
+    fn models_with_unmeasured_or_external_weights_keep_no_optimized_graph() {
+        let excluded: Vec<ModelKind> = ModelKind::ALL
+            .into_iter()
+            .filter(|k| !k.keeps_optimized_graph())
+            .collect();
+        assert_eq!(
+            excluded,
+            [
+                ModelKind::TagText,
+                ModelKind::Denoise,
+                ModelKind::MoebiusUnet,
+                ModelKind::MoebiusEncoder,
+                ModelKind::MoebiusDecoder,
+                ModelKind::SuperResolution
+            ]
         );
     }
 

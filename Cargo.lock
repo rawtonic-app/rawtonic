@@ -560,6 +560,8 @@ dependencies = [
  "cfg-if",
  "constant_time_eq",
  "cpufeatures 0.3.0",
+ "memmap2",
+ "rayon-core",
 ]
 
 [[package]]
@@ -5834,9 +5836,11 @@ name = "rawtonic-onnx"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "libloading 0.8.9",
  "log",
  "ort",
+ "rawtonic-fs",
  "windows-sys 0.61.2",
 ]
 
