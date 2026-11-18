@@ -55,7 +55,7 @@ WINDOWS_HELP = "https://github.com/rawtonic-app/rawtonic#if-windows-blocks-the-d
 
 def windows_install(version):
     """The Windows part of Install when the release has the MSI and the portable zip."""
-    return f"""### Windows (experimental, unsigned)
+    return f"""### Windows (unsigned)
 
 Three downloads of the same app, for Windows 10 or 11 (x64):
 
@@ -66,11 +66,10 @@ Three downloads of the same app, for Windows 10 or 11 (x64):
 1. Download one of them and `SHA256SUMS-windows.txt` below.
 2. **The downloads are not signed.** Check the download first: in PowerShell, `Get-FileHash .\\<file>` must print the same SHA-256 as `SHA256SUMS-windows.txt` (upper or lower case does not matter). This catches a damaged download; it does not prove who made the file.
 3. Start it. Windows SmartScreen says "Windows protected your PC": click **More info**, then **Run anyway**. Uninstall an installed Rawtonic in Settings → Apps.
-4. Installing takes about a minute: at the end the installer prepares the graphics pipelines, so the first photo appears sooner.
 
 If your browser or Windows Security removes or blocks the download, see [Windows blocked the download?]({WINDOWS_HELP}). Each download was scanned with Microsoft Defender on a Windows build machine before the release; that is evidence, not a promise that your PC's protection agrees.
 
-**Rawtonic needs a graphics card with a Vulkan or DirectX 12 driver.** PCs with only Microsoft's software renderer (WARP, for example a virtual machine without a graphics driver) are not supported: Rawtonic says so and closes instead of starting. **Windows support is experimental:** please [report]({REPO_URL}/issues) how it runs on your PC."""
+**Rawtonic needs a graphics card with a Vulkan or DirectX 12 driver.** PCs with only Microsoft's software renderer (WARP, for example a virtual machine without a graphics driver) are not supported: Rawtonic says so and closes instead of starting. On slower integrated GPUs, the first use of some slider combinations triggers a one-time graphics pipeline compile (up to about a minute on a Radeon 680M), and exporting with two threads uses more memory than exporting with one."""
 
 
 def with_windows_install(install, version, names):

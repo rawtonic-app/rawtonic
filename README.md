@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/rawtonic-app/rawtonic/releases"><img alt="Release" src="https://img.shields.io/github/v/release/rawtonic-app/rawtonic?include_prereleases&label=release&color=e8590c"></a>
   <img alt="Status: early alpha" src="https://img.shields.io/badge/status-early%20alpha-e8590c">
-  <img alt="Platform: macOS Apple Silicon (Intel experimental), Linux x86-64 and Windows x64 (experimental)" src="https://img.shields.io/badge/platform-macOS%20Apple%20Silicon%20(Intel%20experimental)%20%C2%B7%20Linux%20x86--64%20%C2%B7%20Windows%20x64%20(experimental)-1f6feb">
+  <img alt="Platform: macOS Apple Silicon (Intel experimental), Linux x86-64 and Windows x64 (unsigned)" src="https://img.shields.io/badge/platform-macOS%20Apple%20Silicon%20(Intel%20experimental)%20%C2%B7%20Linux%20x86--64%20%C2%B7%20Windows%20x64%20(unsigned)-1f6feb">
   <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
 </p>
 
@@ -54,7 +54,7 @@ Rawtonic is vibe-coded: almost all of its code is written by AI coding agents (C
 
 Get the latest build from the [**Releases**](https://github.com/rawtonic-app/rawtonic/releases) page.
 
-Rawtonic runs on **macOS** (Apple Silicon; Intel experimental), **Linux** (x86-64) and, experimentally, **Windows** (x64).
+Rawtonic runs on **macOS** (Apple Silicon; Intel experimental), **Linux** (x86-64) and **Windows** (x64, unsigned).
 
 ### macOS
 
@@ -75,7 +75,7 @@ It runs on current distributions (Ubuntu 22.04 or later, Debian 12, Fedora and o
 
 To update, use [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) or [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever): the AppImage names its GitHub releases as its update source, and they download only the changed parts. Rawtonic checks for new releases at startup at most once per day; you can turn this off in Settings. It downloads an update only when you click **Install update** in its notice (from the first release with update packages on), checks the package's signature, and replaces the AppImage when you choose **Restart now**.
 
-### Windows (experimental)
+### Windows (unsigned)
 
 Releases after 0.1.0-alpha.11.1 have three Windows downloads of the same app (earlier ones only the `-setup.exe`), for Windows 10 or 11 (x64; so far tested on Windows 11), on the [Releases page](https://github.com/rawtonic-app/rawtonic/releases):
 
@@ -83,9 +83,9 @@ Releases after 0.1.0-alpha.11.1 have three Windows downloads of the same app (ea
 - `Rawtonic_<version>_x64-setup.exe` — installs for your user only, without administrator rights.
 - `Rawtonic_<version>_x64-portable.zip` — portable, no installation: unpack it anywhere (a USB drive works) and start `Rawtonic\rawtonic-app.exe`. It needs the Microsoft Edge WebView2 Runtime, which Windows 11 includes and Edge installs on Windows 10. Settings and libraries are kept in your user profile, not beside the app.
 
-The downloads are **not signed** yet. To check a download before running it: in PowerShell, `Get-FileHash .\Rawtonic_<version>_x64.msi` (or the file you chose) must print the same SHA-256 as `SHA256SUMS-windows.txt` (upper- or lower-case does not matter). This catches download corruption; it does not verify the publisher. Uninstall an installed Rawtonic in Settings → Apps.
+The downloads are **unsigned**. To check a download before running it: in PowerShell, `Get-FileHash .\Rawtonic_<version>_x64.msi` (or the file you chose) must print the same SHA-256 as `SHA256SUMS-windows.txt` (upper- or lower-case does not matter). This catches download corruption; it does not verify the publisher. Uninstall an installed Rawtonic in Settings → Apps.
 
-Rawtonic needs a GPU with a Vulkan or DirectX 12 driver; PCs with only Microsoft's software renderer are not supported yet. On the first start on a computer the graphics driver prepares Rawtonic's views; with AMD's Windows driver (tested on a Radeon 680M laptop) the first edits can wait for that once (25–60 s per view), after which Rawtonic prepares the likely next views in the background. Windows support is new and has so far been tested with one NVIDIA graphics card and one AMD Radeon 680M laptop, so please [report](https://github.com/rawtonic-app/rawtonic/issues) how it runs on yours.
+Rawtonic needs a GPU with a Vulkan or DirectX 12 driver; PCs with only Microsoft's software renderer are not supported yet. On slower integrated GPUs, the first use of some slider combinations triggers a one-time graphics pipeline compile (up to about a minute on a Radeon 680M), and exporting with two threads uses more memory than exporting with one.
 
 #### If Windows blocks the download
 
@@ -240,7 +240,7 @@ On Windows and Linux, **Ctrl** takes the place of **⌘** (Ctrl+Z, Ctrl+Return �
 
 Rawtonic's goal is simple to state and hard to reach: every tool should be at least as good as the better of the leading professional editors, measured on real photographs. Some tools are there, others are not yet. In this alpha:
 
-- **macOS on Apple Silicon and Linux (x86-64 AppImage); Windows experimental.** The Intel Mac build is experimental (not yet run on Intel hardware), and so is the unsigned Windows installer (so far tested with one NVIDIA graphics card and one AMD Radeon 680M laptop). On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu, Debian and Fedora).
+- **macOS on Apple Silicon and Linux (x86-64 AppImage); Windows x64 (unsigned).** The Intel Mac build is experimental (not yet run on Intel hardware). On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu, Debian and Fedora).
 - **Cameras.** The focus is on professional and popular cameras and phones of the last ten years (Canon, Nikon, Sony, Fujifilm, Panasonic, OM System/Olympus, Leica, DJI, iPhone ProRAW and other DNGs). Older or rarer cameras may open with less accurate colour, or not at all. Nikon _High Efficiency_ NEFs are not supported yet; use lossless compressed RAW for now.
 - **Importing from Lightroom or Capture One** brings over metadata, albums, smart collections, virtual copies, snapshots, stacks (Lightroom) and most edits, but not everything: Remove spots, Lightroom's history steps, virtual copies' names and album membership, the strokes and colour ranges behind Capture One's brush, colour range and AI layers (their masks come over as fixed images) and some smart-collection rules (edit date, has adjustments, video) don't transfer, Lightroom's curves from before process version 2012 are approximated, Guided Upright is not yet imported for Sony RAWs set to another aspect ratio in the camera, Select Subject can pick a larger subject than Lightroom's, and photos can look different.
 - **Batch export is still slower than Capture One.** Measured on one MacBook Pro M5 Pro on November 16, 2026 (20 Nikon NEFs, full-size JPEGs, the same edit in all three: exposure, contrast, highlights, shadows, noise reduction and sharpening), Rawtonic took 9.3–10 s, Capture One 5.7 s and Lightroom Classic 11.7 s. An earlier comparison that showed Lightroom at 3.3 s had exported without the edits applied. The gap to Capture One is partly the graphics card's work per photo and partly the processor work before it; both are being worked on.[^batch-export]

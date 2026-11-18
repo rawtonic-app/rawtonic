@@ -6,6 +6,10 @@
 
 - **Install update from the update notice.** When a newer release is out, the notice offers **Install update**: Rawtonic downloads that release's package for your Mac (app), Linux AppImage or Windows per-user setup, installs it only if it carries the signature of Rawtonic's own update key for exactly that version, and replaces the app when you choose **Restart now** — after it saved your edits, and after asking if exports or imports are still running. Nothing is downloaded before the click; the daily startup check sends nothing new. Copies installed for all users (Windows MSI), the portable zip and releases without an update package keep the browser link; an all-users copy now gets the all-users installer there. This works from the next release on: updating to it is one last manual update.
 
+### Changed
+
+- Windows is no longer labelled experimental; it remains unsigned.
+
 ### Changes to existing exports
 
 - Super Resolution exports using the ONNX Runtime CPU path may round differently from earlier versions. In a 24 MP test, the largest difference was 0.00000232 on a 0–1 scale before rounding, which can change an 8-bit channel by at most 1/255.
