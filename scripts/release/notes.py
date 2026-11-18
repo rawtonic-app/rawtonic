@@ -69,7 +69,9 @@ Three downloads of the same app, for Windows 10 or 11 (x64):
 
 If your browser or Windows Security removes or blocks the download, see [Windows blocked the download?]({WINDOWS_HELP}). Each download was scanned with Microsoft Defender on a Windows build machine before the release; that is evidence, not a promise that your PC's protection agrees.
 
-**Rawtonic needs a graphics card with a Vulkan or DirectX 12 driver.** PCs with only Microsoft's software renderer (WARP, for example a virtual machine without a graphics driver) are not supported: Rawtonic says so and closes instead of starting. On slower integrated GPUs, the first use of some slider combinations triggers a one-time graphics pipeline compile (up to about a minute on a Radeon 680M), and exporting with two threads uses more memory than exporting with one."""
+**Rawtonic needs a graphics card with a Vulkan or DirectX 12 driver.** PCs with only Microsoft's software renderer (WARP, for example a virtual machine without a graphics driver) are not supported: Rawtonic says so and closes instead of starting. On a laptop with a Radeon 680M integrated GPU, the first use of some slider combinations took up to about a minute to compile graphics pipelines with AMD’s Windows driver, and exporting two photos at a time used more memory than exporting one at a time.
+
+Windows GUI testing has covered one NVIDIA graphics card and one AMD Radeon 680M laptop. Please [report]({REPO_URL}/issues) how it runs on your PC."""
 
 
 def with_windows_install(install, version, names):

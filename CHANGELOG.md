@@ -24,6 +24,10 @@
   - In the updated CLI tests on the same laptop, exporting the seven RAWs as 16-bit TIFF alone with two jobs took 39.2 s and peaked at 3,750 MB (medians of three runs), compared with 40.9 s and 4,900 MB in the earlier baseline. With one job, it took 45.6 s and peaked at 3,074 MB, compared with 48.4 s and 4,353 MB. Exporting just JPEG at quality 90 with two jobs took 47.4 s and peaked at 3,524 MB on the updated build. All seven outputs in each of those nine runs matched the earlier exports byte for byte.
   - On that laptop, Exposure drags at 100 % zoom produced a median 630 preview frames per run with the smaller starting blocks, compared with 632 using the previous GPU hint. In a separate earlier CLI comparison, all 13 16-bit TIFFs and all 13 JPEGs at quality 90 matched byte for byte across the benchmark builds.
 
+### Known gaps
+
+- **Windows hardware coverage:** GUI testing has covered one NVIDIA graphics card and one AMD Radeon 680M laptop.
+
 ## 0.1.0-alpha.17.1 — 2026-11-18
 
 A privacy release. Earlier releases let the AI runtime (Microsoft's ONNX Runtime) report usage data to Microsoft; this release sets the runtime's own switches against it before the runtime starts (measured on macOS and Linux with an AI model running on the processor: no connection; on Linux also with the WebGPU and CUDA GPU plugins loaded; on Windows the switch is set but not yet measured) — the affected releases, what was sent and where its files are, below. Also: Panasonic DC-FZ83 files open, screen readers name more controls, Develop's scopes are in the View menu, and two small speed-ups. Updating from alpha.17: replace the app as usual; your libraries, sessions and edits stay as they are.
