@@ -41,7 +41,16 @@ export interface UpdateInfo {
 export type UpdateFailure =
   | {
       kind:
-        'network' | 'signature' | 'noPackage' | 'disk' | 'permission' | 'changed' | 'notOffered' | 'stopped' | 'other';
+        | 'network'
+        | 'manifestUnavailable'
+        | 'signature'
+        | 'noPackage'
+        | 'disk'
+        | 'permission'
+        | 'changed'
+        | 'notOffered'
+        | 'stopped'
+        | 'other';
     }
   | { kind: 'notRestored'; path: string }
   /** Edits that could not be saved: the app was not restarted (nothing installed). */

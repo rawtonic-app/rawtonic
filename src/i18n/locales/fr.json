@@ -5778,6 +5778,7 @@
     "failure": {
       "changed": "L’AppImage a été remplacée depuis le démarrage de Rawtonic ; elle est laissée telle quelle. Redémarrez Rawtonic, puis recherchez de nouveau les mises à jour.",
       "disk": "La mise à jour n’a pas pu être écrite : le disque est peut-être plein ou le dossier de Rawtonic en lecture seule. Rawtonic n’a pas changé.",
+      "manifestUnavailable": "Cette version ne peut pas être installée depuis Rawtonic.",
       "network": "Le téléchargement a échoué (pas de connexion à GitHub). Rawtonic n’a pas changé.",
       "noPackage": "Cette version n’a pas de paquet de mise à jour pour cet ordinateur. Téléchargez plutôt l’installateur.",
       "notOffered": "Cette mise à jour n’est plus proposée. Recherchez de nouveau les mises à jour.",
