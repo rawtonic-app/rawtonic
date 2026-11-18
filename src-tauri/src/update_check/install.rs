@@ -197,7 +197,15 @@ async fn fetch(
                     }
                 }))
         })
-        .on_before_exit(crate::app_quit::before_process_exit)
+        // Windows: the setup takes over and the plugin ends the process
+        // without the quit's ExitRequested; do what that does first.
+        .on_before_exit({
+            let app = app.clone();
+            move || {
+                crate::app_quit::before_process_exit();
+                app.cleanup_before_exit();
+            }
+        })
         .build()
         .map_err(|e| log_failure("setup", &e))?;
     let update = updater
