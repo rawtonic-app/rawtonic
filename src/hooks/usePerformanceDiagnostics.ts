@@ -212,6 +212,9 @@ function finishPointerSession(session: PointerSession) {
     // Renders per component during the session (renderCensus.ts).
     renders: JSON.stringify(renders),
     frames_without_moves: session.movesPerFrame.filter((moves) => moves === 0).length,
+    // SCP1 measurement patch: raw per-frame samples.
+    preview_input_samples: JSON.stringify(session.inputMs.preview.map((v) => Math.round(v * 10) / 10)),
+    frame_interval_samples: JSON.stringify(session.frameIntervals.map((v) => Math.round(v * 10) / 10)),
     stroke_sends: session.strokeSends,
     stroke_moves_dropped: session.strokeDropped,
     stroke_points: session.strokePoints,
