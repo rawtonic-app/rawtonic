@@ -301,6 +301,9 @@ fn start(args: Vec<String>) {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
+        // In-app update after the photographer's click (update_check::install);
+        // the webview gets none of the plugin's own commands.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(PinchZoomDisablePlugin)
         .on_window_event(|window, event| {
@@ -378,6 +381,9 @@ fn start(args: Vec<String>) {
             gpu_processing::notify_compile_activity(app.handle());
             gpu_processing::hold_ai_checks_during_compiles();
             gpu_idle_helper::register();
+            // The AppImage file as it was at the start: an update replaces
+            // only that file, never one put there since.
+            update_check::running_appimage();
             if matches!(launch_req, LaunchRequest::WarmGpuCache) {
                 gpu_warmup::start(app.handle());
                 return Ok(());
@@ -900,6 +906,7 @@ fn start(args: Vec<String>) {
             Ok(())
         })
         .manage(AppState::default())
+        .manage(update_check::install::UpdateInstall::default())
         .manage(state::luts::LutState::default())
         .manage(state::settings::SettingsStore::default())
         .manage(state::develop::DevelopSession::default())
@@ -1067,6 +1074,9 @@ fn start(args: Vec<String>) {
             storage::storage_clear,
             storage::storage_apply_limits,
             update_check::check_updates,
+            update_check::install::update_download,
+            update_check::install::update_cancel_download,
+            update_check::install::update_install,
             privacy_notice::privacy_notice_pending,
             privacy_notice::privacy_notice_acknowledge,
             contribute::contribution_app_info,

@@ -2451,6 +2451,7 @@
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Base de dados da biblioteca, com uma correção Rawtonic do bloqueio WAL no Windows.",
         "Tauri bundler": "Modelo do instalador NSIS para Windows, adaptado para permitir que uma instalação individual coexista com uma instalação para todos os utilizadores.",
+        "Tauri updater plugin": "«Instalar atualização»: obtém o manifesto e o pacote da versão, verifica a assinatura e substitui a app macOS.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5764,13 +5765,37 @@
   "updates": {
     "appImage": "Também pode atualizar este AppImage com o AppImageUpdate.",
     "available": "Rawtonic {{version}} está disponível",
+    "cancel": "Cancelar",
     "checking": "A verificar…",
     "checkNow": "Verificar agora",
     "close": "Fechar",
     "dontShowAgain": "Não mostrar após atualizações",
     "download": "Transferir",
+    "downloading": "A transferir… {{done}} MB",
+    "downloadingOf": "A transferir… {{percent}}% ({{done}} de {{size}} MB)",
+    "downloadInstead": "Transferir instalador",
     "failed": "Não foi possível verificar as atualizações. Tente novamente mais tarde.",
+    "failure": {
+      "changed": "O AppImage foi substituído desde que o Rawtonic arrancou, por isso ficou como está. Reinicie o Rawtonic e procure atualizações novamente.",
+      "disk": "Não foi possível gravar a atualização: o disco pode estar cheio ou a pasta do Rawtonic só de leitura. O Rawtonic não foi alterado.",
+      "network": "A transferência falhou (sem ligação ao GitHub). O Rawtonic não foi alterado.",
+      "noPackage": "Esta versão não tem pacote de atualização para este computador. Transfira antes o instalador.",
+      "notOffered": "Esta atualização já não é oferecida. Procure atualizações novamente.",
+      "notRestored": "Não foi possível instalar a atualização nem repor a versão anterior; está guardada em {{path}}. Transfira o instalador para reparar o Rawtonic.",
+      "other": "A atualização falhou. O Rawtonic não foi alterado.",
+      "permission": "O Rawtonic não pode substituir-se aqui: a aprovação de um administrador não foi dada ou a sua pasta não permite escrita. O Rawtonic não foi alterado.",
+      "signature": "A atualização transferida não tem a assinatura do Rawtonic, por isso não foi instalada. O Rawtonic não foi alterado.",
+      "unsaved": "Não reiniciado, nada instalado: não foi possível guardar estas alterações: {{changes}}."
+    },
+    "fallback": {
+      "allUsers": "Esta cópia está instalada para todos os utilizadores. Para a atualizar, transfira o instalador; o Windows pede aprovação de administrador.",
+      "moveToApplications": "Para atualizar o Rawtonic a partir daqui, mova-o primeiro para a pasta Aplicações."
+    },
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "inAppDetail": "O Rawtonic transfere a atualização do GitHub e verifica a sua assinatura. Nada é substituído até reiniciar.",
+    "install": "Instalar atualização",
+    "installing": "A instalar a atualização… O Rawtonic reinicia dentro de momentos.",
+    "later": "Mais tarde",
     "manual": "Procurar atualizações",
     "noFile": "Esta versão não tem transferência para este computador; a página da versão lista todos os ficheiros.",
     "noNotes": "Sem notas de versão. A página da versão pode ter mais.",
@@ -5783,9 +5808,15 @@
     "privacyNoticeLink": "Detalhes de privacidade",
     "privacyNoticeOk": "OK",
     "privacyNoticeTitle": "Privacidade",
+    "ready": "O Rawtonic {{version}} está pronto para instalar",
+    "readyDetail": "«Reiniciar agora» guarda as suas edições, instala a atualização e volta a abrir o Rawtonic.",
     "releasePage": "Página da versão",
+    "restartAnyway": "Reiniciar mesmo assim",
+    "restartNow": "Reiniciar agora",
+    "restartRunningMessage": "Ainda em curso: {{work}}. Reiniciar para atualizar interrompe-o; uma exportação pode ser retomada em Atividade após o reinício.",
     "showWhatsNew": "Mostrar as novidades após uma atualização",
     "startup": "Procurar atualizações ao iniciar",
+    "tryAgain": "Tentar novamente",
     "whatsNew": "Novidades"
   }
 }

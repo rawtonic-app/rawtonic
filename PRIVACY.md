@@ -30,9 +30,28 @@ browser, which downloads it from GitHub; Rawtonic picks it from the file names i
 the same response, using only its own build, processor and, on Linux,
 `/etc/os-release`, and opens the release page when no file fits. “What's new”
 shows the release notes from the same response; pictures and other remote
-content in them are not loaded, and links open in your browser. Rawtonic never
-downloads or installs an update itself. The “What's new” shown once after an
-update comes from the notes bundled with the app and needs no network access.
+content in them are not loaded, and links open in your browser. The “What's new”
+shown once after an update comes from the notes bundled with the app and needs
+no network access.
+
+### Install update
+
+From the release that introduces it on, the notice offers **Install update**
+when that release carries an update package for your copy (macOS app, Linux
+AppImage, Windows per-user setup). Nothing is downloaded before you click it,
+and the startup check above sends nothing more because of it. After the click,
+Rawtonic fetches that release's own `latest.json` from the release's files on
+GitHub (`github.com`, which redirects to GitHub's file hosts such as
+`release-assets.githubusercontent.com` or `objects.githubusercontent.com`), then
+downloads the package it names from the same release. GitHub receives your IP
+address and a User-Agent of `Rawtonic/<version>`; no cookies, identifiers,
+photos, paths or settings are sent, and redirects to other hosts are refused.
+The package is installed only if it carries the signature of Rawtonic's own
+update key for exactly that version; otherwise it is discarded. It replaces the
+app only when you choose **Restart now**, after your edits are saved; catalogs,
+sessions, settings and photos are not touched. Copies installed for all users
+(the Windows MSI), the portable zip, Linux packages other than the AppImage and
+releases without an update package keep the browser link instead.
 
 ## Windows web view
 

@@ -3,8 +3,10 @@
 # One release in one command: the version bump PR, then from the merged
 # commit the signed and notarized macOS DMGs (Apple Silicon, Intel), the Linux
 # AppImage (Linux build host over SSH) and the Windows downloads (GitHub
-# workflow) in parallel, every release smoke, the release notes, SHA256SUMS
-# and a DRAFT prerelease. It never publishes a release or pushes a tag.
+# workflow) in parallel, every release smoke, the in-app update packages
+# signed with Rawtonic's updater key on this Mac and their latest.json, the
+# release notes, SHA256SUMS and a DRAFT prerelease. It never publishes a
+# release or pushes a tag.
 #
 #   scripts/release.sh [options] VERSION
 #     --dry-run            print the stages and their commands; changes nothing
@@ -36,7 +38,7 @@ STAGES=(preflight bump source prev
   mac-arm64 dmg-arm64 ident mac-x86_64 dmg-x86_64 qa-app gui relay
   linux linux-smoke
   windows
-  creds sums notes draft)
+  updater creds sums notes draft)
 
 usage() { sed -n '3,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 
@@ -120,13 +122,13 @@ originals_unchanged() {
 # --- dry run ----------------------------------------------------------------
 describe() {
   case $1 in
-    preflight) echo "check tools (git gh node npm cargo hdiutil spctl xcrun python3), gh auth, $SIGNING_ENV, photos, recipes, Linux host (ssh), free disk; find the previous release";;
+    preflight) echo "check tools (git gh node npm cargo hdiutil spctl xcrun python3), gh auth, $SIGNING_ENV (Apple credentials and TAURI_SIGNING_PRIVATE_KEY_PATH/_PASSWORD, key file mode 600), photos, recipes, Linux host (ssh), free disk; find the previous release";;
     bump) if [ "$BUMP" = 0 ]; then echo "skipped (--no-bump): SHA = ${SHA_ARG:-origin/main}; check package.json = $VERSION and '## $VERSION — ' in its CHANGELOG"; else
           echo "git worktree add -b release-$VERSION $WORK/bump origin/main; set $VERSION in package.json, package-lock.json (top entries), src-tauri/Cargo.toml, src-tauri/tauri.conf.json, Cargo.lock (cargo update -p rawtonic-app --offline), both THIRD_PARTY_NOTICES.md rows; CHANGELOG '## Unreleased' → '## $VERSION — $DATE'; commit; scripts/ship.sh --title 'chore(release): $VERSION' → merged SHA"; fi;;
     source) echo "git worktree add --detach $WT SHA; git worktree add --detach $WTQA SHA; npm ci in both";;
     prev) echo "gh release download v<prev> (both DMGs, AppImage, LGPL source tarballs) → $PREVD; mount each DMG read-only, ditto Rawtonic.app out";;
-    mac-arm64) echo "(credentials sourced from $SIGNING_ENV in a subshell) ${LOCK[*]} env RAWTONIC_BUNDLE_ONNX=1 npm run package:mac (in $WT) → $ASSETS/Rawtonic_${VERSION}_aarch64.dmg";;
-    mac-x86_64) echo "(credentials sourced from $SIGNING_ENV in a subshell) ${LOCK[*]} env RAWTONIC_BUNDLE_ONNX=1 npm run package:mac:intel (in $WT) → $ASSETS/Rawtonic_${VERSION}_x86_64.dmg";;
+    mac-arm64) echo "(credentials sourced from $SIGNING_ENV in a subshell) ${LOCK[*]} env RAWTONIC_BUNDLE_ONNX=1 npm run package:mac (in $WT) → $ASSETS/Rawtonic_${VERSION}_aarch64.dmg; the notarized Rawtonic.app as update package → $ASSETS/Rawtonic_${VERSION}_aarch64.app.tar.gz";;
+    mac-x86_64) echo "(credentials sourced from $SIGNING_ENV in a subshell) ${LOCK[*]} env RAWTONIC_BUNDLE_ONNX=1 npm run package:mac:intel (in $WT) → $ASSETS/Rawtonic_${VERSION}_x86_64.dmg; update package → $ASSETS/Rawtonic_${VERSION}_x86_64.app.tar.gz";;
     dmg-arm64|dmg-x86_64) echo "copy DMG, xattr -w com.apple.quarantine (Safari), spctl -a -t open, stapler validate, hdiutil attach -readonly, ditto app out, spctl -a -t exec (Notarized Developer ID), codesign --verify --deep --strict, lipo, relay string, version; headless JPEG exports of the photos (HOME in scratch) vs the previous release's app";;
     ident) echo "previous vs new arm64 app: each photo × each recipe in ${RECIPES:-RECIPES} → 16-bit TIFF, SHA-256 compared (a difference is re-run with fresh HOMEs)";;
     qa-app) echo "in $WTQA, CARGO_TARGET_DIR=$WORK/qatarget: ${LOCK[*]} scripts/tether/bundle_helper.sh; npx tauri build --features qa-control --bundles app --config <tether conf> --config '{\"identifier\":\"$QA_ID\",…}' (VITE_RAWTONIC_QA=1); cargo build --release -p rawtonic-cli";;
@@ -135,10 +137,11 @@ describe() {
     linux) echo "git archive SHA | ${SSH[*]:-ssh HOST} tar -x -C $LINUX_DIR/$VERSION/src; ${SSH[*]:-ssh HOST} 'flock ${LINUX_LOCK:-LOCK} chrt --other 0 packaging/linux/build-appimage.sh $LINUX_CACHE' (scripts/release/linux.sh build); copy AppImage + .zsync back";;
     linux-smoke) echo "scripts/release/linux.sh smoke on the host: relay string, zsync info, xvfb-run host exports vs the previous AppImage, ubuntu:22.04 ubuntu:24.04 debian:12 fedora:42 container exports";;
     windows) echo "git push origin SHA:refs/heads/$BUILD_BRANCH; gh workflow run windows-installer.yml --ref $BUILD_BRANCH; wait; gh run download -n windows-installer, windows-defender; sha256 -c; log has '<kind> WARP refused cleanly'/'<kind> uninstaller exit 0' per nsis/msi/portable; Defender verdicts (MSI must be clean); relay string (7z on the Linux host); copy setup.exe, .msi, -portable.zip, SHA256SUMS-windows.txt; gh run download -n windows-symbols → release symbols-$TAG in \$RAWTONIC_SYMBOLS_REPO (private); delete $BUILD_BRANCH";;
-    creds) echo "count every signing credential value (except the public identity hash) in $LOGS and the built apps: must be 0; gitleaks dir $LOGS";;
+    updater) echo "both .app.tar.gz unpacked: codesign --verify --deep --strict, stapler, spctl (Notarized Developer ID), version; (updater key sourced from $SIGNING_ENV in a subshell) npx tauri signer sign --app-version $VERSION each .app.tar.gz, the AppImage and the Windows setup → $WORK/updater/*.sig; scripts/release/updater_manifest.py make → $ASSETS/latest.json (darwin-aarch64-app, darwin-x86_64-app, linux-x86_64-appimage, windows-x86_64-nsis; URLs in https://github.com/$GH_REPO/releases/download/$TAG/); updater_manifest.py verify against the public key in the commit's tauri.conf.json";;
+    creds) echo "count every signing credential value (Apple and updater key, except the public identity hash) in $LOGS, the built apps, the notes and latest.json: must be 0; gitleaks dir $LOGS";;
     sums) echo "LGPL tarballs (previous release or pinned URL, SHA-256 against scripts/tether/build_libgphoto2.sh); shasum -a 256 * > $ASSETS/SHA256SUMS.txt";;
     notes) echo "python3 scripts/release/notes.py: CHANGELOG section $VERSION + the previous release's install/feedback text → $WORK/notes.md";;
-    draft) if [ "$DRAFT" = 0 ]; then echo "skipped (--no-draft)"; else echo "gh release create $TAG --draft --prerelease --target SHA --title 'Rawtonic $VERSION' --notes-file $WORK/notes.md $ASSETS/* (never published here)"; fi;;
+    draft) if [ "$DRAFT" = 0 ]; then echo "skipped (--no-draft)"; else echo "gh release create $TAG --draft --prerelease --target SHA --title 'Rawtonic $VERSION' --notes-file $WORK/notes.md $ASSETS/* (never published here); every URL in latest.json among the draft's assets (updater_manifest.py verify --names)"; fi;;
   esac
 }
 
@@ -152,6 +155,11 @@ st_preflight() {
   [ "$(uname -s)" = Darwin ] || fail "the signed DMGs are built on macOS"
   [ -f "$SIGNING_ENV" ] || fail "no signing credentials file $SIGNING_ENV"
   grep -q APPLE_SIGNING_IDENTITY "$SIGNING_ENV" || fail "$SIGNING_ENV sets no APPLE_SIGNING_IDENTITY"
+  local key
+  # shellcheck disable=SC1090
+  key=$(set -a; . "$SIGNING_ENV"; [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ] && printf '%s' "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}")
+  [ -n "$key" ] && [ -f "$key" ] || fail "$SIGNING_ENV sets no updater key (TAURI_SIGNING_PRIVATE_KEY_PATH and _PASSWORD; docs/RELEASING.md)"
+  [ "$(stat -f %Lp "$key")" = 600 ] || fail "the updater key $key is not mode 600"
   [ -d "$PHOTOS" ] || fail "RAWTONIC_RELEASE_PHOTOS is not a folder"
   load_photos; [ ${#PHOTO_LIST[@]} -gt 0 ] || fail "no RAW photographs in $PHOTOS"
   echo "photographs: ${#PHOTO_LIST[@]} in $PHOTOS"
@@ -165,6 +173,11 @@ st_preflight() {
   local free; free=$(df -g "$(dirname "$WORK")" | awk 'NR==2 {print $4}')
   echo "free disk: ${free} GB"; [ "$free" -ge 40 ] || fail "less than 40 GB free for the builds"
   git -C "$REPO_ROOT" fetch -q origin
+  # The app checks updates with the public key it carries: it must be this key's.
+  local carried
+  carried=$(git -C "$REPO_ROOT" show "${SHA_ARG:-origin/main}:src-tauri/tauri.conf.json" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin)["plugins"]["updater"]["pubkey"])') || fail "no updater public key in tauri.conf.json"
+  [ "$carried" = "$(cat "$key.pub" 2>/dev/null)" ] || fail "tauri.conf.json carries another updater public key than $key.pub"
   if [ "$DRAFT" = 1 ] && gh release view "$TAG" -R "$GH_REPO" >/dev/null 2>&1; then fail "a release $TAG exists already (draft or published)"; fi
   if [ -z "$PREV" ]; then
     PREV=$(gh release list -R "$GH_REPO" --exclude-drafts --limit 30 --json tagName -q '.[].tagName' \
@@ -250,8 +263,8 @@ st_prev() {
 
 mac_build() {  # arm64 | x86_64
   need source
-  local arch=$1 script=package:mac dmg=$WT/target/release/bundle/dmg/Rawtonic_${VERSION}_aarch64.dmg
-  [ "$arch" = x86_64 ] && script=package:mac:intel dmg=$WT/target/x86_64-apple-darwin/release/bundle/dmg/Rawtonic_${VERSION}_x86_64.dmg
+  local arch=$1 script=package:mac dmg=$WT/target/release/bundle/dmg/Rawtonic_${VERSION}_aarch64.dmg name=aarch64
+  [ "$arch" = x86_64 ] && script=package:mac:intel dmg=$WT/target/x86_64-apple-darwin/release/bundle/dmg/Rawtonic_${VERSION}_x86_64.dmg name=x86_64
   rm -f "$dmg"
   cd "$WT" || fail "no $WT"
   # The credentials stay in this subshell; the creds stage checks the logs.
@@ -259,7 +272,12 @@ mac_build() {  # arm64 | x86_64
   ( set -a; . "$SIGNING_ENV"; set +a; locked env RAWTONIC_BUNDLE_ONNX=1 npm run "$script" ) || fail "$script"
   [ -f "$dmg" ] || fail "no $dmg"
   mkdir -p "$ASSETS"; cp "$dmg" "$ASSETS/"
-  ls -la "$ASSETS/$(basename "$dmg")"
+  # The in-app update package: the same signed, notarized and stapled app
+  # (Tauri's updater unpacks Rawtonic.app from it); no AppleDouble files.
+  local bundle; bundle=$(dirname "$(dirname "$dmg")")/macos
+  [ -d "$bundle/Rawtonic.app" ] || fail "no $bundle/Rawtonic.app"
+  COPYFILE_DISABLE=1 tar --no-mac-metadata -czf "$ASSETS/Rawtonic_${VERSION}_$name.app.tar.gz" -C "$bundle" Rawtonic.app || fail "update package"
+  ls -la "$ASSETS/$(basename "$dmg")" "$ASSETS/Rawtonic_${VERSION}_$name.app.tar.gz"
 }
 st_mac_arm64() { mac_build arm64; }
 st_mac_x86_64() { mac_build x86_64; }
@@ -530,12 +548,59 @@ windows_symbols() {
   echo "Windows symbols kept as $SYMBOLS_REPO release $stag"
 }
 
+# The in-app update (user decision 2026-11-18): every platform's package is
+# signed here with Rawtonic's updater key (never on CI), and latest.json names
+# them among this release's files. The app carries the public key
+# (tauri.conf.json plugins.updater.pubkey) and installs only what it signed.
+st_updater() {
+  need mac-arm64 mac-x86_64 linux windows
+  local u=$WORK/updater arch a line bad=0 pub base=https://github.com/$GH_REPO/releases/download/$TAG/
+  rm -rf "${u:?}"; mkdir -p "$u"
+  # The update package must be the notarized app the DMG carries.
+  for arch in aarch64 x86_64; do
+    mkdir -p "$u/$arch"
+    tar -xzf "$ASSETS/Rawtonic_${VERSION}_$arch.app.tar.gz" -C "$u/$arch" || fail "unpack the $arch update package"
+    a=$u/$arch/Rawtonic.app
+    [ "$(ls "$u/$arch")" = Rawtonic.app ] || { echo "BAD $arch package holds more than Rawtonic.app"; bad=1; }
+    codesign --verify --deep --strict "$a" && echo "$arch codesign: ok" || bad=1
+    line=$(xcrun stapler validate "$a" 2>&1 | tail -1); echo "$arch stapler: $line"; [[ $line == *worked* ]] || bad=1
+    line=$(spctl -a -t exec -vv "$a" 2>&1 | tr '\n' ' '); echo "$arch spctl: $line"
+    [[ $line == *accepted*"source=Notarized Developer ID"* ]] || bad=1
+    line=$(defaults read "$a/Contents/Info.plist" CFBundleShortVersionString); echo "$arch version: $line"; [ "$line" = "$VERSION" ] || bad=1
+    rm -rf "${u:?}/$arch"
+  done
+  [ "$bad" = 0 ] || fail "macOS update packages"
+  local files=("Rawtonic_${VERSION}_aarch64.app.tar.gz" "Rawtonic_${VERSION}_x86_64.app.tar.gz"
+    "Rawtonic_${VERSION}_amd64.AppImage" "Rawtonic_${VERSION}_x64-setup.exe") f
+  for f in "${files[@]}"; do [ -f "$ASSETS/$f" ] || fail "no $f"; done
+  cd "$WT" || fail "no $WT"
+  # The key's password stays in this subshell; the creds stage checks the logs.
+  # shellcheck disable=SC1090
+  ( set -a; . "$SIGNING_ENV"; set +a
+    for f in "${files[@]}"; do
+      rm -f "$ASSETS/$f.sig"
+      npx tauri signer sign --app-version "$VERSION" "$ASSETS/$f" > /dev/null || exit 1
+      mv "$ASSETS/$f.sig" "$u/"
+    done ) || fail "tauri signer sign"
+  python3 "$SCRIPTS/updater_manifest.py" make --version "$VERSION" --base-url "$base" \
+    --pub-date "$(date -u +%FT%TZ)" --notes "Rawtonic $VERSION: https://github.com/$GH_REPO/releases/tag/$TAG" \
+    --sig-dir "$u" --out "$ASSETS/latest.json" \
+    "darwin-aarch64-app=${files[0]}" "darwin-x86_64-app=${files[1]}" \
+    "linux-x86_64-appimage=${files[2]}" "windows-x86_64-nsis=${files[3]}" || fail "latest.json"
+  pub=$(git -C "$REPO_ROOT" show "$(sha):src-tauri/tauri.conf.json" | python3 -c 'import json,sys;print(json.load(sys.stdin)["plugins"]["updater"]["pubkey"])') \
+    || fail "no updater public key in the release commit"
+  python3 "$SCRIPTS/updater_manifest.py" verify --manifest "$ASSETS/latest.json" --pubkey "$pub" --version "$VERSION" \
+    --base-url "$base" --dir "$ASSETS" --expect darwin-aarch64-app darwin-x86_64-app linux-x86_64-appimage windows-x86_64-nsis \
+    || fail "latest.json does not verify with the app's public key"
+}
+
 st_creds() {
   # Values only, never printed: every credential except the identity, whose hash is public (codesign output).
   local names name val n total=0 f
-  names=$(sed -n 's/^[[:space:]]*\(export[[:space:]]*\)\{0,1\}\(APPLE_[A-Z_]*\)=.*/\2/p' "$SIGNING_ENV" | grep -vx APPLE_SIGNING_IDENTITY)
+  names=$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?((APPLE|TAURI_SIGNING_PRIVATE_KEY)[A-Z_]*)=.*/\2/p' "$SIGNING_ENV" \
+    | grep -vx -e APPLE_SIGNING_IDENTITY -e TAURI_SIGNING_PRIVATE_KEY_PATH)
   [ -n "$names" ] || fail "no credential names found in $SIGNING_ENV"
-  for f in "$LOGS"/* "$WORK"/smoke-*/apps/Rawtonic.app/Contents/MacOS/rawtonic-app "$WORK/notes.md"; do
+  for f in "$LOGS"/* "$WORK"/smoke-*/apps/Rawtonic.app/Contents/MacOS/rawtonic-app "$WORK/notes.md" "$ASSETS/latest.json"; do
     [ -f "$f" ] || continue
     n=0
     for name in $names; do
@@ -544,6 +609,10 @@ st_creds() {
       # (grep -c exits 1 on no match; set -e would end the stage)
       if [ ${#val} -ge 6 ]; then n=$((n + $(grep -c -a -F -- "$val" "$f" || true))); fi
     done
+    # The updater's private key itself (one base64 line in its file).
+    # shellcheck disable=SC1090
+    val=$(set -a; . "$SIGNING_ENV"; cat "${TAURI_SIGNING_PRIVATE_KEY_PATH:-/dev/null}" 2>/dev/null)
+    if [ ${#val} -ge 6 ]; then n=$((n + $(grep -c -a -F -- "$val" "$f" || true))); fi
     [ "$n" = 0 ] || echo "credential values in $(basename "$f"): $n"
     total=$((total + n))
   done
@@ -553,7 +622,7 @@ st_creds() {
 }
 
 st_sums() {
-  need dmg-arm64 dmg-x86_64 linux windows prev
+  need dmg-arm64 dmg-x86_64 linux windows updater prev
   local pins; pins=$(git -C "$REPO_ROOT" show "$(sha):scripts/tether/build_libgphoto2.sh")
   local lib url want file
   for lib in LIBUSB LIBTOOL GPHOTO; do
@@ -584,11 +653,17 @@ st_notes() {
 st_draft() {
   [ "$DRAFT" = 1 ] || { echo "skipped (--no-draft)"; return; }
   need sums notes creds
-  local s; for s in dmg-arm64 dmg-x86_64 ident gui relay linux-smoke windows; do need "$s"; done
+  local s; for s in dmg-arm64 dmg-x86_64 ident gui relay linux-smoke windows updater; do need "$s"; done
   gh release view "$TAG" -R "$GH_REPO" >/dev/null 2>&1 && fail "$TAG exists already"
   gh release create "$TAG" -R "$GH_REPO" --draft --prerelease --target "$(sha)" \
     --title "Rawtonic $VERSION" --notes-file "$WORK/notes.md" "$ASSETS"/* || fail "gh release create"
   gh release view "$TAG" -R "$GH_REPO" --json url,isDraft,assets -q '.url, .isDraft, (.assets[] | .name + " " + (.size|tostring))'
+  # Every package the manifest names must be a file of this draft.
+  gh release view "$TAG" -R "$GH_REPO" --json assets -q '.assets[].name' > "$WORK/draft-assets.txt" || fail "list the draft's assets"
+  local pub; pub=$(git -C "$REPO_ROOT" show "$(sha):src-tauri/tauri.conf.json" | python3 -c 'import json,sys;print(json.load(sys.stdin)["plugins"]["updater"]["pubkey"])')
+  python3 "$SCRIPTS/updater_manifest.py" verify --manifest "$ASSETS/latest.json" --pubkey "$pub" --version "$VERSION" \
+    --base-url "https://github.com/$GH_REPO/releases/download/$TAG/" --dir "$ASSETS" --names "$WORK/draft-assets.txt" \
+    || fail "latest.json names a file the draft lacks"
 }
 
 # --- runner -----------------------------------------------------------------
@@ -632,7 +707,7 @@ summary() {
 main() {
   if [ "$DRY" = 1 ]; then
     echo "release $VERSION (dry run: nothing is changed) — work folder $WORK"
-    echo "parallel after 'prev': [mac-arm64 → (dmg-arm64, ident) · mac-x86_64 → dmg-x86_64 · qa-app → gui · relay] ∥ [linux → linux-smoke] ∥ [windows]"
+    echo "parallel after 'prev': [mac-arm64 → (dmg-arm64, ident) · mac-x86_64 → dmg-x86_64 · qa-app → gui · relay] ∥ [linux → linux-smoke] ∥ [windows]; then updater → creds → sums → notes → draft"
     for s in "${STAGES[@]}"; do printf '\n[%s]\n  %s\n' "$s" "$(describe "$s")"; done
     exit 0
   fi
@@ -667,7 +742,7 @@ main() {
   if [ "$ok" = 1 ]; then
     chain_mac & m=$!; chain_linux & l=$!; run_stage windows & w=$!
     wait $m; wait $l; wait $w
-    run_stage creds; run_stage sums && run_stage notes && run_stage draft
+    run_stage updater; run_stage creds; run_stage sums && run_stage notes && run_stage draft
   fi
   summary
   for s in "${STAGES[@]}"; do [ -f "$STATE/$s.ok" ] || exit 1; done

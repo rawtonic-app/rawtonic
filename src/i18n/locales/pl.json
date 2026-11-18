@@ -2587,6 +2587,7 @@
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Baza danych biblioteki z poprawką Rawtonic dotyczącą blokowania WAL w systemie Windows.",
         "Tauri bundler": "Szablon instalatora NSIS dla Windows, dostosowany do równoległej instalacji dla pojedynczego użytkownika i dla wszystkich użytkowników.",
+        "Tauri updater plugin": "„Zainstaluj aktualizację”: pobiera manifest i pakiet wydania, sprawdza podpis i zastępuje aplikację macOS.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5977,13 +5978,37 @@
   "updates": {
     "appImage": "Ten AppImage można też zaktualizować za pomocą AppImageUpdate.",
     "available": "Dostępny jest Rawtonic {{version}}",
+    "cancel": "Anuluj",
     "checking": "Sprawdzanie…",
     "checkNow": "Sprawdź teraz",
     "close": "Zamknij",
     "dontShowAgain": "Nie pokazuj po aktualizacjach",
     "download": "Pobierz",
+    "downloading": "Pobieranie… {{done}} MB",
+    "downloadingOf": "Pobieranie… {{percent}}% ({{done}} z {{size}} MB)",
+    "downloadInstead": "Pobierz instalator",
     "failed": "Nie udało się sprawdzić aktualizacji. Spróbuj ponownie później.",
+    "failure": {
+      "changed": "Plik AppImage został zastąpiony od uruchomienia Rawtonic, więc pozostawiono go bez zmian. Uruchom Rawtonic ponownie i sprawdź aktualizacje jeszcze raz.",
+      "disk": "Nie udało się zapisać aktualizacji: dysk może być pełny lub folder Rawtonic jest tylko do odczytu. Rawtonic pozostał bez zmian.",
+      "network": "Pobieranie nie powiodło się (brak połączenia z GitHubem). Rawtonic pozostał bez zmian.",
+      "noPackage": "To wydanie nie ma pakietu aktualizacji dla tego komputera. Pobierz instalator.",
+      "notOffered": "Ta aktualizacja nie jest już oferowana. Sprawdź aktualizacje ponownie.",
+      "notRestored": "Nie udało się zainstalować aktualizacji ani przywrócić poprzedniej wersji; znajduje się ona w {{path}}. Pobierz instalator, aby naprawić Rawtonic.",
+      "other": "Aktualizacja nie powiodła się. Rawtonic pozostał bez zmian.",
+      "permission": "Rawtonic nie może się tu zastąpić: nie udzielono zgody administratora lub jego folder nie jest zapisywalny. Rawtonic pozostał bez zmian.",
+      "signature": "Pobrana aktualizacja nie ma podpisu Rawtonic, więc nie została zainstalowana. Rawtonic pozostał bez zmian.",
+      "unsaved": "Nie uruchomiono ponownie, nic nie zainstalowano: nie udało się zapisać tych zmian: {{changes}}."
+    },
+    "fallback": {
+      "allUsers": "Ta kopia jest zainstalowana dla wszystkich użytkowników. Aby ją zaktualizować, pobierz instalator; Windows poprosi o zgodę administratora.",
+      "moveToApplications": "Aby aktualizować Rawtonic stąd, najpierw przenieś go do folderu Aplikacje."
+    },
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "inAppDetail": "Rawtonic pobiera aktualizację z GitHuba i sprawdza jej podpis. Nic nie zostaje zastąpione przed ponownym uruchomieniem.",
+    "install": "Zainstaluj aktualizację",
+    "installing": "Instalowanie aktualizacji… Rawtonic za chwilę uruchomi się ponownie.",
+    "later": "Później",
     "manual": "Sprawdź aktualizacje",
     "noFile": "To wydanie nie ma pliku do pobrania dla tego komputera; strona wydania zawiera wszystkie pliki.",
     "noNotes": "Brak informacji o wydaniu. Strona wydania może zawierać więcej.",
@@ -5996,9 +6021,15 @@
     "privacyNoticeLink": "Szczegóły dotyczące prywatności",
     "privacyNoticeOk": "OK",
     "privacyNoticeTitle": "Prywatność",
+    "ready": "Rawtonic {{version}} jest gotowy do instalacji",
+    "readyDetail": "„Uruchom ponownie” zapisuje zmiany, instaluje aktualizację i ponownie uruchamia Rawtonic.",
     "releasePage": "Strona wydania",
+    "restartAnyway": "Uruchom ponownie mimo to",
+    "restartNow": "Uruchom ponownie",
+    "restartRunningMessage": "Wciąż trwa: {{work}}. Ponowne uruchomienie w celu aktualizacji to przerwie; eksport można wznowić w Aktywności po ponownym uruchomieniu.",
     "showWhatsNew": "Pokazuj nowości po aktualizacji",
     "startup": "Sprawdzaj aktualizacje przy uruchamianiu",
+    "tryAgain": "Spróbuj ponownie",
     "whatsNew": "Co nowego"
   }
 }

@@ -2221,6 +2221,7 @@
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "图库数据库，包含 Rawtonic 对 Windows WAL 锁定的修复。",
         "Tauri bundler": "Windows NSIS 安装程序模板，经过调整，支持仅为当前用户安装的版本与为所有用户安装的版本并存。",
+        "Tauri updater plugin": "“安装更新”：获取版本的清单和更新包，检查其签名并替换 macOS 应用。",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5412,13 +5413,37 @@
   "updates": {
     "appImage": "你也可以使用 AppImageUpdate 更新此 AppImage。",
     "available": "Rawtonic {{version}} 已可用",
+    "cancel": "取消",
     "checking": "正在检查…",
     "checkNow": "立即检查",
     "close": "关闭",
     "dontShowAgain": "更新后不再显示",
     "download": "下载",
+    "downloading": "正在下载… {{done}} MB",
+    "downloadingOf": "正在下载… {{percent}}%（{{done}} / {{size}} MB）",
+    "downloadInstead": "下载安装程序",
     "failed": "无法检查更新。请稍后重试。",
+    "failure": {
+      "changed": "自 Rawtonic 启动以来 AppImage 已被替换，因此保持原样。请重新启动 Rawtonic，然后再次检查更新。",
+      "disk": "无法写入更新：磁盘可能已满，或 Rawtonic 的文件夹为只读。Rawtonic 未改变。",
+      "network": "下载失败（无法连接到 GitHub）。Rawtonic 未改变。",
+      "noPackage": "此版本没有适用于这台电脑的更新包。请改为下载安装程序。",
+      "notOffered": "此更新已不再提供。请重新检查更新。",
+      "notRestored": "无法安装更新，也无法恢复之前的版本；它保存在 {{path}}。请下载安装程序修复 Rawtonic。",
+      "other": "更新失败。Rawtonic 未改变。",
+      "permission": "Rawtonic 无法在此替换自身：未获得管理员批准，或其文件夹不可写入。Rawtonic 未改变。",
+      "signature": "下载的更新没有 Rawtonic 的签名，因此未安装。Rawtonic 未改变。",
+      "unsaved": "未重启，未安装任何内容：以下更改无法保存：{{changes}}。"
+    },
+    "fallback": {
+      "allUsers": "此副本为所有用户安装。要更新它，请下载安装程序；Windows 会请求管理员批准。",
+      "moveToApplications": "要在此处更新 Rawtonic，请先将其移到“应用程序”文件夹。"
+    },
     "fileWithSize": "{{file}}（{{size}} MB）",
+    "inAppDetail": "Rawtonic 从 GitHub 下载更新并检查其签名。重新启动前不会替换任何内容。",
+    "install": "安装更新",
+    "installing": "正在安装更新… Rawtonic 即将重新启动。",
+    "later": "稍后",
     "manual": "检查更新",
     "noFile": "此版本没有适用于这台电脑的下载；发布页面列出了所有文件。",
     "noNotes": "没有发布说明。发布页面可能有更多信息。",
@@ -5431,9 +5456,15 @@
     "privacyNoticeLink": "隐私详情",
     "privacyNoticeOk": "OK",
     "privacyNoticeTitle": "隐私",
+    "ready": "Rawtonic {{version}} 已可安装",
+    "readyDetail": "“立即重启”会保存你的编辑，安装更新并重新启动 Rawtonic。",
     "releasePage": "发布页面",
+    "restartAnyway": "仍然重启",
+    "restartNow": "立即重启",
+    "restartRunningMessage": "仍在运行：{{work}}。为更新而重启会将其停止；重启后可在“活动”中继续导出。",
     "showWhatsNew": "更新后显示新功能",
     "startup": "启动时检查更新",
+    "tryAgain": "重试",
     "whatsNew": "新功能"
   }
 }

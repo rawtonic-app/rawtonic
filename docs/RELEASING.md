@@ -19,7 +19,7 @@ Before running it, write the release's section under `## Unreleased` in `CHANGEL
 | `bump` | worktree on `release-VERSION` from `origin/main`: version in `package.json`, `package-lock.json` (top entries), `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `Cargo.lock`, both `THIRD_PARTY_NOTICES.md` rows; CHANGELOG heading; `scripts/ship.sh` (check, second-model review, merge) | this Mac |
 | `source` | detached worktrees of the merged commit for the release build and the QA build, `npm ci` | this Mac |
 | `prev` | the previous release's DMGs, AppImage and LGPL tarballs from GitHub; its apps copied out of the read-only mounted DMGs | this Mac |
-| `mac-arm64`, `mac-x86_64` | signed and notarized DMGs (`npm run package:mac` / `package:mac:intel` with the credentials sourced in a subshell), one after the other in one worktree (they cannot share it at once; one cargo build per host) | this Mac |
+| `mac-arm64`, `mac-x86_64` | signed and notarized DMGs (`npm run package:mac` / `package:mac:intel` with the credentials sourced in a subshell), one after the other in one worktree (they cannot share it at once; one cargo build per host); the same notarized `Rawtonic.app` as in-app update package `Rawtonic_VERSION_ARCH.app.tar.gz` | this Mac |
 | `dmg-arm64`, `dmg-x86_64` | browser quarantine flag on a copy of the DMG; Gatekeeper (`spctl`) and stapler on DMG and copied app ("Notarized Developer ID"), deep strict codesign, architecture, relay address, version; headless JPEG exports of the photographs (HOME in scratch) byte-compared with the previous release's app (Intel also against Apple Silicon, informational: X-Trans differs slightly) | this Mac |
 | `ident` | saved-recipe identity: each photograph × each recipe as 16-bit TIFF from the previous and the new Apple Silicon app; a difference is re-run with fresh HOMEs before it counts | this Mac |
 | `qa-app` | a `qa-control` build of the same commit with a QA identifier (never `cc.rawtonic.editor`), own worktree and `CARGO_TARGET_DIR`, plus the `rawtonic` CLI | this Mac |
@@ -27,12 +27,13 @@ Before running it, write the release's section under `## Unreleased` in `CHANGEL
 | `relay` | an optimized build of `rawtonic-contribute` sends one report to the build's relay and deletes it | this Mac, network |
 | `linux`, `linux-smoke` | `git archive` of the commit to the Linux host, `packaging/linux/build-appimage.sh` under the host's build lock; relay address, update information, host exports (`xvfb-run`) byte-compared with the previous AppImage, exports in fresh Ubuntu 22.04/24.04, Debian 12 and Fedora 42 containers (`scripts/release/linux.sh`) | Linux host over SSH |
 | `windows` | pushes `release-build/VERSION` at the commit (the workflow takes branches, not SHAs), `gh workflow run windows-installer.yml`, waits, requires a green run whose log shows the WARP refusal (or an export) and `uninstaller exit 0`, downloads and checks the installer, relay address in the unpacked `rawtonic-app.exe` (7z on the Linux host), keeps the executable's symbols privately (`RAWTONIC_SYMBOLS_REPO`); deletes the branch | GitHub runner |
-| `creds` | every signing credential value (not the identity hash, which codesign prints and is public) counted in all logs, the apps and the notes: must be 0; `gitleaks dir` on the logs | this Mac |
+| `updater` | the in-app update: both `.app.tar.gz` unpacked and checked (deep strict codesign, stapler, Gatekeeper "Notarized Developer ID", version); the two `.app.tar.gz`, the AppImage and the Windows per-user setup signed with the updater key (`tauri signer sign --app-version VERSION`, key and password sourced in a subshell); `latest.json` written (`scripts/release/updater_manifest.py make`: version, a note with the release URL, date, per package key `darwin-aarch64-app`, `darwin-x86_64-app`, `linux-x86_64-appimage`, `windows-x86_64-nsis` the URL among this release's files and the signature) and verified with the public key the release commit's `tauri.conf.json` carries | this Mac |
+| `creds` | every signing credential value (Apple credentials, the updater key's password and the key itself; not the identity hash, which codesign prints and is public) counted in all logs, the apps, the notes and `latest.json`: must be 0; `gitleaks dir` on the logs | this Mac |
 | `sums` | LGPL source tarballs (from the previous release, else the pinned URL) checked against the pins in `scripts/tether/build_libgphoto2.sh`; `SHA256SUMS.txt` | this Mac |
 | `notes` | `scripts/release/notes.py`: intro, Highlights, Fixes, Changes to existing edits and Known gaps from the CHANGELOG section; warning, Install, camera-library sources and Feedback from the previous release's notes with the version swapped; the SHA-256 list | this Mac |
-| `draft` | `gh release create vVERSION --draft --prerelease --target SHA` with every asset (DMGs, AppImage + `.zsync`, Windows installer + `SHA256SUMS-windows.txt`, LGPL tarballs, `SHA256SUMS.txt`); only when every other stage passed | GitHub |
+| `draft` | `gh release create vVERSION --draft --prerelease --target SHA` with every asset (DMGs, `.app.tar.gz`, AppImage + `.zsync`, Windows installers + `SHA256SUMS-windows.txt`, `latest.json`, LGPL tarballs, `SHA256SUMS.txt`); only when every other stage passed; then every URL in `latest.json` must name one of the draft's assets | GitHub |
 
-After `prev`, three chains run in parallel: the Mac chain (Apple Silicon build → its smoke and the identity check beside the Intel build → Intel smoke → QA build → GUI smoke → relay), the Linux chain, and the Windows workflow. Each stage logs to `WORK/logs/STAGE.log` (mode 600) and leaves `WORK/state/STAGE.ok`; the run ends with a table of every stage, its result, time and log.
+After `prev`, three chains run in parallel: the Mac chain (Apple Silicon build → its smoke and the identity check beside the Intel build → Intel smoke → QA build → GUI smoke → relay), the Linux chain, and the Windows workflow; `updater`, `creds`, `sums`, `notes` and `draft` follow. Each stage logs to `WORK/logs/STAGE.log` (mode 600) and leaves `WORK/state/STAGE.ok`; the run ends with a table of every stage, its result, time and log.
 
 ## Reruns
 
@@ -51,7 +52,7 @@ Machine-specific values come from the environment or from `~/.config/rawtonic/re
 | Variable | Meaning |
 |---|---|
 | `RAWTONIC_SYMBOLS_REPO` | a **private** GitHub repository (`owner/name`) where the `windows` stage keeps each release's `rawtonic-app.exe` and `rawtonic_app.pdb` as release `symbols-vVERSION` (it refuses a public one); unset: the zip stays only in the work folder (DEVELOPMENT.md, Symbolizing a Windows crash report) |
-| `RAWTONIC_SIGNING_ENV` | file exporting `APPLE_SIGNING_IDENTITY`, `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH` (or the Apple ID trio); default `~/.config/rawtonic/signing.env` (DEVELOPMENT.md, macOS release signing) |
+| `RAWTONIC_SIGNING_ENV` | file exporting `APPLE_SIGNING_IDENTITY`, `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH` (or the Apple ID trio) and the updater key's `TAURI_SIGNING_PRIVATE_KEY_PATH` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (below); default `~/.config/rawtonic/signing.env` (DEVELOPMENT.md, macOS release signing) |
 | `RAWTONIC_RELEASE_WORK` | work folder; each version gets `WORK/VERSION` (worktrees, assets, logs, state); default `~/rawtonic-release-work` |
 | `RAWTONIC_BUILD_LOCK` | command prefix for heavy builds on this Mac (a shared build lock), optional |
 | `RAWTONIC_RELEASE_PHOTOS` | folder of RAW test photographs (copies; only read) |
@@ -67,6 +68,17 @@ Machine-specific values come from the environment or from `~/.config/rawtonic/re
 | `RAWTONIC_REPO` | GitHub repository; default `rawtonic-app/rawtonic` |
 
 The Linux host needs Docker, `flock`, `xvfb-run` and `7z`; this Mac needs Xcode command line tools, Rust with the `x86_64-apple-darwin` target for both toolchains (DEVELOPMENT.md, Intel Macs), Node, `gh` (logged in), optional `gitleaks`.
+
+## The updater key
+
+The in-app update ("Install update" in the update notice) installs only packages signed with Rawtonic's own updater key, an Ed25519 minisign key made with `npx tauri signer generate`. The app carries its public half (`plugins.updater.pubkey` in `src-tauri/tauri.conf.json`, with `requireSignedVersion`: a signature names the version it was made for). The private key lives only on the release Mac, in `~/.config/rawtonic/updater.key` (mode 600; `updater.key.pub` beside it), with its password in the signing file — never in git, never on CI: the Windows and Linux packages are signed here after they are downloaded from their builds. `preflight` refuses a run whose key file is missing, not mode 600, or does not match the public key in the commit being released.
+
+- **Back up** `updater.key` and the signing file together (an encrypted store the maintainer controls). Without them no further in-app update can be signed for the copies already installed.
+- **Rotation** (a lost or leaked key): make a new key, put its public half into `tauri.conf.json` and release. Copies that carry the old public key refuse packages signed with the new one, so their users update once by hand (the notice's browser link still works); every copy from that release on trusts the new key. A leaked key also needs an announcement: until users have updated by hand, an attacker who controls their connection to GitHub could offer them a package signed with it.
+
+## Testing the in-app update
+
+`docs/testing/in-app-update.md` describes the end-to-end test with two QA builds and a local feed (`scripts/qa/update_feed.py`), signed with a throwaway QA key; release builds never read that feed.
 
 ## The GUI smoke
 
