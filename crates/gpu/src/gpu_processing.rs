@@ -101,6 +101,23 @@ pub struct GpuContext {
 /// own allocation, returned when dropped (notes:
 /// benchmark-results/wmema-2026-11-18). Discrete GPUs keep `Performance`.
 fn memory_hints(device_type: wgpu::DeviceType) -> wgpu::MemoryHints {
+    // WMEMA probe: RAWTONIC_GPU_MEMORY_BLOCKS = performance | usage | MIN-MAX (MB).
+    if let Ok(v) = std::env::var("RAWTONIC_GPU_MEMORY_BLOCKS") {
+        const MB: u64 = 1 << 20;
+        match v.as_str() {
+            "performance" => return wgpu::MemoryHints::Performance,
+            "usage" => return wgpu::MemoryHints::MemoryUsage,
+            range => {
+                if let Some((a, b)) = range.split_once('-')
+                    && let (Ok(a), Ok(b)) = (a.parse::<u64>(), b.parse::<u64>())
+                {
+                    return wgpu::MemoryHints::Manual {
+                        suballocated_device_memory_block_size: a * MB..b * MB,
+                    };
+                }
+            }
+        }
+    }
     if device_type == wgpu::DeviceType::IntegratedGpu {
         wgpu::MemoryHints::MemoryUsage
     } else {
