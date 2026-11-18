@@ -215,11 +215,17 @@ export function resetAiMaskSession() {
  */
 export function precomputeAiMasks() {
   const { selectedImage, adjustments } = useEditorStore.getState();
-  if (!selectedImage?.path || !selectedImage.isReady) return;
+  if (!selectedImage?.path || !selectedImage.isReady) {
+    console.info('AI masks: not requested ahead, the photo is not ready');
+    return;
+  }
   const jsAdjustments = getTransformAdjustments(adjustments);
   const path = selectedImage.path;
   const key = `${path}\n${JSON.stringify(jsAdjustments)}`;
-  if (maskPrecompute?.key === key) return;
+  if (maskPrecompute?.key === key) {
+    console.info('AI masks: not requested ahead again, already requested for this photo and geometry');
+    return;
+  }
   cancelAiMaskPrecompute();
   const run = { key, taskId: `subject-precompute-${crypto.randomUUID()}`, running: true, cancelled: false };
   maskPrecompute = run;
@@ -298,7 +304,10 @@ export function useAiModelLifecycle(develop: boolean) {
     if (wasDevelop.current && !develop) leaveDevelop();
     // Entering Develop (or starting in it): the models start loading at once,
     // beside the photo's decoding, when its first photo will compute ahead.
-    if (develop && computeAheadOnOpen()) preloadAiMaskModels();
+    if (develop) {
+      if (computeAheadOnOpen()) preloadAiMaskModels();
+      else console.info('AI masks: models not requested ahead, masking is inactive for this Develop visit');
+    }
     wasDevelop.current = develop;
   }, [develop]);
   useEffect(() => {
@@ -873,7 +882,12 @@ export function useAiMasking() {
   // Library and under memory pressure). They stop when the photo changes.
   const masksPanelOpen = useUIStore((s) => s.activePanel === Panel.Masks);
   useEffect(() => {
-    if (!selectedImageReady || !selectedImagePathKey) return;
+    if (!selectedImageReady || !selectedImagePathKey) {
+      if (masksPanelOpen || computeAheadOnOpen()) {
+        console.info('AI masks: not requested ahead, the photo is not ready');
+      }
+      return;
+    }
     if (masksPanelOpen) {
       openMaskingTools();
       return;
@@ -898,6 +912,7 @@ export function useAiMasking() {
       const timer = window.setTimeout(() => precomputeAiMasks(), AI_MASKS_AHEAD_DELAY_MS);
       return () => window.clearTimeout(timer);
     }
+    console.info('AI masks: not requested ahead, masking is inactive for this photo');
   }, [masksPanelOpen, selectedImagePathKey, selectedImageReady]);
   useEffect(() => () => cancelAiMaskPrecompute(), [selectedImagePathKey]);
 
