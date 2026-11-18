@@ -143,40 +143,37 @@ describe('Session workspace keyboard flows', () => {
     ['session', '/jobs'],
     ['catalog', '/jobs'],
     ['session', 'C:\\Jobs']
-  ] as const)(
-    'creates a %s in %s from its welcome choice',
-    async (mode, parent) => {
-      const user = userEvent.setup();
-      const navigate = vi.fn(async () => {});
-      const label = mode;
-      vi.mocked(open).mockResolvedValueOnce(parent);
-      const separator = parent.startsWith('/') ? '/' : '\\';
-      const directory = `${parent}${separator}Acme${mode === 'catalog' ? '.catalog' : ''}`;
-      const created = { ...summary, directory, manifest: { ...summary.manifest, mode } };
-      const base = vi.mocked(invoke).getMockImplementation()!;
-      vi.mocked(invoke).mockImplementation(async (command, args) =>
-        command === 'session_create' || command === 'session_summary' ? created : base(command, args)
-      );
-      render(<SessionWorkspace onNavigate={navigate} />);
-      await user.click(screen.getByRole('button', { name: `Create a ${label}` }));
-      expect(within(screen.getByRole('dialog')).getAllByRole('radio')).toHaveLength(2);
-      const nameField = screen.getByLabelText(mode === 'catalog' ? 'Catalog name' : 'Session name');
-      expect(document.activeElement).toBe(nameField);
-      await user.type(nameField, 'Acme');
-      await user.click(screen.getByRole('button', { name: 'Location' }));
-      await user.click(screen.getByRole('button', { name: `Create ${label}` }));
-      await waitFor(() =>
-        expect(invoke).toHaveBeenCalledWith('session_create', {
-          directory,
-          name: 'Acme',
-          catalog: mode === 'catalog'
-        })
-      );
-      await waitFor(() => expect(navigate).toHaveBeenCalledWith(`${directory}${separator}Capture`, true));
-      expect(screen.getByText('Acme')).toBeTruthy();
-      expect(localStorage.getItem('rawtonic.studio.layout')).toBe('tools-left');
-    }
-  );
+  ] as const)('creates a %s in %s from its welcome choice', async (mode, parent) => {
+    const user = userEvent.setup();
+    const navigate = vi.fn(async () => {});
+    const label = mode;
+    vi.mocked(open).mockResolvedValueOnce(parent);
+    const separator = parent.startsWith('/') ? '/' : '\\';
+    const directory = `${parent}${separator}Acme${mode === 'catalog' ? '.catalog' : ''}`;
+    const created = { ...summary, directory, manifest: { ...summary.manifest, mode } };
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === 'session_create' || command === 'session_summary' ? created : base(command, args)
+    );
+    render(<SessionWorkspace onNavigate={navigate} />);
+    await user.click(screen.getByRole('button', { name: `Create a ${label}` }));
+    expect(within(screen.getByRole('dialog')).getAllByRole('radio')).toHaveLength(2);
+    const nameField = screen.getByLabelText(mode === 'catalog' ? 'Catalog name' : 'Session name');
+    expect(document.activeElement).toBe(nameField);
+    await user.type(nameField, 'Acme');
+    await user.click(screen.getByRole('button', { name: 'Location' }));
+    await user.click(screen.getByRole('button', { name: `Create ${label}` }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('session_create', {
+        directory,
+        name: 'Acme',
+        catalog: mode === 'catalog'
+      })
+    );
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith(`${directory}${separator}Capture`, true));
+    expect(screen.getByText('Acme')).toBeTruthy();
+    expect(localStorage.getItem('rawtonic.studio.layout')).toBe('tools-left');
+  });
   it('keeps offline and pending-XMP status available as compact icons', async () => {
     const user = userEvent.setup();
     const base = vi.mocked(invoke).getMockImplementation()!;

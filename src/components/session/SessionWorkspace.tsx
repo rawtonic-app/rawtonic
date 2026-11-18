@@ -1888,11 +1888,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       // The grid shows where the photographs go, and they appear in it as
       // each is copied (useTauriListeners, `session-ingest-imported`).
       // Added photographs appear in their own folders: the first one's is shown.
-      const destination =
-        shown ??
-        (adding
-          ? dirname(files[0])
-          : (folder ?? sessionFolderPath(session, 'capture')));
+      const destination = shown ?? (adding ? dirname(files[0]) : (folder ?? sessionFolderPath(session, 'capture')));
       setImportMode(adding ? 'add' : 'copy');
       if (useUIStore.getState().activeView !== 'editor') await onNavigate(destination);
       // The view this import shows; still shown afterwards, it changes to Previous Import.

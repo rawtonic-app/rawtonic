@@ -33,7 +33,12 @@ export function isInternalSessionFolder(
   name: string | undefined,
   sessionRoot?: string | null
 ) {
-  return !!sessionRoot && parent != null && pathKey(parent) === pathKey(sessionRoot) && INTERNAL_SESSION_FOLDERS.has(name ?? '');
+  return (
+    !!sessionRoot &&
+    parent != null &&
+    pathKey(parent) === pathKey(sessionRoot) &&
+    INTERNAL_SESSION_FOLDERS.has(name ?? '')
+  );
 }
 
 /** The folder trees without the session's internal folders (one level below the session root). */
