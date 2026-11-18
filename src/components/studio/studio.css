@@ -401,6 +401,7 @@
   border-radius: 50%;
 }
 .studio-scope-plot > img,
+.studio-scope-plot > canvas,
 .studio-scope-plot > svg {
   position: absolute;
   inset: 0;
