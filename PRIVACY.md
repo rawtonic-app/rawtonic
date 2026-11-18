@@ -48,7 +48,8 @@ Rawtonic otherwise goes online only when you ask it to:
   search model*; it then reads what your library's photos show from their
   thumbnails on your computer and keeps that in the library's catalog. No photo is uploaded; the models run on your computer, on its
   graphics card when it can (Windows, Linux: the WebGPU plugin ships with the
-  app; using the GPU downloads nothing).
+  app; using the GPU downloads nothing). Rawtonic disables ONNX Runtime's
+  usage telemetry on every platform.
 - **Map.** In the Library's EXIF tool, "Show on map" loads a map of the photo's
   GPS position from openstreetmap.org, which then learns that position and
   your IP address. Nothing is loaded until you click.
