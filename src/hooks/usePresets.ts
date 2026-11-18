@@ -16,6 +16,7 @@ import {
   withVibranceVersion,
   withGrainVersion,
   withLumaNoiseVersion,
+  withLutVersion,
   withPortableWhites,
   withSharpenVersion
 } from '../utils/adjustments';
@@ -71,6 +72,8 @@ export function collectPresetAdjustments(
     if (presetType === 'tool' && sameAdjustmentValue(currentValue, defaults[key as keyof Adjustments])) continue;
     presetAdjustments[key] = currentValue;
   }
+  // A saved LUT keeps its reading, also the new-edit default a tool preset
+  // leaves out above.
   const versioned = withColourVersions(
     withBwVersion(
       withVibranceVersion(
@@ -78,7 +81,10 @@ export function collectPresetAdjustments(
           withGrainVersion(
             withLumaNoiseVersion(
               withWhiteBalanceVersions(
-                withSharpenVersion(withPortableWhites(presetAdjustments, current, isRaw), current),
+                withSharpenVersion(
+                  withPortableWhites(withLutVersion(presetAdjustments, current), current, isRaw),
+                  current
+                ),
                 current
               ),
               current

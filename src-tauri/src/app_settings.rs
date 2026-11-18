@@ -229,6 +229,10 @@ pub fn all_available_adjustments() -> HashSet<String> {
     .collect()
 }
 
+/// Copy/paste keys added later that belong to an existing key's tool:
+/// (key, the key whose choice it follows when settings are migrated).
+const TRAVELS_WITH: &[(&str, &str)] = &[("lutVersion", "lutPath")];
+
 pub fn default_included_adjustments() -> HashSet<String> {
     let mut defaults = all_available_adjustments();
 
@@ -1271,7 +1275,20 @@ pub(crate) fn migrate_settings(settings: &mut AppSettings) -> bool {
 
         if !new_features.is_empty() {
             for feature in new_features {
-                if default_included.contains(&feature) {
+                // A key that goes with another follows that key's choice
+                // (the LUT reading with the LUT), so a remembered choice
+                // without the LUT does not start copying part of it.
+                let anchor = TRAVELS_WITH
+                    .iter()
+                    .find(|(key, _)| *key == feature)
+                    .map(|(_, anchor)| *anchor);
+                let follows = anchor.is_none_or(|anchor| {
+                    settings
+                        .copy_paste_settings
+                        .included_adjustments
+                        .contains(anchor)
+                });
+                if default_included.contains(&feature) && follows {
                     settings
                         .copy_paste_settings
                         .included_adjustments
@@ -1420,6 +1437,41 @@ fn reserve_update_check_when(
 mod tests {
     use super::*;
     use crate::state::settings::SettingsStore;
+
+    #[test]
+    fn a_later_key_follows_the_remembered_choice_of_its_tool() {
+        // Remembered from before `lutVersion`: LUT not copied, Exposure is.
+        let mut settings = AppSettings::default();
+        let mut known = all_available_adjustments();
+        known.remove("lutVersion");
+        settings.copy_paste_settings.known_adjustments = known.clone();
+        let mut chosen = default_included_adjustments();
+        chosen.remove("lutVersion");
+        chosen.remove("lutPath");
+        settings.copy_paste_settings.included_adjustments = chosen;
+        assert!(migrate_settings(&mut settings));
+        let included = &settings.copy_paste_settings.included_adjustments;
+        assert!(!included.contains("lutVersion") && !included.contains("lutPath"));
+        assert!(
+            settings
+                .copy_paste_settings
+                .known_adjustments
+                .contains("lutVersion")
+        );
+        // With the LUT chosen, its reading is chosen with it.
+        let mut settings = AppSettings::default();
+        settings.copy_paste_settings.known_adjustments = known;
+        let mut chosen = default_included_adjustments();
+        chosen.remove("lutVersion");
+        settings.copy_paste_settings.included_adjustments = chosen;
+        migrate_settings(&mut settings);
+        assert!(
+            settings
+                .copy_paste_settings
+                .included_adjustments
+                .contains("lutVersion")
+        );
+    }
 
     #[test]
     fn bom_settings_keep_values_without_quarantine() {

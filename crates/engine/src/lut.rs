@@ -159,16 +159,44 @@ pub fn parse_lut_bytes(extension: &str, bytes: Vec<u8>) -> anyhow::Result<Lut> {
 /// with [`LUT_VERSION`] 2 read. Anything else goes to [`parse_cube_full`]
 /// (1D tables, shapers, domains).
 fn parse_cube(bytes: Vec<u8>) -> anyhow::Result<Lut> {
-    let Ok(earlier) = parse_cube_3d(BufReader::new(Cursor::new(&bytes))) else {
-        return parse_cube_full(BufReader::new(Cursor::new(&bytes)));
-    };
-    Ok(match parse_cube_full(BufReader::new(Cursor::new(&bytes))) {
-        Ok(full) if full.size == earlier.size && full.data == earlier.data => Lut {
-            file_stage: full.shaper,
-            ..earlier
-        },
-        _ => earlier,
-    })
+    // A plain 3D table names no stage: the earlier reading is the whole one.
+    if !names_a_stage(&bytes)
+        && let Ok(earlier) = parse_cube_3d(BufReader::new(Cursor::new(&bytes)))
+    {
+        return Ok(earlier);
+    }
+    let (earlier, full) = parse_cube_readings(&bytes);
+    match earlier {
+        Some(earlier) => Ok(match full {
+            Ok(full) if full.size == earlier.size && full.data == earlier.data => Lut {
+                file_stage: full.shaper,
+                ..earlier
+            },
+            _ => earlier,
+        }),
+        None => full,
+    }
+}
+
+/// Whether a .cube names a domain, an input range or a 1D table (any case,
+/// as the readers take keywords).
+fn names_a_stage(bytes: &[u8]) -> bool {
+    [&b"domain_"[..], b"input_range", b"lut_1d_size"]
+        .iter()
+        .any(|word| {
+            bytes
+                .windows(word.len())
+                .any(|window| window.eq_ignore_ascii_case(word))
+        })
+}
+
+/// The earlier reader's reading of a .cube (`None`: it refused the file)
+/// and the specification's ([`parse_cube_full`]).
+fn parse_cube_readings(bytes: &[u8]) -> (Option<Lut>, anyhow::Result<Lut>) {
+    (
+        parse_cube_3d(BufReader::new(Cursor::new(bytes))).ok(),
+        parse_cube_full(BufReader::new(Cursor::new(bytes))),
+    )
 }
 
 /// A LUT to import, by its file extension: as [`parse_lut_bytes`], read as
@@ -180,12 +208,18 @@ pub fn parse_lut_bytes_for_import(extension: &str, bytes: Vec<u8>) -> anyhow::Re
     if extension != "cube" {
         return parse_lut_bytes(extension, bytes);
     }
-    let full = parse_cube_full(BufReader::new(Cursor::new(&bytes)))?;
-    let lut = parse_cube(bytes)?;
-    if lut.read_as(true) != full {
-        return Err(LutIssue::ReadDifferently.into());
+    let (earlier, full) = parse_cube_readings(&bytes);
+    let full = full?;
+    match earlier {
+        // What a new edit reads: the earlier table through the stage it
+        // ignored, kept beside it ([`parse_cube`]).
+        Some(earlier) if earlier.size == full.size && earlier.data == full.data => Ok(Lut {
+            file_stage: full.shaper,
+            ..earlier
+        }),
+        Some(_) => Err(LutIssue::ReadDifferently.into()),
+        None => Ok(full),
     }
-    Ok(lut)
 }
 
 /// The 3D .cube reader before 1D tables, shapers and domains (unchanged).
