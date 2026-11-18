@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **Raw TIFFs from Phase One backs, Canon EOS-1D/1Ds and Kodak DCS cameras open as RAW.** Some cameras wrote their RAW files with a `.tif` extension (Phase One P20+/P25/P30/P45/H 25/IQ140 backs, Canon EOS-1D and EOS-1Ds, Kodak DCS 460/560C and EOS DCS 1/3, Canon EOS D2000C). They opened as their embedded thumbnail — a 156–608 pixel picture — without any warning. A `.tif` is now checked by its content: when the RAW decoder finds camera raw data in it, it develops as a RAW (19 of the 20 public samples on raw.pixls.us now export at full sensor size, e.g. 7320 × 5484 for the IQ140); a file that is clearly raw data the decoder cannot read yet (the Kodak DCS520C sample) fails with the "camera or RAW mode is probably not supported yet" message instead of showing its thumbnail. Ordinary TIFFs from editors and scanners stay images — also ones that carry such a camera's make, model and maker notes: 16 test TIFFs (8/16-bit, uncompressed/LZW/ZIP/JPEG, striped/tiled/pyramid, multi-page, gray, CMYK) export byte-identical to before. Some of these old bodies' colour and exposure are still off (the H 25 renders about two stops brighter than its camera thumbnail, the DCS560C and EOS DCS 3 with a colour cast).
+
 - **Panasonic Lumix DC-FZ83 RAW files open.** They failed with "Unknown camera". Panasonic ships one firmware for the DC-FZ80, FZ81, FZ82 and FZ83, and the FZ83's RAW files have the FZ80's sensor layout and format, so they now develop with the FZ80's camera data, like the FZ82 and FZ85 already did. Checked on the four public FZ83 samples of raw.pixls.us (all aspect ratios); other cameras' files decode as before.
 
 - ONNX Runtime's own usage telemetry is switched off on all platforms.
