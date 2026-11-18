@@ -7,8 +7,10 @@ import {
   captionLevel,
   captureLine,
   captureValues,
+  cellAreas,
   cellsFor,
   changedCopyableKeys,
+  expectedCells,
   fileName,
   orderedSelection,
   packGrid,
@@ -270,5 +272,34 @@ describe('per-cell zoom (zoom lock off)', () => {
     expect(back.scale).toBeCloseTo(1);
     expect(back.center[0]).toBeCloseTo(0.25);
     expect(back.center[1]).toBeCloseTo(0.75);
+  });
+});
+
+describe('expectedCells', () => {
+  const listed = ['a', 'b', 'c', 'd'];
+  const box = { x: 100, y: 50, width: 1200, height: 800 };
+
+  it('lays out a new selection as the stage will, the primary left out', () => {
+    const cells = expectedCells(listed, ['c', 'a', 'b'], 'a', null, box, 1.5, 0, 2);
+    const { shown } = cellsFor(['a', 'b', 'c'], 'a');
+    const all = cellAreas(shown, packGrid(shown.length, box.width, box.height, 1.5, 0), box, 2);
+    expect(cells.map((c) => c.path)).toEqual(['b', 'c']);
+    expect(cells).toEqual(all.filter((c) => c.path !== 'a'));
+    const [x, y, w, h] = cells[0].area;
+    expect(x).toBeGreaterThanOrEqual(box.x * 2);
+    expect(y).toBeGreaterThanOrEqual(box.y * 2);
+    expect(w).toBeGreaterThan(0);
+    expect(h).toBeGreaterThan(0);
+  });
+
+  it('expects no multi view for one photograph, none open or a selection without the open one', () => {
+    expect(expectedCells(listed, ['a'], 'a', null, box, 1.5, 0, 2)).toEqual([]);
+    expect(expectedCells(listed, ['a', 'b'], null, null, box, 1.5, 0, 2)).toEqual([]);
+    expect(expectedCells(listed, ['b', 'c'], 'a', null, box, 1.5, 0, 2)).toEqual([]);
+  });
+
+  it('keeps the pinned reference first', () => {
+    const cells = expectedCells(listed, ['a', 'b'], 'a', 'd', box, 1.5, 0, 1);
+    expect(cells.map((c) => c.path)).toEqual(['d', 'b']);
   });
 });

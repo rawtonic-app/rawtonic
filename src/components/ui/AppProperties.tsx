@@ -231,6 +231,7 @@ export enum Invokes {
   PrepareEmbeddedStills = 'prepare_embedded_stills',
   PrewarmMaskSource = 'prewarm_mask_source',
   SetMultiView = 'set_multi_view',
+  PrepareMultiViewStandIns = 'prepare_multi_view_stand_ins',
   SecondWindowState = 'second_window_state',
   SecondWindowSetOpen = 'second_window_set_open',
   SecondWindowSetLocked = 'second_window_set_locked',
