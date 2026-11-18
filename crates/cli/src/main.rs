@@ -1183,8 +1183,13 @@ fn export(args: ExportArgs) -> Result<()> {
             .map(
                 |(index, photo, appearance, explicit_vc)| -> Result<(String, PathBuf)> {
                     let (path, _) = parse_virtual_path(&photo);
-                    let capture =
-                        rawtonic_export::exif_processing::capture_date_with(&path, &|| None);
+                    // Naming must not fetch a TIFF that its export will skip.
+                    let capture = if rawtonic_export::file_export::require_local_tiff(&path).is_ok()
+                    {
+                        rawtonic_export::exif_processing::capture_date_with(&path, &|| None)
+                    } else {
+                        jiff::Timestamp::now()
+                    };
                     let naming =
                         settings.naming_context(&path, index + 1, total, &capture, &format, None);
                     let stem = export_stem(

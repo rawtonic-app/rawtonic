@@ -117,13 +117,10 @@ impl ProofSheetRequest {
                     return Ok(String::new());
                 };
                 let (source, _) = crate::file_management::parse_virtual_path(path);
+                rawtonic_export::file_export::require_local_tiff(&source)?;
                 let (sequence, last) = naming.filename_counter(first + offset, total);
-                let capture = if rawtonic_naming::needs_capture(template) {
-                    rawtonic_export::file_export::require_local_tiff(&source)?;
-                    Some(naming_capture(&source, pinned.metadata.as_ref()))
-                } else {
-                    None
-                };
+                let capture = rawtonic_naming::needs_capture(template)
+                    .then(|| naming_capture(&source, pinned.metadata.as_ref()));
                 let context = naming.naming_context(
                     &source,
                     sequence,

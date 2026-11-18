@@ -2263,15 +2263,13 @@ pub async fn export_naming_preview(
 ) -> Result<ExportNamePreview, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let (source, _) = parse_virtual_path(&path);
+        require_local_tiff(&source)?;
         let pinned =
             pin_photos(std::slice::from_ref(&path), None, None, library.directory())?.remove(0);
         let date = pinned.naming_date(&source);
-        let capture = if export_settings.naming_needs_capture() {
-            require_local_tiff(&source)?;
-            Some(naming_capture(&source, pinned.metadata.as_ref()))
-        } else {
-            None
-        };
+        let capture = export_settings
+            .naming_needs_capture()
+            .then(|| naming_capture(&source, pinned.metadata.as_ref()));
         let (sequence, last) = export_settings.filename_counter(0, total.max(1));
         let naming = export_settings.naming_context(
             &source,
