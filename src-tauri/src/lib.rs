@@ -1073,7 +1073,6 @@ fn start(args: Vec<String>) {
             update_check::check_updates,
             update_check::install::update_download,
             update_check::install::update_cancel_download,
-            update_check::install::update_ready,
             update_check::install::update_install,
             privacy_notice::privacy_notice_pending,
             privacy_notice::privacy_notice_acknowledge,

@@ -5764,13 +5764,36 @@
   "updates": {
     "appImage": "También puedes actualizar este AppImage con AppImageUpdate.",
     "available": "Rawtonic {{version}} está disponible",
+    "cancel": "Cancelar",
     "checking": "Comprobando…",
     "checkNow": "Comprobar ahora",
     "close": "Cerrar",
     "dontShowAgain": "No mostrar tras las actualizaciones",
     "download": "Descargar",
+    "downloading": "Descargando… {{done}} MB",
+    "downloadingOf": "Descargando… {{percent}} % ({{done}} de {{size}} MB)",
+    "downloadInstead": "Descargar instalador",
     "failed": "No se han podido comprobar las actualizaciones. Inténtalo más tarde.",
+    "failure": {
+      "cancelled": "La instalación necesita la aprobación de un administrador, que se canceló. Rawtonic no ha cambiado.",
+      "disk": "No se pudo escribir la actualización: puede que el disco esté lleno o que la carpeta de Rawtonic sea de solo lectura. Rawtonic no ha cambiado.",
+      "network": "La descarga falló (sin conexión con GitHub). Rawtonic no ha cambiado.",
+      "noPackage": "Esta versión no tiene paquete de actualización para este ordenador. Descarga el instalador.",
+      "notOffered": "Esta actualización ya no se ofrece. Busca actualizaciones de nuevo.",
+      "notRestored": "No se pudo instalar la actualización ni restaurar la versión anterior; está guardada en {{path}}. Descarga el instalador para reparar Rawtonic.",
+      "other": "La actualización falló. Rawtonic no ha cambiado.",
+      "signature": "La actualización descargada no lleva la firma de Rawtonic, así que no se instaló. Rawtonic no ha cambiado.",
+      "unsaved": "No se reinició ni se instaló nada: estos cambios no se pudieron guardar: {{changes}}."
+    },
+    "fallback": {
+      "allUsers": "Esta copia está instalada para todos los usuarios. Para actualizarla, descarga el instalador; Windows pedirá aprobación de administrador.",
+      "moveToApplications": "Para actualizar Rawtonic desde aquí, muévelo primero a la carpeta Aplicaciones."
+    },
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "inAppDetail": "Rawtonic descarga la actualización de GitHub y comprueba su firma. No se reemplaza nada hasta que reinicies.",
+    "install": "Instalar actualización",
+    "installing": "Instalando la actualización… Rawtonic se reiniciará en un momento.",
+    "later": "Más tarde",
     "manual": "Buscar actualizaciones",
     "noFile": "Esta versión no tiene descarga para este ordenador; la página de la versión lista todos los archivos.",
     "noNotes": "Sin notas de la versión. La página de la versión puede tener más.",
@@ -5783,9 +5806,15 @@
     "privacyNoticeLink": "Detalles de privacidad",
     "privacyNoticeOk": "OK",
     "privacyNoticeTitle": "Privacidad",
+    "ready": "Rawtonic {{version}} está listo para instalar",
+    "readyDetail": "«Reiniciar ahora» guarda tus ediciones, instala la actualización y vuelve a abrir Rawtonic.",
     "releasePage": "Página de la versión",
+    "restartAnyway": "Reiniciar de todos modos",
+    "restartNow": "Reiniciar ahora",
+    "restartRunningMessage": "Todavía en curso: {{work}}. Reiniciar para actualizar lo detiene; una exportación puede reanudarse desde Actividad tras el reinicio.",
     "showWhatsNew": "Mostrar las novedades tras una actualización",
     "startup": "Buscar actualizaciones al iniciar",
+    "tryAgain": "Reintentar",
     "whatsNew": "Novedades"
   }
 }

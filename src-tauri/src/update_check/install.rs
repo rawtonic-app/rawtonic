@@ -153,12 +153,6 @@ pub fn update_cancel_download(app: AppHandle) {
     }
 }
 
-/// Whether the package for `version` is downloaded and verified.
-#[tauri::command]
-pub fn update_ready(app: AppHandle, version: String) -> bool {
-    app.state::<UpdateInstall>().ready_for(&version)
-}
-
 async fn fetch(
     app: &AppHandle,
     offer: &Offer,
