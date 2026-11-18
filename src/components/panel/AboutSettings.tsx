@@ -26,6 +26,12 @@ interface Credit {
 
 export const CREDITS: Credit[] = [
   {
+    name: 'Tauri bundler',
+    url: 'https://github.com/tauri-apps/tauri',
+    what: 'Windows NSIS installer template, adapted for side-by-side per-user and all-users installs.',
+    license: 'MIT'
+  },
+  {
     name: 'SQLite / rusqlite',
     url: 'https://github.com/rusqlite/rusqlite',
     what: 'Library database, with a Rawtonic Windows WAL locking correction.',

@@ -2220,6 +2220,7 @@
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "圖庫資料庫，包含 Rawtonic 對 Windows WAL 鎖定的修正。",
+        "Tauri bundler": "Windows NSIS 安裝程式範本，經過調整，支援僅為目前使用者安裝的版本與為所有使用者安裝的版本並存。",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },

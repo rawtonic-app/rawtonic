@@ -2450,6 +2450,7 @@
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Base de données de la photothèque, avec un correctif Rawtonic du verrouillage WAL sous Windows.",
+        "Tauri bundler": "Modèle de programme d’installation NSIS pour Windows, adapté pour permettre une installation individuelle en parallèle d’une installation pour tous les utilisateurs.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
