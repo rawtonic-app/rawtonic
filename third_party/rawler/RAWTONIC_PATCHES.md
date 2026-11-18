@@ -529,3 +529,11 @@ mutations of DNGs written by rawler's DNG writer and of crafted container
 headers, 20,000 iterations under a time bound; `RAWLER_STRESS_CORPUS` runs
 the mutations on a directory of real RAW copies). Evidence: notes
 benchmark-results/rwh1-2026-11-18/.
+
+RWH2 follow-up (G66), tests only in `src/rawtonic_hardening_tests.rs`:
+synthetic CF2 tags and four RW2 v8 strips verify pixel placement, errors
+for short tables, undeclared Huffman codes (including unused slots) and a
+non-zero shift. The mutation suites run in separate test processes so the
+watchdog can kill and reap a stuck decoder. The synthetic suite allows
+5 seconds without progress and 120 seconds total, and the optional corpus
+suite allows 120 seconds without progress and 600 seconds total.
