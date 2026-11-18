@@ -2292,8 +2292,17 @@ pub(crate) fn process_preview_job(
     // Linux presents previews through WebKit rather than a native surface.
     // Read RGBA directly with libjpeg-turbo, avoiding a full RGB copy and the
     // Rust encoder's extra latency on every slider/zoom frame.
+    // A settled reduced frame goes lossless (preview_jpeg::settled_lossless):
+    // the JPEG dropped or added the fine chroma a photographer judges noise
+    // reduction by. Drags and 100 % stay JPEG.
     #[cfg(target_os = "linux")]
-    let encode_result = encode_browser_preview(final_rgba_image, jpeg_quality);
+    let lossless = !is_interactive && crate::preview_jpeg::settled_lossless(effective_scale);
+    #[cfg(target_os = "linux")]
+    let encode_result = if is_interactive {
+        encode_browser_preview(final_rgba_image, jpeg_quality)
+    } else {
+        crate::preview_jpeg::encode_settled(final_rgba_image, effective_scale)
+    };
 
     #[cfg(not(target_os = "linux"))]
     let encode_result = {
@@ -2354,12 +2363,21 @@ pub(crate) fn process_preview_job(
                 Ok(response)
             } else {
                 let (width, height) = final_rgba_image.dimensions();
+                #[cfg(target_os = "linux")]
+                let format = if lossless {
+                    "png".to_string()
+                } else {
+                    format!("q={jpeg_quality}")
+                };
+                #[cfg(not(target_os = "linux"))]
+                let format = format!("q={jpeg_quality}");
                 log::info!(
-                    "[process_preview_job] full {}x{} q={} encode in {:.2?}, total {:.2?}",
+                    "[process_preview_job] full {}x{} {} encode in {:.2?}, {} bytes, total {:.2?}",
                     width,
                     height,
-                    jpeg_quality,
+                    format,
                     step_start.elapsed(),
+                    jpeg_bytes.len(),
                     fn_start.elapsed()
                 );
                 Ok(jpeg_bytes)
@@ -2382,6 +2400,7 @@ fn browser_interactive_divisor(preview_dim: u32, quality: &str, divisor: f32) ->
     divisor.max(preview_dim as f32 / limit)
 }
 
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn encode_browser_preview(
     image: &image::RgbaImage,
     quality: u8,

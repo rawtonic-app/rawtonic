@@ -42,6 +42,9 @@ interface EditorState {
 
   // Previews & Overlays
   finalPreviewUrl: string | null;
+  /** Whether the settled browser frame came lossless (PNG): the split's
+   * before follows it, so both sides of a comparison travel alike. */
+  finalPreviewLossless: boolean | null;
   /** Counts finished (not dragged) preview frames, native or JPEG. */
   previewFrames: number;
   uncroppedAdjustedPreviewUrl: string | null;
@@ -281,6 +284,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   historyPending: false,
 
   finalPreviewUrl: null,
+  finalPreviewLossless: null,
   previewFrames: 0,
   uncroppedAdjustedPreviewUrl: null,
   showOriginal: false,
