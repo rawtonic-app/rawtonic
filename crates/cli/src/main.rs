@@ -349,6 +349,11 @@ struct ExportArgs {
     /// (docs/DEVELOPMENT.md "Render-input snapshots"). A single photo only.
     #[arg(long)]
     render_inputs: Option<PathBuf>,
+    /// Upper limit for photos exported at the same time (as the app's
+    /// headless `--jobs`); default: the export queue's rule on cores and
+    /// free memory.
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
+    jobs: Option<u16>,
 }
 
 fn parse_color_space(
@@ -1107,6 +1112,7 @@ fn export(args: ExportArgs) -> Result<()> {
         super_resolution,
         face_retouch,
         render_inputs,
+        jobs: max_jobs,
     } = args;
     if let Some(path) = &render_inputs {
         anyhow::ensure!(
@@ -1301,6 +1307,7 @@ fn export(args: ExportArgs) -> Result<()> {
             rawtonic_export::workers::available_cores(),
             available_memory(),
         )
+        .min(max_jobs.map_or(usize::MAX, usize::from))
     };
     let pools = rawtonic_export::workers::lane_pools(
         workers,

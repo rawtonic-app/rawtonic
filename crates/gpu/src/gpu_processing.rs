@@ -93,6 +93,56 @@ pub struct GpuContext {
     pub display_space: rawtonic_engine::output_color_space::OutputColorSpace,
 }
 
+/// The GPU allocator's block sizes (Vulkan and DX12; Metal ignores them).
+/// On an integrated GPU its memory is the system's. wgpu's `Performance`
+/// blocks (128-256 MB from the start, the last one of each memory type
+/// kept) held freed export buffers beside a Radeon 680M's 2-photo export.
+/// Blocks that start at 8 MB and grow to 256 MB returned them: app headless
+/// export of 7 large RAWs at 2 jobs 4.42 -> 4.23 GB, at 1 job 3.37 ->
+/// 2.98 GB, GUI at 1 thread 5.86 -> 5.43 GB. `MemoryUsage` (8-64 MB) saved
+/// more, but the display at 100 % (3840 x 2880 regions) drew ~7 % fewer
+/// frames in an Exposure drag, 8-128 MB ~4 %; 8-256 MB drew as many as
+/// `Performance` (630 vs 632 frames, medians; notes:
+/// benchmark-results/wmema-2026-11-18). The display and the exports share
+/// one device. Discrete GPUs keep `Performance`.
+fn memory_hints(device_type: wgpu::DeviceType) -> wgpu::MemoryHints {
+    const MB: u64 = 1 << 20;
+    if device_type == wgpu::DeviceType::IntegratedGpu {
+        wgpu::MemoryHints::Manual {
+            suballocated_device_memory_block_size: 8 * MB..256 * MB,
+        }
+    } else {
+        wgpu::MemoryHints::Performance
+    }
+}
+
+#[cfg(test)]
+mod memory_hints_tests {
+    use super::*;
+
+    #[test]
+    fn integrated_gpus_start_with_small_allocator_blocks() {
+        let wgpu::MemoryHints::Manual {
+            suballocated_device_memory_block_size: sizes,
+        } = memory_hints(wgpu::DeviceType::IntegratedGpu)
+        else {
+            panic!("integrated GPUs set their block sizes");
+        };
+        assert_eq!(sizes, 8 << 20..256 << 20);
+        for other in [
+            wgpu::DeviceType::DiscreteGpu,
+            wgpu::DeviceType::VirtualGpu,
+            wgpu::DeviceType::Cpu,
+            wgpu::DeviceType::Other,
+        ] {
+            assert!(matches!(
+                memory_hints(other),
+                wgpu::MemoryHints::Performance
+            ));
+        }
+    }
+}
+
 /// The processing device requested from `adapter`: its own limits and, where
 /// available, adapter-specific texture format features. Shared by the app's
 /// window context and [`GpuContext::headless`].
@@ -111,7 +161,7 @@ pub fn processing_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDesc
         required_features,
         required_limits: adapter.limits(),
         experimental_features: wgpu::ExperimentalFeatures::default(),
-        memory_hints: wgpu::MemoryHints::Performance,
+        memory_hints: memory_hints(adapter.get_info().device_type),
         trace: wgpu::Trace::Off,
     }
 }
