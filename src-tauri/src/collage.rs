@@ -125,6 +125,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
             serde_json::json!({ "current": index + 1, "total": spec.cells.len() }),
         );
         let (source_path, _) = parse_virtual_path(&cell.path);
+        rawtonic_export::file_export::require_local_tiff(&source_path)?;
         let source = source_path.to_string_lossy().to_string();
         let is_raw = is_raw_file(&source);
         let mut adjustments = cell.adjustments.clone();
