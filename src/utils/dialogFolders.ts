@@ -1,3 +1,5 @@
+import { dirname } from './path';
+
 /**
  * Where the native file and folder dialogs open (UXR4L-01): the folder last
  * used for the same purpose, else the folder last used in any dialog, else
@@ -35,10 +37,7 @@ export function rememberedDialogFolder(purpose?: string): string | null {
 /** The folder of a dialog's answer: a chosen folder itself, a file's folder. */
 export function answerFolder(path: string, isFolder: boolean): string | null {
   if (isFolder) return path || null;
-  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-  if (cut < 0) return null;
-  // `/photo.NEF` → `/`, `C:\photo.NEF` → `C:\`.
-  return cut === 0 || path.charAt(cut - 1) === ':' ? path.slice(0, cut + 1) : path.slice(0, cut);
+  return dirname(path) || null;
 }
 
 /** Records where a dialog for `purpose` was answered. */
@@ -58,10 +57,4 @@ export function rememberDialogFolder(purpose: string | undefined, folder: string
 /** Whether `path` names a file alone, without a folder. */
 export function isBareName(path: string): boolean {
   return !/[\\/]/.test(path);
-}
-
-/** `name` inside `folder`, with the folder's own separator. */
-export function joinFolder(folder: string, name: string): string {
-  const separator = folder.includes('\\') && !folder.includes('/') ? '\\' : '/';
-  return folder.endsWith(separator) ? `${folder}${name}` : `${folder}${separator}${name}`;
 }

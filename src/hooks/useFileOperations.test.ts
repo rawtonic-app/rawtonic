@@ -1333,3 +1333,16 @@ it("says that Delete on a photo already in the library's Trash goes on to the co
   expect(useUIStore.getState().confirmModalState.title).toBe('Move to Trash');
   useLibraryStore.setState({ sessionDirectory: null, multiSelectedPaths: [] });
 });
+
+it('creates a folder below a Windows drive root using its native separator', async () => {
+  useUIStore.setState({ folderActionTarget: 'C:\\' });
+  const { result } = renderHook(() =>
+    useFileOperations(vi.fn(async () => {}), vi.fn(async () => {}), vi.fn(), vi.fn(), [])
+  );
+  try {
+    await result.current.handleCreateFolder('Capture');
+    expect(invoke).toHaveBeenCalledWith(Invokes.CreateFolder, { path: 'C:\\Capture' });
+  } finally {
+    useUIStore.setState({ folderActionTarget: null });
+  }
+});

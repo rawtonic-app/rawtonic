@@ -1,4 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
+import { joinPath } from './path';
+import { pathKey } from './pathKey';
 import { Invokes } from '../components/ui/AppProperties';
 
 /** Session and catalog folders the app keeps for itself (mask bitmaps,
@@ -9,7 +11,6 @@ const INTERNAL_SESSION_FOLDERS = new Set(['masks', 'previews', 'smart-previews']
  * when the summary predates configurable folders (before G38). */
 export function sessionFoldersOrDefault(directory: string, folders: SessionFolder[] | undefined): SessionFolder[] {
   if (folders?.length) return folders;
-  const root = directory.replace(/[\\/]+$/, '');
   const roles: Array<[FolderRole, string]> = [
     ['capture', 'Capture'],
     ['selects', 'Selects'],
@@ -18,7 +19,7 @@ export function sessionFoldersOrDefault(directory: string, folders: SessionFolde
   return roles.map(([role, name]) => ({
     role,
     stored: name,
-    path: `${root}/${name}`,
+    path: joinPath(directory, name),
     inside: true,
     available: true,
     recreated: true
@@ -32,7 +33,7 @@ export function isInternalSessionFolder(
   name: string | undefined,
   sessionRoot?: string | null
 ) {
-  return !!sessionRoot && parent === sessionRoot && INTERNAL_SESSION_FOLDERS.has(name ?? '');
+  return !!sessionRoot && parent != null && pathKey(parent) === pathKey(sessionRoot) && INTERNAL_SESSION_FOLDERS.has(name ?? '');
 }
 
 /** The folder trees without the session's internal folders (one level below the session root). */
@@ -42,7 +43,7 @@ export function withoutInternalSessionFolders<T extends { path: string; name: st
 ): T[] {
   if (!sessionRoot) return trees;
   return trees.map((tree) =>
-    tree.path === sessionRoot && tree.children?.length
+    pathKey(tree.path) === pathKey(sessionRoot) && tree.children?.length
       ? {
           ...tree,
           children: tree.children.filter((child) => !isInternalSessionFolder(tree.path, child.name, sessionRoot))
@@ -102,9 +103,8 @@ export function sessionFolderPath(
 ): string {
   const folder = summary.folders?.find((f) => f.role === role);
   if (folder) return folder.path;
-  const root = summary.directory.replace(/[\\/]+$/, '');
   const name = role === 'capture' ? summary.manifest.capture : role === 'selects' ? 'Selects' : 'Output';
-  return `${root}/${name}`;
+  return joinPath(summary.directory, name);
 }
 
 /** The session's folders outside it that are there: shown in the Folders

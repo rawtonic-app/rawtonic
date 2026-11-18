@@ -278,3 +278,15 @@ it('offers Split Stack and the moves inside an expanded stack where they apply',
     expect(invoke).toHaveBeenCalledWith('stacks_move', { paths: ['/s/Capture/b.RAF'], up: false })
   );
 });
+
+it('disables Move to Selects for a Windows photograph already below the default Selects folder', () => {
+  const path = '\\\\?\\C:\\Jobs\\Acme\\Selects\\A.RAF';
+  useLibraryStore.setState({ sessionDirectory: 'C:\\Jobs\\Acme', sessionFolders: [], imageList: [image(path)] });
+  try {
+    const { result } = renderHook(() => useAppContextMenus({ ...props, handleMoveToFolder: vi.fn() }));
+    result.current.handleThumbnailContextMenu(event, path);
+    expect(find(showContextMenu.mock.lastCall![2], 'settings.keybinds.actions.move_to_selects')?.disabled).toBe(true);
+  } finally {
+    useLibraryStore.setState({ sessionDirectory: null, sessionFolders: [] });
+  }
+});

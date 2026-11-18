@@ -65,7 +65,7 @@ import { useContextMenu } from '../../context/ContextMenuContext';
 import { useSessionBar } from './sessionBar';
 import { SESSION_ALBUMS_CHANGED, openSessionAlbum, type SessionAlbum } from '../studio/StudioAlbums';
 import { holdSavedView, isInside, samePath, savedView, settleSavedView, type SavedView } from '../../utils/restoreView';
-import { outermost, type CatalogFoldersView } from '../../utils/catalogFolders';
+import { outermost, relativePathBelow, type CatalogFoldersView } from '../../utils/catalogFolders';
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, openMissingView, watchVolumes } from '../../utils/offline';
 import { watchXmpSidecars } from '../../utils/xmpCheck';
 import { requestAutoAdvance } from '../../utils/photoStepping';
@@ -130,6 +130,7 @@ import {
 } from '../../utils/sessionFolders';
 import type { FolderChange } from './SessionFoldersDialog';
 import { listenForAddFolder, type AddFolderDetail } from './addFolder';
+import { dirname, pathSeparator } from '../../utils/path';
 import { byPathKey } from '../../utils/pathKey';
 import { useCompactBar } from '../../window/useCompactBar';
 
@@ -1890,7 +1891,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       const destination =
         shown ??
         (adding
-          ? files[0].slice(0, Math.max(files[0].lastIndexOf('/'), files[0].lastIndexOf('\\')))
+          ? dirname(files[0])
           : (folder ?? sessionFolderPath(session, 'capture')));
       setImportMode(adding ? 'add' : 'copy');
       if (useUIStore.getState().activeView !== 'editor') await onNavigate(destination);
@@ -1988,14 +1989,10 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
 
   // Where the ingest copies to: the full path, so a folder on another drive
   // is plain to see, and that drive's name.
-  const libraryRoot = session?.directory.replace(/[\\/]+$/, '') ?? '';
-  const destinationPath = target.folder ?? (session ? sessionFolderPath(session, 'capture') : `${libraryRoot}/Capture`);
-  const insideLibrary =
-    Boolean(libraryRoot) &&
-    destinationPath.startsWith(`${libraryRoot}`) &&
-    /[\\/]/.test(destinationPath.charAt(libraryRoot.length));
-  const destinationLabel = insideLibrary
-    ? [session?.manifest.name, ...destinationPath.slice(libraryRoot.length + 1).split(/[\\/]/)].join(' / ')
+  const destinationPath = target.folder ?? (session ? sessionFolderPath(session, 'capture') : '/Capture');
+  const relativeDestination = session && relativePathBelow(destinationPath, session.directory);
+  const destinationLabel = relativeDestination
+    ? [session?.manifest.name, ...relativeDestination.split(/[\\/]/)].join(' / ')
     : fileName(destinationPath);
   const destinationVolume = volumeOf(destinationPath);
 
@@ -2520,7 +2517,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                     <li key={root.folder}>
                       <span title={root.folder}>
                         {t('session.import.rootFound', {
-                          folder: root.folder.split(/[\\/]/).slice(-2).join('/'),
+                          folder: root.folder.split(/[\\/]/).slice(-2).join(pathSeparator(root.folder)),
                           found: root.found,
                           count: root.photos
                         })}
