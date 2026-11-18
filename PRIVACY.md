@@ -34,6 +34,12 @@ content in them are not loaded, and links open in your browser. Rawtonic never
 downloads or installs an update itself. The “What's new” shown once after an
 update comes from the notes bundled with the app and needs no network access.
 
+## Windows web view
+
+Rawtonic turns off WebView2's background connections to Microsoft's
+configuration and component-update services. Windows itself may look up a proxy
+configuration (WPAD) on the local network.
+
 ## Other network access
 
 Rawtonic otherwise goes online only when you ask it to:

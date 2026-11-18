@@ -8,6 +8,7 @@
 
 ### Fixes
 
+- Windows: the built-in web view no longer contacts Microsoft's configuration and component-update services in the background.
 - Windows: paths in the library and export dialogs no longer mix `/` and `\`.
 - **Windows setup can install Rawtonic for your account alongside an older all-users installation without administrator approval.** Setup explains how to remove the old copy later through Windows Settings with administrator approval. Both copies share your Rawtonic settings and app data.
 - **Exports return freed CPU memory to the system sooner around the photo's GPU upload.** This applies wherever Rawtonic uses mimalloc, including macOS. Integrated GPUs also start with 8 MB graphics-memory blocks that can grow to 256 MB. Metal ignores that GPU hint.
