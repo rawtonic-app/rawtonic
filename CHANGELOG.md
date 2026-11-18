@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **Panasonic Lumix DC-FZ83 RAW files open.** They failed with "Unknown camera". Panasonic ships one firmware for the DC-FZ80, FZ81, FZ82 and FZ83, and the FZ83's RAW files have the FZ80's sensor layout and format, so they now develop with the FZ80's camera data, like the FZ82 and FZ85 already did. Checked on the four public FZ83 samples of raw.pixls.us (all aspect ratios); other cameras' files decode as before.
+
 - ONNX Runtime's own usage telemetry is switched off on all platforms.
 
 - **Screen readers name more controls in Preferences and the workspace.** Every drop-down and slider in Preferences is now named by its setting (before, they had no name or only their value), the icon buttons for lenses, AI tags and tagging shortcuts say what they do, the removable tag and shortcut chips are buttons the keyboard can reach (removing one moves the focus to the next chip, or to the field that adds them), each shortcut button names its action and key, an action without a key reads “Not assigned” instead of an empty key cap, the two side panels are told apart as “Develop tools” and “Library tools”, and the Export dialog's title bar no longer counts as a second page banner. The frontend tests now audit Library, Develop (each tool tab), Import, Export and Preferences with axe-core and fail on new problems of these kinds.
