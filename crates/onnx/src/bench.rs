@@ -527,3 +527,73 @@ pub fn model_files(dir: &Path, with_text: bool) -> Result<Vec<PathBuf>> {
     files.sort();
     Ok(files)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One line per model of `AI_MODELS` (`AI_ONLY` prefixes): a digest of
+    /// every CPU output's f32 bits on the synthetic picture, written to
+    /// `BITS_OUT`. Run it under two runtimes (`ORT_DYLIB_PATH`) and compare
+    /// the files: a replacement runtime must compute the same bits.
+    #[test]
+    #[ignore = "needs ORT_DYLIB_PATH, AI_MODELS and BITS_OUT"]
+    fn real_models_write_a_digest_of_their_cpu_output_bits() {
+        let models = PathBuf::from(std::env::var("AI_MODELS").expect("AI_MODELS"));
+        let out = PathBuf::from(std::env::var("BITS_OUT").expect("BITS_OUT"));
+        let only: Vec<String> = std::env::var("AI_ONLY")
+            .unwrap_or_default()
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+        let picture = Picture::synthetic(1536, 1024);
+        let mut lines = vec![format!(
+            "runtime {}",
+            crate::runtime::library_path().display()
+        )];
+        for path in model_files(&models, true).unwrap() {
+            let file = path.file_name().unwrap().to_string_lossy().to_string();
+            if !only.is_empty() && !only.iter().any(|o| file.starts_with(o.as_str())) {
+                continue;
+            }
+            let kind = ModelKind::from_file_name(&file).unwrap();
+            let outputs = Model::load_checked(
+                &path,
+                kind,
+                &[Provider::Cpu],
+                &[],
+                crate::check::Checks::Off,
+            )
+            .and_then(|model| {
+                model.run_without_fallback(|session| {
+                    let inputs = inputs_for(session, kind, &picture)?;
+                    run_once(session, &inputs)
+                })
+            });
+            let outputs = match outputs {
+                Ok(outputs) => outputs,
+                Err(error) => {
+                    // Compared like a digest: both runtimes must fail alike.
+                    lines.push(format!("{file} failed {error:#}"));
+                    continue;
+                }
+            };
+            for output in outputs {
+                let mut hasher = blake3::Hasher::new();
+                for value in &output.values {
+                    hasher.update(&value.to_bits().to_le_bytes());
+                }
+                let line = format!(
+                    "{file} {} {} {}",
+                    output.name,
+                    output.values.len(),
+                    &hasher.finalize().to_hex()[..32]
+                );
+                println!("{line}");
+                lines.push(line);
+            }
+        }
+        std::fs::write(&out, lines.join("\n") + "\n").unwrap();
+    }
+}

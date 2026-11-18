@@ -380,7 +380,10 @@ mod tests {
         assert_eq!(std::env::var(name).as_deref(), Ok(value));
         // `load` sets it before the environment exists, for tools and tests
         // whose `main` did not.
-        let load = include_str!("runtime.rs").split("fn check_library").next().unwrap();
+        let load = include_str!("runtime.rs")
+            .split("fn check_library")
+            .next()
+            .unwrap();
         let opt_out = load.rfind("opt_out_of_runtime_telemetry();").unwrap();
         assert!(opt_out < load.rfind("ort::init_from(path)").unwrap());
     }

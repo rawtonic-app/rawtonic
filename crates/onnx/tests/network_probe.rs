@@ -30,7 +30,10 @@ fn runtime_stays_alive_for_a_network_capture() {
 
     let started = Instant::now();
     ensure_runtime().expect("ONNX Runtime");
-    println!("probe runtime ready after {} ms", started.elapsed().as_millis());
+    println!(
+        "probe runtime ready after {} ms",
+        started.elapsed().as_millis()
+    );
 
     let model = Model::load_file(&path).expect("model load");
     println!("probe {name} loaded on {}", model.provider().name());

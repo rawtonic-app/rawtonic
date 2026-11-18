@@ -48,8 +48,15 @@ Rawtonic otherwise goes online only when you ask it to:
   search model*; it then reads what your library's photos show from their
   thumbnails on your computer and keeps that in the library's catalog. No photo is uploaded; the models run on your computer, on its
   graphics card when it can (Windows, Linux: the WebGPU plugin ships with the
-  app; using the GPU downloads nothing). Rawtonic disables ONNX Runtime's
-  usage telemetry on every platform.
+  app; using the GPU downloads nothing). Microsoft's ONNX Runtime, which
+  runs the models, has a usage uploader on macOS and Linux; Rawtonic turns
+  it off before the runtime starts (`ORT_DISABLE_TELEMETRY`), so it sends
+  nothing (measured on macOS: no connection from the process). On Windows
+  the runtime has no uploader of its own, but Microsoft's build writes a
+  start-up report (runtime version, Windows version, CPU, memory) to
+  Windows' event tracing as Windows diagnostic data, which Windows may send
+  to Microsoft under your Windows diagnostic data setting; Rawtonic cannot
+  switch that report off in Microsoft's build yet.
 - **Map.** In the Library's EXIF tool, "Show on map" loads a map of the photo's
   GPS position from openstreetmap.org, which then learns that position and
   your IP address. Nothing is loaded until you click.

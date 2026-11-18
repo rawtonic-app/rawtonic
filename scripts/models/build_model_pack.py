@@ -17,7 +17,11 @@ Usage:
       --with transformers==4.57.3 --with sentencepiece \
       --with timm==1.0.30 --with kornia==0.8.3 --with einops==0.8.2 \
       --with onnx==1.23.2 --with onnxruntime==1.22.0 \
-      python scripts/models/build_model_pack.py OUT_DIR [--cache CACHE_DIR] [--previous PACK_DIR]
+      python scripts/models/build_model_pack.py OUT_DIR [--cache CACHE_DIR] [--previous PACK_DIR] \
+      [--own-runtime DIR]
+`--own-runtime` is the folder of the ONNX Runtime libraries Rawtonic builds
+itself (scripts/models/build_onnxruntime.sh; ORT130_OWN below), needed
+until a previous pack carries them.
 `--previous` takes an earlier pack (its release assets with `models.json`,
 e.g. `gh release download pack-2026-10-08 --repo rawtonic-app/models`): its
 files go into the new pack unchanged, checked against its `models.json` and
@@ -438,6 +442,23 @@ CUDA = [
      "onnxruntime_providers_cuda.dll",
      "onnxruntime_providers_cuda-0.2.0-cuda13-windows-x86_64.dll", "ecbd0f4a75c172a63b93bf93cb4484b24aa7d488c99b957f55b86a77f195225f"),
 ]
+# Apple silicon without Microsoft's usage uploader: ONNX Runtime 1.30.0
+# built by scripts/models/build_onnxruntime.sh (`--no_telemetry`, otherwise
+# Microsoft's macOS release flags) from the commit Microsoft's library names;
+# CPU outputs bit-identical to Microsoft's library on every pack model
+# (notes: benchmark-results/ortt2-2026-11-18/REPORT.md). Builds are not
+# byte-reproducible across build directories (embedded paths), so the
+# library comes from `--own-runtime DIR` and its SHA-256 is pinned here.
+ORT130_OWN = [
+    ("libonnxruntime-1.30.0-notelemetry-macos-aarch64.dylib",
+     "49a8b6906c0e09c26e078bec8b53b1cfcb2be366e70cfa58b95bf812f9c57cde"),
+]
+ORT130_OWN_ENTRY = {
+    "used_by": "Runtime for all models on Apple silicon Macs (bundled by the opt-in build, RAWTONIC_BUNDLE_ONNX=1)",
+    "source": "ONNX Runtime 1.30.0 (commit f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7), built by Rawtonic without telemetry (scripts/models/build_onnxruntime.sh)",
+    "license": "MIT",
+    "license_files": ["onnxruntime-MIT.txt", "onnxruntime-1.30.0-ThirdPartyNotices.txt"],
+}
 ORT130_ENTRY = {
     "used_by": "Runtime for all models on Windows, Linux and Apple silicon Macs (bundled by the opt-in build, RAWTONIC_BUNDLE_ONNX=1)",
     "source": "ONNX Runtime 1.30.0 release (github.com/microsoft/onnxruntime)",
@@ -512,6 +533,8 @@ def main() -> None:
     parser.add_argument("out", type=Path)
     parser.add_argument("--cache", type=Path, default=Path("model-pack-cache"))
     parser.add_argument("--previous", type=Path, help="earlier pack whose files are carried over unchanged")
+    parser.add_argument("--own-runtime", type=Path,
+                        help="folder with the ONNX Runtime libraries build_onnxruntime.sh built (ORT130_OWN)")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     args.cache.mkdir(parents=True, exist_ok=True)
@@ -695,6 +718,13 @@ def main() -> None:
                 with tarfile.open(archive) as bundle:
                     extracted.write_bytes(bundle.extractfile(member).read())
             entries.append(place(extracted, args.out, name, expected) | {"url": url} | meta)
+
+    for name, expected in ORT130_OWN:
+        if not todo({name: expected}):
+            continue
+        if args.own_runtime is None:
+            sys.exit(f"{name}: build it with scripts/models/build_onnxruntime.sh and pass --own-runtime")
+        entries.append(place(args.own_runtime / name, args.out, name, expected) | ORT130_OWN_ENTRY)
 
     licenses = args.out / "licenses"
     licenses.mkdir(exist_ok=True)
