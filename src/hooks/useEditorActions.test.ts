@@ -1503,9 +1503,9 @@ describe('pasted version keys onto a never-edited open photo', () => {
       { blacks: -100, masks: [sky] } as never,
       null
     )!;
-    // The new edit's version (19) and version 18's slider value for version 16's −100, as the backend
+    // The new edit's version (20) and version 18's slider value for version 16's −100, as the backend
     // writes onto the closed photo.
-    expect(applied.toneVersion).toBe(19);
+    expect(applied.toneVersion).toBe(20);
     expect(applied.blacks).toBeCloseTo(-71.551724, 5);
   });
 
