@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronDown } from 'lucide-react';
 import Input from './Input';
 import Text from './Text';
+import { useSettingField } from './settingField';
 import { TEXT_COLOR_KEYS, TextColors, TextVariants, TextWeights } from '../../types/typography';
 import clsx from 'clsx';
 
@@ -21,6 +22,8 @@ interface DropdownProps<T extends React.Key> {
   value: T | null;
   disabled?: boolean;
   triggerClassName?: string;
+  /** The combobox's name outside a preference row (SettingItem names it there). */
+  'aria-label'?: string;
 }
 
 /**
@@ -37,7 +40,8 @@ const Dropdown = <T extends React.Key>({
   searchPlaceholder = 'Filter options...',
   value,
   disabled = false,
-  triggerClassName = ''
+  triggerClassName = '',
+  'aria-label': ariaLabel
 }: DropdownProps<T>) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -50,6 +54,9 @@ const Dropdown = <T extends React.Key>({
   const listboxId = `${baseId}-listbox`;
   const optionId = (index: number) => `${baseId}-option-${index}`;
   const selectedOption = options.find((opt) => opt.value === value) || null;
+  // In a preference row the setting names the combobox; the chosen value is
+  // its value, not its name.
+  const field = useSettingField();
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -235,6 +242,9 @@ const Dropdown = <T extends React.Key>({
         aria-controls={isOpen ? listboxId : undefined}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
+        aria-label={field ? undefined : ariaLabel}
+        aria-labelledby={field?.labelId}
+        aria-describedby={field?.descriptionId}
         disabled={disabled}
         className={clsx(
           'w-full border border-border-color rounded-md px-3 mr-4 py-2 flex justify-between items-center text-left disabled:opacity-50 disabled:cursor-not-allowed',

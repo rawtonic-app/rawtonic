@@ -1352,6 +1352,8 @@ export default function StudioWorkspace(props: Props) {
         {toolsShown && (
           <aside
             className={`studio-primary-panel ${develop ? 'is-develop' : 'is-library'}${panels[toolsSide] ? '' : ' is-peek'}`}
+            // Two side panels are two landmarks; each says what it holds.
+            aria-label={develop ? t('studio.workspace.errors.developTools') : t('studio.workspace.errors.libraryTools')}
             {...panelProps(toolsSide)}
           >
             <ErrorBoundary
@@ -1399,7 +1401,11 @@ export default function StudioWorkspace(props: Props) {
           </aside>
         )}
         {libraryBesideShown && (
-          <aside className={`studio-secondary-panel${panels.left ? '' : ' is-peek'}`} {...panelProps('left')}>
+          <aside
+            className={`studio-secondary-panel${panels.left ? '' : ' is-peek'}`}
+            aria-label={t('studio.workspace.errors.libraryTools')}
+            {...panelProps('left')}
+          >
             <ErrorBoundary name={t('studio.workspace.errors.libraryTools')}>{navigation}</ErrorBoundary>
           </aside>
         )}
