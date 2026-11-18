@@ -56,6 +56,9 @@ pub struct Offer {
 pub enum Fallback {
     /// The release has no `latest.json` (releases before in-app updates).
     NoManifest,
+    /// The release has no installer for this computer (its architecture is
+    /// not built), so it has no update package for it either.
+    NoPackage,
     /// Windows, installed for all users in Program Files (the MSI): replacing
     /// it needs administrator approval, which the installer asks for.
     AllUsers,
@@ -397,7 +400,7 @@ pub fn select_release(
         .max_by(|a, b| a.0.cmp_precedence(&b.0))
         .map(|(version, r)| {
             let asset = pick_asset(&r.assets, platform, &source.download_prefix);
-            let offer = in_app_offer(&r, &version, platform, source);
+            let offer = in_app_offer(&r, &version, platform, source, asset.is_some());
             UpdateInfo {
                 version: version.to_string(),
                 download_url: asset.map(|a| a.browser_download_url.clone()),
@@ -418,14 +421,19 @@ pub const MANIFEST_NAME: &str = "latest.json";
 
 /// "Install update" for this release on this copy: its own `latest.json`
 /// (never another release's, never a moving `latest` link) and this copy's
-/// package key.
+/// package key. A release without an installer for this computer (an
+/// architecture it does not build) has no update package for it either.
 fn in_app_offer(
     r: &Release,
     version: &Version,
     platform: Platform,
     source: &Source,
+    has_installer: bool,
 ) -> Result<Offer, Fallback> {
     let target = updater_target(platform)?;
+    if !has_installer {
+        return Err(Fallback::NoPackage);
+    }
     let package_prefix = format!("{}{}/", source.download_prefix, r.tag_name);
     let manifest_url = format!("{package_prefix}{MANIFEST_NAME}");
     r.assets
@@ -996,6 +1004,25 @@ mod tests {
                 Some(Fallback::Portable),
                 None,
             ),
+            // No ARM64 build released: no button that could only fail.
+            (
+                Linux,
+                Arm64,
+                Ai,
+                Install::AppImage,
+                None,
+                Some(Fallback::NoPackage),
+                None,
+            ),
+            (
+                Windows,
+                Arm64,
+                Ai,
+                WindowsSetup,
+                None,
+                Some(Fallback::NoPackage),
+                None,
+            ),
         ] {
             let platform = Platform {
                 os,
@@ -1159,7 +1186,7 @@ mod tests {
         assert_eq!(Source::qa_feed("not a url"), None);
         let tag = "v0.2.0";
         let json = format!(
-            r#"[{{"tag_name":"{tag}","html_url":"http://127.0.0.1:8765/releases/tag/{tag}","draft":false,"prerelease":false,"assets":[{{"name":"latest.json","size":1,"browser_download_url":"http://127.0.0.1:8765/releases/download/{tag}/latest.json"}}]}}]"#
+            r#"[{{"tag_name":"{tag}","html_url":"http://127.0.0.1:8765/releases/tag/{tag}","draft":false,"prerelease":false,"assets":[{{"name":"Rawtonic_0.2.0_aarch64.dmg","size":1,"browser_download_url":"http://127.0.0.1:8765/releases/download/{tag}/Rawtonic_0.2.0_aarch64.dmg"}},{{"name":"latest.json","size":1,"browser_download_url":"http://127.0.0.1:8765/releases/download/{tag}/latest.json"}}]}}]"#
         );
         let update = select_release(json.as_bytes(), "0.1.0", false, MAC_ARM, &feed)
             .unwrap()

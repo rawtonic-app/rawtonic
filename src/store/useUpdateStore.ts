@@ -19,7 +19,8 @@ const confirmRestartWhileRunning: AskToQuitWhileRunning = (work, restart, cancel
   );
 
 /** Why the notice links to the browser instead of offering "Install update". */
-export type UpdateFallback = 'noManifest' | 'allUsers' | 'moveToApplications' | 'portable' | 'package' | 'notInstalled';
+export type UpdateFallback =
+  'noManifest' | 'noPackage' | 'allUsers' | 'moveToApplications' | 'portable' | 'package' | 'notInstalled';
 
 export interface UpdateInfo {
   version: string;
