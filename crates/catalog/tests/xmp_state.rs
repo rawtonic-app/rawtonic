@@ -307,6 +307,27 @@ fn a_sidecar_changed_elsewhere_is_found_without_any_write() {
 }
 
 #[test]
+fn an_oversized_external_sidecar_is_reported_as_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(dir.path(), &["A.ARW"]);
+    rated_and_written(&lib, &ids);
+    let sidecar = paths[0].with_extension("xmp");
+    let size = 16 * 1024 * 1024 + 1;
+    rawtonic_fs::atomic_write(&sidecar, vec![b' '; size]).unwrap();
+
+    let check = lib
+        .check_xmp_sidecars(None, &mut SidecarStamps::default())
+        .unwrap();
+    assert_eq!(check.changed, ids);
+    assert_eq!(lib.mark_changed_elsewhere(&check.changed).unwrap(), 1);
+    assert_eq!(
+        problems(&lib),
+        [(paths[0].clone(), Some(XmpProblem::ChangedElsewhere))]
+    );
+    assert_eq!(fs::metadata(&sidecar).unwrap().len(), size as u64);
+}
+
+#[test]
 fn an_unchanged_sidecar_is_read_once_and_then_only_looked_at() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids, paths) = session(d.path(), &["A.ARW", "B.ARW"]);

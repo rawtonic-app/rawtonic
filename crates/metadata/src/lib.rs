@@ -6,11 +6,18 @@ pub mod labels;
 pub mod photo_ref;
 pub mod provenance;
 pub mod resources;
+mod xmp_input;
 use anyhow::{Context, Result, ensure};
 pub use error::MetadataError;
 use rawtonic_fs::atomic_write;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fs,
+    path::Path,
+};
+use xmp_input::parse_packet;
+pub use xmp_input::{check_xmp_input, read_xmp_bytes, read_xmp_text};
 
 pub const XMP: &str = "http://ns.adobe.com/xap/1.0/";
 pub const DC: &str = "http://purl.org/dc/elements/1.1/";
@@ -323,8 +330,7 @@ pub fn read_capture_time(text: &str) -> Result<Option<XmpDateTime>, MetadataErro
 }
 
 fn packet_capture_time(text: &str) -> Result<Option<XmpDateTime>> {
-    ensure!(text.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
-    let doc = roxmltree::Document::parse(text)?;
+    let doc = parse_packet(text)?;
     Ok(property(doc.root(), EXIF, "DateTimeOriginal")
         .as_deref()
         .and_then(XmpDateTime::parse))
@@ -434,8 +440,7 @@ pub fn carries_flag(text: &str) -> Result<bool, MetadataError> {
 }
 
 fn packet_carries_flag(text: &str) -> Result<bool> {
-    ensure!(text.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
-    let doc = roxmltree::Document::parse(text)?;
+    let doc = parse_packet(text)?;
     let flag = |namespace: Option<&str>, name: &str| {
         (matches!(namespace, Some(RT | FORMER_RT)) && name == "Flag")
             || (namespace == Some(XMP_DM) && name == "pick")
@@ -459,8 +464,7 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>), Met
 }
 
 fn parse_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
-    ensure!(text.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
-    let doc = roxmltree::Document::parse(text)?;
+    let doc = parse_packet(text)?;
     let mut result = Metadata::default();
     let mut recipe = None;
     // A rejected rating (another editor's reject) wins over a flag property
@@ -472,19 +476,15 @@ fn parse_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
     let mut pick: Option<i8> = None;
     let mut flat = Vec::new();
     let mut hierarchical = Vec::new();
+    let rdf = doc.descendants().find(|n| n.has_tag_name((RDF, "RDF")));
     for node in doc.descendants().filter(|n| {
         n.is_element()
-            && (packet_property(*n)
+            && (packet_property(*n, rdf)
                 || (n.ancestors().any(|a| {
-                    a.has_tag_name((IPTC_CORE, "CreatorContactInfo")) && packet_property(a)
+                    a.has_tag_name((IPTC_CORE, "CreatorContactInfo")) && packet_property(a, rdf)
                 }) && (contact_key(n.tag_name().namespace(), n.tag_name().name()).is_some()
                     || n.has_tag_name((RDF, "Description"))))
-                || (n.has_tag_name((RDF, "Description"))
-                    && n.parent().is_some_and(|root| {
-                        root.has_tag_name((RDF, "RDF"))
-                            && doc.descendants().find(|x| x.has_tag_name((RDF, "RDF")))
-                                == Some(root)
-                    })))
+                || (n.has_tag_name((RDF, "Description")) && rdf.is_some() && n.parent() == rdf))
     }) {
         let name = node.tag_name();
         for attr in node.attributes() {
@@ -607,43 +607,40 @@ fn parse_pick(value: &str) -> Result<i8> {
 /// adds the terms no entry holds (written by an application that writes
 /// `dc:subject` only).
 fn keywords_from(flat: Vec<String>, hierarchical: Vec<String>) -> Vec<String> {
-    let clean = |list: Vec<String>| -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        for k in list {
-            // Levels trimmed (`Animals | Dogs` is `Animals|Dogs`).
-            let k = keywords::normalize(&k);
-            if !k.is_empty() && !out.contains(&k) {
-                out.push(k);
-            }
-        }
-        out
+    let clean = |list: Vec<String>| {
+        let mut seen = HashSet::new();
+        list.into_iter()
+            .map(|k| keywords::normalize(&k))
+            .filter(|k| !k.is_empty() && seen.insert(k.clone()))
+            .collect::<Vec<_>>()
     };
     let flat = clean(flat);
-    let hierarchical = clean(hierarchical);
-    let levels: Vec<&str> = hierarchical
-        .iter()
-        .filter(|k| k.contains('|'))
-        .flat_map(|k| k.split('|').map(str::trim))
+    let mut hierarchical = clean(hierarchical);
+    let mut assigned: HashSet<&str> = hierarchical.iter().map(String::as_str).collect();
+    assigned.extend(
+        hierarchical
+            .iter()
+            .filter(|k| k.contains('|'))
+            .flat_map(|k| k.split('|').map(str::trim)),
+    );
+    let flat_only: Vec<_> = flat
+        .into_iter()
+        .filter(|term| !assigned.contains(term.as_str()))
         .collect();
-    let mut keywords = hierarchical.clone();
-    for term in flat {
-        if !levels.contains(&term.as_str()) && !keywords.contains(&term) {
-            keywords.push(term);
-        }
-    }
-    keywords
+    hierarchical.extend(flat_only);
+    hierarchical
 }
 
 /// The terms of `dc:subject` for the keywords: every level of a
 /// hierarchical keyword as a term of its own, as Lightroom writes them.
 fn subject_terms(keywords: &[String]) -> Vec<&str> {
-    let mut terms: Vec<&str> = Vec::new();
-    for term in keywords.iter().flat_map(|k| k.split('|')).map(str::trim) {
-        if !term.is_empty() && !terms.contains(&term) {
-            terms.push(term);
-        }
-    }
-    terms
+    let mut seen = HashSet::new();
+    keywords
+        .iter()
+        .flat_map(|k| k.split('|'))
+        .map(str::trim)
+        .filter(|term| !term.is_empty() && seen.insert(*term))
+        .collect()
 }
 
 /// Namespace declarations for [`iptc_elements`]; none without IPTC, so
@@ -855,17 +852,12 @@ fn opening_tag(raw: &str) -> Result<(usize, String, bool)> {
     ))
 }
 
-fn packet_property(node: roxmltree::Node) -> bool {
+fn packet_property<'a, 'input>(
+    node: roxmltree::Node<'a, 'input>,
+    rdf: Option<roxmltree::Node<'a, 'input>>,
+) -> bool {
     node.parent().is_some_and(|parent| {
-        parent.has_tag_name((RDF, "Description"))
-            && parent.parent().is_some_and(|root| {
-                root.has_tag_name((RDF, "RDF"))
-                    && root
-                        .document()
-                        .descendants()
-                        .find(|n| n.has_tag_name((RDF, "RDF")))
-                        == Some(root)
-            })
+        parent.has_tag_name((RDF, "Description")) && rdf.is_some() && parent.parent() == rdf
     })
 }
 
@@ -882,18 +874,28 @@ fn retained_language_array(node: roxmltree::Node) -> bool {
         })
 }
 
+type LanguageAlternatives = BTreeMap<String, HashSet<String>>;
+
 // Edit language arrays in their original namespace context. Unrelated items,
 // qualifiers, whitespace and entity spellings remain byte-for-byte untouched.
 fn edit_language_alternatives(
     base: &str,
     metadata: &Metadata,
-) -> Result<(String, Vec<(String, String)>)> {
-    let doc = roxmltree::Document::parse(base)?;
+) -> Result<(String, LanguageAlternatives)> {
+    let doc = parse_packet(base)?;
+    let rdf = doc.descendants().find(|n| n.has_tag_name((RDF, "RDF")));
     let mut edits = Vec::new();
-    let mut kept = Vec::new();
+    let mut kept = LanguageAlternatives::new();
+    let mut patched_size = base.len();
+    let mut edit = |range: std::ops::Range<usize>, replacement: String| {
+        patched_size = patched_size - range.len() + replacement.len();
+        xmp_input::check_packet_size(patched_size)?;
+        edits.push((range, replacement));
+        Ok::<_, anyhow::Error>(())
+    };
     for node in doc
         .descendants()
-        .filter(|n| n.is_element() && packet_property(*n))
+        .filter(|n| n.is_element() && packet_property(*n, rdf))
     {
         let ns = node.tag_name().namespace().unwrap_or_default();
         let name = node.tag_name().name();
@@ -924,7 +926,9 @@ fn edit_language_alternatives(
         {
             continue;
         }
-        kept.push((ns.to_string(), name.to_string()));
+        kept.entry(ns.to_string())
+            .or_default()
+            .insert(name.to_string());
         let items: Vec<_> = alt
             .children()
             .filter(|n| n.has_tag_name((RDF, "li")))
@@ -955,7 +959,7 @@ fn edit_language_alternatives(
                     .context("Missing language item closing tag")?;
                 format!("{}{}{}", &raw[..=end], escape(value), &raw[close..])
             };
-            edits.push((item.range(), replacement));
+            edit(item.range(), replacement)?;
         }
         if default.is_none() {
             let raw = &base[alt.range()];
@@ -967,10 +971,10 @@ fn edit_language_alternatives(
             );
             if empty {
                 let end = end - 1;
-                edits.push((alt.range(), format!("{}>{item}</{prefix}>", &raw[..end])));
+                edit(alt.range(), format!("{}>{item}</{prefix}>", &raw[..end]))?;
             } else {
                 let at = alt.range().start + end + 1;
-                edits.push((at..at, item));
+                edit(at..at, item)?;
             }
         }
     }
@@ -1006,10 +1010,9 @@ fn merge_packet(
         metadata
     };
     let base = existing.unwrap_or("<?xml version=\"1.0\" encoding=\"UTF-8\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"></rdf:RDF></x:xmpmeta>");
-    ensure!(base.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
     let (patched, language_alternatives) = edit_language_alternatives(base, metadata)?;
     let base = patched.as_str();
-    let doc = roxmltree::Document::parse(base)?;
+    let doc = parse_packet(base)?;
     let root = doc
         .descendants()
         .find(|n| n.has_tag_name((RDF, "RDF")))
@@ -1082,12 +1085,12 @@ fn merge_packet(
             || (own_created && namespace == Some(PHOTOSHOP) && name == "DateCreated")
     };
     let owned = |node: roxmltree::Node| {
-        packet_property(node)
+        packet_property(node, Some(root))
             && managed(node.tag_name().namespace(), node.tag_name().name())
             && !(retained_language_array(node)
                 && language_alternatives
-                    .iter()
-                    .any(|(ns, name)| node.has_tag_name((ns.as_str(), name.as_str()))))
+                    .get(node.tag_name().namespace().unwrap_or_default())
+                    .is_some_and(|names| names.contains(node.tag_name().name())))
     };
     // A description left with nothing but our removed properties goes as a
     // whole; otherwise every rewrite left an empty one behind and the sidecar
@@ -1108,17 +1111,18 @@ fn merge_packet(
             })
     };
     let removed = |node: roxmltree::Node| owned(node) || emptied(node);
-    for node in root.descendants().filter(|n| n.is_element() && *n != root) {
-        // Only record the outer removed subtree.
-        if node
-            .ancestors()
-            .skip(1)
-            .any(|n| n.is_element() && removed(n))
-        {
-            continue;
-        }
+    let mut elements = root
+        .descendants()
+        .skip(1)
+        .filter(|n| n.is_element())
+        .peekable();
+    while let Some(node) = elements.next() {
         if removed(node) {
-            removals.push(node.range());
+            let range = node.range();
+            // Skip its subtree. In particular, avoid rechecking every child of
+            // a wide Description whenever we encounter one of its descendants.
+            while elements.next_if(|n| n.range().start < range.end).is_some() {}
+            removals.push(range);
             continue;
         }
         for attr in node.attributes() {
@@ -1174,8 +1178,8 @@ fn merge_packet(
         ("rights", &metadata.copyright),
     ] {
         if language_alternatives
-            .iter()
-            .any(|(ns, field)| ns == DC && field == tag)
+            .get(DC)
+            .is_some_and(|names| names.contains(tag))
         {
             continue;
         }
@@ -1221,8 +1225,8 @@ fn merge_packet(
     let mut remaining = metadata.clone();
     for (key, ns, name, _) in IPTC_FIELDS {
         if language_alternatives
-            .iter()
-            .any(|(a, b)| a == ns && b == name)
+            .get(*ns)
+            .is_some_and(|names| names.contains(*name))
         {
             remaining.iptc.remove(*key);
         }
@@ -1403,7 +1407,7 @@ pub fn write_xmp_announced(
     expected_hash: Option<&str>,
     announce: impl FnOnce(&str) -> Result<()>,
 ) -> Result<String, MetadataError> {
-    let existing = match fs::read_to_string(path) {
+    let existing = match read_xmp_text(path) {
         Ok(s) => Some(s),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(e.into()),

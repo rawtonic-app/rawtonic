@@ -466,7 +466,7 @@ fn white_balance(attrs: &HashMap<String, String>, adjustments: &mut Map<String, 
 
 /// The `crs:` attributes of a Lightroom XMP packet (name → value).
 pub fn crs_attributes(xmp_content: &str) -> HashMap<String, String> {
-    let xmp_one_line = xmp_content.split('\n').collect::<Vec<_>>().join(" ");
+    let xmp_one_line = xmp_content.replace('\n', " ");
     regex!(r#"crs:([A-Za-z0-9]+)="([^"]*)""#)
         .captures_iter(&xmp_one_line)
         .map(|cap| (cap[1].to_string(), cap[2].to_string()))
@@ -599,7 +599,8 @@ fn legacy_untranslated(attrs: &HashMap<String, String>) -> Vec<&'static str> {
 }
 
 pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
-    let xmp_one_line = xmp_content.split('\n').collect::<Vec<_>>().join(" ");
+    rawtonic_metadata::check_xmp_input(xmp_content).map_err(|error| error.to_string())?;
+    let xmp_one_line = xmp_content.replace('\n', " ");
     let mut attrs = crs_attributes(xmp_content);
     let legacy = legacy_process(&attrs);
     // Select before legacy slider translation mutates the process evidence.
@@ -2763,6 +2764,50 @@ mod tests {
         assert_eq!(line["lrCenterWeight"], json!(1.0));
         assert_eq!(line["frame"]["width"], json!(4000.0));
         assert_eq!(line["frame"]["orientationSteps"], json!(0));
+    }
+
+    #[test]
+    fn a_wide_lightroom_description_and_dense_brush_can_be_imported_and_merged() {
+        use std::fmt::Write;
+        // Exercise a packet shaped like a Lightroom edit with many global
+        // settings and a dense, pretty-printed CorrectionMasks/Dabs array.
+        let mut attributes = String::new();
+        for index in 0..400 {
+            write!(attributes, r#" crs:SyntheticSetting{index}="0""#).unwrap();
+        }
+        let dab_count = 50_000;
+        let dabs = "      <rdf:li>d 0.300000 0.500000</rdf:li>\n".repeat(dab_count);
+        let mask = format!(
+            r#"<crs:MaskGroupBasedCorrections><rdf:Seq>
+  <rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="Dodge" crs:LocalExposure2012="0.25">
+    <crs:CorrectionMasks><rdf:Seq>
+      <rdf:li><rdf:Description crs:What="Mask/Paint" crs:MaskValue="1" crs:Radius="0.05">
+        <crs:Dabs><rdf:Seq>
+{dabs}        </rdf:Seq></crs:Dabs>
+      </rdf:Description></rdf:li>
+    </rdf:Seq></crs:CorrectionMasks>
+  </rdf:Description></rdf:li>
+</rdf:Seq></crs:MaskGroupBasedCorrections>"#
+        );
+        let packet = format!(
+            r#"<rdf:RDF xmlns:rdf="{rdf}"><rdf:Description xmlns:crs="{crs}" crs:ProcessVersion="15.6" crs:Exposure2012="0.5"{attributes}>
+{mask}
+</rdf:Description></rdf:RDF>"#,
+            rdf = rawtonic_metadata::RDF,
+            crs = super::CRS_NS,
+        );
+        let preset = super::convert_xmp_to_preset(&packet).unwrap();
+        assert_eq!(preset.adjustments["exposure"], 0.5);
+        let strokes =
+            &preset.adjustments["masks"][0]["subMasks"][0]["parameters"]["lrNormalized"]["strokes"];
+        assert_eq!(strokes[0]["dabs"].as_array().unwrap().len(), dab_count);
+
+        let (mut metadata, _) = rawtonic_metadata::read_xmp(&packet).unwrap();
+        metadata.rating = 3;
+        let merged = rawtonic_metadata::merge_xmp(Some(&packet), &metadata, None).unwrap();
+        assert!(merged.contains(&mask));
+        assert!(merged.contains(&attributes));
+        assert_eq!(rawtonic_metadata::read_xmp(&merged).unwrap().0.rating, 3);
     }
 
     #[test]

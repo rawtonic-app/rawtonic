@@ -15,10 +15,7 @@ use anyhow::Result;
 use rawtonic_metadata::{Metadata, MetadataError};
 use rusqlite::{TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 /// A photograph whose XMP sidecar does not hold what the library holds.
 #[derive(Debug, Clone, Serialize)]
@@ -90,7 +87,7 @@ impl Library {
         let path = self.writable_sidecar(asset)?;
         // The edit the photograph shows is what the sidecar gets.
         self.adopt_editor_sidecar(asset)?;
-        let current = match fs::read(&path) {
+        let current = match rawtonic_metadata::read_xmp_bytes(&path) {
             Ok(bytes) => Some(rawtonic_fs::sha256_hex(&bytes)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(e.into()),
@@ -107,7 +104,7 @@ impl Library {
     /// sidecar changed again meanwhile is a conflict again).
     pub fn use_xmp(&self, asset: &str) -> Result<XmpUndo, CatalogError> {
         let path = self.writable_sidecar(asset)?;
-        let text = match fs::read_to_string(&path) {
+        let text = match rawtonic_metadata::read_xmp_text(&path) {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 bail!("The XMP sidecar is gone; keep the library's metadata to write it again")
@@ -332,7 +329,7 @@ impl Library {
             return Ok(());
         };
         // Unreadable or missing: nothing to take over.
-        let Ok(bytes) = fs::read(sidecar) else {
+        let Ok(bytes) = rawtonic_metadata::read_xmp_bytes(sidecar) else {
             return Ok(());
         };
         if rawtonic_fs::sha256_hex(&bytes) == publishing {

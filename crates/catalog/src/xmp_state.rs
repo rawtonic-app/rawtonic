@@ -141,7 +141,7 @@ impl Library {
             [id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        match std::fs::read(sidecar) {
+        match rawtonic_metadata::read_xmp_bytes(&sidecar) {
             // The one it wrote last, or the one it was publishing when a
             // crash cut the write short (taken over by `sync_xmp`).
             Ok(bytes) => {
@@ -149,6 +149,8 @@ impl Library {
                 Ok(here != hash && here != publishing)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(hash.is_some()),
+            // A sidecar above the read limit cannot be one we wrote or accepted.
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => Ok(true),
             // Unreadable: writing it is tried and fails with why.
             Err(_) => Ok(false),
         }
@@ -234,7 +236,7 @@ impl Library {
                         false
                     } else {
                         check.read += 1;
-                        match fs::read(&sidecar) {
+                        match rawtonic_metadata::read_xmp_bytes(&sidecar) {
                             Ok(bytes) => {
                                 let digest = rawtonic_fs::sha256_hex(&bytes);
                                 if hash.as_deref() == Some(digest.as_str()) {
@@ -246,6 +248,7 @@ impl Library {
                                     publishing.as_deref() != Some(digest.as_str())
                                 }
                             }
+                            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => true,
                             Err(_) => false,
                         }
                     }
