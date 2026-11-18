@@ -213,6 +213,25 @@ pub fn environment() -> Result<&'static ort::environment::Environment, RuntimeEr
 
 static MISSING_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// ONNX Runtime's full opt-out of its usage uploader on macOS and Linux
+/// (Microsoft's release builds since 1.30 send a `ProcessInfo` event to
+/// Microsoft at environment creation; `DisableTelemetryEvents` leaves the
+/// uploader running). Read once, when the first environment is created.
+/// notes: benchmark-results/ortt2-2026-11-18/REPORT.md
+pub const TELEMETRY_OPT_OUT: (&str, &str) = ("ORT_DISABLE_TELEMETRY", "1");
+
+/// Sets `TELEMETRY_OPT_OUT` in the process environment. Call it first in
+/// `main`, before any other thread exists; `load` sets it too for tools and
+/// tests that start without it.
+pub fn opt_out_of_runtime_telemetry() {
+    let (name, value) = TELEMETRY_OPT_OUT;
+    if std::env::var_os(name).is_none_or(|v| v != value) {
+        // SAFETY: callers run this before other threads start (`main`), or
+        // (`load`) before ONNX Runtime exists, the only reader of this name.
+        unsafe { std::env::set_var(name, value) };
+    }
+}
+
 /// Opens `path` and checks it is a usable ONNX Runtime (the API version
 /// `ort` needs), then has `ort` load it. Returns the runtime's version.
 pub(crate) fn load(path: &Path) -> Result<String, RuntimeError> {
@@ -240,13 +259,15 @@ pub(crate) fn load(path: &Path) -> Result<String, RuntimeError> {
         crate::dxc::prepare(dir);
     }
     let version = check_library(path)?;
+    // No usage uploader (macOS, Linux): the environment created below reads it.
+    opt_out_of_runtime_telemetry();
     // `ort` loads this file from now on; its one environment is created
     // here and kept for the life of the process (`environment`).
     let builder = ort::init_from(path)
         .map_err(|error| {
             RuntimeError::unusable(format!("ONNX Runtime at {shown} could not start: {error}"))
         })?
-        // Microsoft's Windows runtime can emit usage events through ETW.
+        // Defence in depth: stops events after this point (Windows ETW too).
         .with_telemetry(false);
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || builder.build())) {
         Ok(Ok(env)) => {
@@ -350,6 +371,18 @@ mod tests {
         // ort exposes no getter for this setting. Pin the opt-out on the
         // production builder so this can run without a native runtime.
         assert!(include_str!("runtime.rs").contains(concat!(".with_telemetry(", "false);")));
+    }
+
+    #[test]
+    fn the_uploader_opt_out_is_in_the_environment() {
+        opt_out_of_runtime_telemetry();
+        let (name, value) = TELEMETRY_OPT_OUT;
+        assert_eq!(std::env::var(name).as_deref(), Ok(value));
+        // `load` sets it before the environment exists, for tools and tests
+        // whose `main` did not.
+        let load = include_str!("runtime.rs").split("fn check_library").next().unwrap();
+        let opt_out = load.rfind("opt_out_of_runtime_telemetry();").unwrap();
+        assert!(opt_out < load.rfind("ort::init_from(path)").unwrap());
     }
 
     fn scratch(name: &str) -> PathBuf {
