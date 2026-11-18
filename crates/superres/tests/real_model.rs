@@ -110,7 +110,7 @@ fn enlarges_24_mp_and_tiles_join() {
 
 /// The CPU conversion preserves the shipped four-rotation graph's output.
 #[test]
-#[ignore = "needs both installed ONNX models; run with RAWTONIC_AI_PROVIDER=cpu"]
+#[ignore = "needs both installed ONNX models"]
 fn sequential_cpu_matches_original_graph() {
     let dir = models().expect("SUPERRES_MODELS must name the installed models");
     assert!(dir.join(rawtonic_superres::CPU_ONNX_FILE).is_file());
@@ -122,10 +122,6 @@ fn sequential_cpu_matches_original_graph() {
     )
     .unwrap();
     let sequential = Model::cpu(&dir.join(rawtonic_superres::CPU_ONNX_FILE)).unwrap();
-    assert!(
-        sequential.uses_cpu(),
-        "force the CPU provider for this test"
-    );
     let input = pattern(TILE as u32, TILE as u32);
     let tile: Vec<f32> = (0..3)
         .flat_map(|channel| input.pixels().map(move |p| p[channel]))

@@ -6,8 +6,13 @@
 
 - **Install update from the update notice.** When a newer release is out, the notice offers **Install update**: Rawtonic downloads that release's package for your Mac (app), Linux AppImage or Windows per-user setup, installs it only if it carries the signature of Rawtonic's own update key for exactly that version, and replaces the app when you choose **Restart now** — after it saved your edits, and after asking if exports or imports are still running. Nothing is downloaded before the click; the daily startup check sends nothing new. Copies installed for all users (Windows MSI), the portable zip and releases without an update package keep the browser link; an all-users copy now gets the all-users installer there. This works from the next release on: updating to it is one last manual update.
 
+### Changes to existing exports
+
+- Super Resolution exports using the ONNX Runtime CPU path may round differently from earlier versions. In a 24 MP test, the largest difference was 0.00000232 on a 0–1 scale before rounding, which can change an 8-bit channel by at most 1/255.
+
 ### Fixes
 
+- Windows: the built-in web view no longer contacts Microsoft's configuration and component-update services in the background.
 - Windows: paths in the library and export dialogs no longer mix `/` and `\`.
 - **Windows setup can install Rawtonic for your account alongside an older all-users installation without administrator approval.** Setup explains how to remove the old copy later through Windows Settings with administrator approval. Both copies share your Rawtonic settings and app data.
 - **Exports return freed CPU memory to the system sooner around the photo's GPU upload.** This applies wherever Rawtonic uses mimalloc, including macOS. Integrated GPUs also start with 8 MB graphics-memory blocks that can grow to 256 MB. Metal ignores that GPU hint.

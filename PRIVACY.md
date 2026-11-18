@@ -53,6 +53,12 @@ sessions, settings and photos are not touched. Copies installed for all users
 (the Windows MSI), the portable zip, Linux packages other than the AppImage and
 releases without an update package keep the browser link instead.
 
+## Windows web view
+
+Rawtonic turns off WebView2's background connections to Microsoft's
+configuration and component-update services. Windows itself may look up a proxy
+configuration (WPAD) on the local network.
+
 ## Other network access
 
 Rawtonic otherwise goes online only when you ask it to:

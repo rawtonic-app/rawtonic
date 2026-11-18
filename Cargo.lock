@@ -5946,6 +5946,7 @@ dependencies = [
  "rawtonic-denoise",
  "rawtonic-fs",
  "rawtonic-onnx",
+ "tempfile",
 ]
 
 [[package]]

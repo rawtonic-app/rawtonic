@@ -121,6 +121,7 @@ mod tagging;
 mod tagging_utils;
 mod update_check;
 mod upright;
+mod webview_args;
 mod window_capture;
 mod window_customizer;
 mod window_limits;
@@ -686,9 +687,8 @@ fn start(args: Vec<String>) {
                 .expect("Main window config not found")
                 .clone();
 
-            let mut window_builder =
-                tauri::WebviewWindowBuilder::from_config(app.handle(), &main_window_cfg)
-                    .unwrap();
+            let mut window_builder = webview_args::from_config(app.handle(), &main_window_cfg)
+                .unwrap();
 
             #[cfg(not(target_os = "macos"))]
             {
