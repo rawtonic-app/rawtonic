@@ -5,7 +5,8 @@
 # Microsoft's Windows library registers the ETW TraceLogging provider
 # "Microsoft.ML.ONNXRuntime" {3a26b1ff-7484-7484-7484-15261f42614d} in
 # Windows' telemetry provider group, so the Connected User Experiences and
-# Telemetry service collects its events. On Windows `--no_telemetry` only
+# Telemetry service can collect its events when it subscribes to that group
+# (not captured at runtime here; WORT1 measures it). On Windows `--no_telemetry` only
 # leaves out the group; the provider is still compiled and registered. The
 # patch beside this script (onnxruntime-1.30.0-windows-no-etw-telemetry.patch)
 # drops the provider, its registration and its events when telemetry is off;
