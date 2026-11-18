@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- JPEG XL exports of opaque photos use three RGB channels. Images with transparency keep their alpha channel.
+
 - **Linux Before/After zoom keeps both sides in the same format.** When zooming to 100%, Before waits for the JPEG After frame. Cached previews retain their format when switching photos.
 
 - **A long AI mask run counts as recent use when it finishes.** The idle timer now starts again when a run ends, so the next shader compile no longer treats the models as already idle just because the mask took more than 20 seconds.
