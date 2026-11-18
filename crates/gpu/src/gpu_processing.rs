@@ -94,32 +94,23 @@ pub struct GpuContext {
 }
 
 /// The GPU allocator's block sizes (Vulkan and DX12; Metal ignores them).
-/// On an integrated GPU its memory is the system's: wgpu's `Performance`
-/// blocks (128-256 MB, the last one of each memory type kept) held up to
-/// 0.6 GB of freed photo-sized buffers beside a Radeon 680M's 2-photo
-/// export; `MemoryUsage` (8-64 MB) gives buffers larger than a block their
-/// own allocation, returned when dropped (notes:
-/// benchmark-results/wmema-2026-11-18). Discrete GPUs keep `Performance`.
+/// On an integrated GPU its memory is the system's. wgpu's `Performance`
+/// blocks (128-256 MB from the start, the last one of each memory type
+/// kept) held freed export buffers beside a Radeon 680M's 2-photo export.
+/// Blocks that start at 8 MB and grow to 256 MB returned them: app headless
+/// export of 7 large RAWs at 2 jobs 4.42 -> 4.23 GB, at 1 job 3.37 ->
+/// 2.98 GB, GUI at 1 thread 5.86 -> 5.43 GB. `MemoryUsage` (8-64 MB) saved
+/// more, but the display at 100 % (3840 x 2880 regions) drew ~7 % fewer
+/// frames in an Exposure drag, 8-128 MB ~4 %; 8-256 MB drew as many as
+/// `Performance` (630 vs 632 frames, medians; notes:
+/// benchmark-results/wmema-2026-11-18). The display and the exports share
+/// one device. Discrete GPUs keep `Performance`.
 fn memory_hints(device_type: wgpu::DeviceType) -> wgpu::MemoryHints {
-    // WMEMA probe: RAWTONIC_GPU_MEMORY_BLOCKS = performance | usage | MIN-MAX (MB).
-    if let Ok(v) = std::env::var("RAWTONIC_GPU_MEMORY_BLOCKS") {
-        const MB: u64 = 1 << 20;
-        match v.as_str() {
-            "performance" => return wgpu::MemoryHints::Performance,
-            "usage" => return wgpu::MemoryHints::MemoryUsage,
-            range => {
-                if let Some((a, b)) = range.split_once('-')
-                    && let (Ok(a), Ok(b)) = (a.parse::<u64>(), b.parse::<u64>())
-                {
-                    return wgpu::MemoryHints::Manual {
-                        suballocated_device_memory_block_size: a * MB..b * MB,
-                    };
-                }
-            }
-        }
-    }
+    const MB: u64 = 1 << 20;
     if device_type == wgpu::DeviceType::IntegratedGpu {
-        wgpu::MemoryHints::MemoryUsage
+        wgpu::MemoryHints::Manual {
+            suballocated_device_memory_block_size: 8 * MB..256 * MB,
+        }
     } else {
         wgpu::MemoryHints::Performance
     }
@@ -130,11 +121,14 @@ mod memory_hints_tests {
     use super::*;
 
     #[test]
-    fn only_integrated_gpus_use_small_allocator_blocks() {
-        assert!(matches!(
-            memory_hints(wgpu::DeviceType::IntegratedGpu),
-            wgpu::MemoryHints::MemoryUsage
-        ));
+    fn integrated_gpus_start_with_small_allocator_blocks() {
+        let wgpu::MemoryHints::Manual {
+            suballocated_device_memory_block_size: sizes,
+        } = memory_hints(wgpu::DeviceType::IntegratedGpu)
+        else {
+            panic!("integrated GPUs set their block sizes");
+        };
+        assert_eq!(sizes, 8 << 20..256 << 20);
         for other in [
             wgpu::DeviceType::DiscreteGpu,
             wgpu::DeviceType::VirtualGpu,
