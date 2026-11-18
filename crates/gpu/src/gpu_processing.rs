@@ -93,6 +93,45 @@ pub struct GpuContext {
     pub display_space: rawtonic_engine::output_color_space::OutputColorSpace,
 }
 
+/// The GPU allocator's block sizes (Vulkan and DX12; Metal ignores them).
+/// On an integrated GPU its memory is the system's: wgpu's `Performance`
+/// blocks (128-256 MB, the last one of each memory type kept) held up to
+/// 0.6 GB of freed photo-sized buffers beside a Radeon 680M's 2-photo
+/// export; `MemoryUsage` (8-64 MB) gives buffers larger than a block their
+/// own allocation, returned when dropped (notes:
+/// benchmark-results/wmema-2026-11-18). Discrete GPUs keep `Performance`.
+fn memory_hints(device_type: wgpu::DeviceType) -> wgpu::MemoryHints {
+    if device_type == wgpu::DeviceType::IntegratedGpu {
+        wgpu::MemoryHints::MemoryUsage
+    } else {
+        wgpu::MemoryHints::Performance
+    }
+}
+
+#[cfg(test)]
+mod memory_hints_tests {
+    use super::*;
+
+    #[test]
+    fn only_integrated_gpus_use_small_allocator_blocks() {
+        assert!(matches!(
+            memory_hints(wgpu::DeviceType::IntegratedGpu),
+            wgpu::MemoryHints::MemoryUsage
+        ));
+        for other in [
+            wgpu::DeviceType::DiscreteGpu,
+            wgpu::DeviceType::VirtualGpu,
+            wgpu::DeviceType::Cpu,
+            wgpu::DeviceType::Other,
+        ] {
+            assert!(matches!(
+                memory_hints(other),
+                wgpu::MemoryHints::Performance
+            ));
+        }
+    }
+}
+
 /// The processing device requested from `adapter`: its own limits and, where
 /// available, adapter-specific texture format features. Shared by the app's
 /// window context and [`GpuContext::headless`].
@@ -111,7 +150,7 @@ pub fn processing_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDesc
         required_features,
         required_limits: adapter.limits(),
         experimental_features: wgpu::ExperimentalFeatures::default(),
-        memory_hints: wgpu::MemoryHints::Performance,
+        memory_hints: memory_hints(adapter.get_info().device_type),
         trace: wgpu::Trace::Off,
     }
 }
