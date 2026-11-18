@@ -528,9 +528,14 @@ def place(source: Path, out: Path, name: str, expected: str | None = None) -> di
 def carry_over(previous: Path, out: Path) -> tuple[list[dict], dict[str, str]]:
     """The files of an earlier pack, copied unchanged and checked against its
     models.json; returns their entries and SHA-256 by name."""
+    own = {name: used_by for name, _, used_by in ORT130_OWN}
     entries = []
     for entry in json.loads((previous / "models.json").read_text())["files"]:
         meta = {k: v for k, v in entry.items() if k not in ("file", "size", "sha256")}
+        if entry["file"] in own:
+            # The description follows the pins here, not an older pack's
+            # (whether the app bundles the library changes over time).
+            meta |= {"used_by": own[entry["file"]]} | ORT130_OWN_ENTRY
         entries.append(place(previous / entry["file"], out, entry["file"], entry["sha256"]) | meta)
     return entries, {entry["file"]: entry["sha256"] for entry in entries}
 
