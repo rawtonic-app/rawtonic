@@ -242,9 +242,12 @@ pub(crate) fn load(path: &Path) -> Result<String, RuntimeError> {
     let version = check_library(path)?;
     // `ort` loads this file from now on; its one environment is created
     // here and kept for the life of the process (`environment`).
-    let builder = ort::init_from(path).map_err(|error| {
-        RuntimeError::unusable(format!("ONNX Runtime at {shown} could not start: {error}"))
-    })?;
+    let builder = ort::init_from(path)
+        .map_err(|error| {
+            RuntimeError::unusable(format!("ONNX Runtime at {shown} could not start: {error}"))
+        })?
+        // Microsoft's Windows runtime can emit usage events through ETW.
+        .with_telemetry(false);
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || builder.build())) {
         Ok(Ok(env)) => {
             let _ = ENVIRONMENT.set(env);
@@ -341,6 +344,13 @@ fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    #[test]
+    fn runtime_initialization_disables_telemetry() {
+        // ort exposes no getter for this setting. Pin the opt-out on the
+        // production builder so this can run without a native runtime.
+        assert!(include_str!("runtime.rs").contains(concat!(".with_telemetry(", "false);")));
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
