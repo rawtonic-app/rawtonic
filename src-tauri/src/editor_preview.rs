@@ -1768,6 +1768,7 @@ pub(crate) fn process_preview_job(
     crop_edit: bool,
     _browser_full_zoom: bool,
     render_generation: usize,
+    region_only: bool,
 ) -> Result<Vec<u8>, CommandError> {
     let fn_start = std::time::Instant::now();
     #[cfg(feature = "performance-profiling")]
@@ -1960,7 +1961,9 @@ pub(crate) fn process_preview_job(
 
     let (preview_width, preview_height) = processing_image.dimensions();
 
-    let pixel_roi = if is_interactive {
+    // A drag's frame, or the first pass of a held preview's final frame
+    // (`PreviewJob::region_first`): the visible region only.
+    let pixel_roi = if is_interactive || region_only {
         roi.map(|(nx, ny, nw, nh)| crate::gpu_processing::Roi {
             x: (nx * preview_width as f32).round() as u32,
             y: (ny * preview_height as f32).round() as u32,
@@ -2132,7 +2135,7 @@ pub(crate) fn process_preview_job(
 
     // A zoomed drag's frame covers only the visible region: the whole
     // frame's analytics come from a scope render beside it (scope_analytics.rs).
-    let region_frame = is_interactive && pixel_roi.is_some();
+    let region_frame = (is_interactive || region_only) && pixel_roi.is_some();
     let wants_analytics = !region_frame && request_analytics;
     let channel_filter = if is_interactive {
         active_waveform_channel.map(|s| s.to_string())
@@ -2249,7 +2252,7 @@ pub(crate) fn process_preview_job(
         job.recipe = adjustments_clone;
         job.masks = mask_definitions;
         sender.send(job);
-    } else if !is_interactive {
+    } else if !is_interactive && !region_only {
         rewarm_mask_source(
             app_handle,
             &state,
@@ -2507,6 +2510,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             let develop = app_handle.state::<DevelopSession>();
             let warm = draft_warmup_of(&job);
             let interactive = job.is_interactive;
+            let region_first = region_first_pass(&app_handle, &job);
             let responder = job.responder;
             let frame = crate::multi_view_prefetch::PreviewFrame::start(job.is_interactive);
             crate::proxy_worker::note_preview(job.is_interactive);
@@ -2532,6 +2536,33 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             // first Halation frame on a cold Radeon 680M waited ~53 s, and
             // turning it off again or another photo showed only afterwards
             // (G76/SUPS).
+            // A held preview zoomed in: its visible region first (about a
+            // quarter of the whole frame's GPU time at 100 %), then the
+            // whole frame, unless a newer request waits by then.
+            if region_first {
+                let _ = gpu_processing::supersedable(
+                    newer_request_waits(&app_handle, newest_sequence),
+                    || {
+                        process_preview_job(
+                            &app_handle,
+                            app_handle.state::<AppState>(),
+                            app_handle.state::<DevelopSession>(),
+                            job.adjustments.clone(),
+                            false,
+                            job.target_resolution,
+                            job.roi,
+                            false,
+                            false,
+                            None,
+                            job.mask_overlay.as_ref(),
+                            false,
+                            job.browser_full_zoom,
+                            job.generation,
+                            true,
+                        )
+                    },
+                );
+            }
             let result = gpu_processing::supersedable(
                 newer_request_waits(&app_handle, newest_sequence),
                 || {
@@ -2550,6 +2581,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                         job.crop_edit,
                         job.browser_full_zoom,
                         job.generation,
+                        false,
                     )
                 },
             );
@@ -2665,6 +2697,29 @@ fn draft_warmup_of(job: &PreviewJob) -> Option<DraftWarmup> {
         })
 }
 
+/// Whether `job` renders its visible region first (`PreviewJob::region_first`):
+/// a final frame zoomed in, on the native display (the browser renderer
+/// shows each reply as the whole frame).
+fn region_first_pass(app_handle: &tauri::AppHandle, job: &PreviewJob) -> bool {
+    region_first_eligible(job) && native_display(app_handle)
+}
+
+fn region_first_eligible(job: &PreviewJob) -> bool {
+    job.region_first && !job.is_interactive && job.roi.is_some() && !job.crop_edit
+}
+
+#[cfg(not(target_os = "linux"))]
+fn native_display(app_handle: &tauri::AppHandle) -> bool {
+    crate::state::settings::current(app_handle)
+        .use_wgpu_renderer
+        .unwrap_or(true)
+}
+
+#[cfg(target_os = "linux")]
+fn native_display(_app_handle: &tauri::AppHandle) -> bool {
+    false
+}
+
 fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
@@ -2695,6 +2750,7 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
             false,
             false,
             warm.generation,
+            false,
         )
     });
     // Not shown: the final frame before it stays the latest for its colour
@@ -2960,6 +3016,7 @@ fn submit_activation_frame(
         active_waveform_channel: None,
         mask_overlay: None,
         crop_edit: false,
+        region_first: false,
         responder: tx,
     });
     // The job presents natively; its answer only matters for errors.
@@ -3185,9 +3242,23 @@ pub(crate) fn thumbnail_still(
     frame_camera_jpeg: bool,
     area: Option<(u32, u32)>,
 ) -> Option<crate::embedded_still::Still> {
-    #[cfg(feature = "performance-profiling")]
     let start = std::time::Instant::now();
     let file = crate::file_management::cached_medium_thumbnail(app_handle, path)?;
+    thumbnail_file_still(&file, path, space, frame_camera_jpeg, area, start)
+}
+
+/// The still of `path` from its medium thumbnail `file` (see
+/// [`thumbnail_still`]).
+pub(crate) fn thumbnail_file_still(
+    file: &std::path::Path,
+    path: &str,
+    space: rawtonic_engine::output_color_space::OutputColorSpace,
+    frame_camera_jpeg: bool,
+    area: Option<(u32, u32)>,
+    start: std::time::Instant,
+) -> Option<crate::embedded_still::Still> {
+    #[cfg(not(feature = "performance-profiling"))]
+    let _ = start;
     let bytes = std::fs::read(file).ok()?;
     #[cfg(feature = "performance-profiling")]
     let read = start.elapsed();
@@ -3603,6 +3674,7 @@ pub(crate) async fn apply_adjustments(
     crop_edit: Option<bool>,
     browser_preview_uri: Option<bool>,
     browser_full_zoom: Option<bool>,
+    region_first: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Response, CommandError> {
     // An edit renders: a GPU check of an AI model gives way (rawtonic-onnx
@@ -3649,6 +3721,7 @@ pub(crate) async fn apply_adjustments(
         active_waveform_channel,
         mask_overlay,
         crop_edit: crop_edit.unwrap_or(false),
+        region_first: region_first.unwrap_or(false),
         responder: tx,
     });
     #[cfg(feature = "performance-profiling")]
@@ -4240,6 +4313,7 @@ mod preview_memory_tests {
                 active_waveform_channel: None,
                 mask_overlay: None,
                 crop_edit,
+                region_first: false,
                 responder: tokio::sync::oneshot::channel().0,
             };
         let warm = draft_warmup_of(&job(false, None, false));
@@ -4251,6 +4325,35 @@ mod preview_memory_tests {
         assert!(draft_warmup_of(&job(true, None, false)).is_none());
         assert!(draft_warmup_of(&job(false, Some((0.0, 0.0, 0.5, 0.5)), false)).is_none());
         assert!(draft_warmup_of(&job(false, None, true)).is_none());
+    }
+
+    #[test]
+    fn only_a_held_previews_zoomed_final_frame_shows_its_region_first() {
+        let job = |region_first: bool,
+                   is_interactive: bool,
+                   roi: Option<(f32, f32, f32, f32)>,
+                   crop_edit: bool| PreviewJob {
+            generation: 1,
+            sequence: None,
+            adjustments: serde_json::json!({}),
+            is_interactive,
+            browser_full_zoom: false,
+            target_resolution: Some(4000),
+            roi,
+            request_analytics: true,
+            compute_waveform: false,
+            active_waveform_channel: None,
+            mask_overlay: None,
+            crop_edit,
+            region_first,
+            responder: tokio::sync::oneshot::channel().0,
+        };
+        let zoomed = Some((0.25, 0.25, 0.3, 0.3));
+        assert!(region_first_eligible(&job(true, false, zoomed, false)));
+        assert!(!region_first_eligible(&job(false, false, zoomed, false)));
+        assert!(!region_first_eligible(&job(true, false, None, false)));
+        assert!(!region_first_eligible(&job(true, true, zoomed, false)));
+        assert!(!region_first_eligible(&job(true, false, zoomed, true)));
     }
 
     #[test]

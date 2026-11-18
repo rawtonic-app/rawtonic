@@ -663,6 +663,7 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
         active_waveform_channel: refresh.active_waveform_channel,
         mask_overlay: refresh.mask_overlay,
         crop_edit: false,
+        region_first: false,
         responder,
     };
     app.state::<crate::app_state::AppState>()

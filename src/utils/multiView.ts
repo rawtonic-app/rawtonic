@@ -150,6 +150,60 @@ export function orderedSelection(listed: string[], selected: string[]): string[]
 
 /** Capture values for captions, formatted as the viewer's footer shows them
  * (utils/captureInfo). */
+/** A cell's photograph area for the native display: x, y, width, height in
+ * device pixels, window coordinates. */
+export interface CellArea {
+  path: string;
+  area: [number, number, number, number];
+}
+
+/** The native areas of the `shown` photographs' cells in `grid`, laid out in
+ * a stage at `box` (CSS pixels). */
+export function cellAreas(shown: string[], grid: Grid, box: Rect, dpr: number): CellArea[] {
+  return shown.flatMap((path, i) => {
+    const cell = grid.cells[i];
+    if (!cell) return [];
+    const { photo } = cell;
+    return [
+      {
+        path,
+        area: [(box.x + photo.x) * dpr, (box.y + photo.y) * dpr, photo.width * dpr, photo.height * dpr] as [
+          number,
+          number,
+          number,
+          number
+        ]
+      }
+    ];
+  });
+}
+
+/**
+ * The cells a selection is about to be laid out in (as the stage lays them
+ * out for `selected` of the `listed` photographs, with `primary` live and
+ * `reference` pinned), the primary's left out; empty when it shows no
+ * multi view. For decoding their stand-ins while the webview renders.
+ */
+export function expectedCells(
+  listed: string[],
+  selected: string[],
+  primary: string | null,
+  reference: string | null,
+  box: Rect,
+  aspect: number,
+  margin: number,
+  dpr: number
+): CellArea[] {
+  if (!primary) return [];
+  const selection = orderedSelection(listed, selected);
+  const pinned = reference && reference !== primary && listed.includes(reference) ? reference : null;
+  const count = selection.filter((path) => path !== pinned).length + (pinned ? 1 : 0);
+  if (count <= 1 || !selection.includes(primary)) return [];
+  const { shown, more } = cellsFor(selection, primary, pinned);
+  const grid = packGrid(shown.length + (more > 0 ? 1 : 0), box.width, box.height, aspect, margin);
+  return cellAreas(shown, grid, box, dpr).filter((cell) => cell.path !== primary);
+}
+
 export interface CaptureValues {
   iso?: string;
   shutter?: string;

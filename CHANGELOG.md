@@ -4,6 +4,10 @@
 
 ### Fixes
 
+- **Entering the multi view shows every photo in its first frame.** With 12 photos selected, the live photo and the other cells' filmstrip thumbnails now appear together in the layout's first frame. The thumbnails are decoded while the cells are laid out, and the live photo is placed into its cell at once. Before, they came one frame later. Mac mini M4 Pro, 60 fps screen recording, ⌘A to all 12 shown: 102–116 → 84–86 ms (median, n = 10 per block). Lightroom Classic's Survey took 80 ms on the same Mac.
+
+- **A tool's Before at 100 % shows faster.** Holding a tool's reset with ⌥ at 100 % now draws the visible part of the photo first and then the rest. Holding Before uses the same path but was not timed. On a 24 MP photo: 188 → 92 ms on press and 175 → 96 ms on release (Mac mini M4 Pro, 60 fps recording, n = 10). Lightroom Classic's panel switch took 104/118 ms and Capture One 252/243 ms. The visible part can differ from the finished frame by a few levels in about 2 % of its pixels until the rest arrives, about 0.1 s later.
+
 - **Linux Before/After zoom keeps both sides in the same format.** When zooming to 100%, Before waits for the JPEG After frame. Cached previews retain their format when switching photos.
 
 - **A long AI mask run counts as recent use when it finishes.** The idle timer now starts again when a run ends, so the next shader compile no longer treats the models as already idle just because the mask took more than 20 seconds.

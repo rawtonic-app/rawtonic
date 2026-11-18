@@ -249,6 +249,10 @@ fn show_cells(
     };
     let worker = worker(app_handle);
     let generation = worker.generation.fetch_add(1, Ordering::SeqCst) + 1;
+    // The thumbnails the filmstrip shows, decoded before the layout is
+    // presented so that its first frame has every cell (as Lightroom's
+    // Survey shows its stored previews in one frame).
+    let mut early = early_stand_ins(&context, &primary, &cells);
     let (zoomed, bare) = {
         let mut display = context.display.lock().unwrap_or_else(|e| e.into_inner());
         let Some(display) = display.as_mut() else {
@@ -266,6 +270,21 @@ fn show_cells(
                 })
                 .collect(),
         );
+        // The live frame in its cell at once, not after the webview's
+        // editor has laid out the cell (a frame later).
+        display.place_primary_at_fit();
+        early.retain(|(path, still)| {
+            let (width, height) = still.image.dimensions();
+            !display.stand_in_cell(
+                &context.device,
+                &context.queue,
+                path,
+                width,
+                height,
+                still.image.as_raw(),
+            )
+        });
+        drop(early);
         display.render(&context.device, &context.queue);
         let multi = display.multi_view();
         #[cfg(feature = "performance-profiling")]
@@ -337,6 +356,206 @@ fn show_cells(
 /// Threads that read and decode the cached thumbnails standing in for cells
 /// (one per cell of a 12-up).
 const STAND_IN_THREADS: usize = 12;
+
+/// Stand-ins decoded ahead ([`prepare_multi_view_stand_ins`]): asked for
+/// when the selection changes, before the webview lays the cells out, and
+/// taken by the next [`show_cells`].
+#[derive(Default)]
+struct Ahead {
+    generation: u64,
+    pending: bool,
+    stills: Vec<(String, std::path::PathBuf, crate::embedded_still::Still)>,
+}
+
+static AHEAD: std::sync::LazyLock<(Mutex<Ahead>, std::sync::Condvar)> =
+    std::sync::LazyLock::new(|| (Mutex::new(Ahead::default()), std::sync::Condvar::new()));
+
+/// How long the layout waits for stand-ins still being decoded ahead (they
+/// were asked for ~20 ms earlier and take ~5–15 ms).
+const AHEAD_WAIT: std::time::Duration = std::time::Duration::from_millis(40);
+
+/// The webview's selection changed to the photographs of `cells` (their
+/// expected cells, before it lays them out): their filmstrip thumbnails are
+/// decoded now, so that the layout's first frame shows every cell (the
+/// next layout takes them, or the next request drops them). Returns at
+/// once; nothing is generated.
+#[tauri::command]
+pub(crate) async fn prepare_multi_view_stand_ins(
+    cells: Vec<CellPayload>,
+    gpu: tauri::State<'_, crate::state::gpu::GpuState>,
+) -> Result<(), String> {
+    let Some(context) = gpu.context_lock().as_ref().cloned() else {
+        return Ok(());
+    };
+    // Cells already showing a frame (a photograph added to a multi view)
+    // keep it.
+    let cells: Vec<CellPayload> = {
+        let display = context.display.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(display) = display.as_ref() else {
+            return Ok(());
+        };
+        let multi = display.multi_view();
+        cells
+            .into_iter()
+            .filter(|cell| multi.texture_key(&cell.path).is_none())
+            .collect()
+    };
+    let (lock, _) = &*AHEAD;
+    let generation = {
+        let mut ahead = lock.lock().unwrap_or_else(|e| e.into_inner());
+        ahead.generation += 1;
+        ahead.pending = !cells.is_empty();
+        ahead.stills.clear();
+        ahead.generation
+    };
+    if cells.is_empty() {
+        return Ok(());
+    }
+    rawtonic_runtime::spawn_render_thread("multi-view-stand-ins-ahead", move || {
+        let stills = decode_stand_ins(&context, None, &cells);
+        let (lock, ready) = &*AHEAD;
+        {
+            let mut ahead = lock.lock().unwrap_or_else(|e| e.into_inner());
+            if ahead.generation != generation {
+                return;
+            }
+            ahead.pending = false;
+            ahead.stills = stills;
+        }
+        ready.notify_all();
+    });
+    Ok(())
+}
+
+/// The stand-ins for the cells of a new layout (`cells` without `primary`
+/// and without a frame of their own): those decoded ahead for the same
+/// thumbnail file, the others whose thumbnail was announced decoded now (a
+/// few ms), so all go into the layout's first present. Cells without an
+/// announced thumbnail are left to [`show_stand_ins`].
+fn early_stand_ins(
+    context: &GpuContext,
+    primary: &Option<String>,
+    cells: &[CellPayload],
+) -> Vec<(String, crate::embedded_still::Still)> {
+    let ahead = {
+        let (lock, ready) = &*AHEAD;
+        let mut ahead = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let deadline = Instant::now() + AHEAD_WAIT;
+        while ahead.pending {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            ahead = ready
+                .wait_timeout(ahead, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+        ahead.generation += 1;
+        ahead.pending = false;
+        std::mem::take(&mut ahead.stills)
+    };
+    let shown: Vec<String> = {
+        let display = context.display.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(display) = display.as_ref() else {
+            return Vec::new();
+        };
+        let multi = display.multi_view();
+        cells
+            .iter()
+            .filter(|cell| multi.texture_key(&cell.path).is_some())
+            .map(|cell| cell.path.clone())
+            .collect()
+    };
+    let wanted: Vec<&CellPayload> = cells
+        .iter()
+        .filter(|cell| primary.as_deref() != Some(cell.path.as_str()))
+        .filter(|cell| !shown.contains(&cell.path))
+        .collect();
+    let mut stills = Vec::with_capacity(wanted.len());
+    let mut missing = Vec::new();
+    let mut ahead = ahead;
+    for cell in wanted {
+        let taken = ahead
+            .iter()
+            .position(|(path, _, _)| *path == cell.path)
+            .map(|i| ahead.swap_remove(i))
+            .filter(|(path, file, _)| {
+                crate::file_management::announced_medium_thumbnail(path).as_ref() == Some(file)
+            });
+        match taken {
+            Some((path, _, still)) => stills.push((path, still)),
+            None => missing.push(cell.clone()),
+        }
+    }
+    let from_ahead = stills.len();
+    let start = Instant::now();
+    let decoded = decode_stand_ins(context, primary.as_deref(), &missing);
+    log::info!(
+        "[multi_view] layout stand-ins: {from_ahead} decoded ahead, {} of {} decoded now in {:.1} ms",
+        decoded.len(),
+        missing.len(),
+        start.elapsed().as_secs_f64() * 1e3
+    );
+    stills.extend(decoded.into_iter().map(|(path, _, still)| (path, still)));
+    stills
+}
+
+/// The announced medium thumbnails of `cells` (but `primary`), decoded at
+/// each cell's size, one reader per cell.
+fn decode_stand_ins(
+    context: &GpuContext,
+    primary: Option<&str>,
+    cells: &[CellPayload],
+) -> Vec<(String, std::path::PathBuf, crate::embedded_still::Still)> {
+    let wanted: Vec<(String, std::path::PathBuf, (u32, u32))> = cells
+        .iter()
+        .filter(|cell| primary != Some(cell.path.as_str()))
+        .filter_map(|cell| {
+            let file = crate::file_management::announced_medium_thumbnail(&cell.path)?;
+            let [_, _, width, height] = cell.area;
+            Some((
+                cell.path.clone(),
+                file,
+                (width.ceil() as u32, height.ceil() as u32),
+            ))
+        })
+        .collect();
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    let count = wanted.len();
+    let space = context.display_space;
+    let queue = Mutex::new(wanted.into_iter());
+    let stills = Mutex::new(Vec::with_capacity(count));
+    std::thread::scope(|scope| {
+        for _ in 0..STAND_IN_THREADS.min(count) {
+            rawtonic_runtime::spawn_scoped_render_thread(scope, "multi-view-stand-in", || {
+                loop {
+                    let Some((path, file, area)) =
+                        queue.lock().unwrap_or_else(|e| e.into_inner()).next()
+                    else {
+                        return;
+                    };
+                    if let Some(still) = crate::editor_preview::thumbnail_file_still(
+                        &file,
+                        &path,
+                        space,
+                        false,
+                        Some(area),
+                        Instant::now(),
+                    ) {
+                        stills
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .push((path, file, still));
+                    }
+                }
+            });
+        }
+    });
+    stills.into_inner().unwrap_or_else(|e| e.into_inner())
+}
 
 /// The cells that have nothing to show yet (`paths`, with their cell's
 /// size in device px) show their

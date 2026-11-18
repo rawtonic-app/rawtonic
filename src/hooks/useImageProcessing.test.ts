@@ -257,6 +257,37 @@ it('keeps original-preview overrides out of saved adjustments', async () => {
   await finish();
 });
 
+it('asks for the visible region first when a held preview starts or ends zoomed in', async () => {
+  useEditorStore.setState({
+    baseRenderSize: { width: 1000, height: 600, offsetX: 0, offsetY: 0, containerWidth: 1000, containerHeight: 600 }
+  } as never);
+  const zoomed = { current: { instance: { targetTransformState: { scale: 4, positionX: -1500, positionY: -900 } } } };
+  renderHook(() =>
+    useImageProcessing(
+      zoomed as never,
+      { current: null },
+      {
+        previewJobIdRef: { current: 0 },
+        latestRenderedJobIdRef: { current: 0 },
+        currentResRef: { current: 1920 }
+      }
+    )
+  );
+  await finish();
+  expect(calls()[0][1]).not.toHaveProperty('regionFirst');
+  // The per-tool before held, then let go.
+  act(() => useEditorStore.setState({ previewOverride: { ...INITIAL_ADJUSTMENTS, exposure: -2 } }));
+  expect(calls()[1][1]).toMatchObject({ regionFirst: true, isInteractive: false, roi: expect.any(Array) });
+  await finish();
+  act(() => useEditorStore.setState({ previewOverride: null }));
+  expect(calls()[2][1]).toMatchObject({ regionFirst: true, jsAdjustments: { exposure: 0 } });
+  await finish();
+  // An edit renders the whole frame as before.
+  act(() => useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } }));
+  expect(calls()[3][1]).not.toHaveProperty('regionFirst');
+  await finish();
+});
+
 it('reports a native render failure but not a superseded preview', async () => {
   mount();
   await act(async () => {

@@ -76,6 +76,9 @@ interface PreviewRequest {
   dispatchAt?: number;
   /** The uncommitted brush stroke a live frame shows. */
   liveStroke?: LiveStroke;
+  /** A held preview starts or ends (a tool's before, the before peek): zoomed
+   * in, the native side shows the visible region before the whole frame. */
+  regionFirst?: boolean;
 }
 
 // The native worker drops requests older than the newest it has taken. Job ids
@@ -139,6 +142,8 @@ export function useImageProcessing(
   const appSettings = useSettingsStore((state) => state.appSettings);
 
   const uncroppedJobIdRef = useRef(0);
+  // The held preview last rendered (`previewOverride`), to tell its start and end.
+  const heldPreviewRef = useRef<Adjustments | null>(null);
   const latestUncroppedJobIdRef = useRef(0);
 
   const lastAnalyticsTimeRef = useRef<number>(0);
@@ -216,7 +221,8 @@ export function useImageProcessing(
       live = false,
       inputAt = 0,
       dispatchAt = 0,
-      liveStroke?: LiveStroke
+      liveStroke?: LiveStroke,
+      regionFirst = false
     ) => {
       const enteredAt = performanceDiagnosticsEnabled ? performance.now() : 0;
       const currentPath = selectedImage?.path;
@@ -286,7 +292,8 @@ export function useImageProcessing(
             // Large Linux patches go directly to the image loader. Small
             // frames, final previews and other platforms retain binary replies.
             browserPreviewUri: import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0',
-            ...(fullZoom ? { browserFullZoom: true } : {})
+            ...(fullZoom ? { browserFullZoom: true } : {}),
+            ...(regionFirst && roi && !dragging && !live && !cropEdit ? { regionFirst: true } : {})
           },
           os === 'linux' && dragging && import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0'
         );
@@ -457,7 +464,8 @@ export function useImageProcessing(
           request.live,
           request.inputAt,
           request.dispatchAt,
-          request.liveStroke
+          request.liveStroke,
+          request.regionFirst
         );
       }, 4),
     []
@@ -719,7 +727,7 @@ export function useImageProcessing(
   ]);
 
   const applyAdjustments = useCallback(
-    (currentAdjustments: Adjustments, dragging: boolean = false, targetRes?: number) => {
+    (currentAdjustments: Adjustments, dragging: boolean = false, targetRes?: number, regionFirst = false) => {
       if (!canRenderSource(selectedImage)) return;
       previewQueue.submit({
         path: selectedImage!.path,
@@ -727,7 +735,8 @@ export function useImageProcessing(
         dragging,
         targetRes,
         inputAt: dragging && performanceDiagnosticsEnabled ? latestPointerInputTime() : 0,
-        dispatchAt: dragging && performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0
+        dispatchAt: dragging && performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0,
+        ...(regionFirst ? { regionFirst } : {})
       });
     },
     [selectedImage, previewQueue]
@@ -896,7 +905,10 @@ export function useImageProcessing(
     } else {
       currentResRef.current = targetRes;
 
-      applyAdjustments(renderAdjustments, false, targetRes);
+      // A held preview starting or ending shows its visible region first.
+      const held = previewOverride !== heldPreviewRef.current;
+      heldPreviewRef.current = previewOverride;
+      applyAdjustments(renderAdjustments, false, targetRes, held);
 
       if (previewOverride) return;
 

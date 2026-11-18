@@ -1259,6 +1259,7 @@ fn start(args: Vec<String>) {
             image_loader::load_image_proxy,
             editor_preview::activate_photo,
             multi_view::set_multi_view,
+            multi_view::prepare_multi_view_stand_ins,
             multi_view::set_multi_view_zoom,
             multi_view::set_multi_view_live,
             proxy_worker::prepare_preview_proxies,
