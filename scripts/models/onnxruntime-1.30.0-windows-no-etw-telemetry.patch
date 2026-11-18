@@ -1,0 +1,63 @@
+diff -ru a/cmake/onnxruntime_common.cmake b/cmake/onnxruntime_common.cmake
+--- a/cmake/onnxruntime_common.cmake
++++ b/cmake/onnxruntime_common.cmake
+@@ -207,6 +207,9 @@
+       @ONLY)
+     target_include_directories(onnxruntime_common PRIVATE "${_ort_telemetry_gen_dir}")
+   endif()
++elseif(WIN32)
++  # No telemetry: leave out the Windows ETW telemetry provider (telemetry.cc).
++  target_compile_definitions(onnxruntime_common PRIVATE ORT_NO_WINDOWS_TELEMETRY_PROVIDER)
+ endif()
+ if (onnxruntime_USE_MIMALLOC)
+   list(APPEND onnxruntime_EXTERNAL_LIBRARIES mimalloc-static)
+diff -ru a/onnxruntime/core/platform/windows/telemetry.cc b/onnxruntime/core/platform/windows/telemetry.cc
+--- a/onnxruntime/core/platform/windows/telemetry.cc
++++ b/onnxruntime/core/platform/windows/telemetry.cc
+@@ -58,10 +58,17 @@
+ namespace onnxruntime {
+ 
+ namespace {
++#ifdef ORT_NO_WINDOWS_TELEMETRY_PROVIDER
++// Built without telemetry: the "Microsoft.ML.ONNXRuntime" ETW provider is
++// neither defined nor registered, and its events are not compiled.
++#undef TraceLoggingWrite
++#define TraceLoggingWrite(...) ((void)0)
++#else
+ TRACELOGGING_DEFINE_PROVIDER(telemetry_provider_handle, "Microsoft.ML.ONNXRuntime",
+                              // {3a26b1ff-7484-7484-7484-15261f42614d}
+                              (0x3a26b1ff, 0x7484, 0x7484, 0x74, 0x84, 0x15, 0x26, 0x1f, 0x42, 0x61, 0x4d),
+                              TraceLoggingOptionMicrosoftTelemetry());
++#endif
+ 
+ std::string GetCpuModel() {
+   HKEY key{};
+@@ -264,6 +271,9 @@
+     enabled_ = false;
+     return;
+   }
++#ifdef ORT_NO_WINDOWS_TELEMETRY_PROVIDER
++  enabled_ = false;
++#else
+   if (global_register_count_ == 0) {
+     // TraceLoggingRegister is fancy in that you can only register once GLOBALLY for the whole process
+     HRESULT hr = TraceLoggingRegisterEx(telemetry_provider_handle, ORT_TL_EtwEnableCallback, nullptr);
+@@ -271,15 +281,18 @@
+       global_register_count_ += 1;
+     }
+   }
++#endif
+ }
+ 
+ WindowsTelemetry::~WindowsTelemetry() {
+   std::lock_guard<std::mutex> lock(mutex_);
+   if (global_register_count_ > 0) {
+     global_register_count_ -= 1;
++#ifndef ORT_NO_WINDOWS_TELEMETRY_PROVIDER
+     if (global_register_count_ == 0) {
+       TraceLoggingUnregister(telemetry_provider_handle);
+     }
++#endif
+   }
+ 
+   std::lock_guard<std::mutex> lock_callbacks(callbacks_mutex_);

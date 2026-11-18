@@ -20,7 +20,7 @@ Usage:
       python scripts/models/build_model_pack.py OUT_DIR [--cache CACHE_DIR] [--previous PACK_DIR] \
       [--own-runtime DIR]
 `--own-runtime` is the folder of the ONNX Runtime libraries Rawtonic builds
-itself (scripts/models/build_onnxruntime.sh; ORT130_OWN below), needed
+itself (scripts/models/build_onnxruntime.sh and .ps1; ORT130_OWN below), needed
 until a previous pack carries them.
 `--previous` takes an earlier pack (its release assets with `models.json`,
 e.g. `gh release download pack-2026-10-08 --repo rawtonic-app/models`): its
@@ -449,8 +449,11 @@ CUDA = [
 # Microsoft's library of the same platform: macOS on the 15 ONNX files of the
 # QA model folder (notes: benchmark-results/ortt2-2026-11-18/REPORT.md),
 # Linux on 20 model files incl. Moebius, SDXL VAE and the Super Resolution CPU
-# graphs (notes: benchmark-results/ortt3-2026-11-18/linux.md); one synthetic
-# input each. Builds are not byte-reproducible across build directories
+# graphs (notes: benchmark-results/ortt3-2026-11-18/linux.md), Windows x64
+# on the 14 ONNX files `rawtonic ai-bench` runs from the QA model folder (39
+# outputs; notes: benchmark-results/ortt3w-2026-11-18/report.md); one
+# synthetic input each. On Windows build_onnxruntime.ps1 also drops the ETW
+# telemetry provider, which `--no_telemetry` alone keeps. Builds are not byte-reproducible across build directories
 # (embedded paths), so each library comes from `--own-runtime DIR` and its
 # SHA-256 is pinned here. (pack name, SHA-256, used_by)
 ORT130_OWN = [
@@ -460,9 +463,15 @@ ORT130_OWN = [
     ("libonnxruntime-1.30.0-notelemetry-linux-x86_64.so",
      "620d32796c8ff40f23431e37bf417107635bf3f3d40398c5ffbbf370de3f1ad4",
      "Candidate runtime for all models on Linux x86_64; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
+    # Test build without /Qspectre (Visual Studio lacked the Spectre-mitigated
+    # libraries): not the release candidate; the build with Microsoft's exact
+    # flags replaces it.
+    ("onnxruntime-1.30.0-notelemetry-nospectre-test-windows-x86_64.dll",
+     "5137afd95a7acabcadea5abfa4bc9e3aabf8744e612ed7da0b8934a5fdf82d41",
+     "Test build for Windows x64 (without Microsoft's /Qspectre flag), not a release candidate; the app does not bundle it (src-tauri/build.rs still pins Microsoft's library)"),
 ]
 ORT130_OWN_ENTRY = {
-    "source": "ONNX Runtime 1.30.0 (commit f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7), built by Rawtonic without telemetry (scripts/models/build_onnxruntime.sh)",
+    "source": "ONNX Runtime 1.30.0 (commit f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7), built by Rawtonic without telemetry (scripts/models/build_onnxruntime.sh, build_onnxruntime.ps1 on Windows)",
     "license": "MIT",
     "license_files": ["onnxruntime-MIT.txt", "onnxruntime-1.30.0-ThirdPartyNotices.txt"],
 }

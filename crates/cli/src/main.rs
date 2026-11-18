@@ -872,6 +872,7 @@ fn ai_bench(args: AiBenchArgs) -> Result<()> {
             "file": r.file,
             "model": r.kind.name(),
             "cpu": timing(&r.cpu),
+            "cpu_digests": r.cpu_digests.iter().map(|(o, d)| serde_json::json!({"output": o, "blake3": d})).collect::<Vec<_>>(),
             "provider": r.gpu_provider.name(),
             "device": r.gpu_device,
             "gpu": r.gpu.as_ref().map(timing),
