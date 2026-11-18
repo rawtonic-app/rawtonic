@@ -328,6 +328,10 @@ pub fn decode_hasselblad(ljpeg: &LjpegDecompressor, out: &mut [u16], width: usiz
   // [p1_length_as_huffman][p2_length_as_huffman][p0_diff_with_length][p1_diff_with_length]|NEXT PIXELS
   let mut pump = BitPumpMSB32::new(ljpeg.buffer);
   let htable = &ljpeg.dhts[ljpeg.sof.components[0].dc_tbl_num];
+  // Rawtonic patch (RWH1): an error for an empty line width, not a panic.
+  if width == 0 {
+    return Err("ljpeg: Hasselblad data with width 0".to_string());
+  }
 
   for line in out.chunks_exact_mut(width) {
     let mut p1: i32 = 0x8000;

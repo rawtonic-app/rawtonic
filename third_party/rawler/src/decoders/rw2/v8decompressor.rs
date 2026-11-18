@@ -221,28 +221,32 @@ struct HuffmanDecoder {
 impl HuffmanDecoder {
   fn new(symlens: impl Iterator<Item = u8>, mut symbols: impl Iterator<Item = u16>) -> Self {
     let mut huff_symbols: [HuffmanSymbol; 17] = Default::default();
+    // Rawtonic patch (RWH1): only the declared codes are looked up; the unused
+    // slots (mask 0) matched every prefix as a 0-bit code. Shifts wrap as in
+    // release builds (a 0-bit code shifts by 16).
+    let mut declared = 0;
     for (i, symlen) in symlens.enumerate() {
       let symbol = symbols.next().expect("symbol iterator is shorter than symlens iterator");
-      let bitmask = 0xFFFFu16 >> (16 - symlen);
-      debug_assert_eq!(symbol, symbol & bitmask);
+      let shift = 16_u32.wrapping_sub(symlen as u32);
       // Left-align symbol and mask
       huff_symbols[i] = HuffmanSymbol {
         bitcnt: symlen,
-        symbol: (symbol) << (16 - symlen),
-        mask: 0xFFFF << (16 - symlen),
+        symbol: symbol.wrapping_shl(shift),
+        mask: 0xFFFF_u16.wrapping_shl(shift),
       };
+      declared = i + 1;
     }
 
     // Generate lookup cache for all possible 16 bit input values.
     let cache = (0..=0xFFFFu16)
-      .map(|x| Self::slow_lookup(&huff_symbols, x).map(|ssss| (huff_symbols[ssss as usize].bitcnt, ssss)))
+      .map(|x| Self::slow_lookup(&huff_symbols[..declared], x).map(|ssss| (huff_symbols[ssss as usize].bitcnt, ssss)))
       .collect_vec();
     Self { huff_symbols, cache }
   }
 
   /// Slow lookup into Huffman symbol table
-  fn slow_lookup(huff_symbols: &[HuffmanSymbol; 17], bits: u16) -> Option<u8> {
-    for i in 0..17 {
+  fn slow_lookup(huff_symbols: &[HuffmanSymbol], bits: u16) -> Option<u8> {
+    for i in 0..huff_symbols.len() {
       if (bits & huff_symbols[i].mask) == huff_symbols[i].symbol {
         return Some(i as u8);
       }
@@ -252,14 +256,15 @@ impl HuffmanDecoder {
 
   /// Extract Huffman symbol from bitstream pump and
   /// return index into symbol table.
-  fn get_next(&self, pump: &mut dyn BitPump) -> u8 {
+  fn get_next(&self, pump: &mut dyn BitPump) -> std::result::Result<u8, String> {
     let next_bits = pump.peek_bits(16);
     debug_assert_eq!(self.cache.len(), u16::MAX as usize + 1);
     if let Some((bits, ssss)) = unsafe { *self.cache.get_unchecked(next_bits as usize) } {
       pump.consume_bits(bits as u32);
-      ssss
+      Ok(ssss)
     } else {
-      panic!("Input value {:016b} starts not with a valid huffman symbol", next_bits);
+      // Rawtonic patch (RWH1): an error, not a panic.
+      Err(format!("RW2 v8: input {:016b} starts with no valid Huffman code", next_bits))
     }
   }
 }
@@ -458,7 +463,8 @@ pub(crate) fn decode_panasonic_v8(rawfile: &RawSource, width: usize, height: usi
   (0..total_strip_count)
     .into_par_iter()
     .map(|strip_id| decode_strip(&bitstreams[strip_id], &params, strip_id))
-    .collect::<Vec<_>>()
+    .collect::<std::result::Result<Vec<_>, String>>()
+    .map_err(RawlerError::DecoderFailed)?
     .into_iter()
     .zip(&rects)
     .filter(|(strip, _)| strip.width > 0)
@@ -471,7 +477,7 @@ pub(crate) fn decode_panasonic_v8(rawfile: &RawSource, width: usize, height: usi
 }
 
 /// Decode a single strip
-fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize) -> PixU16 {
+fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize) -> std::result::Result<PixU16, String> {
   let mut pump = BitPumpReverseBitsMSB::new(buf);
   let width = params.strip_widths[strip_id] as usize;
   let height = params.strip_heights[strip_id] as usize;
@@ -494,13 +500,17 @@ fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize) -> PixU16 {
     state.current_base = state.line_base;
     for col in 0..doublewidth {
       // Calculate index
-      let ssss = state.huffdec.get_next(&mut pump);
+      let ssss = state.huffdec.get_next(&mut pump)?;
 
       // Shiftdown seems to be the count of bits shifted to right during encoding.
       // It's 0 for all existing samples so far, highly interested in samples that has
-      // Rawtonic patch (RWH1): a code beyond the shift table shifts by 0.
-      let shift_down: u8 = (params.huf_shift_down.get(ssss as usize).copied().unwrap_or(0) & 0x1F) as u8;
-      assert_eq!(shift_down, 0, "CF2HufShiftDown samples required");
+      // Rawtonic patch (RWH1): `ssss` is a declared code, and the shift table
+      // holds one shift per code (checked in decode_panasonic_v8); a non-zero
+      // shift (no samples known) is an error instead of the assert.
+      let shift_down: u8 = (params.huf_shift_down[ssss as usize] & 0x1F) as u8;
+      if shift_down != 0 {
+        return Err("RW2 v8: CF2HufShiftDown samples required".to_string());
+      }
 
       // Calculate total required bits to read from bitstream.
       let req_bits: u32 = ssss.saturating_sub(shift_down as u8) as u32;
@@ -510,7 +520,7 @@ fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize) -> PixU16 {
         debug_assert_ne!(req_bits, 0);
         let rawbits: u32 = pump.get_bits(req_bits as u32); // Get additional bits
         let sign = rawbits >> (req_bits - 1); // Get leading sign bit
-        let val = (rawbits << (params.huf_shift_down.get(ssss as usize).copied().unwrap_or(0) & 0xFF)) as i32;
+        let val = (rawbits << (params.huf_shift_down[ssss as usize] & 0xFF)) as i32;
 
         if sign == 1 {
           val
@@ -572,5 +582,5 @@ fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize) -> PixU16 {
       }
     }
   }
-  out
+  Ok(out)
 }

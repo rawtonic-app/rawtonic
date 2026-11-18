@@ -1252,6 +1252,11 @@ where
   F: Fn(&mut [u16], usize) + Sync,
 {
   let mut out: PixU16 = alloc_image!(width, height, dummy);
+  // Rawtonic patch (RWH1): the helpers below skip or refuse an image of zero
+  // width (or zero lines per chunk) instead of panicking on a zero chunk size.
+  if width == 0 {
+    return out;
+  }
   out.pixels_mut().par_chunks_exact_mut(width).enumerate().for_each(|(row, line)| {
     closure(line, row);
   });
@@ -1264,6 +1269,9 @@ where
   T: SubPixel + 'a,
 {
   let width = pixbuf.width;
+  if width == 0 {
+    return Err("image of width 0".to_string());
+  }
   pixbuf
     .pixels_mut()
     .par_chunks_exact_mut(width)
@@ -1278,6 +1286,9 @@ where
   F: Fn(&mut [u16], usize) -> std::result::Result<(), String> + Sync,
 {
   let mut out: PixU16 = alloc_image_ok!(width, height, dummy);
+  if width * lines == 0 {
+    return Err("image of width 0 or strips of 0 lines".to_string());
+  }
   out
     .pixels_mut()
     .par_chunks_mut(width * lines)
@@ -1296,6 +1307,9 @@ where
 {
   let width = pixbuf.width;
   let chunksize = pixbuf.width * lines;
+  if chunksize == 0 {
+    return Err("image of width 0 or strips of 0 lines".to_string());
+  }
   pixbuf
     .pixels_mut()
     .par_chunks_mut(chunksize)
@@ -1311,6 +1325,9 @@ where
   F: Fn(&mut [u16], usize) + Sync,
 {
   let mut out: PixU16 = alloc_image!(width, height, dummy);
+  if chunksize == 0 {
+    return out;
+  }
   out.pixels_mut().par_chunks_mut(chunksize).enumerate().for_each(|(chunk_id, chunk)| {
     closure(chunk, chunk_id);
   });
