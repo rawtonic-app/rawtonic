@@ -232,6 +232,17 @@ impl Jfif {
           Ok(app1) => Segment::APP1 { offset: pos, app1 },
           Err(err) => {
             log::warn!("Failed to read APP1 (EXIF) segement, maybe corrupt: {:?}", err);
+            // Rawtonic patch (RWH1; dnglab fb29175b): skip the broken
+            // segment by its length and read on. `continue` read the same
+            // marker again forever.
+            reader.seek(SeekFrom::Start(pos + 2))?;
+            let len = reader.read_u16::<BigEndian>()? as u64;
+            if len < 2 {
+              return Err(JfifError::General("APP1 segment shorter than its length field".into()));
+            }
+            reader.seek(SeekFrom::Start(pos + 2 + len))?;
+            pos = reader.stream_position()?;
+            sym = reader.read_u16::<BigEndian>().ok();
             continue;
           }
         },
@@ -243,6 +254,11 @@ impl Jfif {
         _ => {
           log::debug!("Unhandled JFIF segment marker: {:X}", symbol);
           let len: u64 = reader.read_u16::<BigEndian>()? as u64;
+          // Rawtonic patch (RWH1; dnglab 02b5c3e1): a length below 2 moved
+          // back onto the same marker, which was read forever.
+          if len < 2 {
+            return Err(JfifError::General(format!("JFIF segment {:X} shorter than its length field", symbol)));
+          }
           reader.seek(SeekFrom::Current(len as i64 - 2))?;
 
           Segment::Unknown { offset: pos, marker: symbol }

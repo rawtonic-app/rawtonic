@@ -5,6 +5,7 @@
 // Copyright (C) 2022-2024 Alex Tutubalin, LibRaw LLC
 // Ported from C++ to Rust by Daniel Vogelbacher
 
+use crate::RawlerError;
 use itertools::Itertools;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -13,7 +14,7 @@ use crate::{
   bits::{Endian, clamp},
   decoders::{Result, rw2::PanasonicTag},
   formats::tiff::IFD,
-  pixarray::{PixU16, SharedPix2D},
+  pixarray::PixU16,
   pumps::{BitPump, BitPumpReverseBitsMSB, ByteStream},
   rawsource::RawSource,
 };
@@ -92,17 +93,29 @@ struct CF2Params {
   strip_heights: Vec<u16>,
 }
 
+/// Rawtonic patch (RWH1; dnglab dbb56326 validates the CF2 parameters): a
+/// list tag must hold the `count` entries of `size` bytes it claims (reads past
+/// the end return zeros, which gave strips the same destination).
+fn check_list(bs: &ByteStream, count: u16, size: usize) -> Result<()> {
+  if bs.remaining_bytes() < count as usize * size {
+    return Err(RawlerError::DecoderFailed("RW2 v8: CF2 list shorter than its count".to_string()));
+  }
+  Ok(())
+}
+
 impl CF2Params {
   fn new(ifd: &IFD) -> Result<Self> {
     let strip_height = fetch_tiff_tag!(ifd, PanasonicTag::CF2StripHeight).force_u32(0);
     let gamma_point = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2Unknown1).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 4)?;
       (0..count).map(|_| bs.get_u32()).collect()
     };
     let gamma_slope = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2Unknown2).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 4)?;
       (0..count).map(|_| bs.get_u32()).collect()
     };
     let gamma_clip_val = fetch_tiff_tag!(ifd, PanasonicTag::CF2ClipVal).force_u16(0);
@@ -113,11 +126,13 @@ impl CF2Params {
     let huf_table = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2HufTable).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 4)?;
       (0..count).map(|_| (bs.get_u16(), bs.get_u16())).collect()
     };
     let huf_shift_down = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2HufShiftDown).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 2)?;
       (0..count).map(|_| bs.get_u16()).collect()
     };
     let num_of_strips_h = fetch_tiff_tag!(ifd, PanasonicTag::CF2NumberOfStripsH).force_u16(0);
@@ -125,11 +140,13 @@ impl CF2Params {
     let strip_byte_offsets = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2StripByteOffsets).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 4)?;
       (0..count).map(|_| bs.get_u32()).collect()
     };
     let strip_line_offsets = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2StripLineOffsets).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 4)?;
       (0..count)
         .map(|_| StripLineOffset {
           cols: bs.get_u16(),
@@ -140,16 +157,19 @@ impl CF2Params {
     let strip_data_size = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2StripDataSize).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 4)?;
       (0..count).map(|_| bs.get_u32()).collect()
     };
     let strip_widths = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2StripWidths).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 2)?;
       (0..count).map(|_| bs.get_u16()).collect()
     };
     let strip_heights = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2StripHeights).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 2)?;
       (0..count).map(|_| bs.get_u16()).collect()
     };
     let strip_width = fetch_tiff_tag!(ifd, PanasonicTag::CF2StripWidth).force_u32(0);
@@ -201,28 +221,32 @@ struct HuffmanDecoder {
 impl HuffmanDecoder {
   fn new(symlens: impl Iterator<Item = u8>, mut symbols: impl Iterator<Item = u16>) -> Self {
     let mut huff_symbols: [HuffmanSymbol; 17] = Default::default();
+    // Rawtonic patch (RWH1): only the declared codes are looked up; the unused
+    // slots (mask 0) matched every prefix as a 0-bit code. Shifts wrap as in
+    // release builds (a 0-bit code shifts by 16).
+    let mut declared = 0;
     for (i, symlen) in symlens.enumerate() {
       let symbol = symbols.next().expect("symbol iterator is shorter than symlens iterator");
-      let bitmask = 0xFFFFu16 >> (16 - symlen);
-      debug_assert_eq!(symbol, symbol & bitmask);
+      let shift = 16_u32.wrapping_sub(symlen as u32);
       // Left-align symbol and mask
       huff_symbols[i] = HuffmanSymbol {
         bitcnt: symlen,
-        symbol: (symbol) << (16 - symlen),
-        mask: 0xFFFF << (16 - symlen),
+        symbol: symbol.wrapping_shl(shift),
+        mask: 0xFFFF_u16.wrapping_shl(shift),
       };
+      declared = i + 1;
     }
 
     // Generate lookup cache for all possible 16 bit input values.
     let cache = (0..=0xFFFFu16)
-      .map(|x| Self::slow_lookup(&huff_symbols, x).map(|ssss| (huff_symbols[ssss as usize].bitcnt, ssss)))
+      .map(|x| Self::slow_lookup(&huff_symbols[..declared], x).map(|ssss| (huff_symbols[ssss as usize].bitcnt, ssss)))
       .collect_vec();
     Self { huff_symbols, cache }
   }
 
   /// Slow lookup into Huffman symbol table
-  fn slow_lookup(huff_symbols: &[HuffmanSymbol; 17], bits: u16) -> Option<u8> {
-    for i in 0..17 {
+  fn slow_lookup(huff_symbols: &[HuffmanSymbol], bits: u16) -> Option<u8> {
+    for i in 0..huff_symbols.len() {
       if (bits & huff_symbols[i].mask) == huff_symbols[i].symbol {
         return Some(i as u8);
       }
@@ -232,14 +256,15 @@ impl HuffmanDecoder {
 
   /// Extract Huffman symbol from bitstream pump and
   /// return index into symbol table.
-  fn get_next(&self, pump: &mut dyn BitPump) -> u8 {
+  fn get_next(&self, pump: &mut dyn BitPump) -> std::result::Result<u8, String> {
     let next_bits = pump.peek_bits(16);
     debug_assert_eq!(self.cache.len(), u16::MAX as usize + 1);
     if let Some((bits, ssss)) = unsafe { *self.cache.get_unchecked(next_bits as usize) } {
       pump.consume_bits(bits as u32);
-      ssss
+      Ok(ssss)
     } else {
-      panic!("Input value {:016b} starts not with a valid huffman symbol", next_bits);
+      // Rawtonic patch (RWH1): an error, not a panic.
+      Err(format!("RW2 v8: input {:016b} starts with no valid Huffman code", next_bits))
     }
   }
 }
@@ -364,6 +389,21 @@ fn make_gammatable(params: &CF2Params) -> Option<Vec<u16>> {
   }
 }
 
+/// Rawtonic patch (RWH1): strips (left, top, right, bottom) lie inside the
+/// image, have an even width (the decoder writes pairs of columns) and don't
+/// overlap.
+pub(crate) fn check_strip_rects(rects: &[(usize, usize, usize, usize)], width: usize, height: usize) -> Result<()> {
+  for (i, a) in rects.iter().enumerate() {
+    if a.2 > width || a.3 > height || a.2 < a.0 || a.3 < a.1 || (a.2 - a.0) % 2 != 0 {
+      return Err(RawlerError::DecoderFailed(format!("RW2 v8: strip {} is outside the image", i)));
+    }
+    if rects[..i].iter().any(|b| a.0 < b.2 && b.0 < a.2 && a.1 < b.3 && b.1 < a.3) {
+      return Err(RawlerError::DecoderFailed(format!("RW2 v8: strip {} overlaps another strip", i)));
+    }
+  }
+  Ok(())
+}
+
 /// Decode Panasonic V8 bitstreams
 pub(crate) fn decode_panasonic_v8(rawfile: &RawSource, width: usize, height: usize, _bps: u32, ifd: &IFD, dummy: bool) -> Result<PixU16> {
   let out = alloc_image_ok!(width, height, dummy);
@@ -371,36 +411,80 @@ pub(crate) fn decode_panasonic_v8(rawfile: &RawSource, width: usize, height: usi
   let params = CF2Params::new(ifd)?;
   log::debug!("pana8: params: {:?}", params);
 
-  assert_eq!(
-    params.strip_widths.iter().map(|x| *x as i32).sum::<i32>() as usize / params.num_of_strips_v as usize,
-    width
-  );
+  // Rawtonic patch (RWH1; dnglab dbb56326): the strip parameters must fit
+  // the image, and no two strips may share pixels, because the strips are
+  // written in parallel into one buffer. Errors instead of the assert, index
+  // panics or overlapping writes.
+  // The gamma curve reads six points and slopes, the Huffman decoder holds
+  // at most 17 codes of up to 16 bits, and every code has a shift.
+  if params.gamma_point.len() < 6
+    || params.gamma_slope.len() < 6
+    || params.huf_table.len() > 17
+    || params.huf_table.iter().any(|(bits, _)| *bits > 16)
+    || params.huf_shift_down.len() < params.huf_table.len()
+  {
+    return Err(RawlerError::DecoderFailed("RW2 v8: invalid gamma or Huffman tables".to_string()));
+  }
+  let total_strip_count = params.num_of_strips_h as usize * params.num_of_strips_v as usize;
+  if params.num_of_strips_v == 0 || params.strip_widths.iter().map(|x| *x as usize).sum::<usize>() / params.num_of_strips_v as usize != width {
+    return Err(RawlerError::DecoderFailed("RW2 v8: strip widths don't match the image".to_string()));
+  }
+  if [
+    params.strip_byte_offsets.len(),
+    params.strip_data_size.len(),
+    params.strip_widths.len(),
+    params.strip_heights.len(),
+    params.strip_line_offsets.len(),
+  ]
+  .iter()
+  .any(|&len| len < total_strip_count)
+  {
+    return Err(RawlerError::DecoderFailed("RW2 v8: fewer strip parameters than strips".to_string()));
+  }
+  let rects: Vec<(usize, usize, usize, usize)> = (0..total_strip_count)
+    .map(|id| {
+      let (x, y) = (params.strip_line_offsets[id].cols as usize, params.strip_line_offsets[id].rows as usize);
+      (x, y, x + params.strip_widths[id] as usize, y + params.strip_heights[id] as usize)
+    })
+    .collect();
+  check_strip_rects(&rects, width, height)?;
 
-  // Shared output buffer, we need to write from multiple rayon threads to output image.
-  let shared_pix = SharedPix2D::new(out);
+  // Rawtonic patch (RWH1): each strip decodes into its own buffer, copied
+  // into the image afterwards. The workers used to share one `&mut` to the
+  // image (`SharedPix2D`); same pixels, no aliasing.
+  let mut out = out;
 
-  let total_strip_count = (params.num_of_strips_h * params.num_of_strips_v) as usize;
   let mut bitstreams = Vec::with_capacity(total_strip_count);
   for strip_id in 0..total_strip_count {
     bitstreams.push(rawfile.subview(params.strip_byte_offsets[strip_id] as u64, (params.strip_data_size[strip_id] as u64 + 7) / 8)?);
   }
 
   // Parallel decode multiple strips
-  (0..total_strip_count).into_par_iter().for_each(|strip_id| {
-    let buf = &bitstreams[strip_id];
-    decode_strip(buf, &params, strip_id, unsafe { shared_pix.inner_mut() });
-  });
-  Ok(shared_pix.into_inner())
+  (0..total_strip_count)
+    .into_par_iter()
+    .map(|strip_id| decode_strip(&bitstreams[strip_id], &params, strip_id))
+    .collect::<std::result::Result<Vec<_>, String>>()
+    .map_err(RawlerError::DecoderFailed)?
+    .into_iter()
+    .zip(&rects)
+    .filter(|(strip, _)| strip.width > 0)
+    .for_each(|(strip, &(x, y, _, _))| {
+      for (row, line) in strip.pixels().chunks_exact(strip.width).enumerate() {
+        out.pixels_mut()[(y + row) * width + x..][..strip.width].copy_from_slice(line);
+      }
+    });
+  Ok(out)
 }
 
 /// Decode a single strip
-fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize, out: &mut PixU16) {
+fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize) -> std::result::Result<PixU16, String> {
   let mut pump = BitPumpReverseBitsMSB::new(buf);
   let width = params.strip_widths[strip_id] as usize;
   let height = params.strip_heights[strip_id] as usize;
   let halfheight = height >> 1;
   let halfwidth = width >> 1;
   let doublewidth = halfwidth * 4;
+  let mut out = PixU16::new(width, height);
   let mut linebuf = vec![0_u16; doublewidth];
 
   // for (i, item) in params.huf_table.iter().enumerate() {
@@ -416,12 +500,17 @@ fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize, out: &mut PixU1
     state.current_base = state.line_base;
     for col in 0..doublewidth {
       // Calculate index
-      let ssss = state.huffdec.get_next(&mut pump);
+      let ssss = state.huffdec.get_next(&mut pump)?;
 
       // Shiftdown seems to be the count of bits shifted to right during encoding.
       // It's 0 for all existing samples so far, highly interested in samples that has
+      // Rawtonic patch (RWH1): `ssss` is a declared code, and the shift table
+      // holds one shift per code (checked in decode_panasonic_v8); a non-zero
+      // shift (no samples known) is an error instead of the assert.
       let shift_down: u8 = (params.huf_shift_down[ssss as usize] & 0x1F) as u8;
-      assert_eq!(shift_down, 0, "CF2HufShiftDown samples required");
+      if shift_down != 0 {
+        return Err("RW2 v8: CF2HufShiftDown samples required".to_string());
+      }
 
       // Calculate total required bits to read from bitstream.
       let req_bits: u32 = ssss.saturating_sub(shift_down as u8) as u32;
@@ -475,8 +564,9 @@ fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize, out: &mut PixU1
     // Line buffer contains two rows packed into one row with double width.
     assert_eq!(linebuf.len(), 2 * width);
     for col in (0..width).step_by(2) {
-      let row_offset = params.strip_line_offsets[strip_id].rows as usize;
-      let left_margin = params.strip_line_offsets[strip_id].cols as usize;
+      // Rawtonic patch (RWH1): strip-local coordinates, see decode_panasonic_v8.
+      let row_offset = 0;
+      let left_margin = 0;
       let dest_row = row_offset + (curr_row * 2);
       if let Some(gamma_table) = &state.gamma_table {
         debug_assert!(!gamma_table.is_empty());
@@ -492,4 +582,5 @@ fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize, out: &mut PixU1
       }
     }
   }
+  Ok(out)
 }

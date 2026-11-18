@@ -6,6 +6,7 @@ use crate::RawLoader;
 use crate::RawlerError;
 use crate::Result;
 use crate::alloc_image;
+use crate::alloc_image_ok;
 use crate::analyze::FormatDump;
 use crate::bits::LEu32;
 use crate::bits::clampbits;
@@ -82,31 +83,34 @@ impl<'a> Decoder for SrwDecoder<'a> {
 
     let image = match compression {
       32769 => match bits {
-        12 => decode_12le_unpacked(&src, width, height, dummy),
-        14 => decode_14le_unpacked(&src, width, height, dummy),
+        12 => decode_12le_unpacked(&src, width, height, dummy)?,
+        14 => decode_14le_unpacked(&src, width, height, dummy)?,
         x => return Err(RawlerError::unsupported(&self.camera, format!("SRW: Don't know how to handle bps {}", x))),
       },
       32770 => match raw.get_entry(TiffCommonTag::SrwSensorAreas) {
         None => match bits {
           12 => {
             if self.camera.find_hint("little_endian") {
-              decode_12le(&src, width, height, dummy)
+              decode_12le(&src, width, height, dummy)?
             } else {
-              decode_12be(&src, width, height, dummy)
+              decode_12be(&src, width, height, dummy)?
             }
           }
-          14 => decode_14le_unpacked(&src, width, height, dummy),
+          14 => decode_14le_unpacked(&src, width, height, dummy)?,
           x => return Err(RawlerError::unsupported(&self.camera, format!("SRW: Don't know how to handle bps {}", x))),
         },
         Some(x) => {
           let coffset = x.force_usize(0);
-          assert!(coffset > 0, "Surely this can't be the start of the file");
+          // Rawtonic patch (RWH1): an error instead of the assert.
+          if coffset == 0 {
+            return Err(RawlerError::DecoderFailed("SRW: line offsets at the start of the file".to_string()));
+          }
           let loffsets = file.subview_until_eof(coffset as u64)?;
-          SrwDecoder::decode_srw1(&src, loffsets, width, height, dummy)
+          SrwDecoder::decode_srw1(&src, loffsets, width, height, dummy)?
         }
       },
-      32772 => SrwDecoder::decode_srw2(&src, width, height, dummy),
-      32773 => SrwDecoder::decode_srw3(&src, width, height, dummy),
+      32772 => SrwDecoder::decode_srw2(&src, width, height, dummy)?,
+      32773 => SrwDecoder::decode_srw3(&src, width, height, dummy)?,
       x => {
         return Err(RawlerError::unsupported(
           &self.camera,
@@ -145,13 +149,23 @@ impl<'a> Decoder for SrwDecoder<'a> {
 }
 
 impl<'a> SrwDecoder<'a> {
-  pub fn decode_srw1(buf: &[u8], loffsets: &[u8], width: usize, height: usize, dummy: bool) -> PixU16 {
-    let mut out = alloc_image!(width, height, dummy);
+  pub fn decode_srw1(buf: &[u8], loffsets: &[u8], width: usize, height: usize, dummy: bool) -> Result<PixU16> {
+    // Rawtonic patch (RWH1; dnglab 016bd9cd, 4d110dac check the same): the
+    // image is made of 2x2 blocks, every line offset is in the file and
+    // points into the data. Errors instead of out-of-bounds panics.
+    crate::packed::check_image("SRW1", width, height)?;
+    if width % 2 != 0 || height % 2 != 0 {
+      return Err(RawlerError::DecoderFailed(format!("SRW1: odd image size {}x{}", width, height)));
+    }
+    if !dummy && loffsets.len() < height * 4 {
+      return Err(RawlerError::DecoderFailed("SRW1: line offsets are behind the end of the file".to_string()));
+    }
+    let mut out = alloc_image_ok!(width, height, dummy);
 
     for row in 0..height {
       let mut len: [u32; 4] = [if row < 2 { 7 } else { 4 }; 4];
       let loffset = LEu32(loffsets, row * 4) as usize;
-      let mut pump = BitPumpMSB32::new(&buf[loffset..]);
+      let mut pump = BitPumpMSB32::new(buf.get(loffset..).ok_or_else(|| format!("SRW1: line {} is behind the end of the data", row))?);
 
       let img = width * row;
       let img_up = width * (cmp::max(1, row) - 1);
@@ -165,8 +179,9 @@ impl<'a> SrwDecoder<'a> {
         for (i, op) in ops.iter().enumerate() {
           match *op {
             3 => len[i] = pump.get_bits(4),
-            2 => len[i] -= 1,
-            1 => len[i] += 1,
+            // Rawtonic patch (RWH1): explicit wrapping, what release builds computed (damaged data overflowed in debug builds).
+            2 => len[i] = len[i].wrapping_sub(1),
+            1 => len[i] = len[i].wrapping_add(1),
             _ => {}
           }
         }
@@ -215,11 +230,13 @@ impl<'a> SrwDecoder<'a> {
       }
     }
 
-    out
+    Ok(out)
   }
 
-  pub fn decode_srw2(buf: &[u8], width: usize, height: usize, dummy: bool) -> PixU16 {
-    let mut out = alloc_image!(width, height, dummy);
+  pub fn decode_srw2(buf: &[u8], width: usize, height: usize, dummy: bool) -> Result<PixU16> {
+    // Rawtonic patch (RWH1): size checked, data that ends early is an error.
+    crate::packed::check_image("SRW2", width, height)?;
+    let mut out = alloc_image_ok!(width, height, dummy);
 
     // This format has a variable length encoding of how many bits are needed
     // to encode the difference between pixels, we use a table to process it
@@ -277,9 +294,12 @@ impl<'a> SrwDecoder<'a> {
         }
         out[row * width + col] = hpred[col & 1] as u16;
       }
+      if pump.overrun() {
+        return Err(RawlerError::DecoderFailed("SRW2: compressed data ends early".to_string()));
+      }
     }
 
-    out
+    Ok(out)
   }
 
   pub fn srw2_diff(pump: &mut BitPumpMSB, tbl: &[[u32; 2]; 1024]) -> i32 {
@@ -297,7 +317,7 @@ impl<'a> SrwDecoder<'a> {
     diff
   }
 
-  pub fn decode_srw3(buf: &[u8], width: usize, height: usize, dummy: bool) -> PixU16 {
+  pub fn decode_srw3(buf: &[u8], width: usize, height: usize, dummy: bool) -> Result<PixU16> {
     // Decoder for third generation compressed SRW files (NX1)
     // Seriously Samsung just use lossless jpeg already, it compresses better too :)
 
@@ -305,7 +325,15 @@ impl<'a> SrwDecoder<'a> {
     // and Loring von Palleske (Samsung) for pointing to the open-source code of
     // Samsung's DNG converter at http://opensource.samsung.com/
 
-    let mut out = alloc_image!(width, height, dummy);
+    // Rawtonic patch (RWH1; dnglab a091bc3e, e89ee405 check the same): the
+    // image is made of blocks of 16 pixels; corrupt data (line offsets
+    // behind the data, motion or difference bits out of range, references
+    // outside the image) is an error instead of a panic.
+    crate::packed::check_image("SRW3", width, height)?;
+    if width % 16 != 0 {
+      return Err(RawlerError::DecoderFailed(format!("SRW3: width {} is no multiple of 16", width)));
+    }
+    let mut out = alloc_image_ok!(width, height, dummy);
     let mut pump = BitPumpMSB32::new(buf);
 
     // Process the initial metadata bits, we only really use initVal, width and
@@ -346,7 +374,11 @@ impl<'a> SrwDecoder<'a> {
       if (line_offset & 0x0f) != 0 {
         line_offset += 16 - (line_offset & 0xf);
       }
-      pump = BitPumpMSB32::new(&buf[line_offset..]);
+      pump = BitPumpMSB32::new(
+        buf
+          .get(line_offset..)
+          .ok_or_else(|| format!("SRW3: line {} is behind the end of the data", row))?,
+      );
 
       let img = width * row;
       let img_up = width * (cmp::max(1, row) - 1);
@@ -381,7 +413,9 @@ impl<'a> SrwDecoder<'a> {
         }
 
         if row < 2 && motion != 7 {
-          panic!("SRW Decoder: At start of image and motion isn't 7. File corrupted?")
+          return Err(RawlerError::DecoderFailed(
+            "SRW3: at start of image and motion isn't 7, file corrupted".to_string(),
+          ));
         }
 
         if motion == 7 {
@@ -393,7 +427,12 @@ impl<'a> SrwDecoder<'a> {
         } else {
           // The complex case, we now need to actually lookup one or two lines above
           if row < 2 {
-            panic!("SRW: Got a previous line lookup on first two lines. File corrupted?");
+            return Err(RawlerError::DecoderFailed(
+              "SRW3: previous line lookup on the first two lines, file corrupted".to_string(),
+            ));
+          }
+          if motion >= 7 {
+            return Err(RawlerError::DecoderFailed(format!("SRW3: motion {}", motion)));
           }
           let motion_offset: [isize; 7] = [-4, -2, -2, 0, 0, 2, 4];
           let motion_average: [i32; 7] = [0, 0, 1, 0, 1, 0, 0];
@@ -411,6 +450,10 @@ impl<'a> SrwDecoder<'a> {
                 ((img_up + col + i + 1) as isize + slide_offset) as usize
               }
             };
+            let reach = if motion_average[motion] != 0 { 2 } else { 0 };
+            if refpixel.checked_add(reach).is_none_or(|last| last >= out.pixels().len()) {
+              return Err(RawlerError::DecoderFailed("SRW3: reference pixel outside the image".to_string()));
+            }
             // In some cases we use as reference interpolation of this pixel and the next
             out[img + col + i] = if motion_average[motion] != 0 {
               (out[refpixel] + out[refpixel + 2] + 1) >> 1
@@ -435,7 +478,7 @@ impl<'a> SrwDecoder<'a> {
                 diff_bits[i] = diff_bits_mode[colornum][0] + 1;
               }
               2 => {
-                diff_bits[i] = diff_bits_mode[colornum][0] - 1;
+                diff_bits[i] = diff_bits_mode[colornum][0].wrapping_sub(1); // Rawtonic patch (RWH1): explicit wrapping, what release builds computed (damaged data overflowed in debug builds).
               }
               3 => {
                 diff_bits[i] = pump.get_bits(4);
@@ -445,7 +488,7 @@ impl<'a> SrwDecoder<'a> {
             diff_bits_mode[colornum][0] = diff_bits_mode[colornum][1];
             diff_bits_mode[colornum][1] = diff_bits[i];
             if diff_bits[i] > bit_depth + 1 {
-              panic!("SRW Decoder: Too many difference bits. File corrupted?");
+              return Err(RawlerError::DecoderFailed("SRW3: too many difference bits, file corrupted".to_string()));
             }
           }
         }
@@ -468,7 +511,7 @@ impl<'a> SrwDecoder<'a> {
       }
     }
 
-    out
+    Ok(out)
   }
 
   /// Get lens description by analyzing TIFF tags and makernotes

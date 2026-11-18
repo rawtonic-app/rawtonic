@@ -41,7 +41,7 @@ pub struct CiffIFD {
 
 pub fn is_ciff(file: &RawSource) -> bool {
   match file.subview(0, 14) {
-    Ok(buf) => buf[6..14] == b"HEAPCCDR"[..],
+    Ok(buf) => buf.len() >= 14 && buf[6..14] == b"HEAPCCDR"[..],
     Err(_) => false,
   }
 }
@@ -50,6 +50,9 @@ impl CiffIFD {
   pub fn new_file(file: &RawSource) -> Result<CiffIFD, String> {
     let data = file.as_vec().map_err(|err| format!("Failed to read whole file: {:?}", err))?;
 
+    if data.len() < 6 {
+      return Err("CIFF: file too short".to_string());
+    }
     CiffIFD::new(&data, LEu32(&data, 2) as usize, data.len(), 1)
   }
 
@@ -57,8 +60,19 @@ impl CiffIFD {
     let mut entries = HashMap::new();
     let mut subifds = Vec::new();
 
+    // Rawtonic patch (RWH1; dnglab fb9a9592, 16c4df5f check the same): the
+    // heap, its entry table and every entry's data must lie inside the file.
+    if end > buf.len() || end < start + 4 {
+      return Err("CIFF: heap outside the file".to_string());
+    }
     let valuedata_size = LEu32(buf, end - 4) as usize;
+    if start + valuedata_size + 2 > end {
+      return Err("CIFF: entry table outside the heap".to_string());
+    }
     let dircount = LEu16(buf, start + valuedata_size) as usize;
+    if start + valuedata_size + 2 + dircount * 10 > end {
+      return Err("CIFF: entry table outside the heap".to_string());
+    }
 
     for i in 0..dircount {
       let entry_offset: usize = start + valuedata_size + 2 + i * 10;
@@ -113,7 +127,11 @@ impl CiffEntry {
       0x4000 => (8, offset + 2),
       val => return Err(format!("CIFF: Don't know about data location {:x}", val)),
     };
-    let data = &buf[data_offset..data_offset + bytesize];
+    // Rawtonic patch (RWH1): an error for data outside the file.
+    let data = data_offset
+      .checked_add(bytesize)
+      .and_then(|end| buf.get(data_offset..end))
+      .ok_or_else(|| format!("CIFF: data of tag {:#x} is outside the file", tag))?;
     let count = bytesize >> CiffEntry::element_shift(typ);
 
     Ok(CiffEntry {

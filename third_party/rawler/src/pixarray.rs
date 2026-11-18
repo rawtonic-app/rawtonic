@@ -76,7 +76,10 @@ where
   }
 
   pub fn new_uninit(width: usize, height: usize) -> Self {
-    let data = Vec::with_capacity(width * height);
+    // Rawtonic patch (RWH1): no capacity reserved. Nothing writes into an
+    // uninitialized image, and a damaged file's size reserved gigabytes in
+    // metadata-only decodes.
+    let data = Vec::new();
     Self {
       data,
       width,
@@ -535,6 +538,11 @@ macro_rules! alloc_image {
 #[macro_export]
 macro_rules! alloc_image_ok {
   ($width:expr, $height:expr, $dummy: expr) => {{
+    // Rawtonic patch (RWH1): an error instead of `alloc_image_plain!`'s panic
+    // for sizes beyond its limits (also in a metadata-only decode).
+    if ($width).checked_mul($height).is_none_or(|pixels| pixels > 500000000) || $width > 50000 || $height > 50000 {
+      return Err(format!("invalid image size {}x{}", $width, $height).into());
+    }
     if $dummy {
       return Ok($crate::pixarray::PixU16::new_uninit($width, $height));
     } else {

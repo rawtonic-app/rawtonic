@@ -29,11 +29,11 @@ impl<'a> Decoder for NakedDecoder<'a> {
     let bits = size * 8 / width / height;
 
     let image = if self.camera.find_hint("12le_16bitaligned") {
-      decode_12le_16bitaligned(buffer, width, height, dummy)
+      decode_12le_16bitaligned(buffer, width, height, dummy)?
     } else {
       match bits {
-        10 => decode_10le_lsb16(buffer, width, height, dummy),
-        12 => decode_12be_msb16(buffer, width, height, dummy),
+        10 => decode_10le_lsb16(buffer, width, height, dummy)?,
+        12 => decode_12be_msb16(buffer, width, height, dummy)?,
         _ => return Err(RawlerError::unsupported(&self.camera, format!("Naked: Don't know about {} bps images", bits))),
       }
     };

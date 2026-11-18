@@ -54,7 +54,7 @@ impl<'a> Decoder for DcsDecoder<'a> {
       LookupTable::new(&t)
     };
 
-    let image = decode_8bit_wtable(&src, &table, width, height, dummy);
+    let image = decode_8bit_wtable(&src, &table, width, height, dummy)?;
     let cpp = 1;
     ok_cfa_image(self.camera.clone(), cpp, [f32::NAN, f32::NAN, f32::NAN, f32::NAN], image, dummy)
   }

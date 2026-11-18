@@ -125,14 +125,16 @@ impl<'a> Cr3Decoder<'a> {
 
   /// Get IAD1 box for specific trak
   fn iad1_box(&self, trak_idx: usize) -> Option<&Iad1Box> {
-    let trak = &self.bmff.filebox.moov.traks[trak_idx];
+    // Rawtonic patch (RWH1; dnglab 19624fcd): a trak index from the file that
+    // doesn't exist is None instead of a panic.
+    let trak = self.bmff.filebox.moov.traks.get(trak_idx)?;
     let craw = trak.mdia.minf.stbl.stsd.craw.as_ref();
     craw.and_then(|craw| craw.cdi1.as_ref()).map(|cdi1| &cdi1.iad1)
   }
 
   /// Get CMP1 box for specific trak
   fn cmp1_box(&self, trak_idx: usize) -> Option<&Cmp1Box> {
-    let trak = &self.bmff.filebox.moov.traks[trak_idx];
+    let trak = self.bmff.filebox.moov.traks.get(trak_idx)?;
     let craw = trak.mdia.minf.stbl.stsd.craw.as_ref();
     craw.and_then(|craw| craw.cmp1.as_ref())
   }
@@ -173,6 +175,11 @@ impl<'a> Cr3Decoder<'a> {
       Ok(None)
     }
   }
+}
+
+/// Rawtonic patch (RWH1): `Rect::new_with_points`, or `None` for swapped corners.
+fn rect_with_points(p1: Point, p2: Point) -> Option<Rect> {
+  (p1.x <= p2.x && p1.y <= p2.y).then(|| Rect::new_with_points(p1, p2))
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -326,7 +333,7 @@ impl<'a> Decoder for Cr3Decoder<'a> {
       .map(|x| BlackLevel::new(&x, self.camera.cfa.width, self.camera.cfa.height, cpp));
     let whitelevel = WhiteLevel(vec![whitelevel as u32]);
     let photometric = RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&self.camera));
-    let mut img = RawImage::new(self.camera.clone(), image, cpp, wb, photometric, blacklevel, Some(whitelevel), dummy);
+    let mut img = RawImage::new(self.camera.clone(), image, cpp, wb, photometric, blacklevel, Some(whitelevel), dummy)?;
 
     // IAD1 box contains sensor information
     // We use the sensor crop from IAD1 as recommended image crop.
@@ -336,19 +343,29 @@ impl<'a> Decoder for Cr3Decoder<'a> {
       Some(iad1) => {
         match &iad1.iad1_type {
           // IAD1 (small, used for CRM movie files)
+          // Rawtonic patch (RWH1; dnglab a5f4ddc8): an area whose corners are
+          // swapped (damaged file) keeps the camera's area instead of
+          // panicking; `+ 1`/`- 1` wrap as release builds did before.
           Iad1Type::Small(small) => {
-            img.crop_area = Some(Rect::new_with_points(
+            if let Some(crop) = rect_with_points(
               Point::new(small.crop_left_offset as usize, small.crop_top_offset as usize),
-              Point::new((small.crop_right_offset + 1) as usize, (small.crop_bottom_offset + 1) as usize),
-            ));
-            img.active_area = img.crop_area;
+              Point::new(
+                small.crop_right_offset.wrapping_add(1) as usize,
+                small.crop_bottom_offset.wrapping_add(1) as usize,
+              ),
+            ) {
+              img.crop_area = Some(crop);
+              img.active_area = img.crop_area;
+            }
           }
           // IAD1 (big, used for full size raws)
           Iad1Type::Big(big) => {
-            img.crop_area = Some(Rect::new_with_points(
+            if let Some(crop) = rect_with_points(
               Point::new(big.crop_left_offset as usize, big.crop_top_offset as usize),
-              Point::new((big.crop_right_offset + 1) as usize, (big.crop_bottom_offset + 1) as usize),
-            ));
+              Point::new(big.crop_right_offset.wrapping_add(1) as usize, big.crop_bottom_offset.wrapping_add(1) as usize),
+            ) {
+              img.crop_area = Some(crop);
+            }
 
             // For uncropped files this is fine, but for 1.6 crop files, the dimension is wrong.
             // For example, R5 crop is total height of 3510, but active_area_bottom_offset is 3512.
@@ -356,31 +373,22 @@ impl<'a> Decoder for Cr3Decoder<'a> {
               // Limit the offsets to image bounds.
               // Probably broken firmware, glitches in sensor size calculation or I'm just making
               // wrong asumptions...
-              let right = usize::min(cmp1.f_width as usize, (big.active_area_right_offset - 1) as usize);
-              let bottom = usize::min(cmp1.f_height as usize, (big.active_area_bottom_offset - 1) as usize);
-              Rect::new_with_points(
+              let right = usize::min(cmp1.f_width as usize, big.active_area_right_offset.wrapping_sub(1) as usize);
+              let bottom = usize::min(cmp1.f_height as usize, big.active_area_bottom_offset.wrapping_sub(1) as usize);
+              rect_with_points(
                 Point::new(big.active_area_left_offset as usize, big.active_area_top_offset as usize),
                 Point::new(right, bottom),
               )
             };
             log::debug!("IAD1 active area: {:?}", rect);
-            img.active_area = Some(rect);
+            if let Some(rect) = rect {
+              img.active_area = Some(rect);
+            }
             //img.active_area = img.crop_area;
 
-            let blackarea_h = Rect::new_with_points(
-              Point::new(big.lob_left_offset as usize, big.lob_top_offset as usize),
-              Point::new((big.lob_right_offset - 1) as usize, (big.lob_bottom_offset - 1) as usize),
-            );
-            if !blackarea_h.is_empty() {
-              //img.blackareas.push(blackarea_h);
-            }
-            let blackarea_v = Rect::new_with_points(
-              Point::new(big.tob_left_offset as usize, big.tob_top_offset as usize),
-              Point::new((big.tob_right_offset - 1) as usize, (big.tob_bottom_offset - 1) as usize),
-            );
-            if !blackarea_v.is_empty() {
-              //img.blackareas.push(blackarea_v);
-            }
+            // Rawtonic patch (RWH1): the IAD1 black areas were built but never
+            // used (their pushes are commented out upstream), and building
+            // them panicked for swapped corners; no longer built.
           }
         }
       }
@@ -403,8 +411,10 @@ impl<'a> Decoder for Cr3Decoder<'a> {
     if rawler_ignore_previews() {
       return Err(RawlerError::DecoderFailed("Unable to extract preview image".into()));
     }
-    let offset = self.bmff.filebox.moov.traks[0].mdia.minf.stbl.co64.as_ref().expect("co64 box").entries[0] as usize;
-    let size = self.bmff.filebox.moov.traks[0].mdia.minf.stbl.stsz.sample_sizes[0] as usize;
+    // Rawtonic patch (RWH1): errors instead of index and `expect` panics.
+    let stbl = &self.bmff.filebox.moov.traks.first().ok_or("CR3: no trak")?.mdia.minf.stbl;
+    let offset = *stbl.co64.as_ref().and_then(|co64| co64.entries.first()).ok_or("CR3: no co64 box")? as usize;
+    let size = *stbl.stsz.sample_sizes.first().ok_or("CR3: no preview sample size")? as usize;
     debug!("JPEG preview mdat offset: {}, len: {}", offset, size);
     let buf = file
       .subview(offset as u64, size as u64)
@@ -429,11 +439,12 @@ impl<'a> Cr3Decoder<'a> {
   fn read_lens_id(&self) -> Result<LensId> {
     let mut id = (0, 0);
     if let Some(Entry { value: Value::Short(v), .. }) = self.cmt3.get_entry(Cr3MakernoteTag::CameraSettings) {
-      id.0 = v[22] as u32;
+      // Rawtonic patch (RWH1; dnglab 457dc5ad): short tags give no lens id.
+      id.0 = v.get(22).copied().unwrap_or(0) as u32;
     }
 
     if let Some(Entry { value: Value::Short(v), .. }) = self.cmt3.get_entry(Cr3MakernoteTag::FileInfo) {
-      id.1 = v[61] as u32;
+      id.1 = v.get(61).copied().unwrap_or(0) as u32;
     }
     Ok(id)
   }
@@ -604,7 +615,8 @@ impl Ctmd {
         reserved4: data.get_u8(),
         reserved5: data.get_i8(),
         reserved6: data.get_i8(),
-        payload: data.get_bytes(size as usize - 12),
+        // Rawtonic patch (RWH1): a record shorter than its header has no payload.
+        payload: data.get_bytes((size as usize).saturating_sub(12)),
         blocks: HashMap::new(),
       };
       debug!(

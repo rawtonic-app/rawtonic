@@ -455,3 +455,77 @@ caller; it is now a debug line without a backtrace.
 - The EXIF modification time fallback and DNG creation use Rawtonic's shared
   local-time helper so a Windows process follows the Windows time zone even
   when `TZ` is set.
+
+## Damaged files return errors (2026-11-18, RWH1, G66)
+
+dnglab's fuzz-driven hardening of 2026-11-10 to 11-13 (`ec34d9e`..`a85f7a16`,
+notes: reference/dnglab-2026-11-16-review.md) does not apply to this fork:
+the first commits change the `BitPump`, `ByteStream` and `RawlerError` APIs
+everything else builds on, and a trial `git am -3` of its 162 hardening
+commits applied 39 (none of the decoder ones). The equivalent checks were
+written here instead, found by a mutation fuzzer run over one to ten files of
+every format of the raw.pixls.us mirror (scratch tool, not vendored; about
+340,000 mutated files while fixing, then 95,200 on the final code in
+release, overflow-checked and debug-assertion builds without a panic, hang
+or allocation above 3 GB). Where a fix follows an upstream commit, its comment names it
+(LGPL-2.1 like the rest of rawler; `copy_tile`/`copy_rggb_tile` in `arw.rs`
+are taken from dnglab 844a22e2, the rest is our own code). Upstream commits
+used as reference: 4e6de778, 3bc2e446, 9e427333, 10815d22, ece9d380,
+844a22e2, 848c3e53, 89a6bfab, 182b56ff, 2284d01e, a6aa8e63, f65bbfef,
+b4630649, 5ab840c0, 3a919463, 207d6510, 3a97f152, c0fdedec, bddf34c1,
+8c6d1bb5, 1d3d0fe7, f47512be, a091bc3e, e89ee405, 016bd9cd, 4d110dac,
+f738645d, 7738ea62, 13806054, fb9a9592, 16c4df5f, 94fa6789, ad9a62bb,
+77011dff, 650558fa, 939411ba, 19624fcd, a5f4ddc8, 457dc5ad, a11a56d9,
+b51a292a, 9e2a257f, 0c6150e2, cbfe1400, d38fb159, 64492f9a, 6c218dc2,
+59c61c00, 915c5c7e, d31f883f, a59cfd69, a03f99d0, ab0672e5, ffebd90d,
+83958470, d2ed4557, 2577192a, d236f929, eaa940ce, 9860d717, ff431472,
+6cef535c, fb29175b, 02b5c3e1.
+
+What changed (each site is marked `Rawtonic patch (RWH1…)`):
+
+- Shared readers: `pumps.rs` bit pumps read zeros past the end and record it
+  (`BitPump::overrun`, `BitPumpMSB::mark_damaged`); the decoders below turn
+  that into an error, and the zero-run counter stops there. `ByteStream`
+  reads past the end return zeros (`remaining_bytes`, `is_exhausted`). Shift
+  and count arithmetic in the pumps wraps explicitly. `bits.rs`
+  `LookupTable` uses its last entry beyond its end; `dither_seed` for rows
+  shorter than 4 bytes. `alloc_image_ok!` returns an error beyond its size
+  limits; `Pix2D::new_uninit` reserves nothing. `Rect` constructors
+  saturate. `RawImage::new`/`new_with_data` return a `Result` (missing white
+  level, bad samples per pixel) and drop camera areas that exceed a damaged
+  image. `CFA::try_new`, `BlackLevel::try_new` for values read from files.
+- Unpackers: `packed.rs` (now `Result`) and `decompressors/packed.rs` check
+  the image size and that every row starts inside the data before decoding;
+  a file whose last row is only partly present decodes as before.
+- Decoders: ARW (ARW1/ARW2/LJPEG tiles/SR2 keys), ORF, PEF, NEF/NRW (lens
+  data, decryption, white balance), SRW1/2/3, RW2 v4–v7 and the container,
+  RAF (Fuji compressed strips, Q bases, CFA layout), IIQ (strips, maker
+  note, Raw1/Raw2 unsupported), KDC, DCR, MRW, CRW/CIFF, X3F, CR2
+  (COLORDATA, stripes), CR3/CRX (traks, IAD1 areas, sample tables, subbands,
+  quantization, median bits), DNG/TIFF (strip and tile geometry, black
+  levels, CFA, sub-IFDs, strings, offsets), LJPEG (Huffman tables, DHT,
+  undefined tables, MOS), JPEG, JPEG XL, Deflate, ISO BMFF boxes (a box
+  shorter than its header looped forever), JFIF (a broken APP1 or short
+  segment looped forever). `todo!`/`unimplemented!`/`assert!` that file data
+  can reach return errors.
+- RW2 v8: the CF2 lists must hold their counts, the gamma and Huffman
+  tables their sizes, and the strips must fit the image without
+  overlapping; each strip now decodes into its own buffer and is copied into
+  the image (the parallel workers used to share one `&mut` to the image).
+  Deflate DNG tiles inflate with `miniz_oxide` (new dependency, MIT/Zlib/
+  Apache-2.0, already used by `rawtonic-export`) under the tile's size as
+  output limit; libflate expanded whole blocks first.
+- Arithmetic that release builds wrapped and debug builds panicked on wraps
+  explicitly (`wrapping_*`), so release output is unchanged; a few
+  `debug_assert!`s on sample values are removed.
+
+Valid files decode as before: every file of the raw.pixls.us mirror (2,016)
+was decoded by the previous and this version (pixels, levels, areas,
+metadata, embedded preview; also the first MiB alone, as the library's
+capture-facts pass reads it): all equal except where the previous version
+panicked (18 X3F files, 52 header prefixes), which now return errors. Tests:
+`src/rawtonic_hardening_tests.rs` (per-decoder regressions, truncations and
+mutations of DNGs written by rawler's DNG writer and of crafted container
+headers, 20,000 iterations under a time bound; `RAWLER_STRESS_CORPUS` runs
+the mutations on a directory of real RAW copies). Evidence: notes
+benchmark-results/rwh1-2026-11-18/.

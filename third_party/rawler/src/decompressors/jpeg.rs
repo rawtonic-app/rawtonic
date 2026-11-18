@@ -47,7 +47,8 @@ impl<'a> Decompressor<'a, u16> for JpegDecompressor {
           }
         }
       }
-      _ => todo!(),
+      // Rawtonic patch (RWH1): an error, not a panic.
+      _ => return Err("JPEG: unsupported pixel format".to_string()),
     }
 
     Ok(())

@@ -362,7 +362,9 @@ pub struct ValueConvertError(pub(crate) ());
 
 impl From<TryFromIntError> for ValueConvertError {
   fn from(_: TryFromIntError) -> Self {
-    todo!()
+    // Rawtonic patch (RWH1): a value that doesn't fit the requested integer
+    // is a conversion error, not a panic.
+    Self(())
   }
 }
 
@@ -411,17 +413,19 @@ impl Value {
     Self::from(v)
   }
 
+  // Rawtonic patch (RWH1; dnglab d236f929 does the same): no panic for an
+  // empty string list or another type.
   pub fn as_string(&self) -> Option<&String> {
     match self {
-      Self::Ascii(v) => Some(&v.strings()[0]),
+      Self::Ascii(v) => v.strings().first(),
       _ => None,
     }
   }
 
   pub fn get_string(&self) -> Result<&String> {
     match self {
-      Self::Ascii(v) => Ok(&v.strings()[0]),
-      _ => todo!(),
+      Self::Ascii(v) => v.strings().first().ok_or_else(|| TiffError::General("Empty ASCII value".to_string())),
+      _ => Err(TiffError::General("Value is no ASCII string".to_string())),
     }
   }
 
@@ -431,8 +435,11 @@ impl Value {
       Value::Byte(data) => data,
       Value::Undefined(data) => data,
       Value::Unknown(_, data) => data,
+      // Rawtonic patch (RWH1; dnglab eaa940ce returns a Result): a tag of
+      // another type (damaged file) reads as no bytes instead of a panic.
       _ => {
-        panic!("Unable to call get_data() on this value type");
+        static EMPTY: Vec<u8> = Vec::new();
+        &EMPTY
       }
     }
   }
@@ -1022,7 +1029,9 @@ impl TiffAscii {
   }
 
   pub fn first(&self) -> &String {
-    &self.strings[0]
+    // Rawtonic patch (RWH1): an empty string for an empty list, not a panic.
+    static EMPTY: String = String::new();
+    self.strings.first().unwrap_or(&EMPTY)
   }
 
   pub fn count(&self) -> usize {
