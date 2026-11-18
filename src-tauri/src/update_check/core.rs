@@ -167,6 +167,25 @@ pub fn mac_install(
     }
 }
 
+/// Linux: the AppImage file this process runs from, or None. `APPIMAGE` is
+/// trusted only when the program is Tauri's AppImage build (`bundle_is_appimage`)
+/// and runs from inside the AppImage's own mount (`APPDIR`): a .deb or .rpm
+/// copy started from another AppImage's terminal inherits that AppImage's
+/// variables and must never replace its file.
+pub fn running_appimage(
+    bundle_is_appimage: bool,
+    appimage: Option<&std::path::Path>,
+    appdir: Option<&std::path::Path>,
+    exe: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    let (appimage, appdir) = (appimage?, appdir?);
+    (bundle_is_appimage
+        && appdir.is_absolute()
+        && appimage.is_absolute()
+        && exe.starts_with(appdir))
+    .then(|| appimage.to_path_buf())
+}
+
 /// Windows: the folder of the program, whether the setup's `uninstall.exe`
 /// lies beside it, and the Program Files folders (`%ProgramFiles%`,
 /// `%ProgramW6432%`, `%ProgramFiles(x86)%`). Paths compare without case and
@@ -1044,6 +1063,27 @@ mod tests {
             assert_eq!(update.asset_name.as_deref(), download, "{install:?}");
             assert_eq!(update.app_image, install == Install::AppImage);
         }
+    }
+
+    #[test]
+    fn only_the_running_appimage_is_trusted() {
+        use std::path::Path;
+        let file = Some(Path::new("/home/a/Apps/Rawtonic.AppImage"));
+        let mount = Some(Path::new("/tmp/.mount_RawtonXYZ"));
+        let inside = Path::new("/tmp/.mount_RawtonXYZ/usr/bin/rawtonic-app");
+        assert_eq!(running_appimage(true, file, mount, inside).as_deref(), file);
+        // A .deb copy started from another AppImage's terminal.
+        assert_eq!(
+            running_appimage(false, file, mount, Path::new("/usr/bin/rawtonic-app")),
+            None
+        );
+        assert_eq!(
+            running_appimage(true, file, mount, Path::new("/usr/bin/rawtonic-app")),
+            None
+        );
+        assert_eq!(running_appimage(false, file, mount, inside), None);
+        assert_eq!(running_appimage(true, None, mount, inside), None);
+        assert_eq!(running_appimage(true, file, None, inside), None);
     }
 
     #[test]

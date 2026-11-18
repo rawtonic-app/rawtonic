@@ -80,7 +80,7 @@ async fn check(app: AppHandle, manual: bool) -> Result<Option<UpdateInfo>, Strin
 /// Read locally only: the build's target, Rosetta on an Intel build, how
 /// this copy was installed and, on Linux, `/etc/os-release`.
 fn this_platform() -> core::Platform {
-    let app_image = cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_some();
+    let app_image = running_appimage().is_some();
     let os = if cfg!(target_os = "macos") {
         core::Os::Mac
     } else if cfg!(target_os = "windows") {
@@ -131,6 +131,20 @@ fn this_install(os: core::Os, app_image: bool) -> core::Install {
             )
         }
     }
+}
+
+/// The AppImage file this process runs from (Linux), see
+/// `core::running_appimage`; the in-app update replaces only that file.
+pub(crate) fn running_appimage() -> Option<std::path::PathBuf> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?;
+    let bundle =
+        tauri::utils::platform::bundle_type() == Some(tauri::utils::config::BundleType::AppImage);
+    let appimage = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from);
+    let appdir = std::env::var_os("APPDIR").map(std::path::PathBuf::from);
+    core::running_appimage(bundle, appimage.as_deref(), appdir.as_deref(), &exe)
 }
 
 /// Whether `path` lies on a read-only volume (a mounted disk image, App

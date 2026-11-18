@@ -293,7 +293,8 @@ pub async fn update_install(app: AppHandle, version: String) -> Result<(), Updat
         Ok(Placed::SetupStarted) => {
             // The quit's own path (lib.rs ExitRequested): logs, window
             // state and the clean-exit mark are written, then the process
-            // ends; the passive setup waits for it and starts the new version.
+            // ends; the passive setup closes it if it still runs and
+            // starts the new version.
             log::info!("Update {version}: setup started, Rawtonic ends");
             app.exit(0);
             Ok(())
@@ -324,7 +325,7 @@ enum Placed {
 /// it (rawtonic-fs `atomic_write`, which keeps its permissions), Windows
 /// writes the setup to a temporary folder and starts it — the app ends only
 /// once the setup runs, so a setup that cannot start leaves it open.
-#[cfg_attr(not(any(target_os = "linux", windows)), allow(unused_variables))]
+#[cfg_attr(not(windows), allow(unused_variables))]
 fn put_in_place(app: &AppHandle, update: &Update, bytes: &[u8]) -> Result<Placed, UpdateFailure> {
     update.verify(bytes).map_err(|e| failure(&e))?;
     #[cfg(target_os = "macos")]
@@ -334,24 +335,36 @@ fn put_in_place(app: &AppHandle, update: &Update, bytes: &[u8]) -> Result<Placed
     }
     #[cfg(target_os = "linux")]
     {
-        let Some(appimage) = app.env().appimage else {
+        let Some(appimage) = super::running_appimage() else {
             return Err(UpdateFailure::NoPackage);
         };
         if !bytes.starts_with(b"\x7fELF") {
             return Err(UpdateFailure::Signature);
         }
-        rawtonic_fs::atomic_write(std::path::Path::new(&appimage), bytes)
-            .map_err(|e| io_failure(&e))?;
+        rawtonic_fs::atomic_write(&appimage, bytes).map_err(|e| io_failure(&e))?;
         Ok(Placed::Restart)
     }
     #[cfg(windows)]
     {
-        let _ = app;
         if !bytes.starts_with(b"MZ") {
             return Err(UpdateFailure::Signature);
         }
-        let dir = std::env::temp_dir().join(format!("Rawtonic-update-{}", update.version));
-        std::fs::create_dir_all(&dir).map_err(|e| io_failure(&anyhow::Error::from(e)))?;
+        // A new folder of its own inside the app's per-user data folder
+        // (%LOCALAPPDATA%, only this user may write there), never a
+        // predictable name in a shared TEMP: nobody else can swap the
+        // verified setup before it starts.
+        use tauri::Manager;
+        let root = app
+            .path()
+            .app_local_data_dir()
+            .map_err(|_| UpdateFailure::Disk)?
+            .join("updates");
+        std::fs::create_dir_all(&root).map_err(|e| io_failure(&anyhow::Error::from(e)))?;
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("{}-", update.version))
+            .tempdir_in(&root)
+            .map_err(|e| io_failure(&anyhow::Error::from(e)))?
+            .keep();
         let setup = dir.join(format!("Rawtonic_{}_x64-setup.exe", update.version));
         rawtonic_fs::atomic_write(&setup, bytes).map_err(|e| io_failure(&e))?;
         // Passive (a progress bar, no questions, no administrator prompt for
