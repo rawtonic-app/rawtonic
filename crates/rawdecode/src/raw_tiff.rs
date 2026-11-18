@@ -50,11 +50,14 @@ pub fn classify(path: &Path) -> TiffKind {
     }
 }
 
+/// A cached kind with the file size and modification time it was found for.
+type Stamped = (u64, Option<SystemTime>, TiffKind);
+
 /// [`classify`] with a cache keyed by path, size and modification time, for
 /// callers that ask about the same file many times (listing, thumbnails,
 /// develop and export all route by it).
 pub fn classify_cached(path: &Path) -> TiffKind {
-    static CACHE: LazyLock<Mutex<HashMap<PathBuf, (u64, Option<SystemTime>, TiffKind)>>> =
+    static CACHE: LazyLock<Mutex<HashMap<PathBuf, Stamped>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
     const CAPACITY: usize = 16_384;
 
@@ -99,10 +102,18 @@ fn classify_tiff(source: &RawSource) -> TiffKind {
     // byte 8 is the IIQ directory's magic.
     let iiq_header = buf.get(8..12) == Some(b"IIII".as_slice());
     let Ok(tiff) = GenericTiffReader::new_with_buffer(buf, 0, 0, None) else {
-        return if iiq_header { TiffKind::UnsupportedRaw } else { TiffKind::Raster };
+        return if iiq_header {
+            TiffKind::UnsupportedRaw
+        } else {
+            TiffKind::Raster
+        };
     };
     if tiff.chains().is_empty() {
-        return if iiq_header { TiffKind::UnsupportedRaw } else { TiffKind::Raster };
+        return if iiq_header {
+            TiffKind::UnsupportedRaw
+        } else {
+            TiffKind::Raster
+        };
     }
     let raw_photometric = tiff
         .find_ifds_with_tag(TiffCommonTag::PhotometricInt)
@@ -120,7 +131,9 @@ fn classify_tiff(source: &RawSource) -> TiffKind {
         // write; the decoder then finds no raw data, or, should it mistake
         // the RGB image for raw data, the file's own RGB image is about as
         // large as that "raw" image. A raw TIFF's RGB images are thumbnails.
-        Ok(raw) if marked_raw || !has_large_rgb_image(&tiff, raw.width, raw.height) => TiffKind::Raw,
+        Ok(raw) if marked_raw || !has_large_rgb_image(&tiff, raw.width, raw.height) => {
+            TiffKind::Raw
+        }
         _ if marked_raw => TiffKind::UnsupportedRaw,
         _ => TiffKind::Raster,
     }
@@ -129,19 +142,21 @@ fn classify_tiff(source: &RawSource) -> TiffKind {
 /// Whether the TIFF holds an RGB (or YCbCr / palette) image at least half
 /// the raw image's width and height.
 fn has_large_rgb_image(tiff: &GenericTiffReader, raw_width: usize, raw_height: usize) -> bool {
-    tiff.find_ifds_with_tag(TiffCommonTag::ImageWidth).iter().any(|ifd| {
-        let photometric = ifd
-            .get_entry(TiffCommonTag::PhotometricInt)
-            .map(|entry| entry.value.force_u32(0));
-        let colour = matches!(photometric, Some(2 | 3 | 6));
-        let width = ifd
-            .get_entry(TiffCommonTag::ImageWidth)
-            .map_or(0, |entry| entry.value.force_usize(0));
-        let height = ifd
-            .get_entry(TiffCommonTag::ImageLength)
-            .map_or(0, |entry| entry.value.force_usize(0));
-        colour && width * 2 >= raw_width && height * 2 >= raw_height
-    })
+    tiff.find_ifds_with_tag(TiffCommonTag::ImageWidth)
+        .iter()
+        .any(|ifd| {
+            let photometric = ifd
+                .get_entry(TiffCommonTag::PhotometricInt)
+                .map(|entry| entry.value.force_u32(0));
+            let colour = matches!(photometric, Some(2 | 3 | 6));
+            let width = ifd
+                .get_entry(TiffCommonTag::ImageWidth)
+                .map_or(0, |entry| entry.value.force_usize(0));
+            let height = ifd
+                .get_entry(TiffCommonTag::ImageLength)
+                .map_or(0, |entry| entry.value.force_usize(0));
+            colour && width * 2 >= raw_width && height * 2 >= raw_height
+        })
 }
 
 #[cfg(test)]

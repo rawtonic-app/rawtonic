@@ -31,7 +31,14 @@ impl Ifd {
 
 /// An image IFD: size, photometric, samples (bits per sample `bits`),
 /// compression, and its pixel data placed as one strip, or as tiles.
-fn image(width: u32, height: u32, photometric: u16, samples: u16, bits: u16, compression: u16) -> Ifd {
+fn image(
+    width: u32,
+    height: u32,
+    photometric: u16,
+    samples: u16,
+    bits: u16,
+    compression: u16,
+) -> Ifd {
     Ifd::default()
         .with(256, Value::Longs(vec![width]))
         .with(257, Value::Longs(vec![height]))
@@ -56,7 +63,8 @@ fn tiled(ifd: Ifd, data_offset: u32, len: u32) -> Ifd {
 }
 
 fn camera(ifd: Ifd, make: &'static str, model: &'static str) -> Ifd {
-    ifd.with(271, Value::Text(make)).with(272, Value::Text(model))
+    ifd.with(271, Value::Text(make))
+        .with(272, Value::Text(model))
 }
 
 /// Writes a little-endian TIFF: `chain` IFDs linked as pages, `subs` only
@@ -72,7 +80,12 @@ struct Tiff {
 impl Tiff {
     fn pages(ifds: Vec<Ifd>) -> Self {
         let chain = (0..ifds.len()).collect();
-        Self { ifds, chain, head: Vec::new(), pad: 4096 }
+        Self {
+            ifds,
+            chain,
+            head: Vec::new(),
+            pad: 4096,
+        }
     }
 
     fn build(&self) -> Vec<u8> {
@@ -144,8 +157,16 @@ fn value_size(value: &Value) -> usize {
 
 fn encode(value: &Value, offsets: &[u32]) -> (u16, u32, Vec<u8>) {
     match value {
-        Value::Shorts(v) => (SHORT, v.len() as u32, v.iter().flat_map(|x| x.to_le_bytes()).collect()),
-        Value::Longs(v) => (LONG, v.len() as u32, v.iter().flat_map(|x| x.to_le_bytes()).collect()),
+        Value::Shorts(v) => (
+            SHORT,
+            v.len() as u32,
+            v.iter().flat_map(|x| x.to_le_bytes()).collect(),
+        ),
+        Value::Longs(v) => (
+            LONG,
+            v.len() as u32,
+            v.iter().flat_map(|x| x.to_le_bytes()).collect(),
+        ),
         Value::Text(s) => {
             let mut bytes = s.as_bytes().to_vec();
             bytes.push(0);
@@ -161,8 +182,19 @@ fn encode(value: &Value, offsets: &[u32]) -> (u16, u32, Vec<u8>) {
 
 /// An editor's or scanner's RGB TIFF: one full-size image (data at offset
 /// 8, zero pixels), optionally with a camera's make and model.
-fn rgb(width: u32, height: u32, bits: u16, compression: u16, make_model: Option<(&'static str, &'static str)>) -> Ifd {
-    let ifd = striped(image(width, height, 2, 3, bits, compression), 8, 4096, height);
+fn rgb(
+    width: u32,
+    height: u32,
+    bits: u16,
+    compression: u16,
+    make_model: Option<(&'static str, &'static str)>,
+) -> Ifd {
+    let ifd = striped(
+        image(width, height, 2, 3, bits, compression),
+        8,
+        4096,
+        height,
+    );
     match make_model {
         Some((make, model)) => camera(ifd, make, model),
         None => ifd,
@@ -193,17 +225,41 @@ const RAW_CAMERAS: &[(&str, &str)] = &[
 #[test]
 fn ordinary_rgb_tiffs_stay_raster_images() {
     let mut files = Vec::new();
-    for &(bits, compression) in &[(8, 1), (16, 1), (8, 5), (16, 5), (8, 8), (16, 8), (16, 32946)] {
-        files.push(("striped", Tiff::pages(vec![rgb(4000, 3000, bits, compression, None)])));
+    for &(bits, compression) in &[
+        (8, 1),
+        (16, 1),
+        (8, 5),
+        (16, 5),
+        (8, 8),
+        (16, 8),
+        (16, 32946),
+    ] {
+        files.push((
+            "striped",
+            Tiff::pages(vec![rgb(4000, 3000, bits, compression, None)]),
+        ));
         files.push((
             "tiled",
-            Tiff::pages(vec![tiled(image(4000, 3000, 2, 3, bits, compression), 8, 4096)]),
+            Tiff::pages(vec![tiled(
+                image(4000, 3000, 2, 3, bits, compression),
+                8,
+                4096,
+            )]),
         ));
     }
     // Grayscale (scanner), palette and CMYK.
-    files.push(("gray", Tiff::pages(vec![striped(image(3000, 2000, 1, 1, 16, 1), 8, 4096, 2000)])));
-    files.push(("palette", Tiff::pages(vec![striped(image(300, 200, 3, 1, 8, 1), 8, 4096, 200)])));
-    files.push(("cmyk", Tiff::pages(vec![striped(image(3000, 2000, 5, 4, 8, 5), 8, 4096, 2000)])));
+    files.push((
+        "gray",
+        Tiff::pages(vec![striped(image(3000, 2000, 1, 1, 16, 1), 8, 4096, 2000)]),
+    ));
+    files.push((
+        "palette",
+        Tiff::pages(vec![striped(image(300, 200, 3, 1, 8, 1), 8, 4096, 200)]),
+    ));
+    files.push((
+        "cmyk",
+        Tiff::pages(vec![striped(image(3000, 2000, 5, 4, 8, 5), 8, 4096, 2000)]),
+    ));
     // Multi-page: a full image followed by a reduced one and a second page.
     files.push((
         "multi-page",
@@ -222,15 +278,29 @@ fn ordinary_rgb_tiffs_stay_raster_images() {
 fn rgb_tiffs_with_a_raw_cameras_make_and_model_stay_raster_images() {
     for &(make, model) in RAW_CAMERAS {
         for &(bits, compression) in &[(8, 1), (16, 5), (16, 8)] {
-            let full = Tiff::pages(vec![rgb(5472, 3648, bits, compression, Some((make, model)))]);
-            assert_eq!(classify_bytes(&full.build()), TiffKind::Raster, "{make} {model} {bits}-bit");
+            let full = Tiff::pages(vec![rgb(
+                5472,
+                3648,
+                bits,
+                compression,
+                Some((make, model)),
+            )]);
+            assert_eq!(
+                classify_bytes(&full.build()),
+                TiffKind::Raster,
+                "{make} {model} {bits}-bit"
+            );
         }
         // A reduced page after the full image, as some editors write.
         let pages = Tiff::pages(vec![
             rgb(5472, 3648, 16, 8, Some((make, model))),
             rgb(256, 171, 8, 1, None).with(254, Value::Longs(vec![1])),
         ]);
-        assert_eq!(classify_bytes(&pages.build()), TiffKind::Raster, "{make} {model} pages");
+        assert_eq!(
+            classify_bytes(&pages.build()),
+            TiffKind::Raster,
+            "{make} {model} pages"
+        );
     }
 }
 
@@ -265,7 +335,12 @@ fn a_cfa_image_behind_a_thumbnail_routes_as_raw() {
         let cfa = striped(image(3048, 2016, 32803, 1, 12, 7), 8, 4096, 2016)
             .with(254, Value::Longs(vec![0]))
             .with(33421, Value::Shorts(vec![2, 2]));
-        let tiff = Tiff { ifds: vec![thumb, cfa], chain: vec![0], head: Vec::new(), pad: 4096 };
+        let tiff = Tiff {
+            ifds: vec![thumb, cfa],
+            chain: vec![0],
+            head: Vec::new(),
+            pad: 4096,
+        };
         assert!(classify_bytes(&tiff.build()).is_raw(), "{make} {model}");
     }
     // Without a decoder for the camera it is refused as a RAW, not shown
@@ -273,7 +348,12 @@ fn a_cfa_image_behind_a_thumbnail_routes_as_raw() {
     let thumb = camera(rgb(156, 104, 8, 1, None), "Unknown maker", "Unknown back")
         .with(330, Value::SubIfds(vec![1]));
     let cfa = striped(image(3048, 2016, 32803, 1, 12, 1), 8, 4096, 2016);
-    let tiff = Tiff { ifds: vec![thumb, cfa], chain: vec![0], head: Vec::new(), pad: 4096 };
+    let tiff = Tiff {
+        ifds: vec![thumb, cfa],
+        chain: vec![0],
+        head: Vec::new(),
+        pad: 4096,
+    };
     assert_eq!(classify_bytes(&tiff.build()), TiffKind::UnsupportedRaw);
 }
 
@@ -291,7 +371,9 @@ fn classify_sample_folder() {
         .filter(|path| {
             path.extension()
                 .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("tif") || ext.eq_ignore_ascii_case("tiff"))
+                .is_some_and(|ext| {
+                    ext.eq_ignore_ascii_case("tif") || ext.eq_ignore_ascii_case("tiff")
+                })
         })
         .collect();
     paths.sort();
@@ -299,6 +381,9 @@ fn classify_sample_folder() {
         let start = std::time::Instant::now();
         let kind = super::classify(&path);
         let micros = start.elapsed().as_micros();
-        println!("{}\t{kind:?}\t{micros} us", path.file_name().unwrap().to_string_lossy());
+        println!(
+            "{}\t{kind:?}\t{micros} us",
+            path.file_name().unwrap().to_string_lossy()
+        );
     }
 }

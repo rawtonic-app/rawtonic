@@ -95,8 +95,7 @@ pub fn is_raw_file<P: AsRef<Path>>(path: P) -> bool {
     // Some cameras wrote their raw files as `.tif` (Phase One backs, Canon
     // EOS-1D/1Ds, Kodak DCS); their first TIFF image is a thumbnail, so they
     // are told from RGB TIFFs by content.
-    is_tiff_extension(ext)
-        && rawtonic_rawdecode::raw_tiff::classify_cached(path.as_ref()).is_raw()
+    is_tiff_extension(ext) && rawtonic_rawdecode::raw_tiff::classify_cached(path.as_ref()).is_raw()
 }
 
 fn is_tiff_extension(ext: &str) -> bool {
