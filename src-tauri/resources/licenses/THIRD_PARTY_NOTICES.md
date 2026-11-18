@@ -489,6 +489,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | mimalloc | 0.1.52 | MIT |
 | mime | 0.3.17 | MIT OR Apache-2.0 |
 | minimal-lexical | 0.2.1 | MIT/Apache-2.0 |
+| minisign-verify | 0.3.0 | MIT |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 |
 | mio | 1.2.2 | MIT |
 | monostate | 0.1.18 | MIT OR Apache-2.0 |
@@ -546,6 +547,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | objc2-io-surface | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-metal | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-open-directory | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| objc2-osa-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-quartz-core | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-ui-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-user-notifications | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
@@ -565,6 +567,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | ort-sys | 2.0.0-rc.15 | MIT OR Apache-2.0 |
 | os_info | 3.15.0 | MIT |
 | os_pipe | 1.2.3 | MIT |
+| osakit | 0.3.1 | MIT OR Apache-2.0 |
 | page_size | 0.6.0 | MIT/Apache-2.0 |
 | pango | 0.18.3 | MIT |
 | pango-sys | 0.18.0 | MIT |
@@ -759,6 +762,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | system-deps | 6.2.2 | MIT OR Apache-2.0 |
 | tao | 0.37.1 | Apache-2.0 |
 | tao-macros | 0.1.4 | MIT OR Apache-2.0 |
+| tar | 0.4.46 | MIT OR Apache-2.0 |
 | target-features | 0.1.6 | MIT OR Apache-2.0 |
 | target-lexicon | 0.12.16 | Apache-2.0 WITH LLVM-exception |
 | tauri | 2.12.1 | Apache-2.0 OR MIT |
@@ -772,6 +776,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | tauri-plugin-process | 2.3.1 | Apache-2.0 OR MIT |
 | tauri-plugin-shell | 2.3.5 | Apache-2.0 OR MIT |
 | tauri-plugin-single-instance | 2.5.4 | (Apache-2.0 OR MIT) AND AGPL-3.0-or-later |
+| tauri-plugin-updater | 2.14.1 | Apache-2.0 OR MIT |
 | tauri-plugin-wayland-nvidia-quirk | 0.1.0 | Apache-2.0 |
 | tauri-runtime | 2.12.1 | Apache-2.0 OR MIT |
 | tauri-runtime-wry | 2.12.1 | Apache-2.0 OR MIT |
@@ -942,6 +947,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | wry | 0.57.0 | Apache-2.0 OR MIT |
 | x11 | 2.21.0 | MIT |
 | x11-dl | 2.21.0 | MIT |
+| xattr | 1.6.1 | MIT OR Apache-2.0 |
 | xml-rs | 0.8.29 | MIT |
 | xxhash-rust | 0.8.19 | BSL-1.0 |
 | y4m | 0.8.0 | MIT |
