@@ -2221,6 +2221,7 @@
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "라이브러리 데이터베이스. Windows의 WAL 잠금 처리에 Rawtonic 수정 사항을 적용했습니다.",
         "Tauri bundler": "Windows용 NSIS 설치 프로그램 템플릿으로, 사용자별 설치와 모든 사용자용 설치가 함께 유지되도록 수정했습니다.",
+        "Tauri updater plugin": "'업데이트 설치': 릴리스의 매니페스트와 패키지를 가져오고 서명을 확인한 뒤 macOS 앱을 바꿉니다.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5423,13 +5424,13 @@
     "downloadInstead": "설치 프로그램 내려받기",
     "failed": "업데이트를 확인할 수 없습니다. 나중에 다시 시도하세요.",
     "failure": {
-      "cancelled": "설치하려면 관리자 승인이 필요한데 취소되었습니다. Rawtonic은 변경되지 않았습니다.",
       "disk": "업데이트를 쓸 수 없습니다. 디스크가 가득 찼거나 Rawtonic 폴더가 읽기 전용일 수 있습니다. Rawtonic은 변경되지 않았습니다.",
       "network": "내려받기에 실패했습니다(GitHub에 연결할 수 없음). Rawtonic은 변경되지 않았습니다.",
       "noPackage": "이 릴리스에는 이 컴퓨터용 업데이트 패키지가 없습니다. 대신 설치 프로그램을 내려받으세요.",
       "notOffered": "이 업데이트는 더 이상 제공되지 않습니다. 업데이트를 다시 확인하세요.",
       "notRestored": "업데이트를 설치하지 못했고 이전 버전도 되돌리지 못했습니다. 이전 버전은 {{path}}에 있습니다. 설치 프로그램을 내려받아 Rawtonic을 복구하세요.",
       "other": "업데이트에 실패했습니다. Rawtonic은 변경되지 않았습니다.",
+      "permission": "Rawtonic이 여기서 스스로를 바꿀 수 없습니다. 관리자 승인을 받지 못했거나 폴더에 쓸 수 없습니다. Rawtonic은 변경되지 않았습니다.",
       "signature": "내려받은 업데이트에 Rawtonic의 서명이 없어 설치하지 않았습니다. Rawtonic은 변경되지 않았습니다.",
       "unsaved": "다시 시작하지 않았고 아무것도 설치하지 않았습니다. 다음 변경 사항을 저장하지 못했습니다: {{changes}}."
     },

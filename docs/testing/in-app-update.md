@@ -29,9 +29,11 @@ qa_build() {  # VERSION BUNDLE
 |---|---|---|---|
 | Linux | `appimage` | `bundle/appimage/Rawtonic QA update_N+1_amd64.AppImage` (rename it without spaces) | `linux-x86_64-appimage` |
 | Windows | `nsis` | `bundle\nsis\Rawtonic QA update_N+1_x64-setup.exe` (rename it without spaces) | `windows-x86_64-nsis` |
-| macOS | `app` | `COPYFILE_DISABLE=1 tar --no-mac-metadata -czf qa_N+1_aarch64.app.tar.gz -C bundle/macos "Rawtonic QA update.app"` | `darwin-aarch64-app` |
+| macOS | `app,dmg` | `COPYFILE_DISABLE=1 tar --no-mac-metadata -czf qa_N+1_aarch64.app.tar.gz -C bundle/macos "Rawtonic QA update.app"`, plus the DMG (renamed `qa_N+1_aarch64.dmg`) as `--installer`: the app offers Install update only when the release has an installer for the computer | `darwin-aarch64-app` |
 
 Copy N's package aside after the first build: the second build overwrites the bundle folder.
+
+**Windows: only on a clean test machine or VM** (or a Windows account that has never had Rawtonic installed). The QA setup changes the name and identifier but reuses the release installer's hooks, which look for the release install folder and write the release's registry values: on an account with Rawtonic installed it could install over that copy.
 
 ## 3. Sign N+1 and serve it
 
@@ -40,6 +42,7 @@ TAURI_SIGNING_PRIVATE_KEY_PATH=$S/qa-updater.key TAURI_SIGNING_PRIVATE_KEY_PASSW
   npx tauri signer sign --app-version 0.1.0-alpha.91 $S/feed/PACKAGE      # writes PACKAGE.sig
 python3 scripts/qa/update_feed.py --version 0.1.0-alpha.91 --dir $S/feed \
   --package linux-x86_64-appimage=PACKAGE --port 8765                    # leave it running; it logs every request
+# macOS: --package darwin-aarch64-app=qa_N+1_aarch64.app.tar.gz --installer qa_N+1_aarch64.dmg
 ```
 
 ## 4. Install N and update
@@ -58,6 +61,8 @@ Install or place N as a user would (AppImage anywhere writable; the Windows setu
 | No manifest | restart the feed with `--no-manifest` | no Install update; the Download / Release page link as before |
 | Offline | stop the feed during the download | the network message; N unchanged; Try again works after restarting the feed |
 | Not updatable | Windows: run N from the portable zip or an all-users copy; macOS: N from the mounted disk image; Linux: N as a .deb | the browser link, with the all-users or move-to-Applications note where it applies |
+| No permission | macOS: N in `/Applications` owned by another user, as a standard user; cancel the password prompt. Linux: the AppImage in a folder you cannot write | "may not replace itself here", N keeps running unchanged |
+| Quit while installing | Linux: Restart now and close the window at once | afterwards the AppImage is either N or N+1, never partial |
 | Windows | Restart now | the setup runs passively without an administrator prompt and starts N+1 |
 
 Record OS, build commit, each case's result and the feed log in the task's report. Delete the QA key when done.

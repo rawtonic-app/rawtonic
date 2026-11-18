@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! "Install update" (user decision 2026-11-18, ADR in PRIVACY.md): only after
+//! "Install update" (user decision 2026-11-18, PRIVACY.md): only after
 //! the photographer's click, the app fetches the offered release's own
 //! `latest.json`, downloads this copy's package from that release, checks
 //! its signature against Rawtonic's updater key (tauri-plugin-updater,
@@ -54,8 +54,9 @@ pub enum UpdateFailure {
     NoPackage,
     /// The disk is full or the app's folder cannot be written.
     Disk,
-    /// The administrator password prompt (macOS) was cancelled.
-    Cancelled,
+    /// Rawtonic may not replace itself there: the administrator's approval
+    /// (macOS password prompt) was not given, or the folder is not writable.
+    Permission,
     /// The new app could not be put in place and the previous one could not
     /// be put back either; it is kept at `path`.
     NotRestored {
@@ -82,11 +83,14 @@ fn failure(error: &Error) -> UpdateFailure {
         | Error::InvalidUpdaterFormat
         | Error::BinaryNotFoundInArchive => UpdateFailure::Signature,
         Error::TargetNotFound(_) | Error::TargetsNotFound(_) => UpdateFailure::NoPackage,
+        Error::Io(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            UpdateFailure::Permission
+        }
+        Error::AuthenticationFailed => UpdateFailure::Permission,
         Error::Io(_)
         | Error::TempDirNotFound
         | Error::TempDirNotOnSameMountPoint
         | Error::FailedToDetermineExtractPath => UpdateFailure::Disk,
-        Error::AuthenticationFailed => UpdateFailure::Cancelled,
         Error::PreviousAppNotRestored(path) => UpdateFailure::NotRestored {
             path: path.display().to_string(),
         },
@@ -197,15 +201,6 @@ async fn fetch(
                     }
                 }))
         })
-        // Windows: the setup takes over and the plugin ends the process
-        // without the quit's ExitRequested; do what that does first.
-        .on_before_exit({
-            let app = app.clone();
-            move || {
-                crate::app_quit::before_process_exit();
-                app.cleanup_before_exit();
-            }
-        })
         .build()
         .map_err(|e| log_failure("setup", &e))?;
     let update = updater
@@ -283,25 +278,100 @@ pub async fn update_install(app: AppHandle, version: String) -> Result<(), Updat
         }
     };
     log::info!("Update {version}: installing");
+    let place_app = app.clone();
     let (update, bytes, result) = tauri::async_runtime::spawn_blocking(move || {
-        let result = update.install(&bytes);
+        let result = put_in_place(&place_app, &update, &bytes);
         (update, bytes, result)
     })
     .await
     .map_err(|_| UpdateFailure::Other)?;
     match result {
-        Ok(()) => {
+        Ok(Placed::Restart) => {
             log::info!("Update {version}: installed, restart pending");
             Ok(())
         }
-        Err(error) => {
-            log::warn!("Update {version}: install failed: {error}");
-            let kind = failure(&error);
+        Ok(Placed::SetupStarted) => {
+            // The quit's own path (lib.rs ExitRequested): logs, window
+            // state and the clean-exit mark are written, then the process
+            // ends; the passive setup waits for it and starts the new version.
+            log::info!("Update {version}: setup started, Rawtonic ends");
+            app.exit(0);
+            Ok(())
+        }
+        Err(kind) => {
+            log::warn!("Update {version}: install failed: {kind:?}");
             if !matches!(kind, UpdateFailure::NotRestored { .. }) {
                 *crate::state::lock::lock_recover(&state.ready) = Some((update, bytes));
             }
             Err(kind)
         }
+    }
+}
+
+enum Placed {
+    /// The new app is in place; the webview restarts it.
+    #[cfg_attr(windows, allow(dead_code))]
+    Restart,
+    /// Windows: the per-user setup runs; this process must end.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    SetupStarted,
+}
+
+/// Puts the verified package in place without ever leaving a partial app,
+/// even if the process ends meanwhile: macOS swaps the bundles in one step
+/// (the plugin; with the administrator's approval where the folder needs
+/// it), Linux writes the new AppImage beside the old one and renames it over
+/// it (rawtonic-fs `atomic_write`, which keeps its permissions), Windows
+/// writes the setup to a temporary folder and starts it — the app ends only
+/// once the setup runs, so a setup that cannot start leaves it open.
+#[cfg_attr(not(any(target_os = "linux", windows)), allow(unused_variables))]
+fn put_in_place(app: &AppHandle, update: &Update, bytes: &[u8]) -> Result<Placed, UpdateFailure> {
+    update.verify(bytes).map_err(|e| failure(&e))?;
+    #[cfg(target_os = "macos")]
+    {
+        update.install(bytes).map_err(|e| failure(&e))?;
+        Ok(Placed::Restart)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let Some(appimage) = app.env().appimage else {
+            return Err(UpdateFailure::NoPackage);
+        };
+        if !bytes.starts_with(b"\x7fELF") {
+            return Err(UpdateFailure::Signature);
+        }
+        rawtonic_fs::atomic_write(std::path::Path::new(&appimage), bytes)
+            .map_err(|e| io_failure(&e))?;
+        Ok(Placed::Restart)
+    }
+    #[cfg(windows)]
+    {
+        let _ = app;
+        if !bytes.starts_with(b"MZ") {
+            return Err(UpdateFailure::Signature);
+        }
+        let dir = std::env::temp_dir().join(format!("Rawtonic-update-{}", update.version));
+        std::fs::create_dir_all(&dir).map_err(|e| io_failure(&anyhow::Error::from(e)))?;
+        let setup = dir.join(format!("Rawtonic_{}_x64-setup.exe", update.version));
+        rawtonic_fs::atomic_write(&setup, bytes).map_err(|e| io_failure(&e))?;
+        // Passive (a progress bar, no questions, no administrator prompt for
+        // the per-user setup), as an update, and start Rawtonic when done.
+        std::process::Command::new(&setup)
+            .args(["/P", "/UPDATE", "/R"])
+            .spawn()
+            .map_err(|e| io_failure(&anyhow::Error::from(e)))?;
+        Ok(Placed::SetupStarted)
+    }
+}
+
+#[cfg(any(target_os = "linux", windows))]
+fn io_failure(error: &anyhow::Error) -> UpdateFailure {
+    match error
+        .downcast_ref::<std::io::Error>()
+        .map(std::io::Error::kind)
+    {
+        Some(std::io::ErrorKind::PermissionDenied) => UpdateFailure::Permission,
+        _ => UpdateFailure::Disk,
     }
 }
 
@@ -343,7 +413,14 @@ mod tests {
         );
         assert_eq!(
             failure(&Error::AuthenticationFailed),
-            UpdateFailure::Cancelled
+            UpdateFailure::Permission
+        );
+        // macOS reports a refused or cancelled administrator prompt this way.
+        assert_eq!(
+            failure(&Error::Io(std::io::Error::from(
+                std::io::ErrorKind::PermissionDenied
+            ))),
+            UpdateFailure::Permission
         );
         assert_eq!(
             failure(&Error::PreviousAppNotRestored("/tmp/x".into())),

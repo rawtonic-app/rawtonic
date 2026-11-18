@@ -7,7 +7,7 @@ build configured with `dangerousInsecureTransportProtocol` fetches over http.
 
     update_feed.py --version 0.1.0-alpha.91 --dir PACKAGES \
         --package linux-x86_64-appimage=Rawtonic_QA_0.1.0-alpha.91_amd64.AppImage \
-        [--package TARGET=FILE ...] [--no-manifest] [--host 127.0.0.1] [--port 8765]
+        [--package TARGET=FILE ...] [--installer FILE ...] [--no-manifest] [--host 127.0.0.1] [--port 8765]
 
 PACKAGES holds each package and its `FILE.sig` (`tauri signer sign
 --app-version VERSION FILE` with the QA key). The feed serves, at
@@ -15,7 +15,10 @@ http://HOST:PORT:
   /releases.json                        the GitHub API's release list (one release)
   /releases/tag/vVERSION                a placeholder release page
   /releases/download/vVERSION/NAME      the packages and latest.json
---no-manifest leaves latest.json out (a release from before in-app updates:
+--installer lists a file of PACKAGES among the release's files without a
+package key: the app offers "Install update" only when the release has an
+installer for the computer (a .dmg for macOS; the AppImage and the Windows
+setup are their own installers). --no-manifest leaves latest.json out (a release from before in-app updates:
 the notice must fall back to the browser link). Every request is logged.
 """
 import argparse
@@ -31,6 +34,7 @@ def main():
     parser.add_argument("--version", required=True)
     parser.add_argument("--dir", required=True)
     parser.add_argument("--package", action="append", default=[], metavar="TARGET=FILE")
+    parser.add_argument("--installer", action="append", default=[], metavar="FILE")
     parser.add_argument("--no-manifest", action="store_true")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
@@ -48,6 +52,11 @@ def main():
             sys.exit(f"{entry}: needs {path} and {path}.sig")
         with open(path + ".sig", encoding="utf-8") as f:
             platforms[target] = {"signature": f.read().strip(), "url": download + name}
+        files[name] = path
+    for name in args.installer:
+        path = os.path.join(args.dir, name)
+        if not os.path.isfile(path):
+            sys.exit(f"--installer {name}: no {path}")
         files[name] = path
     manifest = json.dumps(
         {"version": args.version, "notes": f"QA feed {args.version}", "pub_date": "2026-11-18T00:00:00Z", "platforms": platforms},

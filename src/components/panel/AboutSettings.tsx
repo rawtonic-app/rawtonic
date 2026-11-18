@@ -32,6 +32,12 @@ export const CREDITS: Credit[] = [
     license: 'MIT'
   },
   {
+    name: 'Tauri updater plugin',
+    url: 'https://github.com/tauri-apps/plugins-workspace',
+    what: 'Install update: fetches the release manifest and package, checks its signature and replaces the macOS app.',
+    license: 'Apache-2.0 OR MIT'
+  },
+  {
     name: 'SQLite / rusqlite',
     url: 'https://github.com/rusqlite/rusqlite',
     what: 'Library database, with a Rawtonic Windows WAL locking correction.',

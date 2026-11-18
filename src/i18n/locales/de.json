@@ -2314,6 +2314,7 @@
         "spektrafilm": "LUTs zur Filmemulation von Andrea Volpato (umbenannt, Inhalt unverändert).",
         "SQLite / rusqlite": "Bibliotheksdatenbank mit einer Rawtonic-Korrektur für WAL-Sperren unter Windows.",
         "Tauri bundler": "Vorlage für den Windows-NSIS-Installer, angepasst für parallele Installationen für ein einzelnes Konto und für alle Benutzer.",
+        "Tauri updater plugin": "„Update installieren“: lädt Manifest und Paket der Version, prüft die Signatur und ersetzt die macOS-App.",
         "YuNet": "Findet Gesichter für Personenmasken (Shiqi Yu und andere).",
         "zune-jpegxl": "Verlustfreier JPEG-XL-Export (Caleb Etemesi)."
       },
@@ -5561,13 +5562,13 @@
     "downloadInstead": "Installer laden",
     "failed": "Updates konnten nicht geprüft werden. Versuche es später erneut.",
     "failure": {
-      "cancelled": "Die Installation braucht die Zustimmung eines Administrators; sie wurde abgebrochen. Rawtonic ist unverändert.",
       "disk": "Das Update konnte nicht geschrieben werden: Der Datenträger ist vielleicht voll oder Rawtonics Ordner schreibgeschützt. Rawtonic ist unverändert.",
       "network": "Das Laden ist fehlgeschlagen (keine Verbindung zu GitHub). Rawtonic ist unverändert.",
       "noPackage": "Diese Version hat kein Update-Paket für diesen Computer. Lade stattdessen den Installer.",
       "notOffered": "Dieses Update wird nicht mehr angeboten. Suche erneut nach Updates.",
       "notRestored": "Das Update ließ sich nicht installieren und die vorige Version nicht zurücklegen; sie liegt unter {{path}}. Lade den Installer, um Rawtonic zu reparieren.",
       "other": "Das Update ist fehlgeschlagen. Rawtonic ist unverändert.",
+      "permission": "Rawtonic darf sich hier nicht ersetzen: Die Zustimmung eines Administrators wurde nicht erteilt oder sein Ordner ist schreibgeschützt. Rawtonic ist unverändert.",
       "signature": "Das geladene Update trägt nicht Rawtonics Signatur und wurde nicht installiert. Rawtonic ist unverändert.",
       "unsaved": "Nicht neu gestartet, nichts installiert: Diese Änderungen ließen sich nicht sichern: {{changes}}."
     },

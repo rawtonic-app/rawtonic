@@ -2451,6 +2451,7 @@
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Base de dades de la biblioteca, amb una correcció de Rawtonic al bloqueig WAL de Windows.",
         "Tauri bundler": "Plantilla de l’instal·lador NSIS per a Windows, adaptada perquè una instal·lació individual pugui coexistir amb una per a tots els usuaris.",
+        "Tauri updater plugin": "«Instal·la l’actualització»: obté el manifest i el paquet de la versió, en comprova la signatura i substitueix l’app de macOS.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5775,13 +5776,13 @@
     "downloadInstead": "Baixa l’instal·lador",
     "failed": "No s’han pogut comprovar les actualitzacions. Torna-ho a provar més tard.",
     "failure": {
-      "cancelled": "La instal·lació necessita l’aprovació d’un administrador, que s’ha cancel·lat. Rawtonic no ha canviat.",
       "disk": "No s’ha pogut escriure l’actualització: potser el disc és ple o la carpeta de Rawtonic és només de lectura. Rawtonic no ha canviat.",
       "network": "La baixada ha fallat (sense connexió amb GitHub). Rawtonic no ha canviat.",
       "noPackage": "Aquesta versió no té paquet d’actualització per a aquest ordinador. Baixa l’instal·lador.",
       "notOffered": "Aquesta actualització ja no s’ofereix. Torna a cercar actualitzacions.",
       "notRestored": "No s’ha pogut instal·lar l’actualització ni restaurar la versió anterior; es troba a {{path}}. Baixa l’instal·lador per reparar Rawtonic.",
       "other": "L’actualització ha fallat. Rawtonic no ha canviat.",
+      "permission": "Rawtonic no es pot substituir aquí: no s’ha donat l’aprovació d’un administrador o la seva carpeta no admet escriptura. Rawtonic no ha canviat.",
       "signature": "L’actualització baixada no porta la signatura de Rawtonic, així que no s’ha instal·lat. Rawtonic no ha canviat.",
       "unsaved": "No s’ha reiniciat ni s’ha instal·lat res: aquests canvis no s’han pogut desar: {{changes}}."
     },

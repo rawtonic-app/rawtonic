@@ -2451,6 +2451,7 @@
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Database della libreria, con una correzione Rawtonic del blocco WAL su Windows.",
         "Tauri bundler": "Modello del programma di installazione NSIS per Windows, adattato per consentire la coesistenza di un’installazione individuale e di una per tutti gli utenti.",
+        "Tauri updater plugin": "«Installa aggiornamento»: scarica il manifesto e il pacchetto della versione, ne verifica la firma e sostituisce l’app macOS.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5775,13 +5776,13 @@
     "downloadInstead": "Scarica il programma di installazione",
     "failed": "Impossibile verificare gli aggiornamenti. Riprova più tardi.",
     "failure": {
-      "cancelled": "L’installazione richiede l’approvazione di un amministratore, che è stata annullata. Rawtonic non è cambiato.",
       "disk": "Impossibile scrivere l’aggiornamento: il disco potrebbe essere pieno o la cartella di Rawtonic di sola lettura. Rawtonic non è cambiato.",
       "network": "Download non riuscito (nessuna connessione a GitHub). Rawtonic non è cambiato.",
       "noPackage": "Questa versione non ha un pacchetto di aggiornamento per questo computer. Scarica invece il programma di installazione.",
       "notOffered": "Questo aggiornamento non è più disponibile. Cerca di nuovo gli aggiornamenti.",
       "notRestored": "Impossibile installare l’aggiornamento e ripristinare la versione precedente, che si trova in {{path}}. Scarica il programma di installazione per riparare Rawtonic.",
       "other": "Aggiornamento non riuscito. Rawtonic non è cambiato.",
+      "permission": "Rawtonic non può sostituirsi qui: l’approvazione di un amministratore non è stata data o la sua cartella non è scrivibile. Rawtonic non è cambiato.",
       "signature": "L’aggiornamento scaricato non ha la firma di Rawtonic, quindi non è stato installato. Rawtonic non è cambiato.",
       "unsaved": "Nessun riavvio, nulla installato: queste modifiche non sono state salvate: {{changes}}."
     },

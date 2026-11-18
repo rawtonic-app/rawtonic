@@ -1339,7 +1339,13 @@ fn start(args: Vec<String>) {
                 // saved its pending edits (app_quit.rs).
                 tauri::RunEvent::ExitRequested { api, code, .. } => {
                     api.prevent_exit();
-                    app_quit::before_process_exit();
+                    // A GPU check of an AI model running in the background
+                    // stops without a verdict.
+                    rawtonic_onnx::stop_checks();
+                    contribute::clean_exit();
+                    window_state::flush();
+                    second_window::flush();
+                    startup::flush_logs();
                     let exit_code = if app_quit::is_restart(code) {
                         app_quit::start_new_instance(app_handle);
                         // A failed restart logs its error; write it out too.
@@ -1358,7 +1364,11 @@ fn start(args: Vec<String>) {
                     std::process::exit(exit_code);
                 }
                 tauri::RunEvent::Exit => {
-                    app_quit::before_process_exit();
+                    rawtonic_onnx::stop_checks();
+                    contribute::clean_exit();
+                    window_state::flush();
+                    second_window::flush();
+                    startup::flush_logs();
                     #[cfg(any(target_os = "macos", target_os = "linux"))]
                     unsafe { libc::_exit(0); }
 

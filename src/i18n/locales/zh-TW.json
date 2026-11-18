@@ -2221,6 +2221,7 @@
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "圖庫資料庫，包含 Rawtonic 對 Windows WAL 鎖定的修正。",
         "Tauri bundler": "Windows NSIS 安裝程式範本，經過調整，支援僅為目前使用者安裝的版本與為所有使用者安裝的版本並存。",
+        "Tauri updater plugin": "「安裝更新」：取得版本的清單與套件，檢查其簽章並取代 macOS App。",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5423,13 +5424,13 @@
     "downloadInstead": "下載安裝程式",
     "failed": "無法檢查更新。請稍後再試。",
     "failure": {
-      "cancelled": "安裝需要管理員核准，但已取消。Rawtonic 未變更。",
       "disk": "無法寫入更新：磁碟可能已滿，或 Rawtonic 的資料夾為唯讀。Rawtonic 未變更。",
       "network": "下載失敗（無法連線到 GitHub）。Rawtonic 未變更。",
       "noPackage": "此版本沒有適用於這台電腦的更新套件。請改為下載安裝程式。",
       "notOffered": "此更新已不再提供。請重新檢查更新。",
       "notRestored": "無法安裝更新，也無法還原先前的版本；它保存在 {{path}}。請下載安裝程式以修復 Rawtonic。",
       "other": "更新失敗。Rawtonic 未變更。",
+      "permission": "Rawtonic 無法在此取代自身：未取得管理員核准，或其資料夾無法寫入。Rawtonic 未變更。",
       "signature": "下載的更新沒有 Rawtonic 的簽章，因此未安裝。Rawtonic 未變更。",
       "unsaved": "未重新啟動，未安裝任何內容：以下變更無法儲存：{{changes}}。"
     },

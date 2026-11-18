@@ -423,18 +423,6 @@ fn exit<R: Runtime>(app: &AppHandle<R>) {
     app.exit(0);
 }
 
-/// What every way out of the process does first: a quit, a restart, and the
-/// Windows update setup taking over (`update_check::install`).
-pub fn before_process_exit() {
-    // A GPU check of an AI model running in the background stops without a
-    // verdict.
-    rawtonic_onnx::stop_checks();
-    crate::contribute::clean_exit();
-    crate::window_state::flush();
-    crate::second_window::flush();
-    crate::startup::flush_logs();
-}
-
 /// Whether an exit request asks for a restart (`relaunch()` in the webview,
 /// Tauri's `request_restart`).
 pub fn is_restart(code: Option<i32>) -> bool {

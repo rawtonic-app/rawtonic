@@ -2314,6 +2314,7 @@
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Library database, with a Rawtonic Windows WAL locking correction.",
         "Tauri bundler": "Windows NSIS installer template, adapted for side-by-side per-user and all-users installs.",
+        "Tauri updater plugin": "Install update: fetches the release manifest and package, checks its signature and replaces the macOS app.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5561,13 +5562,13 @@
     "downloadInstead": "Download installer",
     "failed": "Could not check for updates. Try again later.",
     "failure": {
-      "cancelled": "Installing needs an administrator's approval, which was cancelled. Rawtonic is unchanged.",
       "disk": "The update could not be written: the disk may be full or Rawtonic's folder is read-only. Rawtonic is unchanged.",
       "network": "The download failed (no connection to GitHub). Rawtonic is unchanged.",
       "noPackage": "This release has no update package for this computer. Download the installer instead.",
       "notOffered": "This update is no longer offered. Check for updates again.",
       "notRestored": "The update could not be installed and the previous version could not be put back; it is kept at {{path}}. Download the installer to repair Rawtonic.",
       "other": "The update failed. Rawtonic is unchanged.",
+      "permission": "Rawtonic may not replace itself here: an administrator's approval was not given, or its folder is not writable. Rawtonic is unchanged.",
       "signature": "The downloaded update does not carry Rawtonic's signature, so it was not installed. Rawtonic is unchanged.",
       "unsaved": "Not restarted, nothing installed: these changes could not be saved: {{changes}}."
     },

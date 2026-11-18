@@ -2587,6 +2587,7 @@
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Baza danych biblioteki z poprawką Rawtonic dotyczącą blokowania WAL w systemie Windows.",
         "Tauri bundler": "Szablon instalatora NSIS dla Windows, dostosowany do równoległej instalacji dla pojedynczego użytkownika i dla wszystkich użytkowników.",
+        "Tauri updater plugin": "„Zainstaluj aktualizację”: pobiera manifest i pakiet wydania, sprawdza podpis i zastępuje aplikację macOS.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5988,13 +5989,13 @@
     "downloadInstead": "Pobierz instalator",
     "failed": "Nie udało się sprawdzić aktualizacji. Spróbuj ponownie później.",
     "failure": {
-      "cancelled": "Instalacja wymaga zgody administratora, która została anulowana. Rawtonic pozostał bez zmian.",
       "disk": "Nie udało się zapisać aktualizacji: dysk może być pełny lub folder Rawtonic jest tylko do odczytu. Rawtonic pozostał bez zmian.",
       "network": "Pobieranie nie powiodło się (brak połączenia z GitHubem). Rawtonic pozostał bez zmian.",
       "noPackage": "To wydanie nie ma pakietu aktualizacji dla tego komputera. Pobierz instalator.",
       "notOffered": "Ta aktualizacja nie jest już oferowana. Sprawdź aktualizacje ponownie.",
       "notRestored": "Nie udało się zainstalować aktualizacji ani przywrócić poprzedniej wersji; znajduje się ona w {{path}}. Pobierz instalator, aby naprawić Rawtonic.",
       "other": "Aktualizacja nie powiodła się. Rawtonic pozostał bez zmian.",
+      "permission": "Rawtonic nie może się tu zastąpić: nie udzielono zgody administratora lub jego folder nie jest zapisywalny. Rawtonic pozostał bez zmian.",
       "signature": "Pobrana aktualizacja nie ma podpisu Rawtonic, więc nie została zainstalowana. Rawtonic pozostał bez zmian.",
       "unsaved": "Nie uruchomiono ponownie, nic nie zainstalowano: nie udało się zapisać tych zmian: {{changes}}."
     },

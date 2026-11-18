@@ -2221,6 +2221,7 @@
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "ライブラリ用データベース。Windows の WAL ロック処理に Rawtonic 独自の修正を適用しています。",
         "Tauri bundler": "Windows 用 NSIS インストーラーのテンプレート。ユーザー単位と全ユーザー向けのインストールが共存できるように変更しています。",
+        "Tauri updater plugin": "「アップデートをインストール」: リリースのマニフェストとパッケージを取得し、署名を確認して macOS アプリを置き換えます。",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5423,13 +5424,13 @@
     "downloadInstead": "インストーラをダウンロード",
     "failed": "更新を確認できませんでした。後でもう一度お試しください。",
     "failure": {
-      "cancelled": "インストールには管理者の承認が必要ですが、キャンセルされました。Rawtonic は変更されていません。",
       "disk": "アップデートを書き込めませんでした。ディスクがいっぱいか、Rawtonic のフォルダが読み取り専用の可能性があります。Rawtonic は変更されていません。",
       "network": "ダウンロードに失敗しました（GitHub に接続できません）。Rawtonic は変更されていません。",
       "noPackage": "このリリースにはこのコンピュータ用のアップデートパッケージがありません。代わりにインストーラをダウンロードしてください。",
       "notOffered": "このアップデートは提供されなくなりました。もう一度アップデートを確認してください。",
       "notRestored": "アップデートをインストールできず、以前のバージョンも元に戻せませんでした。以前のバージョンは {{path}} にあります。インストーラをダウンロードして Rawtonic を修復してください。",
       "other": "アップデートに失敗しました。Rawtonic は変更されていません。",
+      "permission": "Rawtonic はここで自身を置き換えられません。管理者の承認が得られなかったか、フォルダに書き込めません。Rawtonic は変更されていません。",
       "signature": "ダウンロードしたアップデートに Rawtonic の署名がないため、インストールしませんでした。Rawtonic は変更されていません。",
       "unsaved": "再起動していません。何もインストールしていません。次の変更を保存できませんでした: {{changes}}。"
     },

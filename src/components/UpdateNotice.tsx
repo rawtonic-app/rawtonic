@@ -14,7 +14,7 @@ const FAILURE_TEXT = {
   signature: 'updates.failure.signature',
   noPackage: 'updates.failure.noPackage',
   disk: 'updates.failure.disk',
-  cancelled: 'updates.failure.cancelled',
+  permission: 'updates.failure.permission',
   notOffered: 'updates.failure.notOffered',
   stopped: 'updates.failure.other',
   other: 'updates.failure.other'

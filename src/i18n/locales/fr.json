@@ -2451,6 +2451,7 @@
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Base de données de la photothèque, avec un correctif Rawtonic du verrouillage WAL sous Windows.",
         "Tauri bundler": "Modèle de programme d’installation NSIS pour Windows, adapté pour permettre une installation individuelle en parallèle d’une installation pour tous les utilisateurs.",
+        "Tauri updater plugin": "« Installer la mise à jour » : récupère le manifeste et le paquet de la version, vérifie sa signature et remplace l’app macOS.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5775,13 +5776,13 @@
     "downloadInstead": "Télécharger l’installateur",
     "failed": "Impossible de vérifier les mises à jour. Réessayez plus tard.",
     "failure": {
-      "cancelled": "L’installation demande l’accord d’un administrateur, qui a été annulé. Rawtonic n’a pas changé.",
       "disk": "La mise à jour n’a pas pu être écrite : le disque est peut-être plein ou le dossier de Rawtonic en lecture seule. Rawtonic n’a pas changé.",
       "network": "Le téléchargement a échoué (pas de connexion à GitHub). Rawtonic n’a pas changé.",
       "noPackage": "Cette version n’a pas de paquet de mise à jour pour cet ordinateur. Téléchargez plutôt l’installateur.",
       "notOffered": "Cette mise à jour n’est plus proposée. Recherchez de nouveau les mises à jour.",
       "notRestored": "La mise à jour n’a pas pu être installée et la version précédente n’a pas pu être remise en place ; elle se trouve dans {{path}}. Téléchargez l’installateur pour réparer Rawtonic.",
       "other": "La mise à jour a échoué. Rawtonic n’a pas changé.",
+      "permission": "Rawtonic ne peut pas se remplacer ici : l’accord d’un administrateur n’a pas été donné ou son dossier n’est pas accessible en écriture. Rawtonic n’a pas changé.",
       "signature": "La mise à jour téléchargée ne porte pas la signature de Rawtonic ; elle n’a pas été installée. Rawtonic n’a pas changé.",
       "unsaved": "Pas de redémarrage, rien d’installé : ces modifications n’ont pas pu être enregistrées : {{changes}}."
     },
