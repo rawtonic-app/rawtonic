@@ -335,8 +335,10 @@
     ],
     "windows": {
       "nsis": {
+        "installMode": "currentUser",
         "installerIcon": "icons/icon.ico",
-        "installerHooks": "windows/installer-hooks.nsh"
+        "installerHooks": "windows/installer-hooks.nsh",
+        "template": "windows/installer.nsi"
       },
       "wix": {
         "language": {

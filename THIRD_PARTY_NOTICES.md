@@ -2,6 +2,8 @@
 
 Rawtonic additions: Copyright 2026 Rawtonic contributors, AGPL-3.0-or-later.
 
+`src-tauri/windows/installer.nsi` adapts the [Tauri CLI 2.12.5 NSIS template](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.12.5/crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi) to keep per-machine MSI installations in place. Copyright 2017 Cargo-Bundle developers, MIT (`src-tauri/resources/licenses/Tauri-Bundler-MIT.txt`).
+
 `vendor/libsqlite3-sys` contains libsqlite3-sys 0.38.2 (Copyright the rusqlite developers, MIT) and its public-domain SQLite 3.53.2 amalgamation. Original notices are preserved. Rawtonic's Windows shared-handle WAL locking correction is AGPL-3.0-or-later; see `RAWTONIC_PATCH.md` and `LICENSE_RAWTONIC_AGPL-3.0` in that directory.
 
 ## RapidRAW

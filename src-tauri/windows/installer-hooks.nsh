@@ -19,6 +19,7 @@
 InstallDirRegKey HKCU "Software\rawtonic\Rawtonic" ""
 
 Page custom RawtonicPrivacyPre RawtonicPrivacyLeave
+Page custom RawtonicMachineInstallNotice
 
 Function RawtonicMoveLegacyKey
   ReadRegStr $0 HKCU "Software\Rawtonic Project\Rawtonic" ""
@@ -27,7 +28,9 @@ Function RawtonicMoveLegacyKey
   ${AndIf} $1 != ""
     WriteRegStr HKCU "Software\Rawtonic Project\Rawtonic" "" $1
   ${EndIf}
-  DeleteRegKey HKCU "Software\rawtonic\Rawtonic"
+  ; MSI registers named values under this key. Only move the NSIS default.
+  DeleteRegValue HKCU "Software\rawtonic\Rawtonic" ""
+  DeleteRegKey /ifempty HKCU "Software\rawtonic\Rawtonic"
   DeleteRegKey /ifempty HKCU "Software\rawtonic"
 FunctionEnd
 
@@ -56,6 +59,24 @@ FunctionEnd
 
 Function RawtonicPrivacyLeave
   WriteRegDWORD HKCU "Software\Rawtonic Project\Rawtonic" "PrivacyNoticeShown" 1
+FunctionEnd
+
+Function RawtonicMachineInstallNotice
+  Call SkipIfPassive
+  Call RawtonicFindMachineInstalls
+  ${If} $RawtonicMachineInstall != 1
+    Abort
+  ${EndIf}
+
+  !insertmacro MUI_HEADER_TEXT "Rawtonic is installed for all users" "Install a separate copy for your Windows account"
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == "error"
+    Abort
+  ${EndIf}
+  ${NSD_CreateLabel} 0 0 100% 110u "The all-users copy of Rawtonic will stay installed. Both copies use the same Rawtonic settings and app data for your Windows account.$\r$\n$\r$\nTo remove an older all-users copy later, open Windows Settings > Apps > Installed apps (Apps & features on Windows 10) and check the version before choosing Uninstall. Windows will ask for administrator approval."
+  Pop $0
+  nsDialogs::Show
 FunctionEnd
 
 ; The install runs no GPU warm-up: on a Radeon 680M the MSI's took over two
