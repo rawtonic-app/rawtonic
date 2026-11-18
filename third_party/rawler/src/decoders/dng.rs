@@ -40,6 +40,11 @@ impl<'a> Decoder for DngDecoder<'a> {
     let height = fetch_tiff_tag!(raw, TiffCommonTag::ImageLength).force_usize(0);
     let cpp = fetch_tiff_tag!(raw, TiffCommonTag::SamplesPerPixel).force_usize(0);
     let bits = fetch_tiff_tag!(raw, TiffCommonTag::BitsPerSample).force_u32(0);
+    // Rawtonic patch (RWH1; dnglab ab0672e5): 1 to 4 samples per pixel,
+    // checked before anything is sized by it.
+    if !(1..=4).contains(&cpp) {
+      return Err(RawlerError::DecoderFailed(format!("DNG: {} samples per pixel", cpp)));
+    }
     let orientation = Orientation::from_tiff(self.tiff.root_ifd());
 
     let mut cam = self.make_camera(raw, width, height)?;
@@ -59,7 +64,9 @@ impl<'a> Decoder for DngDecoder<'a> {
     }
 
     let blacklevel = self.get_blacklevels(raw)?;
-    let whitelevel = self.get_whitelevels(raw)?.or(Some(WhiteLevel::new_bits(bits, cpp)));
+    // Rawtonic patch (RWH1): `get_whitelevels` checks the sample count first,
+    // and the default is only built when the file has no levels.
+    let whitelevel = self.get_whitelevels(raw)?.or_else(|| Some(WhiteLevel::new_bits(bits, cpp)));
 
     let photometric = match fetch_tiff_tag!(raw, TiffCommonTag::PhotometricInt).force_u32(0) {
       1 => RawPhotometricInterpretation::BlackIsZero,
@@ -467,6 +474,11 @@ impl<'a> DngDecoder<'a> {
 
   fn get_whitelevels(&self, raw: &IFD) -> Result<Option<WhiteLevel>> {
     let cpp = fetch_tiff_tag!(raw, TiffCommonTag::SamplesPerPixel).force_usize(0);
+    // Rawtonic patch (RWH1; dnglab ab0672e5): a raw image has 1 to 4 samples
+    // per pixel; a damaged count allocated one level per claimed sample.
+    if !(1..=4).contains(&cpp) {
+      return Err(RawlerError::DecoderFailed(format!("DNG: {} samples per pixel", cpp)));
+    }
     if let Some(levels) = raw.get_entry(TiffCommonTag::WhiteLevel) {
       let mut whitelevels = WhiteLevel((0..levels.count()).map(|i| levels.force_u32(i as usize)).collect());
       // Fixes a bug where only a single whitelevel value is given.

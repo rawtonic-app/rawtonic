@@ -54,21 +54,31 @@ impl<'a> Decompressor<'a, f32> for DeflateDecompressor {
     if self.pred_factor == 0 {
       return Err("Deflate: unsupported predictor".to_string());
     }
-    let mut decoder = Decoder::new(src).map_err(|err| format!("Deflate: {err}"))?;
-    let mut decoded_data = Vec::new();
-    decoder.read_to_end(&mut decoded_data).map_err(|err| format!("Deflate: {err}"))?;
-
     let bytesps = self.bps as usize / 8;
     if !(2..=4).contains(&bytesps) {
       return Err(format!("Deflate: {} bits per sample", self.bps));
     }
+    // The tile's size; inflating stops one byte past it, so a damaged stream
+    // can't inflate without bound (a few bytes can expand to gigabytes).
+    let expected = bytesps
+      .checked_mul(line_width)
+      .and_then(|n| n.checked_mul(lines.len()))
+      .ok_or("Deflate: tile size overflows")?;
+    let mut decoder = Decoder::new(src).map_err(|err| format!("Deflate: {err}"))?;
+    let mut decoded_data = Vec::new();
+    (&mut decoder)
+      .take(expected as u64 + 1)
+      .read_to_end(&mut decoded_data)
+      .map_err(|err| format!("Deflate: {err}"))?;
 
-    if decoded_data.len() != bytesps * line_width * lines.len() {
+    if decoded_data.len() != expected {
       return Err("Deflate: tile size doesn't match the image".to_string());
     }
 
     for (line, row) in lines.zip(decoded_data.chunks_exact_mut(bytesps as usize * line_width)).skip(skip_rows) {
-      assert_eq!(line.len(), line_width);
+      if line.len() != line_width {
+        return Err("Deflate: line width doesn't match the tile".to_string());
+      }
       decode_delta_bytes(row, self.pred_factor);
 
       match self.bps {

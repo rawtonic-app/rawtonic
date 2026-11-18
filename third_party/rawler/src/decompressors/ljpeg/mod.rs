@@ -225,6 +225,10 @@ impl<'a> LjpegDecompressor<'a> {
     {
       return Err("ljpeg: a component uses an undefined Huffman table".to_string());
     }
+    // The decoders' base prediction is 1 << (precision - point transform - 1).
+    if pt >= sof.precision {
+      return Err(format!("ljpeg: point transform {} for precision {}", pt, sof.precision));
+    }
     let offset = input.get_pos();
     Ok(LjpegDecompressor {
       buffer: src.get(offset..).ok_or("ljpeg: data starts behind the end of the buffer")?,
@@ -308,6 +312,11 @@ impl<'a> LjpegDecompressor<'a> {
     if dummy {
       return Ok(());
     }
+    // Rawtonic patch (RWH1; dnglab 2577192a, 36025c6d): the subsampled (YUV)
+    // routines read three components; a damaged header with fewer is an error.
+    if self.sof.components[0].super_h == 2 && (self.sof.cps < 3 || self.sof.components.len() < 3) {
+      return Err(format!("ljpeg: subsampled data with {} components", self.sof.cps));
+    }
     log::debug!("LJPEG decode with special Sony mode");
     if self.sof.components[0].super_h == 2 && self.sof.components[0].super_v == 2 {
       decode_sony_ljpeg_420(self, out, width, height)
@@ -330,6 +339,11 @@ impl<'a> LjpegDecompressor<'a> {
   pub fn decode(&self, out: &mut [u16], x: usize, stripwidth: usize, width: usize, height: usize, dummy: bool) -> Result<(), String> {
     if dummy {
       return Ok(());
+    }
+    // Rawtonic patch (RWH1; dnglab 2577192a, 36025c6d): the subsampled (YUV)
+    // routines read three components; a damaged header with fewer is an error.
+    if self.sof.components[0].super_h == 2 && (self.sof.cps < 3 || self.sof.components.len() < 3) {
+      return Err(format!("ljpeg: subsampled data with {} components", self.sof.cps));
     }
 
     if self.sof.components[0].super_h == 2 && self.sof.components[0].super_v == 2 {

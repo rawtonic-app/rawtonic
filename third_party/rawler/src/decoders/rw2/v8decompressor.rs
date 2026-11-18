@@ -5,6 +5,7 @@
 // Copyright (C) 2022-2024 Alex Tutubalin, LibRaw LLC
 // Ported from C++ to Rust by Daniel Vogelbacher
 
+use crate::RawlerError;
 use itertools::Itertools;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -92,17 +93,29 @@ struct CF2Params {
   strip_heights: Vec<u16>,
 }
 
+/// Rawtonic patch (RWH1; dnglab dbb56326 validates the CF2 parameters): a
+/// list tag must hold the `count` entries of `size` bytes it claims (reads past
+/// the end return zeros, which gave strips the same destination).
+fn check_list(bs: &ByteStream, count: u16, size: usize) -> Result<()> {
+  if bs.remaining_bytes() < count as usize * size {
+    return Err(RawlerError::DecoderFailed("RW2 v8: CF2 list shorter than its count".to_string()));
+  }
+  Ok(())
+}
+
 impl CF2Params {
   fn new(ifd: &IFD) -> Result<Self> {
     let strip_height = fetch_tiff_tag!(ifd, PanasonicTag::CF2StripHeight).force_u32(0);
     let gamma_point = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2Unknown1).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 4)?;
       (0..count).map(|_| bs.get_u32()).collect()
     };
     let gamma_slope = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2Unknown2).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 4)?;
       (0..count).map(|_| bs.get_u32()).collect()
     };
     let gamma_clip_val = fetch_tiff_tag!(ifd, PanasonicTag::CF2ClipVal).force_u16(0);
@@ -113,11 +126,13 @@ impl CF2Params {
     let huf_table = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2HufTable).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 4)?;
       (0..count).map(|_| (bs.get_u16(), bs.get_u16())).collect()
     };
     let huf_shift_down = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2HufShiftDown).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 2)?;
       (0..count).map(|_| bs.get_u16()).collect()
     };
     let num_of_strips_h = fetch_tiff_tag!(ifd, PanasonicTag::CF2NumberOfStripsH).force_u16(0);
@@ -125,11 +140,13 @@ impl CF2Params {
     let strip_byte_offsets = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2StripByteOffsets).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 4)?;
       (0..count).map(|_| bs.get_u32()).collect()
     };
     let strip_line_offsets = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2StripLineOffsets).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 4)?;
       (0..count)
         .map(|_| StripLineOffset {
           cols: bs.get_u16(),
@@ -140,16 +157,19 @@ impl CF2Params {
     let strip_data_size = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2StripDataSize).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 4)?;
       (0..count).map(|_| bs.get_u32()).collect()
     };
     let strip_widths = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2StripWidths).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 2)?;
       (0..count).map(|_| bs.get_u16()).collect()
     };
     let strip_heights = {
       let mut bs = ByteStream::new(fetch_tiff_tag!(ifd, PanasonicTag::CF2StripHeights).get_data(), Endian::Little);
       let count = bs.get_u16();
+      check_list(&bs, count, 2)?;
       (0..count).map(|_| bs.get_u16()).collect()
     };
     let strip_width = fetch_tiff_tag!(ifd, PanasonicTag::CF2StripWidth).force_u32(0);
@@ -371,15 +391,45 @@ pub(crate) fn decode_panasonic_v8(rawfile: &RawSource, width: usize, height: usi
   let params = CF2Params::new(ifd)?;
   log::debug!("pana8: params: {:?}", params);
 
-  assert_eq!(
-    params.strip_widths.iter().map(|x| *x as i32).sum::<i32>() as usize / params.num_of_strips_v as usize,
-    width
-  );
+  // Rawtonic patch (RWH1; dnglab dbb56326): the strip parameters must fit
+  // the image, and no two strips may share pixels, because the strips are
+  // written in parallel into one buffer. Errors instead of the assert, index
+  // panics or overlapping writes.
+  let total_strip_count = params.num_of_strips_h as usize * params.num_of_strips_v as usize;
+  if params.num_of_strips_v == 0 || params.strip_widths.iter().map(|x| *x as usize).sum::<usize>() / params.num_of_strips_v as usize != width {
+    return Err(RawlerError::DecoderFailed("RW2 v8: strip widths don't match the image".to_string()));
+  }
+  if [
+    params.strip_byte_offsets.len(),
+    params.strip_data_size.len(),
+    params.strip_widths.len(),
+    params.strip_heights.len(),
+    params.strip_line_offsets.len(),
+  ]
+  .iter()
+  .any(|&len| len < total_strip_count)
+  {
+    return Err(RawlerError::DecoderFailed("RW2 v8: fewer strip parameters than strips".to_string()));
+  }
+  let rects: Vec<(usize, usize, usize, usize)> = (0..total_strip_count)
+    .map(|id| {
+      let (x, y) = (params.strip_line_offsets[id].cols as usize, params.strip_line_offsets[id].rows as usize);
+      (x, y, x + params.strip_widths[id] as usize, y + params.strip_heights[id] as usize)
+    })
+    .collect();
+  for (i, a) in rects.iter().enumerate() {
+    // The decoder writes pairs of columns (and asserts an even width)
+    if a.2 > width || a.3 > height || params.strip_widths[i] % 2 != 0 {
+      return Err(RawlerError::DecoderFailed(format!("RW2 v8: strip {} is outside the image", i)));
+    }
+    if rects[..i].iter().any(|b| a.0 < b.2 && b.0 < a.2 && a.1 < b.3 && b.1 < a.3) {
+      return Err(RawlerError::DecoderFailed(format!("RW2 v8: strip {} overlaps another strip", i)));
+    }
+  }
 
   // Shared output buffer, we need to write from multiple rayon threads to output image.
   let shared_pix = SharedPix2D::new(out);
 
-  let total_strip_count = (params.num_of_strips_h * params.num_of_strips_v) as usize;
   let mut bitstreams = Vec::with_capacity(total_strip_count);
   for strip_id in 0..total_strip_count {
     bitstreams.push(rawfile.subview(params.strip_byte_offsets[strip_id] as u64, (params.strip_data_size[strip_id] as u64 + 7) / 8)?);

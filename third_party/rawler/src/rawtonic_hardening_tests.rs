@@ -58,6 +58,24 @@ fn decode_all(data: Vec<u8>) {
   let _ = decoder.xpacket(&src, &params);
 }
 
+/// [`decode_all`] on its own thread; a decode that doesn't return within
+/// `limit` (an endless loop) fails the test instead of hanging it. A panic
+/// on that thread fails it too.
+fn decode_within(data: Vec<u8>, limit: Duration, case: usize) {
+  let (done, finished) = std::sync::mpsc::channel();
+  let worker = std::thread::spawn(move || {
+    decode_all(data);
+    let _ = done.send(());
+  });
+  match finished.recv_timeout(limit) {
+    Ok(()) => worker.join().expect("decode thread"),
+    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+      worker.join().expect("decode panicked");
+    }
+    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!("mutation {case} did not finish within {limit:?}"),
+  }
+}
+
 /// A 64 x 48 Bayer DNG written by rawler's DNG writer.
 fn synthetic_dng(compression: DngCompression) -> Vec<u8> {
   let (width, height) = (64, 48);
@@ -218,7 +236,7 @@ fn mutated_headers_stress_under_time_bound() {
     let seed = &seeds[i % seeds.len()];
     let data = mutate(seed, &mut rng);
     let case = Instant::now();
-    decode_all(data);
+    decode_within(data, Duration::from_secs(10), i);
     slowest = slowest.max(case.elapsed());
   }
   let total = start.elapsed();
@@ -423,8 +441,8 @@ fn mutated_corpus_files_never_panic() {
       continue;
     }
     let start = Instant::now();
-    for _ in 0..per_file {
-      decode_all(mutate(&orig, &mut rng));
+    for i in 0..per_file {
+      decode_within(mutate(&orig, &mut rng), Duration::from_secs(120), i);
     }
     eprintln!("{}: {per_file} mutations in {:?}", path.display(), start.elapsed());
   }
