@@ -64,6 +64,10 @@ pub enum UpdateFailure {
     },
     /// Nothing offered for that version (the check ran again meanwhile).
     NotOffered,
+    /// The AppImage file was replaced or removed since Rawtonic started;
+    /// it is left as it is.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    Changed,
     /// The download was cancelled.
     Stopped,
     Other,
@@ -342,6 +346,11 @@ fn put_in_place(app: &AppHandle, update: &Update, bytes: &[u8]) -> Result<Placed
         let Some(appimage) = super::running_appimage() else {
             return Err(UpdateFailure::NoPackage);
         };
+        // Replaced or removed since Rawtonic started (another updater, a
+        // manual copy): never overwrite what is there now.
+        if !super::appimage_unchanged() {
+            return Err(UpdateFailure::Changed);
+        }
         if !bytes.starts_with(b"\x7fELF") {
             return Err(UpdateFailure::Signature);
         }
@@ -367,9 +376,10 @@ fn put_in_place(app: &AppHandle, update: &Update, bytes: &[u8]) -> Result<Placed
         let dir = tempfile::Builder::new()
             .prefix(&format!("{}-", update.version))
             .tempdir_in(&root)
-            .map_err(|e| io_failure(&anyhow::Error::from(e)))?
-            .keep();
-        let setup = dir.join(format!("Rawtonic_{}_x64-setup.exe", update.version));
+            .map_err(|e| io_failure(&anyhow::Error::from(e)))?;
+        let setup = dir
+            .path()
+            .join(format!("Rawtonic_{}_x64-setup.exe", update.version));
         rawtonic_fs::atomic_write(&setup, bytes).map_err(|e| io_failure(&e))?;
         // Passive (a progress bar, no questions, no administrator prompt for
         // the per-user setup), as an update, and start Rawtonic when done.
@@ -386,6 +396,9 @@ fn put_in_place(app: &AppHandle, update: &Update, bytes: &[u8]) -> Result<Placed
             .args(["/P", "/UPDATE", "/R"])
             .spawn()
             .map_err(|e| io_failure(&anyhow::Error::from(e)))?;
+        // The running setup keeps its folder; on any error above the
+        // folder was dropped, which removes it with the staged setup.
+        let _ = dir.keep();
         Ok(Placed::SetupStarted)
     }
 }

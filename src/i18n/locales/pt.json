@@ -5776,6 +5776,7 @@
     "downloadInstead": "Transferir instalador",
     "failed": "Não foi possível verificar as atualizações. Tente novamente mais tarde.",
     "failure": {
+      "changed": "O AppImage foi substituído desde que o Rawtonic arrancou, por isso ficou como está. Reinicie o Rawtonic e procure atualizações novamente.",
       "disk": "Não foi possível gravar a atualização: o disco pode estar cheio ou a pasta do Rawtonic só de leitura. O Rawtonic não foi alterado.",
       "network": "A transferência falhou (sem ligação ao GitHub). O Rawtonic não foi alterado.",
       "noPackage": "Esta versão não tem pacote de atualização para este computador. Transfira antes o instalador.",

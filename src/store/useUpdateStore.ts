@@ -40,7 +40,8 @@ export interface UpdateInfo {
 /** Why a download or install failed (`UpdateFailure` in update_check/install.rs). */
 export type UpdateFailure =
   | {
-      kind: 'network' | 'signature' | 'noPackage' | 'disk' | 'permission' | 'notOffered' | 'stopped' | 'other';
+      kind:
+        'network' | 'signature' | 'noPackage' | 'disk' | 'permission' | 'changed' | 'notOffered' | 'stopped' | 'other';
     }
   | { kind: 'notRestored'; path: string }
   /** Edits that could not be saved: the app was not restarted (nothing installed). */

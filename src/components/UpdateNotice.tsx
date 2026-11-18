@@ -15,6 +15,7 @@ const FAILURE_TEXT = {
   noPackage: 'updates.failure.noPackage',
   disk: 'updates.failure.disk',
   permission: 'updates.failure.permission',
+  changed: 'updates.failure.changed',
   notOffered: 'updates.failure.notOffered',
   stopped: 'updates.failure.other',
   other: 'updates.failure.other'

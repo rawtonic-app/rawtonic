@@ -134,17 +134,50 @@ fn this_install(os: core::Os, app_image: bool) -> core::Install {
 }
 
 /// The AppImage file this process runs from (Linux), see
-/// `core::running_appimage`; the in-app update replaces only that file.
+/// `core::running_appimage`, as it was at the first call (app start, lib.rs
+/// setup). The in-app update replaces only that file.
 pub(crate) fn running_appimage() -> Option<std::path::PathBuf> {
-    if !cfg!(target_os = "linux") {
-        return None;
-    }
-    let exe = std::env::current_exe().ok()?;
-    let bundle =
-        tauri::utils::platform::bundle_type() == Some(tauri::utils::config::BundleType::AppImage);
-    let appimage = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from);
-    let appdir = std::env::var_os("APPDIR").map(std::path::PathBuf::from);
-    core::running_appimage(bundle, appimage.as_deref(), appdir.as_deref(), &exe)
+    started_appimage().map(|(path, _)| path.clone())
+}
+
+/// The running AppImage and its file identity (device, inode) at the start.
+#[cfg(unix)]
+fn started_appimage() -> Option<&'static (std::path::PathBuf, (u64, u64))> {
+    use std::os::unix::fs::MetadataExt;
+    static STARTED: std::sync::OnceLock<Option<(std::path::PathBuf, (u64, u64))>> =
+        std::sync::OnceLock::new();
+    STARTED
+        .get_or_init(|| {
+            if !cfg!(target_os = "linux") {
+                return None;
+            }
+            let exe = std::env::current_exe().ok()?;
+            let bundle = tauri::utils::platform::bundle_type()
+                == Some(tauri::utils::config::BundleType::AppImage);
+            let appimage = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from);
+            let appdir = std::env::var_os("APPDIR").map(std::path::PathBuf::from);
+            let path =
+                core::running_appimage(bundle, appimage.as_deref(), appdir.as_deref(), &exe)?;
+            let meta = std::fs::metadata(&path).ok()?;
+            Some((path, (meta.dev(), meta.ino())))
+        })
+        .as_ref()
+}
+
+#[cfg(not(unix))]
+fn started_appimage() -> Option<&'static (std::path::PathBuf, (u64, u64))> {
+    None
+}
+
+/// Whether the running AppImage's file is still the one Rawtonic started
+/// from (an external update or a manual copy may have replaced it since).
+#[cfg(target_os = "linux")]
+pub(crate) fn appimage_unchanged() -> bool {
+    use std::os::unix::fs::MetadataExt;
+    started_appimage().is_some_and(|(path, id)| {
+        std::fs::symlink_metadata(path)
+            .is_ok_and(|m| m.file_type().is_file() && (m.dev(), m.ino()) == *id)
+    })
 }
 
 /// Whether `path` lies on a read-only volume (a mounted disk image, App

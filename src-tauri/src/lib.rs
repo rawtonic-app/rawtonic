@@ -381,6 +381,9 @@ fn start(args: Vec<String>) {
             gpu_processing::notify_compile_activity(app.handle());
             gpu_processing::hold_ai_checks_during_compiles();
             gpu_idle_helper::register();
+            // The AppImage file as it was at the start: an update replaces
+            // only that file, never one put there since.
+            update_check::running_appimage();
             if matches!(launch_req, LaunchRequest::WarmGpuCache) {
                 gpu_warmup::start(app.handle());
                 return Ok(());

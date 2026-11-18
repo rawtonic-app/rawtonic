@@ -5562,6 +5562,7 @@
     "downloadInstead": "Download installer",
     "failed": "Could not check for updates. Try again later.",
     "failure": {
+      "changed": "The AppImage was replaced since Rawtonic started, so it was left as it is. Restart Rawtonic, then check for updates again.",
       "disk": "The update could not be written: the disk may be full or Rawtonic's folder is read-only. Rawtonic is unchanged.",
       "network": "The download failed (no connection to GitHub). Rawtonic is unchanged.",
       "noPackage": "This release has no update package for this computer. Download the installer instead.",

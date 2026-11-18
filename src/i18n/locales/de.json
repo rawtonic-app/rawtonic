@@ -5562,6 +5562,7 @@
     "downloadInstead": "Installer laden",
     "failed": "Updates konnten nicht geprüft werden. Versuche es später erneut.",
     "failure": {
+      "changed": "Das AppImage wurde seit dem Start von Rawtonic ersetzt und bleibt deshalb unverändert. Starte Rawtonic neu und suche dann erneut nach Updates.",
       "disk": "Das Update konnte nicht geschrieben werden: Der Datenträger ist vielleicht voll oder Rawtonics Ordner schreibgeschützt. Rawtonic ist unverändert.",
       "network": "Das Laden ist fehlgeschlagen (keine Verbindung zu GitHub). Rawtonic ist unverändert.",
       "noPackage": "Diese Version hat kein Update-Paket für diesen Computer. Lade stattdessen den Installer.",

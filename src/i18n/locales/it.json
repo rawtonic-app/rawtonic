@@ -5776,6 +5776,7 @@
     "downloadInstead": "Scarica il programma di installazione",
     "failed": "Impossibile verificare gli aggiornamenti. Riprova più tardi.",
     "failure": {
+      "changed": "L’AppImage è stata sostituita dopo l’avvio di Rawtonic, quindi è stata lasciata così. Riavvia Rawtonic e cerca di nuovo gli aggiornamenti.",
       "disk": "Impossibile scrivere l’aggiornamento: il disco potrebbe essere pieno o la cartella di Rawtonic di sola lettura. Rawtonic non è cambiato.",
       "network": "Download non riuscito (nessuna connessione a GitHub). Rawtonic non è cambiato.",
       "noPackage": "Questa versione non ha un pacchetto di aggiornamento per questo computer. Scarica invece il programma di installazione.",

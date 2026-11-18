@@ -5424,6 +5424,7 @@
     "downloadInstead": "下载安装程序",
     "failed": "无法检查更新。请稍后重试。",
     "failure": {
+      "changed": "自 Rawtonic 启动以来 AppImage 已被替换，因此保持原样。请重新启动 Rawtonic，然后再次检查更新。",
       "disk": "无法写入更新：磁盘可能已满，或 Rawtonic 的文件夹为只读。Rawtonic 未改变。",
       "network": "下载失败（无法连接到 GitHub）。Rawtonic 未改变。",
       "noPackage": "此版本没有适用于这台电脑的更新包。请改为下载安装程序。",

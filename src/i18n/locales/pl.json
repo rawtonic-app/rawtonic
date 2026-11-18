@@ -5989,6 +5989,7 @@
     "downloadInstead": "Pobierz instalator",
     "failed": "Nie udało się sprawdzić aktualizacji. Spróbuj ponownie później.",
     "failure": {
+      "changed": "Plik AppImage został zastąpiony od uruchomienia Rawtonic, więc pozostawiono go bez zmian. Uruchom Rawtonic ponownie i sprawdź aktualizacje jeszcze raz.",
       "disk": "Nie udało się zapisać aktualizacji: dysk może być pełny lub folder Rawtonic jest tylko do odczytu. Rawtonic pozostał bez zmian.",
       "network": "Pobieranie nie powiodło się (brak połączenia z GitHubem). Rawtonic pozostał bez zmian.",
       "noPackage": "To wydanie nie ma pakietu aktualizacji dla tego komputera. Pobierz instalator.",
