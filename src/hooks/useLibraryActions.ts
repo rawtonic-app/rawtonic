@@ -303,7 +303,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
 
       useEditorStore.getState().setEditor({
         selectedImage: null,
-        finalPreviewUrl: null,
+        finalPreview: null,
         uncroppedAdjustedPreviewUrl: null,
         histogram: null,
         waveform: null,

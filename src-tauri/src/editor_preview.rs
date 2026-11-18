@@ -1766,6 +1766,7 @@ pub(crate) fn process_preview_job(
     active_waveform_channel: Option<&str>,
     mask_overlay: Option<&crate::app_state::MaskOverlayRequest>,
     crop_edit: bool,
+    _browser_full_zoom: bool,
     render_generation: usize,
 ) -> Result<Vec<u8>, CommandError> {
     let fn_start = std::time::Instant::now();
@@ -2296,10 +2297,14 @@ pub(crate) fn process_preview_job(
     // the JPEG dropped or added the fine chroma a photographer judges noise
     // reduction by. Drags and 100 % stay JPEG.
     #[cfg(target_os = "linux")]
-    let lossless = !is_interactive && crate::preview_jpeg::settled_lossless(effective_scale);
+    let lossless = !is_interactive
+        && !_browser_full_zoom
+        && crate::preview_jpeg::settled_lossless(effective_scale);
     #[cfg(target_os = "linux")]
     let encode_result = if is_interactive {
         encode_browser_preview(final_rgba_image, jpeg_quality)
+    } else if _browser_full_zoom {
+        crate::preview_jpeg::encode_settled_like(final_rgba_image, effective_scale, Some(false))
     } else {
         crate::preview_jpeg::encode_settled(final_rgba_image, effective_scale)
     };
@@ -2543,6 +2548,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                         job.active_waveform_channel.as_deref(),
                         job.mask_overlay.as_ref(),
                         job.crop_edit,
+                        job.browser_full_zoom,
                         job.generation,
                     )
                 },
@@ -2686,6 +2692,7 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
             false,
             None,
             None,
+            false,
             false,
             warm.generation,
         )
@@ -2945,6 +2952,7 @@ fn submit_activation_frame(
         sequence: None,
         adjustments: recipe,
         is_interactive: false,
+        browser_full_zoom: false,
         target_resolution: preview_dim,
         roi: None,
         request_analytics: false,
@@ -3594,6 +3602,7 @@ pub(crate) async fn apply_adjustments(
     mask_overlay: Option<crate::app_state::MaskOverlayRequest>,
     crop_edit: Option<bool>,
     browser_preview_uri: Option<bool>,
+    browser_full_zoom: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Response, CommandError> {
     // An edit renders: a GPU check of an AI model gives way (rawtonic-onnx
@@ -3632,6 +3641,7 @@ pub(crate) async fn apply_adjustments(
         sequence,
         adjustments: js_adjustments,
         is_interactive,
+        browser_full_zoom: browser_full_zoom.unwrap_or(false),
         target_resolution,
         roi,
         request_analytics,
@@ -4200,6 +4210,21 @@ mod preview_memory_tests {
     use super::*;
 
     #[test]
+    fn accepts_full_zoom_from_the_browser_preview_request() {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Args {
+            browser_full_zoom: Option<bool>,
+        }
+
+        let args: Args =
+            serde_json::from_str(include_str!("../../src/contracts/browserFullZoom.json")).unwrap();
+        assert_eq!(args.browser_full_zoom, Some(true));
+        let default: Args = serde_json::from_str("{}").unwrap();
+        assert_eq!(default.browser_full_zoom, None);
+    }
+
+    #[test]
     fn only_final_fit_frames_warm_the_drag_draft_source() {
         let job =
             |is_interactive: bool, roi: Option<(f32, f32, f32, f32)>, crop_edit: bool| PreviewJob {
@@ -4207,6 +4232,7 @@ mod preview_memory_tests {
                 sequence: None,
                 adjustments: serde_json::json!({"exposure": 1.0}),
                 is_interactive,
+                browser_full_zoom: false,
                 target_resolution: Some(1920),
                 roi,
                 request_analytics: true,

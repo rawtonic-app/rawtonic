@@ -73,12 +73,20 @@ pub struct Lifecycle {
 
 /// A computation with a model is running while this lives (no idle unload).
 /// Owns its handle, so a computation can take it into a blocking task.
-pub struct Running(Arc<Lifecycle>);
+pub struct Running {
+    lifecycle: Arc<Lifecycle>,
+    generation: u64,
+}
 
 impl Drop for Running {
     fn drop(&mut self) {
-        let mut usage = self.0.usage();
+        let mut usage = self.lifecycle.usage();
         usage.busy = usage.busy.saturating_sub(1);
+        if usage.generation == self.generation {
+            // Ending a run restarts the idle clock without counting as a
+            // new user action (the warm-up checks the user action count).
+            usage.last_use = Some(Instant::now());
+        }
     }
 }
 
@@ -152,8 +160,12 @@ impl Lifecycle {
 
     /// Marks a computation with a model as running until the guard drops.
     pub fn run(self: &Arc<Self>) -> Running {
-        self.usage().busy += 1;
-        Running(Arc::clone(self))
+        let mut usage = self.usage();
+        usage.busy += 1;
+        Running {
+            lifecycle: Arc::clone(self),
+            generation: usage.generation,
+        }
     }
 
     /// Whether the models have been unused for `idle` and nothing runs.
@@ -644,16 +656,28 @@ mod tests {
     #[test]
     fn nothing_is_unloaded_for_idleness_while_a_computation_runs() {
         let lifecycle = Arc::new(Lifecycle::new());
-        let t0 = Instant::now();
-        let idle = Duration::from_secs(300);
-        lifecycle.touch_at(t0);
+        let idle = IDLE_COMPILE_UNLOAD;
+        lifecycle.touch_at(Instant::now() - idle * 2);
+        let uses = lifecycle.uses();
         let run = lifecycle.run();
         let second = lifecycle.run();
-        assert!(!lifecycle.idle_at(t0 + idle * 3, idle));
+        assert!(!lifecycle.idle_at(Instant::now(), idle));
         drop(run);
-        assert!(!lifecycle.idle_at(t0 + idle * 3, idle));
+        assert!(!lifecycle.idle_at(Instant::now() + idle * 2, idle));
         drop(second);
-        assert!(lifecycle.idle_at(t0 + idle * 3, idle));
+        assert!(!lifecycle.idle_at(Instant::now(), idle));
+        assert!(lifecycle.idle_at(Instant::now() + idle, idle));
+        assert_eq!(lifecycle.uses(), uses);
+    }
+
+    #[test]
+    fn finishing_after_an_unload_does_not_restart_the_idle_clock() {
+        let lifecycle = Arc::new(Lifecycle::new());
+        lifecycle.touch();
+        let run = lifecycle.run();
+        lifecycle.unloaded(UnloadReason::MemoryPressure);
+        drop(run);
+        assert!(!lifecycle.idle_at(Instant::now() + IDLE_UNLOAD, IDLE_UNLOAD));
     }
 
     /// The tagging models outlive Library and idle unloads, but a load

@@ -227,7 +227,7 @@ describe('stepping the primary in the multi view', () => {
       adjustments: { ...INITIAL_ADJUSTMENTS },
       histogram,
       waveform: null,
-      finalPreviewUrl: null,
+      finalPreview: null,
       uncroppedPreviewUrl: null,
       originalSize: { width: W, height: H },
       previewSize: { width: W, height: H }

@@ -1464,7 +1464,7 @@ impl Library {
     pub fn adopt_xmp(&self, asset: &str) -> Result<Metadata, CatalogError> {
         self.adopt_editor_sidecar(asset)?;
         let path = rawtonic_metadata::sidecar_path(&self.asset(asset)?.path);
-        let text = fs::read_to_string(path)?;
+        let text = rawtonic_metadata::read_xmp_text(&path)?;
         let (metadata, _) = rawtonic_metadata::read_xmp(&text)?;
         let stated = rawtonic_metadata::read_capture_time(&text)?;
         self.set_metadata(asset, &metadata)?;
@@ -2431,7 +2431,7 @@ fn forget_xmp_left_behind(tx: &Connection, id: &str, path: &Path) -> Result<()> 
     if hash.is_none() && publishing.is_none() {
         return Ok(());
     }
-    let here = fs::read(rawtonic_metadata::sidecar_path(path))
+    let here = rawtonic_metadata::read_xmp_bytes(&rawtonic_metadata::sidecar_path(path))
         .ok()
         .map(|bytes| rawtonic_fs::sha256_hex(&bytes));
     if here.is_some() && here == publishing {

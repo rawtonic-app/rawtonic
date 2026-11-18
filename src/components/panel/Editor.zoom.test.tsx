@@ -6,18 +6,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Editor, { type TransformWrapperHandle } from './Editor';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useUIStore } from '../../store/useUIStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
 import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
 
 // Keep the real viewer and targeted pointer surface; replace the renderer.
 // Zoom tests also check the preview size requested at animation start.
+// The photo pane ImageCanvas last got (`photoHost`).
+const canvasProps = vi.hoisted(() => ({ photoHost: undefined as HTMLElement | null | undefined }));
 vi.mock('./editor/ImageCanvas', async () => {
   const { default: TargetedAdjustmentOverlay } = await import('./editor/TargetedAdjustmentOverlay');
   // The frame list the preview parks (`switchPreviewLayers`).
   return {
-    default: () =>
-      useEditorStore.getState().tatTarget ? (
+    default: ({ photoHost }: { photoHost?: HTMLElement | null }) => {
+      canvasProps.photoHost = photoHost;
+      return useEditorStore.getState().tatTarget ? (
         <TargetedAdjustmentOverlay rect={{ left: 0, top: 0, width: 400, height: 300 }} />
-      ) : null
+      ) : null;
+    }
   };
 });
 // The viewer's fit; a test changes it as the viewer's size would change.
@@ -37,6 +42,7 @@ vi.mock('../../hooks/useImageRenderSize', () => ({
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve(null)) }));
 
 describe('Editor zoom', () => {
+  const platform = useSettingsStore.getState().osPlatform;
   beforeEach(() => {
     vi.useFakeTimers();
     // The animation's frames never run: what is reported comes from its start.
@@ -69,6 +75,9 @@ describe('Editor zoom', () => {
       colorPickerTarget: null,
       selectedImage: { path: '/a.raw', width: 4000, height: 3000, isReady: true } as never,
       displaySize: { width: 400, height: 300 },
+      baseRenderSize: { width: 0, height: 0, offsetX: 0, offsetY: 0, containerWidth: 0, containerHeight: 0 },
+      browserFullZoom: false,
+      zoom: 1,
       splitView: false
     });
   });
@@ -76,9 +85,38 @@ describe('Editor zoom', () => {
   afterEach(() => {
     // Unmount while the stubs still stand, so no React work outlives the file's jsdom.
     cleanup();
+    useSettingsStore.setState({ osPlatform: platform });
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it('draws the photograph beside the zoomed viewer on Linux, moved with it', () => {
+    useSettingsStore.setState({ osPlatform: 'linux' });
+    const ref = createRef<TransformWrapperHandle>();
+    render(<Editor onContextMenu={() => {}} transformWrapperRef={ref} />);
+    const viewer = ref.current!.instance.contentComponent!;
+    const pane = canvasProps.photoHost!;
+    // Not inside the viewer (its canvases make WebKitGTK composite it), but
+    // in the same box, below it.
+    expect(pane).toBeInstanceOf(HTMLElement);
+    expect(viewer.contains(pane)).toBe(false);
+    expect(pane.parentElement).toBe(viewer.parentElement);
+    expect(pane.compareDocumentPosition(viewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    act(() => ref.current!.setTransform(-120, -80, 4));
+    expect(pane.style.transform).toBe(viewer.style.transform);
+    expect(viewer.style.transform).toContain('scale(4)');
+    // Composited while it moves, as the viewer, and painted at the zoom at rest.
+    expect(pane.style.willChange).toBe('transform');
+    act(() => vi.advanceTimersByTime(1000));
+    expect(pane.style.willChange).toBe('');
+  });
+
+  it('keeps the photograph in the viewer on macOS and Windows', () => {
+    useSettingsStore.setState({ osPlatform: 'macos' });
+    const ref = createRef<TransformWrapperHandle>();
+    render(<Editor onContextMenu={() => {}} transformWrapperRef={ref} />);
+    expect(canvasProps.photoHost).toBeNull();
   });
 
   it("asks for the frame of an animated zoom's end when the animation starts", () => {

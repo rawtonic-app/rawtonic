@@ -88,7 +88,7 @@ beforeEach(() => {
     isWaveformVisible: false,
     displaySize: { width: 0, height: 0 },
     originalSize: { width: 0, height: 0 },
-    finalPreviewUrl: null,
+    finalPreview: null,
     hasRenderedFirstFrame: false,
     interactivePatch: null,
     patchesSentToBackend: new Set()
@@ -180,7 +180,7 @@ it('shows the priority camera JPEG before RAW completion without enabling edits 
     thumbnailUrl: 'blob:priority-preview',
     thumbnailSource: 'embedded'
   });
-  expect(useEditorStore.getState().finalPreviewUrl).toBeNull();
+  expect(useEditorStore.getState().finalPreview).toBeNull();
   expect(useEditorStore.getState().hasRenderedFirstFrame).toBe(false);
   await resolve(Invokes.LoadImage, '/first.dng', nativeResult);
   expect(useEditorStore.getState().selectedImage?.isReady).toBe(true);

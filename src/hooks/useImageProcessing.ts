@@ -123,6 +123,8 @@ export function useImageProcessing(
   const isWaveformVisible = useEditorStore((state) => state.isWaveformVisible);
   const activeWaveformChannel = useEditorStore((state) => state.activeWaveformChannel);
   const displaySize = useEditorStore((state) => state.displaySize);
+  const browserFullZoom = useEditorStore((state) => os === 'linux' && state.browserFullZoom);
+  const submittedFullZoom = useRef(false);
   const baseRenderSize = useEditorStore((state) => state.baseRenderSize);
   const originalSize = useEditorStore((state) => state.originalSize);
   // The recipe being rendered: a hovered preset's grain too.
@@ -259,6 +261,8 @@ export function useImageProcessing(
         stripSentBitmaps(payload, patchesSentToBackend).forEach((id) => newlySentPatches.add(id));
       }
 
+      const fullZoom = os === 'linux' && useEditorStore.getState().browserFullZoom;
+      if (!dragging) submittedFullZoom.current = fullZoom;
       const jobId = ++previewJobIdRef.current;
       const roi = cropEdit ? null : calculateROI();
       const performanceStart = performanceDiagnosticsEnabled ? performance.now() : 0;
@@ -281,7 +285,8 @@ export function useImageProcessing(
             cropEdit,
             // Large Linux patches go directly to the image loader. Small
             // frames, final previews and other platforms retain binary replies.
-            browserPreviewUri: import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0'
+            browserPreviewUri: import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0',
+            ...(fullZoom ? { browserFullZoom: true } : {})
           },
           os === 'linux' && dragging && import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0'
         );
@@ -372,7 +377,7 @@ export function useImageProcessing(
             }
 
             setEditor((state) => {
-              const prevUrl = state.finalPreviewUrl;
+              const prevUrl = state.finalPreview?.url;
               if (prevUrl && prevUrl.startsWith('blob:') && !globalImageCache.isProtected(prevUrl)) {
                 setTimeout(() => {
                   if (!globalImageCache.isProtected(prevUrl)) {
@@ -381,8 +386,7 @@ export function useImageProcessing(
                 }, 250);
               }
               return {
-                finalPreviewUrl: url,
-                finalPreviewLossless: type === 'image/png',
+                finalPreview: { url, lossless: type === 'image/png', fullZoom },
                 previewFrames: state.previewFrames + 1
               };
             });
@@ -828,13 +832,16 @@ export function useImageProcessing(
     () =>
       debounce((targetRes: number) => {
         const { adjustments, previewOverride } = useEditorStore.getState();
-        if (needsFrameSize(targetRes, currentResRef.current, ((previewOverride ?? adjustments).grainAmount ?? 0) > 0)) {
+        if (
+          browserFullZoom !== submittedFullZoom.current ||
+          needsFrameSize(targetRes, currentResRef.current, ((previewOverride ?? adjustments).grainAmount ?? 0) > 0)
+        ) {
           currentResRef.current = targetRes;
           const renderAdjustments = previewOverride ?? adjustments;
           applyAdjustments(renderAdjustments, false, targetRes);
         }
       }, 50),
-    [applyAdjustments, currentResRef]
+    [applyAdjustments, browserFullZoom, currentResRef]
   );
 
   useEffect(() => {
@@ -847,7 +854,7 @@ export function useImageProcessing(
       }
       const finalRes = Math.round(baseRes);
 
-      if (needsFrameSize(finalRes, currentResRef.current, hasGrain)) {
+      if (browserFullZoom !== submittedFullZoom.current || needsFrameSize(finalRes, currentResRef.current, hasGrain)) {
         requestHiFiZoom(finalRes);
       }
     }
@@ -858,6 +865,7 @@ export function useImageProcessing(
     viewerOn,
     displaySize.width,
     displaySize.height,
+    browserFullZoom,
     calculateTargetRes,
     selectedImage?.isReady,
     selectedImage?.isPreviewReady,

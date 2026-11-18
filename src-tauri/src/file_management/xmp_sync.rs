@@ -2,7 +2,7 @@
 //! Part of `file_management`, split by concern (ADR 0009).
 use crate::image_processing::ImageMetadata;
 use rawtonic_metadata::labels;
-use std::fs;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -75,7 +75,8 @@ pub fn sync_metadata_from_xmp(source_path: &Path, metadata: &mut ImageMetadata) 
     let mut changed = false;
 
     if let Some(xmp_file) = actual_xmp
-        && let Ok(content) = fs::read_to_string(&xmp_file)
+        && let Ok(content) = rawtonic_metadata::read_xmp_text(&xmp_file)
+        && rawtonic_metadata::check_xmp_input(&content).is_ok()
     {
         if metadata.rating == 0
             && let Some(rating) = extract_xmp_rating(&content)
@@ -97,11 +98,8 @@ pub fn sync_metadata_from_xmp(source_path: &Path, metadata: &mut ImageMetadata) 
         let original_len = current_tags.len();
         let had_no_tags = metadata.tags.is_none();
 
-        for tag in xmp_tags {
-            if !current_tags.contains(&tag) {
-                current_tags.push(tag);
-            }
-        }
+        let mut seen: HashSet<String> = current_tags.iter().cloned().collect();
+        current_tags.extend(xmp_tags.into_iter().filter(|tag| seen.insert(tag.clone())));
 
         if let Some(label) = xmp_label {
             let label_tag = labels::editor_tag(&label);
@@ -131,7 +129,7 @@ pub fn sync_metadata_to_xmp(source_path: &Path, metadata: &ImageMetadata, create
     }
     let result = (|| -> anyhow::Result<()> {
         let existing = if path.exists() {
-            Some(fs::read_to_string(&path)?)
+            Some(rawtonic_metadata::read_xmp_text(&path)?)
         } else {
             None
         };

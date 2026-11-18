@@ -676,6 +676,42 @@ pub(crate) async fn download_verified_in(
     Ok(())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum MaskModelSkip {
+    RuntimeUnavailable,
+    ModelFilesUnavailable,
+}
+
+impl MaskModelSkip {
+    fn reason(&self) -> &'static str {
+        match self {
+            Self::RuntimeUnavailable => "ONNX Runtime is unavailable",
+            Self::ModelFilesUnavailable => "model files are missing or failed verification",
+        }
+    }
+}
+
+/// Checks the ONNX prerequisites for a background request without downloading.
+fn mask_model_skip(
+    runtime_available: bool,
+    verified: impl FnOnce() -> Result<bool>,
+) -> Result<Option<MaskModelSkip>> {
+    if !runtime_available {
+        Ok(Some(MaskModelSkip::RuntimeUnavailable))
+    } else if !verified()? {
+        Ok(Some(MaskModelSkip::ModelFilesUnavailable))
+    } else {
+        Ok(None)
+    }
+}
+
+fn log_mask_model_skip(mask: &str, reason: MaskModelSkip) {
+    log::info!(
+        "AI {mask} mask: model unavailable for ahead work, {}",
+        reason.reason()
+    );
+}
+
 /// The sky model (UperNet), loaded on its own. With `download` false (a
 /// background request) only an installed model is loaded: `None` when it
 /// is not installed or the runtime is missing.
@@ -724,11 +760,8 @@ pub async fn get_or_init_sky_model(
         });
         return Ok(Some(model));
     }
-    if !download && ensure_local_runtime().is_err() {
-        return Ok(None);
-    }
-    ensure_local_runtime()?;
     if download {
+        ensure_local_runtime()?;
         download_verified(
             app_handle,
             &models_dir,
@@ -737,7 +770,10 @@ pub async fn get_or_init_sky_model(
             "Sky Model",
         )
         .await?;
-    } else if !verify_sha256(&path, SKYSEG_SHA256)? {
+    } else if let Some(reason) = mask_model_skip(ensure_local_runtime().is_ok(), || {
+        verify_sha256(&path, SKYSEG_SHA256)
+    })? {
+        log_mask_model_skip("sky", reason);
         return Ok(None);
     }
     let model = tokio::task::spawn_blocking(move || SkyModel::onnx(&path)).await??;
@@ -801,13 +837,18 @@ pub async fn preload_sam_models(app_handle: &tauri::AppHandle, ai_state: &AiStat
     let already = lock_recover(&ai_state.models)
         .as_ref()
         .is_some_and(|state| state.sam_models.is_some());
-    if already || ensure_local_runtime().is_err() {
+    if already {
         return Ok(());
     }
-    let models_dir = get_models_dir(app_handle)?;
-    let installed = verify_sha256(&models_dir.join(ENCODER_FILENAME), ENCODER_SHA256)?
-        && verify_sha256(&models_dir.join(DECODER_FILENAME), DECODER_SHA256)?;
-    if !installed {
+    let skip = mask_model_skip(ensure_local_runtime().is_ok(), || {
+        let models_dir = get_models_dir(app_handle)?;
+        Ok(
+            verify_sha256(&models_dir.join(ENCODER_FILENAME), ENCODER_SHA256)?
+                && verify_sha256(&models_dir.join(DECODER_FILENAME), DECODER_SHA256)?,
+        )
+    })?;
+    if let Some(reason) = skip {
+        log_mask_model_skip("object", reason);
         return Ok(());
     }
     get_or_init_sam_models(app_handle, ai_state).await?;
@@ -907,7 +948,12 @@ pub async fn get_or_init_subject_model(
     if let Some(model) = loaded() {
         return Ok(Some(model));
     }
+    let lock_wait = std::time::Instant::now();
     let _guard = ai_state.init_lock.lock().await;
+    log::info!(
+        "AI subject mask: init lock wait {} ms",
+        lock_wait.elapsed().as_millis()
+    );
     if let Some(model) = loaded() {
         return Ok(Some(model));
     }
@@ -921,24 +967,54 @@ pub async fn get_or_init_subject_model(
     let model = match core_ml {
         Some(model) => model,
         None => {
-            if !download && ensure_local_runtime().is_err() {
-                return Ok(None);
-            }
-            ensure_local_runtime()?;
+            let runtime_start = std::time::Instant::now();
+            let runtime = ensure_local_runtime();
+            log::info!(
+                "AI subject mask: ONNX Runtime check {} ms",
+                runtime_start.elapsed().as_millis()
+            );
             let path = models_dir.join(SUBJECT_FILENAME);
-            if download {
-                download_verified(
+            let file_start = std::time::Instant::now();
+            let skip = if download {
+                runtime?;
+                let result = download_verified(
                     app_handle,
                     &models_dir,
                     SUBJECT_FILENAME,
                     SUBJECT_SHA256,
                     "Subject Model",
                 )
-                .await?;
-            } else if !verify_sha256(&path, SUBJECT_SHA256)? {
+                .await;
+                log::info!(
+                    "AI subject mask: model file check/hash (including download if needed) {} ms",
+                    file_start.elapsed().as_millis()
+                );
+                result?;
+                None
+            } else {
+                let skip =
+                    mask_model_skip(runtime.is_ok(), || verify_sha256(&path, SUBJECT_SHA256));
+                if runtime.is_ok() {
+                    log::info!(
+                        "AI subject mask: model file check/hash {} ms",
+                        file_start.elapsed().as_millis()
+                    );
+                }
+                skip?
+            };
+            if let Some(reason) = skip {
+                log_mask_model_skip("subject", reason);
                 return Ok(None);
             }
-            tokio::task::spawn_blocking(move || SubjectModel::onnx(&path)).await??
+            let queued = std::time::Instant::now();
+            tokio::task::spawn_blocking(move || {
+                log::info!(
+                    "AI subject mask: model loader queue wait {} ms",
+                    queued.elapsed().as_millis()
+                );
+                SubjectModel::onnx(&path)
+            })
+            .await??
         }
     };
     log::info!(
@@ -2344,6 +2420,27 @@ pub(crate) fn ensure_local_runtime() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tool_tests {
+    #[test]
+    fn background_mask_model_checks_report_why_a_model_is_unavailable() {
+        use super::{MaskModelSkip, mask_model_skip};
+
+        let runtime = mask_model_skip(false, || panic!("no verification without a runtime"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(runtime, MaskModelSkip::RuntimeUnavailable);
+        assert_eq!(runtime.reason(), "ONNX Runtime is unavailable");
+
+        let missing = mask_model_skip(true, || Ok(false)).unwrap().unwrap();
+        assert_eq!(missing, MaskModelSkip::ModelFilesUnavailable);
+        assert_eq!(
+            missing.reason(),
+            "model files are missing or failed verification"
+        );
+
+        assert_eq!(mask_model_skip(true, || Ok(true)).unwrap(), None);
+        assert!(mask_model_skip(true, || Err(anyhow::anyhow!("I/O error"))).is_err());
+    }
+
     /// Runs MI-GAN on a gradient with a square hole: the hole is filled close
     /// to its surroundings and everything else is kept. Needs the model in
     /// `RAWTONIC_INPAINT_MODEL` and ONNX Runtime in `ORT_DYLIB_PATH`.

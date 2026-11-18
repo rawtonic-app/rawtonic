@@ -134,7 +134,7 @@ fn read_sidecar(path: &Path) -> Result<rawtonic_metadata::Metadata> {
         fs::metadata(path)?.len() <= 16 * 1024 * 1024,
         "XMP exceeds 16 MiB limit"
     );
-    let text = fs::read_to_string(path)?;
+    let text = rawtonic_metadata::read_xmp_text(path)?;
     Ok(rawtonic_metadata::read_xmp(&text)?.0)
 }
 
