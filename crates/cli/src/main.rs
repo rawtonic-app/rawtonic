@@ -1713,6 +1713,8 @@ static ONNX_RUNTIME_USED: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 const COMMAND_STACK_SIZE: usize = rawtonic_runtime::RENDER_STACK_SIZE;
 
 fn main() {
+    // Before any thread starts (ONNX Runtime's usage uploader, PRIVACY.md).
+    rawtonic_onnx::opt_out_of_runtime_telemetry();
     let result = std::thread::Builder::new()
         .name("rawtonic-command".into())
         .stack_size(COMMAND_STACK_SIZE)

@@ -44,7 +44,8 @@ mod watch;
 
 pub use optimized::EXTENSIONS as OPTIMIZED_GRAPH_EXTENSIONS;
 pub use runtime::{
-    RUNTIME_UNAVAILABLE, RuntimeError, RuntimeErrorKind, ensure_runtime, environment, library_path,
+    RUNTIME_UNAVAILABLE, RuntimeError, RuntimeErrorKind, TELEMETRY_OPT_OUT, ensure_runtime,
+    environment, library_path, opt_out_of_runtime_telemetry,
 };
 
 /// Where a model runs.

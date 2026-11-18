@@ -213,6 +213,39 @@ pub fn environment() -> Result<&'static ort::environment::Environment, RuntimeEr
 
 static MISSING_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// What keeps Microsoft's ONNX Runtime 1.30.0 libraries from reporting to
+/// Microsoft (`DisableTelemetryEvents` does not: the first report is written
+/// while the environment is created, and the uploader stays live).
+/// `ORT_DISABLE_TELEMETRY`: the full opt-out of the 1DS uploader on macOS and
+/// Linux, read when the first environment is created. `ORT_RUNNING_UNIT_TESTS`:
+/// the only switch the Windows library reads; its event provider (in
+/// Microsoft's telemetry group) is then never registered, read when the
+/// library first uses its environment. The second is Microsoft's internal
+/// test signal, used for nothing else in 1.30.0 (posix and windows
+/// telemetry.cc): check both again when the runtime changes.
+/// notes: benchmark-results/ortt2-2026-11-18/REPORT.md
+pub const TELEMETRY_OPT_OUT: [(&str, &str); 2] = [
+    ("ORT_DISABLE_TELEMETRY", "1"),
+    ("ORT_RUNNING_UNIT_TESTS", "1"),
+];
+
+/// Sets `TELEMETRY_OPT_OUT` in the process environment. Call it first in
+/// `main`, before any other thread exists; `load` sets it too, before the
+/// library is opened, for tools and tests that start without it.
+pub fn opt_out_of_runtime_telemetry() {
+    for (name, value) in TELEMETRY_OPT_OUT {
+        if std::env::var_os(name).is_some_and(|v| v == value) {
+            continue;
+        }
+        // SAFETY: `main` calls it before other threads start. `load` only
+        // sets it when a tool or test binary skipped that call; other
+        // threads may exist then, and a native `getenv` of any name racing
+        // with this change is undefined on Unix. Accepted for those
+        // binaries: without it the runtime reports to Microsoft.
+        unsafe { std::env::set_var(name, value) };
+    }
+}
+
 /// Opens `path` and checks it is a usable ONNX Runtime (the API version
 /// `ort` needs), then has `ort` load it. Returns the runtime's version.
 pub(crate) fn load(path: &Path) -> Result<String, RuntimeError> {
@@ -239,6 +272,9 @@ pub(crate) fn load(path: &Path) -> Result<String, RuntimeError> {
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         crate::dxc::prepare(dir);
     }
+    // No reports to Microsoft: read when the library first uses its
+    // environment, which opening it may already do.
+    opt_out_of_runtime_telemetry();
     let version = check_library(path)?;
     // `ort` loads this file from now on; its one environment is created
     // here and kept for the life of the process (`environment`).
@@ -246,7 +282,7 @@ pub(crate) fn load(path: &Path) -> Result<String, RuntimeError> {
         .map_err(|error| {
             RuntimeError::unusable(format!("ONNX Runtime at {shown} could not start: {error}"))
         })?
-        // Microsoft's Windows runtime can emit usage events through ETW.
+        // Defence in depth: stops events after this point (Windows ETW too).
         .with_telemetry(false);
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || builder.build())) {
         Ok(Ok(env)) => {
@@ -350,6 +386,29 @@ mod tests {
         // ort exposes no getter for this setting. Pin the opt-out on the
         // production builder so this can run without a native runtime.
         assert!(include_str!("runtime.rs").contains(concat!(".with_telemetry(", "false);")));
+    }
+
+    #[test]
+    fn the_uploader_opt_out_comes_before_the_environment() {
+        // ONNX Runtime 1.30.0's switches (posix/telemetry.cc Initialize,
+        // windows/telemetry.cc WindowsTelemetry()).
+        assert_eq!(
+            TELEMETRY_OPT_OUT,
+            [
+                ("ORT_DISABLE_TELEMETRY", "1"),
+                ("ORT_RUNNING_UNIT_TESTS", "1")
+            ]
+        );
+        // `load` sets them before it opens the library, for tools and tests
+        // whose `main` did not.
+        let load = include_str!("runtime.rs")
+            .split("fn check_library(path: &Path)")
+            .next()
+            .unwrap();
+        let load = &load[load.rfind("pub(crate) fn load(").unwrap()..];
+        let opt_out = load.find("opt_out_of_runtime_telemetry();").unwrap();
+        assert!(opt_out < load.find("check_library(path)").unwrap());
+        assert!(opt_out < load.find("ort::init_from(path)").unwrap());
     }
 
     fn scratch(name: &str) -> PathBuf {
