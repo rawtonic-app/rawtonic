@@ -443,24 +443,6 @@ fn early_stand_ins(
     primary: &Option<String>,
     cells: &[CellPayload],
 ) -> Vec<(String, crate::embedded_still::Still)> {
-    let ahead = {
-        let (lock, ready) = &*AHEAD;
-        let mut ahead = lock.lock().unwrap_or_else(|e| e.into_inner());
-        let deadline = Instant::now() + AHEAD_WAIT;
-        while ahead.pending {
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                break;
-            }
-            ahead = ready
-                .wait_timeout(ahead, left)
-                .unwrap_or_else(|e| e.into_inner())
-                .0;
-        }
-        ahead.generation += 1;
-        ahead.pending = false;
-        std::mem::take(&mut ahead.stills)
-    };
     let shown: Vec<String> = {
         let display = context.display.lock().unwrap_or_else(|e| e.into_inner());
         let Some(display) = display.as_ref() else {
@@ -478,6 +460,27 @@ fn early_stand_ins(
         .filter(|cell| primary.as_deref() != Some(cell.path.as_str()))
         .filter(|cell| !shown.contains(&cell.path))
         .collect();
+    // Waits only when a cell of this layout can take a stand-in decoded
+    // ahead (leaving the multi view or a layout whose cells all have a
+    // frame never waits); either way the decodes ahead are used up.
+    let ahead = {
+        let (lock, ready) = &*AHEAD;
+        let mut ahead = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let deadline = Instant::now() + AHEAD_WAIT;
+        while ahead.pending && !wanted.is_empty() {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            ahead = ready
+                .wait_timeout(ahead, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+        ahead.generation += 1;
+        ahead.pending = false;
+        std::mem::take(&mut ahead.stills)
+    };
     let mut stills = Vec::with_capacity(wanted.len());
     let mut missing = Vec::new();
     let mut ahead = ahead;
