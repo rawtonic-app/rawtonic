@@ -1873,7 +1873,8 @@ export default function StudioWorkspace(props: Props) {
           if (e.target === e.currentTarget) closeTools();
         }}
       >
-        <header>
+        {/* The dialog's title bar, not a second banner of the page. */}
+        <header role="none">
           <strong id="studio-export-title">{drawer ? t('studio.workspace.export.title') : ''}</strong>
           <button aria-label={t('studio.workspace.export.close')} onClick={closeTools}>
             <X size={17} />

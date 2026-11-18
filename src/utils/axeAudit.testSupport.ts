@@ -5,7 +5,8 @@
 // jsdom has no layout and the tests load no Tailwind CSS, so colour contrast
 // cannot be measured here: `color-contrast` is off and contrast is recorded as
 // a design question in the audit report (notes: benchmark-results/a11y2-2026-11-18/).
-// `A11Y_REPORT=<dir>` writes every violation (allowed or not) as JSON for that report.
+// `A11Y_REPORT=<new dir>` writes every violation (allowed or not) as JSON for that
+// report; it refuses to replace a file an earlier run wrote there.
 import axe from 'axe-core';
 import { expect } from 'vitest';
 
@@ -108,7 +109,10 @@ async function writeReport(view: string, rows: Finding[]) {
   const fs = await import('node:fs');
   fs.mkdirSync(dir, { recursive: true });
   const name = view.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-  fs.writeFileSync(`${dir}/${name}.json`, JSON.stringify(rows, null, 1));
+  // Never over an earlier report (a before/after pair lives in two directories):
+  // `wx` refuses an existing file, so a reused directory fails instead of
+  // replacing its baseline.
+  fs.writeFileSync(`${dir}/${name}.json`, JSON.stringify(rows, null, 1), { flag: 'wx' });
   // Report mode collects every view instead of stopping at the first.
   return true;
 }

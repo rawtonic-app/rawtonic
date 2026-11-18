@@ -1269,6 +1269,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | ansi-styles | 5.2.0 | MIT |
 | aria-query | 5.3.0 | Apache-2.0 |
 | assertion-error | 2.0.1 | MIT |
+| axe-core | 4.14.0 | MPL-2.0 |
 | balanced-match | 4.0.4 | MIT |
 | baseline-browser-mapping | 2.11.27 | Apache-2.0 |
 | baseline-browser-mapping | 2.11.35 | Apache-2.0 |

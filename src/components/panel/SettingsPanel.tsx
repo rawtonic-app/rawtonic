@@ -171,6 +171,21 @@ const zoomMultiplierOptions: OptionItem<number>[] = [
   { value: 0.25, label: '0.25x' }
 ];
 
+/** Removing a chip from the keyboard keeps the focus in the list: on the next
+ * chip, else the previous one, else the field that adds new ones. Chips
+ * removed before stay in the page during their exit animation and are
+ * skipped (`remaining` holds the values still listed). */
+const keepFocusAfterChipRemoval = (chip: HTMLElement, remaining: string[]) => {
+  if (!chip.contains(document.activeElement)) return;
+  const chips = Array.from(
+    chip.parentElement?.querySelectorAll<HTMLElement>(':scope > button[data-chip]') ?? []
+  ).filter((other) => other === chip || remaining.includes(other.dataset.chip ?? ''));
+  const at = chips.indexOf(chip);
+  const target =
+    chips[at + 1] ?? chips[at - 1] ?? chip.closest('.pref-control')?.querySelector<HTMLElement>('input[type="text"]');
+  target?.focus();
+};
+
 const KeybindRow = ({
   def,
   currentCombo,
@@ -1157,12 +1172,19 @@ export default function SettingsPanel({
                                             <motion.button
                                               type="button"
                                               key={tag}
+                                              data-chip={tag}
                                               layout
                                               variants={shortcutTagVariants}
                                               initial={false}
                                               animate="visible"
                                               exit="exit"
-                                              onClick={() => handleRemoveAiTag(tag)}
+                                              onClick={(e) => {
+                                                keepFocusAfterChipRemoval(
+                                                  e.currentTarget,
+                                                  customAiTags.filter((other) => other !== tag)
+                                                );
+                                                handleRemoveAiTag(tag);
+                                              }}
                                               data-tooltip={t('settings.tagging.removeCustomTooltip', { tag })}
                                               aria-label={t('settings.tagging.removeCustomTooltip', { tag })}
                                               className="flex items-center gap-1 bg-surface px-2 py-1 rounded-sm group cursor-pointer"
@@ -1240,12 +1262,19 @@ export default function SettingsPanel({
                                   <motion.button
                                     type="button"
                                     key={shortcut}
+                                    data-chip={shortcut}
                                     layout
                                     variants={shortcutTagVariants}
                                     initial={false}
                                     animate="visible"
                                     exit="exit"
-                                    onClick={() => handleRemoveShortcut(shortcut)}
+                                    onClick={(e) => {
+                                      keepFocusAfterChipRemoval(
+                                        e.currentTarget,
+                                        taggingShortcuts.filter((other) => other !== shortcut)
+                                      );
+                                      handleRemoveShortcut(shortcut);
+                                    }}
                                     data-tooltip={t('settings.tagging.removeShortcutTooltip', { shortcut })}
                                     aria-label={t('settings.tagging.removeShortcutTooltip', { shortcut })}
                                     className="flex items-center gap-1 bg-surface px-2 py-1 rounded-sm group cursor-pointer"

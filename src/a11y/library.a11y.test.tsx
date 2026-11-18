@@ -1,20 +1,24 @@
 import '../i18n';
-import { afterEach, beforeEach, it, vi } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { act, cleanup, render, screen, within } from '@testing-library/react';
 import StudioWorkspace from '../components/studio/StudioWorkspace';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import type { AppSettings, ImageFile, SelectedImage } from '../components/ui/AppProperties';
+import { Panel, type AppSettings, type ImageFile, type SelectedImage } from '../components/ui/AppProperties';
 import { ContextMenuProvider } from '../context/ContextMenuContext';
 import { expectNoNewViolations, KNOWN, type Allowed } from '../utils/axeAudit.testSupport';
 
+// Only the commands these views read answer; everything else resolves to
+// nothing, as an idle backend would (a catch-all answer crashed Develop's
+// white balance tool and the audit scanned its error fallback).
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn().mockResolvedValue({ files: [] }),
+  invoke: vi.fn(() => Promise.resolve(undefined)),
   isTauri: () => false,
   convertFileSrc: (path: string) => path
 }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
 // The Develop canvas is native wgpu under the webview; nothing to audit in jsdom.
 vi.mock('../components/panel/Editor', () => ({ default: () => null }));
 
@@ -33,8 +37,13 @@ const file = (path: string): ImageFile => ({
 const files = ['/s/a.NEF', '/s/b.NEF', '/s/c.NEF'].map(file);
 
 beforeEach(() => {
-  HTMLDialogElement.prototype.close = vi.fn();
-  HTMLDialogElement.prototype.showModal = vi.fn();
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
+  localStorage.clear();
   vi.stubGlobal('PointerEvent', MouseEvent);
   vi.stubGlobal(
     'ResizeObserver',
@@ -80,12 +89,16 @@ const workspace = () =>
     { wrapper: ContextMenuProvider }
   );
 
+/** Every part rendered: no error boundary stood in for a crashed one. */
+const expectRendered = () => expect(screen.queryAllByRole('alert').map((a) => a.textContent)).toEqual([]);
+
 const LIBRARY_ALLOWED: Allowed[] = [KNOWN.toolHeader, KNOWN.gridTile];
 
 it('Library workspace (grid) has no new accessibility violations', async () => {
   useUIStore.setState({ activeView: 'library' });
   workspace();
   await act(async () => {});
+  expectRendered();
   await expectNoNewViolations('library grid', LIBRARY_ALLOWED, { page: true });
 });
 
@@ -93,5 +106,22 @@ it('Develop workspace shell (bars, filmstrip, panels) has no new accessibility v
   useUIStore.setState({ activeView: 'editor', studioToolLayout: 'split-tools' });
   workspace();
   await act(async () => {});
+  expectRendered();
+  // The real Develop tools, not an error fallback.
+  expect(screen.getByRole('navigation', { name: 'Adjustment tools' })).toBeTruthy();
   await expectNoNewViolations('develop shell', LIBRARY_ALLOWED, { page: true });
+});
+
+it('Export dialog, opened from the workspace, has no new accessibility violations', async () => {
+  useUIStore.setState({ activeView: 'library', activePanel: Panel.Adjustments });
+  workspace();
+  await act(async () => useUIStore.getState().setPanel(Panel.Export));
+  await act(async () => {});
+  const dialog = screen.getByRole('dialog', { name: 'Export photos' });
+  expect(within(dialog).getByRole('button', { name: 'Close tools' })).toBeTruthy();
+  dialog.querySelectorAll('details').forEach((group) => {
+    group.open = true;
+  });
+  expectRendered();
+  await expectNoNewViolations('export', LIBRARY_ALLOWED, { page: true });
 });
