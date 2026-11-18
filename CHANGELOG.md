@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- Raw TIFFs from Phase One backs, Canon EOS-1D and EOS-1Ds, and supported Kodak DCS cameras now open as RAW at full sensor resolution. The Kodak DCS520C reports an unsupported camera error.
+- **Raw TIFFs from Phase One backs, Canon EOS-1D and EOS-1Ds, and supported Kodak DCS cameras now open at full sensor resolution.** They previously opened as small embedded previews. Recheck earlier edits of these files, especially crops and masks, which were saved against the preview. The Kodak DCS520C reports an unsupported camera error.
 
 - **Panasonic Lumix DC-FZ83 RAW files open.** They failed with "Unknown camera". Panasonic ships one firmware for the DC-FZ80, FZ81, FZ82 and FZ83, and the FZ83's RAW files have the FZ80's sensor layout and format, so they now develop with the FZ80's camera data, like the FZ82 and FZ85 already did. Checked on the four public FZ83 samples of raw.pixls.us (all aspect ratios); other cameras' files decode as before.
 

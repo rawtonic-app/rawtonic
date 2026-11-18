@@ -329,7 +329,7 @@ pub async fn load_embedded_preview(path: String) -> Result<tauri::ipc::Response,
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("selected_embedded_preview");
         let (source_path, _) = parse_virtual_path(&path);
-        if !is_raw_file(&source_path) || crate::file_management::is_cloud_placeholder(&source_path)
+        if crate::file_management::is_cloud_placeholder(&source_path) || !is_raw_file(&source_path)
         {
             return Ok(tauri::ipc::Response::new(Vec::new()));
         }

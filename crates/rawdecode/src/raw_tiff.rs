@@ -44,6 +44,13 @@ const RAW_PHOTOMETRICS: [u32; 2] = [32803, 34892];
 /// count as [`TiffKind::Raster`], so the image path reports the error as
 /// before.
 pub fn classify(path: &Path) -> TiffKind {
+    if rawtonic_fs::is_cloud_placeholder(path) {
+        return TiffKind::Raster;
+    }
+    classify_local(path)
+}
+
+fn classify_local(path: &Path) -> TiffKind {
     match RawSource::new_lazy(path) {
         Ok(source) => classify_source(&source),
         Err(_) => TiffKind::Raster,
@@ -64,6 +71,11 @@ pub fn classify_cached(path: &Path) -> TiffKind {
     let Ok(meta) = std::fs::metadata(path) else {
         return TiffKind::Raster;
     };
+    // Listing a folder must leave evicted files offline. Do not cache
+    // this answer: downloading a placeholder can preserve size and mtime.
+    if rawtonic_fs::is_cloud_placeholder_metadata(&meta) {
+        return TiffKind::Raster;
+    }
     let stamp = (meta.len(), meta.modified().ok());
     if let Ok(cache) = CACHE.lock()
         && let Some(&(len, modified, kind)) = cache.get(path)
@@ -71,7 +83,7 @@ pub fn classify_cached(path: &Path) -> TiffKind {
     {
         return kind;
     }
-    let kind = classify(path);
+    let kind = classify_local(path);
     if let Ok(mut cache) = CACHE.lock() {
         if cache.len() >= CAPACITY {
             cache.clear();

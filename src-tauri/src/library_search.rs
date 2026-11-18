@@ -661,7 +661,8 @@ mod tests {
         );
     }
 
-    /// The catalog's file types say RAW exactly where the grid does.
+    /// The catalog and grid agree for extension-based classification.
+    /// TIFFs are classified by content in the grid and by extension here.
     #[test]
     fn file_types_agree_with_the_formats_the_app_reads() {
         use rawtonic_catalog::query::file_type;
