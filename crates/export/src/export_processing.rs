@@ -1773,8 +1773,10 @@ pub fn prepare_export_render(
     // at once instead of after mimalloc's purge delay (1 s). A 60 MP photo
     // held a freed 12 B/px copy beside its GPU upload on Windows (3.06 ->
     // 2.0 GB at that point; notes: benchmark-results/wmema-2026-11-18).
-    let _purge = crate::allocator::ImmediatePurge::begin();
+    // mimalloc v3 skips the arena purge queue when the delay is zero,
+    // even during a forced collection. Drain it before changing the delay.
     crate::allocator::release_freed_memory();
+    let _purge = crate::allocator::ImmediatePurge::begin();
     let context = env.context;
     let mask_definitions = mask_definitions_from_json(js_adjustments);
     let tm_override = (env.tonemapper_override)(is_raw);

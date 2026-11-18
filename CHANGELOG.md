@@ -4,7 +4,9 @@
 
 ### Fixes
 
-- **Exports need less memory on computers with integrated graphics (e.g. a Radeon 680M laptop).** Memory freed during an export is returned to the system at once around the photo's GPU upload, and integrated GPUs start with small graphics-memory blocks that grow to 256 MB instead of large ones. Radeon 680M laptop, Windows, seven 12–61 MP RAWs as 16-bit TIFF and JPEG: one export at a time 5,964 → about 5,425 MB, two at a time without the window about 4,494 → 4,234 MB, the command line with two at a time 4,788 → 3,689 MB, same time; drags at 100 % keep their frame rate; exports are byte-identical. Macs are unchanged (Metal ignores the hint).
+- **Exports return freed CPU memory to the system sooner around the photo's GPU upload.** This applies wherever Rawtonic uses mimalloc, including macOS. Integrated GPUs also start with 8 MB graphics-memory blocks that can grow to 256 MB. Metal ignores that GPU hint.
+  - On a Windows laptop with a Radeon 680M, exporting seven 12–61 MP RAWs as both 16-bit TIFF and JPEG q90 peaked at 5,964 → about 5,425 MB for the app and WebView2 with one export thread, and 4,494 → about 4,234 MB for the headless app with two jobs. The CLI exporting the same seven RAWs as 16-bit TIFF with two jobs peaked at 4,788 → 3,689 MB.
+  - On that laptop, Exposure drags at 100 % zoom produced a median 630 preview frames per run with the smaller starting blocks, compared with 632 using the previous GPU hint. CLI exports of a separate 13-photo batch matched byte for byte across the benchmark builds in all 13 16-bit TIFFs and all 13 JPEGs at quality 90.
 
 ## 0.1.0-alpha.17.1 — 2026-11-18
 
