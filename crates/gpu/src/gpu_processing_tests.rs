@@ -1128,6 +1128,7 @@ fn lut_amount_mixes_to_100_percent_and_extrapolates_above() {
         size,
         data,
         shaper: None,
+        file_stage: None,
     });
     for scene in [false, true] {
         let render = |amount: Option<f64>| {
@@ -1283,6 +1284,7 @@ fn a_profile_tile_on_the_small_base_matches_the_full_render_downscaled() {
         size,
         data,
         shaper: None,
+        file_stage: None,
     });
     let recipe = json!({"exposure": 0.3, "lutPath": "/look.cube", "lutIntensity": 100});
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
@@ -1413,6 +1415,7 @@ fn a_lut_shaper_reads_on_the_gpu_as_the_engine_reads_it() {
         size,
         data: data.clone(),
         shaper: Some(shaper),
+        file_stage: None,
     });
     // Display LUT: where the colour without it is inside the cube (no
     // colour carried beyond it), the render is the engine's reading of
@@ -1438,6 +1441,7 @@ fn a_lut_shaper_reads_on_the_gpu_as_the_engine_reads_it() {
         size,
         data: data.clone(),
         shaper: None,
+        file_stage: None,
     });
     assert!(render(Some(&plain), false) != full);
     // Scene LUT: a straight shaper over the table's own domain reads the
@@ -1452,6 +1456,7 @@ fn a_lut_shaper_reads_on_the_gpu_as_the_engine_reads_it() {
                 domain: ([0.0; 3], [1.0; 3]),
                 table_domain: ([0.2, 0.1, 0.3], [0.8, 1.6, 0.9]),
             }),
+            file_stage: None,
         });
         let (a, b) = (render(Some(&straight), scene), render(Some(&plain), scene));
         let worst = a
@@ -1463,6 +1468,118 @@ fn a_lut_shaper_reads_on_the_gpu_as_the_engine_reads_it() {
             worst < 1.0 / 255.0,
             "scene {scene}: straight shaper off by {worst}"
         );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; .cube domain (lutVersion)"]
+fn a_cube_domain_reads_on_the_gpu_by_the_recipe_lut_version() {
+    let context = context();
+    let (width, height) = (256, 128);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 11);
+    let render = |lut: Option<&Arc<Lut>>, version: Option<u64>, scene: bool| {
+        let mut recipe = json!({"exposure": -1.0});
+        if lut.is_some() {
+            recipe = json!({
+                "exposure": -1.0, "lutPath": "/look.cube",
+                "lutIntensity": 100.0, "lutIsSceneReferred": scene,
+            });
+        }
+        if let Some(version) = version {
+            recipe["lutVersion"] = json!(version);
+        }
+        let adjustments = get_all_adjustments_from_json(&recipe, true, Some(3));
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: lut.cloned(),
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(pixels) = pixels else {
+            unreachable!()
+        };
+        let channels = pixels.len() / (width * height) as usize;
+        pixels
+            .chunks(channels)
+            .map(|p| [0, 1, 2].map(|c| p[c] as f32 / 65535.0))
+            .collect::<Vec<[f32; 3]>>()
+    };
+    let base = render(None, None, false);
+    let inside = |p: &[f32; 3]| p.iter().all(|v| (0.002..0.998).contains(v));
+    for (header, lo, hi) in [
+        (
+            "DOMAIN_MIN 0 0 0\nDOMAIN_MAX 1.5 1.5 1.5\n",
+            [0.0f32; 3],
+            [1.5f32; 3],
+        ),
+        (
+            "DOMAIN_MIN -0.1 -0.1 -0.1\nDOMAIN_MAX 1.1 1.1 1.1\n",
+            [-0.1; 3],
+            [1.1; 3],
+        ),
+        ("LUT_3D_INPUT_RANGE -0.05 1.25\n", [-0.05; 3], [1.25; 3]),
+    ] {
+        // A 17³ look over the domain (contrast, warmer, less saturated).
+        let size = 17usize;
+        let mut text = format!("{header}LUT_3D_SIZE {size}\n");
+        for b in 0..size {
+            for g in 0..size {
+                for r in 0..size {
+                    let at =
+                        |c: usize, i: usize| lo[c] + (hi[c] - lo[c]) * i as f32 / (size - 1) as f32;
+                    let s = |x: f32| {
+                        let x = x.clamp(0.0, 1.0);
+                        0.6 * x * x * (3.0 - 2.0 * x) + 0.4 * x
+                    };
+                    let rgb = [s(at(0, r)) + 0.03, s(at(1, g)), s(at(2, b)) - 0.03];
+                    let mean = (rgb[0] + rgb[1] + rgb[2]) / 3.0;
+                    let [x, y, z] = rgb.map(|c| (mean + (c - mean) * 0.85).clamp(0.0, 1.0));
+                    text.push_str(&format!("{x:.7} {y:.7} {z:.7}\n"));
+                }
+            }
+        }
+        let lut =
+            Arc::new(crate::lut::parse_lut_bytes_for_import("cube", text.into_bytes()).unwrap());
+        assert!(lut.shaper.is_none() && lut.file_stage.is_some());
+        // Recipes without the key (and version 1) read the table over 0–1
+        // as before: byte-identical to the table without the file's stage.
+        let plain = Arc::new(Lut {
+            file_stage: None,
+            ..(*lut).clone()
+        });
+        for scene in [false, true] {
+            let earlier = render(Some(&plain), None, scene);
+            assert!(render(Some(&lut), None, scene) == earlier, "{header}");
+            assert!(render(Some(&lut), Some(1), scene) == earlier, "{header}");
+        }
+        // Version 2: the specification's reading, as the engine samples it.
+        let spec = lut.read_as(true);
+        let full = render(Some(&lut), Some(2), false);
+        assert!(full != render(Some(&plain), None, false), "{header}");
+        let (mut worst, mut compared) = (0.0f32, 0);
+        for (base, got) in base.iter().zip(&full) {
+            if !inside(base) {
+                continue;
+            }
+            compared += 1;
+            let want = spec.sample(*base);
+            for c in 0..3 {
+                worst = worst.max((got[c] - want[c]).abs());
+            }
+        }
+        assert!(compared > base.len() / 2, "{compared} compared");
+        eprintln!("{header:?}: worst {worst} over {compared} px");
+        assert!(worst <= 1.0 / 1023.0, "{header}: off by {worst}");
     }
 }
 
@@ -13551,6 +13668,7 @@ fn tone_version_9_blacks_reaches_a_scene_lut() {
         size,
         data,
         shaper: None,
+        file_stage: None,
     });
     let render = |blacks: i32, version: u64| {
         let recipe = json!({
@@ -13817,6 +13935,7 @@ fn tone_version_16_blacks_reaches_a_scene_lut() {
         size,
         data,
         shaper: None,
+        file_stage: None,
     });
     let render = |blacks: i32, version: u64| {
         let recipe = json!({

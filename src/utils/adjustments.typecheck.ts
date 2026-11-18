@@ -153,6 +153,7 @@ interface OldAdjustments {
   lutPath?: string | null;
   lutSize?: number;
   lutIsSceneReferred?: boolean;
+  lutVersion?: number;
   masks: Array<MaskContainer>;
   orientationSteps: number;
   rotation: number;

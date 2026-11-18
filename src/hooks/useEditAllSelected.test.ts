@@ -554,6 +554,29 @@ describe('Edit all selected', () => {
       expect(editAllNotSaved()).toEqual([]);
     });
 
+    it('Try again leaves out a LUT choice written since, its reading too', async () => {
+      const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
+      failing = true;
+      edit({ exposure: 0.5, lutPath: '/old.cube', lutVersion: 1 } as Partial<Adjustments>);
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      const notice = failureNotice();
+      failing = false;
+      rerender({ on: false });
+      rerender({ on: true });
+      edit({ lutPath: '/ranged.cube', lutVersion: 2 } as Partial<Adjustments>);
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      await act(async () => {
+        fireEvent.click(notice.getByRole('button', { name: 'Try again' }));
+      });
+      const retried = pasted().at(-1)!.adjustments;
+      expect(retried.exposure).toBe(0.5);
+      expect('lutPath' in retried || 'lutVersion' in retried).toBe(false);
+    });
+
     it('Try again keeps the processing version the remaining settings were made with', async () => {
       act(() =>
         useEditorStore.setState((state) => ({

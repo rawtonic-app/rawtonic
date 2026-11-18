@@ -9,7 +9,7 @@ import { useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
 import { loadBuiltinPresets, presetName, useBuiltinPresets } from '../../utils/builtinPresets';
-import type { Adjustments } from '../../utils/adjustments';
+import { LUT_VERSION, type Adjustments } from '../../utils/adjustments';
 import AdjustmentControl from './AdjustmentControl';
 import { reportPerformance } from '../../hooks/usePerformanceDiagnostics';
 
@@ -200,7 +200,7 @@ export default function StudioProfileBrowser({
       kind: 'look',
       group: looks,
       name: t('studio.lut.none'),
-      variant: { lutPath: null, lutIntensity: 100, lutIsSceneReferred: false },
+      variant: { lutPath: null, lutIntensity: 100, lutIsSceneReferred: false, lutVersion: LUT_VERSION },
       selected: !lutPath
     });
     const look = (entry: LutEntry, group: string): ProfileTile => ({
@@ -209,7 +209,7 @@ export default function StudioProfileBrowser({
       kind: 'look',
       group,
       name: lookName(entry),
-      variant: { lutPath: entry.path, lutIntensity: 100, lutIsSceneReferred: entry.isBuiltIn },
+      variant: { lutPath: entry.path, lutIntensity: 100, lutIsSceneReferred: entry.isBuiltIn, lutVersion: LUT_VERSION },
       selected: entry.path === lutPath,
       lut: entry
     });
@@ -315,7 +315,8 @@ export default function StudioProfileBrowser({
           lutData: null,
           lutSize: 0,
           lutIntensity: 100,
-          lutIsSceneReferred: false
+          lutIsSceneReferred: false,
+          lutVersion: LUT_VERSION
         }));
     } else {
       // A mix sets only these two keys: one step on the open photo.

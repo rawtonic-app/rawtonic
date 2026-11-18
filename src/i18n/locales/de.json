@@ -4537,7 +4537,7 @@
         "incomplete": "Die Tabelle ist unvollständig oder beschädigt ({{found}} von {{expected}} Werten).",
         "noTable": "Die Datei enthält keine LUT-Tabelle.",
         "notACube": "Die Tabelleneinträge ({{entries}}) bilden keinen Würfel.",
-        "readDifferently": "Eine 3D-Tabelle mit einem anderen Bereich als 0–1 wird in dieser Form nicht unterstützt.",
+        "readDifferently": "Die 3D-Tabelle dieser Datei wird von früheren Versionen der App anders gelesen.",
         "tableSize": "Tabellengröße {{size}} liegt außerhalb von 2–{{max}}.",
         "tooDeep": "Ordner, die tiefer als {{max}} Ebenen verschachtelt sind, werden nicht importiert.",
         "unreadable": "Die Datei kann nicht als LUT gelesen werden."

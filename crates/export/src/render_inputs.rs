@@ -227,7 +227,7 @@ impl RenderInputs {
                 "lut": lut.map(|lut| json!({
                     "size": lut.size,
                     "sha256": sha256_hex(bytemuck::cast_slice(&lut.data)),
-                    "shaper_sha256": lut.shaper.as_ref()
+                    "shaper_sha256": lut.stage(adjustments.lut_file_stage)
                         .map(|shaper| sha256_hex(format!("{shaper:?}").as_bytes())),
                 })),
                 "output_size": [size.0, size.1],

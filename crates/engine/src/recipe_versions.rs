@@ -492,6 +492,30 @@ impl ColorGradingVersion {
 /// The film grain (`grainVersion` 3).
 pub const FILM_GRAIN_VERSION: u64 = 3;
 
+/// `lutVersion` (`lut::LUT_VERSION`): 1 when missing, never newer than this
+/// renderer knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LutVersion(u64);
+
+/// The reading from which a .cube's own domain and a shaper before
+/// `LUT_3D_SIZE` apply (`lut::Lut::file_stage`; `lutVersion` 2).
+pub const FILE_STAGE_LUT_VERSION: u64 = 2;
+
+impl LutVersion {
+    pub fn of(recipe: &Value) -> Self {
+        Self(read(recipe, crate::lut::LUT_VERSION_KEY, 1).clamp(1, crate::lut::LUT_VERSION))
+    }
+
+    pub fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The table is read through the stage the earlier reader ignored.
+    pub fn file_stage(self) -> bool {
+        self.0 >= FILE_STAGE_LUT_VERSION
+    }
+}
+
 /// `grainVersion` (`image_processing::GRAIN_VERSION`): 1 when missing, never
 /// newer than this renderer knows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -952,6 +976,7 @@ pub struct RecipeVersions {
     pub hsl: HslVersion,
     pub color_grading: ColorGradingVersion,
     pub grain: GrainVersion,
+    pub lut: LutVersion,
     pub clarity: ClarityVersion,
     pub temperature: TemperatureVersion,
     pub tint: TintVersion,
@@ -981,6 +1006,7 @@ impl RecipeVersions {
             hsl: HslVersion::of(recipe),
             color_grading: ColorGradingVersion::of(recipe),
             grain: GrainVersion::of(recipe),
+            lut: LutVersion::of(recipe),
             clarity: ClarityVersion::of(recipe),
             temperature: TemperatureVersion::of(recipe),
             tint: TintVersion::of(recipe),
@@ -1095,9 +1121,11 @@ mod tests {
             "bwVersion": 999, "hslVersion": 999, "colorGradingVersion": 999, "grainVersion": 999, "clarityVersion": 999, "vibranceVersion": 999, "structureVersion": 999, "dehazeVersion": 999,
             "fringeVersion": 999, "autoCaVersion": 999, "cameraCaVersion": 999,
             "cameraGeometryVersion": 999, "diffractionVersion": 999, "aiDenoiseVersion": 999,
+            "lutVersion": 999,
         });
         let v = RecipeVersions::of(&future, true);
         assert_eq!(v.render.get(), ip::RENDER_VERSION);
+        assert_eq!(v.lut.get(), crate::lut::LUT_VERSION);
         assert_eq!(v.tone.get(), ip::TONE_VERSION);
         assert_eq!(v.vibrance.get(), ip::VIBRANCE_VERSION);
         assert_eq!(v.structure.get(), ip::STRUCTURE_VERSION);

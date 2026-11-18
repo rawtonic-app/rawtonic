@@ -31,6 +31,7 @@ pub const LENS_BLUR_MAX_DEPTH: Key<f64> = Key::new("lensBlurMaxDepth", 100.0, 1)
 pub const LENS_BLUR_MIN_FADE: Key<f64> = Key::new("lensBlurMinFade", 15.0, 1);
 pub const LENS_BLUR_MAX_FADE: Key<f64> = Key::new("lensBlurMaxFade", 15.0, 1);
 pub const GRAIN_VERSION: Key<u64> = Key::new("grainVersion", 1, 1);
+pub const LUT_VERSION: Key<u64> = Key::new("lutVersion", 1, 1);
 pub const GRAIN_STRUCTURE: Key<GrainStructure> =
     Key::new("grainStructure", GrainStructure::Even, 1);
 pub const VIGNETTE_STYLE: Key<VignetteStyle> =
@@ -341,6 +342,10 @@ pub const TS: TsSection = TsSection {
         TsField::new(LENS_BLUR_ENABLED, ""),
         TsField::new(LUT_IS_SCENE_REFERRED, ""),
         TsField::new(LUT_PATH, ""),
+        TsField::new(
+            LUT_VERSION,
+            "How the recipe reads its .cube (lut.rs LUT_VERSION): 2 = over the domain the file names (DOMAIN_MIN/MAX, LUT_3D_INPUT_RANGE), 1 (missing) = a 3D table over 0–1.",
+        ),
         TsField::new(LUT_NAME, ""),
         TsField::new(LUT_DATA, ""),
         TsField::new(LENS_BLUR_DEPTH_MAP, ""),

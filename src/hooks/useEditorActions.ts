@@ -28,6 +28,8 @@ import {
   withWhiteBalanceVersions,
   withVibranceVersion,
   withDiffractionVersion,
+  withLutVersion,
+  LUT_VERSION,
   withLumaNoiseVersion,
   withSharpenVersion,
   withGrainStructure,
@@ -1355,6 +1357,8 @@ export function useEditorActions() {
           lutSize: result.size,
           lutIntensity: 100,
           lutIsSceneReferred: isBuiltIn,
+          // A LUT chosen now is read as a new edit reads it.
+          lutVersion: LUT_VERSION,
           sectionVisibility: {
             ...(prev.sectionVisibility || INITIAL_ADJUSTMENTS.sectionVisibility),
             effects: true
@@ -1379,7 +1383,8 @@ export function useEditorActions() {
             lutPath: path,
             lutName: name,
             lutIntensity: state.adjustments.lutIntensity,
-            lutIsSceneReferred: isBuiltIn
+            lutIsSceneReferred: isBuiltIn,
+            lutVersion: LUT_VERSION
           }
         };
       });
@@ -1574,7 +1579,8 @@ export function useEditorActions() {
       // each photograph keeps its own (a never-edited one: a new edit's).
       // The frame of the RAW is never applied (src/utils/sourceFrame.ts).
       const { sourceFrameVersion: _frame, ...photoFree } = partial;
-      const grain = withGrainStructure(photoFree);
+      // A LUT from before its reading's key keeps the earlier reading.
+      const grain = withGrainStructure(withLutVersion(photoFree));
       let adjustmentsToApply = asChosen
         ? grain
         : withColourVersions(

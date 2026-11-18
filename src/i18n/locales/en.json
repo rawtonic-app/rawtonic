@@ -4537,7 +4537,7 @@
         "incomplete": "The table is incomplete or damaged ({{found}} of {{expected}} values).",
         "noTable": "The file holds no LUT table.",
         "notACube": "The table entries ({{entries}}) do not form a cube.",
-        "readDifferently": "A 3D table with a domain other than 0–1 in this form is not supported.",
+        "readDifferently": "This file's 3D table reads differently in earlier versions of the app.",
         "tableSize": "Table size {{size}} is outside 2–{{max}}.",
         "tooDeep": "Folders nested deeper than {{max}} levels are not imported.",
         "unreadable": "The file cannot be read as a LUT."

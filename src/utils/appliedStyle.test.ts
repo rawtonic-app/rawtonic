@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import cases from '../../crates/engine/src/applied_style_cases.json';
 import rustSource from '../../crates/engine/src/applied_style.rs?raw';
 import { rustRecipeKeys } from '../contracts/recipeKeys.testSupport';
+import { LUT_SELECTION_KEYS } from './adjustments';
 import {
   APPLIED_STYLE,
   PHOTO_OWN_KEYS,
@@ -18,6 +19,11 @@ describe('applied style', () => {
     const { recipe, kept } = revertStyle(c.recipe);
     expect(recipe).toEqual(c.reverted);
     expect(kept).toEqual(c.kept);
+  });
+
+  it('goes back with the same LUT choice as the backend', () => {
+    const rust = rustSource.match(/pub const LUT_SELECTION: \[&str; \d+\] = \[([^\]]*)\]/)![1];
+    expect([...rust.matchAll(/"(\w+)"/g)].map((m) => m[1])).toEqual([...LUT_SELECTION_KEYS]);
   });
 
   it('records every setting a style sets, nested settings one by one', () => {
@@ -56,6 +62,16 @@ describe('applied style', () => {
     expect(recipe).toMatchObject({ saturation: -30, contrast: 24, appliedStyle: { amount: 60 } });
     // Taken back, the user's saturation stays.
     expect(revertStyle(recipe).recipe).toEqual({ saturation: -30, contrast: 0 });
+  });
+
+  it('lets a LUT the user chose leave the record whole through an Amount move', () => {
+    const before = { lutPath: '/old.cube', lutVersion: 1, exposure: 0 };
+    const values = { lutPath: '/style.cube', lutVersion: 2, exposure: 1 };
+    let recipe = recordStyle(before, { ...before, ...values }, values, 'look');
+    recipe = { ...recipe, lutPath: '/user.cube' };
+    recipe = withStyleAmount(recipe, revertStyle(recipe).recipe, values, 60);
+    expect(appliedStyleOf(recipe)!.changes.map((c) => c.path[0])).toEqual(['exposure']);
+    expect(revertStyle(recipe).recipe).toEqual({ lutPath: '/user.cube', lutVersion: 2, exposure: 0 });
   });
 
   it("blends from the editor's value where a saved recipe had none, and removes it again", () => {

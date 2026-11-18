@@ -4414,7 +4414,7 @@
         "incomplete": "테이블이 불완전하거나 손상되었습니다({{expected}}개 중 {{found}}개 값).",
         "noTable": "파일에 LUT 테이블이 없습니다.",
         "notACube": "테이블 항목({{entries}})이 정육면체를 이루지 않습니다.",
-        "readDifferently": "0–1 이외의 범위를 가진 3D 테이블은 이 형식에서 지원되지 않습니다.",
+        "readDifferently": "이 파일의 3D 테이블은 이전 버전의 앱에서 다르게 읽힙니다.",
         "tableSize": "테이블 크기 {{size}}이(가) 2–{{max}} 범위를 벗어납니다.",
         "tooDeep": "{{max}}단계보다 깊이 중첩된 폴더는 가져오지 않습니다.",
         "unreadable": "파일을 LUT로 읽을 수 없습니다."

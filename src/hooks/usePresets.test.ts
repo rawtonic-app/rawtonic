@@ -41,6 +41,15 @@ describe('collectPresetAdjustments', () => {
     expect(current.masks[0].subMasks[0].parameters.maskDataBase64).toBe('data:source');
   });
 
+  it('saves the LUT reading with a LUT, also when it is the new-edit default', () => {
+    const defaults = initialAdjustmentsFor(true);
+    const current = { ...defaults, lutPath: '/ranged.cube' } as Adjustments;
+    const saved = collectPresetAdjustments(current, defaults, options);
+    expect(saved.lutPath).toBe('/ranged.cube');
+    expect(saved.lutVersion).toBe(defaults.lutVersion);
+    expect(withPresetVersions(saved).lutVersion).toBe(defaults.lutVersion);
+  });
+
   it("saves film grain's default Colour, so applying the preset sets it", () => {
     const current = { ...initialAdjustmentsFor(true), grainAmount: 40, grainVersion: 3 } as Adjustments;
     for (const presetType of ['tool', 'style'] as const) {

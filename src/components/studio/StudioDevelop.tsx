@@ -49,6 +49,7 @@ import {
   layersUseGrading,
   layersUseMixer,
   layersUseVibrance,
+  LUT_VERSION,
   type RegionCurve
 } from '../../utils/adjustments';
 import { withDevelopDefaults } from '../../utils/developDefaults';
@@ -1391,7 +1392,8 @@ export default function StudioDevelop() {
                   lutData: null,
                   lutSize: 0,
                   lutIntensity: 100,
-                  lutIsSceneReferred: false
+                  lutIsSceneReferred: false,
+                  lutVersion: LUT_VERSION
                 })
               }
             >
@@ -2115,7 +2117,9 @@ export default function StudioDevelop() {
                 ['lutPath', 'LUT'],
                 ['lutIntensity', t('studio.develop.params.lutAmount')]
               ])}
-              onReset={() => reset(['lutPath', 'lutName', 'lutSize', 'lutData', 'lutIntensity', 'lutIsSceneReferred'])}
+              onReset={() =>
+                reset(['lutPath', 'lutName', 'lutSize', 'lutData', 'lutIntensity', 'lutIsSceneReferred', 'lutVersion'])
+              }
             >
               <StudioLut disabled={!panelsReady} onInteraction={onInteraction} />
             </ToolGroup>
