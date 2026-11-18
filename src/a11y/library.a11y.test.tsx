@@ -14,7 +14,10 @@ import { expectNoNewViolations, KNOWN, type Allowed } from '../utils/axeAudit.te
 // nothing, as an idle backend would (a catch-all answer crashed Develop's
 // white balance tool and the audit scanned its error fallback).
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(() => Promise.resolve(undefined)),
+  // The RAW's as-shot white balance, so the Kelvin/tint controls render too.
+  invoke: vi.fn((command: string) =>
+    Promise.resolve(command === 'white_balance_info' ? { temperature: 5200, tint: 4 } : undefined)
+  ),
   isTauri: () => false,
   convertFileSrc: (path: string) => path
 }));
@@ -109,6 +112,11 @@ it('Develop workspace shell (bars, filmstrip, panels) has no new accessibility v
   expectRendered();
   // The real Develop tools, not an error fallback.
   expect(screen.getByRole('navigation', { name: 'Adjustment tools' })).toBeTruthy();
+  // The RAW white balance (Kelvin), not the relative fallback for files without one.
+  document.querySelectorAll('details').forEach((group) => {
+    group.open = true;
+  });
+  await screen.findByLabelText('White balance mode');
   await expectNoNewViolations('develop shell', LIBRARY_ALLOWED, { page: true });
 });
 

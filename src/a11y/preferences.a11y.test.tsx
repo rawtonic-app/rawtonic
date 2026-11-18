@@ -1,6 +1,7 @@
 import '../i18n';
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import i18n from 'i18next';
 import SettingsPanel from '../components/panel/SettingsPanel';
 import PreferencesDialog from '../components/studio/PreferencesDialog';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -107,4 +108,23 @@ it('keeps the keyboard in the list when a tagging shortcut or tag chip is remove
   // Only chip: the field that adds shortcuts.
   await act(async () => fireEvent.click(chip('client')));
   expect(document.activeElement).toBe(screen.getByPlaceholderText('Add shortcuts (comma separated)...'));
+});
+
+it('keeps the keyboard in the list when an AI tag chip is removed, after the chip has left the page', async () => {
+  useSettingsStore.setState({ appSettings: SEEDED, osPlatform: 'macos' });
+  render(
+    <PreferencesDialog>
+      <Wired />
+    </PreferencesDialog>
+  );
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'General' })));
+  const tag = (name: string) => screen.queryByRole('button', { name: `Remove tag "${name}"` });
+  tag('harbour')!.focus();
+  await act(async () => fireEvent.click(tag('harbour')!));
+  expect(document.activeElement).toBe(tag('portrait'));
+  await vi.waitFor(() => expect(tag('harbour')).toBeNull());
+  expect(document.activeElement).toBe(tag('portrait'));
+  await act(async () => fireEvent.click(tag('portrait')!));
+  await vi.waitFor(() => expect(tag('portrait')).toBeNull());
+  expect(document.activeElement).toBe(screen.getByPlaceholderText(i18n.t('settings.tagging.addCustomPlaceholder')));
 });

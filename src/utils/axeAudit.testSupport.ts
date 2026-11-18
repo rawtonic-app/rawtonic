@@ -109,10 +109,18 @@ async function writeReport(view: string, rows: Finding[]) {
   const fs = await import('node:fs');
   fs.mkdirSync(dir, { recursive: true });
   const name = view.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-  // Never over an earlier report (a before/after pair lives in two directories):
-  // `wx` refuses an existing file, so a reused directory fails instead of
-  // replacing its baseline.
-  fs.writeFileSync(`${dir}/${name}.json`, JSON.stringify(rows, null, 1), { flag: 'wx' });
+  // Never over an earlier report (a before/after pair lives in two
+  // directories), and never a half-written one: the JSON goes to a temporary
+  // file first and is published with a hard link, which refuses an existing
+  // name, so a reused directory fails instead of replacing its baseline.
+  const file = `${dir}/${name}.json`;
+  const temporary = `${file}.${Date.now()}-${Math.random().toString(36).slice(2)}.partial`;
+  fs.writeFileSync(temporary, JSON.stringify(rows, null, 1), { flag: 'wx' });
+  try {
+    fs.linkSync(temporary, file);
+  } finally {
+    fs.unlinkSync(temporary);
+  }
   // Report mode collects every view instead of stopping at the first.
   return true;
 }
