@@ -47,7 +47,7 @@ python3 scripts/qa/update_feed.py --version 0.1.0-alpha.91 --dir $S/feed \
 
 ## 4. Install N and update
 
-Install or place N as a user would (AppImage anywhere writable; the Windows setup for your account; the macOS app in `~/Applications`), start it with the feed (`RAWTONIC_QA_UPDATE_FEED=http://127.0.0.1:8765`; macOS: `open --env RAWTONIC_QA_UPDATE_FEED=… "Rawtonic QA update.app"`), open a scratch session with a copy of a RAW, then Help › Check for Updates.
+Install or place N as a user would (AppImage anywhere writable; the Windows setup for your account; the macOS app in `~/Applications`), start it with the feed (`RAWTONIC_QA_UPDATE_FEED=http://127.0.0.1:8765`; macOS: `open --env RAWTONIC_QA_UPDATE_FEED=… "Rawtonic QA update.app"`), open a scratch session with a copy of a RAW, then check for updates: macOS app menu › Check for Updates…, other systems Settings › General › Check now (the startup check runs at most once per 24 hours, so a second launch of the same profile does not ask the feed again; a change to the feed is only seen after a manual check).
 
 | Case | Do | Expect |
 |---|---|---|
@@ -56,7 +56,7 @@ Install or place N as a user would (AppImage anywhere writable; the Windows setu
 | Edits are saved | change a slider, Restart now at once | after the restart the change is there |
 | Exports running | start a long export, Restart now | "Exports or Imports Are Running", Keep Working installs nothing; Restart Anyway updates |
 | Cancel | Cancel during the download | back to Install update; nothing replaced |
-| Bad signature | re-sign the package with another generated key, restart the feed | "does not carry Rawtonic's signature", N keeps running, Try again fails the same way |
+| Bad signature | re-sign the package with another generated key, or flip one byte of the package and keep its `.sig`, restart the feed | "does not carry Rawtonic's signature", N keeps running, Try again fails the same way |
 | Wrong version | sign with `--app-version` of another version | the same signature message |
 | No manifest | restart the feed with `--no-manifest` | no Install update; the Download / Release page link as before |
 | Offline | stop the feed during the download | the network message; N unchanged; Try again works after restarting the feed |
@@ -64,5 +64,7 @@ Install or place N as a user would (AppImage anywhere writable; the Windows setu
 | No permission | macOS: N in `/Applications` owned by another user, as a standard user; cancel the password prompt. Linux: the AppImage in a folder you cannot write | "may not replace itself here", N keeps running unchanged |
 | Quit while installing | Linux: Restart now and close the window at once | afterwards the AppImage is either N or N+1, never partial |
 | Windows | Restart now | the setup runs passively without an administrator prompt and starts N+1 |
+
+With the QA control channel (docs/testing/qa-control.md; build with `--features qa-control` and `VITE_RAWTONIC_QA=1`, launch with `--env RAWTONIC_QA_PORT=…`) the clicks and screenshots can be scripted; to see the progress on a local feed, serve the package slowly (a copy of `update_feed.py` that writes the body in 1 MB pieces with a pause: 34 MB downloads in under a second otherwise). The restart keeps the launch environment.
 
 Record OS, build commit, each case's result and the feed log in the task's report. Delete the QA key when done.
