@@ -52,7 +52,32 @@ pub fn footprint_bytes() -> Option<(u64, u64)> {
     (result == 0).then_some((info.ri_phys_footprint, info.ri_lifetime_max_phys_footprint))
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: current and peak private commit (`PrivateUsage`,
+/// `PeakPagefileUsage`: the Private Bytes the QA samplers read). On a
+/// Radeon 680M (Vulkan) the GPU's allocations are in it: the system's
+/// commit grew by the private bytes alone while 1.5-1.8 GB of shared GPU
+/// memory was in use (notes: benchmark-results/wmema-2026-11-18).
+#[cfg(windows)]
+pub fn footprint_bytes() -> Option<(u64, u64)> {
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    // SAFETY: plain data filled by the call for this process; `cb` names
+    // the struct's size.
+    let mut info: PROCESS_MEMORY_COUNTERS_EX = unsafe { std::mem::zeroed() };
+    info.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32;
+    let ok = unsafe {
+        GetProcessMemoryInfo(
+            GetCurrentProcess(),
+            (&mut info as *mut PROCESS_MEMORY_COUNTERS_EX).cast::<PROCESS_MEMORY_COUNTERS>(),
+            info.cb,
+        )
+    };
+    (ok != 0).then_some((info.PrivateUsage as u64, info.PeakPagefileUsage as u64))
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 pub fn footprint_bytes() -> Option<(u64, u64)> {
     None
 }
