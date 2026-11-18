@@ -2312,8 +2312,8 @@
         "SDXL-VAE-FP16-Fix": "Bildkodierer und -dekodierer von Moebius (madebyollin, aus Stability AIs SDXL VAE).",
         "SigLIP 2": "Automatische Stichwörter (Google).",
         "spektrafilm": "LUTs zur Filmemulation von Andrea Volpato (umbenannt, Inhalt unverändert).",
-        "Tauri bundler": "Vorlage für den Windows-NSIS-Installer, angepasst für parallele Installationen für ein einzelnes Konto und für alle Benutzer.",
         "SQLite / rusqlite": "Bibliotheksdatenbank mit einer Rawtonic-Korrektur für WAL-Sperren unter Windows.",
+        "Tauri bundler": "Vorlage für den Windows-NSIS-Installer, angepasst für parallele Installationen für ein einzelnes Konto und für alle Benutzer.",
         "YuNet": "Findet Gesichter für Personenmasken (Shiqi Yu und andere).",
         "zune-jpegxl": "Verlustfreier JPEG-XL-Export (Caleb Etemesi)."
       },
