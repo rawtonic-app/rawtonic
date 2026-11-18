@@ -116,7 +116,7 @@ impl Contents {
         }
         let xmp = rawtonic_metadata::sidecar_path(photo);
         if xmp.is_file() {
-            let text = fs::read_to_string(&xmp)
+            let text = rawtonic_metadata::read_xmp_text(&xmp)
                 .with_context(|| format!("Cannot read {}", xmp.display()))?;
             let (metadata, _) = rawtonic_metadata::read_xmp(&text)
                 .with_context(|| format!("{} is not a readable XMP sidecar", xmp.display()))?;

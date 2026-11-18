@@ -597,7 +597,8 @@ impl Library {
         if override_of(conn, id)?.is_some() {
             return Ok(());
         }
-        let Ok(bytes) = std::fs::read(rawtonic_metadata::sidecar_path(photo)) else {
+        let Ok(bytes) = rawtonic_metadata::read_xmp_bytes(&rawtonic_metadata::sidecar_path(photo))
+        else {
             return Ok(());
         };
         if rawtonic_fs::sha256_hex(&bytes) != hash {

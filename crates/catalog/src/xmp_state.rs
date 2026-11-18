@@ -141,7 +141,7 @@ impl Library {
             [id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        match std::fs::read(sidecar) {
+        match rawtonic_metadata::read_xmp_bytes(&sidecar) {
             // The one it wrote last, or the one it was publishing when a
             // crash cut the write short (taken over by `sync_xmp`).
             Ok(bytes) => {
@@ -234,7 +234,7 @@ impl Library {
                         false
                     } else {
                         check.read += 1;
-                        match fs::read(&sidecar) {
+                        match rawtonic_metadata::read_xmp_bytes(&sidecar) {
                             Ok(bytes) => {
                                 let digest = rawtonic_fs::sha256_hex(&bytes);
                                 if hash.as_deref() == Some(digest.as_str()) {

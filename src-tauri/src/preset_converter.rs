@@ -466,7 +466,7 @@ fn white_balance(attrs: &HashMap<String, String>, adjustments: &mut Map<String, 
 
 /// The `crs:` attributes of a Lightroom XMP packet (name → value).
 pub fn crs_attributes(xmp_content: &str) -> HashMap<String, String> {
-    let xmp_one_line = xmp_content.split('\n').collect::<Vec<_>>().join(" ");
+    let xmp_one_line = xmp_content.replace('\n', " ");
     regex!(r#"crs:([A-Za-z0-9]+)="([^"]*)""#)
         .captures_iter(&xmp_one_line)
         .map(|cap| (cap[1].to_string(), cap[2].to_string()))
@@ -599,7 +599,8 @@ fn legacy_untranslated(attrs: &HashMap<String, String>) -> Vec<&'static str> {
 }
 
 pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
-    let xmp_one_line = xmp_content.split('\n').collect::<Vec<_>>().join(" ");
+    rawtonic_metadata::check_xmp_input(xmp_content).map_err(|error| error.to_string())?;
+    let xmp_one_line = xmp_content.replace('\n', " ");
     let mut attrs = crs_attributes(xmp_content);
     let legacy = legacy_process(&attrs);
     // Select before legacy slider translation mutates the process evidence.
