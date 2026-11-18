@@ -2554,9 +2554,13 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             // A held preview zoomed in: its visible region first (about a
             // quarter of the whole frame's GPU time at 100 %), then the
             // whole frame, unless a newer request waits by then.
+            // One baseline for both passes: a load begun during the region
+            // pass supersedes the whole frame too.
+            let newer = Arc::new(newer_request_waits(&app_handle, newest_sequence));
             if region_first {
+                let check = Arc::clone(&newer);
                 let _ = gpu_processing::supersedable(
-                    newer_request_waits(&app_handle, newest_sequence),
+                    move || check(),
                     || {
                         process_preview_job(
                             &app_handle,
@@ -2580,31 +2584,33 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             }
             // A newer request (the release of a held before) waiting after
             // the region pass takes the worker before this whole frame.
-            let newer = newer_request_waits(&app_handle, newest_sequence);
             let result = if region_first && newer() {
                 Err(CommandError::cancelled(
                     "Superseded after the visible region".to_string(),
                 ))
             } else {
-                gpu_processing::supersedable(newer, || {
-                    process_preview_job(
-                        &app_handle,
-                        state,
-                        develop,
-                        job.adjustments,
-                        job.is_interactive,
-                        job.target_resolution,
-                        job.roi,
-                        job.request_analytics,
-                        job.compute_waveform,
-                        job.active_waveform_channel.as_deref(),
-                        job.mask_overlay.as_ref(),
-                        job.crop_edit,
-                        job.browser_full_zoom,
-                        job.generation,
-                        false,
-                    )
-                })
+                gpu_processing::supersedable(
+                    move || newer(),
+                    || {
+                        process_preview_job(
+                            &app_handle,
+                            state,
+                            develop,
+                            job.adjustments,
+                            job.is_interactive,
+                            job.target_resolution,
+                            job.roi,
+                            job.request_analytics,
+                            job.compute_waveform,
+                            job.active_waveform_channel.as_deref(),
+                            job.mask_overlay.as_ref(),
+                            job.crop_edit,
+                            job.browser_full_zoom,
+                            job.generation,
+                            false,
+                        )
+                    },
+                )
             };
             #[cfg(feature = "performance-profiling")]
             log::info!(
@@ -4352,7 +4358,12 @@ mod preview_memory_tests {
     fn a_region_at_the_frames_edge_ends_inside_it() {
         // The padded region at the right edge of a 6000 px frame: rounding
         // its origin and size apart gave 2793 + 3208 = 6001.
-        let roi = pixel_region((0.4654, 0.1, 0.5347, 0.5), 6000, 4000).unwrap();
+        let (x, width) = (2792.5_f32 / 6000.0, 3207.5_f32 / 6000.0);
+        assert_eq!(
+            (x * 6000.0).round() as u32 + (width * 6000.0).round() as u32,
+            6001
+        );
+        let roi = pixel_region((x, 0.1, width, 0.5), 6000, 4000).unwrap();
         assert_eq!(roi.x + roi.width, 6000);
         assert_eq!((roi.y, roi.height), (400, 2000));
         assert!(pixel_region((0.2, 0.2, 0.0, 0.5), 6000, 4000).is_none());
