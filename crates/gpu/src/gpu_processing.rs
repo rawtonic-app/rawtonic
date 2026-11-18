@@ -3375,6 +3375,45 @@ impl WgpuDisplay {
         self.multi = multi;
     }
 
+    /// Places the live frame at fit in the primary's cell, where the
+    /// webview's editor puts it a frame later (`fitInViewer` in the cell,
+    /// no proof margin), so the layout's first present shows it there. Only
+    /// when the frame is the primary's and was shown to fit (`viewport`):
+    /// zoomed in, cropping, in a split or while the next photograph's
+    /// placement waits, the webview places it as before. Whether it moved.
+    pub fn place_primary_at_fit(&mut self) -> bool {
+        let Some(area) = self
+            .multi
+            .primary()
+            .filter(|path| self.frame_path.as_deref() == Some(*path))
+            .and_then(|path| self.multi.cell(path))
+            .map(|cell| cell.area)
+        else {
+            return false;
+        };
+        let [_, _, width, height] = self.geometry.rect;
+        if self.viewport.is_none()
+            || self.pending_geometry.is_some()
+            || self.frame_uncropped
+            || self.split_x.is_some()
+            || width <= 0.0
+            || height <= 0.0
+            || area[2] <= 0.0
+            || area[3] <= 0.0
+        {
+            return false;
+        }
+        let rect = fit_placement(area, width, height);
+        self.geometry = DisplayGeometry {
+            rect,
+            crop_rect: rect,
+            crop_rotation: 0.0,
+        };
+        self.viewport = Some(area);
+        self.apply_geometry();
+        true
+    }
+
     /// Keeps a secondary cell's developed frame (display-encoded RGBA8): its
     /// whole photograph or, zoomed in, its visible region (`layer`).
     #[allow(clippy::too_many_arguments)]

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Entering the multi view shows every photo in its first frame.** On macOS and Windows (the native renderer), this applies when the live photo is shown at fit and the photos' thumbnails are still cached and were shown in the filmstrip recently (the app keeps up to 10,000 of them in mind). The thumbnails are then decoded while the cells are laid out, and the live photo is placed into its cell at once, so all of them appear in the layout's first frame. Before, they came one frame later. Any other cell gets its thumbnail as before, a frame after the layout. Mac mini M4 Pro, 60 fps screen recording, ⌘A to all 12 shown: 102–116 → 84–86 ms (median, n = 10 per block). Lightroom Classic's Survey took 80 ms on the same Mac.
+
+- **A tool's Before at 100 % shows faster.** On macOS and Windows (the native renderer), holding a tool's reset with ⌥ when zoomed in now draws the visible part of the photo first and then the rest; Linux is unchanged. Holding Before (the whole photograph's peek) uses the same path but was not timed. On a 24 MP photo: 188 → 92 ms on press and 175 → 96 ms on release (Mac mini M4 Pro, 60 fps recording, n = 10). Lightroom Classic's panel switch took 104/118 ms and Capture One 252/243 ms. The visible part can differ from the finished frame by a few levels in about 2 % of its pixels until the rest arrives, about 0.1 s later.
+
 ## 0.1.0-alpha.17 — 2026-11-18
 
 The seventeenth alpha. Color Grading tints coloured tones closer to Lightroom, .cube LUTs with their own input range import, and Capture One imports bring local adjustment layers and the lens correction along, while Lightroom imports keep all eight Point Color ranges in a mask, Guided Upright and old-process curves. Exports of large RAWs need far less memory on a Mac, the multi view on Windows no longer hides its other photos while the next one opens, and on a Windows laptop whose AI runs on the processor, later AI Subject masks the app had prepared ahead were ready within a second of the click. On Linux the settled fit view is sent lossless and the 100 % view stays sharp with a mask tool open. Damage the RAW decoders can detect now gives an error instead of a crash. Many smaller fixes from three UX reviews (macOS, Windows, Linux) make culling, menus, keys and dialogs behave as a photographer expects.
