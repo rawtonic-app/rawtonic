@@ -187,6 +187,7 @@ pub fn run() {
     // Before any thread starts: the environment is changed here.
     #[cfg(target_os = "linux")]
     startup::use_portal_dialogs();
+    rawtonic_onnx::opt_out_of_runtime_telemetry();
     #[cfg(feature = "performance-profiling")]
     performance::mark_application_start();
     gpu_processing::mark_process_start();
