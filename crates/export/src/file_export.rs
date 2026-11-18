@@ -20,13 +20,30 @@ use crate::output::write_new_export;
 use crate::render_inputs::RenderInputs;
 use rawtonic_engine::ai_selections::{SelectionDetector, detect_missing};
 use rawtonic_engine::file_io::read_file_mapped;
-use rawtonic_engine::formats::is_raw_file;
+use rawtonic_engine::formats::{is_raw_file, is_tiff_extension};
 use rawtonic_engine::image_loader::{
     BaseImageOptions, ai_denoise_settings, load_base_image_measured,
 };
 use rawtonic_engine::output_color_space::OutputColorSpace;
 use rawtonic_engine::recipe_versions::RecipeVersions;
 use rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser;
+
+/// TIFF recipe defaults depend on the file contents. An evicted TIFF must
+/// be downloaded before export can decide whether those defaults are RAW.
+pub fn require_local_tiff(source: &Path) -> Result<(), String> {
+    if source
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(is_tiff_extension)
+        && rawtonic_fs::is_cloud_placeholder(source)
+    {
+        return Err(format!(
+            "{} is offline: exporting needs the original file. Download it, then retry.",
+            source.display()
+        ));
+    }
+    Ok(())
+}
 
 /// One export: `output` must not exist; its extension, else `format`,
 /// chooses the encoder.
@@ -188,6 +205,7 @@ impl FileExporter {
     /// `job`'s source decoded and prepared for its render, with its recipe
     /// normalized: what [`Self::export`] and [`Self::render_reference`] render.
     fn develop(&self, job: &FileExport) -> Result<Developed, String> {
+        require_local_tiff(job.source)?;
         let source_path_str = job.source.to_string_lossy().to_string();
 
         let mut js_adjustments = job.recipe.clone().unwrap_or(Value::Null);

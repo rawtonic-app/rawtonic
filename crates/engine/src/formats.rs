@@ -98,7 +98,7 @@ pub fn is_raw_file<P: AsRef<Path>>(path: P) -> bool {
     is_tiff_extension(ext) && rawtonic_rawdecode::raw_tiff::classify_cached(path.as_ref()).is_raw()
 }
 
-fn is_tiff_extension(ext: &str) -> bool {
+pub fn is_tiff_extension(ext: &str) -> bool {
     ext.eq_ignore_ascii_case("tif") || ext.eq_ignore_ascii_case("tiff")
 }
 

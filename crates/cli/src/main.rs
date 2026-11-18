@@ -1249,6 +1249,8 @@ fn export(args: ExportArgs) -> Result<()> {
                 .zip(recipes)
                 .map(|((photo, _), recipe)| {
                     let source = parse_virtual_path(photo).0;
+                    rawtonic_export::file_export::require_local_tiff(&source)
+                        .map_err(anyhow::Error::msg)?;
                     with_face_retouch(
                         &source.to_string_lossy(),
                         recipe.unwrap_or_default(),
@@ -1306,6 +1308,9 @@ fn export(args: ExportArgs) -> Result<()> {
         let (photo, output) = &jobs[i];
         let recipe = &recipes[i];
         let (source, sidecar) = parse_virtual_path(photo);
+        if let Err(error) = rawtonic_export::file_export::require_local_tiff(&source) {
+            return Err(serde_json::json!({"source": photo, "error": error}));
+        }
         let library = library_of(&source);
         if let Some(resource) = recipe
             .as_ref()
@@ -1443,6 +1448,12 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
     let mut generated = false;
     for (index, (photo, recipe)) in photos.iter().zip(recipes).enumerate() {
         let (source, sidecar) = parse_virtual_path(photo);
+        if let Err(error) = rawtonic_export::file_export::require_local_tiff(&source) {
+            failed.push(serde_json::json!({"source": photo, "error": error}));
+            cells.push(None);
+            captions.push(String::new());
+            continue;
+        }
         let metadata = photo_metadata(photo, &source, &sidecar);
         let date = rawtonic_export::exif_processing::capture_date_with(&source, &|| None);
         let (sequence, last) = settings.filename_counter(index, total);

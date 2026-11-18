@@ -2,6 +2,7 @@
 //! queue, its Tauri commands and events, sidecar and session access and the
 //! metadata embedding stay here; the render and encoders live in the crate.
 pub use rawtonic_export::export_processing::*;
+use rawtonic_export::file_export::require_local_tiff;
 use rawtonic_recipe::masks;
 
 use crate::state::ai::AiState;
@@ -609,7 +610,9 @@ pub(crate) fn pin_photos(
                     owner: owner.clone(),
                     from_original: Default::default(),
                     capture: crate::session_bridge::capture_override(&source),
-                    source_identity: crate::session_bridge::source_identity(&source),
+                    source_identity: require_local_tiff(&source)
+                        .ok()
+                        .and_then(|()| crate::session_bridge::source_identity(&source)),
                 })
             })
         })
@@ -1774,6 +1777,9 @@ fn export_photo(
     if let Some(error) = missing_source(&source_path) {
         return fail_all(error);
     }
+    if let Err(error) = require_local_tiff(&source_path) {
+        return fail_all(error);
+    }
 
     let is_current_edit = is_open_edit(image_path_str, open_path);
     // Only what the export was submitted with (`pin_photos`): no recipe or
@@ -2260,9 +2266,12 @@ pub async fn export_naming_preview(
         let pinned =
             pin_photos(std::slice::from_ref(&path), None, None, library.directory())?.remove(0);
         let date = pinned.naming_date(&source);
-        let capture = export_settings
-            .naming_needs_capture()
-            .then(|| naming_capture(&source, pinned.metadata.as_ref()));
+        let capture = if export_settings.naming_needs_capture() {
+            require_local_tiff(&source)?;
+            Some(naming_capture(&source, pinned.metadata.as_ref()))
+        } else {
+            None
+        };
         let (sequence, last) = export_settings.filename_counter(0, total.max(1));
         let naming = export_settings.naming_context(
             &source,
@@ -2604,6 +2613,7 @@ fn estimate_sizes(
 
     let first_path = &paths[0];
     let (source_path, sidecar_path) = parse_virtual_path(first_path);
+    require_local_tiff(&source_path)?;
     let source_path_str = source_path.to_string_lossy().to_string();
 
     let gpu = app_handle.state::<crate::state::gpu::GpuState>();
