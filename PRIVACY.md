@@ -54,11 +54,14 @@ Rawtonic otherwise goes online only when you ask it to:
 - **ONNX Runtime (the AI runtime).** Microsoft's ONNX Runtime, which runs
   the models, has usage reporting to Microsoft built in. Rawtonic sets the
   runtime's own switches before opening it: `ORT_DISABLE_TELEMETRY` on macOS
-  and Linux (its uploader is never created; measured on both with a model on
-  the processor: no connection, no address lookup; the Linux GPU plugin's
-  own copy reads the same switch but was not measured) and `ORT_RUNNING_UNIT_TESTS` on Windows (its Windows
-  event provider is never registered; from the runtime's source, not yet
-  measured on Windows). Releases up to 0.1.0-alpha.17 did report: on Linux
+  and Linux, and `ORT_RUNNING_UNIT_TESTS` on Windows. On macOS and Linux,
+  the switch prevents the uploader from starting. In CPU tests on both
+  platforms we observed no address lookup or connection. In Linux tests
+  running a model on each of the WebGPU and CUDA plugins we also observed
+  no address lookup, connection or new ONNX Runtime reporting files.
+  On Windows, the runtime source shows that the switch prevents registration
+  of the event provider. Windows measurement is pending.
+  Releases up to 0.1.0-alpha.17 did report: on Linux
   (from 0.1.0-alpha.2) and Apple silicon Macs (from 0.1.0-alpha.12) the
   runtime uploaded runtime and system details (OS version, CPU, cores,
   memory), a hashed device ID, and per AI model its file name, hashes,
