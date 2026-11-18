@@ -4,7 +4,7 @@
 
 ### Fixes
 
-- JPEG XL exports of opaque photos use three RGB channels. Images with transparency keep their alpha channel.
+- JPEG XL exports of opaque photos use three RGB channels. If the rendered image contains transparency, JPEG XL keeps its alpha channel.
 
 - **Linux Before/After zoom keeps both sides in the same format.** When zooming to 100%, Before waits for the JPEG After frame. Cached previews retain their format when switching photos.
 
