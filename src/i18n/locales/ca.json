@@ -5778,6 +5778,7 @@
     "failure": {
       "changed": "L’AppImage s’ha substituït des que es va obrir Rawtonic, així que s’ha deixat tal com és. Reinicia Rawtonic i torna a cercar actualitzacions.",
       "disk": "No s’ha pogut escriure l’actualització: potser el disc és ple o la carpeta de Rawtonic és només de lectura. Rawtonic no ha canviat.",
+      "manifestUnavailable": "Aquesta versió no es pot instal·lar des del Rawtonic.",
       "network": "La baixada ha fallat (sense connexió amb GitHub). Rawtonic no ha canviat.",
       "noPackage": "Aquesta versió no té paquet d’actualització per a aquest ordinador. Baixa l’instal·lador.",
       "notOffered": "Aquesta actualització ja no s’ofereix. Torna a cercar actualitzacions.",

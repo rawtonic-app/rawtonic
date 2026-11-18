@@ -16,6 +16,7 @@
 
 ### Fixes
 
+- When a release's update information is unavailable, Rawtonic explains that the release can't be installed from within the app and links to the release page.
 - Windows: the built-in web view no longer contacts Microsoft's configuration and component-update services in the background.
 - Windows: paths in the library and export dialogs no longer mix `/` and `\`.
 - **Windows setup can install Rawtonic for your account alongside an older all-users installation without administrator approval.** Setup explains how to remove the old copy later through Windows Settings with administrator approval. Both copies share your Rawtonic settings and app data.

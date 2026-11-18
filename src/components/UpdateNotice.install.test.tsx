@@ -116,7 +116,7 @@ it('installs only after the click: download with progress, then Restart now inst
   expect(relaunch).toHaveBeenCalledTimes(1);
 });
 
-it('a failed download says why, leaves the app as it was and offers a retry and the browser', async () => {
+it('a network failure offers a retry and the installer link', async () => {
   answers[Invokes.UpdateDownload] = async () => Promise.reject({ kind: 'network' });
   await shown();
   fireEvent.click(screen.getByText('updates.install'));
@@ -129,6 +129,17 @@ it('a failed download says why, leaves the app as it was and offers a retry and 
   await act(async () => {});
   expect(calls(Invokes.UpdateDownload)).toHaveLength(2);
   expect(screen.getByText('updates.restartNow')).toBeTruthy();
+});
+
+it('an unavailable manifest explains why in-app install failed and opens the release page', async () => {
+  answers[Invokes.UpdateDownload] = async () => Promise.reject({ kind: 'manifestUnavailable' });
+  await shown();
+  fireEvent.click(screen.getByText('updates.install'));
+  await act(async () => {});
+  expect(screen.getByRole('alert').textContent).toBe('updates.failure.manifestUnavailable');
+  fireEvent.click(screen.getByText('updates.releasePage'));
+  expect(open).toHaveBeenCalledWith(release.releaseUrl);
+  expect(calls(Invokes.UpdateInstall)).toEqual([]);
 });
 
 it('a bad signature is reported and nothing is installed', async () => {
