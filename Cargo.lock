@@ -5374,6 +5374,7 @@ dependencies = [
  "log",
  "md5",
  "memmap2",
+ "miniz_oxide",
  "multiversion",
  "num",
  "num_enum",

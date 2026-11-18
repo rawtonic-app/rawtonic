@@ -14,7 +14,7 @@ use crate::{
   bits::{Endian, clamp},
   decoders::{Result, rw2::PanasonicTag},
   formats::tiff::IFD,
-  pixarray::{PixU16, SharedPix2D},
+  pixarray::PixU16,
   pumps::{BitPump, BitPumpReverseBitsMSB, ByteStream},
   rawsource::RawSource,
 };
@@ -384,6 +384,21 @@ fn make_gammatable(params: &CF2Params) -> Option<Vec<u16>> {
   }
 }
 
+/// Rawtonic patch (RWH1): strips (left, top, right, bottom) lie inside the
+/// image, have an even width (the decoder writes pairs of columns) and don't
+/// overlap.
+pub(crate) fn check_strip_rects(rects: &[(usize, usize, usize, usize)], width: usize, height: usize) -> Result<()> {
+  for (i, a) in rects.iter().enumerate() {
+    if a.2 > width || a.3 > height || a.2 < a.0 || a.3 < a.1 || (a.2 - a.0) % 2 != 0 {
+      return Err(RawlerError::DecoderFailed(format!("RW2 v8: strip {} is outside the image", i)));
+    }
+    if rects[..i].iter().any(|b| a.0 < b.2 && b.0 < a.2 && a.1 < b.3 && b.1 < a.3) {
+      return Err(RawlerError::DecoderFailed(format!("RW2 v8: strip {} overlaps another strip", i)));
+    }
+  }
+  Ok(())
+}
+
 /// Decode Panasonic V8 bitstreams
 pub(crate) fn decode_panasonic_v8(rawfile: &RawSource, width: usize, height: usize, _bps: u32, ifd: &IFD, dummy: bool) -> Result<PixU16> {
   let out = alloc_image_ok!(width, height, dummy);
@@ -395,6 +410,16 @@ pub(crate) fn decode_panasonic_v8(rawfile: &RawSource, width: usize, height: usi
   // the image, and no two strips may share pixels, because the strips are
   // written in parallel into one buffer. Errors instead of the assert, index
   // panics or overlapping writes.
+  // The gamma curve reads six points and slopes, the Huffman decoder holds
+  // at most 17 codes of up to 16 bits, and every code has a shift.
+  if params.gamma_point.len() < 6
+    || params.gamma_slope.len() < 6
+    || params.huf_table.len() > 17
+    || params.huf_table.iter().any(|(bits, _)| *bits > 16)
+    || params.huf_shift_down.len() < params.huf_table.len()
+  {
+    return Err(RawlerError::DecoderFailed("RW2 v8: invalid gamma or Huffman tables".to_string()));
+  }
   let total_strip_count = params.num_of_strips_h as usize * params.num_of_strips_v as usize;
   if params.num_of_strips_v == 0 || params.strip_widths.iter().map(|x| *x as usize).sum::<usize>() / params.num_of_strips_v as usize != width {
     return Err(RawlerError::DecoderFailed("RW2 v8: strip widths don't match the image".to_string()));
@@ -417,18 +442,12 @@ pub(crate) fn decode_panasonic_v8(rawfile: &RawSource, width: usize, height: usi
       (x, y, x + params.strip_widths[id] as usize, y + params.strip_heights[id] as usize)
     })
     .collect();
-  for (i, a) in rects.iter().enumerate() {
-    // The decoder writes pairs of columns (and asserts an even width)
-    if a.2 > width || a.3 > height || params.strip_widths[i] % 2 != 0 {
-      return Err(RawlerError::DecoderFailed(format!("RW2 v8: strip {} is outside the image", i)));
-    }
-    if rects[..i].iter().any(|b| a.0 < b.2 && b.0 < a.2 && a.1 < b.3 && b.1 < a.3) {
-      return Err(RawlerError::DecoderFailed(format!("RW2 v8: strip {} overlaps another strip", i)));
-    }
-  }
+  check_strip_rects(&rects, width, height)?;
 
-  // Shared output buffer, we need to write from multiple rayon threads to output image.
-  let shared_pix = SharedPix2D::new(out);
+  // Rawtonic patch (RWH1): each strip decodes into its own buffer, copied
+  // into the image afterwards. The workers used to share one `&mut` to the
+  // image (`SharedPix2D`); same pixels, no aliasing.
+  let mut out = out;
 
   let mut bitstreams = Vec::with_capacity(total_strip_count);
   for strip_id in 0..total_strip_count {
@@ -436,21 +455,30 @@ pub(crate) fn decode_panasonic_v8(rawfile: &RawSource, width: usize, height: usi
   }
 
   // Parallel decode multiple strips
-  (0..total_strip_count).into_par_iter().for_each(|strip_id| {
-    let buf = &bitstreams[strip_id];
-    decode_strip(buf, &params, strip_id, unsafe { shared_pix.inner_mut() });
-  });
-  Ok(shared_pix.into_inner())
+  (0..total_strip_count)
+    .into_par_iter()
+    .map(|strip_id| decode_strip(&bitstreams[strip_id], &params, strip_id))
+    .collect::<Vec<_>>()
+    .into_iter()
+    .zip(&rects)
+    .filter(|(strip, _)| strip.width > 0)
+    .for_each(|(strip, &(x, y, _, _))| {
+      for (row, line) in strip.pixels().chunks_exact(strip.width).enumerate() {
+        out.pixels_mut()[(y + row) * width + x..][..strip.width].copy_from_slice(line);
+      }
+    });
+  Ok(out)
 }
 
 /// Decode a single strip
-fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize, out: &mut PixU16) {
+fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize) -> PixU16 {
   let mut pump = BitPumpReverseBitsMSB::new(buf);
   let width = params.strip_widths[strip_id] as usize;
   let height = params.strip_heights[strip_id] as usize;
   let halfheight = height >> 1;
   let halfwidth = width >> 1;
   let doublewidth = halfwidth * 4;
+  let mut out = PixU16::new(width, height);
   let mut linebuf = vec![0_u16; doublewidth];
 
   // for (i, item) in params.huf_table.iter().enumerate() {
@@ -470,7 +498,8 @@ fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize, out: &mut PixU1
 
       // Shiftdown seems to be the count of bits shifted to right during encoding.
       // It's 0 for all existing samples so far, highly interested in samples that has
-      let shift_down: u8 = (params.huf_shift_down[ssss as usize] & 0x1F) as u8;
+      // Rawtonic patch (RWH1): a code beyond the shift table shifts by 0.
+      let shift_down: u8 = (params.huf_shift_down.get(ssss as usize).copied().unwrap_or(0) & 0x1F) as u8;
       assert_eq!(shift_down, 0, "CF2HufShiftDown samples required");
 
       // Calculate total required bits to read from bitstream.
@@ -481,7 +510,7 @@ fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize, out: &mut PixU1
         debug_assert_ne!(req_bits, 0);
         let rawbits: u32 = pump.get_bits(req_bits as u32); // Get additional bits
         let sign = rawbits >> (req_bits - 1); // Get leading sign bit
-        let val = (rawbits << (params.huf_shift_down[ssss as usize] & 0xFF)) as i32;
+        let val = (rawbits << (params.huf_shift_down.get(ssss as usize).copied().unwrap_or(0) & 0xFF)) as i32;
 
         if sign == 1 {
           val
@@ -525,8 +554,9 @@ fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize, out: &mut PixU1
     // Line buffer contains two rows packed into one row with double width.
     assert_eq!(linebuf.len(), 2 * width);
     for col in (0..width).step_by(2) {
-      let row_offset = params.strip_line_offsets[strip_id].rows as usize;
-      let left_margin = params.strip_line_offsets[strip_id].cols as usize;
+      // Rawtonic patch (RWH1): strip-local coordinates, see decode_panasonic_v8.
+      let row_offset = 0;
+      let left_margin = 0;
       let dest_row = row_offset + (curr_row * 2);
       if let Some(gamma_table) = &state.gamma_table {
         debug_assert!(!gamma_table.is_empty());
@@ -542,4 +572,5 @@ fn decode_strip(buf: &[u8], params: &CF2Params, strip_id: usize, out: &mut PixU1
       }
     }
   }
+  out
 }

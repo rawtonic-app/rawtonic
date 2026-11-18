@@ -447,3 +447,98 @@ fn mutated_corpus_files_never_panic() {
     eprintln!("{}: {per_file} mutations in {:?}", path.display(), start.elapsed());
   }
 }
+
+// --- Review round 2 guards ---
+
+#[test]
+fn rw2_v8_strips_must_fit_and_not_overlap() {
+  use crate::decoders::rw2::v8decompressor::check_strip_rects;
+  assert!(check_strip_rects(&[(0, 0, 8, 4), (8, 0, 16, 4)], 16, 4).is_ok());
+  assert!(check_strip_rects(&[(0, 0, 8, 4), (6, 0, 14, 4)], 16, 4).is_err());
+  assert!(check_strip_rects(&[(0, 0, 0, 0), (0, 0, 0, 0)], 16, 4).is_ok());
+  assert!(check_strip_rects(&[(0, 0, 8, 4), (0, 0, 8, 4)], 16, 4).is_err());
+  assert!(check_strip_rects(&[(10, 0, 18, 4)], 16, 4).is_err());
+  assert!(check_strip_rects(&[(0, 0, 7, 4)], 16, 4).is_err());
+}
+
+#[test]
+fn deflate_tile_larger_than_its_size_is_an_error() {
+  use crate::decompressors::Decompressor;
+  use crate::decompressors::deflate::DeflateDecompressor;
+  let dc = DeflateDecompressor::new(1, 3, 32, Endian::Little);
+  let mut tile = vec![0_f32; 4 * 4];
+  // 64 bytes inflate to exactly the tile
+  let exact = miniz_oxide::deflate::compress_to_vec_zlib(&[0_u8; 64], 6);
+  assert!(dc.decompress(&exact, 0, tile.chunks_exact_mut(4), 4).is_ok());
+  // 16 MiB of zeros compress to a few KiB; inflating stops at the tile size
+  let bomb = miniz_oxide::deflate::compress_to_vec_zlib(&vec![0_u8; 16 << 20], 9);
+  assert!(dc.decompress(&bomb, 0, tile.chunks_exact_mut(4), 4).is_err());
+  // Other predictors are an error, not a panic
+  let other = DeflateDecompressor::new(1, 1, 32, Endian::Little);
+  assert!(other.decompress(&exact, 0, tile.chunks_exact_mut(4), 4).is_err());
+}
+
+/// A lossless JPEG stream with `components` components, the first subsampled 2x2.
+fn subsampled_ljpeg(components: u8) -> Vec<u8> {
+  let mut v = vec![0xff, 0xd8];
+  let sof_len = 8 + 3 * components as u16;
+  v.extend_from_slice(&[0xff, 0xc3]);
+  v.extend_from_slice(&sof_len.to_be_bytes());
+  v.extend_from_slice(&[12, 0, 2, 0, 2, components]);
+  for c in 0..components {
+    v.extend_from_slice(&[c + 1, if c == 0 { 0x22 } else { 0x11 }, 0]);
+  }
+  // One Huffman table: a single 1-bit code for difference category 0
+  v.extend_from_slice(&[0xff, 0xc4, 0, 20, 0x00, 1]);
+  v.extend_from_slice(&[0; 15]);
+  v.push(0);
+  let sos_len = 6 + 2 * components as u16;
+  v.extend_from_slice(&[0xff, 0xda]);
+  v.extend_from_slice(&sos_len.to_be_bytes());
+  v.push(components);
+  for c in 0..components {
+    v.extend_from_slice(&[c + 1, 0x00]);
+  }
+  v.extend_from_slice(&[1, 0, 0]);
+  v.extend_from_slice(&[0; 32]);
+  v.extend_from_slice(&[0xff, 0xd9]);
+  v
+}
+
+#[test]
+fn subsampled_ljpeg_with_too_few_components_is_an_error() {
+  use crate::decompressors::ljpeg::LjpegDecompressor;
+  let data = subsampled_ljpeg(1);
+  let decompressor = LjpegDecompressor::new(&data).expect("header parses");
+  let mut out = vec![0_u16; 6 * 2];
+  for result in [
+    decompressor.decode(&mut out, 0, 6, 6, 2, false),
+    decompressor.decode_sony(&mut out, 0, 6, 6, 2, false),
+  ] {
+    assert!(result.expect_err("too few components").contains("components"));
+  }
+}
+
+/// The synthetic DNG with its SamplesPerPixel (tag 0x115, SHORT, count 1) set to `value`.
+fn dng_with_samples_per_pixel(value: u16) -> Vec<u8> {
+  let mut dng = synthetic_dng(DngCompression::Uncompressed);
+  let pattern = [0x15, 0x01, 3, 0, 1, 0, 0, 0, 1, 0];
+  let at = dng.windows(pattern.len()).position(|w| w == pattern).expect("SamplesPerPixel entry");
+  dng[at + 8..at + 10].copy_from_slice(&value.to_le_bytes());
+  dng
+}
+
+#[test]
+fn dng_with_a_damaged_sample_count_is_an_error() {
+  for value in [0, 5, 0xffff] {
+    let dng = dng_with_samples_per_pixel(value);
+    let src = RawSource::new_from_slice(&dng);
+    let decoder = crate::get_decoder(&src).expect("DNG decoder");
+    let params = RawDecodeParams::default();
+    assert!(decoder.raw_image(&src, &params, true).is_err(), "metadata-only decode, {value} samples");
+    assert!(decoder.raw_image(&src, &params, false).is_err(), "full decode, {value} samples");
+  }
+  // The unchanged file still decodes
+  let dng = dng_with_samples_per_pixel(1);
+  assert!(crate::decode(&RawSource::new_from_slice(&dng), &RawDecodeParams::default()).is_ok());
+}

@@ -1,7 +1,3 @@
-use std::io::Read;
-
-use libflate::zlib::Decoder;
-
 use crate::{
   bits::{Binary16, Binary24, Binary32, Endian, FloatingPointParameters, extend_binary_floating_point},
   decompressors::{Decompressor, LineIteratorMut},
@@ -58,18 +54,16 @@ impl<'a> Decompressor<'a, f32> for DeflateDecompressor {
     if !(2..=4).contains(&bytesps) {
       return Err(format!("Deflate: {} bits per sample", self.bps));
     }
-    // The tile's size; inflating stops one byte past it, so a damaged stream
-    // can't inflate without bound (a few bytes can expand to gigabytes).
+    // The tile's size; inflating stops there, so a damaged stream can't
+    // inflate without bound (a few bytes can expand to gigabytes).
     let expected = bytesps
       .checked_mul(line_width)
       .and_then(|n| n.checked_mul(lines.len()))
       .ok_or("Deflate: tile size overflows")?;
-    let mut decoder = Decoder::new(src).map_err(|err| format!("Deflate: {err}"))?;
-    let mut decoded_data = Vec::new();
-    (&mut decoder)
-      .take(expected as u64 + 1)
-      .read_to_end(&mut decoded_data)
-      .map_err(|err| format!("Deflate: {err}"))?;
+    // miniz_oxide stops at the limit (libflate expanded a whole deflate block
+    // into its own buffer first, so a damaged block could still exhaust
+    // memory). Output beyond the tile's size is an error.
+    let mut decoded_data = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(src, expected).map_err(|err| format!("Deflate: {:?}", err.status))?;
 
     if decoded_data.len() != expected {
       return Err("Deflate: tile size doesn't match the image".to_string());

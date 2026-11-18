@@ -508,6 +508,13 @@ What changed (each site is marked `Rawtonic patch (RWH1…)`):
   shorter than its header looped forever), JFIF (a broken APP1 or short
   segment looped forever). `todo!`/`unimplemented!`/`assert!` that file data
   can reach return errors.
+- RW2 v8: the CF2 lists must hold their counts, the gamma and Huffman
+  tables their sizes, and the strips must fit the image without
+  overlapping; each strip now decodes into its own buffer and is copied into
+  the image (the parallel workers used to share one `&mut` to the image).
+  Deflate DNG tiles inflate with `miniz_oxide` (new dependency, MIT/Zlib/
+  Apache-2.0, already used by `rawtonic-export`) under the tile's size as
+  output limit; libflate expanded whole blocks first.
 - Arithmetic that release builds wrapped and debug builds panicked on wraps
   explicitly (`wrapping_*`), so release output is unchanged; a few
   `debug_assert!`s on sample values are removed.
