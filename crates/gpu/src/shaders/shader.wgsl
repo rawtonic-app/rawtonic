@@ -2816,6 +2816,33 @@ fn shadows_v19_level(coords: vec2<u32>) -> f32 {
     return exp2(wide + select(q * q / (4.0 * SH_V19_SOFT), d, d >= SH_V19_SOFT));
 }
 
+// Tone version 20 (notes: G02, benchmark-results/shg1-2026-11-18): a bright
+// pixel among thin dark detail is not lifted as shadow. Between dark strokes
+// (text, a fine grating, leaves against the sky) the blurred level is dark
+// although the pixel is bright, so version 19 lifted the bright gaps: +9.8
+// L* between 5 px strokes 5 px apart at Shadows +100, where Camera Raw and
+// Capture One lift them by less than 0.1 L*. The level may no longer fall
+// below the pixel's own luminance where the pixel itself is a light tone:
+// the floor's raise is faded in with the pixel's display level (before the
+// lift) from SH_V20_GATE.x to SH_V20_GATE.y EV (smoothstep; about L* 57 to
+// L* 80), so the shadows' own texture keeps version 19's level. Floor and
+// level meet in a smooth maximum SH_V20_SOFT EV wide (quadratic, as version
+// 19's stop).
+// The gate was chosen from four on the slider atlas (shadow detail at +100
+// against version 19's) and the stroke chart's gaps.
+const SH_V20_GATE: vec2<f32> = vec2<f32>(-2.0, -0.8);
+const SH_V20_SOFT: f32 = 0.25;
+
+fn shadows_v20_level(wide_luma: f32, pixel_rgb: vec3<f32>, exposure_gain: f32) -> f32 {
+    let pixel = max(get_luma(max(pixel_rgb, vec3<f32>(0.0))), 0.0001);
+    let wide = log2(max(wide_luma, 0.0001));
+    let d = log2(pixel) - wide;
+    let q = clamp(d + SH_V20_SOFT, 0.0, 2.0 * SH_V20_SOFT);
+    let raise = select(q * q / (4.0 * SH_V20_SOFT), d, d >= SH_V20_SOFT);
+    let light = smoothstep(SH_V20_GATE.x, SH_V20_GATE.y, camera_raw_level_slope(pixel * exposure_gain).x);
+    return exp2(wide + raise * light);
+}
+
 // The texture gain on top of the wide level's lift `gain`.
 fn shadows_v6_texture(tonal_level: f32, wide_level: f32, gain: f32, exposure_gain: f32) -> f32 {
     let before = camera_raw_level_slope(wide_level * exposure_gain).y;
@@ -11384,6 +11411,9 @@ fn main(
         // SHADOWS_V19 compile the code they always had.
         if (SHADOWS_V19 && t_shadows > 0.0 && adjustments.global.tone_version > 18.5) {
             wide_luma = shadows_v19_level(id.xy);
+        }
+        if (SHADOWS_V19 && t_shadows > 0.0 && adjustments.global.tone_version > 19.5) {
+            wide_luma = shadows_v20_level(wide_luma, composite_rgb_linear, exposure_gain);
         }
         var whites_offset = 0.0;
         if (t_whites < 0.0 && adjustments.global.tone_version > 9.5 && base_look_is_camera_raw()) {

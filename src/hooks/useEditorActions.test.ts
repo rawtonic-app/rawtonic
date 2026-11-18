@@ -1468,8 +1468,8 @@ describe('pasted version keys onto a never-edited open photo', () => {
       });
     });
     const pasted = useEditorStore.getState().adjustments;
-    // The new edit's version (19; Blacks travel as from version 18).
-    expect(pasted.toneVersion).toBe(19);
+    // The new edit's version (20; Blacks travel as from version 18).
+    expect(pasted.toneVersion).toBe(20);
     // Version 18's slider value for version 16's −100, as the backend writes onto a closed Reset photo.
     expect(pasted.blacks).toBeCloseTo(-71.551724, 5);
     expect(whitesAmountV17(pasted.whites)).toBeCloseTo(74, 9);
