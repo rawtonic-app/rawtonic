@@ -230,8 +230,14 @@ impl<'a> Decoder for Cr2Decoder<'a> {
                 for row in 0..height {
                   let outpos = row * width + fieldstart;
                   let inpos = fieldpos + row * fieldwidth;
-                  let outb = &mut out[outpos..outpos + fieldwidth];
-                  let inb = &ljpegout[inpos..inpos + fieldwidth];
+                  // Rawtonic patch (RWH1; dnglab b51a292a): stripes that
+                  // don't fit the image buffers are an error.
+                  let (Some(outb), Some(inb)) = (
+                    out.pixels_mut().get_mut(outpos..outpos + fieldwidth),
+                    ljpegout.pixels().get(inpos..inpos + fieldwidth),
+                  ) else {
+                    return Err(RawlerError::DecoderFailed("CR2: slices don't fit the image".to_string()));
+                  };
                   outb.copy_from_slice(inb);
                 }
                 fieldstart += fieldwidth;
@@ -299,10 +305,11 @@ impl<'a> Decoder for Cr2Decoder<'a> {
     let photometric = match cpp {
       1 => RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&self.camera)),
       3 => RawPhotometricInterpretation::LinearRaw,
-      _ => todo!(),
+      // Rawtonic patch (RWH1): an error, not a panic.
+      _ => return Err(RawlerError::DecoderFailed(format!("CR2: {} samples per pixel", cpp))),
     };
 
-    let mut img = RawImage::new(camera, image, cpp, wb, photometric, blacklevel, whitelevel, dummy);
+    let mut img = RawImage::new(camera, image, cpp, wb, photometric, blacklevel, whitelevel, dummy)?;
 
     if let Some(file_crop) = self.get_sensor_area()? {
       assert!(

@@ -75,7 +75,17 @@ impl CodecParams {
     match q_step {
       Some(q_step) => {
         // new version
-        let q_step_tbl_ptr = &q_step.q_step_tbl[(q_step.width * band.get_subband_row(param.cur_line - 1))..];
+        // Rawtonic patch (RWH1): a damaged header whose subband geometry
+        // doesn't fit the quantization table is an error, not a panic.
+        if band.col_start_addon + band.col_end_addon >= band.width || param.cur_line == 0 {
+          return Err(CrxError::General("CRX: subband geometry doesn't fit".to_string()));
+        }
+        let last_idx = (band.width - band.col_end_addon - band.col_start_addon - 1) >> band.level_shift;
+        let q_step_tbl_ptr = (q_step.width * band.get_subband_row(param.cur_line - 1))
+          .checked_add(last_idx)
+          .filter(|&end| end < q_step.q_step_tbl.len())
+          .map(|_| &q_step.q_step_tbl[(q_step.width * band.get_subband_row(param.cur_line - 1))..])
+          .ok_or_else(|| CrxError::General("CRX: quantization table too short".to_string()))?;
 
         for i in 0..band.col_start_addon {
           let quant_val = band.q_step_base + ((q_step_tbl_ptr[0] * band.q_step_multi as u32) >> 3) as i32;
@@ -88,8 +98,6 @@ impl CodecParams {
           //eprintln!("{}", quant_val);
           param.decoded_buf_mut()[i] *= constrain(quant_val, 1, 0x168000);
         }
-
-        let last_idx = (band.width - band.col_end_addon - band.col_start_addon - 1) >> band.level_shift;
 
         for i in (band.width - band.col_end_addon)..band.width {
           let quant_val = band.q_step_base + ((q_step_tbl_ptr[last_idx] * band.q_step_multi as u32) >> 3) as i32;

@@ -39,13 +39,18 @@ struct X3fImage {
 impl X3fFile {
   fn new(file: &RawSource) -> Result<X3fFile> {
     let buf = file.as_vec()?;
-    let offset = LEu32(&buf, buf.len() - 4) as usize;
-    let data = &buf[offset..];
+    // Rawtonic patch (RWH1; dnglab f47512be checks the same): the directory
+    // and its entries must lie inside the file.
+    let offset = if buf.len() >= 4 { LEu32(&buf, buf.len() - 4) as usize } else { usize::MAX };
+    let data = buf.get(offset..).filter(|data| data.len() >= 12).ok_or("X3F: directory is behind EOF")?;
     let version = LEu32(data, 4);
     if version < 0x00020000 {
       return Err(format_args!("X3F: Directory version too old {}", version).into());
     }
     let entries = LEu32(data, 8) as usize;
+    if entries > (data.len() - 12) / 12 {
+      return Err("X3F: directory entries are behind EOF".into());
+    }
     let mut dirs = Vec::new();
     let mut images = Vec::new();
     for i in 0..entries {
@@ -63,7 +68,7 @@ impl X3fFile {
 
 impl X3fDirectory {
   fn new(buf: &[u8], offset: usize) -> Result<X3fDirectory> {
-    let data = &buf[offset..];
+    let data = buf.get(offset..).filter(|data| data.len() >= 12).ok_or("X3F: directory entry is behind EOF")?;
     let off = LEu32(data, 0) as usize;
     let len = LEu32(data, 4) as usize;
     let name = String::from_utf8_lossy(&data[8..12]).to_string();
@@ -74,7 +79,7 @@ impl X3fDirectory {
 
 impl X3fImage {
   fn new(buf: &[u8], offset: usize) -> Result<X3fImage> {
-    let data = &buf[offset..];
+    let data = buf.get(offset..).filter(|data| data.len() >= 28).ok_or("X3F: image is behind EOF")?;
 
     Ok(X3fImage {
       typ: LEu32(data, 8) as usize,
@@ -110,11 +115,11 @@ impl<'a> Decoder for X3fDecoder<'a> {
       .iter()
       .find(|i| i.typ == 2 && i.format == 0x12)
       .ok_or("X3F: Couldn't find camera info")?;
-    let data = &buffer[caminfo.doffset + 6..];
-    if data[0..4] != b"Exif"[..] {
+    let data = buffer.get(caminfo.doffset + 6..).unwrap_or_default();
+    if data.get(0..4) != Some(&b"Exif"[..]) {
       return Err("X3F: Couldn't find EXIF info".into());
     }
-    let tiff = IFD::new(&mut Cursor::new(&buffer), (caminfo.doffset + 12) as u32, 0, 0, Endian::Little, &[]).unwrap();
+    let tiff = IFD::new(&mut Cursor::new(&buffer), (caminfo.doffset + 12) as u32, 0, 0, Endian::Little, &[])?;
 
     let camera = self.rawloader.check_supported(&tiff)?;
 
@@ -122,7 +127,7 @@ impl<'a> Decoder for X3fDecoder<'a> {
     let width = imginfo.width;
     let height = imginfo.height;
     let offset = imginfo.doffset;
-    let src = &buffer[offset..];
+    let src = buffer.get(offset..).ok_or("X3F: image data is behind EOF")?;
 
     let image = match imginfo.format {
       35 => self.decode_compressed(src, width, height, dummy)?,
@@ -131,7 +136,7 @@ impl<'a> Decoder for X3fDecoder<'a> {
 
     let cpp = 3;
     let photometric = RawPhotometricInterpretation::LinearRaw;
-    Ok(RawImage::new(camera, image, cpp, self.get_wb()?, photometric, None, None, dummy))
+    Ok(RawImage::new(camera, image, cpp, self.get_wb()?, photometric, None, None, dummy)?)
   }
 
   fn format_dump(&self) -> FormatDump {
@@ -143,7 +148,8 @@ impl<'a> Decoder for X3fDecoder<'a> {
   }
 
   fn raw_metadata(&self, _file: &RawSource, _params: &RawDecodeParams) -> Result<RawMetadata> {
-    todo!()
+    // Rawtonic patch (RWH1): an error, not a panic (X3F is not supported).
+    Err("X3F: metadata not supported".into())
   }
 }
 

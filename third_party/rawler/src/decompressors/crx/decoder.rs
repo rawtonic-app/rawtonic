@@ -35,8 +35,11 @@ impl<'a> PlaneLineIter<'a> {
   /// Create a new PlaneLine iterator for decoding
   fn new(codec: CodecParams, tile: &'a Tile, plane: &'a Plane, mdat: &'a [u8]) -> Result<Self> {
     // Some checks for correct input
-    assert!(tile.plane_height > 0);
-    assert!(tile.plane_width > 0);
+    // Rawtonic patch (RWH1): errors instead of asserts and an out-of-bounds
+    // slice for a damaged header.
+    if tile.plane_height == 0 || tile.plane_width == 0 {
+      return Err(CrxError::General("CRX: empty plane".to_string()));
+    }
 
     // Reference to data section in MDAT
     // All calculated offsets are relative to the data section.
@@ -49,7 +52,10 @@ impl<'a> PlaneLineIter<'a> {
     for (band_id, band) in plane.subbands.iter().enumerate() {
       let band_mdat_offset = plane_mdat_offset + band.data_offset;
       debug!("Band {} has MDAT offset: {}", band_id, band_mdat_offset);
-      let band_buf = &data[band_mdat_offset..band_mdat_offset + band.data_size];
+      let band_buf = band_mdat_offset
+        .checked_add(band.data_size)
+        .and_then(|end| data.get(band_mdat_offset..end))
+        .ok_or_else(|| CrxError::General(format!("CRX: band {} is outside the data", band_id)))?;
       // Line length is subband + one additional pixel at start and end
       let line_len = 1 + band.width + 1;
       let bitpump = BitReader::endian(Cursor::new(band_buf), bitstream_io::BigEndian);
@@ -670,6 +676,12 @@ fn convert_plane_line(codec: &CodecParams, l0: &[i32], l1: &[i32], l2: &[i32], l
   let mut p1 = vec![0; l1.len()];
   let mut p2 = vec![0; l2.len()];
   let mut p3 = vec![0; l3.len()];
+
+  // Rawtonic patch (RWH1): a damaged header's sample depth is an error
+  // instead of shift overflows (CR3 stores 10 to 16 bits).
+  if codec.median_bits == 0 || codec.median_bits > 20 {
+    return Err(CrxError::General(format!("CRX: invalid median bits {}", codec.median_bits)));
+  }
 
   match codec.enc_type {
     0 => {

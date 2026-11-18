@@ -9,6 +9,7 @@ use crate::RawLoader;
 use crate::RawlerError;
 use crate::Result;
 use crate::alloc_image;
+use crate::alloc_image_ok;
 use crate::bits::*;
 use crate::decoders::decode_threaded;
 use crate::decoders::decode_threaded_multiline;
@@ -123,9 +124,9 @@ impl<'a> Decoder for ArwDecoder<'a> {
     let image = match compression {
       1 => {
         if self.camera.model == "DSC-R1" {
-          decode_14be_unpacked(src, width, height, dummy)
+          decode_14be_unpacked(src, width, height, dummy)?
         } else {
-          decode_16le(src, width, height, dummy)
+          decode_16le(src, width, height, dummy)?
         }
       }
       7 => {
@@ -144,12 +145,12 @@ impl<'a> Decoder for ArwDecoder<'a> {
           if white.is_some_and(|white| white > 4095) {
             white = Some(4095);
           }
-          ArwDecoder::decode_arw1(src, width, height, dummy)
+          ArwDecoder::decode_arw1(src, width, height, dummy)?
         } else {
           match bps {
             8 => {
               let curve = ArwDecoder::get_curve(raw)?;
-              ArwDecoder::decode_arw2(src, width, height, &curve, dummy)
+              ArwDecoder::decode_arw2(src, width, height, &curve, dummy)?
             }
             12 => {
               /*
@@ -165,7 +166,7 @@ impl<'a> Decoder for ArwDecoder<'a> {
                 x.iter_mut().for_each(|x| *x >>= 2);
                 x
               });
-              decode_12le(src, width, height, dummy)
+              decode_12le(src, width, height, dummy)?
             }
             _ => return Err(RawlerError::DecoderFailed(format!("ARW2: Don't know how to decode images with {} bps", bps))),
           }
@@ -209,10 +210,11 @@ impl<'a> Decoder for ArwDecoder<'a> {
     let photometric = match cpp {
       1 => RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&self.camera)),
       3 => RawPhotometricInterpretation::LinearRaw,
-      _ => todo!(),
+      // Rawtonic patch (RWH1): an error, not a panic.
+      _ => return Err(RawlerError::DecoderFailed(format!("ARW: {} samples per pixel", cpp))),
     };
 
-    let mut img = RawImage::new(self.camera.clone(), image, cpp, params.wb, photometric, blacklevel, whitelevel, dummy);
+    let mut img = RawImage::new(self.camera.clone(), image, cpp, params.wb, photometric, blacklevel, whitelevel, dummy)?;
 
     if cpp == 3 {
       // For debayer images, we assume WB coeffs already applied
@@ -348,7 +350,7 @@ impl<'a> ArwDecoder<'a> {
     let offset = fetch_tiff_tag!(raw, TiffCommonTag::SubIFDs).force_usize(0);
 
     let src = file.subview_until_eof(offset as u64)?;
-    let image = ArwDecoder::decode_arw1(src, width, height, dummy);
+    let image = ArwDecoder::decode_arw1(src, width, height, dummy)?;
 
     // Get the WB the MRW way
     // DNGPrivateTag contains 4 bytes forming a LE u32 offset value.
@@ -412,14 +414,18 @@ impl<'a> ArwDecoder<'a> {
 
       // "Decrypt" the whole image buffer
       let image_data = ArwDecoder::sony_decrypt(&buffer, off, len, second_key)?;
-      decode_16be(&image_data, width, height, dummy)
+      decode_16be(&image_data, width, height, dummy)?
     };
     let cpp = 1;
     ok_cfa_image(self.camera.clone(), cpp, [f32::NAN, f32::NAN, f32::NAN, f32::NAN], image, dummy)
   }
 
-  pub(crate) fn decode_arw1(buf: &[u8], width: usize, height: usize, dummy: bool) -> PixU16 {
-    let mut out = alloc_image!(width, height, dummy);
+  pub(crate) fn decode_arw1(buf: &[u8], width: usize, height: usize, dummy: bool) -> Result<PixU16> {
+    // Rawtonic patch (RWH1; dnglab 10815d22): size checked, the sum wraps
+    // (release builds wrapped before, so valid files decode the same) and
+    // data that ends early is an error.
+    crate::packed::check_image("ARW1", width, height)?;
+    let mut out = alloc_image_ok!(width, height, dummy);
     let mut pump = BitPumpMSB::new(buf);
 
     let mut sum: i32 = 0;
@@ -440,19 +446,25 @@ impl<'a> ArwDecoder<'a> {
           pump.get_bits(cmp::min(13, zeros + 1));
         }
         let diff: i32 = pump.get_ibits(len);
-        sum += diff;
+        sum = sum.wrapping_add(diff);
         if len > 0 && (diff & (1 << (len - 1))) == 0 {
-          sum -= (1 << len) - 1;
+          sum = sum.wrapping_sub((1 << len) - 1);
         }
         out[row * width + col] = sum as u16;
         row += 2
       }
+      if pump.overrun() {
+        return Err(RawlerError::DecoderFailed("ARW1: compressed data ends early".to_string()));
+      }
     }
-    out
+    Ok(out)
   }
 
-  pub(crate) fn decode_arw2(buf: &[u8], width: usize, height: usize, curve: &LookupTable, dummy: bool) -> PixU16 {
-    decode_threaded(
+  pub(crate) fn decode_arw2(buf: &[u8], width: usize, height: usize, curve: &LookupTable, dummy: bool) -> Result<PixU16> {
+    // Rawtonic patch (RWH1; dnglab ece9d380): every row starts inside the
+    // data; `max - min` wraps as release builds did before.
+    crate::packed::check_rows("ARW2", buf, width, height, width, dummy)?;
+    Ok(decode_threaded(
       width,
       height,
       dummy,
@@ -465,7 +477,7 @@ impl<'a> ArwDecoder<'a> {
           for j in 0..2 {
             let max = pump.get_bits(11);
             let min = pump.get_bits(11);
-            let delta = max - min;
+            let delta = max.wrapping_sub(min);
             // Calculate the size of the data shift needed by how large the delta is
             // A delta with 11 bits requires a shift of 4, 10 bits of 3, etc
             let delta_shift: u32 = cmp::max(0, (32 - (delta.leading_zeros() as i32)) - 7) as u32;
@@ -485,7 +497,7 @@ impl<'a> ArwDecoder<'a> {
           }
         }
       }),
-    )
+    ))
   }
 
   /// Some newer cameras like Alpha-1 uses LJPEG compression, but in an awkward way.
@@ -503,13 +515,22 @@ impl<'a> ArwDecoder<'a> {
     let twidth = fetch_tiff_tag!(raw, TiffCommonTag::TileWidth).force_usize(0);
     let tlength = fetch_tiff_tag!(raw, TiffCommonTag::TileLength).force_usize(0);
     let cpp = fetch_tiff_tag!(raw, TiffCommonTag::SamplesPerPixel).force_usize(0);
-    let coltiles = (width - 1) / twidth + 1;
-    let rowtiles = (height - 1) / tlength + 1;
+    // Rawtonic patch (RWH1; dnglab 844a22e2, 9e427333): checked tile
+    // geometry and offsets, tile copies clipped to the strip.
+    if width == 0 || height == 0 {
+      return Err(RawlerError::DecoderFailed(format!("ARW LJPEG: invalid image size {}x{}", width, height)));
+    }
+    // The tiles are decoded into buffers of 512x512 pixels
+    if twidth != 512 || tlength != 512 {
+      return Err(RawlerError::unsupported(camera, format!("ARW LJPEG: tiles of {}x{} pixels", twidth, tlength)));
+    }
+    let coltiles = width.div_ceil(twidth);
+    let rowtiles = height.div_ceil(tlength);
 
     log::debug!("Sony ARW LJPEG raw: width: {}, height: {}, cpp: {}", width, height, cpp);
     log::debug!("LJPEG tile parameters: width: {}, length: {}, cpp: {}", twidth, tlength, cpp);
 
-    if coltiles * rowtiles != offsets.count() as usize {
+    if coltiles.checked_mul(rowtiles) != Some(offsets.count() as usize) {
       return Err(RawlerError::unsupported(
         camera,
         format!("ARW LJPEG: trying to decode {} tiles from {} offsets", coltiles * rowtiles, offsets.count()),
@@ -528,7 +549,9 @@ impl<'a> ArwDecoder<'a> {
           for col in 0..coltiles {
             log::debug!("Decode tile: row({}), col({})", row, col);
             let offset = offsets.force_usize(row * coltiles + col);
-            let src = &buffer[offset..];
+            let src = buffer
+              .get(offset..)
+              .ok_or_else(|| format!("ARW LJPEG: offset {offset} of tile ({row},{col}) is behind EOF"))?;
             let decompressor =
               LjpegDecompressor::new(src).map_err(|err| format!("Creating LJPEG decompressor for ARW LJPEG tile ({row},{col}) failed: {err}"))?;
             let cpp = 3;
@@ -539,15 +562,7 @@ impl<'a> ArwDecoder<'a> {
             decompressor.decode_sony(&mut data, 0, w * cpp, w * cpp, h, dummy)?;
             interpolate_yuv(decompressor.super_h(), decompressor.super_v(), w * cpp, h, &mut data);
 
-            let mut strip = &mut *strip;
-
-            for line in data.chunks_exact(w * cpp) {
-              let base = col * twidth * cpp;
-              strip[base..base + w * cpp].copy_from_slice(line);
-
-              // Now move output strip by one row.
-              strip = &mut strip[width * cpp..];
-            }
+            copy_tile(strip, width * cpp, col * twidth * cpp, &data, w * cpp);
           }
           Ok(())
         }),
@@ -565,7 +580,9 @@ impl<'a> ArwDecoder<'a> {
           let row = row / tlength;
           for col in 0..coltiles {
             let offset = offsets.force_usize(row * coltiles + col);
-            let src = &buffer[offset..];
+            let src = buffer
+              .get(offset..)
+              .ok_or_else(|| format!("ARW LJPEG: offset {offset} of tile ({row},{col}) is behind EOF"))?;
             let decompressor = LjpegDecompressor::new(src)?;
             let cpp = 4;
             let w = 256;
@@ -574,19 +591,7 @@ impl<'a> ArwDecoder<'a> {
 
             decompressor.decode(&mut data, 0, w * cpp, w * cpp, h, dummy)?;
 
-            let mut strip = &mut *strip;
-            for line in data.chunks_exact(1024) {
-              for (i, chunk) in line.chunks_exact(4).enumerate() {
-                // Unpack chunks of RGGB pixel data into two output lines
-                // so the first line is RGRGRG and the second one is GBGBGB.
-                strip[col * twidth + i * 2 + 0] = chunk[0];
-                strip[col * twidth + i * 2 + 1] = chunk[1];
-                strip[width + col * twidth + i * 2 + 0] = chunk[2];
-                strip[width + col * twidth + i * 2 + 1] = chunk[3];
-              }
-              // Now move output strip by two rows.
-              strip = &mut strip[width * 2..];
-            }
+            copy_rggb_tile(strip, width, col * twidth, &data, w * cpp);
           }
           Ok(())
         }),
@@ -607,14 +612,30 @@ impl<'a> ArwDecoder<'a> {
     let tiff = GenericTiffReader::new(&mut file.reader(), 0, 0, None, &[])?;
     let priv_offset = {
       let tag = fetch_tiff_tag!(tiff, TiffCommonTag::DNGPrivateArea).get_data();
-      LEu32(tag, 0)
+      // Rawtonic patch (RWH1): a tag shorter than 4 bytes is an error.
+      LEu32(
+        if tag.len() >= 4 {
+          tag
+        } else {
+          return Err(RawlerError::DecoderFailed("ARW: 32-bit tag too short".to_string()));
+        },
+        0,
+      )
     };
     let priv_tiff = IFD::new(&mut file.reader(), priv_offset, 0, 0, Endian::Little, &[])?;
     let sony_offset = fetch_tiff_tag!(priv_tiff, TiffCommonTag::SonyOffset).force_u32(0);
     let sony_length = fetch_tiff_tag!(priv_tiff, TiffCommonTag::SonyLength).force_usize(0);
     let sony_key = {
       let tag = fetch_tiff_tag!(priv_tiff, TiffCommonTag::SonyKey).get_data();
-      LEu32(tag, 0)
+      // Rawtonic patch (RWH1): a tag shorter than 4 bytes is an error.
+      LEu32(
+        if tag.len() >= 4 {
+          tag
+        } else {
+          return Err(RawlerError::DecoderFailed("ARW: 32-bit tag too short".to_string()));
+        },
+        0,
+      )
     };
     let buffer = file.as_vec()?;
     let decrypted_buf = ArwDecoder::sony_decrypt(&buffer, sony_offset as usize, sony_length, sony_key)?;
@@ -638,7 +659,15 @@ impl<'a> ArwDecoder<'a> {
     let sony_length = fetch_tiff_tag!(private, TiffCommonTag::SonyLength).force_usize(0);
     let sony_key = {
       let tag = fetch_tiff_tag!(private, TiffCommonTag::SonyKey).get_data();
-      LEu32(tag, 0)
+      // Rawtonic patch (RWH1): a tag shorter than 4 bytes is an error.
+      LEu32(
+        if tag.len() >= 4 {
+          tag
+        } else {
+          return Err(RawlerError::DecoderFailed("ARW: 32-bit tag too short".to_string()));
+        },
+        0,
+      )
     };
     // Adobe keeps the sub-IFD data shortened by the size of the SR2Private
     // directory in front of it; the stream decryption works on the part
@@ -654,7 +683,15 @@ impl<'a> ArwDecoder<'a> {
   fn get_params(&self, file: &RawSource) -> Result<ArwImageParams> {
     let priv_offset = {
       let tag = fetch_tiff_tag!(self.tiff, TiffCommonTag::DNGPrivateArea).get_data();
-      LEu32(tag, 0)
+      // Rawtonic patch (RWH1): a tag shorter than 4 bytes is an error.
+      LEu32(
+        if tag.len() >= 4 {
+          tag
+        } else {
+          return Err(RawlerError::DecoderFailed("ARW: 32-bit tag too short".to_string()));
+        },
+        0,
+      )
     };
     let priv_tiff = IFD::new(&mut file.reader(), priv_offset, 0, 0, Endian::Little, &[])?;
 
@@ -665,7 +702,15 @@ impl<'a> ArwDecoder<'a> {
     // This tag is of type UNDEFINED and contains a 32 bit value
     let sony_key = {
       let tag = fetch_tiff_tag!(priv_tiff, TiffCommonTag::SonyKey).get_data();
-      LEu32(tag, 0)
+      // Rawtonic patch (RWH1): a tag shorter than 4 bytes is an error.
+      LEu32(
+        if tag.len() >= 4 {
+          tag
+        } else {
+          return Err(RawlerError::DecoderFailed("ARW: 32-bit tag too short".to_string()));
+        },
+        0,
+      )
     };
     let buffer = file.as_vec()?;
     let decrypted_buf = ArwDecoder::sony_decrypt(&buffer, sony_offset as usize, sony_length, sony_key)?;
@@ -791,6 +836,37 @@ impl<'a> ArwDecoder<'a> {
       Ok(Some(Rect::new(Point::default(), Dim2::new(entry.force_usize(0), entry.force_usize(1)))))
     } else {
       Ok(None)
+    }
+  }
+}
+
+/// Rawtonic patch (RWH1), from dnglab 844a22e2: copy the lines of a decoded
+/// tile of `tile_width` samples per line into the lines of `strip`, which
+/// have `strip_width` samples, starting at sample `x`. The parts of the tile
+/// outside of the strip are dropped.
+fn copy_tile(strip: &mut [u16], strip_width: usize, x: usize, tile: &[u16], tile_width: usize) {
+  for (dst, src) in strip.chunks_exact_mut(strip_width).zip(tile.chunks_exact(tile_width)) {
+    if let Some(dst) = dst.get_mut(x..) {
+      let len = dst.len().min(src.len());
+      dst[..len].copy_from_slice(&src[..len]);
+    }
+  }
+}
+
+/// Rawtonic patch (RWH1), from dnglab 844a22e2: copy a decoded tile of RGGB
+/// blocks, in lines of `tile_width` samples, into the lines of `strip`, which
+/// have `width` pixels, starting at pixel `x`. Each line of the tile becomes
+/// two lines of the strip, the first one is RGRG… and the second one GBGB….
+/// The parts of the tile outside of the strip are dropped.
+fn copy_rggb_tile(strip: &mut [u16], width: usize, x: usize, tile: &[u16], tile_width: usize) {
+  for (lines, src) in strip.chunks_exact_mut(2 * width).zip(tile.chunks_exact(tile_width)) {
+    let (upper, lower) = lines.split_at_mut(width);
+    let (Some(upper), Some(lower)) = (upper.get_mut(x..), lower.get_mut(x..)) else {
+      continue;
+    };
+    for ((upper, lower), block) in upper.chunks_mut(2).zip(lower.chunks_mut(2)).zip(src.as_chunks::<4>().0) {
+      upper.iter_mut().zip(&block[..2]).for_each(|(dst, src)| *dst = *src);
+      lower.iter_mut().zip(&block[2..]).for_each(|(dst, src)| *dst = *src);
     }
   }
 }

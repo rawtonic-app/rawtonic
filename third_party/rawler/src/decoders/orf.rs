@@ -7,6 +7,7 @@ use crate::RawLoader;
 use crate::RawlerError;
 use crate::Result;
 use crate::alloc_image;
+use crate::alloc_image_ok;
 use crate::analyze::FormatDump;
 use crate::buffer::PaddedBuf;
 use crate::exif::Exif;
@@ -190,26 +191,26 @@ impl<'a> Decoder for OrfDecoder<'a> {
     let image = if size >= width * height * 2 {
       if self.tiff.little_endian() {
         log::debug!("ORF: decode_12le_unpacked_left_aligned");
-        decode_12le_unpacked_left_aligned(&src, width, height, dummy)
+        decode_12le_unpacked_left_aligned(&src, width, height, dummy)?
       } else {
         log::debug!("ORF: decode_12be_unpacked_left_aligned");
-        decode_12be_unpacked_left_aligned(&src, width, height, dummy)
+        decode_12be_unpacked_left_aligned(&src, width, height, dummy)?
       }
     } else if size >= width * height / 10 * 16 {
       log::debug!("ORF: decode_12le_wcontrol");
-      decode_12le_wcontrol(&src, width, height, dummy)
+      decode_12le_wcontrol(&src, width, height, dummy)?
     } else if size >= width * height * 12 / 8 {
       if self.camera.find_hint("interlaced") {
         log::debug!("ORF: decode_12be_interlaced");
-        decode_12be_interlaced(&src, width, height, dummy)
+        decode_12be_interlaced(&src, width, height, dummy)?
       } else {
         log::debug!("ORF: decode_12be_msb32");
-        //decode_12be_interlaced(&src, width, height, dummy)
-        decode_12be_msb32(&src, width, height, dummy)
+        //decode_12be_interlaced(&src, width, height, dummy)?
+        decode_12be_msb32(&src, width, height, dummy)?
       }
     } else {
       log::debug!("ORF: fallback to decode_compressed");
-      OrfDecoder::decode_compressed(&src, width, height, bps, dummy)
+      OrfDecoder::decode_compressed(&src, width, height, bps, dummy)?
     };
 
     let cpp = 1;
@@ -219,7 +220,7 @@ impl<'a> Decoder for OrfDecoder<'a> {
     // Rawtonic patch: the colour pattern belongs to the selected mode
     // (high-resolution shots of the E-M5 Mark II and PEN-F are GRBG).
     let photometric = RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&camera));
-    let mut img = RawImage::new(camera, image, cpp, normalize_wb(self.get_wb()?), photometric, blacklevel, whitelevel, dummy);
+    let mut img = RawImage::new(camera, image, cpp, normalize_wb(self.get_wb()?), photometric, blacklevel, whitelevel, dummy)?;
     if let Some(crop) = self.get_crop()? {
       img.crop_area = Some(crop);
     }
@@ -255,8 +256,11 @@ impl<'a> OrfDecoder<'a> {
    * is based on the output of all previous pixel (bar the first four)
    */
 
-  pub fn decode_compressed(buf: &PaddedBuf, width: usize, height: usize, bps: usize, dummy: bool) -> PixU16 {
-    let mut out = alloc_image!(width, height, dummy);
+  pub fn decode_compressed(buf: &PaddedBuf, width: usize, height: usize, bps: usize, dummy: bool) -> Result<PixU16> {
+    // Rawtonic patch (RWH1): size checked, data that ends early is an error
+    // (dnglab 64492f9a, 6c218dc2 check the same; this is our own code).
+    crate::packed::check_image("ORF", width, height)?;
+    let mut out = alloc_image_ok!(width, height, dummy);
 
     /* Build a table to quickly look up "high" value */
     let mut bittable: [u8; 4096] = [0; 4096];
@@ -274,7 +278,7 @@ impl<'a> OrfDecoder<'a> {
     let mut left: [i32; 2] = [0; 2];
     let mut nw: [i32; 2] = [0; 2];
     let skip = if bps == 14 { 8 } else { 7 };
-    let mut pump = BitPumpMSB::new(&buf[skip..]);
+    let mut pump = BitPumpMSB::new(buf.get(skip..).unwrap_or_default());
 
     for row in 0..height {
       let mut acarry: [[i32; 3]; 2] = [[0; 3]; 2];
@@ -328,7 +332,8 @@ impl<'a> OrfDecoder<'a> {
             let left_minus_nw: i32 = left[s] - nw[s];
             let up_minus_nw: i32 = up - nw[s];
             // Check if sign is different, and one is not zero
-            let pred = if left_minus_nw * up_minus_nw < 0 {
+            // Rawtonic patch (RWH1): explicit wrapping, what release builds computed (damaged data overflowed in debug builds).
+            let pred = if left_minus_nw.wrapping_mul(up_minus_nw) < 0 {
               if left_minus_nw.abs() > 32 || up_minus_nw.abs() > 32 {
                 left[s] + up_minus_nw
               } else {
@@ -346,8 +351,11 @@ impl<'a> OrfDecoder<'a> {
           }
         }
       }
+      if pump.overrun() {
+        return Err(RawlerError::DecoderFailed("ORF: compressed data ends early".to_string()));
+      }
     }
-    out
+    Ok(out)
   }
 
   fn get_blacklevel(&self, bps: usize) -> Result<Option<BlackLevel>> {

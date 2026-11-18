@@ -35,7 +35,10 @@ impl<R: Read + Seek> ReadBox<&mut R> for MdhdBox {
         reader.read_u64::<BigEndian>()?,
       )
     } else {
-      assert_eq!(version, 0);
+      // Rawtonic patch (RWH1): an error instead of the assert.
+      if version != 0 {
+        return Err(super::BmffError::Parse(format!("mdhd version {}", version)));
+      }
       (
         reader.read_u32::<BigEndian>()? as u64,
         reader.read_u32::<BigEndian>()? as u64,

@@ -7,7 +7,8 @@ pub(super) fn nef_decrypt(buf: &mut [u8], start: usize, makernote: &IFD) -> Resu
   let serial = fetch_tiff_tag!(makernote, NikonMakernote::NefSerial);
   let data = serial.get_data();
   let mut serialno = 0_usize;
-  for i in 0..serial.count() as usize {
+  // Rawtonic patch (RWH1): only the bytes the tag holds.
+  for i in 0..(serial.count() as usize).min(data.len()) {
     if data[i] == 0 {
       break;
     }
@@ -30,8 +31,9 @@ pub(super) fn nef_decrypt(buf: &mut [u8], start: usize, makernote: &IFD) -> Resu
   let mut cj = WB_KEYMAP[keyno & 0xff] as u32;
   let mut ck = 0x60_u32;
   for i in 0..src.len() {
-    cj += ci * ck;
-    ck += 1;
+    // Rawtonic patch (RWH1; dnglab d38fb159): the key wraps for long data.
+    cj = cj.wrapping_add(ci.wrapping_mul(ck));
+    ck = ck.wrapping_add(1);
     src[i] ^= cj as u8;
   }
   Ok(())

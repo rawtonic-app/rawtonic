@@ -43,7 +43,7 @@ impl<'a> Decoder for MefDecoder<'a> {
     let offset = fetch_tiff_tag!(raw, TiffCommonTag::StripOffsets).force_usize(0);
     let src = file.subview_until_eof(offset as u64)?;
 
-    let image = decode_12be(src, width, height, dummy);
+    let image = decode_12be(src, width, height, dummy)?;
     let cpp = 1;
     ok_cfa_image(self.camera.clone(), cpp, [f32::NAN, f32::NAN, f32::NAN, f32::NAN], image, dummy)
   }

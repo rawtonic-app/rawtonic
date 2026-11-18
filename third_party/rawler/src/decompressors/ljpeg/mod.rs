@@ -213,9 +213,25 @@ impl<'a> LjpegDecompressor<'a> {
       log::debug!("LJPEG with YUV 4:2:2 encoding");
     }
 
+    // Rawtonic patch (RWH1; dnglab 2577192a checks the same): every component
+    // must use a Huffman table the file defines (an undefined one is empty
+    // and panicked in the first lookup), and the data must start inside the
+    // buffer (reads past the end return zeros, so the position can be past it).
+    if sof
+      .components
+      .iter()
+      .take(sof.cps)
+      .any(|c| !dhts.get(c.dc_tbl_num).is_some_and(HuffTable::is_initialized))
+    {
+      return Err("ljpeg: a component uses an undefined Huffman table".to_string());
+    }
+    // The decoders' base prediction is 1 << (precision - point transform - 1).
+    if pt >= sof.precision {
+      return Err(format!("ljpeg: point transform {} for precision {}", pt, sof.precision));
+    }
     let offset = input.get_pos();
     Ok(LjpegDecompressor {
-      buffer: &src[offset..],
+      buffer: src.get(offset..).ok_or("ljpeg: data starts behind the end of the buffer")?,
       sof,
       predictor: pred,
       point_transform: pt,
@@ -245,9 +261,15 @@ impl<'a> LjpegDecompressor<'a> {
   }
 
   fn parse_dht(input: &mut ByteStream, init: &mut [bool; 4], bits: &mut [[u32; 17]; 4], huffval: &mut [[u32; 256]; 4]) -> Result<(), String> {
-    let mut length = (input.get_u16() as usize) - 2;
+    // Rawtonic patch (RWH1; dnglab 2577192a checks the DHT length): a length
+    // below 2 wrapped to a huge count, and a segment cut short by the end of
+    // the data (reads there return zeros) is an error instead of a loop.
+    let mut length = (input.get_u16() as usize).checked_sub(2).ok_or("ljpeg: invalid DHT length")?;
 
     while length > 0 {
+      if input.is_exhausted() {
+        return Err("ljpeg: DHT segment behind the end of the data".to_string());
+      }
       let b = input.get_u8() as usize;
       let tc = b >> 4;
       let th = b & 0xf;
@@ -290,6 +312,11 @@ impl<'a> LjpegDecompressor<'a> {
     if dummy {
       return Ok(());
     }
+    // Rawtonic patch (RWH1; dnglab 2577192a, 36025c6d): the subsampled (YUV)
+    // routines read three components; a damaged header with fewer is an error.
+    if self.sof.components[0].super_h == 2 && (self.sof.cps < 3 || self.sof.components.len() < 3) {
+      return Err(format!("ljpeg: subsampled data with {} components", self.sof.cps));
+    }
     log::debug!("LJPEG decode with special Sony mode");
     if self.sof.components[0].super_h == 2 && self.sof.components[0].super_v == 2 {
       decode_sony_ljpeg_420(self, out, width, height)
@@ -312,6 +339,11 @@ impl<'a> LjpegDecompressor<'a> {
   pub fn decode(&self, out: &mut [u16], x: usize, stripwidth: usize, width: usize, height: usize, dummy: bool) -> Result<(), String> {
     if dummy {
       return Ok(());
+    }
+    // Rawtonic patch (RWH1; dnglab 2577192a, 36025c6d): the subsampled (YUV)
+    // routines read three components; a damaged header with fewer is an error.
+    if self.sof.components[0].super_h == 2 && (self.sof.cps < 3 || self.sof.components.len() < 3) {
+      return Err(format!("ljpeg: subsampled data with {} components", self.sof.cps));
     }
 
     if self.sof.components[0].super_h == 2 && self.sof.components[0].super_v == 2 {
@@ -342,11 +374,20 @@ impl<'a> LjpegDecompressor<'a> {
       }
       offsets.push(input.get_pos());
     }
+    // Rawtonic patch (RWH1): an error for an empty image.
+    if height == 0 {
+      return Err("MOS: empty image".to_string());
+    }
     let nstrips = (height - 1) / 8 + 1;
     if offsets.len() != nstrips {
       return Err(format!("MOS: expecting {} strips found {}", nstrips, offsets.len()));
     }
 
+    // Rawtonic patch (RWH1): two components and a point transform below the
+    // precision, as the code below needs, or an error.
+    if self.sof.components.len() < 2 || self.sof.precision <= self.point_transform {
+      return Err("MOS: unsupported LJPEG components or point transform".to_string());
+    }
     let htable1 = &self.dhts[self.sof.components[0].dc_tbl_num];
     let htable2 = &self.dhts[self.sof.components[1].dc_tbl_num];
     let bpred = 1 << (self.sof.precision - self.point_transform - 1);
@@ -359,7 +400,15 @@ impl<'a> LjpegDecompressor<'a> {
         let block = block / 8;
         let offset = offsets[block];
         let nlines = strip.len() / width;
-        decode_leaf_strip(&self.buffer[offset..], strip, width, nlines, htable1, htable2, bpred)?;
+        decode_leaf_strip(
+          self.buffer.get(offset..).ok_or("MOS: strip behind the data")?,
+          strip,
+          width,
+          nlines,
+          htable1,
+          htable2,
+          bpred,
+        )?;
         Ok(())
       }),
     )

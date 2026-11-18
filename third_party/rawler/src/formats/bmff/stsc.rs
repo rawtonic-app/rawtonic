@@ -26,13 +26,15 @@ pub struct StscEntry {
 impl StscBox {
   pub const TYP: FourCC = FourCC::with(['s', 't', 's', 'c']);
 
-  pub fn get_entry_for_sample(&self, sample: u32) -> &StscEntry {
-    assert!(sample > 0, "Sample numbering starts with 1");
-    assert_eq!(self.entries.is_empty(), false, "stsc box must contains at least one entry");
-    assert_eq!(self.entries[0].first_sample, 1, "First entry must start with first sample");
+  // Rawtonic patch (RWH1; dnglab 650558fa): `None` for a damaged table
+  // instead of the asserts.
+  pub fn get_entry_for_sample(&self, sample: u32) -> Option<&StscEntry> {
+    if sample == 0 || self.entries.first()?.first_sample != 1 {
+      return None;
+    }
     match self.entries.binary_search_by(|entry| entry.first_sample.cmp(&sample)) {
-      Ok(i) => &self.entries[i],
-      Err(i) => &self.entries[i - 1],
+      Ok(i) => self.entries.get(i),
+      Err(i) => self.entries.get(i.checked_sub(1)?),
     }
   }
 }
@@ -62,7 +64,10 @@ impl<R: Read + Seek> ReadBox<&mut R> for StscBox {
       for _ in 1..entry_count {
         let mut entry = read_entry()?;
         // Now we know the chunk count to calc the amount of samples in holdback
-        entry.first_sample = holdback.first_sample + ((entry.first_chunk - holdback.first_sample) * holdback.samples_per_chunk);
+        // Rawtonic patch (RWH1): wrapping, as release builds computed it.
+        entry.first_sample = holdback
+          .first_sample
+          .wrapping_add(entry.first_chunk.wrapping_sub(holdback.first_sample).wrapping_mul(holdback.samples_per_chunk));
         entries.push(holdback);
         holdback = entry;
       }

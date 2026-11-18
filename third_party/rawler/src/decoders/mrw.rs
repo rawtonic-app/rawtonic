@@ -147,7 +147,13 @@ impl<'a> MrwDecoder<'a> {
   fn new_mrw(file: &RawSource, rawloader: &'a RawLoader) -> Result<MrwDecoder<'a>> {
     let full = file.as_vec()?;
     let buf = &full;
-    let data_offset: usize = (BEu32(buf, 4) + 8) as usize;
+    // Rawtonic patch (RWH1; dnglab 13806054 checks the same): the blocks
+    // must lie inside the file, and a block length can't wrap the position
+    // back (which looped forever).
+    if buf.len() < 8 {
+      return Err(RawlerError::DecoderFailed("MRW: file too short".to_string()));
+    }
+    let data_offset: usize = BEu32(buf, 4) as usize + 8;
     let mut raw_height: usize = 0;
     let mut raw_width: usize = 0;
     let bits = 12;
@@ -158,6 +164,9 @@ impl<'a> MrwDecoder<'a> {
     let mut currpos: usize = 8;
     // At most we read 20 bytes from currpos so check we don't step outside that
     while currpos + 20 < data_offset {
+      if currpos + 25 > buf.len() {
+        return Err(RawlerError::DecoderFailed("MRW: block is behind the end of the file".to_string()));
+      }
       let tag: u32 = BEu32(buf, currpos);
       let len: u32 = BEu32(buf, currpos + 4);
 
@@ -182,7 +191,7 @@ impl<'a> MrwDecoder<'a> {
         }
         _ => {}
       }
-      currpos += (len + 8) as usize;
+      currpos += len as usize + 8;
     }
 
     let tiff_data = file.subview_until_eof(tiffpos as u64)?;
@@ -209,11 +218,11 @@ impl<'a> Decoder for MrwDecoder<'a> {
     let src = file.subview_until_eof(self.data_offset as u64)?;
 
     let buffer = if self.bits == 16 {
-      decode_16le(src, self.raw_width, self.raw_height, dummy)
+      decode_16le(src, self.raw_width, self.raw_height, dummy)?
     } else if self.packed {
-      decode_12be(src, self.raw_width, self.raw_height, dummy)
+      decode_12be(src, self.raw_width, self.raw_height, dummy)?
     } else {
-      decode_12be_unpacked(src, self.raw_width, self.raw_height, dummy)
+      decode_12be_unpacked(src, self.raw_width, self.raw_height, dummy)?
     };
 
     let wb_coeffs = if self.camera.find_hint("swapped_wb") {

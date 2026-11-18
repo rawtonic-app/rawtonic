@@ -102,8 +102,9 @@ impl<R: Read + Seek> ReadBox<&mut R> for Iad1Box {
         active_area_right_offset: reader.read_u16::<BigEndian>()?,
         active_area_bottom_offset: reader.read_u16::<BigEndian>()?,
       }),
-      _ => {
-        panic!("Invalid iad1 type"); // TODO
+      // Rawtonic patch (RWH1): an error, not a panic.
+      other => {
+        return Err(super::super::BmffError::Parse(format!("Invalid iad1 type {}", other)));
       }
     };
 

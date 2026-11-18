@@ -67,22 +67,29 @@ impl MockPump {
   }
 
   pub fn validbits(&self) -> i32 {
-    self.nbits as i32 - 32
+    (self.nbits as i32).wrapping_sub(32)
   }
 }
 
 impl BitPump for MockPump {
   fn peek_bits(&mut self, num: u32) -> u32 {
-    (self.bits >> (self.nbits - num)) as u32
+    // Rawtonic patch (RWH1): wrapping, as release builds computed it (a
+    // damaged table asks for more bits than the mock holds).
+    self.bits.wrapping_shr(self.nbits.wrapping_sub(num)) as u32
   }
 
   fn consume_bits(&mut self, num: u32) {
-    self.nbits -= num;
-    self.bits &= (1 << self.nbits) - 1;
+    self.nbits = self.nbits.wrapping_sub(num);
+    self.bits &= 1_u64.wrapping_shl(self.nbits).wrapping_sub(1);
   }
 }
 
 impl HuffTable {
+  /// Rawtonic patch (RWH1): the table was built from a DHT segment.
+  pub fn is_initialized(&self) -> bool {
+    self.initialized
+  }
+
   pub fn empty() -> HuffTable {
     HuffTable {
       bits: [0; 17],
@@ -132,6 +139,12 @@ impl HuffTable {
     for len in 0..self.nbits {
       // Fill for each number of huffman codes of length i (=len+1)
       for _ in 0..self.bits[len as usize + 1] {
+        // Rawtonic patch (RWH1; dnglab d2ed4557 checks the same): a damaged
+        // table with more codes than its code lengths allow, or more than 256
+        // values, is an error instead of an out-of-bounds write.
+        if pos >= self.huffval.len() || h + (1 << (self.nbits - len - 1)) > self.hufftable.len() {
+          return Err("Huffman table holds more codes than its code lengths allow".to_string());
+        }
         // Fill for all possible extra bits, payload is always the same for fast lookup bases on peek_bits(self.nbits)
         for _ in 0..(1 << (self.nbits - len - 1)) {
           self.hufftable[h] = (len as u8 + 1, self.huffval[pos] as u8, self.shiftval[pos] as u8);
@@ -187,7 +200,8 @@ impl HuffTable {
   #[inline(always)]
   pub fn huff_decode_slow(&self, pump: &mut dyn BitPump) -> (u8, i32) {
     let len = self.huff_len(pump);
-    (len.0 + len.1, self.huff_diff(pump, len))
+    // Rawtonic patch (RWH1): wraps as in release builds (damaged tables).
+    (len.0.wrapping_add(len.1), self.huff_diff(pump, len))
   }
 
   #[inline(always)]
@@ -223,9 +237,11 @@ impl HuffTable {
         let fulllen: i32 = len as i32 + shift as i32;
         let shift: i32 = shift as i32;
         let bits = pump.get_bits(len as u32) as i32;
-        let mut diff: i32 = ((bits << 1) + 1) << shift >> 1;
-        if (diff & (1 << (fulllen - 1))) == 0 {
-          diff -= (1 << fulllen) - ((shift == 0) as i32);
+        // Rawtonic patch (RWH1): explicit wrapping, what release builds
+        // computed for the code lengths of damaged tables.
+        let mut diff: i32 = bits.wrapping_shl(1).wrapping_add(1).wrapping_shl(shift as u32) >> 1;
+        if (diff & 1_i32.wrapping_shl(fulllen.wrapping_sub(1) as u32)) == 0 {
+          diff = diff.wrapping_sub(1_i32.wrapping_shl(fulllen as u32).wrapping_sub((shift == 0) as i32));
         }
         diff
       }

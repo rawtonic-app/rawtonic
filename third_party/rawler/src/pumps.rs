@@ -7,6 +7,7 @@ pub struct BitPumpLSB<'a> {
   buffer: Chunks<'a, u8>,
   bits: u64,
   nbits: u32,
+  overrun: bool,
 }
 
 impl<'a> BitPumpLSB<'a> {
@@ -15,6 +16,7 @@ impl<'a> BitPumpLSB<'a> {
       buffer: src.chunks(size_of::<u32>()),
       bits: 0,
       nbits: 0,
+      overrun: false,
     }
   }
 
@@ -37,7 +39,12 @@ impl<'a> BitPumpLSB<'a> {
           .fold((0, 0), |(bits, bit_cnt), x| ((bits << 8) | *x as u32, bit_cnt + 8))
       }
     } else {
-      panic!("Can't refill bitpump, buffer exhausted");
+      // Rawtonic patch (RWH1): reading past the end yields zero bits and
+      // marks the pump as overrun instead of panicking; decoders turn an
+      // overrun into an error (`BitPump::overrun`). A file that decoded
+      // before never got here (it panicked), so valid decodes are unchanged.
+      self.overrun = true;
+      (0, u32::BITS)
     }
   }
 }
@@ -47,14 +54,22 @@ pub struct BitPumpMSB<'a> {
   buffer: Chunks<'a, u8>,
   bits: u64,
   nbits: u32,
+  overrun: bool,
 }
 
 impl<'a> BitPumpMSB<'a> {
+  /// Rawtonic patch (RWH1): a decoder found an invalid code in the stream;
+  /// `overrun()` reports it like data that ended early.
+  pub fn mark_damaged(&mut self) {
+    self.overrun = true;
+  }
+
   pub fn new(src: &'a [u8]) -> Self {
     Self {
       buffer: src.chunks(size_of::<u32>()),
       bits: 0,
       nbits: 0,
+      overrun: false,
     }
   }
 
@@ -74,7 +89,12 @@ impl<'a> BitPumpMSB<'a> {
         chunk.into_iter().fold((0, 0), |(bits, bit_cnt), x| ((bits << 8) | *x as u32, bit_cnt + 8))
       }
     } else {
-      panic!("Can't refill bitpump, buffer exhausted");
+      // Rawtonic patch (RWH1): reading past the end yields zero bits and
+      // marks the pump as overrun instead of panicking; decoders turn an
+      // overrun into an error (`BitPump::overrun`). A file that decoded
+      // before never got here (it panicked), so valid decodes are unchanged.
+      self.overrun = true;
+      (0, u32::BITS)
     }
   }
 }
@@ -85,6 +105,7 @@ pub struct BitPumpMSB32<'a> {
   pos: usize,
   bits: u64,
   nbits: u32,
+  overrun: bool,
 }
 
 impl<'a> BitPumpMSB32<'a> {
@@ -94,6 +115,7 @@ impl<'a> BitPumpMSB32<'a> {
       pos: 0,
       bits: 0,
       nbits: 0,
+      overrun: false,
     }
   }
 
@@ -121,6 +143,8 @@ impl<'a> BitPumpMSB32<'a> {
     } else {
       // RAWTONIC: reading past the end yields zero bits instead of a panic
       // (a truncated stream decodes to wrong pixels at its end, not a crash).
+      // RWH1: and marks the pump as overrun (`BitPump::overrun`).
+      self.overrun = true;
       (0, u32::BITS)
     }
   }
@@ -186,9 +210,18 @@ impl<'a> BitPumpJPEG<'a> {
   }
 }
 
+// Rawtonic patch (RWH1): the shifts and bit counts of the pumps below wrap
+// explicitly. That is what release builds computed for the oversized reads
+// of damaged files; debug builds (tests) panicked on them.
 pub trait BitPump {
   fn peek_bits(&mut self, num: u32) -> u32;
   fn consume_bits(&mut self, num: u32);
+
+  /// Rawtonic patch (RWH1): true once a read needed bits past the end of the
+  /// data (the pump supplied zeros). Decoders report it as a damaged file.
+  fn overrun(&self) -> bool {
+    false
+  }
 
   #[inline(always)]
   fn get_bits(&mut self, num: u32) -> u32 {
@@ -216,7 +249,7 @@ pub trait BitPump {
   #[inline(always)]
   fn get_ibits_sextended(&mut self, num: u32) -> i32 {
     let val = self.get_ibits(num);
-    val.wrapping_shl(32 - num).wrapping_shr(32 - num)
+    val.wrapping_shl(32_u32.wrapping_sub(num)).wrapping_shr(32_u32.wrapping_sub(num))
   }
 
   /// Count the leading zeroes block-wise in 31 bits
@@ -234,7 +267,8 @@ pub trait BitPump {
       let n = batch.leading_zeros();
       self.consume_bits(n);
       count += n;
-      if n != BITS_PER_LOOP {
+      // Rawtonic patch (RWH1): past the end the pump supplies zeros forever.
+      if n != BITS_PER_LOOP || self.overrun() {
         break;
       }
     }
@@ -243,24 +277,32 @@ pub trait BitPump {
 }
 
 impl<'a> BitPump for BitPumpLSB<'a> {
+  fn overrun(&self) -> bool {
+    self.overrun
+  }
+
   #[inline(always)]
   fn peek_bits(&mut self, num: u32) -> u32 {
     if num > self.nbits {
       let (inbits, bit_cnt) = self.refill();
-      self.bits = (((inbits as u64) << 32) | (self.bits << (32 - self.nbits))) >> (32 - self.nbits);
+      self.bits = (((inbits as u64) << 32) | self.bits.wrapping_shl(32_u32.wrapping_sub(self.nbits))).wrapping_shr(32_u32.wrapping_sub(self.nbits));
       self.nbits += bit_cnt;
     }
-    (self.bits & (0x0ffffffffu64 >> (32 - num))) as u32
+    (self.bits & 0x0ffffffffu64.wrapping_shr(32_u32.wrapping_sub(num))) as u32
   }
 
   #[inline(always)]
   fn consume_bits(&mut self, num: u32) {
-    self.nbits -= num;
-    self.bits >>= num;
+    self.nbits = self.nbits.wrapping_sub(num);
+    self.bits = self.bits.wrapping_shr(num);
   }
 }
 
 impl<'a> BitPump for BitPumpMSB<'a> {
+  fn overrun(&self) -> bool {
+    self.overrun
+  }
+
   #[inline(always)]
   fn peek_bits(&mut self, num: u32) -> u32 {
     if num > self.nbits {
@@ -268,17 +310,21 @@ impl<'a> BitPump for BitPumpMSB<'a> {
       self.bits = (self.bits << bit_cnt) | inbits as u64;
       self.nbits += bit_cnt;
     }
-    (self.bits >> (self.nbits - num)) as u32
+    self.bits.wrapping_shr(self.nbits.wrapping_sub(num)) as u32
   }
 
   #[inline(always)]
   fn consume_bits(&mut self, num: u32) {
-    self.nbits -= num;
-    self.bits &= (1 << self.nbits) - 1;
+    self.nbits = self.nbits.wrapping_sub(num);
+    self.bits &= 1_u64.wrapping_shl(self.nbits).wrapping_sub(1);
   }
 }
 
 impl<'a> BitPump for BitPumpMSB32<'a> {
+  fn overrun(&self) -> bool {
+    self.overrun
+  }
+
   #[inline(always)]
   fn peek_bits(&mut self, num: u32) -> u32 {
     if num > self.nbits {
@@ -287,13 +333,13 @@ impl<'a> BitPump for BitPumpMSB32<'a> {
       self.nbits += bit_cnt;
       self.pos += bit_cnt as usize / 8;
     }
-    (self.bits >> (self.nbits - num)) as u32
+    self.bits.wrapping_shr(self.nbits.wrapping_sub(num)) as u32
   }
 
   #[inline(always)]
   fn consume_bits(&mut self, num: u32) {
-    self.nbits -= num;
-    self.bits &= (1 << self.nbits) - 1;
+    self.nbits = self.nbits.wrapping_sub(num);
+    self.bits &= 1_u64.wrapping_shl(self.nbits).wrapping_sub(1);
   }
 }
 
@@ -324,7 +370,8 @@ impl<'a> BitPump for BitPumpJPEG<'a> {
               let nextbyte = self.buffer[self.pos];
               if nextbyte != 0xff {
                 nextbyte
-              } else if self.buffer[self.pos + 1] == 0x00 {
+              } else if self.buffer.get(self.pos + 1) == Some(&0x00) {
+                // Rawtonic patch (RWH1): `get`, a final 0xFF panicked.
                 self.pos += 1; // Skip the extra byte used to mark 255
                 nextbyte
               } else {
@@ -346,14 +393,15 @@ impl<'a> BitPump for BitPumpJPEG<'a> {
       self.nbits += 32;
     }
 
-    (self.bits >> (self.nbits - num)) as u32
+    self.bits.wrapping_shr(self.nbits.wrapping_sub(num)) as u32
   }
 
   #[inline(always)]
   fn consume_bits(&mut self, num: u32) {
-    debug_assert!(num <= self.nbits);
-    self.nbits -= num;
-    self.bits &= (1 << self.nbits) - 1;
+    // Rawtonic patch (RWH1): no debug assert; damaged data consumes more
+    // than was peeked, which wraps as in release builds.
+    self.nbits = self.nbits.wrapping_sub(num);
+    self.bits &= 1_u64.wrapping_shl(self.nbits).wrapping_sub(1);
   }
 }
 
@@ -364,6 +412,11 @@ pub struct ByteStream<'a> {
   endian: Endian,
 }
 
+// Rawtonic patch (RWH1, notes: reference/dnglab-2026-11-16-review.md; dnglab
+// 3bc2e446 returns errors from ByteStream): reads past the end return zeros
+// (and `get_bytes` a shorter vector) instead of panicking, and
+// `remaining_bytes` is 0 there. Parsers check `remaining_bytes`/`is_exhausted`
+// where a short read matters; in-range reads are unchanged.
 impl<'a> ByteStream<'a> {
   pub fn new(src: &'a [u8], endian: Endian) -> Self {
     Self { buffer: src, pos: 0, endian }
@@ -371,7 +424,13 @@ impl<'a> ByteStream<'a> {
 
   #[inline(always)]
   pub fn remaining_bytes(&self) -> usize {
-    self.buffer.len() - self.pos
+    self.buffer.len().saturating_sub(self.pos)
+  }
+
+  /// The position is at or past the end of the data.
+  #[inline(always)]
+  pub fn is_exhausted(&self) -> bool {
+    self.pos >= self.buffer.len()
   }
 
   #[inline(always)]
@@ -380,92 +439,92 @@ impl<'a> ByteStream<'a> {
   }
 
   #[inline(always)]
+  fn bytes(&self, n: usize) -> Option<&'a [u8]> {
+    self.buffer.get(self.pos..self.pos.checked_add(n)?)
+  }
+
+  #[inline(always)]
   pub fn peek_u8(&self) -> u8 {
-    self.buffer[self.pos]
+    self.buffer.get(self.pos).copied().unwrap_or(0)
   }
   #[inline(always)]
   pub fn get_u8(&mut self) -> u8 {
     let val = self.peek_u8();
-    self.pos += 1;
+    self.pos = self.pos.saturating_add(1);
     val
   }
 
   #[inline(always)]
   pub fn peek_i8(&self) -> i8 {
-    self.buffer[self.pos] as i8
+    self.peek_u8() as i8
   }
   #[inline(always)]
   pub fn get_i8(&mut self) -> i8 {
     let val = self.peek_i8();
-    self.pos += 1;
+    self.pos = self.pos.saturating_add(1);
     val
   }
 
   #[inline(always)]
   pub fn peek_u16(&self) -> u16 {
-    self.endian.read_u16(self.buffer, self.pos)
+    self.bytes(2).map(|b| self.endian.read_u16(b, 0)).unwrap_or(0)
   }
   #[inline(always)]
   pub fn get_u16(&mut self) -> u16 {
     let val = self.peek_u16();
-    self.pos += 2;
+    self.pos = self.pos.saturating_add(2);
     val
   }
 
   #[inline(always)]
   pub fn peek_i16(&self) -> i16 {
-    self.endian.read_i16(self.buffer, self.pos)
+    self.bytes(2).map(|b| self.endian.read_i16(b, 0)).unwrap_or(0)
   }
   #[inline(always)]
   pub fn get_i16(&mut self) -> i16 {
     let val = self.peek_i16();
-    self.pos += 2;
+    self.pos = self.pos.saturating_add(2);
     val
   }
 
   #[inline(always)]
   pub fn peek_u32(&self) -> u32 {
-    self.endian.read_u32(self.buffer, self.pos)
+    self.bytes(4).map(|b| self.endian.read_u32(b, 0)).unwrap_or(0)
   }
 
   #[inline(always)]
   pub fn get_u32(&mut self) -> u32 {
     let val = self.peek_u32();
-    self.pos += 4;
+    self.pos = self.pos.saturating_add(4);
     val
   }
 
   #[inline(always)]
   pub fn get_bytes(&mut self, n: usize) -> Vec<u8> {
-    let mut val = Vec::with_capacity(n);
-    val.extend_from_slice(&self.buffer[self.pos..self.pos + n]);
-    self.pos += n;
+    let start = self.pos.min(self.buffer.len());
+    let end = self.pos.saturating_add(n).min(self.buffer.len());
+    let val = self.buffer[start..end].to_vec();
+    self.pos = self.pos.saturating_add(n);
     val
   }
 
-  //  #[inline(always)]
-  //  pub fn peek_u32(&self) -> u32 { self.endian.ru32(self.buffer, self.pos) }
-  //  #[inline(always)]
-  //  pub fn get_u32(&mut self) -> u32 {
-  //    let val = self.peek_u32();
-  //    self.pos += 4;
-  //    val
-  //  }
-
   #[inline(always)]
   pub fn consume_bytes(&mut self, num: usize) {
-    self.pos += num
+    self.pos = self.pos.saturating_add(num)
   }
 
   #[inline(always)]
   pub fn skip_to_marker(&mut self) -> Result<usize, String> {
     let mut skip_count = 0;
-    while !(self.buffer[self.pos] == 0xFF && self.buffer[self.pos + 1] != 0 && self.buffer[self.pos + 1] != 0xFF) {
-      self.pos += 1;
-      skip_count += 1;
-      if self.pos >= self.buffer.len() {
+    loop {
+      if self.pos + 1 >= self.buffer.len() {
         return Err("No marker found inside rest of buffer".to_string());
       }
+      if self.buffer[self.pos] == 0xFF && self.buffer[self.pos + 1] != 0 && self.buffer[self.pos + 1] != 0xFF {
+        break;
+      }
+      self.pos += 1;
+      skip_count += 1;
     }
     self.pos += 1; // Make the next byte the marker
     Ok(skip_count + 1)
@@ -484,6 +543,7 @@ pub struct BitPumpReverseBitsMSB<'a> {
   pos: usize,
   bits: u64,
   nbits: u32,
+  overrun: bool,
 }
 
 impl<'a> BitPumpReverseBitsMSB<'a> {
@@ -493,16 +553,28 @@ impl<'a> BitPumpReverseBitsMSB<'a> {
       pos: 0,
       bits: 0,
       nbits: 0,
+      overrun: false,
     }
   }
 }
 
 impl<'a> BitPump for BitPumpReverseBitsMSB<'a> {
+  fn overrun(&self) -> bool {
+    self.overrun
+  }
+
   #[inline(always)]
   fn peek_bits(&mut self, num: u32) -> u32 {
     debug_assert!(num <= 32);
     if num > self.nbits {
-      let mut raw: [u8; 4] = BEu32(self.buffer, self.pos).to_ne_bytes();
+      // Rawtonic patch (RWH1): zeros past the end instead of a panic.
+      let mut raw: [u8; 4] = match self.buffer.get(self.pos..self.pos + 4) {
+        Some(word) => BEu32(word, 0).to_ne_bytes(),
+        None => {
+          self.overrun = true;
+          [0; 4]
+        }
+      };
       raw[0] = raw[0].reverse_bits();
       raw[1] = raw[1].reverse_bits();
       raw[2] = raw[2].reverse_bits();
@@ -512,13 +584,13 @@ impl<'a> BitPump for BitPumpReverseBitsMSB<'a> {
       self.pos += 4;
       self.nbits += 32;
     }
-    (self.bits >> (self.nbits - num)) as u32
+    self.bits.wrapping_shr(self.nbits.wrapping_sub(num)) as u32
   }
 
   #[inline(always)]
   fn consume_bits(&mut self, num: u32) {
-    self.nbits -= num;
-    self.bits &= (1 << self.nbits) - 1;
+    self.nbits = self.nbits.wrapping_sub(num);
+    self.bits &= 1_u64.wrapping_shl(self.nbits).wrapping_sub(1);
   }
 }
 
