@@ -5,8 +5,9 @@
 ### Fixes
 
 - **Exports return freed CPU memory to the system sooner around the photo's GPU upload.** This applies wherever Rawtonic uses mimalloc, including macOS. Integrated GPUs also start with 8 MB graphics-memory blocks that can grow to 256 MB. Metal ignores that GPU hint.
-  - On a Windows laptop with a Radeon 680M, exporting seven 12–61 MP RAWs as both 16-bit TIFF and JPEG q90 peaked at 5,964 → about 5,425 MB for the app and WebView2 with one export thread, and 4,494 → about 4,234 MB for the headless app with two jobs. The CLI exporting the same seven RAWs as 16-bit TIFF with two jobs peaked at 4,788 → 3,689 MB.
-  - On that laptop, Exposure drags at 100 % zoom produced a median 630 preview frames per run with the smaller starting blocks, compared with 632 using the previous GPU hint. CLI exports of a separate 13-photo batch matched byte for byte across the benchmark builds in all 13 16-bit TIFFs and all 13 JPEGs at quality 90.
+  - In earlier app tests on a Windows laptop with a Radeon 680M, exporting seven 12–61 MP RAWs as both 16-bit TIFF and JPEG at quality 90 peaked at 5,964 → about 5,425 MB for the app and WebView2 with one export thread, and 4,494 → about 4,234 MB for the headless app with two jobs.
+  - In the updated CLI tests on the same laptop, exporting the seven RAWs as 16-bit TIFF alone with two jobs took 39.2 s and peaked at 3,750 MB (medians of three runs), compared with 40.9 s and 4,900 MB in the earlier baseline. With one job, it took 45.6 s and peaked at 3,074 MB, compared with 48.4 s and 4,353 MB. Exporting just JPEG at quality 90 with two jobs took 47.4 s and peaked at 3,524 MB on the updated build. All seven outputs in each of those nine runs matched the earlier exports byte for byte.
+  - On that laptop, Exposure drags at 100 % zoom produced a median 630 preview frames per run with the smaller starting blocks, compared with 632 using the previous GPU hint. In a separate earlier CLI comparison, all 13 16-bit TIFFs and all 13 JPEGs at quality 90 matched byte for byte across the benchmark builds.
 
 ## 0.1.0-alpha.17.1 — 2026-11-18
 
