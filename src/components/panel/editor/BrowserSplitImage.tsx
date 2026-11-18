@@ -2,7 +2,7 @@ import { useId } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Loader2, TriangleAlert } from 'lucide-react';
 import { useEditorStore } from '../../../store/useEditorStore';
-import { drawsOneToOne } from '../../../utils/pixelSnap';
+import { drawsOneToOne, isFullPreviewZoom } from '../../../utils/pixelSnap';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import { useSnapshotStore } from '../../../store/useSnapshotStore';
 import { beforeAdjustments } from '../../../utils/beforeSnapshot';
@@ -19,14 +19,14 @@ export function useBrowserBeforeFrame({
   path,
   adjustments,
   size,
-  transform,
+  zoomTarget,
   active,
   decoded
 }: {
   path: string;
   adjustments: Adjustments;
   size: RenderSize;
-  transform: { scale: number };
+  zoomTarget: number;
   active: boolean;
   decoded?: boolean;
 }) {
@@ -41,8 +41,12 @@ export function useBrowserBeforeFrame({
   // A snapshot compared with is the before; its list read again re-reads it.
   useEditorStore((s) => s.beforeSnapshot);
   useSnapshotStore((s) => s.snapshots);
-  // Encoded as the after it is compared with (preview_jpeg.rs encode_settled).
-  const lossless = useEditorStore((s) => s.finalPreviewLossless);
+  const after = useEditorStore((s) => s.finalPreview);
+  const dpr = window.devicePixelRatio || 1;
+  const fullZoom = isFullPreviewZoom(zoomTarget, size.scale, dpr);
+  // Wait for the settled After at the new zoom before sending or showing
+  // a Before. Its codec can change even when the recipe stays the same.
+  const ready = after && after.fullZoom === fullZoom && !(fullZoom && after.lossless);
   const recipe = JSON.stringify({
     ...beforeAdjustments(adjustments),
     ...view
@@ -50,11 +54,14 @@ export function useBrowserBeforeFrame({
   // As large as shown, up to the photograph's own size at 100 % (the
   // native side keeps it within the GPU's texture limit), so the before is
   // as sharp as the after it is compared with.
-  const resolution = Math.max(
-    64,
-    Math.ceil((Math.max(size.width, size.height) * transform.scale * (window.devicePixelRatio || 1)) / 64) * 64
+  const resolution = Math.max(64, Math.ceil((Math.max(size.width, size.height) * zoomTarget * dpr) / 64) * 64);
+  return useBrowserViewPreview(
+    active && ready ? path : null,
+    recipe,
+    resolution,
+    String(decoded),
+    after?.lossless ?? null
   );
-  return useBrowserViewPreview(active ? path : null, recipe, resolution, String(decoded), lossless);
 }
 
 /** The before frame's place holder: a spinner, or the error that stopped it. */
@@ -74,6 +81,7 @@ export default function BrowserSplitImage({
   adjustments,
   size,
   transform,
+  zoomTarget,
   enabled,
   decoded
 }: {
@@ -81,6 +89,7 @@ export default function BrowserSplitImage({
   adjustments: Adjustments;
   size: RenderSize;
   transform: { scale: number; positionX: number; positionY: number };
+  zoomTarget?: number;
   enabled: boolean;
   decoded?: boolean;
 }) {
@@ -90,7 +99,14 @@ export default function BrowserSplitImage({
   const position = useEditorStore((s) => s.splitPosition);
   const id = useId();
   const active = linux && enabled && split;
-  const { frame, error } = useBrowserBeforeFrame({ path, adjustments, size, transform, active, decoded });
+  const { frame, error } = useBrowserBeforeFrame({
+    path,
+    adjustments,
+    size,
+    zoomTarget: zoomTarget ?? transform.scale,
+    active,
+    decoded
+  });
   if (!active) return null;
   const extent = vertical
     ? browserSplitWidth(

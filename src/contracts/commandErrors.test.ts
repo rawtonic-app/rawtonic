@@ -69,7 +69,7 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
     ok: `serde_json::Value`
   },
   apply_adjustments: {
-    args: `preview_channel: Option<tauri::ipc::JavaScriptChannelId>, webview: tauri::Webview, js_adjustments: Option<serde_json::Value>, live_stroke: Option<crate::live_stroke::LiveStroke>, is_interactive: bool, target_resolution: Option<u32>, roi: Option<(f32, f32, f32, f32)>, request_analytics: bool, compute_waveform: bool, active_waveform_channel: Option<String>, sequence: Option<u64>, mask_overlay: Option<crate::app_state::MaskOverlayRequest>, crop_edit: Option<bool>, browser_preview_uri: Option<bool>, state: tauri::State<'_, AppState>`,
+    args: `preview_channel: Option<tauri::ipc::JavaScriptChannelId>, webview: tauri::Webview, js_adjustments: Option<serde_json::Value>, live_stroke: Option<crate::live_stroke::LiveStroke>, is_interactive: bool, target_resolution: Option<u32>, roi: Option<(f32, f32, f32, f32)>, request_analytics: bool, compute_waveform: bool, active_waveform_channel: Option<String>, sequence: Option<u64>, mask_overlay: Option<crate::app_state::MaskOverlayRequest>, crop_edit: Option<bool>, browser_preview_uri: Option<bool>, browser_full_zoom: Option<bool>, state: tauri::State<'_, AppState>`,
     ok: `Response`
   },
   duplicates_confirm: {

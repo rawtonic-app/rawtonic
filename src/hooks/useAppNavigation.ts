@@ -61,7 +61,7 @@ function closeEditorImage() {
   if (!selectedImage) return;
   debouncedSave.flush();
   debouncedSetHistory.flush();
-  setEditor({ selectedImage: null, finalPreviewUrl: null, uncroppedAdjustedPreviewUrl: null, histogram: null });
+  setEditor({ selectedImage: null, finalPreview: null, uncroppedAdjustedPreviewUrl: null, histogram: null });
   setEditor({ adjustments: INITIAL_ADJUSTMENTS });
   resetHistory(INITIAL_ADJUSTMENTS);
   useEditorStore.getState().patchesSentToBackend.clear();
@@ -307,7 +307,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
           previewSize: cached.previewSize,
           histogram: cached.histogram,
           waveform: cached.waveform,
-          finalPreviewUrl: cached.finalPreviewUrl,
+          finalPreview: cached.finalPreview,
           uncroppedAdjustedPreviewUrl: cached.uncroppedPreviewUrl
         });
 
@@ -328,39 +328,36 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       isBackendReadyRef.current = true;
 
       const imageFile = useLibraryStore.getState().imageList.find((img) => img.path === path);
-      setEditor({
-        selectedImage: {
-          exif: imageFile?.exif ?? null,
-          group_id: imageFile?.group_id ?? null,
-          height: 0,
-          isRaw: false,
-          isReady: false,
-          isDecoded: false,
-          metadata: null,
-          path,
-          thumbnailUrl: cachedMedium,
-          width: 0
-        },
-        originalSize: { width: 0, height: 0 },
-        previewSize: { width: 0, height: 0 },
-        // Held panels keep the last histogram until the next one arrives.
-        ...(panelsHeld ? {} : { histogram: null, waveform: null }),
-        uncroppedAdjustedPreviewUrl: null
+      setEditor((state) => {
+        const prev = state.finalPreview?.url;
+        if (prev?.startsWith('blob:') && !globalImageCache.isProtected(prev)) {
+          setTimeout(() => {
+            if (!globalImageCache.isProtected(prev)) URL.revokeObjectURL(prev);
+          }, 250);
+        }
+        return {
+          finalPreview: null,
+          selectedImage: {
+            exif: imageFile?.exif ?? null,
+            group_id: imageFile?.group_id ?? null,
+            height: 0,
+            isRaw: false,
+            isReady: false,
+            isDecoded: false,
+            metadata: null,
+            path,
+            thumbnailUrl: cachedMedium,
+            width: 0
+          },
+          originalSize: { width: 0, height: 0 },
+          previewSize: { width: 0, height: 0 },
+          // Held panels keep the last histogram until the next one arrives.
+          ...(panelsHeld ? {} : { histogram: null, waveform: null }),
+          uncroppedAdjustedPreviewUrl: null
+        };
       });
 
       setLibrary({ isViewLoading: true });
-
-      setEditor((state) => {
-        const prev = state.finalPreviewUrl;
-        if (prev?.startsWith('blob:') && !globalImageCache.isProtected(prev)) {
-          setTimeout(() => {
-            if (!globalImageCache.isProtected(prev)) {
-              URL.revokeObjectURL(prev);
-            }
-          }, 250);
-        }
-        return { finalPreviewUrl: null };
-      });
 
       setEditor((state) => {
         if (state.interactivePatch?.url) URL.revokeObjectURL(state.interactivePatch.url);

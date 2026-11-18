@@ -233,6 +233,7 @@ interface ImageCanvasProps {
   isMaxZoom?: boolean;
   liveRotation?: number | null;
   transformState: { scale: number; positionX: number; positionY: number };
+  zoomTarget?: number;
   hasRenderedFirstFrame: boolean;
   /** Filled with a test for whether a screen point presses a mask handle. */
   maskHitTestRef?: MutableRefObject<((clientX: number, clientY: number) => boolean) | null>;
@@ -1372,6 +1373,7 @@ const ImageCanvas = memo(
     isMaxZoom,
     liveRotation,
     transformState,
+    zoomTarget,
     hasRenderedFirstFrame,
     maskHitTestRef
   }: ImageCanvasProps) => {
@@ -3433,6 +3435,7 @@ const ImageCanvas = memo(
                   adjustments={adjustments}
                   size={imageRenderSize}
                   transform={transformState}
+                  zoomTarget={zoomTarget}
                   enabled={!isWgpuActive && !isCropping && canRenderSource(selectedImage)}
                   decoded={selectedImage.isDecoded}
                 />

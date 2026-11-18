@@ -525,9 +525,9 @@ function wheelLogRequest(params: Params) {
  * elsewhere) as the editor shows it: its JPEG in base64, with the number of
  * frames shown so far. Native-display frames have no such image (null). */
 async function previewImage() {
-  const { finalPreviewUrl, previewFrames, selectedImage } = useEditorStore.getState();
-  if (!finalPreviewUrl) return { path: selectedImage?.path ?? null, previewFrames, jpeg: null };
-  const bytes = new Uint8Array(await (await fetch(finalPreviewUrl)).arrayBuffer());
+  const { finalPreview, previewFrames, selectedImage } = useEditorStore.getState();
+  if (!finalPreview) return { path: selectedImage?.path ?? null, previewFrames, jpeg: null };
+  const bytes = new Uint8Array(await (await fetch(finalPreview.url)).arrayBuffer());
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return { path: selectedImage?.path ?? null, previewFrames, jpeg: btoa(binary) };

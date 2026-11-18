@@ -29,6 +29,12 @@ interface BaseRenderSize extends ImageDimensions {
   offsetY: number;
 }
 
+export interface FinalPreview {
+  url: string;
+  lossless: boolean;
+  fullZoom: boolean;
+}
+
 interface EditorState {
   // Core Image & Adjustments
   selectedImage: SelectedImage | null;
@@ -41,10 +47,9 @@ interface EditorState {
   historyPending: boolean;
 
   // Previews & Overlays
-  finalPreviewUrl: string | null;
-  /** Whether the settled browser frame came lossless (PNG): the split's
-   * before follows it, so both sides of a comparison travel alike. */
-  finalPreviewLossless: boolean | null;
+  finalPreview: FinalPreview | null;
+  /** Linux preview target at one device pixel per photo pixel or closer. */
+  browserFullZoom: boolean;
   /** Counts finished (not dragged) preview frames, native or JPEG. */
   previewFrames: number;
   uncroppedAdjustedPreviewUrl: string | null;
@@ -283,8 +288,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   historyIndex: 0,
   historyPending: false,
 
-  finalPreviewUrl: null,
-  finalPreviewLossless: null,
+  finalPreview: null,
+  browserFullZoom: false,
   previewFrames: 0,
   uncroppedAdjustedPreviewUrl: null,
   showOriginal: false,

@@ -377,3 +377,25 @@ it('Reload with no photograph open opens the replaced photograph', async () => {
   });
   expect(useEditorStore.getState().selectedImage?.path).toBe('/a.dng');
 });
+
+it('restores the cached browser preview and its codec together when switching photos', async () => {
+  const { globalImageCache } = await import('../utils/ImageLRUCache');
+  const { INITIAL_ADJUSTMENTS } = await import('../utils/adjustments');
+  const path = '/cached-preview.dng';
+  const preview = { url: 'blob:cached-fit', lossless: true, fullZoom: false };
+  globalImageCache.set(path, {
+    selectedImage: { path, isReady: true },
+    adjustments: INITIAL_ADJUSTMENTS,
+    finalPreview: preview
+  } as never);
+  try {
+    useEditorStore.setState({
+      finalPreview: { url: 'blob:other', lossless: false, fullZoom: true }
+    });
+    const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
+    await act(async () => result.current.handleImageSelect(path));
+    expect(useEditorStore.getState()).toMatchObject({ finalPreview: preview });
+  } finally {
+    globalImageCache.delete(path);
+  }
+});

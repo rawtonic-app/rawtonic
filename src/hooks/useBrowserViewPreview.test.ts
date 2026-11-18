@@ -101,3 +101,15 @@ describe('frameWidth', () => {
     expect(frameWidth(new Uint8Array([1, 2, 3]))).toBe(0);
   });
 });
+
+it('immediately hides a frame encoded with the previous comparison codec', async () => {
+  const { result, rerender } = renderHook(
+    ({ lossless }) => useBrowserViewPreview('/photo.raw', null, 1024, '', lossless),
+    { initialProps: { lossless: true } }
+  );
+  tick();
+  await finish(0);
+  expect(result.current.frame?.url).toBe('blob:cell-1');
+  rerender({ lossless: false });
+  expect(result.current.frame).toBeNull();
+});
