@@ -49,7 +49,9 @@ pub(crate) fn settled_lossless(scale: f32) -> bool {
 }
 
 /// A settled browser frame encoded as [`settled_lossless`] and
-/// [`settled_quality`] choose for its `scale`.
+/// [`settled_quality`] choose for its `scale`. Sent on Linux only (and
+/// tested everywhere).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn encode_settled(image: &image::RgbaImage, scale: f32) -> Result<Vec<u8>, String> {
     encode_settled_like(image, scale, None)
 }
