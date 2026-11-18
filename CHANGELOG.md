@@ -9,7 +9,6 @@
 ### Fixes
 
 - Windows: paths in the library and export dialogs no longer mix `/` and `\`.
-- Windows: restoring a photo from the Recycle Bin (Undo of Move to Trash) failed with "Receipt belongs to another destination" when its trash record named the photo's folder as `C:\…` instead of `\\?\C:\…`. Both forms of the folder are now accepted, and a name ending in a dot or space still never stands for its sibling without one. Records written by released versions use the `\\?\` form and were not affected.
 - **Windows setup can install Rawtonic for your account alongside an older all-users installation without administrator approval.** Setup explains how to remove the old copy later through Windows Settings with administrator approval. Both copies share your Rawtonic settings and app data.
 - **Exports return freed CPU memory to the system sooner around the photo's GPU upload.** This applies wherever Rawtonic uses mimalloc, including macOS. Integrated GPUs also start with 8 MB graphics-memory blocks that can grow to 256 MB. Metal ignores that GPU hint.
   - In earlier app tests on a Windows laptop with a Radeon 680M, exporting seven 12–61 MP RAWs as both 16-bit TIFF and JPEG at quality 90 peaked at 5,964 → about 5,425 MB for the app and WebView2 with one export thread, and 4,494 → about 4,234 MB for the headless app with two jobs.
