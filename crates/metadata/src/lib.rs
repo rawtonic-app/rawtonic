@@ -878,7 +878,6 @@ type LanguageAlternatives = BTreeMap<String, HashSet<String>>;
 
 // Edit language arrays in their original namespace context. Unrelated items,
 // qualifiers, whitespace and entity spellings remain byte-for-byte untouched.
-
 fn edit_language_alternatives(
     base: &str,
     metadata: &Metadata,

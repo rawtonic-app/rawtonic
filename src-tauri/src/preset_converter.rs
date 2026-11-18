@@ -2767,6 +2767,50 @@ mod tests {
     }
 
     #[test]
+    fn a_wide_lightroom_description_and_dense_brush_can_be_imported_and_merged() {
+        use std::fmt::Write;
+        // Exercise a packet shaped like a Lightroom edit with many global
+        // settings and a dense, pretty-printed CorrectionMasks/Dabs array.
+        let mut attributes = String::new();
+        for index in 0..400 {
+            write!(attributes, r#" crs:SyntheticSetting{index}="0""#).unwrap();
+        }
+        let dab_count = 50_000;
+        let dabs = "      <rdf:li>d 0.300000 0.500000</rdf:li>\n".repeat(dab_count);
+        let mask = format!(
+            r#"<crs:MaskGroupBasedCorrections><rdf:Seq>
+  <rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="Dodge" crs:LocalExposure2012="0.25">
+    <crs:CorrectionMasks><rdf:Seq>
+      <rdf:li><rdf:Description crs:What="Mask/Paint" crs:MaskValue="1" crs:Radius="0.05">
+        <crs:Dabs><rdf:Seq>
+{dabs}        </rdf:Seq></crs:Dabs>
+      </rdf:Description></rdf:li>
+    </rdf:Seq></crs:CorrectionMasks>
+  </rdf:Description></rdf:li>
+</rdf:Seq></crs:MaskGroupBasedCorrections>"#
+        );
+        let packet = format!(
+            r#"<rdf:RDF xmlns:rdf="{rdf}"><rdf:Description xmlns:crs="{crs}" crs:ProcessVersion="15.6" crs:Exposure2012="0.5"{attributes}>
+{mask}
+</rdf:Description></rdf:RDF>"#,
+            rdf = rawtonic_metadata::RDF,
+            crs = super::CRS_NS,
+        );
+        let preset = super::convert_xmp_to_preset(&packet).unwrap();
+        assert_eq!(preset.adjustments["exposure"], 0.5);
+        let strokes =
+            &preset.adjustments["masks"][0]["subMasks"][0]["parameters"]["lrNormalized"]["strokes"];
+        assert_eq!(strokes[0]["dabs"].as_array().unwrap().len(), dab_count);
+
+        let (mut metadata, _) = rawtonic_metadata::read_xmp(&packet).unwrap();
+        metadata.rating = 3;
+        let merged = rawtonic_metadata::merge_xmp(Some(&packet), &metadata, None).unwrap();
+        assert!(merged.contains(&mask));
+        assert!(merged.contains(&attributes));
+        assert_eq!(rawtonic_metadata::read_xmp(&merged).unwrap().0.rating, 3);
+    }
+
+    #[test]
     fn lightroom_brushes_and_luminance_ranges_become_masks() {
         let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
  <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">

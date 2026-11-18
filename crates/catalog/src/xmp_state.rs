@@ -149,6 +149,8 @@ impl Library {
                 Ok(here != hash && here != publishing)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(hash.is_some()),
+            // A sidecar above the read limit cannot be one we wrote or accepted.
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => Ok(true),
             // Unreadable: writing it is tried and fails with why.
             Err(_) => Ok(false),
         }
@@ -246,6 +248,7 @@ impl Library {
                                     publishing.as_deref() != Some(digest.as_str())
                                 }
                             }
+                            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => true,
                             Err(_) => false,
                         }
                     }

@@ -9,12 +9,17 @@ use std::{
 
 // The existing sidecar packet limit, including inline recipes and mask data.
 const MAX_BYTES: u64 = 16 * 1024 * 1024;
-// A compact packet can still describe millions of tiny nodes.
-const MAX_NODES: u32 = 100_000;
+// A compact packet can describe millions of tiny nodes. Leave room for dense
+// Lightroom brush arrays, where every dab is a separate XML element.
+const MAX_NODES: u32 = 250_000;
+// The DOM also stores text and inter-element whitespace. Each structural
+// event can separate text at both its opening and closing boundary.
+const MAX_DOM_NODES: u32 = 3 * MAX_NODES + 2;
 // RDF arrays and structures are shallow. Bound ancestor walks and namespace lookups.
 const MAX_DEPTH: usize = 64;
-// The XML parser checks attributes and namespace declarations for duplicates.
-const MAX_ATTRIBUTES: usize = 256;
+// Bound the XML parser's duplicate checks with ample room for editors that
+// store a whole set of develop settings and metadata on one description.
+const MAX_ATTRIBUTES: usize = 1_024;
 // Bound the DOM allocation for attributes across many individually small tags.
 const MAX_PACKET_ATTRIBUTES: usize = 100_000;
 const MAX_NAMESPACE_DECLARATIONS: usize = 128;
@@ -121,7 +126,7 @@ pub(crate) fn parse_packet(text: &str) -> Result<roxmltree::Document<'_>> {
     Ok(roxmltree::Document::parse_with_options(
         text,
         roxmltree::ParsingOptions {
-            nodes_limit: MAX_NODES,
+            nodes_limit: MAX_DOM_NODES,
             ..Default::default()
         },
     )?)
