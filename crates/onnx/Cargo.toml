@@ -13,6 +13,9 @@ libloading = "0.8"
 log = { workspace = true }
 ort = { workspace = true, features = ["std", "ndarray", "load-dynamic", "api-22"] }
 anyhow = { workspace = true }
+# BLAKE3 digests of saved optimized graphs, read mapped on several threads.
+blake3 = { workspace = true, features = ["mmap", "rayon"] }
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_LibraryLoader"] }

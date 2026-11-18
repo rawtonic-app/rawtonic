@@ -4,9 +4,8 @@ import BrowserSplitImage from './BrowserSplitImage';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import { INITIAL_ADJUSTMENTS } from '../../../utils/adjustments';
-vi.mock('../../../hooks/useBrowserViewPreview', () => ({
-  useBrowserViewPreview: () => ({ frame: { url: 'blob:before' } })
-}));
+const preview = vi.hoisted(() => vi.fn((..._args: unknown[]) => ({ frame: { url: 'blob:before' } })));
+vi.mock('../../../hooks/useBrowserViewPreview', () => ({ useBrowserViewPreview: preview }));
 afterEach(cleanup);
 it.each(['left-right', 'top-bottom'] as const)(
   'clips a developed before frame along the %s viewer axis while panned and zoomed',
@@ -38,3 +37,21 @@ it.each(['left-right', 'top-bottom'] as const)(
     expect(container.querySelector('image')?.getAttribute('href')).toBe('blob:before');
   }
 );
+
+it.each([true, false])('asks for the before encoded as the after (lossless %s)', (lossless) => {
+  useSettingsStore.setState({ osPlatform: 'linux' });
+  useEditorStore.setState({ splitView: true, showOriginal: false, finalPreviewLossless: lossless });
+  preview.mockClear();
+  render(
+    <svg>
+      <BrowserSplitImage
+        path="/a.dng"
+        adjustments={INITIAL_ADJUSTMENTS}
+        size={{ scale: 1, width: 600, height: 400, containerWidth: 800, containerHeight: 600, offsetX: 0, offsetY: 0 }}
+        transform={{ scale: 1, positionX: 0, positionY: 0 }}
+        enabled
+      />
+    </svg>
+  );
+  expect(preview.mock.calls.at(-1)?.[4]).toBe(lossless);
+});

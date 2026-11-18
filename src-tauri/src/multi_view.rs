@@ -460,12 +460,14 @@ fn saved_recipe_of(path: &str) -> serde_json::Value {
 /// Developed browser cells for Linux (and the split's before), using the
 /// same geometry, retouch, local masks and LUT pipeline as native cells.
 /// This never activates a photo or changes the primary preview's recipe.
-/// Header: shown width/height as little-endian u32, followed by JPEG.
+/// Header: shown width/height as little-endian u32, followed by a JPEG or
+/// PNG (`preview_jpeg::encode_settled_like`).
 #[tauri::command]
 pub(crate) async fn render_browser_view(
     path: String,
     js_adjustments: Option<serde_json::Value>,
     target_resolution: u32,
+    lossless: Option<bool>,
     app_handle: tauri::AppHandle,
 ) -> Result<tauri::ipc::Response, String> {
     static GATE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
@@ -526,9 +528,10 @@ pub(crate) async fn render_browser_view(
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(width.round() as u32).to_le_bytes());
         bytes.extend_from_slice(&(height.round() as u32).to_le_bytes());
-        bytes.extend(crate::editor_preview::encode_browser_preview(
-            &rgba,
-            crate::preview_jpeg::settled_quality(scale),
+        // A split's before travels as the after it is compared with
+        // (`lossless`), a cell as a settled frame of its scale.
+        bytes.extend(crate::preview_jpeg::encode_settled_like(
+            &rgba, scale, lossless,
         )?);
         Ok(tauri::ipc::Response::new(bytes))
     })

@@ -52,7 +52,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 
 | Crate | Owns | Depends on | Key modules | Tests/hooks |
 |---|---|---|---|---|
-| `onnx` | every ONNX model load, providers, the bundled VC++ runtime and DirectX Shader Compiler on Windows | none | `runtime`, `vc_runtime`, `dxc`, `check`, `background`, `watch`, `bench` | `rawtonic ai-bench` |
+| `onnx` | every ONNX model load, providers, the bundled VC++ runtime and DirectX Shader Compiler on Windows | none | `runtime`, `vc_runtime`, `dxc`, `check`, `background`, `watch`, `bench`, `optimized` | `rawtonic ai-bench` |
 | `denoise` | AI Denoise on the Bayer mosaic | `onnx`, `rawdecode` | `coreml`, `tiles`, `noise` | model pack |
 | `faces` | detection, landmarks, parsing, retouch | `onnx` | `detect`, `parts`, `retouch` | ignored `real_photos` |
 | `segment` | Sky and Subject networks | `denoise`, `onnx` | `models`, `focus` | model pack |
@@ -423,7 +423,11 @@ content is the one switch `export_marks_generated`.
 
 `onnx` — every ONNX model loads through `rawtonic_onnx::Model`: GPU plugin providers (CUDA if installed, WebGPU on
 Windows/Linux) checked once against the CPU, CPU fallback, per-model exceptions, preference `aiGpu` (ADR 0011).
-`rawtonic ai-bench` times and compares providers.
+`rawtonic ai-bench` times and compares providers. `optimized`: CPU sessions keep each model's optimized graph
+(external weights, BLAKE3-checked manifest written last) in `Settings::optimized_graphs` (the app: `<cache>/ai-first-runs/onnx-graphs`,
+under the AI cache limit) and later load it with graph optimization off. Output bits measured identical (Mac arm64; x86
+under Rosetta; notes: benchmark-results/aiw2-2026-11-18) for every CPU model of the pack that keeps one; the SigLIP 2
+text encoder, Moebius and the export steps Super Resolution and AI Denoise keep none, and GPU providers are not cached.
 
 
 ### Engine layers

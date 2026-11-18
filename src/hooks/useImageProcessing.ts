@@ -56,6 +56,7 @@ import { onColorNoiseViewReady } from '../utils/colorNoiseView';
 import { acknowledgeParameters, forgetParameterReferences, withParameterReferences } from '../utils/maskParameterRefs';
 import { useOsPlatform } from './useOsPlatform';
 import { viewerShown } from '../utils/viewerMode';
+import { previewFrameType } from '../utils/previewFrameType';
 
 /** Edit all selected is on in the multi view on screen. */
 function editsAllSelected() {
@@ -359,7 +360,8 @@ export function useImageProcessing(
               return { interactivePatch: patch };
             });
           } else {
-            const blob = new Blob([buffer], { type: 'image/jpeg' });
+            const type = previewFrameType(buffer);
+            const blob = new Blob([buffer], { type });
             const url = URL.createObjectURL(blob);
             noteBrowserPreview(url, returnedAt, inputAt, jobId);
             retireDraftPatches();
@@ -378,7 +380,11 @@ export function useImageProcessing(
                   }
                 }, 250);
               }
-              return { finalPreviewUrl: url, previewFrames: state.previewFrames + 1 };
+              return {
+                finalPreviewUrl: url,
+                finalPreviewLossless: type === 'image/png',
+                previewFrames: state.previewFrames + 1
+              };
             });
 
             setEditor((state) => {

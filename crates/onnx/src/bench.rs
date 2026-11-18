@@ -168,8 +168,8 @@ fn timed<T>(f: impl FnOnce() -> Result<T>) -> Result<(T, f64)> {
 /// An output as numbers (uint8 outputs widened).
 #[derive(Clone)]
 pub(crate) struct Output {
-    name: String,
-    values: Vec<f32>,
+    pub(crate) name: String,
+    pub(crate) values: Vec<f32>,
 }
 
 fn time_runs(

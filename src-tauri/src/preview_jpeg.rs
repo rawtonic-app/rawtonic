@@ -1,4 +1,5 @@
-//! Browser preview JPEGs (Linux drafts and frames, multi-view cells),
+//! Browser preview JPEGs (Linux drafts and frames, multi-view cells) and the
+//! lossless PNG of a settled reduced frame ([`settled_lossless`]),
 //! encoded in horizontal strips on several threads. One 4:4:4 encode of a
 //! 1.5 MP drag draft took ~6.5 ms of the ~14 ms native job on a Ryzen 5
 //! 3600X (notes: benchmark-results/linux-slider-drag-2026-10-17/).
@@ -31,6 +32,66 @@ pub(crate) fn settled_quality(scale: f32) -> u8 {
     } else {
         SETTLED_QUALITY
     }
+}
+
+/// Whether a settled browser frame with `scale` frame px per
+/// full-resolution px goes to the webview lossless (PNG) instead of as a
+/// JPEG. Against the export, every JPEG quality moved a reduced frame's
+/// fine chroma out of the ±15 % bar (q94 removed it, q98–q100 added 8-bit
+/// quantisation noise the noise-reduced export lacks); the lossless frame
+/// stayed within it, as the native displays do. A PNG costs several times a
+/// JPEG's encode, bytes and decode, growing with the frame; drags keep
+/// their JPEG. At 100 % the frame is the whole photograph (a 24 MP PNG is
+/// ~60 MB), so it stays a JPEG (docs/benchmark-results/
+/// lnxj1-linux-preview-transport-2026-11-17/REPORT.md).
+pub(crate) fn settled_lossless(scale: f32) -> bool {
+    scale < 0.999
+}
+
+/// A settled browser frame encoded as [`settled_lossless`] and
+/// [`settled_quality`] choose for its `scale`.
+pub(crate) fn encode_settled(image: &image::RgbaImage, scale: f32) -> Result<Vec<u8>, String> {
+    encode_settled_like(image, scale, None)
+}
+
+/// [`encode_settled`], or as the frame it is compared with when
+/// `lossless` says how that one came (a split's before beside the editor's
+/// frame, which is a JPEG only at 100 %).
+pub(crate) fn encode_settled_like(
+    image: &image::RgbaImage,
+    scale: f32,
+    lossless: Option<bool>,
+) -> Result<Vec<u8>, String> {
+    match lossless.unwrap_or_else(|| settled_lossless(scale)) {
+        true => encode_png_rgb(image),
+        false if lossless.is_some() => encode_rgbx_444(image, ONE_TO_ONE_QUALITY),
+        false => encode_rgbx_444(image, settled_quality(scale)),
+    }
+}
+
+/// `image` as an 8-bit RGB PNG (alpha ignored), with fast compression and
+/// the Up filter (the fastest of the filters at about the adaptive one's
+/// size on photographs).
+fn encode_png_rgb(image: &image::RgbaImage) -> Result<Vec<u8>, String> {
+    use image::ImageEncoder;
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+    let rgb: Vec<u8> = image
+        .as_raw()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|&[r, g, b, _]| [r, g, b])
+        .collect();
+    let mut out = Vec::with_capacity(rgb.len() / 2);
+    PngEncoder::new_with_quality(&mut out, CompressionType::Fast, FilterType::Up)
+        .write_image(
+            &rgb,
+            image.width(),
+            image.height(),
+            image::ExtendedColorType::Rgb8,
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(out)
 }
 
 /// 4:4:4 MCUs are 8×8 pixels.
@@ -224,6 +285,42 @@ mod tests {
                 assert_eq!(other.dimensions(), (width, height));
             }
         }
+    }
+
+    #[test]
+    fn settled_png_is_lossless_rgb() {
+        for (width, height) in [(1536, 1029), (17, 9)] {
+            let image = photo_like(width, height);
+            let png = encode_png_rgb(&image).unwrap();
+            assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+            let decoded = image::load_from_memory(&png).unwrap().to_rgb8();
+            assert_eq!(decoded.dimensions(), (width, height));
+            let rgb: Vec<u8> = image
+                .as_raw()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .flat_map(|&[r, g, b, _]| [r, g, b])
+                .collect();
+            assert!(decoded.as_raw() == &rgb, "{width}×{height} changed");
+        }
+        assert!(settled_lossless(0.25) && settled_lossless(0.998));
+        assert!(!settled_lossless(1.0) && !settled_lossless(2.0));
+        let small = photo_like(64, 48);
+        assert!(encode_settled(&small, 0.5).unwrap().starts_with(b"\x89PNG"));
+        // A split's before follows the after across the 100 % boundary.
+        let png = encode_settled_like(&small, 1.0, Some(true)).unwrap();
+        assert!(png.starts_with(b"\x89PNG"));
+        let jpeg = encode_settled_like(&small, 0.8, Some(false)).unwrap();
+        assert_eq!(
+            (jpeg[..2] == [0xFF, 0xD8], jpeg),
+            (true, encode_rgbx_444(&small, ONE_TO_ONE_QUALITY).unwrap())
+        );
+        assert!(
+            encode_settled(&small, 1.0)
+                .unwrap()
+                .starts_with(&[0xFF, 0xD8])
+        );
     }
 
     #[test]
