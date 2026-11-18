@@ -473,8 +473,14 @@ fn restore_to_stage(receipt: &Receipt, stage: &Stage) -> Result<()> {
 }
 
 fn restore_receipt(receipt: &Receipt, original: &Path) -> Result<()> {
+    // Both sides through one key: a receipt may record the plain or the
+    // verbatim spelling of its folder (the caller's may differ again), and
+    // canonical_entry maps both to one verbatim parent while keeping the
+    // entry's own name literal, so `photo.txt.` never matches `photo.txt`.
+    let recorded =
+        canonical_entry(&receipt.original).context("The receipt's original folder is gone")?;
     ensure!(
-        canonical_entry(original)? == receipt.original,
+        canonical_entry(original)? == recorded,
         "Receipt belongs to another destination"
     );
     // Use the recorded native spelling after checking the caller's parent and
@@ -602,16 +608,43 @@ mod tests {
     use rawtonic_fs::Canonical;
     use std::{collections::HashSet, fs};
 
+    /// Symbolic links need Developer Mode or the symlink privilege; without
+    /// it (ERROR_PRIVILEGE_NOT_HELD) the rest of the test is skipped, with
+    /// SKIP printed (as in rawtonic-fileops' copy/move tests).
+    fn link_or_skip(made: std::io::Result<()>) -> bool {
+        const ERROR_PRIVILEGE_NOT_HELD: i32 = 1314;
+        match made {
+            Ok(()) => true,
+            Err(e) if e.raw_os_error() == Some(ERROR_PRIVILEGE_NOT_HELD) => {
+                eprintln!(
+                    "SKIP: no right to make symbolic links ({e}); the link checks did not run"
+                );
+                false
+            }
+            Err(e) => panic!("cannot make a symbolic link: {e}"),
+        }
+    }
+
     fn staged_fixture() -> (tempfile::TempDir, Receipt) {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().canonical().unwrap();
-        let original = root.join("photo.txt");
+        staged_fixture_at(temp, &root, "photo.txt")
+    }
+
+    /// A synthetic file at `root\name`, moved into its restore stage under a
+    /// receipt that records `root` in the spelling it is given.
+    fn staged_fixture_at(
+        temp: tempfile::TempDir,
+        root: &Path,
+        name: &str,
+    ) -> (tempfile::TempDir, Receipt) {
+        let original = root.join(name);
         fs::write(&original, b"synthetic photograph").unwrap();
         let receipt = Receipt {
             bin_id: format!("synthetic-unavailable-{}", uuid::Uuid::new_v4()),
             nonce: uuid::Uuid::new_v4(),
             identity: identity(&original).unwrap(),
-            parent_identity: identity(&root).unwrap(),
+            parent_identity: identity(root).unwrap(),
             original,
         };
         let stage = Stage::open(&receipt, true).unwrap();
@@ -711,8 +744,12 @@ mod tests {
     #[test]
     #[ignore = "Requires a fresh synthetic removable volume with no Recycle Bin"]
     fn platform_trash_refuses_a_volume_without_a_bin_and_preserves_its_file() {
-        let directory = std::env::var_os("RAWTONIC_TEST_NO_BIN_DIR")
-            .expect("Synthetic no-bin directory required");
+        let Some(directory) = std::env::var_os("RAWTONIC_TEST_NO_BIN_DIR") else {
+            eprintln!(
+                "SKIP: RAWTONIC_TEST_NO_BIN_DIR (a folder on a volume without a Bin) is not set"
+            );
+            return;
+        };
         let temp = tempfile::tempdir_in(directory).unwrap();
         let source = temp.path().join("synthetic-original.txt");
         fs::write(&source, b"synthetic no-bin photograph").unwrap();
@@ -802,6 +839,61 @@ mod tests {
         assert!(!other.exists());
     }
 
+    /// The app records the verbatim spelling (`\\?\C:\…`) in its receipts
+    /// and the journal may hand back either spelling; both name one
+    /// destination, while a literal name with a trailing dot never stands
+    /// for its plain sibling.
+    #[test]
+    fn receipt_spellings_name_one_destination_but_never_a_literal_sibling() {
+        let _apartment = Apartment::new().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        #[allow(clippy::disallowed_methods)]
+        let verbatim_root = fs::canonicalize(temp.path()).unwrap();
+        let plain_root = plain_drive_path(&verbatim_root).unwrap();
+        assert_ne!(verbatim_root, plain_root);
+
+        // A verbatim receipt restored through the plain spelling.
+        let (temp, receipt) = staged_fixture_at(temp, &verbatim_root, "photo.txt");
+        let text = serde_json::to_string(&receipt).unwrap();
+        PlatformTrash
+            .restore(&text, &plain_root.join("photo.txt"))
+            .unwrap();
+        assert_eq!(
+            fs::read(plain_root.join("photo.txt")).unwrap(),
+            b"synthetic photograph"
+        );
+
+        // A plain receipt restored through the verbatim spelling.
+        let (temp, receipt) = staged_fixture_at(temp, &plain_root, "second.txt");
+        let text = serde_json::to_string(&receipt).unwrap();
+        PlatformTrash
+            .restore(&text, &verbatim_root.join("second.txt"))
+            .unwrap();
+        assert_eq!(
+            fs::read(plain_root.join("second.txt")).unwrap(),
+            b"synthetic photograph"
+        );
+
+        // `literal.txt.` exists only in the verbatim form; its plain spelling
+        // names the sibling `literal.txt`, which must stay untouched.
+        let (_temp, receipt) = staged_fixture_at(temp, &verbatim_root, "literal.txt.");
+        let text = serde_json::to_string(&receipt).unwrap();
+        let sibling = verbatim_root.join("literal.txt");
+        assert!(PlatformTrash.restore(&text, &sibling).is_err());
+        assert!(
+            PlatformTrash
+                .restore(&text, &plain_root.join("literal.txt"))
+                .is_err()
+        );
+        assert!(!sibling.exists());
+        PlatformTrash.restore(&text, &receipt.original).unwrap();
+        assert_eq!(
+            fs::read(&receipt.original).unwrap(),
+            b"synthetic photograph"
+        );
+        assert!(!sibling.exists());
+    }
+
     #[test]
     fn restore_is_idempotent_after_final_rename_before_journal_commit() {
         let _apartment = Apartment::new().unwrap();
@@ -838,7 +930,26 @@ mod tests {
         assert!(PlatformTrash.restore(&text, &receipt.original).is_err());
         fs::remove_file(stage_path.join("receipt.json")).unwrap();
         fs::remove_dir(&stage_path).unwrap();
-        std::os::windows::fs::symlink_dir(&moved, &stage_path).unwrap();
+        // A junction needs no privilege; a directory symbolic link does.
+        let junction = std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(&stage_path)
+            .arg(&moved)
+            .output()
+            .unwrap();
+        assert!(junction.status.success(), "mklink /J failed: {junction:?}");
+        assert!(PlatformTrash.restore(&text, &receipt.original).is_err());
+        assert_eq!(
+            fs::read(moved.join("payload")).unwrap(),
+            b"synthetic photograph"
+        );
+        assert!(!receipt.original.exists());
+        fs::remove_dir(&stage_path).unwrap(); // The junction only, not its target.
+        if !link_or_skip(std::os::windows::fs::symlink_dir(&moved, &stage_path)) {
+            return;
+        }
         assert!(PlatformTrash.restore(&text, &receipt.original).is_err());
         assert_eq!(
             fs::read(moved.join("payload")).unwrap(),
@@ -979,7 +1090,9 @@ mod tests {
         fs::hard_link(&source, &alias).unwrap();
         assert!(verified_item(&source).is_err());
         fs::remove_file(&alias).unwrap();
-        std::os::windows::fs::symlink_file(&source, &alias).unwrap();
+        if !link_or_skip(std::os::windows::fs::symlink_file(&source, &alias)) {
+            return;
+        }
         assert!(verified_item(&source).is_err());
         assert_eq!(fs::read(&source).unwrap(), b"synthetic");
         assert!(fs::symlink_metadata(&alias).unwrap().is_symlink());
