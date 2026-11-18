@@ -6,6 +6,10 @@
 
 - **Install update from the update notice.** When a newer release is out, the notice offers **Install update**: Rawtonic downloads that release's package for your Mac (app), Linux AppImage or Windows per-user setup, installs it only if it carries the signature of Rawtonic's own update key for exactly that version, and replaces the app when you choose **Restart now** — after it saved your edits, and after asking if exports or imports are still running. Nothing is downloaded before the click; the daily startup check sends nothing new. Copies installed for all users (Windows MSI), the portable zip and releases without an update package keep the browser link; an all-users copy now gets the all-users installer there. This works from the next release on: updating to it is one last manual update.
 
+### Changed
+
+- Windows is no longer labelled experimental; it remains unsigned.
+
 ### Changes to existing exports
 
 - Super Resolution exports using the ONNX Runtime CPU path may round differently from earlier versions. In a 24 MP test, the largest difference was 0.00000232 on a 0–1 scale before rounding, which can change an 8-bit channel by at most 1/255.
@@ -19,6 +23,10 @@
   - In earlier app tests on a Windows laptop with a Radeon 680M, exporting seven 12–61 MP RAWs as both 16-bit TIFF and JPEG at quality 90 peaked at 5,964 → about 5,425 MB for the app and WebView2 with one export thread, and 4,494 → about 4,234 MB for the headless app with two jobs.
   - In the updated CLI tests on the same laptop, exporting the seven RAWs as 16-bit TIFF alone with two jobs took 39.2 s and peaked at 3,750 MB (medians of three runs), compared with 40.9 s and 4,900 MB in the earlier baseline. With one job, it took 45.6 s and peaked at 3,074 MB, compared with 48.4 s and 4,353 MB. Exporting just JPEG at quality 90 with two jobs took 47.4 s and peaked at 3,524 MB on the updated build. All seven outputs in each of those nine runs matched the earlier exports byte for byte.
   - On that laptop, Exposure drags at 100 % zoom produced a median 630 preview frames per run with the smaller starting blocks, compared with 632 using the previous GPU hint. In a separate earlier CLI comparison, all 13 16-bit TIFFs and all 13 JPEGs at quality 90 matched byte for byte across the benchmark builds.
+
+### Known gaps
+
+- **Windows hardware coverage:** GUI testing has covered one NVIDIA graphics card and one AMD Radeon 680M laptop.
 
 ## 0.1.0-alpha.17.1 — 2026-11-18
 
