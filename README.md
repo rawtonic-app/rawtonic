@@ -221,7 +221,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | **⇧Return** / **⌘Return**    | pin / clear the reference      |
 | **C** / **R** / **B**        | crop / straighten / brush      |
 | **M**                        | show or hide the mask overlay  |
-| **[** / **]**                | with a brush or retouch tool: smaller / larger brush (mask brush with ⇧: hardness) |
+| **[** / **]**                | mask brush, Heal, Clone or Remove brush: smaller / larger (mask brush with ⇧: hardness) |
 | **A**                        | scopes (with the mask brush: Auto Mask) |
 | **J**                        | clipping warnings              |
 | **Alt+X**                    | proof margin                   |
@@ -234,7 +234,7 @@ To see one tool's part of the edit, hold its reset button with ⌥/Alt pressed (
 
 The before / after split shows in the single view only: turning on the multi view turns the split off, and turning on the split leaves the multi view.
 
-On Windows and Linux, **Ctrl** takes the place of **⌘** (Ctrl+Z, Ctrl+Return …), and F10 or Alt opens the menu. Menus show most commands' keys, named as your keyboard layout types them. The keys follow what photographers already know from the big editors, and most shortcuts can be changed in Settings.
+On Windows and Linux, **Ctrl** takes the place of **⌘** (Ctrl+Z, Ctrl+Return …), and F10 or Alt opens the menu. Menus show most commands' keys; on macOS and Windows they are named as your keyboard layout types them (Linux keeps the US names for punctuation keys). The keys follow what photographers already know from the big editors, and most shortcuts can be changed in Settings.
 
 ## Status and known limitations
 
