@@ -4,8 +4,8 @@ Rawtonic is a desktop app. Photos, catalogs, sessions and edits stay on
 your computer and in the folders you choose. Rawtonic has no accounts or
 telemetry, and its makers receive no data from it unless you send a report
 yourself or switch on anonymous usage statistics (both below). Releases up to
-0.1.0-alpha.17 did send usage reports of a bundled component, Microsoft's
-ONNX Runtime, to Microsoft (see *ONNX Runtime* below).
+0.1.0-alpha.17 let a bundled component, Microsoft's ONNX Runtime, report
+usage data to Microsoft (see *ONNX Runtime* below).
 
 ## Update checks
 
@@ -52,24 +52,25 @@ Rawtonic otherwise goes online only when you ask it to:
   graphics card when it can (Windows, Linux: the WebGPU plugin ships with the
   app; using the GPU downloads nothing).
 - **ONNX Runtime (the AI runtime).** Microsoft's ONNX Runtime, which runs
-  the models, contains an uploader to Microsoft on macOS and Linux. Rawtonic
-  turns it off before the runtime starts (`ORT_DISABLE_TELEMETRY`), so it
-  sends nothing (measured on macOS: no connection from the process).
-  Releases up to 0.1.0-alpha.17 did send its reports (Linux from 0.1.0-alpha.2,
-  Apple silicon from 0.1.0-alpha.12): runtime and system details (OS version,
-  CPU, cores, memory), a hashed device ID, and per AI model its file name,
-  hashes, hardware and run statistics — never photos or their paths (see the
-  changelog). The runtime keeps a device ID and unsent events in
+  the models, has usage reporting to Microsoft built in. Rawtonic sets the
+  runtime's own switches before opening it: `ORT_DISABLE_TELEMETRY` on macOS
+  and Linux (its uploader is never created; measured on both: no connection,
+  no address lookup) and `ORT_RUNNING_UNIT_TESTS` on Windows (its Windows
+  event provider is never registered; from the runtime's source, not yet
+  measured on Windows). Releases up to 0.1.0-alpha.17 did report: on Linux
+  (from 0.1.0-alpha.2) and Apple silicon Macs (from 0.1.0-alpha.12) the
+  runtime uploaded runtime and system details (OS version, CPU, cores,
+  memory), a hashed device ID, and per AI model its file name, hashes,
+  hardware and run statistics to `mobile.events.data.microsoft.com`; on
+  Windows (from 0.1.0-alpha.10) it wrote similar reports, including the GPU
+  plugin's full path, to Windows' event tracing, from which Windows'
+  diagnostic data service could send them under your Windows diagnostic data
+  setting. Never photos or their paths (details in the changelog). On macOS
+  and Linux the runtime kept a device ID and unsent reports in
   `~/Library/Application Support/Microsoft/DeveloperTools/.onnxruntime`
   (macOS) or `~/.cache/Microsoft/DeveloperTools/.onnxruntime` (Linux); other
   programs using ONNX Runtime share that folder, so Rawtonic leaves it, and
-  you may delete it. On Windows the runtime has no uploader of its own, but
-  Microsoft's build writes the same reports to Windows' event tracing as a
-  Microsoft telemetry provider, so Windows' diagnostic data service can
-  collect them and send them to Microsoft under your Windows diagnostic data
-  setting; Rawtonic cannot switch that off in Microsoft's build (the first
-  report is written before any switch-off, and Windows re-enables the events
-  when it listens).
+  you may delete it.
 - **Map.** In the Library's EXIF tool, "Show on map" loads a map of the photo's
   GPS position from openstreetmap.org, which then learns that position and
   your IP address. Nothing is loaded until you click.

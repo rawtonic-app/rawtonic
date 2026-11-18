@@ -538,6 +538,15 @@ def main() -> None:
     parser.add_argument("--own-runtime", type=Path,
                         help="folder with the ONNX Runtime libraries build_onnxruntime.sh built (ORT130_OWN)")
     args = parser.parse_args()
+    if args.own_runtime is not None:
+        # Before anything is written: a missing or rebuilt library (another
+        # SHA-256) fails here, not halfway through the pack.
+        for name, expected in ORT130_OWN:
+            source = args.own_runtime / name
+            if not source.is_file():
+                sys.exit(f"{source} missing")
+            if sha256(source) != expected:
+                sys.exit(f"{source}: SHA-256 {sha256(source)}, expected {expected}")
     args.out.mkdir(parents=True, exist_ok=True)
     args.cache.mkdir(parents=True, exist_ok=True)
     entries, carried = carry_over(args.previous, args.out) if args.previous else ([], {})

@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use rawtonic_onnx::bench::{Picture, bench_file};
-use rawtonic_onnx::{Model, Provider, ensure_runtime, forced_provider};
+use rawtonic_onnx::{Model, Provider, default_plugin_dirs, ensure_runtime, forced_provider};
 
 #[test]
 #[ignore = "needs ORT_DYLIB_PATH and AI_MODELS; stays alive PROBE_SECS seconds"]
@@ -43,7 +43,14 @@ fn runtime_stays_alive_for_a_network_capture() {
     if gpu != Provider::Cpu {
         assert_eq!(model.provider(), gpu, "the forced provider did not load");
     }
-    let report = bench_file(&path, gpu, 1, &[], &Picture::synthetic(640, 480)).expect("inference");
+    let report = bench_file(
+        &path,
+        gpu,
+        1,
+        &default_plugin_dirs(),
+        &Picture::synthetic(640, 480),
+    )
+    .expect("inference");
     assert!(report.gpu_error.is_none(), "{:?}", report.gpu_error);
     println!(
         "probe {} CPU inference {:.1} ms{}; waiting {seconds} s",
