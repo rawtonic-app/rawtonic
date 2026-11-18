@@ -35,7 +35,7 @@ mod tests {
     use std::{fs, path::Path};
 
     #[test]
-    fn webview2_arguments_match_the_measured_configuration() {
+    fn webview2_arguments_preserve_wry_features_and_disable_background_services() {
         assert_eq!(
             super::WEBVIEW2_ARGS,
             "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking --disable-component-update"

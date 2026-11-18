@@ -20,10 +20,6 @@ On Windows the same notice comes before the first check: the installers
 (the portable zip, a silent install) shows it once on its first start. Nothing
 goes online before it was shown; the portable copy waits until you close it.
 
-On Windows, Rawtonic turns off WebView2's background connections to Microsoft's
-configuration and component-update services. Windows itself may look up a proxy
-configuration (WPAD) on the local network.
-
 Each check sends one GET to GitHub's public Releases API for
 `rawtonic-app/rawtonic`, considering the ten most recent releases. GitHub receives your IP address and a User-Agent of
 `Rawtonic/<version>`; no cookies, identifiers, photos, paths or settings are sent.
@@ -37,6 +33,12 @@ shows the release notes from the same response; pictures and other remote
 content in them are not loaded, and links open in your browser. Rawtonic never
 downloads or installs an update itself. The “What's new” shown once after an
 update comes from the notes bundled with the app and needs no network access.
+
+## Windows web view
+
+Rawtonic turns off WebView2's background connections to Microsoft's
+configuration and component-update services. Windows itself may look up a proxy
+configuration (WPAD) on the local network.
 
 ## Other network access
 
