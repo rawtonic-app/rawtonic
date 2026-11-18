@@ -1,3 +1,5 @@
+import { joinPath, pathSeparator } from './path';
+import { pathKey } from './pathKey';
 import type { FolderTree } from './folderTree';
 import type { OfflineFolder } from './offline';
 
@@ -53,14 +55,21 @@ export interface VolumeSection {
   trees: FolderTree[];
 }
 
-const separatorOf = (path: string) => (path.includes('\\') && !path.includes('/') ? '\\' : '/');
+function folderPrefix(folder: string): string {
+  const sep = pathSeparator(folder);
+  return folder.endsWith(sep) ? folder : folder + sep;
+}
 
-/** Whether `path` lies strictly below `folder`. */
+/** The relative path within a folder, or null outside it or at its root. */
+export function relativePathBelow(path: string, folder: string): string | null {
+  const candidate = pathKey(path);
+  const prefix = folderPrefix(pathKey(folder));
+  return candidate.length > prefix.length && candidate.startsWith(prefix) ? candidate.slice(prefix.length) : null;
+}
+
+/** Whether the path lies strictly below the folder. */
 export function isBelow(path: string, folder: string): boolean {
-  if (path === folder) return false;
-  const sep = separatorOf(folder);
-  const prefix = folder.endsWith(sep) ? folder : folder + sep;
-  return path.startsWith(prefix);
+  return relativePathBelow(path, folder) !== null;
 }
 
 const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
@@ -70,12 +79,7 @@ const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? 
  * its name. */
 export function labelOnVolume(path: string, mountPoint: string): string {
   if (path === mountPoint) return baseName(path) || path;
-  if (isBelow(path, mountPoint)) {
-    const sep = separatorOf(mountPoint);
-    const prefix = mountPoint.endsWith(sep) ? mountPoint : mountPoint + sep;
-    return path.slice(prefix.length);
-  }
-  return path;
+  return relativePathBelow(path, mountPoint) ?? path;
 }
 
 /** The outermost of `paths` (none below another), in path order. */
@@ -119,22 +123,22 @@ interface MissingFolder {
  * only; `node` is not changed.
  */
 export function graftMissing(node: FolderTree, folder: MissingFolder): FolderTree {
-  if (folder.path === node.path) {
+  const target = pathKey(folder.path);
+  if (target === pathKey(node.path)) {
     return node.missing ? { ...node, imageCount: node.imageCount ?? folder.count } : node;
   }
-  if (!isBelow(folder.path, node.path)) return node;
+  const rest = relativePathBelow(folder.path, node.path);
+  if (rest === null) return node;
   const children = node.children ?? [];
-  const holder = children.find((child) => child.path === folder.path || isBelow(folder.path, child.path));
+  const holder = children.find((child) => pathKey(child.path) === target || isBelow(folder.path, child.path));
   if (holder) {
     return { ...node, children: children.map((child) => (child === holder ? graftMissing(child, folder) : child)) };
   }
   // The next level towards the folder: the folder itself or a missing parent.
-  const sep = separatorOf(node.path);
-  const rest = folder.path.slice(node.path.length + (node.path.endsWith(sep) ? 0 : 1));
-  const first = rest.split(/[\\/]/)[0];
-  const childPath = node.path.endsWith(sep) ? node.path + first : node.path + sep + first;
+  const first = rest.split(pathSeparator(pathKey(node.path)))[0];
+  const childPath = joinPath(node.path, first);
   const child =
-    childPath === folder.path ? missingNode(childPath, folder.count) : graftMissing(missingNode(childPath), folder);
+    pathKey(childPath) === target ? missingNode(childPath, folder.count) : graftMissing(missingNode(childPath), folder);
   return { ...node, hasSubdirs: true, children: [...children, child] };
 }
 

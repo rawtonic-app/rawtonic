@@ -7,11 +7,13 @@
  * flag was not found under the other (WFQ/WPFC: Pick and Reject read 0/0
  * after a restart although the catalog held them). The key drops the
  * verbatim prefix: `\\?\C:\a` → `C:\a`, `\\?\UNC\server\share\a` →
- * `\\server\share\a`. Every other path is its own key. A key is never used
- * to open a file.
+ * `\\server\share\a`. Plain Windows keys also use backslashes, including
+ * paths from older frontend joins. A key is never used to open a file.
  */
 export function pathKey(path: string): string {
-  if (!path.startsWith('\\\\?\\')) return path;
+  if (!path.startsWith('\\\\?\\')) {
+    return /^(?:[A-Za-z]:[\\/]|\\\\)/.test(path) ? path.replaceAll('/', '\\') : path;
+  }
   const rest = path.slice(4);
   if (/^UNC\\/i.test(rest)) return `\\\\${rest.slice(4)}`;
   if (/^[A-Za-z]:\\/.test(rest)) return rest;
