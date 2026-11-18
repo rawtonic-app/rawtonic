@@ -128,7 +128,7 @@ jobs:
           -p rawtonic-fs -p rawtonic-fileops -p rawtonic-catalog -p rawtonic-ingest
           -p rawtonic-metadata -p rawtonic-naming -p rawtonic-contribute -p rawtonic-interop
           -p rawtonic-merge -p rawtonic-cli -p rawtonic-tether -p rawtonic-recipe
-          -p rawtonic-runtime -p rawtonic-rawdecode -p rawtonic-engine
+          -p rawtonic-runtime -p rawtonic-rawdecode -p rawtonic-engine -p rawtonic-onnx
       - name: Doc tests
         run: >-
           cargo test --locked --doc
