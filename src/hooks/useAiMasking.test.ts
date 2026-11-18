@@ -1033,6 +1033,15 @@ describe('Subject computed ahead when the masking tools open', () => {
     act(() => useUIStore.setState({ activePanel: Panel.Adjustments }));
   });
 
+  it('reports when the open masking tools are waiting for a photo', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    useUIStore.setState({ activePanel: Panel.Masks });
+    useEditorStore.setState({ selectedImage: { path: '/s/a.NEF', isReady: false } as never });
+    renderHook(() => useAiMasking());
+    expect(calls('precompute_ai_foreground_mask')).toHaveLength(0);
+    expect(info).toHaveBeenCalledWith('AI masks: not requested ahead, the photo is not ready');
+  });
+
   it('starts once the masking tools open, not on opening a photo', async () => {
     // The background run stays open until the photo changes.
     invoke.mockImplementation((command: string) =>
@@ -1315,11 +1324,15 @@ describe('masking models loaded with Develop and dropped again', () => {
   });
 
   it('starts loading them on entering Develop, before the photo is ready, only for earlier users', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
     invoke.mockResolvedValue(null);
     // Never used: nothing, also not at launch in the Library.
     const workspace = renderHook(({ develop }) => useAiModelLifecycle(develop), { initialProps: { develop: false } });
     workspace.rerender({ develop: true });
     expect(calls('preload_ai_mask_models')).toHaveLength(0);
+    expect(info).toHaveBeenCalledWith(
+      'AI masks: models not requested ahead, masking is inactive for this Develop visit'
+    );
     workspace.rerender({ develop: false });
     usedBefore();
     workspace.rerender({ develop: true });

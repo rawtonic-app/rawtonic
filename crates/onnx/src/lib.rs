@@ -734,7 +734,10 @@ fn session_with(
         && kind.keeps_optimized_graph()
         && let Some(dir) = settings().optimized_graphs
     {
-        match optimized::Entry::new(&dir, path, kind) {
+        let started = Instant::now();
+        let entry = optimized::Entry::new(&dir, path, kind);
+        log_subject_load_step(kind, "optimized graph cache key", started);
+        match entry {
             Ok(entry) => {
                 return cpu_session_cached(path, kind, threads, &entry, optimized::KEEP_FROM);
             }
@@ -742,7 +745,25 @@ fn session_with(
             Err(e) => log::info!("AI {}: no optimized graph: {e:#}", kind.name()),
         }
     }
-    Ok(builder(kind, device, threads)?.commit_from_file(path)?)
+    build_session(path, kind, device, threads)
+}
+
+fn log_subject_load_step(kind: ModelKind, step: &str, started: Instant) {
+    if kind == ModelKind::Subject {
+        log::info!("AI subject: {step} in {} ms", started.elapsed().as_millis());
+    }
+}
+
+fn build_session(
+    path: &Path,
+    kind: ModelKind,
+    device: Option<&Device>,
+    threads: Option<usize>,
+) -> Result<Session> {
+    let started = Instant::now();
+    let result = builder(kind, device, threads).and_then(|mut b| Ok(b.commit_from_file(path)?));
+    log_subject_load_step(kind, "session build", started);
+    result
 }
 
 /// A CPU session of `path` through its optimized-graph cache `entry`; a
@@ -755,15 +776,23 @@ fn cpu_session_cached(
     keep_from: std::time::Duration,
 ) -> Result<Session> {
     let started = Instant::now();
-    match entry.lookup() {
+    let lookup = entry.lookup();
+    log_subject_load_step(
+        kind,
+        "optimized graph cache lookup and verification",
+        started,
+    );
+    match lookup {
         Ok(optimized::Lookup::NotKept) => {
-            return Ok(builder(kind, None, threads)?.commit_from_file(path)?);
+            return build_session(path, kind, None, threads);
         }
         Ok(optimized::Lookup::Graph(graph)) => {
+            let load = Instant::now();
             let session = builder(kind, None, threads)?
                 .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Disable)
                 .map_err(|e| anyhow!("optimization level: {e}"))?
                 .commit_from_file(&graph);
+            log_subject_load_step(kind, "session build from optimized graph", load);
             match session {
                 Ok(session) => {
                     log::info!(
@@ -791,13 +820,16 @@ fn cpu_session_cached(
             entry.discard();
         }
     }
-    let save = match entry.start_save() {
+    let started = Instant::now();
+    let save = entry.start_save();
+    log_subject_load_step(kind, "optimized graph cache save setup", started);
+    let save = match save {
         Ok(save) => save,
         Err(e) => {
             if !e.is::<optimized::LinkedCache>() {
                 log::info!("AI {}: optimized graph not saved: {e:#}", kind.name());
             }
-            return Ok(builder(kind, None, threads)?.commit_from_file(path)?);
+            return build_session(path, kind, None, threads);
         }
     };
     let started = Instant::now();
@@ -806,7 +838,10 @@ fn cpu_session_cached(
     match saving {
         Ok(session) => {
             let created = started.elapsed();
-            match save.publish(entry, created >= keep_from) {
+            let publish = Instant::now();
+            let saved = save.publish(entry, created >= keep_from);
+            log_subject_load_step(kind, "optimized graph cache publication", publish);
+            match saved {
                 Ok(optimized::Kept::Yes) => log::info!(
                     "AI {}: CPU session in {} ms, optimized graph saved in {} ms more",
                     kind.name(),
@@ -828,10 +863,11 @@ fn cpu_session_cached(
         // A save that fails (a full disk while ONNX Runtime writes) fails
         // the session: created again without saving.
         Err(e) => {
+            log_subject_load_step(kind, "failed session build with graph save", started);
             save.abandon();
             entry.failed();
             log::info!("AI {}: optimized graph not saved: {e:#}", kind.name());
-            Ok(builder(kind, None, threads)?.commit_from_file(path)?)
+            build_session(path, kind, None, threads)
         }
     }
 }
@@ -928,15 +964,13 @@ impl Model {
     /// Loads `path` on the first provider of `candidates(kind, …)` that
     /// accepts it.
     pub fn load(path: &Path, kind: ModelKind) -> Result<Self> {
+        let started = Instant::now();
         let settings = settings();
         let forced = forced_provider();
-        Self::load_checked(
-            path,
-            kind,
-            &candidates(kind, &settings, forced),
-            &settings.plugin_dirs,
-            checks_for(&settings, forced),
-        )
+        let providers = candidates(kind, &settings, forced);
+        let checks = checks_for(&settings, forced);
+        log_subject_load_step(kind, "provider candidate selection", started);
+        Self::load_checked(path, kind, &providers, &settings.plugin_dirs, checks)
     }
 
     /// Loads `path` on the CPU with at most `threads` threads per operator,
@@ -997,12 +1031,14 @@ impl Model {
         checks: check::Checks,
     ) -> Result<Self> {
         // ONNX Runtime missing or broken: an error saying so, not a panic.
+        let setup = Instant::now();
         ensure_runtime()?;
         // A load is the photographer's work too: a running check gives way.
         if checks != check::Checks::Off {
             check::CHECKS.activity();
         }
         let checks_file = settings().checks_file;
+        log_subject_load_step(kind, "provider setup", setup);
         let mut last_error = anyhow!("no provider to try");
         // Checks queued for this load: the model waits for their verdicts.
         let mut queued = Vec::new();
@@ -1014,6 +1050,11 @@ impl Model {
                 device(provider, dirs).and_then(|device| {
                     let (known, key) = check::known(path, kind, &device, checks_file.as_ref());
                     let cpu_after = providers.contains(&Provider::Cpu);
+                    log_subject_load_step(
+                        kind,
+                        "GPU provider registration and check lookup",
+                        started,
+                    );
                     let gpu = match check::plan(known, checks, cpu_after) {
                         Plan::Use => session(path, kind, Some(&device))?,
                         // A known "differs" or "slower" needs no GPU session
@@ -1052,7 +1093,11 @@ impl Model {
                 }
                 Err(e) => {
                     if provider != Provider::Cpu {
-                        log::info!("AI {}: not on {provider}: {e:#}", kind.name());
+                        log::info!(
+                            "AI {}: not on {provider} after {} ms: {e:#}",
+                            kind.name(),
+                            started.elapsed().as_millis()
+                        );
                     }
                     last_error = e.context(format!("loading {} on {provider}", path.display()));
                 }
