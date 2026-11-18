@@ -1,9 +1,10 @@
-import { memo, useMemo, useRef } from 'react';
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useEditorStoreDom } from '../../hooks/useEditorStoreDom';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import type { WaveformData } from '../ui/AppProperties';
+import { offscreenScopesSupported } from './scopeDrawer';
 
 /** The scope modes, as `calculate_waveform_from_image` (scopes.rs) names them. */
 export const SCOPE_MODES = ['luma', 'rgb', 'parade', 'vectorscope'] as const;
@@ -96,6 +97,47 @@ function VectorscopeGraticule({
 
 const selectWaveform = (s: ReturnType<typeof useEditorStore.getState>) => s.waveform;
 
+/** The scope worker drawing into each canvas, and the image last sent to it. */
+interface ScopeWorker {
+  worker: Worker;
+  sent: string | null;
+}
+const scopeWorkers = new WeakMap<HTMLCanvasElement, ScopeWorker>();
+
+/** The worker that draws into `canvas` (scopeCanvasWorker.ts), started on
+ * first use. A canvas hands its drawing to one worker only, so the worker
+ * stays while the canvas is in the document (StrictMode runs layout effects
+ * twice) and ends once it is gone. Throws where the webview cannot. */
+function scopeWorker(canvas: HTMLCanvasElement, onError: () => void): ScopeWorker {
+  let entry = scopeWorkers.get(canvas);
+  if (!entry) {
+    const worker = new Worker(new URL('./scopeCanvasWorker.ts', import.meta.url), { type: 'module' });
+    try {
+      const offscreen = canvas.transferControlToOffscreen();
+      worker.postMessage({ canvas: offscreen }, [offscreen]);
+    } catch (error) {
+      worker.terminate();
+      throw error;
+    }
+    worker.addEventListener('error', onError);
+    entry = { worker, sent: null };
+    scopeWorkers.set(canvas, entry);
+  }
+  return entry;
+}
+
+function releaseScopeWorker(canvas: HTMLCanvasElement) {
+  setTimeout(() => {
+    const entry = scopeWorkers.get(canvas);
+    if (!entry || canvas.isConnected) return;
+    entry.worker.terminate();
+    scopeWorkers.delete(canvas);
+  });
+}
+
+/** Whether scope images are drawn by a worker; checked once. */
+const OFFSCREEN_SCOPES = offscreenScopesSupported();
+
 /** Waveform, RGB waveform, parade and vectorscope of the shown frame, in its
  * output space (`analytics-update`). Shown with the Analysis shortcut. */
 export default memo(function StudioScopes() {
@@ -112,14 +154,43 @@ export default memo(function StudioScopes() {
     [targetsKey]
   );
   const img = useRef<HTMLImageElement>(null);
+  // Where the webview can, a worker decodes and draws each scope image into
+  // a canvas (OffscreenCanvas), off the main thread that also handles the
+  // drag; otherwise an <img> decodes it (notes: parity-gaps/G23-analysis.md,
+  // SCP2). Same pixels either way: the image drawn 1:1, then scaled by CSS.
+  const [offscreen, setOffscreen] = useState(OFFSCREEN_SCOPES);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const drawer = useRef<ScopeWorker | null>(null);
+  useLayoutEffect(() => {
+    const element = canvas.current;
+    if (!offscreen || !element) return;
+    try {
+      drawer.current = scopeWorker(element, () => setOffscreen(false));
+    } catch {
+      setOffscreen(false);
+      return;
+    }
+    return () => {
+      drawer.current = null;
+      releaseScopeWorker(element);
+    };
+  }, [offscreen, mode, hasImage]);
   useEditorStoreDom(
     selectWaveform,
     (waveform) => {
+      if (offscreen) {
+        const png = hasScopeImage(waveform, mode) ? waveform?.[mode] : null;
+        if (png && drawer.current && drawer.current.sent !== png) {
+          drawer.current.sent = png;
+          drawer.current.worker.postMessage({ png });
+        }
+        return;
+      }
       const src = scopeImage(waveform, mode);
       // Within a mode the old image stays until the next is decoded.
       if (src && img.current && img.current.getAttribute('src') !== src) img.current.src = src;
     },
-    [mode, hasImage]
+    [mode, hasImage, offscreen]
   );
 
   const choose = (next: ScopeMode) => {
@@ -161,8 +232,13 @@ export default memo(function StudioScopes() {
       <div className={`studio-scope-plot${vectorscope ? ' is-vectorscope' : ''}`}>
         {/* Keyed by mode: a switch never shows the last mode's image while
             the new one decodes; within a mode the old image stays until the
-            next is decoded. */}
-        {hasImage && <img ref={img} key={mode} alt="" decoding="async" draggable={false} aria-hidden="true" />}
+            next is decoded (the worker draws a decoded image only). */}
+        {hasImage &&
+          (offscreen ? (
+            <canvas ref={canvas} key={mode} width={SIZE} height={SIZE} aria-hidden="true" />
+          ) : (
+            <img ref={img} key={mode} alt="" decoding="async" draggable={false} aria-hidden="true" />
+          ))}
         <svg
           viewBox={`0 0 ${SIZE} ${SIZE}`}
           preserveAspectRatio="none"
