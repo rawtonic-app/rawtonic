@@ -450,9 +450,11 @@ CUDA = [
 # QA model folder (notes: benchmark-results/ortt2-2026-11-18/REPORT.md),
 # Linux on 20 model files incl. Moebius, SDXL VAE and the Super Resolution CPU
 # graphs (notes: benchmark-results/ortt3-2026-11-18/linux.md), Windows x64
-# on the 14 ONNX files `rawtonic ai-bench` runs from the QA model folder (39
-# outputs; notes: benchmark-results/ortt3w-2026-11-18/report.md); one
-# synthetic input each. On Windows build_onnxruntime.ps1 also drops the ETW
+# on 14 ONNX files from the QA model folder (39 outputs), one synthetic input
+# per model. Both Windows builds matched Microsoft's CPU outputs. See
+# benchmark-results/ortt3-2026-11-18/windows/report.md#build-a-verification
+# for the /Qspectre build's SHA-256 and verification results.
+# On Windows build_onnxruntime.ps1 also drops the ETW
 # telemetry provider, which `--no_telemetry` alone keeps. Builds are not byte-reproducible across build directories
 # (embedded paths), so each library comes from `--own-runtime DIR` and its
 # SHA-256 is pinned here. (pack name, SHA-256, used_by)
@@ -463,12 +465,9 @@ ORT130_OWN = [
     ("libonnxruntime-1.30.0-notelemetry-linux-x86_64.so",
      "620d32796c8ff40f23431e37bf417107635bf3f3d40398c5ffbbf370de3f1ad4",
      "Candidate runtime for all models on Linux x86_64; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
-    # Test build without /Qspectre (Visual Studio lacked the Spectre-mitigated
-    # libraries): not the release candidate; the build with Microsoft's exact
-    # flags replaces it.
-    ("onnxruntime-1.30.0-notelemetry-nospectre-test-windows-x86_64.dll",
-     "5137afd95a7acabcadea5abfa4bc9e3aabf8744e612ed7da0b8934a5fdf82d41",
-     "Test build for Windows x64 (without Microsoft's /Qspectre flag), not a release candidate; the app does not bundle it (src-tauri/build.rs still pins Microsoft's library)"),
+    ("onnxruntime-1.30.0-notelemetry-windows-x86_64.dll",
+     "72c305db97f93d1ce6c4d0bcd5cc312d9f3a6044efdb74c7ffd871553d0e3434",
+     "Candidate runtime for all models on Windows x64; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
 ]
 ORT130_OWN_ENTRY = {
     "source": "ONNX Runtime 1.30.0 (commit f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7), built by Rawtonic without telemetry (scripts/models/build_onnxruntime.sh, build_onnxruntime.ps1 on Windows)",
