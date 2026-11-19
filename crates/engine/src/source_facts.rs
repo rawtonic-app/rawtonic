@@ -57,7 +57,10 @@ use crate::lens_correction::LensDistortionParams;
 /// frame's corner on normal frames).
 /// 21: diffraction version 3, keeping version 2 for older recipes.
 /// 22: `airlight` (Dehaze of dehaze version 3).
-pub const VERSION: u32 = 22;
+/// 23: `camera_lens` at camera geometry version 11 (Fujifilm barrel data
+/// framed inside the recorded frame) and `camera_crop` of a RAF's aspect
+/// ratio set in the camera (RawImageAspectRatio).
+pub const VERSION: u32 = 23;
 
 /// The facts version from which `camera_lens_frames` is kept.
 const CAMERA_LENS_FRAMES: u32 = 18;
