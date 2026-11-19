@@ -370,33 +370,57 @@ pub(super) fn curve_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
     Some(table)
 }
 
-/// Sampled display table of a layer's Luminance curve on its sRGB-encoded
-/// axis, packed four samples per word (shader `luminance_table_value`), or
-/// `None` when linear interpolation cannot stay within the RGB tables'
-/// tolerance (a quarter 8-bit level) on the displayed colour: the curve's
-/// own output must stay within `LUMINANCE_LUT_TOLERANCE`.
+fn srgb_decode(v: f32) -> f32 {
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// sRGB encoding of a linear value clamped to [0, 1], as the shader's
+/// `apply_luminance_curve` encodes the luminance.
+fn srgb_encode(v: f32) -> f32 {
+    let v = v.clamp(0.0, 1.0);
+    if v <= 0.0031308 {
+        v * 12.92
+    } else {
+        1.055 * v.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// Sampled display table of a layer's Luminance curve: the target linear
+/// luminance at 1,025 steps of the square root of the luminance (the shader
+/// then needs no sRGB powers for it), packed four per word (shader
+/// `luminance_table_value`), or `None` when linear interpolation cannot
+/// stay within the RGB tables' tolerance (a quarter 8-bit level) on the
+/// displayed colour: re-encoded, the table's value must stay within
+/// `LUMINANCE_LUT_TOLERANCE` of the curve's own output.
 pub(super) fn luminance_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
     let curve = &layer.curves[LUMINANCE_CURVE];
     let intervals = (CURVE_LUT_SAMPLES - 1) as f32;
+    let curved = |root: f32| eval_curve(curve, srgb_encode(root * root));
     let samples: Vec<f32> = (0..CURVE_LUT_SAMPLES)
-        .map(|i| eval_curve(curve, i as f32 / intervals))
+        .map(|i| srgb_decode(curved(i as f32 / intervals)))
         .collect();
-    let read = |value: f32| {
-        let position = value.clamp(0.0, 1.0) * intervals;
+    let read = |root: f32| {
+        let position = root.clamp(0.0, 1.0) * intervals;
         let index = (position as usize).min(CURVE_LUT_SAMPLES - 2);
         let t = position - index as f32;
         samples[index] * (1.0 - t) + samples[index + 1] * t
     };
     let interior = (0..CURVE_LUT_SAMPLES - 1)
         .flat_map(|i| [0.25, 0.5, 0.75].map(|f| (i as f32 + f) / intervals));
+    // Knots on the encoded axis, at the square root of their luminance.
     let knots = curve.segments[..(curve.count as usize).saturating_sub(1)]
         .iter()
         .flat_map(|s| [s.endpoints[0], s.endpoints[2]])
         .map(|x| x / 255.0)
         .filter(|x| (0.0..=1.0).contains(x))
+        .map(|x| srgb_decode(x).sqrt())
         .collect::<Vec<_>>();
-    for value in interior.chain(knots) {
-        if (read(value) - eval_curve(curve, value)).abs() > LUMINANCE_LUT_TOLERANCE {
+    for root in interior.chain(knots) {
+        if (srgb_encode(read(root)) - curved(root)).abs() > LUMINANCE_LUT_TOLERANCE {
             return None;
         }
     }
@@ -761,23 +785,6 @@ mod tests {
         }
     }
 
-    fn srgb_decode(v: f32) -> f32 {
-        if v <= 0.04045 {
-            v / 12.92
-        } else {
-            ((v + 0.055) / 1.055).powf(2.4)
-        }
-    }
-
-    fn srgb_encode(v: f32) -> f32 {
-        let v = v.clamp(0.0, 1.0);
-        if v <= 0.0031308 {
-            v * 12.92
-        } else {
-            1.055 * v.powf(1.0 / 2.4) - 0.055
-        }
-    }
-
     #[test]
     fn luminance_ratio_magnifies_less_than_32_times() {
         // The shader's `apply_luminance_curve` on linear colours inside the
@@ -853,12 +860,13 @@ mod tests {
         let mut without = flagged;
         without.curves[LUMINANCE_CURVE] = PreparedCurve::default();
         assert_eq!(flagged.curve_key(), without.curve_key());
-        // Its table reads within a quarter level of the prepared curve.
+        // Its table holds the target luminance by root luminance.
         let table = luminance_lut(&layers[0]).expect("a smooth curve gets a table");
         assert_eq!(table.len(), LUMINANCE_LUT_WORDS);
         for i in 0..CURVE_LUT_SAMPLES {
-            let v = i as f32 / (CURVE_LUT_SAMPLES - 1) as f32;
-            assert!((table[i / 4][i % 4] - eval_curve(curve, v)).abs() < 1e-7);
+            let root = i as f32 / (CURVE_LUT_SAMPLES - 1) as f32;
+            let want = srgb_decode(eval_curve(curve, srgb_encode(root * root)));
+            assert!((table[i / 4][i % 4] - want).abs() < 1e-7);
         }
         // A step keeps the prepared segments.
         let step = serde_json::json!({"curves": {"luminance": [{"x":0,"y":0},{"x":100,"y":0},{"x":100,"y":255},{"x":255,"y":255}]}});

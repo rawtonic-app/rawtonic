@@ -9,7 +9,7 @@
 ### Changed
 
 - Windows is no longer labelled experimental; it remains unsigned.
-- **The tone curve's Luminance channel costs half as much per preview frame.** The preview reads the Luminance curve from a sampled table, and it no longer evaluates RGB, Red, Green and Blue curves that change nothing. Exports still evaluate the curve exactly, and their pixels are unchanged. On an M4 Pro, a 6 MP preview frame with a Luminance S-curve takes 0.48–0.51 ms longer than one without the curve, compared with 0.96–1.03 ms before (four alternating runs). The preview stays within one 8-bit level of the export, as before; the table moves 9–48 of 804,452 preview values by one level.
+- **The tone curve's Luminance channel costs less than half as much per preview frame.** The preview reads the Luminance curve from a sampled table and no longer evaluates RGB, Red, Green and Blue curves that change nothing. Exports still evaluate the curve exactly, and their pixels are unchanged: 326 of 326 test exports, from the command line and from the app, are byte-identical to the previous version on Metal. On an M4 Pro, a 6 MP preview frame with a Luminance S-curve takes 0.38–0.45 ms longer than one without the curve, or 0.42–0.49 ms while you drag a curve point, compared with 0.99–1.05 ms before (four alternating runs). The preview stays within one 8-bit level of the export, as before. Steep curves keep the exact evaluation, because a table would move dark saturated colours by more than that.
 
 ### Changes to existing exports
 

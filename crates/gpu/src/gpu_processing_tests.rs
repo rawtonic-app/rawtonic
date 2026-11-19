@@ -25223,10 +25223,13 @@ fn luminance_curve_exports_under_a_compile_limit_keep_their_bytes() {
 #[ignore = "native GPU timing probe; Luminance curve set against unset at 6 MP"]
 fn luminance_curve_timing_probe() {
     // A colourful 6 MP frame; display frames (8-bit, each variant compiled
-    // first) and 16-bit exports. Unset and two slightly different S curves
-    // alternate in a rotating order, so no two neighbouring requests are
-    // alike and every timed frame renders (no frame is reused). The same
-    // probe runs unchanged on an earlier revision for an A/B.
+    // first) and 16-bit exports. Four requests alternate in a rotating
+    // order, so no two neighbouring requests are alike and every timed frame
+    // renders (none is reused): two without the curve and two with it, the
+    // pairs differing in Exposure ("steady": the curve's table is kept) or,
+    // for the curved pair, in a curve point ("curve_drag": the table is
+    // built for every frame). The same probe runs unchanged on an earlier
+    // revision for an A/B.
     let context = context();
     let (width, height) = (3000u32, 2000u32);
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
@@ -25243,73 +25246,94 @@ fn luminance_curve_timing_probe() {
         })
         .collect();
     let view = input_from(&context, width, height, &data);
-    let base = json!({"exposure":0.3,"contrast":10});
-    let mut with = base.clone();
-    with["curves"] = json!({"luminance": luminance_s_curve()});
-    let mut other = with.clone();
-    other["curves"]["luminance"][1]["y"] = json!(41);
-    let unset = get_all_adjustments_from_json(&base, true, Some(1));
-    let set = get_all_adjustments_from_json(&with, true, Some(1));
-    let set_other = get_all_adjustments_from_json(&other, true, Some(1));
-    let cases = [("unset", &unset), ("set", &set), ("set_other", &set_other)];
-    for display in [true, false] {
-        if display {
-            for (_, a) in &cases {
-                prepare_preview_pipeline(&processor, preview_features(a));
-            }
+    let recipe = |exposure: f64, curve: Option<f64>| {
+        let mut r = json!({"exposure": exposure, "contrast": 10});
+        if let Some(y) = curve {
+            r["curves"] = json!({"luminance": luminance_s_curve()});
+            r["curves"]["luminance"][1]["y"] = json!(y);
         }
-        let mut times: Vec<Vec<f64>> = vec![Vec::new(); cases.len()];
-        for round in 0..26 {
-            for k in 0..cases.len() {
-                let k = (k + round) % cases.len();
-                let start = Instant::now();
-                processor
-                    .run(
-                        &view,
-                        width,
-                        height,
-                        RenderRequest {
-                            adjustments: cases[k].1.clone(),
-                            mask_bitmaps: &[],
-                            lut: None,
-                            roi: None,
-                        },
-                        display,
-                        if display {
-                            RenderOutputPrecision::EightBit
-                        } else {
-                            RenderOutputPrecision::SixteenBit
-                        },
-                    )
-                    .unwrap();
-                context
-                    .device
-                    .poll(wgpu::PollType::wait_indefinitely())
-                    .unwrap();
-                // The first two rounds warm shaders and caches.
-                if round >= 2 {
-                    times[k].push(start.elapsed().as_secs_f64() * 1000.0);
+        get_all_adjustments_from_json(&r, true, Some(1))
+    };
+    for (scenario, cases) in [
+        (
+            "steady",
+            [
+                ("unset", recipe(0.3, None)),
+                ("unset_b", recipe(0.31, None)),
+                ("set", recipe(0.3, Some(40.0))),
+                ("set_b", recipe(0.31, Some(40.0))),
+            ],
+        ),
+        (
+            "curve_drag",
+            [
+                ("unset", recipe(0.3, None)),
+                ("unset_b", recipe(0.31, None)),
+                ("set", recipe(0.3, Some(40.0))),
+                ("set_b", recipe(0.3, Some(41.0))),
+            ],
+        ),
+    ] {
+        for display in [true, false] {
+            if display {
+                for (_, a) in cases.iter() {
+                    prepare_preview_pipeline(&processor, preview_features(a));
                 }
             }
-        }
-        let mut out = serde_json::Map::new();
-        out.insert(
-            "mode".into(),
-            json!(if display { "display" } else { "export16" }),
-        );
-        for (k, (name, _)) in cases.iter().enumerate() {
-            let t = &mut times[k];
-            t.sort_by(f64::total_cmp);
-            // A reused frame takes about 0.1 ms; a 6 MP render several.
-            assert!(
-                t[0] > 1.0,
-                "{name}: a timed frame was not rendered ({} ms)",
-                t[0]
+            let mut times: Vec<Vec<f64>> = vec![Vec::new(); cases.len()];
+            for round in 0..26 {
+                for k in 0..cases.len() {
+                    let k = (k + round) % cases.len();
+                    let start = Instant::now();
+                    processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments: cases[k].1.clone(),
+                                mask_bitmaps: &[],
+                                lut: None,
+                                roi: None,
+                            },
+                            display,
+                            if display {
+                                RenderOutputPrecision::EightBit
+                            } else {
+                                RenderOutputPrecision::SixteenBit
+                            },
+                        )
+                        .unwrap();
+                    context
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .unwrap();
+                    // The first two rounds warm shaders and caches.
+                    if round >= 2 {
+                        times[k].push(start.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+            }
+            let mut out = serde_json::Map::new();
+            out.insert(
+                "mode".into(),
+                json!(if display { "display" } else { "export16" }),
             );
-            out.insert(format!("{name}_median_ms"), json!(t[t.len() / 2]));
-            out.insert(format!("{name}_p25_ms"), json!(t[t.len() / 4]));
-            out.insert(format!("{name}_p75_ms"), json!(t[3 * t.len() / 4]));
+            out.insert("scenario".into(), json!(scenario));
+            for (k, (name, _)) in cases.iter().enumerate() {
+                let t = &mut times[k];
+                t.sort_by(f64::total_cmp);
+                // A reused frame takes about 0.1 ms; a 6 MP render several.
+                assert!(
+                    t[0] > 1.0,
+                    "{name}: a timed frame was not rendered ({} ms)",
+                    t[0]
+                );
+                out.insert(format!("{name}_median_ms"), json!(t[t.len() / 2]));
+                out.insert(format!("{name}_p25_ms"), json!(t[t.len() / 4]));
+                out.insert(format!("{name}_p75_ms"), json!(t[3 * t.len() / 4]));
+            }
+            println!("{}", serde_json::Value::Object(out));
         }
-        println!("{}", serde_json::Value::Object(out));
     }
 }

@@ -9546,8 +9546,9 @@ fn luminance_curve_value(val: f32, layer: u32, count: u32) -> f32 {
     return last.y / 255.0;
 }
 
-// The layer's sampled Luminance curve (display frames, flag 1024): 1,025
-// samples on the encoded axis, four per word, after the camera tables
+// The layer's sampled Luminance curve (display frames, flag 1024): the
+// target luminance at 1,025 steps of the square root of the luminance (so
+// no sRGB powers per pixel), four per word, after the camera tables
 // (preview_layers `luminance_lut`, within a quarter 8-bit level).
 const LUMINANCE_TABLE_BASE: u32 = DCP_TABLE_BASE + 65536u;
 fn luminance_table_value(value: f32, layer: u32) -> f32 {
@@ -9563,19 +9564,24 @@ fn luminance_table_value(value: f32, layer: u32) -> f32 {
 fn apply_luminance_curve(display: vec3<f32>, layer: u32, count: u32) -> vec3<f32> {
     let linear = decode_signed(display);
     let y = max(get_luma(linear), 0.0);
-    // The sRGB curve on the luminance alone (scalar: two powers per pixel).
-    let encoded = select(1.055 * pow(min(y, 1.0), 1.0 / 2.4) - 0.055, y * 12.92, y <= 0.0031308);
-    // Display frames read the curve's prepared segments (flag 512: the same
-    // polynomial, only its rounding differs); exports the direct Hermite.
-    var curved: f32;
+    var target_y: f32;
     if (PREPARED_LAYERS && (prepared_layers[layer].flags.x & 1024u) != 0u) {
-        curved = luminance_table_value(encoded, layer);
-    } else if (PREPARED_LAYERS && (prepared_layers[layer].flags.x & 512u) != 0u) {
-        curved = apply_curve_prepared(encoded, layer, 4u);
+        // Display frames: the sampled table (flag 1024).
+        target_y = luminance_table_value(sqrt(min(y, 1.0)), layer);
     } else {
-        curved = luminance_curve_value(encoded, layer, count);
+        // The sRGB curve on the luminance alone (scalar: two powers per
+        // pixel). Display frames read the curve's prepared segments (flag
+        // 512: the same polynomial, only its rounding differs) where the
+        // table fails its check; exports the direct Hermite.
+        let encoded = select(1.055 * pow(min(y, 1.0), 1.0 / 2.4) - 0.055, y * 12.92, y <= 0.0031308);
+        var curved: f32;
+        if (PREPARED_LAYERS && (prepared_layers[layer].flags.x & 512u) != 0u) {
+            curved = apply_curve_prepared(encoded, layer, 4u);
+        } else {
+            curved = luminance_curve_value(encoded, layer, count);
+        }
+        target_y = select(pow((curved + 0.055) / 1.055, 2.4), curved / 12.92, curved <= 0.04045);
     }
-    let target_y = select(pow((curved + 0.055) / 1.055, 2.4), curved / 12.92, curved <= 0.04045);
     // The colour scaled by the luminance ratio, at most 4× (as
     // carry_beyond_srgb); the rest of the change is grey, so a lifted black
     // end lifts black, which scaling cannot, and the darks beside it alike.
