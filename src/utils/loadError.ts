@@ -1,4 +1,8 @@
 import i18next from 'i18next';
+import { errorCode, errorMessage } from '../shared/ipc/errors';
+
+export const isUnsupportedNikonHighEfficiency = (error: unknown) =>
+  errorCode(error) === 'unsupported_nikon_high_efficiency';
 
 /**
  * What a failed photo load tells the photographer. The decoder's own words
@@ -7,8 +11,9 @@ import i18next from 'i18next';
  * not supported yet (as Lightroom's "unsupported or damaged").
  */
 export function loadErrorText(error: unknown, path: string): string {
+  if (isUnsupportedNikonHighEfficiency(error)) return i18next.t('studio.loadError.nikonHighEfficiency');
   const name = path.split(/[\\/]/).pop() ?? path;
-  const text = String(error);
+  const text = errorMessage(error);
   if (isUnreadableError(text)) {
     return i18next.t('studio.loadError.unreadable', { name });
   }
@@ -19,5 +24,7 @@ export function loadErrorText(error: unknown, path: string): string {
  * "Unknown camera", "No decoder found", …), not a missing file or a failed
  * read. */
 export function isUnreadableError(error: unknown): boolean {
-  return /no decoder found|unknown camera|unsupported|not a valid|invalid (raw|tiff|image)|decod/i.test(String(error));
+  return /no decoder found|unknown camera|unsupported|not a valid|invalid (raw|tiff|image)|decod/i.test(
+    errorMessage(error)
+  );
 }

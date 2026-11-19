@@ -20,3 +20,8 @@ it('counts a camera the decoder does not know as unreadable', () => {
   expect(text).not.toContain('ILCE');
   expect(text).toMatch(/damaged|support/i);
 });
+
+it('recognizes the structured rejection even when the NEF has no embedded preview', () => {
+  const error = { code: 'unsupported_nikon_high_efficiency', message: 'codec failure' };
+  expect(loadErrorText(error, '/p/a.NEF')).toContain('TicoRAW');
+});

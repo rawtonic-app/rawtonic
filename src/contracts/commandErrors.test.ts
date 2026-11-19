@@ -136,6 +136,10 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
     args: `target: String, other: String, options: rawtonic_ingest::catalog_import::Options, app: tauri::AppHandle`,
     ok: `rawtonic_ingest::catalog_import::Receipt`
   },
+  load_image: {
+    args: `path: String, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    ok: `LoadImageResult`
+  },
   move_session: {
     args: `session: String, destination: String, app: AppHandle`,
     ok: `OperationSummary`

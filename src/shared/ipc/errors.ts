@@ -12,6 +12,7 @@ export type ErrorCode =
   | 'already_exists'
   | 'permission_denied'
   | 'unsupported'
+  | 'unsupported_nikon_high_efficiency'
   | 'invalid'
   | 'busy'
   | 'internal'

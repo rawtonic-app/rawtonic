@@ -421,6 +421,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             highlightRatios: loadImageResult.highlight_ratios ?? undefined,
             // Offline: the preview proxy is all there is (no decode follows).
             offline: loadImageResult.offline ?? null,
+            unsupportedNikonHighEfficiency: loadImageResult.unsupported_nikon_high_efficiency,
             ...(loadImageResult.ai_denoise_error
               ? {
                   aiDenoiseFailed: Number(storedMetadata?.adjustments?.aiDenoise ?? 0),
@@ -432,7 +433,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           if (loadImageResult.ai_denoise_error) {
             notify.error(`AI Denoise is not available: ${loadImageResult.ai_denoise_error}`);
           }
-          if (loadImageResult.developed_from_preview) {
+          if (loadImageResult.developed_from_preview && !loadImageResult.unsupported_nikon_high_efficiency) {
             warnPreviewFallback(selectedImage.path, loadImageResult.camera_help ?? false);
           }
           if (published.proxy) {

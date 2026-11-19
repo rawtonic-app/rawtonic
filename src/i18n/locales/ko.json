@@ -4385,6 +4385,7 @@
     },
     "loadError": {
       "failed": "“{{name}}”을(를) 열지 못했습니다: {{error}}",
+      "nikonHighEfficiency": "이 NEF는 Nikon의 고효율 압축을 사용합니다. 코덱(TicoRAW)이 특허로 보호되어 있어 Rawtonic에서 디코딩할 수 없습니다. Adobe DNG Converter로 파일을 DNG로 변환하거나 카메라를 무손실 압축 RAW로 설정하세요.",
       "unreadable": "“{{name}}”을(를) 열 수 없습니다. 파일이 손상되었거나, 이름과 달리 RAW 파일이 아니거나, Rawtonic이 아직 지원하지 않는 카메라의 파일입니다."
     },
     "lut": {

@@ -65,6 +65,8 @@ pub struct LoadImageResult {
     /// The RAW data could not be developed and the camera's embedded preview
     /// is shown instead (an unsupported camera or RAW mode, a damaged file).
     pub developed_from_preview: bool,
+    /// The preview stands in for a Nikon HE or HE★ NEF.
+    pub unsupported_nikon_high_efficiency: bool,
     /// ... and a camera sample could help (Develop offers camera help): not
     /// for a format no open decoder reads.
     pub camera_help: bool,
@@ -300,17 +302,23 @@ pub fn load_base_image_measured_for(
             return Err(anyhow!("Load cancelled"));
         }
 
-        match crate::apple_raw::develop_raw9(
-            bytes,
-            path_for_ext_check,
-            &crate::apple_raw::Raw9Options::for_loading(),
-        ) {
-            Ok(image) => return Ok((image, None)),
-            Err(e) => log::warn!(
-                "Apple RAW 9 unavailable for '{}', falling back to rawler: {}",
+        let nikon_high_efficiency = Path::new(path_for_ext_check)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("nef"))
+            && rawler::decoders::nef::has_high_efficiency_compression(bytes);
+        if !nikon_high_efficiency {
+            match crate::apple_raw::develop_raw9(
+                bytes,
                 path_for_ext_check,
-                e
-            ),
+                &crate::apple_raw::Raw9Options::for_loading(),
+            ) {
+                Ok(image) => return Ok((image, None)),
+                Err(e) => log::warn!(
+                    "Apple RAW 9 unavailable for '{}', falling back to rawler: {}",
+                    path_for_ext_check,
+                    e
+                ),
+            }
         }
     }
 
@@ -993,7 +1001,7 @@ pub async fn load_image(
     path: String,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<LoadImageResult, String> {
+) -> Result<LoadImageResult, CommandError> {
     let develop = tauri::Manager::state::<DevelopSession>(&app_handle);
     let merges = tauri::Manager::state::<MergeState>(&app_handle);
     #[cfg(feature = "performance-profiling")]
@@ -1153,19 +1161,19 @@ pub async fn load_image(
             return Ok(result);
         }
         if let Some(message) = offline_without_preview(&source_path) {
-            return Err(message);
+            return Err(message.into());
         }
         if crate::file_management::is_cloud_placeholder(&source_path) {
             return Err(format!(
                 "'{}' is stored in iCloud and hasn't been downloaded yet. Download it in Finder, then try again.",
                 source_path_str
-            ));
+            ).into());
         }
 
         let held_key = cache_key.clone();
         let ((pristine_img, measures), exif_data_loaded) = tokio::task::spawn_blocking(move || {
             if generation_tracker.load(Ordering::SeqCst) != my_generation {
-                return Err("Load cancelled".to_string());
+                return Err("Load cancelled".into());
             }
             #[cfg(feature = "performance-profiling")]
             log::info!(
@@ -1195,11 +1203,11 @@ pub async fn load_image(
             let _decoding = held.is_none().then(crate::multi_view_prefetch::PrimaryDecode::start);
 
             #[allow(clippy::type_complexity)]
-            let result: Result<((Arc<DynamicImage>, Option<DecodeMeasures>), HashMap<String, String>), String> =
+            let result: Result<((Arc<DynamicImage>, Option<DecodeMeasures>), HashMap<String, String>), CommandError> =
                 (|| match read_file_mapped(Path::new(&path_clone)) {
                     Ok(mmap) => {
                         if generation_tracker.load(Ordering::SeqCst) != my_generation {
-                            return Err("Load cancelled".to_string());
+                            return Err("Load cancelled".into());
                         }
                         if let Some(held) = held {
                             let exif = exif_processing::read_exif_data(&path_clone, &mmap);
@@ -1215,8 +1223,7 @@ pub async fn load_image(
                             decode_denoise.clone(),
                             draft.clone(),
                             Some(variant),
-                        )
-                        .map_err(|e| e.to_string())?;
+                        )?;
                         let exif = {
                             #[cfg(feature = "performance-profiling")]
                             let _stage =
@@ -1236,7 +1243,7 @@ pub async fn load_image(
                         })?;
 
                         if generation_tracker.load(Ordering::SeqCst) != my_generation {
-                            return Err("Load cancelled".to_string());
+                            return Err("Load cancelled".into());
                         }
 
                         let (img, measures) = load_base_image_measured_for(
@@ -1248,8 +1255,7 @@ pub async fn load_image(
                             decode_denoise.clone(),
                             draft.clone(),
                             Some(variant),
-                        )
-                        .map_err(|e| e.to_string())?;
+                        )?;
                         let exif = {
                             #[cfg(feature = "performance-profiling")]
                             let _stage =
@@ -1287,7 +1293,7 @@ pub async fn load_image(
     };
 
     if state.source.load_image_generation.load(Ordering::SeqCst) != my_generation {
-        return Err("Load cancelled".to_string());
+        return Err("Load cancelled".into());
     }
     // Another decode than the one opened at the step: what was computed
     // from that one goes.
@@ -1329,7 +1335,16 @@ pub async fn load_image(
     state.source.source_signal.changed();
     // Proxies stand for the master recipe's decode variant: a virtual copy
     // developed for another one leaves them as they are.
-    if is_raw && denoise.is_none() && variant == stored_decode_variant(&source_path_str) {
+    let preview_fallback = is_raw
+        .then(|| preview_fallback_reason(&source_path_str))
+        .flatten();
+    let unsupported_nikon_high_efficiency =
+        preview_fallback == Some(PreviewFallback::UnsupportedNikonHighEfficiency);
+    if is_raw
+        && !unsupported_nikon_high_efficiency
+        && denoise.is_none()
+        && variant == stored_decode_variant(&source_path_str)
+    {
         let settings = proxy_settings;
         let size = crate::preview_proxy::standard_size(
             state.preview.last_preview_dim.load(Ordering::Relaxed),
@@ -1400,9 +1415,6 @@ pub async fn load_image(
     // time the library corrected since then is shown over it.
     let exif_data = crate::session_bridge::with_capture_override(&source_path, exif_data);
     crate::contribute::note_camera(&exif_data);
-    let preview_fallback = is_raw
-        .then(|| preview_fallback_reason(&source_path_str))
-        .flatten();
     Ok(LoadImageResult {
         width: orig_width,
         height: orig_height,
@@ -1422,9 +1434,8 @@ pub async fn load_image(
         border_black: Some(variant.black == BlackLevels::UnbiasedBorder),
         highlight_ratios: Some(variant.highlights == HighlightRebuild::Ratios),
         developed_from_preview: preview_fallback.is_some(),
-        camera_help: preview_fallback
-            .as_deref()
-            .is_some_and(|reason| !reason.contains(NO_OPEN_DECODER)),
+        unsupported_nikon_high_efficiency,
+        camera_help: matches!(preview_fallback, Some(PreviewFallback::Other(_))),
     })
 }
 
@@ -1630,6 +1641,7 @@ async fn open_offline(
             border_black: None,
             highlight_ratios: None,
             developed_from_preview: false,
+            unsupported_nikon_high_efficiency: false,
             camera_help: false,
         }));
     }
@@ -1695,6 +1707,7 @@ async fn open_offline(
         border_black: None,
         highlight_ratios: None,
         developed_from_preview: false,
+        unsupported_nikon_high_efficiency: false,
         camera_help: false,
     }))
 }

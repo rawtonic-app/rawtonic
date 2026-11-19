@@ -68,3 +68,13 @@ describe('render errors', () => {
     expect(renderErrorMessage('constructor')).toBe('constructor');
   });
 });
+
+it('localizes the persisted Nikon High Efficiency export reason', () => {
+  void i18n.changeLanguage('de');
+  expect(
+    renderErrorMessage(
+      "This NEF uses Nikon's High Efficiency compression. Its codec (TicoRAW) is patent-protected, so Rawtonic cannot decode it. Convert the file to DNG with Adobe DNG Converter, or set the camera to Lossless compressed RAW."
+    )
+  ).toContain('ist patentgeschützt');
+  void i18n.changeLanguage('en');
+});

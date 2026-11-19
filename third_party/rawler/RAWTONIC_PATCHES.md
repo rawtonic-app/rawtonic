@@ -15,6 +15,14 @@ inert; unit tests in `src/` run with `cargo test -p rawler`.
 Every change to upstream code is marked `Rawtonic patch` in the source. Keep
 this list current.
 
+## Nikon High Efficiency
+
+- `src/decoders/nef.rs` and `src/lib.rs`: report a typed unsupported-codec
+  error for the existing HE and HE★ maker-note values. Check the length of
+  the newer Nikon maker-note field before reading its compression mode.
+  Share the detection with the optional platform RAW engine, and identify
+  the mode even if the camera is absent from the supported-camera table.
+
 ## Manifest
 
 - `Cargo.toml`: removed the `[[bench]]` targets, the `criterion` and

@@ -8,6 +8,7 @@
 
 ### Changed
 
+- Nikon High Efficiency NEFs: a clear message explains why they cannot be opened and how to convert them.
 - Windows is no longer labelled experimental; it remains unsigned.
 
 ### Changes to existing exports

@@ -23,6 +23,7 @@ pub enum ErrorCode {
     AlreadyExists,
     PermissionDenied,
     Unsupported,
+    UnsupportedNikonHighEfficiency,
     Invalid,
     /// Other work holds what the command needs; it may succeed later.
     Busy,
@@ -137,6 +138,9 @@ fn io_code(kind: std::io::ErrorKind) -> ErrorCode {
 
 /// The code a typed cause in `error`'s chain implies; `Internal` without one.
 fn code_of(error: &anyhow::Error) -> ErrorCode {
+    if rawtonic_engine::image_loader::is_nikon_high_efficiency(error) {
+        return ErrorCode::UnsupportedNikonHighEfficiency;
+    }
     error
         .chain()
         .find_map(cause_code)
@@ -311,6 +315,20 @@ mod tests {
         );
         assert_eq!(error.to_string(), "Task cancelled");
         assert_eq!(String::from(error), "Task cancelled");
+    }
+
+    #[test]
+    fn nikon_high_efficiency_rejection_has_the_develop_error_shape() {
+        let error = CommandError::from(anyhow::Error::from(
+            rawler::RawlerError::UnsupportedNikonHighEfficiency,
+        ));
+        assert_eq!(
+            serde_json::to_value(error).unwrap(),
+            json!({
+                "code": "unsupported_nikon_high_efficiency",
+                "message": "This NEF uses Nikon's High Efficiency compression. Its codec (TicoRAW) is patent-protected, so Rawtonic cannot decode it. Convert the file to DNG with Adobe DNG Converter, or set the camera to Lossless compressed RAW."
+            })
+        );
     }
 
     #[test]

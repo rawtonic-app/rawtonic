@@ -155,7 +155,7 @@ impl<'a> NefDecoder<'a> {
 
     // Make sure we always use a 12/14 bit mode to get correct white/blackpoints
     let mode = format!("{}bit", bps);
-    let camera = rawloader.check_supported_with_mode(tiff.root_ifd(), &mode)?;
+    let camera = rawloader.check_supported_with_mode(tiff.root_ifd(), &mode);
 
     let makernote = if let Some(exif) = tiff.find_first_ifd_with_tag(ExifTag::MakerNotes) {
       exif.parse_makernote(&mut file.reader(), OffsetMode::Absolute, &[])?
@@ -163,7 +163,14 @@ impl<'a> NefDecoder<'a> {
       warn!("NEF makernote not found");
       None
     }
-    .ok_or("File has not makernotes")?;
+    .ok_or("File has not makernotes");
+
+    // Rawtonic patch: the compression is independent of the camera table.
+    if camera.is_err() && makernote.as_ref().is_ok_and(|note| is_high_efficiency(nef_compression(note).ok().flatten())) {
+      return Err(RawlerError::UnsupportedNikonHighEfficiency);
+    }
+    let camera = camera?;
+    let makernote = makernote?;
 
     //makernote.dump::<ExifTag>(0).iter().for_each(|line| eprintln!("DUMP: {}", line));
 
@@ -189,23 +196,12 @@ impl<'a> Decoder for NefDecoder<'a> {
     let mut cpp = fetch_tiff_tag!(raw, TiffCommonTag::BitsPerSample).count(); // Linear files don't have SamplesPerPixel
     let compression = fetch_tiff_tag!(raw, TiffCommonTag::Compression).force_usize(0);
 
-    let nef_compression = if let Some(z_makernote) = self.makernote.get_entry(NikonMakernote::Makernotes0x51) {
-      // For new Z models, a new tag 0x51 for makernotes appears. This contains
-      // The new-old NEFCompression tag. The old tag is unavailable in this models.
-      Some(NefCompression::try_from(crate::bits::LEu16(z_makernote.get_data(), 10)).map_err(RawlerError::from)?)
-    } else {
-      self
-        .makernote
-        .get_entry(NikonMakernote::NefCompression)
-        .map(|entry| entry.force_u16(0))
-        .map(NefCompression::try_from)
-        .transpose()
-        .map_err(RawlerError::from)?
-    };
+    let nef_compression = nef_compression(&self.makernote)?;
     debug!("TIFF compression flag: {}, NEF compression mode: {:?}", compression, nef_compression);
 
-    if matches!(nef_compression, Some(NefCompression::HighEfficency)) || matches!(nef_compression, Some(NefCompression::HighEfficencyStar)) {
-      return Err(RawlerError::DecoderFailed(format!("NEF compression {:?} is not supported", nef_compression)));
+    if is_high_efficiency(nef_compression) {
+      // Rawtonic patch: let callers report the identified mode.
+      return Err(RawlerError::UnsupportedNikonHighEfficiency);
     }
 
     let offset = fetch_tiff_tag!(raw, TiffCommonTag::StripOffsets).force_usize(0);
@@ -794,6 +790,56 @@ pub enum NikonMakernote {
   NefWB1 = 0x0097,
   LensData = 0x0098,
   NefKey = 0x00a7,
+}
+
+// Rawtonic patch: use the same maker-note field when checking a NEF before
+// handing it to an optional external RAW engine.
+pub fn has_high_efficiency_compression(bytes: &[u8]) -> bool {
+  let mut reader = std::io::Cursor::new(bytes);
+  let Ok(tiff) = GenericTiffReader::new(&mut reader, 0, 0, None, &[]) else {
+    return false;
+  };
+  if tiff.has_entry(crate::tags::DngTag::DNGVersion)
+    || !tiff
+      .get_entry(TiffCommonTag::Make)
+      .and_then(|entry| entry.value.as_string())
+      .is_some_and(|make| matches!(make.trim_end(), "NIKON CORPORATION" | "Nikon"))
+  {
+    return false;
+  }
+  let Some(exif) = tiff.find_first_ifd_with_tag(ExifTag::MakerNotes) else {
+    return false;
+  };
+  let Some(note) = exif.get_entry(ExifTag::MakerNotes) else {
+    return false;
+  };
+  // The TIFF-based Nikon note has a ten-byte preamble and an eight-byte TIFF header.
+  if !matches!(&note.value, Value::Undefined(bytes) if bytes.len() >= 18 && bytes.starts_with(b"Nikon\0\x02")) {
+    return false;
+  }
+  exif
+    .parse_makernote(&mut reader, OffsetMode::Absolute, &[])
+    .ok()
+    .flatten()
+    .and_then(|note| nef_compression(&note).ok().flatten())
+    .is_some_and(|mode| is_high_efficiency(Some(mode)))
+}
+
+fn nef_compression(makernote: &IFD) -> Result<Option<NefCompression>> {
+  let mode = if let Some(entry) = makernote.get_entry(NikonMakernote::Makernotes0x51) {
+    // Newer Z bodies store the compression in the LE word at byte 10.
+    let bytes = entry.get_data().get(10..12).ok_or("Truncated Nikon compression maker note")?;
+    Some(u16::from_le_bytes([bytes[0], bytes[1]]))
+  } else {
+    makernote
+      .get_entry(NikonMakernote::NefCompression)
+      .and_then(|entry| entry.value.get_u16(0).ok().flatten())
+  };
+  mode.map(NefCompression::try_from).transpose().map_err(RawlerError::from)
+}
+
+fn is_high_efficiency(mode: Option<NefCompression>) -> bool {
+  matches!(mode, Some(NefCompression::HighEfficency | NefCompression::HighEfficencyStar))
 }
 
 /// Known NEF compression formats
