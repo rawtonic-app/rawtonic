@@ -463,9 +463,8 @@ impl Library {
     /// would no longer be found. Rewritten once, when the library opens:
     /// each external folder's record takes the plain spelling and the id
     /// that spelling gives (its drive kept); its photographs' rows move to
-    /// it unchanged; the hot folder and drive paths follow; the drive cache's
-    /// old rows go (a cache). Nothing elsewhere has such paths, so this finds
-    /// no rows there.
+    /// it unchanged; the hot folder and drive paths follow. Drive-cache rows
+    /// whose keys simplify are discarded and can be rebuilt under plain keys.
     fn plain_stored_paths(&self) -> Result<()> {
         const VERBATIM: &str = r"\\?\";
         let plain = |text: &str| {
@@ -504,12 +503,18 @@ impl Library {
             let new_folder = plain(&folder);
             (new_folder != folder).then_some(new_folder)
         });
-        let cached: i64 = self.conn.query_row(
-            "SELECT count(*) FROM folder_root_volumes WHERE substr(path,1,4)=?",
-            [VERBATIM],
-            |r| r.get(0),
-        )?;
-        if roots.is_empty() && hot_folder.is_none() && cached == 0 {
+        let mut select_cached = self
+            .conn
+            .prepare("SELECT path FROM folder_root_volumes WHERE substr(path,1,4)=?")?;
+        let mut obsolete_cache_keys = Vec::new();
+        let mut rows = select_cached.query([VERBATIM])?;
+        while let Some(row) = rows.next()? {
+            let path: String = row.get(0)?;
+            if plain(&path) != path {
+                obsolete_cache_keys.push(path);
+            }
+        }
+        if roots.is_empty() && hot_folder.is_none() && obsolete_cache_keys.is_empty() {
             return Ok(());
         }
         let tx = self.conn.unchecked_transaction()?;
@@ -569,10 +574,9 @@ impl Library {
         if let Some(folder) = hot_folder {
             tx.execute("UPDATE hot_folder SET folder=?", [folder])?;
         }
-        tx.execute(
-            "DELETE FROM folder_root_volumes WHERE substr(path,1,4)=?",
-            [VERBATIM],
-        )?;
+        for path in obsolete_cache_keys {
+            tx.execute("DELETE FROM folder_root_volumes WHERE path=?", [path])?;
+        }
         tx.commit()?;
         Ok(())
     }
