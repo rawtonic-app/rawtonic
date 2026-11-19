@@ -564,22 +564,26 @@ def main() -> None:
     parser.add_argument("--own-runtime", type=Path,
                         help="folder with the ONNX Runtime libraries build_onnxruntime.sh built (ORT130_OWN)")
     args = parser.parse_args()
-    if args.own_runtime is not None:
-        # Before anything is written: a missing or rebuilt library (another
-        # SHA-256) fails here, not halfway through the pack. Libraries the
-        # previous pack carries are checked against the pins when carried.
-        in_previous = set()
-        if args.previous is not None:
-            in_previous = {entry["file"] for entry in
-                           json.loads((args.previous / "models.json").read_text())["files"]}
-        for name, expected, _ in ORT130_OWN:
-            if name in in_previous:
-                continue
-            source = args.own_runtime / name
-            if not source.is_file():
-                sys.exit(f"{source} missing")
-            if sha256(source) != expected:
-                sys.exit(f"{source}: SHA-256 {sha256(source)}, expected {expected}")
+    # Before anything is written: a missing or rebuilt own runtime library
+    # (another SHA-256) fails here, not halfway through the pack. Libraries
+    # the previous pack carries are checked against the pins when carried.
+    # src-tauri/build.rs bundles them since pack-2026-11-19, so a pack
+    # without them would break the app's runtime build.
+    in_previous = set()
+    if args.previous is not None:
+        in_previous = {entry["file"] for entry in
+                       json.loads((args.previous / "models.json").read_text())["files"]}
+    for name, expected, _ in ORT130_OWN:
+        if name in in_previous:
+            continue
+        if args.own_runtime is None:
+            sys.exit(f"{name}: missing; pass --previous with a pack that has it "
+                     "(pack-2026-11-19 or later) or --own-runtime DIR")
+        source = args.own_runtime / name
+        if not source.is_file():
+            sys.exit(f"{source} missing")
+        if sha256(source) != expected:
+            sys.exit(f"{source}: SHA-256 {sha256(source)}, expected {expected}")
     args.out.mkdir(parents=True, exist_ok=True)
     args.cache.mkdir(parents=True, exist_ok=True)
     entries, carried = carry_over(args.previous, args.out) if args.previous else ([], {})
@@ -766,12 +770,7 @@ def main() -> None:
     for name, expected, used_by in ORT130_OWN:
         if not todo({name: expected}):
             continue
-        if args.own_runtime is None:
-            # src-tauri/build.rs bundles these from the pack since
-            # pack-2026-11-19: a pack without them breaks the app's runtime
-            # build and `install_models.sh --runtime`.
-            sys.exit(f"{name}: missing; pass --previous with a pack that has it "
-                     "(pack-2026-11-19 or later) or --own-runtime DIR")
+        # Checked before anything was written (top of main).
         entries.append(place(args.own_runtime / name, args.out, name, expected)
                        | {"used_by": used_by} | ORT130_OWN_ENTRY)
 
