@@ -344,5 +344,7 @@ describe('displayHistogramBins', () => {
     // Capped at the top of the plot.
     expect(displayHistogramBins(histogram, 'luma')).toEqual([1, 1, 1]);
     expect(displayHistogramBins({ ...histogram, displayScale: undefined }, 'green')).toEqual([0, 1, 1]);
+    // Uncapped bins: a spike beyond its channel's range keeps its height.
+    expect(displayHistogramBins({ ...histogram, green: [8, 1, 0] }, 'green')).toEqual([1, 0.25, 0]);
   });
 });

@@ -245,7 +245,7 @@ describe('Develop renders during a slider drag with 200 photographs selected', (
 });
 
 describe('scope updates', () => {
-  const bins = (peak: number) => Array.from({ length: 256 }, (_, i) => (i === peak ? 100 : 1));
+  const bins = (peak: number) => Array.from({ length: 256 }, (_, i) => (i === peak ? 1 : 0.01));
   const update = (peak: number) =>
     rtl.act(() =>
       useEditorStore.setState({

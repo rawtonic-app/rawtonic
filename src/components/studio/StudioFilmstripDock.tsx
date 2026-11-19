@@ -7,6 +7,7 @@ import { useLibraryStore } from '../../store/useLibraryStore';
 import { useUIStore } from '../../store/useUIStore';
 import { COLOR_LABEL_NAMES } from '../../entities/photo/colorLabel';
 import { DOCK_WIDTH, dockSideAt, readFilmstripDock, type DockSide } from '../../utils/filmstripDock';
+import { steppedWidth } from '../../utils/sidePanelWidths';
 
 type BrowserProps = ComponentProps<typeof StudioBrowser>;
 
@@ -25,8 +26,16 @@ const DRAG_SLOP = 6;
  */
 export default function StudioFilmstripDock({
   side,
+  shownWidth,
+  maxWidth,
   ...browser
-}: { side: Exclude<DockSide, 'bottom'> } & BrowserProps) {
+}: {
+  side: Exclude<DockSide, 'bottom'>;
+  /** The width it is drawn at and the widest it may take now
+   * (sidePanelWidths: the photograph keeps its room). */
+  shownWidth?: number;
+  maxWidth?: number;
+} & BrowserProps) {
   const { t } = useTranslation();
   const stored = useUIStore((s) => s.uiVisibility.filmstripDock);
   const dock = useMemo(() => readFilmstripDock(stored), [stored]);
@@ -81,19 +90,19 @@ export default function StudioFilmstripDock({
   };
   const colorName = (name: keyof typeof colorNames) => colorNames[name];
 
-  // A step starts from the drawn width (narrowed in a small window so the
-  // photograph keeps its room); one that cannot move it keeps the stored one.
+  const shown = shownWidth ?? dock.width;
+  const cap = maxWidth ?? DOCK_WIDTH.max;
+  // A step starts from the drawn width; one that cannot move it keeps the
+  // stored width for a wider window.
   const resize = (delta: number) => {
-    const drawn = aside.current ? Math.round(aside.current.getBoundingClientRect().width) : dock.width;
-    const from = Math.min(dock.width, drawn || dock.width);
-    const next = Math.max(DOCK_WIDTH.min, Math.min(DOCK_WIDTH.max, from + delta));
-    if (next !== from) setDock({ width: next });
+    const next = steppedWidth(dock.width, shown, delta, DOCK_WIDTH.min, cap);
+    if (next !== dock.width) setDock({ width: next });
   };
   return (
     <aside
       ref={aside}
       className={`studio-dock is-${side}`}
-      style={{ width: dock.width }}
+      style={{ width: shown }}
       aria-label={t('studio.workspace.dock.title')}
     >
       <header
@@ -208,8 +217,8 @@ export default function StudioFilmstripDock({
         aria-label={t('studio.workspace.dock.width')}
         aria-orientation="vertical"
         aria-valuemin={DOCK_WIDTH.min}
-        aria-valuemax={DOCK_WIDTH.max}
-        aria-valuenow={dock.width}
+        aria-valuemax={cap}
+        aria-valuenow={shown}
         onKeyDown={(e) => {
           if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
           e.preventDefault();

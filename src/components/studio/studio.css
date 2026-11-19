@@ -298,8 +298,7 @@
   background: var(--studio-bg);
   border-right: 1px solid var(--studio-line);
   position: relative;
-  /* Narrows (to min-width) before the photograph goes below its minimum. */
-  flex-shrink: 1;
+  flex-shrink: 0;
   z-index: 2;
 }
 .studio-primary-panel.is-library {
@@ -309,9 +308,7 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  /* The photograph keeps room beside the tool column and a docked
-     filmstrip: below it they narrow (to their own minimum widths) instead. */
-  min-width: min(320px, 35vw);
+  min-width: 0;
   min-height: 0;
   order: 2;
 }
@@ -7708,9 +7705,8 @@ html.window-outlined body::after {
   position: relative;
   display: flex;
   flex-direction: column;
-  /* Narrows to DOCK_WIDTH.min before the photograph goes below its minimum. */
-  flex-shrink: 1;
-  min-width: 150px;
+  flex-shrink: 0;
+  min-width: 0;
   background: var(--studio-shade-inset, #232426);
   z-index: 2;
 }

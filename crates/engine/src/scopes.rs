@@ -230,7 +230,8 @@ pub fn histogram_counts(image: &DynamicImage, space: ScopeSpace) -> HistogramCou
         .reduce(HistogramCounts::zero, HistogramCounts::add)
 }
 
-/// A histogram's bins (smoothed counts, normalised per channel), the
+/// A histogram's bins (smoothed counts per channel, 1 = the channel's
+/// 99th-percentile bin, not capped), the
 /// factors that draw them on one scale, and whether each side of the tone
 /// range clips somewhere in the image.
 #[derive(Serialize, Clone)]
@@ -241,7 +242,8 @@ pub struct HistogramData {
     blue: Vec<f32>,
     luma: Vec<f32>,
     /// Red, green, blue and luma: multiply a channel's bins by its factor
-    /// (and cap at 1) to draw all four on one scale.
+    /// (and cap at 1) to draw all four on one scale; cap the bins at 1 for
+    /// a channel on its own scale.
     display_scale: [f32; 4],
     clipped_shadows: bool,
     clipped_highlights: bool,
@@ -273,12 +275,13 @@ pub fn calculate_histogram_from_image(
         smoothed(counts.blue),
         smoothed(counts.luma),
     ];
-    // Each channel's bins stay on its own scale (Levels' Auto reads them);
-    // `display_scale` puts them on one for drawing: a channel with few
-    // pixels in a tone stays low beside one with many (every channel counts
-    // each pixel once). The inner codes set the shared scale, so a clipped
-    // end (a channel blown out or black in most pixels) saturates at the top
-    // instead of flattening the rest.
+    // Each channel's bins come on its own scale (1 = its 99th-percentile
+    // bin), uncapped: Levels' Auto caps them at 1 itself, and the drawing
+    // multiplies them by `display_scale` to put all four on one scale, where
+    // a channel with few pixels in a tone stays low beside one with many
+    // (every channel counts each pixel once). The inner codes set the shared
+    // scale, so a clipped end (a channel blown out or black in most pixels)
+    // reaches the top instead of flattening the rest.
     let own = channels.each_ref().map(|bins| histogram_range(bins, 0.99));
     let shared = channels
         .iter()
@@ -294,7 +297,7 @@ pub fn calculate_histogram_from_image(
     for (bins, own) in channels.iter_mut().zip(own) {
         let scale = if own > 1e-6 { 1.0 / own } else { 0.0 };
         for value in bins.iter_mut() {
-            *value = (*value * scale).min(1.0);
+            *value *= scale;
         }
     }
     let [red, green, blue, luma] = channels;
@@ -893,6 +896,30 @@ mod tests {
         let green = shown("green", 128, 1);
         assert!(green > 0.0 && green < 0.1, "{green}");
         assert_eq!(shown("blue", 0, 2), 1.0);
+    }
+
+    #[test]
+    fn a_black_spike_reaches_the_top_on_the_shared_scale() {
+        // Red concentrated at one code; green black in 80 % of the pixels
+        // and spread over the inner codes in the rest.
+        let frame = RgbImage::from_fn(500, 300, |x, _| {
+            Rgb([100, if x < 400 { 0 } else { 1 + (x - 400) as u8 * 2 }, 50])
+        });
+        let data = serde_json::to_value(
+            calculate_histogram_from_image(
+                &DynamicImage::ImageRgb8(frame),
+                ScopeSpace::of(OutputColorSpace::Srgb),
+                ClippedSides::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let green: Vec<f64> = serde_json::from_value(data["green"].clone()).unwrap();
+        let scale: Vec<f64> = serde_json::from_value(data["displayScale"].clone()).unwrap();
+        // The bins are not capped, so the spike keeps its count ...
+        assert!(green[0] > 1.0, "{}", green[0]);
+        // ... and draws at the top on the shared scale.
+        assert_eq!((green[0] * scale[1]).min(1.0), 1.0);
     }
 
     #[test]
