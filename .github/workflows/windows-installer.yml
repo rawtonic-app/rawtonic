@@ -1,4 +1,4 @@
-# The experimental, unsigned Windows x64 downloads: the NSIS installer
+# The unsigned Windows x64 downloads: the NSIS installer
 # (per-user), the MSI (per-machine) and a portable zip, built as the private
 # Windows build does it (`tauri build`, ONNX Runtime and DXC bundled, static
 # VC runtime with dynamic UCRT), scanned with Microsoft Defender, then each
