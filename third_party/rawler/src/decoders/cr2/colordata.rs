@@ -151,8 +151,12 @@ pub(crate) fn parse_colordata(colordata: &Entry) -> Result<ColorData> {
         32 | 33 => ColorData::new(data, version, 0x55, Some(0x157), Some(0x32a), Some(0x32b))?,
         // 34 (R3)
         34 => ColorData::new(data, version, 0x69, Some(0x16b), Some(0x280), Some(0x281))?,
-        // 48 (R7/R10)
-        48 => ColorData::new(data, version, 0x69, Some(0x16b), Some(0x281), Some(0x282))?,
+        // 48 (R6mkII/R7/R8/R10/R50)
+        // Rawtonic patch (RAWL3): normal white at 0x280 and specular white at
+        // 0x281, as exiftool's ColorData11 and the R3's version 34 lay them
+        // out; 0x282 is LinearityUpperMargin (12735 on every sample), which
+        // the old offsets returned as the specular white.
+        48 => ColorData::new(data, version, 0x69, Some(0x16b), Some(0x280), Some(0x281))?,
         // 64 (R5MK2), 65 (R50V), 66 (R6MK3)
         64 | 65 | 66 => ColorData::new(data, version, 0x69, Some(0x17f), Some(0x294), Some(0x295))?,
 
@@ -164,5 +168,43 @@ pub(crate) fn parse_colordata(colordata: &Entry) -> Result<ColorData> {
       "Invalid COLORDATA tag: type {}",
       colordata.value_type_name()
     ))),
+  }
+}
+
+#[cfg(test)]
+mod rawtonic_colordata_tests {
+  use super::parse_colordata;
+  use crate::formats::tiff::{Entry, Value};
+
+  /// A ColorData record of `version` with normal white, specular white and
+  /// LinearityUpperMargin at `white_off`, `white_off + 1` and `white_off + 2`.
+  fn record(version: i16, white_off: usize) -> Entry {
+    let mut data = vec![0_u16; 0x300];
+    data[0] = version as u16;
+    data[white_off] = 13035;
+    data[white_off + 1] = 14338;
+    data[white_off + 2] = 12735;
+    Entry {
+      tag: 0x4001,
+      value: Value::Short(data),
+      embedded: None,
+    }
+  }
+
+  #[test]
+  fn version_48_reads_specular_white_not_the_linearity_margin() {
+    // R6 II/R7/R8/R10/R50: exiftool's ColorData11 puts NormalWhiteLevel at
+    // 0x280, SpecularWhiteLevel at 0x281, LinearityUpperMargin at 0x282.
+    let colordata = parse_colordata(&record(48, 0x280)).unwrap();
+    assert_eq!(colordata.normal_whitelevel, Some(13035));
+    assert_eq!(colordata.specular_whitelevel, Some(14338));
+  }
+
+  #[test]
+  fn version_34_layout_is_unchanged() {
+    // R3: the same white offsets as version 48.
+    let colordata = parse_colordata(&record(34, 0x280)).unwrap();
+    assert_eq!(colordata.normal_whitelevel, Some(13035));
+    assert_eq!(colordata.specular_whitelevel, Some(14338));
   }
 }

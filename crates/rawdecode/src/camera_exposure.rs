@@ -956,8 +956,9 @@ const ADOBE_BASELINE_MEASURED: &[Entry] = &[
 /// by camera and ISO range: Camera Raw normalises to its own white, so the
 /// same data render this much brighter or darker there. Measured on every
 /// raw.pixls.us file that differs by more than 0.02 EV (2026-10-05):
-/// Canon (CR3 bodies use 14-bit full scale where rawler reads the
-/// linearity margin or specular white; older bodies their own tables),
+/// Canon (older bodies' own tables; CR3 bodies whose Adobe white differs
+/// from the ColorData specular white carry it as their camera `whitepoint`
+/// in rawler since 2026-11-19, notes: benchmark-results/rawl3-2026-11-19),
 /// Pentax, Leica/Panasonic, Nikon Z 9 / Z fc, Olympus, Hasselblad H-series
 /// FFF (not the H4D-50, whose rawler and DNG data are scaled differently).
 #[rustfmt::skip]
@@ -982,25 +983,11 @@ const ADOBE_WHITE_EV: &[(&str, &str, u32, u32, f32)] = &[
     ("Canon", "EOS M3", 0, u32::MAX, 0.323),
     ("Canon", "EOS M5", 0, u32::MAX, -0.445),
     ("Canon", "EOS M6", 0, u32::MAX, -0.445),
-    ("Canon", "EOS R10", 0, 400, -0.377),
-    ("Canon", "EOS R10", 401, 1131, -0.424),
-    ("Canon", "EOS R10", 1132, 7155, -0.424),
-    ("Canon", "EOS R10", 7156, u32::MAX, -0.424),
-    ("Canon", "EOS R5", 0, u32::MAX, -0.234),
-    ("Canon", "EOS R5 Mark II", 0, u32::MAX, -0.143),
-    ("Canon", "EOS R50", 0, 1789, -0.377),
-    ("Canon", "EOS R50", 1790, u32::MAX, -0.424),
-    ("Canon", "EOS R50 V", 0, u32::MAX, -0.504),
-    ("Canon", "EOS R6", 0, u32::MAX, -0.234),
-    ("Canon", "EOS R6 Mark II", 0, u32::MAX, -0.143),
-    ("Canon", "EOS R7", 0, u32::MAX, -0.377),
-    ("Canon", "EOS R8", 0, u32::MAX, -0.377),
     ("Canon", "EOS Rebel T1i", 0, u32::MAX, -0.112),
     ("Canon", "EOS Rebel T5i", 0, u32::MAX, 0.104),
     ("Canon", "EOS Rebel T6", 0, u32::MAX, 0.146),
     ("Canon", "EOS Rebel T6i", 0, u32::MAX, 0.074),
     ("Canon", "EOS Rebel T6s", 0, u32::MAX, 0.058),
-    ("Canon", "EOS-1D X Mark III", 0, u32::MAX, -0.203),
     ("Canon", "EOS-1Ds Mark III", 0, u32::MAX, 0.126),
     ("Canon", "PowerShot G1 X Mark III", 0, u32::MAX, -0.445),
     ("Canon", "PowerShot G7 X Mark II", 0, u32::MAX, -0.399),
