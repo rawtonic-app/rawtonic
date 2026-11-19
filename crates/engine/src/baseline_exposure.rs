@@ -447,20 +447,47 @@ fn adobe_white_correction_for_path(path: &str) -> f32 {
     .unwrap_or(0.0)
 }
 
-/// Gain for Apple RAW 9's pixels of this file
+/// Gain for Apple RAW 9's pixels of a Canon CR3 (`bytes`: the file loaded)
 /// (camera_exposure::APPLE_RAW9_WHITE_EV): it keeps the brightness that
-/// Apple RAW 9 edits of these Canon bodies had before rawler took Adobe's
-/// white for them. 1 for every other file. Applied to the Core Image decode
-/// only, so a fallback to rawler never gets it.
-pub fn apple_raw9_gain_for_path(path: &str) -> f32 {
+/// Apple RAW 9 edits of these bodies had before rawler took Adobe's white
+/// for them. 1 for every other file, DNGs included (they never had the
+/// correction). Applied to the Core Image decode only, so a fallback to
+/// rawler never gets it. Residual (G01 open item): the correction used to sit
+/// in the baseline, where the AgX tone mapper ignores it and the Standard
+/// look also derives its black point from it; as a pixel gain it reaches AgX
+/// and leaves that black point where it is.
+pub fn apple_raw9_gain(path: &str, bytes: &[u8]) -> f32 {
+    if !path.to_ascii_lowercase().ends_with(".cr3") {
+        return 1.0;
+    }
     std::panic::catch_unwind(|| {
-        let (make, model, canonical, iso) = read_camera(path)?;
-        let model = if crate::camera_exposure::has_apple_raw9_white_correction(&make, &model) {
-            model
+        let source = rawler::rawsource::RawSource::new_from_slice(bytes);
+        let decoder = rawler::get_decoder(&source).ok()?;
+        let metadata = decoder
+            .raw_metadata(&source, &rawler::decoders::RawDecodeParams::default())
+            .ok()?;
+        if !metadata.make.eq_ignore_ascii_case("canon") {
+            return None;
+        }
+        let iso = metadata
+            .exif
+            .iso_speed_ratings
+            .map(u32::from)
+            .filter(|iso| *iso > 0)
+            .or(metadata.exif.iso_speed)
+            .or(metadata.exif.recommended_exposure_index)
+            .filter(|iso| *iso > 0);
+        let model = if crate::camera_exposure::has_apple_raw9_white_correction(
+            &metadata.make,
+            &metadata.model,
+        ) {
+            &metadata.model
         } else {
-            canonical
+            &metadata.canonical_model
         };
-        Some(crate::camera_exposure::apple_raw9_white_correction(&make, &model, iso).exp2())
+        Some(
+            crate::camera_exposure::apple_raw9_white_correction(&metadata.make, model, iso).exp2(),
+        )
     })
     .ok()
     .flatten()
