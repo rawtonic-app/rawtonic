@@ -7,6 +7,8 @@ import { INITIAL_ADJUSTMENTS } from '../../../utils/adjustments';
 const preview = vi.hoisted(() => vi.fn((..._args: unknown[]) => ({ frame: { url: 'blob:before' } })));
 vi.mock('../../../hooks/useBrowserViewPreview', () => ({ useBrowserViewPreview: preview }));
 afterEach(cleanup);
+/** The Before's own request (the backdrop's has no region argument). */
+const beforeCall = () => preview.mock.calls.filter((args) => args.length === 6).at(-1);
 it.each(['left-right', 'top-bottom'] as const)(
   'clips a developed before frame along the %s viewer axis while panned and zoomed',
   (splitOrientation) => {
@@ -72,7 +74,7 @@ it.each([true, false])('asks for the before encoded as the after (lossless %s)',
       />
     </svg>
   );
-  expect(preview.mock.calls.at(-1)?.[4]).toBe(lossless);
+  expect(beforeCall()?.[4]).toBe(lossless);
 });
 
 it('waits at the full zoom target until the After for that target is JPEG', () => {
@@ -104,14 +106,14 @@ it('waits at the full zoom target until the After for that target is JPEG', () =
     </svg>
   );
   render(split);
-  expect(preview.mock.calls.at(-1)?.[0]).toBeNull();
+  expect(beforeCall()?.[0]).toBeNull();
   act(() =>
     useEditorStore.setState({
       finalPreview: { url: 'blob:full', lossless: false, fullZoom: true }
     })
   );
-  expect(preview.mock.calls.at(-1)?.[0]).toBe('/a.dng');
-  expect(preview.mock.calls.at(-1)?.[4]).toBe(false);
+  expect(beforeCall()?.[0]).toBe('/a.dng');
+  expect(beforeCall()?.[4]).toBe(false);
 });
 
 it("shows the after's region at full zoom: the before is asked for and placed as that region, lossless", () => {
@@ -146,11 +148,18 @@ it("shows the after's region at full zoom: the before is asked for and placed as
       />
     </svg>
   );
-  const call = preview.mock.calls.at(-1)!;
+  const call = beforeCall()!;
   expect(call[0]).toBe('/a.dng');
   expect(call[4]).toBe(true);
   expect(call[5]).toEqual([0.25, 0.5, 0.5, 0.25]);
-  const image = container.querySelector('image')!;
+  // Under it the whole Before at the fit's size (lossless): a pan uncovers
+  // the Before, not the After.
+  const backdropCall = preview.mock.calls.filter((args) => args.length === 5 && args[0] === '/a.dng').at(-1)!;
+  expect(backdropCall[2]).toBe(640);
+  expect(backdropCall[4]).toBe(true);
+  const backdrop = container.querySelector('[data-testid="browser-before-backdrop"]')!;
+  expect(backdrop.getAttribute('width')).toBe('100%');
+  const image = container.querySelector('image:not([data-testid])')!;
   expect(image.getAttribute('x')).toBe('25%');
   expect(image.getAttribute('y')).toBe('50%');
   expect(image.getAttribute('width')).toBe('50%');

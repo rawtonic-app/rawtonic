@@ -53,7 +53,9 @@ export function useBrowserViewPreview(
 ) {
   const regionKey = region ? region.join(',') : null;
   const key = JSON.stringify([path, recipe, resolution, revision, lossless, regionKey]);
-  const contentKey = JSON.stringify([path, recipe, revision, lossless, regionKey]);
+  // A region frame of the same content stays (at its own place) while the
+  // region it is asked for changes: a pan shows it until the new one arrives.
+  const contentKey = JSON.stringify([path, recipe, revision, lossless]);
   const [frame, setFrame] = useState<BrowserViewFrame | null>(null);
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
   const urlRef = useRef<string | null>(null);

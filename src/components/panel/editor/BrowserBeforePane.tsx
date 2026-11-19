@@ -28,7 +28,7 @@ export default function BrowserBeforePane({
 }) {
   const linux = useSettingsStore((s) => s.osPlatform === 'linux');
   const active = linux && enabled && size.width > 0 && size.height > 0;
-  const { frame, error } = useBrowserBeforeFrame({
+  const { frame, error, backdrop } = useBrowserBeforeFrame({
     path,
     adjustments,
     size,
@@ -59,6 +59,9 @@ export default function BrowserBeforePane({
             overflow: 'visible'
           }}
         >
+          {frame.region && backdrop && (
+            <image href={backdrop.url} {...regionPlacement(null)} data-testid="browser-before-backdrop" />
+          )}
           <image
             href={frame.url}
             {...regionPlacement(frame.region)}

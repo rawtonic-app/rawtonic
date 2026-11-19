@@ -9,6 +9,7 @@ import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
+import { useSecondWindowStore } from '../store/useSecondWindowStore';
 import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER } from '../utils/adjustments';
 import { Invokes, Panel } from '../components/ui/AppProperties';
 import { debouncedSave } from './useEditorActions';
@@ -386,6 +387,20 @@ describe('Linux region frames at 100 %', () => {
     );
     expect(calls()).toHaveLength(2);
     expect(calls()[1][1]).toMatchObject({ isInteractive: false, roi: expect.any(Array) });
+  });
+
+  it('renders the 100 % frame again when the second window opens or closes', async () => {
+    mountZoomed();
+    await act(async () => {
+      complete.shift()!(regionReply([300, 300, 400, 400]));
+    });
+    expect(calls()).toHaveLength(1);
+    act(() => useSecondWindowStore.setState((s) => ({ state: { ...s.state, open: true } })));
+    expect(calls()).toHaveLength(2);
+    await finish();
+    act(() => useSecondWindowStore.setState((s) => ({ state: { ...s.state, open: false } })));
+    expect(calls()).toHaveLength(3);
+    expect(calls()[2][1]).toMatchObject({ isInteractive: false, browserFullZoom: true, roi: expect.any(Array) });
   });
 
   it("drops another photograph's region frame", async () => {

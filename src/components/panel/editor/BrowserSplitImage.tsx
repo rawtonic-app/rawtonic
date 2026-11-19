@@ -65,7 +65,7 @@ export function useBrowserBeforeFrame({
   // native side keeps it within the GPU's texture limit), so the before is
   // as sharp as the after it is compared with.
   const resolution = Math.max(64, Math.ceil((Math.max(size.width, size.height) * zoomTarget * dpr) / 64) * 64);
-  return useBrowserViewPreview(
+  const before = useBrowserViewPreview(
     active && ready ? path : null,
     recipe,
     resolution,
@@ -73,6 +73,12 @@ export function useBrowserBeforeFrame({
     region ? true : (after?.lossless ?? null),
     region
   );
+  // Under a region Before, the whole Before at the fit's size: a pan
+  // uncovers it (not the After) until the new region arrives, as the After
+  // shows its last whole frame.
+  const fitResolution = Math.max(64, Math.ceil((Math.max(size.width, size.height) * dpr) / 64) * 64);
+  const backdrop = useBrowserViewPreview(active && region ? path : null, recipe, fitResolution, String(decoded), true);
+  return { ...before, backdrop: region ? backdrop.frame : null };
 }
 
 /** Where a browser frame is drawn in the photograph's box: a region frame
@@ -124,7 +130,7 @@ export default function BrowserSplitImage({
   const position = useEditorStore((s) => s.splitPosition);
   const id = useId();
   const active = linux && enabled && split;
-  const { frame, error } = useBrowserBeforeFrame({
+  const { frame, error, backdrop } = useBrowserBeforeFrame({
     path,
     adjustments,
     size,
@@ -147,6 +153,14 @@ export default function BrowserSplitImage({
           <rect x={0} y={0} width={vertical ? size.width : extent} height={vertical ? extent : size.height} />
         </clipPath>
       </defs>
+      {frame?.region && backdrop && (
+        <image
+          href={backdrop.url}
+          {...regionPlacement(null)}
+          clipPath={`url(#${id})`}
+          data-testid="browser-before-backdrop"
+        />
+      )}
       {frame ? (
         <image
           href={frame.url}
