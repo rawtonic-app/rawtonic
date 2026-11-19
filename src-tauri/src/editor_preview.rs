@@ -2595,7 +2595,10 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             let state = app_handle.state::<AppState>();
             let develop = app_handle.state::<DevelopSession>();
             let warm = draft_warmup_of(&job);
-            let analytics_pass = analytics_pass_of(&job);
+            let analytics_pass = analytics_pass_of(
+                &job,
+                state.source.load_image_generation.load(Ordering::SeqCst),
+            );
             let interactive = job.is_interactive;
             let region_first = region_first_pass(&app_handle, &job);
             let responder = job.responder;
@@ -2713,12 +2716,19 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 // next drag) goes first, and its own frame asks for a pass.
                 // Started, the pass gives way to a newer request only while
                 // it waits for a shader (`supersedable`).
+                // A late request older than this frame is dropped (as the
+                // loop would), and the pass stays.
                 match jobs.take_timeout(ANALYTICS_PASS_IDLE) {
-                    Some(next) => {
+                    Some(next)
+                        if !crate::state::preview::preview_job_is_stale(
+                            next.sequence,
+                            newest_sequence,
+                        ) =>
+                    {
                         waiting = Some(next);
                         continue;
                     }
-                    None => run_analytics_pass(&app_handle, pass, newest_sequence),
+                    _ => run_analytics_pass(&app_handle, pass, newest_sequence),
                 }
             }
             if let Some(warm) = warm.filter(|_| rendered && !crate::multi_view::live_pending()) {
@@ -2793,6 +2803,9 @@ struct AnalyticsPass {
     active_waveform_channel: Option<String>,
     mask_overlay: Option<crate::app_state::MaskOverlayRequest>,
     generation: usize,
+    /// The photograph load the frame was rendered for: another photo loading
+    /// since drops the pass.
+    load_generation: usize,
 }
 
 /// The analytics pass of a settled frame that may go out as a Linux region
@@ -2800,7 +2813,7 @@ struct AnalyticsPass {
 /// frame at full resolution, as before region frames, rather than from the
 /// drag's sampled scope render (`scope_analytics`, a 512 px average and
 /// block extremes). It also re-warms the masks' source as a whole frame does.
-fn analytics_pass_of(job: &PreviewJob) -> Option<AnalyticsPass> {
+fn analytics_pass_of(job: &PreviewJob, load_generation: usize) -> Option<AnalyticsPass> {
     (cfg!(target_os = "linux")
         && job.request_analytics
         && job.browser_full_zoom
@@ -2815,18 +2828,22 @@ fn analytics_pass_of(job: &PreviewJob) -> Option<AnalyticsPass> {
         active_waveform_channel: job.active_waveform_channel.clone(),
         mask_overlay: job.mask_overlay.clone(),
         generation: job.generation,
+        load_generation,
     })
 }
 
 /// Renders `pass` unless a newer request waits (once started, it gives way
 /// to one only while it waits for a shader).
 fn run_analytics_pass(app_handle: &tauri::AppHandle, pass: AnalyticsPass, newest: Option<u64>) {
+    let loads = Arc::clone(&app_handle.state::<AppState>().source.load_image_generation);
+    let load = pass.load_generation;
     let newer = newer_request_waits(app_handle, newest);
-    if newer() {
+    let superseded = move || loads.load(Ordering::SeqCst) != load || newer();
+    if superseded() {
         return;
     }
     let started = std::time::Instant::now();
-    let result = gpu_processing::supersedable(newer, || {
+    let result = gpu_processing::supersedable(superseded, || {
         process_preview_job(
             app_handle,
             app_handle.state::<AppState>(),
@@ -4604,17 +4621,19 @@ mod preview_memory_tests {
             region_first: false,
             responder: tokio::sync::oneshot::channel().0,
         };
+        let pass_of = |job: &PreviewJob| analytics_pass_of(job, 7);
         let zoomed = Some((0.25, 0.25, 0.3, 0.3));
-        let pass = analytics_pass_of(&job(false, true, true, zoomed)).expect("a pass");
+        let pass = pass_of(&job(false, true, true, zoomed)).expect("a pass");
         assert_eq!(pass.roi, zoomed);
         assert!(pass.compute_waveform);
+        assert_eq!(pass.load_generation, 7);
         assert_eq!(pass.adjustments, serde_json::json!({"exposure": 1}));
         // Drags keep the sampled scopes; fit frames and frames without
         // analytics carry their own.
-        assert!(analytics_pass_of(&job(true, true, true, zoomed)).is_none());
-        assert!(analytics_pass_of(&job(false, false, true, zoomed)).is_none());
-        assert!(analytics_pass_of(&job(false, true, false, zoomed)).is_none());
-        assert!(analytics_pass_of(&job(false, true, true, None)).is_none());
+        assert!(pass_of(&job(true, true, true, zoomed)).is_none());
+        assert!(pass_of(&job(false, false, true, zoomed)).is_none());
+        assert!(pass_of(&job(false, true, false, zoomed)).is_none());
+        assert!(pass_of(&job(false, true, true, None)).is_none());
     }
 
     #[test]
