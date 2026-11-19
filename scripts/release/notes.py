@@ -113,7 +113,8 @@ def notes(version, prev, changelog, prev_body, sums):
     names = {line.split()[1].lstrip("*"): line.split()[0] for line in sums.splitlines() if line.strip()}
     install = with_windows_install(install, version, names)
     tail = [kept("Source code"), kept("Feedback")]
-    tarballs = sorted(n for n in names if re.search(r"\.tar\.(bz2|xz|gz)$", n))
+    # Only the camera libraries' source tarballs; the updater's .app.tar.gz packages are not.
+    tarballs = sorted(n for n in names if re.match(r"lib[a-z0-9]+-.*\.tar\.(bz2|xz|gz)$", n))
     for i, line in enumerate(tail):
         # The camera libraries' tarball names as attached to this release.
         for name in tarballs:
