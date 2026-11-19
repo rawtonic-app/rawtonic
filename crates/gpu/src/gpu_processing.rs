@@ -4582,6 +4582,10 @@ pub struct GpuProcessor {
     /// Display frames evaluate the Luminance curve directly, as exports.
     #[cfg(test)]
     force_direct_luminance: std::sync::atomic::AtomicBool,
+    /// The display shader evaluates neutral RGB curves instead of skipping
+    /// them (`LAYER_RGB_CURVES_NEUTRAL`).
+    #[cfg(test)]
+    force_neutral_rgb_curves: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     force_general_pipeline: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -8675,6 +8679,8 @@ impl GpuProcessor {
             #[cfg(test)]
             force_direct_luminance: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
+            force_neutral_rgb_curves: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
             force_general_pipeline: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             force_legacy_curves: std::sync::atomic::AtomicBool::new(false),
@@ -11156,6 +11162,7 @@ impl GpuProcessor {
                 &self.force_mask_upload,
                 &self.force_exact_curves,
                 &self.force_direct_luminance,
+                &self.force_neutral_rgb_curves,
                 &self.force_legacy_curves,
                 &self.force_unprepared_layers,
                 &self.force_full_display_render,
@@ -11308,6 +11315,15 @@ impl GpuProcessor {
         let mut summed_variant = false;
         if display_shader {
             let mut layers = prepare_layers(adjustments);
+            #[cfg(test)]
+            if self
+                .force_neutral_rgb_curves
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                layers
+                    .iter_mut()
+                    .for_each(PreparedLayer::evaluate_neutral_rgb_curves);
+            }
             if export_display || export_with_display_finish {
                 // Exports evaluate every curve exactly: the display's
                 // curve tables are approximations within a tolerance. A

@@ -86,6 +86,12 @@ impl PreparedLayer {
         }
     }
 
+    /// Test oracle: evaluate the neutral RGB curves as before the skip.
+    #[cfg(test)]
+    pub(super) fn evaluate_neutral_rgb_curves(&mut self) {
+        self.flags[0] &= !LAYER_RGB_CURVES_NEUTRAL;
+    }
+
     /// Whether the shader skips this layer's neutral RGB curves.
     pub(super) fn rgb_curves_skipped(&self) -> bool {
         self.flags[0] & LAYER_RGB_CURVES_NEUTRAL != 0
@@ -359,7 +365,11 @@ pub(super) fn curve_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
 /// Sampled display table of a layer's Luminance curve on its sRGB-encoded
 /// axis, packed four samples per word (shader `luminance_table_value`), or
 /// `None` when linear interpolation cannot stay within the RGB tables'
-/// tolerance (a quarter 8-bit level of the curve's output).
+/// tolerance (a quarter 8-bit level) on the displayed colour. The shader
+/// scales the linear colour by the curve's luminance ratio, which magnifies
+/// the curve's error on dark saturated colours, so the check is on the
+/// encoded output channels of grey and the three primaries (the colours
+/// whose channels the ratio magnifies most) at each check point.
 pub(super) fn luminance_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
     let curve = &layer.curves[LUMINANCE_CURVE];
     let intervals = (CURVE_LUT_SAMPLES - 1) as f32;
@@ -381,7 +391,7 @@ pub(super) fn luminance_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
         .filter(|x| (0.0..=1.0).contains(x))
         .collect::<Vec<_>>();
     for value in interior.chain(knots) {
-        if (read(value) - eval_curve(curve, value)).abs() > CURVE_LUT_TOLERANCE {
+        if !luminance_outputs_agree(value, eval_curve(curve, value), read(value)) {
             return None;
         }
     }
@@ -390,6 +400,51 @@ pub(super) fn luminance_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
         packed[i / 4][i % 4] = v;
     }
     Some(packed)
+}
+
+/// Rec. 709 luminance weights (shader `LUMA_COEFF`).
+const LUMA_WEIGHTS: [f32; 3] = [0.2126, 0.7152, 0.0722];
+
+fn srgb_decode(v: f32) -> f32 {
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn srgb_encode(v: f32) -> f32 {
+    let v = v.clamp(0.0, 1.0);
+    if v <= 0.0031308 {
+        v * 12.92
+    } else {
+        1.055 * v.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// Whether the Luminance curve's values `exact` and `table` at the encoded
+/// luminance `encoded` give displayed colours within `CURVE_LUT_TOLERANCE`:
+/// grey and each primary of that luminance inside the cube, through the
+/// shader's `apply_luminance_curve` (ratio at most 4, the rest as grey).
+fn luminance_outputs_agree(encoded: f32, exact: f32, table: f32) -> bool {
+    let y = srgb_decode(encoded);
+    let outputs = |curved: f32| {
+        let target = srgb_decode(curved);
+        let ratio = (target / y.max(1e-9)).min(4.0);
+        let grey = target - y * ratio;
+        // Channels of grey, then a primary's own channel and its others.
+        let mut channels = vec![srgb_encode(y * ratio + grey), srgb_encode(grey)];
+        for w in LUMA_WEIGHTS {
+            if y <= w {
+                channels.push(srgb_encode(y / w * ratio + grey));
+            }
+        }
+        channels
+    };
+    outputs(exact)
+        .iter()
+        .zip(outputs(table))
+        .all(|(a, b)| (a - b).abs() <= CURVE_LUT_TOLERANCE)
 }
 
 pub(super) fn prepare_layers(a: &AllAdjustments) -> Vec<PreparedLayer> {
@@ -790,6 +845,24 @@ mod tests {
         let step = serde_json::json!({"curves": {"luminance": [{"x":0,"y":0},{"x":100,"y":0},{"x":100,"y":255},{"x":255,"y":255}]}});
         let a = crate::image_processing::get_all_adjustments_from_json(&step, true, Some(1));
         assert!(luminance_lut(&prepare_layers(&a)[0]).is_none());
+        // Steep shadow curves pass a check on the curve's own output but
+        // move a dark blue's channel by over two levels: they keep the
+        // prepared segments too.
+        for points in [
+            [(0, 0), (18, 1), (24, 53), (255, 255)],
+            [(0, 0), (24, 0), (31, 53), (255, 255)],
+        ] {
+            let json: Vec<_> = points
+                .iter()
+                .map(|(x, y)| serde_json::json!({"x": x, "y": y}))
+                .collect();
+            let profile = serde_json::json!({"curves": {"luminance": json}});
+            let a = crate::image_processing::get_all_adjustments_from_json(&profile, true, Some(1));
+            assert!(
+                luminance_lut(&prepare_layers(&a)[0]).is_none(),
+                "{points:?}"
+            );
+        }
         // No Luminance curve: never the prepared one.
         let mut none = PreparedLayer::default();
         none.set_prepared_luminance(true);
