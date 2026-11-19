@@ -956,8 +956,9 @@ const ADOBE_BASELINE_MEASURED: &[Entry] = &[
 /// by camera and ISO range: Camera Raw normalises to its own white, so the
 /// same data render this much brighter or darker there. Measured on every
 /// raw.pixls.us file that differs by more than 0.02 EV (2026-10-05):
-/// Canon (CR3 bodies use 14-bit full scale where rawler reads the
-/// linearity margin or specular white; older bodies their own tables),
+/// Canon (older bodies' own tables; CR3 bodies whose Adobe white differs
+/// from the ColorData specular white carry it as their camera `whitepoint`
+/// in rawler since 2026-11-19, notes: benchmark-results/rawl3-2026-11-19),
 /// Pentax, Leica/Panasonic, Nikon Z 9 / Z fc, Olympus, Hasselblad H-series
 /// FFF (not the H4D-50, whose rawler and DNG data are scaled differently).
 #[rustfmt::skip]
@@ -982,25 +983,11 @@ const ADOBE_WHITE_EV: &[(&str, &str, u32, u32, f32)] = &[
     ("Canon", "EOS M3", 0, u32::MAX, 0.323),
     ("Canon", "EOS M5", 0, u32::MAX, -0.445),
     ("Canon", "EOS M6", 0, u32::MAX, -0.445),
-    ("Canon", "EOS R10", 0, 400, -0.377),
-    ("Canon", "EOS R10", 401, 1131, -0.424),
-    ("Canon", "EOS R10", 1132, 7155, -0.424),
-    ("Canon", "EOS R10", 7156, u32::MAX, -0.424),
-    ("Canon", "EOS R5", 0, u32::MAX, -0.234),
-    ("Canon", "EOS R5 Mark II", 0, u32::MAX, -0.143),
-    ("Canon", "EOS R50", 0, 1789, -0.377),
-    ("Canon", "EOS R50", 1790, u32::MAX, -0.424),
-    ("Canon", "EOS R50 V", 0, u32::MAX, -0.504),
-    ("Canon", "EOS R6", 0, u32::MAX, -0.234),
-    ("Canon", "EOS R6 Mark II", 0, u32::MAX, -0.143),
-    ("Canon", "EOS R7", 0, u32::MAX, -0.377),
-    ("Canon", "EOS R8", 0, u32::MAX, -0.377),
     ("Canon", "EOS Rebel T1i", 0, u32::MAX, -0.112),
     ("Canon", "EOS Rebel T5i", 0, u32::MAX, 0.104),
     ("Canon", "EOS Rebel T6", 0, u32::MAX, 0.146),
     ("Canon", "EOS Rebel T6i", 0, u32::MAX, 0.074),
     ("Canon", "EOS Rebel T6s", 0, u32::MAX, 0.058),
-    ("Canon", "EOS-1D X Mark III", 0, u32::MAX, -0.203),
     ("Canon", "EOS-1Ds Mark III", 0, u32::MAX, 0.126),
     ("Canon", "PowerShot G1 X Mark III", 0, u32::MAX, -0.445),
     ("Canon", "PowerShot G7 X Mark II", 0, u32::MAX, -0.399),
@@ -1036,6 +1023,47 @@ pub fn adobe_white_correction(make: &str, model: &str, iso: Option<u32>) -> f32 
         .filter(|(m, n, _, _, _)| m.eq_ignore_ascii_case(make) && n.eq_ignore_ascii_case(model))
         .find(|(_, _, low, high, _)| (*low..=*high).contains(&iso))
         .map_or(0.0, |entry| entry.4)
+}
+
+/// Exposure the Apple RAW 9 path (Core Image's decode) keeps for these
+/// Canon bodies: the `ADOBE_WHITE_EV` rows from before their CR3 white moved
+/// to Adobe's per-body white in rawler (RAWL3, 2026-11-19). Saved edits
+/// developed with Apple RAW 9 keep their brightness (coordinator decision
+/// 2026-11-19); a Core Image probe suggests most of these rows are not right
+/// for Apple's decode (notes: benchmark-results/rawl3-2026-11-19, G01 open
+/// item), which a later task with a recipe version key for new edits fixes.
+#[rustfmt::skip]
+const APPLE_RAW9_WHITE_EV: &[(&str, &str, u32, u32, f32)] = &[
+    ("Canon", "EOS R10", 0, 400, -0.377),
+    ("Canon", "EOS R10", 401, u32::MAX, -0.424),
+    ("Canon", "EOS R5", 0, u32::MAX, -0.234),
+    ("Canon", "EOS R5 Mark II", 0, u32::MAX, -0.143),
+    ("Canon", "EOS R50", 0, 1789, -0.377),
+    ("Canon", "EOS R50", 1790, u32::MAX, -0.424),
+    ("Canon", "EOS R50 V", 0, u32::MAX, -0.504),
+    ("Canon", "EOS R6", 0, u32::MAX, -0.234),
+    ("Canon", "EOS R6 Mark II", 0, u32::MAX, -0.143),
+    ("Canon", "EOS R7", 0, u32::MAX, -0.377),
+    ("Canon", "EOS R8", 0, u32::MAX, -0.377),
+    ("Canon", "EOS-1D X Mark III", 0, u32::MAX, -0.203),
+];
+
+/// EV applied to Apple RAW 9's pixels of this camera (`APPLE_RAW9_WHITE_EV`);
+/// 0 for every other camera.
+pub fn apple_raw9_white_correction(make: &str, model: &str, iso: Option<u32>) -> f32 {
+    let iso = iso.unwrap_or(0);
+    APPLE_RAW9_WHITE_EV
+        .iter()
+        .filter(|(m, n, _, _, _)| m.eq_ignore_ascii_case(make) && n.eq_ignore_ascii_case(model))
+        .find(|(_, _, low, high, _)| (*low..=*high).contains(&iso))
+        .map_or(0.0, |entry| entry.4)
+}
+
+/// Whether the Apple RAW 9 table has the camera.
+pub fn has_apple_raw9_white_correction(make: &str, model: &str) -> bool {
+    APPLE_RAW9_WHITE_EV
+        .iter()
+        .any(|(m, n, _, _, _)| m.eq_ignore_ascii_case(make) && n.eq_ignore_ascii_case(model))
 }
 
 /// Whether the white-level table has the camera.
@@ -1485,5 +1513,47 @@ mod tests {
         ));
         assert!(close(adobe_baseline("Hasselblad", "CFV-50c", &fff), -0.25));
         assert_eq!(extension_key("no_extension"), [0; 4]);
+    }
+}
+
+#[cfg(test)]
+mod rawtonic_cr3_white_tests {
+    use super::{adobe_white_correction, apple_raw9_white_correction};
+
+    /// RAWL3: rawler decodes these bodies at Adobe's white, so the rawler
+    /// path takes no white correction; the Apple RAW 9 path keeps the rows it
+    /// had (coordinator decision 2026-11-19).
+    #[test]
+    fn cr3_white_correction_only_on_the_apple_raw9_path() {
+        for (model, iso, apple) in [
+            ("EOS R5", 100, -0.234),
+            ("EOS R5 Mark II", 640, -0.143),
+            ("EOS R6", 100, -0.234),
+            ("EOS R6 Mark II", 100, -0.143),
+            ("EOS R7", 100, -0.377),
+            ("EOS R8", 200, -0.377),
+            ("EOS R10", 200, -0.377),
+            ("EOS R10", 32000, -0.424),
+            ("EOS R50", 100, -0.377),
+            ("EOS R50", 32000, -0.424),
+            ("EOS R50 V", 100, -0.504),
+            ("EOS-1D X Mark III", 100, -0.203),
+        ] {
+            assert_eq!(
+                adobe_white_correction("Canon", model, Some(iso)),
+                0.0,
+                "{model}"
+            );
+            assert_eq!(
+                apple_raw9_white_correction("Canon", model, Some(iso)),
+                apple,
+                "{model} {iso}"
+            );
+        }
+        assert_eq!(
+            apple_raw9_white_correction("Canon", "EOS R3", Some(100)),
+            0.0
+        );
+        assert_eq!(adobe_white_correction("Canon", "EOS M6", Some(100)), -0.445);
     }
 }

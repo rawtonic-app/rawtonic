@@ -124,7 +124,9 @@ const READ_VERSIONS: [u32; 3] = [1, 2, 3];
 /// 60: Phase One flat field on the red and blue pixels (H 25, P20+, P25,
 /// P25+, P30, P45, P45+), lossless JPEG of DNGs before 1.1, Canon sRAW/mRAW
 /// white by ISO (2026-11-19).
-pub const ENGINE_VERSION: u32 = 60;
+/// 61: Canon CR3 white at Adobe's per-body white (R5, R5 II, R6, R7, R8, R10,
+/// R50, R50 V, 1D X III) and ColorData version 48 white offsets (2026-11-19).
+pub const ENGINE_VERSION: u32 = 61;
 /// Rows per band of half floats (format 1; written by tests only).
 #[cfg(test)]
 const F16_ROWS_PER_BAND: u32 = 64;
