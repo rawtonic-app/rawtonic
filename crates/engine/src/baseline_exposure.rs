@@ -447,6 +447,26 @@ fn adobe_white_correction_for_path(path: &str) -> f32 {
     .unwrap_or(0.0)
 }
 
+/// Gain for Apple RAW 9's pixels of this file
+/// (camera_exposure::APPLE_RAW9_WHITE_EV): it keeps the brightness that
+/// Apple RAW 9 edits of these Canon bodies had before rawler took Adobe's
+/// white for them. 1 for every other file. Applied to the Core Image decode
+/// only, so a fallback to rawler never gets it.
+pub fn apple_raw9_gain_for_path(path: &str) -> f32 {
+    std::panic::catch_unwind(|| {
+        let (make, model, canonical, iso) = read_camera(path)?;
+        let model = if crate::camera_exposure::has_apple_raw9_white_correction(&make, &model) {
+            model
+        } else {
+            canonical
+        };
+        Some(crate::camera_exposure::apple_raw9_white_correction(&make, &model, iso).exp2())
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(1.0)
+}
+
 pub use crate::capture_info::read_camera;
 
 /// Decoded width and whether the file has several colour channels, from a

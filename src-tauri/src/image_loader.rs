@@ -305,7 +305,22 @@ pub fn load_base_image_measured_for(
             path_for_ext_check,
             &crate::apple_raw::Raw9Options::for_loading(),
         ) {
-            Ok(image) => return Ok((image, None)),
+            Ok(mut image) => {
+                // Saved Apple RAW 9 edits of the Canon bodies whose rawler
+                // white moved to Adobe's keep their brightness (RAWL3).
+                let gain =
+                    rawtonic_engine::baseline_exposure::apple_raw9_gain_for_path(path_for_ext_check);
+                if gain != 1.0
+                    && let DynamicImage::ImageRgba32F(buffer) = &mut image
+                {
+                    for px in buffer.pixels_mut() {
+                        px.0[0] *= gain;
+                        px.0[1] *= gain;
+                        px.0[2] *= gain;
+                    }
+                }
+                return Ok((image, None));
+            }
             Err(e) => log::warn!(
                 "Apple RAW 9 unavailable for '{}', falling back to rawler: {}",
                 path_for_ext_check,
