@@ -1,21 +1,22 @@
 # Releasing
 
-A release is one command, then a read of its summary and a publish by hand:
+A release is one command, a read of its summary, and a second command on the user's word:
 
 ```sh
 scripts/release.sh --dry-run 0.1.0-alpha.12   # the plan: stages and commands, no side effects
-scripts/release.sh 0.1.0-alpha.12             # bump PR → builds → smokes → notes → DRAFT prerelease
+scripts/release.sh 0.1.0-alpha.12             # bump PR → builds → smokes → notes → website branch → DRAFT prerelease
+scripts/release.sh --publish 0.1.0-alpha.12   # only on the user's word: publish, website merged and deployed, verified
 ```
 
-The script never publishes a release and never pushes a tag: it stops at a draft prerelease (`gh release create --draft --prerelease`). Read the summary table and the generated notes, edit the draft on GitHub where needed, then publish it by hand. Do not publish while parity or benchmark gates are open (AGENTS.md).
+The release run never publishes a release, pushes a tag or deploys the website: it stops at a draft prerelease (`gh release create --draft --prerelease`) and a website branch. Read the summary table, the generated notes and the website branch, edit the draft on GitHub where needed; `--publish` follows only on the user's word. Do not publish while parity or benchmark gates are open (AGENTS.md).
 
-Before running it, write the release's section under `## Unreleased` in `CHANGELOG.md` and merge it: the bump turns it into `## VERSION — DATE`, and the section is bundled into the app (What's new), so it must be final before the build. Use the publish day as the date (`--date`).
+Before running it, write the release's section under `## Unreleased` in `CHANGELOG.md` and merge it: the bump turns it into `## VERSION — DATE`, and the section is bundled into the app (What's new), so it must be final before the build. Use the publish day as the date (`--date`). In the same task write the website's What's new: in the website clone (`RAWTONIC_WEBSITE_DIR`), on a branch `release-VERSION` from its `origin/main`, `release.json` `whatsNew` = `{"version": VERSION, "en": {…}, "de": {…}}`, each language with a one-line `summary`, three `items` (`title`, `text`, plain text) and a `note` (how to update; what changes for existing edits), from the CHANGELOG section; German as on the rest of the site (du, the app's German labels). Also read every sentence on the site that names the previous release: `node scripts/build.mjs --strict` refuses an older version outside an element marked `data-history` (website README, Release). Commit on that branch (push it if the release runs on another machine) and switch the clone back to `main` (`git switch main`): the `site` stage checks the branch out in its own worktree, which Git refuses while the clone has it. `preflight` refuses a run, before the builds, while the branch is missing, checked out elsewhere, or without this version's `whatsNew`; the `site` stage only adds the facts and checks.
 
 ## What it does
 
 | Stage | What | Where |
 |---|---|---|
-| `preflight` | tools, `gh` login, credentials file, photographs, recipes, Linux host, disk; finds the previous release | this Mac |
+| `preflight` | tools, `gh` login, credentials file, photographs, recipes, the website branch `release-VERSION` (exists, not checked out elsewhere, `whatsNew` of VERSION), Linux host, disk; finds the previous release | this Mac |
 | `bump` | worktree on `release-VERSION` from `origin/main`: version in `package.json`, `package-lock.json` (top entries), `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `Cargo.lock`, both `THIRD_PARTY_NOTICES.md` rows; CHANGELOG heading; `scripts/ship.sh` (check, second-model review, merge) | this Mac |
 | `source` | detached worktrees of the merged commit for the release build and the QA build, `npm ci` | this Mac |
 | `prev` | the previous release's DMGs, AppImage and LGPL tarballs from GitHub; its apps copied out of the read-only mounted DMGs | this Mac |
@@ -31,9 +32,22 @@ Before running it, write the release's section under `## Unreleased` in `CHANGEL
 | `creds` | every signing credential value (Apple credentials, the updater key's password and the key itself; not the identity hash, which codesign prints and is public) counted in all logs, the apps, the notes and `latest.json`: must be 0; `gitleaks dir` on the logs | this Mac |
 | `sums` | LGPL source tarballs (from the previous release, else the pinned URL) checked against the pins in `scripts/tether/build_libgphoto2.sh`; `SHA256SUMS.txt` | this Mac |
 | `notes` | `scripts/release/notes.py`: intro, Highlights, Fixes, Changes to existing edits and Known gaps from the CHANGELOG section; warning, Install, camera-library sources and Feedback from the previous release's notes with the version swapped; the SHA-256 list | this Mac |
+| `site` | the website's release facts on its branch `release-VERSION` (a worktree `WORK/website` of `RAWTONIC_WEBSITE_DIR`; the local branch, else `origin/release-VERSION`, else a new one from `origin/main`): `scripts/release/website.py write` sets `release.json`'s version, date and `dateText` (from the CHANGELOG heading), tag, the four downloads (`mac` arm64 DMG, `macIntel`, `linux` AppImage, `windows` MSI) and `otherAssets` (every other file of `SHA256SUMS.txt`, and that file) with size (MiB, rounded half-up) and SHA-256 from `SHA256SUMS.txt`; fails unless `whatsNew` is this version's (en and de); `node scripts/build.mjs --strict` with `RAWTONIC_CHANGELOG` = the release's CHANGELOG (the tag does not exist yet) must pass; commits `release: VERSION` on the branch. Never pushes or deploys | this Mac |
 | `draft` | `gh release create vVERSION --draft --prerelease --target SHA` with every asset (DMGs, `.app.tar.gz`, AppImage + `.zsync`, Windows installers + `SHA256SUMS-windows.txt`, `latest.json`, LGPL tarballs, `SHA256SUMS.txt`); only when every other stage passed; then every URL in `latest.json` must name one of the draft's assets | GitHub |
 
-After `prev`, three chains run in parallel: the Mac chain (Apple Silicon build → its smoke and the identity check beside the Intel build → Intel smoke → QA build → GUI smoke → relay), the Linux chain, and the Windows workflow; `updater`, `creds`, `sums`, `notes` and `draft` follow. Each stage logs to `WORK/logs/STAGE.log` (mode 600) and leaves `WORK/state/STAGE.ok`; the run ends with a table of every stage, its result, time and log.
+After `prev`, three chains run in parallel: the Mac chain (Apple Silicon build → its smoke and the identity check beside the Intel build → Intel smoke → QA build → GUI smoke → relay), the Linux chain, and the Windows workflow; `updater`, `creds`, `sums`, `notes`, `site` and `draft` follow. Each stage logs to `WORK/logs/STAGE.log` (mode 600) and leaves `WORK/state/STAGE.ok`; the run ends with a table of every stage, its result, time and log.
+
+## Publishing
+
+`scripts/release.sh --publish VERSION` (only on the user's word) runs three stages in the same work folder, resumable like the others (`--from`, `--only` with `--publish`):
+
+| Stage | What |
+|---|---|
+| `publish` | the draft must target the built commit, a tag `vVERSION` already on origin must name that commit, and the release's files must be exactly the tested ones (names, and GitHub's SHA-256 digest of each against `SHA256SUMS.txt`: a file replaced on GitHub during review stops the publish); `gh api -X PATCH …/releases/ID -f tag_name=vVERSION -f target_commitish=SHA -F draft=false -F prerelease=true` publishes it and GitHub creates the tag at that commit; then the release is no draft and the tag on origin is the commit. An already published release is only checked |
+| `site-deploy` | in `WORK/website`: unless `release-VERSION` is already in the website's `origin/main`, a `--no-ff` merge into it (`Merge release-VERSION: VERSION`), `node scripts/build.mjs --strict` (release history now from the tag), `git push origin HEAD:main`; then the website's `scripts/deploy.sh` (its tests, the strict build, `wrangler deploy`, 200 check) |
+| `site-verify` | `https://rawtonic.cc/` and `/de/` fetched with a cache-busting query (retried for 5 minutes) must link the four downloads of VERSION, say `Rawtonic VERSION` and carry the What's new heading `New in alpha.N.` / `Neu in alpha.N.` (`website.py verify-page`); the release's `latest.json` must download and name VERSION; the four downloads must answer; then the website worktree and its merged branch are removed |
+
+Announcements stay by hand.
 
 ## Reruns
 
@@ -66,6 +80,7 @@ Machine-specific values come from the environment or from `~/.config/rawtonic/re
 | `RAWTONIC_LINUX_LOCK` | the host's build lock file (`flock`), optional |
 | `RAWTONIC_LINUX_PHOTOS` | folder of photographs with a `SHA256SUMS` on the host (`packaging/linux/smoke-test.sh`) |
 | `RAWTONIC_REPO` | GitHub repository; default `rawtonic-app/rawtonic` |
+| `RAWTONIC_WEBSITE_DIR` | the clone of the website repository (rawtonic-app/website) the `site` stage and `--publish` work in, through a worktree; `preflight` refuses a run without it. `--publish` deploys from it, so `npx wrangler login` must have been done once on this Mac |
 
 The Linux host needs Docker, `flock`, `xvfb-run` and `7z`; this Mac needs Xcode command line tools, Rust with the `x86_64-apple-darwin` target for both toolchains (DEVELOPMENT.md, Intel Macs), Node, `gh` (logged in), optional `gitleaks`.
 
@@ -97,6 +112,6 @@ Check `README.md` against the new CHANGELOG section (features, What it does, the
 
 ## Not covered
 
-- Publishing, the tag, the website and announcements stay by hand.
+- Announcements stay by hand.
 - The Linux desktop GUI (KDE focus rules defeat scripted input) and a Windows run on a real GPU: the Windows runner has none, so the notes say the build was smoke-tested without a graphics card.
 - Real Intel hardware: the Intel DMG is smoke-tested under Rosetta only.
