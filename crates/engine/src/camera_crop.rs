@@ -152,21 +152,24 @@ pub fn apply_default_from_source(adjustments: &mut Value, source: &rawler::rawso
 /// The part of the developed frame the camera's own image (a RAW's
 /// embedded JPEG, `image` its width and height either way up, None when
 /// unknown) shows, for the recipe `adjustments` of the photo at `path`:
-/// the camera's crop in the frame version the recipe develops where the
-/// image has its shape or its size is unknown (`shows_crop`: Canon, EX2F).
-/// None where it is the whole frame (a Fujifilm RAF's JPEG, a file without
-/// another camera frame, files other than RAWs).
+/// Some(the camera's crop in the frame version the recipe develops) where
+/// the image has its shape (`shows_crop`: Canon, EX2F), Some(None) where it
+/// is the whole frame (a Fujifilm RAF's JPEG, a file without another
+/// camera frame, files other than RAWs). None when there is a crop but the
+/// image's size is unknown (an offline photograph): either could be.
 pub fn camera_image_region(
     path: &str,
     adjustments: &Value,
     image: Option<(u32, u32)>,
-) -> Option<CameraCrop> {
+) -> Option<Option<CameraCrop>> {
     let version = crate::source_frame::requested(adjustments) as usize;
-    crops(path)
-        .get(version)
-        .copied()
-        .flatten()
-        .filter(|&crop| image.is_none_or(|(width, height)| shows_crop(crop, width, height)))
+    match crops(path).get(version).copied().flatten() {
+        None => Some(None),
+        Some(crop) => {
+            let (width, height) = image?;
+            Some(shows_crop(crop, width, height).then_some(crop))
+        }
+    }
 }
 
 pub use rawtonic_rawdecode::camera_crop::shows_crop;
@@ -225,10 +228,15 @@ mod tests {
         };
         let region = |image| camera_image_region(path, &json!({}), image);
         // A 16:9 camera JPEG (Canon, EX2F) shows the crop; a 3:2 one (a
-        // Fujifilm RAF's) the whole frame; unknown: the crop, as before.
-        assert_eq!(region(Some((1920, 1080))), Some(crop));
-        assert_eq!(region(Some((1920, 1280))), None);
-        assert_eq!(region(None), Some(crop));
+        // Fujifilm RAF's) the whole frame; unknown: either could be.
+        assert_eq!(region(Some((1920, 1080))), Some(Some(crop)));
+        assert_eq!(region(Some((1920, 1280))), Some(None));
+        assert_eq!(region(None), None);
+        // A file without another camera frame: the whole frame either way.
+        assert_eq!(
+            camera_image_region("/offline/none.RAF", &json!({}), None),
+            Some(None)
+        );
     }
 
     #[test]

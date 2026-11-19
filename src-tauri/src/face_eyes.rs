@@ -460,7 +460,9 @@ pub async fn set_face_eyes(
 /// recipe's geometry: the outline in mask-frame pixels
 /// (`rawtonic_engine::red_eye::box_outline_shown`, the mapping the red eye
 /// corrections use), for the Loupe's face box; None for a box the geometry
-/// cannot show. `width` × `height` is the base image.
+/// cannot show, and for every box of an offline photograph with a camera
+/// crop (its preview's size, and so what the boxes are fractions of, is
+/// unknown). `width` × `height` is the base image.
 #[tauri::command]
 pub async fn face_boxes_shown(
     path: String,
@@ -471,11 +473,15 @@ pub async fn face_boxes_shown(
 ) -> Result<Vec<Option<Vec<(f64, f64)>>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let (source, _) = crate::file_management::parse_virtual_path(&path);
-        let region = rawtonic_engine::camera_crop::camera_image_region(
+        // Offline, a camera crop leaves open what the preview showed: no
+        // outline rather than one on the wrong face.
+        let Some(region) = rawtonic_engine::camera_crop::camera_image_region(
             &source.to_string_lossy(),
             &js_adjustments,
             preview_size(&source),
-        );
+        ) else {
+            return vec![None; boxes.len()];
+        };
         boxes
             .iter()
             .map(|&b| {
