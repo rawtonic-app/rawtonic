@@ -18,8 +18,16 @@ hints = ["invert_sraw_wb", "sraw_new"]
 whitepoint = 52000 # Adobe DNG Converter sRAW white (Rawtonic)
 blackpoint = 0
 
+[cameras.modes.params]
+# Adobe DNG Converter sRAW WhiteLevel by EXIF ISO, in these units (Rawtonic)
+sraw_white_by_iso = [[50, 50, 46000], [100, 51200, 52000]]
+
 [[cameras.modes]]
 mode = "sRaw2"
 hints = ["invert_sraw_wb", "sraw_new"]
 whitepoint = 52000 # Adobe DNG Converter sRAW white (Rawtonic)
 blackpoint = 0
+
+[cameras.modes.params]
+# Adobe DNG Converter sRAW WhiteLevel by EXIF ISO, in these units (Rawtonic)
+sraw_white_by_iso = [[50, 50, 46000], [100, 51200, 52000]]

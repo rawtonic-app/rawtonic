@@ -5426,6 +5426,7 @@
     "failure": {
       "changed": "Rawtonic이 시작된 뒤 AppImage가 바뀌어 그대로 두었습니다. Rawtonic을 다시 시작한 뒤 업데이트를 다시 확인하세요.",
       "disk": "업데이트를 쓸 수 없습니다. 디스크가 가득 찼거나 Rawtonic 폴더가 읽기 전용일 수 있습니다. Rawtonic은 변경되지 않았습니다.",
+      "manifestUnavailable": "이 릴리스는 Rawtonic 앱 내에서 설치할 수 없습니다.",
       "network": "내려받기에 실패했습니다(GitHub에 연결할 수 없음). Rawtonic은 변경되지 않았습니다.",
       "noPackage": "이 릴리스에는 이 컴퓨터용 업데이트 패키지가 없습니다. 대신 설치 프로그램을 내려받으세요.",
       "notOffered": "이 업데이트는 더 이상 제공되지 않습니다. 업데이트를 다시 확인하세요.",

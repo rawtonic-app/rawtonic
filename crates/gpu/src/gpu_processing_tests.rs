@@ -9413,13 +9413,9 @@ fn effect_pass_processor(
 #[test]
 #[ignore = "requires a native GPU; the effect passes against one pass"]
 fn effect_passes_render_the_one_pass_frames() {
-    // Under a compile limit glow, halation and grain render in passes of
-    // their own (`effect_passes`, G76/EFX), and the main pass runs after
-    // its parts before and in the tone stage (`tone_split`, G76/COLD4). The
-    // display frame, with and without the layers' sums, and the float
-    // export tile (at 16 bits) must be the ones the same display source
-    // renders in one pass, value for value, with the main pass split and
-    // not.
+    // Compare display frames with the one-pass shader, including frames
+    // that read layer sums. Compare 16-bit exports with the display main
+    // pass split and unsplit, through the same effect passes.
     //
     // One compile at a time under the device's compile limit, each of a
     // profile's own variant (a variant with every profile's features at
@@ -9509,7 +9505,7 @@ fn effect_passes_render_the_one_pass_frames() {
                     "split main passes"
                 );
                 // The export under a compile limit, at 16 bits (RAW only).
-                let export = (raw && EXPORTED.contains(&index)).then(|| {
+                let export = (passes && raw && EXPORTED.contains(&index)).then(|| {
                     processor
                         .force_export_display
                         .store(true, Ordering::Relaxed);
@@ -9543,43 +9539,23 @@ fn effect_passes_render_the_one_pass_frames() {
     let unsplit = render(true, false);
     let passes = render(true, true);
     let mut exports = 0;
-    for ((one_pass, passes), split) in one_pass
+    for ((one_pass, rendered), split) in one_pass
         .iter()
         .zip(&unsplit)
         .map(|case| (case, false))
         .chain(one_pass.iter().zip(&passes).map(|case| (case, true)))
     {
         let name = &format!("{} (main pass split: {split})", one_pass.0);
-        let differing = |a: &[u8], b: &[u8]| a.iter().zip(b).filter(|(a, b)| a != b).count();
-        // NVIDIA Vulkan (RTX 3080): identical. (With the terms cut after
-        // glow's own arithmetic instead of after the tone stage: 1/65535
-        // in up to 0.1 % of the 16-bit values, up to 5 display bytes.)
-        let frame = differing(&one_pass.1, &passes.1);
-        let summed = differing(&one_pass.2, &passes.2);
-        let export = one_pass.3.as_ref().zip(passes.3.as_ref()).map(|(a, b)| {
-            exports += 1;
-            (
-                a.iter().zip(b).filter(|(a, b)| a != b).count(),
-                a.iter().zip(b).map(|(a, b)| a.abs_diff(*b)).max().unwrap(),
-            )
-        });
-        println!(
-            "{name}: frame {frame}, frame with sums {summed} of {} bytes differ; \
-             16-bit export (differing, worst) {export:?}; frames with sums {} and {}",
-            one_pass.1.len(),
-            one_pass.4,
-            passes.4
-        );
-        // Layered profiles rendered with sums in both modes (how many of
-        // the three frames did varies with when the sums were ready).
-        assert_eq!(one_pass.4 > 0, passes.4 > 0, "{name}: frames with sums");
-        assert_eq!((frame, summed), (0, 0), "{name}: frames differ");
-        assert!(
-            export.is_none_or(|(differing, _)| differing == 0),
-            "{name}: export differs"
-        );
+        assert_eq!(one_pass.1, rendered.1, "{name}: frame differs");
+        assert_eq!(one_pass.2, rendered.2, "{name}: frame with sums differs");
+        // How many frames used sums varies with when the sums were ready.
+        assert_eq!(one_pass.4 > 0, rendered.4 > 0, "{name}: frames with sums");
     }
-    assert_eq!((passes.len(), exports), (17, 8));
+    for (unsplit, split) in unsplit.iter().zip(&passes) {
+        assert_eq!(unsplit.3, split.3, "{}: 16-bit export differs", unsplit.0);
+        exports += usize::from(split.3.is_some());
+    }
+    assert_eq!((passes.len(), exports), (17, 4));
     // Layered profiles did render with sums.
     assert!(passes.iter().any(|case| case.4 > 0));
 }
@@ -10321,16 +10297,14 @@ fn exports_under_a_compile_limit_render_with_the_display_variant() {
 
 #[test]
 #[ignore = "requires a native GPU; 16-bit and long-curve exports under a compile limit against exports elsewhere"]
-fn other_exports_under_a_compile_limit_render_with_the_deferred_display_variant() {
-    // Under a compile limit the exports the 8-bit display variant does not
-    // serve (16-bit, a curve sampled into a table) render with the display
-    // variant's code in float output (`deferred_display_pipeline`, G76/
-    // WCC10): no export variant or general pipeline is compiled, the bytes
-    // depend on the recipe alone, and they stay close to the export
-    // elsewhere.
+fn other_exports_under_a_compile_limit_render_with_the_display_variant() {
+    // At 16 bits and with long curves, the display main pass writes float
+    // colours for the finish pass. Check that these exports reuse the
+    // display variant, are deterministic and stay close to exports elsewhere.
     let context = context();
     let (width, height) = (517, 389);
     let view = input(&context, width, height, 31);
+    effect_passes::FORCED.with(|forced| forced.set(Some(true)));
     let mut cases: Vec<(serde_json::Value, bool, RenderOutputPrecision)> = export_check_profiles()
         .into_iter()
         .map(|(profile, raw)| (profile, raw, RenderOutputPrecision::SixteenBit))
@@ -10345,7 +10319,7 @@ fn other_exports_under_a_compile_limit_render_with_the_deferred_display_variant(
             get_all_adjustments_from_json(&profile, raw, Some(if raw { 3 } else { 0 }));
         let masks = generated_profile_masks(&profile, width, height);
         let render = |limited: bool| {
-            let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
             processor
                 .force_export_display
                 .store(limited, std::sync::atomic::Ordering::Relaxed);
@@ -10366,16 +10340,9 @@ fn other_exports_under_a_compile_limit_render_with_the_deferred_display_variant(
                 .unwrap();
             if limited {
                 let features = export_display_features(&adjustments);
-                // With the effect passes the display variant itself (its
-                // main pass stores float colours for the finish pass).
-                let used = if processor.effect_passes.is_some() {
-                    processor.preview_pipelines[features].get().is_some()
-                } else {
-                    processor.deferred_display.get(features).is_some()
-                };
                 assert!(
-                    used,
-                    "{profile}: deferred display variant {features} not used"
+                    processor.preview_pipelines[features].get().is_some(),
+                    "{profile}: display variant {features} not used"
                 );
                 for table in [
                     &processor.export_pipelines,
@@ -10417,6 +10384,7 @@ fn other_exports_under_a_compile_limit_render_with_the_deferred_display_variant(
             RenderOutputPrecision::SixteenBit => worst16 = worst16.max(worst),
         }
     }
+    effect_passes::FORCED.with(|forced| forced.set(None));
     println!("worst: 8-bit {worst8}, 16-bit {worst16}");
     // NVIDIA Vulkan (RTX 3080): 8-bit 0 (long curves), 16-bit at most 9 of
     // 65535 (one 8-bit level is 257), on up to 8598 of 804452 values.

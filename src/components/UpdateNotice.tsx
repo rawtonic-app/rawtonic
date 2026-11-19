@@ -11,6 +11,7 @@ import { ReleaseNotesDialog } from './ReleaseNotes';
 /** The message per failure; a cancelled download goes back to the offer. */
 const FAILURE_TEXT = {
   network: 'updates.failure.network',
+  manifestUnavailable: 'updates.failure.manifestUnavailable',
   signature: 'updates.failure.signature',
   noPackage: 'updates.failure.noPackage',
   disk: 'updates.failure.disk',
@@ -83,15 +84,14 @@ export default function UpdateNotice() {
     useUpdateStore.getState().dismiss();
     await handleSettingsChange({ ...appSettings, dismissedUpdateVersion: update.version });
   };
-  // The browser downloads the installer (or shows the release page when no
-  // file fits this computer).
-  const target = update.downloadUrl ?? update.releaseUrl;
-  const openInBrowser = () => {
-    void open(target).catch(console.error);
-  };
   const { download, cancelDownload, restart } = useUpdateStore.getState();
   // The in-app update belongs to the version it was started for.
   const state: InstallState = installVersion === update.version ? install : { phase: 'idle' };
+  const installerUrl =
+    state.phase === 'failed' && state.failure.kind === 'manifestUnavailable' ? null : update.downloadUrl;
+  const openInBrowser = () => {
+    void open(installerUrl ?? update.releaseUrl).catch(console.error);
+  };
   const notesButton = (
     <button type="button" aria-haspopup="dialog" onClick={() => setNotesOpen(true)}>
       {t('updates.whatsNew')}
@@ -196,7 +196,7 @@ export default function UpdateNotice() {
             </button>
           )}
           <button type="button" onClick={openInBrowser}>
-            {update.downloadUrl ? t('updates.downloadInstead') : t('updates.releasePage')}
+            {installerUrl ? t('updates.downloadInstead') : t('updates.releasePage')}
           </button>
           {later(false)}
         </>

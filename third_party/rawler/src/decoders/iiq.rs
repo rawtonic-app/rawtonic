@@ -103,7 +103,6 @@ struct SensorCalibration {
   flats: Vec<FlatField>,
   blacklevel: u16,
   q_blacklevel: Option<(Vec<i16>, Vec<i16>)>,
-  sensor_margins: (usize, usize), // left, top
 }
 
 /// Known IIQ compression formats
@@ -521,15 +520,13 @@ impl<'a> IiqDecoder<'a> {
     Ok(())
   }
 
-  /// Apply flat field correction
-  fn correct_raw_flatfield(&self, img: &mut PixU16, senscorr: &SensorCalibration) -> Result<()> {
+  /// Apply flat field correction. Rawtonic patch (RAWL1; dnglab 5779679):
+  /// `cfa` and the flat fields' positions are both relative to the raw origin.
+  fn correct_raw_flatfield(img: &mut PixU16, cfa: &cfa::CFA, flats: &[FlatField]) -> Result<()> {
     // Map the second green (on odd rows) to color 3
-    let cfa = self
-      .camera
-      .cfa
-      .map_colors(|row, _col, color| if (color as usize) == cfa::CFA_COLOR_G && (row & 1 == 1) { 3 } else { color });
+    let cfa = cfa.map_colors(|row, _col, color| if (color as usize) == cfa::CFA_COLOR_G && (row & 1 == 1) { 3 } else { color });
 
-    for flat in senscorr.flats.iter() {
+    for flat in flats.iter() {
       let nc = match flat.typ {
         0x401 => {
           debug!("Apply all-color flat field correction 0x{:x} HEAD: {:?}", flat.typ, flat.head);
@@ -587,9 +584,13 @@ impl<'a> IiqDecoder<'a> {
             let mut col = cend - head[4];
             while col < img.width && col < cend && col < head[0] + head[2] - head[4] {
               let color = if nc > 2 {
-                debug_assert!(row >= senscorr.sensor_margins.1);
-                debug_assert!(col >= senscorr.sensor_margins.0);
-                cfa.color_at(row - senscorr.sensor_margins.1, col - senscorr.sensor_margins.0)
+                // Rawtonic patch (RAWL1; dnglab 5779679): the position is
+                // looked up as it is. Subtracting the sensor margins shifted
+                // the pattern by a row or column on backs with an odd margin
+                // (H 25, P20+, P25, P25+, P30, P45+): the red and blue
+                // multipliers went to green pixels, red and blue stayed
+                // uncorrected.
+                cfa.color_at(row, col)
               } else {
                 0 // match all colors
               };
@@ -648,7 +649,7 @@ impl<'a> IiqDecoder<'a> {
     self.correct_raw_q_combined(img, calib)?;
     self.correct_raw_q_linearization(img, calib)?;
     self.correct_raw_defects(img, calib)?;
-    self.correct_raw_flatfield(img, calib)?;
+    Self::correct_raw_flatfield(img, &self.camera.cfa, &calib.flats)?;
     Ok(())
   }
 
@@ -797,7 +798,6 @@ impl<'a> IiqDecoder<'a> {
 
   fn new_sensor_correction(&self, file: &RawSource, blacklevel: u16) -> std::io::Result<SensorCalibration> {
     let q_blacklevel = self.split_blacks(file)?;
-    let sensor_margins = self.sensor_margins().unwrap_or((0, 0));
 
     match self.makernotes.get(&IiqTag::SensorCorrection.into()) {
       Some((_len, offset)) => {
@@ -928,7 +928,6 @@ impl<'a> IiqDecoder<'a> {
           flats,
           blacklevel,
           q_blacklevel,
-          sensor_margins,
         })
       }
       _ => panic!("No sensor calibration data found."),
@@ -1233,5 +1232,38 @@ enum IiqTag {
 impl From<IiqTag> for u32 {
   fn from(v: IiqTag) -> Self {
     v as u32
+  }
+}
+
+// Rawtonic patch (RAWL1; dnglab 5779679): the red-blue flat field reaches
+// the red and blue pixels.
+#[cfg(test)]
+mod rawtonic_flatfield_tests {
+  use super::*;
+
+  #[test]
+  fn red_blue_flat_field_corrects_red_and_blue_pixels() {
+    // One cell of 4x4 pixels at an odd row and column (as the margins of
+    // the P20+ put it), red multiplier 2.0 and blue multiplier 0.5
+    let flat = FlatField {
+      typ: 0x40b,
+      head: [1, 1, 8, 8, 4, 4, 0, 0],
+      data: [2.0, 0.5].repeat(4),
+    };
+    let mut img = PixU16::new_with(vec![1000; 12 * 12], 12, 12);
+
+    IiqDecoder::correct_raw_flatfield(&mut img, &cfa::CFA::new("GBRG"), &[flat]).unwrap();
+
+    for row in 0..12 {
+      for col in 0..12 {
+        let inside = (1..5).contains(&row) && (1..5).contains(&col);
+        let expected = match (row % 2, col % 2) {
+          (0, 1) if inside => 500,  // blue
+          (1, 0) if inside => 2000, // red
+          _ => 1000,
+        };
+        assert_eq!(*img.at(row, col), expected, "row {row}, col {col}");
+      }
+    }
   }
 }

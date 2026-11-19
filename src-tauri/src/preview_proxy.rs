@@ -121,7 +121,10 @@ const READ_VERSIONS: [u32; 3] = [1, 2, 3];
 /// brightness around them (2026-10-16).
 /// 59: Panasonic RW2 (v4) samples where a split block wraps, as LibRaw reads
 /// them (2026-10-28).
-pub const ENGINE_VERSION: u32 = 59;
+/// 60: Phase One flat field on the red and blue pixels (H 25, P20+, P25,
+/// P25+, P30, P45, P45+), lossless JPEG of DNGs before 1.1, Canon sRAW/mRAW
+/// white by ISO (2026-11-19).
+pub const ENGINE_VERSION: u32 = 60;
 /// Rows per band of half floats (format 1; written by tests only).
 #[cfg(test)]
 const F16_ROWS_PER_BAND: u32 = 64;
@@ -526,8 +529,11 @@ fn header_is_current(header: &Header, source: &Path, settings: &AppSettings) -> 
     let variant = crate::image_loader::decode_variant(&recipe, &source_str);
     let decoder_matches =
         header.key.engine == ENGINE_VERSION && header.key.decoder == decoder_key(settings, variant);
+    // Only used offline (the RAW is missing or cannot be read), where the
+    // preview is all there is: one an earlier engine made still shows the
+    // photograph; it is rebuilt once the RAW is back (`decoder_matches`).
     let settings_match = || {
-        header.key.engine == ENGINE_VERSION
+        header.key.engine <= ENGINE_VERSION
             && decoder_settings(&header.key.decoder)
                 == decoder_settings(&decoder_key(settings, variant))
             && frame_fits(
@@ -2280,6 +2286,38 @@ mod tests {
             assert!(has_full(&photo, &settings));
             fs::rename(&away, &photo).unwrap();
         }
+    }
+
+    #[test]
+    fn previews_of_an_earlier_engine_open_offline_and_are_rebuilt_online() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, NEW_EDIT, None).unwrap();
+        for kind in [ProxyKind::Standard, ProxyKind::Full] {
+            edit_header(&proxy_path_of(&photo, kind).unwrap(), |header| {
+                header.key.engine = ENGINE_VERSION - 1;
+            });
+        }
+        // Online the earlier engine's previews are stale.
+        assert!(read(&photo, &settings).is_none());
+        assert!(!has_full(&photo, &settings));
+        // Offline they are all there is.
+        let away = dir.path().join("elsewhere.NEF");
+        fs::rename(&photo, &away).unwrap();
+        assert!(read(&photo, &settings).is_some());
+        assert!(has_full(&photo, &settings));
+        fs::rename(&away, &photo).unwrap();
+        // A later engine's previews are not read offline either.
+        for kind in [ProxyKind::Standard, ProxyKind::Full] {
+            edit_header(&proxy_path_of(&photo, kind).unwrap(), |header| {
+                header.key.engine = ENGINE_VERSION + 1;
+            });
+        }
+        fs::rename(&photo, &away).unwrap();
+        assert!(read(&photo, &settings).is_none());
+        fs::rename(&away, &photo).unwrap();
     }
 
     #[test]

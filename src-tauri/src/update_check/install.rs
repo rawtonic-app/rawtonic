@@ -48,6 +48,8 @@ impl UpdateInstall {
 pub enum UpdateFailure {
     /// No connection, a timeout or a server error.
     Network,
+    /// The update endpoint did not serve a release manifest.
+    ManifestUnavailable,
     /// The package does not carry Rawtonic's signature for this version.
     Signature,
     /// The release has no package for this computer.
@@ -75,10 +77,10 @@ pub enum UpdateFailure {
 
 fn failure(error: &Error) -> UpdateFailure {
     match error {
-        Error::Reqwest(_)
-        | Error::Network(_)
-        | Error::ReleaseNotFound
-        | Error::Serialization(_) => UpdateFailure::Network,
+        Error::Reqwest(_) | Error::Network(_) | Error::Serialization(_) => UpdateFailure::Network,
+        // The updater reports non-success HTTP responses (including 404)
+        // as ReleaseNotFound and propagates request errors separately.
+        Error::ReleaseNotFound => UpdateFailure::ManifestUnavailable,
         Error::Minisign(_)
         | Error::Base64(_)
         | Error::SignatureUtf8(_)
@@ -424,7 +426,6 @@ mod tests {
             failure(&Error::Network("503".into())),
             UpdateFailure::Network
         );
-        assert_eq!(failure(&Error::ReleaseNotFound), UpdateFailure::Network);
         assert_eq!(
             failure(&Error::MissingSignedVersion),
             UpdateFailure::Signature
@@ -471,6 +472,19 @@ mod tests {
             serde_json::to_value(UpdateFailure::NotRestored { path: "/a".into() }).unwrap(),
             serde_json::json!({"kind": "notRestored", "path": "/a"})
         );
+    }
+
+    #[test]
+    fn manifest_and_network_failures_have_distinct_ipc_kinds() {
+        for (error, kind) in [
+            (Error::ReleaseNotFound, "manifestUnavailable"),
+            (Error::Network("503".into()), "network"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(failure(&error)).unwrap(),
+                serde_json::json!({ "kind": kind })
+            );
+        }
     }
 
     /// The release build's configuration: the public key is Rawtonic's, the

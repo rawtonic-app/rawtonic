@@ -6,13 +6,21 @@
 
 - **Install update from the update notice.** When a newer release is out, the notice offers **Install update**: Rawtonic downloads that release's package for your Mac (app), Linux AppImage or Windows per-user setup, installs it only if it carries the signature of Rawtonic's own update key for exactly that version, and replaces the app when you choose **Restart now** — after it saved your edits, and after asking if exports or imports are still running. Nothing is downloaded before the click; the daily startup check sends nothing new. Copies installed for all users (Windows MSI), the portable zip and releases without an update package keep the browser link; an all-users copy now gets the all-users installer there. This works from the next release on: updating to it is one last manual update.
 
+### Changed
+
+- Windows is no longer labelled experimental; it remains unsigned.
+
 ### Changes to existing exports
 
+- **Phase One H 25, P20+, P25, P25+, P30, P45 and P45+ photos** get their flat-field colour correction on the red and blue pixels; it went to green pixels before (wrong-coloured checker patterns on flat areas). The variation of the two green channels against each other on flat areas of the sample files dropped close to that of Adobe DNG Converter's DNGs of the same files (H 25 1.60 % → 0.41 %, Adobe 0.41 %; P20+ 4.11 → 0.79 %, Adobe 0.76 %; P25 4.97 → 0.63 %, Adobe 0.63 %; P25+ 4.16 → 2.07 %, Adobe 2.11 %; P45+ 1.41 → 0.49 %, Adobe 0.49 %). Saved edits of these photos change too. Of the other Phase One and Leaf files checked (every IIQ, Phase One TIF and MOS of raw.pixls.us), none changed.
+- **DNGs of DNG version 1.0 with lossless compression** (e.g. XIAOYI action cameras) no longer have corrupted, too bright or tinted image tiles. The two affected files among the 262 raw.pixls.us DNGs now decode to the same raw samples as Adobe DNG Converter's DNGs of them (every sample equal). Saved edits of such photos change too.
+- **Canon sRAW and mRAW photos** (EOS 7D, 7D Mark II, 40D, 50D, 60D, 70D, 5D Mark II/III/IV, 5DS, 5DS R, 6D, 6D Mark II, 1D Mark IV) take their white level from a table by ISO instead of one fixed value. The table holds the white level Adobe DNG Converter 18.7 writes for copies of one sample file per body with only the ISO tag changed; before, every ISO used the level of the sample's own ISO. On these copies (31 files of 16 bodies, six ISOs each, compared with Rawtonic's render of Adobe's DNG of each copy) the exposure difference varied with the ISO by a median 0.24 EV (up to 0.95 EV on the 5D Mark IV) and now by under 0.002 EV; the constant difference of each file (−0.17 to +0.33 EV against that reference, not against Camera Raw) is unchanged. Not yet checked on real captures at other ISOs. The 5D Mark IV no longer uses the file's specular white level, which Adobe ignores for it (checked on an edited copy), so 5D Mark IV sRAW/mRAW files whose specular level differs from the table can change even at ISO 100. The raw.pixls.us sample files decode unchanged. Saved sRAW/mRAW edits at the affected ISOs re-export brighter or darker, matching Adobe (on the probe copies: EOS 60D ISO 160 +0.17 EV, 50D ISO 200 −0.42 EV, up to +0.60 EV on the 5D Mark IV at ISO 1250): a wrong white level is a decoding defect, and decoder fixes apply to all photos.
 - Super Resolution exports using the ONNX Runtime CPU path may round differently from earlier versions. In a 24 MP test, the largest difference was 0.00000232 on a 0–1 scale before rounding, which can change an 8-bit channel by at most 1/255.
 
 ### Fixes
 
 - **Raised Shadows no longer greys the light background between thin dark lines** (new edits; saved ones keep their look). Between dark strokes on a light ground (text, a fine grating, leaves against the sky) Shadows lifted the light gaps as if they were shadow: +9.8 L* between 5 px strokes 5 px apart at Shadows +100 on a 7000 px test chart, +2.2–2.6 L* around digits (p99), where Camera Raw and Capture One lift them by less than 0.1 L*. They now move by at most 0.04 L*. The strokes themselves and broad shadows are lifted as before (3.92 / 21.51 L* on the chart), and on two real photographs the light pixels next to dark detail move 1.0–1.2 L* instead of 4.2–10.1 (p99). Across 48 test photographs every Shadows measurement keeps its rating; fine shadow detail at +100 is 0.14 below Camera Raw's in our measure (was 0.13).
+- When a release's update information is unavailable, Rawtonic explains that the release can't be installed from within the app and links to the release page.
 - Windows: the built-in web view no longer contacts Microsoft's configuration and component-update services in the background.
 - Windows: paths in the library and export dialogs no longer mix `/` and `\`.
 - **Windows setup can install Rawtonic for your account alongside an older all-users installation without administrator approval.** Setup explains how to remove the old copy later through Windows Settings with administrator approval. Both copies share your Rawtonic settings and app data.
@@ -20,6 +28,10 @@
   - In earlier app tests on a Windows laptop with a Radeon 680M, exporting seven 12–61 MP RAWs as both 16-bit TIFF and JPEG at quality 90 peaked at 5,964 → about 5,425 MB for the app and WebView2 with one export thread, and 4,494 → about 4,234 MB for the headless app with two jobs.
   - In the updated CLI tests on the same laptop, exporting the seven RAWs as 16-bit TIFF alone with two jobs took 39.2 s and peaked at 3,750 MB (medians of three runs), compared with 40.9 s and 4,900 MB in the earlier baseline. With one job, it took 45.6 s and peaked at 3,074 MB, compared with 48.4 s and 4,353 MB. Exporting just JPEG at quality 90 with two jobs took 47.4 s and peaked at 3,524 MB on the updated build. All seven outputs in each of those nine runs matched the earlier exports byte for byte.
   - On that laptop, Exposure drags at 100 % zoom produced a median 630 preview frames per run with the smaller starting blocks, compared with 632 using the previous GPU hint. In a separate earlier CLI comparison, all 13 16-bit TIFFs and all 13 JPEGs at quality 90 matched byte for byte across the benchmark builds.
+
+### Known gaps
+
+- **Windows hardware coverage:** GUI testing has covered one NVIDIA graphics card and one AMD Radeon 680M laptop.
 
 ## 0.1.0-alpha.17.1 — 2026-11-18
 
