@@ -463,9 +463,8 @@ impl Library {
     /// would no longer be found. Rewritten once, when the library opens:
     /// each external folder's record takes the plain spelling and the id
     /// that spelling gives (its drive kept); its photographs' rows move to
-    /// it unchanged; the hot folder and drive paths follow; the drive cache's
-    /// old rows go (a cache). Nothing elsewhere has such paths, so this finds
-    /// no rows there.
+    /// it unchanged; the hot folder and drive paths follow. Drive-cache rows
+    /// whose keys simplify are discarded and can be rebuilt under plain keys.
     fn plain_stored_paths(&self) -> Result<()> {
         const VERBATIM: &str = r"\\?\";
         let plain = |text: &str| {
@@ -473,13 +472,25 @@ impl Library {
                 .to_string_lossy()
                 .into_owned()
         };
-        let mut roots = self.conn.prepare(
+        let mut select_roots = self.conn.prepare(
             "SELECT id,path,volume_path FROM roots
              WHERE external=1 AND (substr(path,1,4)=?1 OR substr(volume_path,1,4)=?1)",
         )?;
-        let roots: Vec<(String, String, Option<String>)> = roots
-            .query_map([VERBATIM], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-            .collect::<rusqlite::Result<_>>()?;
+        let mut roots = Vec::new();
+        let mut rows = select_roots.query([VERBATIM])?;
+        while let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let path: String = row.get(1)?;
+            let volume_path: Option<String> = row.get(2)?;
+            let new_path = plain(&path);
+            let new_volume_path = volume_path.as_deref().map(plain);
+            let new_id = external_root_key(Path::new(&new_path));
+            // Preserve the existing repair of a mismatched id even when
+            // the stored path has no plain spelling.
+            if new_id != id || new_path != path || new_volume_path != volume_path {
+                roots.push((id, new_id, new_path, new_volume_path));
+            }
+        }
         let hot_folder: Option<String> = self
             .conn
             .query_row(
@@ -488,12 +499,22 @@ impl Library {
                 |r| r.get(0),
             )
             .optional()?;
-        let cached: i64 = self.conn.query_row(
-            "SELECT count(*) FROM folder_root_volumes WHERE substr(path,1,4)=?",
-            [VERBATIM],
-            |r| r.get(0),
-        )?;
-        if roots.is_empty() && hot_folder.is_none() && cached == 0 {
+        let hot_folder = hot_folder.and_then(|folder| {
+            let new_folder = plain(&folder);
+            (new_folder != folder).then_some(new_folder)
+        });
+        let mut select_cached = self
+            .conn
+            .prepare("SELECT path FROM folder_root_volumes WHERE substr(path,1,4)=?")?;
+        let mut obsolete_cache_keys = Vec::new();
+        let mut rows = select_cached.query([VERBATIM])?;
+        while let Some(row) = rows.next()? {
+            let path: String = row.get(0)?;
+            if plain(&path) != path {
+                obsolete_cache_keys.push(path);
+            }
+        }
+        if roots.is_empty() && hot_folder.is_none() && obsolete_cache_keys.is_empty() {
             return Ok(());
         }
         let tx = self.conn.unchecked_transaction()?;
@@ -502,10 +523,7 @@ impl Library {
             .query_map([], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
         let columns = columns.join(",");
-        for (id, path, volume_path) in roots {
-            let new_path = plain(&path);
-            let volume_path = volume_path.as_deref().map(plain);
-            let new_id = external_root_key(Path::new(&new_path));
+        for (id, new_id, new_path, volume_path) in roots {
             if new_id == id {
                 // The root may already be plain while its recorded mount is
                 // still verbatim. Keep its identity and all photo rows intact.
@@ -536,32 +554,29 @@ impl Library {
                  (SELECT 1 FROM assets b WHERE b.root_id=?1 AND b.rel_path=assets.rel_path)",
                 params![new_id, id],
             )?;
-            if new_id != id {
-                let left: i64 =
-                    tx.query_row("SELECT count(*) FROM assets WHERE root_id=?", [&id], |r| {
-                        r.get(0)
-                    })?;
-                if left == 0 {
-                    tx.execute("DELETE FROM roots WHERE id=?", [&id])?;
-                } else {
-                    // A photograph registered under both spellings: its
-                    // record takes the plain path too, and the two rows
-                    // become one photograph (`merge_duplicate_roots`, run
-                    // right after).
-                    tx.execute(
-                        "UPDATE roots SET path=?,volume_path=? WHERE id=?",
-                        params![new_path, volume_path, id],
-                    )?;
-                }
+            let left: i64 =
+                tx.query_row("SELECT count(*) FROM assets WHERE root_id=?", [&id], |r| {
+                    r.get(0)
+                })?;
+            if left == 0 {
+                tx.execute("DELETE FROM roots WHERE id=?", [&id])?;
+            } else {
+                // A photograph registered under both spellings: its
+                // record takes the plain path too, and the two rows
+                // become one photograph (`merge_duplicate_roots`, run
+                // right after).
+                tx.execute(
+                    "UPDATE roots SET path=?,volume_path=? WHERE id=?",
+                    params![new_path, volume_path, id],
+                )?;
             }
         }
         if let Some(folder) = hot_folder {
-            tx.execute("UPDATE hot_folder SET folder=?", [plain(&folder)])?;
+            tx.execute("UPDATE hot_folder SET folder=?", [folder])?;
         }
-        tx.execute(
-            "DELETE FROM folder_root_volumes WHERE substr(path,1,4)=?",
-            [VERBATIM],
-        )?;
+        for path in obsolete_cache_keys {
+            tx.execute("DELETE FROM folder_root_volumes WHERE path=?", [path])?;
+        }
         tx.commit()?;
         Ok(())
     }

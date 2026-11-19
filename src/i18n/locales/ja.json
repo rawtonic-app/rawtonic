@@ -2220,6 +2220,8 @@
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "ライブラリ用データベース。Windows の WAL ロック処理に Rawtonic 独自の修正を適用しています。",
+        "Tauri bundler": "Windows 用 NSIS インストーラーのテンプレート。ユーザー単位と全ユーザー向けのインストールが共存できるように変更しています。",
+        "Tauri updater plugin": "「アップデートをインストール」: リリースのマニフェストとパッケージを取得し、署名を確認して macOS アプリを置き換えます。",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5411,13 +5413,38 @@
   "updates": {
     "appImage": "この AppImage は AppImageUpdate でも更新できます。",
     "available": "Rawtonic {{version}} が利用可能です",
+    "cancel": "キャンセル",
     "checking": "確認中…",
     "checkNow": "今すぐ確認",
     "close": "閉じる",
     "dontShowAgain": "アップデート後に表示しない",
     "download": "ダウンロード",
+    "downloading": "ダウンロード中… {{done}} MB",
+    "downloadingOf": "ダウンロード中… {{percent}}%（{{done}} / {{size}} MB）",
+    "downloadInstead": "インストーラをダウンロード",
     "failed": "更新を確認できませんでした。後でもう一度お試しください。",
+    "failure": {
+      "changed": "Rawtonic の起動後に AppImage が置き換えられたため、そのままにしました。Rawtonic を再起動してから、もう一度アップデートを確認してください。",
+      "disk": "アップデートを書き込めませんでした。ディスクがいっぱいか、Rawtonic のフォルダが読み取り専用の可能性があります。Rawtonic は変更されていません。",
+      "manifestUnavailable": "このリリースは Rawtonic 内からインストールできません。",
+      "network": "ダウンロードに失敗しました（GitHub に接続できません）。Rawtonic は変更されていません。",
+      "noPackage": "このリリースにはこのコンピュータ用のアップデートパッケージがありません。代わりにインストーラをダウンロードしてください。",
+      "notOffered": "このアップデートは提供されなくなりました。もう一度アップデートを確認してください。",
+      "notRestored": "アップデートをインストールできず、以前のバージョンも元に戻せませんでした。以前のバージョンは {{path}} にあります。インストーラをダウンロードして Rawtonic を修復してください。",
+      "other": "アップデートに失敗しました。Rawtonic は変更されていません。",
+      "permission": "Rawtonic はここで自身を置き換えられません。管理者の承認が得られなかったか、フォルダに書き込めません。Rawtonic は変更されていません。",
+      "signature": "ダウンロードしたアップデートに Rawtonic の署名がないため、インストールしませんでした。Rawtonic は変更されていません。",
+      "unsaved": "再起動していません。何もインストールしていません。次の変更を保存できませんでした: {{changes}}。"
+    },
+    "fallback": {
+      "allUsers": "このコピーはすべてのユーザー向けにインストールされています。アップデートするにはインストーラをダウンロードしてください。Windows が管理者の承認を求めます。",
+      "moveToApplications": "ここから Rawtonic をアップデートするには、まず「アプリケーション」フォルダに移動してください。"
+    },
     "fileWithSize": "{{file}}（{{size}} MB）",
+    "inAppDetail": "Rawtonic は GitHub からアップデートをダウンロードし、署名を確認します。再起動するまで何も置き換えられません。",
+    "install": "アップデートをインストール",
+    "installing": "アップデートをインストール中… まもなく Rawtonic が再起動します。",
+    "later": "あとで",
     "manual": "アップデートを確認",
     "noFile": "このリリースにはこのコンピュータ用のダウンロードがありません。リリースページにすべてのファイルがあります。",
     "noNotes": "リリースノートはありません。リリースページに詳細があるかもしれません。",
@@ -5430,9 +5457,15 @@
     "privacyNoticeLink": "プライバシーの詳細",
     "privacyNoticeOk": "OK",
     "privacyNoticeTitle": "プライバシー",
+    "ready": "Rawtonic {{version}} をインストールする準備ができました",
+    "readyDetail": "「今すぐ再起動」で編集内容を保存し、アップデートをインストールして Rawtonic を再起動します。",
     "releasePage": "リリースページ",
+    "restartAnyway": "それでも再起動",
+    "restartNow": "今すぐ再起動",
+    "restartRunningMessage": "実行中: {{work}}。アップデートのために再起動すると停止します。書き出しは再起動後にアクティビティから再開できます。",
     "showWhatsNew": "アップデート後に新機能を表示",
     "startup": "起動時に更新を確認",
+    "tryAgain": "再試行",
     "whatsNew": "新機能"
   }
 }

@@ -1,6 +1,7 @@
 import { open, save, type OpenDialogOptions, type SaveDialogOptions } from '@tauri-apps/plugin-dialog';
 import { homeDir, pictureDir } from '@tauri-apps/api/path';
-import { answerFolder, isBareName, joinFolder, rememberDialogFolder, rememberedDialogFolder } from './dialogFolders';
+import { answerFolder, isBareName, rememberDialogFolder, rememberedDialogFolder } from './dialogFolders';
+import { joinPath } from './path';
 
 /**
  * Every native dialog says what is being chosen (its title) and may name a
@@ -37,7 +38,7 @@ async function startPath(defaultPath: string | undefined, purpose: string | unde
   if (defaultPath && !isBareName(defaultPath)) return defaultPath;
   const folder = rememberedDialogFolder(purpose) ?? (await fallbackFolder());
   if (!folder) return defaultPath;
-  return defaultPath ? joinFolder(folder, defaultPath) : folder;
+  return defaultPath ? joinPath(folder, defaultPath) : folder;
 }
 
 /**

@@ -95,6 +95,9 @@ pub struct Report {
     pub gpu: Option<Timing>,
     pub agreement: Vec<Agreement>,
     pub gpu_error: Option<String>,
+    /// BLAKE3 of each CPU output's values (first run, little-endian f32),
+    /// to compare ONNX Runtime builds bit for bit.
+    pub cpu_digests: Vec<(String, String)>,
 }
 
 /// Times `path` on the CPU and on `gpu` (`runs` timed runs after the
@@ -125,6 +128,16 @@ pub fn bench_file(
     let inputs =
         cpu_model.run_without_fallback(|session| Ok(inputs_for(session, kind, picture)))??;
     let (cpu_outputs, cpu) = time_runs(&cpu_model, &inputs, runs, cpu_load)?;
+    let cpu_digests = cpu_outputs
+        .iter()
+        .map(|o| {
+            let mut hasher = blake3::Hasher::new();
+            for v in &o.values {
+                hasher.update(&v.to_le_bytes());
+            }
+            (o.name.clone(), hasher.finalize().to_hex().to_string())
+        })
+        .collect();
     let mut report = Report {
         file,
         kind,
@@ -134,6 +147,7 @@ pub fn bench_file(
         gpu: None,
         agreement: Vec::new(),
         gpu_error: None,
+        cpu_digests,
     };
     drop(cpu_model);
     if gpu == Provider::Cpu {

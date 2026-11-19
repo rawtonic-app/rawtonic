@@ -4,6 +4,87 @@ use serde_json::json;
 use std::fs;
 
 #[test]
+fn reopening_catalog_with_unconvertible_verbatim_paths_needs_no_writer() {
+    let temp = tempfile::tempdir().unwrap();
+    let catalog = temp.path().join("Main.catalog");
+    let photo = temp.path().join("photo.jpg");
+    fs::write(&photo, b"synthetic photograph").unwrap();
+    let lib = Library::create(&catalog, "Main", Mode::Catalog).unwrap();
+    let id = lib.add_asset(&photo).unwrap().id;
+    let mut observer = Connection::open(
+        lib.directory
+            .join(rawtonic_catalog::layout::database_name(Mode::Catalog)),
+    )
+    .unwrap();
+    drop(lib);
+
+    // A trailing dot needs verbatim spelling on Windows. No corresponding
+    // file or folder is needed for the stored-path migration.
+    let verbatim = r"\\?\C:\Folder.";
+    observer
+        .execute(
+            "UPDATE roots SET volume_path=? WHERE external=1",
+            [verbatim],
+        )
+        .unwrap();
+    observer
+        .execute(
+            "INSERT INTO hot_folder(id,folder,template) VALUES(1,?,'')",
+            [verbatim],
+        )
+        .unwrap();
+    let cached_volume = r#"{"id":"test-drive","name":"Test drive","mount_point":"C:\\"}"#;
+    observer
+        .execute(
+            "INSERT INTO folder_root_volumes(path,volume) VALUES(?,?)",
+            [verbatim, cached_volume],
+        )
+        .unwrap();
+    #[cfg(windows)]
+    let obsolete = r"\\?\C:\Folder";
+    #[cfg(windows)]
+    observer
+        .execute(
+            "INSERT INTO folder_root_volumes(path,volume) VALUES(?,?)",
+            [obsolete, cached_volume],
+        )
+        .unwrap();
+    drop(Library::open(&catalog).unwrap());
+    #[cfg(windows)]
+    assert!(
+        !observer
+            .prepare("SELECT 1 FROM folder_root_volumes WHERE path=?")
+            .unwrap()
+            .exists([obsolete])
+            .unwrap()
+    );
+
+    // An unchanged UPDATE can leave data_version alone. Holding the WAL
+    // write lock also catches attempts to write the same value.
+    let writer = observer
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
+    let reopened = Library::open(&catalog).unwrap();
+    assert_eq!(reopened.asset_at(&photo).unwrap().unwrap().id, id);
+    let stored: (String, String) = writer
+        .query_row(
+            "SELECT volume_path, (SELECT folder FROM hot_folder) FROM roots WHERE external=1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(stored, (verbatim.to_owned(), verbatim.to_owned()));
+    let cached: String = writer
+        .query_row(
+            "SELECT volume FROM folder_root_volumes WHERE path=?",
+            [verbatim],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(cached, cached_volume);
+}
+
+#[test]
 fn path_verification_writes_only_missing_transitions_and_preserves_edits() {
     let temp = tempfile::tempdir().unwrap();
     let lib = Library::create(temp.path(), "Startup", Mode::Session).unwrap();

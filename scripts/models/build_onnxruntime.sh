@@ -26,8 +26,9 @@
 # Needs Python 3.10+, CMake and Ninja or Make; it downloads the third-party
 # sources pinned in the archive's cmake/deps.txt. Prints the library's
 # SHA-256 and checks it holds no uploader. macOS arm64 and Linux x86_64 and
-# aarch64 (Docker) so far; Windows and the WebGPU and CUDA plugins are open
-# in gap G65.
+# aarch64 (Docker) so far; Windows x64 is build_onnxruntime.ps1 beside this
+# script (same archive; a patch drops the ETW telemetry provider). Windows
+# arm64 and the WebGPU and CUDA plugins are open in gap G65.
 set -eu
 
 SOURCE_COMMIT=f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7
@@ -38,7 +39,7 @@ SOURCE_SHA256=1b4ec55fa26ee8fe622ea256894dfe9381bdfa99d41489994a1961720f556c48
 LINUX_IMAGE_X86_64=quay.io/pypa/manylinux_2_28_x86_64@sha256:d086f64cddcace250ef0f0073583c51b8298159303290a730c9f59bd91edfd2c
 LINUX_IMAGE_AARCH64=quay.io/pypa/manylinux_2_28_aarch64@sha256:34a5e614a4eb26f73f8bf44cbbf2acf8011620453d03ea35a58537bb3cde44de
 
-[ $# -eq 2 ] || { sed -n '2,30p' "$0"; exit 2; }
+[ $# -eq 2 ] || { sed -n '2,31p' "$0"; exit 2; }
 archive=$1
 build=$2
 python=${PYTHON:-python3}
@@ -108,6 +109,10 @@ case "$platform" in
       --enable_lto --no_telemetry --skip_tests
     library=$build/out/Release/libonnxruntime.so.1.30.0
     name=libonnxruntime-1.30.0-notelemetry-linux-$arch.so
+    ;;
+  MINGW*|MSYS*|CYGWIN*)
+    echo "build_onnxruntime: on Windows run scripts/models/build_onnxruntime.ps1 (PowerShell)" >&2
+    exit 1
     ;;
   *)
     echo "build_onnxruntime: $platform is not scripted yet (gap G65)" >&2

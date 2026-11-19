@@ -71,3 +71,10 @@ it('names the folder of an answer', () => {
   expect(answerFolder('/a/b', true)).toBe('/a/b');
   expect(answerFolder('c.NEF', false)).toBeNull();
 });
+
+it('offers a filename in the remembered Windows folder with one separator at the join', async () => {
+  setDialogLibraryFolder('\\\\nas\\Exports\\\\');
+  vi.mocked(save).mockResolvedValueOnce(null);
+  await saveDialog({ title: 'Export', defaultPath: 'Photo.jpg' });
+  expect(save).toHaveBeenCalledWith({ title: 'Export', defaultPath: '\\\\nas\\Exports\\Photo.jpg' });
+});

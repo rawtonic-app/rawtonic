@@ -537,11 +537,12 @@ describe('emptying the session Trash', () => {
     }
   );
 
-  it('partial success clears exactly the moved file and keeps a failed file selected', async () => {
-    const a = '/job/Trash/A.RAF';
-    const b = '/job/Trash/B.RAF';
+  it.each([
+    ['/job', '/job/Trash/Capture/A.RAF', '/job/Trash/B.RAF'],
+    ['C:\\job', '\\\\?\\C:\\job\\Trash\\Capture\\A.RAF', 'C:\\job\\Trash\\B.RAF']
+  ])('a partial Trash success in %s clears the moved file and keeps a failed file selected', async (root, a, b) => {
     useEditorStore.setState({ selectedImage: { path: a } as never });
-    useLibraryStore.setState({ multiSelectedPaths: [a, b], libraryActivePath: a });
+    useLibraryStore.setState({ sessionDirectory: root, multiSelectedPaths: [a, b], libraryActivePath: a });
     vi.mocked(invoke).mockResolvedValueOnce(contents);
     const { result } = renderHook(() =>
       useFileOperations(
@@ -556,7 +557,7 @@ describe('emptying the session Trash', () => {
     const modal = useUIStore.getState().confirmModalState;
     vi.mocked(invoke).mockResolvedValueOnce({
       ...contents,
-      movedEntries: ['A.RAF'],
+      movedEntries: ['Capture/A.RAF'],
       failures: ['B.RAF: unavailable'],
       remaining: { photos: 1, files: 1, entries: 1 }
     });
@@ -1181,6 +1182,15 @@ describe('moving a folder', () => {
     });
   });
 
+  it('follows a moved Windows folder when the receipt omits its new path', async () => {
+    useLibraryStore.setState({ currentFolderPath: 'C:\\job\\Day 1\\Picks' });
+    vi.mocked(invoke)
+      .mockResolvedValueOnce(plan({ crossVolume: false }))
+      .mockResolvedValueOnce(summary({ kind: 'moveFolder' }));
+    await hook().result.current.handleMoveFolder('C:\\job\\Day 1', 'C:\\archive\\');
+    expect(useLibraryStore.getState().currentFolderPath).toBe('C:\\archive\\Day 1\\Picks');
+  });
+
   it('says why a folder cannot go to that drive and moves nothing', async () => {
     vi.mocked(invoke).mockResolvedValueOnce(plan({ refusal: '/Users/a/Day 1/x is a link or special file' }));
     const { result } = hook();
@@ -1332,4 +1342,23 @@ it("says that Delete on a photo already in the library's Trash goes on to the co
   result.current.handleDeleteSelected();
   expect(useUIStore.getState().confirmModalState.title).toBe('Move to Trash');
   useLibraryStore.setState({ sessionDirectory: null, multiSelectedPaths: [] });
+});
+
+it('creates a folder below a Windows drive root using its native separator', async () => {
+  useUIStore.setState({ folderActionTarget: 'C:\\' });
+  const { result } = renderHook(() =>
+    useFileOperations(
+      vi.fn(async () => {}),
+      vi.fn(async () => {}),
+      vi.fn(),
+      vi.fn(),
+      []
+    )
+  );
+  try {
+    await result.current.handleCreateFolder('Capture');
+    expect(invoke).toHaveBeenCalledWith(Invokes.CreateFolder, { path: 'C:\\Capture' });
+  } finally {
+    useUIStore.setState({ folderActionTarget: null });
+  }
 });

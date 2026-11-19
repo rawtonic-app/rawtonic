@@ -2313,6 +2313,8 @@
         "SigLIP 2": "Automatische Stichwörter (Google).",
         "spektrafilm": "LUTs zur Filmemulation von Andrea Volpato (umbenannt, Inhalt unverändert).",
         "SQLite / rusqlite": "Bibliotheksdatenbank mit einer Rawtonic-Korrektur für WAL-Sperren unter Windows.",
+        "Tauri bundler": "Vorlage für den Windows-NSIS-Installer, angepasst für parallele Installationen für ein einzelnes Konto und für alle Benutzer.",
+        "Tauri updater plugin": "„Update installieren“: lädt Manifest und Paket der Version, prüft die Signatur und ersetzt die macOS-App.",
         "YuNet": "Findet Gesichter für Personenmasken (Shiqi Yu und andere).",
         "zune-jpegxl": "Verlustfreier JPEG-XL-Export (Caleb Etemesi)."
       },
@@ -5549,13 +5551,38 @@
   "updates": {
     "appImage": "Dieses AppImage lässt sich auch mit AppImageUpdate aktualisieren.",
     "available": "Rawtonic {{version}} ist verfügbar",
+    "cancel": "Abbrechen",
     "checking": "Wird geprüft…",
     "checkNow": "Jetzt prüfen",
     "close": "Schließen",
     "dontShowAgain": "Nach Updates nicht mehr zeigen",
     "download": "Herunterladen",
+    "downloading": "Wird geladen… {{done}} MB",
+    "downloadingOf": "Wird geladen… {{percent}} % ({{done}} von {{size}} MB)",
+    "downloadInstead": "Installer laden",
     "failed": "Updates konnten nicht geprüft werden. Versuche es später erneut.",
+    "failure": {
+      "changed": "Das AppImage wurde seit dem Start von Rawtonic ersetzt und bleibt deshalb unverändert. Starte Rawtonic neu und suche dann erneut nach Updates.",
+      "disk": "Das Update konnte nicht geschrieben werden: Der Datenträger ist vielleicht voll oder Rawtonics Ordner schreibgeschützt. Rawtonic ist unverändert.",
+      "manifestUnavailable": "Diese Version lässt sich nicht aus Rawtonic heraus installieren.",
+      "network": "Das Laden ist fehlgeschlagen (keine Verbindung zu GitHub). Rawtonic ist unverändert.",
+      "noPackage": "Diese Version hat kein Update-Paket für diesen Computer. Lade stattdessen den Installer.",
+      "notOffered": "Dieses Update wird nicht mehr angeboten. Suche erneut nach Updates.",
+      "notRestored": "Das Update ließ sich nicht installieren und die vorige Version nicht zurücklegen; sie liegt unter {{path}}. Lade den Installer, um Rawtonic zu reparieren.",
+      "other": "Das Update ist fehlgeschlagen. Rawtonic ist unverändert.",
+      "permission": "Rawtonic darf sich hier nicht ersetzen: Die Zustimmung eines Administrators wurde nicht erteilt oder sein Ordner ist schreibgeschützt. Rawtonic ist unverändert.",
+      "signature": "Das geladene Update trägt nicht Rawtonics Signatur und wurde nicht installiert. Rawtonic ist unverändert.",
+      "unsaved": "Nicht neu gestartet, nichts installiert: Diese Änderungen ließen sich nicht sichern: {{changes}}."
+    },
+    "fallback": {
+      "allUsers": "Diese Kopie ist für alle Benutzer installiert. Zum Aktualisieren den Installer laden; Windows fragt nach Administratorrechten.",
+      "moveToApplications": "Um Rawtonic von hier zu aktualisieren, verschiebe es zuerst in den Ordner „Programme“."
+    },
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "inAppDetail": "Rawtonic lädt das Update von GitHub und prüft seine Signatur. Ersetzt wird erst beim Neustart.",
+    "install": "Update installieren",
+    "installing": "Update wird installiert… Rawtonic startet gleich neu.",
+    "later": "Später",
     "manual": "Nach Updates suchen",
     "noFile": "Für diesen Computer gibt es in dieser Version keinen Download; die Release-Seite listet alle Dateien.",
     "noNotes": "Keine Versionshinweise. Die Release-Seite hat vielleicht mehr.",
@@ -5568,9 +5595,15 @@
     "privacyNoticeLink": "Datenschutz-Details",
     "privacyNoticeOk": "OK",
     "privacyNoticeTitle": "Datenschutz",
+    "ready": "Rawtonic {{version}} ist bereit zur Installation",
+    "readyDetail": "„Jetzt neu starten“ sichert deine Bearbeitungen, installiert das Update und startet Rawtonic neu.",
     "releasePage": "Release-Seite",
+    "restartAnyway": "Trotzdem neu starten",
+    "restartNow": "Jetzt neu starten",
+    "restartRunningMessage": "Läuft noch: {{work}}. Der Neustart für das Update stoppt es; ein Export lässt sich nach dem Neustart unter Aktivität fortsetzen.",
     "showWhatsNew": "Nach einem Update zeigen, was neu ist",
     "startup": "Beim Start nach Updates suchen",
+    "tryAgain": "Erneut versuchen",
     "whatsNew": "Was ist neu"
   }
 }

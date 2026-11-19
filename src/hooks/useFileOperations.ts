@@ -1,3 +1,5 @@
+import { dirname, joinPath } from '../utils/path';
+import { pathKey } from '../utils/pathKey';
 import { fileManagerLabelKey } from '../utils/platformLabels';
 import { createElement, useCallback, useEffect } from 'react';
 import { stackKey, useStackStore } from '../store/useStackStore';
@@ -407,8 +409,7 @@ const opsCount = (key: FileOperationCount, count: number, options: Record<string
  * Delete moves its photographs; null without an open library. */
 export function libraryTrashFolder(libraryDirectory: string | null | undefined): string | null {
   if (!libraryDirectory) return null;
-  const separator = libraryDirectory.includes('\\') && !libraryDirectory.includes('/') ? '\\' : '/';
-  return `${libraryDirectory.replace(/[\\/]+$/, '')}${separator}Trash`;
+  return joinPath(libraryDirectory, 'Trash');
 }
 
 /** How to undo a file operation from where the user is: in Develop ⌘Z
@@ -557,16 +558,9 @@ export function useFileOperations(
     return () => void unlisten.then((stop) => stop());
   }, [refreshImageList, refreshAllFolderTrees]);
 
-  const getParentDir = (filePath: string): string => {
-    const separator = filePath.includes('/') ? '/' : '\\';
-    const lastSeparatorIndex = filePath.lastIndexOf(separator);
-    if (lastSeparatorIndex === -1) return '';
-    return filePath.substring(0, lastSeparatorIndex);
-  };
-
   // Native photo operations also move registered companion photos. Until the
   // native plan exposes their exact set, protect each source folder as well.
-  const withSourceParents = (paths: string[]) => [...paths, ...paths.map(getParentDir)];
+  const withSourceParents = (paths: string[]) => [...paths, ...paths.map(dirname)];
 
   const executeDelete = useCallback(
     async (pathsToDelete: Array<string>, options = { includeAssociated: false }) => {
@@ -790,9 +784,8 @@ export function useFileOperations(
             const moved = (path: string) =>
               result?.movedEntries
                 ? result.movedEntries.some((entry) => {
-                    const separator = trashFolder.includes('\\') && !trashFolder.includes('/') ? '\\' : '/';
-                    const movedPath = `${trashFolder}${separator}${entry.replace(/[\\/]/g, separator)}`;
-                    return sourceOf(path) === movedPath || isBelow(sourceOf(path), movedPath);
+                    const movedPath = joinPath(trashFolder, entry);
+                    return pathKey(sourceOf(path)) === pathKey(movedPath) || isBelow(sourceOf(path), movedPath);
                   })
                 : !result?.failures?.length && inTrash(path);
             // Keep selection only for entries that stayed in the library Trash.
@@ -961,9 +954,8 @@ export function useFileOperations(
           );
           if (summary) notify.success(describeFileOperation(summary));
           warnAboutNote(summary);
-          const separator = picked.includes('/') ? '/' : '\\';
           const reopen = followMoves(
-            summary?.moves?.length ? summary.moves : [{ from: path, to: `${picked}${separator}${name}` }]
+            summary?.moves?.length ? summary.moves : [{ from: path, to: joinPath(picked, name) }]
           );
           await refreshAllFolderTrees();
           await refreshImageList();
@@ -1022,12 +1014,11 @@ export function useFileOperations(
           : libraryActivePath
             ? [libraryActivePath]
             : [];
-    const separator = sessionDirectory.includes('\\') ? '\\' : '/';
     // The session's Selects folder, wherever it is set (G38).
     const shown =
       useLibraryStore.getState().sessionFolders.find((f) => f.role === 'selects')?.path ??
-      `${sessionDirectory}${separator}Selects`;
-    const outside = paths.filter((p) => getParentDir(sourceOf(p)) !== shown);
+      joinPath(sessionDirectory, 'Selects');
+    const outside = paths.filter((p) => pathKey(dirname(sourceOf(p))) !== pathKey(shown));
     if (outside.length === 0) {
       notify.info(ops(paths.length ? 'alreadyInSelects' : 'selectForSelects'));
       return;
@@ -1164,7 +1155,7 @@ export function useFileOperations(
 
       if (folderName && folderName.trim() !== '' && folderActionTarget) {
         try {
-          await invoke(Invokes.CreateFolder, { path: `${folderActionTarget}/${folderName.trim()}` });
+          await invoke(Invokes.CreateFolder, { path: joinPath(folderActionTarget, folderName.trim()) });
           await refreshAllFolderTrees();
         } catch (err) {
           notify.error(ops('createFolderFailed', { error: String(err) }));
@@ -1193,13 +1184,11 @@ export function useFileOperations(
             'rename',
             undefined,
             undefined,
-            [oldPath, getParentDir(oldPath)]
+            [oldPath, dirname(oldPath)]
           );
           if (summary) notify.success(describeFileOperation(summary));
 
-          const parentDir = getParentDir(oldPath);
-          const separator = oldPath.includes('/') ? '/' : '\\';
-          const newPath = parentDir ? `${parentDir}${separator}${trimmedNewName}` : trimmedNewName;
+          const newPath = joinPath(dirname(oldPath), trimmedNewName);
           // The shown, root and pinned folders, the selection, the open
           // photograph, picks and thumbnails follow the folder.
           const reopen = followMoves(summary?.moves?.length ? summary.moves : [{ from: oldPath, to: newPath }]);
@@ -1236,7 +1225,7 @@ export function useFileOperations(
             (renamed) => renamed.some((path, index) => path !== renameTargetPaths[index]),
             (renamed) =>
               renameTargetPaths.flatMap((from, index) => (renamed[index] ? [{ from, to: renamed[index] }] : [])),
-            [...renameTargetPaths, ...renameTargetPaths.map(getParentDir)]
+            [...renameTargetPaths, ...renameTargetPaths.map(dirname)]
           );
           // The selection, the open photograph, picks, ratings and
           // thumbnails stay with the renamed photos (as on undo).

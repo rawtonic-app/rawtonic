@@ -335,8 +335,10 @@
     ],
     "windows": {
       "nsis": {
+        "installMode": "currentUser",
         "installerIcon": "icons/icon.ico",
-        "installerHooks": "windows/installer-hooks.nsh"
+        "installerHooks": "windows/installer-hooks.nsh",
+        "template": "windows/installer.nsi"
       },
       "wix": {
         "language": {
@@ -358,6 +360,15 @@
       },
       "rpm": {
         "desktopTemplate": "../packaging/linux/rawtonic.desktop.hbs"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE0MzNCOEI1RjE5MkExRTAKUldUZ29aTHh0Ymd6cExLbEdCU2thUmJzQkRtSEhNeEZTdFlPNVRuZ291YkdXSnFWaHQ4OFoya3cK",
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
       }
     }
   },

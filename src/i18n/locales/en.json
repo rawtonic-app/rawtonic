@@ -2313,6 +2313,8 @@
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Library database, with a Rawtonic Windows WAL locking correction.",
+        "Tauri bundler": "Windows NSIS installer template, adapted for side-by-side per-user and all-users installs.",
+        "Tauri updater plugin": "Install update: fetches the release manifest and package, checks its signature and replaces the macOS app.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5549,13 +5551,38 @@
   "updates": {
     "appImage": "You can also update this AppImage with AppImageUpdate.",
     "available": "Rawtonic {{version}} is available",
+    "cancel": "Cancel",
     "checking": "Checking…",
     "checkNow": "Check now",
     "close": "Close",
     "dontShowAgain": "Don't show after updates",
     "download": "Download",
+    "downloading": "Downloading… {{done}} MB",
+    "downloadingOf": "Downloading… {{percent}}% ({{done}} of {{size}} MB)",
+    "downloadInstead": "Download installer",
     "failed": "Could not check for updates. Try again later.",
+    "failure": {
+      "changed": "The AppImage was replaced since Rawtonic started, so it was left as it is. Restart Rawtonic, then check for updates again.",
+      "disk": "The update could not be written: the disk may be full or Rawtonic's folder is read-only. Rawtonic is unchanged.",
+      "manifestUnavailable": "This release can't be installed from within Rawtonic.",
+      "network": "The download failed (no connection to GitHub). Rawtonic is unchanged.",
+      "noPackage": "This release has no update package for this computer. Download the installer instead.",
+      "notOffered": "This update is no longer offered. Check for updates again.",
+      "notRestored": "The update could not be installed and the previous version could not be put back; it is kept at {{path}}. Download the installer to repair Rawtonic.",
+      "other": "The update failed. Rawtonic is unchanged.",
+      "permission": "Rawtonic may not replace itself here: an administrator's approval was not given, or its folder is not writable. Rawtonic is unchanged.",
+      "signature": "The downloaded update does not carry Rawtonic's signature, so it was not installed. Rawtonic is unchanged.",
+      "unsaved": "Not restarted, nothing installed: these changes could not be saved: {{changes}}."
+    },
+    "fallback": {
+      "allUsers": "This copy is installed for all users. To update it, download the installer; Windows asks for administrator approval.",
+      "moveToApplications": "To update Rawtonic from here, move it to the Applications folder first."
+    },
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "inAppDetail": "Rawtonic downloads the update from GitHub and checks its signature. Nothing is replaced until you restart.",
+    "install": "Install update",
+    "installing": "Installing the update… Rawtonic starts again in a moment.",
+    "later": "Later",
     "manual": "Check for updates",
     "noFile": "This release has no download for this computer; the release page lists every file.",
     "noNotes": "No release notes. The release page may have more.",
@@ -5568,9 +5595,15 @@
     "privacyNoticeLink": "Privacy details",
     "privacyNoticeOk": "OK",
     "privacyNoticeTitle": "Privacy",
+    "ready": "Rawtonic {{version}} is ready to install",
+    "readyDetail": "Restart now saves your edits, installs the update and starts Rawtonic again.",
     "releasePage": "Release page",
+    "restartAnyway": "Restart Anyway",
+    "restartNow": "Restart now",
+    "restartRunningMessage": "Still running: {{work}}. Restarting to update stops it; an export can be resumed from Activity after the restart.",
     "showWhatsNew": "Show what's new after an update",
     "startup": "Check for updates at startup",
+    "tryAgain": "Try again",
     "whatsNew": "What's new"
   }
 }

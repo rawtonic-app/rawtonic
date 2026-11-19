@@ -2,6 +2,8 @@
 
 Rawtonic additions: Copyright 2026 Rawtonic contributors, AGPL-3.0-or-later.
 
+`src-tauri/windows/installer.nsi` adapts the [Tauri CLI 2.12.5 NSIS template](https://github.com/tauri-apps/tauri/blob/tauri-cli-v2.12.5/crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi) to keep per-machine MSI installations in place. Copyright 2017 Cargo-Bundle developers, MIT (`src-tauri/resources/licenses/Tauri-Bundler-MIT.txt`).
+
 `vendor/libsqlite3-sys` contains libsqlite3-sys 0.38.2 (Copyright the rusqlite developers, MIT) and its public-domain SQLite 3.53.2 amalgamation. Original notices are preserved. Rawtonic's Windows shared-handle WAL locking correction is AGPL-3.0-or-later; see `RAWTONIC_PATCH.md` and `LICENSE_RAWTONIC_AGPL-3.0` in that directory.
 
 ## RapidRAW
@@ -47,6 +49,10 @@ The Windows builds with ONNX Runtime bundle Microsoft's [DirectX Shader Compiler
 ## libgphoto2 (tethered shooting)
 Tethered shooting talks to cameras through [libgphoto2](https://github.com/gphoto/libgphoto2) 2.5.34 (libgphoto2 and libgphoto2_port, Copyright the gphoto project, Lutz Müller, Marcus Meissner and contributors), [libusb](https://libusb.info/) 1.0.30 (Linux only; Copyright Johannes Erdfelt, Daniel Drake, Peter Stuge, Nathan Hjelm, Chris Dickens and contributors) and libltdl from [GNU Libtool](https://www.gnu.org/software/libtool/) 2.6.2 (Copyright Free Software Foundation, Inc.), all GNU LGPL v2.1 or later (`licenses/LGPL-2.1.txt`). They run only in the separate helper program `rawtonic-tether`, never in the app, and are linked dynamically: the app bundle carries them as separate shared libraries (macOS: `Contents/Frameworks`, the camera driver `ptp2` and the port driver in `Contents/Resources/gphoto2`), so they can be replaced with other builds of the same versions. They are built unmodified from the upstream release tarballs by `scripts/tether/build_libgphoto2.sh` (download addresses and SHA-256 checksums in that script; every release that ships them also offers those source tarballs from the same place as the app, as release assets), configured with only the PTP camera driver and one port driver — no network (PTP/IP), serial or disk port drivers. On Linux the port driver is libgphoto2's USB driver `usb1` on libusb; on macOS it is Rawtonic's own `icc` port driver (part of Rawtonic, AGPL), which passes PTP through macOS's ImageCaptureCore, and libusb is not shipped. The helper's Rust bindings are the `gphoto2` and `gphoto2-sys` crates from [CyberTimon/libgphoto2-rs](https://github.com/CyberTimon/libgphoto2-rs) (commit 878ca523, a fork of vibe-libgphoto2-rs; MIT OR Apache-2.0, vibe-libgphoto2-rs contributors).
 
+## RFC 8032 reference code (release script)
+
+`scripts/release/updater_manifest.py` verifies the in-app update signatures on the release machine with Ed25519 routines adapted from the Python reference code in RFC 8032, section 6 (S. Josefsson, I. Liusvaara), a Code Component under the IETF Trust's Revised BSD License (Trust Legal Provisions 4.e). It is not part of the app. Copyright (c) 2017 IETF Trust and the persons identified as authors of the code. All rights reserved. The license's conditions and disclaimer are kept in the file's header.
+
 ## Data and assets
 **Windows time zone names.** The Windows-to-IANA mapping in `crates/runtime/src/windows_zones.rs` is the table from [Jiff 1.0.0](https://docs.rs/crate/jiff/1.0.0/source/src/tz/system/windows/windows_zones.rs) (Copyright 2015 Andrew Gallant, MIT, `licenses/Jiff-MIT.txt`), derived from Unicode CLDR (Copyright Unicode, Inc., Unicode-3.0, `licenses/spdx/Unicode-3.0.txt`). Only the source header was changed.
 
@@ -56,7 +62,7 @@ The Lensfun display-name index `crates/engine/src/lensfun_display_names_2026_10_
 
 **spektrafilm LUTs** in `src-tauri/resources/film_luts`: Andrea Volpato, CC BY-SA 4.0 (`SPEKTRAFILM_LICENSE.txt`, unmodified). The UI labels and TITLE headers use descriptive names without stock-like numbers; filenames remain stable identifiers for saved edits. Header lines naming film and print stocks were removed; the LUT data is unchanged (`CHANGELOG.txt` in that folder).
 
-**Camera calibration values.** Per-camera colour matrices (`crates/rawdecode/src/camera_matrices.rs`), baseline exposures (`camera_exposure.rs`, with how they follow each file's ISO and Sony's capture gain, ARW tag 0x7316) and white-balance references (`unit_calibration_table.rs`) are numerical facts read from DNG files written by Adobe DNG Converter for sample RAW files, the same source dcraw, LibRaw and rawler use, and from Rawtonic's own measurements. The CHDK raw geometry and colour matrices of the Canon PowerShot SX710 HS, SX20 IS and IXUS 160 (`third_party/rawler/data/cameras/canon/`) are numerical facts from LibRaw's tables (`src/metadata/identify.cpp`, `src/tables/colordata.cpp`, LibRaw LLC, LGPL 2.1 / CDDL 1.0); the PowerShot Pro70's mosaic, levels and matrices from Adobe DNG Converter 18.7's DNG of a raw.pixls.us sample. The cameras' own lens correction data are read from each RAW file itself; the layout of Panasonic's lateral CA data (RW2 tag 0x011b, undocumented) was worked out from Rawtonic's own measurements of lateral CA on raw.pixls.us sample files, whose tag values (one GX80 frame) also serve as a test case. Rawtonic claims no copyright in these values. Tone and colour behaviour compared with other editors was measured by observing their output on test files; no code, profiles or look files of those editors are included.
+**Camera calibration values.** Per-camera colour matrices (`crates/rawdecode/src/camera_matrices.rs`), baseline exposures (`camera_exposure.rs`, with how they follow each file's ISO and Sony's capture gain, ARW tag 0x7316) and white-balance references (`unit_calibration_table.rs`) are numerical facts read from DNG files written by Adobe DNG Converter for sample RAW files, the same source dcraw, LibRaw and rawler use, and from Rawtonic's own measurements. The CHDK raw geometry and colour matrices of the Canon PowerShot SX710 HS, SX20 IS and IXUS 160 (`third_party/rawler/data/cameras/canon/`) are numerical facts from LibRaw's tables (`src/metadata/identify.cpp`, `src/tables/colordata.cpp`, LibRaw LLC, LGPL 2.1 / CDDL 1.0); the PowerShot Pro70's mosaic, levels and matrices from Adobe DNG Converter 18.7's DNG of a raw.pixls.us sample. The Canon sRAW/mRAW white levels by ISO (`third_party/rawler/data/cameras/canon/`, `sraw_white_by_iso`) are Adobe DNG Converter 18.7's WhiteLevel for copies of raw.pixls.us samples with the EXIF ISO changed. The Phase One flat-field position and the lossless JPEG handling of DNGs before 1.1 follow dnglab commits 5779679 and 8599522 (LGPL 2.1, like the vendored rawler). The cameras' own lens correction data are read from each RAW file itself; the layout of Panasonic's lateral CA data (RW2 tag 0x011b, undocumented) was worked out from Rawtonic's own measurements of lateral CA on raw.pixls.us sample files, whose tag values (one GX80 frame) also serve as a test case. Rawtonic claims no copyright in these values. Tone and colour behaviour compared with other editors was measured by observing their output on test files; no code, profiles or look files of those editors are included.
 
 **Film grain presets.** The settings of the built-in grain presets (`src-tauri/resources/presets/builtin.json`) are Rawtonic's own: Amount, Size, Roughness and Colour of Rawtonic's film grain fitted to Rawtonic's own measurements (grain strength, spectrum, channel correlation) of film grain scans that Wikimedia Commons user Wiley.andrew.r published under CC0 1.0 (uniformly exposed 35 mm negatives scanned at 4000 dpi: https://commons.wikimedia.org/wiki/File:Tri-x_400_grain1NoProfile.png, File:Tri-x_400_grain2NoProfile.png, File:Tmax100_GrainNoProfile.png, File:KodakUltramax400GrainScan01.tif, File:KodakUltramax400GrainScan02.tif, File:KodakEktar100GrainScan01.tif and File:KodakEktar100GrainScan02.tif). The scans are measurement sources only; they are not part of the source or the app, and the presets carry descriptive names.
 
@@ -487,6 +493,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | mimalloc | 0.1.52 | MIT |
 | mime | 0.3.17 | MIT OR Apache-2.0 |
 | minimal-lexical | 0.2.1 | MIT/Apache-2.0 |
+| minisign-verify | 0.3.0 | MIT |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 |
 | mio | 1.2.2 | MIT |
 | monostate | 0.1.18 | MIT OR Apache-2.0 |
@@ -544,6 +551,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | objc2-io-surface | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-metal | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-open-directory | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| objc2-osa-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-quartz-core | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-ui-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-user-notifications | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
@@ -563,6 +571,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | ort-sys | 2.0.0-rc.15 | MIT OR Apache-2.0 |
 | os_info | 3.15.0 | MIT |
 | os_pipe | 1.2.3 | MIT |
+| osakit | 0.3.1 | MIT OR Apache-2.0 |
 | page_size | 0.6.0 | MIT/Apache-2.0 |
 | pango | 0.18.3 | MIT |
 | pango-sys | 0.18.0 | MIT |
@@ -757,6 +766,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | system-deps | 6.2.2 | MIT OR Apache-2.0 |
 | tao | 0.37.1 | Apache-2.0 |
 | tao-macros | 0.1.4 | MIT OR Apache-2.0 |
+| tar | 0.4.46 | MIT OR Apache-2.0 |
 | target-features | 0.1.6 | MIT OR Apache-2.0 |
 | target-lexicon | 0.12.16 | Apache-2.0 WITH LLVM-exception |
 | tauri | 2.12.1 | Apache-2.0 OR MIT |
@@ -770,6 +780,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | tauri-plugin-process | 2.3.1 | Apache-2.0 OR MIT |
 | tauri-plugin-shell | 2.3.5 | Apache-2.0 OR MIT |
 | tauri-plugin-single-instance | 2.5.4 | (Apache-2.0 OR MIT) AND AGPL-3.0-or-later |
+| tauri-plugin-updater | 2.14.1 | Apache-2.0 OR MIT |
 | tauri-plugin-wayland-nvidia-quirk | 0.1.0 | Apache-2.0 |
 | tauri-runtime | 2.12.1 | Apache-2.0 OR MIT |
 | tauri-runtime-wry | 2.12.1 | Apache-2.0 OR MIT |
@@ -940,6 +951,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | wry | 0.57.0 | Apache-2.0 OR MIT |
 | x11 | 2.21.0 | MIT |
 | x11-dl | 2.21.0 | MIT |
+| xattr | 1.6.1 | MIT OR Apache-2.0 |
 | xml-rs | 0.8.29 | MIT |
 | xxhash-rust | 0.8.19 | BSL-1.0 |
 | y4m | 0.8.0 | MIT |

@@ -2450,6 +2450,8 @@
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Database della libreria, con una correzione Rawtonic del blocco WAL su Windows.",
+        "Tauri bundler": "Modello del programma di installazione NSIS per Windows, adattato per consentire la coesistenza di un’installazione individuale e di una per tutti gli utenti.",
+        "Tauri updater plugin": "«Installa aggiornamento»: scarica il manifesto e il pacchetto della versione, ne verifica la firma e sostituisce l’app macOS.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5763,13 +5765,38 @@
   "updates": {
     "appImage": "Puoi aggiornare questo AppImage anche con AppImageUpdate.",
     "available": "Rawtonic {{version}} è disponibile",
+    "cancel": "Annulla",
     "checking": "Controllo…",
     "checkNow": "Controlla ora",
     "close": "Chiudi",
     "dontShowAgain": "Non mostrare dopo gli aggiornamenti",
     "download": "Scarica",
+    "downloading": "Download… {{done}} MB",
+    "downloadingOf": "Download… {{percent}}% ({{done}} di {{size}} MB)",
+    "downloadInstead": "Scarica il programma di installazione",
     "failed": "Impossibile verificare gli aggiornamenti. Riprova più tardi.",
+    "failure": {
+      "changed": "L’AppImage è stata sostituita dopo l’avvio di Rawtonic, quindi è stata lasciata così. Riavvia Rawtonic e cerca di nuovo gli aggiornamenti.",
+      "disk": "Impossibile scrivere l’aggiornamento: il disco potrebbe essere pieno o la cartella di Rawtonic di sola lettura. Rawtonic non è cambiato.",
+      "manifestUnavailable": "Non è possibile installare questa versione dall’interno di Rawtonic.",
+      "network": "Download non riuscito (nessuna connessione a GitHub). Rawtonic non è cambiato.",
+      "noPackage": "Questa versione non ha un pacchetto di aggiornamento per questo computer. Scarica invece il programma di installazione.",
+      "notOffered": "Questo aggiornamento non è più disponibile. Cerca di nuovo gli aggiornamenti.",
+      "notRestored": "Impossibile installare l’aggiornamento e ripristinare la versione precedente, che si trova in {{path}}. Scarica il programma di installazione per riparare Rawtonic.",
+      "other": "Aggiornamento non riuscito. Rawtonic non è cambiato.",
+      "permission": "Rawtonic non può sostituirsi qui: l’approvazione di un amministratore non è stata data o la sua cartella non è scrivibile. Rawtonic non è cambiato.",
+      "signature": "L’aggiornamento scaricato non ha la firma di Rawtonic, quindi non è stato installato. Rawtonic non è cambiato.",
+      "unsaved": "Nessun riavvio, nulla installato: queste modifiche non sono state salvate: {{changes}}."
+    },
+    "fallback": {
+      "allUsers": "Questa copia è installata per tutti gli utenti. Per aggiornarla, scarica il programma di installazione; Windows chiederà l’approvazione di un amministratore.",
+      "moveToApplications": "Per aggiornare Rawtonic da qui, spostalo prima nella cartella Applicazioni."
+    },
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "inAppDetail": "Rawtonic scarica l’aggiornamento da GitHub e ne verifica la firma. Nulla viene sostituito finché non riavvii.",
+    "install": "Installa aggiornamento",
+    "installing": "Installazione dell’aggiornamento… Rawtonic si riavvierà tra un momento.",
+    "later": "Più tardi",
     "manual": "Cerca aggiornamenti",
     "noFile": "Questa versione non ha un download per questo computer; la pagina della versione elenca tutti i file.",
     "noNotes": "Nessuna nota di versione. La pagina della versione potrebbe dire di più.",
@@ -5782,9 +5809,15 @@
     "privacyNoticeLink": "Dettagli sulla privacy",
     "privacyNoticeOk": "OK",
     "privacyNoticeTitle": "Privacy",
+    "ready": "Rawtonic {{version}} è pronto per l’installazione",
+    "readyDetail": "«Riavvia ora» salva le modifiche, installa l’aggiornamento e riavvia Rawtonic.",
     "releasePage": "Pagina della versione",
+    "restartAnyway": "Riavvia comunque",
+    "restartNow": "Riavvia ora",
+    "restartRunningMessage": "Ancora in corso: {{work}}. Il riavvio per l’aggiornamento lo interrompe; un’esportazione può riprendere da Attività dopo il riavvio.",
     "showWhatsNew": "Mostra le novità dopo un aggiornamento",
     "startup": "Cerca aggiornamenti all’avvio",
+    "tryAgain": "Riprova",
     "whatsNew": "Novità"
   }
 }

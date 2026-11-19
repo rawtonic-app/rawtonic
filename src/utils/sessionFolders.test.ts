@@ -3,6 +3,8 @@ import {
   folderRefusalMessage,
   isInternalSessionFolder,
   parseFolderRefusal,
+  sessionFolderPath,
+  sessionFoldersOrDefault,
   withoutInternalSessionFolders
 } from './sessionFolders';
 
@@ -68,4 +70,16 @@ it('reads a folder refused for being (in) an Output folder, and says it in the u
   const gone = folderRefusalMessage(t, refusal('capture', '/job/Deliveries', '/job/Deliveries'), false);
   expect(gone).toContain('session.folders.inOutputFolderNotThere:');
   expect(folderRefusalMessage(t, 'something else', true)).toBeNull();
+});
+
+it('uses native paths for default session folders, including a nested Capture path', () => {
+  const directory = 'C:\\Jobs\\Acme\\';
+  expect(sessionFoldersOrDefault(directory, undefined).map((folder) => folder.path)).toEqual([
+    'C:\\Jobs\\Acme\\Capture',
+    'C:\\Jobs\\Acme\\Selects',
+    'C:\\Jobs\\Acme\\Output'
+  ]);
+  expect(sessionFolderPath({ directory, manifest: { capture: 'Photos/Incoming' } }, 'capture')).toBe(
+    'C:\\Jobs\\Acme\\Photos\\Incoming'
+  );
 });

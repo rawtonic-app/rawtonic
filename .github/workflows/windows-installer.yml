@@ -1,4 +1,4 @@
-# The experimental, unsigned Windows x64 downloads: the NSIS installer
+# The unsigned Windows x64 downloads: the NSIS installer
 # (per-user), the MSI (per-machine) and a portable zip, built as the private
 # Windows build does it (`tauri build`, ONNX Runtime and DXC bundled, static
 # VC runtime with dynamic UCRT), scanned with Microsoft Defender, then each
@@ -541,6 +541,101 @@ jobs:
           if (Test-Path "$env:INSTALL_DIR\rawtonic-app.exe") { Write-Error 'still installed'; exit 1 }
           if (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Rawtonic') { Write-Error 'Apps & Features entry left behind'; exit 1 }
           'update from the last release: ok, uninstalled clean'
+
+  # /S skips all pages. /P also exercises the reinstall callback that used to
+  # run the MSI uninstaller regardless of the user's selection.
+  msi-coexist:
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: silent
+            switch: /S
+          - mode: passive
+            switch: /P
+    name: MSI and NSIS coexist (${{ matrix.mode }})
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NSIS_SWITCH: ${{ matrix.switch }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: installer-out
+      - name: Keep the alpha.13 all-users MSI while installing NSIS for the current user
+        run: |
+          $msi = Join-Path $env:RUNNER_TEMP 'Rawtonic_0.1.0-alpha.13_x64.msi'
+          gh release download v0.1.0-alpha.13 -R $env:GITHUB_REPOSITORY -p (Split-Path $msi -Leaf) -D $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download the alpha.13 MSI' }
+          if ((Get-FileHash $msi).Hash -ne '9b9ba252ad74d0b17c7c9820e8b251882c04f30f92c1f21a8d18dd4486c63dbc') {
+            throw 'Unexpected alpha.13 MSI checksum'
+          }
+
+          # Audit starts so even an unsuccessful msiexec /X is caught. The
+          # known MSI install below must appear before we trust the audit.
+          auditpol.exe /set '/subcategory:{0CCE922B-69AE-11D9-BED3-505054503030}' /success:enable
+          if ($LASTEXITCODE -ne 0) { throw 'Could not enable process creation auditing' }
+          function Get-MsiStarts($after) {
+            $xpath = "*[System[EventID=4688 and EventRecordID > $after]]"
+            try {
+              Get-WinEvent -LogName Security -FilterXPath $xpath -ErrorAction Stop | Where-Object {
+                $image = ([xml]$_.ToXml()).Event.EventData.Data | Where-Object Name -eq 'NewProcessName'
+                $image.'#text' -like '*\msiexec.exe'
+              }
+            } catch {
+              if ($_.FullyQualifiedErrorId -notlike 'NoMatchingEventsFound,*') { throw }
+            }
+          }
+
+          $beforeInstall = (Get-WinEvent -LogName Security -MaxEvents 1).RecordId
+          $msiLog = Join-Path $env:RUNNER_TEMP 'alpha13-install.log'
+          $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", 'ALLUSERS=1', '/qn', '/norestart', '/l*v', "`"$msiLog`"" -PassThru -Wait
+          if ($p.ExitCode -ne 0) {
+            Get-Content $msiLog -Tail 60
+            throw "alpha.13 MSI install failed ($($p.ExitCode))"
+          }
+          if (-not (Get-MsiStarts $beforeInstall)) { throw 'Process audit did not record the MSI install' }
+
+          $uninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall'
+          $machine = @(Get-ItemProperty "HKLM:\$uninstallKey\*" | Where-Object {
+            $_.DisplayName -eq 'Rawtonic' -and $_.WindowsInstaller -eq 1
+          })
+          if ($machine.Count -ne 1 -or $machine[0].DisplayVersion -ne '0.1.0.1300') {
+            throw 'Expected one alpha.13 MSI in the machine uninstall registry'
+          }
+          $machine = $machine[0]
+          $machineDir = Join-Path $env:ProgramFiles 'Rawtonic'
+          if ($machine.InstallLocation.TrimEnd('\') -ne $machineDir) { throw 'Unexpected MSI install location' }
+          $msiExe = Join-Path $machineDir 'rawtonic-app.exe'
+          $msiHash = (Get-FileHash $msiExe).Hash
+          $beforeSetup = (Get-WinEvent -LogName Security -MaxEvents 1).RecordId
+
+          $setup = (Get-ChildItem installer-out\*-setup.exe)[0].FullName
+          $p = Start-Process $setup -ArgumentList $env:NSIS_SWITCH -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "NSIS $env:NSIS_SWITCH failed ($($p.ExitCode))" }
+          $userDir = Join-Path $env:LOCALAPPDATA 'Rawtonic'
+          $user = Get-ItemProperty "HKCU:\$uninstallKey\Rawtonic"
+          if ($user.InstallLocation.Trim('"') -ne $userDir -or -not (Test-Path "$userDir\rawtonic-app.exe")) {
+            throw 'No per-user Rawtonic install in LocalAppData'
+          }
+
+          # A custom /D must not let even an administrator overwrite the MSI.
+          $p = Start-Process $setup -ArgumentList '/S', "/D=$machineDir" -PassThru -Wait
+          if ($p.ExitCode -eq 0) { throw 'NSIS accepted the MSI directory as its destination' }
+          if (Get-MsiStarts $beforeSetup) { throw 'NSIS started msiexec while the MSI was installed' }
+          $after = Get-ItemProperty $machine.PSPath
+          if ($after.UninstallString -ne $machine.UninstallString -or
+              $after.DisplayVersion -ne $machine.DisplayVersion -or
+              (Get-FileHash $msiExe).Hash -ne $msiHash) {
+            throw 'The machine MSI registration or executable changed'
+          }
+          "NSIS $($user.DisplayVersion) ($env:NSIS_SWITCH) and MSI $($after.DisplayVersion) both installed; no msiexec launch"
 
   # The first page of each installer as the user sees it, captured from the
   # runner's desktop (an interactive install, killed after the screenshot).

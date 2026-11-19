@@ -36,8 +36,6 @@ mod preview_tests;
 pub mod camera_cover;
 #[path = "color_noise_view.rs"]
 pub mod color_noise_view;
-#[path = "deferred_display.rs"]
-mod deferred_display;
 #[path = "effect_passes.rs"]
 mod effect_passes;
 #[path = "tone_split.rs"]
@@ -50,7 +48,6 @@ pub use frame_supersession::{FRAME_SUPERSEDED, is_superseded, supersedable};
 mod idle_compile_child;
 #[path = "idle_compiles.rs"]
 mod idle_compiles;
-pub use deferred_display::{plan_deferred_exports, set_idle_deferred_exports};
 pub use idle_compile_child::{
     HELPER_ERROR_FILE, IdleCompileHelper, compile_in_helper_process, set_idle_compile_helper,
     set_on_cold_helper_compile,
@@ -93,6 +90,56 @@ pub struct GpuContext {
     pub display_space: rawtonic_engine::output_color_space::OutputColorSpace,
 }
 
+/// The GPU allocator's block sizes (Vulkan and DX12; Metal ignores them).
+/// On an integrated GPU its memory is the system's. wgpu's `Performance`
+/// blocks (128-256 MB from the start, the last one of each memory type
+/// kept) held freed export buffers beside a Radeon 680M's 2-photo export.
+/// Blocks that start at 8 MB and grow to 256 MB returned them: app headless
+/// export of 7 large RAWs at 2 jobs 4.42 -> 4.23 GB, at 1 job 3.37 ->
+/// 2.98 GB, GUI at 1 thread 5.86 -> 5.43 GB. `MemoryUsage` (8-64 MB) saved
+/// more, but the display at 100 % (3840 x 2880 regions) drew ~7 % fewer
+/// frames in an Exposure drag, 8-128 MB ~4 %; 8-256 MB drew as many as
+/// `Performance` (630 vs 632 frames, medians; notes:
+/// benchmark-results/wmema-2026-11-18). The display and the exports share
+/// one device. Discrete GPUs keep `Performance`.
+fn memory_hints(device_type: wgpu::DeviceType) -> wgpu::MemoryHints {
+    const MB: u64 = 1 << 20;
+    if device_type == wgpu::DeviceType::IntegratedGpu {
+        wgpu::MemoryHints::Manual {
+            suballocated_device_memory_block_size: 8 * MB..256 * MB,
+        }
+    } else {
+        wgpu::MemoryHints::Performance
+    }
+}
+
+#[cfg(test)]
+mod memory_hints_tests {
+    use super::*;
+
+    #[test]
+    fn integrated_gpus_start_with_small_allocator_blocks() {
+        let wgpu::MemoryHints::Manual {
+            suballocated_device_memory_block_size: sizes,
+        } = memory_hints(wgpu::DeviceType::IntegratedGpu)
+        else {
+            panic!("integrated GPUs set their block sizes");
+        };
+        assert_eq!(sizes, 8 << 20..256 << 20);
+        for other in [
+            wgpu::DeviceType::DiscreteGpu,
+            wgpu::DeviceType::VirtualGpu,
+            wgpu::DeviceType::Cpu,
+            wgpu::DeviceType::Other,
+        ] {
+            assert!(matches!(
+                memory_hints(other),
+                wgpu::MemoryHints::Performance
+            ));
+        }
+    }
+}
+
 /// The processing device requested from `adapter`: its own limits and, where
 /// available, adapter-specific texture format features. Shared by the app's
 /// window context and [`GpuContext::headless`].
@@ -111,7 +158,7 @@ pub fn processing_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDesc
         required_features,
         required_limits: adapter.limits(),
         experimental_features: wgpu::ExperimentalFeatures::default(),
-        memory_hints: wgpu::MemoryHints::Performance,
+        memory_hints: memory_hints(adapter.get_info().device_type),
         trace: wgpu::Trace::Off,
     }
 }
@@ -4465,9 +4512,6 @@ pub struct GpuProcessor {
         VariantTable<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>,
     high_precision_shader: wgpu::ShaderModule,
     high_precision_layout: wgpu::PipelineLayout,
-    /// Under a compile limit the display variants exports render with in
-    /// float output (`deferred_display`, G76/WCC10).
-    deferred_display: Arc<deferred_display::DeferredDisplay>,
     high_precision_bgl: wgpu::BindGroupLayout,
     high_precision_pipeline: std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>,
     /// The float tiles, for [`TILE_SIZE`] and [`EXPORT_TILE_SIZE`] tiles
@@ -6731,20 +6775,10 @@ pub fn wait_for_running_compiles(what: &str) {
     }
 }
 
-/// An export of the photo shown in the editor starts: under a compile limit
-/// the variant it renders with (`deferred`: a 16-bit export or one of
-/// several outputs, `exports_with_deferred_display`; else the display
-/// variant) compiles now if it is not compiled, in the idle compiles'
-/// helper process, and `wait_for_running_compiles`, which the export calls
-/// before it makes its textures, waits for it (`idle_compiles::
-/// export_starts`). Nothing without a compile limit or a shown photo.
-pub fn export_of_shown_photo_starts(deferred: bool) {
-    // With the effect passes every export renders with the display variant.
-    let deferred = deferred && !effect_passes::here();
-    if deferred {
-        deferred_display::note_deferred_export();
-    }
-    idle_compiles::export_starts(deferred);
+/// Starts the shown photo's display variant in the idle helper if needed.
+/// Exports under a compile limit wait for it before allocating textures.
+pub fn export_of_shown_photo_starts() {
+    idle_compiles::export_starts();
 }
 
 /// Whether shader compiles run under a limit (AMD's Windows Vulkan driver,
@@ -8571,11 +8605,6 @@ impl GpuProcessor {
             preview_layout: pipeline_layout,
             export_pipelines: variant_table(),
             high_precision_export_pipelines: variant_table(),
-            deferred_display: deferred_display::DeferredDisplay::new(
-                &high_precision_source,
-                high_precision_shader.clone(),
-                high_precision_pipeline_layout.clone(),
-            ),
             effect_passes,
             high_precision_shader,
             high_precision_layout: high_precision_pipeline_layout,
@@ -9697,7 +9726,6 @@ impl GpuProcessor {
             failed: Arc::clone(&self.preview_failed),
             layer_sums: Arc::clone(&self.layer_sum_pipelines),
             layer_sum_compilation: Arc::clone(&self.layer_sum_compilation),
-            deferred: Arc::clone(&self.deferred_display),
         }
     }
 
@@ -10254,7 +10282,8 @@ impl GpuProcessor {
             .iter()
             .map(|output| {
                 output.precision == RenderOutputPrecision::EightBit
-                    && self.exports_with_display_variant(&request.adjustments)
+                    && request.adjustments.global.region_curve_active[1] == 0
+                    && self.prefer_display_for_exports()
             })
             .collect::<Vec<_>>();
         let mut rendered: Vec<Option<(RenderedPixels, u32, u32)>> =
@@ -10314,11 +10343,8 @@ impl GpuProcessor {
             .collect()
     }
 
-    /// Whether an 8-bit export of `adjustments` renders with the display
-    /// variant (`export_display_pipeline`): under a compile limit, unless a
-    /// global curve is sampled into a table (those export with the general
-    /// pipeline, `export_variant`). Elsewhere exports keep their own variants
-    /// and bytes.
+    /// Under a compile limit exports reuse the editor's display variants.
+    /// Elsewhere exports use their own variants.
     ///
     /// No `renderVersion` gates this, so existing edits take it too
     /// (coordinator decision, G76/WCC7 option 1). A compile limit exists only
@@ -10331,20 +10357,17 @@ impl GpuProcessor {
     /// recipe version can bring them back on that driver; a version key here
     /// would keep only WCC6's unreleased folded bytes. Gating it everywhere
     /// instead would change new edits' exports on every driver for no gain.
-    fn exports_with_display_variant(
-        &self,
-        adjustments: &crate::image_processing::PreparedAdjustments,
-    ) -> bool {
+    fn prefer_display_for_exports(&self) -> bool {
         #[cfg(test)]
         let forced = self
             .force_export_display
             .load(std::sync::atomic::Ordering::Relaxed);
         #[cfg(not(test))]
         let forced = false;
-        (forced || compile_limited()) && adjustments.global.region_curve_active[1] == 0
+        forced || compile_limited()
     }
 
-    /// The display variant an 8-bit export renders with under a compile
+    /// The display variant an export renders with under a compile
     /// limit (`export_display_features`), compiled here if this processor
     /// has none yet: a compile of the same module the editor's processor
     /// made is answered by the pipeline cache. The Radeon 680M's driver
@@ -10373,55 +10396,6 @@ impl GpuProcessor {
             }
             self.compile_preview_variant(features);
             std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-    }
-
-    /// Whether an export that does not render with the 8-bit display variant
-    /// (`exports_with_display_variant`: 16-bit, several outputs, a curve
-    /// sampled into a table) renders with the deferred display variant
-    /// (`deferred_display`): under a compile limit. Elsewhere exports keep
-    /// their own variants and bytes. No `renderVersion` gates it, for the
-    /// reason given at `exports_with_display_variant` (G76/WCC10, user
-    /// decision 2026-11-13).
-    fn exports_with_deferred_display(&self) -> bool {
-        #[cfg(test)]
-        let forced = self
-            .force_export_display
-            .load(std::sync::atomic::Ordering::Relaxed);
-        #[cfg(not(test))]
-        let forced = false;
-        forced || compile_limited()
-    }
-
-    /// The deferred display variant an export renders with
-    /// (`exports_with_deferred_display`), compiled here if this processor
-    /// has none yet (the driver's pipeline cache answers a module the
-    /// editor's idle compiles made); the export variant if it fails.
-    fn deferred_display_pipeline(
-        &self,
-        adjustments: &crate::image_processing::PreparedAdjustments,
-    ) -> Result<(&wgpu::ComputePipeline, bool), String> {
-        // With the effect passes the display variant itself: its main pass
-        // stores float colours, which the finish pass turns into the colour
-        // each output encodes.
-        if self.effect_passes.is_some() {
-            return self.export_display_pipeline(adjustments, MainOutput::Deferred);
-        }
-        let features = export_display_features(adjustments);
-        log::info!("GPU export renders with deferred display variant {features}");
-        deferred_display::note_deferred_export();
-        match self
-            .deferred_display
-            .compile(&self.context.device, features)
-        {
-            Ok(pipeline) => Ok((pipeline, false)),
-            Err(error) => {
-                log::error!(
-                    "Deferred display variant {features} unavailable for an export; using the export variant: {error}"
-                );
-                self.export_pipeline(adjustments, MainOutput::Deferred)
-                    .map(|pipeline| (pipeline, false))
-            }
         }
     }
 
@@ -10882,17 +10856,18 @@ impl GpuProcessor {
             && !output_to_display
             && outputs.is_empty()
             && output_precision == RenderOutputPrecision::EightBit
-            && self.exports_with_display_variant(&request.adjustments);
-        // Every other export under a compile limit renders with the display
-        // variant's code in float output (`deferred_display_pipeline`); it
-        // goes through the deferred path below (`own_output`).
-        let export_deferred_display = readback_shader == ReadbackShader::Export
+            && request.adjustments.global.region_curve_active[1] == 0
+            && self.prefer_display_for_exports();
+        // Other compile-limited exports use the display main pass and
+        // write float colours for the finish pass to encode.
+        let export_with_display_finish = readback_shader == ReadbackShader::Export
             && !output_to_display
             && !export_display
-            && self.exports_with_deferred_display();
+            && self.effect_passes.is_some()
+            && self.prefer_display_for_exports();
         let display_shader = output_to_display
             || export_display
-            || export_deferred_display
+            || export_with_display_finish
             || (matches!(
                 readback_shader,
                 ReadbackShader::Display | ReadbackShader::Preview
@@ -10984,7 +10959,7 @@ impl GpuProcessor {
         let export_detail = (readback_shader == ReadbackShader::Export
             && !output_to_display
             && !export_display
-            && !export_deferred_display
+            && !export_with_display_finish
             && !force_full_preparation
             && !force_general_pipeline)
             .then(|| self.export_detail_pipeline(&request.adjustments))
@@ -11004,9 +10979,9 @@ impl GpuProcessor {
             (
                 if force_full_preparation || force_general_pipeline {
                     self.general_pipeline(&request.adjustments, MainOutput::Deferred)?
-                } else if export_deferred_display {
+                } else if export_with_display_finish {
                     let (pipeline, variant) =
-                        self.deferred_display_pipeline(&request.adjustments)?;
+                        self.export_display_pipeline(&request.adjustments, MainOutput::Deferred)?;
                     display_variant = variant;
                     pipeline
                 } else {
@@ -11274,7 +11249,7 @@ impl GpuProcessor {
         let mut summed_variant = false;
         if display_shader {
             let mut layers = prepare_layers(adjustments);
-            if export_display || export_deferred_display {
+            if export_display || export_with_display_finish {
                 // Exports evaluate every curve exactly: the display's
                 // curve tables are approximations within a tolerance. A
                 // global curve sampled into a table (> 16 points; only the
@@ -11306,7 +11281,7 @@ impl GpuProcessor {
                 let specialised = enabled
                     && display_shader
                     && !export_display
-                    && !export_deferred_display
+                    && !export_with_display_finish
                     && !force_full_preparation
                     && !force_general_pipeline
                     && !test_override

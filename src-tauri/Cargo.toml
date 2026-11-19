@@ -80,6 +80,7 @@ ort = { workspace = true, features = ["std", "ndarray", "load-dynamic", "api-22"
 ndarray = { workspace = true }
 tauri-plugin-process = "2.4.0"
 tauri-plugin-os = "2.4.0"
+tauri-plugin-updater = { version = "2.14.1", default-features = false, features = ["rustls-tls"] }
 log = { workspace = true }
 fern = "0.7"
 little_exif = { workspace = true }

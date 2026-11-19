@@ -6,7 +6,21 @@
 //!
 //! `cargo run --release --example bench -p rawtonic-superres -- MODELS IN.tif [OUT.rgb8] [REFERENCE.rgb8]`
 
-use std::time::Instant;
+use std::{
+    io::{self, Write},
+    path::Path,
+    time::Instant,
+};
+
+fn write_dump(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let path = std::path::absolute(path)?;
+    let parent = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
+    let mut temp = rawtonic_fs::temp::file_for(&path)?;
+    temp.write_all(bytes)?;
+    temp.as_file().sync_all()?;
+    rawtonic_fs::no_clobber::persist(temp, &path)?;
+    rawtonic_fs::sync_dir(parent)
+}
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -119,13 +133,23 @@ fn main() -> anyhow::Result<()> {
         );
     }
     if let Some(path) = args.get(3).filter(|p| p.as_str() != "-") {
-        // No-clobber: never overwrites a file (QA tools follow the same rule as the app).
-        use std::io::Write;
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)?
-            .write_all(raw)?;
+        write_dump(Path::new(path), raw)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn existing_dump_is_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bench.rgb8");
+        write_dump(&path, b"original").unwrap();
+        let error = write_dump(&path, b"replacement").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&path).unwrap(), b"original");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
 }

@@ -2450,6 +2450,8 @@
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
         "SQLite / rusqlite": "Base de dades de la biblioteca, amb una correcció de Rawtonic al bloqueig WAL de Windows.",
+        "Tauri bundler": "Plantilla de l’instal·lador NSIS per a Windows, adaptada perquè una instal·lació individual pugui coexistir amb una per a tots els usuaris.",
+        "Tauri updater plugin": "«Instal·la l’actualització»: obté el manifest i el paquet de la versió, en comprova la signatura i substitueix l’app de macOS.",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -5763,13 +5765,38 @@
   "updates": {
     "appImage": "També pots actualitzar aquest AppImage amb AppImageUpdate.",
     "available": "Rawtonic {{version}} està disponible",
+    "cancel": "Cancel·la",
     "checking": "S’està comprovant…",
     "checkNow": "Comprova ara",
     "close": "Tanca",
     "dontShowAgain": "No ho mostris després de les actualitzacions",
     "download": "Baixa",
+    "downloading": "S’està baixant… {{done}} MB",
+    "downloadingOf": "S’està baixant… {{percent}} % ({{done}} de {{size}} MB)",
+    "downloadInstead": "Baixa l’instal·lador",
     "failed": "No s’han pogut comprovar les actualitzacions. Torna-ho a provar més tard.",
+    "failure": {
+      "changed": "L’AppImage s’ha substituït des que es va obrir Rawtonic, així que s’ha deixat tal com és. Reinicia Rawtonic i torna a cercar actualitzacions.",
+      "disk": "No s’ha pogut escriure l’actualització: potser el disc és ple o la carpeta de Rawtonic és només de lectura. Rawtonic no ha canviat.",
+      "manifestUnavailable": "Aquesta versió no es pot instal·lar des del Rawtonic.",
+      "network": "La baixada ha fallat (sense connexió amb GitHub). Rawtonic no ha canviat.",
+      "noPackage": "Aquesta versió no té paquet d’actualització per a aquest ordinador. Baixa l’instal·lador.",
+      "notOffered": "Aquesta actualització ja no s’ofereix. Torna a cercar actualitzacions.",
+      "notRestored": "No s’ha pogut instal·lar l’actualització ni restaurar la versió anterior; es troba a {{path}}. Baixa l’instal·lador per reparar Rawtonic.",
+      "other": "L’actualització ha fallat. Rawtonic no ha canviat.",
+      "permission": "Rawtonic no es pot substituir aquí: no s’ha donat l’aprovació d’un administrador o la seva carpeta no admet escriptura. Rawtonic no ha canviat.",
+      "signature": "L’actualització baixada no porta la signatura de Rawtonic, així que no s’ha instal·lat. Rawtonic no ha canviat.",
+      "unsaved": "No s’ha reiniciat ni s’ha instal·lat res: aquests canvis no s’han pogut desar: {{changes}}."
+    },
+    "fallback": {
+      "allUsers": "Aquesta còpia està instal·lada per a tots els usuaris. Per actualitzar-la, baixa l’instal·lador; Windows demanarà l’aprovació d’un administrador.",
+      "moveToApplications": "Per actualitzar Rawtonic des d’aquí, mou-lo primer a la carpeta Aplicacions."
+    },
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "inAppDetail": "Rawtonic baixa l’actualització de GitHub i en comprova la signatura. No se substitueix res fins que reinicies.",
+    "install": "Instal·la l’actualització",
+    "installing": "S’està instal·lant l’actualització… Rawtonic es reiniciarà d’aquí a un moment.",
+    "later": "Més tard",
     "manual": "Cerca actualitzacions",
     "noFile": "Aquesta versió no té descàrrega per a aquest ordinador; la pàgina de la versió llista tots els fitxers.",
     "noNotes": "Sense notes de la versió. La pàgina de la versió en pot tenir més.",
@@ -5782,9 +5809,15 @@
     "privacyNoticeLink": "Detalls de privadesa",
     "privacyNoticeOk": "OK",
     "privacyNoticeTitle": "Privadesa",
+    "ready": "Rawtonic {{version}} està a punt per instal·lar",
+    "readyDetail": "«Reinicia ara» desa les edicions, instal·la l’actualització i torna a obrir Rawtonic.",
     "releasePage": "Pàgina de la versió",
+    "restartAnyway": "Reinicia igualment",
+    "restartNow": "Reinicia ara",
+    "restartRunningMessage": "Encara en curs: {{work}}. Reiniciar per actualitzar ho atura; una exportació es pot reprendre des d’Activitat després del reinici.",
     "showWhatsNew": "Mostra les novetats després d'una actualització",
     "startup": "Cerca actualitzacions en iniciar",
+    "tryAgain": "Torna-ho a provar",
     "whatsNew": "Novetats"
   }
 }

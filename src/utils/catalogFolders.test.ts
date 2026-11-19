@@ -42,11 +42,19 @@ it('tells folders below others apart from look-alike names', () => {
   expect(isBelow('/a', '/a')).toBe(false);
   expect(isBelow('/ab', '/a')).toBe(false);
   expect(isBelow('C:\\Photos\\2026', 'C:\\Photos')).toBe(true);
+  expect(isBelow('\\\\?\\C:\\Photos\\2026', 'C:\\Photos')).toBe(true);
   expect(isBelow('/Volumes/Card/x', '/')).toBe(true);
   expect(outermost(['/a/b', '/a', '/c', '/a/b/c', '/c'])).toEqual(['/a', '/c']);
   expect(labelOnVolume('/Volumes/Card/Shoots/2026', '/Volumes/Card')).toBe('Shoots/2026');
   expect(labelOnVolume('/Volumes/Card', '/Volumes/Card')).toBe('Card');
   expect(labelOnVolume('/Users/me/Pictures', '/')).toBe('Users/me/Pictures');
+});
+
+it('grafts Windows folders using the tree’s native spelling', () => {
+  const tree = node('\\\\nas\\Photos');
+  const grafted = graftMissing(tree, { path: '\\\\?\\UNC\\nas\\Photos\\2026\\Trip', count: 4 });
+  expect(grafted.children[0].path).toBe('\\\\nas\\Photos\\2026');
+  expect(grafted.children[0].children[0]).toMatchObject({ path: '\\\\nas\\Photos\\2026\\Trip', imageCount: 4 });
 });
 
 it('puts a missing folder at its place with any missing parents between', () => {

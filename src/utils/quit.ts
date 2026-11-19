@@ -435,7 +435,24 @@ export type AskToQuitWhileRunning = (work: string[], quit: () => void, cancel: (
 
 /** The app's confirmation for a quit while exports or imports run: Keep
  * Working is the default (focused) button. */
-export const confirmQuitWhileRunning: AskToQuitWhileRunning = (work, quit, cancel) => {
+export const confirmQuitWhileRunning: AskToQuitWhileRunning = (work, quit, cancel) =>
+  confirmWhileRunning(
+    (running) => i18n.t('modals.quit.runningMessage', { work: running }),
+    i18n.t('modals.quit.quitAnyway'),
+    work,
+    quit,
+    cancel
+  );
+
+/** The same question for another way out of the app (a restart to update):
+ * `message` names the work, `confirmText` is the button that stops it. */
+export function confirmWhileRunning(
+  message: (work: string) => string,
+  confirmText: string,
+  work: string[],
+  quit: () => void,
+  cancel: () => void
+): void {
   let decided = false;
   const decide = (action: () => void) => {
     if (decided) return;
@@ -451,16 +468,16 @@ export const confirmQuitWhileRunning: AskToQuitWhileRunning = (work, quit, cance
   useUIStore.getState().setUI({
     confirmModalState: {
       cancelText: i18n.t('modals.quit.keepWorking'),
-      confirmText: i18n.t('modals.quit.quitAnyway'),
+      confirmText,
       confirmVariant: 'destructive',
       isOpen: true,
-      message: i18n.t('modals.quit.runningMessage', { work: listed(work) }),
+      message: message(listed(work)),
       onConfirm: () => decide(quit),
       onCancel: () => decide(cancel),
       title: i18n.t('modals.quit.runningTitle')
     }
   });
-};
+}
 
 let handlingQuit: number | null = null;
 let latestQuitRequest: number | null = null;

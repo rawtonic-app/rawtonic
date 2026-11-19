@@ -942,7 +942,7 @@ async fn open_window(app_handle: &tauri::AppHandle) -> Result<(), String> {
         .map(|m| monitor_bounds(&m));
     let bounds = placement(saved_state.bounds, &monitors, main_monitor);
 
-    let mut builder = tauri::WebviewWindowBuilder::new(
+    let mut builder = crate::webview_args::new_window(
         app_handle,
         LABEL,
         tauri::WebviewUrl::App("index.html".into()),

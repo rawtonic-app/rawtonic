@@ -165,3 +165,13 @@ it('queues an export once a rating set just before Export is written', async () 
     'export_images_batch'
   ]);
 });
+
+it('names an unavailable default Output folder with native Windows separators', async () => {
+  const directory = 'C:\\Shoots\\A';
+  useLibraryStore.setState({ sessionDirectory: directory, sessionFolders: [] });
+  vi.mocked(invoke).mockRejectedValueOnce(new Error('unavailable'));
+  const draft = { ...DEFAULT_RECIPE_DRAFT, where: 'output' as const };
+  const { settings, outputFormat } = exportSettingsFromDraft(draft);
+  expect(await runExportJobs([{ recipe: null, draft, settings, outputFormat }], ['C:\\Shoots\\A\\a.NEF'])).toBe(0);
+  expect(useProcessStore.getState().exportState.errorMessage).toContain('C:\\Shoots\\A\\Output');
+});

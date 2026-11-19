@@ -33,11 +33,22 @@ const release = {
   assetName: 'Rawtonic_0.1.0-alpha.4_aarch64.dmg',
   assetSize: 412_345_678,
   notes:
-    '## Fixed\n\n- **Masks** show. ![x](https://example.com/t.png) [More](https://github.com/rawtonic-app/rawtonic)'
+    '## Fixed\n\n- **Masks** show. ![x](https://example.com/t.png) [More](https://github.com/rawtonic-app/rawtonic)',
+  // A release from before in-app updates: the browser downloads the installer.
+  inApp: false,
+  fallback: 'noManifest' as const
 };
 beforeEach(() => {
   vi.clearAllMocks();
-  useUpdateStore.setState({ update: null, checking: false, checked: false, failed: false, started: false });
+  useUpdateStore.setState({
+    update: null,
+    checking: false,
+    checked: false,
+    failed: false,
+    started: false,
+    install: { phase: 'idle' },
+    installVersion: null
+  });
   useSettingsStore.setState({ appSettings: {} as AppSettings });
   vi.mocked(invoke).mockImplementation(async (cmd) => (cmd === Invokes.CheckUpdates ? release : undefined));
 });

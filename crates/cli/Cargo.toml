@@ -7,6 +7,10 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Stage records with the process footprint (as the app's profiling builds).
+performance-profiling = ["rawtonic-export/performance-profiling"]
+
 [dependencies]
 rawtonic-recipe = { path = "../recipe", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }

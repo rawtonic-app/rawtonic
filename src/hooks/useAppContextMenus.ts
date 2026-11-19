@@ -1,3 +1,5 @@
+import { joinPath } from '../utils/path';
+import { isBelow } from '../utils/catalogFolders';
 import { withDevelopDefaults, withoutDevelopDefaults } from '../utils/developDefaults';
 import { photoDefaultItems } from '../components/studio/developDefaultsMenus';
 import { fileManagerLabelKey } from '../utils/platformLabels';
@@ -772,7 +774,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       const renameLabel = t('contextMenus.thumbnail.renameImage', { count: selectionCount });
       const sessionSelects = sessionDirectory
         ? (useLibraryStore.getState().sessionFolders.find((f) => f.role === 'selects')?.path ??
-          `${sessionDirectory}/Selects`)
+          joinPath(sessionDirectory, 'Selects'))
         : null;
       const cullLabel = t('contextMenus.thumbnail.cullImage', { count: selectionCount });
       const collageLabel = t('contextMenus.thumbnail.collage', { count: selectionCount });
@@ -1130,7 +1132,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               {
                 icon: FolderInput,
                 label: t('settings.keybinds.actions.move_to_selects'),
-                disabled: finalSelection.every((p) => sourceOf(p).startsWith(`${sessionSelects}/`)),
+                disabled: finalSelection.every((p) => isBelow(sourceOf(p), sessionSelects)),
                 onClick: () =>
                   // A Selects folder outside the session whose drive is away
                   // refuses the move, naming it (G38).
