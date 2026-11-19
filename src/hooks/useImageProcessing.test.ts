@@ -374,7 +374,14 @@ describe('Linux region frames at 100 %', () => {
     // A maximised window: the same zoom now shows more than the region.
     act(() =>
       useEditorStore.setState({
-        baseRenderSize: { width: 1000, height: 600, offsetX: 0, offsetY: 0, containerWidth: 2000, containerHeight: 1200 }
+        baseRenderSize: {
+          width: 1000,
+          height: 600,
+          offsetX: 0,
+          offsetY: 0,
+          containerWidth: 2000,
+          containerHeight: 1200
+        }
       } as never)
     );
     expect(calls()).toHaveLength(2);
