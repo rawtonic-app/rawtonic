@@ -892,7 +892,8 @@ fn decode(
     {
         return Ok((Arc::clone(&kept.image), variant, kept.measures));
     }
-    let bytes = crate::file_management::read_file_mapped(source)?;
+    let bytes = crate::file_management::read_file_mapped(source)
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
     if prefetch.is_some() {
         UNDER_WAY.0.lock().unwrap_or_else(|e| e.into_inner()).start(
             &source_str,

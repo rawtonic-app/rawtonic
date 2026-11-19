@@ -2644,20 +2644,26 @@ mod nikon_high_efficiency_tests {
     fn nef_header(mode: u16, z_makernote: bool, model: &str) -> Vec<u8> {
         let mut bytes = Cursor::new(Vec::new());
         let mut tiff = TiffWriter::new(&mut bytes).unwrap();
-        let mut maker_bytes = Cursor::new(Vec::new());
-        let maker = TiffWriter::new(&mut maker_bytes).unwrap();
-        let mut maker_dir = maker.new_directory();
+        // Nikon's embedded TIFF places the maker-note IFD at offset 8,
+        // followed by any out-of-line values.
+        let mut note = b"Nikon\0\x02\0\0\0II*\0".to_vec();
+        note.extend(8_u32.to_le_bytes());
+        note.extend(1_u16.to_le_bytes());
         if z_makernote {
-            let mut settings = vec![0; 10];
-            settings.extend_from_slice(&mode.to_le_bytes());
-            maker_dir.add_tag_undefined(0x0051_u16, settings);
+            note.extend(0x0051_u16.to_le_bytes());
+            note.extend(7_u16.to_le_bytes()); // UNDEFINED
+            note.extend(12_u32.to_le_bytes());
+            note.extend(26_u32.to_le_bytes());
+            note.extend(0_u32.to_le_bytes()); // No next IFD.
+            note.extend([0; 10]);
+            note.extend(mode.to_le_bytes());
         } else {
-            maker_dir.add_tag(0x0093_u16, mode);
+            note.extend(0x0093_u16.to_le_bytes());
+            note.extend(3_u16.to_le_bytes()); // SHORT
+            note.extend(1_u32.to_le_bytes());
+            note.extend(u32::from(mode).to_le_bytes());
+            note.extend(0_u32.to_le_bytes());
         }
-        maker.build(maker_dir).unwrap();
-
-        let mut note = b"Nikon\0\x02\0\0\0".to_vec();
-        note.extend_from_slice(&maker_bytes.into_inner());
         let mut exif = tiff.new_directory();
         exif.add_tag_undefined(ExifTag::MakerNotes, note);
         let exif_offset = exif.build(&mut tiff).unwrap();
@@ -2680,11 +2686,12 @@ mod nikon_high_efficiency_tests {
         for z_makernote in [false, true] {
             for mode in [13, 14, 3] {
                 let bytes = nef_header(mode, z_makernote, "NIKON Z 8");
+                let error = develop_raw_image(&bytes, &DecodeOptions::default()).unwrap_err();
                 assert_eq!(
                     rawler::decoders::nef::has_high_efficiency_compression(&bytes),
-                    mode != 3
+                    mode != 3,
+                    "mode {mode}, Z maker note {z_makernote}: {error:#}"
                 );
-                let error = develop_raw_image(&bytes, &DecodeOptions::default()).unwrap_err();
                 assert_eq!(
                     matches!(
                         error.downcast_ref::<rawler::RawlerError>(),
@@ -2704,9 +2711,12 @@ mod nikon_high_efficiency_tests {
             &DecodeOptions::default(),
         )
         .unwrap_err();
-        assert!(matches!(
-            error.downcast_ref::<rawler::RawlerError>(),
-            Some(rawler::RawlerError::UnsupportedNikonHighEfficiency)
-        ));
+        assert!(
+            matches!(
+                error.downcast_ref::<rawler::RawlerError>(),
+                Some(rawler::RawlerError::UnsupportedNikonHighEfficiency)
+            ),
+            "{error:#}"
+        );
     }
 }
