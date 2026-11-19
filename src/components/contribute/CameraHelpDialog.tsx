@@ -19,7 +19,7 @@ import { Invokes } from '../ui/AppProperties';
 import Button from '../ui/Button';
 import Text from '../ui/Text';
 import { TextVariants } from '../../types/typography';
-import { isUnreadableError } from '../../utils/loadError';
+import { isUnreadableError, isUnsupportedNikonHighEfficiency } from '../../utils/loadError';
 import { filePhoto, makerAndName, photoInfo, type PhotoInfo } from './reports';
 
 /** raw.pixls.us: its start page holds the upload form, `#repo` the list of
@@ -28,12 +28,8 @@ import { filePhoto, makerAndName, photoInfo, type PhotoInfo } from './reports';
 export const RAW_PIXLS_URL = 'https://raw.pixls.us/';
 export const RAW_PIXLS_LIST_URL = 'https://raw.pixls.us/#repo';
 
-/** Whether a load error is the decoder's (a file it cannot read) rather
- * than a missing file or a cancelled load (`isUnreadableError`). A format
- * no open decoder reads (Nikon's High Efficiency NEF; its error says so,
- * `NO_OPEN_DECODER` in crates/engine/src/image_loader.rs) is left out: a
- * sample does not help there. */
-export const isDecoderError = (error: unknown) => isUnreadableError(error) && !/no open decoder/i.test(String(error));
+/** A decoder failure for which a camera sample could help. */
+export const isDecoderError = (error: unknown) => !isUnsupportedNikonHighEfficiency(error) && isUnreadableError(error);
 
 /** Says `text` under Needs attention, with camera help for the file. */
 export const offerCameraHelp = (text: string, request: CameraHelpRequest) => {

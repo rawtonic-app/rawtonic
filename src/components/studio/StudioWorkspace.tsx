@@ -125,6 +125,7 @@ import {
 import { appCommandEnabled, registerAppCommands, runAppCommand } from '../../utils/appCommands';
 import ViewerInfoOverlay from './ViewerInfoOverlay';
 import GraphicsPreparingNotice from './GraphicsPreparingNotice';
+import NikonHighEfficiencyNotice from './NikonHighEfficiencyNotice';
 import { LoupeFaces } from './StudioEyes';
 import { useIdleCursor } from './useIdleCursor';
 import { followPhotoFullScreen } from '../../utils/photoFullScreen';
@@ -1517,6 +1518,7 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                 </div>
               </div>
+              <NikonHighEfficiencyNotice visible={selectedImage?.unsupportedNikonHighEfficiency} />
               {viewer}
               {panels.bars && (
                 <div className="studio-viewer-footer">

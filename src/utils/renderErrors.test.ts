@@ -1,8 +1,13 @@
 import '../i18n';
 import i18n from 'i18next';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { version } from '@tauri-apps/plugin-os';
+import type { AppSettings } from '../components/ui/AppProperties';
 
 import { renderErrorMessage } from './renderErrors';
+import { useSettingsStore } from '../store/useSettingsStore';
+
+vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'macos', version: vi.fn() }));
 
 /** The backend's errors (rawtonic_gpu::gpu_processing). */
 const textureLimit = 'The image (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).';
@@ -67,4 +72,33 @@ describe('render errors', () => {
     expect(renderErrorMessage('Thread crashed: panicked')).toBe('Thread crashed: panicked');
     expect(renderErrorMessage('constructor')).toBe('constructor');
   });
+});
+
+it('localizes the persisted Nikon High Efficiency export reason and adds the Mac option', async () => {
+  const { osPlatform, appSettings } = useSettingsStore.getState();
+  const error =
+    "This NEF uses Nikon's High Efficiency compression. Its codec (TicoRAW) is patent-protected, so Rawtonic cannot decode it. Convert the file to DNG with Adobe DNG Converter, or set the camera to Lossless compressed RAW.";
+  try {
+    await i18n.changeLanguage('de');
+    useSettingsStore.setState({ osPlatform: 'linux', appSettings: null });
+    vi.mocked(version).mockReturnValue('27.0.1');
+    expect(renderErrorMessage(error)).toContain('ist patentgeschützt');
+    expect(renderErrorMessage(error)).not.toContain('macOS 27');
+
+    useSettingsStore.setState({ osPlatform: 'macos' });
+    vi.mocked(version).mockReturnValue('26.6.0');
+    expect(renderErrorMessage(error)).not.toContain('macOS 27');
+
+    vi.mocked(version).mockReturnValue('27.0.1');
+    const setting = i18n.t('settings.processing.preprocessing.appleRaw9');
+    expect(renderErrorMessage(error)).toContain(
+      `Ab macOS 27 kannst du versuchen, „${setting}“ in den Einstellungen zu aktivieren.`
+    );
+
+    useSettingsStore.setState({ appSettings: { ...appSettings, useAppleRaw9: true } as AppSettings });
+    expect(renderErrorMessage(error)).not.toContain('macOS 27');
+  } finally {
+    useSettingsStore.setState({ osPlatform, appSettings });
+    await i18n.changeLanguage('en');
+  }
 });
