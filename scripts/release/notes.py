@@ -127,7 +127,9 @@ def notes(version, prev, changelog, prev_body, sums):
         intro,
         f"Updating from {short(prev)}: replace the app (macOS: drag the new Rawtonic to Applications; Linux: "
         "AppImageUpdate or Gear Lever, or download the new AppImage; Windows: run the new installer, or unpack the new portable zip). "
-        "Your libraries, sessions and edits stay as they are.",
+        "Your libraries, sessions and edit settings stay as they are"
+        + ("; some saved edits render differently, see Changes to existing edits below."
+           if sub.get("Changes to existing edits") else "."),
         install,
         f"## What's new since {short(prev)}\n\n{highlights}",
     ]
