@@ -192,6 +192,10 @@ pub fn running_appimage(
 /// with either separator.
 pub fn windows_install(exe_dir: &str, has_uninstaller: bool, program_files: &[String]) -> Install {
     let norm = |p: &str| {
+        // Tauri canonicalizes the program's path, which on Windows yields the
+        // verbatim form `\\?\C:\Program Files\…`: without the prefix such a
+        // copy would not be seen under Program Files.
+        let p = p.strip_prefix(r"\\?\").unwrap_or(p);
         let mut p = p.replace('/', "\\").to_lowercase();
         while p.ends_with('\\') {
             p.pop();
@@ -1166,6 +1170,17 @@ mod tests {
             ),
             (
                 r"C:\Program Files Tools\Rawtonic",
+                true,
+                Install::WindowsSetup,
+            ),
+            // Tauri hands over the canonicalized, verbatim path.
+            (
+                r"\\?\C:\Program Files\Rawtonic",
+                false,
+                Install::WindowsAllUsers,
+            ),
+            (
+                r"\\?\C:\Users\ana\AppData\Local\Rawtonic",
                 true,
                 Install::WindowsSetup,
             ),
