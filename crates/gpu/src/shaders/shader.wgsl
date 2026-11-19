@@ -139,8 +139,12 @@ struct PreparedCurve {
     padding: vec2<u32>,
     segment_starts: array<u32, 16>,
 }
+// curves: luma, red, green, blue, Luminance (preview_layers.rs). flags.x
+// bits 256: the RGB curves are neutral (skipped, exactly), 512: the
+// Luminance curve reads its prepared segments, 1024: its sampled table
+// (display frames only).
 struct PreparedLayer {
-    curves: array<PreparedCurve, 4>,
+    curves: array<PreparedCurve, 5>,
     flags: vec4<u32>,
 }
 @group(0) @binding(12) var<storage, read> prepared_layers: array<PreparedLayer, 33>;
@@ -9542,13 +9546,42 @@ fn luminance_curve_value(val: f32, layer: u32, count: u32) -> f32 {
     return last.y / 255.0;
 }
 
+// The layer's sampled Luminance curve (display frames, flag 1024): the
+// target luminance at 1,025 steps of the square root of the luminance (so
+// no sRGB powers per pixel), four per word, after the camera tables
+// (preview_layers `luminance_lut`, within a quarter 8-bit level).
+const LUMINANCE_TABLE_BASE: u32 = DCP_TABLE_BASE + 65536u;
+fn luminance_table_value(value: f32, layer: u32) -> f32 {
+    let position = clamp(value, 0.0, 1.0) * 1024.0;
+    let index = min(u32(position), 1023u);
+    let t = position - f32(index);
+    let base = LUMINANCE_TABLE_BASE + layer * 257u;
+    let a = curve_luts[base + index / 4u][index % 4u];
+    let b = curve_luts[base + (index + 1u) / 4u][(index + 1u) % 4u];
+    return mix(a, b, t);
+}
+
 fn apply_luminance_curve(display: vec3<f32>, layer: u32, count: u32) -> vec3<f32> {
     let linear = decode_signed(display);
     let y = max(get_luma(linear), 0.0);
-    // The sRGB curve on the luminance alone (scalar: two powers per pixel).
-    let encoded = select(1.055 * pow(min(y, 1.0), 1.0 / 2.4) - 0.055, y * 12.92, y <= 0.0031308);
-    let curved = luminance_curve_value(encoded, layer, count);
-    let target_y = select(pow((curved + 0.055) / 1.055, 2.4), curved / 12.92, curved <= 0.04045);
+    var target_y: f32;
+    if (PREPARED_LAYERS && (prepared_layers[layer].flags.x & 1024u) != 0u) {
+        // Display frames: the sampled table (flag 1024).
+        target_y = luminance_table_value(sqrt(min(y, 1.0)), layer);
+    } else {
+        // The sRGB curve on the luminance alone (scalar: two powers per
+        // pixel). Display frames read the curve's prepared segments (flag
+        // 512: the same polynomial, only its rounding differs) where the
+        // table fails its check; exports the direct Hermite.
+        let encoded = select(1.055 * pow(min(y, 1.0), 1.0 / 2.4) - 0.055, y * 12.92, y <= 0.0031308);
+        var curved: f32;
+        if (PREPARED_LAYERS && (prepared_layers[layer].flags.x & 512u) != 0u) {
+            curved = apply_curve_prepared(encoded, layer, 4u);
+        } else {
+            curved = luminance_curve_value(encoded, layer, count);
+        }
+        target_y = select(pow((curved + 0.055) / 1.055, 2.4), curved / 12.92, curved <= 0.04045);
+    }
     // The colour scaled by the luminance ratio, at most 4× (as
     // carry_beyond_srgb); the rest of the change is grey, so a lifted black
     // end lifts black, which scaling cannot, and the darks beside it alike.
@@ -11635,6 +11668,10 @@ fn main(
     if (ENABLE_CURVES) {
         if (LONG_CURVES || (PREPARED_LAYERS && (prepared_layers[0].flags.x & 8u) != 0u)) {
             final_rgb = apply_curve_lut(curve_input, 0u);
+        } else if (PREPARED_LAYERS && (prepared_layers[0].flags.x & 256u) != 0u) {
+            // Neutral RGB curves (only the Luminance curve is set): what
+            // `apply_curves_prepared` returns for bypassed curves.
+            final_rgb = clamp(curve_input, vec3<f32>(0.0), vec3<f32>(1.0));
         } else if (PREPARED_LAYERS) {
             final_rgb = apply_curves_prepared(curve_input, 0u);
         } else if (DIRECT_CURVES) {
@@ -11667,7 +11704,9 @@ fn main(
             if (mask_wide) {
                 mask_input = wide_curve_input(final_rgb);
             }
-            if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 8u) != 0u) {
+            if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 256u) != 0u) {
+                mask_curved_srgb = clamp(mask_input, vec3<f32>(0.0), vec3<f32>(1.0));
+            } else if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 8u) != 0u) {
                 mask_curved_srgb = apply_curve_lut(mask_input, i + 1u);
             } else if (PREPARED_LAYERS) {
                 mask_curved_srgb = apply_curves_prepared(mask_input, i + 1u);

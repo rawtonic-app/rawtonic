@@ -81,6 +81,7 @@ bb  Rawtonic_0.2.0-beta.2_x64-setup.exe
 cc  SHA256SUMS-windows.txt
 dd  libgphoto2-2.5.34.tar.bz2
 ee  libtool-2.6.2.tar.xz
+ff  Rawtonic_aarch64.app.tar.gz
 """
 
 
@@ -91,6 +92,9 @@ class Notes(unittest.TestCase):
         self.assertIn("> [!WARNING]\n> This is an **early alpha**.", text)
         self.assertIn("A small update. Faster things.", text)
         self.assertIn("Updating from beta.1:", text)
+        self.assertIn("edit settings stay as they are; whether saved edits render as before is listed under "
+                      "Changes to existing edits below.", text)
+        self.assertNotIn("render differently", text)
         self.assertIn("`Rawtonic_0.2.0-beta.2_aarch64.dmg` below", text)
         self.assertIn("## What's new since beta.1\n\n- **Faster.** Measured.", text)
         self.assertIn("## Fixes\n\n- **Fixed.** A bug.\n\n## Changes to existing edits\n\n- None of note.", text)
@@ -101,6 +105,8 @@ class Notes(unittest.TestCase):
         self.assertIn("- `Rawtonic_0.2.0-beta.2_x64-setup.exe`: `bb`", text)
         self.assertIn("- `SHA256SUMS-windows.txt`: `cc`", text)
         self.assertNotIn("libtool-2.6.2.tar.xz`: ", text)
+        # The updater package is a .tar.gz too, but not a camera library's source.
+        self.assertIn("`libtool-2.6.2.tar.xz`", text)
 
     def test_a_longer_version_is_not_the_previous_one(self):
         body = PREV_BODY.replace("0.2.0-beta.1", "0.2.0")
