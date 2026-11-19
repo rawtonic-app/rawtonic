@@ -284,6 +284,14 @@ pub(super) const LAYER_CURVE_LUT: u32 = 8;
 // A quarter of one 8-bit level. Combined with output rounding, a table read
 // can move a display value by at most one level against the exact curves.
 const CURVE_LUT_TOLERANCE: f32 = 0.25 / 255.0;
+/// The Luminance table's tolerance on the curve's output. The shader scales
+/// the linear colour by the luminance ratio (at most 4, the rest as grey),
+/// which moves a displayed channel by up to 29.4 times the curve's change
+/// (a channel near black while the curve ends near white; sRGB slopes
+/// 12.92 × 2.27; `luminance_ratio_magnifies_less_than_32_times`), so a
+/// quarter level divided by 32 keeps every displayed channel within a
+/// quarter level.
+const LUMINANCE_LUT_TOLERANCE: f32 = CURVE_LUT_TOLERANCE / 32.0;
 
 /// CPU mirror of the shader's `apply_curve_prepared`/`apply_luma_prepared`.
 fn eval_curve(curve: &PreparedCurve, value: f32) -> f32 {
@@ -365,11 +373,8 @@ pub(super) fn curve_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
 /// Sampled display table of a layer's Luminance curve on its sRGB-encoded
 /// axis, packed four samples per word (shader `luminance_table_value`), or
 /// `None` when linear interpolation cannot stay within the RGB tables'
-/// tolerance (a quarter 8-bit level) on the displayed colour. The shader
-/// scales the linear colour by the curve's luminance ratio, which magnifies
-/// the curve's error on dark saturated colours, so the check is on the
-/// encoded output channels of grey and the three primaries (the colours
-/// whose channels the ratio magnifies most) at each check point.
+/// tolerance (a quarter 8-bit level) on the displayed colour: the curve's
+/// own output must stay within `LUMINANCE_LUT_TOLERANCE`.
 pub(super) fn luminance_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
     let curve = &layer.curves[LUMINANCE_CURVE];
     let intervals = (CURVE_LUT_SAMPLES - 1) as f32;
@@ -391,7 +396,7 @@ pub(super) fn luminance_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
         .filter(|x| (0.0..=1.0).contains(x))
         .collect::<Vec<_>>();
     for value in interior.chain(knots) {
-        if !luminance_outputs_agree(value, eval_curve(curve, value), read(value)) {
+        if (read(value) - eval_curve(curve, value)).abs() > LUMINANCE_LUT_TOLERANCE {
             return None;
         }
     }
@@ -400,51 +405,6 @@ pub(super) fn luminance_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
         packed[i / 4][i % 4] = v;
     }
     Some(packed)
-}
-
-/// Rec. 709 luminance weights (shader `LUMA_COEFF`).
-const LUMA_WEIGHTS: [f32; 3] = [0.2126, 0.7152, 0.0722];
-
-fn srgb_decode(v: f32) -> f32 {
-    if v <= 0.04045 {
-        v / 12.92
-    } else {
-        ((v + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-fn srgb_encode(v: f32) -> f32 {
-    let v = v.clamp(0.0, 1.0);
-    if v <= 0.0031308 {
-        v * 12.92
-    } else {
-        1.055 * v.powf(1.0 / 2.4) - 0.055
-    }
-}
-
-/// Whether the Luminance curve's values `exact` and `table` at the encoded
-/// luminance `encoded` give displayed colours within `CURVE_LUT_TOLERANCE`:
-/// grey and each primary of that luminance inside the cube, through the
-/// shader's `apply_luminance_curve` (ratio at most 4, the rest as grey).
-fn luminance_outputs_agree(encoded: f32, exact: f32, table: f32) -> bool {
-    let y = srgb_decode(encoded);
-    let outputs = |curved: f32| {
-        let target = srgb_decode(curved);
-        let ratio = (target / y.max(1e-9)).min(4.0);
-        let grey = target - y * ratio;
-        // Channels of grey, then a primary's own channel and its others.
-        let mut channels = vec![srgb_encode(y * ratio + grey), srgb_encode(grey)];
-        for w in LUMA_WEIGHTS {
-            if y <= w {
-                channels.push(srgb_encode(y / w * ratio + grey));
-            }
-        }
-        channels
-    };
-    outputs(exact)
-        .iter()
-        .zip(outputs(table))
-        .all(|(a, b)| (a - b).abs() <= CURVE_LUT_TOLERANCE)
 }
 
 pub(super) fn prepare_layers(a: &AllAdjustments) -> Vec<PreparedLayer> {
@@ -801,6 +761,65 @@ mod tests {
         }
     }
 
+    fn srgb_decode(v: f32) -> f32 {
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn srgb_encode(v: f32) -> f32 {
+        let v = v.clamp(0.0, 1.0);
+        if v <= 0.0031308 {
+            v * 12.92
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        }
+    }
+
+    #[test]
+    fn luminance_ratio_magnifies_less_than_32_times() {
+        // The shader's `apply_luminance_curve` on linear colours inside the
+        // cube: primaries, secondaries, grey and colours with one channel
+        // near zero (the worst found by a finer scan of 3,000 colours, 29.4),
+        // at 60 brightnesses, against the curve's output `curved`.
+        let colours = [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 0.0],
+            [1.0, 1.0, 1.0],
+            [0.989, 0.628, 0.000_85],
+            [0.000_5, 0.3, 1.0],
+            [1.0, 0.000_5, 0.7],
+        ];
+        let h = 1e-3;
+        let mut worst = 0.0f32;
+        for colour in colours {
+            for step in 0..60 {
+                let scale = 10f32.powf(-4.0 + step as f32 / 15.0);
+                let linear = colour.map(|c| c * scale);
+                let y = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+                let shown = |curved: f32| {
+                    let target = srgb_decode(curved);
+                    let ratio = (target / y.max(1e-9)).min(4.0);
+                    linear.map(|c| srgb_encode(c * ratio + target - y * ratio))
+                };
+                for i in 0..1000 {
+                    let curved = i as f32 / 1000.0;
+                    let (a, b) = (shown(curved), shown(curved + h));
+                    for c in 0..3 {
+                        worst = worst.max((b[c] - a[c]).abs() / h);
+                    }
+                }
+            }
+        }
+        assert!(worst < 32.0 && worst > 20.0, "{worst}");
+    }
+
     #[test]
     fn luminance_curve_is_prepared_and_neutral_rgb_curves_are_flagged() {
         let points = [
@@ -845,9 +864,8 @@ mod tests {
         let step = serde_json::json!({"curves": {"luminance": [{"x":0,"y":0},{"x":100,"y":0},{"x":100,"y":255},{"x":255,"y":255}]}});
         let a = crate::image_processing::get_all_adjustments_from_json(&step, true, Some(1));
         assert!(luminance_lut(&prepare_layers(&a)[0]).is_none());
-        // Steep shadow curves pass a check on the curve's own output but
-        // move a dark blue's channel by over two levels: they keep the
-        // prepared segments too.
+        // Steep shadow curves would move a dark blue's channel by over two
+        // levels: they keep the prepared segments too.
         for points in [
             [(0, 0), (18, 1), (24, 53), (255, 255)],
             [(0, 0), (24, 0), (31, 53), (255, 255)],
