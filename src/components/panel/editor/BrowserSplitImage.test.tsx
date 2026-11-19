@@ -181,7 +181,7 @@ it('keeps the whole Before under a region Before still shown after zooming back 
   preview.mockImplementation((...args: unknown[]) =>
     args.length === 6
       ? { frame: { url: 'blob:region-before', region: [0.25, 0.5, 0.5, 0.25] } }
-      : { frame: args[0] ? { url: 'blob:whole-before', region: null } : null }
+      : ({ frame: args[0] ? { url: 'blob:whole-before', region: null } : null } as never)
   );
   const { container } = render(
     <svg>
