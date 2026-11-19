@@ -161,6 +161,81 @@ describe('point curve reading aids (UXR1 D3)', () => {
     expect(shown()?.hasAttribute('d')).toBe(false);
   });
 
+  it('draws the red, green and blue channels over the luma fill on the RGB curve only', () => {
+    useEditorStore.setState({ histogram: histogram as never });
+    const { container } = render(
+      <PointCurve curves={INITIAL_ADJUSTMENTS.curves} onChange={() => {}} disabled={false} onInteraction={() => {}} />
+    );
+    const lines = () => [...container.querySelectorAll('.curve-histogram-line')];
+    expect(lines().map((l) => l.getAttribute('data-channel'))).toEqual(['red', 'green', 'blue']);
+    // Each channel at its own scale: its peak reaches the top.
+    expect(lines()[0].getAttribute('d')).toContain('L0.00 15.00');
+    expect(container.querySelector('.curve-histogram')?.getAttribute('d')).toContain('L127.50 15.00');
+    fireEvent.click(screen.getByRole('button', { name: 'R' }));
+    expect(lines()).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: /luminance/i }));
+    expect(lines()).toHaveLength(0);
+  });
+
+  it('grabs a point within the same screen distance however large the plot is', () => {
+    vi.stubGlobal('PointerEvent', MouseEvent);
+    const changed = vi.fn();
+    const curves = {
+      ...INITIAL_ADJUSTMENTS.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 128, y: 128 },
+        { x: 255, y: 255 }
+      ]
+    };
+    const { container } = render(
+      <PointCurve curves={curves} onChange={changed} disabled={false} onInteraction={() => {}} />
+    );
+    const svg = container.querySelector('svg')!;
+    // A 510 px plot: two screen px per curve unit.
+    const matrix = { a: 2, b: 0, c: 0, d: 2, e: 0, f: 0 };
+    svg.getScreenCTM = () =>
+      ({ ...matrix, inverse: () => ({ a: 0.5, b: 0, c: 0, d: 0.5, e: 0, f: 0 }) }) as unknown as DOMMatrix;
+    svg.setPointerCapture = () => {};
+    // 20 screen px right of the midpoint (10 curve units): a new point, not the old one.
+    fireEvent.pointerDown(svg, { button: 0, clientX: 276, clientY: 254, pointerId: 1 });
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(changed.mock.calls[0][0].luma).toHaveLength(4);
+  });
+
+  it('neither adds nor grabs a point on an existing input level out of its reach', () => {
+    vi.stubGlobal('PointerEvent', MouseEvent);
+    const changed = vi.fn();
+    const interaction = vi.fn();
+    const curves = {
+      ...INITIAL_ADJUSTMENTS.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 128, y: 128 },
+        { x: 255, y: 255 }
+      ]
+    };
+    const { container } = render(
+      <PointCurve curves={curves} onChange={changed} disabled={false} onInteraction={interaction} />
+    );
+    const svg = container.querySelector('svg')!;
+    svg.getScreenCTM = () =>
+      ({
+        a: 2,
+        b: 0,
+        c: 0,
+        d: 2,
+        e: 0,
+        f: 0,
+        inverse: () => ({ a: 0.5, b: 0, c: 0, d: 0.5, e: 0, f: 0 })
+      }) as unknown as DOMMatrix;
+    svg.setPointerCapture = () => {};
+    // 50 screen px straight below the midpoint.
+    fireEvent.pointerDown(svg, { button: 0, clientX: 256, clientY: 304, pointerId: 1 });
+    expect(changed).not.toHaveBeenCalled();
+    expect(interaction).not.toHaveBeenCalled();
+  });
+
   it('shows a crosshair through the dragged point only while it is dragged', () => {
     vi.stubGlobal('PointerEvent', MouseEvent);
     function Harness() {

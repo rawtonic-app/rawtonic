@@ -292,41 +292,77 @@ const SPLIT_LABELS = {
 } as const;
 /** Height of the split handles' strip under the plot, in curve units. */
 const SPLIT_STRIP = 16;
+/** How near the pointer must press to grab a curve point, in screen px
+ * (14 curve units at the former 210 px plot). */
+const CURVE_GRAB_PX = 11.5;
 
 const selectHistogram = (s: ReturnType<typeof useEditorStore.getState>) => s.histogram;
 
-/** The `d` of the photo's histogram behind the curve (square-root scale,
- * 255 × 240), the shown channel's; the RGB and Luminance curves show the
- * luminance one. Null without one. */
-export function curveHistogramPath(histogram: unknown, channel: string): string | null {
-  const data = histogram as Record<string, unknown> | null;
-  if (!data) return null;
-  const values = histogramBins(
-    channel === 'red' || channel === 'green' || channel === 'blue' ? data[channel] : data.luma
-  );
-  if (!values.length) return null;
-  const max = Math.max(1, ...values);
+const RGB_CHANNELS = ['red', 'green', 'blue'] as const;
+
+/** A filled outline of `values` in the 255 × 240 plot, square-root scale
+ * against `max`. */
+function histogramOutline(values: number[], max: number): string {
   const last = Math.max(1, values.length - 1);
   return `M0 255 ${values
     .map((v, i) => `L${((i * 255) / last).toFixed(2)} ${(255 - Math.sqrt(Math.max(0, v) / max) * 240).toFixed(2)}`)
     .join(' ')} L255 255 Z`;
 }
 
+/** The photo's histogram behind the curve. `fill` is the shown channel's
+ * (the Luminance curve shows the luminance one); the RGB curve shows the
+ * luminance fill with the red, green and blue channels as `lines` over it,
+ * as Capture One does. Each channel at its own scale: the scopes normalise
+ * every channel separately (scopes.rs), so they show where each channel's
+ * tones lie, not how many pixels one has against another. Nulls where a
+ * channel is missing. */
+export function curveHistogramPaths(
+  histogram: unknown,
+  channel: string
+): { fill: string | null; lines: (string | null)[] } {
+  const data = histogram as Record<string, unknown> | null;
+  const single = channel === 'red' || channel === 'green' || channel === 'blue';
+  const fill = data ? histogramBins(single ? data[channel] : data.luma) : [];
+  const lines = data && channel === 'luma' ? RGB_CHANNELS.map((c) => histogramBins(data[c])) : [];
+  const outline = (values: number[]) => (values.length ? histogramOutline(values, Math.max(1, ...values)) : null);
+  return { fill: outline(fill), lines: RGB_CHANNELS.map((_, i) => outline(lines[i] ?? [])) };
+}
+
 /** The photo's histogram behind the curve (both reference editors), drawn
  * from the store without rendering the curve: scope updates arrive ten
  * times a second during drags (useEditorStoreDom). */
 const CurveHistogram = memo(function CurveHistogram({ channel }: { channel: string }) {
-  const path = useRef<SVGPathElement>(null);
+  const fill = useRef<SVGPathElement>(null);
+  const lines = useRef<(SVGPathElement | null)[]>([]);
+  const draw = (path: SVGPathElement | null | undefined, d: string | null) => {
+    if (d) path?.setAttribute('d', d);
+    else path?.removeAttribute('d');
+  };
   useEditorStoreDom(
     selectHistogram,
     (histogram) => {
-      const d = curveHistogramPath(histogram, channel);
-      if (d) path.current?.setAttribute('d', d);
-      else path.current?.removeAttribute('d');
+      const paths = curveHistogramPaths(histogram, channel);
+      draw(fill.current, paths.fill);
+      paths.lines.forEach((d, i) => draw(lines.current[i], d));
     },
     [channel]
   );
-  return <path ref={path} className="curve-histogram" data-channel={channel === 'luminance' ? 'luma' : channel} />;
+  return (
+    <>
+      <path ref={fill} className="curve-histogram" data-channel={channel === 'luminance' ? 'luma' : channel} />
+      {channel === 'luma' &&
+        RGB_CHANNELS.map((c, i) => (
+          <path
+            key={c}
+            ref={(el) => {
+              lines.current[i] = el;
+            }}
+            className="curve-histogram-line"
+            data-channel={c}
+          />
+        ))}
+    </>
+  );
 });
 
 export function PointCurve({
@@ -487,7 +523,14 @@ export function PointCurve({
           if ((e.target as Element).closest?.('.curve-split, .curve-split-track')) return;
           const p = position(e);
           if (!p) return;
-          const nearest = points.findIndex((q) => Math.hypot(q.x - p.x, q.y - p.y) < 14 || Math.abs(q.x - p.x) < 1);
+          // A point is grabbed within the same screen distance at any plot
+          // size: a larger plot places points more finely.
+          const scale = e.currentTarget.getScreenCTM()?.a || 1;
+          const reach = CURVE_GRAB_PX / scale;
+          const nearest = points.findIndex((q) => Math.hypot(q.x - p.x, q.y - p.y) < reach);
+          // No two points share an input level: a press on a point's level
+          // but out of its reach neither adds nor grabs one.
+          if (nearest === -1 && points.some((q) => Math.abs(q.x - p.x) < 1)) return;
           if (nearest === -1 && points.length >= MAX_CURVE_POINTS) return;
           const next = nearest === -1 ? [...points, p].sort((a, b) => a.x - b.x) : points;
           setSelected(nearest === -1 ? next.indexOf(p) : nearest);

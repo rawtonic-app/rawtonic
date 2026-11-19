@@ -207,6 +207,20 @@ const readyNow = () => Boolean(useEditorStore.getState().selectedImage?.isReady)
 /** Set once the user moves the tool column's separator. */
 const WIDTH_CHOSEN_KEY = 'rawtonic.studio.widthChosen';
 
+/** The tool column's width range. Beyond 390 px only on wide windows: up to
+ * a third of the window, so the photograph keeps its room beside the
+ * column and a docked filmstrip (mirrored by `.studio-primary-panel`). */
+const TOOLS_MIN_WIDTH = 270;
+const TOOLS_MAX_WIDTH = 480;
+const TOOLS_SMALL_MAX_WIDTH = 390;
+
+/** The widest the tool column may be in a window `windowWidth` CSS px wide
+ * at Interface Size `uiScale`, in the column's own (zoomed) pixels. */
+export function toolsMaxWidth(windowWidth: number, uiScale: number): number {
+  const third = Math.floor(windowWidth / 3 / (uiScale || 1));
+  return Math.min(TOOLS_MAX_WIDTH, Math.max(TOOLS_SMALL_MAX_WIDTH, third));
+}
+
 /**
  * The tool column's width at start. The column stored its width from the
  * first start on, chosen or not, so the 300 px default of before 2026-10-31
@@ -689,8 +703,19 @@ export default function StudioWorkspace(props: Props) {
     // 340 px by default: a 112 px Exposure track at 300 px moved 0.097 EV per
     // pixel, coarser than both reference editors (notes:
     // reference/ux-develop-core-2026-10-31). A width the user chose stays.
-    Math.max(270, Math.min(390, initialToolsWidth()))
+    Math.max(TOOLS_MIN_WIDTH, Math.min(TOOLS_MAX_WIDTH, initialToolsWidth()))
   );
+  // A width chosen in a wide window shows narrower in a smaller one (the
+  // stored choice stays until the separator moves, which starts from the
+  // shown width), so the photograph keeps its room.
+  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const resize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
+  const maxWidth = toolsMaxWidth(windowWidth, uiScale);
+  const shownWidth = Math.min(width, maxWidth);
   // The separator marks the width as chosen (see `initialToolsWidth`).
   const chooseWidth: typeof setWidth = (next) => {
     try {
@@ -700,6 +725,14 @@ export default function StudioWorkspace(props: Props) {
     }
     setWidth(next);
   };
+  // A step starts from the shown width; one that cannot move it (at the
+  // window's cap) keeps the stored width for a wider window.
+  const resizeTools = (delta: number) =>
+    chooseWidth((v) => {
+      const from = Math.min(v, maxWidth);
+      const next = Math.max(TOOLS_MIN_WIDTH, Math.min(maxWidth, from + delta));
+      return next === from ? v : next;
+    });
   // Each module keeps its own layout (Lightroom), saved with the settings.
   const panels = readModuleLayout(storedPanels, moduleOf(activeView));
   const present = presentGroups(moduleOf(activeView), layout);
@@ -1307,7 +1340,7 @@ export default function StudioWorkspace(props: Props) {
     <div
       className={`studio-workspace ${layout} module-${moduleOf(activeView)} ${sidesHidden ? 'panels-hidden' : ''} ${panels.bars ? '' : 'bars-hidden'} ${isFullScreen ? 'is-image-fullscreen' : ''} ${libraryViewer ? 'is-library-loupe' : ''} ${cursorIdle ? 'is-cursor-idle' : ''}`}
       onClickCapture={(e) => focusWorkspaceControl(e.target)}
-      style={{ '--tools-width': `${width}px` } as React.CSSProperties}
+      style={{ '--tools-width': `${shownWidth}px` } as React.CSSProperties}
     >
       {/* Library and Develop both show the Albums tool (it opens the editor). */}
       <SmartAlbumEditorHost />
@@ -1375,18 +1408,13 @@ export default function StudioWorkspace(props: Props) {
               tabIndex={0}
               aria-label={t('studio.workspace.panelWidth')}
               aria-orientation="vertical"
-              aria-valuemin={270}
-              aria-valuemax={390}
-              aria-valuenow={width}
+              aria-valuemin={TOOLS_MIN_WIDTH}
+              aria-valuemax={maxWidth}
+              aria-valuenow={shownWidth}
               onKeyDown={(e) => {
                 if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                   e.preventDefault();
-                  chooseWidth((v) =>
-                    Math.max(
-                      270,
-                      Math.min(390, v + (e.key === 'ArrowRight' ? 10 : -10) * (toolsSide === 'right' ? -1 : 1))
-                    )
-                  );
+                  resizeTools((e.key === 'ArrowRight' ? 10 : -10) * (toolsSide === 'right' ? -1 : 1));
                 }
               }}
               onPointerDown={(e) => {
@@ -1395,7 +1423,7 @@ export default function StudioWorkspace(props: Props) {
               }}
               onPointerMove={(e) => {
                 if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
-                chooseWidth((v) => Math.max(270, Math.min(390, v + e.movementX * (toolsSide === 'right' ? -1 : 1))));
+                resizeTools(e.movementX * (toolsSide === 'right' ? -1 : 1));
               }}
               onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
             />
