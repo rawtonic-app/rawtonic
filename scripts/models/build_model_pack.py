@@ -466,16 +466,16 @@ CUDA = [
 ORT130_OWN = [
     ("libonnxruntime-1.30.0-notelemetry-macos-aarch64.dylib",
      "49a8b6906c0e09c26e078bec8b53b1cfcb2be366e70cfa58b95bf812f9c57cde",
-     "Candidate runtime for all models on Apple silicon Macs; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
+     "Runtime for all models on Apple silicon Macs, bundled by the opt-in build (RAWTONIC_BUNDLE_ONNX=1) since 2026-11-19"),
     ("libonnxruntime-1.30.0-notelemetry-linux-x86_64.so",
      "620d32796c8ff40f23431e37bf417107635bf3f3d40398c5ffbbf370de3f1ad4",
-     "Candidate runtime for all models on Linux x86_64; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
+     "Runtime for all models on Linux x86_64, bundled by the opt-in build (RAWTONIC_BUNDLE_ONNX=1) since 2026-11-19"),
     ("libonnxruntime-1.30.0-notelemetry-linux-aarch64.so",
      "870f287be9adac99845de22fdd1f1996f8ca10f048396a5a64b74666a2268199",
-     "Candidate runtime for all models on Linux aarch64; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
+     "Runtime for all models on Linux aarch64, bundled by the opt-in build (RAWTONIC_BUNDLE_ONNX=1) since 2026-11-19"),
     ("onnxruntime-1.30.0-notelemetry-windows-x86_64.dll",
      "72c305db97f93d1ce6c4d0bcd5cc312d9f3a6044efdb74c7ffd871553d0e3434",
-     "Candidate runtime for all models on Windows x64; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
+     "Runtime for all models on Windows x64, bundled by the opt-in build (RAWTONIC_BUNDLE_ONNX=1) since 2026-11-19"),
 ]
 ORT130_OWN_ENTRY = {
     "source": "ONNX Runtime 1.30.0 (commit f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7), built by Rawtonic without telemetry (scripts/models/build_onnxruntime.sh, build_onnxruntime.ps1 on Windows)",
@@ -483,7 +483,7 @@ ORT130_OWN_ENTRY = {
     "license_files": ["onnxruntime-MIT.txt", "onnxruntime-1.30.0-ThirdPartyNotices.txt"],
 }
 ORT130_ENTRY = {
-    "used_by": "Runtime for all models on Windows, Linux and Apple silicon Macs (bundled by the opt-in build, RAWTONIC_BUNDLE_ONNX=1)",
+    "used_by": "Runtime for all models on Windows arm64 (bundled by the opt-in build, RAWTONIC_BUNDLE_ONNX=1); on Windows x64, Linux and Apple silicon Macs until 2026-11-19, when the own build (ORT130_OWN) replaced it",
     "source": "ONNX Runtime 1.30.0 release (github.com/microsoft/onnxruntime)",
     "license": "MIT",
     "license_files": ["onnxruntime-MIT.txt", "onnxruntime-1.30.0-ThirdPartyNotices.txt"],

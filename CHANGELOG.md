@@ -8,6 +8,7 @@
 
 ### Changed
 
+- **Privacy: the AI runtime is now Rawtonic's own build without Microsoft's usage reporting** on Apple silicon Macs, Linux (x86_64 and arm64) and Windows x64. It is ONNX Runtime 1.30.0, built by Rawtonic from the same source with the reporting left out (no uploader; on Windows no event provider in Windows' telemetry group); on the CPU it computes the same bits as Microsoft's library on every model tested. The switches against reporting from 0.1.0-alpha.17.1 stay set as a second layer. Intel Macs and Windows on Arm keep Microsoft's library with those switches, and the GPU plugins (WebGPU, optional CUDA) stay Microsoft's. See [Privacy](PRIVACY.md).
 - Windows is no longer labelled experimental; it remains unsigned.
 
 ### Changes to existing exports

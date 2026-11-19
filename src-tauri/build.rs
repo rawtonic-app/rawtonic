@@ -424,13 +424,18 @@ fn main() {
     // docs/decisions/0011-gpu-ai.md; plugins need 1.24.4 or later); Apple
     // silicon uses 1.30.0 too (Core ML stays the fast path), Intel macOS
     // 1.23.2 (1.30 has no Intel build).
-    // All are Microsoft's release files, unchanged (docs/MODELS.md).
+    // The 1.30.0 core on Apple silicon, Linux and Windows x64 is Rawtonic's
+    // own build without Microsoft's telemetry (scripts/models/
+    // build_onnxruntime.sh, CPU outputs bit-identical to Microsoft's;
+    // gap G65). Windows arm64 and Intel macOS keep Microsoft's release
+    // files, as do the WebGPU plugins, unchanged (docs/MODELS.md, PRIVACY.md).
+    // The app's runtime opt-out (ORT_DISABLE_TELEMETRY) applies to all.
     let files: &[(&str, &str, &str)] = match (target_os.as_str(), target_arch.as_str()) {
         ("windows", "x86_64") => &[
             (
-                "onnxruntime-1.30.0-windows-x86_64.dll",
+                "onnxruntime-1.30.0-notelemetry-windows-x86_64.dll",
                 "onnxruntime.dll",
-                "7e39e2bdbba836d98071ef28620735ba36a47c554cf794585269aecc50fab0da",
+                "72c305db97f93d1ce6c4d0bcd5cc312d9f3a6044efdb74c7ffd871553d0e3434",
             ),
             (
                 "onnxruntime_providers_webgpu-0.4.0-windows-x86_64.dll",
@@ -452,9 +457,9 @@ fn main() {
         ],
         ("linux", "x86_64") => &[
             (
-                "libonnxruntime-1.30.0-linux-x86_64.so",
+                "libonnxruntime-1.30.0-notelemetry-linux-x86_64.so",
                 "libonnxruntime.so",
-                "245a6f8c38127551057a1cd1ffd59f0a186a227ade4f3492dea2494eb565542e",
+                "620d32796c8ff40f23431e37bf417107635bf3f3d40398c5ffbbf370de3f1ad4",
             ),
             (
                 "libonnxruntime_providers_webgpu-0.4.0-linux-x86_64.so",
@@ -464,9 +469,9 @@ fn main() {
         ],
         ("linux", "aarch64") => &[
             (
-                "libonnxruntime-1.30.0-linux-aarch64.so",
+                "libonnxruntime-1.30.0-notelemetry-linux-aarch64.so",
                 "libonnxruntime.so",
-                "64e903a43a041240fd6bcffe0ac6d4fea47ef87bf24b9d097801bd00a9612a4b",
+                "870f287be9adac99845de22fdd1f1996f8ca10f048396a5a64b74666a2268199",
             ),
             (
                 "libonnxruntime_providers_webgpu-0.4.0-linux-aarch64.so",
@@ -480,9 +485,9 @@ fn main() {
             "8c9c78de65ea3786f987c0d980e9c1b13a3a5fbc6b3e2965ba05b450e6e4c054",
         )],
         ("macos", "aarch64") => &[(
-            "libonnxruntime-1.30.0-macos-aarch64.dylib",
+            "libonnxruntime-1.30.0-notelemetry-macos-aarch64.dylib",
             "libonnxruntime.dylib",
-            "bcc9110f9d638a119de2db7afb3ba9a1da8085f0cb3401e1c48ae1caf450b6fa",
+            "49a8b6906c0e09c26e078bec8b53b1cfcb2be366e70cfa58b95bf812f9c57cde",
         )],
         ("android", "aarch64") => &[(
             "libonnxruntime-android-arm64-v8a.so",
@@ -530,11 +535,10 @@ fn main() {
             println!(
                 "cargo:warning=Downloading {download_filename} for {target_os}-{target_arch}..."
             );
-            // Microsoft's files, unchanged, in Rawtonic's model pack
-            // (docs/MODELS.md); scripts/models/install_models.sh --runtime
-            // also puts them here.
+            // Rawtonic's model pack (docs/MODELS.md);
+            // scripts/models/install_models.sh --runtime also puts them here.
             let base_url =
-                "https://github.com/rawtonic-app/models/releases/download/pack-2026-11-12/";
+                "https://github.com/rawtonic-app/models/releases/download/pack-2026-11-19/";
             let download_url = format!("{}{}", base_url, download_filename);
             println!("cargo:warning=URL: {}", download_url);
 

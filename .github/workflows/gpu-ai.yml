@@ -11,6 +11,9 @@
 # The models are rebuilt from their public sources (BiRefNet, sky and SAM 2.1
 # by Rawtonic's export scripts, the rest unchanged); the inputs are renders of
 # CC0 files of raw.pixls.us.
+# The Rust path loads the ONNX Runtime core the app bundles (Rawtonic's own
+# 1.30.0 without telemetry from the model pack, SHA-256 as in
+# src-tauri/build.rs), so it also checks that Microsoft's plugin works with it.
 name: GPU AI providers
 on:
   workflow_dispatch:
@@ -18,6 +21,7 @@ env:
   CARGO_TERM_COLOR: always
   ORT_VERSION: "1.30.0"
   WEBGPU_EP_VERSION: "0.4.0"
+  MODEL_PACK: https://github.com/rawtonic-app/models/releases/download/pack-2026-11-19
 jobs:
   prepare:
     runs-on: ubuntu-24.04
@@ -99,6 +103,9 @@ jobs:
           unzip -q ort.zip
           sha256sum onnxruntime-win-x64-$ORT_VERSION/lib/onnxruntime.dll
           echo "PLUGIN_FULL=$LIB" >> "$GITHUB_ENV"
+          mkdir -p own
+          curl -sSfL -o own/onnxruntime.dll "$MODEL_PACK/onnxruntime-1.30.0-notelemetry-windows-x86_64.dll"
+          echo "72c305db97f93d1ce6c4d0bcd5cc312d9f3a6044efdb74c7ffd871553d0e3434  own/onnxruntime.dll" | sha256sum -c
       - name: Python, WebGPU on WARP, plugin alone (as Rawtonic ships it)
         continue-on-error: true
         run: python -I scripts/models/compare_providers.py models samples results-windows-plugin-only.json --lib "$(cygpath -w "$PWD/plugin-only/onnxruntime_providers_webgpu.dll")" --limit 2
@@ -111,7 +118,7 @@ jobs:
       - name: Rust path (rawtonic-onnx), plugin alone
         continue-on-error: true
         run: |
-          export ORT_DYLIB_PATH="$PWD/onnxruntime-win-x64-$ORT_VERSION/lib/onnxruntime.dll"
+          export ORT_DYLIB_PATH="$PWD/own/onnxruntime.dll"
           export RAWTONIC_ORT_PLUGIN_DIR="$PWD/plugin-only" AI_MODELS="$PWD/models"
           cargo test -p rawtonic-onnx --locked --test providers -- --ignored --nocapture --test-threads 1
       - uses: actions/upload-artifact@v4
@@ -150,6 +157,9 @@ jobs:
           sha256sum "$LIB"; mkdir -p plugin && cp "$LIB" plugin/
           curl -sSfL https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-linux-x64-$ORT_VERSION.tgz | tar xz
           sha256sum onnxruntime-linux-x64-$ORT_VERSION/lib/libonnxruntime.so.$ORT_VERSION
+          mkdir -p own
+          curl -sSfL -o own/libonnxruntime.so "$MODEL_PACK/libonnxruntime-1.30.0-notelemetry-linux-x86_64.so"
+          echo "620d32796c8ff40f23431e37bf417107635bf3f3d40398c5ffbbf370de3f1ad4  own/libonnxruntime.so" | sha256sum -c
       - name: Python, WebGPU on lavapipe
         continue-on-error: true
         run: python -I scripts/models/compare_providers.py models samples results-linux.json --lib "$PWD/plugin/libonnxruntime_providers_webgpu.so" --limit 2
@@ -159,7 +169,7 @@ jobs:
       - name: Rust path (rawtonic-onnx)
         continue-on-error: true
         run: |
-          export ORT_DYLIB_PATH="$PWD/onnxruntime-linux-x64-$ORT_VERSION/lib/libonnxruntime.so.$ORT_VERSION"
+          export ORT_DYLIB_PATH="$PWD/own/libonnxruntime.so"
           export RAWTONIC_ORT_PLUGIN_DIR="$PWD/plugin" AI_MODELS="$PWD/models"
           cargo test -p rawtonic-onnx --locked --test providers -- --ignored --nocapture --test-threads 1
       - uses: actions/upload-artifact@v4
