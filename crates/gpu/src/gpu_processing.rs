@@ -4586,6 +4586,9 @@ pub struct GpuProcessor {
     /// them (`LAYER_RGB_CURVES_NEUTRAL`).
     #[cfg(test)]
     force_neutral_rgb_curves: std::sync::atomic::AtomicBool,
+    /// Luminance tables built (`update_luminance_luts`).
+    #[cfg(test)]
+    luminance_lut_builds: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     force_general_pipeline: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -8681,6 +8684,8 @@ impl GpuProcessor {
             #[cfg(test)]
             force_neutral_rgb_curves: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
+            luminance_lut_builds: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
             force_general_pipeline: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             force_legacy_curves: std::sync::atomic::AtomicBool::new(false),
@@ -9694,13 +9699,25 @@ impl GpuProcessor {
     /// Display only. The Luminance curves read their sampled tables, or
     /// their prepared segments where a table fails the tolerance check;
     /// tables are rebuilt for layers whose Luminance curve changed.
-    fn update_luminance_luts(&self, layers: &mut [PreparedLayer], mask_count: usize) {
+    /// While the clipping warnings show, the curve stays the direct Hermite
+    /// of exports: a pixel a hair from a warning's threshold then gets the
+    /// same mark as before (the table can move it by a fraction of a level).
+    fn update_luminance_luts(
+        &self,
+        layers: &mut [PreparedLayer],
+        mask_count: usize,
+        show_clipping: u32,
+    ) {
+        let warnings = show_clipping != 0
+            && !is_sharpen_view(show_clipping)
+            && crate::image_processing::color_range_view_index(show_clipping).is_none();
         #[cfg(test)]
-        let direct = self
-            .force_direct_luminance
-            .load(std::sync::atomic::Ordering::Relaxed);
+        let direct = warnings
+            || self
+                .force_direct_luminance
+                .load(std::sync::atomic::Ordering::Relaxed);
         #[cfg(not(test))]
-        let direct = false;
+        let direct = warnings;
         let mut cache = self
             .luminance_lut_cache
             .lock()
@@ -9715,6 +9732,9 @@ impl GpuProcessor {
                 Some((key, enabled)) if key.as_slice() == layer.luminance_key() => *enabled,
                 _ => {
                     let table = luminance_lut(layer);
+                    #[cfg(test)]
+                    self.luminance_lut_builds
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     if let Some(table) = &table {
                         self.context.queue.write_buffer(
                             &self.curve_luts_buffer,
@@ -11339,7 +11359,11 @@ impl GpuProcessor {
                 layers[0].set_curve_lut(request.adjustments.curve_table.is_some());
                 // Display frames only: the prepared Luminance curve differs
                 // from the exports' direct Hermite in the last bits.
-                self.update_luminance_luts(&mut layers, adjustments.mask_count as usize);
+                self.update_luminance_luts(
+                    &mut layers,
+                    adjustments.mask_count as usize,
+                    adjustments.global.show_clipping,
+                );
             }
             queue.write_buffer(
                 &self.prepared_layers_buffer,

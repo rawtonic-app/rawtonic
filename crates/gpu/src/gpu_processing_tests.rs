@@ -25220,6 +25220,137 @@ fn luminance_curve_exports_under_a_compile_limit_keep_their_bytes() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; clipping warnings with a Luminance curve as with the exports' curve"]
+fn luminance_curve_clipping_warnings_mark_as_the_direct_curve() {
+    // The table can move a value by a fraction of a level, across a
+    // warning's threshold: while the warnings show, display frames evaluate
+    // the curve directly, so every pixel gets the mark it had before.
+    let context = context();
+    let (width, height) = (517, 389);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 3);
+    for show in [json!(true), json!(0x4000_0001u32), json!(0x4000_0002u32)] {
+        let profile = json!({"exposure": -1.5, "showClipping": show,
+            "curves": {"luminance": luminance_s_curve()}});
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        prepare_preview_pipeline(&processor, preview_features(&adjustments));
+        let render = |direct: bool| {
+            processor
+                .force_direct_luminance
+                .store(direct, Ordering::Relaxed);
+            let (_, w, h, x, y) = processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments: adjustments.clone(),
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            read_texture_data_roi(
+                &context.device,
+                &context.queue,
+                &processor.test_working_texture(),
+                wgpu::Origin3d { x, y, z: 0 },
+                wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                4,
+            )
+            .unwrap()
+        };
+        let direct = render(true);
+        assert!(
+            render(false) == direct,
+            "showClipping {show}: marks differ from the direct curve"
+        );
+        let tables = processor.luminance_lut_cache.lock().unwrap().clone();
+        assert!(
+            tables.iter().all(Option::is_none),
+            "showClipping {show}: a table was built"
+        );
+    }
+    processor
+        .force_direct_luminance
+        .store(false, Ordering::Relaxed);
+}
+
+#[test]
+#[ignore = "native GPU probe; hashes of exports with Luminance curves, for a comparison with an earlier revision"]
+fn luminance_curve_export_hashes_probe() {
+    // Exports (8- and 16-bit; the export variants and, as under a compile
+    // limit, the display variant) of recipes with global and masked
+    // Luminance curves, printed as hashes. Run unchanged on two revisions;
+    // the lists must be equal.
+    use std::hash::{Hash, Hasher};
+    let context = context();
+    let (width, height) = (517, 389);
+    let s_curve = luminance_s_curve();
+    let steep = json!([{"x":0,"y":0},{"x":18,"y":1},{"x":24,"y":53},{"x":255,"y":255}]);
+    let lift = json!([{"x":0,"y":32},{"x":255,"y":255}]);
+    let profiles = [
+        json!({"curves":{"luminance":s_curve}}),
+        json!({"exposure":0.4,"curves":{"luminance":lift}}),
+        json!({"curves":{"luminance":steep}}),
+        json!({"curves":{"version":3,"luminance":s_curve,"red":[{"x":0,"y":0},{"x":128,"y":140},{"x":255,"y":255}]}}),
+        json!({"curves":{"luma":custom_curve()["luma"],"luminance":s_curve}}),
+        local_profile(json!({"curves":{"luminance":s_curve}})),
+        json!({"curves":{"luminance":lift},"masks":[local_mask("rgb", json!({"curves":custom_curve()})), local_mask("lum", json!({"curves":{"luminance":steep}}))]}),
+    ];
+    for seed in [3, 31] {
+        let view = input(&context, width, height, seed);
+        for limited in [false, true] {
+            let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            processor
+                .force_export_display
+                .store(limited, Ordering::Relaxed);
+            for (index, profile) in profiles.iter().enumerate() {
+                let adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+                let masks = generated_profile_masks(profile, width, height);
+                for precision in [
+                    RenderOutputPrecision::EightBit,
+                    RenderOutputPrecision::SixteenBit,
+                ] {
+                    let (pixels, ..) = processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments: adjustments.clone(),
+                                mask_bitmaps: &masks,
+                                lut: None,
+                                roi: None,
+                            },
+                            false,
+                            precision,
+                        )
+                        .unwrap();
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    match pixels {
+                        RenderedPixels::U8(bytes) => bytes.hash(&mut hasher),
+                        RenderedPixels::U16(values) => values.hash(&mut hasher),
+                    }
+                    println!(
+                        "LUMINANCE_EXPORT seed={seed} limited={limited} profile={index} sixteen={} hash={:016x}",
+                        matches!(precision, RenderOutputPrecision::SixteenBit),
+                        hasher.finish()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 #[ignore = "native GPU timing probe; Luminance curve set against unset at 6 MP"]
 fn luminance_curve_timing_probe() {
     // A colourful 6 MP frame; display frames (8-bit, each variant compiled
@@ -25254,44 +25385,39 @@ fn luminance_curve_timing_probe() {
         }
         get_all_adjustments_from_json(&r, true, Some(1))
     };
-    for (scenario, cases) in [
-        (
-            "steady",
-            [
-                ("unset", recipe(0.3, None)),
-                ("unset_b", recipe(0.31, None)),
-                ("set", recipe(0.3, Some(40.0))),
-                ("set_b", recipe(0.31, Some(40.0))),
-            ],
-        ),
-        (
-            "curve_drag",
-            [
-                ("unset", recipe(0.3, None)),
-                ("unset_b", recipe(0.31, None)),
-                ("set", recipe(0.3, Some(40.0))),
-                ("set_b", recipe(0.3, Some(41.0))),
-            ],
-        ),
-    ] {
+    // Per case and round: the curved pair's point moves every round while
+    // the curve is dragged, so no curved frame finds its table built.
+    let names = ["unset", "unset_b", "set", "set_b"];
+    for scenario in ["steady", "curve_drag"] {
+        let drag = scenario == "curve_drag";
+        let case = |k: usize, round: usize| match k {
+            0 => recipe(0.3, None),
+            1 => recipe(0.31, None),
+            2 if drag => recipe(0.3, Some(40.0 + 0.01 * round as f64)),
+            3 if drag => recipe(0.3, Some(41.0 + 0.01 * round as f64)),
+            2 => recipe(0.3, Some(40.0)),
+            _ => recipe(0.31, Some(40.0)),
+        };
         for display in [true, false] {
             if display {
-                for (_, a) in cases.iter() {
-                    prepare_preview_pipeline(&processor, preview_features(a));
+                for k in 0..names.len() {
+                    prepare_preview_pipeline(&processor, preview_features(&case(k, 0)));
                 }
             }
-            let mut times: Vec<Vec<f64>> = vec![Vec::new(); cases.len()];
+            let builds = processor.luminance_lut_builds.load(Ordering::Relaxed);
+            let mut times: Vec<Vec<f64>> = vec![Vec::new(); names.len()];
             for round in 0..26 {
-                for k in 0..cases.len() {
-                    let k = (k + round) % cases.len();
+                for k in 0..names.len() {
+                    let k = (k + round) % names.len();
+                    let adjustments = case(k, round);
                     let start = Instant::now();
-                    processor
+                    let (_, w, h, ..) = processor
                         .run(
                             &view,
                             width,
                             height,
                             RenderRequest {
-                                adjustments: cases[k].1.clone(),
+                                adjustments,
                                 mask_bitmaps: &[],
                                 lut: None,
                                 roi: None,
@@ -25308,19 +25434,32 @@ fn luminance_curve_timing_probe() {
                         .device
                         .poll(wgpu::PollType::wait_indefinitely())
                         .unwrap();
+                    assert_eq!(w * h, width * height, "every frame renders all 6 MP");
                     // The first two rounds warm shaders and caches.
                     if round >= 2 {
                         times[k].push(start.elapsed().as_secs_f64() * 1000.0);
                     }
                 }
             }
+            // Display frames: a table per curved frame while the curve is
+            // dragged, none after the first otherwise (exports build none).
+            let built = processor.luminance_lut_builds.load(Ordering::Relaxed) - builds;
+            let expected = match (display, drag) {
+                (false, _) => 0..=0,
+                (true, true) => 52..=52,
+                (true, false) => 0..=1,
+            };
+            assert!(
+                expected.contains(&built),
+                "{scenario}: {built} tables built"
+            );
             let mut out = serde_json::Map::new();
             out.insert(
                 "mode".into(),
                 json!(if display { "display" } else { "export16" }),
             );
             out.insert("scenario".into(), json!(scenario));
-            for (k, (name, _)) in cases.iter().enumerate() {
+            for (k, name) in names.iter().enumerate() {
                 let t = &mut times[k];
                 t.sort_by(f64::total_cmp);
                 // A reused frame takes about 0.1 ms; a 6 MP render several.
