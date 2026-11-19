@@ -175,10 +175,12 @@ are decoder defects (user decision 2026-10-28, PV4), so saved edits change too.
   lossless JPEG differences of category 16 in 16 extra bits (dcraw's
   `ljpeg_diff`); the DNG decoder read them as the compliant -32768 without
   the bits, which corrupted the rest of each such tile (XIAOYI YIAC 3, YDXJ 2:
-  now equal to Adobe DNG Converter's re-encoded raw data). Unlike dnglab, the
+  every raw sample now equals Adobe DNG Converter's DNG of the file). A
+  missing, malformed or all-zero DNGVersion keeps the compliant decoding. Unlike dnglab, the
   Hasselblad and Leaf decoders keep skipping the bits for -32768
   (`category_16_value` stays off): with the value their files decode wrong.
-  Tests `rawtonic_category_16_tests`, `rawtonic_dng_version_tests`.
+  Tests `rawtonic_category_16_tests`, `rawtonic_dng_version_tests` (incl. a whole
+  DNG written with category 16 differences at versions 1.0, 1.1, 1.6 and 0).
 - `src/decoders/cr2.rs`, `data/cameras/canon/{1dm4,40d,50d,5dmk2,5dmk3,5dmk4,5ds,5dsr,60d,6d,6dmk2,70d,7d,7dmk2}.toml`
   (param `sraw_white_by_iso`): Adobe DNG Converter's sRAW/mRAW white follows
   the EXIF ISO (e.g. EOS 60D 12000 at ISO 100, 10900 at the 1/3-stop ISOs
@@ -190,8 +192,9 @@ are decoder defects (user decision 2026-10-28, PV4), so saved edits change too.
   of the exposure difference to our render of Adobe's DNGs went from a
   median 0.24 EV (max 0.95 EV) to <= 0.0014 EV; each file's constant
   difference (-0.17 to +0.33 EV, not against Camera Raw) is unchanged, and
-  real captures at other ISOs are not checked yet. Files at the sample ISO
-  decode unchanged. The 5D Mark IV loses `sraw_specular_white`: Adobe ignores
+  real captures at other ISOs are not checked yet. The raw.pixls.us sample
+  files decode unchanged; other 5D Mark IV files at ISO 100 change where
+  their SpecularWhiteLevel differs from the table. The 5D Mark IV loses `sraw_specular_white`: Adobe ignores
   its SpecularWhiteLevel (patched copy), unlike the 80D and 1D X Mark II.
   Tests `rawtonic_sraw_white_tests`.
 

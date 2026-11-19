@@ -42,7 +42,7 @@ impl<'a> DngDecoder<'a> {
 /// `dng_version < 0x1010000`); files without a version keep the compliant
 /// decoding.
 fn dng_version_has_ljpeg_bug(version: Option<[u8; 4]>) -> bool {
-  version.is_some_and(|version| version < crate::dng::DNG_VERSION_V1_1)
+  version.is_some_and(|version| (crate::dng::DNG_VERSION_V1_0..crate::dng::DNG_VERSION_V1_1).contains(&version))
 }
 
 #[cfg(test)]
@@ -57,6 +57,79 @@ mod rawtonic_dng_version_tests {
     assert!(!dng_version_has_ljpeg_bug(Some([1, 4, 0, 0])));
     assert!(!dng_version_has_ljpeg_bug(Some([2, 0, 0, 0])));
     assert!(!dng_version_has_ljpeg_bug(None));
+    // a malformed all-zero version keeps the compliant decoding
+    assert!(!dng_version_has_ljpeg_bug(Some([0, 0, 0, 0])));
+  }
+
+  /// A 16-bit lossless DNG whose samples jump by 32768 (category 16
+  /// differences, no extra bits in a compliant stream), with its DNGVersion
+  /// tag set to `version`, and its samples.
+  fn lossless_dng_with_category_16(version: [u8; 4]) -> (Vec<u8>, Vec<u16>) {
+    use crate::decoders::Camera;
+    use crate::dng::writer::DngWriter;
+    use crate::dng::{CropMode, DNG_VERSION_V1_4, DngCompression, DngPhotometricConversion};
+    use crate::pixarray::PixU16;
+    use crate::rawimage::{BlackLevel, CFAConfig, RawImage, RawPhotometricInterpretation, WhiteLevel};
+    use std::io::Cursor;
+
+    let (width, height) = (32, 16);
+    let samples: Vec<u16> = (0..width * height).map(|i| if (i / width) % 2 == 0 { 0 } else { 32768 }).collect();
+    let mut camera = Camera::new();
+    camera.make = "Rawtonic".to_string();
+    camera.model = "Category 16 Test".to_string();
+    camera.clean_make = camera.make.clone();
+    camera.clean_model = camera.model.clone();
+    camera.cfa = CFA::new("RGGB");
+    let photometric = RawPhotometricInterpretation::Cfa(CFAConfig::new_from_camera(&camera));
+    let image = RawImage::new(
+      camera,
+      PixU16::new_with(samples.clone(), width, height),
+      1,
+      [1.0, 1.0, 1.0, f32::NAN],
+      photometric,
+      Some(BlackLevel::new(&[0_u16; 4], 2, 2, 1)),
+      Some(WhiteLevel::new(vec![65535])),
+      false,
+    )
+    .unwrap();
+    let mut buf = Cursor::new(Vec::new());
+    let mut dng = DngWriter::new(&mut buf, DNG_VERSION_V1_4).unwrap();
+    let mut raw = dng.subframe(0);
+    raw
+      .raw_image(&image, CropMode::None, DngCompression::Lossless, DngPhotometricConversion::Original, 1)
+      .unwrap();
+    raw.finalize().unwrap();
+    dng.load_base_tags(&image).unwrap();
+    dng.close().unwrap();
+    let mut data = buf.into_inner();
+    // The writer states DNG 1.6: replace the tag's inline value (little
+    // endian entry: tag 0xc612, type BYTE, count 4).
+    let entry = [0x12, 0xc6, 0x01, 0x00, 0x04, 0x00, 0x00, 0x00, 1, 6, 0, 0];
+    let at = data.windows(entry.len()).position(|window| window == entry).expect("DNGVersion entry");
+    data[at + 8..at + 12].copy_from_slice(&version);
+    (data, samples)
+  }
+
+  fn decoded_samples(data: &[u8]) -> Option<Vec<u16>> {
+    let image = crate::decode(&RawSource::new_from_slice(data), &RawDecodeParams::default()).ok()?;
+    match image.data {
+      RawImageData::Integer(data) => Some(data),
+      RawImageData::Float(_) => None,
+    }
+  }
+
+  #[test]
+  fn lossless_jpeg_of_a_whole_dng_follows_its_version() {
+    // Compliant: DNG 1.1 and later, and a malformed all-zero version
+    for version in [[1, 6, 0, 0], [1, 1, 0, 0], [0, 0, 0, 0]] {
+      let (data, samples) = lossless_dng_with_category_16(version);
+      assert_eq!(decoded_samples(&data), Some(samples), "DNG version {version:?}");
+    }
+    // DNG 1.0 reads 16 extra bits after every category 16 code, which this
+    // compliant stream does not have: the samples come out different (or
+    // the stream ends early).
+    let (data, samples) = lossless_dng_with_category_16([1, 0, 0, 0]);
+    assert_ne!(decoded_samples(&data), Some(samples));
   }
 }
 
