@@ -1,14 +1,14 @@
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '../../store/useSettingsStore';
-import { nikonHighEfficiencyMessage } from '../../utils/loadError';
+import { canSuggestAppleRaw9, nikonHighEfficiencyMessage } from '../../utils/loadError';
 
 export default function NikonHighEfficiencyNotice({ visible }: { visible?: boolean }) {
   const { t } = useTranslation();
-  const osPlatform = useSettingsStore((state) => state.osPlatform);
+  const suggestAppleRaw9 = useSettingsStore(canSuggestAppleRaw9);
   if (!visible) return null;
   return (
     <div className="studio-raw-preview-notice" role="status">
-      {nikonHighEfficiencyMessage(t, osPlatform)}
+      {nikonHighEfficiencyMessage(t, suggestAppleRaw9)}
     </div>
   );
 }

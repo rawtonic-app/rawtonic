@@ -1,16 +1,29 @@
 import i18next, { type TFunction } from 'i18next';
+import { version } from '@tauri-apps/plugin-os';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { errorCode, errorMessage } from '../shared/ipc/errors';
 
 export const isUnsupportedNikonHighEfficiency = (error: unknown) =>
   errorCode(error) === 'unsupported_nikon_high_efficiency';
 
+export function canSuggestAppleRaw9({
+  osPlatform,
+  appSettings
+}: ReturnType<typeof useSettingsStore.getState>): boolean {
+  if (osPlatform !== 'macos' || appSettings?.useAppleRaw9) return false;
+  try {
+    return Number.parseInt(version(), 10) >= 27;
+  } catch {
+    return false;
+  }
+}
+
 export function nikonHighEfficiencyMessage(
   t: TFunction = i18next.t,
-  osPlatform = useSettingsStore.getState().osPlatform
+  suggestAppleRaw9 = canSuggestAppleRaw9(useSettingsStore.getState())
 ): string {
   const message = t('studio.loadError.nikonHighEfficiency');
-  if (osPlatform !== 'macos') return message;
+  if (!suggestAppleRaw9) return message;
   const setting = t('settings.processing.preprocessing.appleRaw9');
   return `${message} ${t('studio.loadError.nikonHighEfficiencyMac', { setting })}`;
 }
