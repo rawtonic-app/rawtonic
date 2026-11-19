@@ -700,6 +700,13 @@ fn short_single_strip(ifd: &IFD, row_samples: usize, height: usize, bits: u32) -
 }
 
 pub(crate) fn plain_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result<RawImageData> {
+  plain_image_from_ifd_ext(ifd, rawsource, false)
+}
+
+/// Rawtonic patch (RAWL1; dnglab 8599522): [`plain_image_from_ifd`], with
+/// `ljpeg_dng_bug` for the lossless JPEG of DNG files before version 1.1,
+/// whose category 16 differences carry 16 extra bits.
+pub(crate) fn plain_image_from_ifd_ext(ifd: &IFD, rawsource: &RawSource, ljpeg_dng_bug: bool) -> Result<RawImageData> {
   let endian = ifd.endian;
   let tiff_width = fetch_tiff_tag!(ifd, TiffCommonTag::ImageWidth).force_usize(0);
   let tiff_height = fetch_tiff_tag!(ifd, TiffCommonTag::ImageLength).force_usize(0);
@@ -769,14 +776,14 @@ pub(crate) fn plain_image_from_ifd(ifd: &IFD, rawsource: &RawSource) -> Result<R
           if (pi == PhotometricInterpretation::YCbCr && bits == 8) || (pi == PhotometricInterpretation::BlackIsZero && bits == 8) {
             decode_strips::<u16>(&mut pixbuf, rawsource, ifd, JpegDecompressor::new())?;
           } else {
-            decode_strips::<u16>(&mut pixbuf, rawsource, ifd, LJpegDecompressor::new())?;
+            decode_strips::<u16>(&mut pixbuf, rawsource, ifd, LJpegDecompressor::new_with_dng_bug(ljpeg_dng_bug))?;
           }
         }
         (CompressionMethod::ModernJPEG, DataMode::Tiles) => {
           if (pi == PhotometricInterpretation::YCbCr && bits == 8) || (pi == PhotometricInterpretation::BlackIsZero && bits == 8) {
             decode_tiles::<u16>(&mut pixbuf, rawsource, ifd, JpegDecompressor::new())?;
           } else {
-            decode_tiles::<u16>(&mut pixbuf, rawsource, ifd, LJpegDecompressor::new())?;
+            decode_tiles::<u16>(&mut pixbuf, rawsource, ifd, LJpegDecompressor::new_with_dng_bug(ljpeg_dng_bug))?;
           }
         }
         (CompressionMethod::LossyJPEG, DataMode::Strips) => {

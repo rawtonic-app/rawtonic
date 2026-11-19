@@ -12,6 +12,9 @@
 
 ### Changes to existing exports
 
+- **Phase One H 25, P20+, P25, P25+, P30, P45 and P45+ photos** get their flat-field colour correction on the red and blue pixels; it went to green pixels before (wrong-coloured checker patterns on flat areas). The variation of the two green channels against each other on flat areas now equals Adobe DNG Converter's (H 25 1.60 % → 0.41 %, P20+ 4.1 → 0.8 %, P25 5.0 → 0.6 %, P45+ 1.4 → 0.5 %). Saved edits of these photos change too. Other Phase One and Leaf backs are unchanged.
+- **DNGs of DNG version 1.0 with lossless compression** (e.g. XIAOYI action cameras) no longer have corrupted, too bright or tinted image tiles: they now decode to the same raw data as Adobe DNG Converter (two of 262 raw.pixls.us DNGs were affected). Saved edits of these photos change too.
+- **Canon sRAW and mRAW photos at most ISOs** (EOS 7D, 7D Mark II, 40D, 50D, 60D, 70D, 5D Mark II/III/IV, 5DS, 5DS R, 6D, 6D Mark II, 1D Mark IV) now use the white level Adobe DNG Converter uses at their ISO. Before, they were up to 0.6 EV too bright or dark compared with the same file at the ISO the level had been measured at (median 0.24 EV over 31 sample files at six ISOs; now under 0.002 EV). Files at that ISO are unchanged. Saved edits change too.
 - Super Resolution exports using the ONNX Runtime CPU path may round differently from earlier versions. In a 24 MP test, the largest difference was 0.00000232 on a 0–1 scale before rounding, which can change an 8-bit channel by at most 1/255.
 
 ### Fixes

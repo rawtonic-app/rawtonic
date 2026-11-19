@@ -19,9 +19,17 @@ real_bps = 16
 whitepoint = 52000 # Adobe DNG Converter sRAW white (Rawtonic)
 blackpoint = 0
 
+[cameras.modes.params]
+# Adobe DNG Converter sRAW WhiteLevel by EXIF ISO, in these units (Rawtonic)
+sraw_white_by_iso = [[50, 50, 48000], [100, 125, 52000], [160, 160, 47200], [200, 250, 52000], [320, 320, 47200], [400, 500, 52000], [640, 640, 47200], [800, 1000, 52000], [1250, 1250, 47200], [1600, 2000, 52000], [2500, 2500, 47200], [3200, 4000, 52000], [5000, 5000, 47200], [6400, 8000, 52000], [10000, 10000, 47200], [12800, 20000, 52000], [25600, 51200, 54000]]
+
 [[cameras.modes]]
 mode = "sRaw2"
 hints = ["invert_sraw_wb", "sraw_new"]
 real_bps = 16
 whitepoint = 52000 # Adobe DNG Converter sRAW white (Rawtonic)
 blackpoint = 0
+
+[cameras.modes.params]
+# Adobe DNG Converter sRAW WhiteLevel by EXIF ISO, in these units (Rawtonic)
+sraw_white_by_iso = [[50, 50, 48000], [100, 125, 52000], [160, 160, 47200], [200, 250, 52000], [320, 320, 47200], [400, 500, 52000], [640, 640, 47200], [800, 1000, 52000], [1250, 1250, 47200], [1600, 2000, 52000], [2500, 2500, 47200], [3200, 4000, 52000], [5000, 5000, 47200], [6400, 8000, 52000], [10000, 10000, 47200], [12800, 20000, 52000], [25600, 51200, 54000]]

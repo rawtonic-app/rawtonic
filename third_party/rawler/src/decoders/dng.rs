@@ -24,6 +24,46 @@ impl<'a> DngDecoder<'a> {
   pub fn new(_file: &RawSource, tiff: GenericTiffReader, rawloader: &'a RawLoader) -> Result<DngDecoder<'a>> {
     Ok(DngDecoder { tiff, rawloader })
   }
+
+  /// Rawtonic patch (RAWL1): whether the file's lossless JPEG stores category
+  /// 16 differences with 16 extra bits, as DNG versions before 1.1 do.
+  fn ljpeg_dng_bug(&self) -> bool {
+    let version = self
+      .tiff
+      .root_ifd()
+      .get_entry(DngTag::DNGVersion)
+      .filter(|entry| entry.count() >= 4)
+      .map(|entry| {
+        let mut version = [0_u8; 4];
+        for (i, part) in version.iter_mut().enumerate() {
+          *part = entry.force_u32(i).min(255) as u8;
+        }
+        version
+      });
+    dng_version_has_ljpeg_bug(version)
+  }
+}
+
+/// Rawtonic patch (RAWL1): DNG versions before 1.1.0.0 (dcraw's
+/// `dng_version < 0x1010000`); files without a version keep the compliant
+/// decoding.
+fn dng_version_has_ljpeg_bug(version: Option<[u8; 4]>) -> bool {
+  version.is_some_and(|version| version < crate::dng::DNG_VERSION_V1_1)
+}
+
+#[cfg(test)]
+mod rawtonic_dng_version_tests {
+  use super::*;
+
+  #[test]
+  fn only_dng_versions_before_1_1_use_the_ljpeg_extra_bits() {
+    assert!(dng_version_has_ljpeg_bug(Some([1, 0, 0, 0])));
+    assert!(dng_version_has_ljpeg_bug(Some([1, 0, 9, 9])));
+    assert!(!dng_version_has_ljpeg_bug(Some([1, 1, 0, 0])));
+    assert!(!dng_version_has_ljpeg_bug(Some([1, 4, 0, 0])));
+    assert!(!dng_version_has_ljpeg_bug(Some([2, 0, 0, 0])));
+    assert!(!dng_version_has_ljpeg_bug(None));
+  }
 }
 
 /// DNG format encapsulation for analyzer
@@ -85,7 +125,9 @@ impl<'a> Decoder for DngDecoder<'a> {
         _ => RawImageData::Integer(Vec::new()),
       }
     } else {
-      plain_image_from_ifd(raw, file)?
+      // Rawtonic patch (RAWL1; dnglab 8599522): DNG versions before 1.1
+      // store category 16 differences of lossless JPEG with 16 extra bits.
+      plain_image_from_ifd_ext(raw, file, self.ljpeg_dng_bug())?
     };
     let mut raw_data = raw_data;
     if !dummy && cpp == 3 && matches!(photometric, RawPhotometricInterpretation::LinearRaw) {

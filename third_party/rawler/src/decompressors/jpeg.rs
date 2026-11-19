@@ -1,17 +1,31 @@
 use crate::decompressors::ljpeg::LjpegDecompressor;
 use crate::decompressors::{Decompressor, LineIteratorMut};
 use crate::pixarray::PixU16;
-pub struct LJpegDecompressor {}
+pub struct LJpegDecompressor {
+  /// Rawtonic patch (RAWL1): category 16 differences carry 16 extra bits
+  /// (DNG files before version 1.1).
+  dng_bug: bool,
+}
 
 impl LJpegDecompressor {
   pub fn new() -> Self {
-    Self {}
+    Self { dng_bug: false }
+  }
+
+  /// Rawtonic patch (RAWL1): for the lossless JPEG of DNG files before
+  /// version 1.1, whose category 16 differences carry 16 extra bits.
+  pub fn new_with_dng_bug(dng_bug: bool) -> Self {
+    Self { dng_bug }
   }
 }
 
 impl<'a> Decompressor<'a, u16> for LJpegDecompressor {
   fn decompress(&self, src: &[u8], skip_rows: usize, lines: impl LineIteratorMut<'a, u16>, line_width: usize) -> std::result::Result<(), String> {
-    let decompressor = LjpegDecompressor::new(src)?;
+    let decompressor = if self.dng_bug {
+      LjpegDecompressor::new_old_dng(src)?
+    } else {
+      LjpegDecompressor::new(src)?
+    };
     let mut pixbuf = PixU16::new(decompressor.width(), decompressor.height());
 
     decompressor.decode(pixbuf.pixels_mut(), 0, decompressor.width(), decompressor.width(), decompressor.height(), false)?;

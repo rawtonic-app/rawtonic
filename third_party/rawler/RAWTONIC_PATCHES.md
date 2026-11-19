@@ -154,6 +154,43 @@ Converter 18.7 (white/black levels from the DNG's raw IFD, AsShotNeutral):
 - `src/decoders/dng.rs`: four-colour DNGs take their plane colours from
   CFAPlaneColor (the demosaic panicked with the default three planes).
 
+## White levels and decoder fixes from the dnglab 2026-11-09 leads (RAWL1, 2026-11-19)
+
+Checked against Adobe DNG Converter 18.7 on raw.pixls.us samples; evidence in
+the notes (benchmark-results/rawl1-2026-11-19/). No recipe version key: these
+are decoder defects (user decision 2026-10-28, PV4), so saved edits change too.
+
+- `src/decoders/iiq.rs` (dnglab 5779679): the red-blue flat field looks the
+  colour up at the raw position. It subtracted the sensor margins first, so
+  on backs with an odd margin (H 25, P20+, P25, P25+, P30, P45, P45+) the red
+  and blue multipliers went to green pixels and red and blue stayed
+  uncorrected. G1/G2 spread over flat blocks now equals Adobe's DNG (H 25
+  1.60 % -> 0.41 %, Adobe 0.41 %; P20+ 4.11 -> 0.79, Adobe 0.76; P25 4.97 ->
+  0.63, Adobe 0.63; P45+ 1.41 -> 0.49, Adobe 0.49). Other IIQ backs decode
+  unchanged. Test `rawtonic_flatfield_tests`.
+- `src/decompressors/ljpeg/huffman.rs`, `ljpeg/mod.rs`, `decompressors/jpeg.rs`,
+  `decoders/mod.rs` (`plain_image_from_ifd_ext`), `decoders/dng.rs` (dnglab
+  8599522 and its DNG-version wiring): DNG files before version 1.1 store
+  lossless JPEG differences of category 16 in 16 extra bits (dcraw's
+  `ljpeg_diff`); the DNG decoder read them as the compliant -32768 without
+  the bits, which corrupted the rest of each such tile (XIAOYI YIAC 3, YDXJ 2:
+  now equal to Adobe DNG Converter's re-encoded raw data). Unlike dnglab, the
+  Hasselblad and Leaf decoders keep skipping the bits for -32768
+  (`category_16_value` stays off): with the value their files decode wrong.
+  Tests `rawtonic_category_16_tests`, `rawtonic_dng_version_tests`.
+- `src/decoders/cr2.rs`, `data/cameras/canon/{1dm4,40d,50d,5dmk2,5dmk3,5dmk4,5ds,5dsr,60d,6d,6dmk2,70d,7d,7dmk2}.toml`
+  (param `sraw_white_by_iso`): Adobe DNG Converter's sRAW/mRAW white follows
+  the EXIF ISO (e.g. EOS 60D 12000 at ISO 100, 10900 at the 1/3-stop ISOs
+  160/320/640/1250/2500, 13200 elsewhere; it ignores SpecularWhiteLevel),
+  while the fixed white was the one of the corpus sample's ISO. The table
+  holds Adobe's white per EXIF ISO (probed on copies with only the ISO
+  patched, 16 bodies x 29 ISOs) in rawler's units. Over 31 sRAW/mRAW files x
+  6 ISOs the exposure spread against our render of Adobe's DNGs went from a
+  median 0.24 EV (max 0.95 EV) to <= 0.0014 EV; files at the sample ISO
+  decode unchanged. The 5D Mark IV loses `sraw_specular_white`: Adobe ignores
+  its SpecularWhiteLevel (patched copy), unlike the 80D and 1D X Mark II.
+  Tests `rawtonic_sraw_white_tests`.
+
 ## EXIF
 
 - `src/exif.rs`: `Exif` also reads FocalPlaneXResolution / FocalPlaneResolutionUnit

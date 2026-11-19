@@ -19,8 +19,16 @@ active_area = [0, 3, 0, 0]
 whitepoint = 40000 # Adobe DNG Converter sRAW white (Rawtonic)
 blackpoint = 0
 
+[cameras.modes.params]
+# Adobe DNG Converter sRAW WhiteLevel by EXIF ISO, in these units (Rawtonic)
+sraw_white_by_iso = [[50, 125, 40000], [160, 160, 37200], [200, 250, 40000], [320, 320, 34800], [400, 500, 37600], [640, 640, 34800], [800, 1000, 37600], [1250, 1250, 34800], [1600, 2000, 37600], [2500, 2500, 34800], [3200, 4000, 37600], [5000, 5000, 34800], [6400, 8000, 37600], [10000, 10000, 34800], [12800, 40000, 37600], [51200, 51200, 36000]]
+
 [[cameras.modes]]
 mode = "sRaw2"
 hints = ["invert_sraw_wb", "sraw_new"]
 whitepoint = 40000 # Adobe DNG Converter sRAW white (Rawtonic)
 blackpoint = 0
+
+[cameras.modes.params]
+# Adobe DNG Converter sRAW WhiteLevel by EXIF ISO, in these units (Rawtonic)
+sraw_white_by_iso = [[50, 125, 40000], [160, 160, 37200], [200, 250, 40000], [320, 320, 34800], [400, 500, 37600], [640, 640, 34800], [800, 1000, 37600], [1250, 1250, 34800], [1600, 2000, 37600], [2500, 2500, 34800], [3200, 4000, 37600], [5000, 5000, 34800], [6400, 8000, 37600], [10000, 10000, 34800], [12800, 40000, 37600], [51200, 51200, 36000]]
