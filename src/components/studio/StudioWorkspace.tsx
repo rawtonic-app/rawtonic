@@ -727,12 +727,17 @@ export default function StudioWorkspace(props: Props) {
   };
   // A step starts from the shown width; one that cannot move it (at the
   // window's cap) keeps the stored width for a wider window.
-  const resizeTools = (delta: number) =>
+  // `column`: the tool column, whose drawn width (narrowed beside a docked
+  // filmstrip in a small window) the step starts from.
+  const resizeTools = (delta: number, column: Element | null) => {
+    // Unlaid out (no width): the stored width.
+    const drawn = (column?.getBoundingClientRect().width || Infinity) / (uiScale || 1);
     chooseWidth((v) => {
-      const from = Math.min(v, maxWidth);
+      const from = Math.round(Math.min(v, maxWidth, drawn));
       const next = Math.max(TOOLS_MIN_WIDTH, Math.min(maxWidth, from + delta));
       return next === from ? v : next;
     });
+  };
   // Each module keeps its own layout (Lightroom), saved with the settings.
   const panels = readModuleLayout(storedPanels, moduleOf(activeView));
   const present = presentGroups(moduleOf(activeView), layout);
@@ -1414,7 +1419,10 @@ export default function StudioWorkspace(props: Props) {
               onKeyDown={(e) => {
                 if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                   e.preventDefault();
-                  resizeTools((e.key === 'ArrowRight' ? 10 : -10) * (toolsSide === 'right' ? -1 : 1));
+                  resizeTools(
+                    (e.key === 'ArrowRight' ? 10 : -10) * (toolsSide === 'right' ? -1 : 1),
+                    e.currentTarget.parentElement
+                  );
                 }
               }}
               onPointerDown={(e) => {
@@ -1423,7 +1431,7 @@ export default function StudioWorkspace(props: Props) {
               }}
               onPointerMove={(e) => {
                 if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
-                resizeTools(e.movementX * (toolsSide === 'right' ? -1 : 1));
+                resizeTools(e.movementX * (toolsSide === 'right' ? -1 : 1), e.currentTarget.parentElement);
               }}
               onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
             />

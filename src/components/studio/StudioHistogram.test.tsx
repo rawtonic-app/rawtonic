@@ -1,7 +1,7 @@
 import '../../i18n';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import StudioHistogram from './StudioHistogram';
+import StudioHistogram, { displayHistogramBins } from './StudioHistogram';
 import { useEditorStore } from '../../store/useEditorStore';
 
 afterEach(() => {
@@ -334,4 +334,15 @@ it('colours a lit clipping triangle by the channels that clip, neutral when all 
   expect(highlights.style.getPropertyValue('--clip-channel')).toBe('rgb(235, 235, 40)');
   const shadows = screen.getByRole('button', { name: 'Shadow clipping, clipped' });
   expect(shadows.getAttribute('style')).toBeNull();
+});
+
+describe('displayHistogramBins', () => {
+  it('draws every channel on the shared scale and keeps the plain bins without factors', () => {
+    const histogram = { red: [0, 1, 0.5], green: [0, 1, 1], blue: [], luma: [1, 1, 1], displayScale: [1, 0.25, 1, 4] };
+    expect(displayHistogramBins(histogram, 'red')).toEqual([0, 1, 0.5]);
+    expect(displayHistogramBins(histogram, 'green')).toEqual([0, 0.25, 0.25]);
+    // Capped at the top of the plot.
+    expect(displayHistogramBins(histogram, 'luma')).toEqual([1, 1, 1]);
+    expect(displayHistogramBins({ ...histogram, displayScale: undefined }, 'green')).toEqual([0, 1, 1]);
+  });
 });

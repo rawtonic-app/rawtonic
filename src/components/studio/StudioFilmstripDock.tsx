@@ -81,6 +81,14 @@ export default function StudioFilmstripDock({
   };
   const colorName = (name: keyof typeof colorNames) => colorNames[name];
 
+  // A step starts from the drawn width (narrowed in a small window so the
+  // photograph keeps its room); one that cannot move it keeps the stored one.
+  const resize = (delta: number) => {
+    const drawn = aside.current ? Math.round(aside.current.getBoundingClientRect().width) : dock.width;
+    const from = Math.min(dock.width, drawn || dock.width);
+    const next = Math.max(DOCK_WIDTH.min, Math.min(DOCK_WIDTH.max, from + delta));
+    if (next !== from) setDock({ width: next });
+  };
   return (
     <aside
       ref={aside}
@@ -205,15 +213,14 @@ export default function StudioFilmstripDock({
         onKeyDown={(e) => {
           if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
           e.preventDefault();
-          setDock({ width: dock.width + (e.key === 'ArrowRight' ? 10 : -10) * (side === 'right' ? -1 : 1) });
+          resize((e.key === 'ArrowRight' ? 10 : -10) * (side === 'right' ? -1 : 1));
         }}
         onPointerDown={(e) => {
           e.preventDefault();
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerMove={(e) => {
-          if (e.currentTarget.hasPointerCapture(e.pointerId))
-            setDock({ width: dock.width + e.movementX * (side === 'right' ? -1 : 1) });
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) resize(e.movementX * (side === 'right' ? -1 : 1));
         }}
         onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
       />

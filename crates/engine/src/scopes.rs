@@ -230,8 +230,9 @@ pub fn histogram_counts(image: &DynamicImage, space: ScopeSpace) -> HistogramCou
         .reduce(HistogramCounts::zero, HistogramCounts::add)
 }
 
-/// A histogram's bins (smoothed counts, all channels on one scale) and whether
-/// each side of the tone range clips somewhere in the image.
+/// A histogram's bins (smoothed counts, normalised per channel), the
+/// factors that draw them on one scale, and whether each side of the tone
+/// range clips somewhere in the image.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct HistogramData {
@@ -239,6 +240,9 @@ pub struct HistogramData {
     green: Vec<f32>,
     blue: Vec<f32>,
     luma: Vec<f32>,
+    /// Red, green, blue and luma: multiply a channel's bins by its factor
+    /// (and cap at 1) to draw all four on one scale.
+    display_scale: [f32; 4],
     clipped_shadows: bool,
     clipped_highlights: bool,
     /// Which of red, green and blue clip at each side (the renderer's
@@ -269,22 +273,26 @@ pub fn calculate_histogram_from_image(
         smoothed(counts.blue),
         smoothed(counts.luma),
     ];
-    // One scale for all four, so their heights compare: a channel with few
+    // Each channel's bins stay on its own scale (Levels' Auto reads them);
+    // `display_scale` puts them on one for drawing: a channel with few
     // pixels in a tone stays low beside one with many (every channel counts
-    // each pixel once). The inner codes set it: a clipped end (a channel
-    // blown out or black in most pixels) saturates at the top instead of
-    // flattening the rest. Without inner counts the tallest bin sets it.
-    let inner = channels
+    // each pixel once). The inner codes set the shared scale, so a clipped
+    // end (a channel blown out or black in most pixels) saturates at the top
+    // instead of flattening the rest.
+    let own = channels.each_ref().map(|bins| histogram_range(bins, 0.99));
+    let shared = channels
         .iter()
         .map(|bins| histogram_range(&bins[1..255], 0.99))
         .fold(0.0f32, f32::max);
-    let max_val = if inner > 1e-6 {
-        inner
-    } else {
-        channels.iter().flatten().cloned().fold(0.0f32, f32::max)
-    };
-    let scale = if max_val > 1e-6 { 1.0 / max_val } else { 0.0 };
-    for bins in &mut channels {
+    let display_scale = own.map(|own| {
+        if shared > 1e-6 && own > 1e-6 {
+            own / shared
+        } else {
+            1.0
+        }
+    });
+    for (bins, own) in channels.iter_mut().zip(own) {
+        let scale = if own > 1e-6 { 1.0 / own } else { 0.0 };
         for value in bins.iter_mut() {
             *value = (*value * scale).min(1.0);
         }
@@ -295,6 +303,7 @@ pub fn calculate_histogram_from_image(
         green,
         blue,
         luma,
+        display_scale,
         clipped_shadows: clipped.shadows,
         clipped_highlights: clipped.highlights,
         shadow_channels: clipped.shadow_channels,
@@ -860,7 +869,7 @@ mod tests {
     }
 
     #[test]
-    fn channels_share_one_scale() {
+    fn channels_share_one_display_scale() {
         // Every red pixel at one code; green spread evenly over all codes,
         // so each green code holds about 1/256 of what red's code holds.
         // Blue black throughout: a clipped end does not set the scale.
@@ -875,11 +884,15 @@ mod tests {
         )
         .unwrap();
         let bins = |c: &str| -> Vec<f64> { serde_json::from_value(data[c].clone()).unwrap() };
-        assert_eq!(bins("red")[100], 1.0);
+        let scale: Vec<f64> = serde_json::from_value(data["displayScale"].clone()).unwrap();
+        let shown = |c: &str, i: usize, k: usize| (bins(c)[i] * scale[k]).min(1.0);
+        // The bins themselves stay per channel (Levels' Auto reads them).
+        assert_eq!(bins("green")[128], 1.0);
+        assert_eq!(shown("red", 100, 0), 1.0);
         // Scaled on its own, the even green would fill the plot (1.0).
-        let green = bins("green")[128];
+        let green = shown("green", 128, 1);
         assert!(green > 0.0 && green < 0.1, "{green}");
-        assert_eq!(bins("blue")[0], 1.0);
+        assert_eq!(shown("blue", 0, 2), 1.0);
     }
 
     #[test]

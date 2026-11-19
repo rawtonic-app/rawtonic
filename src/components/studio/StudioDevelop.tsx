@@ -71,7 +71,7 @@ import StudioProfileBrowser from './StudioProfileBrowser';
 import StudioWhiteBalance from './StudioWhiteBalance';
 import type { CurveChannel, TatTarget } from '../../utils/targetedAdjustment';
 import { pointCurveValue, renderedLuminancePoints, renderedPoints } from '../../utils/pointCurve';
-import StudioHistogram, { histogramBins } from './StudioHistogram';
+import StudioHistogram, { displayHistogramBins } from './StudioHistogram';
 import { useEditorStoreDom } from '../../hooks/useEditorStoreDom';
 import StudioScopes from './StudioScopes';
 import { PerfProfiler } from '../../hooks/usePerformanceDiagnostics';
@@ -320,8 +320,8 @@ export function curveHistogramPaths(
 ): { fill: string | null; lines: (string | null)[] } {
   const data = histogram as Record<string, unknown> | null;
   const single = channel === 'red' || channel === 'green' || channel === 'blue';
-  const fill = data ? histogramBins(single ? data[channel] : data.luma) : [];
-  const lines = data && channel === 'luma' ? RGB_CHANNELS.map((c) => histogramBins(data[c])) : [];
+  const fill = data ? displayHistogramBins(data, single ? (channel as 'red' | 'green' | 'blue') : 'luma') : [];
+  const lines = data && channel === 'luma' ? RGB_CHANNELS.map((c) => displayHistogramBins(data, c)) : [];
   // The scopes' scale as it comes (bins up to 1), as the histogram draws it.
   const max = Math.max(1, ...fill, ...lines.flat());
   const outline = (values: number[]) => (values.length ? histogramOutline(values, max) : null);
