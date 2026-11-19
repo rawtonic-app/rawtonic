@@ -33,7 +33,31 @@ fn reopening_catalog_with_unconvertible_verbatim_paths_needs_no_writer() {
             [verbatim],
         )
         .unwrap();
+    let cached_volume = r#"{"id":"test-drive","name":"Test drive","mount_point":"C:\\"}"#;
+    observer
+        .execute(
+            "INSERT INTO folder_root_volumes(path,volume) VALUES(?,?)",
+            [verbatim, cached_volume],
+        )
+        .unwrap();
+    #[cfg(windows)]
+    let obsolete = r"\\?\C:\Folder";
+    #[cfg(windows)]
+    observer
+        .execute(
+            "INSERT INTO folder_root_volumes(path,volume) VALUES(?,?)",
+            [obsolete, cached_volume],
+        )
+        .unwrap();
     drop(Library::open(&catalog).unwrap());
+    #[cfg(windows)]
+    assert!(
+        !observer
+            .prepare("SELECT 1 FROM folder_root_volumes WHERE path=?")
+            .unwrap()
+            .exists([obsolete])
+            .unwrap()
+    );
 
     // An unchanged UPDATE can leave data_version alone. Holding the WAL
     // write lock also catches attempts to write the same value.
@@ -50,6 +74,14 @@ fn reopening_catalog_with_unconvertible_verbatim_paths_needs_no_writer() {
         )
         .unwrap();
     assert_eq!(stored, (verbatim.to_owned(), verbatim.to_owned()));
+    let cached: String = writer
+        .query_row(
+            "SELECT volume FROM folder_root_volumes WHERE path=?",
+            [verbatim],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(cached, cached_volume);
 }
 
 #[test]
