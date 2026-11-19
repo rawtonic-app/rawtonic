@@ -446,8 +446,8 @@ CUDA = [
 # uploader: ONNX Runtime 1.30.0 built by scripts/models/build_onnxruntime.sh
 # (`--no_telemetry`, otherwise the build.py flags of Microsoft's release build
 # of the platform, but third-party libraries through ORT's FetchContent path
-# from cmake/deps.txt instead of vcpkg — the same versions, ORT's own
-# patches) from the commit Microsoft's library names. CPU outputs bit-identical to
+# pinned by cmake/deps.txt instead of vcpkg's ports — versions can differ
+# from vcpkg's, e.g. Boost.MP11 — with ORT's own patches) from the commit Microsoft's library names. CPU outputs bit-identical to
 # Microsoft's library of the same platform: macOS on the 15 ONNX files of the
 # QA model folder (notes: benchmark-results/ortt2-2026-11-18/REPORT.md),
 # Linux x86_64 on 20 model files incl. Moebius, SDXL VAE and the Super

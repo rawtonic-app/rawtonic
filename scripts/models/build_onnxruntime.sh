@@ -85,8 +85,9 @@ case "$platform" in
     # (c-api-linux-cpu.yml, the same for x86_64 and aarch64: `--enable_lto
     # --use_binskim_compliant_compile_flags --build_shared_lib --config
     # Release`), less Java, Node.js and `--use_vcpkg`: the third-party
-    # libraries come from cmake/deps.txt (same versions) through ORT's
-    # FetchContent path with ORT's own patches (e.g. a cpuinfo sysfs
+    # libraries come from cmake/deps.txt through ORT's FetchContent path
+    # (versions pinned there, which can differ from vcpkg's ports, e.g.
+    # Boost.MP11 1.82.0 vs 1.91.0) with ORT's own patches (e.g. a cpuinfo sysfs
     # fallback), not from vcpkg's ports. Built in the manylinux_2_28 image
     # (AlmaLinux 8, gcc-toolset-14, as Microsoft's image), so glibc 2.28 is
     # the ceiling of what the library can require, whatever the host has
