@@ -81,6 +81,7 @@ bb  Rawtonic_0.2.0-beta.2_x64-setup.exe
 cc  SHA256SUMS-windows.txt
 dd  libgphoto2-2.5.34.tar.bz2
 ee  libtool-2.6.2.tar.xz
+ff  Rawtonic_aarch64.app.tar.gz
 """
 
 
@@ -104,6 +105,8 @@ class Notes(unittest.TestCase):
         self.assertIn("- `Rawtonic_0.2.0-beta.2_x64-setup.exe`: `bb`", text)
         self.assertIn("- `SHA256SUMS-windows.txt`: `cc`", text)
         self.assertNotIn("libtool-2.6.2.tar.xz`: ", text)
+        # The updater package is a .tar.gz too, but not a camera library's source.
+        self.assertIn("`libtool-2.6.2.tar.xz`", text)
 
     def test_a_longer_version_is_not_the_previous_one(self):
         body = PREV_BODY.replace("0.2.0-beta.1", "0.2.0")
