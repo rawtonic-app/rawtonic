@@ -767,10 +767,11 @@ def main() -> None:
         if not todo({name: expected}):
             continue
         if args.own_runtime is None:
-            # Optional until a pack carries it: a pack built without it
-            # keeps Microsoft's library for that platform.
-            print(f"{name}: left out (no --own-runtime)", file=sys.stderr)
-            continue
+            # src-tauri/build.rs bundles these from the pack since
+            # pack-2026-11-19: a pack without them breaks the app's runtime
+            # build and `install_models.sh --runtime`.
+            sys.exit(f"{name}: missing; pass --previous with a pack that has it "
+                     "(pack-2026-11-19 or later) or --own-runtime DIR")
         entries.append(place(args.own_runtime / name, args.out, name, expected)
                        | {"used_by": used_by} | ORT130_OWN_ENTRY)
 

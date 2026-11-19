@@ -13,8 +13,12 @@
 # CC0 files of raw.pixls.us.
 # The Rust path loads the ONNX Runtime core the app bundles (Rawtonic's own
 # 1.30.0 without telemetry from the model pack, SHA-256 as in
-# src-tauri/build.rs), so it also checks that Microsoft's plugin works with it
-# (Microsoft's release archives answer 404 since 2026-11-18).
+# src-tauri/build.rs; Microsoft's release archives answer 404 since
+# 2026-11-18). A separate step (not continue-on-error) then requires that
+# Microsoft's plugin registered in that core: on Linux a model ran on WebGPU,
+# on Windows (no GPU on the runner) the plugin registered and listed no
+# device, which shows the plugin interface only, not GPU execution. The
+# Python checks use Microsoft's own core.
 name: GPU AI providers
 on:
   workflow_dispatch:
@@ -118,12 +122,22 @@ jobs:
         run: |
           export ORT_DYLIB_PATH="$PWD/own/onnxruntime.dll"
           export RAWTONIC_ORT_PLUGIN_DIR="$PWD/plugin-only" AI_MODELS="$PWD/models"
-          cargo test -p rawtonic-onnx --locked --test providers -- --ignored --nocapture --test-threads 1
+          cargo test -p rawtonic-onnx --locked --test providers -- --ignored --nocapture --test-threads 1 2>&1 | tee rust-providers.log
+      - name: The WebGPU plugin registered in Rawtonic's core
+        run: |
+          # "registering the plugin library" is the loader's error when the
+          # core refuses the plugin; "found no device" comes only after it
+          # registered (crates/onnx/src/lib.rs, register).
+          if grep -q "registering the plugin library" rust-providers.log; then echo "the plugin did not register"; exit 1; fi
+          grep -q "the plugin found no device\|WebGPU (" rust-providers.log
+          grep -m1 "the plugin found no device\|WebGPU (" rust-providers.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: results-windows
-          path: results-*.json
+          path: |
+            results-*.json
+            rust-providers.log
 
   linux:
     needs: prepare
@@ -167,9 +181,16 @@ jobs:
         run: |
           export ORT_DYLIB_PATH="$PWD/own/libonnxruntime.so"
           export RAWTONIC_ORT_PLUGIN_DIR="$PWD/plugin" AI_MODELS="$PWD/models"
-          cargo test -p rawtonic-onnx --locked --test providers -- --ignored --nocapture --test-threads 1
+          set -o pipefail
+          cargo test -p rawtonic-onnx --locked --test providers -- --ignored --nocapture --test-threads 1 2>&1 | tee rust-providers.log
+      - name: A model ran on WebGPU in Rawtonic's core
+        run: |
+          if grep -q "registering the plugin library" rust-providers.log; then echo "the plugin did not register"; exit 1; fi
+          grep -m3 ": WebGPU (" rust-providers.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: results-linux
-          path: results-*.json
+          path: |
+            results-*.json
+            rust-providers.log

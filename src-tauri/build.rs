@@ -426,9 +426,13 @@ fn main() {
     // 1.23.2 (1.30 has no Intel build).
     // The 1.30.0 core on Apple silicon, Linux and Windows x64 is Rawtonic's
     // own build without Microsoft's telemetry (scripts/models/
-    // build_onnxruntime.sh, CPU outputs bit-identical to Microsoft's;
-    // gap G65). Windows arm64 and Intel macOS keep Microsoft's release
-    // files, as do the WebGPU plugins, unchanged (docs/MODELS.md, PRIVACY.md).
+    // build_onnxruntime.sh; gap G65). Its CPU outputs matched Microsoft's
+    // bit for bit in the tested cases only: one synthetic input per model of
+    // the QA set on each platform (Linux aarch64 under emulation), plus two
+    // Super Resolution TIFF exports byte-identical on macOS
+    // (notes: benchmark-results/ortb1-2026-11-19). Windows arm64 and Intel
+    // macOS keep Microsoft's release files, as do the WebGPU plugins,
+    // unchanged (docs/MODELS.md, PRIVACY.md).
     // The app's runtime opt-out (ORT_DISABLE_TELEMETRY) applies to all.
     let files: &[(&str, &str, &str)] = match (target_os.as_str(), target_arch.as_str()) {
         ("windows", "x86_64") => &[
