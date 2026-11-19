@@ -444,15 +444,18 @@ CUDA = [
 ]
 # Apple silicon and Linux x86_64 and aarch64 without Microsoft's usage
 # uploader: ONNX Runtime 1.30.0 built by scripts/models/build_onnxruntime.sh
-# (`--no_telemetry`, otherwise Microsoft's release flags of the platform)
-# from the commit Microsoft's library names. CPU outputs bit-identical to
+# (`--no_telemetry`, otherwise the build.py flags of Microsoft's release build
+# of the platform, but third-party libraries through ORT's FetchContent path
+# from cmake/deps.txt instead of vcpkg — the same versions, ORT's own
+# patches) from the commit Microsoft's library names. CPU outputs bit-identical to
 # Microsoft's library of the same platform: macOS on the 15 ONNX files of the
 # QA model folder (notes: benchmark-results/ortt2-2026-11-18/REPORT.md),
 # Linux x86_64 on 20 model files incl. Moebius, SDXL VAE and the Super
 # Resolution CPU graphs (notes: benchmark-results/ortt3-2026-11-18/linux.md),
 # Linux aarch64 only under qemu-user emulation, on the model files listed in
 # notes: benchmark-results/ortt3-2026-11-18/linux-arm64.md (no arm64 hardware
-# run yet); one synthetic input each. Builds are not byte-reproducible across build directories
+# run yet); one synthetic input each, which supports equality only for the
+# tested cases. Builds are not byte-reproducible across build directories
 # (embedded paths), so each library comes from `--own-runtime DIR` and its
 # SHA-256 is pinned here. (pack name, SHA-256, used_by)
 ORT130_OWN = [

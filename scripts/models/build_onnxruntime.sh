@@ -3,8 +3,9 @@
 # pack (PRIVACY.md). Microsoft's release libraries since 1.30 contain a 1DS
 # uploader on macOS and Linux (and register their Windows ETW provider in
 # Windows' telemetry group); `build.py` turns both on by default, and
-# `--no_telemetry` builds neither. Everything else follows Microsoft's release
-# build of the same platform, so the CPU kernels are the same source and flags
+# `--no_telemetry` builds neither. Otherwise it uses the build.py flags of
+# Microsoft's release build of the same platform (third-party libraries come
+# from cmake/deps.txt, not vcpkg), so the CPU kernels are the same source
 # (macOS arm64: CPU outputs bit-identical on the 15 ONNX files of the QA model
 # folder, one synthetic input; Moebius, SDXL VAE and the Super Resolution CPU
 # graphs not compared yet —
@@ -80,14 +81,18 @@ case "$platform" in
     name=libonnxruntime-1.30.0-notelemetry-macos-aarch64.dylib
     ;;
   Linux-x86_64 | Linux-aarch64)
-    # Microsoft's Linux packaging job (c-api-linux-cpu.yml, the same flags
-    # for x86_64 and aarch64: AlmaLinux 8 with gcc-toolset-14, `--enable_lto
+    # The build.py flags of Microsoft's Linux packaging job
+    # (c-api-linux-cpu.yml, the same for x86_64 and aarch64: `--enable_lto
     # --use_binskim_compliant_compile_flags --build_shared_lib --config
-    # Release`), less Java, Node.js and vcpkg (deps.txt pins the same
-    # versions). Built in the manylinux_2_28 image (AlmaLinux 8,
-    # gcc-toolset-14) so the library needs glibc 2.28 like Microsoft's,
-    # whatever the host has; needs Docker. The build directory is mounted at
-    # the same path, so the embedded paths are the host's.
+    # Release`), less Java, Node.js and `--use_vcpkg`: the third-party
+    # libraries come from cmake/deps.txt (same versions) through ORT's
+    # FetchContent path with ORT's own patches (e.g. a cpuinfo sysfs
+    # fallback), not from vcpkg's ports. Built in the manylinux_2_28 image
+    # (AlmaLinux 8, gcc-toolset-14, as Microsoft's image), so glibc 2.28 is
+    # the ceiling of what the library can require, whatever the host has
+    # (measured: GLIBC_2.27 on both architectures; Microsoft's: 2.28);
+    # needs Docker. The build directory is mounted at the same path, so the
+    # embedded paths are the host's.
     arch=${platform#Linux-}
     if [ "$arch" = x86_64 ]; then
       image=$LINUX_IMAGE_X86_64 docker_platform=linux/amd64
