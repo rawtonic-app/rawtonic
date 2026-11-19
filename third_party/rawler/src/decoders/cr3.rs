@@ -806,3 +806,41 @@ pub enum Cr3MakernoteTag {
   AFConfig = 0x4028,
   RawBurstModeRoll = 0x403f,
 }
+
+#[cfg(test)]
+mod rawtonic_white_tests {
+  /// Rawtonic patch (RAWL3): Adobe DNG Converter 18.7 writes these whites for
+  /// RAW and C-RAW of these bodies at every ISO, keyed on the camera model
+  /// alone; every other CR3 body keeps its ColorData specular white (notes:
+  /// benchmark-results/rawl2-2026-11-19/REPORT.md).
+  #[test]
+  fn cr3_bodies_with_an_adobe_white_carry_it_as_whitepoint() {
+    let loader = crate::RawLoader::new();
+    let white = |model: &str, mode: &str| {
+      loader
+        .check_supported_with_everything("Canon", model, mode)
+        .unwrap_or_else(|e| panic!("{model} {mode}: {e}"))
+        .whitelevel
+    };
+    for (model, expected) in [
+      ("Canon EOS R5", 16384),
+      ("Canon EOS R5m2", 16384),
+      ("Canon EOS R6", 16384),
+      ("Canon EOS R7", 16384),
+      ("Canon EOS R8", 16384),
+      ("Canon EOS R10", 16384),
+      ("Canon EOS R50", 16384),
+      ("Canon EOS R50 V", 16384),
+      ("Canon EOS-1D X Mark III", 16050),
+    ] {
+      for mode in ["raw", "craw"] {
+        assert_eq!(white(model, mode), Some(vec![expected]), "{model} {mode}");
+      }
+    }
+    // Movie frames were not measured; specular-white bodies keep the file's.
+    assert_eq!(white("Canon EOS R5", "crm"), None);
+    for model in ["Canon EOS R6m2", "Canon EOS R3", "Canon EOS R", "Canon EOS R100"] {
+      assert_eq!(white(model, "raw"), None, "{model}");
+    }
+  }
+}

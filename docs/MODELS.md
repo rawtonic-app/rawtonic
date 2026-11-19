@@ -55,6 +55,7 @@ weights tensor by tensor.
 | ONNX Runtime 1.23.2 (macOS x86_64; macOS arm64 before 2026-11-07) | Runtime for macOS AI tools on Intel Macs and in earlier app versions | Unchanged Microsoft release libraries, SHA-256 pinned; fixes the shutdown crash reproduced on 1.22.0. | MIT + 1.23.2 third-party notices | Keep, self-host |
 | ONNX Runtime 1.22.0 (six desktop libraries) | Legacy runtime (macOS before 2026-10-13; Windows and Linux before 2026-10-10) | Byte-identical to Microsoft's v1.22.0 release archives (all six platforms). | MIT + third-party notices | Keep, self-host |
 | ONNX Runtime 1.30.0 (`libonnxruntime-1.30.0-linux-{x86_64,aarch64}.so`, `onnxruntime-1.30.0-windows-{x86_64,aarch64}.dll`) | Runtime on Windows and Linux (plugin providers need 1.24.4+) | Byte-identical to the libraries in Microsoft's v1.30.0 release archives. | MIT + third-party notices (`onnxruntime-1.30.0-ThirdPartyNotices.txt`) | Built 2026-10-10, in the pack |
+| ONNX Runtime 1.30.0 without telemetry (`libonnxruntime-1.30.0-notelemetry-{macos-aarch64.dylib,linux-x86_64.so,linux-aarch64.so}`, `onnxruntime-1.30.0-notelemetry-windows-x86_64.dll`) | Candidate runtime for all models on Apple silicon Macs, Linux x86_64/aarch64 and Windows x64; no build bundles it yet (`src-tauri/build.rs` still pins Microsoft's libraries) | Built by Rawtonic from ONNX Runtime 1.30.0 (commit f2c39fe) without telemetry by `scripts/models/build_onnxruntime.sh` (`build_onnxruntime.ps1` on Windows); SHA-256 pinned in `ORT130_OWN` of `build_model_pack.py`. | MIT + third-party notices (`onnxruntime-1.30.0-ThirdPartyNotices.txt`) | In `pack-2026-11-19` |
 | WebGPU plugin execution provider 0.4.0 (`…providers_webgpu-0.4.0-{linux,windows}-{x86_64,aarch64}`) | GPU for every model on Windows (Direct3D 12) and Linux (Vulkan), bundled beside the runtime | The library inside Microsoft's `onnxruntime-ep-webgpu` 0.4.0 wheels on PyPI (built from ONNX Runtime 1.30.0), unchanged; the Windows wheel's DirectX Shader Compiler DLLs are left out; the Windows build bundles Microsoft's own DXC release 1.8.2502 (the same version) instead, fetched by `src-tauri/build.rs` (THIRD_PARTY_NOTICES.md). | MIT; contains Dawn (BSD-3-Clause); notices as ONNX Runtime 1.30.0 | Built 2026-10-10, in the pack |
 | CUDA plugin execution provider 0.2.0, CUDA 13 (`…providers_cuda-0.2.0-cuda13-{linux,windows}-x86_64`) | NVIDIA GPUs, optional (`install_models.sh --cuda`), with the user's own CUDA 13 and cuDNN 9 | Microsoft's GitHub release `plugin-ep-cuda/v0.2.0`, unchanged. | MIT (no NVIDIA library included) | Built 2026-10-10, in the pack |
 | `siglip2_text_ext.onnx` + `siglip2_text_ext.onnx.data` (with `siglip2_vision.onnx`, `siglip2_tokenizer.json`) | Content search (Library search box, *Content* mode) | `siglip2_text.onnx` (below) with its weights saved as ONNX external data by `scripts/models/external_data.py`: same graph and weights, outputs bit-identical (checked by the script and by `build_model_pack.py`), reproducible (same SHA-256 in two runs). ONNX Runtime maps the data file instead of copying it, so the loaded text encoder takes +0.35 GB instead of +2.68 GB (notes: benchmark-results/srs-search-ceiling-2026-11-03 § SRS2). Downloaded only on the user's click; the user's own tags still load `siglip2_text.onnx`. | Apache-2.0 | Added to pack-2026-11-07 on 2026-11-07 (additive extension, user decision: only while no released app points to that pack) |
@@ -897,6 +898,21 @@ unchanged. All 80 uploaded assets, including the new manifest, were verified
 against GitHub's SHA-256 digests. [Model repository PR #6](https://github.com/rawtonic-app/models/pull/6) records the
 [published manifest](https://github.com/rawtonic-app/models/releases/download/pack-2026-11-12/models.json).
 
+The published [pack-2026-11-19 release](https://github.com/rawtonic-app/models/releases/tag/pack-2026-11-19)
+was built with `build_model_pack.py --previous` (pack-2026-11-12) `--own-runtime`
+and adds only Rawtonic's four telemetry-free ONNX Runtime 1.30.0 libraries
+(`ORT130_OWN`: macOS aarch64, Linux x86_64 and aarch64, Windows x64), each
+checked against its pinned SHA-256 before the build. All 76 prior manifest
+entries (file, size, SHA-256, credits, order) are unchanged, as are the three
+separately attached license texts. All 84 uploaded assets (80 files,
+`models.json`, three license texts) were verified against GitHub's SHA-256
+digests before the draft was published. [Model repository PR #7](https://github.com/rawtonic-app/models/pull/7)
+records the [published manifest](https://github.com/rawtonic-app/models/releases/download/pack-2026-11-19/models.json)
+and adds the Moebius and SDXL VAE fp16-fix license texts to its `licenses/`
+folder. The app, `src-tauri/build.rs` and `install_models.sh` still point to
+pack-2026-11-12, which holds every file they load; they move to
+pack-2026-11-19 together with the switch to the own libraries.
+
 On an Apple M5 Pro laptop (24 GiB RAM, macOS 27.0.1), forced CPU inference
 on the same 117 tiles of a 6000×4000 float32 image took 460.896 → 145.915 s
 (mean 3.939 → 1.247 s per tile; ONNX Runtime Python 1.31.1, model inference
@@ -912,7 +928,7 @@ A new pack is a new release (new tag): build it with
 commit. `build_model_pack.py --previous DIR` carries an earlier pack's
 files (downloaded with `gh release download`) over unchanged, checked
 against its `models.json`, and builds only what it lacks; that keeps the
-files older builds load. `pack-2026-11-12` adds the sequential CPU Super Resolution conversion to `pack-2026-11-09`, preserving every existing asset. `pack-2026-11-09` is `pack-2026-11-07` plus the Super Resolution
+files older builds load. `pack-2026-11-19` adds Rawtonic's own ONNX Runtime 1.30.0 libraries without telemetry to `pack-2026-11-12`, preserving every existing asset. `pack-2026-11-12` adds the sequential CPU Super Resolution conversion to `pack-2026-11-09`, preserving every existing asset. `pack-2026-11-09` is `pack-2026-11-07` plus the Super Resolution
 model (ONNX and Core ML, with its CC BY 4.0 license text as an asset; built that way). `pack-2026-11-07` is `pack-2026-10-27b` plus ONNX Runtime 1.30.0
 for Apple silicon (built that way). `pack-2026-10-27b` is `pack-2026-10-27` plus
 Moebius and the SDXL VAE fp16-fix as ONNX models for Windows and Linux
