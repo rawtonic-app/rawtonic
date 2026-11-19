@@ -1097,7 +1097,7 @@ pub(crate) async fn update_wgpu_transform(
 /// `(x, y, w, h)` covers: its edges rounded and kept inside the frame (the
 /// size is taken from the rounded edges, so the region never ends past the
 /// frame's last pixel). None when nothing is left.
-fn pixel_region(
+pub(crate) fn pixel_region(
     (nx, ny, nw, nh): (f32, f32, f32, f32),
     width: u32,
     height: u32,
@@ -1981,9 +1981,22 @@ pub(crate) fn process_preview_job(
 
     let (preview_width, preview_height) = processing_image.dimensions();
 
-    // A drag's frame, or the first pass of a held preview's final frame
-    // (`PreviewJob::region_first`): the visible region only.
-    let pixel_roi = if is_interactive || region_only {
+    // Linux at 100 % and closer: the settled frame covers the visible region
+    // only and goes lossless ([`browser_region_frame`]).
+    #[cfg(target_os = "linux")]
+    let browser_region = browser_region_frame(
+        is_interactive,
+        _browser_full_zoom,
+        crop_edit,
+        roi.is_some(),
+        crate::second_window::is_open(),
+    );
+    #[cfg(not(target_os = "linux"))]
+    let browser_region = false;
+    // A drag's frame, the first pass of a held preview's final frame
+    // (`PreviewJob::region_first`) or a Linux settled frame at 100 %: the
+    // visible region only.
+    let pixel_roi = if is_interactive || region_only || browser_region {
         roi.and_then(|roi| pixel_region(roi, preview_width, preview_height))
     } else {
         None
@@ -2150,7 +2163,7 @@ pub(crate) fn process_preview_job(
 
     // A zoomed drag's frame covers only the visible region: the whole
     // frame's analytics come from a scope render beside it (scope_analytics.rs).
-    let region_frame = (is_interactive || region_only) && pixel_roi.is_some();
+    let region_frame = (is_interactive || region_only || browser_region) && pixel_roi.is_some();
     let wants_analytics = !region_frame && request_analytics;
     let channel_filter = if is_interactive {
         active_waveform_channel.map(|s| s.to_string())
@@ -2313,14 +2326,20 @@ pub(crate) fn process_preview_job(
     // Rust encoder's extra latency on every slider/zoom frame.
     // A settled reduced frame goes lossless (preview_jpeg::settled_lossless):
     // the JPEG dropped or added the fine chroma a photographer judges noise
-    // reduction by. Drags and 100 % stay JPEG.
+    // reduction by. At 100 % the settled frame is the visible region,
+    // lossless too ([`browser_region_frame`]); drags stay JPEG, and so does
+    // the whole photograph at 100 % while the second window is open.
+    #[cfg(target_os = "linux")]
+    let browser_region = browser_region && pixel_roi.is_some();
     #[cfg(target_os = "linux")]
     let lossless = !is_interactive
-        && !_browser_full_zoom
-        && crate::preview_jpeg::settled_lossless(effective_scale);
+        && (browser_region
+            || (!_browser_full_zoom && crate::preview_jpeg::settled_lossless(effective_scale)));
     #[cfg(target_os = "linux")]
     let encode_result = if is_interactive {
         encode_browser_preview(final_rgba_image, jpeg_quality)
+    } else if browser_region {
+        crate::preview_jpeg::encode_settled_like(final_rgba_image, 1.0, Some(true))
     } else if _browser_full_zoom {
         crate::preview_jpeg::encode_settled_like(final_rgba_image, effective_scale, Some(false))
     } else {
@@ -2359,7 +2378,7 @@ pub(crate) fn process_preview_job(
                     tool_view,
                 );
             }
-            if is_interactive {
+            if is_interactive || browser_region {
                 let (roi_w, roi_h) = final_rgba_image.dimensions();
                 let (rx, ry) = if let Some(r) = pixel_roi {
                     (r.x, r.y)
@@ -2367,7 +2386,10 @@ pub(crate) fn process_preview_job(
                     (0, 0)
                 };
 
-                let mut response = Vec::with_capacity(24 + jpeg_bytes.len());
+                let mut response = Vec::with_capacity(35 + jpeg_bytes.len());
+                if browser_region {
+                    response.extend_from_slice(BROWSER_REGION_MAGIC);
+                }
                 response.extend_from_slice(&rx.to_le_bytes());
                 response.extend_from_slice(&ry.to_le_bytes());
                 response.extend_from_slice(&roi_w.to_le_bytes());
@@ -2377,10 +2399,16 @@ pub(crate) fn process_preview_job(
                 response.extend_from_slice(&jpeg_bytes);
 
                 log::info!(
-                    "[process_preview_job] interactive ROI {}x{} encode in {:.2?}, total {:.2?}",
+                    "[process_preview_job] {} ROI {}x{} encode in {:.2?}, {} bytes, total {:.2?}",
+                    if browser_region {
+                        "settled png"
+                    } else {
+                        "interactive"
+                    },
                     roi_w,
                     roi_h,
                     step_start.elapsed(),
+                    jpeg_bytes.len(),
                     fn_start.elapsed()
                 );
                 Ok(response)
@@ -2408,6 +2436,29 @@ pub(crate) fn process_preview_job(
         }
         Err(e) => Err(format!("Failed to encode preview: {}", e).into()),
     }
+}
+
+/// Leads a Linux settled region frame's reply (then the drag frames' six
+/// little-endian dimensions and a PNG; `src/utils/interactivePreview.ts`).
+const BROWSER_REGION_MAGIC: &[u8; 11] = b"REGION_____";
+
+/// Whether a Linux settled frame at 100 % and closer covers the visible
+/// region only (lossless) instead of the whole photograph. At 100 % the q99
+/// JPEG of the whole photograph moved fine chroma out of the ±15 % bar in
+/// 45 of 80 cells against the export; a lossless region frame of a
+/// 2560 × 1440 view left 10/80, the 8-bit floor every 8-bit display has at
+/// 100 %, while a lossless whole 24 MP frame costs ~28 MB and ~200 ms to
+/// decode (notes: benchmark-results/vpr1-2026-11-19/REPORT.md). Not while
+/// the second window is open: it shows the main window's whole frame.
+#[cfg(any(target_os = "linux", test))]
+fn browser_region_frame(
+    interactive: bool,
+    full_zoom: bool,
+    crop_edit: bool,
+    has_roi: bool,
+    second_window: bool,
+) -> bool {
+    !interactive && full_zoom && !crop_edit && has_roi && !second_window
 }
 
 #[cfg(any(target_os = "linux", test))]
@@ -4372,6 +4423,18 @@ mod preview_memory_tests {
             (whole.x, whole.y, whole.width, whole.height),
             (0, 0, 300, 200)
         );
+    }
+
+    #[test]
+    fn only_a_settled_full_zoom_browser_frame_is_a_region_frame() {
+        assert!(browser_region_frame(false, true, false, true, false));
+        // Drags keep their JPEG region, fit frames their whole lossless frame.
+        assert!(!browser_region_frame(true, true, false, true, false));
+        assert!(!browser_region_frame(false, false, false, true, false));
+        // The crop tool's uncropped frame, a whole view, the second window.
+        assert!(!browser_region_frame(false, true, true, true, false));
+        assert!(!browser_region_frame(false, true, false, false, false));
+        assert!(!browser_region_frame(false, true, false, true, true));
     }
 
     #[test]

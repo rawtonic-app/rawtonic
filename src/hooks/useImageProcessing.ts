@@ -46,7 +46,7 @@ import {
 } from '../utils/liveMaskRender';
 import { draftFor, registerSliderDraftRenderer, wasRenderedAsDraft } from '../utils/sliderDraft';
 import { useMultiViewStore } from '../store/useMultiViewStore';
-import { interactivePreview } from '../utils/interactivePreview';
+import { interactivePreview, isRegionFrame } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
 import { needsFrameSize, previewTargetResolution } from '../utils/previews';
@@ -101,6 +101,24 @@ export function nextAnalyticsTime(last: number, now: number): number | null {
   // After a pause (or the first frame) the cadence starts at this frame.
   if (last <= 0 || elapsed >= 2 * ANALYTICS_INTERVAL_MS) return now;
   return last + ANALYTICS_INTERVAL_MS;
+}
+
+function revokeLater(url: string | undefined, ms: number) {
+  if (url?.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), ms);
+}
+
+/** Whether region `roi` (normalised x, y, w, h) lies within `region`. */
+export function regionCovers(
+  region: { normX: number; normY: number; normW: number; normH: number },
+  roi: readonly [number, number, number, number]
+) {
+  const slack = 1e-4;
+  return (
+    roi[0] >= region.normX - slack &&
+    roi[1] >= region.normY - slack &&
+    roi[0] + roi[2] <= region.normX + region.normW + slack &&
+    roi[1] + roi[3] <= region.normY + region.normH + slack
+  );
 }
 
 export interface PreviousAdjustments {
@@ -371,6 +389,25 @@ export function useImageProcessing(
               if (previousUrl?.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(previousUrl), 100);
               return { interactivePatch: patch };
             });
+          } else if (isRegionFrame(buffer)) {
+            // Linux at 100 % and closer: the visible region, lossless, over
+            // the last whole frame (which stays as the backdrop for pans).
+            const region = interactivePreview(buffer);
+            noteBrowserPreview(region.url, returnedAt, inputAt, jobId);
+            retireDraftPatches();
+            if (currentPath !== selectedImagePathRef.current || jobId < latestRenderedJobIdRef.current) {
+              URL.revokeObjectURL(region.url);
+              return;
+            }
+            setEditor((state) => {
+              revokeLater(state.finalRegion?.url, 250);
+              revokeLater(state.interactivePatch?.url, 500);
+              return {
+                finalRegion: { ...region, path: currentPath },
+                previewFrames: state.previewFrames + 1,
+                interactivePatch: null
+              };
+            });
           } else {
             const type = previewFrameType(buffer);
             const blob = new Blob([buffer], { type });
@@ -392,8 +429,10 @@ export function useImageProcessing(
                   }
                 }, 250);
               }
+              revokeLater(state.finalRegion?.url, 250);
               return {
                 finalPreview: { url, lossless: type === 'image/png', fullZoom },
+                finalRegion: null,
                 previewFrames: state.previewFrames + 1
               };
             });
@@ -477,7 +516,13 @@ export function useImageProcessing(
   useEffect(() => registerScheduledRecipe(() => prevAdjustmentsRef.current), [prevAdjustmentsRef]);
   useLayoutEffect(() => {
     nativeDisplayRef.current = false;
-  }, [selectedImage?.path]);
+    // Another photograph's region frame never shows over this one.
+    const region = useEditorStore.getState().finalRegion;
+    if (region && region.path !== selectedImage?.path) {
+      revokeLater(region.url, 250);
+      setEditor({ finalRegion: null });
+    }
+  }, [selectedImage?.path, setEditor]);
 
   // Brush strokes render the developed image at the committed preview
   // resolution while the mask overlay stays on top. The display then redraws
@@ -885,6 +930,30 @@ export function useImageProcessing(
     currentResRef,
     hasGrain
   ]);
+
+  // Linux at 100 % and closer: a zoom, pan or viewer resize that leaves the
+  // region frame shown asks for the new visible region (the last whole frame
+  // shows around it meanwhile).
+  const viewSettled = useEditorStore((state) => state.viewSettled);
+  useEffect(() => {
+    const state = useEditorStore.getState();
+    const region = state.finalRegion;
+    const image = state.selectedImage;
+    if (
+      os !== 'linux' ||
+      !state.browserFullZoom ||
+      !region ||
+      !canRenderSource(image) ||
+      region.path !== image.path ||
+      state.isSliderDragging ||
+      isNativeCropEditing()
+    ) {
+      return;
+    }
+    const roi = calculateROI();
+    if (!roi || regionCovers(region, roi)) return;
+    applyAdjustments(state.previewOverride ?? state.adjustments, false, currentResRef.current);
+  }, [os, viewSettled, calculateROI, applyAdjustments, currentResRef]);
 
   useLayoutEffect(() => {
     // A preview proxy renders before the full decode; its arrival

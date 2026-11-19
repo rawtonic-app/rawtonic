@@ -1,7 +1,7 @@
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import type { RenderSize } from '../../../hooks/useImageRenderSize';
 import type { Adjustments } from '../../../utils/adjustments';
-import { BeforeFrameStatus, useBrowserBeforeFrame } from './BrowserSplitImage';
+import { BeforeFrameStatus, regionPlacement, useBrowserBeforeFrame } from './BrowserSplitImage';
 import { drawsOneToOne } from '../../../utils/pixelSnap';
 
 /**
@@ -61,10 +61,7 @@ export default function BrowserBeforePane({
         >
           <image
             href={frame.url}
-            x="0"
-            y="0"
-            width="100%"
-            height="100%"
+            {...regionPlacement(frame.region)}
             // As the after pane: a full-size frame at 100 % unfiltered.
             style={{
               imageRendering: drawsOneToOne(frame.pixelWidth, size, transform.scale, window.devicePixelRatio || 1)

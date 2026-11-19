@@ -35,6 +35,12 @@ export interface FinalPreview {
   fullZoom: boolean;
 }
 
+/** Linux at 100 % and closer: the settled frame of the visible region
+ * (lossless), drawn over `finalPreview` (the last whole frame). */
+export interface FinalRegion extends InteractivePatch {
+  path: string;
+}
+
 interface EditorState {
   // Core Image & Adjustments
   selectedImage: SelectedImage | null;
@@ -48,6 +54,9 @@ interface EditorState {
 
   // Previews & Overlays
   finalPreview: FinalPreview | null;
+  finalRegion: FinalRegion | null;
+  /** Counts the viewer's settled zooms and pans (100 ms after the last move). */
+  viewSettled: number;
   /** Linux preview target at one device pixel per photo pixel or closer. */
   browserFullZoom: boolean;
   /** Counts finished (not dragged) preview frames, native or JPEG. */
@@ -289,6 +298,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   historyPending: false,
 
   finalPreview: null,
+  finalRegion: null,
+  viewSettled: 0,
   browserFullZoom: false,
   previewFrames: 0,
   uncroppedAdjustedPreviewUrl: null,

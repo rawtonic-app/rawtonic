@@ -44,7 +44,8 @@ it('isolates secondary recipes, ignores a stale photo and releases its own URLs'
     path: '/first.raw',
     jsAdjustments: null,
     targetResolution: 1024,
-    lossless: null
+    lossless: null,
+    region: null
   });
   rerender({ path: '/next.raw' });
   tick();

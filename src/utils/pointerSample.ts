@@ -164,15 +164,44 @@ export function patchFromRgba(
 
 /** Patches of the browser-rendered preview at `url()` (the image the white
  * balance picker's fallback samples). Only the newest image is kept. */
-export function createImagePatchFetch(url: () => string | null): Fetch {
+/** A Linux region frame: its image and the part of the photograph it shows
+ * (normalised; `FinalRegion`). */
+export interface SampleRegion {
+  url: string;
+  normX: number;
+  normY: number;
+  normW: number;
+  normH: number;
+}
+
+/** The browser-rendered image to sample the photograph's normalised point
+ * (x, y) in, and the point in that image: the region frame when it holds the
+ * point (the whole frame around it can be from an earlier recipe), else the
+ * whole frame. */
+export function browserSamplePoint(
+  whole: string | null,
+  region: SampleRegion | null | undefined,
+  x: number,
+  y: number
+): { url: string; x: number; y: number } | null {
+  if (region && region.normW > 0 && region.normH > 0) {
+    const rx = (x - region.normX) / region.normW;
+    const ry = (y - region.normY) / region.normH;
+    if (rx >= 0 && rx < 1 && ry >= 0 && ry < 1) return { url: region.url, x: rx, y: ry };
+  }
+  return whole ? { url: whole, x, y } : null;
+}
+
+export function createImagePatchFetch(url: () => string | null, region: () => SampleRegion | null = () => null): Fetch {
   let loaded: { url: string; image: Promise<HTMLImageElement> } | null = null;
   const canvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
   canvas?.setAttribute('width', String(PATCH_SIZE));
   canvas?.setAttribute('height', String(PATCH_SIZE));
   const context = canvas?.getContext('2d', { willReadFrequently: true }) ?? null;
-  return async (_path, x, y) => {
-    const current = url();
-    if (!current || !context) return null;
+  return async (_path, photoX, photoY) => {
+    const target = browserSamplePoint(url(), region(), photoX, photoY);
+    if (!target || !context) return null;
+    const { url: current, x, y } = target;
     if (loaded?.url !== current) {
       const image = new Image();
       image.crossOrigin = 'Anonymous';

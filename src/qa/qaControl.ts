@@ -521,16 +521,33 @@ function wheelLogRequest(params: Params) {
   return wheelLog.slice();
 }
 
-/** The webview's final Develop frame (Linux, and the browser renderer
- * elsewhere) as the editor shows it: its JPEG in base64, with the number of
- * frames shown so far. Native-display frames have no such image (null). */
-async function previewImage() {
-  const { finalPreview, previewFrames, selectedImage } = useEditorStore.getState();
-  if (!finalPreview) return { path: selectedImage?.path ?? null, previewFrames, jpeg: null };
-  const bytes = new Uint8Array(await (await fetch(finalPreview.url)).arrayBuffer());
+async function base64Of(url: string) {
+  const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return { path: selectedImage?.path ?? null, previewFrames, jpeg: btoa(binary) };
+  return btoa(binary);
+}
+
+/** The webview's final Develop frame (Linux, and the browser renderer
+ * elsewhere) as the editor shows it: its JPEG (or PNG) in base64, with the
+ * number of frames shown so far, and at 100 % on Linux the region frame over
+ * it (its PNG and normalised place). Native-display frames have no such
+ * image (null). */
+async function previewImage() {
+  const { finalPreview, finalRegion, previewFrames, selectedImage } = useEditorStore.getState();
+  const path = selectedImage?.path ?? null;
+  const region =
+    finalRegion && finalRegion.path === path
+      ? {
+          png: await base64Of(finalRegion.url),
+          x: finalRegion.normX,
+          y: finalRegion.normY,
+          w: finalRegion.normW,
+          h: finalRegion.normH
+        }
+      : null;
+  if (!finalPreview) return { path, previewFrames, jpeg: null, region };
+  return { path, previewFrames, jpeg: await base64Of(finalPreview.url), region };
 }
 
 export async function handleQaRequest(method: string, params: Params): Promise<unknown> {

@@ -689,13 +689,17 @@ fn saved_recipe_of(path: &str) -> serde_json::Value {
 /// same geometry, retouch, local masks and LUT pipeline as native cells.
 /// This never activates a photo or changes the primary preview's recipe.
 /// Header: shown width/height as little-endian u32, followed by a JPEG or
-/// PNG (`preview_jpeg::encode_settled_like`).
+/// PNG (`preview_jpeg::encode_settled_like`). With `region` (normalised
+/// x, y, width, height of the frame, the editor's region frame at 100 %),
+/// only that part of the frame is encoded, as the after beside it is.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub(crate) async fn render_browser_view(
     path: String,
     js_adjustments: Option<serde_json::Value>,
     target_resolution: u32,
     lossless: Option<bool>,
+    region: Option<(f32, f32, f32, f32)>,
     app_handle: tauri::AppHandle,
 ) -> Result<tauri::ipc::Response, String> {
     static GATE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
@@ -758,6 +762,12 @@ pub(crate) async fn render_browser_view(
         bytes.extend_from_slice(&(height.round() as u32).to_le_bytes());
         // A split's before travels as the after it is compared with
         // (`lossless`), a cell as a settled frame of its scale.
+        let rgba = match region
+            .and_then(|r| crate::editor_preview::pixel_region(r, rgba.width(), rgba.height()))
+        {
+            Some(r) => image::imageops::crop_imm(&rgba, r.x, r.y, r.width, r.height).to_image(),
+            None => rgba,
+        };
         bytes.extend(crate::preview_jpeg::encode_settled_like(
             &rgba, scale, lossless,
         )?);

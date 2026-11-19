@@ -113,3 +113,47 @@ it('waits at the full zoom target until the After for that target is JPEG', () =
   expect(preview.mock.calls.at(-1)?.[0]).toBe('/a.dng');
   expect(preview.mock.calls.at(-1)?.[4]).toBe(false);
 });
+
+it("shows the after's region at full zoom: the before is asked for and placed as that region, lossless", () => {
+  useSettingsStore.setState({ osPlatform: 'linux' });
+  useEditorStore.setState({
+    splitView: true,
+    showOriginal: false,
+    splitOrientation: 'left-right',
+    finalPreview: { url: 'blob:fit', lossless: true, fullZoom: false },
+    finalRegion: { url: 'blob:region', path: '/a.dng', normX: 0.25, normY: 0.5, normW: 0.5, normH: 0.25 }
+  });
+  preview.mockClear();
+  preview.mockImplementation((...args: unknown[]) => ({
+    frame: { url: 'blob:before', region: args[5] }
+  }));
+  const { container } = render(
+    <svg>
+      <BrowserSplitImage
+        path="/a.dng"
+        adjustments={INITIAL_ADJUSTMENTS}
+        size={{
+          scale: 0.25,
+          width: 600,
+          height: 400,
+          containerWidth: 800,
+          containerHeight: 600,
+          offsetX: 0,
+          offsetY: 0
+        }}
+        transform={{ scale: 4, positionX: 0, positionY: 0 }}
+        enabled
+      />
+    </svg>
+  );
+  const call = preview.mock.calls.at(-1)!;
+  expect(call[0]).toBe('/a.dng');
+  expect(call[4]).toBe(true);
+  expect(call[5]).toEqual([0.25, 0.5, 0.5, 0.25]);
+  const image = container.querySelector('image')!;
+  expect(image.getAttribute('x')).toBe('25%');
+  expect(image.getAttribute('y')).toBe('50%');
+  expect(image.getAttribute('width')).toBe('50%');
+  expect(image.getAttribute('height')).toBe('25%');
+  preview.mockImplementation(() => ({ frame: { url: 'blob:before' } }) as never);
+});
