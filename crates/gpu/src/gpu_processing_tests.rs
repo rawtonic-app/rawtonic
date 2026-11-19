@@ -25011,3 +25011,198 @@ fn layer_colour_ranges_timing_probe() {
         );
     }
 }
+
+fn luminance_s_curve() -> serde_json::Value {
+    json!([{"x":0,"y":0},{"x":64,"y":40},{"x":128,"y":128},{"x":192,"y":215},{"x":255,"y":255}])
+}
+
+#[test]
+#[ignore = "requires a native GPU; prepared Luminance curve of display frames against the direct one and exports"]
+fn luminance_curve_display_frames_stay_within_a_level_of_exports() {
+    // Display frames read the Luminance curve from its sampled table (or
+    // its prepared segments) and skip neutral RGB curves (preview_layers
+    // `LAYER_LUMINANCE_LUT`, `LAYER_RGB_CURVES_NEUTRAL`); exports keep the
+    // direct Hermite.
+    let context = context();
+    let (width, height) = (517, 389);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let s_curve = luminance_s_curve();
+    let lift = json!([{"x":0,"y":32},{"x":255,"y":255}]);
+    let dense: Vec<_> = (0..16)
+        .map(|i| {
+            let x = i as f64 * 17.0;
+            json!({"x": x, "y": (255.0 * (x / 255.0).powf(0.8)).round()})
+        })
+        .collect();
+    let mut worst_change = 0;
+    for profile in [
+        json!({"curves":{"luminance":s_curve}}),
+        json!({"exposure":0.4,"curves":{"luminance":lift}}),
+        json!({"curves":{"luminance":dense}}),
+        json!({"curves":{"luma":custom_curve()["luma"],"luminance":s_curve}}),
+        json!({"curves":{"version":3,"luminance":s_curve,"red":[{"x":0,"y":0},{"x":128,"y":140},{"x":255,"y":255}]}}),
+        local_profile(json!({"curves":{"luminance":s_curve}})),
+        json!({"curves":{"luminance":lift},"masks":[local_mask("lum", json!({"curves":{"luminance":s_curve}}))]}),
+    ] {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        prepare_preview_pipeline(&processor, preview_features(&adjustments));
+        let masks = generated_profile_masks(&profile, width, height);
+        for seed in [3, 29] {
+            let view = input(&context, width, height, seed);
+            let render = |shader: ReadbackShader, direct: bool| {
+                processor
+                    .force_direct_luminance
+                    .store(direct, Ordering::Relaxed);
+                match readback_pixels(
+                    &processor,
+                    &view,
+                    (width, height),
+                    *adjustments,
+                    &masks,
+                    RenderOutputPrecision::EightBit,
+                    shader,
+                ) {
+                    RenderedPixels::U8(bytes) => bytes,
+                    RenderedPixels::U16(_) => unreachable!(),
+                }
+            };
+            let export = render(ReadbackShader::Export, false);
+            let direct = render(ReadbackShader::Display, true);
+            let prepared = render(ReadbackShader::Display, false);
+            // Every curve here is smooth enough for its sampled table.
+            let tables = processor.luminance_lut_cache.lock().unwrap().clone();
+            assert!(
+                tables.iter().flatten().all(|(_, table)| *table)
+                    && tables.iter().flatten().count() > 0,
+                "{profile}: Luminance tables {:?}",
+                tables
+                    .iter()
+                    .map(|t| t.as_ref().map(|(_, ok)| *ok))
+                    .collect::<Vec<_>>()
+            );
+            let worst =
+                |a: &[u8], b: &[u8]| a.iter().zip(b).map(|(x, y)| x.abs_diff(*y)).max().unwrap();
+            let differing = direct.iter().zip(&prepared).filter(|(a, b)| a != b).count();
+            let (change, direct_export, prepared_export) = (
+                worst(&direct, &prepared),
+                worst(&direct, &export),
+                worst(&prepared, &export),
+            );
+            println!(
+                "{}",
+                json!({"profile":profile.to_string().chars().take(90).collect::<String>(),"seed":seed,
+                    "prepared_vs_direct_worst":change,"prepared_vs_direct_differing":differing,
+                    "values":direct.len(),"direct_vs_export_worst":direct_export,
+                    "prepared_vs_export_worst":prepared_export})
+            );
+            assert!(
+                change <= 1,
+                "{profile}: prepared curve moved a display value by {change}"
+            );
+            assert!(
+                prepared_export <= direct_export.max(1),
+                "{profile}: display {prepared_export} levels from the export (direct {direct_export})"
+            );
+            worst_change = worst_change.max(change);
+        }
+    }
+    processor
+        .force_direct_luminance
+        .store(false, Ordering::Relaxed);
+    println!("sampled Luminance curve: at most {worst_change} level from the direct one");
+}
+
+#[test]
+#[ignore = "native GPU timing probe; Luminance curve set against unset at 6 MP"]
+fn luminance_curve_timing_probe() {
+    // A colourful 6 MP frame; display frames (8-bit, each variant compiled
+    // first) and 16-bit exports. Unset, set (prepared in display frames),
+    // and set with the direct Hermite (`force_direct_luminance`) alternate
+    // in a rotating order, so no two neighbouring renders are alike.
+    let context = context();
+    let (width, height) = (3000u32, 2000u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let data: Vec<f16> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let h = x as f32 / width as f32 * std::f32::consts::TAU;
+            let level = 0.05 + 0.5 * y as f32 / height as f32;
+            let c = 0.6 * (0.5 + 0.5 * (x as f32 * 0.37).sin());
+            [h.cos(), (h + 2.1).cos(), (h + 4.2).cos()]
+                .map(|v| f16::from_f32(level * (1.0 + c * v)))
+                .into_iter()
+                .chain([f16::ONE])
+        })
+        .collect();
+    let view = input_from(&context, width, height, &data);
+    let base = json!({"exposure":0.3,"contrast":10});
+    let mut with = base.clone();
+    with["curves"] = json!({"luminance": luminance_s_curve()});
+    let unset = get_all_adjustments_from_json(&base, true, Some(1));
+    let set = get_all_adjustments_from_json(&with, true, Some(1));
+    let cases = [
+        ("unset", &unset, false),
+        ("set", &set, false),
+        ("set_direct", &set, true),
+    ];
+    for display in [true, false] {
+        if display {
+            for (_, a, _) in &cases {
+                prepare_preview_pipeline(&processor, preview_features(a));
+            }
+        }
+        let mut times: Vec<Vec<f64>> = vec![Vec::new(); cases.len()];
+        for round in 0..26 {
+            for k in 0..cases.len() {
+                let k = (k + round) % cases.len();
+                processor
+                    .force_direct_luminance
+                    .store(cases[k].2, Ordering::Relaxed);
+                let start = Instant::now();
+                processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        RenderRequest {
+                            adjustments: cases[k].1.clone(),
+                            mask_bitmaps: &[],
+                            lut: None,
+                            roi: None,
+                        },
+                        display,
+                        if display {
+                            RenderOutputPrecision::EightBit
+                        } else {
+                            RenderOutputPrecision::SixteenBit
+                        },
+                    )
+                    .unwrap();
+                context
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+                // The first two rounds warm shaders and caches.
+                if round >= 2 {
+                    times[k].push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+        }
+        processor
+            .force_direct_luminance
+            .store(false, Ordering::Relaxed);
+        let mut out = serde_json::Map::new();
+        out.insert(
+            "mode".into(),
+            json!(if display { "display" } else { "export16" }),
+        );
+        for (k, (name, ..)) in cases.iter().enumerate() {
+            let t = &mut times[k];
+            t.sort_by(f64::total_cmp);
+            out.insert(format!("{name}_median_ms"), json!(t[t.len() / 2]));
+            out.insert(format!("{name}_p25_ms"), json!(t[t.len() / 4]));
+            out.insert(format!("{name}_p75_ms"), json!(t[3 * t.len() / 4]));
+        }
+        println!("{}", serde_json::Value::Object(out));
+    }
+}
