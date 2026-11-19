@@ -19,3 +19,7 @@ hints = ["sraw_40d"]
 real_bps = 16
 whitepoint = 62171 # Adobe DNG Converter sRAW white (Rawtonic)
 blackpoint = 0
+
+[cameras.modes.params]
+# Adobe DNG Converter sRAW WhiteLevel by EXIF ISO, in these units (Rawtonic)
+sraw_white_by_iso = [[50, 100, 62171], [125, 125, 73600], [160, 160, 57600], [200, 250, 73600], [320, 320, 57600], [400, 500, 73600], [640, 640, 57600], [800, 1000, 73600], [1250, 1250, 57600], [1600, 51200, 73600]]

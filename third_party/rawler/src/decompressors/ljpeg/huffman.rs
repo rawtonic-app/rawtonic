@@ -15,6 +15,11 @@ pub struct HuffTable {
   // bits instead of the value being implied
   pub dng_bug: bool,
 
+  /// Rawtonic patch (RAWL1): with `dng_bug`, the 16 extra bits are the
+  /// difference (DNG files before version 1.1), not ignored for -32768 (the
+  /// Hasselblad and Leaf decoders, whose files decode right that way).
+  pub category_16_value: bool,
+
   // In CRW we only use the len code so the cache is not needed
   pub disable_cache: bool,
 
@@ -96,6 +101,7 @@ impl HuffTable {
       huffval: [0; 256],
       shiftval: [0; 256],
       dng_bug: false,
+      category_16_value: false,
       disable_cache: false,
 
       nbits: 0,
@@ -111,6 +117,7 @@ impl HuffTable {
       huffval,
       shiftval: [0; 256],
       dng_bug,
+      category_16_value: false,
       disable_cache: false,
 
       nbits: 0,
@@ -228,7 +235,15 @@ impl HuffTable {
       0 => 0,
       16 => {
         if self.dng_bug {
-          pump.get_bits(16); // consume can fail because we haven't peeked yet
+          let bits = pump.get_bits(16) as i32;
+          // Rawtonic patch (RAWL1; dnglab 8599522): DNG files before version
+          // 1.1 store the difference of category 16 in these bits, sign
+          // extended like the other categories (dcraw's ljpeg_diff). They
+          // were ignored for -32768, which corrupted the tiles holding such
+          // differences (XIAOYI YIAC 3).
+          if self.category_16_value {
+            return if bits >= 32768 { bits } else { bits - 65535 };
+          }
         }
         -32768
       }
@@ -256,5 +271,54 @@ impl fmt::Debug for HuffTable {
     } else {
       write!(f, "HuffTable {{ uninitialized }}")
     }
+  }
+}
+
+// Rawtonic patch (RAWL1): category 16 with and without the extra bits of
+// DNG files before version 1.1.
+#[cfg(test)]
+mod rawtonic_category_16_tests {
+  use super::*;
+  use crate::pumps::BitPumpJPEG;
+
+  /// One one-bit code `0` for category 16.
+  fn table_with_category_16(dng_bug: bool, category_16_value: bool) -> HuffTable {
+    let mut bits = [0; 17];
+    bits[1] = 1;
+    let mut huffval = [0; 256];
+    huffval[0] = 16;
+    let mut table = HuffTable::new(bits, huffval, dng_bug).unwrap();
+    table.category_16_value = category_16_value;
+    table
+  }
+
+  #[test]
+  fn category_16_has_no_extra_bits() {
+    let mut pump = BitPumpJPEG::new(&[0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(table_with_category_16(false, false).huff_decode(&mut pump).unwrap(), -32768);
+  }
+
+  #[test]
+  fn category_16_extra_bits_of_hasselblad_and_leaf_are_skipped() {
+    // code '0', 16 bits 0x8000, code '0', 16 bits 0xc000: -32768 twice
+    let mut pump = BitPumpJPEG::new(&[0x40, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    let table = table_with_category_16(true, false);
+    assert_eq!(table.huff_decode(&mut pump).unwrap(), -32768);
+    assert_eq!(table.huff_decode(&mut pump).unwrap(), -32768);
+  }
+
+  #[test]
+  fn category_16_of_old_dngs_reads_the_extra_bits() {
+    // code '0' followed by the 16 bits 0x0001: a negative difference
+    let mut pump = BitPumpJPEG::new(&[0x00, 0x00, 0x80, 0x00, 0x00]);
+    assert_eq!(table_with_category_16(true, true).huff_decode(&mut pump).unwrap(), 1 - 65535);
+    // code '0' followed by the 16 bits 0x8000: a positive one
+    let mut pump = BitPumpJPEG::new(&[0x40, 0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(table_with_category_16(true, true).huff_decode(&mut pump).unwrap(), 32768);
+    // the next code follows the 16 bits: differences 0x8000 and 0xc000
+    let mut pump = BitPumpJPEG::new(&[0x40, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    let table = table_with_category_16(true, true);
+    assert_eq!(table.huff_decode(&mut pump).unwrap(), 32768);
+    assert_eq!(table.huff_decode(&mut pump).unwrap(), 0xc000);
   }
 }

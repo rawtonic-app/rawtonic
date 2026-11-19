@@ -14,12 +14,20 @@ D65 = [0.6446, -0.0366, -0.0864, -0.4436, 1.2204, 0.2513, -0.0952, 0.2496, 0.634
 
 [[cameras.modes]]
 mode = "sRaw1"
-hints = ["invert_sraw_wb", "sraw_new", "sraw_specular_white"]
+hints = ["invert_sraw_wb", "sraw_new"]
 whitepoint = 56032
 blackpoint = 0
 
+[cameras.modes.params]
+# Adobe DNG Converter sRAW WhiteLevel by EXIF ISO, in these units (Rawtonic)
+sraw_white_by_iso = [[50, 125, 56032], [160, 160, 65532], [200, 250, 57792], [320, 320, 43200], [400, 500, 53200], [640, 640, 43200], [800, 1000, 53200], [1250, 1250, 43200], [1600, 2000, 53200], [2500, 2500, 43200], [3200, 4000, 53200], [5000, 5000, 43200], [6400, 8000, 53200], [10000, 10000, 43200], [12800, 16000, 53200], [20000, 20000, 43200], [25600, 32000, 53200], [40000, 40000, 65532], [51200, 51200, 53200]]
+
 [[cameras.modes]]
 mode = "sRaw2"
-hints = ["invert_sraw_wb", "sraw_new", "sraw_specular_white"]
+hints = ["invert_sraw_wb", "sraw_new"]
 whitepoint = 56032
 blackpoint = 0
+
+[cameras.modes.params]
+# Adobe DNG Converter sRAW WhiteLevel by EXIF ISO, in these units (Rawtonic)
+sraw_white_by_iso = [[50, 125, 56032], [160, 160, 65532], [200, 250, 57792], [320, 320, 43200], [400, 500, 53200], [640, 640, 43200], [800, 1000, 53200], [1250, 1250, 43200], [1600, 2000, 53200], [2500, 2500, 43200], [3200, 4000, 53200], [5000, 5000, 43200], [6400, 8000, 53200], [10000, 10000, 43200], [12800, 16000, 53200], [20000, 20000, 43200], [25600, 32000, 53200], [40000, 40000, 65532], [51200, 51200, 53200]]
