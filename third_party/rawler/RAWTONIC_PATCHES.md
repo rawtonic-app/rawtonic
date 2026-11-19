@@ -167,8 +167,8 @@ are decoder defects (user decision 2026-10-28, PV4), so saved edits change too.
   uncorrected. G1/G2 spread over flat blocks now close to Adobe's DNG of
   the same file (H 25 1.60 % -> 0.41 %, Adobe 0.41 %; P20+ 4.11 -> 0.79,
   Adobe 0.76; P25 4.97 -> 0.63, Adobe 0.63; P25+ 4.16 -> 2.07, Adobe 2.11;
-  P45+ 1.41 -> 0.49, Adobe 0.49). Other IIQ backs decode
-  unchanged. Test `rawtonic_flatfield_tests`.
+  P45+ 1.41 -> 0.49, Adobe 0.49). The other IIQ, Phase One TIF
+  and MOS files of raw.pixls.us decode unchanged. Test `rawtonic_flatfield_tests`.
 - `src/decompressors/ljpeg/huffman.rs`, `ljpeg/mod.rs`, `decompressors/jpeg.rs`,
   `decoders/mod.rs` (`plain_image_from_ifd_ext`), `decoders/dng.rs` (dnglab
   8599522 and its DNG-version wiring): DNG files before version 1.1 store
