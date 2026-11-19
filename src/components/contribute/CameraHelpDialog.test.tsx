@@ -80,11 +80,9 @@ describe('camera help', () => {
     expect(isDecoderError("Error: Unknown camera, model 'ILCE-7M5', make: 'SONY', mode: ''")).toBe(true);
     expect(isDecoderError('No decoder found')).toBe(true);
     expect(isDecoderError('Fallback read failed for /x/a.ARW: No such file or directory')).toBe(false);
-    expect(
-      isDecoderError(
-        'Nikon High Efficiency RAW cannot be developed in Rawtonic: the format is patented and has no open decoder.'
-      )
-    ).toBe(false);
+    expect(isDecoderError({ code: 'unsupported_nikon_high_efficiency', message: 'Rawtonic cannot decode it.' })).toBe(
+      false
+    );
   });
 
   it('warns about every preview shown instead of a development, offering help only where a sample helps', () => {

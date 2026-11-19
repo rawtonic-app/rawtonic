@@ -1,5 +1,6 @@
 import i18n from 'i18next';
 import { sourceOf } from '../entities/photo/photoRef';
+import { nikonHighEfficiencyMessage } from './loadError';
 
 /** The backend's error when a photo exceeds the GPU's texture limit
  * (`rawtonic_gpu::gpu_processing::texture_limit_error`). */
@@ -21,6 +22,8 @@ const KNOWN: Record<string, () => string> = {
   // rawtonic_runtime::gpu_memory::GPU_EXPORT_TOO_COMPLEX: an export variant over a compile-limited driver's ceiling (G76/WCC6).
   "This photo's edits are too complex for this graphics chip's driver to export. Remove some edits (effects, local adjustments) and export it again, or export it on another computer.":
     () => i18n.t('studio.export.errors.gpuTooComplex'),
+  "This NEF uses Nikon's High Efficiency compression. Its codec (TicoRAW) is patent-protected, so Rawtonic cannot decode it. Convert the file to DNG with Adobe DNG Converter, or set the camera to Lossless compressed RAW.":
+    () => nikonHighEfficiencyMessage(),
   'Unreadable export request': () => i18n.t('studio.export.errors.unreadableRequest')
 };
 

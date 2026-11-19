@@ -1741,6 +1741,12 @@
   overflow-wrap: break-word;
   text-align: center;
 }
+.studio-raw-preview-notice {
+  padding: 8px 12px;
+  background: var(--studio-shade-panel, #292a2d);
+  color: var(--studio-shade-text, #d3d6da);
+  font-size: 12px;
+}
 .studio-viewer {
   display: flex;
   flex: 1;
