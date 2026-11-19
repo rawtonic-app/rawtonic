@@ -38,7 +38,7 @@ SOURCE_SHA256=1b4ec55fa26ee8fe622ea256894dfe9381bdfa99d41489994a1961720f556c48
 LINUX_IMAGE_X86_64=quay.io/pypa/manylinux_2_28_x86_64@sha256:d086f64cddcace250ef0f0073583c51b8298159303290a730c9f59bd91edfd2c
 LINUX_IMAGE_AARCH64=quay.io/pypa/manylinux_2_28_aarch64@sha256:34a5e614a4eb26f73f8bf44cbbf2acf8011620453d03ea35a58537bb3cde44de
 
-[ $# -eq 2 ] || { sed -n '2,29p' "$0"; exit 2; }
+[ $# -eq 2 ] || { sed -n '2,30p' "$0"; exit 2; }
 archive=$1
 build=$2
 python=${PYTHON:-python3}
