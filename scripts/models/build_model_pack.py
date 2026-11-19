@@ -442,16 +442,21 @@ CUDA = [
      "onnxruntime_providers_cuda.dll",
      "onnxruntime_providers_cuda-0.2.0-cuda13-windows-x86_64.dll", "ecbd0f4a75c172a63b93bf93cb4484b24aa7d488c99b957f55b86a77f195225f"),
 ]
-# Apple silicon and Linux x86_64 without Microsoft's usage uploader: ONNX
-# Runtime 1.30.0 built by scripts/models/build_onnxruntime.sh
-# (`--no_telemetry`, otherwise Microsoft's release flags of the platform)
-# from the commit Microsoft's library names. CPU outputs bit-identical to
+# Apple silicon and Linux x86_64 and aarch64 without Microsoft's usage
+# uploader: ONNX Runtime 1.30.0 built by scripts/models/build_onnxruntime.sh
+# (`--no_telemetry`, otherwise the build.py flags of Microsoft's release build
+# of the platform, but third-party libraries through ORT's FetchContent path
+# pinned by cmake/deps.txt instead of vcpkg's ports — versions can differ
+# from vcpkg's, e.g. Boost.MP11 — with ORT's own patches) from the commit Microsoft's library names. CPU outputs bit-identical to
 # Microsoft's library of the same platform: macOS on the 15 ONNX files of the
 # QA model folder (notes: benchmark-results/ortt2-2026-11-18/REPORT.md),
-# Linux on 20 model files incl. Moebius, SDXL VAE and the Super Resolution CPU
-# graphs (notes: benchmark-results/ortt3-2026-11-18/linux.md), Windows x64
-# on 14 ONNX files from the QA model folder (39 outputs), one synthetic input
-# per model. Both Windows builds matched Microsoft's CPU outputs. See
+# Linux x86_64 on 20 model files incl. Moebius, SDXL VAE and the Super
+# Resolution CPU graphs (notes: benchmark-results/ortt3-2026-11-18/linux.md),
+# Linux aarch64 only under qemu-user emulation, on the model files listed in
+# notes: benchmark-results/ortt3-2026-11-18/linux-arm64.md (no arm64 hardware
+# run yet), Windows x64 on 14 ONNX files from the QA model folder (39
+# outputs); one synthetic input per model, which supports equality only for
+# the tested cases. Both Windows builds matched Microsoft's CPU outputs. See
 # benchmark-results/ortt3-2026-11-18/windows/report.md#build-a-verification
 # for the /Qspectre build's SHA-256 and verification results.
 # On Windows build_onnxruntime.ps1 also drops the ETW
@@ -461,13 +466,16 @@ CUDA = [
 ORT130_OWN = [
     ("libonnxruntime-1.30.0-notelemetry-macos-aarch64.dylib",
      "49a8b6906c0e09c26e078bec8b53b1cfcb2be366e70cfa58b95bf812f9c57cde",
-     "Candidate runtime for all models on Apple silicon Macs; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
+     "Runtime for all models on Apple silicon Macs, bundled by the opt-in build (RAWTONIC_BUNDLE_ONNX=1) since 2026-11-19"),
     ("libonnxruntime-1.30.0-notelemetry-linux-x86_64.so",
      "620d32796c8ff40f23431e37bf417107635bf3f3d40398c5ffbbf370de3f1ad4",
-     "Candidate runtime for all models on Linux x86_64; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
+     "Runtime for all models on Linux x86_64, bundled by the opt-in build (RAWTONIC_BUNDLE_ONNX=1) since 2026-11-19"),
+    ("libonnxruntime-1.30.0-notelemetry-linux-aarch64.so",
+     "870f287be9adac99845de22fdd1f1996f8ca10f048396a5a64b74666a2268199",
+     "Runtime for all models on Linux aarch64, bundled by the opt-in build (RAWTONIC_BUNDLE_ONNX=1) since 2026-11-19"),
     ("onnxruntime-1.30.0-notelemetry-windows-x86_64.dll",
      "72c305db97f93d1ce6c4d0bcd5cc312d9f3a6044efdb74c7ffd871553d0e3434",
-     "Candidate runtime for all models on Windows x64; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
+     "Runtime for all models on Windows x64, bundled by the opt-in build (RAWTONIC_BUNDLE_ONNX=1) since 2026-11-19"),
 ]
 ORT130_OWN_ENTRY = {
     "source": "ONNX Runtime 1.30.0 (commit f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7), built by Rawtonic without telemetry (scripts/models/build_onnxruntime.sh, build_onnxruntime.ps1 on Windows)",
@@ -475,7 +483,7 @@ ORT130_OWN_ENTRY = {
     "license_files": ["onnxruntime-MIT.txt", "onnxruntime-1.30.0-ThirdPartyNotices.txt"],
 }
 ORT130_ENTRY = {
-    "used_by": "Runtime for all models on Windows, Linux and Apple silicon Macs (bundled by the opt-in build, RAWTONIC_BUNDLE_ONNX=1)",
+    "used_by": "Runtime for all models on Windows arm64 (bundled by the opt-in build, RAWTONIC_BUNDLE_ONNX=1); on Windows x64, Linux and Apple silicon Macs until 2026-11-19, when the own build (ORT130_OWN) replaced it",
     "source": "ONNX Runtime 1.30.0 release (github.com/microsoft/onnxruntime)",
     "license": "MIT",
     "license_files": ["onnxruntime-MIT.txt", "onnxruntime-1.30.0-ThirdPartyNotices.txt"],
@@ -556,22 +564,26 @@ def main() -> None:
     parser.add_argument("--own-runtime", type=Path,
                         help="folder with the ONNX Runtime libraries build_onnxruntime.sh built (ORT130_OWN)")
     args = parser.parse_args()
-    if args.own_runtime is not None:
-        # Before anything is written: a missing or rebuilt library (another
-        # SHA-256) fails here, not halfway through the pack. Libraries the
-        # previous pack carries are checked against the pins when carried.
-        in_previous = set()
-        if args.previous is not None:
-            in_previous = {entry["file"] for entry in
-                           json.loads((args.previous / "models.json").read_text())["files"]}
-        for name, expected, _ in ORT130_OWN:
-            if name in in_previous:
-                continue
-            source = args.own_runtime / name
-            if not source.is_file():
-                sys.exit(f"{source} missing")
-            if sha256(source) != expected:
-                sys.exit(f"{source}: SHA-256 {sha256(source)}, expected {expected}")
+    # Before anything is written: a missing or rebuilt own runtime library
+    # (another SHA-256) fails here, not halfway through the pack. Libraries
+    # the previous pack carries are checked against the pins when carried.
+    # src-tauri/build.rs bundles them since pack-2026-11-19, so a pack
+    # without them would break the app's runtime build.
+    in_previous = set()
+    if args.previous is not None:
+        in_previous = {entry["file"] for entry in
+                       json.loads((args.previous / "models.json").read_text())["files"]}
+    for name, expected, _ in ORT130_OWN:
+        if name in in_previous:
+            continue
+        if args.own_runtime is None:
+            sys.exit(f"{name}: missing; pass --previous with a pack that has it "
+                     "(pack-2026-11-19 or later) or --own-runtime DIR")
+        source = args.own_runtime / name
+        if not source.is_file():
+            sys.exit(f"{source} missing")
+        if sha256(source) != expected:
+            sys.exit(f"{source}: SHA-256 {sha256(source)}, expected {expected}")
     args.out.mkdir(parents=True, exist_ok=True)
     args.cache.mkdir(parents=True, exist_ok=True)
     entries, carried = carry_over(args.previous, args.out) if args.previous else ([], {})
@@ -758,11 +770,7 @@ def main() -> None:
     for name, expected, used_by in ORT130_OWN:
         if not todo({name: expected}):
             continue
-        if args.own_runtime is None:
-            # Optional until a pack carries it: a pack built without it
-            # keeps Microsoft's library for that platform.
-            print(f"{name}: left out (no --own-runtime)", file=sys.stderr)
-            continue
+        # Checked before anything was written (top of main).
         entries.append(place(args.own_runtime / name, args.out, name, expected)
                        | {"used_by": used_by} | ORT130_OWN_ENTRY)
 

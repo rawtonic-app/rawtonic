@@ -672,6 +672,13 @@ pub(crate) fn frontend_ready(
         }
     }
 
+    #[cfg(windows)]
+    if is_first_run {
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::update_check::staging::cleanup_at_start(&app_handle);
+        });
+    }
+
     let open_with_file = lock_recover(&state.initial_file_path).take();
     let edit_session = lock_recover(&state.pending_edit_session).take();
     if let Some(path) = &open_with_file {

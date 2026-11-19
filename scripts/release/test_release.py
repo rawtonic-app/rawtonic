@@ -91,6 +91,9 @@ class Notes(unittest.TestCase):
         self.assertIn("> [!WARNING]\n> This is an **early alpha**.", text)
         self.assertIn("A small update. Faster things.", text)
         self.assertIn("Updating from beta.1:", text)
+        self.assertIn("edit settings stay as they are; whether saved edits render as before is listed under "
+                      "Changes to existing edits below.", text)
+        self.assertNotIn("render differently", text)
         self.assertIn("`Rawtonic_0.2.0-beta.2_aarch64.dmg` below", text)
         self.assertIn("## What's new since beta.1\n\n- **Faster.** Measured.", text)
         self.assertIn("## Fixes\n\n- **Fixed.** A bug.\n\n## Changes to existing edits\n\n- None of note.", text)

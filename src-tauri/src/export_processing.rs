@@ -199,7 +199,7 @@ pub(crate) fn load_export_base_image(
             denoise,
             adjustments,
         )
-        .map_err(|e| format!("Failed to load from mmap: {}", e)),
+        .map_err(|e| export_load_error(e, "mmap")),
         Err(_) => {
             let bytes = fs::read(source_path).map_err(|e| e.to_string())?;
             crate::image_loader::load_base_image_for_recipe_measured(
@@ -211,8 +211,18 @@ pub(crate) fn load_export_base_image(
                 denoise,
                 adjustments,
             )
-            .map_err(|e| format!("Failed to load from bytes: {}", e))
+            .map_err(|e| export_load_error(e, "bytes"))
         }
+    }
+}
+
+// The persisted queue stores per-file errors as strings. Keep the codec
+// message intact so the UI can localize it even after the job is reopened.
+fn export_load_error(error: anyhow::Error, source: &str) -> String {
+    if crate::image_loader::is_nikon_high_efficiency(&error) {
+        error.to_string()
+    } else {
+        format!("Failed to load from {source}: {error}")
     }
 }
 

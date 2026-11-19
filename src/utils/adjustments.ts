@@ -1682,7 +1682,7 @@ export const AI_DENOISE_VERSION = 4;
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;
 /** How new edits read the camera data's geometry in camera lens mode (notes: parity-gaps/G71). */
-export const CAMERA_GEOMETRY_VERSION = 10;
+export const CAMERA_GEOMETRY_VERSION = 11;
 /** The automatic lateral CA new RAW edits start with (notes: reference/lateral-ca.md). */
 export const AUTO_CA_VERSION = 3;
 
