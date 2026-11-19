@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.18 — 2026-11-19
+
 The eighteenth alpha. Rawtonic can now install its own updates after you click **Install update** in the update notice — this is the first release that has the button, so reaching it takes one last manual update; from the next release on, updates install from the notice. The AI runtime is now Rawtonic's own build without Microsoft's usage reporting on Apple silicon Macs, Linux and Windows x64, and RAW decoding comes closer to the camera or to Adobe's DNG for ten Canon CR3 bodies, older Fujifilm kit zooms and bridge cameras, Phase One backs, early DNGs and Canon sRAW. Saved edits of the affected Canon, Phase One and DNG photos keep their settings but render differently. In our tests: Canon CR3 shadows up to 0.04 EV darker on 43 sample files, and Canon sRAW/mRAW up to 0.6 EV on test copies at other ISOs (real captures not yet checked); Phase One and early DNG files lose their colour and tile defects. Separately, Canon CR3 edits that use the older AgX tone mapper with Use Apple RAW 9 render 0.14–0.50 EV darker, depending on the camera, from an exposure correction applied before tone mapping (see Changes to existing edits).
 
 ### Highlights
