@@ -5,11 +5,15 @@
 # AppImage (Linux build host over SSH) and the Windows downloads (GitHub
 # workflow) in parallel, every release smoke, the in-app update packages
 # signed with Rawtonic's updater key on this Mac and their latest.json, the
-# release notes, SHA256SUMS and a DRAFT prerelease. It never publishes a
-# release or pushes a tag.
+# release notes, SHA256SUMS, the website's release facts on a branch of the
+# website clone and a DRAFT prerelease. It never publishes a release, pushes a
+# tag or deploys the website — only --publish does, on the user's word.
 #
 #   scripts/release.sh [options] VERSION
 #     --dry-run            print the stages and their commands; changes nothing
+#     --publish            after the draft, on the user's word: publish it (tag
+#                          vVERSION at its commit), merge the website branch into
+#                          the website's main, deploy it, verify rawtonic.cc
 #     --no-bump            no bump PR: build --sha (default origin/main), which
 #                          must already carry VERSION and its CHANGELOG section
 #     --sha SHA            the commit to build with --no-bump
@@ -38,23 +42,26 @@ STAGES=(preflight bump source prev
   mac-arm64 dmg-arm64 ident mac-x86_64 dmg-x86_64 qa-app gui relay
   linux linux-smoke
   windows
-  updater creds sums notes draft)
+  updater creds sums notes site draft)
+# --publish: the user's word turns the draft into the release and the website follows.
+PUB_STAGES=(publish site-deploy site-verify)
 
 usage() { sed -n '3,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 
-DRY=0 BUMP=1 DRAFT=1 SHA_ARG="" PREV="" DATE="" FROM="" ONLY="" ACCEPT_DIFF=0 VERSION=""
+DRY=0 BUMP=1 DRAFT=1 PUBLISH=0 SHA_ARG="" PREV="" DATE="" FROM="" ONLY="" ACCEPT_DIFF=0 VERSION=""
 while [ $# -gt 0 ]; do
   case $1 in
     --dry-run) DRY=1; shift ;;
     --no-bump) BUMP=0; shift ;;
     --sha) SHA_ARG=$2; shift 2 ;;
     --no-draft) DRAFT=0; shift ;;
+    --publish) PUBLISH=1; shift ;;
     --prev) PREV=${2#v}; shift 2 ;;
     --date) DATE=$2; shift 2 ;;
     --from) FROM=$2; shift 2 ;;
     --only) ONLY=$2; shift 2 ;;
     --accept-ident-diff) ACCEPT_DIFF=1; shift ;;
-    --list) printf '%s\n' "${STAGES[@]}"; exit 0 ;;
+    --list) printf '%s\n' "${STAGES[@]}" "${PUB_STAGES[@]}"; exit 0 ;;
     -h|--help) usage 0 ;;
     -*) echo "release: unknown option $1" >&2; usage ;;
     *) [ -z "$VERSION" ] || usage; VERSION=${1#v}; shift ;;
@@ -63,8 +70,12 @@ done
 [ -n "$VERSION" ] || usage
 [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "release: $VERSION is not a version" >&2; exit 2; }
 [ -n "$SHA_ARG" ] && [ "$BUMP" = 1 ] && { echo "release: --sha needs --no-bump" >&2; exit 2; }
+[ "$PUBLISH" = 1 ] && { [ "$BUMP" = 1 ] && [ -z "$SHA_ARG" ] && [ "$DRAFT" = 1 ] || { echo "release: --publish takes no --no-bump, --sha or --no-draft" >&2; exit 2; }; }
+# The stages this run walks: the release up to its draft, or the publish.
+RUN_STAGES=("${STAGES[@]}"); [ "$PUBLISH" = 1 ] && RUN_STAGES=("${PUB_STAGES[@]}")
 for s in "$FROM" "$ONLY"; do
-  [ -z "$s" ] || printf '%s\n' "${STAGES[@]}" | grep -qx -- "$s" || { echo "release: no stage $s (--list)" >&2; exit 2; }
+  [ -z "$s" ] || printf '%s\n' "${RUN_STAGES[@]}" | grep -qx -- "$s" \
+    || { echo "release: no stage $s$([ "$PUBLISH" = 1 ] && echo ' with --publish' || echo ' (--list; publish stages need --publish)')" >&2; exit 2; }
 done
 DATE=${DATE:-$(date +%F)}
 
@@ -85,6 +96,8 @@ LINUX_CACHE=${RAWTONIC_LINUX_CACHE:-$LINUX_DIR/cache}
 LINUX_LOCK=${RAWTONIC_LINUX_LOCK:-}
 LINUX_PHOTOS=${RAWTONIC_LINUX_PHOTOS:-}
 SYMBOLS_REPO=${RAWTONIC_SYMBOLS_REPO:-}
+WEBSITE=${RAWTONIC_WEBSITE_DIR:-}
+SITE_URL=https://rawtonic.cc
 read -ra SSH <<< "${RAWTONIC_LINUX_SSH:-}"
 # Remote paths go into command lines on the host unquoted: allow only plain ones.
 for v in "$LINUX_DIR" "$LINUX_CACHE" "$LINUX_LOCK" "$LINUX_PHOTOS" "${RAWTONIC_LINUX_CACHE_SEED:-}"; do
@@ -96,6 +109,7 @@ STATE=$WORK/state LOGS=$WORK/logs ASSETS=$WORK/assets
 WT=$WORK/wt WTQA=$WORK/wtqa PREVD=$WORK/prev
 TAG=v$VERSION
 BUILD_BRANCH=release-build/$VERSION
+WEBWT=$WORK/website WEB_BRANCH=release-$VERSION
 RAW_RE='\.(arw|raf|nef|nrw|cr2|cr3|rw2|orf|dng|pef|srw|3fr|iiq|x3f)$'
 
 say() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*"; }
@@ -141,8 +155,19 @@ describe() {
     creds) echo "count every signing credential value (Apple and updater key, except the public identity hash) in $LOGS, the built apps, the notes and latest.json: must be 0; gitleaks dir $LOGS";;
     sums) echo "LGPL tarballs (previous release or pinned URL, SHA-256 against scripts/tether/build_libgphoto2.sh); shasum -a 256 * > $ASSETS/SHA256SUMS.txt";;
     notes) echo "python3 scripts/release/notes.py: CHANGELOG section $VERSION + the previous release's install/feedback text → $WORK/notes.md";;
+    site) echo "website clone ${WEBSITE:-\$RAWTONIC_WEBSITE_DIR}: worktree $WEBWT on branch $WEB_BRANCH (the local or origin branch with whatsNew, else from origin/main); scripts/release/website.py write: release.json version/date/dateText/tag and every file with size (MiB, half-up) and SHA-256 from $ASSETS/SHA256SUMS.txt; fails unless whatsNew is $VERSION's (en, de); RAWTONIC_CHANGELOG=$WORK/CHANGELOG.md node scripts/build.mjs --strict; commit 'release: $VERSION' on $WEB_BRANCH (not pushed, never deployed)";;
     draft) if [ "$DRAFT" = 0 ]; then echo "skipped (--no-draft)"; else echo "gh release create $TAG --draft --prerelease --target SHA --title 'Rawtonic $VERSION' --notes-file $WORK/notes.md $ASSETS/* (never published here); every URL in latest.json among the draft's assets (updater_manifest.py verify --names)"; fi;;
+    publish) echo "(--publish only) the draft $TAG must target SHA; gh api -X PATCH repos/$GH_REPO/releases/ID -f tag_name=$TAG -f target_commitish=SHA -F draft=false -F prerelease=true; then the tag on origin must be SHA and the release no draft";;
+    site-deploy) echo "(--publish only) in $WEBWT: git fetch; unless $WEB_BRANCH is in origin/main: detach at origin/main, git merge --no-ff $WEB_BRANCH, node scripts/build.mjs --strict, git push origin HEAD:main; scripts/deploy.sh (tests, build, wrangler deploy)";;
+    site-verify) echo "(--publish only) curl $SITE_URL/ and $SITE_URL/de/ with a cache-busting query (retried for 5 min): website.py verify-page (download links of $VERSION, 'New in ${VERSION#*-}.' / 'Neu in …'); latest.json of $TAG downloads and is $VERSION's (website.py verify-manifest); the four downloads answer; remove $WEBWT and the merged $WEB_BRANCH";;
   esac
+}
+
+# The website's clone (RAWTONIC_WEBSITE_DIR): the stage site works in a worktree of it.
+website_clone() {
+  [ -n "$WEBSITE" ] || fail "RAWTONIC_WEBSITE_DIR is not set (the website clone; docs/RELEASING.md)"
+  git -C "$WEBSITE" rev-parse --git-dir >/dev/null 2>&1 && [ -f "$WEBSITE/scripts/build.mjs" ] \
+    || fail "$WEBSITE is not a clone of the website (no scripts/build.mjs)"
 }
 
 # --- stages -----------------------------------------------------------------
@@ -166,6 +191,7 @@ st_preflight() {
   originals_unchanged
   ls "$RECIPES"/*.json >/dev/null 2>&1 || fail "RAWTONIC_IDENT_RECIPES has no *.json recipes"
   [ "$QA_ID" != cc.rawtonic.editor ] || fail "the QA identifier must not be the user's cc.rawtonic.editor"
+  website_clone
   remote true || fail "the Linux host does not answer over SSH"
   [ -n "$LINUX_PHOTOS" ] || fail "RAWTONIC_LINUX_PHOTOS is not set"
   remote "test -f $LINUX_PHOTOS/SHA256SUMS && command -v docker flock xvfb-run 7z >/dev/null" \
@@ -650,9 +676,41 @@ st_notes() {
   wc -c "$WORK/notes.md"
 }
 
+# The website follows the release (user decision 2026-11-19): its release.json
+# gets this release's facts on the branch release-VERSION of the website clone,
+# where the release's What's new (whatsNew, written with the CHANGELOG section)
+# already is; the website's strict build must pass. Published and deployed only
+# by --publish.
+st_site() {
+  need sums notes
+  website_clone
+  git -C "$WEBSITE" fetch -q origin || fail "fetch the website"
+  if [ ! -d "$WEBWT" ]; then
+    if git -C "$WEBSITE" rev-parse -q --verify "refs/heads/$WEB_BRANCH" >/dev/null; then
+      git -C "$WEBSITE" worktree add "$WEBWT" "$WEB_BRANCH" || fail "worktree of $WEB_BRANCH (checked out elsewhere?)"
+    elif git -C "$WEBSITE" rev-parse -q --verify "refs/remotes/origin/$WEB_BRANCH" >/dev/null; then
+      git -C "$WEBSITE" worktree add -b "$WEB_BRANCH" "$WEBWT" "origin/$WEB_BRANCH" || fail "worktree of origin/$WEB_BRANCH"
+    else
+      echo "no website branch $WEB_BRANCH yet: starting it from origin/main (whatsNew still has to be written)"
+      git -C "$WEBSITE" worktree add -b "$WEB_BRANCH" "$WEBWT" origin/main || fail "worktree"
+    fi
+  fi
+  [ "$(git -C "$WEBWT" branch --show-current)" = "$WEB_BRANCH" ] || fail "$WEBWT is not on $WEB_BRANCH"
+  echo "website branch $WEB_BRANCH at $(git -C "$WEBWT" log -1 --format='%h %s')"
+  python3 "$SCRIPTS/website.py" write --version "$VERSION" --changelog "$WORK/CHANGELOG.md" --assets "$ASSETS" \
+    --release-json "$WEBWT/release.json" || fail "the website's release.json (see above)"
+  (cd "$WEBWT" && RAWTONIC_CHANGELOG=$WORK/CHANGELOG.md node scripts/build.mjs --strict) \
+    || fail "the website's strict build (above: What's new, or a sentence naming an older release — fix it on $WEB_BRANCH)"
+  git -C "$WEBWT" add release.json || fail "git add"
+  if git -C "$WEBWT" diff --cached --quiet; then echo "release.json already carries these facts"
+  else git -C "$WEBWT" commit -q -m "release: $VERSION" || fail "commit"; fi
+  [ -z "$(git -C "$WEBWT" status --porcelain)" ] || fail "$WEBWT has uncommitted changes: commit them on $WEB_BRANCH"
+  echo "website: $WEB_BRANCH at $(git -C "$WEBWT" rev-parse --short HEAD), ahead of origin/main by $(git -C "$WEBWT" rev-list --count origin/main..HEAD) commit(s); --publish merges and deploys it"
+}
+
 st_draft() {
   [ "$DRAFT" = 1 ] || { echo "skipped (--no-draft)"; return; }
-  need sums notes creds
+  need sums notes creds site
   local s; for s in dmg-arm64 dmg-x86_64 ident gui relay linux-smoke windows updater; do need "$s"; done
   gh release view "$TAG" -R "$GH_REPO" >/dev/null 2>&1 && fail "$TAG exists already"
   gh release create "$TAG" -R "$GH_REPO" --draft --prerelease --target "$(sha)" \
@@ -664,6 +722,77 @@ st_draft() {
   python3 "$SCRIPTS/updater_manifest.py" verify --manifest "$ASSETS/latest.json" --pubkey "$pub" --version "$VERSION" \
     --base-url "https://github.com/$GH_REPO/releases/download/$TAG/" --dir "$ASSETS" --names "$WORK/draft-assets.txt" \
     || fail "latest.json names a file the draft lacks"
+}
+
+# --- publish (--publish, only on the user's word) ---------------------------
+# The draft becomes the published prerelease; GitHub makes the tag at the
+# draft's commit. Resumable: a published release is checked, not changed.
+st_publish() {
+  need draft site
+  local s; s=$(sha)
+  local info; info=$(gh release view "$TAG" -R "$GH_REPO" --json databaseId,isDraft,isPrerelease,targetCommitish \
+    -q '[.databaseId, .isDraft, .isPrerelease, .targetCommitish] | map(tostring) | join(" ")') || fail "no release $TAG"
+  local id draft pre target; read -r id draft pre target <<< "$info"
+  echo "release $TAG: id $id, draft $draft, prerelease $pre, target $target"
+  if [ "$draft" = true ]; then
+    [ "$target" = "$s" ] || fail "the draft targets $target, not the built commit $s"
+    gh api -X PATCH "repos/$GH_REPO/releases/$id" -f tag_name="$TAG" -f target_commitish="$s" \
+      -F draft=false -F prerelease=true -q '.html_url' || fail "publish"
+  fi
+  draft=$(gh release view "$TAG" -R "$GH_REPO" --json isDraft -q .isDraft)
+  [ "$draft" = false ] || fail "$TAG is still a draft"
+  # (an annotated tag's commit is its peeled ^{} line, which sorts first in reverse)
+  local tagged; tagged=$(git -C "$REPO_ROOT" ls-remote origin "refs/tags/$TAG" | sort -k2 -r | head -1 | cut -f1)
+  [ "$tagged" = "$s" ] || fail "the tag $TAG on origin is ${tagged:-missing}, not $s"
+  echo "published $TAG at $s"
+}
+
+# The website branch goes into the website's main (--no-ff, its usual flow) and is deployed.
+st_site_deploy() {
+  need publish
+  website_clone
+  [ -d "$WEBWT" ] || fail "no website worktree $WEBWT (stage site)"
+  cd "$WEBWT" || fail "no $WEBWT"
+  [ -z "$(git status --porcelain)" ] || fail "$WEBWT has uncommitted changes"
+  git fetch -q origin || fail "fetch the website"
+  if git merge-base --is-ancestor "$WEB_BRANCH" origin/main; then
+    echo "$WEB_BRANCH is in origin/main already"
+    git checkout -q --detach origin/main || fail "checkout"
+  else
+    git checkout -q --detach origin/main || fail "checkout"
+    git merge -q --no-ff -m "Merge $WEB_BRANCH: $VERSION" "$WEB_BRANCH" || { git merge --abort; fail "merge $WEB_BRANCH into the website's main (resolve on $WEB_BRANCH, then --from site-deploy)"; }
+    # The tag exists now: the release history comes from GitHub as on every later build.
+    node scripts/build.mjs --strict || fail "the website's strict build of the merge"
+    git push -q origin HEAD:main || fail "push the website's main"
+    echo "website main: $(git log -1 --format='%h %s')"
+  fi
+  scripts/deploy.sh || fail "scripts/deploy.sh"
+}
+
+# What visitors get: both home pages show this version in the download facts and
+# What's new, the update manifest downloads, the four downloads answer.
+st_site_verify() {
+  need site-deploy
+  local v=$WORK/site-verify lang url i ok f
+  rm -rf "${v:?}"; mkdir -p "$v"
+  for lang in en de; do
+    url=$SITE_URL/; [ "$lang" = de ] && url=$SITE_URL/de/
+    ok=0
+    for i in $(seq 10); do
+      curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$url?release=$VERSION-$(date +%s)" -o "$v/$lang.html" \
+        && python3 "$SCRIPTS/website.py" verify-page --version "$VERSION" --lang "$lang" "$v/$lang.html" && { ok=1; break; }
+      echo "try $i: $url does not show $VERSION yet"; sleep 30
+    done
+    [ "$ok" = 1 ] || fail "$url does not show $VERSION"
+  done
+  curl -fsSL "https://github.com/$GH_REPO/releases/download/$TAG/latest.json" -o "$v/latest.json" || fail "latest.json does not download"
+  python3 "$SCRIPTS/website.py" verify-manifest --version "$VERSION" "$v/latest.json" || fail "latest.json"
+  for f in "Rawtonic_${VERSION}_aarch64.dmg" "Rawtonic_${VERSION}_x86_64.dmg" "Rawtonic_${VERSION}_amd64.AppImage" "Rawtonic_${VERSION}_x64.msi"; do
+    curl -fsIL -o /dev/null "https://github.com/$GH_REPO/releases/download/$TAG/$f" || fail "$f does not answer"
+    echo "download ok: $f"
+  done
+  git -C "$WEBSITE" worktree remove "$WEBWT" && git -C "$WEBSITE" branch -d "$WEB_BRANCH" \
+    && echo "removed $WEBWT and $WEB_BRANCH" || echo "note: $WEBWT or $WEB_BRANCH not removed"
 }
 
 # --- runner -----------------------------------------------------------------
@@ -691,15 +820,18 @@ chain_linux() { run_stage linux && run_stage linux-smoke; }
 summary() {
   local s r t total=$(( $(date +%s) - START ))
   printf '\n%-12s %-22s %8s  %s\n' STAGE RESULT TIME LOG
-  for s in "${STAGES[@]}"; do
+  for s in "${RUN_STAGES[@]}"; do
     if [ -f "$STATE/$s.ok" ]; then t=$(cat "$STATE/$s.ok"); r=ok; [ -f "$STATE/$s.skipped" ] && r="ok (earlier run)"
     elif [ -f "$STATE/$s.fail" ]; then t=$(cat "$STATE/$s.fail"); r=FAILED
     else t=""; r="not run"; fi
     printf '%-12s %-22s %8s  %s\n' "$s" "$r" "${t:+$((t / 60))m$(printf %02d $((t % 60)))s}" "$([ -f "$LOGS/$s.log" ] && echo "$LOGS/$s.log")"
   done
   printf '%-12s %-22s %8s\n' total "this run" "$((total / 60))m$(printf %02d $((total % 60)))s"
-  echo "Last step (by hand): check README.md against the new CHANGELOG section — features, What it does, keyboard table, limitations, download file names."
-  [ "$DRAFT" = 1 ] && [ -f "$STATE/draft.ok" ] && echo "Draft: $(gh release view "$TAG" -R "$GH_REPO" --json url -q .url) — review the notes and assets, then publish it by hand."
+  if [ "$PUBLISH" = 1 ]; then
+    [ -f "$STATE/site-verify.ok" ] && echo "Published: https://github.com/$GH_REPO/releases/tag/$TAG and $SITE_URL show $VERSION. By hand: announcements; check README.md against the new CHANGELOG section — features, What it does, keyboard table, limitations, download file names."
+    return 0
+  fi
+  [ "$DRAFT" = 1 ] && [ -f "$STATE/draft.ok" ] && echo "Draft: $(gh release view "$TAG" -R "$GH_REPO" --json url -q .url) — review the notes, the assets and the website branch $WEB_BRANCH ($WEBWT); on the user's word: scripts/release.sh --publish $VERSION"
 }
 
 # The whole run is one function, parsed before it starts: editing this file
@@ -707,8 +839,9 @@ summary() {
 main() {
   if [ "$DRY" = 1 ]; then
     echo "release $VERSION (dry run: nothing is changed) — work folder $WORK"
-    echo "parallel after 'prev': [mac-arm64 → (dmg-arm64, ident) · mac-x86_64 → dmg-x86_64 · qa-app → gui · relay] ∥ [linux → linux-smoke] ∥ [windows]; then updater → creds → sums → notes → draft"
-    for s in "${STAGES[@]}"; do printf '\n[%s]\n  %s\n' "$s" "$(describe "$s")"; done
+    if [ "$PUBLISH" = 1 ]; then echo "publish (only on the user's word): ${PUB_STAGES[*]}"
+    else echo "parallel after 'prev': [mac-arm64 → (dmg-arm64, ident) · mac-x86_64 → dmg-x86_64 · qa-app → gui · relay] ∥ [linux → linux-smoke] ∥ [windows]; then updater → creds → sums → notes → site → draft; publish later with --publish"; fi
+    for s in "${RUN_STAGES[@]}"; do printf '\n[%s]\n  %s\n' "$s" "$(describe "$s")"; done
     exit 0
   fi
 
@@ -724,25 +857,31 @@ main() {
   rm -f "$STATE"/*.skipped
   START=$(date +%s)
   if [ -n "$FROM" ]; then
-    drop=0; for s in "${STAGES[@]}"; do [ "$s" = "$FROM" ] && drop=1; [ "$drop" = 1 ] && rm -f "$STATE/$s.ok" "$STATE/$s.fail"; done
+    drop=0; for s in "${RUN_STAGES[@]}"; do [ "$s" = "$FROM" ] && drop=1; [ "$drop" = 1 ] && rm -f "$STATE/$s.ok" "$STATE/$s.fail"; done
     case $FROM in preflight|bump|windows) rm -f "$STATE/windows-run";; esac
   fi
   [ -f "$STATE/prev" ] && PREV=${PREV:-$(cat "$STATE/prev")}
   # Without a bump the commit is resolved again on every run, --only runs too
   # (keep_sha refuses a changed one; the stages after it keep their markers).
-  if [ "$BUMP" = 0 ] && [ -f "$STATE/preflight.ok" ] && [ "$ONLY" != bump ]; then
+  if [ "$BUMP" = 0 ] && [ "$PUBLISH" = 0 ] && [ -f "$STATE/preflight.ok" ] && [ "$ONLY" != bump ]; then
     rm -f "$STATE/bump.ok"; run_stage bump || { summary; exit 1; }
   fi
   if [ -n "$ONLY" ]; then
     rm -f "$STATE/$ONLY.ok"; [ "$ONLY" = windows ] && rm -f "$STATE/windows-run"
     run_stage "$ONLY"; rc=$?; summary; exit $rc
   fi
+  if [ "$PUBLISH" = 1 ]; then
+    for s in "${PUB_STAGES[@]}"; do run_stage "$s" || break; done
+    summary
+    for s in "${PUB_STAGES[@]}"; do [ -f "$STATE/$s.ok" ] || exit 1; done
+    exit 0
+  fi
   ok=1
   for s in preflight bump source prev; do run_stage "$s" || { ok=0; break; }; done
   if [ "$ok" = 1 ]; then
     chain_mac & m=$!; chain_linux & l=$!; run_stage windows & w=$!
     wait $m; wait $l; wait $w
-    run_stage updater; run_stage creds; run_stage sums && run_stage notes && run_stage draft
+    run_stage updater; run_stage creds; run_stage sums && run_stage notes && run_stage site && run_stage draft
   fi
   summary
   for s in "${STAGES[@]}"; do [ -f "$STATE/$s.ok" ] || exit 1; done
