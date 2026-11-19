@@ -207,10 +207,19 @@ const readyNow = () => Boolean(useEditorStore.getState().selectedImage?.isReady)
 /** Set once the user moves the tool column's separator. */
 const WIDTH_CHOSEN_KEY = 'rawtonic.studio.widthChosen';
 
-/** The tool column's width range. Wide enough that the curve, which scales
- * with the column, reaches the size of Capture One's at its widest. */
+/** The tool column's width range. Beyond 390 px only on wide windows: up to
+ * a third of the window, so the photograph keeps its room beside the
+ * column and a docked filmstrip (mirrored by `.studio-primary-panel`). */
 const TOOLS_MIN_WIDTH = 270;
 const TOOLS_MAX_WIDTH = 480;
+const TOOLS_SMALL_MAX_WIDTH = 390;
+
+/** The widest the tool column may be in a window `windowWidth` CSS px wide
+ * at Interface Size `uiScale`, in the column's own (zoomed) pixels. */
+export function toolsMaxWidth(windowWidth: number, uiScale: number): number {
+  const third = Math.floor(windowWidth / 3 / (uiScale || 1));
+  return Math.min(TOOLS_MAX_WIDTH, Math.max(TOOLS_SMALL_MAX_WIDTH, third));
+}
 
 /**
  * The tool column's width at start. The column stored its width from the
@@ -696,6 +705,16 @@ export default function StudioWorkspace(props: Props) {
     // reference/ux-develop-core-2026-10-31). A width the user chose stays.
     Math.max(TOOLS_MIN_WIDTH, Math.min(TOOLS_MAX_WIDTH, initialToolsWidth()))
   );
+  // A width chosen in a wide window shows narrower in a smaller one (the
+  // stored choice stays), so the photograph keeps its room.
+  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const resize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
+  const maxWidth = toolsMaxWidth(windowWidth, uiScale);
+  const shownWidth = Math.min(width, maxWidth);
   // The separator marks the width as chosen (see `initialToolsWidth`).
   const chooseWidth: typeof setWidth = (next) => {
     try {
@@ -1312,7 +1331,7 @@ export default function StudioWorkspace(props: Props) {
     <div
       className={`studio-workspace ${layout} module-${moduleOf(activeView)} ${sidesHidden ? 'panels-hidden' : ''} ${panels.bars ? '' : 'bars-hidden'} ${isFullScreen ? 'is-image-fullscreen' : ''} ${libraryViewer ? 'is-library-loupe' : ''} ${cursorIdle ? 'is-cursor-idle' : ''}`}
       onClickCapture={(e) => focusWorkspaceControl(e.target)}
-      style={{ '--tools-width': `${width}px` } as React.CSSProperties}
+      style={{ '--tools-width': `${shownWidth}px` } as React.CSSProperties}
     >
       {/* Library and Develop both show the Albums tool (it opens the editor). */}
       <SmartAlbumEditorHost />
@@ -1381,18 +1400,15 @@ export default function StudioWorkspace(props: Props) {
               aria-label={t('studio.workspace.panelWidth')}
               aria-orientation="vertical"
               aria-valuemin={TOOLS_MIN_WIDTH}
-              aria-valuemax={TOOLS_MAX_WIDTH}
-              aria-valuenow={width}
+              aria-valuemax={maxWidth}
+              aria-valuenow={shownWidth}
               onKeyDown={(e) => {
                 if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                   e.preventDefault();
                   chooseWidth((v) =>
                     Math.max(
                       TOOLS_MIN_WIDTH,
-                      Math.min(
-                        TOOLS_MAX_WIDTH,
-                        v + (e.key === 'ArrowRight' ? 10 : -10) * (toolsSide === 'right' ? -1 : 1)
-                      )
+                      Math.min(maxWidth, v + (e.key === 'ArrowRight' ? 10 : -10) * (toolsSide === 'right' ? -1 : 1))
                     )
                   );
                 }
@@ -1404,10 +1420,7 @@ export default function StudioWorkspace(props: Props) {
               onPointerMove={(e) => {
                 if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
                 chooseWidth((v) =>
-                  Math.max(
-                    TOOLS_MIN_WIDTH,
-                    Math.min(TOOLS_MAX_WIDTH, v + e.movementX * (toolsSide === 'right' ? -1 : 1))
-                  )
+                  Math.max(TOOLS_MIN_WIDTH, Math.min(maxWidth, v + e.movementX * (toolsSide === 'right' ? -1 : 1)))
                 );
               }}
               onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}

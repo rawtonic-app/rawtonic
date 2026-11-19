@@ -292,6 +292,9 @@ const SPLIT_LABELS = {
 } as const;
 /** Height of the split handles' strip under the plot, in curve units. */
 const SPLIT_STRIP = 16;
+/** How near the pointer must press to grab a curve point, in screen px
+ * (14 curve units at the former 210 px plot). */
+const CURVE_GRAB_PX = 11.5;
 
 const selectHistogram = (s: ReturnType<typeof useEditorStore.getState>) => s.histogram;
 
@@ -309,8 +312,10 @@ function histogramOutline(values: number[], max: number): string {
 /** The photo's histogram behind the curve. `fill` is the shown channel's
  * (the Luminance curve shows the luminance one); the RGB curve shows the
  * luminance fill with the red, green and blue channels as `lines` over it,
- * as Capture One does, all against one scale so their heights compare.
- * Nulls where a channel is missing. */
+ * as Capture One does. Each channel at its own scale: the scopes normalise
+ * every channel separately (scopes.rs), so they show where each channel's
+ * tones lie, not how many pixels one has against another. Nulls where a
+ * channel is missing. */
 export function curveHistogramPaths(
   histogram: unknown,
   channel: string
@@ -319,11 +324,8 @@ export function curveHistogramPaths(
   const single = channel === 'red' || channel === 'green' || channel === 'blue';
   const fill = data ? histogramBins(single ? data[channel] : data.luma) : [];
   const lines = data && channel === 'luma' ? RGB_CHANNELS.map((c) => histogramBins(data[c])) : [];
-  const max = Math.max(1, ...fill, ...lines.flat());
-  return {
-    fill: fill.length ? histogramOutline(fill, max) : null,
-    lines: RGB_CHANNELS.map((_, i) => (lines[i]?.length ? histogramOutline(lines[i], max) : null))
-  };
+  const outline = (values: number[]) => (values.length ? histogramOutline(values, Math.max(1, ...values)) : null);
+  return { fill: outline(fill), lines: RGB_CHANNELS.map((_, i) => outline(lines[i] ?? [])) };
 }
 
 /** The photo's histogram behind the curve (both reference editors), drawn
@@ -521,7 +523,11 @@ export function PointCurve({
           if ((e.target as Element).closest?.('.curve-split, .curve-split-track')) return;
           const p = position(e);
           if (!p) return;
-          const nearest = points.findIndex((q) => Math.hypot(q.x - p.x, q.y - p.y) < 14 || Math.abs(q.x - p.x) < 1);
+          // A point is grabbed within the same screen distance at any plot
+          // size: a larger plot places points more finely.
+          const scale = e.currentTarget.getScreenCTM()?.a || 1;
+          const reach = CURVE_GRAB_PX / scale;
+          const nearest = points.findIndex((q) => Math.hypot(q.x - p.x, q.y - p.y) < reach || Math.abs(q.x - p.x) < 1);
           if (nearest === -1 && points.length >= MAX_CURVE_POINTS) return;
           const next = nearest === -1 ? [...points, p].sort((a, b) => a.x - b.x) : points;
           setSelected(nearest === -1 ? next.indexOf(p) : nearest);
