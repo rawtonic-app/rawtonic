@@ -2833,8 +2833,10 @@ fn shadows_v19_level(coords: vec2<u32>) -> f32 {
 const SH_V20_GATE: vec2<f32> = vec2<f32>(-2.0, -0.8);
 const SH_V20_SOFT: f32 = 0.25;
 
+// `pixel_rgb` has Exposure applied, the wide level not: the floor compares
+// them before Exposure, the gate reads the display level after it.
 fn shadows_v20_level(wide_luma: f32, pixel_rgb: vec3<f32>, exposure_gain: f32) -> f32 {
-    let pixel = max(get_luma(max(pixel_rgb, vec3<f32>(0.0))), 0.0001);
+    let pixel = max(get_luma(max(pixel_rgb, vec3<f32>(0.0))) / exposure_gain, 0.0001);
     let wide = log2(max(wide_luma, 0.0001));
     let d = log2(pixel) - wide;
     let q = clamp(d + SH_V20_SOFT, 0.0, 2.0 * SH_V20_SOFT);

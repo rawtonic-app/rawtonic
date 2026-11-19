@@ -15214,13 +15214,14 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
     let look = (3, 2.0);
     let w = width as usize;
     let rows = (64..height as usize - 64).step_by(4);
-    for amount in [50, 100] {
+    // Exposure ±0.7 too: the pixel arrives with it, the wide level without.
+    for (amount, exposure) in [(50, 0.0), (100, 0.0), (100, -0.7), (100, 0.7)] {
         let render = |view: &wgpu::TextureView, version: u64, amount: i32| {
             render_raw_look(
                 &processor,
                 view,
                 (width, height),
-                &with(&json!({ "shadows": amount }), version),
+                &with(&json!({ "shadows": amount, "exposure": exposure }), version),
                 look,
             )
         };
@@ -15273,12 +15274,13 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
         let (lift_19, det_19) = shadows(&render(&ramp, 19, amount));
         let (lift_20, det_20) = shadows(&render(&ramp, 20, amount));
         eprintln!(
-            "Shadows +{amount}: gap dL* {gap_19:.2} → {gap_20:.2}, shadows dL* {lift_19:.3} → {lift_20:.3}, texture {det_19:.4} → {det_20:.4}"
+            "Shadows +{amount}, Exposure {exposure}: gap dL* {gap_19:.2} → {gap_20:.2}, shadows dL* {lift_19:.3} → {lift_20:.3}, texture {det_19:.4} → {det_20:.4}"
         );
-        // Measured on Metal: gaps +50 1.35 → 0.00, +100 3.82 → 0.00 L*;
-        // the ramp's shadows' lift and texture equal to 3 decimals.
+        // Measured on Metal: gaps +50 1.35 → 0.00, +100 3.82 → 0.00 L*,
+        // at Exposure −0.7 11.84 → 0.05, +0.7 0.84 → 0.00; the ramp's
+        // shadows' lift and texture equal to 3 decimals.
         assert!(
-            gap_19 > 1.0 && gap_20 < 0.3,
+            gap_19 > 0.5 && gap_20.abs() < 0.3,
             "Shadows +{amount}: gap dL* {gap_20:.2} (version 19 {gap_19:.2})"
         );
         assert!(
@@ -15296,13 +15298,14 @@ fn tone_version_19_shadows_drag_render_time() {
 }
 
 #[test]
-#[ignore = "requires a native GPU; raised Shadows of tone version 20 against version 19: GPU time of a preview render per drag step"]
+#[ignore = "requires a native GPU; raised Shadows of tone version 20 against version 19: wall-clock time of a preview render with its readback per drag step"]
 fn tone_version_20_shadows_drag_render_time() {
     shadows_drag_render_time(19);
 }
 
-/// GPU time of a raised-Shadows preview render per drag step, tone version
-/// `base` against `base + 1`, interleaved in blocks.
+/// Wall-clock time of a raised-Shadows preview render and its readback per
+/// drag step (not GPU time alone), tone version `base` against `base + 1`,
+/// interleaved in blocks.
 fn shadows_drag_render_time(base: u64) {
     let context = context();
     let (width, height) = (2560u32, 1707u32);
