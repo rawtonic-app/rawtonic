@@ -10,9 +10,11 @@ D65 = [0.8971, -0.2022, -0.1242, -0.5405, 1.3249, 0.238, -0.128, 0.2483, 0.6072]
 
 [[cameras.modes]]
 mode = "raw"
+whitepoint = 16050 # white level observed in Adobe DNG Converter 18.7 output on raw.pixls.us samples (Rawtonic)
 
 [[cameras.modes]]
 mode = "craw"
+whitepoint = 16050 # white level observed in Adobe DNG Converter 18.7 output on raw.pixls.us samples (Rawtonic)
 
 [[cameras.modes]]
 mode = "crm"

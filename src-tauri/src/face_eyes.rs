@@ -95,6 +95,32 @@ fn upright_preview(path: &Path) -> Result<RgbImage, String> {
     Ok(image.into_rgb8())
 }
 
+/// The width and height of the image the eye pass reads of `path`
+/// (`upright_preview`, either way up), whose fractions its face boxes are:
+/// from the preview's header, cached per file and modification time (the
+/// Loupe asks on every hover). None when the file cannot be read.
+fn preview_size(path: &Path) -> Option<(u32, u32)> {
+    type Cache = Mutex<HashMap<PathBuf, (std::time::SystemTime, (u32, u32))>>;
+    static CACHE: OnceLock<Cache> = OnceLock::new();
+    let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(&(when, size)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(path)
+        && when == modified
+    {
+        return Some(size);
+    }
+    let jpeg = crate::file_management::source_large_preview_jpeg(path, PREVIEW_MAX)?;
+    let size = image::ImageReader::with_format(Cursor::new(jpeg), ImageFormat::Jpeg)
+        .into_dimensions()
+        .ok()?;
+    let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if cache.len() > 1024 {
+        cache.clear();
+    }
+    cache.insert(path.to_path_buf(), (modified, size));
+    Some(size)
+}
+
 /// Each face's eyes in `image`, left to right, boxes as fractions of it.
 pub fn read_image(image: &RgbImage, models: &FaceModels) -> anyhow::Result<Vec<EyeFace>> {
     let analysis = rawtonic_faces::analyze(image, models)?;
@@ -428,11 +454,15 @@ pub async fn set_face_eyes(
 
 /// Where the open photograph at `path` shows each of `boxes` (fractions of
 /// the image the pass read: upright, uncropped, for a RAW its camera JPEG,
-/// which shows the camera's aspect crop of a whole-sensor frame) with its
+/// which shows the camera's aspect crop of a whole-sensor frame where it
+/// has the crop's shape — Canon, EX2F — and the whole frame elsewhere — a
+/// Fujifilm RAF's; `preview_size`, `camera_crop::camera_image_region`) with its
 /// recipe's geometry: the outline in mask-frame pixels
 /// (`rawtonic_engine::red_eye::box_outline_shown`, the mapping the red eye
 /// corrections use), for the Loupe's face box; None for a box the geometry
-/// cannot show. `width` × `height` is the base image.
+/// cannot show, and for every box of an offline photograph with a camera
+/// crop (its preview's size, and so what the boxes are fractions of, is
+/// unknown). `width` × `height` is the base image.
 #[tauri::command]
 pub async fn face_boxes_shown(
     path: String,
@@ -443,10 +473,15 @@ pub async fn face_boxes_shown(
 ) -> Result<Vec<Option<Vec<(f64, f64)>>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let (source, _) = crate::file_management::parse_virtual_path(&path);
-        let region = rawtonic_engine::camera_crop::camera_image_region(
+        // Offline, a camera crop leaves open what the preview showed: no
+        // outline rather than one on the wrong face.
+        let Some(region) = rawtonic_engine::camera_crop::camera_image_region(
             &source.to_string_lossy(),
             &js_adjustments,
-        );
+            preview_size(&source),
+        ) else {
+            return vec![None; boxes.len()];
+        };
         boxes
             .iter()
             .map(|&b| {

@@ -4385,6 +4385,8 @@
     },
     "loadError": {
       "failed": "无法打开“{{name}}”：{{error}}",
+      "nikonHighEfficiency": "此 NEF 文件使用尼康的高效率压缩。其编解码器 (TicoRAW) 受专利保护，因此 Rawtonic 无法解码。请使用 Adobe DNG Converter 将文件转换为 DNG，或将相机设为无损压缩 RAW。",
+      "nikonHighEfficiencyMac": "在 macOS 27 或更高版本上，可以尝试在偏好设置中启用“{{setting}}”。",
       "unreadable": "无法打开“{{name}}”。文件可能已损坏、并非其名称所示的 RAW 文件，或来自 Rawtonic 尚不支持的相机。"
     },
     "lut": {
