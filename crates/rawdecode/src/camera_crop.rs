@@ -6,7 +6,9 @@
 //! Samsung EX2F only as the size of its own JPEG (Exif image size 4000 ×
 //! 2248 over a 4000 × 3000 sensor), Canon in AspectInfo (CR2, CR3: the
 //! cropped image's size and place, centred in the developed frame on every
-//! sample). Lightroom and Camera Raw start such photos with that frame as
+//! sample), Fujifilm as RawImageAspectRatio in the RAF (X-T200 16:9, X-T50
+//! 5:4; its embedded JPEG is the whole 3:2 frame, Camera Raw crops to the
+//! ratio, centred). Lightroom and Camera Raw start such photos with that frame as
 //! a crop the photographer can widen. Rawtonic keeps the developed frame
 //! (the lens warp corrects the whole sensor) and gives new edits the
 //! camera's frame as an ordinary crop (`camera_crop`). Formats whose aspect
@@ -72,6 +74,19 @@ fn read(source: &RawSource, frame_version: u32) -> Option<CameraCrop> {
         (short, long)
     };
     crop_for(width, height, camera)
+}
+
+/// Whether a camera image (a RAW's embedded JPEG) of `width` × `height`
+/// pixels shows the camera's `crop` rather than the whole developed frame:
+/// it has the crop's aspect ratio, either way up. Canon's and the EX2F's
+/// JPEGs are their crop; a Fujifilm RAF's JPEG is its whole frame (3:2 for
+/// a 16:9 or 5:4 photo).
+pub fn shows_crop(crop: CameraCrop, width: u32, height: u32) -> bool {
+    let ratio = |w: u32, h: u32| w.max(h) as f64 / w.min(h).max(1) as f64;
+    (ratio(crop.width, crop.height) / ratio(width, height))
+        .ln()
+        .abs()
+        < SAME_ASPECT
 }
 
 /// The camera image `camera` (width, height in the developed frame's axes)
@@ -185,6 +200,19 @@ mod tests {
         // A thumbnail's size: no crop.
         assert_eq!(crop_for(6000, 4000, (160, 120)), None);
         assert_eq!(crop_for(0, 4000, (4000, 2248)), None);
+    }
+
+    #[test]
+    fn a_camera_image_shows_the_crop_where_it_has_its_shape() {
+        let sixteen_nine = crop_for(6000, 4000, (6000, 3375)).unwrap();
+        // The EX2F's and Canon's JPEGs are the crop (also turned upright).
+        assert!(shows_crop(sixteen_nine, 1920, 1080));
+        assert!(shows_crop(sixteen_nine, 1080, 1920));
+        // A Fujifilm RAF's JPEG is the whole 3:2 frame.
+        assert!(!shows_crop(sixteen_nine, 1920, 1280));
+        let five_four = crop_for(7728, 5152, (6440, 5152)).unwrap();
+        assert!(!shows_crop(five_four, 4416, 2944));
+        assert!(shows_crop(five_four, 2560, 2048));
     }
 }
 

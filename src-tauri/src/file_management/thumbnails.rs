@@ -372,6 +372,25 @@ fn cut_to_camera_crop(
     )
 }
 
+/// A never-edited RAW's embedded JPEG framed as its export frames it: cut
+/// to the camera's crop where the JPEG shows the whole frame
+/// (`camera_crop::shows_crop`: a Fujifilm RAF's 3:2 JPEG of a 16:9 or 5:4
+/// photo); Canon's and the EX2F's JPEGs are their crop already.
+fn embedded_in_camera_crop(image: DynamicImage, source: &str) -> DynamicImage {
+    let never_edited = serde_json::Value::Null;
+    match rawtonic_engine::camera_crop::initial_crop(
+        &never_edited,
+        &rawtonic_engine::camera_crop::crops(source),
+    ) {
+        Some(crop)
+            if !rawtonic_engine::camera_crop::shows_crop(crop, image.width(), image.height()) =>
+        {
+            cut_to_camera_crop(image, &never_edited, source)
+        }
+        _ => image,
+    }
+}
+
 /// The thumbnail of `path_str` developed with `metadata`'s adjustments
 /// (none: as a photograph never edited), as the Library shows it. Its
 /// decoded base is cached under `cache_key` (a photograph's own thumbnails
@@ -494,7 +513,7 @@ fn develop_thumbnail_with_source(
         && let Some(preview) = try_load_embedded_raw_preview(&source_path)
     {
         *embedded = true;
-        return Ok(preview);
+        return Ok(embedded_in_camera_crop(preview, &source_path_str));
     }
 
     if let (Some(context), Some(meta)) = (gpu_context, metadata)
@@ -1319,6 +1338,9 @@ fn embedded_thumbnail_hash(path_str: &str) -> Option<String> {
     hash.update(cache_label(path_str, &source).as_bytes());
     hash.update(&source_mtime(&source)?.to_le_bytes());
     hash.update(b"embedded-raw-orientation-v1");
+    // Cut to the camera's crop where the JPEG shows the whole frame
+    // (`embedded_in_camera_crop`; Fujifilm aspect ratios, 2026-11-19).
+    hash.update(b"\0embedded-camera-crop-v1");
     Some(hash.finalize().to_hex().to_string())
 }
 
@@ -2636,6 +2658,32 @@ mod thumbnail_queue_tests {
             (400, 300)
         );
         assert_eq!(size(serde_json::json!({"exposure": 1.0})), (400, 300));
+    }
+
+    /// A never-edited RAW's camera JPEG is cut to the camera's crop only
+    /// where it shows the whole frame (a Fujifilm RAF's 3:2 JPEG of a 16:9
+    /// photo), not where it is the crop already (Canon, EX2F).
+    #[test]
+    fn the_camera_jpeg_thumbnail_is_cut_to_the_crop_where_it_shows_the_whole_frame() {
+        use rawtonic_engine::source_facts::{SourceFacts, VERSION, register};
+        let path = "/offline/embedded-thumbnail-crop.RAF";
+        register(
+            path,
+            SourceFacts {
+                version: VERSION,
+                frames: Some(vec![0; rawtonic_engine::source_frame::VERSION as usize + 1]),
+                camera_crop: Some(vec![0, 312, 6000, 3375]),
+                ..Default::default()
+            },
+        );
+        let size = |width, height| {
+            let cut = embedded_in_camera_crop(DynamicImage::new_rgb8(width, height), path);
+            (cut.width(), cut.height())
+        };
+        assert_eq!(size(1920, 1280), (1920, 1080));
+        assert_eq!(size(1920, 1080), (1920, 1080));
+        // The crop turned upright: its shape either way up.
+        assert_eq!(size(1080, 1920), (1080, 1920));
     }
 
     #[test]

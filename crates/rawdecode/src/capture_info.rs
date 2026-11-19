@@ -622,11 +622,12 @@ pub fn aspect_crop(data: &[u8]) -> Option<AspectCrop> {
 /// The size of the camera's own image where it records an aspect ratio
 /// set in the camera (`camera_crop`), and whether it is in the sensor's
 /// axes: Canon's AspectInfo (maker note 0x009a: 1:1, 4:3, 16:9, 4:5) in a
-/// CR2 or CR3 is; the Exif PixelXDimension and PixelYDimension of a
-/// TIFF-based RAW (also ORF and RW2 with their own magic numbers) may be
-/// turned with the photo. None for other containers (RAF).
+/// CR2 or CR3 and Fujifilm's RawImageAspectRatio in a RAF
+/// (`raf_aspect_size`) are; the Exif PixelXDimension and PixelYDimension
+/// of a TIFF-based RAW (also ORF and RW2 with their own magic numbers) may
+/// be turned with the photo. None for other containers.
 pub fn camera_image_size(data: &[u8]) -> Option<(u32, u32, bool)> {
-    if let Some(size) = canon_aspect_size(data) {
+    if let Some(size) = canon_aspect_size(data).or_else(|| raf_aspect_size(data)) {
         return size.map(|(width, height)| (width, height, true));
     }
     let little = match data.get(..2)? {
@@ -1501,6 +1502,13 @@ fn ciff_find(bytes: &[u8], offset: usize, length: usize, wanted: u16, depth: u32
 /// Fujifilm RAF: the sensor's raw size (height, width) from the CFA header
 /// (tag 0x0100), needed to undo rawler's 45° layout of SuperCCD sensors.
 pub fn raf_raw_size(bytes: &[u8]) -> Option<(usize, usize)> {
+    raf_header_pair(bytes, 0x0100).map(|(height, width)| (height as usize, width as usize))
+}
+
+/// A pair of big-endian u16 values (stored height first) of the RAF's CFA
+/// header directory, e.g. 0x0100 the raw size, 0x0111 the cropped size,
+/// 0x0115 the aspect ratio set in the camera; None unless both are > 0.
+fn raf_header_pair(bytes: &[u8], wanted: u16) -> Option<(u32, u32)> {
     if bytes.get(..8) != Some(b"FUJIFILM") {
         return None;
     }
@@ -1517,14 +1525,41 @@ pub fn raf_raw_size(bytes: &[u8]) -> Option<(usize, usize)> {
         let tag = u16::from_be_bytes(block.get(at..at + 2)?.try_into().ok()?);
         let size = u16::from_be_bytes(block.get(at + 2..at + 4)?.try_into().ok()?) as usize;
         let value = block.get(at + 4..at + 4 + size)?;
-        if tag == 0x0100 && size >= 4 {
-            let height = u16::from_be_bytes([value[0], value[1]]) as usize;
-            let width = u16::from_be_bytes([value[2], value[3]]) as usize;
-            return (width > 0 && height > 0).then_some((height, width));
+        if tag == wanted && size >= 4 {
+            let first = u16::from_be_bytes([value[0], value[1]]) as u32;
+            let second = u16::from_be_bytes([value[2], value[3]]) as u32;
+            return (first > 0 && second > 0).then_some((first, second));
         }
         at += 4 + size;
     }
     None
+}
+
+/// Fujifilm RAF: the image of the aspect ratio set in the camera
+/// (RawImageAspectRatio, 0x0115: 16:9 on the X-T200, 5:4 on the X-T50) as
+/// the largest rectangle of that ratio in the recorded frame
+/// (RawImageCroppedSize, 0x0111), (width, height) in the sensor's axes.
+/// The RAF keeps the whole frame and its embedded JPEG is the whole frame
+/// too; Camera Raw opens such a photo cropped to the camera's ratio,
+/// centred. Some(None) for a RAF without the tag, None for other files.
+fn raf_aspect_size(bytes: &[u8]) -> Option<Option<(u32, u32)>> {
+    if bytes.get(..8) != Some(b"FUJIFILM") {
+        return None;
+    }
+    let Some(((aspect_height, aspect_width), (height, width))) =
+        raf_header_pair(bytes, 0x0115).zip(raf_header_pair(bytes, 0x0111))
+    else {
+        return Some(None);
+    };
+    let (aspect, frame) = (
+        aspect_width as f64 / aspect_height as f64,
+        width as f64 / height as f64,
+    );
+    Some(Some(if aspect >= frame {
+        (width, (width as f64 / aspect).round() as u32)
+    } else {
+        ((height as f64 * aspect).round() as u32, height)
+    }))
 }
 
 #[cfg(test)]
@@ -1602,6 +1637,43 @@ mod format_tests {
         bytes.extend_from_slice(&block);
         assert_eq!(raf_raw_size(&bytes), Some((2384, 2944)));
     }
+
+    /// A RAF header whose CFA header directory holds `entries` (tag, first,
+    /// second), each a pair of big-endian u16.
+    fn raf_with(entries: &[(u16, u16, u16)]) -> Vec<u8> {
+        let mut bytes = vec![0u8; 100];
+        bytes[..8].copy_from_slice(b"FUJIFILM");
+        bytes[92..96].copy_from_slice(&100u32.to_be_bytes());
+        let mut block = (entries.len() as u32).to_be_bytes().to_vec();
+        for &(tag, first, second) in entries {
+            block.extend_from_slice(&tag.to_be_bytes());
+            block.extend_from_slice(&4u16.to_be_bytes());
+            block.extend_from_slice(&first.to_be_bytes());
+            block.extend_from_slice(&second.to_be_bytes());
+        }
+        bytes[96..100].copy_from_slice(&(block.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&block);
+        bytes
+    }
+
+    #[test]
+    fn a_raf_aspect_ratio_is_the_cameras_image() {
+        // X-T200 16:9 (stored 9, 16) on its 6000 × 4000 frame (stored
+        // 4000, 6000): 6000 × 3375 (Camera Raw 6000 × 3376).
+        let xt200 = raf_with(&[(0x0111, 4000, 6000), (0x0115, 9, 16)]);
+        assert_eq!(super::camera_image_size(&xt200), Some((6000, 3375, true)));
+        // X-T50 5:4 on 7728 × 5152: the full height (Camera Raw 6432 wide).
+        let xt50 = raf_with(&[(0x0111, 5152, 7728), (0x0115, 4, 5)]);
+        assert_eq!(super::camera_image_size(&xt50), Some((6440, 5152, true)));
+        // The frame's own 3:2: the frame (no crop follows).
+        let normal = raf_with(&[(0x0111, 4000, 6000), (0x0115, 2, 3)]);
+        assert_eq!(super::camera_image_size(&normal), Some((6000, 4000, true)));
+        // No aspect tag (X-M1, the FinePix bodies): nothing.
+        assert_eq!(
+            super::camera_image_size(&raf_with(&[(0x0111, 3264, 4896)])),
+            None
+        );
+    }
 }
 
 /// Fujifilm's dynamic range of a RAF in percent, from the maker notes of
@@ -1635,6 +1707,33 @@ pub fn fujifilm_crop_mode_from(data: &[u8]) -> Option<u16> {
 }
 
 fn fujifilm_maker_note_reader(file: &mut (impl Read + Seek)) -> Option<Vec<u8>> {
+    match &fujifilm_jpeg_exif(file)?
+        .get_field(exif::Tag::MakerNote, exif::In::PRIMARY)?
+        .value
+    {
+        exif::Value::Undefined(bytes, _) => Some(bytes.clone()),
+        _ => None,
+    }
+}
+
+/// Whether a RAF (already-read bytes) names its lens: the Exif LensModel
+/// (0xA434) of its embedded JPEG, which Fujifilm writes for the
+/// interchangeable lenses of the X and GFX bodies and not on the
+/// fixed-lens compacts.
+pub fn fujifilm_names_lens(data: &[u8]) -> bool {
+    fujifilm_jpeg_exif(&mut std::io::Cursor::new(data)).is_some_and(|exif| {
+        exif.get_field(exif::Tag::LensModel, exif::In::PRIMARY)
+            .is_some_and(|field| match &field.value {
+                exif::Value::Ascii(values) => values
+                    .first()
+                    .is_some_and(|name| !String::from_utf8_lossy(name).trim().is_empty()),
+                _ => false,
+            })
+    })
+}
+
+/// The Exif of a RAF's embedded JPEG.
+fn fujifilm_jpeg_exif(file: &mut (impl Read + Seek)) -> Option<exif::Exif> {
     let mut header = [0u8; 100];
     file.read_exact(&mut header).ok()?;
     if &header[..8] != b"FUJIFILM" {
@@ -1648,20 +1747,22 @@ fn fujifilm_maker_note_reader(file: &mut (impl Read + Seek)) -> Option<Vec<u8>> 
     file.seek(SeekFrom::Start(offset)).ok()?;
     let mut jpeg = vec![0u8; length];
     file.read_exact(&mut jpeg).ok()?;
-    let exif = exif::Reader::new()
+    exif::Reader::new()
         .read_from_container(&mut std::io::Cursor::new(&jpeg))
-        .ok()?;
-    match &exif
-        .get_field(exif::Tag::MakerNote, exif::In::PRIMARY)?
-        .value
-    {
-        exif::Value::Undefined(bytes, _) => Some(bytes.clone()),
-        _ => None,
-    }
+        .ok()
 }
 
-/// The single-SHORT entries of a Fujifilm maker note, as (tag, value).
-fn fujifilm_short_entries(note: &[u8]) -> Option<Vec<(u16, u16)>> {
+/// Whether the maker note of a RAF's embedded JPEG (already-read bytes)
+/// has an entry with `tag`, whatever its value.
+pub fn fujifilm_maker_note_has(data: &[u8], tag: u16) -> bool {
+    fujifilm_maker_note_reader(&mut std::io::Cursor::new(data))
+        .and_then(|note| fujifilm_entries(&note))
+        .is_some_and(|entries| entries.iter().any(|&(found, _, _)| found == tag))
+}
+
+/// The entries of a Fujifilm maker note, as (tag, type, value), the value
+/// the entry's first SHORT where its type is SHORT (3).
+fn fujifilm_entries(note: &[u8]) -> Option<Vec<(u16, u16, Option<u16>)>> {
     if !note.starts_with(b"FUJIFILM") {
         return None;
     }
@@ -1679,11 +1780,20 @@ fn fujifilm_short_entries(note: &[u8]) -> Option<Vec<(u16, u16)>> {
     for i in 0..count.min(512) {
         let at = ifd + 2 + 12 * i;
         let (tag, kind) = (le16(at)?, le16(at + 2)?);
-        if kind == 3 {
-            entries.push((tag, le16(at + 8)?));
-        }
+        let value = if kind == 3 { Some(le16(at + 8)?) } else { None };
+        entries.push((tag, kind, value));
     }
     Some(entries)
+}
+
+/// The single-SHORT entries of a Fujifilm maker note, as (tag, value).
+fn fujifilm_short_entries(note: &[u8]) -> Option<Vec<(u16, u16)>> {
+    Some(
+        fujifilm_entries(note)?
+            .into_iter()
+            .filter_map(|(tag, _, value)| Some((tag, value?)))
+            .collect(),
+    )
 }
 
 fn fujifilm_crop_mode_from_maker_note(note: &[u8]) -> Option<u16> {
@@ -1779,6 +1889,19 @@ mod fujifilm_dynamic_range_tests {
             None
         );
         assert_eq!(fujifilm_crop_mode_from_maker_note(b"NIKON\0"), None);
+    }
+
+    #[test]
+    fn maker_note_entries_of_every_type_are_listed() {
+        // A SHORT entry and an UNDEFINED block (type 7, as 0xf010).
+        let mut n = note(&[(0x104d, 0), (0xf010, 0)]);
+        n[12 + 2 + 12 + 2..12 + 2 + 12 + 4].copy_from_slice(&7u16.to_le_bytes());
+        assert_eq!(
+            super::fujifilm_entries(&n),
+            Some(vec![(0x104d, 3, Some(0)), (0xf010, 7, None)])
+        );
+        assert_eq!(super::fujifilm_short_entries(&n), Some(vec![(0x104d, 0)]));
+        assert_eq!(super::fujifilm_entries(b"NIKON\0"), None);
     }
 }
 
