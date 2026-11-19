@@ -286,7 +286,11 @@ impl<'a> Decoder for Cr2Decoder<'a> {
       let white = if camera.find_hint("sraw_specular_white") {
         whitelevel.as_ref().and_then(|white| white.0.first().copied()).map(|white| white * 4)
       } else {
-        camera.make_whitelevel(cpp).or(whitelevel.clone()).and_then(|white| white.0.first().copied())
+        // Rawtonic patch (RAWL1): Adobe DNG Converter's sRAW white follows
+        // the EXIF ISO (lower at the 1/3-stop ISOs 160, 320, 640, ...); the
+        // fixed white is the one of the corpus sample's ISO.
+        let iso = self.exif.get_entry(ExifTag::ISOSpeedRatings).map(|entry| entry.force_u32(0));
+        sraw_white_for_iso(&camera, iso).or_else(|| camera.make_whitelevel(cpp).or(whitelevel.clone()).and_then(|white| white.0.first().copied()))
       };
       // Adobe keeps the camera-balanced data and applies the rest of the
       // as-shot balance with its smallest multiplier at 1; when green is
@@ -1014,3 +1018,73 @@ pub enum Cr2MakernoteTag {
 }
 
 //const CR2_MODEL_40D: u32 = 0x80000190;
+
+/// Rawtonic patch (RAWL1): the sRAW/mRAW white for `iso` from the mode's
+/// `sraw_white_by_iso` param, runs of `[lowest ISO, highest ISO, white]` in
+/// the decoder's units (Adobe DNG Converter's sRAW WhiteLevel at that EXIF
+/// ISO times 32/7, or times 4 for `sraw_new` bodies, as the fixed
+/// `whitepoint`). `None` without the param, an ISO or a run holding it.
+fn sraw_white_for_iso(camera: &Camera, iso: Option<u32>) -> Option<u32> {
+  let iso = i64::from(iso?);
+  camera.params.get("sraw_white_by_iso")?.as_array()?.iter().find_map(|run| {
+    let run = run.as_array()?;
+    let (low, high, white) = (run.first()?.as_integer()?, run.get(1)?.as_integer()?, run.get(2)?.as_integer()?);
+    ((low..=high).contains(&iso)).then_some(white).and_then(|white| u32::try_from(white).ok())
+  })
+}
+
+#[cfg(test)]
+mod rawtonic_sraw_white_tests {
+  use super::*;
+
+  fn camera_with_runs(runs: &str) -> Camera {
+    let mut camera = Camera::new();
+    camera.params.insert(
+      "sraw_white_by_iso".to_string(),
+      toml::from_str::<toml::Table>(&format!("r = {runs}")).unwrap()["r"].clone(),
+    );
+    camera
+  }
+
+  #[test]
+  fn sraw_white_follows_the_iso_runs() {
+    let camera = camera_with_runs("[[100, 125, 54857], [160, 160, 49829], [200, 250, 60343]]");
+    assert_eq!(sraw_white_for_iso(&camera, Some(100)), Some(54857));
+    assert_eq!(sraw_white_for_iso(&camera, Some(125)), Some(54857));
+    assert_eq!(sraw_white_for_iso(&camera, Some(160)), Some(49829));
+    assert_eq!(sraw_white_for_iso(&camera, Some(250)), Some(60343));
+    // outside every run, without an ISO or without the param: the fixed white
+    assert_eq!(sraw_white_for_iso(&camera, Some(50)), None);
+    assert_eq!(sraw_white_for_iso(&camera, None), None);
+    assert_eq!(sraw_white_for_iso(&Camera::new(), Some(100)), None);
+  }
+
+  #[test]
+  fn every_sraw_white_table_holds_the_fixed_white_at_some_iso() {
+    // The fixed `whitepoint` of a mode with a table is Adobe's white at the
+    // corpus sample's ISO, so the table must hold it.
+    let loader = crate::RawLoader::new();
+    let mut tables = 0;
+    for camera in loader.get_cameras().values() {
+      let Some(runs) = camera.params.get("sraw_white_by_iso").and_then(|runs| runs.as_array()) else {
+        continue;
+      };
+      tables += 1;
+      let fixed = camera
+        .whitelevel
+        .as_ref()
+        .and_then(|white| white.first().copied())
+        .expect("sRAW mode with a table has a whitepoint");
+      assert!(
+        runs
+          .iter()
+          .any(|run| run.as_array().and_then(|run| run.get(2)).and_then(|white| white.as_integer()) == Some(i64::from(fixed))),
+        "{} {}: fixed white {} not in its table",
+        camera.model,
+        camera.mode,
+        fixed
+      );
+    }
+    assert!(tables > 0);
+  }
+}
