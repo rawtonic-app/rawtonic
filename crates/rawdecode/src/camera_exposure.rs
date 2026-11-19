@@ -1539,10 +1539,21 @@ mod rawtonic_cr3_white_tests {
             ("EOS R50 V", 100, -0.504),
             ("EOS-1D X Mark III", 100, -0.203),
         ] {
-            assert_eq!(adobe_white_correction("Canon", model, Some(iso)), 0.0, "{model}");
-            assert_eq!(apple_raw9_white_correction("Canon", model, Some(iso)), apple, "{model} {iso}");
+            assert_eq!(
+                adobe_white_correction("Canon", model, Some(iso)),
+                0.0,
+                "{model}"
+            );
+            assert_eq!(
+                apple_raw9_white_correction("Canon", model, Some(iso)),
+                apple,
+                "{model} {iso}"
+            );
         }
-        assert_eq!(apple_raw9_white_correction("Canon", "EOS R3", Some(100)), 0.0);
+        assert_eq!(
+            apple_raw9_white_correction("Canon", "EOS R3", Some(100)),
+            0.0
+        );
         assert_eq!(adobe_white_correction("Canon", "EOS M6", Some(100)), -0.445);
     }
 }
