@@ -158,7 +158,6 @@ impl IdleJob {
         match self {
             IdleJob::Display(features) => format!("display:{features}"),
             IdleJob::LayerSums(features) => format!("layer-sums:{features}"),
-            IdleJob::Deferred(features) => format!("deferred:{features}"),
         }
     }
 
@@ -171,7 +170,6 @@ impl IdleJob {
         match kind {
             "display" => Some(IdleJob::Display(features)),
             "layer-sums" => Some(IdleJob::LayerSums(features)),
-            "deferred" => Some(IdleJob::Deferred(features)),
             _ => None,
         }
     }
@@ -346,10 +344,6 @@ pub fn compile_in_helper_process(job: &str, folder: &Path, build: &str) -> Resul
                 false,
             )
             .map(|_| ()),
-            IdleJob::Deferred(features) => processor
-                .deferred_display
-                .compile(&device, features)
-                .map(|_| ()),
         };
         background.set(false);
         created
@@ -370,15 +364,19 @@ mod tests {
 
     #[test]
     fn jobs_pass_to_the_helper_and_back() {
-        for job in [
-            IdleJob::Display(5238847),
-            IdleJob::LayerSums(7327807),
-            IdleJob::Deferred(17),
-        ] {
+        for job in [IdleJob::Display(5238847), IdleJob::LayerSums(7327807)] {
             assert_eq!(IdleJob::parse(&job.arg()), Some(job));
         }
         for bad in ["display", "display:x", "other:1", "display:999999999999"] {
             assert_eq!(IdleJob::parse(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn retired_deferred_job_is_rejected_before_device_start() {
+        assert_eq!(
+            compile_in_helper_process("deferred:17", Path::new("."), "test"),
+            Err("unknown job 'deferred:17'".into())
+        );
     }
 }
