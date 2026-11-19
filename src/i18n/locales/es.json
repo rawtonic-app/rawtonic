@@ -4704,6 +4704,7 @@
     "loadError": {
       "failed": "No se pudo abrir «{{name}}»: {{error}}",
       "nikonHighEfficiency": "Este NEF utiliza la compresión de alta eficiencia de Nikon. El códec (TicoRAW) está protegido por patentes, por lo que Rawtonic no puede decodificarlo. Convierte el archivo a DNG con Adobe DNG Converter o configura la cámara para guardar RAW con compresión sin pérdida.",
+      "nikonHighEfficiencyMac": "En un Mac, también puedes activar «{{setting}}» en Preferencias.",
       "unreadable": "No se puede abrir «{{name}}». Puede que esté dañado, que no sea el archivo RAW que indica su nombre o que sea de una cámara que Rawtonic aún no admite."
     },
     "lut": {

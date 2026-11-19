@@ -2688,17 +2688,12 @@ mod nikon_high_efficiency_tests {
                 let bytes = nef_header(mode, z_makernote, "NIKON Z 8");
                 let error = develop_raw_image(&bytes, &DecodeOptions::default()).unwrap_err();
                 assert_eq!(
-                    rawler::decoders::nef::has_high_efficiency_compression(&bytes),
-                    mode != 3,
-                    "mode {mode}, Z maker note {z_makernote}: {error:#}"
-                );
-                assert_eq!(
                     matches!(
                         error.downcast_ref::<rawler::RawlerError>(),
                         Some(rawler::RawlerError::UnsupportedNikonHighEfficiency)
                     ),
                     mode != 3,
-                    "{error:#}"
+                    "mode {mode}, Z maker note {z_makernote}: {error:#}"
                 );
             }
         }

@@ -1,8 +1,19 @@
-import i18next from 'i18next';
+import i18next, { type TFunction } from 'i18next';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { errorCode, errorMessage } from '../shared/ipc/errors';
 
 export const isUnsupportedNikonHighEfficiency = (error: unknown) =>
   errorCode(error) === 'unsupported_nikon_high_efficiency';
+
+export function nikonHighEfficiencyMessage(
+  t: TFunction = i18next.t,
+  osPlatform = useSettingsStore.getState().osPlatform
+): string {
+  const message = t('studio.loadError.nikonHighEfficiency');
+  if (osPlatform !== 'macos') return message;
+  const setting = t('settings.processing.preprocessing.appleRaw9');
+  return `${message} ${t('studio.loadError.nikonHighEfficiencyMac', { setting })}`;
+}
 
 /**
  * What a failed photo load tells the photographer. The decoder's own words
@@ -11,7 +22,7 @@ export const isUnsupportedNikonHighEfficiency = (error: unknown) =>
  * not supported yet (as Lightroom's "unsupported or damaged").
  */
 export function loadErrorText(error: unknown, path: string): string {
-  if (isUnsupportedNikonHighEfficiency(error)) return i18next.t('studio.loadError.nikonHighEfficiency');
+  if (isUnsupportedNikonHighEfficiency(error)) return nikonHighEfficiencyMessage();
   const name = path.split(/[\\/]/).pop() ?? path;
   const text = errorMessage(error);
   if (isUnreadableError(text)) {

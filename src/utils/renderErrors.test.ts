@@ -3,6 +3,7 @@ import i18n from 'i18next';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { renderErrorMessage } from './renderErrors';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 /** The backend's errors (rawtonic_gpu::gpu_processing). */
 const textureLimit = 'The image (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).';
@@ -69,12 +70,23 @@ describe('render errors', () => {
   });
 });
 
-it('localizes the persisted Nikon High Efficiency export reason', () => {
-  void i18n.changeLanguage('de');
-  expect(
-    renderErrorMessage(
-      "This NEF uses Nikon's High Efficiency compression. Its codec (TicoRAW) is patent-protected, so Rawtonic cannot decode it. Convert the file to DNG with Adobe DNG Converter, or set the camera to Lossless compressed RAW."
-    )
-  ).toContain('ist patentgeschützt');
-  void i18n.changeLanguage('en');
+it('localizes the persisted Nikon High Efficiency export reason and adds the Mac option', async () => {
+  const { osPlatform } = useSettingsStore.getState();
+  const error =
+    "This NEF uses Nikon's High Efficiency compression. Its codec (TicoRAW) is patent-protected, so Rawtonic cannot decode it. Convert the file to DNG with Adobe DNG Converter, or set the camera to Lossless compressed RAW.";
+  try {
+    await i18n.changeLanguage('de');
+    useSettingsStore.setState({ osPlatform: 'linux' });
+    expect(renderErrorMessage(error)).toContain('ist patentgeschützt');
+    expect(renderErrorMessage(error)).not.toContain('Auf einem Mac');
+
+    useSettingsStore.setState({ osPlatform: 'macos' });
+    const setting = i18n.t('settings.processing.preprocessing.appleRaw9');
+    expect(renderErrorMessage(error)).toContain(
+      `Auf einem Mac kannst du in den Einstellungen auch „${setting}“ aktivieren.`
+    );
+  } finally {
+    useSettingsStore.setState({ osPlatform });
+    await i18n.changeLanguage('en');
+  }
 });

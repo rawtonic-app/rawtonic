@@ -302,40 +302,34 @@ pub fn load_base_image_measured_for(
             return Err(anyhow!("Load cancelled"));
         }
 
-        let nikon_high_efficiency = Path::new(path_for_ext_check)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("nef"))
-            && rawler::decoders::nef::has_high_efficiency_compression(bytes);
-        if !nikon_high_efficiency {
-            match crate::apple_raw::develop_raw9(
-                bytes,
-                path_for_ext_check,
-                &crate::apple_raw::Raw9Options::for_loading(),
-            ) {
-                Ok(mut image) => {
-                    // Saved Apple RAW 9 edits of the Canon bodies whose rawler
-                    // white moved to Adobe's keep their brightness (RAWL3).
-                    let gain = rawtonic_engine::baseline_exposure::apple_raw9_gain(
-                        path_for_ext_check,
-                        bytes,
-                    );
-                    if gain != 1.0
-                        && let DynamicImage::ImageRgba32F(buffer) = &mut image
-                    {
-                        for px in buffer.pixels_mut() {
-                            px.0[0] *= gain;
-                            px.0[1] *= gain;
-                            px.0[2] *= gain;
-                        }
+        match crate::apple_raw::develop_raw9(
+            bytes,
+            path_for_ext_check,
+            &crate::apple_raw::Raw9Options::for_loading(),
+        ) {
+            Ok(mut image) => {
+                // Saved Apple RAW 9 edits of the Canon bodies whose rawler
+                // white moved to Adobe's keep their brightness (RAWL3).
+                let gain =
+                    rawtonic_engine::baseline_exposure::apple_raw9_gain(path_for_ext_check, bytes);
+                if gain != 1.0
+                    && let DynamicImage::ImageRgba32F(buffer) = &mut image
+                {
+                    for px in buffer.pixels_mut() {
+                        px.0[0] *= gain;
+                        px.0[1] *= gain;
+                        px.0[2] *= gain;
                     }
-                    return Ok((image, None));
                 }
-                Err(e) => log::warn!(
-                    "Apple RAW 9 unavailable for '{}', falling back to rawler: {}",
-                    path_for_ext_check,
-                    e
-                ),
+                // A successful Apple decode replaces an earlier embedded preview.
+                note_preview_fallback(path_for_ext_check, None);
+                return Ok((image, None));
             }
+            Err(e) => log::warn!(
+                "Apple RAW 9 unavailable for '{}', falling back to rawler: {}",
+                path_for_ext_check,
+                e
+            ),
         }
     }
 
