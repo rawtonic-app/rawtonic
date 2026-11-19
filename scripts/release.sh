@@ -136,7 +136,7 @@ originals_unchanged() {
 # --- dry run ----------------------------------------------------------------
 describe() {
   case $1 in
-    preflight) echo "check tools (git gh node npm cargo hdiutil spctl xcrun python3), gh auth, $SIGNING_ENV (Apple credentials and TAURI_SIGNING_PRIVATE_KEY_PATH/_PASSWORD, key file mode 600), photos, recipes, Linux host (ssh), free disk; find the previous release";;
+    preflight) echo "check tools (git gh node npm cargo hdiutil spctl xcrun python3), gh auth, $SIGNING_ENV (Apple credentials and TAURI_SIGNING_PRIVATE_KEY_PATH/_PASSWORD, key file mode 600), photos, recipes, the website branch $WEB_BRANCH in ${WEBSITE:-\$RAWTONIC_WEBSITE_DIR} (not checked out elsewhere, whatsNew of $VERSION), Linux host (ssh), free disk; find the previous release";;
     bump) if [ "$BUMP" = 0 ]; then echo "skipped (--no-bump): SHA = ${SHA_ARG:-origin/main}; check package.json = $VERSION and '## $VERSION — ' in its CHANGELOG"; else
           echo "git worktree add -b release-$VERSION $WORK/bump origin/main; set $VERSION in package.json, package-lock.json (top entries), src-tauri/Cargo.toml, src-tauri/tauri.conf.json, Cargo.lock (cargo update -p rawtonic-app --offline), both THIRD_PARTY_NOTICES.md rows; CHANGELOG '## Unreleased' → '## $VERSION — $DATE'; commit; scripts/ship.sh --title 'chore(release): $VERSION' → merged SHA"; fi;;
     source) echo "git worktree add --detach $WT SHA; git worktree add --detach $WTQA SHA; npm ci in both";;
@@ -157,7 +157,7 @@ describe() {
     notes) echo "python3 scripts/release/notes.py: CHANGELOG section $VERSION + the previous release's install/feedback text → $WORK/notes.md";;
     site) echo "website clone ${WEBSITE:-\$RAWTONIC_WEBSITE_DIR}: worktree $WEBWT on branch $WEB_BRANCH (the local or origin branch with whatsNew, else from origin/main); scripts/release/website.py write: release.json version/date/dateText/tag and every file with size (MiB, half-up) and SHA-256 from $ASSETS/SHA256SUMS.txt; fails unless whatsNew is $VERSION's (en, de); RAWTONIC_CHANGELOG=$WORK/CHANGELOG.md node scripts/build.mjs --strict; commit 'release: $VERSION' on $WEB_BRANCH (not pushed, never deployed)";;
     draft) if [ "$DRAFT" = 0 ]; then echo "skipped (--no-draft)"; else echo "gh release create $TAG --draft --prerelease --target SHA --title 'Rawtonic $VERSION' --notes-file $WORK/notes.md $ASSETS/* (never published here); every URL in latest.json among the draft's assets (updater_manifest.py verify --names)"; fi;;
-    publish) echo "(--publish only) the draft $TAG must target SHA; gh api -X PATCH repos/$GH_REPO/releases/ID -f tag_name=$TAG -f target_commitish=SHA -F draft=false -F prerelease=true; then the tag on origin must be SHA and the release no draft";;
+    publish) echo "(--publish only) the draft $TAG must target SHA, a tag $TAG on origin (if any) must be SHA, and its files (names, GitHub's sha256 digests) must be the tested ones of $ASSETS/SHA256SUMS.txt; gh api -X PATCH repos/$GH_REPO/releases/ID -f tag_name=$TAG -f target_commitish=SHA -F draft=false -F prerelease=true; then the tag on origin must be SHA and the release no draft";;
     site-deploy) echo "(--publish only) in $WEBWT: git fetch; unless $WEB_BRANCH is in origin/main: detach at origin/main, git merge --no-ff $WEB_BRANCH, node scripts/build.mjs --strict, git push origin HEAD:main; scripts/deploy.sh (tests, build, wrangler deploy)";;
     site-verify) echo "(--publish only) curl $SITE_URL/ and $SITE_URL/de/ with a cache-busting query (retried for 5 min): website.py verify-page (download links of $VERSION, 'New in ${VERSION#*-}.' / 'Neu in …'); latest.json of $TAG downloads and is $VERSION's (website.py verify-manifest); the four downloads answer; remove $WEBWT and the merged $WEB_BRANCH";;
   esac
@@ -168,6 +168,21 @@ website_clone() {
   [ -n "$WEBSITE" ] || fail "RAWTONIC_WEBSITE_DIR is not set (the website clone; docs/RELEASING.md)"
   git -C "$WEBSITE" rev-parse --git-dir >/dev/null 2>&1 && [ -f "$WEBSITE/scripts/build.mjs" ] \
     || fail "$WEBSITE is not a clone of the website (no scripts/build.mjs)"
+}
+# Before an hour of builds: the website branch exists with this release's What's
+# new, and is not checked out elsewhere (the stage site needs it in WORK/website).
+website_branch_ready() {
+  website_clone
+  git -C "$WEBSITE" fetch -q origin || fail "fetch the website"
+  local where ref
+  where=$(git -C "$WEBSITE" worktree list --porcelain | awk -v b="branch refs/heads/$WEB_BRANCH" '/^worktree /{w=substr($0, 10)} $0 == b {print w}')
+  [ -z "$where" ] || [ "$where" = "$WEBWT" ] \
+    || fail "the website branch $WEB_BRANCH is checked out in $where: switch that checkout to another branch (git -C '$where' switch main) so the stage site can use it"
+  if git -C "$WEBSITE" rev-parse -q --verify "refs/heads/$WEB_BRANCH" >/dev/null; then ref=refs/heads/$WEB_BRANCH
+  elif git -C "$WEBSITE" rev-parse -q --verify "refs/remotes/origin/$WEB_BRANCH" >/dev/null; then ref=refs/remotes/origin/$WEB_BRANCH
+  else fail "no website branch $WEB_BRANCH (local or on origin) with What's new: write it first (docs/RELEASING.md, before running it)"; fi
+  git -C "$WEBSITE" show "$ref:release.json" > "$WORK/website-branch.json" || fail "no release.json on $ref"
+  python3 "$SCRIPTS/website.py" check-whats-new --version "$VERSION" "$WORK/website-branch.json" || fail "What's new on $ref (see above)"
 }
 
 # --- stages -----------------------------------------------------------------
@@ -191,7 +206,7 @@ st_preflight() {
   originals_unchanged
   ls "$RECIPES"/*.json >/dev/null 2>&1 || fail "RAWTONIC_IDENT_RECIPES has no *.json recipes"
   [ "$QA_ID" != cc.rawtonic.editor ] || fail "the QA identifier must not be the user's cc.rawtonic.editor"
-  website_clone
+  website_branch_ready
   remote true || fail "the Linux host does not answer over SSH"
   [ -n "$LINUX_PHOTOS" ] || fail "RAWTONIC_LINUX_PHOTOS is not set"
   remote "test -f $LINUX_PHOTOS/SHA256SUMS && command -v docker flock xvfb-run 7z >/dev/null" \
@@ -725,6 +740,11 @@ st_draft() {
 }
 
 # --- publish (--publish, only on the user's word) ---------------------------
+# The commit the tag vVERSION names on origin (an annotated tag's peeled ^{}), or nothing.
+remote_tag_commit() {
+  git -C "$REPO_ROOT" ls-remote --tags origin \
+    | awk -v t="refs/tags/$TAG" '$2 == t "^{}" {p = $1} $2 == t {c = $1} END {print (p != "" ? p : c)}'
+}
 # The draft becomes the published prerelease; GitHub makes the tag at the
 # draft's commit. Resumable: a published release is checked, not changed.
 st_publish() {
@@ -734,6 +754,12 @@ st_publish() {
     -q '[.databaseId, .isDraft, .isPrerelease, .targetCommitish] | map(tostring) | join(" ")') || fail "no release $TAG"
   local id draft pre target; read -r id draft pre target <<< "$info"
   echo "release $TAG: id $id, draft $draft, prerelease $pre, target $target"
+  # A tag pushed by hand at another commit would become the release's source.
+  local tagged; tagged=$(remote_tag_commit)
+  [ -z "$tagged" ] || [ "$tagged" = "$s" ] || fail "a tag $TAG exists on origin at $tagged, not at the built commit $s"
+  # Only the tested bytes go out: a file replaced on GitHub during review fails here.
+  gh api --paginate "repos/$GH_REPO/releases/$id/assets" --jq '.[] | {name, digest}' > "$WORK/publish-assets.jsonl" || fail "list the release's files"
+  python3 "$SCRIPTS/website.py" verify-assets --assets "$ASSETS" "$WORK/publish-assets.jsonl" || fail "the release's files are not the tested ones"
   if [ "$draft" = true ]; then
     [ "$target" = "$s" ] || fail "the draft targets $target, not the built commit $s"
     gh api -X PATCH "repos/$GH_REPO/releases/$id" -f tag_name="$TAG" -f target_commitish="$s" \
@@ -741,8 +767,7 @@ st_publish() {
   fi
   draft=$(gh release view "$TAG" -R "$GH_REPO" --json isDraft -q .isDraft)
   [ "$draft" = false ] || fail "$TAG is still a draft"
-  # (an annotated tag's commit is its peeled ^{} line, which sorts first in reverse)
-  local tagged; tagged=$(git -C "$REPO_ROOT" ls-remote origin "refs/tags/$TAG" | sort -k2 -r | head -1 | cut -f1)
+  tagged=$(remote_tag_commit)
   [ "$tagged" = "$s" ] || fail "the tag $TAG on origin is ${tagged:-missing}, not $s"
   echo "published $TAG at $s"
 }
