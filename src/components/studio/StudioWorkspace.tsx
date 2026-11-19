@@ -706,7 +706,8 @@ export default function StudioWorkspace(props: Props) {
     Math.max(TOOLS_MIN_WIDTH, Math.min(TOOLS_MAX_WIDTH, initialToolsWidth()))
   );
   // A width chosen in a wide window shows narrower in a smaller one (the
-  // stored choice stays), so the photograph keeps its room.
+  // stored choice stays until the separator moves, which starts from the
+  // shown width), so the photograph keeps its room.
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
   useEffect(() => {
     const resize = () => setWindowWidth(window.innerWidth);
@@ -1408,7 +1409,10 @@ export default function StudioWorkspace(props: Props) {
                   chooseWidth((v) =>
                     Math.max(
                       TOOLS_MIN_WIDTH,
-                      Math.min(maxWidth, v + (e.key === 'ArrowRight' ? 10 : -10) * (toolsSide === 'right' ? -1 : 1))
+                      Math.min(
+                        maxWidth,
+                        Math.min(v, maxWidth) + (e.key === 'ArrowRight' ? 10 : -10) * (toolsSide === 'right' ? -1 : 1)
+                      )
                     )
                   );
                 }
@@ -1420,7 +1424,10 @@ export default function StudioWorkspace(props: Props) {
               onPointerMove={(e) => {
                 if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
                 chooseWidth((v) =>
-                  Math.max(TOOLS_MIN_WIDTH, Math.min(maxWidth, v + e.movementX * (toolsSide === 'right' ? -1 : 1)))
+                  Math.max(
+                    TOOLS_MIN_WIDTH,
+                    Math.min(maxWidth, Math.min(v, maxWidth) + e.movementX * (toolsSide === 'right' ? -1 : 1))
+                  )
                 );
               }}
               onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}

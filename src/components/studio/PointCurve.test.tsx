@@ -203,6 +203,39 @@ describe('point curve reading aids (UXR1 D3)', () => {
     expect(changed.mock.calls[0][0].luma).toHaveLength(4);
   });
 
+  it('neither adds nor grabs a point on an existing input level out of its reach', () => {
+    vi.stubGlobal('PointerEvent', MouseEvent);
+    const changed = vi.fn();
+    const interaction = vi.fn();
+    const curves = {
+      ...INITIAL_ADJUSTMENTS.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 128, y: 128 },
+        { x: 255, y: 255 }
+      ]
+    };
+    const { container } = render(
+      <PointCurve curves={curves} onChange={changed} disabled={false} onInteraction={interaction} />
+    );
+    const svg = container.querySelector('svg')!;
+    svg.getScreenCTM = () =>
+      ({
+        a: 2,
+        b: 0,
+        c: 0,
+        d: 2,
+        e: 0,
+        f: 0,
+        inverse: () => ({ a: 0.5, b: 0, c: 0, d: 0.5, e: 0, f: 0 })
+      }) as unknown as DOMMatrix;
+    svg.setPointerCapture = () => {};
+    // 50 screen px straight below the midpoint.
+    fireEvent.pointerDown(svg, { button: 0, clientX: 256, clientY: 304, pointerId: 1 });
+    expect(changed).not.toHaveBeenCalled();
+    expect(interaction).not.toHaveBeenCalled();
+  });
+
   it('shows a crosshair through the dragged point only while it is dragged', () => {
     vi.stubGlobal('PointerEvent', MouseEvent);
     function Harness() {

@@ -527,7 +527,10 @@ export function PointCurve({
           // size: a larger plot places points more finely.
           const scale = e.currentTarget.getScreenCTM()?.a || 1;
           const reach = CURVE_GRAB_PX / scale;
-          const nearest = points.findIndex((q) => Math.hypot(q.x - p.x, q.y - p.y) < reach || Math.abs(q.x - p.x) < 1);
+          const nearest = points.findIndex((q) => Math.hypot(q.x - p.x, q.y - p.y) < reach);
+          // No two points share an input level: a press on a point's level
+          // but out of its reach neither adds nor grabs one.
+          if (nearest === -1 && points.some((q) => Math.abs(q.x - p.x) < 1)) return;
           if (nearest === -1 && points.length >= MAX_CURVE_POINTS) return;
           const next = nearest === -1 ? [...points, p].sort((a, b) => a.x - b.x) : points;
           setSelected(nearest === -1 ? next.indexOf(p) : nearest);
