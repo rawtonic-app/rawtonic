@@ -25393,8 +25393,8 @@ fn luminance_curve_timing_probe() {
         let case = |k: usize, round: usize| match k {
             0 => recipe(0.3, None),
             1 => recipe(0.31, None),
-            2 if drag => recipe(0.3, Some(40.0 + 0.01 * round as f64)),
-            3 if drag => recipe(0.3, Some(41.0 + 0.01 * round as f64)),
+            2 if drag => recipe(0.3, Some(40.5 + 0.01 * round as f64)),
+            3 if drag => recipe(0.3, Some(41.5 + 0.01 * round as f64)),
             2 => recipe(0.3, Some(40.0)),
             _ => recipe(0.31, Some(40.0)),
         };
