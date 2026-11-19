@@ -379,7 +379,7 @@ class Website(unittest.TestCase):
         self.assertIn("'New in alpha.17.1.'", stale[0])
         # alpha.18 is not alpha.1 (no prefix match), and old download links are found.
         old = website.page_problems(self.page("0.1.0-alpha.17", "New in alpha.18."), A18, "en")
-        self.assertEqual(sum("leads to v0.1.0-alpha.17/" in p for p in old), 4, old)
+        self.assertEqual(sum("/download/v0.1.0-alpha.17/" in p for p in old), 4, old)
         self.assertEqual(sum("no download link" in p for p in old), 4, old)
         self.assertTrue(website.page_problems(self.page(A18, "New in alpha.18."), "0.1.0-alpha.1", "en"))
         self.assertIn("no What's new heading", website.page_problems("<p>Rawtonic</p>", A18, "en")[0])
@@ -390,7 +390,13 @@ class Website(unittest.TestCase):
         old = '<a class="btn" href="https://github.com/rawtonic-app/rawtonic/releases/download/v0.1.0-alpha.17/Rawtonic_0.1.0-alpha.17_aarch64.dmg">'
         problems = website.page_problems(page + old, A18, "en")
         self.assertEqual(len(problems), 1, problems)
-        self.assertIn("leads to v0.1.0-alpha.17/", problems[0])
+        self.assertIn("leads to https://github.com/rawtonic-app/rawtonic/releases/download/v0.1.0-alpha.17/", problems[0])
+        # The clickable href counts, not a data-href beside it; another repository's file is not this release's.
+        url = f"https://github.com/rawtonic-app/rawtonic/releases/download/v{A18}/Rawtonic_{A18}_aarch64.dmg"
+        stale_href = page + f'<a href="{old[old.index("https"):-2]}" data-href="{url}">'
+        self.assertEqual(len(website.page_problems(stale_href, A18, "en")), 1)
+        fork = page.replace("github.com/rawtonic-app/rawtonic/", "github.com/someone/rawtonic/", 1)
+        self.assertEqual(len(website.page_problems(fork, A18, "en")), 2)
         # V's links only in a comment or a script do not count.
         hidden = website.page_problems(f"<!-- {page} -->", A18, "en") + website.page_problems(f"<script>{page}</script>", A18, "en")
         self.assertEqual(sum("no download link" in p for p in hidden), 8)

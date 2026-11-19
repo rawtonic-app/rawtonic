@@ -740,10 +740,12 @@ st_draft() {
 }
 
 # --- publish (--publish, only on the user's word) ---------------------------
-# The commit the tag vVERSION names on origin (an annotated tag's peeled ^{}), or nothing.
+# The commit the tag vVERSION names on origin (an annotated tag's peeled ^{}), or
+# nothing when there is none; fails when origin cannot be asked (the stages run
+# without errexit, so callers must check).
 remote_tag_commit() {
-  git -C "$REPO_ROOT" ls-remote --tags origin \
-    | awk -v t="refs/tags/$TAG" '$2 == t "^{}" {p = $1} $2 == t {c = $1} END {print (p != "" ? p : c)}'
+  local refs; refs=$(git -C "$REPO_ROOT" ls-remote --tags origin) || return 1
+  awk -v t="refs/tags/$TAG" '$2 == t "^{}" {p = $1} $2 == t {c = $1} END {print (p != "" ? p : c)}' <<< "$refs"
 }
 # The draft becomes the published prerelease; GitHub makes the tag at the
 # draft's commit. Resumable: a published release is checked, not changed.
@@ -755,7 +757,7 @@ st_publish() {
   local id draft pre target; read -r id draft pre target <<< "$info"
   echo "release $TAG: id $id, draft $draft, prerelease $pre, target $target"
   # A tag pushed by hand at another commit would become the release's source.
-  local tagged; tagged=$(remote_tag_commit)
+  local tagged; tagged=$(remote_tag_commit) || fail "cannot list the tags on origin"
   [ -z "$tagged" ] || [ "$tagged" = "$s" ] || fail "a tag $TAG exists on origin at $tagged, not at the built commit $s"
   # Only the tested bytes go out: a file replaced on GitHub during review fails here.
   gh api --paginate "repos/$GH_REPO/releases/$id/assets" --jq '.[] | {name, digest}' > "$WORK/publish-assets.jsonl" || fail "list the release's files"
@@ -767,7 +769,7 @@ st_publish() {
   fi
   draft=$(gh release view "$TAG" -R "$GH_REPO" --json isDraft -q .isDraft)
   [ "$draft" = false ] || fail "$TAG is still a draft"
-  tagged=$(remote_tag_commit)
+  tagged=$(remote_tag_commit) || fail "cannot list the tags on origin"
   [ "$tagged" = "$s" ] || fail "the tag $TAG on origin is ${tagged:-missing}, not $s"
   echo "published $TAG at $s"
 }
@@ -805,7 +807,7 @@ st_site_verify() {
     ok=0
     for i in $(seq 10); do
       curl -fsSL -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$url?release=$VERSION-$(date +%s)" -o "$v/$lang.html" \
-        && python3 "$SCRIPTS/website.py" verify-page --version "$VERSION" --lang "$lang" "$v/$lang.html" && { ok=1; break; }
+        && python3 "$SCRIPTS/website.py" verify-page --repo "$GH_REPO" --version "$VERSION" --lang "$lang" "$v/$lang.html" && { ok=1; break; }
       echo "try $i: $url does not show $VERSION yet"; sleep 30
     done
     [ "$ok" = 1 ] || fail "$url does not show $VERSION"

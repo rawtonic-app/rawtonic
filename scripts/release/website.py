@@ -18,7 +18,7 @@
         the GitHub API) are exactly the tested ones in DIR, byte for byte
         (SHA-256 against DIR/SHA256SUMS.txt) — nothing replaced during review.
 
-    website.py verify-page --version V --lang en|de PAGE.html
+    website.py verify-page --version V --lang en|de [--repo OWNER/NAME] PAGE.html
         Stage `site-verify`: the fetched home page's download links all lead to
         V's files, and its What's new heading names V.
 
@@ -161,13 +161,24 @@ def assets_problems(listing, sums):
     return problems
 
 
-DOWNLOAD = re.compile(r'<a\b[^>]*\bhref="https://github\.com/[^/"]+/[^/"]+/releases/download/([^/"]+)/([^"]+)"')
+REPO = "rawtonic-app/rawtonic"
 
 
-def page_problems(html, version, lang):
-    """What a fetched home page lacks: download links that all lead to V's files (each
-    of the four downloads among them) and a What's new heading naming V. Comments and
-    scripts do not count."""
+def download_links(html):
+    """The href of every <a> that points at a GitHub release download (the attribute
+    itself, not data-href or the like)."""
+    links = []
+    for tag in re.findall(r"<a\s[^>]*>", html, re.S):
+        m = re.search(r'(?<![\w-])href="([^"]*)"', tag)
+        if m and "/releases/download/" in m.group(1):
+            links.append(m.group(1))
+    return links
+
+
+def page_problems(html, version, lang, repo=REPO):
+    """What a fetched home page lacks: download links that all lead to V's files of
+    REPO (each of the four downloads among them) and a What's new heading naming V.
+    Comments and scripts do not count."""
     problems = []
     html = re.sub(r"<!--.*?-->|<script\b.*?</script>", "", html, flags=re.S)
     heading = {"en": "New in", "de": "Neu in"}[lang]
@@ -176,12 +187,13 @@ def page_problems(html, version, lang):
         problems.append("no What's new heading (id=\"new-title\")")
     elif m.group(1).strip() != f"{heading} {short(version)}.":
         problems.append(f"What's new heading is {m.group(1).strip()!r}, not '{heading} {short(version)}.'")
-    links = DOWNLOAD.findall(html)
-    for tag, name in sorted(set(links)):
-        if tag != f"v{version}":
-            problems.append(f"a download link leads to {tag}/{name}, not to v{version}")
+    base = f"https://github.com/{repo}/releases/download/v{version}/"
+    links = download_links(html)
+    for url in sorted(set(links)):
+        if not url.startswith(base) or "/" in url[len(base):]:
+            problems.append(f"a download link leads to {url}, not to a file of {base}")
     for key, name in main_files(version).items():
-        if (f"v{version}", name) not in links:
+        if base + name not in links:
             problems.append(f"no download link for {key} ({name})")
     if f"Rawtonic {version}" not in html:
         problems.append(f"the page does not say 'Rawtonic {version}'")
@@ -219,6 +231,7 @@ def main(argv=None):
     w.add_argument("--release-json", required=True)
     p = sub.add_parser("verify-page")
     p.add_argument("--version", required=True)
+    p.add_argument("--repo", default=REPO)
     p.add_argument("--lang", required=True, choices=LANGS)
     p.add_argument("page")
     c = sub.add_parser("check-whats-new")
@@ -262,7 +275,7 @@ def main(argv=None):
             return report([str(e)], "")
         return report(assets_problems(listing, sums), f"website: the release's {len(listing)} files are the tested ones")
     if a.cmd == "verify-page":
-        return report(page_problems(Path(a.page).read_text(), a.version, a.lang),
+        return report(page_problems(Path(a.page).read_text(), a.version, a.lang, a.repo),
                       f"website: the {a.lang} home page shows {a.version}")
     return report(manifest_problems(Path(a.manifest).read_text(), a.version), f"website: latest.json is {a.version}'s")
 
