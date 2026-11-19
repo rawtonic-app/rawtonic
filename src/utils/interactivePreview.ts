@@ -1,10 +1,21 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
 
-/** Both reply formats retain the same six little-endian ROI dimensions. */
+/** Leads a Linux settled frame at 100 % that covers the visible region only
+ * (`editor_preview::BROWSER_REGION_MAGIC`): a lossless PNG of that region. */
+const REGION_MAGIC = 'REGION_____';
+
+export function isRegionFrame(buffer: ArrayBuffer) {
+  return buffer.byteLength > 11 && new TextDecoder().decode(buffer.slice(0, 11)) === REGION_MAGIC;
+}
+
+/** Every reply format retains the same six little-endian ROI dimensions:
+ * drag frames (bytes or a URI) and settled region frames. */
 export function interactivePreview(buffer: ArrayBuffer) {
   const decoder = new TextDecoder();
-  const uri = decoder.decode(buffer.slice(0, 11)) === 'JPEG_URI___';
-  const offset = uri ? 11 : 0;
+  const magic = decoder.decode(buffer.slice(0, 11));
+  const uri = magic === 'JPEG_URI___';
+  const region = magic === REGION_MAGIC;
+  const offset = uri || region ? 11 : 0;
   if (buffer.byteLength < offset + 26) throw new Error('Incomplete preview packet');
   const view = new DataView(buffer, offset);
   const fullW = view.getUint32(16, true),
@@ -16,7 +27,8 @@ export function interactivePreview(buffer: ArrayBuffer) {
     if (!/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(id))
       throw new Error('Invalid preview frame ID');
     url = convertFileSrc(id, 'rawtonic-preview');
-  } else url = URL.createObjectURL(new Blob([buffer.slice(24)], { type: 'image/jpeg' }));
+  } else
+    url = URL.createObjectURL(new Blob([buffer.slice(offset + 24)], { type: region ? 'image/png' : 'image/jpeg' }));
   return {
     url,
     normX: view.getUint32(0, true) / fullW,

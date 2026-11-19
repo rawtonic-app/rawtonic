@@ -1,7 +1,7 @@
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import type { RenderSize } from '../../../hooks/useImageRenderSize';
 import type { Adjustments } from '../../../utils/adjustments';
-import { BeforeFrameStatus, useBrowserBeforeFrame } from './BrowserSplitImage';
+import { BeforeFrameStatus, regionPlacement, useBrowserBeforeFrame } from './BrowserSplitImage';
 import { drawsOneToOne } from '../../../utils/pixelSnap';
 
 /**
@@ -28,7 +28,7 @@ export default function BrowserBeforePane({
 }) {
   const linux = useSettingsStore((s) => s.osPlatform === 'linux');
   const active = linux && enabled && size.width > 0 && size.height > 0;
-  const { frame, error } = useBrowserBeforeFrame({
+  const { frame, error, backdrop } = useBrowserBeforeFrame({
     path,
     adjustments,
     size,
@@ -59,12 +59,12 @@ export default function BrowserBeforePane({
             overflow: 'visible'
           }}
         >
+          {frame.region && backdrop && (
+            <image href={backdrop.url} {...regionPlacement(null)} data-testid="browser-before-backdrop" />
+          )}
           <image
             href={frame.url}
-            x="0"
-            y="0"
-            width="100%"
-            height="100%"
+            {...regionPlacement(frame.region)}
             // As the after pane: a full-size frame at 100 % unfiltered.
             style={{
               imageRendering: drawsOneToOne(frame.pixelWidth, size, transform.scale, window.devicePixelRatio || 1)

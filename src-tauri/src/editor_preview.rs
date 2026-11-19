@@ -1097,7 +1097,7 @@ pub(crate) async fn update_wgpu_transform(
 /// `(x, y, w, h)` covers: its edges rounded and kept inside the frame (the
 /// size is taken from the rounded edges, so the region never ends past the
 /// frame's last pixel). None when nothing is left.
-fn pixel_region(
+pub(crate) fn pixel_region(
     (nx, ny, nw, nh): (f32, f32, f32, f32),
     width: u32,
     height: u32,
@@ -1788,8 +1788,9 @@ pub(crate) fn process_preview_job(
     crop_edit: bool,
     _browser_full_zoom: bool,
     render_generation: usize,
-    region_only: bool,
+    pass: FramePass,
 ) -> Result<Vec<u8>, CommandError> {
+    let region_only = pass == FramePass::RegionFirst;
     let fn_start = std::time::Instant::now();
     #[cfg(feature = "performance-profiling")]
     let setup_stage = crate::performance::PerformanceStage::new("preview_setup");
@@ -1981,9 +1982,23 @@ pub(crate) fn process_preview_job(
 
     let (preview_width, preview_height) = processing_image.dimensions();
 
-    // A drag's frame, or the first pass of a held preview's final frame
-    // (`PreviewJob::region_first`): the visible region only.
-    let pixel_roi = if is_interactive || region_only {
+    // Linux at 100 % and closer: the settled frame covers the visible region
+    // only and goes lossless ([`browser_region_frame`]).
+    #[cfg(target_os = "linux")]
+    let browser_region = pass == FramePass::Requested
+        && browser_region_frame(
+            is_interactive,
+            _browser_full_zoom,
+            crop_edit,
+            roi.is_some(),
+            crate::second_window::is_open(),
+        );
+    #[cfg(not(target_os = "linux"))]
+    let browser_region = false;
+    // A drag's frame, the first pass of a held preview's final frame
+    // (`PreviewJob::region_first`) or a Linux settled frame at 100 %: the
+    // visible region only.
+    let pixel_roi = if is_interactive || region_only || browser_region {
         roi.and_then(|roi| pixel_region(roi, preview_width, preview_height))
     } else {
         None
@@ -2150,7 +2165,7 @@ pub(crate) fn process_preview_job(
 
     // A zoomed drag's frame covers only the visible region: the whole
     // frame's analytics come from a scope render beside it (scope_analytics.rs).
-    let region_frame = (is_interactive || region_only) && pixel_roi.is_some();
+    let region_frame = (is_interactive || region_only || browser_region) && pixel_roi.is_some();
     let wants_analytics = !region_frame && request_analytics;
     let channel_filter = if is_interactive {
         active_waveform_channel.map(|s| s.to_string())
@@ -2300,6 +2315,10 @@ pub(crate) fn process_preview_job(
         return Ok(b"WGPU_RENDER".to_vec());
     }
 
+    if pass == FramePass::AnalyticsOnly {
+        return Ok(Vec::new());
+    }
+
     let final_processed_image = Arc::new(final_processed_image);
     let final_rgba_image = match &*final_processed_image {
         DynamicImage::ImageRgba8(img) => img,
@@ -2313,14 +2332,20 @@ pub(crate) fn process_preview_job(
     // Rust encoder's extra latency on every slider/zoom frame.
     // A settled reduced frame goes lossless (preview_jpeg::settled_lossless):
     // the JPEG dropped or added the fine chroma a photographer judges noise
-    // reduction by. Drags and 100 % stay JPEG.
+    // reduction by. At 100 % the settled frame is the visible region,
+    // lossless too ([`browser_region_frame`]); drags stay JPEG, and so does
+    // the whole photograph at 100 % while the second window is open.
+    #[cfg(target_os = "linux")]
+    let browser_region = browser_region && pixel_roi.is_some();
     #[cfg(target_os = "linux")]
     let lossless = !is_interactive
-        && !_browser_full_zoom
-        && crate::preview_jpeg::settled_lossless(effective_scale);
+        && (browser_region
+            || (!_browser_full_zoom && crate::preview_jpeg::settled_lossless(effective_scale)));
     #[cfg(target_os = "linux")]
     let encode_result = if is_interactive {
         encode_browser_preview(final_rgba_image, jpeg_quality)
+    } else if browser_region {
+        crate::preview_jpeg::encode_settled_like(final_rgba_image, 1.0, Some(true))
     } else if _browser_full_zoom {
         crate::preview_jpeg::encode_settled_like(final_rgba_image, effective_scale, Some(false))
     } else {
@@ -2359,7 +2384,7 @@ pub(crate) fn process_preview_job(
                     tool_view,
                 );
             }
-            if is_interactive {
+            if is_interactive || browser_region {
                 let (roi_w, roi_h) = final_rgba_image.dimensions();
                 let (rx, ry) = if let Some(r) = pixel_roi {
                     (r.x, r.y)
@@ -2367,7 +2392,10 @@ pub(crate) fn process_preview_job(
                     (0, 0)
                 };
 
-                let mut response = Vec::with_capacity(24 + jpeg_bytes.len());
+                let mut response = Vec::with_capacity(35 + jpeg_bytes.len());
+                if browser_region {
+                    response.extend_from_slice(BROWSER_REGION_MAGIC);
+                }
                 response.extend_from_slice(&rx.to_le_bytes());
                 response.extend_from_slice(&ry.to_le_bytes());
                 response.extend_from_slice(&roi_w.to_le_bytes());
@@ -2377,10 +2405,16 @@ pub(crate) fn process_preview_job(
                 response.extend_from_slice(&jpeg_bytes);
 
                 log::info!(
-                    "[process_preview_job] interactive ROI {}x{} encode in {:.2?}, total {:.2?}",
+                    "[process_preview_job] {} ROI {}x{} encode in {:.2?}, {} bytes, total {:.2?}",
+                    if browser_region {
+                        "settled png"
+                    } else {
+                        "interactive"
+                    },
                     roi_w,
                     roi_h,
                     step_start.elapsed(),
+                    jpeg_bytes.len(),
                     fn_start.elapsed()
                 );
                 Ok(response)
@@ -2408,6 +2442,43 @@ pub(crate) fn process_preview_job(
         }
         Err(e) => Err(format!("Failed to encode preview: {}", e).into()),
     }
+}
+
+/// What a preview job's render is for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum FramePass {
+    /// The frame the request asked for.
+    Requested,
+    /// A held preview's first pass: its visible region only
+    /// (`PreviewJob::region_first`).
+    RegionFirst,
+    /// Linux, after a settled region frame at 100 % went out: the whole
+    /// frame rendered once more for its analytics only (not encoded or
+    /// sent; [`analytics_pass_of`]).
+    AnalyticsOnly,
+}
+
+/// Leads a Linux settled region frame's reply (then the drag frames' six
+/// little-endian dimensions and a PNG; `src/utils/interactivePreview.ts`).
+const BROWSER_REGION_MAGIC: &[u8; 11] = b"REGION_____";
+
+/// Whether a Linux settled frame at 100 % and closer covers the visible
+/// region only (lossless) instead of the whole photograph. At 100 % the q99
+/// JPEG of the whole photograph moved fine chroma out of the ±15 % bar in
+/// 45 of 80 cells against the export; the lossless region frame left 11/80,
+/// the same cells as the export's own 8-bit rounding, while a lossless whole
+/// 24 MP frame costs ~28 MB and ~200 ms to decode (docs/benchmark-results/
+/// vpr1-linux-region-frames-2026-11-19/REPORT.md). Not while the second
+/// window is open: it shows the main window's whole frame.
+#[cfg(any(target_os = "linux", test))]
+fn browser_region_frame(
+    interactive: bool,
+    full_zoom: bool,
+    crop_edit: bool,
+    has_roi: bool,
+    second_window: bool,
+) -> bool {
+    !interactive && full_zoom && !crop_edit && has_roi && !second_window
 }
 
 #[cfg(any(target_os = "linux", test))]
@@ -2524,6 +2595,10 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             let state = app_handle.state::<AppState>();
             let develop = app_handle.state::<DevelopSession>();
             let warm = draft_warmup_of(&job);
+            let analytics_pass = analytics_pass_of(
+                &job,
+                state.source.load_image_generation.load(Ordering::SeqCst),
+            );
             let interactive = job.is_interactive;
             let region_first = region_first_pass(&app_handle, &job);
             let responder = job.responder;
@@ -2577,7 +2652,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                             false,
                             job.browser_full_zoom,
                             job.generation,
-                            true,
+                            FramePass::RegionFirst,
                         )
                     },
                 );
@@ -2607,7 +2682,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                             job.crop_edit,
                             job.browser_full_zoom,
                             job.generation,
-                            false,
+                            FramePass::Requested,
                         )
                     },
                 )
@@ -2630,8 +2705,32 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 Ok(_) => {}
             }
             let rendered = result.is_ok();
+            let region_sent = result
+                .as_ref()
+                .is_ok_and(|bytes| bytes.starts_with(BROWSER_REGION_MAGIC));
             let _ = responder.send(result);
             drop(frame);
+            if let Some(pass) = analytics_pass.filter(|_| region_sent) {
+                // Once the worker stays idle a moment: a change following
+                // right after (values typed or stepped one after another, the
+                // next drag) goes first, and its own frame asks for a pass.
+                // Started, the pass gives way to a newer request only while
+                // it waits for a shader (`supersedable`).
+                // A late request older than this frame is dropped (as the
+                // loop would), and the pass stays.
+                match jobs.take_timeout(ANALYTICS_PASS_IDLE) {
+                    Some(next)
+                        if !crate::state::preview::preview_job_is_stale(
+                            next.sequence,
+                            newest_sequence,
+                        ) =>
+                    {
+                        waiting = Some(next);
+                        continue;
+                    }
+                    _ => run_analytics_pass(&app_handle, pass, newest_sequence),
+                }
+            }
             if let Some(warm) = warm.filter(|_| rendered && !crate::multi_view::live_pending()) {
                 // A request within the pause goes first; the warm-up waits
                 // for the next final frame then.
@@ -2693,6 +2792,91 @@ fn newer_request_waits(
                 })
     }
 }
+
+/// A settled Linux frame at 100 %'s request, kept to render the whole frame
+/// for its analytics once its region frame went out ([`FramePass::AnalyticsOnly`]).
+struct AnalyticsPass {
+    adjustments: serde_json::Value,
+    target_resolution: Option<u32>,
+    roi: Option<(f32, f32, f32, f32)>,
+    compute_waveform: bool,
+    active_waveform_channel: Option<String>,
+    mask_overlay: Option<crate::app_state::MaskOverlayRequest>,
+    generation: usize,
+    /// The photograph load the frame was rendered for: another photo loading
+    /// since drops the pass.
+    load_generation: usize,
+}
+
+/// The analytics pass of a settled frame that may go out as a Linux region
+/// frame: the histogram, scopes and clipping marks then come from the whole
+/// frame at full resolution, as before region frames, rather than from the
+/// drag's sampled scope render (`scope_analytics`, a 512 px average and
+/// block extremes). It also re-warms the masks' source as a whole frame does.
+fn analytics_pass_of(job: &PreviewJob, load_generation: usize) -> Option<AnalyticsPass> {
+    (cfg!(target_os = "linux")
+        && job.request_analytics
+        && job.browser_full_zoom
+        && !job.is_interactive
+        && !job.crop_edit
+        && job.roi.is_some())
+    .then(|| AnalyticsPass {
+        adjustments: job.adjustments.clone(),
+        target_resolution: job.target_resolution,
+        roi: job.roi,
+        compute_waveform: job.compute_waveform,
+        active_waveform_channel: job.active_waveform_channel.clone(),
+        mask_overlay: job.mask_overlay.clone(),
+        generation: job.generation,
+        load_generation,
+    })
+}
+
+/// Renders `pass` unless a newer request waits (once started, it gives way
+/// to one only while it waits for a shader).
+fn run_analytics_pass(app_handle: &tauri::AppHandle, pass: AnalyticsPass, newest: Option<u64>) {
+    let loads = Arc::clone(&app_handle.state::<AppState>().source.load_image_generation);
+    let load = pass.load_generation;
+    let newer = newer_request_waits(app_handle, newest);
+    let superseded = move || loads.load(Ordering::SeqCst) != load || newer();
+    if superseded() {
+        return;
+    }
+    let started = std::time::Instant::now();
+    let result = gpu_processing::supersedable(superseded, || {
+        process_preview_job(
+            app_handle,
+            app_handle.state::<AppState>(),
+            app_handle.state::<DevelopSession>(),
+            pass.adjustments,
+            false,
+            pass.target_resolution,
+            pass.roi,
+            true,
+            pass.compute_waveform,
+            pass.active_waveform_channel.as_deref(),
+            pass.mask_overlay.as_ref(),
+            false,
+            true,
+            pass.generation,
+            FramePass::AnalyticsOnly,
+        )
+    });
+    match &result {
+        Err(e) if e.code == ErrorCode::Cancelled => {}
+        Err(e) => log::warn!("Analytics of the 100 % frame failed: {}", e),
+        Ok(_) => {}
+    }
+    log::info!(
+        "[process_preview_job] analytics pass {} in {:.2?}",
+        if result.is_ok() { "done" } else { "skipped" },
+        started.elapsed()
+    );
+}
+
+/// Quiet time after a Linux region frame at 100 % before the whole frame is
+/// rendered for its analytics ([`run_analytics_pass`]).
+const ANALYTICS_PASS_IDLE: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// A fit view's final frame, to render once more as a drag draft.
 struct DraftWarmup {
@@ -2777,7 +2961,7 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
             false,
             false,
             warm.generation,
-            false,
+            FramePass::Requested,
         )
     });
     // Not shown: the final frame before it stays the latest for its colour
@@ -4375,6 +4559,18 @@ mod preview_memory_tests {
     }
 
     #[test]
+    fn only_a_settled_full_zoom_browser_frame_is_a_region_frame() {
+        assert!(browser_region_frame(false, true, false, true, false));
+        // Drags keep their JPEG region, fit frames their whole lossless frame.
+        assert!(!browser_region_frame(true, true, false, true, false));
+        assert!(!browser_region_frame(false, false, false, true, false));
+        // The crop tool's uncropped frame, a whole view, the second window.
+        assert!(!browser_region_frame(false, true, true, true, false));
+        assert!(!browser_region_frame(false, true, false, false, false));
+        assert!(!browser_region_frame(false, true, false, true, true));
+    }
+
+    #[test]
     fn only_a_held_previews_zoomed_final_frame_shows_its_region_first() {
         let job = |region_first: bool,
                    is_interactive: bool,
@@ -4401,6 +4597,43 @@ mod preview_memory_tests {
         assert!(!region_first_eligible(&job(true, false, None, false)));
         assert!(!region_first_eligible(&job(true, true, zoomed, false)));
         assert!(!region_first_eligible(&job(true, false, zoomed, true)));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_settled_full_zoom_frame_asking_for_analytics_gets_the_whole_frame_s() {
+        let job = |is_interactive: bool,
+                   browser_full_zoom: bool,
+                   request_analytics: bool,
+                   roi: Option<(f32, f32, f32, f32)>| PreviewJob {
+            generation: 1,
+            sequence: None,
+            adjustments: serde_json::json!({"exposure": 1}),
+            is_interactive,
+            browser_full_zoom,
+            target_resolution: Some(6000),
+            roi,
+            request_analytics,
+            compute_waveform: true,
+            active_waveform_channel: None,
+            mask_overlay: None,
+            crop_edit: false,
+            region_first: false,
+            responder: tokio::sync::oneshot::channel().0,
+        };
+        let pass_of = |job: &PreviewJob| analytics_pass_of(job, 7);
+        let zoomed = Some((0.25, 0.25, 0.3, 0.3));
+        let pass = pass_of(&job(false, true, true, zoomed)).expect("a pass");
+        assert_eq!(pass.roi, zoomed);
+        assert!(pass.compute_waveform);
+        assert_eq!(pass.load_generation, 7);
+        assert_eq!(pass.adjustments, serde_json::json!({"exposure": 1}));
+        // Drags keep the sampled scopes; fit frames and frames without
+        // analytics carry their own.
+        assert!(pass_of(&job(true, true, true, zoomed)).is_none());
+        assert!(pass_of(&job(false, false, true, zoomed)).is_none());
+        assert!(pass_of(&job(false, true, false, zoomed)).is_none());
+        assert!(pass_of(&job(false, true, true, None)).is_none());
     }
 
     #[test]

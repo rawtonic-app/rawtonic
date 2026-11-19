@@ -9,9 +9,15 @@ export interface BrowserViewFrame {
   url: string;
   width: number;
   height: number;
-  /** The frame's own width in pixels (as developed). */
+  /** The width in pixels of the whole frame as developed (of a region
+   * frame: the whole frame it was cut from). */
   pixelWidth: number;
+  /** The part of the photograph the frame shows (normalised); null: all. */
+  region: ViewRegion | null;
 }
+
+/** Normalised x, y, width and height of a region of the photograph. */
+export type ViewRegion = readonly [number, number, number, number];
 
 /** The width in a PNG's header or a baseline or progressive JPEG's frame
  * header; 0 if none. */
@@ -41,9 +47,14 @@ export function useBrowserViewPreview(
   revision = '',
   /** Encode as the frame compared with (lossless or not); else the
    * backend's own choice for the frame's scale. */
-  lossless: boolean | null = null
+  lossless: boolean | null = null,
+  /** Only this part of the frame (the editor's region frame at 100 %). */
+  region: ViewRegion | null = null
 ) {
-  const key = JSON.stringify([path, recipe, resolution, revision, lossless]);
+  const regionKey = region ? region.join(',') : null;
+  const key = JSON.stringify([path, recipe, resolution, revision, lossless, regionKey]);
+  // A region frame of the same content stays (at its own place) while the
+  // region it is asked for changes: a pan shows it until the new one arrives.
   const contentKey = JSON.stringify([path, recipe, revision, lossless]);
   const [frame, setFrame] = useState<BrowserViewFrame | null>(null);
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
@@ -51,12 +62,14 @@ export function useBrowserViewPreview(
   useEffect(() => {
     if (!path) return;
     let cancelled = false;
+    const shown: ViewRegion | null = regionKey ? (regionKey.split(',').map(Number) as unknown as ViewRegion) : null;
     const timer = setTimeout(() => {
       void invoke<ArrayBuffer>(Invokes.RenderBrowserView, {
         path,
         jsAdjustments: recipe ? JSON.parse(recipe) : null,
         targetResolution: resolution,
-        lossless
+        lossless,
+        region: shown
       })
         .then((buffer) => {
           if (cancelled) return;
@@ -72,7 +85,8 @@ export function useBrowserViewPreview(
             url,
             width: header.getUint32(0, true),
             height: header.getUint32(4, true),
-            pixelWidth: frameWidth(new Uint8Array(frame))
+            pixelWidth: frameWidth(new Uint8Array(frame)) / (shown ? shown[2] : 1),
+            region: shown
           });
         })
         .catch((err: unknown) => {
@@ -83,7 +97,7 @@ export function useBrowserViewPreview(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [path, recipe, resolution, lossless, key, contentKey]);
+  }, [path, recipe, resolution, lossless, regionKey, key, contentKey]);
   useEffect(
     () => () => {
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);

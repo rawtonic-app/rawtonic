@@ -44,7 +44,8 @@ it('isolates secondary recipes, ignores a stale photo and releases its own URLs'
     path: '/first.raw',
     jsAdjustments: null,
     targetResolution: 1024,
-    lossless: null
+    lossless: null,
+    region: null
   });
   rerender({ path: '/next.raw' });
   tick();
@@ -112,4 +113,24 @@ it('immediately hides a frame encoded with the previous comparison codec', async
   expect(result.current.frame?.url).toBe('blob:cell-1');
   rerender({ lossless: false });
   expect(result.current.frame).toBeNull();
+});
+
+it("keeps a region frame at its own place while a pan's new region loads", async () => {
+  const { result, rerender } = renderHook(
+    ({ region }) => useBrowserViewPreview('/photo.raw', '{}', 6016, '', true, region),
+    { initialProps: { region: [0.25, 0.25, 0.5, 0.5] as readonly [number, number, number, number] } }
+  );
+  tick();
+  expect(invoke).toHaveBeenLastCalledWith(
+    Invokes.RenderBrowserView,
+    expect.objectContaining({ region: [0.25, 0.25, 0.5, 0.5] })
+  );
+  await finish(0);
+  expect(result.current.frame).toMatchObject({ url: 'blob:cell-1', region: [0.25, 0.25, 0.5, 0.5] });
+  rerender({ region: [0.5, 0.25, 0.5, 0.5] });
+  // Until the new region arrives the old one stays where it belongs.
+  expect(result.current.frame).toMatchObject({ url: 'blob:cell-1', region: [0.25, 0.25, 0.5, 0.5] });
+  tick();
+  await finish(1);
+  expect(result.current.frame).toMatchObject({ url: 'blob:cell-2', region: [0.5, 0.25, 0.5, 0.5] });
 });

@@ -14,6 +14,7 @@ import {
   readoutValues,
   usePointerSampleStore,
   type PreviewPatch,
+  type SampleRegion,
   type ReadoutUnit
 } from '../../../utils/pointerSample';
 
@@ -30,10 +31,14 @@ export function usePointerSampling(
   imageRef: RefObject<Element | null>,
   path: string,
   enabled: boolean,
-  browserPreview: string | null = null
+  browserPreview: string | null = null,
+  /** The Linux region frame over `browserPreview` (100 % and closer). */
+  browserRegion: SampleRegion | null = null
 ) {
   const previewRef = useRef(browserPreview);
   previewRef.current = browserPreview;
+  const regionRef = useRef(browserRegion);
+  regionRef.current = browserRegion;
   const askRef = useRef<(() => void) | null>(null);
   const browser = browserPreview !== null;
   useEffect(() => {
@@ -62,7 +67,12 @@ export function usePointerSampling(
           );
         }
       },
-      browser ? createImagePatchFetch(() => previewRef.current) : undefined
+      browser
+        ? createImagePatchFetch(
+            () => previewRef.current,
+            () => regionRef.current
+          )
+        : undefined
     );
     const stop = () => {
       last = null;
@@ -126,7 +136,7 @@ export function usePointerSampling(
   // A new browser-rendered preview under a resting pointer.
   useEffect(() => {
     if (browserPreview) askRef.current?.();
-  }, [browserPreview]);
+  }, [browserPreview, browserRegion?.url]);
 }
 
 const CELL = 12;

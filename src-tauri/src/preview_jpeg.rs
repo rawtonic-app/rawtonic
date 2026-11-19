@@ -41,9 +41,10 @@ pub(crate) fn settled_quality(scale: f32) -> u8 {
 /// quantisation noise the noise-reduced export lacks); the lossless frame
 /// stayed within it, as the native displays do. A PNG costs several times a
 /// JPEG's encode, bytes and decode, growing with the frame; drags keep
-/// their JPEG. At 100 % the frame is the whole photograph (a 24 MP PNG is
-/// ~60 MB), so it stays a JPEG (docs/benchmark-results/
-/// lnxj1-linux-preview-transport-2026-11-17/REPORT.md).
+/// their JPEG. At 100 % a whole-photograph frame (a 24 MP PNG is ~60 MB)
+/// stays a JPEG; the editor sends a lossless frame of the visible region
+/// there instead (`editor_preview::browser_region_frame`; docs/
+/// benchmark-results/lnxj1-linux-preview-transport-2026-11-17/REPORT.md).
 pub(crate) fn settled_lossless(scale: f32) -> bool {
     scale < 0.999
 }

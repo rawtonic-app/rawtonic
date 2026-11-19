@@ -1557,6 +1557,12 @@ const ImageCanvas = memo(
       selectedImage.path
     );
     const displayBase = decodedBase?.url;
+    // Linux at 100 % and closer: the settled visible region (lossless) over
+    // the last whole frame, shown once decoded.
+    const finalRegion = useEditorStore((state) =>
+      state.finalRegion?.path === selectedImage.path ? state.finalRegion : null
+    );
+    const { frame: shownRegion, width: shownRegionWidth } = useDecodedPreviewWithSize(finalRegion, selectedImage.path);
     // At 100 % the full-size frame is drawn unfiltered (utils/pixelSnap.ts).
     const baseOneToOne = drawsOneToOne(
       decodedBaseWidth,
@@ -1817,6 +1823,7 @@ const ImageCanvas = memo(
     // Without the native display (Linux), the browser-rendered preview the
     // white balance picker's fallback samples; never a camera JPEG.
     const browserPreview = isWgpuActive ? null : (finalPreviewUrl ?? null);
+    const browserRegion = isWgpuActive ? null : shownRegion;
     const sampling =
       (!!isWgpuActive || !!browserPreview) &&
       !!selectedImage.isReady &&
@@ -1824,7 +1831,7 @@ const ImageCanvas = memo(
       !showOriginal &&
       !splitView &&
       (pickerActive || pointerReadout);
-    usePointerSampling(canvasRootRef, imageRectRef, selectedImage.path, sampling, browserPreview);
+    usePointerSampling(canvasRootRef, imageRectRef, selectedImage.path, sampling, browserPreview, browserRegion);
     const brushGesture = useBrushGesture(
       canvasRootRef,
       Boolean(isBrushActive),
@@ -2159,6 +2166,7 @@ const ImageCanvas = memo(
           image: selectedImage,
           adjustments,
           finalPreviewUrl,
+          finalRegion: browserRegion,
           normalizedX: x / imgLogicalWidth,
           normalizedY: y / imgLogicalHeight,
           useWgpu: isWgpuActive
@@ -2186,6 +2194,7 @@ const ImageCanvas = memo(
         adjustments,
         isWgpuActive,
         finalPreviewUrl,
+        browserRegion,
         imageRenderSize,
         onWbPicked,
         setAdjustments,
@@ -3252,6 +3261,12 @@ const ImageCanvas = memo(
     }, [baseIsReady, interactivePatch]);
     // Another photo never shows this one's draft.
     useEffect(() => clearDraftPatch, [selectedImage.path]);
+    // A settled region frame on screen: the last drag draft goes too (the
+    // whole frame under it stays the same, so the effect above does not run).
+    const shownRegionUrl = shownRegion?.url;
+    useEffect(() => {
+      if (shownRegionUrl) clearDraftPatch();
+    }, [shownRegionUrl]);
 
     const cropImageTransforms = useMemo(() => {
       const rotation = liveRotation !== null && liveRotation !== undefined ? liveRotation : adjustments.rotation || 0;
@@ -3381,6 +3396,31 @@ const ImageCanvas = memo(
             width="100%"
             height="100%"
             style={{ imageRendering: isMaxZoom || baseOneToOne ? 'pixelated' : 'auto' }}
+          />
+        )}
+
+        {shownRegion && !isWgpuActive && !holdingNativeFrame && !hasRenderedFirstFrame && (
+          <image
+            href={shownRegion.url}
+            onLoad={() => reportBrowserPreviewLoad(shownRegion.url, true)}
+            x={`${shownRegion.normX * 100}%`}
+            y={`${shownRegion.normY * 100}%`}
+            width={`${shownRegion.normW * 100}%`}
+            height={`${shownRegion.normH * 100}%`}
+            preserveAspectRatio="none"
+            data-testid="browser-region-frame"
+            style={{
+              imageRendering:
+                isMaxZoom ||
+                drawsOneToOne(
+                  shownRegionWidth / shownRegion.normW,
+                  imageRenderSize,
+                  transformState.scale,
+                  window.devicePixelRatio || 1
+                )
+                  ? 'pixelated'
+                  : 'auto'
+            }}
           />
         )}
 
