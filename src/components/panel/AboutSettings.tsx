@@ -172,7 +172,7 @@ export const CREDITS: Credit[] = [
   {
     name: 'ONNX Runtime',
     url: 'https://github.com/microsoft/onnxruntime',
-    what: 'Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.',
+    what: "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
     license: 'MIT'
   },
   {

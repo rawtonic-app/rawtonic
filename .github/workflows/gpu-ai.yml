@@ -13,7 +13,8 @@
 # CC0 files of raw.pixls.us.
 # The Rust path loads the ONNX Runtime core the app bundles (Rawtonic's own
 # 1.30.0 without telemetry from the model pack, SHA-256 as in
-# src-tauri/build.rs), so it also checks that Microsoft's plugin works with it.
+# src-tauri/build.rs), so it also checks that Microsoft's plugin works with it
+# (Microsoft's release archives answer 404 since 2026-11-18).
 name: GPU AI providers
 on:
   workflow_dispatch:
@@ -99,9 +100,6 @@ jobs:
           mkdir -p plugin-only
           cp "$LIB" plugin-only/   # without the DirectX Shader Compiler (not shipped)
           sha256sum "$LIB" plugin-only/*
-          curl -sSfL -o ort.zip https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-win-x64-$ORT_VERSION.zip
-          unzip -q ort.zip
-          sha256sum onnxruntime-win-x64-$ORT_VERSION/lib/onnxruntime.dll
           echo "PLUGIN_FULL=$LIB" >> "$GITHUB_ENV"
           mkdir -p own
           curl -sSfL -o own/onnxruntime.dll "$MODEL_PACK/onnxruntime-1.30.0-notelemetry-windows-x86_64.dll"
@@ -155,8 +153,6 @@ jobs:
           python -m pip install -q onnxruntime==$ORT_VERSION onnxruntime-ep-webgpu==$WEBGPU_EP_VERSION numpy pillow
           LIB=$(python -c "import onnxruntime_ep_webgpu as w; print(w.get_library_path())")
           sha256sum "$LIB"; mkdir -p plugin && cp "$LIB" plugin/
-          curl -sSfL https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-linux-x64-$ORT_VERSION.tgz | tar xz
-          sha256sum onnxruntime-linux-x64-$ORT_VERSION/lib/libonnxruntime.so.$ORT_VERSION
           mkdir -p own
           curl -sSfL -o own/libonnxruntime.so "$MODEL_PACK/libonnxruntime-1.30.0-notelemetry-linux-x86_64.so"
           echo "620d32796c8ff40f23431e37bf417107635bf3f3d40398c5ffbbf370de3f1ad4  own/libonnxruntime.so" | sha256sum -c
