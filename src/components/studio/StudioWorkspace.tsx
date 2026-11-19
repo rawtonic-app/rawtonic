@@ -207,6 +207,11 @@ const readyNow = () => Boolean(useEditorStore.getState().selectedImage?.isReady)
 /** Set once the user moves the tool column's separator. */
 const WIDTH_CHOSEN_KEY = 'rawtonic.studio.widthChosen';
 
+/** The tool column's width range. Wide enough that the curve, which scales
+ * with the column, reaches the size of Capture One's at its widest. */
+const TOOLS_MIN_WIDTH = 270;
+const TOOLS_MAX_WIDTH = 480;
+
 /**
  * The tool column's width at start. The column stored its width from the
  * first start on, chosen or not, so the 300 px default of before 2026-10-31
@@ -689,7 +694,7 @@ export default function StudioWorkspace(props: Props) {
     // 340 px by default: a 112 px Exposure track at 300 px moved 0.097 EV per
     // pixel, coarser than both reference editors (notes:
     // reference/ux-develop-core-2026-10-31). A width the user chose stays.
-    Math.max(270, Math.min(390, initialToolsWidth()))
+    Math.max(TOOLS_MIN_WIDTH, Math.min(TOOLS_MAX_WIDTH, initialToolsWidth()))
   );
   // The separator marks the width as chosen (see `initialToolsWidth`).
   const chooseWidth: typeof setWidth = (next) => {
@@ -1375,16 +1380,19 @@ export default function StudioWorkspace(props: Props) {
               tabIndex={0}
               aria-label={t('studio.workspace.panelWidth')}
               aria-orientation="vertical"
-              aria-valuemin={270}
-              aria-valuemax={390}
+              aria-valuemin={TOOLS_MIN_WIDTH}
+              aria-valuemax={TOOLS_MAX_WIDTH}
               aria-valuenow={width}
               onKeyDown={(e) => {
                 if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                   e.preventDefault();
                   chooseWidth((v) =>
                     Math.max(
-                      270,
-                      Math.min(390, v + (e.key === 'ArrowRight' ? 10 : -10) * (toolsSide === 'right' ? -1 : 1))
+                      TOOLS_MIN_WIDTH,
+                      Math.min(
+                        TOOLS_MAX_WIDTH,
+                        v + (e.key === 'ArrowRight' ? 10 : -10) * (toolsSide === 'right' ? -1 : 1)
+                      )
                     )
                   );
                 }
@@ -1395,7 +1403,12 @@ export default function StudioWorkspace(props: Props) {
               }}
               onPointerMove={(e) => {
                 if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
-                chooseWidth((v) => Math.max(270, Math.min(390, v + e.movementX * (toolsSide === 'right' ? -1 : 1))));
+                chooseWidth((v) =>
+                  Math.max(
+                    TOOLS_MIN_WIDTH,
+                    Math.min(TOOLS_MAX_WIDTH, v + e.movementX * (toolsSide === 'right' ? -1 : 1))
+                  )
+                );
               }}
               onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)}
             />

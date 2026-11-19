@@ -161,6 +161,22 @@ describe('point curve reading aids (UXR1 D3)', () => {
     expect(shown()?.hasAttribute('d')).toBe(false);
   });
 
+  it('draws the red, green and blue channels over the luma fill on the RGB curve only', () => {
+    useEditorStore.setState({ histogram: histogram as never });
+    const { container } = render(
+      <PointCurve curves={INITIAL_ADJUSTMENTS.curves} onChange={() => {}} disabled={false} onInteraction={() => {}} />
+    );
+    const lines = () => [...container.querySelectorAll('.curve-histogram-line')];
+    expect(lines().map((l) => l.getAttribute('data-channel'))).toEqual(['red', 'green', 'blue']);
+    // One scale for all four: red's full first bin reaches the top like luma's peak.
+    expect(lines()[0].getAttribute('d')).toContain('L0.00 15.00');
+    expect(container.querySelector('.curve-histogram')?.getAttribute('d')).toContain('L127.50 15.00');
+    fireEvent.click(screen.getByRole('button', { name: 'R' }));
+    expect(lines()).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: /luminance/i }));
+    expect(lines()).toHaveLength(0);
+  });
+
   it('shows a crosshair through the dragged point only while it is dragged', () => {
     vi.stubGlobal('PointerEvent', MouseEvent);
     function Harness() {
