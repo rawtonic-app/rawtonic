@@ -308,10 +308,8 @@ pub fn load_base_image_measured_for(
             Ok(mut image) => {
                 // Saved Apple RAW 9 edits of the Canon bodies whose rawler
                 // white moved to Adobe's keep their brightness (RAWL3).
-                let gain = rawtonic_engine::baseline_exposure::apple_raw9_gain(
-                    path_for_ext_check,
-                    bytes,
-                );
+                let gain =
+                    rawtonic_engine::baseline_exposure::apple_raw9_gain(path_for_ext_check, bytes);
                 if gain != 1.0
                     && let DynamicImage::ImageRgba32F(buffer) = &mut image
                 {

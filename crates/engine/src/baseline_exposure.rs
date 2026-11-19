@@ -485,9 +485,7 @@ pub fn apple_raw9_gain(path: &str, bytes: &[u8]) -> f32 {
         } else {
             &metadata.canonical_model
         };
-        Some(
-            crate::camera_exposure::apple_raw9_white_correction(&metadata.make, model, iso).exp2(),
-        )
+        Some(crate::camera_exposure::apple_raw9_white_correction(&metadata.make, model, iso).exp2())
     })
     .ok()
     .flatten()
