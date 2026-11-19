@@ -111,6 +111,23 @@ fn open_at(parent: &File, name: &OsStr, access: u32, options: u32) -> io::Result
 }
 
 pub(super) fn unlink(_parent: &File, _name: &OsStr, file: &File) -> io::Result<()> {
+    delete(file)
+}
+
+pub(super) fn remove_empty_directory(parent: &File, name: &OsStr) -> io::Result<()> {
+    let dir = checked(
+        open_at(
+            parent,
+            name,
+            DELETE | FILE_READ_ATTRIBUTES,
+            FILE_DIRECTORY_FILE,
+        )?,
+        true,
+    )?;
+    delete(&dir)
+}
+
+fn delete(file: &File) -> io::Result<()> {
     let info = FILE_DISPOSITION_INFO { DeleteFile: true };
     // SAFETY: the handle has DELETE access and info has the layout and length
     // required by FileDispositionInfo.

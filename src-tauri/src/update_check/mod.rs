@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 pub(crate) mod core;
 pub(crate) mod install;
+#[cfg(any(windows, test))]
+pub(crate) mod staging;
 use core::UpdateInfo;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
