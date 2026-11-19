@@ -368,20 +368,15 @@ fn put_in_place(app: &AppHandle, update: &Update, bytes: &[u8]) -> Result<Placed
         // (%LOCALAPPDATA%, only this user may write there), never a
         // predictable name in a shared TEMP: nobody else can swap the
         // verified setup before it starts.
-        use tauri::Manager;
-        let root = app
-            .path()
-            .app_local_data_dir()
-            .map_err(|_| UpdateFailure::Disk)?
-            .join("updates");
+        use super::staging;
+        let root = staging::updates_dir(app).map_err(|_| UpdateFailure::Disk)?;
         std::fs::create_dir_all(&root).map_err(|e| io_failure(&anyhow::Error::from(e)))?;
         let dir = tempfile::Builder::new()
             .prefix(&format!("{}-", update.version))
+            .rand_bytes(staging::SUFFIX_LEN)
             .tempdir_in(&root)
             .map_err(|e| io_failure(&anyhow::Error::from(e)))?;
-        let setup = dir
-            .path()
-            .join(format!("Rawtonic_{}_x64-setup.exe", update.version));
+        let setup = dir.path().join(staging::setup_name(&update.version));
         rawtonic_fs::atomic_write(&setup, bytes).map_err(|e| io_failure(&e))?;
         // Passive (a progress bar, no questions, no administrator prompt for
         // the per-user setup), as an update, and start Rawtonic when done.

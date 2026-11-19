@@ -53,10 +53,18 @@ fn open_at(parent: &File, name: &OsStr, flags: libc::c_int) -> io::Result<File> 
 }
 
 pub(super) fn unlink(parent: &File, name: &OsStr, _file: &File) -> io::Result<()> {
+    unlink_at(parent, name, 0)
+}
+
+pub(super) fn remove_empty_directory(parent: &File, name: &OsStr) -> io::Result<()> {
+    unlink_at(parent, name, libc::AT_REMOVEDIR)
+}
+
+fn unlink_at(parent: &File, name: &OsStr, flags: libc::c_int) -> io::Result<()> {
     let name = CString::new(name.as_bytes())?;
     // SAFETY: name is a NUL-terminated filename relative to the borrowed directory.
-    // With flags zero, unlinkat cannot follow a symlink or remove a directory.
-    if unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0) } != 0 {
+    // Neither supported flag follows symlinks; AT_REMOVEDIR requires an empty directory.
+    if unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), flags) } != 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(())

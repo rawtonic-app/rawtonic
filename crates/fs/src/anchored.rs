@@ -29,6 +29,16 @@ impl Directory {
         platform::open_directory(&parent, leaf(name)?).map(Self)
     }
 
+    /// Opens a child directory relative to this handle, without following links.
+    pub fn open_child(&self, name: &OsStr) -> io::Result<Self> {
+        platform::open_directory(&self.0, leaf(name)?).map(Self)
+    }
+
+    /// Removes an empty child directory relative to this handle, without following links.
+    pub fn remove_empty_child(&self, name: &OsStr) -> io::Result<()> {
+        platform::remove_empty_directory(&self.0, leaf(name)?)
+    }
+
     /// Reads a regular file by name, without traversing a link.
     pub fn read_to_string(&self, name: &OsStr) -> io::Result<String> {
         let mut file = platform::open_file(&self.0, leaf(name)?, false)?;
