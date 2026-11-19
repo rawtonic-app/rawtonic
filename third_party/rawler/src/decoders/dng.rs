@@ -28,18 +28,12 @@ impl<'a> DngDecoder<'a> {
   /// Rawtonic patch (RAWL1): whether the file's lossless JPEG stores category
   /// 16 differences with 16 extra bits, as DNG versions before 1.1 do.
   fn ljpeg_dng_bug(&self) -> bool {
-    let version = self
-      .tiff
-      .root_ifd()
-      .get_entry(DngTag::DNGVersion)
-      .filter(|entry| entry.count() >= 4)
-      .map(|entry| {
-        let mut version = [0_u8; 4];
-        for (i, part) in version.iter_mut().enumerate() {
-          *part = entry.force_u32(i).min(255) as u8;
-        }
-        version
-      });
+    // Exactly four BYTE values; a missing or malformed tag keeps the
+    // compliant decoding.
+    let version = self.tiff.root_ifd().get_entry(DngTag::DNGVersion).and_then(|entry| match &entry.value {
+      Value::Byte(bytes) => <[u8; 4]>::try_from(bytes.as_slice()).ok(),
+      _ => None,
+    });
     dng_version_has_ljpeg_bug(version)
   }
 }
