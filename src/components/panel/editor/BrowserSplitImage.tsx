@@ -77,8 +77,17 @@ export function useBrowserBeforeFrame({
   // uncovers it (not the After) until the new region arrives, as the After
   // shows its last whole frame.
   const fitResolution = Math.max(64, Math.ceil((Math.max(size.width, size.height) * dpr) / 64) * 64);
-  const backdrop = useBrowserViewPreview(active && region ? path : null, recipe, fitResolution, String(decoded), true);
-  return { ...before, backdrop: region ? backdrop.frame : null };
+  // Kept while a region Before is still shown (zoomed back out, until the
+  // whole Before replaces it).
+  const showsRegion = !!before.frame?.region;
+  const backdrop = useBrowserViewPreview(
+    active && (region || showsRegion) ? path : null,
+    recipe,
+    fitResolution,
+    String(decoded),
+    true
+  );
+  return { ...before, backdrop: showsRegion ? backdrop.frame : null };
 }
 
 /** Where a browser frame is drawn in the photograph's box: a region frame

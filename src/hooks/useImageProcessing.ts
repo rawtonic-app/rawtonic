@@ -113,7 +113,9 @@ export function regionCovers(
   region: { normX: number; normY: number; normW: number; normH: number },
   roi: readonly [number, number, number, number]
 ) {
-  const slack = 1e-4;
+  // Within about a pixel of the fit view: a region frame's edges are the
+  // requested ones rounded to whole photograph pixels.
+  const slack = 1e-3;
   return (
     roi[0] >= region.normX - slack &&
     roi[1] >= region.normY - slack &&
@@ -936,6 +938,8 @@ export function useImageProcessing(
   // region frame shown asks for the new visible region (the last whole frame
   // shows around it meanwhile).
   const viewSettled = useEditorStore((state) => state.viewSettled);
+  // A region arriving after a pan that settled while it rendered.
+  const finalRegionUrl = useEditorStore((state) => state.finalRegion?.url);
   useEffect(() => {
     const state = useEditorStore.getState();
     const region = state.finalRegion;
@@ -954,7 +958,7 @@ export function useImageProcessing(
     const roi = calculateROI();
     if (!roi || regionCovers(region, roi)) return;
     applyAdjustments(state.previewOverride ?? state.adjustments, false, currentResRef.current);
-  }, [os, viewSettled, calculateROI, applyAdjustments, currentResRef]);
+  }, [os, viewSettled, finalRegionUrl, calculateROI, applyAdjustments, currentResRef]);
 
   // At 100 % the second window decides the settled frame's kind (it shows
   // the main window's whole frame, `editor_preview::browser_region_frame`):

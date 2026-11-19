@@ -403,6 +403,25 @@ describe('Linux region frames at 100 %', () => {
     expect(calls()[2][1]).toMatchObject({ isInteractive: false, browserFullZoom: true, roi: expect.any(Array) });
   });
 
+  it('asks again when a region arrives for a view a pan already left', async () => {
+    mountZoomed();
+    expect(calls()).toHaveLength(1);
+    // The pan settles while the first region renders: nothing to compare yet.
+    transform.positionX = -2600;
+    act(() => useEditorStore.setState((s) => ({ viewSettled: s.viewSettled + 1 })));
+    expect(calls()).toHaveLength(1);
+    await act(async () => {
+      complete.shift()!(regionReply([300, 300, 400, 400]));
+    });
+    expect(calls()).toHaveLength(2);
+    expect((calls()[1][1] as { roi: number[] }).roi[0]).toBeGreaterThan(0.6);
+    // A region covering the view asks for nothing more.
+    await act(async () => {
+      complete.shift()!(regionReply([600, 300, 400, 400]));
+    });
+    expect(calls()).toHaveLength(2);
+  });
+
   it("drops another photograph's region frame", async () => {
     mountZoomed();
     await act(async () => {

@@ -166,3 +166,46 @@ it("shows the after's region at full zoom: the before is asked for and placed as
   expect(image.getAttribute('height')).toBe('25%');
   preview.mockImplementation(() => ({ frame: { url: 'blob:before' } }) as never);
 });
+
+it('keeps the whole Before under a region Before still shown after zooming back out', () => {
+  useSettingsStore.setState({ osPlatform: 'linux' });
+  useEditorStore.setState({
+    splitView: true,
+    showOriginal: false,
+    splitOrientation: 'left-right',
+    finalPreview: { url: 'blob:fit', lossless: true, fullZoom: false },
+    finalRegion: null
+  });
+  preview.mockClear();
+  // The Before's hook still holds the 100 % region while the fit Before renders.
+  preview.mockImplementation((...args: unknown[]) =>
+    args.length === 6
+      ? { frame: { url: 'blob:region-before', region: [0.25, 0.5, 0.5, 0.25] } }
+      : { frame: args[0] ? { url: 'blob:whole-before', region: null } : null }
+  );
+  const { container } = render(
+    <svg>
+      <BrowserSplitImage
+        path="/a.dng"
+        adjustments={INITIAL_ADJUSTMENTS}
+        size={{
+          scale: 0.25,
+          width: 600,
+          height: 400,
+          containerWidth: 800,
+          containerHeight: 600,
+          offsetX: 0,
+          offsetY: 0
+        }}
+        transform={{ scale: 1, positionX: 0, positionY: 0 }}
+        enabled
+      />
+    </svg>
+  );
+  const backdropCall = preview.mock.calls.filter((args) => args.length === 5).at(-1)!;
+  expect(backdropCall[0]).toBe('/a.dng');
+  expect(container.querySelector('[data-testid="browser-before-backdrop"]')?.getAttribute('href')).toBe(
+    'blob:whole-before'
+  );
+  preview.mockImplementation(() => ({ frame: { url: 'blob:before' } }) as never);
+});

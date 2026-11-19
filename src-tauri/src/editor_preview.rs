@@ -2708,7 +2708,18 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             let _ = responder.send(result);
             drop(frame);
             if let Some(pass) = analytics_pass.filter(|_| region_sent) {
-                run_analytics_pass(&app_handle, pass, newest_sequence);
+                // Once the worker stays idle a moment: a change following
+                // right after (values typed or stepped one after another, the
+                // next drag) goes first, and its own frame asks for a pass.
+                // Started, the pass gives way to a newer request only while
+                // it waits for a shader (`supersedable`).
+                match jobs.take_timeout(ANALYTICS_PASS_IDLE) {
+                    Some(next) => {
+                        waiting = Some(next);
+                        continue;
+                    }
+                    None => run_analytics_pass(&app_handle, pass, newest_sequence),
+                }
             }
             if let Some(warm) = warm.filter(|_| rendered && !crate::multi_view::live_pending()) {
                 // A request within the pause goes first; the warm-up waits
@@ -2807,8 +2818,8 @@ fn analytics_pass_of(job: &PreviewJob) -> Option<AnalyticsPass> {
     })
 }
 
-/// Renders `pass` unless a newer request waits (it gives way to it, also
-/// mid-render).
+/// Renders `pass` unless a newer request waits (once started, it gives way
+/// to one only while it waits for a shader).
 fn run_analytics_pass(app_handle: &tauri::AppHandle, pass: AnalyticsPass, newest: Option<u64>) {
     let newer = newer_request_waits(app_handle, newest);
     if newer() {
@@ -2845,6 +2856,10 @@ fn run_analytics_pass(app_handle: &tauri::AppHandle, pass: AnalyticsPass, newest
         started.elapsed()
     );
 }
+
+/// Quiet time after a Linux region frame at 100 % before the whole frame is
+/// rendered for its analytics ([`run_analytics_pass`]).
+const ANALYTICS_PASS_IDLE: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// A fit view's final frame, to render once more as a drag draft.
 struct DraftWarmup {

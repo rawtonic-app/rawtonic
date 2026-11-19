@@ -33,3 +33,9 @@ print('| transport | measure | range | cells out of ±15 % |\n|---|---|---|---|'
 for k in sorted(rows):
     a = np.array(rows[k]); o = (a < 0.85) | (a > 1.15)
     print(f'| {k[0]} | {k[1]} | {a.min():.2f}–{a.max():.2f} | {o.sum()}/{a.size} |')
+# Cell by cell: which abs cells are out for a mode and not for the 8-bit floor, and the reverse.
+if 'floor' in modes:
+    out = {m: (np.array(rows[(m, 'abs')]) < 0.85) | (np.array(rows[(m, 'abs')]) > 1.15) for m in modes}
+    for m in modes:
+        if m == 'floor': continue
+        print(f'{m} vs floor, abs cells: out in both {int((out[m] & out["floor"]).sum())}, only {m} {int((out[m] & ~out["floor"]).sum())}, only floor {int((~out[m] & out["floor"]).sum())}')
