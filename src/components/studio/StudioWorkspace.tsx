@@ -82,6 +82,7 @@ import StudioNavigation, { type FolderActions } from './StudioNavigation';
 import StudioBrowser from './StudioBrowser';
 import StudioFilmstripDock from './StudioFilmstripDock';
 import { readFilmstripDock } from '../../utils/filmstripDock';
+import { sidePanelWidths, steppedWidth, TOOLS_MIN_WIDTH } from '../../utils/sidePanelWidths';
 import StudioFilters from './StudioFilters';
 import StudioSearchBox from './StudioSearchBox';
 import StudioToolBar from './StudioToolBar';
@@ -210,9 +211,12 @@ const WIDTH_CHOSEN_KEY = 'rawtonic.studio.widthChosen';
 /** The tool column's width range. Beyond 390 px only on wide windows: up to
  * a third of the window, so the photograph keeps its room beside the
  * column and a docked filmstrip (mirrored by `.studio-primary-panel`). */
-const TOOLS_MIN_WIDTH = 270;
 const TOOLS_MAX_WIDTH = 480;
 const TOOLS_SMALL_MAX_WIDTH = 390;
+/** `.studio-secondary-panel`'s width (zoomed px). */
+const SECONDARY_PANEL_WIDTH = 220;
+/** studio.css hides it in windows this wide or narrower. */
+const SECONDARY_PANEL_HIDDEN_BELOW = 1200;
 
 /** The widest the tool column may be in a window `windowWidth` CSS px wide
  * at Interface Size `uiScale`, in the column's own (zoomed) pixels. */
@@ -714,8 +718,6 @@ export default function StudioWorkspace(props: Props) {
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
   }, []);
-  const maxWidth = toolsMaxWidth(windowWidth, uiScale);
-  const shownWidth = Math.min(width, maxWidth);
   // The separator marks the width as chosen (see `initialToolsWidth`).
   const chooseWidth: typeof setWidth = (next) => {
     try {
@@ -725,14 +727,6 @@ export default function StudioWorkspace(props: Props) {
     }
     setWidth(next);
   };
-  // A step starts from the shown width; one that cannot move it (at the
-  // window's cap) keeps the stored width for a wider window.
-  const resizeTools = (delta: number) =>
-    chooseWidth((v) => {
-      const from = Math.min(v, maxWidth);
-      const next = Math.max(TOOLS_MIN_WIDTH, Math.min(maxWidth, from + delta));
-      return next === from ? v : next;
-    });
   // Each module keeps its own layout (Lightroom), saved with the settings.
   const panels = readModuleLayout(storedPanels, moduleOf(activeView));
   const present = presentGroups(moduleOf(activeView), layout);
@@ -751,6 +745,23 @@ export default function StudioWorkspace(props: Props) {
   const film = filmShown;
   const strip = filmShown && dockSide === 'bottom';
   const docked = filmShown && dockSide !== 'bottom' ? dockSide : null;
+  // The side columns' drawn widths: the photograph keeps its room
+  // (sidePanelWidths); a separator steps from the drawn width.
+  const dockStored = useUIStore((st) => readFilmstripDock(st.uiVisibility.filmstripDock).width);
+  const sides = sidePanelWidths({
+    windowWidth,
+    uiScale,
+    tools: width,
+    toolsMax: toolsMaxWidth(windowWidth, uiScale),
+    dock: docked ? dockStored : null,
+    beside:
+      develop && layout === 'split-tools' && panels.left && windowWidth > SECONDARY_PANEL_HIDDEN_BELOW
+        ? SECONDARY_PANEL_WIDTH * (uiScale || 1)
+        : 0,
+    toolsInFlow: panels[toolsSide]
+  });
+  const resizeTools = (delta: number) =>
+    chooseWidth((v) => steppedWidth(v, sides.tools, delta, TOOLS_MIN_WIDTH, sides.toolsCap));
   const sidesHidden = present.filter((group) => group === 'left' || group === 'right').every((group) => !panels[group]);
   const { togglePanels, showPanels } = useUIStore.getState();
   const [size, setSize] = useState(205);
@@ -1340,7 +1351,7 @@ export default function StudioWorkspace(props: Props) {
     <div
       className={`studio-workspace ${layout} module-${moduleOf(activeView)} ${sidesHidden ? 'panels-hidden' : ''} ${panels.bars ? '' : 'bars-hidden'} ${isFullScreen ? 'is-image-fullscreen' : ''} ${libraryViewer ? 'is-library-loupe' : ''} ${cursorIdle ? 'is-cursor-idle' : ''}`}
       onClickCapture={(e) => focusWorkspaceControl(e.target)}
-      style={{ '--tools-width': `${shownWidth}px` } as React.CSSProperties}
+      style={{ '--tools-width': `${sides.tools}px` } as React.CSSProperties}
     >
       {/* Library and Develop both show the Albums tool (it opens the editor). */}
       <SmartAlbumEditorHost />
@@ -1409,8 +1420,8 @@ export default function StudioWorkspace(props: Props) {
               aria-label={t('studio.workspace.panelWidth')}
               aria-orientation="vertical"
               aria-valuemin={TOOLS_MIN_WIDTH}
-              aria-valuemax={maxWidth}
-              aria-valuenow={shownWidth}
+              aria-valuemax={sides.toolsCap}
+              aria-valuenow={sides.tools}
               onKeyDown={(e) => {
                 if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                   e.preventDefault();
@@ -1441,6 +1452,8 @@ export default function StudioWorkspace(props: Props) {
         {docked === 'left' && (
           <StudioFilmstripDock
             side="left"
+            shownWidth={sides.dock ?? undefined}
+            maxWidth={sides.dockCap}
             {...browserProps}
             onContextMenu={externalPhoto ? externalContextMenu : onContextMenu}
             onSelect={externalPhoto ? () => {} : props.onFilmSelect}
@@ -1864,6 +1877,8 @@ export default function StudioWorkspace(props: Props) {
         {docked === 'right' && (
           <StudioFilmstripDock
             side="right"
+            shownWidth={sides.dock ?? undefined}
+            maxWidth={sides.dockCap}
             {...browserProps}
             onContextMenu={externalPhoto ? externalContextMenu : onContextMenu}
             onSelect={externalPhoto ? () => {} : props.onFilmSelect}

@@ -18,6 +18,21 @@ export function histogramBins(channel: unknown): number[] {
   return Array.isArray(bins) ? bins.map((value) => (Number.isFinite(value) ? Math.max(0, value) : 0)) : [];
 }
 
+const DISPLAY_CHANNELS = ['red', 'green', 'blue', 'luma'] as const;
+
+/** A channel's bins as drawn: on the scale all channels share (the
+ * scopes' `displayScale`), capped at 1, so a colour with few pixels in a
+ * tone stays low beside one with many. Without factors, its own scale.
+ * The bins come uncapped; Levels' Auto caps them on their own scale. */
+export function displayHistogramBins(histogram: unknown, channel: (typeof DISPLAY_CHANNELS)[number]): number[] {
+  const data = histogram as Record<string, unknown> | null;
+  const bins = histogramBins(data?.[channel]);
+  const factors = data?.displayScale;
+  const factor = Array.isArray(factors) ? Number(factors[DISPLAY_CHANNELS.indexOf(channel)]) : NaN;
+  const scale = Number.isFinite(factor) && factor > 0 ? factor : 1;
+  return bins.map((v) => Math.min(1, v * scale));
+}
+
 type ClippingSide = 'shadows' | 'highlights';
 
 /** One fixed-size control above the plot that switches that
@@ -74,7 +89,7 @@ const selectHistogram = (s: ReturnType<typeof useEditorStore.getState>) => s.his
  * scale against the tallest bin of the three), or null for an empty channel. */
 export function histogramPaths(histogram: unknown): (string | null)[] {
   const data = histogram as Record<string, unknown> | null;
-  const bins = CHANNELS.map((channel) => histogramBins(data?.[channel]));
+  const bins = CHANNELS.map((channel) => displayHistogramBins(data, channel));
   const max = Math.max(1, ...bins.flat());
   return bins.map((values) =>
     values.length

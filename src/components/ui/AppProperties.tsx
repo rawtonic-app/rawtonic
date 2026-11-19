@@ -1038,6 +1038,9 @@ export interface HistogramData {
   green: Array<number>;
   luma: Array<number>;
   red: Array<number>;
+  /** Red, green, blue, luma: factors that draw the per-channel bins on one
+   * scale (`displayHistogramBins`). */
+  displayScale?: [number, number, number, number];
   clippedShadows?: boolean;
   clippedHighlights?: boolean;
   /** Which of red, green, blue reach code 0 / code 255. */

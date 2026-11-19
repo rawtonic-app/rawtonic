@@ -71,7 +71,7 @@ import StudioProfileBrowser from './StudioProfileBrowser';
 import StudioWhiteBalance from './StudioWhiteBalance';
 import type { CurveChannel, TatTarget } from '../../utils/targetedAdjustment';
 import { pointCurveValue, renderedLuminancePoints, renderedPoints } from '../../utils/pointCurve';
-import StudioHistogram, { histogramBins } from './StudioHistogram';
+import StudioHistogram, { displayHistogramBins } from './StudioHistogram';
 import { useEditorStoreDom } from '../../hooks/useEditorStoreDom';
 import StudioScopes from './StudioScopes';
 import { PerfProfiler } from '../../hooks/usePerformanceDiagnostics';
@@ -312,19 +312,19 @@ function histogramOutline(values: number[], max: number): string {
 /** The photo's histogram behind the curve. `fill` is the shown channel's
  * (the Luminance curve shows the luminance one); the RGB curve shows the
  * luminance fill with the red, green and blue channels as `lines` over it,
- * as Capture One does. Each channel at its own scale: the scopes normalise
- * every channel separately (scopes.rs), so they show where each channel's
- * tones lie, not how many pixels one has against another. Nulls where a
- * channel is missing. */
+ * as Capture One does. The scopes put every channel on one scale
+ * (scopes.rs), so their heights compare. Nulls where a channel is missing. */
 export function curveHistogramPaths(
   histogram: unknown,
   channel: string
 ): { fill: string | null; lines: (string | null)[] } {
   const data = histogram as Record<string, unknown> | null;
   const single = channel === 'red' || channel === 'green' || channel === 'blue';
-  const fill = data ? histogramBins(single ? data[channel] : data.luma) : [];
-  const lines = data && channel === 'luma' ? RGB_CHANNELS.map((c) => histogramBins(data[c])) : [];
-  const outline = (values: number[]) => (values.length ? histogramOutline(values, Math.max(1, ...values)) : null);
+  const fill = data ? displayHistogramBins(data, single ? (channel as 'red' | 'green' | 'blue') : 'luma') : [];
+  const lines = data && channel === 'luma' ? RGB_CHANNELS.map((c) => displayHistogramBins(data, c)) : [];
+  // The scopes' scale as it comes (bins up to 1), as the histogram draws it.
+  const max = Math.max(1, ...fill, ...lines.flat());
+  const outline = (values: number[]) => (values.length ? histogramOutline(values, max) : null);
   return { fill: outline(fill), lines: RGB_CHANNELS.map((_, i) => outline(lines[i] ?? [])) };
 }
 
