@@ -2,7 +2,8 @@
 //! (ADR 0020, option C; the frame itself: `rawtonic_rawdecode::camera_crop`).
 //!
 //! A RAW that keeps the whole sensor although the camera was set to another
-//! aspect ratio (Samsung EX2F 16:9, Canon 1:1 / 4:3 / 16:9 / 4:5) opens
+//! aspect ratio (Samsung EX2F 16:9, Canon 1:1 / 4:3 / 16:9 / 4:5, Fujifilm
+//! 16:9 / 1:1 / 5:4) opens
 //! cropped to the camera's frame, as in Lightroom and Camera Raw: an
 //! ordinary crop the photographer can widen or reset. It belongs to new
 //! recipes only (`image_processing::is_new_recipe`: never edited, or a
@@ -149,13 +150,29 @@ pub fn apply_default_from_source(adjustments: &mut Value, source: &rawler::rawso
 }
 
 /// The part of the developed frame the camera's own image (a RAW's
-/// embedded JPEG) shows, for the recipe `adjustments` of the photo at
-/// `path`: the camera's crop in the frame version the recipe develops.
-/// None where that is the whole frame (and for files other than RAWs).
-pub fn camera_image_region(path: &str, adjustments: &Value) -> Option<CameraCrop> {
+/// embedded JPEG, `image` its width and height either way up, None when
+/// unknown) shows, for the recipe `adjustments` of the photo at `path`:
+/// Some(the camera's crop in the frame version the recipe develops) where
+/// the image has its shape (`shows_crop`: Canon, EX2F), Some(None) where it
+/// is the whole frame (a Fujifilm RAF's JPEG, a file without another
+/// camera frame, files other than RAWs). None when there is a crop but the
+/// image's size is unknown (an offline photograph): either could be.
+pub fn camera_image_region(
+    path: &str,
+    adjustments: &Value,
+    image: Option<(u32, u32)>,
+) -> Option<Option<CameraCrop>> {
     let version = crate::source_frame::requested(adjustments) as usize;
-    crops(path).get(version).copied().flatten()
+    match crops(path).get(version).copied().flatten() {
+        None => Some(None),
+        Some(crop) => {
+            let (width, height) = image?;
+            Some(shows_crop(crop, width, height).then_some(crop))
+        }
+    }
 }
+
+pub use rawtonic_rawdecode::camera_crop::shows_crop;
 
 /// The crop a new recipe (`is_new_recipe`) starts with, from the file's
 /// `crops` (`crops`): the one of the frame the recipe asks for
@@ -190,6 +207,37 @@ fn start_new_edit(adjustments: &mut Value, crops: &[Option<CameraCrop>], is_raw:
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_camera_image_shows_the_crop_only_where_it_has_its_shape() {
+        let path = "/offline/camera-image-region.RAF";
+        crate::source_facts::register(
+            path,
+            crate::source_facts::SourceFacts {
+                version: crate::source_facts::VERSION,
+                frames: Some(vec![0; crate::source_frame::VERSION as usize + 1]),
+                camera_crop: Some(vec![0, 312, 6000, 3375]),
+                ..Default::default()
+            },
+        );
+        let crop = CameraCrop {
+            x: 0,
+            y: 312,
+            width: 6000,
+            height: 3375,
+        };
+        let region = |image| camera_image_region(path, &json!({}), image);
+        // A 16:9 camera JPEG (Canon, EX2F) shows the crop; a 3:2 one (a
+        // Fujifilm RAF's) the whole frame; unknown: either could be.
+        assert_eq!(region(Some((1920, 1080))), Some(Some(crop)));
+        assert_eq!(region(Some((1920, 1280))), Some(None));
+        assert_eq!(region(None), None);
+        // A file without another camera frame: the whole frame either way.
+        assert_eq!(
+            camera_image_region("/offline/none.RAF", &json!({}), None),
+            Some(None)
+        );
+    }
 
     #[test]
     fn only_new_recipes_get_the_camera_crop() {

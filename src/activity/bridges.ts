@@ -10,6 +10,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import i18n from 'i18next';
 import { Invokes } from '../components/ui/AppProperties';
+import { renderErrorMessage } from '../utils/renderErrors';
 import { formatBytes } from '../utils/previews';
 import { useActivityStore } from '../store/useActivityStore';
 import { useEditorStore } from '../store/useEditorStore';
@@ -82,7 +83,7 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
         detail:
           failures
             .slice(0, 3)
-            .map((failure) => `${fileName(failure.path)}: ${failure.error}`)
+            .map((failure) => `${fileName(failure.path)}: ${renderErrorMessage(failure.error)}`)
             .join('\n') || undefined,
         paths: failures.map((failure) => failure.path),
         // An Edit With render is not resumed: nothing would hand it over.

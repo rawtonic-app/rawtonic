@@ -25,8 +25,8 @@ APPLE_ID = ("APPLE_ID", "APPLE_PASSWORD", "APPLE_TEAM_ID")
 # Rust architecture -> (Mach-O CPU type, Tauri's DMG suffix, our DMG suffix).
 ARCHES = {"aarch64": (0x0100000C, "aarch64", "aarch64"),
           "x86_64": (0x01000007, "x64", "x86_64")}
-# Minimum macOS per architecture. Apple silicon needs 14: Microsoft's
-# ONNX Runtime 1.30.0 arm64 library (minos 14.0) is its AI runtime. Intel
+# Minimum macOS per architecture. Apple silicon needs 14: Rawtonic's own
+# ONNX Runtime 1.30.0 arm64 library (minos 14.0, as Microsoft's) is its AI runtime. Intel
 # keeps 13 with ONNX Runtime 1.23.2 (src-tauri/build.rs;
 # scripts/package_macos_test.py pins the two together).
 MINIMUM_MACOS = {"aarch64": "14.0", "x86_64": "13.0"}
@@ -161,7 +161,7 @@ def check_architectures(app, arch):
 def stage_resources(target, identity, keychain, tether_dir):
     # Tauri signs externalBin and frameworks, but not Mach-O resources (.so
     # camera drivers and ONNX Runtime). Sign copies: build.rs verifies the
-    # upstream runtime's pinned hash, so signing the source would break it.
+    # runtime's pinned hash, so signing the source would break it.
     stage = target / "macos-signing"
     stage.mkdir(parents=True, exist_ok=True)
     resources = {}

@@ -225,9 +225,18 @@ fn fuji_border_peak(curve: &[(f64, f64)], aspect: f64) -> f64 {
 /// wide lenses errs by up to ±3.3 px (X-S20 + XF16-80 at 16 mm; X-T4 +
 /// XF16-55 at 16 mm ±1.8 px; notes: parity-gaps/G71). The warp's table
 /// T(q) = zoom A k(zoom q): the knots at r_i / zoom, from the centre.
-pub fn fuji_tabulated(data: EmbeddedLensData, aspect: f64) -> Option<EmbeddedLensData> {
+/// Where `inside`, A is at most 1: barrel data (max k < 1) then frame no
+/// more than the recorded frame shows (`fuji_frames_inside`).
+pub fn fuji_tabulated(
+    data: EmbeddedLensData,
+    aspect: f64,
+    inside: bool,
+) -> Option<EmbeddedLensData> {
     let curve = data.distortion.clone();
-    let peak = fuji_border_peak(&curve, aspect);
+    let mut peak = fuji_border_peak(&curve, aspect);
+    if inside {
+        peak = peak.max(1.0);
+    }
     let zoom = framing_zoom(|u| fuji_k(&curve, u) / peak)?;
     let centre = (curve[0].0 > 0.0).then_some((0.0, 1.0));
     let distortion: Vec<(f64, f64)> = centre
@@ -309,6 +318,90 @@ fn fuji_on_readout(data: EmbeddedLensData, reach: f64) -> EmbeddedLensData {
             .distortion
             .into_iter()
             .map(|(r, k)| (r * reach, k))
+            .collect(),
+        ..data
+    }
+}
+
+/// The maker-note entry (of the RAF's embedded JPEG) whose presence marks
+/// the Fujifilm bodies that frame barrel distortion inside the recorded
+/// frame (`fuji_frames_inside`). Its content is not read.
+const FUJI_FRAMES_INSIDE_TAG: u16 = 0xf010;
+
+/// How camera geometry version 11 reads a Fujifilm distortion curve whose
+/// knots run from the frame's centre (eleven or more, the older layout:
+/// X-Trans I–III, the Bayer X-A / X-T100 / X-T200 bodies, the compacts)
+/// where it corrects barrel distortion (max k on the frame's border below
+/// 1): (knots on the sensor's radius, framed inside the recorded frame).
+/// Before, an output radius u sampled the sensor at A u k(u); the cameras'
+/// JPEGs show that these knots lie on the radius they sample instead
+/// (before the framing A: u samples A s with s = u k(s);
+/// `fuji_on_sensor_radius`), on the bodies that frame barrel data inside
+/// their frame (`fuji_frames_inside`) and on the interchangeable-lens
+/// bodies (`capture_info::fujifilm_names_lens`). Against the cameras' JPEGs
+/// (never-edited, JPEG px): X-T100, X-A5, X-A10 with their XC kit zoom at
+/// 15–16 mm 24.5, 24.5, 25.8 → 0.23, 0.18, 0.22 (Camera Raw 0.27, 0.24,
+/// 25.6), S1, SL1000 57.6, 44.7 → 0.94, 1.17; X-A1, X-A2 1.09, 0.75 →
+/// 0.77, 0.65, X-E1 0.78 → 0.82. Read so, pincushion data (X-A7, X-T20,
+/// X-S1, X-E2S) came out worse by 0.4–8 px and the GFX 50S / 50R's eight
+/// √-spaced knots by up to 0.10 px, and the compacts without the maker-note
+/// mark frame barrel data either way (XQ1, XQ2, XF1, the EXR models inside
+/// the frame, the X30 and X10 beyond it) with nothing in their files to
+/// tell which, so all those read as before (notes: parity-gaps/G71, g71d).
+fn fuji_sensor_reading(
+    source: &RawSource,
+    geometry_version: u64,
+    distortion: &[(f64, f64)],
+    aspect: f64,
+) -> (bool, bool) {
+    let from_centre = distortion.first().is_some_and(|&(r, _)| r == 0.0);
+    if geometry_version < FUJIFILM_SENSOR_RADIUS_GEOMETRY
+        || !from_centre
+        || fuji_border_peak(distortion, aspect) >= 1.0
+    {
+        return (false, false);
+    }
+    let inside = fuji_frames_inside(source);
+    (
+        inside || crate::capture_info::fujifilm_names_lens(source.buf()),
+        inside,
+    )
+}
+
+/// Whether a Fujifilm camera frames its barrel correction inside the frame
+/// it recorded (A = 1 in `fuji_tabulated`: the corrected image shows no
+/// more than the uncorrected one, 4 % less at a kit zoom's wide end)
+/// instead of reaching out until the shorter sides' midpoints touch the
+/// frame's edges (A = 1 / max k). The cameras' JPEGs tell the two apart on
+/// 16 raw.pixls.us RAFs with barrel data on the older knot layout: framed
+/// inside on the X-A10, X-A5, X-T100 (XC lenses at 15–16 mm), XQ1, XQ2,
+/// XF1, F770EXR, F900EXR, HS50EXR, SL1000 and S1, reaching out on the
+/// X-A1, X-A2, X-E1, X10 and X30; the curves and frame sizes do not tell
+/// them apart (the X-A1 and X-A10 store the same table on the same 4896 ×
+/// 3264 frame and frame 4.4 % apart). Maker-note entry 0xf010 (an 8.9 KB
+/// block whose content is not known) goes with it on every body sampled:
+/// those that carry it with barrel data frame inside (X-A10, X-A5, X-T100,
+/// S1, SL1000; the X-A7, X-T200 and HS10 carry it with pincushion data),
+/// and no body that reaches out carries it. An observed correlation on
+/// these 16 files, chosen after seeing them (the held-out half of the
+/// bodies agrees: X-T100, X-A10, S1, SL1000 inside, X30 out), not a
+/// documented meaning.
+fn fuji_frames_inside(source: &RawSource) -> bool {
+    crate::capture_info::fujifilm_maker_note_has(source.buf(), FUJI_FRAMES_INSIDE_TAG)
+}
+
+/// Fujifilm's distortion whose knots lie on the sensor's radius they
+/// sample (`fuji_sensor_reading`): each knot (s, k) moves to the output
+/// radius s / k, so with the framing A of `fuji_tabulated` the output
+/// radius u samples the sensor at A s where s = u k(s). The values stay;
+/// between the knots `fuji_k` and the warp's table interpolate in the
+/// output radius as before.
+fn fuji_on_sensor_radius(data: EmbeddedLensData) -> EmbeddedLensData {
+    EmbeddedLensData {
+        distortion: data
+            .distortion
+            .into_iter()
+            .map(|(r, k)| (r / k, k))
             .collect(),
         ..data
     }
@@ -1231,10 +1324,17 @@ pub const GEOMETRY_VERSION_KEY: &str = lens::CAMERA_GEOMETRY_VERSION.name();
 /// Nikon Z data about the shot's own optical centre (`nikon_centre`); 9
 /// (2026-11-02) reads Fujifilm's distortion knots on the whole sensor in a
 /// crop mode (`fuji_on_readout`); 10 (2026-11-03) also on normal frames
-/// where the knots reach past the frame's corner (`fuji_knots_on_readout`).
+/// where the knots reach past the frame's corner (`fuji_knots_on_readout`);
+/// 11 (2026-11-19) reads the older layout's barrel knots on the sensor's
+/// radius and, on the bodies that do so, frames them inside the recorded
+/// frame (`fuji_sensor_reading`).
 /// Recipes without the key
 /// keep their parameters; saving them again fills in the same as before.
-pub const GEOMETRY_VERSION: u64 = 10;
+pub const GEOMETRY_VERSION: u64 = 11;
+
+/// The camera geometry version that reads the barrel knots of Fujifilm's
+/// older layout on the sensor's radius (`fuji_sensor_reading`).
+const FUJIFILM_SENSOR_RADIUS_GEOMETRY: u64 = 11;
 
 /// The camera geometry version that reads Fujifilm's distortion knots on
 /// the sensor's readout width also on normal frames, where they reach past
@@ -1361,7 +1461,12 @@ fn read_source(
                 .filter(|aspect| aspect.is_finite() && *aspect > 0.0)
                 .unwrap_or(1.5);
             if geometry_version >= FUJIFILM_TABLE_GEOMETRY {
-                return fuji_tabulated(data, aspect);
+                let (on_sensor, inside) =
+                    fuji_sensor_reading(source, geometry_version, &data.distortion, aspect);
+                if on_sensor {
+                    data = fuji_on_sensor_radius(data);
+                }
+                return fuji_tabulated(data, aspect, inside);
             }
             fuji_framed(data, aspect)
         }
@@ -1773,7 +1878,7 @@ pub fn current_geometry_version(source: &Path) -> u64 {
 
 /// The `source_facts` versions from which `camera_lens` is read at camera
 /// geometry version 1, 2, … (older versions in `camera_lens_geometry`).
-const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10, 11, 12, 13, 17, 19, 20];
+const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10, 11, 12, 13, 17, 19, 20, 23];
 
 /// The file formats (extensions) whose data camera geometry version 1, 2, …
 /// reads differently from the version before: 1 Sony's (ARW, and Adobe DNG
@@ -1781,7 +1886,8 @@ const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10, 11, 12, 1
 /// 3 Canon's (CR3), 4 Samsung's (SRW), 5 Panasonic's and Fujifilm's (RW2,
 /// RWL, RAF), 6 Sony's again, 7 Fujifilm's again, 8 Nikon's again, 9
 /// Fujifilm's again (crop modes), 10 Fujifilm's again (knots past the
-/// frame's corner on normal frames).
+/// frame's corner on normal frames), 11 Fujifilm's again (the older
+/// layout's barrel knots on the sensor's radius).
 const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [
     &["arw", "dng"],
     &["nef", "nrw"],
@@ -1791,6 +1897,7 @@ const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [
     &["arw", "dng"],
     &["raf"],
     &["nef", "nrw"],
+    &["raf"],
     &["raf"],
     &["raf"],
 ];
@@ -2934,7 +3041,7 @@ mod tests {
         // distortion (3), 10 Samsung's data (4), 11 Panasonic's and Fujifilm's
         // framing (5), 12 Sony's knot table (6), 13 Fujifilm's (7), 17
         // Nikon's optical centre (8), 19 Fujifilm's crop modes (9), 20 its knots
-        // past the frame's corner (10).
+        // past the frame's corner (10), 23 its barrel data framed inside (11).
         assert_eq!(facts_geometry_version(6), 0);
         assert_eq!(facts_geometry_version(7), 1);
         assert_eq!(facts_geometry_version(8), 2);
@@ -2948,6 +3055,8 @@ mod tests {
         assert_eq!(facts_geometry_version(18), 8);
         assert_eq!(facts_geometry_version(19), 9);
         assert_eq!(facts_geometry_version(20), 10);
+        assert_eq!(facts_geometry_version(22), 10);
+        assert_eq!(facts_geometry_version(23), 11);
         assert_eq!(
             facts_geometry_version(crate::source_facts::VERSION),
             GEOMETRY_VERSION
@@ -2958,21 +3067,21 @@ mod tests {
         // or DNG's version 7 to 11 facts Sony's knot table, a RAF's version
         // 11 and 12 facts Fujifilm's, a NEF's version 8 to 16 facts Nikon's
         // optical centre, a RAF's version 13 to 18 facts Fujifilm's crop
-        // modes, a RAF's version 19 facts its knots on normal frames; an
-        // ORF's hold.
+        // modes, a RAF's version 19 facts its knots on normal frames, a
+        // RAF's version 20 to 22 facts its framing inside; an ORF's hold.
         assert_eq!(known_geometry_version(Path::new("a.nef"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.NRW"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.arw"), 7), 5);
         assert_eq!(known_geometry_version(Path::new("a.arw"), 11), 5);
         assert_eq!(known_geometry_version(Path::new("a.DNG"), 11), 5);
-        assert_eq!(known_geometry_version(Path::new("a.arw"), 12), 10);
+        assert_eq!(known_geometry_version(Path::new("a.arw"), 12), 11);
         assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 7);
         assert_eq!(known_geometry_version(Path::new("a.nef"), 16), 7);
-        assert_eq!(known_geometry_version(Path::new("a.nef"), 17), 10);
+        assert_eq!(known_geometry_version(Path::new("a.nef"), 17), 11);
         assert_eq!(known_geometry_version(Path::new("a.CR3"), 8), 2);
-        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 10);
+        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 11);
         assert_eq!(known_geometry_version(Path::new("a.srw"), 9), 3);
-        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 10);
+        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 11);
         assert_eq!(known_geometry_version(Path::new("a.RW2"), 10), 4);
         assert_eq!(known_geometry_version(Path::new("a.raf"), 10), 4);
         assert_eq!(known_geometry_version(Path::new("a.RAF"), 11), 6);
@@ -2981,9 +3090,11 @@ mod tests {
         assert_eq!(known_geometry_version(Path::new("a.raf"), 18), 8);
         assert_eq!(known_geometry_version(Path::new("a.raf"), 19), 9);
         assert_eq!(known_geometry_version(Path::new("a.raf"), 20), 10);
-        assert_eq!(known_geometry_version(Path::new("a.rw2"), 12), 10);
-        assert_eq!(known_geometry_version(Path::new("a.rwl"), 11), 10);
-        assert_eq!(known_geometry_version(Path::new("a.orf"), 6), 10);
+        assert_eq!(known_geometry_version(Path::new("a.raf"), 22), 10);
+        assert_eq!(known_geometry_version(Path::new("a.raf"), 23), 11);
+        assert_eq!(known_geometry_version(Path::new("a.rw2"), 12), 11);
+        assert_eq!(known_geometry_version(Path::new("a.rwl"), 11), 11);
+        assert_eq!(known_geometry_version(Path::new("a.orf"), 6), 11);
     }
 
     #[test]
@@ -4170,7 +4281,7 @@ mod tests {
                     .fold(0.0, f64::max);
                 (zoom, error)
             };
-            let tabulated = fuji_tabulated(data.clone(), 1.5).unwrap();
+            let tabulated = fuji_tabulated(data.clone(), 1.5, false).unwrap();
             assert_eq!(tabulated.tabulated, Some(Tabulated::Knots));
             let framed = fuji_framed(data.clone(), 1.5).unwrap();
             assert!((tabulated.zoom - framed.zoom).abs() < 1e-12);
@@ -4182,6 +4293,89 @@ mod tests {
                 assert!(fit_error > 1.0, "PTLens fit {fit_error} px");
             }
         }
+    }
+
+    /// Synthetic curves on Fujifilm's older layout (eleven knots from the
+    /// centre, [scale, knots, values in percent]): k = 1 ∓ c r² at the
+    /// knots, barrel (c = 0.1) and pincushion (c = 0.05).
+    fn older_layout(percent_at_corner: f64) -> Vec<f64> {
+        let knots: Vec<f64> = (0..=10).map(|i| i as f64 / 10.0).collect();
+        std::iter::once(300.0)
+            .chain(knots.iter().copied())
+            .chain(knots.iter().map(|r| percent_at_corner * r * r))
+            .collect()
+    }
+
+    #[test]
+    fn fuji_barrel_data_framed_inside_the_recorded_frame() {
+        // Barrel data: the camera geometry version 7 framing reaches out
+        // 4.25 % (A = 1 / max k, the shorter sides' midpoints on the
+        // edges); framed inside, A = 1.
+        let data = fuji_curves(&older_layout(-10.0), None).unwrap();
+        let k = |u: f64| fuji_k(&data.distortion, u);
+        let peak = fuji_border_peak(&data.distortion, 1.5);
+        let short = 1.0 / 1.5f64.hypot(1.0);
+        assert!((peak - (1.0 - 0.1 * short * short)).abs() < 1e-12, "{peak}");
+        let out = fuji_tabulated(data.clone(), 1.5, false).unwrap();
+        let inside = fuji_tabulated(data.clone(), 1.5, true).unwrap();
+        // The table at the knots is zoom A k(zoom q) (`fuji_tabulated`):
+        // the output radius u (a knot) samples A u k(u).
+        for u in [0.3, 0.5, 0.8, 1.0] {
+            assert!((sample(&out, u) - u * k(u) / peak).abs() < 1e-9, "{u}");
+            assert!((sample(&inside, u) - u * k(u)).abs() < 1e-9, "{u}");
+        }
+        // Inside, the frame's edges and corners sample within the frame.
+        assert!(sample(&inside, short) < short && sample(&inside, 1.0) < 1.0);
+        // Pincushion data (max k > 1) keep A = 1 / max k.
+        let tele = fuji_curves(&older_layout(5.0), None).unwrap();
+        assert_eq!(
+            fuji_tabulated(tele.clone(), 1.5, true),
+            fuji_tabulated(tele, 1.5, false)
+        );
+    }
+
+    /// The sensor radius the output radius `u` of a tabulated reading
+    /// samples (its table linear in r² between the knots, as the warp's).
+    fn sample(data: &EmbeddedLensData, u: f64) -> f64 {
+        let q = u / data.zoom;
+        q * fuji_k(&data.distortion, q)
+    }
+
+    #[test]
+    fn fuji_knots_on_the_sensor_radius_land_where_they_sample() {
+        // Each knot (s, k) moves to the output radius s / k, which then
+        // samples s itself (framed inside, A = 1), as the X-T100's and
+        // X-A5's JPEGs read their barrel data.
+        let data = fuji_curves(&older_layout(-10.0), None).unwrap();
+        let on_sensor = fuji_tabulated(fuji_on_sensor_radius(data.clone()), 1.5, true).unwrap();
+        for &(s, k) in data.distortion.iter().skip(1) {
+            let u = s / k;
+            assert!((sample(&on_sensor, u) - s).abs() < 1e-9, "{s}");
+        }
+        // Reaching out instead (the interchangeable-lens bodies without
+        // 0xf010): the knot's output radius samples A s, A = 1 / max k of
+        // the moved curve on the frame's border.
+        let moved = fuji_on_sensor_radius(data.clone());
+        let a = 1.0 / fuji_border_peak(&moved.distortion, 1.5);
+        assert!(a > 1.02, "{a}");
+        let reaching = fuji_tabulated(moved, 1.5, false).unwrap();
+        for &(s, k) in data.distortion.iter().skip(1) {
+            assert!((sample(&reaching, s / k) - a * s).abs() < 1e-9, "{s}");
+        }
+        // Less correction toward the edges than the output reading: the
+        // corner samples further out (and stays inside the frame).
+        let output = fuji_tabulated(data, 1.5, true).unwrap();
+        assert!(sample(&output, 1.0) < sample(&on_sensor, 1.0));
+        assert!(sample(&on_sensor, 1.0) < 1.0);
+    }
+
+    #[test]
+    fn camera_geometry_version_11_reads_only_raf_differently() {
+        assert_eq!(
+            GEOMETRY_FORMATS[FUJIFILM_SENSOR_RADIUS_GEOMETRY as usize - 1],
+            ["raf"]
+        );
+        const { assert!(FUJIFILM_SENSOR_RADIUS_GEOMETRY > FUJIFILM_READOUT_KNOTS_GEOMETRY) };
     }
 
     // Fujifilm GFX 50R with GF63mmF2.8 R WR: eight knots (values as stored).

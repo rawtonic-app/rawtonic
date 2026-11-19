@@ -144,6 +144,11 @@ pub fn alloc_image_ok(width: usize, height: usize, dummy: bool) -> Result<pixarr
 
 #[derive(Error, Debug)]
 pub enum RawlerError {
+  #[error(
+    "This NEF uses Nikon's High Efficiency compression. Its codec (TicoRAW) is patent-protected, so Rawtonic cannot decode it. Convert the file to DNG with Adobe DNG Converter, or set the camera to Lossless compressed RAW."
+  )]
+  UnsupportedNikonHighEfficiency,
+
   #[error("Error: {}, model '{}', make: '{}', mode: '{}'", what, model, make, mode)]
   Unsupported { what: String, model: String, make: String, mode: String },
 

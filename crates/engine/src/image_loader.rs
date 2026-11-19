@@ -503,7 +503,12 @@ pub fn load_base_image_measured(
                         preview.width(),
                         preview.height()
                     );
-                    note_preview_fallback(path_for_ext_check, Some(classified.to_string()));
+                    let reason = if is_nikon_high_efficiency(&classified) {
+                        PreviewFallback::UnsupportedNikonHighEfficiency
+                    } else {
+                        PreviewFallback::Other(classified.to_string())
+                    };
+                    note_preview_fallback(path_for_ext_check, Some(reason));
 
                     return Ok((linearize_embedded_preview(preview), None));
                 }
@@ -520,7 +525,7 @@ pub fn load_base_image_measured(
                     );
                     note_preview_fallback(
                         path_for_ext_check,
-                        Some("the RAW decoder panicked".to_string()),
+                        Some(PreviewFallback::Other("the RAW decoder panicked".into())),
                     );
 
                     return Ok((linearize_embedded_preview(preview), None));
@@ -552,14 +557,28 @@ pub fn load_base_image_measured(
     }
 }
 
-pub fn preview_fallbacks() -> &'static std::sync::Mutex<HashMap<String, String>> {
-    static FALLBACKS: OnceLock<std::sync::Mutex<HashMap<String, String>>> = OnceLock::new();
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PreviewFallback {
+    UnsupportedNikonHighEfficiency,
+    Other(String),
+}
+
+pub fn is_nikon_high_efficiency(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<rawler::RawlerError>(),
+        Some(rawler::RawlerError::UnsupportedNikonHighEfficiency)
+    )
+}
+
+fn preview_fallbacks() -> &'static std::sync::Mutex<HashMap<String, PreviewFallback>> {
+    static FALLBACKS: OnceLock<std::sync::Mutex<HashMap<String, PreviewFallback>>> =
+        OnceLock::new();
     FALLBACKS.get_or_init(Default::default)
 }
 
 /// Records whether the last full load of a RAW used its embedded preview
 /// (with the decode error) or developed the sensor data.
-pub fn note_preview_fallback(path: &str, reason: Option<String>) {
+pub fn note_preview_fallback(path: &str, reason: Option<PreviewFallback>) {
     let mut fallbacks = preview_fallbacks()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -580,7 +599,10 @@ pub fn ensure_raw_developed(path: &str) -> Result<()> {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     match fallbacks.get(path) {
-        Some(reason) => Err(anyhow!(
+        Some(PreviewFallback::UnsupportedNikonHighEfficiency) => {
+            Err(rawler::RawlerError::UnsupportedNikonHighEfficiency.into())
+        }
+        Some(PreviewFallback::Other(reason)) => Err(anyhow!(
             "Cannot export '{}': the RAW data could not be developed ({}). Only the embedded camera preview is available; export refused.",
             path,
             reason
@@ -589,13 +611,9 @@ pub fn ensure_raw_developed(path: &str) -> Result<()> {
     }
 }
 
-/// Part of the error for a RAW format no open decoder reads (Nikon High
-/// Efficiency): a camera sample does not help there.
-pub const NO_OPEN_DECODER: &str = "has no open decoder";
-
 /// Why `path` shows its embedded camera preview instead of a development,
 /// if it does.
-pub fn preview_fallback_reason(path: &str) -> Option<String> {
+pub fn preview_fallback_reason(path: &str) -> Option<PreviewFallback> {
     preview_fallbacks()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -608,16 +626,6 @@ pub fn classify_raw_develop_error(path: &str, err: anyhow::Error) -> anyhow::Err
     let lowered = error_text.to_ascii_lowercase();
     let unsupported_compression =
         lowered.contains("nef compression") && lowered.contains("not supported");
-
-    // Nikon's High Efficiency / High Efficiency* NEF (Z 8, Z 9, Z f, Z6III,
-    // Z5II): a patented codec without an open decoder, which no open-source
-    // RAW library reads.
-    if unsupported_compression && lowered.contains("highefficency") {
-        return anyhow!(
-            "Nikon High Efficiency RAW cannot be developed in Rawtonic: the format is patented and {NO_OPEN_DECODER}. Record Lossless compressed RAW in the camera, or convert these files to DNG with Nikon NX Studio or Adobe DNG Converter and open the DNGs ('{}')",
-            path
-        );
-    }
 
     if unsupported_compression {
         return anyhow!(
@@ -2035,15 +2043,7 @@ mod private_preview_tests {
     }
 
     #[test]
-    fn nikon_high_efficiency_raws_explain_the_alternatives() {
-        let error = super::classify_raw_develop_error(
-            "/photos/DSC_0001.NEF",
-            anyhow::anyhow!("NEF compression Some(HighEfficencyStar) is not supported"),
-        )
-        .to_string();
-        assert!(error.contains("Nikon High Efficiency RAW"));
-        assert!(error.contains("Lossless compressed") && error.contains("DNG"));
-        assert!(error.contains(super::NO_OPEN_DECODER));
+    fn other_unsupported_nef_compression_keeps_its_diagnostic() {
         let other = super::classify_raw_develop_error(
             "/photos/DSC_0002.NEF",
             anyhow::anyhow!("NEF compression Some(Lossy) is not supported"),
@@ -2056,13 +2056,26 @@ mod private_preview_tests {
     fn exports_refuse_raws_shown_through_their_embedded_preview() {
         let path = "/nonexistent/preview-fallback-test.NEF";
         assert!(super::ensure_raw_developed(path).is_ok());
-        super::note_preview_fallback(path, Some("unsupported compression".to_string()));
+        super::note_preview_fallback(
+            path,
+            Some(super::PreviewFallback::Other(
+                "unsupported compression".into(),
+            )),
+        );
         let error = super::ensure_raw_developed(path).unwrap_err().to_string();
         assert!(error.contains("unsupported compression") && error.contains("export refused"));
         assert_eq!(
-            super::preview_fallback_reason(path).as_deref(),
-            Some("unsupported compression")
+            super::preview_fallback_reason(path),
+            Some(super::PreviewFallback::Other(
+                "unsupported compression".into()
+            ))
         );
+        super::note_preview_fallback(
+            path,
+            Some(super::PreviewFallback::UnsupportedNikonHighEfficiency),
+        );
+        let error = super::ensure_raw_developed(path).unwrap_err();
+        assert!(super::is_nikon_high_efficiency(&error));
         super::note_preview_fallback(path, None);
         assert!(super::ensure_raw_developed(path).is_ok());
         assert_eq!(super::preview_fallback_reason(path), None);

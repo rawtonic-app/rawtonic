@@ -803,7 +803,7 @@ fn prepare(
     }
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("preview_proxy_prefetch");
-    let Some((image, variant, measures)) = decode(
+    let Ok((image, variant, measures)) = decode(
         app_handle,
         &source,
         &settings,
@@ -814,7 +814,7 @@ fn prepare(
     };
     // An edit during the decode's last steps: no downscale and write
     // beside it either (done again later).
-    if cancel.is_cancelled() {
+    if cancel.is_cancelled() || nikon_high_efficiency_preview(&source) {
         return;
     }
     // Handed over to the open photograph's load, or kept for it: that load
@@ -848,6 +848,12 @@ fn prepare(
     }
 }
 
+type DecodedProxy = (
+    Arc<image::DynamicImage>,
+    crate::image_loader::DecodeVariant,
+    Option<crate::image_loader::DecodeMeasures>,
+);
+
 /// The full decode of `source` for the decode variant of its stored recipe
 /// (returned with it and the decode's measures): the open photograph's when
 /// it is in memory, else decoded now (cancelled when `cancel` is raised past
@@ -861,11 +867,7 @@ fn decode(
     settings: &crate::app_settings::AppSettings,
     cancel: Option<rawtonic_runtime::CancelToken>,
     prefetch: Option<bool>,
-) -> Option<(
-    Arc<image::DynamicImage>,
-    crate::image_loader::DecodeVariant,
-    Option<crate::image_loader::DecodeMeasures>,
-)> {
+) -> anyhow::Result<DecodedProxy> {
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
     let source_str = source.to_string_lossy();
@@ -877,7 +879,7 @@ fn decode(
         .unwrap_or_else(|e| e.into_inner())
         .get_measured(&key);
     if let Some((image, _, measures)) = cached {
-        return Some((image, variant, measures));
+        return Ok((image, variant, measures));
     }
     let cancelled = cancel.clone().map(|token| move || token.is_cancelled());
     let made = prefetch.and_then(|_| preview_proxy::current_key(source, settings, variant));
@@ -888,9 +890,10 @@ fn decode(
             .iter()
             .find(|kept| kept.is(&key, &made))
     {
-        return Some((Arc::clone(&kept.image), variant, kept.measures));
+        return Ok((Arc::clone(&kept.image), variant, kept.measures));
     }
-    let bytes = crate::file_management::read_file_mapped(source).ok()?;
+    let bytes = crate::file_management::read_file_mapped(source)
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
     if prefetch.is_some() {
         UNDER_WAY.0.lock().unwrap_or_else(|e| e.into_inner()).start(
             &source_str,
@@ -908,7 +911,7 @@ fn decode(
         None,
         Some(variant),
     )
-    .map(|(image, measures)| (Arc::new(image), measures));
+    .map(|(image, measures)| (Arc::new(image), variant, measures));
     if let Some(keep) = prefetch {
         // Kept (before the load waiting for it is told), else handed over
         // to the open photograph's load, which waits for it. Also when a
@@ -922,7 +925,7 @@ fn decode(
         );
         if (keep || asked_ahead(&source_str).0)
             && made.is_some()
-            && let Ok((image, measures)) = &decoded
+            && let Ok((image, _, measures)) = &decoded
             && keep_ahead(
                 &mut ahead,
                 MadeDecode {
@@ -953,22 +956,26 @@ fn decode(
             decoded
                 .as_ref()
                 .ok()
-                .map(|(image, measures)| (Arc::clone(image), *measures)),
+                .map(|(image, _, measures)| (Arc::clone(image), *measures)),
         );
         ended.notify_all();
     }
-    match decoded {
-        Ok((image, measures)) => Some((image, variant, measures)),
-        Err(_) if cancelled.is_some_and(|cancelled| cancelled()) => None,
-        Err(e) => {
-            log::warn!(
-                "Preview proxy for {}: decode failed: {}",
-                source.display(),
-                e
-            );
-            None
-        }
+    if let Err(error) = &decoded
+        && !cancelled.is_some_and(|cancelled| cancelled())
+    {
+        log::warn!(
+            "Preview proxy for {}: decode failed: {}",
+            source.display(),
+            error
+        );
     }
+    decoded
+}
+
+fn nikon_high_efficiency_preview(path: &Path) -> bool {
+    use crate::image_loader::{PreviewFallback, preview_fallback_reason};
+    preview_fallback_reason(&path.to_string_lossy())
+        == Some(PreviewFallback::UnsupportedNikonHighEfficiency)
 }
 
 /// Builds the asked-for previews of one photograph.
@@ -1004,16 +1011,21 @@ fn build(app_handle: &tauri::AppHandle, worker: &Worker, item: &BuildItem) -> Ou
         Arc::clone(&worker.cancel),
         item.generation,
     ));
-    let Some((image, variant, measures)) = decode(app_handle, &source, &settings, cancel, None)
-    else {
-        return if worker.cancel.load(Ordering::SeqCst) != item.generation {
-            Outcome::Cancelled
-        } else {
-            Outcome::Failed("The RAW file could not be decoded".into())
-        };
+    let (image, variant, measures) = match decode(app_handle, &source, &settings, cancel, None) {
+        Ok(decoded) => decoded,
+        Err(_) if worker.cancel.load(Ordering::SeqCst) != item.generation => {
+            return Outcome::Cancelled;
+        }
+        Err(error) if crate::image_loader::is_nikon_high_efficiency(&error) => {
+            return Outcome::Failed(error.to_string());
+        }
+        Err(_) => return Outcome::Failed("The RAW file could not be decoded".into()),
     };
     if worker.cancel.load(Ordering::SeqCst) != item.generation {
         return Outcome::Cancelled;
+    }
+    if nikon_high_efficiency_preview(&source) {
+        return Outcome::Failed(rawler::RawlerError::UnsupportedNikonHighEfficiency.to_string());
     }
     if needs_standard {
         if let Err(e) = preview_proxy::write(&source, &image, size, &settings, variant, measures) {

@@ -2211,7 +2211,7 @@
         "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
         "NegPy": "Inspiration for the negative conversion.",
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
-        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
@@ -4385,6 +4385,8 @@
     },
     "loadError": {
       "failed": "「{{name}}」を開けませんでした：{{error}}",
+      "nikonHighEfficiency": "このNEFはニコンの高効率圧縮を使用しています。コーデック（TicoRAW）は特許で保護されているため、Rawtonicではデコードできません。Adobe DNG ConverterでファイルをDNGに変換するか、カメラをロスレス圧縮RAWに設定してください。",
+      "nikonHighEfficiencyMac": "macOS 27以降では、「環境設定」で「{{setting}}」を有効にして試すことができます。",
       "unreadable": "「{{name}}」を開けません。ファイルが破損しているか、名前とは異なり RAW ファイルではないか、Rawtonic がまだ対応していないカメラのファイルです。"
     },
     "lut": {

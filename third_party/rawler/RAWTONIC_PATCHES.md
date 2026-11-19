@@ -15,6 +15,14 @@ inert; unit tests in `src/` run with `cargo test -p rawler`.
 Every change to upstream code is marked `Rawtonic patch` in the source. Keep
 this list current.
 
+## Nikon High Efficiency
+
+- `src/decoders/nef.rs` and `src/lib.rs`: report a typed unsupported-codec
+  error for the existing HE and HE★ maker-note values. Check the length of
+  the newer Nikon maker-note field before reading its compression mode.
+  Identify the mode even if the camera is absent from the supported-camera
+  table.
+
 ## Manifest
 
 - `Cargo.toml`: removed the `[[bench]]` targets, the `criterion` and
@@ -594,3 +602,21 @@ suite allows 120 seconds without progress and 600 seconds total.
   uses it to tell raw TIFFs (Phase One, Canon EOS-1D/1Ds, Kodak DCS) from
   RGB TIFFs while listing folders, where `RawSource::new` would read every
   TIFF in full on Linux. Evidence: notes benchmark-results/rawc2-2026-11-18/.
+
+## Canon CR3 white level (2026-11-19, RAWL3, G01)
+
+- `src/decoders/cr2/colordata.rs`: ColorData version 48 (R6 II, R7, R8,
+  R10, R50) reads normal white at 0x280 and specular white at 0x281, as
+  exiftool's ColorData11 and version 34 (R3) lay them out. The old offsets
+  were one word late and returned LinearityUpperMargin (12735 on every
+  sample) as the white. Test: `rawtonic_colordata_tests`.
+- `data/cameras/canon/{r5,r5m2,r6,r7,r8,r10,r50,r50v,1dxm3}.toml`: the RAW
+  and C-RAW modes carry `whitepoint` 16384 (1D X III: 16050), the white
+  level observed in Adobe DNG Converter 18.7 output on raw.pixls.us samples
+  at every ISO. Adobe keys it on the camera model ID alone (a model-ID swap
+  probe moves it; no ColorData field predicts it), so it is a per-body
+  camera fact like the colour matrices. `RawImage::new` already prefers a
+  camera `whitepoint` over the decoder's, as for CR2. Every other CR3 body
+  keeps its ColorData specular white; CRM movie frames were not measured
+  and keep it too. Test: `rawtonic_white_tests`. Evidence: notes
+  benchmark-results/rawl2-2026-11-19/ and rawl3-2026-11-19/.

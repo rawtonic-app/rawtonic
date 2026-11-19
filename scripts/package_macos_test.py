@@ -25,13 +25,14 @@ def security_output(*identities):
 
 class PackagingTests(unittest.TestCase):
     def test_apple_silicon_floor_matches_its_onnx_runtime(self):
-        # The arm64 1.30.0 library has minos 14.0; Intel keeps 1.23.2 and macOS 13.
+        # The arm64 1.30.0 library (Rawtonic's own build without telemetry, like
+        # Microsoft's) has minos 14.0; Intel keeps 1.23.2 and macOS 13.
         build = (packaging.REPO / "src-tauri/build.rs").read_text()
         for arch, minimum in packaging.MINIMUM_MACOS.items():
             cpu = "aarch64" if arch == "aarch64" else "x86_64"
             runtime = build.split(f'("macos", "{cpu}")')[1].split('"libonnxruntime-')[1].split("-macos")[0]
             self.assertEqual((arch, runtime, minimum),
-                             (arch, "1.30.0", "14.0") if arch == "aarch64" else (arch, "1.23.2", "13.0"))
+                             (arch, "1.30.0-notelemetry", "14.0") if arch == "aarch64" else (arch, "1.23.2", "13.0"))
         base = json.loads((packaging.REPO / "src-tauri/tauri.macos.conf.json").read_text())
         self.assertEqual(base["bundle"]["macOS"]["minimumSystemVersion"], packaging.MINIMUM_MACOS["x86_64"])
 

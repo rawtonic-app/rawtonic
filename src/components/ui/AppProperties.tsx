@@ -863,6 +863,7 @@ export interface LoadImageResult {
   /** The RAW data could not be developed; the camera's embedded preview is
    * shown. */
   developed_from_preview?: boolean;
+  unsupported_nikon_high_efficiency?: boolean;
   /** ... and a camera sample could help (not for a format no open decoder
    * reads): Develop offers camera help. */
   camera_help?: boolean;
@@ -941,6 +942,7 @@ export interface SelectedImage {
   highlightRatiosFailed?: boolean;
   /** The RAW is offline: the photograph shows (and is edited on) this preview. */
   offline?: OfflinePreview | null;
+  unsupportedNikonHighEfficiency?: boolean;
   metadata?: ImageMetadata | null;
   original_base64?: string;
   path: string;

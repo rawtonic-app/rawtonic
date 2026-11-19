@@ -375,7 +375,7 @@
   "dehazeVersion": 3,
   "fringeVersion": 6,
   "cameraCaVersion": 1,
-  "cameraGeometryVersion": 10,
+  "cameraGeometryVersion": 11,
   "autoCaVersion": 3,
   "defringeVersion": 2,
   "bwVersion": 2,

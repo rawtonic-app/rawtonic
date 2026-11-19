@@ -5,6 +5,7 @@ import i18n from 'i18next';
 import { Invokes, type PreviewBuildProgress } from '../ui/AppProperties';
 import { useActivityStore } from '../../store/useActivityStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
+import { renderErrorMessage } from '../../utils/renderErrors';
 
 export const PREVIEW_BUILD_EVENT = 'preview-build-progress';
 
@@ -28,7 +29,9 @@ export function reportPreviewBuild(progress: PreviewBuildProgress) {
       id: PREVIEW_ACTIVITY,
       source: 'app',
       title: i18n.t('previews.status.notBuilt', { failed: progress.failedCount }),
-      detail: progress.failed.map((failure) => `${failure.path.split(/[\\/]/).pop()}: ${failure.reason}`).join('\n'),
+      detail: progress.failed
+        .map((failure) => `${failure.path.split(/[\\/]/).pop()}: ${renderErrorMessage(failure.reason)}`)
+        .join('\n'),
       paths: progress.failed.map((failure) => failure.path)
     });
   } else if (progress.stopped) {
