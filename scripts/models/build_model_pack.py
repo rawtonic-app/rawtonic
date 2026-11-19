@@ -450,11 +450,11 @@ CUDA = [
 # QA model folder (notes: benchmark-results/ortt2-2026-11-18/REPORT.md),
 # Linux on 20 model files incl. Moebius, SDXL VAE and the Super Resolution CPU
 # graphs (notes: benchmark-results/ortt3-2026-11-18/linux.md), Windows x64
-# on the 14 ONNX files `rawtonic ai-bench` runs from the QA model folder (39
-# outputs; notes: benchmark-results/ortt3-2026-11-18/windows/report.md; built
-# with Microsoft's /Qspectre flags, the test build without them gave the same
-# outputs); one
-# synthetic input each. On Windows build_onnxruntime.ps1 also drops the ETW
+# on 14 ONNX files from the QA model folder (39 outputs), one synthetic input
+# per model. Both Windows builds matched Microsoft's CPU outputs. See
+# benchmark-results/ortt3-2026-11-18/windows/report.md#build-a-verification
+# for the /Qspectre build's SHA-256 and verification results.
+# On Windows build_onnxruntime.ps1 also drops the ETW
 # telemetry provider, which `--no_telemetry` alone keeps. Builds are not byte-reproducible across build directories
 # (embedded paths), so each library comes from `--own-runtime DIR` and its
 # SHA-256 is pinned here. (pack name, SHA-256, used_by)
