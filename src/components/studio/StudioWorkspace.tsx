@@ -215,6 +215,8 @@ const TOOLS_MAX_WIDTH = 480;
 const TOOLS_SMALL_MAX_WIDTH = 390;
 /** `.studio-secondary-panel`'s width (zoomed px). */
 const SECONDARY_PANEL_WIDTH = 220;
+/** studio.css hides it in windows this wide or narrower. */
+const SECONDARY_PANEL_HIDDEN_BELOW = 1200;
 
 /** The widest the tool column may be in a window `windowWidth` CSS px wide
  * at Interface Size `uiScale`, in the column's own (zoomed) pixels. */
@@ -752,7 +754,10 @@ export default function StudioWorkspace(props: Props) {
     tools: width,
     toolsMax: toolsMaxWidth(windowWidth, uiScale),
     dock: docked ? dockStored : null,
-    beside: develop && layout === 'split-tools' && panels.left ? SECONDARY_PANEL_WIDTH * (uiScale || 1) : 0,
+    beside:
+      develop && layout === 'split-tools' && panels.left && windowWidth > SECONDARY_PANEL_HIDDEN_BELOW
+        ? SECONDARY_PANEL_WIDTH * (uiScale || 1)
+        : 0,
     toolsInFlow: panels[toolsSide]
   });
   const resizeTools = (delta: number) =>
