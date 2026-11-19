@@ -312,10 +312,8 @@ function histogramOutline(values: number[], max: number): string {
 /** The photo's histogram behind the curve. `fill` is the shown channel's
  * (the Luminance curve shows the luminance one); the RGB curve shows the
  * luminance fill with the red, green and blue channels as `lines` over it,
- * as Capture One does. Each channel at its own scale: the scopes normalise
- * every channel separately (scopes.rs), so they show where each channel's
- * tones lie, not how many pixels one has against another. Nulls where a
- * channel is missing. */
+ * as Capture One does. The scopes put every channel on one scale
+ * (scopes.rs), so their heights compare. Nulls where a channel is missing. */
 export function curveHistogramPaths(
   histogram: unknown,
   channel: string
@@ -324,7 +322,9 @@ export function curveHistogramPaths(
   const single = channel === 'red' || channel === 'green' || channel === 'blue';
   const fill = data ? histogramBins(single ? data[channel] : data.luma) : [];
   const lines = data && channel === 'luma' ? RGB_CHANNELS.map((c) => histogramBins(data[c])) : [];
-  const outline = (values: number[]) => (values.length ? histogramOutline(values, Math.max(1, ...values)) : null);
+  // The scopes' scale as it comes (bins up to 1), as the histogram draws it.
+  const max = Math.max(1, ...fill, ...lines.flat());
+  const outline = (values: number[]) => (values.length ? histogramOutline(values, max) : null);
   return { fill: outline(fill), lines: RGB_CHANNELS.map((_, i) => outline(lines[i] ?? [])) };
 }
 

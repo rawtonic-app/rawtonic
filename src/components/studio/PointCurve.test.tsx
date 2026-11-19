@@ -168,7 +168,7 @@ describe('point curve reading aids (UXR1 D3)', () => {
     );
     const lines = () => [...container.querySelectorAll('.curve-histogram-line')];
     expect(lines().map((l) => l.getAttribute('data-channel'))).toEqual(['red', 'green', 'blue']);
-    // Each channel at its own scale: its peak reaches the top.
+    // One scale for all four: red's full first bin reaches the top like luma's peak.
     expect(lines()[0].getAttribute('d')).toContain('L0.00 15.00');
     expect(container.querySelector('.curve-histogram')?.getAttribute('d')).toContain('L127.50 15.00');
     fireEvent.click(screen.getByRole('button', { name: 'R' }));
