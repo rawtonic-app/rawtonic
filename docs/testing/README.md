@@ -4,6 +4,20 @@ Core tests use synthetic bytes and XMP. They cover traversal, source preservatio
 
 `cargo test --workspace --locked` also runs a separate fixture harness. With no `APP_FIXTURES`, it prints **SKIP** instead of claiming a RAW test passed. With fixtures but no wgpu adapter, it reports adapter absence. No tests are counted as visual-parity certification.
 
+## Windows Recycle Bin probe
+
+In PowerShell, point `RAWTONIC_TEST_NO_BIN_DIR` at an existing writable folder
+on a disposable volume without a Recycle Bin, then run the ignored test:
+
+```powershell
+$env:RAWTONIC_TEST_NO_BIN_DIR = 'X:\QA'
+cargo test -p rawtonic-app --lib --locked platform_trash_refuses_a_volume_without_a_bin_and_preserves_its_file -- --ignored
+```
+
+The probe creates a synthetic file and checks that Windows refuses to recycle
+it and leaves its bytes intact. An unset or empty variable fails the test
+whenever it runs, including in a sweep with `--include-ignored`.
+
 ## Private RAW/golden manifest
 
 Set `APP_FIXTURES` to a directory containing `fixtures.json`:

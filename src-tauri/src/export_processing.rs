@@ -1103,20 +1103,9 @@ pub(crate) async fn export_images_impl(
     if cancellation_token.load(Ordering::SeqCst) {
         return Ok(());
     }
-    // Under a compile limit the variant the shown photo's export renders
-    // with (the deferred display variant for a 16-bit export or several
-    // recipes rendered together, else its display variant) compiles in the
-    // idle compiles' helper before this export's textures exist, if it is
-    // not compiled yet: the wait below and the photo's own wait for it
-    // (G76/WSMOKE19: a 16-bit TIFF exported right after picking it compiled
-    // it beside the textures, 7.2 GB on a Radeon 680M).
-    rawtonic_gpu::gpu_processing::export_of_shown_photo_starts(
-        targets.len() > 1
-            || targets.iter().any(|target| {
-                render_output_precision(&target.output_format, &target.export_settings)
-                    != rawtonic_gpu::gpu_processing::RenderOutputPrecision::EightBit
-            }),
-    );
+    // Under a compile limit the export can wait for the shown photo's
+    // display variant before allocating its textures.
+    rawtonic_gpu::gpu_processing::export_of_shown_photo_starts();
     let prewarm = {
         let app_handle = app_handle.clone();
         let context = context.clone();
@@ -2549,21 +2538,9 @@ pub(crate) fn cancel_running_export(app_handle: &tauri::AppHandle) -> Result<(),
 /// The precision a size estimate renders at: always 8 bits. TIFF is written
 /// uncompressed (`encode_image_to_bytes`), so a 16-bit TIFF's size does not
 /// depend on its pixel values and an 8-bit render encoded at 16 bits has
-/// the same byte count; every other format writes 8 bits. A 16-bit render
-/// needs its own pipeline: on a Radeon 680M picking 16-bit TIFF in the
-/// export dialog compiled one for 39 s at 7.6 GB just for the estimate
-/// (G76/WSMOKE14). Under a compile limit picking it plans that pipeline for
-/// idle time instead (`plan_deferred_exports`), so the export finds it.
-fn estimate_precision(
-    output_format: &str,
-    export_settings: &ExportSettings,
-) -> rawtonic_gpu::gpu_processing::RenderOutputPrecision {
-    use rawtonic_gpu::gpu_processing::RenderOutputPrecision;
-    if render_output_precision(output_format, export_settings) != RenderOutputPrecision::EightBit {
-        rawtonic_gpu::gpu_processing::plan_deferred_exports();
-    }
-    RenderOutputPrecision::EightBit
-}
+/// the same byte count; every other format writes 8 bits.
+const ESTIMATE_PRECISION: rawtonic_gpu::gpu_processing::RenderOutputPrecision =
+    rawtonic_gpu::gpu_processing::RenderOutputPrecision::EightBit;
 
 /// Renders the estimate on a blocking worker, not an async runtime thread.
 #[tauri::command]
@@ -2737,7 +2714,7 @@ fn estimate_sizes(
                 roi: None,
             },
             "estimate_export_size",
-            estimate_precision(&output_format, &export_settings),
+            ESTIMATE_PRECISION,
         )?;
 
         let preview_bytes = encode_image_to_bytes(
@@ -2912,7 +2889,7 @@ fn estimate_sizes(
                 roi: None,
             },
             "estimate_batch_export_size",
-            estimate_precision(&output_format, &export_settings),
+            ESTIMATE_PRECISION,
         )?;
 
         let preview_bytes = encode_image_to_bytes(

@@ -27,8 +27,8 @@ qa_build() {  # VERSION BUNDLE
 
 | Platform | Bundle | Package to serve for N+1 | Package key |
 |---|---|---|---|
-| Linux | `appimage` | `bundle/appimage/Rawtonic QA update_N+1_amd64.AppImage` (rename it without spaces) | `linux-x86_64-appimage` |
-| Windows | `nsis` | `bundle\nsis\Rawtonic QA update_N+1_x64-setup.exe` (rename it without spaces) | `windows-x86_64-nsis` |
+| Linux | `appimage` | `bundle/appimage/Rawtonic QA update_N+1_amd64.AppImage` (rename it without spaces, e.g. `Rawtonic_QA_update_N+1_amd64.AppImage`; keep the `amd64` / `x86_64` part: the notice picks the installer by that architecture in the name and without it offers no Install update) | `linux-x86_64-appimage` |
+| Windows | `nsis` | `bundle\nsis\Rawtonic QA update_N+1_x64-setup.exe` (rename it without spaces; keep `x64-setup.exe`) | `windows-x86_64-nsis` |
 | macOS | `app,dmg` | `COPYFILE_DISABLE=1 tar --no-mac-metadata -czf qa_N+1_aarch64.app.tar.gz -C bundle/macos "Rawtonic QA update.app"`, plus the DMG (renamed `qa_N+1_aarch64.dmg`) as `--installer`: the app offers Install update only when the release has an installer for the computer | `darwin-aarch64-app` |
 
 Copy N's package aside after the first build: the second build overwrites the bundle folder.

@@ -617,13 +617,6 @@ fn start(args: Vec<String>) {
                 // export runs.
                 memory_pressure::guard_idle_compiles(&app_handle);
                 ai_lifecycle::release_for_cold_helper_compiles(&app_handle);
-                // Under a compile limit 16-bit exports' variant compiles in
-                // idle time when a recipe is 16-bit (G76/WCC10).
-                if let Ok(settings) = state::settings::try_current(&app_handle) {
-                    rawtonic_gpu::gpu_processing::set_idle_deferred_exports(
-                        app_settings::has_sixteen_bit_recipe(&settings),
-                    );
-                }
                 export_processing::release_processor_under_pressure(&app_handle);
                 // Roll back file operations a crash interrupted.
                 file_operations::recover(&app_handle);

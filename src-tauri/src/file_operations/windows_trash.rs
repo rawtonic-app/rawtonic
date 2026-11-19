@@ -744,12 +744,9 @@ mod tests {
     #[test]
     #[ignore = "Requires a fresh synthetic removable volume with no Recycle Bin"]
     fn platform_trash_refuses_a_volume_without_a_bin_and_preserves_its_file() {
-        let Some(directory) = std::env::var_os("RAWTONIC_TEST_NO_BIN_DIR") else {
-            eprintln!(
-                "SKIP: RAWTONIC_TEST_NO_BIN_DIR (a folder on a volume without a Bin) is not set"
-            );
-            return;
-        };
+        let directory = std::env::var_os("RAWTONIC_TEST_NO_BIN_DIR")
+            .filter(|directory| !directory.is_empty())
+            .expect("Set RAWTONIC_TEST_NO_BIN_DIR to a writable folder on a disposable volume without a Recycle Bin");
         let temp = tempfile::tempdir_in(directory).unwrap();
         let source = temp.path().join("synthetic-original.txt");
         fs::write(&source, b"synthetic no-bin photograph").unwrap();
