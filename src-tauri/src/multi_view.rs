@@ -2635,20 +2635,21 @@ fn whole_noise_measurement(
             Ok(measured)
         },
     );
-    match measured {
-        Ok(measured) => {
-            let mut kept = NOISE_MEASUREMENTS.lock().unwrap_or_else(|e| e.into_inner());
-            if kept.len() >= NOISE_MEASUREMENTS_KEPT {
-                kept.remove(0);
-            }
-            kept.push((key, measured));
-            measured
-        }
-        Err(e) => {
-            log::warn!("[multi_view] {path}: no whole-photograph noise measurement: {e}");
-            None
-        }
+    // A failure is kept too: the photograph's regions then measure
+    // themselves, as before, rather than building the whole base again for
+    // every region.
+    let measured = measured
+        .inspect_err(|e| {
+            log::warn!("[multi_view] {path}: no whole-photograph noise measurement: {e}")
+        })
+        .ok()
+        .flatten();
+    let mut kept = NOISE_MEASUREMENTS.lock().unwrap_or_else(|e| e.into_inner());
+    if kept.len() >= NOISE_MEASUREMENTS_KEPT {
+        kept.remove(0);
     }
+    kept.push((key, measured));
+    measured
 }
 
 /// The region base of `image`, the pixels `plan` asks for.
