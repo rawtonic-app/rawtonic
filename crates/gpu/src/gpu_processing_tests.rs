@@ -19353,32 +19353,39 @@ fn placed_regions_beyond_the_texture_limit_render_on_their_own() {
 
 /// A placed region with Light flare keeps the photograph's size and place
 /// (Vignette here) and builds the flare's map over the photograph's frame
-/// from its own pixels, its edges standing for the rest: on a photograph
-/// that is uniform outside the region it renders as the whole one.
+/// from its own pixels, without light outside it: on a dark photograph
+/// whose lights all lie in the region it renders as the whole one, also
+/// with a light in the region's last columns (repeating the region's edge
+/// stretched it across the taps beyond, NRR2 review round 3).
 #[test]
 #[ignore = "requires a native GPU"]
 fn placed_regions_keep_their_place_with_light_flare() {
     let context = context();
     let (fw, fh) = (2400, 1800);
     let (x, y, w, h) = (512, 352, 1408, 1088);
-    let (cx, cy) = (x + w / 2, y + h / 2);
-    let image = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(fw, fh, |px, py| {
-        let d = (px as f32 - cx as f32).hypot(py as f32 - cy as f32);
-        image::Rgb([if d < 120.0 { 4.0 } else { 0.1 }; 3])
-    }));
     let profile = json!({ "flareAmount": 60, "vignetteAmount": -50 });
-    let whole = render_region_source(&context, &image, &profile, None);
-    let crop = image.crop_imm(x, y, w, h);
-    let place = ((fw, fh), (x, y));
-    let region = render_placed_region(&context, &crop, &profile, None, place, true, &[]);
-    let (max, p99, mean) = region_differences(&whole, &region, (x, y), REGION_NOISE_MARGIN);
-    let own = render_placed_region(&context, &crop, &profile, None, place, false, &[]);
-    let (own_max, ..) = region_differences(&whole, &own, (x, y), REGION_NOISE_MARGIN);
-    println!(
-        "flare + vignette region: max {max} p99 {p99} mean {mean:.3}; own image max {own_max}"
-    );
-    assert!(max <= 1, "max {max}");
-    assert!(own_max > 1, "the test no longer tells");
+    // A lamp in the middle, and one in the region's last 24 columns.
+    for (name, (cx, cy), radius) in [
+        ("lamp in the middle", (x + w / 2, y + h / 2), 120.0),
+        ("lamp in the last columns", (x + w - 12, y + h / 2), 12.0),
+    ] {
+        let image = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(fw, fh, |px, py| {
+            let d = (px as f32 - cx as f32).hypot(py as f32 - cy as f32);
+            image::Rgb([if d < radius { 4.0 } else { 0.02 }; 3])
+        }));
+        let whole = render_region_source(&context, &image, &profile, None);
+        let crop = image.crop_imm(x, y, w, h);
+        let place = ((fw, fh), (x, y));
+        let region = render_placed_region(&context, &crop, &profile, None, place, true, &[]);
+        let (max, p99, mean) = region_differences(&whole, &region, (x, y), REGION_NOISE_MARGIN);
+        let own = render_placed_region(&context, &crop, &profile, None, place, false, &[]);
+        let (own_max, ..) = region_differences(&whole, &own, (x, y), REGION_NOISE_MARGIN);
+        println!(
+            "flare + vignette, {name}: max {max} p99 {p99} mean {mean:.3}; own image max {own_max}"
+        );
+        assert!(max <= 1, "{name}: max {max}");
+        assert!(own_max > 1, "{name}: the test no longer tells");
+    }
 }
 
 /// A placed region with a mask renders as the whole photograph's pixels:

@@ -13097,24 +13097,29 @@ fn flare_tap(i: u32, map_size: u32, size: u32) -> (u32, u32) {
 /// from windows: the 2 x 2 pixels of map texel (x, y) at (2x, 2y), with the
 /// texels of the input texture (`rgba_f16_row`). `image` is the photo, or
 /// for a region ([`PlacedSource`]) the part of a `photo`-sized photo at
-/// `origin`: the taps then lie in the photo, each read at the nearest pixel
-/// of the part.
+/// `part`: the taps then lie in the photo, those in `part` read from
+/// `image` (where `part` starts at `part_in_image`), the others zero (no
+/// light: the rest of the photo is not loaded, and repeating the part's
+/// edge would stretch a light at it across the map).
 fn create_flare_samples_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     image: &DynamicImage,
     photo: (u32, u32),
-    origin: (u32, u32),
+    part: Roi,
+    part_in_image: (u32, u32),
 ) -> wgpu::Texture {
     use rayon::prelude::*;
 
     let (width, height) = photo;
-    let (last_x, last_y) = (image.width() - 1, image.height() - 1);
     let side = 2 * FLARE_MAP_SIZE;
-    let columns: Vec<u32> = (0..FLARE_MAP_SIZE)
+    let inside = |v: u32, start: u32, size: u32, offset: u32| {
+        (v >= start && v - start < size).then(|| v - start + offset)
+    };
+    let columns: Vec<Option<u32>> = (0..FLARE_MAP_SIZE)
         .flat_map(|i| {
             let (first, second) = flare_tap(i, FLARE_MAP_SIZE, width);
-            [first, second].map(|x| x.saturating_sub(origin.0).min(last_x))
+            [first, second].map(|x| inside(x, part.x, part.width, part_in_image.0))
         })
         .collect();
     let mut texels = vec![f16::ZERO; side as usize * side as usize * 4];
@@ -13124,10 +13129,13 @@ fn create_flare_samples_texture(
             .enumerate()
             .for_each(|(i, rows)| {
                 let (first, second) = flare_tap(i as u32, FLARE_MAP_SIZE, height);
-                let ys = [first, second].map(|y| y.saturating_sub(origin.1).min(last_y));
+                let ys = [first, second].map(|y| inside(y, part.y, part.height, part_in_image.1));
                 for (row, y) in rows.chunks_exact_mut(side as usize * 4).zip(ys) {
-                    for (texel, &x) in row.as_chunks_mut::<4>().0.iter_mut().zip(&columns) {
-                        rgba_f16_row(image, x, y, texel.as_mut_slice());
+                    let Some(y) = y else { continue };
+                    for (texel, x) in row.as_chunks_mut::<4>().0.iter_mut().zip(&columns) {
+                        if let Some(x) = *x {
+                            rgba_f16_row(image, x, y, texel.as_mut_slice());
+                        }
                     }
                 }
             });
@@ -13394,6 +13402,12 @@ fn render_in_windows(
                 &context.queue,
                 image,
                 (width, height),
+                Roi {
+                    x: 0,
+                    y: 0,
+                    width,
+                    height,
+                },
                 (0, 0),
             )
         })
@@ -14476,7 +14490,7 @@ fn render_dynamic_image(
         ];
     }
     // Light flare's map reads the photograph: gathered from the region,
-    // its edges standing for the rest.
+    // the rest without light.
     let placed_flare = placed
         .as_ref()
         .filter(|_| request.adjustments.global.flare_amount > 0.0)
@@ -14486,7 +14500,11 @@ fn render_dynamic_image(
                 queue,
                 &placed.image,
                 (placed.photo_width, placed.photo_height),
-                (placed.window.x, placed.window.y),
+                placed.region,
+                (
+                    placed.region.x - placed.window.x,
+                    placed.region.y - placed.window.y,
+                ),
             )
             .create_view(&Default::default())
         });
