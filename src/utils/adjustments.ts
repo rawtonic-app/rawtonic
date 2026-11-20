@@ -2254,7 +2254,7 @@ export const withPresetVersions = <T extends Partial<Adjustments>>(preset: T) =>
   );
 
 /** Keys whose values render the pattern of the recipe's grain version. */
-const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'] as const;
+export const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'] as const;
 
 /** As `withSharpenVersion` for the grain: wherever grain values are copied
  * (paste, tool copy, Edit all selected, presets) its version goes along

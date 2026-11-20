@@ -1868,8 +1868,17 @@ pub(crate) fn process_preview_job(
             interim,
             is_interactive,
             || preview_cache::preparation_key(&adjustments_clone),
-        ) && (c.preview_dim == preview_dim || Some(c.preview_dim) == draft_dim)
+        ) && (c.preview_dim == preview_dim
+            || Some(c.preview_dim) == draft_dim
+            || reduced_drag_divisor(is_interactive, c.preview_dim, preview_dim).is_some())
     });
+    // The live quality's divisor applies to the requested size, the
+    // reduction on top of it to the larger base.
+    let interactive_divisor = match cached_preview_lock.as_ref() {
+        Some(c) if base_valid => reduced_drag_divisor(is_interactive, c.preview_dim, preview_dim)
+            .map_or(interactive_divisor, |reduced| interactive_divisor * reduced),
+        _ => interactive_divisor,
+    };
     let small_valid = base_valid
         && cached_preview_lock.as_ref().is_some_and(|c| {
             c.interactive_divisor == interactive_divisor && c.small_image.is_some()
@@ -2479,6 +2488,16 @@ fn browser_region_frame(
     second_window: bool,
 ) -> bool {
     !interactive && full_zoom && !crop_edit && has_roi && !second_window
+}
+
+/// A drag asking for fewer pixels than the cached base has (with grain,
+/// drags of other controls render at the size without grain,
+/// `dragTargetResolution` in src/utils/previews.ts) renders that base
+/// reduced by this divisor, as the interactive input of a coarser live
+/// quality: the base is built again neither for the drag nor after it.
+fn reduced_drag_divisor(is_interactive: bool, base_dim: u32, preview_dim: u32) -> Option<f32> {
+    (is_interactive && preview_dim > 0 && preview_dim < base_dim)
+        .then(|| base_dim as f32 / preview_dim as f32)
 }
 
 #[cfg(any(target_os = "linux", test))]
@@ -4634,6 +4653,24 @@ mod preview_memory_tests {
         assert!(pass_of(&job(false, false, true, zoomed)).is_none());
         assert!(pass_of(&job(false, true, false, zoomed)).is_none());
         assert!(pass_of(&job(false, true, true, None)).is_none());
+    }
+
+    #[test]
+    fn a_smaller_drag_frame_renders_the_base_reduced() {
+        assert_eq!(
+            reduced_drag_divisor(true, 1608, 1024),
+            Some(1608.0 / 1024.0)
+        );
+        // Settled frames and drags at the base's size or larger keep the
+        // base's rules.
+        assert_eq!(reduced_drag_divisor(false, 1608, 1024), None);
+        assert_eq!(reduced_drag_divisor(true, 1608, 1608), None);
+        assert_eq!(reduced_drag_divisor(true, 1024, 1608), None);
+        // The live quality limits the requested size, the reduction then
+        // serves it from the larger base (Linux High: at most 1536 px).
+        let quality = browser_interactive_divisor(2048, "high", 1.0);
+        let divisor = quality * reduced_drag_divisor(true, 3200, 2048).unwrap();
+        assert!((3200.0 / divisor - 1536.0).abs() < 0.01);
     }
 
     #[test]

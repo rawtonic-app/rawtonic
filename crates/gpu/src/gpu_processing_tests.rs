@@ -9650,6 +9650,126 @@ fn effect_passes_frame_cost_probe() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; prints what grain costs per display frame"]
+fn grain_frame_cost_probe() {
+    // A measurement, not a check (G76/GRN1): whole display frames through
+    // the effect passes at the Radeon 680M's preview sizes (1024 x 682 the
+    // default fit view without grain, 1608 x 1072 with grain, 2048 x 1366
+    // with native DPI), for a Basic edit, the same with the first grain
+    // (grainVersion 1: the main pass stores the colour, the finish pass adds
+    // a hash grain), with film grain (grainVersion 3, the default of new
+    // edits) monochrome and in colour, with Glow + Halation (terms pass) and
+    // with all three. Each frame changes Exposure; the time runs until the
+    // GPU has finished the frame. Modes take turns, five frames each.
+    // `RAWTONIC_GRAIN_PROBE_SIZES=WxH,...` picks other sizes.
+    let context = context();
+    let _limit = DeviceCompileLimit::set(&context);
+    let sizes: Vec<(u32, u32)> = std::env::var("RAWTONIC_GRAIN_PROBE_SIZES")
+        .ok()
+        .map(|sizes| {
+            sizes
+                .split(',')
+                .map(|size| {
+                    let (w, h) = size.split_once('x').unwrap();
+                    (w.parse().unwrap(), h.parse().unwrap())
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| vec![(1024, 682), (1608, 1072), (2048, 1366)]);
+    let basic = json!({"exposure":0.3,"contrast":20,"shadows":25,"whites":-10,"vibrance":20,
+        "clarity":15,"toneVersion":18});
+    let with = |effects: serde_json::Value| {
+        let mut profile = basic.clone();
+        for (key, value) in effects.as_object().unwrap() {
+            profile[key] = value.clone();
+        }
+        profile
+    };
+    let film = json!({"grainAmount":40,"grainSize":25,"grainRoughness":50,"grainVersion":3});
+    let modes = [
+        ("basic", basic.clone()),
+        (
+            "grain_v1",
+            with(json!({"grainAmount":40,"grainSize":25,"grainRoughness":50})),
+        ),
+        ("film_grain", with(film.clone())),
+        (
+            "film_grain_colour",
+            with(json!({"grainAmount":40,"grainSize":25,
+            "grainRoughness":50,"grainVersion":3,"grainColor":100})),
+        ),
+        (
+            "glow_halation",
+            with(json!({"glowAmount":30,"halationAmount":30})),
+        ),
+        (
+            "all",
+            with(json!({"glowAmount":30,"halationAmount":30,"grainAmount":40,
+            "grainSize":25,"grainRoughness":50,"grainVersion":3})),
+        ),
+    ];
+    for (width, height) in sizes {
+        let view = input(&context, width, height, 31);
+        let processor = effect_pass_processor(&context, width, height, true);
+        let adjustments = modes
+            .iter()
+            .map(|(_, profile)| get_all_adjustments_from_json(profile, true, Some(3)))
+            .collect::<Vec<_>>();
+        for adjustments in &adjustments {
+            prepare_preview_pipeline(&processor, preview_features(adjustments));
+        }
+        let mut times = vec![Vec::new(); modes.len()];
+        for round in 0..14 {
+            for (mode, adjustments) in adjustments.iter().enumerate() {
+                for frame in 0..5 {
+                    let mut adjustments = adjustments.clone();
+                    adjustments.uniforms.global.exposure += 0.01 * (1 + frame) as f32;
+                    let started = Instant::now();
+                    processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments,
+                                mask_bitmaps: &[],
+                                lut: None,
+                                roi: None,
+                            },
+                            true,
+                            RenderOutputPrecision::EightBit,
+                        )
+                        .unwrap();
+                    let _ = context.device.poll(wgpu::PollType::wait_indefinitely());
+                    // The first rounds build the blurs and the detail cache
+                    // and compile the passes.
+                    if round >= 2 {
+                        times[mode].push(started.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+            }
+        }
+        effect_passes::FORCED.with(|forced| forced.set(None));
+        let medians = times
+            .into_iter()
+            .map(|mut times| {
+                times.sort_by(f64::total_cmp);
+                times[times.len() / 2]
+            })
+            .collect::<Vec<_>>();
+        let mp = f64::from(width * height) / 1e6;
+        for ((name, _), median) in modes.iter().zip(&medians) {
+            println!(
+                "{}",
+                json!({"probe":"grain_frame_cost","edit":name,"width":width,"height":height,
+                    "median_ms":median,"added_ms":median - medians[0],
+                    "added_ms_per_mp":(median - medians[0]) / mp})
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; prints what the tone split costs per drag step"]
 fn tone_split_drag_render_time() {
     // A measurement, not a check (G76/COLD4): display frames at 2560 x

@@ -50,7 +50,7 @@ import { useSecondWindowStore } from '../store/useSecondWindowStore';
 import { interactivePreview, isRegionFrame } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
-import { needsFrameSize, previewTargetResolution } from '../utils/previews';
+import { dragTargetResolution, GrainDrag, needsFrameSize, previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
 import { onSharpenViewReady, type SharpenView } from '../utils/sharpenView';
 import { onColorNoiseViewReady } from '../utils/colorNoiseView';
@@ -831,30 +831,59 @@ export function useImageProcessing(
     }
   }, [activeView, adjustments, activePanel, selectedImage?.isReady, generateUncroppedPreview]);
 
-  const calculateTargetRes = useCallback(() => {
-    const baseTargetRes = appSettings?.editorPreviewResolution || 1920;
-    if (!(appSettings?.enableZoomHifi ?? true) || displaySize.width === 0) {
-      return baseTargetRes;
-    }
+  // The current drag's grain values (`dragTargetResolution`).
+  const grainDragRef = useRef<GrainDrag | null>(null);
+  useEffect(
+    () =>
+      useEditorStore.subscribe((state, previous) => {
+        if (state.isSliderDragging === previous.isSliderDragging) return;
+        grainDragRef.current = state.isSliderDragging
+          ? new GrainDrag(state.previewOverride ?? state.adjustments)
+          : null;
+      }),
+    []
+  );
 
-    return previewTargetResolution({
-      display: displaySize,
-      dpr: typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
-      fullDpi: !!appSettings?.useFullDpiRendering,
-      zoomMultiplier: appSettings?.highResZoomMultiplier || 1.0,
-      original: originalSize,
-      grain: hasGrain
-    });
-  }, [
-    appSettings?.enableZoomHifi,
-    appSettings?.editorPreviewResolution,
-    appSettings?.highResZoomMultiplier,
-    appSettings?.useFullDpiRendering,
-    displaySize.width,
-    displaySize.height,
-    originalSize,
-    hasGrain
-  ]);
+  // `dragAdjustments`: a drag's frame (`dragTargetResolution`).
+  const calculateTargetRes = useCallback(
+    (dragAdjustments?: Adjustments) => {
+      const baseTargetRes = appSettings?.editorPreviewResolution || 1920;
+      if (!(appSettings?.enableZoomHifi ?? true) || displaySize.width === 0) {
+        return baseTargetRes;
+      }
+
+      const params = {
+        display: displaySize,
+        dpr: typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
+        fullDpi: !!appSettings?.useFullDpiRendering,
+        zoomMultiplier: appSettings?.highResZoomMultiplier || 1.0,
+        original: originalSize,
+        grain: hasGrain
+      };
+      if (!dragAdjustments) return previewTargetResolution(params);
+      // A drag's own grain: dragging Amount up from zero renders at the
+      // grain size from its first move with grain, not only once the store
+      // commits it.
+      params.grain = (dragAdjustments.grainAmount ?? 0) > 0;
+      const drag = grainDragRef.current;
+      // The settled size: a drag of a grain control, a drag whose start was
+      // not seen, and the Full Resolution live quality, which renders every
+      // pixel while dragging.
+      const settled = !drag || drag.grainChanged(dragAdjustments) || appSettings?.livePreviewQuality === 'full';
+      return dragTargetResolution(params, settled);
+    },
+    [
+      appSettings?.enableZoomHifi,
+      appSettings?.editorPreviewResolution,
+      appSettings?.highResZoomMultiplier,
+      appSettings?.livePreviewQuality,
+      appSettings?.useFullDpiRendering,
+      displaySize.width,
+      displaySize.height,
+      originalSize,
+      hasGrain
+    ]
+  );
 
   // A slider drag's moves between store commits (utils/sliderDraft.ts), as
   // the drag branch of the effect below would render them, in the multi view
@@ -883,7 +912,7 @@ export function useImageProcessing(
           path,
           adjustments: draftAdjustments,
           dragging: true,
-          targetRes: calculateTargetResRef.current(),
+          targetRes: calculateTargetResRef.current(draftAdjustments),
           inputAt: performanceDiagnosticsEnabled ? latestPointerInputTime() : 0,
           dispatchAt: performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0
         });
@@ -997,7 +1026,7 @@ export function useImageProcessing(
 
     if (isSliderDragging) {
       if (appSettings?.enableLivePreviews !== false && !wasRenderedAsDraft(renderAdjustments)) {
-        applyAdjustments(renderAdjustments, true, targetRes);
+        applyAdjustments(renderAdjustments, true, calculateTargetRes(renderAdjustments));
       }
     } else {
       currentResRef.current = targetRes;

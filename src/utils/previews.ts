@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
 import { Images } from 'lucide-react';
 import { notify } from '../activity/notify';
 import { Invokes, type Option, type PreviewBuildProgress } from '../components/ui/AppProperties';
+import { type Adjustments, GRAIN_KEYS } from './adjustments';
 
 /**
  * The Develop view's long edge in device pixels as far as the webview can
@@ -104,6 +105,50 @@ export function previewTargetResolution({
   }
   if (origMax && targetRes !== origMax) targetRes = Math.ceil(targetRes / 256) * 256;
   return Math.round(targetRes);
+}
+
+/** The grain values of a recipe: a drag that changes them is a drag of a
+ * grain control. */
+export function grainSignature(adjustments: Partial<Adjustments>): string {
+  return JSON.stringify(GRAIN_KEYS.map((key) => adjustments[key] ?? null));
+}
+
+/** One drag's grain values: whether it has changed them since it began,
+ * also once they are back at their start (the drag of a grain control keeps
+ * its frame size until it ends). */
+export class GrainDrag {
+  private readonly start: string;
+  private changed = false;
+
+  constructor(adjustments: Partial<Adjustments>) {
+    this.start = grainSignature(adjustments);
+  }
+
+  grainChanged(adjustments: Partial<Adjustments>): boolean {
+    if (grainSignature(adjustments) !== this.start) this.changed = true;
+    return this.changed;
+  }
+}
+
+/**
+ * The long edge a drag's frames render at. With grain on, a drag of another
+ * control renders at the size a frame without grain has, as Lightroom's and
+ * Capture One's drag previews are coarser than the settled view: one
+ * rendered pixel per screen pixel cost the Radeon 680M 2.5× the pixels of
+ * the default preview, and with them about 40 of 120 drag frames (notes:
+ * G76/GRN1). The grain stays visible, softer while the drag lasts; the
+ * settled frame shows it one rendered pixel per screen pixel again.
+ * `settledSize`: the drag keeps the settled size — a drag of a grain
+ * control, so the grain being set shows while it is set as it will settle,
+ * and the Full Resolution live quality.
+ */
+export function dragTargetResolution(
+  params: Parameters<typeof previewTargetResolution>[0],
+  settledSize: boolean
+): number {
+  const settled = previewTargetResolution(params);
+  if (!params.grain || settledSize) return settled;
+  return Math.min(settled, previewTargetResolution({ ...params, grain: false }));
 }
 
 /**

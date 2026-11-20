@@ -1368,11 +1368,12 @@ fn apply_portable_grain(rgb: vec3<f32>, coord: vec2<u32>) -> vec3<f32> {
 // black-and-white film).
 @group(0) @binding(27) var<storage, read> film_grain_tile: array<u32>;
 
-// Tile layout (film_grain.rs): TILE² texels per level at mip 0, LEVELS
-// levels as half floats, two per word.
+// Tile layout (gpu_processing.rs `level_pairs` of film_grain.rs's tile):
+// TILE² texels per level at mip 0, per texel one word per pair of
+// neighbouring levels (k0, k0 + 1; k0 = -1 the empty level) as half floats.
 const FILM_TILE: u32 = 512u;
 const FILM_LEVELS: u32 = 12u;
-const FILM_WORDS: u32 = 6u;
+const FILM_WORDS: u32 = 12u;
 const FILM_U_MAX: f32 = 0.95;
 const FILM_MIPS: u32 = 10u;
 const FILM_MIP_BIAS: f32 = 0.5;
@@ -1396,30 +1397,18 @@ const FILM_DMAX: f32 = 2.4;
 // Amount (grain_amount = slider / 200) to the density scale of the grain.
 const FILM_GAIN: f32 = 0.26;
 
-// Words before mip `j` of the tile.
+// Words before mip `j` of the tile: the sides halve, so the texels before
+// it are (4^10 - 4^(10 - j)) / 3.
 fn film_mip_offset(j: u32) -> u32 {
-    var words = 0u;
-    var side = FILM_TILE;
-    for (var i = 0u; i < j; i++) {
-        words += side * side;
-        side = side >> 1u;
-    }
-    return words * FILM_WORDS;
+    return (0x55555u - (0x55555u >> (2u * j))) * FILM_WORDS;
 }
 
 // The level-interpolated fluctuation (level k0 to k0 + 1 by w; k0 = -1 is
 // the empty level) of texel (x, y), wrapping, of the mip at `base`.
 fn film_texel(base: u32, side: u32, x: u32, y: u32, k0: i32, w: f32) -> f32 {
-    let t = base + ((y & (side - 1u)) * side + (x & (side - 1u))) * FILM_WORDS;
-    var a = 0.0;
-    if (k0 >= 0) {
-        let k = u32(k0);
-        let pair = unpack2x16float(film_grain_tile[t + k / 2u]);
-        a = select(pair.x, pair.y, (k & 1u) == 1u);
-    }
-    let k1 = u32(k0 + 1);
-    let pair1 = unpack2x16float(film_grain_tile[t + k1 / 2u]);
-    return mix(a, select(pair1.x, pair1.y, (k1 & 1u) == 1u), w);
+    let t = base + (y & (side - 1u)) * side + (x & (side - 1u));
+    let pair = unpack2x16float(film_grain_tile[t + u32(k0 + 1) * side * side]);
+    return mix(pair.x, pair.y, w);
 }
 
 // Bilinear read of mip `j` at the mip-0 texel position `pi` + `pf` / 4096.
