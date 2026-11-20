@@ -155,6 +155,10 @@ struct Inner {
     locked: bool,
     /// The background around the photograph (the main viewer's).
     background: [f32; 4],
+    /// The recipe whose region failed to develop: its whole frame goes
+    /// first then ([`REGION_BEFORE_WHOLE`]), so the window is not left
+    /// without a frame of it.
+    region_failed: Option<u64>,
 }
 
 /// The recipe of the newest preview the main window rendered.
@@ -669,7 +673,8 @@ fn want(inner: &Inner) -> Option<Want> {
         !current && !whole_current.is_some_and(|w| whole_is_sharp(w, size, zoom))
     });
     let recipe = Arc::clone(&shown.recipe);
-    match next_layer(whole_ok, region_needed.is_some(), REGION_BEFORE_WHOLE)? {
+    let region_first = REGION_BEFORE_WHOLE && inner.region_failed != Some(shown.recipe_key);
+    match next_layer(whole_ok, region_needed.is_some(), region_first)? {
         CellLayer::Whole => Some(Want::Whole { recipe }),
         CellLayer::Region => region_needed.map(|(zoom, _)| Want::Region { recipe, zoom }),
     }
@@ -734,6 +739,10 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                                 developed.rgba.dimensions(),
                                 frame,
                             );
+                            // A region of an earlier recipe would cover it.
+                            if !region_is_of(display, &path, recipe_key) {
+                                display.remove_cell_region(&path);
+                            }
                             paint(display, &context, background);
                         }
                         inner.whole = Some(Whole {
@@ -813,7 +822,19 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                         region.ms
                     );
                 }
-                Err(error) => log::warn!("[second_window] {path}: region not developed: {error}"),
+                Err(error) => {
+                    log::warn!("[second_window] {path}: region not developed: {error}");
+                    let whole_old = {
+                        let mut guard = lock_recover(&INNER);
+                        let Some(inner) = guard.as_mut() else { return };
+                        inner.region_failed = Some(recipe_key);
+                        !inner.whole.is_some_and(|w| w.recipe_key == recipe_key)
+                    };
+                    // Developed first (REGION_BEFORE_WHOLE): the whole still follows.
+                    if whole_old {
+                        schedule(app_handle);
+                    }
+                }
             }
         }
     }

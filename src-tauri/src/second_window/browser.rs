@@ -84,12 +84,12 @@ fn keep(jpeg: Vec<u8>) -> Uuid {
 /// is locked: the main window's frames wait on that lock): a lossless PNG,
 /// as the main window's settled frames are (a reduced whole,
 /// preview_jpeg::settled_lossless; the visible region at 100 %,
-/// `editor_preview::browser_region_frame`), so both windows show the same
-/// pixels. This window's own frames are only developed once an edit rests.
-/// At 100 % its q99 JPEG region moved fine chroma out of the ±15 % bar in
-/// 46 of 80 cells against the export (SWC1); the PNG leaves the export's
-/// own 8-bit floor (docs/benchmark-results/
-/// swc2-second-window-regions-2026-11-20/REPORT.md).
+/// `editor_preview::browser_region_frame`), so the page shows the pixels
+/// this window developed. At 100 % its q99 JPEG region moved fine chroma out
+/// of the ±15 % bar in 46 of 80 cells against the export (SWC1); the PNG
+/// left 7 (the export's own 8-bit rounding: 6). The region's own development
+/// still differs from the main window's with colour noise reduction on
+/// (docs/benchmark-results/swc2-second-window-regions-2026-11-20/REPORT.md).
 pub(super) fn encode(rgba: &image::RgbaImage) -> Result<Vec<u8>, String> {
     crate::preview_jpeg::encode_settled_like(rgba, 1.0, Some(true))
 }
