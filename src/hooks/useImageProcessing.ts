@@ -861,6 +861,10 @@ export function useImageProcessing(
         grain: hasGrain
       };
       if (!dragAdjustments) return previewTargetResolution(params);
+      // A drag's own grain: dragging Amount up from zero renders at the
+      // grain size from its first move with grain, not only once the store
+      // commits it.
+      params.grain = (dragAdjustments.grainAmount ?? 0) > 0;
       const drag = grainDragRef.current;
       // The settled size: a drag of a grain control, a drag whose start was
       // not seen, and the Full Resolution live quality, which renders every

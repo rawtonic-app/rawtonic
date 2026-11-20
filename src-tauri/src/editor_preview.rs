@@ -1872,11 +1872,11 @@ pub(crate) fn process_preview_job(
             || Some(c.preview_dim) == draft_dim
             || reduced_drag_divisor(is_interactive, c.preview_dim, preview_dim).is_some())
     });
+    // The live quality's divisor applies to the requested size, the
+    // reduction on top of it to the larger base.
     let interactive_divisor = match cached_preview_lock.as_ref() {
         Some(c) if base_valid => reduced_drag_divisor(is_interactive, c.preview_dim, preview_dim)
-            .map_or(interactive_divisor, |reduced| {
-                interactive_divisor.max(reduced)
-            }),
+            .map_or(interactive_divisor, |reduced| interactive_divisor * reduced),
         _ => interactive_divisor,
     };
     let small_valid = base_valid
@@ -4666,6 +4666,11 @@ mod preview_memory_tests {
         assert_eq!(reduced_drag_divisor(false, 1608, 1024), None);
         assert_eq!(reduced_drag_divisor(true, 1608, 1608), None);
         assert_eq!(reduced_drag_divisor(true, 1024, 1608), None);
+        // The live quality limits the requested size, the reduction then
+        // serves it from the larger base (Linux High: at most 1536 px).
+        let quality = browser_interactive_divisor(2048, "high", 1.0);
+        let divisor = quality * reduced_drag_divisor(true, 3200, 2048).unwrap();
+        assert!((3200.0 / divisor - 1536.0).abs() < 0.01);
     }
 
     #[test]
