@@ -505,10 +505,15 @@ pub fn read_exif(file_bytes: &[u8]) -> Option<Exif> {
 /// A zeroed buffer as long as the TIFF `data` with the bytes kamadak-exif's
 /// TIFF parser reads copied in: the header, each IFD of the main chain (at
 /// most 8, as it parses) and of its Exif, GPS and Interop IFDs, and every
-/// field value stored outside its entry. The zeroed allocation is not
-/// touched, so only those pages of a mapped file are read. None when
-/// `data` is no TIFF.
+/// field value stored outside its entry, read as that parser reads them
+/// (a child IFD pointer is the first BYTE, SHORT or LONG of its value).
+/// Ranges the parser would reject as truncated are not copied (it then
+/// fails as on the whole file); each page is copied at most once and each
+/// IFD walked once, so the work is bounded by the file's size. The zeroed
+/// allocation is not touched, so only those pages of a mapped file are
+/// read. None when `data` is no TIFF.
 fn tiff_structure(data: &[u8]) -> Option<Vec<u8>> {
+    const PAGE: usize = 4096;
     let le = match data.get(..4)? {
         [0x49, 0x49, 0x2A, 0x00] => true,
         [0x4D, 0x4D, 0x00, 0x2A] => false,
@@ -531,29 +536,57 @@ fn tiff_structure(data: &[u8]) -> Option<Vec<u8>> {
         } as usize)
     };
     let mut out = vec![0u8; data.len()];
-    let mut copy = |start: usize, len: usize| {
-        let end = start.saturating_add(len).min(data.len());
-        if start < end {
-            out[start..end].copy_from_slice(&data[start..end]);
+    let mut copied = vec![false; data.len().div_ceil(PAGE)];
+    // Copies `data[start..start + len]` (by whole pages) when it lies in the
+    // file; false when it does not.
+    let mut copy = |start: usize, len: usize| -> bool {
+        let Some(end) = start.checked_add(len).filter(|end| *end <= data.len()) else {
+            return false;
+        };
+        for page in start / PAGE..end.div_ceil(PAGE) {
+            if !copied[page] {
+                copied[page] = true;
+                let range = page * PAGE..((page + 1) * PAGE).min(data.len());
+                out[range.clone()].copy_from_slice(&data[range]);
+            }
+        }
+        true
+    };
+    let unit = |typ: usize| -> usize {
+        match typ {
+            1 | 2 | 6 | 7 => 1,
+            3 | 8 => 2,
+            4 | 9 | 11 => 4,
+            5 | 10 | 12 => 8,
+            _ => 0,
         }
     };
     copy(0, 8);
-    // (offset, is the main chain, child pointers this IFD's context knows)
-    const TIFF_CHILDREN: &[u16] = &[0x8769, 0x8825]; // Exif, GPS
-    const EXIF_CHILDREN: &[u16] = &[0xA005]; // Interop
-    let mut queue: Vec<(usize, bool, &[u16])> = vec![(u32_at(4)?, true, TIFF_CHILDREN)];
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+    enum Ctx {
+        Tiff,
+        Exif,
+        Other,
+    }
+    let mut visited = HashSet::new();
+    let mut queue = vec![(u32_at(4)?, Ctx::Tiff, true)];
     let mut main_ifds = 0;
-    while let Some((offset, main, children)) = queue.pop() {
+    while let Some((offset, ctx, main)) = queue.pop() {
         if main {
             if offset == 0 || main_ifds >= 8 {
                 continue;
             }
             main_ifds += 1;
         }
+        if !visited.insert((offset, ctx, main)) {
+            continue;
+        }
         let Some(count) = u16_at(offset) else {
             continue;
         };
-        copy(offset, 2 + 12 * count + 4);
+        if !copy(offset, 2 + 12 * count + 4) {
+            continue;
+        }
         for i in 0..count {
             let entry = offset + 2 + 12 * i;
             let (Some(tag), Some(typ), Some(cnt)) =
@@ -561,29 +594,34 @@ fn tiff_structure(data: &[u8]) -> Option<Vec<u8>> {
             else {
                 break;
             };
-            if let Some(&child) = children.iter().find(|&&c| usize::from(c) == tag) {
-                let child_children = if child == 0x8769 { EXIF_CHILDREN } else { &[] };
-                if let Some(at) = u32_at(entry + 8) {
-                    queue.push((at, false, child_children));
-                }
-                continue;
-            }
-            let unit = match typ {
-                1 | 2 | 6 | 7 => 1,
-                3 | 8 => 2,
-                4 | 9 | 11 => 4,
-                5 | 10 | 12 => 8,
-                _ => 0,
+            let Some(len) = unit(typ).checked_mul(cnt) else {
+                break;
             };
-            let len = unit * cnt;
-            if len > 4
-                && let Some(at) = u32_at(entry + 8)
-            {
-                copy(at, len);
+            let at = if len <= 4 {
+                entry + 8
+            } else {
+                match u32_at(entry + 8) {
+                    Some(at) if copy(at, len) => at,
+                    _ => break,
+                }
+            };
+            let child = match (ctx, tag) {
+                (Ctx::Tiff, 0x8769) => Some(Ctx::Exif),
+                (Ctx::Tiff, 0x8825) | (Ctx::Exif, 0xA005) => Some(Ctx::Other),
+                _ => None,
+            };
+            let pointer = match typ {
+                1 if cnt > 0 => data.get(at).map(|b| usize::from(*b)),
+                3 if cnt > 0 => u16_at(at),
+                4 if cnt > 0 => u32_at(at),
+                _ => None,
+            };
+            if let (Some(child), Some(pointer)) = (child, pointer) {
+                queue.push((pointer, child, false));
             }
         }
         if main && let Some(next) = u32_at(offset + 2 + 12 * count) {
-            queue.push((next, true, TIFF_CHILDREN));
+            queue.push((next, Ctx::Tiff, true));
         }
     }
     Some(out)
@@ -2627,7 +2665,8 @@ mod tests {
         assert!(fields(&read).iter().any(|f| f.contains("FocalLength ")));
         let structure = super::tiff_structure(&tiff).unwrap();
         assert_eq!(structure.len(), tiff.len());
-        assert!(structure[image_data].iter().all(|b| *b == 0));
+        // Copied by whole 4 KB pages: the image data past the tags' page stays zero.
+        assert!(structure[4096..image_data.end].iter().all(|b| *b == 0));
         for path in ["photo.dng", "photo.tif"] {
             assert_eq!(
                 super::read_exif_data_from_shared(path, std::sync::Arc::new(tiff.clone())),
@@ -2635,6 +2674,106 @@ mod tests {
             );
         }
         assert!(super::tiff_structure(b"FUJIFILMCCD-RAW ").is_none());
+    }
+
+    /// A small TIFF whose IFD0 points to an Exif IFD with `pointer`'s type
+    /// and count (inline, or an out-of-line array whose first value is the
+    /// offset), the Exif IFD holding an out-of-line rational FocalLength;
+    /// `next` is IFD0's next-IFD offset.
+    fn tiff_with_pointer(big_endian: bool, typ: u16, count: u32, next: u32) -> Vec<u8> {
+        let (w16, w32): (fn(u16) -> [u8; 2], fn(u32) -> [u8; 4]) = if big_endian {
+            (u16::to_be_bytes, u32::to_be_bytes)
+        } else {
+            (u16::to_le_bytes, u32::to_le_bytes)
+        };
+        let exif_ifd: u32 = 64;
+        let mut t = if big_endian {
+            b"MM\x00\x2a".to_vec()
+        } else {
+            b"II\x2a\x00".to_vec()
+        };
+        t.extend(w32(8));
+        t.extend(w16(1));
+        t.extend(w16(0x8769));
+        t.extend(w16(typ));
+        t.extend(w32(count));
+        let unit = match typ {
+            1 => 1,
+            3 => 2,
+            _ => 4,
+        };
+        let array_at: u32 = 40;
+        if unit * count <= 4 {
+            let mut inline = [0u8; 4];
+            match typ {
+                1 => inline[0] = exif_ifd as u8,
+                3 => inline[..2].copy_from_slice(&w16(exif_ifd as u16)),
+                _ => inline.copy_from_slice(&w32(exif_ifd)),
+            }
+            t.extend(inline);
+        } else {
+            t.extend(w32(array_at));
+        }
+        t.extend(w32(next));
+        t.resize(array_at as usize, 0);
+        match typ {
+            1 => t.extend(std::iter::repeat_n(exif_ifd as u8, count as usize)),
+            3 => (0..count).for_each(|_| t.extend(w16(exif_ifd as u16))),
+            _ => (0..count).for_each(|_| t.extend(w32(exif_ifd))),
+        }
+        t.resize(exif_ifd as usize, 0);
+        t.extend(w16(1));
+        t.extend(w16(0x920A));
+        t.extend(w16(5));
+        t.extend(w32(1));
+        t.extend(w32(exif_ifd + 18));
+        t.extend(w32(0));
+        t.extend(w32(35));
+        t.extend(w32(1));
+        t.extend(std::iter::repeat_n(0xAB, 8192));
+        t
+    }
+
+    /// The TIFF prepass reads what kamadak-exif's parser reads: child IFD
+    /// pointers of every type and placement it accepts, malformed files
+    /// failing as on the whole file, an IFD chain that loops walked once.
+    #[test]
+    fn tiff_exif_prepass_reads_what_the_parser_reads() {
+        let fields = |exif: Option<Exif>| -> Option<Vec<String>> {
+            exif.map(|exif| {
+                exif.fields()
+                    .map(|f| format!("{} {} {}", f.ifd_num, f.tag, f.display_value()))
+                    .collect()
+            })
+        };
+        let whole = |tiff: &[u8]| {
+            fields(
+                exif::Reader::new()
+                    .read_from_container(&mut Cursor::new(tiff))
+                    .ok(),
+            )
+        };
+        let mut cases = Vec::new();
+        for big_endian in [false, true] {
+            for (typ, count) in [(1, 1), (3, 1), (4, 1), (1, 6), (3, 3), (4, 2)] {
+                cases.push(tiff_with_pointer(big_endian, typ, count, 0));
+            }
+            // A next-IFD offset back to IFD0 (a loop) and one past the end.
+            cases.push(tiff_with_pointer(big_endian, 4, 1, 8));
+            cases.push(tiff_with_pointer(big_endian, 4, 1, 1 << 30));
+            // An out-of-line pointer array running past the end of the file.
+            cases.push(tiff_with_pointer(big_endian, 4, 1 << 28, 0));
+        }
+        for (i, tiff) in cases.iter().enumerate() {
+            let expected = whole(tiff);
+            assert_eq!(fields(super::read_exif(tiff)), expected, "case {i}");
+        }
+        assert!(
+            whole(&cases[1])
+                .unwrap()
+                .iter()
+                .any(|f| f.contains("FocalLength"))
+        );
     }
 
     /// The primary sidecar is the photo's path with `.rrdata` pushed onto
