@@ -710,8 +710,9 @@ pub fn calculate_waveform_from_image(
 
 /// [`calculate_waveform_from_image`] from every `row_step`-th row
 /// ([`scope_counts_of_rows`]): a drag frame's scopes at a fraction of the
-/// work, close to the whole frame's but for sparse values; the clipped
-/// ends stay exact.
+/// work: an approximation of the whole frame's trace density (a trace can
+/// show denser or fainter); the clipped ends of the waveforms and the
+/// parade stay exact.
 pub fn calculate_waveform_of_rows(
     image: &DynamicImage,
     space: OutputColorSpace,
