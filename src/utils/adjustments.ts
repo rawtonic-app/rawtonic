@@ -842,6 +842,13 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * never changed once the photo is edited (Reset, paste and presets keep
    * it): a photo keeps the size it was edited in (src/utils/sourceFrame.ts). */
   sourceFrameVersion?: number;
+  /** The photo's own size (full resolution, before orientation) the
+   * recipe's pixel geometry (crop, spots, AI bitmaps) was made on
+   * (crates/engine/src/recipe_frame.rs): stamped by every editor save
+   * (src/utils/frameSize.ts). Missing: the photo's size now, except a camera
+   * TIFF's edit from before 0.1.0-alpha.17.1, made on its embedded thumbnail
+   * and moved to the full frame when it opens. Per photo, never copied. */
+  frameSize?: { width: number; height: number };
   /** The levels of the user's develop defaults the photo's new edit started
    * with, most general first ('global', 'camera', 'body'); [] for none (Reset
    * to neutral). Missing: started before develop defaults, or none set.
@@ -2856,7 +2863,8 @@ export const COPYABLE_ADJUSTMENT_KEYS: string[] = Object.values(ADJUSTMENT_GROUP
 
 /** Adjustments that belong to one photograph or to the view and are never
  * copied: retouching, the depth-based lens blur, derived lens data, the
- * render pipeline version, the frame of the RAW developed, tool
+ * render pipeline version, the frame of the RAW developed and the photo
+ * size its geometry was made on, tool
  * visibility, the clipping display and the style last applied (with this
  * photograph's settings before it, src/utils/appliedStyle.ts). Every other
  * key must be copyable. */
@@ -2880,6 +2888,7 @@ export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'lensProfileFor',
   'renderVersion',
   'sourceFrameVersion',
+  'frameSize',
   'developDefaults',
   'developDefaultsSettings',
   'sectionVisibility',

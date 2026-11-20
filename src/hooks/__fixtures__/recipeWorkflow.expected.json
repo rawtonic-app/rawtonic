@@ -113,6 +113,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "glowAmount": 0,
    "grainAmount": 0,
    "grainRoughness": 50,
@@ -502,6 +506,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "glowAmount": 0,
    "grainAmount": 0,
    "grainRoughness": 50,
@@ -891,6 +899,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "glowAmount": 0,
    "grainAmount": 0,
    "grainRoughness": 50,
@@ -1280,6 +1292,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "glowAmount": 0,
    "grainAmount": 0,
    "grainRoughness": 50,
@@ -1671,6 +1687,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "glowAmount": 0,
    "grainAmount": 0,
    "grainRoughness": 50,
@@ -2059,6 +2079,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "glowAmount": 0,
    "grainAmount": 0,
    "grainRoughness": 50,
@@ -2449,6 +2473,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "futureTool": {
     "a": {
      "b": [
@@ -3106,6 +3134,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "glowAmount": 0,
    "grainAmount": 0,
    "grainRoughness": 50,
@@ -3495,6 +3527,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "glowAmount": 0,
    "grainAmount": 0,
    "grainRoughness": 50,
@@ -3886,6 +3922,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "fringeVersion": 6,
    "glowAmount": 0,
    "grainAmount": 0,
@@ -4279,6 +4319,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "fringeVersion": 6,
    "glowAmount": 0,
    "grainAmount": 0,
@@ -4669,6 +4713,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "fringeVersion": 6,
    "glowAmount": 0,
    "grainAmount": 0,
@@ -5062,6 +5110,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "fringeVersion": 6,
    "glowAmount": 0,
    "grainAmount": 0,
@@ -5455,6 +5507,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "fringeVersion": 6,
    "glowAmount": 0,
    "grainAmount": 0,
@@ -5844,6 +5900,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "fringeVersion": 6,
    "glowAmount": 0,
    "grainAmount": 0,
@@ -6238,6 +6298,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "fringeVersion": 6,
    "futureTool": {
     "a": {
@@ -6898,6 +6962,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "fringeVersion": 6,
    "glowAmount": 0,
    "grainAmount": 0,
@@ -7291,6 +7359,10 @@
    "flareAmount": 0,
    "flipHorizontal": false,
    "flipVertical": false,
+   "frameSize": {
+    "height": 3000,
+    "width": 4000
+   },
    "fringeVersion": 6,
    "glowAmount": 0,
    "grainAmount": 0,

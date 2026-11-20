@@ -21,7 +21,10 @@
 //! 5. the photograph's orientation in Lightroom retouches imported before
 //!    imports recorded it (`exif_processing::record_lightroom_orientation`).
 //!
-//! Steps 2–5 are `exif_processing::prepare_recipe_lens`. Not every caller
+//! Steps 2–5 are `exif_processing::prepare_recipe_lens`; before them
+//! [`Defaults::Render`] moves a camera TIFF's edit made on its embedded
+//! thumbnail to the full frame (`recipe_frame::conform`), as the editor's
+//! load does. Not every caller
 //! applies every step today ([`Defaults`]): those differences are kept, not
 //! unified, so nothing renders differently (notes: the PR of plan 2.1 lists
 //! them).
@@ -140,7 +143,12 @@ pub fn normalize(
         && rawtonic_engine::image_processing::is_new_recipe(recipe);
     let lens = match (defaults, source.path) {
         (Defaults::None, _) => Ok(()),
-        (Defaults::Render, Some(path)) => crate::exif_processing::prepare_recipe_lens(recipe, path),
+        (Defaults::Render, Some(path)) => {
+            // A camera TIFF's edit made on its thumbnail, moved to the full
+            // frame as the editor opens it (`recipe_frame`).
+            rawtonic_engine::recipe_frame::conform(recipe, path);
+            crate::exif_processing::prepare_recipe_lens(recipe, path)
+        }
         (Defaults::NewEdit, Some(path)) => {
             rawtonic_engine::camera_crop::apply_default(recipe, path);
             rawtonic_engine::embedded_lens::apply_default(recipe, path);
