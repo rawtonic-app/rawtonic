@@ -191,3 +191,41 @@ fn camera_tiff_frames() {
     }
     assert!(seen > 0);
 }
+
+/// An edit begun on the RAW (since PR #916) carries the RAW passes'
+/// versions, which an ordinary TIFF's edit never has: it is never moved,
+/// however small its geometry (a cloned dust speck in the corner).
+#[test]
+fn an_edit_begun_on_the_raw_is_left_alone() {
+    let corner =
+        json!({"spots": [{"x": 40.0, "y": 30.0, "radius": 8.0, "sourceX": 60.0, "sourceY": 30.0}]});
+    assert!(made_on_thumbnail(&corner, FRAMES));
+    for key in ["fringeVersion", "autoCaVersion"] {
+        let mut raw = corner.clone();
+        raw[key] = json!(6);
+        assert!(!made_on_thumbnail(&raw, FRAMES), "{key}");
+    }
+}
+
+/// An Object selection's box and prompts move with the photo, and its
+/// bitmap records the size it was made on so the render stretches it.
+#[test]
+fn ai_prompts_and_bitmaps_move_with_the_photo() {
+    let (sx, sy) = (2496.0 / 288.0, 1662.0 / 192.0);
+    let mut recipe = json!({"masks": [{"subMasks": [{"type": "ai-subject", "parameters": {
+        "startX": 10.0, "startY": 20.0, "endX": 100.0, "endY": 120.0, "maskDataBase64": "data:x",
+        "prompts": [{"type": "point", "x": 50.0, "y": 60.0},
+                    {"type": "box", "startX": 1.0, "startY": 2.0, "endX": 3.0, "endY": 4.0, "exclude": true}]
+    }}]}]});
+    scale_geometry(&mut recipe, FRAMES.thumbnail, FRAMES.full);
+    let p = &recipe["masks"][0]["subMasks"][0]["parameters"];
+    close(&p["startX"], 10.0 * sx);
+    close(&p["endY"], 120.0 * sy);
+    close(&p["prompts"][0]["x"], 50.0 * sx);
+    close(&p["prompts"][1]["endY"], 4.0 * sy);
+    assert_eq!(p["prompts"][1]["exclude"], json!(true));
+    assert_eq!(
+        p[crate::mask_generation::BITMAP_FRAME],
+        json!({"width": 288, "height": 192})
+    );
+}

@@ -3924,17 +3924,24 @@ fn decode_ai_bitmap(data_url: &str) -> Option<GrayImage> {
     Some(image::load_from_memory(&decoded_bytes).ok()?.to_luma8())
 }
 
+/// An AI component's key recording that its bitmap was made on a photo of
+/// another size (`{width, height}`, written by `recipe_frame::scale_geometry`
+/// when a camera TIFF's edit made on its embedded thumbnail moves to the
+/// full frame): it is then stretched over the photo (`ai_bitmap_at_photo_size`).
+pub const BITMAP_FRAME: &str = "bitmapFrame";
+
 /// An AI mask's stored bitmap at the photo's own `size` (full resolution,
-/// before orientation) when that is known and the bitmap was made on a
-/// photo of another size: stretched over the whole photo, as `raster`
-/// masks are. The editor makes AI bitmaps at the size of the decode it
-/// shows, so a bitmap only differs from the photo when the photo's decode
-/// changed size since (camera TIFFs before 0.1.0-alpha.17.1 developed
-/// their embedded thumbnail, `recipe_frame`); placed at its own size it
-/// would cover a corner. Within 2 % the bitmap is the photo's own (reduced
-/// previews know the photo's size only to their own pixels).
-fn ai_bitmap_at_photo_size(bitmap: GrayImage, size: Option<(f64, f64)>) -> GrayImage {
-    let Some((w, h)) = size else {
+/// before orientation) when its component records that it was made on a
+/// photo of another size (`BITMAP_FRAME`) and that size is known: stretched
+/// over the whole photo, as `raster` masks are. Within 2 % the bitmap is
+/// the photo's own (reduced previews know the photo's size only to their
+/// own pixels). Other bitmaps are placed at their own size, as before.
+fn ai_bitmap_at_photo_size(
+    bitmap: GrayImage,
+    params_value: &Value,
+    size: Option<(f64, f64)>,
+) -> GrayImage {
+    let (Some((w, h)), true) = (size, params_value.get(BITMAP_FRAME).is_some()) else {
         return bitmap;
     };
     let (bw, bh) = (f64::from(bitmap.width()), f64::from(bitmap.height()));
@@ -3960,7 +3967,8 @@ fn ai_bitmap_in_frame(
     crop_offset: (f32, f32),
     geometry: &PhotoGeometry,
 ) -> Option<GrayImage> {
-    let full_mask = ai_bitmap_at_photo_size(decode_ai_bitmap(data_url)?, geometry.size);
+    let full_mask =
+        ai_bitmap_at_photo_size(decode_ai_bitmap(data_url)?, params_value, geometry.size);
     let frame = geometry.frame;
     let tf = TransformParams {
         rotation: frame.rotation,
@@ -10725,5 +10733,31 @@ mod gather_tests {
         let narrow = MaskBitmap::from(image::GrayImage::from_raw(4, 2, (0..8).collect()).unwrap());
         assert!(narrow.gather(1, 1, &[6]).wide().is_none());
         assert_eq!(narrow.gather(1, 1, &[6]).as_raw()[0], 6);
+    }
+}
+
+#[cfg(test)]
+mod bitmap_frame_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Only a bitmap whose component records another photo size is
+    /// stretched; the others keep being placed at their own size.
+    #[test]
+    fn only_recorded_bitmaps_are_stretched() {
+        let bitmap = GrayImage::new(30, 20);
+        let size = Some((300.0, 200.0));
+        let plain = ai_bitmap_at_photo_size(bitmap.clone(), &json!({}), size);
+        assert_eq!(plain.dimensions(), (30, 20));
+        let recorded = json!({BITMAP_FRAME: {"width": 30, "height": 20}});
+        let stretched = ai_bitmap_at_photo_size(bitmap.clone(), &recorded, size);
+        assert_eq!(stretched.dimensions(), (300, 200));
+        // Within 2 % (a reduced preview's rounded size) it is the photo's own.
+        let near = ai_bitmap_at_photo_size(GrayImage::new(299, 200), &recorded, size);
+        assert_eq!(near.dimensions(), (299, 200));
+        assert_eq!(
+            ai_bitmap_at_photo_size(bitmap, &recorded, None).dimensions(),
+            (30, 20)
+        );
     }
 }

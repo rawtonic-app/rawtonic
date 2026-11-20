@@ -76,6 +76,8 @@ it('a recipe read back differs from the held one only by what the save adds (HIS
   const k1 = 0.0123456789012345 * (1 + Number.EPSILON);
   expect(k1).not.toBe(0.0123456789012345);
   expect(sameSavedEdit(held, read({ lensDistortionParams: { k1 } } as never))).toBe(true);
+  // The save's photo-size stamp (utils/frameSize.ts) is no edit.
+  expect(sameSavedEdit(held, read({ frameSize: { width: 4000, height: 3000 } }))).toBe(true);
   // An edit made meanwhile, however small, is a change.
   expect(sameSavedEdit(held, read({ lensDistortionParams: { k1: 0.0124 } } as never))).toBe(false);
   expect(sameSavedEdit(held, read({ exposure: 0.51 }))).toBe(false);

@@ -163,14 +163,26 @@ pub fn conform(adjustments: &mut Value, path: &Path) -> bool {
 }
 
 /// Whether `adjustments`, without a stamp, was made on the camera TIFF's
-/// thumbnail rather than its full frame. A drawn mask's frame or an AI
-/// bitmap of the full frame's size says full frame; geometry outside the
-/// thumbnail (a crop, a spot) does too (more than a pixel beyond it).
-/// Otherwise thumbnail: everything fits it, as all edits from before
-/// 0.1.0-alpha.17.1 do; an edit of the full frame fitting the thumbnail
-/// would have to lie within its top-left 1/9 to 1/30 (and on photos with
-/// drawn masks or AI bitmaps their sizes decide).
+/// thumbnail rather than its full frame. Since PR #916 these files open as
+/// RAWs, and every edit begun on a RAW carries the RAW passes' versions
+/// (`fringeVersion` since 2026-10-16, `autoCaVersion`; `initialAdjustmentsFor`,
+/// `image_processing::start_new_edit`), which an ordinary TIFF's edit never
+/// gets: with either it was begun on the full frame. So does a drawn mask's
+/// frame or an AI bitmap of the full frame's size, and geometry outside the
+/// thumbnail (a crop, a spot: more than a pixel beyond it, an edit of the
+/// full frame made since). Otherwise thumbnail: begun as an ordinary
+/// TIFF's edit, with everything within the thumbnail, as all edits from
+/// before 0.1.0-alpha.17.1 are.
 pub fn made_on_thumbnail(adjustments: &Value, frames: TiffFrames) -> bool {
+    if [
+        crate::edge_fringe::VERSION_KEY,
+        crate::lateral_ca::VERSION_KEY,
+    ]
+    .iter()
+    .any(|key| adjustments.get(*key).is_some_and(|v| !v.is_null()))
+    {
+        return false;
+    }
     let near = |a: (f64, f64), b: (u32, u32)| {
         (a.0 - f64::from(b.0)).abs() <= 1.0 && (a.1 - f64::from(b.1)).abs() <= 1.0
     };
@@ -288,8 +300,9 @@ fn bitmap_size(data_url: &str) -> Option<(u32, u32)> {
 /// a crop of a locked aspect ratio keeping its ratio (centred where the
 /// proportional one is, kept inside the photo). Drawn masks that record no
 /// size get `from` (`record_drawn_mask_size`), so they are placed
-/// proportionally as the others; AI bitmaps are stretched to the photo when
-/// they are rendered (`mask_generation::ai_bitmap_at_photo_size`).
+/// proportionally as the others; AI components' boxes and prompts scale as
+/// the spots, and their bitmaps record `from` (`BITMAP_FRAME`), so they are
+/// stretched over the photo when rendered (`ai_bitmap_at_photo_size`).
 pub fn scale_geometry(adjustments: &mut Value, from: (u32, u32), to: (u32, u32)) {
     if from.0 == 0 || from.1 == 0 {
         return;
@@ -357,6 +370,69 @@ pub fn scale_geometry(adjustments: &mut Value, from: (u32, u32), to: (u32, u32))
         adjustments,
         (f64::from(from.0), f64::from(from.1)),
     );
+    for_each_ai_component(adjustments, |parameters| {
+        // An Object selection's box and prompts, in pixels of the photo as
+        // shown, as the spots.
+        for (key, scale) in [("startX", sx), ("startY", sy), ("endX", sx), ("endY", sy)] {
+            if let Some(v) = parameters[key].as_f64() {
+                parameters[key] = json!(v * scale);
+            }
+        }
+        if let Some(prompts) = parameters.get_mut("prompts").and_then(Value::as_array_mut) {
+            for prompt in prompts.iter_mut().filter(|p| p.is_object()) {
+                for (key, scale) in [
+                    ("x", sx),
+                    ("y", sy),
+                    ("startX", sx),
+                    ("startY", sy),
+                    ("endX", sx),
+                    ("endY", sy),
+                ] {
+                    if let Some(v) = prompt[key].as_f64() {
+                        prompt[key] = json!(v * scale);
+                    }
+                }
+            }
+        }
+        // The bitmap is stretched over the photo when rendered.
+        if parameters
+            .get("maskDataBase64")
+            .is_some_and(Value::is_string)
+        {
+            parameters[crate::mask_generation::BITMAP_FRAME] =
+                json!({"width": from.0, "height": from.1});
+        }
+    });
+}
+
+/// `visit(parameters)` for every AI component (`ai-*`) of `adjustments`'
+/// masks and AI patches.
+fn for_each_ai_component(adjustments: &mut Value, mut visit: impl FnMut(&mut Value)) {
+    for key in [rawtonic_recipe::masks::MASKS.name(), "aiPatches"] {
+        let Some(list) = adjustments.get_mut(key).and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for sub in list
+            .iter_mut()
+            .filter_map(|c| {
+                c.get_mut(rawtonic_recipe::masks::SUB_MASKS.name())
+                    .and_then(Value::as_array_mut)
+            })
+            .flatten()
+        {
+            let is_ai = sub
+                .get(rawtonic_recipe::masks::TYPE.name())
+                .and_then(Value::as_str)
+                .is_some_and(|t| t.starts_with("ai-"));
+            if let (true, Some(parameters)) = (
+                is_ai,
+                sub.get_mut(rawtonic_recipe::masks::PARAMETERS.name())
+                    .filter(|p| p.is_object()),
+            ) {
+                visit(parameters);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
