@@ -1745,7 +1745,7 @@ fn plan_prefetch(app_handle: &tauri::AppHandle, job: &Job) {
 
 /// Zoomed in, each cell's region is developed with this much of the visible
 /// size around it on each side, so that panning stays sharp a while.
-const REGION_MARGIN: f32 = 0.25;
+pub(crate) const REGION_MARGIN: f32 = 0.25;
 
 /// The base a region is cut from reaches this much of the visible size
 /// around it on each side: a pan further than REGION_MARGIN develops the new
@@ -2592,9 +2592,11 @@ fn kept_base(
         .cloned()
 }
 
-/// Develops the region of `path` its cell shows at `zoom`, from a kept base
-/// when one still covers it at this magnification and geometry, else from
-/// a new one; then the region alone through the display's shader variants.
+/// Develops the region of `path` its cell shows at `zoom` with `margin` of
+/// the visible size around it on each side (at most REGION_MARGIN), from a
+/// kept base when one still covers it at this magnification and geometry,
+/// else from a new one; then the region alone through the display's shader
+/// variants.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn develop_region(
     app_handle: &tauri::AppHandle,
@@ -2603,16 +2605,17 @@ pub(crate) fn develop_region(
     path: &str,
     area: [f32; 4],
     zoom: CellZoom,
+    margin: f32,
     recipe: serde_json::Value,
     key: u64,
     caller: &'static str,
 ) -> Result<Region, String> {
     let start = Instant::now();
-    // The texture covers the visible part and REGION_MARGIN around it; the
+    // The texture covers the visible part and `margin` around it; the
     // kept base reaches further (BASE_MARGIN), so a pan is cut from it.
     let wanted_in = |facts: Facts| {
         let (w, h) = shown_size(&recipe, facts);
-        gpu_processing::multi_view::zoomed_region(area, [w, h], zoom, REGION_MARGIN)
+        gpu_processing::multi_view::zoomed_region(area, [w, h], zoom, margin.min(REGION_MARGIN))
     };
     let kept = kept_base(bases, path, area, zoom, &recipe);
     let (base, source_kind) = match kept {
@@ -3034,6 +3037,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                 &path,
                 area,
                 zoom,
+                REGION_MARGIN,
                 recipe,
                 key,
                 CELL_RENDER,
@@ -3066,6 +3070,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                 &path,
                 area,
                 zoom,
+                REGION_MARGIN,
                 recipe,
                 key,
                 CELL_RENDER,
@@ -3433,6 +3438,7 @@ fn live_region(
         path,
         area,
         zoom,
+        REGION_MARGIN,
         recipe.clone(),
         key,
         LIVE_RENDER,

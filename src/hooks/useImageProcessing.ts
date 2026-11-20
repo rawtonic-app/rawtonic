@@ -46,7 +46,6 @@ import {
 } from '../utils/liveMaskRender';
 import { draftFor, registerSliderDraftRenderer, wasRenderedAsDraft } from '../utils/sliderDraft';
 import { useMultiViewStore } from '../store/useMultiViewStore';
-import { useSecondWindowStore } from '../store/useSecondWindowStore';
 import { interactivePreview, isRegionFrame } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
@@ -991,22 +990,6 @@ export function useImageProcessing(
     if (!roi || regionCovers(region, roi)) return;
     applyAdjustments(state.previewOverride ?? state.adjustments, false, currentResRef.current);
   }, [os, viewSettled, finalRegionUrl, calculateROI, applyAdjustments, currentResRef]);
-
-  // At 100 % the second window decides the settled frame's kind (it shows
-  // the main window's whole frame, `editor_preview::browser_region_frame`):
-  // opening or closing it renders the frame again, as a whole frame or as
-  // the visible region.
-  const secondWindowOpen = useSecondWindowStore((s) => s.state.open);
-  const secondWindowWasOpen = useRef(secondWindowOpen);
-  useEffect(() => {
-    if (secondWindowWasOpen.current === secondWindowOpen) return;
-    secondWindowWasOpen.current = secondWindowOpen;
-    const state = useEditorStore.getState();
-    if (os !== 'linux' || !state.browserFullZoom || state.isSliderDragging || !canRenderSource(state.selectedImage)) {
-      return;
-    }
-    applyAdjustments(state.previewOverride ?? state.adjustments, false, currentResRef.current);
-  }, [os, secondWindowOpen, applyAdjustments, currentResRef]);
 
   useLayoutEffect(() => {
     // A preview proxy renders before the full decode; its arrival

@@ -389,18 +389,17 @@ describe('Linux region frames at 100 %', () => {
     expect(calls()[1][1]).toMatchObject({ isInteractive: false, roi: expect.any(Array) });
   });
 
-  it('renders the 100 % frame again when the second window opens or closes', async () => {
+  it('keeps the 100 % region when the second window opens or closes', async () => {
+    // The second window develops its own frames (second_window.rs
+    // `on_browser_region`): the main window's region frame stays as it is.
     mountZoomed();
     await act(async () => {
       complete.shift()!(regionReply([300, 300, 400, 400]));
     });
     expect(calls()).toHaveLength(1);
     act(() => useSecondWindowStore.setState((s) => ({ state: { ...s.state, open: true } })));
-    expect(calls()).toHaveLength(2);
-    await finish();
     act(() => useSecondWindowStore.setState((s) => ({ state: { ...s.state, open: false } })));
-    expect(calls()).toHaveLength(3);
-    expect(calls()[2][1]).toMatchObject({ isInteractive: false, browserFullZoom: true, roi: expect.any(Array) });
+    expect(calls()).toHaveLength(1);
   });
 
   it('asks again when a region arrives for a view a pan already left', async () => {
