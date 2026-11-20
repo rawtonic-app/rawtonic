@@ -69,6 +69,9 @@ override BLACKS_V16: bool = false;
 // Raised Shadows' level of tone version 19 (`shadows_v19_level`), for the
 // same reason (gpu_processing.rs `SHADOWS_V19_FEATURE`).
 override SHADOWS_V19: bool = false;
+// Raised Shadows' bounds of tone version 20 (`shadows_v20_pixel_gain`), for
+// recipes of that version that raise Shadows.
+override SHADOWS_V20: bool = false;
 // Colour mixer response 2 or 3 (`apply_hsl_panel_v2`, `apply_hsl_panel_v3`)
 // with a slider moved, for the same reason (gpu_processing.rs
 // `HSL_V2_FEATURE`).
@@ -2847,6 +2850,12 @@ fn shadows_v19_level(coords: vec2<u32>) -> f32 {
 // It is applied as a factor (at most 1) on the pixel before the tone stage,
 // which then lifts it with the level as version 19 does: the stage keeps
 // the order of what it is given, and stays as it is.
+// Compiled only where `SHADOWS_V20` is set (recipes of version 20 that
+// raise Shadows). Behind version 19's override and a test of the version
+// at run time, an export of a version 19 recipe with Shadows and Blacks
+// raised moved by one 16-bit code in 31 of 108 M samples on Metal, with
+// the code inline and with its own copies of the functions it shares with
+// the tone stage (notes: reference/preservation-run.md, PRV44 and PRV45).
 // SH_V20_KEEP and SH_V20_TO were chosen on the order test, the slider
 // atlas (shadow detail at +100), the stroke chart's gaps and two real
 // frames; SH_V20_FROM is the first build's.
@@ -2855,52 +2864,6 @@ const SH_V20_KEEP: f32 = 0.6;
 const SH_V20_TO: f32 = -0.5;
 // The first bound starts in a quadratic knee this wide (EV to either side).
 const SH_V20_SOFT: f32 = 0.25;
-
-// Version 20's own copies of `cr_curve_level` and `shadows_v13_gain` (the
-// tone stage's gain), kept the same as those: with two more callers each,
-// Metal compiled the originals differently, and an export of a version 19
-// recipe with Shadows and Blacks raised moved by one 16-bit code in a few
-// samples (31 of 108 M; notes: reference/preservation-run.md, PRV44).
-// `tone_version_20_shadows_copies_match_the_tone_stage` compares the texts.
-fn shadows_v20_curve_level(display: f32) -> f32 {
-    let flag = adjustments.global.profile_curve[15].w;
-    let own_curve = (flag > 0.5 && flag < 1.5) || (flag > 2.5 && flag < 4.5);
-    var ev = default_tone_curve_inverse(display);
-    if (own_curve) {
-        var i = 0u;
-        for (var k = 0u; k < 48u; k = k + 1u) {
-            if (profile_curve_value(k + 1u) <= display) {
-                i = k + 1u;
-            }
-        }
-        i = min(i, 47u);
-        let a = profile_curve_value(i);
-        let b = profile_curve_value(i + 1u);
-        ev = DEFAULT_TONE_CURVE_START_EV + (f32(i) + clamp((display - a) / max(b - a, 1e-6), 0.0, 1.0)) * 0.25;
-    }
-    let black = camera_raw_black();
-    return (exp2(ev) * (1.0 - black) + black) / exp2(adjustments.global.baseline_exposure);
-}
-
-fn shadows_v20_stage_gain(level_luma: f32, sh: f32, bl: f32, fade: f32) -> f32 {
-    let gain = camera_raw_shadows_blacks_gain(level_luma, sh, bl);
-    if (sh <= 0.0) {
-        return gain;
-    }
-    // Only Shadows' share is cut: with Blacks raised too, cutting Blacks'
-    // lift as well turned tones over (+100 / +100 fell 2 × the limit).
-    var blacks_log = 0.0;
-    if (bl != 0.0) {
-        blacks_log = log2(max(camera_raw_shadows_blacks_gain(level_luma, 0.0, bl), 1e-9));
-    }
-    let shadows_log = log2(max(gain, 1e-9)) - blacks_log;
-    if (shadows_log <= 0.0) {
-        return gain;
-    }
-    let display = camera_raw_level_slope(level_luma).x;
-    let cut = SH_V13_MID_CUT * smoothstep(SH_V13_MID_FROM, SH_V13_MID_TO, display) * fade;
-    return exp2(blacks_log + shadows_log * (1.0 - cut));
-}
 
 // `pixel_rgb` has Exposure applied, the level not. The second bound has to
 // hold for darker pixels too (a dark pixel lifted beyond SH_V20_TO would
@@ -2914,15 +2877,15 @@ fn shadows_v20_pixel_gain(level_luma: f32, pixel_rgb: vec3<f32>, sh: f32, bl: f3
     }
     let ramp = clamp(sh / SH_V6_FADE, 0.0, 1.0);
     let fade = ramp * ramp;
-    let at_level = log2(max(shadows_v20_stage_gain(level, sh, bl, fade), 1e-9));
-    let above = log2(pixel / max(shadows_v20_curve_level(SH_V20_FROM), 1e-6));
+    let at_level = log2(max(shadows_v13_gain(level, sh, bl, fade), 1e-9));
+    let above = log2(pixel / max(cr_curve_level(SH_V20_FROM), 1e-6));
     let q = clamp(above + SH_V20_SOFT, 0.0, 2.0 * SH_V20_SOFT);
     let rise = select(q * q / (4.0 * SH_V20_SOFT), above, above >= SH_V20_SOFT);
-    let bound = min(at_level - (1.0 - SH_V20_KEEP) * rise, log2(max(shadows_v20_curve_level(SH_V20_TO), 1e-6) / pixel));
+    let bound = min(at_level - (1.0 - SH_V20_KEEP) * rise, log2(max(cr_curve_level(SH_V20_TO), 1e-6) / pixel));
     if (bound >= at_level) {
         return 1.0;
     }
-    let at_pixel = log2(max(shadows_v20_stage_gain(pixel, sh, bl, fade), 1e-9));
+    let at_pixel = log2(max(shadows_v13_gain(pixel, sh, bl, fade), 1e-9));
     return exp2(min(max(at_pixel, bound) - at_level, 0.0));
 }
 
@@ -11538,7 +11501,7 @@ fn main(
         if (is_raw == 1u && adjustments.global.tone_version > 17.5 && adjustments.global.tonemapper_mode == 2u) {
             scene_blacks = max(t_blacks, -2.5);
         }
-        if (SHADOWS_V19 && t_shadows > 0.0 && adjustments.global.tone_version > 19.5 && base_look_is_camera_raw()) {
+        if (SHADOWS_V20 && t_shadows > 0.0 && adjustments.global.tone_version > 19.5 && base_look_is_camera_raw()) {
             // Blacks as the tone stage takes it (`apply_tonal_adjustments_v13`).
             let stage_blacks = select(scene_blacks, 0.0, blacks_v9_active(scene_blacks, is_raw));
             composite_rgb_linear *= shadows_v20_pixel_gain(wide_luma, composite_rgb_linear, t_shadows, stage_blacks, exposure_gain);

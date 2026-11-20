@@ -420,6 +420,33 @@ fn dehaze_version_2_compiles_only_where_dehaze_is_lowered() {
 }
 
 #[test]
+fn shadows_version_20_compiles_only_for_its_recipes() {
+    let adjustments =
+        |profile: serde_json::Value| get_all_adjustments_from_json(&profile, true, Some(1));
+    let features =
+        |profile: serde_json::Value| preview_features(&adjustments(profile)) & SHADOWS_V20_FEATURE;
+    assert_eq!(
+        features(json!({"shadows": 30, "toneVersion": 20})),
+        SHADOWS_V20_FEATURE
+    );
+    let mut layer = local_profile(json!({"shadows": 30}));
+    layer["toneVersion"] = json!(20);
+    assert_eq!(features(layer), SHADOWS_V20_FEATURE);
+    // Version 19's recipes, lowered Shadows and the key alone keep the
+    // shader without it: saved edits compile the code they had.
+    assert_eq!(features(json!({"shadows": 30, "toneVersion": 19})), 0);
+    assert_eq!(features(json!({"shadows": -30, "toneVersion": 20})), 0);
+    assert_eq!(features(json!({"toneVersion": 20})), 0);
+    // Its feature pipeline is version 19's plus the bounds.
+    let raised = adjustments(json!({"shadows": 30, "toneVersion": 20}));
+    assert_eq!(tone_level(&raised), 2 | 16 | 32);
+    assert_eq!(
+        tone_level(&adjustments(json!({"shadows": 30, "toneVersion": 19}))),
+        2 | 16
+    );
+}
+
+#[test]
 fn shadows_version_19_compiles_only_where_shadows_are_raised() {
     let adjustments =
         |profile: serde_json::Value| get_all_adjustments_from_json(&profile, true, Some(1));
@@ -589,6 +616,11 @@ fn preview_features_preserve_global_and_local_effects() {
         // Raised Shadows' level of version 19 likewise
         // (`shadows_version_19_compiles_only_where_shadows_are_raised`).
         if expected & SHADOWS_V19_FEATURE != 0 {
+            continue;
+        }
+        // Raised Shadows' bounds of version 20 likewise
+        // (`shadows_version_20_compiles_only_for_its_recipes`).
+        if expected & SHADOWS_V20_FEATURE != 0 {
             continue;
         }
         // Lowered Dehaze of version 2 likewise
@@ -15417,27 +15449,6 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
             (lift_20 - lift_19).abs() < 0.05 && (det_20 - det_19).abs() < 0.005,
             "Shadows +{amount}: shadows dL* {lift_20:.3} / texture {det_20:.4} (version 19 {lift_19:.3} / {det_19:.4})"
         );
-    }
-}
-
-/// Version 20's Shadows bound reads the tone stage's gain and the curve's
-/// level through its own copies of those functions (shader.wgsl explains
-/// why); they must stay the same as the originals.
-#[test]
-fn tone_version_20_shadows_copies_match_the_tone_stage() {
-    let shader = include_str!("shaders/shader.wgsl");
-    let body = |name: &str| {
-        let start = shader
-            .find(&format!("\nfn {name}("))
-            .unwrap_or_else(|| panic!("{name} is missing"));
-        let rest = &shader[start + 4 + name.len()..];
-        &rest[..rest.find("\n}\n").unwrap()]
-    };
-    for (copy, original) in [
-        ("shadows_v20_curve_level", "cr_curve_level"),
-        ("shadows_v20_stage_gain", "shadows_v13_gain"),
-    ] {
-        assert_eq!(body(copy), body(original), "{copy} differs from {original}");
     }
 }
 
