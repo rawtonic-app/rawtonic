@@ -14071,7 +14071,8 @@ fn scoped_result<T>(value: T, error: Option<wgpu::Error>, device_lost: bool) -> 
 /// inside it and its region's pixels take the whole photograph's size and
 /// position. The window starts on the colour noise grid of the photograph
 /// ([`REGION_NOISE_GRID`]). Its masks are the
-/// region's, extended alike.
+/// region's, extended alike. A window beyond the GPU's texture limit is not
+/// made: the region then renders as an image of its own, as before.
 struct PlacedSource {
     image: DynamicImage,
     transform_hash: u64,
@@ -14090,7 +14091,8 @@ impl PlacedSource {
         transform_hash: u64,
         placement: crate::image_processing::PhotoPlacement,
         request: &RenderRequest,
-    ) -> Result<Self, String> {
+        max_dim: u32,
+    ) -> Result<Option<Self>, String> {
         let (width, height) = image.dimensions();
         let (photo_width, photo_height) = (placement.photo_width, placement.photo_height);
         if width == 0
@@ -14117,6 +14119,9 @@ impl PlacedSource {
         let (left, top) = (placement.x - x, placement.y - y);
         let right = margin.min(photo_width - placement.x - width);
         let bottom = margin.min(photo_height - placement.y - height);
+        if width + left + right > max_dim || height + top + bottom > max_dim {
+            return Ok(None);
+        }
         let masks = request
             .mask_bitmaps
             .iter()
@@ -14134,7 +14139,7 @@ impl PlacedSource {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::hash::DefaultHasher::new();
         (transform_hash, placement, left, top, right, bottom).hash(&mut hasher);
-        Ok(Self {
+        Ok(Some(Self {
             image: extend_image_edges(image, left, top, right, bottom),
             transform_hash: hasher.finish(),
             photo_width,
@@ -14152,7 +14157,7 @@ impl PlacedSource {
                 height,
             },
             masks,
-        })
+        }))
     }
 
     /// `roi` of the region (all of it when `None`) in the photograph.
@@ -14240,9 +14245,15 @@ fn render_dynamic_image(
                 image,
                 transform_hash,
             },
-        ) if !output_to_display && request.adjustments.global.flare_amount <= 0.0 => Some(
-            PlacedSource::new(image, *transform_hash, placement, &request)?,
-        ),
+        ) if !output_to_display && request.adjustments.global.flare_amount <= 0.0 => {
+            PlacedSource::new(
+                image,
+                *transform_hash,
+                placement,
+                &request,
+                context.limits.max_texture_dimension_2d,
+            )?
+        }
         _ => None,
     };
     let (source, request) = match &placed {
