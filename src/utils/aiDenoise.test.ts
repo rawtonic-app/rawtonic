@@ -219,4 +219,44 @@ describe('sourceDevelopToApply', () => {
     ).toBeNull();
     expect(sourceDevelopToApply(base, { ...v2, renderVersion: 11 }, false)).toBeNull();
   });
+
+  it("develops a DNG again when its lens warp's planes flip with the render version", () => {
+    const base = {
+      ...multiscaleBase,
+      deadPixelAdjacent: true,
+      unbiasedBlack: true,
+      borderBlack: true,
+      highlightRatios: true
+    };
+    const output = { ...base, cameraPlaneWarp: false };
+    const camera = { ...base, cameraPlaneWarp: true };
+    // Saved edits before render version 14 keep the output-channel warp.
+    expect(sourceDevelopToApply(output, { ...v2, renderVersion: 13 }, false)).toBeNull();
+    expect(sourceDevelopToApply(camera, { ...v2, renderVersion: 14 }, false)).toBeNull();
+    // Reset of an older edit (render version 14), and undo back.
+    expect(sourceDevelopToApply(output, { ...v2, renderVersion: 14 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+      unbiasedBlack: true,
+      borderBlack: true,
+      highlightRatios: true,
+      cameraPlaneWarp: true
+    });
+    expect(sourceDevelopToApply(camera, { ...v2, renderVersion: 13 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+      unbiasedBlack: true,
+      borderBlack: true,
+      highlightRatios: true,
+      cameraPlaneWarp: false
+    });
+    // Failed before: not retried; other formats (unknown) never develop
+    // again for it.
+    expect(
+      sourceDevelopToApply({ ...output, cameraPlaneWarpFailed: true }, { ...v2, renderVersion: 14 }, false)
+    ).toBeNull();
+    expect(sourceDevelopToApply(base, { ...v2, renderVersion: 14 }, false)).toBeNull();
+  });
 });

@@ -50,6 +50,7 @@ pub struct DecodeOptions<'a> {
     pub frame_version: u32,
     pub black: crate::black_bias::BlackLevels,
     pub highlights: crate::highlight_reconstruction::HighlightRebuild,
+    pub warp_planes: crate::dng_opcodes::WarpPlanes,
 }
 
 /// Receives the draft of a full development (`develop_raw_image`):
@@ -72,8 +73,9 @@ impl std::fmt::Debug for DraftSink {
 /// is the same with or without a sink, and starts once the sink returns.
 /// `dead_test` picks the test for dead photosites (hot_pixels.rs) and
 /// `black` the black handling (black_bias.rs) and `highlights` how clipped
-/// colours are rebuilt (highlight_reconstruction.rs; the recipe's
-/// `renderVersion` decides all three), `frame_version` the frame
+/// colours are rebuilt (highlight_reconstruction.rs) and `warp_planes` the
+/// planes a DNG lens warp moves (dng_opcodes.rs; the recipe's
+/// `renderVersion` decides all four), `frame_version` the frame
 /// (source_frame.rs; the recipe's `sourceFrameVersion`).
 pub fn develop_raw_image(file_bytes: &[u8], options: &DecodeOptions<'_>) -> Result<DynamicImage> {
     let (developed_image, orientation) = develop_internal(file_bytes, options)?;
@@ -172,6 +174,7 @@ fn develop_internal(
         frame_version,
         black,
         highlights,
+        warp_planes,
         ..
     } = *options;
     let cancel_token = &options.cancel_token;
@@ -658,6 +661,7 @@ fn develop_internal(
                     dim.h,
                     frame,
                     context.camera_to_output,
+                    warp_planes,
                 );
                 log::info!("Applied {applied} DNG lens opcode(s)");
             } else {
@@ -2192,6 +2196,108 @@ mod frame_tests {
             })
             .collect();
         crate::fingerprint::synthetic::mosaic_dng(w, h, (2, 2), &[0, 1, 1, 2], &samples)
+    }
+
+    /// A 12-bit RGGB DNG of a bright square on a dark ground whose
+    /// OpcodeList3 holds one WarpRectilinear with `coefficients` per plane
+    /// (none: no opcodes).
+    fn warped_square_dng(coefficients: Option<&[[f64; 6]]>) -> Vec<u8> {
+        let (w, h) = (128u32, 96u32);
+        let samples: Vec<u16> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .map(|(x, y)| {
+                let inside = (20..100).contains(&x) && (16..80).contains(&y);
+                if inside { 3000 } else { 600 }
+            })
+            .collect();
+        let list = coefficients.map(|planes| {
+            let mut body = (planes.len() as u32).to_be_bytes().to_vec();
+            for k in planes {
+                body.extend(k.iter().flat_map(|v| v.to_be_bytes()));
+            }
+            body.extend([0.5f64, 0.5].iter().flat_map(|v| v.to_be_bytes()));
+            let mut list = 1u32.to_be_bytes().to_vec();
+            for value in [1u32, 0x0103_0000, 0, body.len() as u32] {
+                list.extend(value.to_be_bytes());
+            }
+            list.extend(body);
+            list
+        });
+        crate::fingerprint::synthetic::mosaic_dng_with_opcodes(
+            w,
+            h,
+            (2, 2),
+            &[0, 1, 1, 2],
+            &samples,
+            list.as_deref(),
+        )
+    }
+
+    #[test]
+    fn a_dng_warp_with_per_plane_coefficients_moves_camera_planes() {
+        use crate::dng_opcodes::WarpPlanes;
+        let develop = |bytes: &[u8], warp_planes| {
+            develop_raw_image(
+                bytes,
+                &DecodeOptions {
+                    warp_planes,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .to_rgb32f()
+        };
+        let plain = develop(&warped_square_dng(None), WarpPlanes::Camera);
+        // Lateral CA: only plane 0 (red) moves, by up to 3 px at the corners.
+        let identity = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let lateral = [[1.0, 0.05, 0.0, 0.0, 0.0, 0.0], identity, identity];
+        let camera = develop(&warped_square_dng(Some(&lateral)), WarpPlanes::Camera);
+        let output = develop(&warped_square_dng(Some(&lateral)), WarpPlanes::Output);
+        // Each change of the camera-plane warp is a change of plane 0 alone:
+        // one colour direction (the camera red's) wherever it changed.
+        let diffs = |img: &image::Rgb32FImage| -> Vec<[f32; 3]> {
+            img.pixels()
+                .zip(plain.pixels())
+                .map(|(a, b)| [a[0] - b[0], a[1] - b[1], a[2] - b[2]])
+                .collect()
+        };
+        let norm = |d: &[f32; 3]| (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        let camera_diffs = diffs(&camera);
+        let largest = *camera_diffs
+            .iter()
+            .max_by(|a, b| norm(a).total_cmp(&norm(b)))
+            .unwrap();
+        assert!(norm(&largest) > 0.05, "{largest:?}");
+        let off_direction = |diffs: &[[f32; 3]]| {
+            diffs
+                .iter()
+                .filter(|d| norm(d) > 0.01)
+                .map(|d| {
+                    let cross = [
+                        d[1] * largest[2] - d[2] * largest[1],
+                        d[2] * largest[0] - d[0] * largest[2],
+                        d[0] * largest[1] - d[1] * largest[0],
+                    ];
+                    norm(&cross) / (norm(d) * norm(&largest))
+                })
+                .fold(0.0f32, f32::max)
+        };
+        assert!(off_direction(&camera_diffs) < 1e-3);
+        // The camera red mixes into all output channels...
+        assert!(largest[1].abs() > 0.05 * largest[0].abs(), "{largest:?}");
+        // ... so moving the output red channel alone (before renderVersion
+        // 14) is another change.
+        let output_diffs = diffs(&output);
+        assert!(output_diffs.iter().all(|d| d[1] == 0.0 && d[2] == 0.0));
+        assert!(off_direction(&output_diffs) > 0.05);
+        // One set of coefficients for every plane develops bit-identically
+        // in both modes.
+        let shared = [[1.0, 0.05, 0.0, 0.0, 0.0, 0.0]; 3];
+        let bytes = warped_square_dng(Some(&shared));
+        assert_eq!(
+            develop(&bytes, WarpPlanes::Camera).as_raw(),
+            develop(&bytes, WarpPlanes::Output).as_raw()
+        );
     }
 
     #[test]

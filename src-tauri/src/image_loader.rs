@@ -62,6 +62,10 @@ pub struct LoadImageResult {
     /// The source's clipped colours were rebuilt with
     /// `HighlightRebuild::Ratios` (`renderVersion` 9); None for preview data.
     pub highlight_ratios: Option<bool>,
+    /// The source's DNG lens warp moved the camera planes
+    /// (`WarpPlanes::Camera`, `renderVersion` 14); None for preview data and
+    /// for other formats, whose decode it never changes.
+    pub camera_plane_warp: Option<bool>,
     /// The RAW data could not be developed and the camera's embedded preview
     /// is shown instead (an unsupported camera or RAW mode, a damaged file).
     pub developed_from_preview: bool,
@@ -693,6 +697,9 @@ pub fn decoded_cache_key(
     if variant.highlights == HighlightRebuild::Ratios {
         key.push_str("\u{1}highlights-ratios");
     }
+    if variant.warp_planes == WarpPlanes::Camera {
+        key.push_str("\u{1}warp-camera-planes");
+    }
     key
 }
 
@@ -752,7 +759,9 @@ fn publish_cancelled() -> CommandError {
 /// recipe's), black handling (`unbiased_black`: `BlackLevels::Unbiased`,
 /// with `border_black` `UnbiasedBorder`; None: its stored recipe's) and
 /// highlight rebuild (`highlight_ratios`:
-/// `HighlightRebuild::Ratios`; None: its stored recipe's), and makes
+/// `HighlightRebuild::Ratios`; None: its stored recipe's) and the planes a
+/// DNG lens warp moves (`camera_plane_warp`: `WarpPlanes::Camera`; None: its
+/// stored recipe's), and makes
 /// that the source; returns the AI Denoise amount it was developed with.
 /// The editor calls it when the recipe's AI Denoise amount or colour noise
 /// filter differs from the source's (src/utils/aiDenoise.ts). The frame
@@ -770,6 +779,7 @@ pub async fn apply_ai_denoise(
     unbiased_black: Option<bool>,
     border_black: Option<bool>,
     highlight_ratios: Option<bool>,
+    camera_plane_warp: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<f32, CommandError> {
@@ -810,6 +820,11 @@ pub async fn apply_ai_denoise(
             Some(true) => HighlightRebuild::Ratios,
             Some(false) => HighlightRebuild::Offsets,
             None => stored.highlights,
+        },
+        warp_planes: match camera_plane_warp {
+            Some(true) => WarpPlanes::Camera,
+            Some(false) => WarpPlanes::Output,
+            None => stored.warp_planes,
         },
     };
     let recipe =
@@ -1444,6 +1459,8 @@ pub async fn load_image(
         unbiased_black: Some(variant.black.unbiased()),
         border_black: Some(variant.black == BlackLevels::UnbiasedBorder),
         highlight_ratios: Some(variant.highlights == HighlightRebuild::Ratios),
+        camera_plane_warp: is_dng_file(&source_path_str)
+            .then_some(variant.warp_planes == WarpPlanes::Camera),
         developed_from_preview: preview_fallback.is_some(),
         unsupported_nikon_high_efficiency,
         camera_help: matches!(preview_fallback, Some(PreviewFallback::Other(_))),
@@ -1651,6 +1668,7 @@ async fn open_offline(
             unbiased_black: None,
             border_black: None,
             highlight_ratios: None,
+            camera_plane_warp: None,
             developed_from_preview: false,
             unsupported_nikon_high_efficiency: false,
             camera_help: false,
@@ -1717,6 +1735,7 @@ async fn open_offline(
         unbiased_black: None,
         border_black: None,
         highlight_ratios: None,
+        camera_plane_warp: None,
         developed_from_preview: false,
         unsupported_nikon_high_efficiency: false,
         camera_help: false,
@@ -1891,6 +1910,7 @@ mod activation_tests {
             frame: 0,
             black: BlackLevels::Clipped,
             highlights: HighlightRebuild::Offsets,
+            warp_planes: WarpPlanes::Output,
         };
         let plain = decoded_cache_key("/p/A.NEF", None, DecodeVariant::default());
         let multiscale = decoded_cache_key("/p/A.NEF", None, ms(true, DeadTest::SameColour));
@@ -1929,6 +1949,7 @@ mod activation_tests {
         assert_ne!(decoded_cache_key("/p/A.NEF", None, unbiased), adjacent);
         let ratios = DecodeVariant {
             highlights: HighlightRebuild::Ratios,
+            warp_planes: WarpPlanes::Output,
             ..unbiased
         };
         assert_ne!(
@@ -1942,6 +1963,14 @@ mod activation_tests {
         assert_ne!(
             decoded_cache_key("/p/A.NEF", None, border),
             decoded_cache_key("/p/A.NEF", None, ratios)
+        );
+        let camera_planes = DecodeVariant {
+            warp_planes: WarpPlanes::Camera,
+            ..border
+        };
+        assert_ne!(
+            decoded_cache_key("/p/A.DNG", None, camera_planes),
+            decoded_cache_key("/p/A.DNG", None, border)
         );
     }
 
@@ -1961,6 +1990,7 @@ mod activation_tests {
                 frame: 0,
                 black: BlackLevels::UnbiasedBorder,
                 highlights: HighlightRebuild::Ratios,
+                warp_planes: WarpPlanes::Output,
             }
         );
         let settings = AppSettings::default();
@@ -1977,6 +2007,7 @@ mod activation_tests {
             frame: 0,
             black: BlackLevels::Clipped,
             highlights: HighlightRebuild::Offsets,
+            warp_planes: WarpPlanes::Output,
         };
         assert_eq!(base_options(&settings, variant(true)).color_nr_amount, 0.0);
         assert_eq!(
