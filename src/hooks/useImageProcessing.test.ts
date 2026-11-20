@@ -749,6 +749,8 @@ describe("grain at the viewer's size", () => {
     // The press and the store-committed move use the same size as draft moves.
     act(() => useEditorStore.setState({ isSliderDragging: true, grainSliderDrag: 'amount' }));
     expect(target(1)).toBe(1000);
+    // From the press on, the drag's frames show the grain exactly (G76/GRN3).
+    expect(calls()[1][1]).toMatchObject({ isInteractive: true, grainDrag: true });
     await finish();
     const commit = vi.fn();
     act(() => {
@@ -757,6 +759,7 @@ describe("grain at the viewer's size", () => {
       flushSliderDraft();
     });
     expect([target(2), target(3)]).toEqual([1000, 1000]);
+    expect([calls()[2][1], calls()[3][1]]).toMatchObject([{ grainDrag: true }, { grainDrag: true }]);
     await finish();
     await finish();
     act(() => useEditorStore.setState({ adjustments: { ...adjustments, grainAmount: 20 } }));
@@ -770,7 +773,24 @@ describe("grain at the viewer's size", () => {
       })
     );
     expect(target(5)).toBe(1280);
+    expect(calls()[5][1]).not.toHaveProperty('grainDrag');
     await finish();
+  });
+
+  it('renders grain once per 2 x 2 pixels while another control is dragged', async () => {
+    const adjustments = { ...structuredClone(INITIAL_ADJUSTMENTS), grainAmount: 40 };
+    useEditorStore.setState({ adjustments, displaySize: { width: 1000, height: 750 } });
+    mount();
+    await finish();
+    act(() => useEditorStore.setState({ isSliderDragging: true, grainSliderDrag: null }));
+    await finish();
+    act(() => {
+      expect(renderDraft('/first.dng', { ...adjustments, exposure: 0.5 }, vi.fn())).toBe(true);
+      flushSliderDraft();
+    });
+    const drags = calls().filter(([, args]) => (args as { isInteractive: boolean }).isInteractive);
+    expect(drags.length).toBeGreaterThan(0);
+    for (const [, args] of drags) expect(args).not.toHaveProperty('grainDrag');
   });
 
   it('renders a smaller frame again when the view zooms back out', async () => {

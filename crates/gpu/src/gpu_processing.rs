@@ -11775,7 +11775,14 @@ impl GpuProcessor {
                     None => vec![tile_rect],
                     Some(regions) => regions
                         .iter()
-                        .filter_map(|region| intersect_roi(*region, tile_rect))
+                        // A drag's frame re-renders whole 2 x 2 blocks: a
+                        // changed pixel changes its block's terms and grain
+                        // (G76/GRN3).
+                        .map(|region| match half_terms || half_grain {
+                            true => intersect_roi(effect_passes::whole_blocks(*region), bounds),
+                            false => Some(*region),
+                        })
+                        .filter_map(|region| intersect_roi(region?, tile_rect))
                         .collect(),
                 };
                 if retained_regions.is_empty() {
@@ -12499,6 +12506,18 @@ impl GpuProcessor {
                         bounds.width,
                         bounds.height,
                     ]];
+                }
+                // A drag's frame renders the first pixel of every block a
+                // region touches, which the passes over the blocks read: a
+                // region starting on an odd column or row starts a pixel
+                // earlier (in the tile; that pixel is rendered, not kept).
+                if half_terms || half_grain {
+                    for region in &mut regions {
+                        *region = effect_passes::with_block_starts(
+                            *region,
+                            [input_x_start, input_y_start],
+                        );
+                    }
                 }
                 let workgroups: u32 = regions
                     .iter()

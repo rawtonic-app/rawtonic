@@ -259,6 +259,31 @@ pub(super) fn half_regions(regions: &[[u32; 4]], offset: [u32; 2]) -> Vec<[u32; 
         .collect()
 }
 
+/// `region` (absolute coordinates) grown to whole 2 x 2 blocks: the pixels
+/// a drag's changed pixels change (G76/GRN3).
+pub(super) fn whole_blocks(region: Roi) -> Roi {
+    let (x, y) = (region.x & !1, region.y & !1);
+    Roi {
+        x,
+        y,
+        width: (region.x + region.width).next_multiple_of(2) - x,
+        height: (region.y + region.height).next_multiple_of(2) - y,
+    }
+}
+
+/// A tile-local dispatch region (x, y, width, height) of the tile at
+/// `offset`, started at the first pixel in the tile of the block its first
+/// pixel lies in (`terms_pixel`), so the main pass renders every pixel the
+/// passes over the blocks read.
+pub(super) fn with_block_starts(region: [u32; 4], offset: [u32; 2]) -> [u32; 4] {
+    let start = |at: u32, o: u32| {
+        let block = (at + o) >> 1;
+        (2 * block).max(o) - o
+    };
+    let (x, y) = (start(region[0], offset[0]), start(region[1], offset[1]));
+    [x, y, region[2] + region[0] - x, region[3] + region[1] - y]
+}
+
 /// The pipeline constants of the finish pass: with or without grain, into
 /// the 8-bit tile or (`deferred`) as the colour `encode_deferred` encodes.
 /// The sharpening view's two lines are always in: a frame without the view
@@ -718,6 +743,25 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn drag_frames_render_whole_blocks_and_their_first_pixels() {
+        let roi = |x, y, width, height| Roi {
+            x,
+            y,
+            width,
+            height,
+        };
+        assert_eq!(whole_blocks(roi(3, 4, 2, 1)), roi(2, 4, 4, 2));
+        assert_eq!(whole_blocks(roi(2, 4, 2, 2)), roi(2, 4, 2, 2));
+        // A region from tile pixel 4 of a tile at 7: absolute 11, its
+        // block's first pixel absolute 10, tile pixel 3.
+        assert_eq!(with_block_starts([4, 6, 5, 2], [7, 0]), [3, 6, 6, 2]);
+        // At the tile's start the block's first pixel is outside the tile:
+        // the passes take the tile's first pixel (`terms_pixel`).
+        assert_eq!(with_block_starts([0, 0, 5, 2], [7, 7]), [0, 0, 5, 2]);
+        assert_eq!(with_block_starts([2, 1, 5, 2], [0, 0]), [2, 0, 5, 3]);
     }
 
     #[test]

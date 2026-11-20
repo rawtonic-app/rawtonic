@@ -313,7 +313,10 @@ export function useImageProcessing(
             // frames, final previews and other platforms retain binary replies.
             browserPreviewUri: import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0',
             ...(fullZoom ? { browserFullZoom: true } : {}),
-            ...(regionFirst && roi && !dragging && !live && !cropEdit ? { regionFirst: true } : {})
+            ...(regionFirst && roi && !dragging && !live && !cropEdit ? { regionFirst: true } : {}),
+            // A grain slider held (from its press): the drag's frames show
+            // the grain exactly; other drags render it once per 2 x 2 pixels.
+            ...(dragging && useEditorStore.getState().grainSliderDrag !== null ? { grainDrag: true } : {})
           },
           os === 'linux' && dragging && import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0'
         );

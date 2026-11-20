@@ -25648,7 +25648,8 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
         .collect();
     let view = input_from(&context, width, height, &data);
     let processor = effect_pass_processor(&context, width, height, true);
-    let render = |adjustments: &rawtonic_engine::image_processing::PreparedAdjustments| {
+    let render_in = |adjustments: &rawtonic_engine::image_processing::PreparedAdjustments,
+                     roi: Option<Roi>| {
         processor
             .run(
                 &view,
@@ -25658,25 +25659,38 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
                     adjustments: adjustments.clone(),
                     mask_bitmaps: &[],
                     lut: None,
-                    roi: None,
+                    roi,
                 },
                 true,
                 RenderOutputPrecision::EightBit,
             )
             .unwrap();
+        let area = roi.unwrap_or(Roi {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        });
         read_texture_data_roi(
             &context.device,
             &context.queue,
             &processor.test_working_texture(),
-            wgpu::Origin3d::ZERO,
+            wgpu::Origin3d {
+                x: area.x,
+                y: area.y,
+                z: 0,
+            },
             wgpu::Extent3d {
-                width,
-                height,
+                width: area.width,
+                height: area.height,
                 depth_or_array_layers: 1,
             },
             4,
         )
         .unwrap()
+    };
+    let render = |adjustments: &rawtonic_engine::image_processing::PreparedAdjustments| {
+        render_in(adjustments, None)
     };
     let basic = json!({"exposure":0.3,"contrast":20,"shadows":25,"toneVersion":18});
     let with = |effects: serde_json::Value| {
@@ -25720,9 +25734,27 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
             exact != approximate,
             "{name}: the drag frame is the settled one"
         );
+        // A region on an odd column and row (a zoomed view): its blocks'
+        // first pixels lie outside it, and the drag frame must render them
+        // itself, not read what an earlier frame left in the tiles.
+        let region = Some(Roi {
+            x: 301,
+            y: 157,
+            width: 600,
+            height: 400,
+        });
+        let mut other = drag.clone();
+        other.uniforms.global.exposure += 1.0;
+        render(&other);
+        let after_other = render_in(&drag, region);
+        render(&settled);
+        let after_settled = render_in(&drag, region);
+        assert!(
+            after_other == after_settled,
+            "{name}: an odd region's drag frame depends on the frame before"
+        );
         // Per channel: the mean signed difference (a shift of brightness or
-        // colour), the mean absolute one, the 99.9th percentile, and the
-        // spread of the frames' 2 x 2 detail (the grain's strength).
+        // colour), the mean absolute one and the 99.9th percentile.
         let mut abs: Vec<u8> = Vec::with_capacity(exact.len());
         let mut signed = [0.0f64; 3];
         for (i, (a, b)) in exact.iter().zip(&approximate).enumerate() {
@@ -25735,34 +25767,57 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
         let mean_abs = abs.iter().map(|&d| f64::from(d)).sum::<f64>() / abs.len() as f64;
         abs.sort_unstable();
         let p999 = abs[abs.len() * 999 / 1000];
-        let detail = |frame: &[u8]| {
+        let shift = signed.map(|sum| sum / pixels);
+        let mut record = json!({"probe":"drag_effects","edit":name,"mean_signed_codes":shift,
+            "mean_abs_codes":mean_abs,"p999_abs_codes":p999});
+        // The grain alone (green, codes): each frame less the same render
+        // without grain, settled or a drag's. Its spread within 2 x 2
+        // blocks, and at half resolution (each block's mean against the
+        // blocks around it) its strength and how far the drag's follows
+        // the settled grain's pattern.
+        let grain_signal = |frame: &[u8], drag_frame: bool| -> Option<Vec<f64>> {
+            let mut without = profile.clone();
+            without
+                .as_object_mut()?
+                .insert("grainAmount".into(), json!(0));
+            let mut base = get_all_adjustments_from_json(&without, true, Some(3));
+            base.drag_effects = if drag_frame {
+                drag.drag_effects
+            } else {
+                Default::default()
+            };
+            let base = render(&base);
+            Some(
+                frame
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(base.as_chunks::<4>().0)
+                    .map(|(a, b)| f64::from(a[1]) - f64::from(b[1]))
+                    .collect(),
+            )
+        };
+        let (w, h) = (width as usize, height as usize);
+        let within = |g: &[f64]| {
             let mut sum = 0.0f64;
-            let mut count = 0.0f64;
-            for y in (0..height as usize - 1).step_by(2) {
-                for x in (0..width as usize - 1).step_by(2) {
-                    let at = |dx: usize, dy: usize| {
-                        f64::from(frame[((y + dy) * width as usize + x + dx) * 4 + 1])
-                    };
+            for y in (0..h - 1).step_by(2) {
+                for x in (0..w - 1).step_by(2) {
+                    let at = |dx: usize, dy: usize| g[(y + dy) * w + x + dx];
                     let mean = (at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4.0;
-                    let local = (at(0, 0) - mean).powi(2) + (at(1, 1) - mean).powi(2);
-                    sum += local;
-                    count += 2.0;
+                    sum += (0..4)
+                        .map(|k| (at(k % 2, k / 2) - mean).powi(2))
+                        .sum::<f64>();
                 }
             }
-            (sum / count).sqrt()
+            (sum / (w / 2 * 2 * (h / 2 * 2)) as f64).sqrt()
         };
-        let grain_detail = [detail(&exact), detail(&approximate)];
-        // The grain as seen at half resolution: each 2 x 2 block's mean
-        // against the mean of the blocks around it.
-        let coarse = |frame: &[u8]| -> Vec<f64> {
-            let (bw, bh) = (width as usize / 2, height as usize / 2);
+        let half_res = |g: &[f64]| -> Vec<f64> {
+            let (bw, bh) = (w / 2, h / 2);
             let block: Vec<f64> = (0..bw * bh)
                 .map(|i| {
                     let (x, y) = (i % bw * 2, i / bw * 2);
-                    let at = |dx: usize, dy: usize| {
-                        f64::from(frame[((y + dy) * width as usize + x + dx) * 4 + 1])
-                    };
-                    (at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4.0
+                    (g[y * w + x] + g[y * w + x + 1] + g[(y + 1) * w + x] + g[(y + 1) * w + x + 1])
+                        / 4.0
                 })
                 .collect();
             let mut high = Vec::with_capacity(bw * bh);
@@ -25777,42 +25832,42 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
             }
             high
         };
-        let high = [coarse(&exact), coarse(&approximate)];
         let rms = |v: &[f64]| (v.iter().map(|x| x * x).sum::<f64>() / v.len() as f64).sqrt();
-        let grain_coarse = [rms(&high[0]), rms(&high[1])];
-        // The same grain, not another one: how far the drag's grain at half
-        // resolution follows the settled frame's.
-        let correlation = high[0]
-            .iter()
-            .zip(&high[1])
-            .map(|(a, b)| a * b)
-            .sum::<f64>()
-            / high[0].len() as f64
-            / (grain_coarse[0] * grain_coarse[1]);
-        let shift = signed.map(|sum| sum / pixels);
-        println!(
-            "{}",
-            json!({"probe":"drag_effects","edit":name,"mean_signed_codes":shift,
-                "mean_abs_codes":mean_abs,"p999_abs_codes":p999,
-                "detail_2x2_settled":grain_detail[0],"detail_2x2_drag":grain_detail[1],
-                "grain_half_res_settled":grain_coarse[0],"grain_half_res_drag":grain_coarse[1],
-                "grain_half_res_correlation":correlation})
-        );
+        let grain = (name != "glow_halation").then(|| {
+            let g = [
+                grain_signal(&exact, false).unwrap(),
+                grain_signal(&approximate, true).unwrap(),
+            ];
+            let high = [half_res(&g[0]), half_res(&g[1])];
+            let strength = [rms(&high[0]), rms(&high[1])];
+            let correlation = high[0]
+                .iter()
+                .zip(&high[1])
+                .map(|(a, b)| a * b)
+                .sum::<f64>()
+                / high[0].len() as f64
+                / (strength[0] * strength[1]);
+            record["grain_rms"] = json!([rms(&g[0]), rms(&g[1])]);
+            record["grain_within_2x2"] = json!([within(&g[0]), within(&g[1])]);
+            record["grain_half_res"] = json!(strength);
+            record["grain_half_res_correlation"] = json!(correlation);
+            (strength, correlation)
+        });
+        println!("{record}");
         // No shift of the frame's brightness or colour while dragging.
         for channel in shift {
             assert!(channel.abs() < 0.5, "{name}: mean shift {shift:?} codes");
         }
-        if name == "glow_halation" {
+        match grain {
             // The terms come from the blurred photo: the coarser drag frame
             // is within a code or two of the settled one.
-            assert!(mean_abs < 0.5 && p999 <= 3, "{name}: {mean_abs} / {p999}");
-        } else {
-            // The settled grain seen at half resolution: its strength and
-            // its pattern stay, only the detail within 2 x 2 pixels goes.
-            assert!(
-                grain_coarse[1] > 0.85 * grain_coarse[0] && correlation > 0.8,
-                "{name}: {grain_coarse:?}, correlation {correlation}"
-            );
+            None => assert!(mean_abs < 0.5 && p999 <= 3, "{name}: {mean_abs} / {p999}"),
+            // The settled grain seen at half resolution: most of its
+            // strength and the same pattern.
+            Some((strength, correlation)) => assert!(
+                strength[1] > 0.85 * strength[0] && correlation > 0.8,
+                "{name}: {strength:?}, correlation {correlation}"
+            ),
         }
     }
 }
