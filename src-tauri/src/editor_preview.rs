@@ -2583,6 +2583,45 @@ pub(crate) fn encode_browser_preview(
 /// well inside the ~100 ms between updates.
 const DRAG_SCOPE_THREADS: usize = 2;
 
+/// A drag frame's waveform, parade or vectorscope samples every this many
+/// rows (each sampled value weighs as many; the clipped ends still count
+/// from every row, `scopes::scope_counts_of_rows`): less work beside the
+/// drag's next frames. With a scope open, the Radeon 680M's input -> preview p95 rose
+/// +1.2…+2.9 ms (the invoke's own round trip +2.8…+4.3 ms) while a scope
+/// update took up to 20 ms on its threads (notes:
+/// benchmark-results/scp4-2026-11-20).
+/// A settled frame's scopes count every row.
+const DRAG_SCOPE_ROW_STEP: usize = 2;
+
+/// Puts a drag-scope thread below the editor's threads, so a busy scope
+/// waits for the drag's frame rather than the frame for the scope. Linux
+/// as the export threads (`lower_thread_priority`); Windows two steps
+/// below normal (`THREAD_PRIORITY_LOWEST`, on the same cores; it was left
+/// at normal before). macOS keeps the
+/// default: its lower classes move threads to the efficiency cores, and
+/// the Mac met the scope budget without it (G23, SCP2).
+fn lower_drag_scope_priority() {
+    #[cfg(target_os = "linux")]
+    crate::export_processing::lower_thread_priority();
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::Threading::{
+            GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_LOWEST,
+        };
+        // SAFETY: changes the calling thread's own priority; the
+        // pseudo-handle needs no closing.
+        if let Err(error) = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST) }
+        {
+            log::warn!("Could not lower a drag-scope thread's priority: {error}");
+        }
+    }
+}
+
+/// Rows a scope update counts: every one once the frame has settled.
+fn drag_scope_row_step(interactive: bool) -> usize {
+    if interactive { DRAG_SCOPE_ROW_STEP } else { 1 }
+}
+
 pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
     let worker_app = app_handle.clone();
@@ -2596,7 +2635,7 @@ pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
     let drag_pool = rayon::ThreadPoolBuilder::new()
         .num_threads(DRAG_SCOPE_THREADS)
         .thread_name(|i| format!("drag-scopes-{i}"))
-        .start_handler(|_| crate::export_processing::lower_thread_priority())
+        .start_handler(|_| lower_drag_scope_priority())
         .build()
         .ok();
     let sender = gpu_processing::start_latest_job_worker(move |job: AnalyticsJob| {
@@ -2613,10 +2652,11 @@ pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
             )
             .ok();
             let waveform = if job.compute_waveform {
-                scopes::calculate_waveform_from_image(
+                scopes::calculate_waveform_of_rows(
                     &job.image,
                     job.space,
                     job.active_waveform_channel.as_deref(),
+                    drag_scope_row_step(job.interactive),
                 )
                 .ok()
             } else {
@@ -4412,6 +4452,41 @@ mod preview_error_tests {
         let failed = preview_render_error("out of memory".to_string());
         assert_eq!(failed.code, ErrorCode::RenderFailed);
         assert!(failed.message.starts_with(PREVIEW_RENDER_FAILED));
+    }
+}
+
+#[cfg(test)]
+mod drag_scope_tests {
+    use super::{DRAG_SCOPE_ROW_STEP, drag_scope_row_step};
+
+    /// Only a drag's scopes skip rows: a settled frame's show every pixel.
+    #[test]
+    fn settled_scopes_count_every_row() {
+        assert_eq!(drag_scope_row_step(false), 1);
+        assert_eq!(drag_scope_row_step(true), DRAG_SCOPE_ROW_STEP);
+    }
+
+    /// The drag pool's threads run below the editor's (Linux: the export
+    /// threads' idle class; Windows: `THREAD_PRIORITY_LOWEST`).
+    #[test]
+    fn drag_scope_threads_run_below_the_editor() {
+        std::thread::spawn(|| {
+            super::lower_drag_scope_priority();
+            #[cfg(target_os = "linux")]
+            // SAFETY: reads the calling thread's own policy.
+            assert_eq!(unsafe { libc::sched_getscheduler(0) }, libc::SCHED_IDLE);
+            #[cfg(windows)]
+            {
+                use windows::Win32::System::Threading::{
+                    GetCurrentThread, GetThreadPriority, THREAD_PRIORITY_LOWEST,
+                };
+                // SAFETY: reads the calling thread's own priority.
+                let priority = unsafe { GetThreadPriority(GetCurrentThread()) };
+                assert_eq!(priority, THREAD_PRIORITY_LOWEST.0);
+            }
+        })
+        .join()
+        .unwrap();
     }
 }
 
