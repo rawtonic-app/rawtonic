@@ -15420,6 +15420,27 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
     }
 }
 
+/// Version 20's Shadows bound reads the tone stage's gain and the curve's
+/// level through its own copies of those functions (shader.wgsl explains
+/// why); they must stay the same as the originals.
+#[test]
+fn tone_version_20_shadows_copies_match_the_tone_stage() {
+    let shader = include_str!("shaders/shader.wgsl");
+    let body = |name: &str| {
+        let start = shader
+            .find(&format!("\nfn {name}("))
+            .unwrap_or_else(|| panic!("{name} is missing"));
+        let rest = &shader[start + 4 + name.len()..];
+        &rest[..rest.find("\n}\n").unwrap()]
+    };
+    for (copy, original) in [
+        ("shadows_v20_curve_level", "cr_curve_level"),
+        ("shadows_v20_stage_gain", "shadows_v13_gain"),
+    ] {
+        assert_eq!(body(copy), body(original), "{copy} differs from {original}");
+    }
+}
+
 /// `renderVersion` of a new edit (the fixture new edits are checked
 /// against), so a test of a new tone version renders through the export
 /// path new edits use.

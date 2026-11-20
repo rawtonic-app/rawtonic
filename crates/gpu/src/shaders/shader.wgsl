@@ -2856,6 +2856,52 @@ const SH_V20_TO: f32 = -0.5;
 // The first bound starts in a quadratic knee this wide (EV to either side).
 const SH_V20_SOFT: f32 = 0.25;
 
+// Version 20's own copies of `cr_curve_level` and `shadows_v13_gain` (the
+// tone stage's gain), kept the same as those: with two more callers each,
+// Metal compiled the originals differently, and an export of a version 19
+// recipe with Shadows and Blacks raised moved by one 16-bit code in a few
+// samples (31 of 108 M; notes: reference/preservation-run.md, PRV44).
+// `tone_version_20_shadows_copies_match_the_tone_stage` compares the texts.
+fn shadows_v20_curve_level(display: f32) -> f32 {
+    let flag = adjustments.global.profile_curve[15].w;
+    let own_curve = (flag > 0.5 && flag < 1.5) || (flag > 2.5 && flag < 4.5);
+    var ev = default_tone_curve_inverse(display);
+    if (own_curve) {
+        var i = 0u;
+        for (var k = 0u; k < 48u; k = k + 1u) {
+            if (profile_curve_value(k + 1u) <= display) {
+                i = k + 1u;
+            }
+        }
+        i = min(i, 47u);
+        let a = profile_curve_value(i);
+        let b = profile_curve_value(i + 1u);
+        ev = DEFAULT_TONE_CURVE_START_EV + (f32(i) + clamp((display - a) / max(b - a, 1e-6), 0.0, 1.0)) * 0.25;
+    }
+    let black = camera_raw_black();
+    return (exp2(ev) * (1.0 - black) + black) / exp2(adjustments.global.baseline_exposure);
+}
+
+fn shadows_v20_stage_gain(level_luma: f32, sh: f32, bl: f32, fade: f32) -> f32 {
+    let gain = camera_raw_shadows_blacks_gain(level_luma, sh, bl);
+    if (sh <= 0.0) {
+        return gain;
+    }
+    // Only Shadows' share is cut: with Blacks raised too, cutting Blacks'
+    // lift as well turned tones over (+100 / +100 fell 2 × the limit).
+    var blacks_log = 0.0;
+    if (bl != 0.0) {
+        blacks_log = log2(max(camera_raw_shadows_blacks_gain(level_luma, 0.0, bl), 1e-9));
+    }
+    let shadows_log = log2(max(gain, 1e-9)) - blacks_log;
+    if (shadows_log <= 0.0) {
+        return gain;
+    }
+    let display = camera_raw_level_slope(level_luma).x;
+    let cut = SH_V13_MID_CUT * smoothstep(SH_V13_MID_FROM, SH_V13_MID_TO, display) * fade;
+    return exp2(blacks_log + shadows_log * (1.0 - cut));
+}
+
 // `pixel_rgb` has Exposure applied, the level not. The second bound has to
 // hold for darker pixels too (a dark pixel lifted beyond SH_V20_TO would
 // otherwise render lighter than a brighter one at the bound), so the
@@ -2868,15 +2914,15 @@ fn shadows_v20_pixel_gain(level_luma: f32, pixel_rgb: vec3<f32>, sh: f32, bl: f3
     }
     let ramp = clamp(sh / SH_V6_FADE, 0.0, 1.0);
     let fade = ramp * ramp;
-    let at_level = log2(max(shadows_v13_gain(level, sh, bl, fade), 1e-9));
-    let above = log2(pixel / max(cr_curve_level(SH_V20_FROM), 1e-6));
+    let at_level = log2(max(shadows_v20_stage_gain(level, sh, bl, fade), 1e-9));
+    let above = log2(pixel / max(shadows_v20_curve_level(SH_V20_FROM), 1e-6));
     let q = clamp(above + SH_V20_SOFT, 0.0, 2.0 * SH_V20_SOFT);
     let rise = select(q * q / (4.0 * SH_V20_SOFT), above, above >= SH_V20_SOFT);
-    let bound = min(at_level - (1.0 - SH_V20_KEEP) * rise, log2(max(cr_curve_level(SH_V20_TO), 1e-6) / pixel));
+    let bound = min(at_level - (1.0 - SH_V20_KEEP) * rise, log2(max(shadows_v20_curve_level(SH_V20_TO), 1e-6) / pixel));
     if (bound >= at_level) {
         return 1.0;
     }
-    let at_pixel = log2(max(shadows_v13_gain(pixel, sh, bl, fade), 1e-9));
+    let at_pixel = log2(max(shadows_v20_stage_gain(pixel, sh, bl, fade), 1e-9));
     return exp2(min(max(at_pixel, bound) - at_level, 0.0));
 }
 
