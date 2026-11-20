@@ -8654,9 +8654,7 @@ impl GpuProcessor {
             long_curve_pipelines: Default::default(),
             range2_pipelines: (0..MAIN_OUTPUTS)
                 .map(|_| {
-                    std::array::from_fn(|_| {
-                        (0..TONE_LEVELS).map(|_| Default::default()).collect()
-                    })
+                    std::array::from_fn(|_| (0..TONE_LEVELS).map(|_| Default::default()).collect())
                 })
                 .collect(),
             mixer_feature_pipelines: (0..MIXER_FEATURE_SLOTS)
