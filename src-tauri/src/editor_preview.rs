@@ -1772,11 +1772,64 @@ fn fit_color_noise_base(
     )
 }
 
+struct PreviewJobContext<'a> {
+    /// Window services are absent for a headless preview render.
+    app_handle: Option<&'a tauri::AppHandle>,
+    gpu: &'a crate::state::gpu::GpuState,
+    context: &'a gpu_processing::GpuContext,
+    settings: &'a crate::app_settings::AppSettings,
+}
+
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn process_preview_job(
+fn process_editor_preview_job(
     app_handle: &tauri::AppHandle,
     state: tauri::State<AppState>,
     develop: tauri::State<DevelopSession>,
+    adjustments_json: serde_json::Value,
+    is_interactive: bool,
+    target_resolution: Option<u32>,
+    roi: Option<(f32, f32, f32, f32)>,
+    request_analytics: bool,
+    compute_waveform: bool,
+    active_waveform_channel: Option<&str>,
+    mask_overlay: Option<&crate::app_state::MaskOverlayRequest>,
+    crop_edit: bool,
+    browser_full_zoom: bool,
+    render_generation: usize,
+    pass: FramePass,
+) -> Result<Vec<u8>, CommandError> {
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let context = get_or_init_gpu_context(&gpu, app_handle)?;
+    let settings = crate::state::settings::current(app_handle);
+    process_preview_job(
+        PreviewJobContext {
+            app_handle: Some(app_handle),
+            gpu: &gpu,
+            context: &context,
+            settings: &settings,
+        },
+        &state,
+        &develop,
+        adjustments_json,
+        is_interactive,
+        target_resolution,
+        roi,
+        request_analytics,
+        compute_waveform,
+        active_waveform_channel,
+        mask_overlay,
+        crop_edit,
+        browser_full_zoom,
+        render_generation,
+        pass,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_preview_job(
+    runtime: PreviewJobContext<'_>,
+    state: &AppState,
+    develop: &DevelopSession,
     mut adjustments_json: serde_json::Value,
     is_interactive: bool,
     target_resolution: Option<u32>,
@@ -1794,12 +1847,16 @@ pub(crate) fn process_preview_job(
     let fn_start = std::time::Instant::now();
     #[cfg(feature = "performance-profiling")]
     let setup_stage = crate::performance::PerformanceStage::new("preview_setup");
-    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
-    let context = get_or_init_gpu_context(&gpu, app_handle)?;
-    normalize_editor_recipe(&develop, &mut adjustments_json);
+    let PreviewJobContext {
+        app_handle,
+        gpu,
+        context,
+        settings,
+    } = runtime;
+    normalize_editor_recipe(develop, &mut adjustments_json);
     let adjustments_clone = adjustments_json;
 
-    let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
+    let (loaded_image, source_scale, full_dims) = preview_source(state)?;
     let display_identity = gpu_processing::DisplayFrameIdentity {
         path: loaded_image.path.clone(),
         source: Arc::downgrade(&loaded_image.image),
@@ -1808,7 +1865,6 @@ pub(crate) fn process_preview_job(
     };
 
     let new_transform_hash = calculate_transform_hash(&adjustments_clone);
-    let settings = crate::state::settings::current(app_handle);
     let live_quality = settings.live_preview_quality.as_deref().unwrap_or("high");
 
     let default_preview_dim = settings.editor_preview_resolution.unwrap_or(1920);
@@ -1824,7 +1880,7 @@ pub(crate) fn process_preview_job(
             .store(preview_dim, Ordering::Relaxed);
     }
     #[cfg(not(target_os = "linux"))]
-    let use_wgpu_renderer = settings.use_wgpu_renderer.unwrap_or(true);
+    let use_wgpu_renderer = app_handle.is_some() && settings.use_wgpu_renderer.unwrap_or(true);
     #[cfg(target_os = "linux")]
     let use_wgpu_renderer = false;
 
@@ -1857,7 +1913,7 @@ pub(crate) fn process_preview_job(
     // the drag builds it again with it.
     let fringe_draft =
         is_interactive && rawtonic_engine::edge_fringe::has_draft(&adjustments_clone);
-    let interim = interim_source(&state, &loaded_image, source_scale);
+    let interim = interim_source(state, &loaded_image, source_scale);
     // A lasting frame checks the whole preparation too (`serves_frame`): a
     // recipe shown in place of the edit (a snapshot in the held peek, undo)
     // can differ from the base's in inputs the transform hash takes by size.
@@ -1927,8 +1983,8 @@ pub(crate) fn process_preview_job(
             &adjustments_clone
         };
         let preview = preview_base(
-            &state,
-            &develop,
+            state,
+            develop,
             &loaded_image,
             source_scale,
             full_dims,
@@ -2000,7 +2056,7 @@ pub(crate) fn process_preview_job(
             _browser_full_zoom,
             crop_edit,
             roi.is_some(),
-            crate::second_window::is_open(),
+            app_handle.is_some() && crate::second_window::is_open(),
         );
     #[cfg(not(target_os = "linux"))]
     let browser_region = false;
@@ -2025,8 +2081,8 @@ pub(crate) fn process_preview_job(
     );
 
     let warped_image = resolve_warped_image_for_masks(
-        &state,
-        &develop,
+        state,
+        develop,
         &loaded_image.image,
         loaded_image.is_raw,
         source_scale,
@@ -2052,7 +2108,7 @@ pub(crate) fn process_preview_job(
             Some(def) => {
                 let opacity = std::mem::replace(&mut def.opacity, 100.0);
                 let overlay = get_cached_or_generate_mask(
-                    &develop,
+                    develop,
                     def,
                     preview_width,
                     preview_height,
@@ -2093,7 +2149,7 @@ pub(crate) fn process_preview_job(
         .iter()
         .filter_map(|def| {
             get_cached_or_generate_mask(
-                &develop,
+                develop,
                 def,
                 preview_width,
                 preview_height,
@@ -2111,7 +2167,7 @@ pub(crate) fn process_preview_job(
     let adjustments_stage = crate::performance::PerformanceStage::new("preview_adjustments");
 
     let is_raw = loaded_image.is_raw;
-    let tm_override = resolve_tonemapper_override_from_handle(app_handle, is_raw);
+    let tm_override = resolve_tonemapper_override(settings, is_raw);
     let mut final_adjustments = get_all_adjustments_with_masks(
         &adjustments_clone,
         is_raw,
@@ -2130,7 +2186,7 @@ pub(crate) fn process_preview_job(
     // reduced (warp, edge-fringe pass and colour noise reduction at full
     // resolution), rendered at Color 0 (`color_noise_view`).
     let (processing_image, render_transform_hash) = match fit_color_noise_base(
-        &develop,
+        develop,
         &loaded_image,
         &final_adjustments,
         FitColorNoise {
@@ -2168,8 +2224,8 @@ pub(crate) fn process_preview_job(
         None => (processing_image, new_transform_hash),
     };
     let lut_path = adjustments_clone[effects::LUT_PATH.into_name()].as_str();
-    let lut = lut_path.and_then(|p| {
-        lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p).ok()
+    let lut = lut_path.zip(app_handle).and_then(|(p, app)| {
+        lut_processing::get_or_load_lut(&app.state::<crate::state::luts::LutState>(), p).ok()
     });
 
     // A zoomed drag's frame covers only the visible region: the whole
@@ -2244,7 +2300,7 @@ pub(crate) fn process_preview_job(
     // from the JPEG below).
     #[cfg(target_os = "linux")]
     let tool_view = final_adjustments.global.show_clipping != 0;
-    if use_wgpu_renderer || cfg!(target_os = "linux") {
+    if app_handle.is_some() && (use_wgpu_renderer || cfg!(target_os = "linux")) {
         crate::second_window::note_live(
             &loaded_image.path,
             &adjustments_clone,
@@ -2254,9 +2310,9 @@ pub(crate) fn process_preview_job(
     }
     let final_processed_image_result =
         crate::image_processing::process_and_get_dynamic_image_with_analytics(
-            &context,
-            &gpu,
-            &develop,
+            context,
+            gpu,
+            develop,
             &processing_image,
             render_transform_hash,
             RenderRequest {
@@ -2291,16 +2347,13 @@ pub(crate) fn process_preview_job(
         job.recipe = adjustments_clone;
         job.masks = mask_definitions;
         sender.send(job);
-    } else if !is_interactive && !region_only {
-        rewarm_mask_source(
-            app_handle,
-            &state,
-            &develop,
-            &loaded_image,
-            adjustments_clone,
-        );
+    } else if !is_interactive
+        && !region_only
+        && let Some(app) = app_handle
+    {
+        rewarm_mask_source(app, state, develop, &loaded_image, adjustments_clone);
     }
-    if use_wgpu_renderer {
+    if use_wgpu_renderer && let Some(app) = app_handle {
         {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("preview_gpu_wait");
@@ -2309,7 +2362,7 @@ pub(crate) fn process_preview_job(
                 timeout: Some(std::time::Duration::from_millis(500)),
             });
         }
-        let _ = app_handle.emit(
+        let _ = app.emit(
             "wgpu-frame-ready",
             serde_json::json!({ "path": loaded_image.path }),
         );
@@ -2383,10 +2436,14 @@ pub(crate) fn process_preview_job(
             // The second window shows the whole frame (not a zoomed drag's
             // region nor the crop tool's uncropped one) as it is.
             #[cfg(target_os = "linux")]
-            if pixel_roi.is_none() && !crop_edit && crate::second_window::is_open() {
+            if pixel_roi.is_none()
+                && !crop_edit
+                && let Some(app) = app_handle
+                && crate::second_window::is_open()
+            {
                 crate::second_window::on_browser_frame(
-                    app_handle,
-                    &context,
+                    app,
+                    context,
                     &loaded_image.path,
                     &jpeg_bytes,
                     final_rgba_image.dimensions(),
@@ -2656,7 +2713,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 let _ = gpu_processing::supersedable(
                     move || check(),
                     || {
-                        process_preview_job(
+                        process_editor_preview_job(
                             &app_handle,
                             app_handle.state::<AppState>(),
                             app_handle.state::<DevelopSession>(),
@@ -2686,7 +2743,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 gpu_processing::supersedable(
                     move || newer(),
                     || {
-                        process_preview_job(
+                        process_editor_preview_job(
                             &app_handle,
                             state,
                             develop,
@@ -2863,7 +2920,7 @@ fn run_analytics_pass(app_handle: &tauri::AppHandle, pass: AnalyticsPass, newest
     }
     let started = std::time::Instant::now();
     let result = gpu_processing::supersedable(superseded, || {
-        process_preview_job(
+        process_editor_preview_job(
             app_handle,
             app_handle.state::<AppState>(),
             app_handle.state::<DevelopSession>(),
@@ -2965,7 +3022,7 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
     let started = std::time::Instant::now();
     let frames = develop.color_noise_view.frames_noted();
     let result = gpu_processing::supersedable(newer_request_waits(app_handle, None), || {
-        process_preview_job(
+        process_editor_preview_job(
             app_handle,
             state,
             develop,
@@ -4666,11 +4723,86 @@ mod preview_memory_tests {
         assert_eq!(reduced_drag_divisor(false, 1608, 1024), None);
         assert_eq!(reduced_drag_divisor(true, 1608, 1608), None);
         assert_eq!(reduced_drag_divisor(true, 1024, 1608), None);
-        // The live quality limits the requested size, the reduction then
-        // serves it from the larger base (Linux High: at most 1536 px).
-        let quality = browser_interactive_divisor(2048, "high", 1.0);
-        let divisor = quality * reduced_drag_divisor(true, 3200, 2048).unwrap();
-        assert!((3200.0 / divisor - 1536.0).abs() < 0.01);
+    }
+
+    #[test]
+    #[ignore = "requires a native GPU; renders headlessly"]
+    fn preview_job_reduces_the_cached_base_at_the_requested_live_quality() {
+        let gpu = crate::state::gpu::GpuState::default();
+        let started =
+            rawtonic_gpu::device_start::start_device(|_| None, wgpu::Backends::empty(), |_| {})
+                .unwrap();
+        let context = gpu_processing::GpuContext {
+            device: Arc::new(started.device),
+            queue: Arc::new(started.queue),
+            limits: started.adapter.limits(),
+            display: Default::default(),
+            display_space: Default::default(),
+        };
+        let state = AppState::default();
+        *state.source.original_image.lock().unwrap() = Some(LoadedImage {
+            path: "preview-test.png".to_string(),
+            image: Arc::new(DynamicImage::new_rgb32f(2400, 1200)),
+            is_raw: false,
+            decode: None,
+            measures: None,
+        });
+        let develop = DevelopSession::default();
+        let render = |quality: &str, is_interactive, size, exposure| {
+            process_preview_job(
+                PreviewJobContext {
+                    app_handle: None,
+                    gpu: &gpu,
+                    context: &context,
+                    settings: &crate::app_settings::AppSettings {
+                        live_preview_quality: Some(quality.to_owned()),
+                        ..Default::default()
+                    },
+                },
+                &state,
+                &develop,
+                serde_json::json!({ "grainAmount": 40, "exposure": exposure }),
+                is_interactive,
+                Some(size),
+                None,
+                false,
+                false,
+                None,
+                None,
+                false,
+                false,
+                0,
+                FramePass::Requested,
+            )
+            .unwrap()
+        };
+        render("high", false, 2400, 0.0);
+        let cached = || {
+            develop
+                .cached_preview
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .clone()
+        };
+        let settled = cached().image;
+
+        // Exercise the real job and its encoded output. High and Performance
+        // both apply to the requested 1920 px, even when reusing a 2400 px base.
+        let (high, performance) = if cfg!(target_os = "linux") {
+            (1536, 1024)
+        } else {
+            (1920, 1280)
+        };
+        for (quality, expected) in [("high", high), ("performance", performance)] {
+            let frame = render(quality, true, 1920, 0.25);
+            let jpeg = image::load_from_memory(&frame[24..]).unwrap();
+            assert_eq!(jpeg.dimensions(), (expected, expected / 2), "{quality}");
+            assert!(Arc::ptr_eq(&cached().image, &settled));
+        }
+        render("performance", false, 2400, 0.25);
+        assert!(Arc::ptr_eq(&cached().image, &settled));
     }
 
     #[test]

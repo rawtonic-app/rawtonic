@@ -86,6 +86,7 @@ interface EditorState {
 
   // Interaction State
   isSliderDragging: boolean;
+  grainSliderDrag: 'amount' | 'detail' | null;
   /** The open RAW is being developed again for AI Denoise. */
   aiDenoiseBusy: boolean;
   zoom: number;
@@ -317,6 +318,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   waveformHeight: 220,
 
   isSliderDragging: false,
+  grainSliderDrag: null,
   aiDenoiseBusy: false,
   interactivePatch: null,
   activeMaskContainerId: null,

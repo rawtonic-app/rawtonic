@@ -3,15 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { TFunction } from 'i18next';
 import { notify as toast } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
-import {
-  dragTargetResolution,
-  formatBytes,
-  GrainDrag,
-  grainSignature,
-  previewTargetResolution,
-  previewsMenu,
-  viewerDimHint
-} from './previews';
+import { dragTargetResolution, formatBytes, previewTargetResolution, previewsMenu, viewerDimHint } from './previews';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), info: vi.fn() } }));
@@ -96,18 +88,4 @@ it('renders drags of other controls with grain at the size without grain, grain 
   expect(dragTargetResolution({ ...fit, fullDpi: true, grain: true }, false)).toBe(2070);
   // Without grain drags keep the settled size.
   expect(dragTargetResolution({ ...fit, grain: false }, false)).toBe(1536);
-});
-
-it('tells a drag of a grain control by the grain values', () => {
-  const start = grainSignature({ grainAmount: 40, grainSize: 25, grainRoughness: 50, exposure: 0 });
-  expect(grainSignature({ grainAmount: 40, grainSize: 25, grainRoughness: 50, exposure: 1.2 })).toBe(start);
-  expect(grainSignature({ grainAmount: 41, grainSize: 25, grainRoughness: 50, exposure: 0 })).not.toBe(start);
-  expect(grainSignature({ grainAmount: 40, grainSize: 25, grainRoughness: 50, grainColor: 30 })).not.toBe(start);
-});
-
-it('keeps a drag that changed grain a grain drag until it ends, also back at its start', () => {
-  const drag = new GrainDrag({ grainAmount: 40, grainSize: 25, exposure: 0 });
-  expect(drag.grainChanged({ grainAmount: 40, grainSize: 25, exposure: 0.5 })).toBe(false);
-  expect(drag.grainChanged({ grainAmount: 40, grainSize: 35, exposure: 0.5 })).toBe(true);
-  expect(drag.grainChanged({ grainAmount: 40, grainSize: 25, exposure: 0.5 })).toBe(true);
 });
