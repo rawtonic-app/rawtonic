@@ -918,7 +918,11 @@ was built with `build_model_pack.py --previous` (pack-2026-11-19) and adds only
 `superres_compact_x2.onnx`. All 80 prior files are byte-identical and keep
 their manifest entries; only the `used_by` text of the four own runtime
 libraries follows the current pins (bundled by the opt-in build). The
-Super Resolution license text names the GPU conversion as a change. The app,
+Super Resolution license text names the GPU conversion as a change. All 85
+uploaded assets (81 files, `models.json`, three license texts) were verified
+against GitHub's SHA-256 digests before the draft was published, and the 80
+carried files against pack-2026-11-19's. [Model repository PR #8](https://github.com/rawtonic-app/models/pull/8)
+records the [published manifest](https://github.com/rawtonic-app/models/releases/download/pack-2026-11-20/models.json). The app,
 `src-tauri/build.rs` and `install_models.sh` point to pack-2026-11-20.
 
 On an Apple M5 Pro laptop (24 GiB RAM, macOS 27.0.1), forced CPU inference
