@@ -19200,8 +19200,10 @@ fn size_dependent_recipes() -> Vec<(&'static str, serde_json::Value)> {
 /// photograph with every term that follows the photo's size or position
 /// on (luminance noise reduction, sharpening, Clarity, Structure, Texture,
 /// Dehaze, Centré, Vignette, grain, Glow, Halation) when it renders as a
-/// window of the photograph (`photo_placement`): within 1 code, as without
-/// any. Rendered as an image of its own it differed by up to 8–26 codes
+/// window of the photograph (`photo_placement`): byte for byte with the
+/// export shader, within 1 code with the display variants (8-bit dither),
+/// `REGION_NOISE_MARGIN` inside the region's cut edges. Rendered as an
+/// image of its own it differed by up to 8–26 codes
 /// with luminance noise reduction (NRR1; numbers in NRR2's report).
 #[test]
 #[ignore = "requires a native GPU"]
@@ -19270,11 +19272,16 @@ fn regions_render_as_windows_of_the_whole_photograph() {
             println!(
                 "{name}: region {x},{y} {w}x{h}: window max {max} p99 {p99} mean {mean:.3}; display window max {d_max} p99 {d_p99} mean {d_mean:.3}; own image max {own_max} p99 {own_p99} mean {own_mean:.3}"
             );
-            worst.push((name, x, y, max.max(d_max)));
+            worst.push((name, x, y, max, d_max));
         }
     }
-    let failed: Vec<_> = worst.iter().filter(|(.., max)| *max > 1).collect();
-    assert!(failed.is_empty(), "regions beyond 1 code: {failed:?}");
+    // Byte for byte with the export shader; the display variants within
+    // 1 code (their 8-bit dither's phase).
+    let failed: Vec<_> = worst
+        .iter()
+        .filter(|(.., max, d_max)| *max > 0 || *d_max > 1)
+        .collect();
+    assert!(failed.is_empty(), "regions beyond 0 / 1 code: {failed:?}");
 }
 
 /// Timing of a 100 % region (1167 x 894, a multi-view cell with its reach)
@@ -19342,6 +19349,36 @@ fn placed_regions_beyond_the_texture_limit_render_on_their_own() {
     assert_eq!(fallback.dimensions(), (w, h));
     assert_eq!(fallback, render(&limited, false));
     assert_eq!(fallback, render(&context, false));
+}
+
+/// A placed region with Light flare keeps the photograph's size and place
+/// (Vignette here) and builds the flare's map over the photograph's frame
+/// from its own pixels, its edges standing for the rest: on a photograph
+/// that is uniform outside the region it renders as the whole one.
+#[test]
+#[ignore = "requires a native GPU"]
+fn placed_regions_keep_their_place_with_light_flare() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let (x, y, w, h) = (512, 352, 1408, 1088);
+    let (cx, cy) = (x + w / 2, y + h / 2);
+    let image = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(fw, fh, |px, py| {
+        let d = (px as f32 - cx as f32).hypot(py as f32 - cy as f32);
+        image::Rgb([if d < 120.0 { 4.0 } else { 0.1 }; 3])
+    }));
+    let profile = json!({ "flareAmount": 60, "vignetteAmount": -50 });
+    let whole = render_region_source(&context, &image, &profile, None);
+    let crop = image.crop_imm(x, y, w, h);
+    let place = ((fw, fh), (x, y));
+    let region = render_placed_region(&context, &crop, &profile, None, place, true, &[]);
+    let (max, p99, mean) = region_differences(&whole, &region, (x, y), REGION_NOISE_MARGIN);
+    let own = render_placed_region(&context, &crop, &profile, None, place, false, &[]);
+    let (own_max, ..) = region_differences(&whole, &own, (x, y), REGION_NOISE_MARGIN);
+    println!(
+        "flare + vignette region: max {max} p99 {p99} mean {mean:.3}; own image max {own_max}"
+    );
+    assert!(max <= 1, "max {max}");
+    assert!(own_max > 1, "the test no longer tells");
 }
 
 /// A placed region with a mask renders as the whole photograph's pixels:

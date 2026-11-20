@@ -13095,20 +13095,26 @@ fn flare_tap(i: u32, map_size: u32, size: u32) -> (u32, u32) {
 
 /// The photo pixels Light flare's threshold pass reads, gathered for a render
 /// from windows: the 2 x 2 pixels of map texel (x, y) at (2x, 2y), with the
-/// texels of the input texture (`rgba_f16_row`).
+/// texels of the input texture (`rgba_f16_row`). `image` is the photo, or
+/// for a region ([`PlacedSource`]) the part of a `photo`-sized photo at
+/// `origin`: the taps then lie in the photo, each read at the nearest pixel
+/// of the part.
 fn create_flare_samples_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     image: &DynamicImage,
+    photo: (u32, u32),
+    origin: (u32, u32),
 ) -> wgpu::Texture {
     use rayon::prelude::*;
 
-    let (width, height) = image.dimensions();
+    let (width, height) = photo;
+    let (last_x, last_y) = (image.width() - 1, image.height() - 1);
     let side = 2 * FLARE_MAP_SIZE;
     let columns: Vec<u32> = (0..FLARE_MAP_SIZE)
         .flat_map(|i| {
             let (first, second) = flare_tap(i, FLARE_MAP_SIZE, width);
-            [first, second]
+            [first, second].map(|x| x.saturating_sub(origin.0).min(last_x))
         })
         .collect();
     let mut texels = vec![f16::ZERO; side as usize * side as usize * 4];
@@ -13118,10 +13124,8 @@ fn create_flare_samples_texture(
             .enumerate()
             .for_each(|(i, rows)| {
                 let (first, second) = flare_tap(i as u32, FLARE_MAP_SIZE, height);
-                for (row, y) in rows
-                    .chunks_exact_mut(side as usize * 4)
-                    .zip([first, second])
-                {
+                let ys = [first, second].map(|y| y.saturating_sub(origin.1).min(last_y));
+                for (row, y) in rows.chunks_exact_mut(side as usize * 4).zip(ys) {
                     for (texel, &x) in row.as_chunks_mut::<4>().0.iter_mut().zip(&columns) {
                         rgba_f16_row(image, x, y, texel.as_mut_slice());
                     }
@@ -13384,7 +13388,15 @@ fn render_in_windows(
     }
     // Light flare's map is built from samples of the whole photo.
     let flare_samples = (request.adjustments.global.flare_amount > 0.0)
-        .then(|| create_flare_samples_texture(&context.device, &context.queue, image))
+        .then(|| {
+            create_flare_samples_texture(
+                &context.device,
+                &context.queue,
+                image,
+                (width, height),
+                (0, 0),
+            )
+        })
         .map(|texture| texture.create_view(&Default::default()));
     let output_len = bounds.width as usize * bounds.height as usize * 4;
     let mut output = match output_precision {
@@ -14245,15 +14257,13 @@ fn render_dynamic_image(
                 image,
                 transform_hash,
             },
-        ) if !output_to_display && request.adjustments.global.flare_amount <= 0.0 => {
-            PlacedSource::new(
-                image,
-                *transform_hash,
-                placement,
-                &request,
-                context.limits.max_texture_dimension_2d,
-            )?
-        }
+        ) if !output_to_display => PlacedSource::new(
+            image,
+            *transform_hash,
+            placement,
+            &request,
+            context.limits.max_texture_dimension_2d,
+        )?,
         _ => None,
     };
     let (source, request) = match &placed {
@@ -14465,6 +14475,21 @@ fn render_dynamic_image(
             y + level_window[3] - level_window[1],
         ];
     }
+    // Light flare's map reads the photograph: gathered from the region,
+    // its edges standing for the rest.
+    let placed_flare = placed
+        .as_ref()
+        .filter(|_| request.adjustments.global.flare_amount > 0.0)
+        .map(|placed| {
+            create_flare_samples_texture(
+                device,
+                queue,
+                &placed.image,
+                (placed.photo_width, placed.photo_height),
+                (placed.window.x, placed.window.y),
+            )
+            .create_view(&Default::default())
+        });
     let (photo_width, photo_height, window) = match &placed {
         Some(placed) => (placed.photo_width, placed.photo_height, placed.window),
         None => (
@@ -14498,7 +14523,7 @@ fn render_dynamic_image(
         output_precision,
         readback_shader,
         chroma.as_ref().map(|(packed, energy)| (packed, energy)),
-        None,
+        placed_flare.as_ref(),
         uploaded_masks,
         &[],
         &mut [stream],
