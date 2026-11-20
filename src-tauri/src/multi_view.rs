@@ -2268,7 +2268,7 @@ fn prepare_region_unstamped(
         scale,
     )?;
     let s = base.scale;
-    let wanted = base_region(area, [shown_w, shown_h], zoom, s, recipe, facts.is_raw);
+    let wanted = base_region(area, [shown_w, shown_h], zoom, s);
     let (base_w, base_h) = base.image.dimensions();
     let x = ((wanted[0] * s).floor() as u32).min(base_w.saturating_sub(1));
     let y = ((wanted[1] * s).floor() as u32).min(base_h.saturating_sub(1));
@@ -2470,7 +2470,7 @@ fn region_plan(
     measures: Option<RegionMeasures>,
 ) -> Result<image_processing::RegionPlan, &'static str> {
     let (shown_w, shown_h) = shown_size(recipe, facts);
-    let wanted = base_region(area, [shown_w, shown_h], zoom, 1.0, recipe, facts.is_raw);
+    let wanted = base_region(area, [shown_w, shown_h], zoom, 1.0);
     image_processing::plan_transformed_region_with(
         facts.full_width,
         facts.full_height,
@@ -2500,6 +2500,12 @@ fn with_noise_reach(
     if !measures_noise(recipe, is_raw) {
         return rect;
     }
+    with_reach(rect, shown, scale)
+}
+
+/// `rect` grown by [`gpu_processing::REGION_NOISE_MARGIN`] base px on each
+/// side, within the `shown` frame.
+fn with_reach(rect: [f32; 4], shown: (f32, f32), scale: f32) -> [f32; 4] {
     let reach = gpu_processing::REGION_NOISE_MARGIN as f32 / scale.max(1e-6);
     let x1 = (rect[0] - reach).max(0.0);
     let y1 = (rect[1] - reach).max(0.0);
@@ -2525,17 +2531,14 @@ fn developed_region(
 }
 
 /// What a region's base holds (shown px): BASE_MARGIN around the visible
-/// part, and at least what a region of it is developed from.
-fn base_region(
-    area: [f32; 4],
-    shown: [f32; 2],
-    zoom: CellZoom,
-    scale: f32,
-    recipe: &serde_json::Value,
-    is_raw: bool,
-) -> [f32; 4] {
+/// part, and at least what a region of it is developed from with a noise
+/// reduction on, whether the recipe has one or not (a base kept from before
+/// one is switched on still serves; the reach is a few hundred pixels
+/// beside the base's own margin).
+fn base_region(area: [f32; 4], shown: [f32; 2], zoom: CellZoom, scale: f32) -> [f32; 4] {
     let wanted = gpu_processing::multi_view::zoomed_region(area, shown, zoom, BASE_MARGIN);
-    let developed = developed_region(area, (shown[0], shown[1]), zoom, scale, recipe, is_raw);
+    let visible = gpu_processing::multi_view::zoomed_region(area, shown, zoom, REGION_MARGIN);
+    let developed = with_reach(visible, (shown[0], shown[1]), scale);
     let x1 = wanted[0].min(developed[0]);
     let y1 = wanted[1].min(developed[1]);
     let x2 = (wanted[0] + wanted[2]).max(developed[0] + developed[2]);
@@ -2690,6 +2693,10 @@ fn whole_noise_measurement(
                 CELL_RENDER,
             )?;
             let (w, h) = whole.image.dimensions();
+            // A save while the whole base was read: not this region's file.
+            if file_stamp(path) != base.file_stamp {
+                return Err(format!("{path} changed while it was measured"));
+            }
             log::info!(
                 "[multi_view] {path}: whole-photograph noise measurement of {w}x{h} ({kind}) in {:.1} ms (base {prepare_ms:.1} ms)",
                 start.elapsed().as_secs_f64() * 1e3
@@ -3836,11 +3843,11 @@ mod tests {
             center: [0.3, 0.6],
         };
         let area = [0.0, 0.0, 120.0, 90.0];
-        for recipe in [&filtered, &plain] {
-            let developed = developed_region(area, shown, zoom, 1.0, recipe, true);
-            let base = base_region(area, [shown.0, shown.1], zoom, 1.0, recipe, true);
-            assert!(contains(base, developed), "{recipe}");
-        }
+        // Every base holds a filtered develop, also one made before the
+        // noise reduction was switched on.
+        let developed = developed_region(area, shown, zoom, 1.0, &filtered, true);
+        let base = base_region(area, [shown.0, shown.1], zoom, 1.0);
+        assert!(contains(base, developed));
         // Shown of a developed region: the visible part, not the reach.
         let developed = [800.0, 0.0, 900.0, 700.0];
         let visible = [960.0, 0.0, 600.0, 500.0];
@@ -4168,7 +4175,7 @@ mod tests {
                 let base =
                     reduced_preview_base(&source, 1.0, full_w, full_h, &recipe, true, dim, 1.0)
                         .unwrap();
-                let wanted = base_region(area, [shown_w, shown_h], zoom, 1.0, &recipe, true);
+                let wanted = base_region(area, [shown_w, shown_h], zoom, 1.0);
                 let (base_w, base_h) = base.image.dimensions();
                 let s = base.scale;
                 assert_eq!(s, 1.0);
