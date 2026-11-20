@@ -2551,7 +2551,7 @@ const NOISE_MEASUREMENTS_KEPT: usize = 64;
 static MEASURING: Mutex<()> = Mutex::new(());
 
 /// What the whole photograph's noise measurement of a region `base` with
-/// `recipe` depends on: the photograph and its decode, the base's geometry,
+/// `recipe` depends on: the photograph (its file as now) and its decode, the base's geometry,
 /// retouching and scale, and the measuring version.
 fn noise_measurement_key(
     path: &str,
@@ -2560,6 +2560,8 @@ fn noise_measurement_key(
 ) -> u64 {
     let mut hash = DefaultHasher::new();
     path.hash(&mut hash);
+    // A save by another program (an Edit With render) is another photograph.
+    file_stamp(path).hash(&mut hash);
     base.preparation_key.hash(&mut hash);
     base.scale.to_bits().hash(&mut hash);
     base.facts.is_raw.hash(&mut hash);
@@ -2567,6 +2569,50 @@ fn noise_measurement_key(
     tuning.linear_means.hash(&mut hash);
     crate::multi_view_prefetch::decodes_generation().hash(&mut hash);
     hash.finish()
+}
+
+/// The kept measurement of `key` (`Some(None)`: kept as not to be had).
+fn kept_noise_measurement(
+    key: u64,
+) -> Option<Option<rawtonic_engine::color_noise::NoiseMeasurement>> {
+    let kept = NOISE_MEASUREMENTS.lock().unwrap_or_else(|e| e.into_inner());
+    kept.iter().find(|(k, _)| *k == key).map(|(_, m)| *m)
+}
+
+/// What [`whole_noise_measurement`] has for a region `base` of `path`
+/// developed with `recipe` without building anything.
+enum WholeNoise {
+    /// `recipe` develops without a noise measurement.
+    NotWanted,
+    /// Made before (`None`: could not be made; the region measures itself).
+    Kept(Option<rawtonic_engine::color_noise::NoiseMeasurement>),
+    /// Not made yet.
+    Missing,
+}
+
+fn kept_whole_noise(path: &str, recipe: &serde_json::Value, base: &RegionBase) -> WholeNoise {
+    let adjustments = get_all_adjustments_from_json(recipe, base.facts.is_raw, None);
+    if !gpu_processing::measures_noise(&adjustments.global) {
+        return WholeNoise::NotWanted;
+    }
+    let (_, tuning) = gpu_processing::color_noise_tuning(&adjustments.global);
+    match kept_noise_measurement(noise_measurement_key(path, base, &tuning)) {
+        Some(measured) => WholeNoise::Kept(measured),
+        None => WholeNoise::Missing,
+    }
+}
+
+/// The pixels (x, y, width, height) of a `size` px render of `developed`
+/// (shown px, `scale` render px per shown px) that show `visible`.
+fn shown_part(developed: [f32; 4], visible: [f32; 4], scale: f32, size: (u32, u32)) -> [u32; 4] {
+    let span = |start: f32, from: f32, to: f32, n: u32| {
+        let a = (((from - start) * scale).floor().max(0.0) as u32).min(n.saturating_sub(1));
+        let b = (((to - start) * scale).ceil().max(0.0) as u32).clamp(a + 1, n);
+        (a, b - a)
+    };
+    let (x, w) = span(developed[0], visible[0], visible[0] + visible[2], size.0);
+    let (y, h) = span(developed[1], visible[1], visible[1] + visible[3], size.1);
+    [x, y, w, h]
 }
 
 /// The noise measurement of the whole photograph a region `base` of `path`
@@ -2591,16 +2637,12 @@ fn whole_noise_measurement(
     }
     let (_, tuning) = gpu_processing::color_noise_tuning(&adjustments.global);
     let key = noise_measurement_key(path, base, &tuning);
-    let kept = |key: u64| {
-        let kept = NOISE_MEASUREMENTS.lock().unwrap_or_else(|e| e.into_inner());
-        kept.iter().find(|(k, _)| *k == key).map(|(_, m)| *m)
-    };
-    if let Some(measured) = kept(key) {
+    if let Some(measured) = kept_noise_measurement(key) {
         return measured;
     }
     let _measuring = MEASURING.lock().unwrap_or_else(|e| e.into_inner());
     // Measured by another region while this one waited.
-    if let Some(measured) = kept(key) {
+    if let Some(measured) = kept_noise_measurement(key) {
         return measured;
     }
     let start = Instant::now();
@@ -2845,7 +2887,15 @@ pub(crate) fn develop_region(
     let (x0, y0) = (origin(base.region[0], x), origin(base.region[1], y));
     let (x, y, w, h) = (x0, y0, w + x - x0, h + y - y0);
     let image = base.image.crop_imm(x, y, w, h);
-    let noise_measurement = whole_noise_measurement(app_handle, context, path, &recipe, &base);
+    // The live path (the primary's preview worker) never builds a whole
+    // base: `live_region` leaves a region without a kept measurement to the
+    // region worker.
+    let noise_measurement = match kept_whole_noise(path, &recipe, &base) {
+        WholeNoise::NotWanted => None,
+        WholeNoise::Kept(measured) => measured,
+        WholeNoise::Missing if caller == LIVE_RENDER => None,
+        WholeNoise::Missing => whole_noise_measurement(app_handle, context, path, &recipe, &base),
+    };
     let rgba = develop_rgba(
         app_handle,
         context,
@@ -2863,16 +2913,33 @@ pub(crate) fn develop_region(
         },
     )?;
     let (shown_w, shown_h) = shown_size(&recipe, base.facts);
+    // Shown: the visible part and REGION_MARGIN only. The noise reach and
+    // the grid's pixels around it were filtered without all their
+    // neighbours, and the cells take a region's extent as ready to show.
+    let developed = [
+        base.region[0] + x as f32 / s,
+        base.region[1] + y as f32 / s,
+        w as f32 / s,
+        h as f32 / s,
+    ];
+    let visible =
+        gpu_processing::multi_view::zoomed_region(area, [shown_w, shown_h], zoom, REGION_MARGIN);
+    let [cx, cy, cw, ch] = shown_part(developed, visible, s, (w, h));
+    let rgba = if [cx, cy, cw, ch] == [0, 0, w, h] {
+        rgba
+    } else {
+        image::imageops::crop_imm(&rgba, cx, cy, cw, ch).to_image()
+    };
     Ok(Region {
         path: path.to_string(),
         key,
         extent: CellExtent {
             shown: [shown_w, shown_h],
             region: Some([
-                base.region[0] + x as f32 / s,
-                base.region[1] + y as f32 / s,
-                w as f32 / s,
-                h as f32 / s,
+                developed[0] + cx as f32 / s,
+                developed[1] + cy as f32 / s,
+                cw as f32 / s,
+                ch as f32 / s,
             ]),
         },
         rgba,
@@ -3629,7 +3696,12 @@ fn live_region(
     if shown_key == Some(key) {
         return LiveRegion::Current;
     }
-    if kept_base(&regions.bases, path, area, zoom, recipe).is_none() {
+    let Some(base) = kept_base(&regions.bases, path, area, zoom, recipe) else {
+        return LiveRegion::Unavailable;
+    };
+    // The whole photograph's noise measurement is made by the region
+    // worker, not here (it would hold the preview worker).
+    if matches!(kept_whole_noise(path, recipe, &base), WholeNoise::Missing) {
         return LiveRegion::Unavailable;
     }
     match develop_region(
@@ -3742,6 +3814,21 @@ mod tests {
             let base = base_region(area, [shown.0, shown.1], zoom, 1.0, recipe, true);
             assert!(contains(base, developed), "{recipe}");
         }
+        // Shown of a developed region: the visible part, not the reach.
+        let developed = [800.0, 0.0, 900.0, 700.0];
+        let visible = [960.0, 0.0, 600.0, 500.0];
+        assert_eq!(
+            shown_part(developed, visible, 1.0, (900, 700)),
+            [160, 0, 600, 500]
+        );
+        assert_eq!(
+            shown_part(developed, visible, 0.5, (450, 350)),
+            [80, 0, 300, 250]
+        );
+        assert_eq!(
+            shown_part(developed, developed, 1.0, (900, 700)),
+            [0, 0, 900, 700]
+        );
     }
 
     #[test]
