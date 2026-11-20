@@ -504,6 +504,7 @@ export function PointCurve({
             key={key}
             aria-pressed={channel === key}
             onClick={() => {
+              if (key !== channel && svgRef.current) debouncedSetHistory.endGroup(svgRef.current);
               setChannel(key);
               setSelected(null);
               setNudgeAnnouncement('');

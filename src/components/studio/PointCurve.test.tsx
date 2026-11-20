@@ -135,6 +135,21 @@ describe('point curve keyboard', () => {
     expect(first.getAttribute('aria-label')).toContain('output 0');
   });
 
+  it('starts a new step when changing channels without a focus change', () => {
+    mountHistory();
+    const first = screen.getByRole('button', { name: /Point 1,/ });
+    act(() => first.focus());
+    fireEvent.keyDown(first, { key: 'ArrowUp' });
+    // A pointer click can leave the point focused, e.g. on macOS WebKit.
+    fireEvent.click(screen.getByRole('button', { name: 'R' }));
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: 'ArrowUp' });
+    act(() => useEditorStore.getState().undo());
+    const { luma, red } = useEditorStore.getState().adjustments.curves;
+    expect(luma[0].y).toBe(1);
+    expect(red[0].y).toBe(0);
+  });
+
   it('uses the focus label for selection and announces a changed coordinate once', () => {
     const { container } = mountHistory();
     const status = container.querySelector('[aria-live]')!;

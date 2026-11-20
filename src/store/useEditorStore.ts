@@ -535,7 +535,7 @@ export const debouncedSetHistory = Object.assign(
       }
     },
     endGroup: (control: Element) => {
-      if (scheduledHistory?.control === control) flushScheduledHistory();
+      if (scheduledHistory?.control && control.contains(scheduledHistory.control)) flushScheduledHistory();
     }
   }
 );
