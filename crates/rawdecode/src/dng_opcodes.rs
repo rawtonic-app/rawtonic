@@ -80,6 +80,25 @@ pub enum Opcode {
     MapPolynomial(MapPolynomial),
 }
 
+/// Which planes a WarpRectilinear's per-plane coefficients move.
+///
+/// The DNG specification defines them per plane of the stage-3 image, i.e.
+/// per camera colour; lateral chromatic aberration is corrected there.
+/// `Output` (decodes before `renderVersion` 14) moves the output RGB
+/// channels instead, which differs only where the planes' coefficients
+/// differ: the camera colours are mixed in each output channel, so a
+/// camera plane follows a blend of the planes' displacements (on a DJI
+/// Osmo Action, whose plane 0 moves 1 px at the corners, the camera planes'
+/// edges ended up to 0.41 px from the specification's; notes:
+/// benchmark-results/dpw1-2026-11-20/). Warps with one set of coefficients
+/// for every plane are the same in both.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum WarpPlanes {
+    #[default]
+    Output,
+    Camera,
+}
+
 /// Where the developed image sits inside the stage-3 image, in developed
 /// pixels (the developed image may be cropped and, for fast demosaicing,
 /// scaled down).
@@ -322,6 +341,18 @@ fn parse_vignette(body: &[u8]) -> Option<FixVignetteRadial> {
 }
 
 impl WarpRectilinear {
+    /// The coefficients of each of three planes (the last repeats).
+    fn plane_coefficients(&self) -> [[f64; 6]; 3] {
+        std::array::from_fn(|c| self.coefficients[c.min(self.coefficients.len() - 1)])
+    }
+
+    /// Whether the planes' coefficients differ, the one case in which the
+    /// warp's `WarpPlanes` changes the image.
+    pub fn differs_per_plane(&self) -> bool {
+        let [first, second, third] = self.plane_coefficients();
+        second != first || third != first
+    }
+
     fn is_identity(&self) -> bool {
         self.coefficients
             .iter()
@@ -375,7 +406,8 @@ fn mul3(m: &[[f32; 3]; 3], p: [f32; 3]) -> [f32; 3] {
 /// Applies the opcodes in order to an RGB image (`pixels` row-major,
 /// `width` × `height`). `camera_to_output` is the camera-to-output matrix
 /// (None when the pixels are still camera RGB, e.g. monochrome or
-/// uncalibrated linear DNGs). Returns how many opcodes were applied.
+/// uncalibrated linear DNGs). `warp_planes` picks the planes a warp's
+/// per-plane coefficients move. Returns how many opcodes were applied.
 pub fn apply_opcodes(
     opcodes: &[Opcode],
     pixels: &mut [[f32; 3]],
@@ -383,6 +415,7 @@ pub fn apply_opcodes(
     height: usize,
     frame: Stage3Frame,
     camera_to_output: Option<[[f32; 3]; 3]>,
+    warp_planes: WarpPlanes,
 ) -> usize {
     if pixels.len() != width * height || width == 0 || height == 0 {
         return 0;
@@ -396,7 +429,12 @@ pub fn apply_opcodes(
                 apply_vignette(vignette, pixels, width, frame);
                 true
             }
-            Opcode::WarpRectilinear(warp) => apply_warp(warp, pixels, width, height, frame),
+            Opcode::WarpRectilinear(warp) => {
+                let camera = (warp_planes == WarpPlanes::Camera)
+                    .then_some(conjugation)
+                    .flatten();
+                apply_warp(warp, pixels, width, height, frame, camera)
+            }
             // Stage 2 only (the image here is already in output colours).
             Opcode::MapPolynomial(_) => false,
         };
@@ -733,12 +771,17 @@ fn warp_source(k: &[f64; 6], cx: f64, cy: f64, radius: f64, x: f64, y: f64) -> (
     (cx + radius * (f * dx + tx), cy + radius * (f * dy + ty))
 }
 
+/// Warps the image by `warp`. With `camera` (the camera-to-output matrix
+/// and its inverse) and planes whose coefficients differ, each camera plane
+/// moves by its own coefficients (`WarpPlanes::Camera`); otherwise each
+/// output channel does, which is the same when every plane shares them.
 fn apply_warp(
     warp: &WarpRectilinear,
     pixels: &mut [[f32; 3]],
     width: usize,
     height: usize,
     frame: Stage3Frame,
+    camera: Option<Conjugation>,
 ) -> bool {
     if warp.is_identity() {
         return true;
@@ -746,10 +789,15 @@ fn apply_warp(
     let (cx, cy, radius) = radial_frame(warp.centre, frame);
     // Work in developed coordinates: shift the centre by the crop offset.
     let (cx, cy) = (cx - frame.left, cy - frame.top);
-    let source = pixels.to_vec();
-    let plane_coefficients: Vec<[f64; 6]> = (0..3)
-        .map(|c| warp.coefficients[c.min(warp.coefficients.len() - 1)])
-        .collect();
+    let plane_coefficients = warp.plane_coefficients();
+    let camera = camera.filter(|_| warp.differs_per_plane());
+    let source = match camera {
+        Some((_, inverse)) => pixels
+            .par_iter()
+            .map(|pixel| mul3(&inverse, *pixel))
+            .collect(),
+        None => pixels.to_vec(),
+    };
     pixels
         .par_chunks_exact_mut(width)
         .enumerate()
@@ -760,6 +808,9 @@ fn apply_warp(
                 for (c, k) in plane_coefficients.iter().enumerate() {
                     let (sx, sy) = warp_source(k, cx, cy, radius, xc, yc);
                     pixel[c] = sample_bilinear(&source, width, height, sx, sy, c);
+                }
+                if let Some((m, _)) = camera {
+                    *pixel = mul3(&m, *pixel);
                 }
             }
         });
@@ -875,7 +926,15 @@ mod tests {
         let output = mul3(&m, camera);
         let mut pixels = vec![output; 16];
         assert_eq!(
-            apply_opcodes(&opcodes, &mut pixels, 4, 4, frame(4.0, 4.0), Some(m)),
+            apply_opcodes(
+                &opcodes,
+                &mut pixels,
+                4,
+                4,
+                frame(4.0, 4.0),
+                Some(m),
+                WarpPlanes::Output
+            ),
             1
         );
         let expected = mul3(&m, [0.4, 0.3, 0.1]);
@@ -897,7 +956,15 @@ mod tests {
             gain_map_body(&[1.0, 1.0, 3.0, 3.0], 2, 1),
         )]));
         let mut pixels = vec![[1.0f32; 3]; 16];
-        apply_opcodes(&opcodes, &mut pixels, 4, 4, frame(4.0, 4.0), None);
+        apply_opcodes(
+            &opcodes,
+            &mut pixels,
+            4,
+            4,
+            frame(4.0, 4.0),
+            None,
+            WarpPlanes::Output,
+        );
         // Pixel centres at 0.125, 0.375, 0.625, 0.875 of the height.
         for (row, expected) in [1.25f32, 1.75, 2.25, 2.75].iter().enumerate() {
             assert!((pixels[row * 4][0] - expected).abs() < 1e-5);
@@ -998,8 +1065,96 @@ mod tests {
         };
         let mut pixels: Vec<[f32; 3]> = (0..16).map(|i| [i as f32; 3]).collect();
         let before = pixels.clone();
-        assert!(apply_warp(&warp, &mut pixels, 4, 4, frame(4.0, 4.0)));
+        assert!(apply_warp(&warp, &mut pixels, 4, 4, frame(4.0, 4.0), None));
         assert_eq!(pixels, before);
+    }
+
+    /// An invertible camera-to-output matrix that mixes every plane.
+    const MIXING: [[f32; 3]; 3] = [[1.6, -0.4, -0.2], [-0.3, 1.5, -0.2], [0.0, -0.5, 1.5]];
+
+    /// `apply_warp` on a 16 x 16 image.
+    fn warp16(warp: &WarpRectilinear, pixels: &mut [[f32; 3]], camera: Option<Conjugation>) {
+        assert!(apply_warp(warp, pixels, 16, 16, frame(16.0, 16.0), camera));
+    }
+
+    fn plane_warp(coefficients: Vec<[f64; 6]>) -> WarpRectilinear {
+        WarpRectilinear {
+            coefficients,
+            centre: (0.5, 0.5),
+        }
+    }
+
+    /// A 16 x 16 image with an edge per camera plane, in output colours.
+    fn edged_camera_image() -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
+        let camera: Vec<[f32; 3]> = (0..256)
+            .map(|i| {
+                let (x, y) = (i % 16, i / 16);
+                [
+                    if x < 2 { 0.2 } else { 0.8 },
+                    if y < 11 { 0.3 } else { 0.6 },
+                    if x + y < 14 { 0.1 } else { 0.5 },
+                ]
+            })
+            .collect();
+        let output = camera.iter().map(|p| mul3(&MIXING, *p)).collect();
+        (camera, output)
+    }
+
+    #[test]
+    fn per_plane_warp_coefficients_move_the_camera_planes() {
+        // Plane 0 moves by a radial term (up to 0.85 px at its edge),
+        // planes 1 and 2 stay (lateral CA).
+        let warp = plane_warp(vec![
+            [1.0, 0.5, 0.0, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ]);
+        let (camera, output) = edged_camera_image();
+        let conjugation = (MIXING, invert3(&MIXING).unwrap());
+        let mut pixels = output.clone();
+        warp16(&warp, &mut pixels, Some(conjugation));
+        // The expected camera planes: each warped by its own coefficients.
+        let mut expected = camera.clone();
+        warp16(&warp, &mut expected, None);
+        let mut plane_zero_moved = false;
+        for ((pixel, want), before) in pixels.iter().zip(&expected).zip(&camera) {
+            let got = mul3(&conjugation.1, *pixel);
+            for c in 0..3 {
+                assert!((got[c] - want[c]).abs() < 1e-5, "{got:?} vs {want:?}");
+            }
+            // Planes 1 and 2 keep their values; plane 0 moves at its edge.
+            assert!((got[1] - before[1]).abs() < 1e-5 && (got[2] - before[2]).abs() < 1e-5);
+            plane_zero_moved |= (got[0] - before[0]).abs() > 0.05;
+        }
+        assert!(plane_zero_moved);
+        // Moving the output channels instead leaks plane 0's move into the
+        // other camera planes (the behaviour before `WarpPlanes::Camera`).
+        let mut channels = output.clone();
+        warp16(&warp, &mut channels, None);
+        let leak = channels
+            .iter()
+            .zip(&camera)
+            .map(|(pixel, before)| (mul3(&conjugation.1, *pixel)[1] - before[1]).abs())
+            .fold(0.0f32, f32::max);
+        assert!(leak > 0.01, "{leak}");
+    }
+
+    #[test]
+    fn shared_warp_coefficients_warp_alike_in_both_plane_modes() {
+        let (_, output) = edged_camera_image();
+        let conjugation = Some((MIXING, invert3(&MIXING).unwrap()));
+        for coefficients in [
+            vec![[1.0, 0.05, -0.01, 0.0, 0.001, 0.0]],
+            vec![[0.98, 0.05, 0.0, 0.0, 0.0, 0.0]; 3],
+        ] {
+            let warp = plane_warp(coefficients);
+            let mut camera = output.clone();
+            let mut channels = output.clone();
+            warp16(&warp, &mut camera, conjugation);
+            warp16(&warp, &mut channels, None);
+            assert_eq!(camera, channels, "bit-identical");
+            assert_ne!(camera, output);
+        }
     }
 
     #[test]

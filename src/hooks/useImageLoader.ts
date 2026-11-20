@@ -419,6 +419,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             unbiasedBlack: loadImageResult.unbiased_black ?? undefined,
             borderBlack: loadImageResult.border_black ?? undefined,
             highlightRatios: loadImageResult.highlight_ratios ?? undefined,
+            cameraPlaneWarp: loadImageResult.camera_plane_warp ?? undefined,
             // Offline: the preview proxy is all there is (no decode follows).
             offline: loadImageResult.offline ?? null,
             unsupportedNikonHighEfficiency: loadImageResult.unsupported_nikon_high_efficiency,

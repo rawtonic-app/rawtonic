@@ -111,6 +111,7 @@ impl RenderInputs {
                 "frame": base.frame,
                 "black": format!("{:?}", base.black),
                 "highlights": format!("{:?}", base.highlights),
+                "warp_planes": format!("{:?}", base.warp_planes),
                 "ai_denoise": ai.map(|ai| json!({
                     "version": ai.version,
                     "blend": ai.blend,
