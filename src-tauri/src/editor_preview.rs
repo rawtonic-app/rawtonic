@@ -2693,13 +2693,10 @@ pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
             _ => compute(),
         };
         if histogram_data.is_some() || waveform_data.is_some() {
+            // The scope images go by URL, not inside the event (scope_images).
             let _ = worker_app.emit(
                 "analytics-update",
-                serde_json::json!({
-                    "path": job.path,
-                    "histogram": histogram_data,
-                    "waveform": waveform_data,
-                }),
+                crate::scope_images::update(&job.path, histogram_data, waveform_data),
             );
         }
     });

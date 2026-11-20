@@ -1030,7 +1030,7 @@ export interface VectorscopeTarget {
   y: number;
 }
 
-/** Scope images (RGBA, base64; empty when not computed) from `analytics-update` (`WaveformData` in scopes.rs). */
+/** Scope images from `analytics-update`: each the id of its PNG on the `rawtonic-scope` scheme, empty when not computed (`WaveformUpdate` in scope_images.rs). */
 export interface WaveformData {
   height: number;
   luma: string;
