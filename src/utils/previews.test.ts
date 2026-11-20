@@ -6,6 +6,7 @@ import { Invokes } from '../components/ui/AppProperties';
 import {
   dragTargetResolution,
   formatBytes,
+  GrainDrag,
   grainSignature,
   previewTargetResolution,
   previewsMenu,
@@ -102,4 +103,11 @@ it('tells a drag of a grain control by the grain values', () => {
   expect(grainSignature({ grainAmount: 40, grainSize: 25, grainRoughness: 50, exposure: 1.2 })).toBe(start);
   expect(grainSignature({ grainAmount: 41, grainSize: 25, grainRoughness: 50, exposure: 0 })).not.toBe(start);
   expect(grainSignature({ grainAmount: 40, grainSize: 25, grainRoughness: 50, grainColor: 30 })).not.toBe(start);
+});
+
+it('keeps a drag that changed grain a grain drag until it ends, also back at its start', () => {
+  const drag = new GrainDrag({ grainAmount: 40, grainSize: 25, exposure: 0 });
+  expect(drag.grainChanged({ grainAmount: 40, grainSize: 25, exposure: 0.5 })).toBe(false);
+  expect(drag.grainChanged({ grainAmount: 40, grainSize: 35, exposure: 0.5 })).toBe(true);
+  expect(drag.grainChanged({ grainAmount: 40, grainSize: 25, exposure: 0.5 })).toBe(true);
 });

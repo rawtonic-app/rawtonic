@@ -50,7 +50,7 @@ import { useSecondWindowStore } from '../store/useSecondWindowStore';
 import { interactivePreview, isRegionFrame } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
-import { dragTargetResolution, grainSignature, needsFrameSize, previewTargetResolution } from '../utils/previews';
+import { dragTargetResolution, GrainDrag, needsFrameSize, previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
 import { onSharpenViewReady, type SharpenView } from '../utils/sharpenView';
 import { onColorNoiseViewReady } from '../utils/colorNoiseView';
@@ -831,15 +831,14 @@ export function useImageProcessing(
     }
   }, [activeView, adjustments, activePanel, selectedImage?.isReady, generateUncroppedPreview]);
 
-  // The grain values when the current drag began: a drag that changes them
-  // drags a grain control (`dragTargetResolution`).
-  const dragStartGrainRef = useRef<string | null>(null);
+  // The current drag's grain values (`dragTargetResolution`).
+  const grainDragRef = useRef<GrainDrag | null>(null);
   useEffect(
     () =>
       useEditorStore.subscribe((state, previous) => {
         if (state.isSliderDragging === previous.isSliderDragging) return;
-        dragStartGrainRef.current = state.isSliderDragging
-          ? grainSignature(state.previewOverride ?? state.adjustments)
+        grainDragRef.current = state.isSliderDragging
+          ? new GrainDrag(state.previewOverride ?? state.adjustments)
           : null;
       }),
     []
@@ -862,15 +861,18 @@ export function useImageProcessing(
         grain: hasGrain
       };
       if (!dragAdjustments) return previewTargetResolution(params);
-      // Without the grain values from the drag's start, as if a grain
-      // control were dragged: the settled size.
-      const start = dragStartGrainRef.current;
-      return dragTargetResolution(params, start === null || start !== grainSignature(dragAdjustments));
+      const drag = grainDragRef.current;
+      // The settled size: a drag of a grain control, a drag whose start was
+      // not seen, and the Full Resolution live quality, which renders every
+      // pixel while dragging.
+      const settled = !drag || drag.grainChanged(dragAdjustments) || appSettings?.livePreviewQuality === 'full';
+      return dragTargetResolution(params, settled);
     },
     [
       appSettings?.enableZoomHifi,
       appSettings?.editorPreviewResolution,
       appSettings?.highResZoomMultiplier,
+      appSettings?.livePreviewQuality,
       appSettings?.useFullDpiRendering,
       displaySize.width,
       displaySize.height,
