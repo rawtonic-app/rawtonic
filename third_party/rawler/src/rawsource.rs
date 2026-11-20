@@ -22,7 +22,7 @@ enum RawSourceImpl {
   Memmap(memmap2::Mmap),
   Memory(Arc<Vec<u8>>),
   // Rawtonic patch (CRD1): a caller's buffer shared without a copy.
-  Shared(Arc<dyn AsRef<[u8]> + Send + Sync>),
+  Shared(Arc<dyn AsRef<[u8]> + Send + Sync + std::panic::RefUnwindSafe>),
 }
 
 impl RawSource {
@@ -64,7 +64,7 @@ impl RawSource {
   /// Shares a buffer the caller already holds (e.g. its own mapping of the
   /// file) without copying it, so reading a file's metadata only touches
   /// the bytes the decoder looks at; `new_from_slice` copies every byte.
-  pub fn new_from_shared(buf: Arc<dyn AsRef<[u8]> + Send + Sync>) -> Self {
+  pub fn new_from_shared(buf: Arc<dyn AsRef<[u8]> + Send + Sync + std::panic::RefUnwindSafe>) -> Self {
     Self {
       path: PathBuf::default(),
       inner: RawSourceImpl::Shared(buf),

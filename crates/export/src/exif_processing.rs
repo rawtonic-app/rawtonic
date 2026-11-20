@@ -2065,7 +2065,7 @@ pub fn read_exif_data_from_bytes(path: &str, file_bytes: &[u8]) -> HashMap<Strin
 /// on a disk or share is read only where its metadata lies.
 pub fn read_exif_data_from_shared(
     path: &str,
-    file: std::sync::Arc<dyn AsRef<[u8]> + Send + Sync>,
+    file: std::sync::Arc<dyn AsRef<[u8]> + Send + Sync + std::panic::RefUnwindSafe>,
 ) -> HashMap<String, String> {
     let raw_metadata =
         || raw_metadata_of(&rawler::rawsource::RawSource::new_from_shared(file.clone()));
