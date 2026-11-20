@@ -543,9 +543,11 @@ fn tiff_structure(data: &[u8]) -> Option<Vec<u8>> {
         let Some(end) = start.checked_add(len).filter(|end| *end <= data.len()) else {
             return false;
         };
-        for page in start / PAGE..end.div_ceil(PAGE) {
-            if !copied[page] {
-                copied[page] = true;
+        let first = start / PAGE;
+        for (page, done) in copied[first..end.div_ceil(PAGE)].iter_mut().enumerate() {
+            if !*done {
+                *done = true;
+                let page = first + page;
                 let range = page * PAGE..((page + 1) * PAGE).min(data.len());
                 out[range.clone()].copy_from_slice(&data[range]);
             }
@@ -2681,10 +2683,19 @@ mod tests {
     /// offset), the Exif IFD holding an out-of-line rational FocalLength;
     /// `next` is IFD0's next-IFD offset.
     fn tiff_with_pointer(big_endian: bool, typ: u16, count: u32, next: u32) -> Vec<u8> {
-        let (w16, w32): (fn(u16) -> [u8; 2], fn(u32) -> [u8; 4]) = if big_endian {
-            (u16::to_be_bytes, u32::to_be_bytes)
-        } else {
-            (u16::to_le_bytes, u32::to_le_bytes)
+        let w16 = |v: u16| {
+            if big_endian {
+                v.to_be_bytes()
+            } else {
+                v.to_le_bytes()
+            }
+        };
+        let w32 = |v: u32| {
+            if big_endian {
+                v.to_be_bytes()
+            } else {
+                v.to_le_bytes()
+            }
         };
         let exif_ifd: u32 = 64;
         let mut t = if big_endian {
