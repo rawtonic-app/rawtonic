@@ -334,10 +334,12 @@ pub(crate) struct CpuRun {
 /// The check's CPU session: `Borrowed`, the session of the model the app
 /// loaded on the CPU while this check waits, or `Own`, made for the check
 /// and dropped with it (`cpu_run` drops it before the GPU session is made).
-/// So a check never makes a second CPU session of a model beside the
-/// loaded one (the app's idle checks did: about 1 GB more for BiRefNet,
-/// and its build time), and the GPU session never lives beside a CPU
-/// session of the check's own (G76/AIM1).
+/// So while that model is loaded a check makes no second CPU session
+/// beside it (the app's idle checks did: about 1 GB more for BiRefNet, and
+/// its build time), and the GPU session never lives beside a CPU session
+/// of the check's own (G76/AIM1). A model unloaded before its check runs
+/// (the Library) leaves the check to make its own session, which a load of
+/// the model meanwhile cannot stop.
 enum CpuSession<S> {
     Borrowed(Arc<Held<S>>),
     Own(S),
@@ -367,8 +369,11 @@ impl<S> CpuSession<S> {
 /// A borrowed session is held only to read the declared inputs and for
 /// the run; the inputs are made without it. A click that wants the model
 /// stops the check first (`Model::run` notes itself busy), which
-/// terminates the run (its options are registered before the run starts),
-/// so the session goes back within one operator.
+/// terminates the run (its options are registered before the run starts):
+/// the click then waits for the operator that runs and the run's own input
+/// and output copies, not for the run (BiRefNet on an M5 Pro's CPU, six
+/// clicks 0.3-2.8 s into its 3 s run: the session back in 7-16 ms, once
+/// 156 ms; `idle_check_cpu_part_memory_probe` with `AIM1_MODE=handoff`).
 fn cpu_run(
     path: &Path,
     kind: ModelKind,
@@ -382,14 +387,18 @@ fn cpu_run(
     if stop.stopped() {
         return Ok(None);
     }
-    let (reference, time) = cpu.with(|session| {
+    let ran = cpu.with(|session| {
+        // A click may have stopped the check while it waited for the lock.
+        if stop.stopped() {
+            return None;
+        }
         let t = Instant::now();
         let reference = run_once_with(session, &inputs, Some(&options));
-        (reference, t.elapsed())
+        Some((reference, t.elapsed()))
     });
-    if stop.stopped() {
+    let Some((reference, time)) = ran.filter(|_| !stop.stopped()) else {
         return Ok(None);
-    }
+    };
     Ok(Some(CpuRun {
         inputs: Arc::new(inputs),
         reference: reference?,
@@ -1301,7 +1310,8 @@ mod tests {
     /// loaded on the CPU: `AIM1_MODE=borrow` runs it on that model's
     /// session (as now), `own` on a second session (as before). Measure
     /// each mode in a process of its own (`/usr/bin/time -l`); `loaded`
-    /// only loads the model.
+    /// only loads the model; `handoff` times a click's wait for the
+    /// borrowed session.
     #[test]
     #[ignore = "needs ORT_DYLIB_PATH, AIM1_MODEL (BiRefNet) and AIM1_MODE"]
     fn idle_check_cpu_part_memory_probe() {
@@ -1317,6 +1327,26 @@ mod tests {
         )
         .unwrap();
         println!("loaded in {} ms", started.elapsed().as_millis());
+        if mode == "handoff" {
+            // A click `AIM1_CLICK_MS` into the check's run on the borrowed
+            // session: the time from the stop until it has the session.
+            let after: u64 = std::env::var("AIM1_CLICK_MS").map_or(1500, |v| v.parse().unwrap());
+            let stop = Stop::new();
+            let (check_stop, borrowed) = (stop.clone(), Some(model.state.session()));
+            let check = std::thread::spawn(move || {
+                cpu_run(&path, ModelKind::Subject, borrowed, &check_stop).unwrap()
+            });
+            std::thread::sleep(Duration::from_millis(after));
+            let clicked = Instant::now();
+            stop.stop();
+            model.state.session().with(|_| ());
+            println!(
+                "handoff after {after} ms: session back in {:.1} ms",
+                clicked.elapsed().as_secs_f64() * 1000.0
+            );
+            assert!(check.join().unwrap().is_none());
+            return;
+        }
         let borrowed = match mode.as_str() {
             "loaded" => return,
             "borrow" => Some(model.state.session()),
