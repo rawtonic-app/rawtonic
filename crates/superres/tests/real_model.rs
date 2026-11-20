@@ -206,5 +206,8 @@ fn fp16_gpu_graph_matches_fp32_graph() {
     assert!(worst < 1.0 / 255.0, "fp16 graph differs: {worst}");
     let model = Model::onnx(&dir.join(rawtonic_superres::ONNX_FILE)).unwrap();
     assert!(!model.uses_cpu());
-    assert_eq!(model.backend_name(), format!("ONNX Runtime ({provider}, fp16)"));
+    assert_eq!(
+        model.backend_name(),
+        format!("ONNX Runtime ({provider}, fp16)")
+    );
 }
