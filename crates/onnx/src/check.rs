@@ -27,6 +27,11 @@
 //! check is queued until the app is idle (`queue`, `background`); a faster
 //! GPU's session then goes to that model (`adopt`). The CLI and a forced
 //! provider check before first use (`check`).
+//!
+//! A check holds at most one CPU session of its model: an idle check runs
+//! its CPU part on the session of the model waiting on the CPU, a check
+//! before use on a session of its own that is dropped before the GPU
+//! session is made (`on_cpu_session`, G76/AIM1).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -39,7 +44,7 @@ use ort::session::{RunOptions, Session};
 
 use crate::background::{Ran, Scheduler, Stop};
 use crate::bench::{Input, Output, Picture, compare, disagreement, inputs_for, run_once_with};
-use crate::watch::Slot;
+use crate::watch::{Held, Slot};
 use crate::{Device, ModelKind, Provider};
 
 /// A device's verdict for a model.
@@ -324,26 +329,58 @@ pub(crate) struct CpuRun {
     time: Duration,
 }
 
-/// Runs `path` once on the CPU with the check's input; `None` when `stop`
-/// stopped it (a stopped run's time is not the CPU's).
-fn cpu_run(path: &Path, kind: ModelKind, stop: &Arc<Stop>) -> Result<Option<CpuRun>> {
-    let mut cpu = crate::session(path, kind, None)?;
-    let inputs = inputs_for(&cpu, kind, &Picture::synthetic(1536, 1024))?;
+/// Runs `f` on the check's CPU session: `borrowed`, the session of the
+/// model the app loaded on the CPU while this check waits, else one made by
+/// `create` and dropped before this returns. So a check never makes a
+/// second CPU session of a model beside the loaded one (in the app's idle
+/// checks it did: about 1 GB more for BiRefNet, and its build time), and
+/// the GPU session the check makes next never lives beside a CPU session
+/// of the check's own (G76/AIM1).
+fn on_cpu_session<S, T>(
+    borrowed: Option<Arc<Held<S>>>,
+    create: impl FnOnce() -> Result<S>,
+    f: impl FnOnce(&mut S) -> T,
+) -> Result<T> {
+    match borrowed {
+        Some(held) => Ok(held.with(f)),
+        None => {
+            let mut session = create()?;
+            Ok(f(&mut session))
+        }
+    }
+}
+
+/// Runs `path` once on the CPU with the check's input, on `borrowed` when
+/// given (`on_cpu_session`); `None` when `stop` stopped it (a stopped run's
+/// time is not the CPU's).
+fn cpu_run(
+    path: &Path,
+    kind: ModelKind,
+    borrowed: Option<Arc<Held<Session>>>,
+    stop: &Arc<Stop>,
+) -> Result<Option<CpuRun>> {
     let options = stoppable(stop)?;
-    if stop.stopped() {
-        return Ok(None);
-    }
-    let t = Instant::now();
-    let reference = run_once_with(&mut cpu, &inputs, Some(&options));
-    let time = t.elapsed();
-    if stop.stopped() {
-        return Ok(None);
-    }
-    Ok(Some(CpuRun {
-        inputs: Arc::new(inputs),
-        reference: reference?,
-        time,
-    }))
+    on_cpu_session(
+        borrowed,
+        || crate::session(path, kind, None),
+        |cpu| {
+            let inputs = inputs_for(cpu, kind, &Picture::synthetic(1536, 1024))?;
+            if stop.stopped() {
+                return Ok(None);
+            }
+            let t = Instant::now();
+            let reference = run_once_with(cpu, &inputs, Some(&options));
+            let time = t.elapsed();
+            if stop.stopped() {
+                return Ok(None);
+            }
+            Ok(Some(CpuRun {
+                inputs: Arc::new(inputs),
+                reference: reference?,
+                time,
+            }))
+        },
+    )?
 }
 
 /// Run options that `stop` terminates.
@@ -367,19 +404,23 @@ enum Measured {
 }
 
 /// Times `path` on the CPU (or takes `cpu_done`, an earlier stopped
-/// attempt's CPU run) and on `device`, and compares the outputs.
+/// attempt's CPU run) and on `device`, and compares the outputs. The CPU
+/// run uses the session `borrowed` gives (`on_cpu_session`).
 fn measure(
     path: &Path,
     kind: ModelKind,
     device: &Arc<Device>,
-    cpu_done: &Mutex<Option<Arc<CpuRun>>>,
+    (cpu_done, borrowed): (
+        &Mutex<Option<Arc<CpuRun>>>,
+        impl FnOnce() -> Option<Arc<Held<Session>>>,
+    ),
     stop: &Arc<Stop>,
     times: &mut String,
 ) -> Result<Measured> {
     let known = cpu_done.lock().unwrap().clone();
     let cpu = match known {
         Some(cpu) => cpu,
-        None => match cpu_run(path, kind, stop)? {
+        None => match cpu_run(path, kind, borrowed(), stop)? {
             Some(cpu) => {
                 let cpu = Arc::new(cpu);
                 *cpu_done.lock().unwrap() = Some(cpu.clone());
@@ -493,7 +534,16 @@ pub(crate) fn check(
     let started = Instant::now();
     let mut times = String::new();
     let never = Stop::new();
-    let result = measure(path, kind, device, &Mutex::new(None), &never, &mut times);
+    // The CLI or a forced provider: no model is loaded yet, so the check's
+    // own CPU session, dropped before the GPU session is made.
+    let result = measure(
+        path,
+        kind,
+        device,
+        (&Mutex::new(None), || None),
+        &never,
+        &mut times,
+    );
     match conclude(
         key,
         kind,
@@ -536,7 +586,16 @@ fn run_job(job: &Job, stop: &Arc<Stop>) -> Ran {
     );
     let started = Instant::now();
     let mut times = String::new();
-    let result = measure(&job.path, job.kind, &job.device, &job.cpu, stop, &mut times);
+    // The CPU run borrows the session of the model waiting on the CPU for
+    // this verdict instead of making a second one beside it.
+    let result = measure(
+        &job.path,
+        job.kind,
+        &job.device,
+        (&job.cpu, || waiting_cpu_session(&key)),
+        stop,
+        &mut times,
+    );
     let stopped = matches!(result, Ok(Measured::Stopped));
     // A faster GPU's session, warm from the check, goes to the model loaded
     // on the CPU meanwhile; later loads use the verdict.
@@ -568,6 +627,28 @@ pub(crate) fn wait_for(key: String, slot: &Arc<Slot<Session>>) {
     let mut waiting = WAITING.lock().unwrap();
     waiting.retain(|(_, slot)| slot.strong_count() > 0);
     waiting.push((key, Arc::downgrade(slot)));
+}
+
+/// The session of a model loaded on the CPU that waits for `key`'s check
+/// (the same model file: the key names it), for the check's CPU run.
+fn waiting_cpu_session(key: &str) -> Option<Arc<Held<Session>>> {
+    let slots: Vec<_> = WAITING
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(k, _)| k == key)
+        .filter_map(|(_, slot)| slot.upgrade())
+        .collect();
+    cpu_session_of(slots)
+}
+
+fn cpu_session_of<S: Send + 'static>(
+    slots: impl IntoIterator<Item = Arc<Slot<S>>>,
+) -> Option<Arc<Held<S>>> {
+    slots
+        .into_iter()
+        .find(|slot| slot.provider() == Provider::Cpu)
+        .map(|slot| slot.session())
 }
 
 /// Gives `gpu` to the first model still loaded on the CPU that waits for
@@ -1031,6 +1112,156 @@ mod tests {
         assert_eq!(
             adopt_into(Vec::<Arc<Slot<&str>>>::new(), "x", Provider::WebGpu),
             Some("x")
+        );
+    }
+
+    /// A fake session that counts the sessions alive and their peak.
+    struct Counted {
+        alive: Arc<std::sync::atomic::AtomicUsize>,
+        on: &'static str,
+    }
+
+    impl Counted {
+        fn new(
+            on: &'static str,
+            alive: &Arc<std::sync::atomic::AtomicUsize>,
+            peak: &Arc<std::sync::atomic::AtomicUsize>,
+        ) -> Self {
+            use std::sync::atomic::Ordering::SeqCst;
+            let now = alive.fetch_add(1, SeqCst) + 1;
+            peak.fetch_max(now, SeqCst);
+            Self {
+                alive: alive.clone(),
+                on,
+            }
+        }
+    }
+
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            self.alive.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    fn counters() -> (
+        Arc<std::sync::atomic::AtomicUsize>,
+        Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        Default::default()
+    }
+
+    /// The CLI and a forced provider (WMSK1's path): the check's own CPU
+    /// session is gone before the GPU session is made, so one session of
+    /// the model is alive at a time.
+    #[test]
+    fn a_check_before_use_drops_its_cpu_session_before_the_gpu_one() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let (alive, peak) = counters();
+        let ran_on =
+            on_cpu_session(None, || Ok(Counted::new("cpu", &alive, &peak)), |s| s.on).unwrap();
+        assert_eq!(ran_on, "cpu");
+        assert_eq!(alive.load(SeqCst), 0);
+        let (a, p) = (alive.clone(), peak.clone());
+        let end = gpu_runs(
+            move || Ok(Counted::new("gpu", &a, &p)),
+            |gpu: &mut Counted| Ok(gpu.on),
+            Duration::from_millis(10),
+            Duration::from_secs(10),
+            &Stop::new(),
+        )
+        .unwrap();
+        assert!(matches!(end, GpuEnd::Ran(_, ("gpu", _, _))));
+        drop(end);
+        assert_eq!(peak.load(SeqCst), 1);
+        assert_eq!(alive.load(SeqCst), 0);
+    }
+
+    /// The app's idle check: the CPU run borrows the session of the model
+    /// that waits on the CPU (no second CPU session), the GPU session is
+    /// the only one the check makes, and the CPU session goes once the GPU
+    /// one is adopted.
+    #[test]
+    fn an_idle_check_borrows_the_waiting_models_cpu_session() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let (alive, peak) = counters();
+        let on_gpu = Arc::new(Slot::new(
+            "subject",
+            Counted::new("other gpu", &alive, &peak),
+            Provider::WebGpu,
+        ));
+        let waiting = Arc::new(Slot::new(
+            "subject",
+            Counted::new("loaded cpu", &alive, &peak),
+            Provider::Cpu,
+        ));
+        let borrowed = cpu_session_of([on_gpu.clone(), waiting.clone()]);
+        let ran_on = on_cpu_session(
+            borrowed,
+            || -> Result<Counted> { panic!("a second CPU session") },
+            |s| s.on,
+        )
+        .unwrap();
+        assert_eq!(ran_on, "loaded cpu");
+        assert_eq!(peak.load(SeqCst), 2);
+        let gpu = Counted::new("checked gpu", &alive, &peak);
+        // The loaded CPU model, the other model's GPU session and the
+        // check's GPU session; never a check's CPU session.
+        assert_eq!(peak.load(SeqCst), 3);
+        assert!(adopt_into([waiting.clone()], gpu, Provider::WebGpu).is_none());
+        assert_eq!(alive.load(SeqCst), 2);
+        assert_eq!(waiting.session().with(|s| s.on), "checked gpu");
+        drop((on_gpu, waiting));
+        assert_eq!(alive.load(SeqCst), 0);
+    }
+
+    /// Without a model waiting on the CPU (it was unloaded, or moved to a
+    /// GPU), the check makes its own CPU session.
+    #[test]
+    fn a_check_without_a_waiting_cpu_model_makes_its_own_session() {
+        let (alive, peak) = counters();
+        let on_gpu = Arc::new(Slot::new(
+            "subject",
+            Counted::new("gpu", &alive, &peak),
+            Provider::WebGpu,
+        ));
+        assert!(cpu_session_of([on_gpu]).is_none());
+        assert!(cpu_session_of(Vec::<Arc<Slot<Counted>>>::new()).is_none());
+    }
+
+    /// The memory an idle check's CPU part costs beside the model the app
+    /// loaded on the CPU: `AIM1_MODE=borrow` runs it on that model's
+    /// session (as now), `own` on a second session (as before). Measure
+    /// each mode in a process of its own (`/usr/bin/time -l`); `loaded`
+    /// only loads the model.
+    #[test]
+    #[ignore = "needs ORT_DYLIB_PATH, AIM1_MODEL (BiRefNet) and AIM1_MODE"]
+    fn idle_check_cpu_part_memory_probe() {
+        let path = PathBuf::from(std::env::var("AIM1_MODEL").expect("AIM1_MODEL"));
+        let mode = std::env::var("AIM1_MODE").expect("AIM1_MODE");
+        let started = Instant::now();
+        let model = crate::Model::load_checked(
+            &path,
+            ModelKind::Subject,
+            &[Provider::Cpu],
+            &[],
+            Checks::Off,
+        )
+        .unwrap();
+        println!("loaded in {} ms", started.elapsed().as_millis());
+        let borrowed = match mode.as_str() {
+            "loaded" => return,
+            "borrow" => Some(model.state.session()),
+            "own" => None,
+            other => panic!("AIM1_MODE {other}"),
+        };
+        let started = Instant::now();
+        let cpu = cpu_run(&path, ModelKind::Subject, borrowed, &Stop::new())
+            .unwrap()
+            .unwrap();
+        println!(
+            "{mode}: CPU part in {} ms (run {} ms)",
+            started.elapsed().as_millis(),
+            cpu.time.as_millis()
         );
     }
 

@@ -391,10 +391,11 @@ static CPU_ONLY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// without a verdict, so a later start without this checks as before); a
 /// forced provider still wins. The app calls it on an integrated GPU whose
 /// shader compiles run under a limit (a Radeon 680M under Windows): there
-/// a check ran the model on the CPU and on WebGPU at once and took the app
-/// to 10.6 GB of private memory with memory pressure on a 15 GB laptop,
-/// and the GPU was slower every time (G76/WSMOKE15; coordinator decision
-/// WCC11 D5). Logged once with `why`.
+/// BiRefNet's GPU check took the app to 10.2-10.6 GB of private memory
+/// with memory pressure on a 14 GB laptop, most of it the WebGPU run's
+/// shared memory (7.4 GB), and the GPU was slower every time
+/// (G76/WSMOKE15, WMSK1; coordinator decision WCC11 D5). Logged once with
+/// `why`.
 pub fn keep_models_on_cpu(why: &str) {
     if CPU_ONLY.set(why.to_string()).is_ok() {
         log::info!("AI: models stay on the CPU and no GPU check runs: {why}");
