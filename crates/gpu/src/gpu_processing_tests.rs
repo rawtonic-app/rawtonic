@@ -18982,8 +18982,16 @@ fn region_differences(
     let (w, h) = region.dimensions();
     let left = if x0 == 0 { 0 } else { inset };
     let top = if y0 == 0 { 0 } else { inset };
-    let right = if x0 + w == whole.width() { w } else { w - inset };
-    let bottom = if y0 + h == whole.height() { h } else { h - inset };
+    let right = if x0 + w == whole.width() {
+        w
+    } else {
+        w - inset
+    };
+    let bottom = if y0 + h == whole.height() {
+        h
+    } else {
+        h - inset
+    };
     let mut diffs = Vec::new();
     for y in top..bottom {
         for x in left..right {
@@ -19054,8 +19062,12 @@ fn regions_filter_colour_noise_as_the_whole_photograph() {
         }
         // Off the grid, the coarse levels sample other pixels (8–9 codes).
         let (x, y, w, h) = (530, 333, 1408, 1088);
-        let region =
-            render_region_source(&context, &image.crop_imm(x, y, w, h), &profile, Some(measured));
+        let region = render_region_source(
+            &context,
+            &image.crop_imm(x, y, w, h),
+            &profile,
+            Some(measured),
+        );
         let (max, ..) = region_differences(&whole, &region, (x, y), margin);
         println!("{profile} region off the grid {x},{y}: max {max}");
         assert!(max > 1, "off the grid the test no longer tells");

@@ -13242,7 +13242,11 @@ fn render_in_windows(
     let tuning = versioned.1;
     let luma_profile = luma_profile_wanted(&request.adjustments.uniforms.global);
     let settings = color_noise_settings(&mut request.adjustments.uniforms.global);
-    let given = request.adjustments.color_noise_measurement.as_deref().copied();
+    let given = request
+        .adjustments
+        .color_noise_measurement
+        .as_deref()
+        .copied();
     let pyramid = (settings.is_some() || luma_profile)
         .then(|| ChromaPyramid::build_for(image, is_raw, &tuning))
         .flatten()
@@ -13619,11 +13623,17 @@ pub fn measure_color_noise(
         let Some(pipelines) = processor.chroma_pipelines.as_ref() else {
             return Ok(None);
         };
-        let texture =
-            create_input_texture(&context.device, &context.queue, image, INPUT_UPLOAD_BAND_ROWS)?;
+        let texture = create_input_texture(
+            &context.device,
+            &context.queue,
+            image,
+            INPUT_UPLOAD_BAND_ROWS,
+        )?;
         let view = texture.create_view(&Default::default());
-        Ok(GpuPyramid::build(context, pipelines, &view, width, height, is_raw)?
-            .map(|pyramid| pyramid.measured))
+        Ok(
+            GpuPyramid::build(context, pipelines, &view, width, height, is_raw)?
+                .map(|pyramid| pyramid.measured),
+        )
     };
     processor_slot.scoped(|| gpu_scoped(&context.device, measure).and_then(|measured| measured))
 }

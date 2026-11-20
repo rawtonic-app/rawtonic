@@ -2538,8 +2538,9 @@ fn on_noise_grid([x, y, w, h]: [u32; 4]) -> [u32; 4] {
 
 /// Whole-photograph noise measurements of the photographs whose regions
 /// were developed lately, by [`noise_measurement_key`].
-static NOISE_MEASUREMENTS: Mutex<Vec<(u64, Option<rawtonic_engine::color_noise::NoiseMeasurement>)>> =
-    Mutex::new(Vec::new());
+static NOISE_MEASUREMENTS: Mutex<
+    Vec<(u64, Option<rawtonic_engine::color_noise::NoiseMeasurement>)>,
+> = Mutex::new(Vec::new());
 
 /// Measurements kept (about 100 bytes each).
 const NOISE_MEASUREMENTS_KEPT: usize = 64;
