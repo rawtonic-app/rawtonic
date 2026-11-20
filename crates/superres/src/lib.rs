@@ -47,6 +47,16 @@ pub const CPU_ONNX_FILE: &str = "superres_compact_x2_cpu.onnx";
 pub const CPU_ONNX_SHA256: &str =
     "40bf5c362bad13ca57c1e4493f66f9ab5f2ce7f57156e1d20a77aad7322cd7a1";
 
+/// The same graph with fp16 weights and compute, fp32 input and output
+/// (`scripts/models/convert_superres_fp16.py`), for GPU providers only: on
+/// an RTX 3080 24 -> 96 MP took 8.2 s with CUDA instead of 12 s and 15.9 s
+/// with WebGPU instead of 22.4 s, at most one 8-bit code from the fp32
+/// graph (notes: benchmark-results/cuda1-2026-11-20/REPORT.md,
+/// srf16-2026-11-20/REPORT.md). Packs before pack-2026-11-20 lack it.
+pub const GPU_ONNX_FILE: &str = "superres_compact_x2_fp16.onnx";
+pub const GPU_ONNX_SHA256: &str =
+    "4ee4e846aebe963d9739cca170df56b6b13f0fb6f604483d284ac227d250289d";
+
 /// The same graph as a Core ML program (fp16; largest difference to the
 /// ONNX model 0.003, mean 0.0002 of the 0..1 range), macOS's fast path.
 #[cfg(target_os = "macos")]
@@ -96,9 +106,13 @@ enum Backend {
 
 impl Model {
     /// The ONNX model on ONNX Runtime: a GPU provider when one works, else
-    /// the CPU.
+    /// the CPU. On a GPU the fp16 graph (`GPU_ONNX_FILE`) when it is
+    /// installed and its check on that GPU passed; until that check has run
+    /// (queued for when the app is idle) and with older packs, the original
+    /// graph.
     pub fn onnx(path: &Path) -> Result<Self> {
         let cpu_path = path.with_file_name(CPU_ONNX_FILE);
+        let gpu_path = path.with_file_name(GPU_ONNX_FILE);
         let forced = rawtonic_onnx::forced_provider();
         let cpu_only = forced == Some(rawtonic_onnx::Provider::Cpu)
             || (forced.is_none() && !rawtonic_onnx::settings().gpu);
@@ -108,6 +122,16 @@ impl Model {
                     model: cpu,
                     cpu: None,
                 },
+            });
+        }
+        if tries_gpu_graph(cpu_only, || verified(&gpu_path, GPU_ONNX_SHA256))
+            && let Some(model) = rawtonic_onnx::Model::load_on_checked_gpu(
+                &gpu_path,
+                rawtonic_onnx::ModelKind::SuperResolution,
+            )
+        {
+            return Ok(Self {
+                backend: Backend::Onnx { model, cpu: None },
             });
         }
         let model = rawtonic_onnx::Model::load(path, rawtonic_onnx::ModelKind::SuperResolution)?;
@@ -212,15 +236,19 @@ impl Model {
 
     pub fn backend_name(&self) -> String {
         match &self.backend {
-            Backend::Onnx { model, cpu } => format!(
-                "ONNX Runtime ({})",
-                active_graph(
+            Backend::Onnx { model, cpu } => {
+                let graph = active_graph(
                     model,
                     cpu.as_ref(),
-                    model.provider() == rawtonic_onnx::Provider::Cpu
-                )
-                .provider()
-            ),
+                    model.provider() == rawtonic_onnx::Provider::Cpu,
+                );
+                let fp16 = if graph.path().file_name() == Some(GPU_ONNX_FILE.as_ref()) {
+                    ", fp16"
+                } else {
+                    ""
+                };
+                format!("ONNX Runtime ({}{fp16})", graph.provider())
+            }
             #[cfg(target_os = "macos")]
             Backend::CoreMl(_) => "Core ML".to_string(),
         }
@@ -270,6 +298,14 @@ impl Model {
     ) -> Result<DynamicImage, String> {
         enlarge_with(image, &mut |tile| self.enlarge_tile(tile), cancelled)
     }
+}
+
+/// Whether `Model::onnx` tries the fp16 graph first: only when a GPU may
+/// run (the CPU path keeps the CPU conversion or the original graph: ONNX
+/// Runtime's CPU provider casts fp16 back to fp32 on x86) and the file is
+/// installed with its SHA-256 (packs before pack-2026-11-20 lack it).
+fn tries_gpu_graph(cpu_only: bool, installed: impl FnOnce() -> bool) -> bool {
+    !cpu_only && installed()
 }
 
 /// The graph that runs a tile: the CPU conversion while the original graph
@@ -587,6 +623,27 @@ mod tests {
         let err = enlarge_with(source, &mut counting, &cancel_after_two).unwrap_err();
         assert!(err.contains("Export cancelled"), "{err}");
         assert_eq!(runs, 2);
+    }
+
+    #[test]
+    fn fp16_graph_only_on_the_gpu_path_and_only_when_installed() {
+        assert!(tries_gpu_graph(false, || true));
+        // An older pack (or a damaged download): the original graph.
+        assert!(!tries_gpu_graph(false, || false));
+        // The CPU path never looks at the fp16 file.
+        assert!(!tries_gpu_graph(true, || panic!("checked on the CPU path")));
+    }
+
+    #[test]
+    fn fp16_graph_with_other_bytes_is_not_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(GPU_ONNX_FILE);
+        assert!(!verified(&path, GPU_ONNX_SHA256));
+        std::fs::write(&path, b"not the pinned graph").unwrap();
+        assert!(!verified(&path, GPU_ONNX_SHA256));
+        std::fs::write(&path, b"abc").unwrap();
+        let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert!(verified(&path, abc));
     }
 
     #[test]

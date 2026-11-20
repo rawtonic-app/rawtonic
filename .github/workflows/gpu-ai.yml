@@ -26,7 +26,7 @@ env:
   CARGO_TERM_COLOR: always
   ORT_VERSION: "1.30.0"
   WEBGPU_EP_VERSION: "0.4.0"
-  MODEL_PACK: https://github.com/rawtonic-app/models/releases/download/pack-2026-11-19
+  MODEL_PACK: https://github.com/rawtonic-app/models/releases/download/pack-2026-11-20
 jobs:
   prepare:
     runs-on: ubuntu-24.04

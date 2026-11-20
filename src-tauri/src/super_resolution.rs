@@ -61,6 +61,26 @@ async fn model(
             "Super Resolution Model",
         )
         .await?;
+        // The fp16 graph for GPU providers (1.2 MB). Optional: older packs
+        // lack it, and without it the original graph runs on the GPU.
+        if !rawtonic_onnx::models_run_on_cpu_only()
+            && !verify_sha256(
+                &models_dir.join(rawtonic_superres::GPU_ONNX_FILE),
+                rawtonic_superres::GPU_ONNX_SHA256,
+            )?
+            && let Err(error) = download_verified(
+                app_handle,
+                &models_dir,
+                rawtonic_superres::GPU_ONNX_FILE,
+                rawtonic_superres::GPU_ONNX_SHA256,
+                "Super Resolution GPU Model",
+            )
+            .await
+        {
+            log::warn!(
+                "Optional Super Resolution GPU graph unavailable; using the original graph: {error:#}"
+            );
+        }
     }
     let mut model = tokio::task::spawn_blocking(move || Model::onnx(&path)).await??;
     if download
