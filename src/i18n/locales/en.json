@@ -5155,7 +5155,7 @@
           "shadowSplit": "Shadow"
         },
         "region": "Region",
-        "splitHint": "{{name}}: {{value}}. Drag or use the arrow keys; double-click to type a value",
+        "splitHint": "{{name}}: {{value}}. Drag or use the arrow keys; double-click to reset, Enter to type a value",
         "splits": "Splits"
       }
     },
