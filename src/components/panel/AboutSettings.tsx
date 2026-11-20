@@ -166,13 +166,13 @@ export const CREDITS: Credit[] = [
   {
     name: '2xBHI_small_compact_pretrain',
     url: 'https://github.com/Phhofm/models/releases/tag/2xBHI_small_compact_pretrain',
-    what: 'Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion).',
+    what: 'Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).',
     license: 'CC BY 4.0'
   },
   {
     name: 'ONNX Runtime',
     url: 'https://github.com/microsoft/onnxruntime',
-    what: 'Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).',
+    what: "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
     license: 'MIT'
   },
   {

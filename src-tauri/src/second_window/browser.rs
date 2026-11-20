@@ -1,14 +1,15 @@
 //! Linux: the second window's photograph drawn by its webview.
 //!
 //! WebKitGTK cannot show a native surface under a transparent webview, so
-//! on Linux the main window presents its previews as JPEG frames that
-//! WebKit draws (editor_preview.rs, browser_preview_transport.rs). The
+//! on Linux the main window presents its previews as JPEG or PNG frames
+//! that WebKit draws (editor_preview.rs, browser_preview_transport.rs). The
 //! second window does the same: the main window's whole frames (the same
-//! JPEG bytes, not encoded again) and the frames this window develops for
-//! itself (100 %, a larger fit, lock, the Library's photograph; encoded at
-//! the settled main preview's quality) are kept here and served through the
-//! `rawtonic-preview` scheme by opaque IDs; the page lays them out with the
-//! multi view's geometry (secondViewZoom.ts `fitRect`, `zoomedRect`).
+//! bytes, not encoded again) and the frames this window develops for
+//! itself (100 %, a larger fit, lock, the Library's photograph; lossless as
+//! the main window's settled frames, [`encode`]) are kept here and served
+//! through the `rawtonic-preview` scheme by opaque IDs; the page lays them
+//! out with the multi view's geometry (secondViewZoom.ts `fitRect`,
+//! `zoomedRect`).
 //!
 //! [`BrowserView`] has the methods of `WgpuDisplay` that second_window.rs
 //! calls, so the window's logic (when to copy, when to develop, which
@@ -56,7 +57,7 @@ pub struct Frames {
 static STORE: Mutex<VecDeque<(Uuid, Arc<Vec<u8>>)>> = Mutex::new(VecDeque::new());
 static CURRENT: Mutex<Option<Frames>> = Mutex::new(None);
 
-/// The JPEG of frame `id`, for the `rawtonic-preview` scheme.
+/// The encoded frame `id`, for the `rawtonic-preview` scheme.
 pub(crate) fn frame(id: Uuid) -> Option<Vec<u8>> {
     lock_recover(&STORE)
         .iter()
@@ -80,16 +81,17 @@ fn keep(jpeg: Vec<u8>) -> Uuid {
 }
 
 /// A developed frame encoded for the page (done before the window's state
-/// is locked: the main window's frames wait on that lock), at the main
-/// window's settled qualities (preview_jpeg.rs): a zoomed `region` is the
-/// photograph at 100 % or closer, the whole frame is shown reduced.
-pub(super) fn encode(rgba: &image::RgbaImage, region: bool) -> Result<Vec<u8>, String> {
-    let quality = if region {
-        crate::preview_jpeg::ONE_TO_ONE_QUALITY
-    } else {
-        crate::preview_jpeg::SETTLED_QUALITY
-    };
-    crate::preview_jpeg::encode_rgbx_444(rgba, quality)
+/// is locked: the main window's frames wait on that lock): a lossless PNG,
+/// as the main window's settled frames are (a reduced whole,
+/// preview_jpeg::settled_lossless; the visible region at 100 %,
+/// `editor_preview::browser_region_frame`), so the page shows the pixels
+/// this window developed. At 100 % its q99 JPEG region moved fine chroma out
+/// of the ±15 % bar in 46 of 80 cells against the export (SWC1); the PNG
+/// left 7 (the export's own 8-bit rounding: 6). The region's own development
+/// still differs from the main window's with colour noise reduction on
+/// (docs/benchmark-results/swc2-second-window-regions-2026-11-20/REPORT.md).
+pub(super) fn encode(rgba: &image::RgbaImage) -> Result<Vec<u8>, String> {
+    crate::preview_jpeg::encode_settled_like(rgba, 1.0, Some(true))
 }
 
 pub(crate) struct BrowserView {
@@ -143,7 +145,7 @@ impl BrowserView {
     /// The page positions the frames at its own zoom.
     pub(super) fn set_multi_view_zoom(&mut self, _zoom: Option<CellZoom>) {}
 
-    /// Shows the JPEG `jpeg` (`size` px) of `path` as `layer`.
+    /// Shows the encoded frame `jpeg` (`size` px) of `path` as `layer`.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn set_jpeg(
         &mut self,
@@ -291,5 +293,16 @@ mod tests {
         drop(view);
         assert_eq!(frame(ids[KEPT - 1]), None, "a closed window keeps none");
         assert_eq!(current(), None);
+    }
+
+    #[test]
+    fn the_window_s_own_frames_are_lossless() {
+        let rgba = image::RgbaImage::from_fn(64, 48, |x, y| {
+            image::Rgba([(x * 4) as u8, (y * 5) as u8, ((x ^ y) * 3) as u8, 255])
+        });
+        let bytes = encode(&rgba).unwrap();
+        assert!(bytes.starts_with(b"\x89PNG"), "a PNG, not a JPEG");
+        let decoded = image::load_from_memory(&bytes).unwrap().to_rgba8();
+        assert_eq!(decoded, rgba, "the pixels as developed");
     }
 }

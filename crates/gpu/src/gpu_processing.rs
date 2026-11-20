@@ -65,8 +65,8 @@ pub use idle_compiles::{
 pub use multi_view::{CellExtent, CellLayer, CellZoom, MultiView, MultiViewCell};
 use multi_view::{DisplayBindings, DisplayPass, PrimaryDraw, encode_display_pass};
 use preview_layers::{
-    CURVE_LUT_SAMPLES, LAYER_SUMS_HEADER, LayerSumsPlan, PreparedLayer, SummedLayers, curve_lut,
-    plan_layer_sums, prepare_layers, summed_layers,
+    CURVE_LUT_SAMPLES, LAYER_SUMS_HEADER, LUMINANCE_LUT_WORDS, LayerSumsPlan, PreparedLayer,
+    SummedLayers, curve_lut, luminance_lut, plan_layer_sums, prepare_layers, summed_layers,
 };
 pub use processor_turns::ProcessorSlot;
 
@@ -233,6 +233,9 @@ pub struct GpuImageCache {
     /// (`colorNoiseVersion` 11, `Tuning::gpu_pyramid`), built on first use;
     /// exports free it once their level 1 is rebuilt.
     chroma_levels: Option<Box<GpuPyramid>>,
+    /// The measurement `chroma` filters with instead of its own (`PreparedAdjustments::color_noise_measurement`: the source
+    /// is a region of a photograph); `None`: their own.
+    chroma_given: Option<Box<color_noise::NoiseMeasurement>>,
     /// The foreground source before this one, while it is small: drag drafts
     /// render from a smaller copy than the final frame, and each switch
     /// uploaded the source again, rebuilt its chroma pyramid and freed GPU
@@ -653,6 +656,9 @@ pub struct GpuPyramid {
     sizes: Vec<[u32; 2]>,
     /// The photo's colour and luminance noise.
     measured: color_noise::NoiseMeasurement,
+    /// Whether `measured` is another photograph's (the whole photograph the
+    /// source is a region of, `PreparedAdjustments::color_noise_measurement`).
+    given: bool,
 }
 
 impl GpuPyramid {
@@ -824,6 +830,7 @@ impl GpuPyramid {
             levels,
             sizes,
             measured,
+            given: false,
         }))
     }
 
@@ -1851,6 +1858,12 @@ fn rebuild_color_noise_ahead(
     }
     let settings = color_noise_settings(&mut global)?;
     let pyramid = cache.chroma.as_ref()?;
+    // A region's pyramid takes the whole photograph's measurement
+    // (`prepare_color_noise`), not yet applied to the cached one.
+    let given = adjustments.color_noise_measurement.as_deref().copied();
+    if given.is_some_and(|m| m != pyramid.measurement()) {
+        return None;
+    }
     if luma_profile {
         set_luma_profile(&mut global, pyramid);
     }
@@ -1892,6 +1905,7 @@ fn prepare_color_noise(
     interactive: bool,
     rebuilt: Option<RebuiltChroma>,
 ) -> Result<Option<(wgpu::TextureView, wgpu::TextureView)>, String> {
+    let given = adjustments.color_noise_measurement.as_deref().copied();
     let global = &mut adjustments.uniforms.global;
     let luma_profile = luma_profile_wanted(global);
     let versioned = color_noise_tuning(global);
@@ -1935,6 +1949,30 @@ fn prepare_color_noise(
                 ChromaPyramid::build_for(image, global.is_raw_image != 0, &versioned.1)
             })
             .map(Arc::new);
+        cache.chroma_given = None;
+    }
+    // A region of a photograph filters with the whole photograph's
+    // measurement, so that it renders as those pixels of the whole do.
+    if given != cache.chroma_given.as_deref().copied() {
+        cache.chroma_gpu = None;
+        match (given, cache.chroma.as_ref()) {
+            (Some(given), Some(pyramid)) => {
+                cache.chroma = Some(Arc::new(pyramid.with_measurement(&given)));
+                cache.chroma_given = Some(Box::new(given));
+            }
+            (Some(_), None) => {}
+            // Its own measurement again: built again from the source.
+            (None, _) => {
+                if source.is_some() {
+                    cache.chroma = source
+                        .and_then(|image| {
+                            ChromaPyramid::build_for(image, global.is_raw_image != 0, &versioned.1)
+                        })
+                        .map(Arc::new);
+                    cache.chroma_given = None;
+                }
+            }
+        }
     }
     let Some(pyramid) = cache.chroma.clone() else {
         log::warn!("No chroma pyramid for the render source; colour noise reduction falls back");
@@ -2020,12 +2058,19 @@ fn prepare_color_noise_on_gpu(
     (settings, luma_profile): (Option<color_noise::Settings>, bool),
     versioned: (u64, color_noise::Tuning),
 ) -> Result<Option<(wgpu::TextureView, wgpu::TextureView)>, String> {
+    let given = adjustments.color_noise_measurement.as_deref().copied();
     let global = &mut adjustments.uniforms.global;
     let is_raw = global.is_raw_image != 0;
     if cache.chroma_gpu.as_ref().is_some_and(|chroma| !chroma.gpu) {
         cache.chroma_gpu = None;
     }
     let pipelines = processor.chroma_pipelines.as_ref();
+    // Levels that filter with another photograph's measurement are measured
+    // again from the source when their own is wanted.
+    if given.is_none() && cache.chroma_levels.as_ref().is_some_and(|p| p.given) {
+        cache.chroma_levels = None;
+        cache.chroma_gpu = None;
+    }
     if cache.chroma_levels.is_none()
         && let Some(pipelines) = pipelines
     {
@@ -2043,6 +2088,15 @@ fn prepare_color_noise_on_gpu(
         )
         .inspect_err(|e| log::error!("Colour noise pyramid failed: {e}"))?
         .map(Box::new);
+    }
+    // A region of a photograph filters with the whole photograph's
+    // measurement, so that it renders as those pixels of the whole do.
+    if let (Some(given), Some(pyramid)) = (given, cache.chroma_levels.as_deref_mut())
+        && pyramid.measured != given
+    {
+        pyramid.measured = given;
+        pyramid.given = true;
+        cache.chroma_gpu = None;
     }
     // Without its passes (they failed to compile with the processor, which
     // logged it) or for photos too small to filter, as without a pyramid on
@@ -3901,7 +3955,35 @@ fn off_global_pool<R: Send>(work: impl FnOnce() -> R + Send) -> R {
 /// nor, called from a worker, steals a queued render that needs the
 /// processor.
 fn film_grain_tile_data() -> Vec<u32> {
-    rawtonic_engine::film_grain::grain_tile()
+    level_pairs(&rawtonic_engine::film_grain::grain_tile())
+}
+
+/// The tile as the shader's `film_texel` reads it (G76/GRN1): per mip
+/// (finest first) one plane per pair of neighbouring levels the shader
+/// interpolates (plane `k0 + 1` holds levels `k0` and `k0 + 1` of every
+/// texel, row by row; `k0 = -1` is the empty level, a zero half), instead
+/// of the engine's texels of all levels side by side. A pixel and its
+/// neighbours read one plane, which the caches keep: film grain cost 0.38
+/// instead of 0.71 ms per megapixel of a display frame on Metal (M5 Pro;
+/// `grain_frame_cost_probe`). Twice the words, the same halves, so every
+/// value the shader reads is bit for bit the one it read before.
+fn level_pairs(tile: &[u32]) -> Vec<u32> {
+    use rawtonic_engine::film_grain::{LEVELS, mip_sides};
+    let half =
+        |texel: &[u32; LEVELS / 2], level: usize| (texel[level / 2] >> (16 * (level % 2))) & 0xffff;
+    let mut out = Vec::with_capacity(tile.len() * 2);
+    let mut start = 0;
+    for side in mip_sides() {
+        let mip = &tile[start..start + side * side * (LEVELS / 2)];
+        start += mip.len();
+        for pair in 0..LEVELS {
+            out.extend(mip.as_chunks::<{ LEVELS / 2 }>().0.iter().map(|texel| {
+                let lower = if pair == 0 { 0 } else { half(texel, pair - 1) };
+                lower | (half(texel, pair) << 16)
+            }));
+        }
+    }
+    out
 }
 
 /// Creates the Rgba16Float input texture of `image` band by band.
@@ -4536,6 +4618,8 @@ pub struct GpuProcessor {
     prepared_layers_buffer: wgpu::Buffer,
     curve_luts_buffer: wgpu::Buffer,
     curve_lut_cache: Mutex<Vec<CurveLutEntry>>,
+    /// Per layer: the Luminance curve whose table is in `curve_luts_buffer`.
+    luminance_lut_cache: Mutex<Vec<CurveLutEntry>>,
     /// The camera-profile tables currently in `curve_luts_buffer` (key).
     camera_profile_loaded: Mutex<Option<u32>>,
     dummy_blur_view: wgpu::TextureView,
@@ -4577,6 +4661,16 @@ pub struct GpuProcessor {
     force_general_display: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     force_exact_curves: std::sync::atomic::AtomicBool,
+    /// Display frames evaluate the Luminance curve directly, as exports.
+    #[cfg(test)]
+    force_direct_luminance: std::sync::atomic::AtomicBool,
+    /// The display shader evaluates neutral RGB curves instead of skipping
+    /// them (`LAYER_RGB_CURVES_NEUTRAL`).
+    #[cfg(test)]
+    force_neutral_rgb_curves: std::sync::atomic::AtomicBool,
+    /// Luminance tables built (`update_luminance_luts`).
+    #[cfg(test)]
+    luminance_lut_builds: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     force_general_pipeline: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -5325,6 +5419,9 @@ struct DisplayRenderState {
     lut_file_stage: bool,
     pipeline: wgpu::ComputePipeline,
     mask_layers: usize,
+    /// A drag's approximations (G76/GRN3): a settled frame after a drag
+    /// with the same values renders every pixel again.
+    drag_effects: rawtonic_engine::image_processing::DragEffects,
 }
 
 impl DisplayRenderState {
@@ -5343,6 +5440,7 @@ impl DisplayRenderState {
             && self.lut_file_stage == other.lut_file_stage
             && self.pipeline == other.pipeline
             && self.mask_layers == other.mask_layers
+            && self.drag_effects == other.drag_effects
     }
 }
 
@@ -6198,6 +6296,16 @@ fn mixer_feature_slot(
 /// Per mask layer: the curve data its table was built from, and whether the
 /// table passed the tolerance check. Rebuilt only when that layer changes.
 type CurveLutEntry = Option<(Vec<u8>, bool)>;
+/// vec4 words before the Luminance tables in `curve_luts_buffer`.
+const LUMINANCE_LUT_OFFSET: usize =
+    CURVE_LUT_SAMPLES * (MAX_MASKS + 1) + crate::camera_profile::TABLE_CAPACITY;
+// shader.wgsl `LUMINANCE_TABLE_BASE` and `luminance_table_value`.
+const _: () = assert!(
+    crate::camera_profile::TABLE_CAPACITY == 65_536
+        && LUMINANCE_LUT_WORDS == 257
+        && CURVE_LUT_SAMPLES == 1025
+        && MAX_MASKS + 1 == 33
+);
 
 /// Float tiles of a processor for [`TILE_SIZE`] tiles and for
 /// [`EXPORT_TILE_SIZE`] tiles (`float_tile_index`), each made on its first
@@ -8435,10 +8543,10 @@ impl GpuProcessor {
 
         let curve_luts_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Display curve tables"),
-            // Mask layers' curve tables, then a camera profile's colour
-            // tables.
-            size: ((CURVE_LUT_SAMPLES * (MAX_MASKS + 1) + crate::camera_profile::TABLE_CAPACITY)
-                * 16) as u64,
+            // Mask layers' curve tables, a camera profile's colour tables,
+            // then the layers' Luminance tables (shader
+            // `LUMINANCE_TABLE_BASE`).
+            size: (LUMINANCE_LUT_OFFSET + LUMINANCE_LUT_WORDS * (MAX_MASKS + 1)) as u64 * 16,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -8624,6 +8732,7 @@ impl GpuProcessor {
             prepared_layers_buffer,
             curve_luts_buffer,
             curve_lut_cache: Mutex::new(vec![None; MAX_MASKS + 1]),
+            luminance_lut_cache: Mutex::new(vec![None; MAX_MASKS + 1]),
             camera_profile_loaded: Mutex::new(None),
             dummy_blur_view,
             empty_mask_view,
@@ -8656,6 +8765,12 @@ impl GpuProcessor {
             force_full_preparation: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             force_exact_curves: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            force_direct_luminance: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            force_neutral_rgb_curves: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            luminance_lut_builds: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
             force_general_pipeline: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
@@ -9643,7 +9758,8 @@ impl GpuProcessor {
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         for (index, layer) in layers.iter_mut().enumerate().skip(1).take(mask_count) {
-            if disabled || !layer.has_curves() {
+            // Neutral RGB curves are skipped (exactly), not sampled.
+            if disabled || !layer.has_curves() || layer.rgb_curves_skipped() {
                 layer.set_curve_lut(false);
                 continue;
             }
@@ -9663,6 +9779,60 @@ impl GpuProcessor {
                 }
             };
             layer.set_curve_lut(enabled);
+        }
+    }
+
+    /// Display only. The Luminance curves read their sampled tables, or
+    /// their prepared segments where a table fails the tolerance check;
+    /// tables are rebuilt for layers whose Luminance curve changed.
+    /// While the clipping warnings show, the curve stays the direct Hermite
+    /// of exports: a pixel a hair from a warning's threshold then gets the
+    /// same mark as before (the table can move it by a fraction of a level).
+    fn update_luminance_luts(
+        &self,
+        layers: &mut [PreparedLayer],
+        mask_count: usize,
+        show_clipping: u32,
+    ) {
+        let warnings = show_clipping != 0
+            && !is_sharpen_view(show_clipping)
+            && crate::image_processing::color_range_view_index(show_clipping).is_none();
+        #[cfg(test)]
+        let direct = warnings
+            || self
+                .force_direct_luminance
+                .load(std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(test))]
+        let direct = warnings;
+        let mut cache = self
+            .luminance_lut_cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        for (index, layer) in layers.iter_mut().enumerate().take(mask_count + 1) {
+            layer.set_prepared_luminance(!direct);
+            if direct || !layer.has_luminance() {
+                layer.set_luminance_lut(false);
+                continue;
+            }
+            let enabled = match &cache[index] {
+                Some((key, enabled)) if key.as_slice() == layer.luminance_key() => *enabled,
+                _ => {
+                    let table = luminance_lut(layer);
+                    #[cfg(test)]
+                    self.luminance_lut_builds
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if let Some(table) = &table {
+                        self.context.queue.write_buffer(
+                            &self.curve_luts_buffer,
+                            ((LUMINANCE_LUT_OFFSET + index * LUMINANCE_LUT_WORDS) * 16) as u64,
+                            bytemuck::cast_slice(table),
+                        );
+                    }
+                    cache[index] = Some((layer.luminance_key().to_vec(), table.is_some()));
+                    table.is_some()
+                }
+            };
+            layer.set_luminance_lut(enabled);
         }
     }
 
@@ -11097,6 +11267,8 @@ impl GpuProcessor {
             || [
                 &self.force_mask_upload,
                 &self.force_exact_curves,
+                &self.force_direct_luminance,
+                &self.force_neutral_rgb_curves,
                 &self.force_legacy_curves,
                 &self.force_unprepared_layers,
                 &self.force_full_display_render,
@@ -11120,6 +11292,7 @@ impl GpuProcessor {
                     lut_file_stage: request.adjustments.lut_file_stage,
                     pipeline: output_pipeline.clone(),
                     mask_layers: request.mask_bitmaps.len().min(MAX_MASKS),
+                    drag_effects: request.adjustments.drag_effects,
                 });
         // Restrict this frame to the changed mask pixels when everything else
         // matches the previous complete frame. `Some` without regions skips work.
@@ -11249,6 +11422,15 @@ impl GpuProcessor {
         let mut summed_variant = false;
         if display_shader {
             let mut layers = prepare_layers(adjustments);
+            #[cfg(test)]
+            if self
+                .force_neutral_rgb_curves
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                layers
+                    .iter_mut()
+                    .for_each(PreparedLayer::evaluate_neutral_rgb_curves);
+            }
             if export_display || export_with_display_finish {
                 // Exports evaluate every curve exactly: the display's
                 // curve tables are approximations within a tolerance. A
@@ -11262,6 +11444,13 @@ impl GpuProcessor {
             } else {
                 self.update_curve_luts(&mut layers, adjustments.mask_count as usize);
                 layers[0].set_curve_lut(request.adjustments.curve_table.is_some());
+                // Display frames only: the prepared Luminance curve differs
+                // from the exports' direct Hermite in the last bits.
+                self.update_luminance_luts(
+                    &mut layers,
+                    adjustments.mask_count as usize,
+                    adjustments.global.show_clipping,
+                );
             }
             queue.write_buffer(
                 &self.prepared_layers_buffer,
@@ -11342,6 +11531,8 @@ impl GpuProcessor {
             }
             _ => None,
         };
+        // A drag's frame: the terms once per 2 x 2 pixels (G76/GRN3).
+        let half_terms = terms_pass.is_some() && request.adjustments.drag_effects.half_terms;
         if let Some(passes) = passes.filter(|_| output_to_display) {
             passes.compile_ahead(device, export_display_features(&request.adjustments));
         }
@@ -11353,9 +11544,16 @@ impl GpuProcessor {
         // probe (`output_space.w`) ends the main pass before grain.
         let grain =
             adjustments.global.grain_amount != 0.0 && adjustments.global.output_space[3] == 0;
+        // A drag's film grain once per 2 x 2 pixels (G76/GRN3), in a frame
+        // that finishes into the 8-bit tile.
+        let half_grain = passes.is_some()
+            && grain
+            && !deferred
+            && adjustments.global.grain_version >= 3
+            && request.adjustments.drag_effects.half_grain;
         let finish_pass = match passes {
             Some(passes) if grain || deferred => Some((
-                passes.finish_pipeline(device, grain, deferred)?,
+                passes.finish_pipeline(device, grain, deferred, half_grain)?,
                 passes.colour_tile(self),
                 passes.views(self, adjustments.global.show_clipping != 0),
                 passes,
@@ -11631,7 +11829,14 @@ impl GpuProcessor {
                     None => vec![tile_rect],
                     Some(regions) => regions
                         .iter()
-                        .filter_map(|region| intersect_roi(*region, tile_rect))
+                        // A drag's frame re-renders whole 2 x 2 blocks: a
+                        // changed pixel changes its block's terms and grain
+                        // (G76/GRN3).
+                        .map(|region| match half_terms || half_grain {
+                            true => intersect_roi(effect_passes::whole_blocks(*region), bounds),
+                            false => Some(*region),
+                        })
+                        .filter_map(|region| intersect_roi(region?, tile_rect))
                         .collect(),
                 };
                 if retained_regions.is_empty() {
@@ -12080,6 +12285,13 @@ impl GpuProcessor {
                     let mut entries = bind_group_entries.clone();
                     entries[1].resource =
                         wgpu::BindingResource::TextureView(&self.tile_output_texture_view);
+                    if half_terms {
+                        for entry in &mut entries {
+                            if entry.binding == 16 {
+                                entry.resource = passes.terms_regions().as_entire_binding();
+                            }
+                        }
+                    }
                     entries.push(wgpu::BindGroupEntry {
                         binding: 14,
                         resource: wgpu::BindingResource::TextureView(&self.dummy_blur_view),
@@ -12099,48 +12311,86 @@ impl GpuProcessor {
                     });
                     (pipeline, bind_group, tiles)
                 });
-                let finish = finish_pass
-                    .as_ref()
-                    .map(|(pipeline, colour, views, passes)| {
+                // The finish pass, and a drag's grain field pass over the
+                // 2 x 2 blocks with the same resources (G76/GRN3).
+                let (finish, grain_field) = match &finish_pass {
+                    Some((pipeline, colour, views, passes)) => {
+                        let entries = vec![
+                            bind_group_entries[0].clone(),
+                            bind_group_entries[1].clone(),
+                            bind_group_entries[2].clone(),
+                            wgpu::BindGroupEntry {
+                                binding: 27,
+                                resource: film_grain.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: ANALYTICS_OUTPUT_BINDING,
+                                resource: wgpu::BindingResource::TextureView(
+                                    match analytics_tile {
+                                        Some((_, view)) => view,
+                                        None => {
+                                            &self.no_analytics_output
+                                                [usize::from(high_precision_layout)]
+                                        }
+                                    },
+                                ),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: effect_passes::FINISH_COLOUR_BINDING,
+                                resource: wgpu::BindingResource::TextureView(&colour.view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: effect_passes::FINISH_VIEWS_BINDING,
+                                resource: wgpu::BindingResource::TextureView(&views.view),
+                            },
+                        ];
+                        fn with<'a>(
+                            regions: &'a wgpu::Buffer,
+                            field: &'a wgpu::TextureView,
+                        ) -> [wgpu::BindGroupEntry<'a>; 2] {
+                            [
+                                wgpu::BindGroupEntry {
+                                    binding: 16,
+                                    resource: regions.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: effect_passes::GRAIN_FIELD_BINDING,
+                                    resource: wgpu::BindingResource::TextureView(field),
+                                },
+                            ]
+                        }
+                        // Made on a drag's first frame with film grain.
+                        let field_tile = half_grain.then(|| &passes.field_tile(self).view);
+                        let mut finish_entries = entries.clone();
+                        finish_entries.extend(with(
+                            &self.render_regions_buffer,
+                            field_tile.unwrap_or(passes.no_colour()),
+                        ));
                         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                             label: Some("Finish Pass Bind Group"),
                             layout: passes.finish_bind_group_layout(deferred),
-                            entries: &[
-                                bind_group_entries[0].clone(),
-                                bind_group_entries[1].clone(),
-                                bind_group_entries[2].clone(),
-                                wgpu::BindGroupEntry {
-                                    binding: 16,
-                                    resource: self.render_regions_buffer.as_entire_binding(),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 27,
-                                    resource: film_grain.as_entire_binding(),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: ANALYTICS_OUTPUT_BINDING,
-                                    resource: wgpu::BindingResource::TextureView(
-                                        match analytics_tile {
-                                            Some((_, view)) => view,
-                                            None => {
-                                                &self.no_analytics_output
-                                                    [usize::from(high_precision_layout)]
-                                            }
-                                        },
-                                    ),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: effect_passes::FINISH_COLOUR_BINDING,
-                                    resource: wgpu::BindingResource::TextureView(&colour.view),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: effect_passes::FINISH_VIEWS_BINDING,
-                                    resource: wgpu::BindingResource::TextureView(&views.view),
-                                },
-                            ],
+                            entries: &finish_entries,
                         });
-                        (pipeline, bind_group)
-                    });
+                        let grain_field = if let Some(field_tile) = field_tile {
+                            let mut field_entries = entries;
+                            field_entries.extend(with(passes.terms_regions(), passes.no_colour()));
+                            field_entries.push(wgpu::BindGroupEntry {
+                                binding: effect_passes::GRAIN_FIELD_OUTPUT_BINDING,
+                                resource: wgpu::BindingResource::TextureView(field_tile),
+                            });
+                            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("Grain Field Bind Group"),
+                                layout: passes.field_bind_group_layout(),
+                                entries: &field_entries,
+                            });
+                            Some((passes.field_pipeline(device)?, bind_group))
+                        } else {
+                            None
+                        };
+                        (Some((pipeline, bind_group)), grain_field)
+                    }
+                    None => (None, None),
+                };
                 if let Some(passes) = &self.effect_passes {
                     // What a main pass stores for the finish pass, or 1 x 1
                     // textures a frame without one leaves alone.
@@ -12311,6 +12561,18 @@ impl GpuProcessor {
                         bounds.height,
                     ]];
                 }
+                // A drag's frame renders the first pixel of every block a
+                // region touches, which the passes over the blocks read: a
+                // region starting on an odd column or row starts a pixel
+                // earlier (in the tile; that pixel is rendered, not kept).
+                if half_terms || half_grain {
+                    for region in &mut regions {
+                        *region = effect_passes::with_block_starts(
+                            *region,
+                            [input_x_start, input_y_start],
+                        );
+                    }
+                }
                 let workgroups: u32 = regions
                     .iter()
                     .map(|region| region[2].div_ceil(8) * region[3].div_ceil(8))
@@ -12330,6 +12592,26 @@ impl GpuProcessor {
                     0,
                     bytemuck::cast_slice(&region_data),
                 );
+                // A drag's terms pass and grain field pass cover the
+                // regions' 2 x 2 blocks.
+                let half_workgroups = match passes {
+                    Some(passes) if half_terms || half_grain => {
+                        let half =
+                            effect_passes::half_regions(&regions, [input_x_start, input_y_start]);
+                        let mut data = vec![region_data[0]];
+                        data.extend_from_slice(&half);
+                        queue.write_buffer(passes.terms_regions(), 0, bytemuck::cast_slice(&data));
+                        half.iter()
+                            .map(|region| region[2].div_ceil(8) * region[3].div_ceil(8))
+                            .sum()
+                    }
+                    _ => workgroups,
+                };
+                let terms_workgroups = if half_terms {
+                    half_workgroups
+                } else {
+                    workgroups
+                };
                 let mut tile_adjustments = boxed_uniforms(adjustments);
                 tile_adjustments.tile_offset_x = input_x_start;
                 tile_adjustments.tile_offset_y = input_y_start;
@@ -12339,7 +12621,7 @@ impl GpuProcessor {
                 tile_adjustments.detail_cache = [
                     u32::from(detail_view.is_some()),
                     u32::from(finish_pass.is_some()),
-                    0,
+                    u32::from(half_terms),
                     0,
                 ];
                 tile_adjustments.source_window = source_window;
@@ -12355,7 +12637,7 @@ impl GpuProcessor {
                     pass.set_bind_group(0, bind_group, &[]);
                     pass.dispatch_workgroups(
                         RENDER_REGION_GROUPS_X,
-                        workgroups.div_ceil(RENDER_REGION_GROUPS_X),
+                        terms_workgroups.div_ceil(RENDER_REGION_GROUPS_X),
                         1,
                     );
                 }
@@ -12376,6 +12658,16 @@ impl GpuProcessor {
                     compute_pass.dispatch_workgroups(
                         RENDER_REGION_GROUPS_X,
                         workgroups.div_ceil(RENDER_REGION_GROUPS_X),
+                        1,
+                    );
+                }
+                if let Some((pipeline, bind_group)) = &grain_field {
+                    let mut pass = main_encoder.begin_compute_pass(&Default::default());
+                    pass.set_pipeline(pipeline);
+                    pass.set_bind_group(0, bind_group, &[]);
+                    pass.dispatch_workgroups(
+                        RENDER_REGION_GROUPS_X,
+                        half_workgroups.div_ceil(RENDER_REGION_GROUPS_X),
                         1,
                     );
                 }
@@ -12614,6 +12906,7 @@ pub fn upload_render_source(
             chroma,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare: None,
         }),
         None,
@@ -12670,6 +12963,7 @@ pub fn upload_fringed_render_source(
             chroma: None,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare: None,
         }),
         None,
@@ -12772,6 +13066,7 @@ pub fn upload_warped_render_source(
             chroma: None,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare: None,
         }),
         None,
@@ -12800,20 +13095,31 @@ fn flare_tap(i: u32, map_size: u32, size: u32) -> (u32, u32) {
 
 /// The photo pixels Light flare's threshold pass reads, gathered for a render
 /// from windows: the 2 x 2 pixels of map texel (x, y) at (2x, 2y), with the
-/// texels of the input texture (`rgba_f16_row`).
+/// texels of the input texture (`rgba_f16_row`). `image` is the photo, or
+/// for a region ([`PlacedSource`]) the part of a `photo`-sized photo at
+/// `part`: the taps then lie in the photo, those in `part` read from
+/// `image` (where `part` starts at `part_in_image`), the others zero (no
+/// light: the rest of the photo is not loaded, and repeating the part's
+/// edge would stretch a light at it across the map).
 fn create_flare_samples_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     image: &DynamicImage,
+    photo: (u32, u32),
+    part: Roi,
+    part_in_image: (u32, u32),
 ) -> wgpu::Texture {
     use rayon::prelude::*;
 
-    let (width, height) = image.dimensions();
+    let (width, height) = photo;
     let side = 2 * FLARE_MAP_SIZE;
-    let columns: Vec<u32> = (0..FLARE_MAP_SIZE)
+    let inside = |v: u32, start: u32, size: u32, offset: u32| {
+        (v >= start && v - start < size).then(|| v - start + offset)
+    };
+    let columns: Vec<Option<u32>> = (0..FLARE_MAP_SIZE)
         .flat_map(|i| {
             let (first, second) = flare_tap(i, FLARE_MAP_SIZE, width);
-            [first, second]
+            [first, second].map(|x| inside(x, part.x, part.width, part_in_image.0))
         })
         .collect();
     let mut texels = vec![f16::ZERO; side as usize * side as usize * 4];
@@ -12823,12 +13129,13 @@ fn create_flare_samples_texture(
             .enumerate()
             .for_each(|(i, rows)| {
                 let (first, second) = flare_tap(i as u32, FLARE_MAP_SIZE, height);
-                for (row, y) in rows
-                    .chunks_exact_mut(side as usize * 4)
-                    .zip([first, second])
-                {
-                    for (texel, &x) in row.as_chunks_mut::<4>().0.iter_mut().zip(&columns) {
-                        rgba_f16_row(image, x, y, texel.as_mut_slice());
+                let ys = [first, second].map(|y| inside(y, part.y, part.height, part_in_image.1));
+                for (row, y) in rows.chunks_exact_mut(side as usize * 4).zip(ys) {
+                    let Some(y) = y else { continue };
+                    for (texel, x) in row.as_chunks_mut::<4>().0.iter_mut().zip(&columns) {
+                        if let Some(x) = *x {
+                            rgba_f16_row(image, x, y, texel.as_mut_slice());
+                        }
                     }
                 }
             });
@@ -13055,9 +13362,18 @@ fn render_in_windows(
     let tuning = versioned.1;
     let luma_profile = luma_profile_wanted(&request.adjustments.uniforms.global);
     let settings = color_noise_settings(&mut request.adjustments.uniforms.global);
+    let given = request
+        .adjustments
+        .color_noise_measurement
+        .as_deref()
+        .copied();
     let pyramid = (settings.is_some() || luma_profile)
         .then(|| ChromaPyramid::build_for(image, is_raw, &tuning))
-        .flatten();
+        .flatten()
+        .map(|pyramid| match given {
+            Some(given) => pyramid.with_measurement(&given),
+            None => pyramid,
+        });
     if luma_profile && let Some(pyramid) = &pyramid {
         set_luma_profile(&mut request.adjustments.uniforms.global, pyramid);
     }
@@ -13080,7 +13396,21 @@ fn render_in_windows(
     }
     // Light flare's map is built from samples of the whole photo.
     let flare_samples = (request.adjustments.global.flare_amount > 0.0)
-        .then(|| create_flare_samples_texture(&context.device, &context.queue, image))
+        .then(|| {
+            create_flare_samples_texture(
+                &context.device,
+                &context.queue,
+                image,
+                (width, height),
+                Roi {
+                    x: 0,
+                    y: 0,
+                    width,
+                    height,
+                },
+                (0, 0),
+            )
+        })
         .map(|texture| texture.create_view(&Default::default()));
     let output_len = bounds.width as usize * bounds.height as usize * 4;
     let mut output = match output_precision {
@@ -13368,6 +13698,78 @@ fn lock_processor<'a>(
     }
 
     Ok(processor_lock)
+}
+
+/// A region of a photograph renders as the same pixels of the whole
+/// photograph's render with the multi-scale colour noise reduction when its
+/// origin lies on this grid of the whole render's pixels (the pyramid's
+/// coarsest level samples every 32nd pixel), it is given the whole
+/// photograph's measurement ([`measure_color_noise`]) and its source reaches
+/// [`REGION_NOISE_MARGIN`] px beyond what it shows (notes:
+/// benchmark-results/nrr1-2026-11-20/REPORT.md).
+pub const REGION_NOISE_GRID: u32 = 1 << color_noise::LEVELS;
+
+/// Source pixels a region needs beyond what it shows for the multi-scale
+/// colour noise reduction to reach the whole render's values (≤ 1 code from
+/// 128 px at every amount; NRR1), with a margin.
+pub const REGION_NOISE_MARGIN: u32 = 160;
+
+/// Whether a render with `global` takes a noise measurement of its source:
+/// the multi-scale colour noise reduction, or the luminance noise
+/// reduction's noise profile.
+pub fn measures_noise(global: &crate::image_processing::GlobalAdjustments) -> bool {
+    let mut copy = *global;
+    color_noise_settings(&mut copy).is_some() || luma_profile_wanted(global)
+}
+
+/// The colour noise measurement of `image` as a render of it with
+/// `adjustments` takes it (its `colorNoiseVersion`: on the GPU from the
+/// uploaded texels for version 11, else on the CPU), for renders of regions
+/// of `image` (`PreparedAdjustments::color_noise_measurement`). `None` when
+/// the image is too small to filter or the GPU has no pyramid passes.
+pub fn measure_color_noise(
+    context: &GpuContext,
+    processor_slot: &GpuProcessorSlot,
+    image: &DynamicImage,
+    adjustments: &crate::image_processing::PreparedAdjustments,
+    caller_id: &str,
+) -> Result<Option<color_noise::NoiseMeasurement>, String> {
+    let global = &adjustments.uniforms.global;
+    let is_raw = global.is_raw_image != 0;
+    let (_, tuning) = color_noise_tuning(global);
+    if !tuning.gpu_pyramid {
+        return Ok(ChromaPyramid::build_for(image, is_raw, &tuning).map(|p| p.measurement()));
+    }
+    let (width, height) = image.dimensions();
+    let max_dim = context.limits.max_texture_dimension_2d;
+    if width > max_dim || height > max_dim {
+        return Err(texture_limit_error(width, height, max_dim));
+    }
+    let measure = || {
+        let processor_lock = lock_processor(
+            context,
+            processor_slot,
+            max_dim,
+            max_dim,
+            foreground_turn(caller_id, false),
+        )?;
+        let processor = &processor_lock.as_ref().unwrap().processor;
+        let Some(pipelines) = processor.chroma_pipelines.as_ref() else {
+            return Ok(None);
+        };
+        let texture = create_input_texture(
+            &context.device,
+            &context.queue,
+            image,
+            INPUT_UPLOAD_BAND_ROWS,
+        )?;
+        let view = texture.create_view(&Default::default());
+        Ok(
+            GpuPyramid::build(context, pipelines, &view, width, height, is_raw)?
+                .map(|pyramid| pyramid.measured),
+        )
+    };
+    processor_slot.scoped(|| gpu_scoped(&context.device, measure).and_then(|measured| measured))
 }
 
 pub enum RenderSource<'a> {
@@ -13688,6 +14090,162 @@ fn scoped_result<T>(value: T, error: Option<wgpu::Error>, device_lost: bool) -> 
     }
 }
 
+/// A region of a photograph (`PreparedAdjustments::photo_placement`) as a
+/// window of it: the region with its edges repeated outward by the reach of
+/// the render's reads ([`render_window_margin`] for the whole photograph,
+/// up to the photograph's edges), so that the window render reads only
+/// inside it and its region's pixels take the whole photograph's size and
+/// position. The window starts on the colour noise grid of the photograph
+/// ([`REGION_NOISE_GRID`]). Its masks are the
+/// region's, extended alike. A window beyond the GPU's texture limit is not
+/// made: the region then renders as an image of its own, as before.
+struct PlacedSource {
+    image: DynamicImage,
+    transform_hash: u64,
+    photo_width: u32,
+    photo_height: u32,
+    /// The window in the photograph.
+    window: Roi,
+    /// The region in the photograph.
+    region: Roi,
+    masks: Vec<Arc<MaskBitmap>>,
+}
+
+impl PlacedSource {
+    fn new(
+        image: &DynamicImage,
+        transform_hash: u64,
+        placement: crate::image_processing::PhotoPlacement,
+        request: &RenderRequest,
+        max_dim: u32,
+    ) -> Result<Option<Self>, String> {
+        let (width, height) = image.dimensions();
+        let (photo_width, photo_height) = (placement.photo_width, placement.photo_height);
+        if width == 0
+            || height == 0
+            || placement
+                .x
+                .checked_add(width)
+                .is_none_or(|r| r > photo_width)
+            || placement
+                .y
+                .checked_add(height)
+                .is_none_or(|b| b > photo_height)
+        {
+            return Err(format!(
+                "A {width}x{height} region at {},{} lies outside its {photo_width}x{photo_height} photograph.",
+                placement.x, placement.y
+            ));
+        }
+        let margin = render_window_margin(&request.adjustments.uniforms, photo_width, photo_height)
+            .div_ceil(REGION_NOISE_GRID)
+            * REGION_NOISE_GRID;
+        let x = placement.x.saturating_sub(margin) / REGION_NOISE_GRID * REGION_NOISE_GRID;
+        let y = placement.y.saturating_sub(margin) / REGION_NOISE_GRID * REGION_NOISE_GRID;
+        let (left, top) = (placement.x - x, placement.y - y);
+        let right = margin.min(photo_width - placement.x - width);
+        let bottom = margin.min(photo_height - placement.y - height);
+        if width + left + right > max_dim || height + top + bottom > max_dim {
+            return Ok(None);
+        }
+        let masks = request
+            .mask_bitmaps
+            .iter()
+            .map(|mask| {
+                if mask.dimensions() != (width, height) {
+                    return Err(format!(
+                        "Mask dimensions ({}x{}) do not match render dimensions ({width}x{height}).",
+                        mask.width(),
+                        mask.height()
+                    ));
+                }
+                Ok(Arc::new(mask.extend_edges(left, top, right, bottom)))
+            })
+            .collect::<Result<_, String>>()?;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::hash::DefaultHasher::new();
+        (transform_hash, placement, left, top, right, bottom).hash(&mut hasher);
+        Ok(Some(Self {
+            image: extend_image_edges(image, left, top, right, bottom),
+            transform_hash: hasher.finish(),
+            photo_width,
+            photo_height,
+            window: Roi {
+                x,
+                y,
+                width: width + left + right,
+                height: height + top + bottom,
+            },
+            region: Roi {
+                x: placement.x,
+                y: placement.y,
+                width,
+                height,
+            },
+            masks,
+        }))
+    }
+
+    /// `roi` of the region (all of it when `None`) in the photograph.
+    fn roi(&self, roi: Option<Roi>) -> Roi {
+        match roi {
+            Some(roi) => Roi {
+                x: self.region.x + roi.x,
+                y: self.region.y + roi.y,
+                ..roi
+            },
+            None => self.region,
+        }
+    }
+}
+
+/// `image` grown by `left`, `top`, `right` and `bottom` pixels, each new
+/// pixel the nearest edge pixel's.
+fn extend_image_edges(
+    image: &DynamicImage,
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
+) -> DynamicImage {
+    fn extend<P: image::Pixel<Subpixel: Send + Sync>>(
+        buffer: &ImageBuffer<P, Vec<P::Subpixel>>,
+        (left, top, right, bottom): (u32, u32, u32, u32),
+    ) -> ImageBuffer<P, Vec<P::Subpixel>> {
+        let (w, h) = buffer.dimensions();
+        let channels = P::CHANNEL_COUNT as usize;
+        let (nw, nh) = (w + left + right, h + top + bottom);
+        let mut out = vec![buffer.as_raw()[0]; nw as usize * nh as usize * channels];
+        let raw = buffer.as_raw();
+        out.par_chunks_mut(nw as usize * channels)
+            .enumerate()
+            .for_each(|(row, out)| {
+                let sy = (row as u32).saturating_sub(top).min(h - 1) as usize;
+                let source = &raw[sy * w as usize * channels..(sy + 1) * w as usize * channels];
+                let first = &source[..channels];
+                let last = &source[source.len() - channels..];
+                let (head, rest) = out.split_at_mut(left as usize * channels);
+                let (body, tail) = rest.split_at_mut(w as usize * channels);
+                head.chunks_exact_mut(channels)
+                    .for_each(|px| px.copy_from_slice(first));
+                body.copy_from_slice(source);
+                tail.chunks_exact_mut(channels)
+                    .for_each(|px| px.copy_from_slice(last));
+            });
+        ImageBuffer::from_raw(nw, nh, out).expect("an extended buffer")
+    }
+    let sides = (left, top, right, bottom);
+    match image {
+        DynamicImage::ImageRgb32F(b) => DynamicImage::ImageRgb32F(extend(b, sides)),
+        DynamicImage::ImageRgba32F(b) => DynamicImage::ImageRgba32F(extend(b, sides)),
+        DynamicImage::ImageRgb16(b) => DynamicImage::ImageRgb16(extend(b, sides)),
+        DynamicImage::ImageRgba16(b) => DynamicImage::ImageRgba16(extend(b, sides)),
+        DynamicImage::ImageRgb8(b) => DynamicImage::ImageRgb8(extend(b, sides)),
+        DynamicImage::ImageRgba8(b) => DynamicImage::ImageRgba8(extend(b, sides)),
+        other => DynamicImage::ImageRgba32F(extend(&other.to_rgba32f(), sides)),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_dynamic_image(
     context: &GpuContext,
@@ -13704,6 +14262,39 @@ fn render_dynamic_image(
     stream: Option<RowStream<'_>>,
 ) -> Result<DynamicImage, String> {
     let streamed = stream.is_some();
+    let mut request = request;
+    // A region of a photograph renders as a window of the whole one.
+    let placed = match (request.adjustments.photo_placement.take(), &source) {
+        (
+            Some(placement),
+            RenderSource::Image {
+                image,
+                transform_hash,
+            },
+        ) if !output_to_display => PlacedSource::new(
+            image,
+            *transform_hash,
+            placement,
+            &request,
+            context.limits.max_texture_dimension_2d,
+        )?,
+        _ => None,
+    };
+    let (source, request) = match &placed {
+        Some(placed) => (
+            RenderSource::Image {
+                image: &placed.image,
+                transform_hash: placed.transform_hash,
+            },
+            RenderRequest {
+                roi: Some(placed.roi(request.roi)),
+                mask_bitmaps: &placed.masks,
+                adjustments: request.adjustments,
+                lut: request.lut,
+            },
+        ),
+        None => (source, request),
+    };
     let mut request = request;
     let tool_view = request.adjustments.global.show_clipping != 0;
     if output_to_display {
@@ -13861,6 +14452,7 @@ fn render_dynamic_image(
             chroma: None,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare,
         });
     }
@@ -13884,6 +14476,51 @@ fn render_dynamic_image(
     } else {
         off_global_pool(|| gpu_scoped(&context.device, prepare))??
     };
+    // Level 1 of the window's pyramid, placed in the photograph's.
+    if let Some(placed) = &placed
+        && chroma.is_some()
+    {
+        let level_window = &mut request.adjustments.uniforms.global.color_noise_window;
+        let (x, y) = (placed.window.x / 2, placed.window.y / 2);
+        *level_window = [
+            x,
+            y,
+            x + level_window[2] - level_window[0],
+            y + level_window[3] - level_window[1],
+        ];
+    }
+    // Light flare's map reads the photograph: gathered from the region,
+    // the rest without light.
+    let placed_flare = placed
+        .as_ref()
+        .filter(|_| request.adjustments.global.flare_amount > 0.0)
+        .map(|placed| {
+            create_flare_samples_texture(
+                device,
+                queue,
+                &placed.image,
+                (placed.photo_width, placed.photo_height),
+                placed.region,
+                (
+                    placed.region.x - placed.window.x,
+                    placed.region.y - placed.window.y,
+                ),
+            )
+            .create_view(&Default::default())
+        });
+    let (photo_width, photo_height, window) = match &placed {
+        Some(placed) => (placed.photo_width, placed.photo_height, placed.window),
+        None => (
+            cache.width,
+            cache.height,
+            Roi {
+                x: 0,
+                y: 0,
+                width: cache.width,
+                height: cache.height,
+            },
+        ),
+    };
 
     let skip_readback = output_to_display;
     let display_targets = output_to_display.then(|| processor.display_targets(width, height));
@@ -13896,20 +14533,15 @@ fn render_dynamic_image(
         && output_precision == RenderOutputPrecision::EightBit;
     let (mut rendered, out_w, out_h, out_x, out_y) = processor.render_window(
         &cache.texture_view,
-        cache.width,
-        cache.height,
-        Roi {
-            x: 0,
-            y: 0,
-            width: cache.width,
-            height: cache.height,
-        },
+        photo_width,
+        photo_height,
+        window,
         request,
         output_to_display,
         output_precision,
         readback_shader,
         chroma.as_ref().map(|(packed, energy)| (packed, energy)),
-        None,
+        placed_flare.as_ref(),
         uploaded_masks,
         &[],
         &mut [stream],
@@ -14311,6 +14943,43 @@ mod display_geometry_tests {
             fit_placement([10.0, 20.0, 400.0, 200.0], 300.0, 300.0),
             [110.0, 20.0, 200.0, 200.0]
         );
+    }
+}
+
+#[cfg(test)]
+mod film_grain_tile_layout_tests {
+    use rawtonic_engine::film_grain::{LEVELS, grain_tile, mip_sides};
+
+    #[test]
+    fn every_level_pair_holds_the_engines_halves() {
+        // The shader's `film_mip_offset` and `film_texel` index into the
+        // planes; each word must hold the halves the engine's tile has for
+        // levels k0 and k0 + 1 (zero for the empty level k0 = -1).
+        let engine = grain_tile();
+        let pairs = super::level_pairs(&engine);
+        assert_eq!(pairs.len(), engine.len() * 2);
+        let half = |word: u32, level: usize| (word >> (16 * (level % 2))) & 0xffff;
+        let mut texels_before = 0;
+        for (j, side) in mip_sides().into_iter().enumerate() {
+            // The shader's closed form of the texels before mip j.
+            assert_eq!(texels_before, 0x55555 - (0x55555 >> (2 * j)));
+            let planes = texels_before * LEVELS;
+            for t in 0..side * side {
+                let texel = &engine[(texels_before + t) * (LEVELS / 2)..][..LEVELS / 2];
+                for k0 in -1..LEVELS as i32 - 1 {
+                    let k1 = (k0 + 1) as usize;
+                    let lower = if k0 < 0 {
+                        0
+                    } else {
+                        half(texel[k0 as usize / 2], k0 as usize)
+                    };
+                    let word = pairs[planes + k1 * side * side + t];
+                    assert_eq!(word, lower | (half(texel[k1 / 2], k1) << 16));
+                }
+            }
+            texels_before += side * side;
+        }
+        assert_eq!(texels_before * LEVELS, pairs.len());
     }
 }
 

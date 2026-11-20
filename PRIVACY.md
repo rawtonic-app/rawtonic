@@ -73,11 +73,28 @@ Rawtonic otherwise goes online only when you ask it to:
   box's *Content* mode) downloads its model (1.5 GB, or 1.2 GB when automatic
   keywords already installed the image model) only when you click *Download
   search model*; it then reads what your library's photos show from their
-  thumbnails on your computer and keeps that in the library's catalog. No photo is uploaded; the models run on your computer, on its
+  thumbnails on your computer and keeps that in the library's catalog.
+  Ticking Super Resolution in the Export dialog (or opening the dialog with a
+  preset that has it) downloads its model if it is not installed yet, on
+  Windows and Linux with GPU AI on also its 1.2 MB graphics-card version.
+  No photo is uploaded; the models run on your computer, on its
   graphics card when it can (Windows, Linux: the WebGPU plugin ships with the
-  app; using the GPU downloads nothing).
+  app; apart from Super Resolution's graphics-card version, using the GPU
+  downloads nothing).
 - **ONNX Runtime (the AI runtime).** Microsoft's ONNX Runtime, which runs
-  the models, has usage reporting to Microsoft built in. Rawtonic sets the
+  the models, has usage reporting to Microsoft built into Microsoft's release
+  libraries. On Apple silicon Macs, Linux (x86_64 and arm64) and Windows x64,
+  Rawtonic ships an ONNX Runtime 1.30.0 that it builds itself from the same
+  source with that reporting left out: it contains no uploader, and on Windows no
+  event provider in Windows' telemetry group. On Intel Macs and Windows on
+  Arm, Rawtonic still ships Microsoft's library. The GPU plugins (WebGPU on
+  Windows and Linux, the optional CUDA plugin) are Microsoft's files,
+  unchanged. On Linux x86_64, Microsoft's WebGPU plugin running a model in
+  Rawtonic's own runtime made no address lookup or connection and wrote no
+  reporting files, even with the switches below hidden; the CUDA plugin
+  was not measured with it. On Windows the WebGPU plugin's event provider
+  is not in Windows' telemetry group (checked in the file, not measured).
+  As a second layer, Rawtonic sets the
   runtime's own switches before opening it: `ORT_DISABLE_TELEMETRY` on macOS
   and Linux, and `ORT_RUNNING_UNIT_TESTS` on Windows. On macOS and Linux,
   the switch prevents the uploader from starting. In CPU tests on both

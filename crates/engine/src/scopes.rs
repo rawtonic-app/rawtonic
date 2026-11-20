@@ -11,7 +11,6 @@
 //! Cr = (R′ − Y′) / 2(1 − Kr)).
 
 use crate::output_color_space::OutputColorSpace;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use image::DynamicImage;
 use rayon::prelude::*;
 use serde::Serialize;
@@ -230,8 +229,10 @@ pub fn histogram_counts(image: &DynamicImage, space: ScopeSpace) -> HistogramCou
         .reduce(HistogramCounts::zero, HistogramCounts::add)
 }
 
-/// A histogram's bins (smoothed, normalised counts per channel) and whether
-/// each side of the tone range clips somewhere in the image.
+/// A histogram's bins (smoothed counts per channel, 1 = the channel's
+/// 99th-percentile bin, not capped), the
+/// factors that draw them on one scale, and whether each side of the tone
+/// range clips somewhere in the image.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct HistogramData {
@@ -239,6 +240,10 @@ pub struct HistogramData {
     green: Vec<f32>,
     blue: Vec<f32>,
     luma: Vec<f32>,
+    /// Red, green, blue and luma: multiply a channel's bins by its factor
+    /// (and cap at 1) to draw all four on one scale; cap the bins at 1 for
+    /// a channel on its own scale.
+    display_scale: [f32; 4],
     clipped_shadows: bool,
     clipped_highlights: bool,
     /// Which of red, green and blue clip at each side (the renderer's
@@ -258,17 +263,49 @@ pub fn calculate_histogram_from_image(
     clipped: ClippedSides,
 ) -> Result<HistogramData, String> {
     let counts = histogram_counts(image, space);
-    let display = |bins: [u32; 256]| {
+    let smoothed = |bins: [u32; 256]| {
         let mut bins: Vec<f32> = bins.into_iter().map(|c| c as f32).collect();
         smooth_inner(&mut bins, 2.0);
-        normalize_histogram_range(&mut bins, 0.99);
         bins
     };
+    let mut channels = [
+        smoothed(counts.red),
+        smoothed(counts.green),
+        smoothed(counts.blue),
+        smoothed(counts.luma),
+    ];
+    // Each channel's bins come on its own scale (1 = its 99th-percentile
+    // bin), uncapped: Levels' Auto caps them at 1 itself, and the drawing
+    // multiplies them by `display_scale` to put all four on one scale, where
+    // a channel with few pixels in a tone stays low beside one with many
+    // (every channel counts each pixel once). The inner codes set the shared
+    // scale, so a clipped end (a channel blown out or black in most pixels)
+    // reaches the top instead of flattening the rest.
+    let own = channels.each_ref().map(|bins| histogram_range(bins, 0.99));
+    let shared = channels
+        .iter()
+        .map(|bins| histogram_range(&bins[1..255], 0.99))
+        .fold(0.0f32, f32::max);
+    let display_scale = own.map(|own| {
+        if shared > 1e-6 && own > 1e-6 {
+            own / shared
+        } else {
+            1.0
+        }
+    });
+    for (bins, own) in channels.iter_mut().zip(own) {
+        let scale = if own > 1e-6 { 1.0 / own } else { 0.0 };
+        for value in bins.iter_mut() {
+            *value *= scale;
+        }
+    }
+    let [red, green, blue, luma] = channels;
     Ok(HistogramData {
-        red: display(counts.red),
-        green: display(counts.green),
-        blue: display(counts.blue),
-        luma: display(counts.luma),
+        red,
+        green,
+        blue,
+        luma,
+        display_scale,
         clipped_shadows: clipped.shadows,
         clipped_highlights: clipped.highlights,
         shadow_channels: clipped.shadow_channels,
@@ -299,26 +336,21 @@ fn smooth_inner(histogram: &mut [f32], sigma: f32) {
     }
 }
 
-fn normalize_histogram_range(histogram: &mut [f32], percentile_clip: f32) {
+/// The `percentile_clip` count of `histogram` (a tall bin or two saturate
+/// at the top), or its tallest when that one is empty (a few codes filled),
+/// so a narrow peak still reaches the top.
+fn histogram_range(histogram: &[f32], percentile_clip: f32) -> f32 {
     if histogram.is_empty() {
-        return;
+        return 0.0;
     }
     let mut sorted_data = histogram.to_owned();
     sorted_data.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let clip_index = ((sorted_data.len() - 1) as f32 * percentile_clip).round() as usize;
-    // A tall bin or two (a clipped end) saturate at the top. When the
-    // percentile is empty (only an end or a few codes filled, as when a
-    // channel is blown out) the tallest bin sets the scale instead, so a
-    // spike never disappears.
     let percentile = sorted_data[clip_index.min(sorted_data.len() - 1)];
-    let max_val = if percentile > 1e-6 {
+    if percentile > 1e-6 {
         percentile
     } else {
         sorted_data[sorted_data.len() - 1]
-    };
-    let scale = if max_val > 1e-6 { 1.0 / max_val } else { 0.0 };
-    for value in histogram.iter_mut() {
-        *value = (*value * scale).min(1.0);
     }
 }
 
@@ -429,11 +461,87 @@ pub fn scope_counts(
     space: ScopeSpace,
     active_channel: Option<&str>,
 ) -> Result<ScopeCounts, String> {
+    scope_counts_of_rows(image, space, active_channel, 1)
+}
+
+/// What [`scope_counts_of_rows`] needs to count one row.
+struct Frame<'a> {
+    wanted: Wanted,
+    tables: &'a Tables,
+    columns: &'a [usize],
+    parade: &'a [[usize; 3]],
+    channels: usize,
+}
+
+impl Frame<'_> {
+    /// Adds one row's pixels to `acc`: each value once (`WEIGHTED` off), or
+    /// as much as `weight` says for its code. A row that is not `sampled`
+    /// adds no vectorscope point and skips pixels without a clipped end.
+    #[inline(always)]
+    fn count_row<const WEIGHTED: bool>(
+        &self,
+        acc: &mut ScopeCounts,
+        row: &[u8],
+        weight: &[u32; 256],
+        sampled: bool,
+    ) {
+        let wanted = self.wanted;
+        let add = |v: usize| if WEIGHTED { weight[v] } else { 1 };
+        // An inner code's weight: a sampled row's vectorscope points.
+        let vector_weight = if WEIGHTED { weight[128] } else { 1 };
+        for (x, pixel) in row.chunks_exact(self.channels).enumerate() {
+            let (r, g, b) = (pixel[0] as usize, pixel[1] as usize, pixel[2] as usize);
+            // A row not sampled only adds the ends of the range. A luma of
+            // 0 or 255 needs a channel there too (luma lies between the
+            // smallest and largest channel).
+            if WEIGHTED && !sampled && weight[r] | weight[g] | weight[b] == 0 {
+                continue;
+            }
+            // Counted column by column (`col * 256 + code`): neighbouring
+            // pixels share a column, so they stay in its 1 KB; `transposed`
+            // turns it into rows.
+            let col = self.columns[x] * SCOPE_SIZE;
+            if wanted.rgb {
+                acc.red[col + r] += add(r);
+                acc.green[col + g] += add(g);
+                acc.blue[col + b] += add(b);
+            }
+            if wanted.luma {
+                let y = self.tables.luma(r as u8, g as u8, b as u8);
+                acc.luma[col + y] += add(y);
+            }
+            if wanted.parade {
+                let [pr, pg, pb] = self.parade[x];
+                acc.parade[pr * SCOPE_SIZE + r] += add(r);
+                acc.parade[pg * SCOPE_SIZE + g] += add(g);
+                acc.parade[pb * SCOPE_SIZE + b] += add(b);
+            }
+            if wanted.vectorscope && sampled {
+                acc.vectorscope[self.tables.vector_bin(r as u8, g as u8, b as u8)] += vector_weight;
+            }
+        }
+    }
+}
+
+/// [`scope_counts`] from every `row_step`-th row (0, `row_step`, …), each
+/// of its values counted `row_step` times, an estimate of the whole frame's
+/// counts. Every column stays in, and the ends of the range (codes 0 and
+/// 255 of the waveforms and the parade) are counted exactly, from every
+/// row: a clipped highlight one row high still shows. `row_step` is at
+/// least 1 and at most the frame's height.
+pub fn scope_counts_of_rows(
+    image: &DynamicImage,
+    space: ScopeSpace,
+    active_channel: Option<&str>,
+    row_step: usize,
+) -> Result<ScopeCounts, String> {
     let wanted = Wanted::of(active_channel);
     let (width, height) = (image.width() as usize, image.height() as usize);
     if width == 0 || height == 0 {
         return Err("Image has zero dimensions.".to_string());
     }
+    let row_step = row_step.clamp(1, height);
+    let step = row_step as u32;
     let (raw, channels) = rgb8(image);
     let tables = Tables::new(space);
     let columns: Vec<usize> = (0..width).map(|x| waveform_column(x, width)).collect();
@@ -443,36 +551,35 @@ pub fn scope_counts(
     let stride = width * channels;
     // Two bands of rows per thread: each job zeroes and merges its own
     // tables (up to 1.5 MB), so more jobs cost more than they balance.
-    let rows_per_job = height.div_ceil(2 * rayon::current_num_threads()).max(1);
+    // A multiple of `row_step`, so each band starts on a sampled row.
+    let rows_per_job = height
+        .div_ceil(2 * rayon::current_num_threads())
+        .max(1)
+        .next_multiple_of(row_step);
+    // What a value adds: on a sampled row an inner code stands for
+    // `row_step` rows; the ends, read from every row, for one.
+    let sampled_weight: [u32; 256] =
+        std::array::from_fn(|v| if v == 0 || v == 255 { 1 } else { step });
+    let skipped_weight: [u32; 256] = std::array::from_fn(|v| u32::from(v == 0 || v == 255));
+    let frame = Frame {
+        wanted,
+        tables: &tables,
+        columns: &columns,
+        parade: &parade,
+        channels,
+    };
     Ok(raw
         .par_chunks(stride * rows_per_job)
         .fold(
             || ScopeCounts::zero(wanted),
             |mut acc, rows| {
-                for row in rows.chunks_exact(stride) {
-                    for (x, pixel) in row.chunks_exact(channels).enumerate() {
-                        let (r, g, b) = (pixel[0], pixel[1], pixel[2]);
-                        // Counted column by column (`col * 256 + code`):
-                        // neighbouring pixels share a column, so they stay
-                        // in its 1 KB; `transposed` turns it into rows.
-                        let col = columns[x] * SCOPE_SIZE;
-                        if wanted.rgb {
-                            acc.red[col + r as usize] += 1;
-                            acc.green[col + g as usize] += 1;
-                            acc.blue[col + b as usize] += 1;
-                        }
-                        if wanted.luma {
-                            acc.luma[col + tables.luma(r, g, b)] += 1;
-                        }
-                        if wanted.parade {
-                            let [pr, pg, pb] = parade[x];
-                            acc.parade[pr * SCOPE_SIZE + r as usize] += 1;
-                            acc.parade[pg * SCOPE_SIZE + g as usize] += 1;
-                            acc.parade[pb * SCOPE_SIZE + b as usize] += 1;
-                        }
-                        if wanted.vectorscope {
-                            acc.vectorscope[tables.vector_bin(r, g, b)] += 1;
-                        }
+                for (i, row) in rows.chunks_exact(stride).enumerate() {
+                    if row_step == 1 {
+                        frame.count_row::<false>(&mut acc, row, &sampled_weight, true);
+                    } else if i % row_step == 0 {
+                        frame.count_row::<true>(&mut acc, row, &sampled_weight, true);
+                    } else {
+                        frame.count_row::<true>(&mut acc, row, &skipped_weight, false);
                     }
                 }
                 acc
@@ -546,7 +653,9 @@ pub fn skin_line_degrees(space: OutputColorSpace) -> f64 {
 /// One scope image (`SCOPE_SIZE`² RGBA) as a PNG. The webview decodes it
 /// off its main thread (an `<img>`): raw RGBA was ~350 KB of base64 per
 /// update for the main thread to parse and unpack, which delayed the live
-/// preview frames during drags (notes: parity-gaps/G23-analysis.md, WFT).
+/// preview frames during drags (notes: parity-gaps/G23-analysis.md, WFT);
+/// the PNG as base64 inside the event still cost the main thread ~0.5 ms
+/// per RGB update (SCP5), so it is loaded by URL.
 /// Fast compression: the update rate (~10/s while dragging) matters more
 /// than the bytes; the images are mostly empty or smooth.
 fn encode_scope_png(rgba: &[u8]) -> Result<Vec<u8>, String> {
@@ -561,15 +670,16 @@ fn encode_scope_png(rgba: &[u8]) -> Result<Vec<u8>, String> {
     Ok(png)
 }
 
-/// The scope images are base64 PNGs (`encode_scope_png`) of `width` x
-/// `height` RGBA, empty for a mode that was not computed.
-#[derive(serde::Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
+/// The scope images are PNGs (`encode_scope_png`) of `width` x `height`
+/// RGBA, empty for a mode that was not computed. The desktop app serves
+/// them to its webview by URL (`scope_images` in src-tauri), never inside
+/// an event.
+#[derive(Clone)]
 pub struct WaveformData {
-    pub rgb: String,
-    pub luma: String,
-    pub parade: String,
-    pub vectorscope: String,
+    pub rgb: Vec<u8>,
+    pub luma: Vec<u8>,
+    pub parade: Vec<u8>,
+    pub vectorscope: Vec<u8>,
     pub width: u32,
     pub height: u32,
     /// Where the vectorscope's 75 % and 100 % targets are (scope pixels).
@@ -597,14 +707,28 @@ pub fn calculate_waveform_from_image(
     space: OutputColorSpace,
     active_channel: Option<&str>,
 ) -> Result<WaveformData, String> {
+    calculate_waveform_of_rows(image, space, active_channel, 1)
+}
+
+/// [`calculate_waveform_from_image`] from every `row_step`-th row
+/// ([`scope_counts_of_rows`]): a drag frame's scopes at a fraction of the
+/// work: an approximation of the whole frame's trace density (a trace can
+/// show denser or fainter); the clipped ends of the waveforms and the
+/// parade stay exact.
+pub fn calculate_waveform_of_rows(
+    image: &DynamicImage,
+    space: OutputColorSpace,
+    active_channel: Option<&str>,
+    row_step: usize,
+) -> Result<WaveformData, String> {
     let weights = ScopeSpace::of(space);
-    let counts = scope_counts(image, weights, active_channel)?;
+    let counts = scope_counts_of_rows(image, weights, active_channel, row_step)?;
     let pixels = SCOPE_SIZE * SCOPE_SIZE;
     let encode = |rgba: Vec<u8>| {
         if rgba.is_empty() {
-            Ok(String::new())
+            Ok(Vec::new())
         } else {
-            encode_scope_png(&rgba).map(|png| BASE64.encode(png))
+            encode_scope_png(&rgba)
         }
     };
 
@@ -839,6 +963,57 @@ mod tests {
     }
 
     #[test]
+    fn channels_share_one_display_scale() {
+        // Every red pixel at one code; green spread evenly over all codes,
+        // so each green code holds about 1/256 of what red's code holds.
+        // Blue black throughout: a clipped end does not set the scale.
+        let frame = RgbImage::from_fn(512, 300, |x, _| Rgb([100, (x / 2) as u8, 0]));
+        let data = serde_json::to_value(
+            calculate_histogram_from_image(
+                &DynamicImage::ImageRgb8(frame),
+                ScopeSpace::of(OutputColorSpace::Srgb),
+                ClippedSides::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let bins = |c: &str| -> Vec<f64> { serde_json::from_value(data[c].clone()).unwrap() };
+        let scale: Vec<f64> = serde_json::from_value(data["displayScale"].clone()).unwrap();
+        let shown = |c: &str, i: usize, k: usize| (bins(c)[i] * scale[k]).min(1.0);
+        // The bins themselves stay per channel (Levels' Auto reads them).
+        assert_eq!(bins("green")[128], 1.0);
+        assert_eq!(shown("red", 100, 0), 1.0);
+        // Scaled on its own, the even green would fill the plot (1.0).
+        let green = shown("green", 128, 1);
+        assert!(green > 0.0 && green < 0.1, "{green}");
+        assert_eq!(shown("blue", 0, 2), 1.0);
+    }
+
+    #[test]
+    fn a_black_spike_reaches_the_top_on_the_shared_scale() {
+        // Red concentrated at one code; green black in 80 % of the pixels
+        // and spread over the inner codes in the rest.
+        let frame = RgbImage::from_fn(500, 300, |x, _| {
+            Rgb([100, if x < 400 { 0 } else { 1 + (x - 400) as u8 * 2 }, 50])
+        });
+        let data = serde_json::to_value(
+            calculate_histogram_from_image(
+                &DynamicImage::ImageRgb8(frame),
+                ScopeSpace::of(OutputColorSpace::Srgb),
+                ClippedSides::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let green: Vec<f64> = serde_json::from_value(data["green"].clone()).unwrap();
+        let scale: Vec<f64> = serde_json::from_value(data["displayScale"].clone()).unwrap();
+        // The bins are not capped, so the spike keeps its count ...
+        assert!(green[0] > 1.0, "{}", green[0]);
+        // ... and draws at the top on the shared scale.
+        assert_eq!((green[0] * scale[1]).min(1.0), 1.0);
+    }
+
+    #[test]
     fn waveform_and_parade_put_each_pixel_at_its_column_and_value() {
         for width in [256u32, 257, 600] {
             let frame = test_frame(width);
@@ -1007,8 +1182,7 @@ mod tests {
                 ("parade", &data.parade),
                 ("vectorscope", &data.vectorscope),
             ] {
-                let png = BASE64.decode(encoded).unwrap();
-                let decoded = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+                let decoded = image::load_from_memory_with_format(encoded, image::ImageFormat::Png)
                     .unwrap_or_else(|e| panic!("{mode} {space:?}: {e}"));
                 assert_eq!(decoded.color(), image::ColorType::Rgba8, "{mode}");
                 let rgba = decoded.to_rgba8();
@@ -1121,5 +1295,129 @@ mod tests {
         let a = scope_counts(&DynamicImage::ImageRgba8(rgba), k, None).unwrap();
         let b = scope_counts(&DynamicImage::ImageRgb8(frame), k, None).unwrap();
         assert_eq!(a, b);
+    }
+
+    /// A drag's scopes count the inner values of rows 0, 2, 4, … twice,
+    /// whatever the bands the threads split the frame into.
+    #[test]
+    fn every_second_row_counts_the_even_rows_twice() {
+        let k = ScopeSpace::of(OutputColorSpace::Srgb);
+        for (width, height) in [(257u32, 37u32), (600, 10), (64, 2), (300, 101)] {
+            // Codes 1–254 only: the ends are counted from every row.
+            let inner = |v: u32| 1 + (v % 254) as u8;
+            let frame = RgbImage::from_fn(width, height, |x, y| {
+                Rgb([
+                    inner(x * 7 + y * 13),
+                    inner(x * 3 + y * 29),
+                    inner(x + y * 101),
+                ])
+            });
+            let even =
+                RgbImage::from_fn(width, height.div_ceil(2), |x, y| *frame.get_pixel(x, 2 * y));
+            let (frame, even) = (
+                DynamicImage::ImageRgb8(frame),
+                DynamicImage::ImageRgb8(even),
+            );
+            for threads in [1, 3, 8] {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(threads)
+                    .build()
+                    .unwrap();
+                pool.install(|| {
+                    let mut twice = scope_counts(&even, k, None).unwrap();
+                    for bins in [
+                        &mut twice.red,
+                        &mut twice.green,
+                        &mut twice.blue,
+                        &mut twice.luma,
+                        &mut twice.parade,
+                        &mut twice.vectorscope,
+                    ] {
+                        bins.iter_mut().for_each(|c| *c *= 2);
+                    }
+                    assert_eq!(
+                        scope_counts_of_rows(&frame, k, None, 2).unwrap(),
+                        twice,
+                        "{width}x{height}, {threads} threads"
+                    );
+                    assert_eq!(
+                        scope_counts_of_rows(&frame, k, None, 1).unwrap(),
+                        scope_counts(&frame, k, None).unwrap()
+                    );
+                });
+            }
+        }
+        // A step beyond the frame's height counts its first row.
+        let tiny = DynamicImage::ImageRgba8(RgbaImage::from_pixel(1, 1, image::Rgba([9, 9, 9, 0])));
+        assert_eq!(
+            scope_counts_of_rows(&tiny, k, None, usize::MAX).unwrap(),
+            scope_counts(&tiny, k, None).unwrap()
+        );
+    }
+
+    /// A clipped highlight or a black one row high, on a row the drag
+    /// skips, still shows at the ends of the waveforms and the parade, with
+    /// the whole frame's counts there.
+    #[test]
+    fn a_clipped_detail_on_a_skipped_row_still_shows() {
+        let k = ScopeSpace::of(OutputColorSpace::Srgb);
+        let mut frame = RgbImage::from_fn(600, 41, |x, y| {
+            Rgb([(x % 200 + 20) as u8, 120, (y * 3 + 40) as u8])
+        });
+        // Rows 3 and 7 are not sampled with a step of 2.
+        for x in 100..104 {
+            frame.put_pixel(x, 3, Rgb([255, 255, 255]));
+            frame.put_pixel(x + 300, 7, Rgb([0, 0, 0]));
+        }
+        frame.put_pixel(450, 9, Rgb([255, 40, 0]));
+        let frame = DynamicImage::ImageRgb8(frame);
+        let all = scope_counts(&frame, k, None).unwrap();
+        let sampled = scope_counts_of_rows(&frame, k, None, 2).unwrap();
+        // Rows 0 (code 255) and 255 (code 0) of each waveform image.
+        let ends = |bins: &[u32]| -> Vec<u32> {
+            bins[..SCOPE_SIZE]
+                .iter()
+                .chain(&bins[255 * SCOPE_SIZE..])
+                .copied()
+                .collect()
+        };
+        for (a, b) in [
+            (&all.red, &sampled.red),
+            (&all.green, &sampled.green),
+            (&all.blue, &sampled.blue),
+            (&all.luma, &sampled.luma),
+            (&all.parade, &sampled.parade),
+        ] {
+            assert_eq!(ends(a), ends(b));
+            assert!(ends(b).iter().any(|c| *c > 0));
+        }
+        assert!(
+            sampled.luma[waveform_column(101, 600)] > 0,
+            "the white detail"
+        );
+        assert!(
+            sampled.luma[255 * SCOPE_SIZE + waveform_column(401, 600)] > 0,
+            "the black one"
+        );
+    }
+
+    /// Each counted row stands for two: a frame of identical row pairs
+    /// draws the scopes of every row.
+    #[test]
+    fn every_second_row_keeps_the_brightness() {
+        let half = test_frame(600);
+        let doubled = RgbImage::from_fn(600, 20, |x, y| *half.get_pixel(x, y / 2));
+        let image = DynamicImage::ImageRgb8(doubled);
+        let all = calculate_waveform_from_image(&image, OutputColorSpace::Srgb, None).unwrap();
+        let sampled = calculate_waveform_of_rows(&image, OutputColorSpace::Srgb, None, 2).unwrap();
+        assert_eq!(
+            (&all.rgb, &all.luma, &all.parade, &all.vectorscope),
+            (
+                &sampled.rgb,
+                &sampled.luma,
+                &sampled.parade,
+                &sampled.vectorscope
+            )
+        );
     }
 }

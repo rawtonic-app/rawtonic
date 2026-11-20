@@ -2281,7 +2281,7 @@
       "build": "dieser Build",
       "copyright": "Copyright © 2026 Rawtonic-Mitwirkende. Teile Copyright Timon Käch und die RapidRAW-Mitwirkenden.",
       "creditDescriptions": {
-        "2xBHI_small_compact_pretrain": "Super-Resolution beim Export (Philip Hofmann). Geändert: nach ONNX und Core ML umgewandelt, Mittel aus vier Drehungen jeder Kachel (in der CPU-Konvertierung nacheinander).",
+        "2xBHI_small_compact_pretrain": "Super-Resolution beim Export (Philip Hofmann). Geändert: nach ONNX und Core ML umgewandelt, Mittel aus vier Drehungen jeder Kachel (in der CPU-Konvertierung nacheinander; in der GPU-Konvertierung fp16-Gewichte und -Berechnung).",
         "avif-parse": "Liest den AVIF-Container.",
         "BiRefNet": "Motiv- und Hintergrundmasken (Peng Zheng und andere).",
         "ConvNeXt UperNet": "Himmelsmasken (Meta, ADE20K).",
@@ -2304,7 +2304,7 @@
         "moxcms": "Liest ICC-Profile in JPEG-, PNG-, TIFF-, WebP- und AVIF-Dateien.",
         "NegPy": "Inspiration für die Negativkonvertierung.",
         "Nonlocal MatchFilter": "KI-Entrauschen auf dem RAW-Mosaik.",
-        "ONNX Runtime": "Führt KI-Modelle aus, unter Windows und Linux über das WebGPU-Plugin auch auf der GPU (Microsoft).",
+        "ONNX Runtime": "Führt KI-Modelle aus, unter Windows und Linux über das WebGPU-Plugin auch auf der GPU (Microsoft). Geändert: auf Macs mit Apple-Chip, unter Linux und Windows x64 von Rawtonic ohne Microsofts Telemetrie aus dem Quellcode gebaut.",
         "RapidRAW": "Der quelloffene RAW-Editor von Timon Käch, auf dem Rawtonics Editor aufbaut (Commit a82251f).",
         "rav1d": "Dekodiert AVIF-Dateien (die Rust-Portierung von dav1d).",
         "rawler": "RAW-Dekodierung (dnglab über RapidRAW-DngLab), mit Rawtonic-Patches; Sony ARW 6 aus LibRaw portiert.",
@@ -5155,7 +5155,7 @@
           "shadowSplit": "Tiefen"
         },
         "region": "Bereiche",
-        "splitHint": "{{name}}: {{value}}. Ziehen oder Pfeiltasten; Doppelklick, um einen Wert einzugeben",
+        "splitHint": "{{name}}: {{value}}. Ziehen oder Pfeiltasten; Doppelklick setzt zurück, Eingabetaste für einen Wert",
         "splits": "Grenzen"
       }
     },

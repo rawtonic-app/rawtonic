@@ -392,7 +392,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
   const handleZoomed = useCallback(
     (state: TransformState) => {
-      setEditor({ zoom: state.scale });
+      setEditor((editor) => ({ zoom: state.scale, viewSettled: editor.viewSettled + 1 }));
     },
     [setEditor]
   );

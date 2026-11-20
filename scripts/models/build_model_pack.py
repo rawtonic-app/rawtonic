@@ -306,6 +306,16 @@ SUPERRES_SHA256 = {
 }
 SUPERRES_CPU_SHA256 = {"superres_compact_x2_cpu.onnx": "40bf5c362bad13ca57c1e4493f66f9ab5f2ce7f57156e1d20a77aad7322cd7a1"}
 
+# fp16 compute for GPU providers, converted from the pinned fp32 graph by
+# convert_superres_fp16.py (fp32 input and output; the app uses it only on a
+# GPU provider, the fp32 graph stays the CPU and older builds' file).
+SUPERRES_FP16_SHA256 = {"superres_compact_x2_fp16.onnx": "4ee4e846aebe963d9739cca170df56b6b13f0fb6f604483d284ac227d250289d"}
+SUPERRES_FP16_EXPORT = [
+    "uv", "run", "--python", "3.12", "--with", "onnx==1.23.2", "--with", "onnxconverter-common==1.16.0",
+    "--with", "numpy==2.2.6",
+    "python", str(Path(__file__).resolve().parent / "convert_superres_fp16.py"),
+]
+
 SUPERRES_EXPORT = [
     "uv", "run", "--python", "3.12", "--with", "torch==2.7.0", "--with", "coremltools==9.0",
     "--with", "numpy==2.2.6", "--with", "onnx==1.23.2", "--with", "onnxruntime==1.30.0",
@@ -466,16 +476,16 @@ CUDA = [
 ORT130_OWN = [
     ("libonnxruntime-1.30.0-notelemetry-macos-aarch64.dylib",
      "49a8b6906c0e09c26e078bec8b53b1cfcb2be366e70cfa58b95bf812f9c57cde",
-     "Candidate runtime for all models on Apple silicon Macs; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
+     "Runtime for all models on Apple silicon Macs, bundled by the opt-in build (RAWTONIC_BUNDLE_ONNX=1) since 2026-11-19"),
     ("libonnxruntime-1.30.0-notelemetry-linux-x86_64.so",
      "620d32796c8ff40f23431e37bf417107635bf3f3d40398c5ffbbf370de3f1ad4",
-     "Candidate runtime for all models on Linux x86_64; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
+     "Runtime for all models on Linux x86_64, bundled by the opt-in build (RAWTONIC_BUNDLE_ONNX=1) since 2026-11-19"),
     ("libonnxruntime-1.30.0-notelemetry-linux-aarch64.so",
      "870f287be9adac99845de22fdd1f1996f8ca10f048396a5a64b74666a2268199",
-     "Candidate runtime for all models on Linux aarch64; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
+     "Runtime for all models on Linux aarch64, bundled by the opt-in build (RAWTONIC_BUNDLE_ONNX=1) since 2026-11-19"),
     ("onnxruntime-1.30.0-notelemetry-windows-x86_64.dll",
      "72c305db97f93d1ce6c4d0bcd5cc312d9f3a6044efdb74c7ffd871553d0e3434",
-     "Candidate runtime for all models on Windows x64; the app does not bundle it yet (src-tauri/build.rs still pins Microsoft's library)"),
+     "Runtime for all models on Windows x64, bundled by the opt-in build (RAWTONIC_BUNDLE_ONNX=1) since 2026-11-19"),
 ]
 ORT130_OWN_ENTRY = {
     "source": "ONNX Runtime 1.30.0 (commit f2c39fe2f838cf35ce7da92824f5a5e3ee6e88a7), built by Rawtonic without telemetry (scripts/models/build_onnxruntime.sh, build_onnxruntime.ps1 on Windows)",
@@ -483,7 +493,7 @@ ORT130_OWN_ENTRY = {
     "license_files": ["onnxruntime-MIT.txt", "onnxruntime-1.30.0-ThirdPartyNotices.txt"],
 }
 ORT130_ENTRY = {
-    "used_by": "Runtime for all models on Windows, Linux and Apple silicon Macs (bundled by the opt-in build, RAWTONIC_BUNDLE_ONNX=1)",
+    "used_by": "Runtime for all models on Windows arm64 (bundled by the opt-in build, RAWTONIC_BUNDLE_ONNX=1); on Windows x64, Linux and Apple silicon Macs until 2026-11-19, when the own build (ORT130_OWN) replaced it",
     "source": "ONNX Runtime 1.30.0 release (github.com/microsoft/onnxruntime)",
     "license": "MIT",
     "license_files": ["onnxruntime-MIT.txt", "onnxruntime-1.30.0-ThirdPartyNotices.txt"],
@@ -564,22 +574,26 @@ def main() -> None:
     parser.add_argument("--own-runtime", type=Path,
                         help="folder with the ONNX Runtime libraries build_onnxruntime.sh built (ORT130_OWN)")
     args = parser.parse_args()
-    if args.own_runtime is not None:
-        # Before anything is written: a missing or rebuilt library (another
-        # SHA-256) fails here, not halfway through the pack. Libraries the
-        # previous pack carries are checked against the pins when carried.
-        in_previous = set()
-        if args.previous is not None:
-            in_previous = {entry["file"] for entry in
-                           json.loads((args.previous / "models.json").read_text())["files"]}
-        for name, expected, _ in ORT130_OWN:
-            if name in in_previous:
-                continue
-            source = args.own_runtime / name
-            if not source.is_file():
-                sys.exit(f"{source} missing")
-            if sha256(source) != expected:
-                sys.exit(f"{source}: SHA-256 {sha256(source)}, expected {expected}")
+    # Before anything is written: a missing or rebuilt own runtime library
+    # (another SHA-256) fails here, not halfway through the pack. Libraries
+    # the previous pack carries are checked against the pins when carried.
+    # src-tauri/build.rs bundles them since pack-2026-11-19, so a pack
+    # without them would break the app's runtime build.
+    in_previous = set()
+    if args.previous is not None:
+        in_previous = {entry["file"] for entry in
+                       json.loads((args.previous / "models.json").read_text())["files"]}
+    for name, expected, _ in ORT130_OWN:
+        if name in in_previous:
+            continue
+        if args.own_runtime is None:
+            sys.exit(f"{name}: missing; pass --previous with a pack that has it "
+                     "(pack-2026-11-19 or later) or --own-runtime DIR")
+        source = args.own_runtime / name
+        if not source.is_file():
+            sys.exit(f"{source} missing")
+        if sha256(source) != expected:
+            sys.exit(f"{source}: SHA-256 {sha256(source)}, expected {expected}")
     args.out.mkdir(parents=True, exist_ok=True)
     args.cache.mkdir(parents=True, exist_ok=True)
     entries, carried = carry_over(args.previous, args.out) if args.previous else ([], {})
@@ -719,6 +733,18 @@ def main() -> None:
                     "source": SUPERRES_ENTRY["source"] + "; CPU conversion runs the rotations sequentially (same weights and average)",
                 })
 
+    if todo(SUPERRES_FP16_SHA256):
+        superres = args.cache / "superres-fp16"
+        source = args.out / "superres_compact_x2.onnx"  # placed above, SHA-256 checked
+        subprocess.run(SUPERRES_FP16_EXPORT + [str(source), str(superres)], check=True)
+        for name, expected in SUPERRES_FP16_SHA256.items():
+            if name not in carried:
+                entries.append(place(superres / name, args.out, name, expected) | SUPERRES_ENTRY | {
+                    "used_by": SUPERRES_ENTRY["used_by"] + " on a GPU provider (CUDA, WebGPU)",
+                    "source": SUPERRES_ENTRY["source"] + "; GPU conversion by scripts/models/convert_superres_fp16.py: "
+                              "weights rounded to fp16 and fp16 compute, fp32 input and output",
+                })
+
     if todo(FACES_SHA256):
         faces = args.cache / "faces-out"
         subprocess.run(FACES_EXPORT + [str(faces), "--cache", str(args.cache / "faces")], check=True)
@@ -766,11 +792,7 @@ def main() -> None:
     for name, expected, used_by in ORT130_OWN:
         if not todo({name: expected}):
             continue
-        if args.own_runtime is None:
-            # Optional until a pack carries it: a pack built without it
-            # keeps Microsoft's library for that platform.
-            print(f"{name}: left out (no --own-runtime)", file=sys.stderr)
-            continue
+        # Checked before anything was written (top of main).
         entries.append(place(args.own_runtime / name, args.out, name, expected)
                        | {"used_by": used_by} | ORT130_OWN_ENTRY)
 

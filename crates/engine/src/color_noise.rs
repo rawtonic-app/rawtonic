@@ -1723,6 +1723,33 @@ impl Clone for ChromaPyramid {
 }
 
 impl ChromaPyramid {
+    /// Its colour and luminance noise as measured.
+    pub fn measurement(&self) -> NoiseMeasurement {
+        NoiseMeasurement {
+            noise: self.noise,
+            luma_noise: self.luma_noise,
+            profile: self.profile,
+            luma_profile: self.luma_profile,
+        }
+    }
+
+    /// The same levels with `measurement` instead of their own (that of the
+    /// whole photograph whose region they are); the prepared levels, which
+    /// follow the noise, are prepared again.
+    pub fn with_measurement(&self, measurement: &NoiseMeasurement) -> Self {
+        Self {
+            width: self.width,
+            height: self.height,
+            levels: self.levels.clone(),
+            noise: measurement.noise,
+            luma_noise: measurement.luma_noise,
+            profile: measurement.profile,
+            luma_profile: measurement.luma_profile,
+            linear_means: self.linear_means,
+            prepared: Mutex::new(None),
+        }
+    }
+
     /// Builds the pyramid of `image` (linear RGB when `linear`, otherwise
     /// sRGB-encoded) and measures its colour noise. `None` for images too
     /// small to filter.

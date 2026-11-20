@@ -3,3 +3,8 @@
 # fixture_render is a harness = false binary that prints SKIP on --list, which
 # nextest cannot parse; check.sh runs it with cargo test instead.
 default-filter = "not binary_id(rawtonic-app::fixture_render)"
+
+[[profile.default.overrides]]
+# Show whether Windows granted the symlink privilege for this case.
+filter = "package(rawtonic-fs) & test(=anchored::tests::preserves_symlinked_staging_child_and_target)"
+success-output = "immediate"

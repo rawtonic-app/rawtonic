@@ -44,7 +44,9 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::app_settings::AppSettings;
-use crate::image_loader::{BlackLevels, DeadTest, DecodeMeasures, DecodeVariant, HighlightRebuild};
+use crate::image_loader::{
+    BlackLevels, DeadTest, DecodeMeasures, DecodeVariant, HighlightRebuild, WarpPlanes,
+};
 use rawtonic_engine::proxy_codec::{self, Transfer};
 use rawtonic_engine::source_facts::{self, SourceFacts};
 use std::collections::HashMap;
@@ -126,7 +128,9 @@ const READ_VERSIONS: [u32; 3] = [1, 2, 3];
 /// white by ISO (2026-11-19).
 /// 61: Canon CR3 white at Adobe's per-body white (R5, R5 II, R6, R7, R8, R10,
 /// R50, R50 V, 1D X III) and ColorData version 48 white offsets (2026-11-19).
-pub const ENGINE_VERSION: u32 = 61;
+/// 62: dithered linearization and curve lookups clamp instead of wrapping at
+/// the table ends (JPEG-to-DNG and ProRAW highlights, small NEF) (2026-11-20).
+pub const ENGINE_VERSION: u32 = 62;
 /// Rows per band of half floats (format 1; written by tests only).
 #[cfg(test)]
 const F16_ROWS_PER_BAND: u32 = 64;
@@ -410,8 +414,9 @@ pub fn current_key(
 /// colour noise filter (no decode-time chroma clean-up) and, appended only
 /// when set so earlier proxies keep their key, the second dead-photosite
 /// test, a frame other than version 0's (`source_frame`), the unbiased
-/// blacks (`BlackLevels::Unbiased`, `UnbiasedBorder`) and the ratio
-/// highlight rebuild (`HighlightRebuild::Ratios`).
+/// blacks (`BlackLevels::Unbiased`, `UnbiasedBorder`), the ratio
+/// highlight rebuild (`HighlightRebuild::Ratios`) and a DNG lens warp of
+/// the camera planes (`WarpPlanes::Camera`).
 fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
     let key = format!(
         "linear={};cnr={:?};sharp={:?};nonraw={:?};raw9={:?};cnrms={}",
@@ -437,8 +442,13 @@ fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
         BlackLevels::Unbiased => key + ";black=unbiased",
         BlackLevels::UnbiasedBorder => key + ";black=border",
     };
-    if variant.highlights == HighlightRebuild::Ratios {
+    let key = if variant.highlights == HighlightRebuild::Ratios {
         key + ";highlights=ratios"
+    } else {
+        key
+    };
+    if variant.warp_planes == WarpPlanes::Camera {
+        key + ";warp=camera"
     } else {
         key
     }
@@ -471,10 +481,15 @@ pub(crate) fn variant_of_key(decoder: &str) -> DecodeVariant {
         } else {
             BlackLevels::Clipped
         },
-        highlights: if decoder.ends_with(";highlights=ratios") {
+        highlights: if decoder.contains(";highlights=ratios") {
             HighlightRebuild::Ratios
         } else {
             HighlightRebuild::Offsets
+        },
+        warp_planes: if decoder.ends_with(";warp=camera") {
+            WarpPlanes::Camera
+        } else {
+            WarpPlanes::Output
         },
     }
 }
@@ -1577,6 +1592,7 @@ pub(crate) mod frame_fixture {
             frame,
             black: BlackLevels::Unbiased,
             highlights: HighlightRebuild::Ratios,
+            warp_planes: WarpPlanes::Output,
         };
         let image = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(80, 60, |x, y| {
             image::Rgb([x as f32 / 80.0, y as f32 / 60.0, 0.25])
@@ -1606,6 +1622,7 @@ mod tests {
         frame: 0,
         black: BlackLevels::UnbiasedBorder,
         highlights: HighlightRebuild::Ratios,
+        warp_planes: WarpPlanes::Output,
     };
     /// A decode for an edit with the old colour noise filter.
     const LEGACY: DecodeVariant = DecodeVariant {
@@ -1614,6 +1631,7 @@ mod tests {
         frame: 0,
         black: BlackLevels::Clipped,
         highlights: HighlightRebuild::Offsets,
+        warp_planes: WarpPlanes::Output,
     };
 
     fn key() -> ProxyKey {
@@ -1967,14 +1985,20 @@ mod tests {
                         BlackLevels::UnbiasedBorder,
                     ] {
                         for highlights in [HighlightRebuild::Offsets, HighlightRebuild::Ratios] {
-                            let variant = DecodeVariant {
-                                multiscale,
-                                dead_test,
-                                frame,
-                                black,
-                                highlights,
-                            };
-                            assert_eq!(variant_of_key(&decoder_key(&settings, variant)), variant);
+                            for warp_planes in [WarpPlanes::Output, WarpPlanes::Camera] {
+                                let variant = DecodeVariant {
+                                    multiscale,
+                                    dead_test,
+                                    frame,
+                                    black,
+                                    highlights,
+                                    warp_planes,
+                                };
+                                assert_eq!(
+                                    variant_of_key(&decoder_key(&settings, variant)),
+                                    variant
+                                );
+                            }
                         }
                     }
                 }
@@ -1995,6 +2019,7 @@ mod tests {
             frame: 0,
             black: BlackLevels::Clipped,
             highlights: HighlightRebuild::Offsets,
+            warp_planes: WarpPlanes::Output,
         };
         let proxy = write(&photo, &gradient(80, 60), 40, &settings, old, None).unwrap();
         let mut memory = ProxyMemory::default();
@@ -2351,6 +2376,7 @@ mod tests {
             frame: 0,
             black: BlackLevels::Clipped,
             highlights: HighlightRebuild::Offsets,
+            warp_planes: WarpPlanes::Output,
         };
         write(
             &photo,

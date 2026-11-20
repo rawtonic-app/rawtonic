@@ -4,7 +4,7 @@ import { useLibraryStore } from '../../store/useLibraryStore';
 import { registerAppCommands } from '../../utils/appCommands';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import StudioWorkspace from './StudioWorkspace';
+import StudioWorkspace, { toolsMaxWidth } from './StudioWorkspace';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useUIStore } from '../../store/useUIStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -376,4 +376,13 @@ it('docks the filmstrip as a grid in a side column instead of under the photogra
   expect(container.querySelector('.studio-dock')).toBeNull();
   act(() => useUIStore.getState().togglePanels('filmstrip'));
   expect(container.querySelector('.studio-dock')).not.toBeNull();
+});
+
+it('lets the tool column grow past 390 px only while it takes at most a third of the window', () => {
+  expect(toolsMaxWidth(1100, 1)).toBe(390);
+  expect(toolsMaxWidth(1290, 1)).toBe(430);
+  expect(toolsMaxWidth(1920, 1)).toBe(480);
+  // Interface Size zooms the column: 125 % needs a wider window for the same width.
+  expect(toolsMaxWidth(1440, 1.25)).toBe(390);
+  expect(toolsMaxWidth(1920, 1.25)).toBe(480);
 });

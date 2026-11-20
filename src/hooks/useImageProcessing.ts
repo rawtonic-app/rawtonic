@@ -46,10 +46,10 @@ import {
 } from '../utils/liveMaskRender';
 import { draftFor, registerSliderDraftRenderer, wasRenderedAsDraft } from '../utils/sliderDraft';
 import { useMultiViewStore } from '../store/useMultiViewStore';
-import { interactivePreview } from '../utils/interactivePreview';
+import { interactivePreview, isRegionFrame } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
-import { needsFrameSize, previewTargetResolution } from '../utils/previews';
+import { dragTargetResolution, needsFrameSize, previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
 import { onSharpenViewReady, type SharpenView } from '../utils/sharpenView';
 import { onColorNoiseViewReady } from '../utils/colorNoiseView';
@@ -101,6 +101,26 @@ export function nextAnalyticsTime(last: number, now: number): number | null {
   // After a pause (or the first frame) the cadence starts at this frame.
   if (last <= 0 || elapsed >= 2 * ANALYTICS_INTERVAL_MS) return now;
   return last + ANALYTICS_INTERVAL_MS;
+}
+
+function revokeLater(url: string | undefined, ms: number) {
+  if (url?.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(url), ms);
+}
+
+/** Whether region `roi` (normalised x, y, w, h) lies within `region`. */
+export function regionCovers(
+  region: { normX: number; normY: number; normW: number; normH: number },
+  roi: readonly [number, number, number, number]
+) {
+  // Within about a pixel of the fit view: a region frame's edges are the
+  // requested ones rounded to whole photograph pixels.
+  const slack = 1e-3;
+  return (
+    roi[0] >= region.normX - slack &&
+    roi[1] >= region.normY - slack &&
+    roi[0] + roi[2] <= region.normX + region.normW + slack &&
+    roi[1] + roi[3] <= region.normY + region.normH + slack
+  );
 }
 
 export interface PreviousAdjustments {
@@ -293,7 +313,10 @@ export function useImageProcessing(
             // frames, final previews and other platforms retain binary replies.
             browserPreviewUri: import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0',
             ...(fullZoom ? { browserFullZoom: true } : {}),
-            ...(regionFirst && roi && !dragging && !live && !cropEdit ? { regionFirst: true } : {})
+            ...(regionFirst && roi && !dragging && !live && !cropEdit ? { regionFirst: true } : {}),
+            // A grain slider held (from its press): the drag's frames show
+            // the grain exactly; other drags render it once per 2 x 2 pixels.
+            ...(dragging && useEditorStore.getState().grainSliderDrag !== null ? { grainDrag: true } : {})
           },
           os === 'linux' && dragging && import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0'
         );
@@ -371,6 +394,25 @@ export function useImageProcessing(
               if (previousUrl?.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(previousUrl), 100);
               return { interactivePatch: patch };
             });
+          } else if (isRegionFrame(buffer)) {
+            // Linux at 100 % and closer: the visible region, lossless, over
+            // the last whole frame (which stays as the backdrop for pans).
+            const region = interactivePreview(buffer);
+            noteBrowserPreview(region.url, returnedAt, inputAt, jobId);
+            retireDraftPatches();
+            if (currentPath !== selectedImagePathRef.current || jobId < latestRenderedJobIdRef.current) {
+              URL.revokeObjectURL(region.url);
+              return;
+            }
+            setEditor((state) => {
+              revokeLater(state.finalRegion?.url, 250);
+              revokeLater(state.interactivePatch?.url, 500);
+              return {
+                finalRegion: { ...region, path: currentPath },
+                previewFrames: state.previewFrames + 1,
+                interactivePatch: null
+              };
+            });
           } else {
             const type = previewFrameType(buffer);
             const blob = new Blob([buffer], { type });
@@ -392,8 +434,10 @@ export function useImageProcessing(
                   }
                 }, 250);
               }
+              revokeLater(state.finalRegion?.url, 250);
               return {
                 finalPreview: { url, lossless: type === 'image/png', fullZoom },
+                finalRegion: null,
                 previewFrames: state.previewFrames + 1
               };
             });
@@ -477,7 +521,13 @@ export function useImageProcessing(
   useEffect(() => registerScheduledRecipe(() => prevAdjustmentsRef.current), [prevAdjustmentsRef]);
   useLayoutEffect(() => {
     nativeDisplayRef.current = false;
-  }, [selectedImage?.path]);
+    // Another photograph's region frame never shows over this one.
+    const region = useEditorStore.getState().finalRegion;
+    if (region && region.path !== selectedImage?.path) {
+      revokeLater(region.url, 250);
+      setEditor({ finalRegion: null });
+    }
+  }, [selectedImage?.path, setEditor]);
 
   // Brush strokes render the developed image at the committed preview
   // resolution while the mask overlay stays on top. The display then redraws
@@ -613,7 +663,7 @@ export function useImageProcessing(
   );
 
   // AI Denoise, the colour noise filter's base, the dead-photosite test, the
-  // black handling and the highlight rebuild live in the decode: develop the RAW again when the recipe's differ from
+  // black handling, the highlight rebuild and a DNG's lens warp live in the decode: develop the RAW again when the recipe's differ from
   // the source's (src/utils/aiDenoise.ts), then render.
   const sourceDevelop = sourceDevelopToApply(selectedImage, adjustments, isSliderDragging);
   const developAiDenoise = sourceDevelop?.aiDenoise ?? null;
@@ -623,6 +673,7 @@ export function useImageProcessing(
   const developUnbiasedBlack = sourceDevelop?.unbiasedBlack;
   const developBorderBlack = sourceDevelop?.borderBlack;
   const developHighlightRatios = sourceDevelop?.highlightRatios;
+  const developCameraPlaneWarp = sourceDevelop?.cameraPlaneWarp;
   // The newest develop request: it alone clears the busy note, on every way
   // it ends (done, failed, cancelled, photograph switched).
   const sourceDevelopRequestRef = useRef(0);
@@ -636,6 +687,7 @@ export function useImageProcessing(
     const unbiasedBlack = developUnbiasedBlack;
     const borderBlack = developBorderBlack;
     const highlightRatios = developHighlightRatios;
+    const cameraPlaneWarp = developCameraPlaneWarp;
     const current = useEditorStore.getState().selectedImage;
     const changesAiDenoise =
       amount !== Math.round(current?.aiDenoise ?? 0) ||
@@ -645,6 +697,7 @@ export function useImageProcessing(
     const changesBlack = unbiasedBlack !== current?.unbiasedBlack;
     const changesBorderBlack = borderBlack !== current?.borderBlack;
     const changesHighlights = highlightRatios !== current?.highlightRatios;
+    const changesWarp = cameraPlaneWarp !== current?.cameraPlaneWarp;
     const request = ++sourceDevelopRequestRef.current;
     const settleBusy = () => {
       if (request === sourceDevelopRequestRef.current && useEditorStore.getState().aiDenoiseBusy)
@@ -659,7 +712,8 @@ export function useImageProcessing(
       deadPixelAdjacent,
       unbiasedBlack,
       borderBlack,
-      highlightRatios
+      highlightRatios,
+      cameraPlaneWarp
     })
       .then((applied) => {
         const editor = useEditorStore.getState();
@@ -676,7 +730,8 @@ export function useImageProcessing(
             ...(deadPixelAdjacent === undefined ? {} : { deadPixelAdjacent }),
             ...(unbiasedBlack === undefined ? {} : { unbiasedBlack }),
             ...(borderBlack === undefined ? {} : { borderBlack }),
-            ...(highlightRatios === undefined ? {} : { highlightRatios })
+            ...(highlightRatios === undefined ? {} : { highlightRatios }),
+            ...(cameraPlaneWarp === undefined ? {} : { cameraPlaneWarp })
           }
         });
         const targetRes = currentResRef.current;
@@ -705,7 +760,8 @@ export function useImageProcessing(
                   ...(!changesAiDenoise && changesDeadTest ? { deadPixelAdjacentFailed: deadPixelAdjacent } : {}),
                   ...(!changesAiDenoise && changesBlack ? { unbiasedBlackFailed: unbiasedBlack } : {}),
                   ...(!changesAiDenoise && changesBorderBlack ? { borderBlackFailed: borderBlack } : {}),
-                  ...(!changesAiDenoise && changesHighlights ? { highlightRatiosFailed: highlightRatios } : {})
+                  ...(!changesAiDenoise && changesHighlights ? { highlightRatiosFailed: highlightRatios } : {}),
+                  ...(!changesAiDenoise && changesWarp ? { cameraPlaneWarpFailed: cameraPlaneWarp } : {})
                 }
               }
             : {})
@@ -721,6 +777,7 @@ export function useImageProcessing(
     developUnbiasedBlack,
     developBorderBlack,
     developHighlightRatios,
+    developCameraPlaneWarp,
     setEditor,
     previewQueue,
     currentResRef
@@ -776,30 +833,57 @@ export function useImageProcessing(
     }
   }, [activeView, adjustments, activePanel, selectedImage?.isReady, generateUncroppedPreview]);
 
-  const calculateTargetRes = useCallback(() => {
-    const baseTargetRes = appSettings?.editorPreviewResolution || 1920;
-    if (!(appSettings?.enableZoomHifi ?? true) || displaySize.width === 0) {
-      return baseTargetRes;
-    }
+  const calculateTargetRes = useCallback(
+    (drag?: { grain: boolean; keepGrainSize: boolean }) => {
+      const baseTargetRes = appSettings?.editorPreviewResolution || 1920;
+      if (!(appSettings?.enableZoomHifi ?? true) || displaySize.width === 0) {
+        return baseTargetRes;
+      }
 
-    return previewTargetResolution({
-      display: displaySize,
-      dpr: typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
-      fullDpi: !!appSettings?.useFullDpiRendering,
-      zoomMultiplier: appSettings?.highResZoomMultiplier || 1.0,
-      original: originalSize,
-      grain: hasGrain
-    });
-  }, [
-    appSettings?.enableZoomHifi,
-    appSettings?.editorPreviewResolution,
-    appSettings?.highResZoomMultiplier,
-    appSettings?.useFullDpiRendering,
-    displaySize.width,
-    displaySize.height,
-    originalSize,
-    hasGrain
-  ]);
+      const params = {
+        display: displaySize,
+        dpr: typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
+        fullDpi: !!appSettings?.useFullDpiRendering,
+        zoomMultiplier: appSettings?.highResZoomMultiplier || 1.0,
+        original: originalSize,
+        grain: drag?.grain ?? hasGrain
+      };
+      return drag
+        ? dragTargetResolution(params, drag.keepGrainSize || appSettings?.livePreviewQuality === 'full')
+        : previewTargetResolution(params);
+    },
+    [
+      appSettings?.enableZoomHifi,
+      appSettings?.editorPreviewResolution,
+      appSettings?.highResZoomMultiplier,
+      appSettings?.livePreviewQuality,
+      appSettings?.useFullDpiRendering,
+      displaySize.width,
+      displaySize.height,
+      originalSize,
+      hasGrain
+    ]
+  );
+
+  // Both draft moves and store commits use the size chosen at the press.
+  // Amount can introduce grain at any move, including when it starts at 0.
+  const calculateTargetResRef = useRef(calculateTargetRes);
+  calculateTargetResRef.current = calculateTargetRes;
+  const dragTargetResRef = useRef<number | null>(null);
+  useLayoutEffect(
+    () =>
+      useEditorStore.subscribe((state, previous) => {
+        if (state.isSliderDragging === previous.isSliderDragging) return;
+        const { grainSliderDrag, previewOverride, adjustments } = state;
+        dragTargetResRef.current = state.isSliderDragging
+          ? calculateTargetResRef.current({
+              grain: grainSliderDrag === 'amount' || ((previewOverride ?? adjustments).grainAmount ?? 0) > 0,
+              keepGrainSize: grainSliderDrag !== null
+            })
+          : null;
+      }),
+    []
+  );
 
   // A slider drag's moves between store commits (utils/sliderDraft.ts), as
   // the drag branch of the effect below would render them, in the multi view
@@ -807,8 +891,6 @@ export function useImageProcessing(
   // hooks per move with several photographs selected. Edit all selected
   // (useEditAllSelected follows every committed move and writes once they
   // pause) and other views keep committing every move.
-  const calculateTargetResRef = useRef(calculateTargetRes);
-  calculateTargetResRef.current = calculateTargetRes;
   const activeViewRef = useRef(activeView);
   activeViewRef.current = activeView;
   useEffect(
@@ -828,7 +910,7 @@ export function useImageProcessing(
           path,
           adjustments: draftAdjustments,
           dragging: true,
-          targetRes: calculateTargetResRef.current(),
+          targetRes: dragTargetResRef.current ?? calculateTargetResRef.current(),
           inputAt: performanceDiagnosticsEnabled ? latestPointerInputTime() : 0,
           dispatchAt: performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0
         });
@@ -886,6 +968,32 @@ export function useImageProcessing(
     hasGrain
   ]);
 
+  // Linux at 100 % and closer: a zoom, pan or viewer resize that leaves the
+  // region frame shown asks for the new visible region (the last whole frame
+  // shows around it meanwhile).
+  const viewSettled = useEditorStore((state) => state.viewSettled);
+  // A region arriving after a pan that settled while it rendered.
+  const finalRegionUrl = useEditorStore((state) => state.finalRegion?.url);
+  useEffect(() => {
+    const state = useEditorStore.getState();
+    const region = state.finalRegion;
+    const image = state.selectedImage;
+    if (
+      os !== 'linux' ||
+      !state.browserFullZoom ||
+      !region ||
+      !canRenderSource(image) ||
+      region.path !== image.path ||
+      state.isSliderDragging ||
+      isNativeCropEditing()
+    ) {
+      return;
+    }
+    const roi = calculateROI();
+    if (!roi || regionCovers(region, roi)) return;
+    applyAdjustments(state.previewOverride ?? state.adjustments, false, currentResRef.current);
+  }, [os, viewSettled, finalRegionUrl, calculateROI, applyAdjustments, currentResRef]);
+
   useLayoutEffect(() => {
     // A preview proxy renders before the full decode; its arrival
     // (isReady) renders again from the full source.
@@ -900,7 +1008,7 @@ export function useImageProcessing(
 
     if (isSliderDragging) {
       if (appSettings?.enableLivePreviews !== false && !wasRenderedAsDraft(renderAdjustments)) {
-        applyAdjustments(renderAdjustments, true, targetRes);
+        applyAdjustments(renderAdjustments, true, dragTargetResRef.current ?? targetRes);
       }
     } else {
       currentResRef.current = targetRes;

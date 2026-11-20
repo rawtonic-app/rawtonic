@@ -294,7 +294,7 @@
   min-height: 0;
   width: var(--tools-width);
   min-width: 270px;
-  max-width: 390px;
+  max-width: 480px;
   background: var(--studio-bg);
   border-right: 1px solid var(--studio-line);
   position: relative;
@@ -1085,12 +1085,20 @@
   background: linear-gradient(to right, #000, #4a7fe2);
 }
 .studio-curve svg {
+  /* Square, as wide as the tool column: it grows with the column (the
+     height follows the viewBox). On low screens it narrows instead of
+     letterboxing, so the plot always fills its frame. */
   display: block;
-  width: 100%;
-  max-height: 210px;
+  width: min(100%, 52vh);
+  margin-inline: auto;
   background: var(--studio-shade-inset, #202123);
   border: 1px solid var(--studio-shade-hover, #4b4d52);
   touch-action: none;
+}
+.studio-curve svg line,
+.studio-curve svg polyline,
+.studio-curve svg .curve-histogram-line {
+  vector-effect: non-scaling-stroke;
 }
 .curve-grid {
   stroke: var(--studio-shade-hover, #44464b);
@@ -1138,6 +1146,31 @@
   fill: rgb(var(--studio-shade-rgb-line, 138 141 146) / 0.2);
   stroke: none;
   pointer-events: none;
+}
+.curve-histogram[data-channel='red'] {
+  fill: rgb(201 103 103 / 0.24);
+}
+.curve-histogram[data-channel='green'] {
+  fill: rgb(106 167 110 / 0.24);
+}
+.curve-histogram[data-channel='blue'] {
+  fill: rgb(100 141 179 / 0.26);
+}
+/* On the RGB curve the three channels as outlines over the luma fill. */
+.curve-histogram-line {
+  fill: none;
+  stroke-width: 1;
+  opacity: 0.6;
+  pointer-events: none;
+}
+.curve-histogram-line[data-channel='red'] {
+  stroke: #c67d7d;
+}
+.curve-histogram-line[data-channel='green'] {
+  stroke: #7eb982;
+}
+.curve-histogram-line[data-channel='blue'] {
+  stroke: #789fc7;
 }
 /* Crosshair through the point being dragged. */
 .curve-crosshair {
@@ -3021,6 +3054,7 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
+/* SECONDARY_PANEL_HIDDEN_BELOW in StudioWorkspace. */
 @media (max-width: 1200px) {
   .studio-secondary-panel {
     display: none;

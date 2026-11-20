@@ -113,7 +113,8 @@ def notes(version, prev, changelog, prev_body, sums):
     names = {line.split()[1].lstrip("*"): line.split()[0] for line in sums.splitlines() if line.strip()}
     install = with_windows_install(install, version, names)
     tail = [kept("Source code"), kept("Feedback")]
-    tarballs = sorted(n for n in names if re.search(r"\.tar\.(bz2|xz|gz)$", n))
+    # Only the camera libraries' source tarballs; the updater's .app.tar.gz packages are not.
+    tarballs = sorted(n for n in names if re.match(r"lib[a-z0-9]+-.*\.tar\.(bz2|xz|gz)$", n))
     for i, line in enumerate(tail):
         # The camera libraries' tarball names as attached to this release.
         for name in tarballs:
@@ -127,7 +128,9 @@ def notes(version, prev, changelog, prev_body, sums):
         intro,
         f"Updating from {short(prev)}: replace the app (macOS: drag the new Rawtonic to Applications; Linux: "
         "AppImageUpdate or Gear Lever, or download the new AppImage; Windows: run the new installer, or unpack the new portable zip). "
-        "Your libraries, sessions and edits stay as they are.",
+        "Your libraries, sessions and edit settings stay as they are"
+        + ("; whether saved edits render as before is listed under Changes to existing edits below."
+           if sub.get("Changes to existing edits") else "."),
         install,
         f"## What's new since {short(prev)}\n\n{highlights}",
     ]

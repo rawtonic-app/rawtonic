@@ -341,7 +341,9 @@ export function StudioLevels({ values, disabled, change, onInteraction, toggle, 
   const auto = () => {
     const histogram = useEditorStore.getState().histogram;
     if (!histogram) return;
-    const bins = shown.map((c) => histogramBins(histogram[c]));
+    // Each channel on its own scale, capped at 1 as the scopes sent it before
+    // `displayScale` (Auto's input is unchanged).
+    const bins = shown.map((c) => histogramBins(histogram[c]).map((v) => Math.min(1, v)));
     const next = autoLevels(bins, current);
     if (next) set({ ...current, ...next });
   };

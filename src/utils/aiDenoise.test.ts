@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aiDenoiseToApply, sourceDevelopToApply } from './aiDenoise';
+import { aiDenoiseToApply, developmentSignature, sourceDevelopToApply, warpPlanesMatter } from './aiDenoise';
 
 const decoded = { isDecoded: true, isRaw: true, aiDenoise: 0 };
 
@@ -218,5 +218,69 @@ describe('sourceDevelopToApply', () => {
       sourceDevelopToApply({ ...decoder, borderBlackFailed: true }, { ...v2, renderVersion: 11 }, false)
     ).toBeNull();
     expect(sourceDevelopToApply(base, { ...v2, renderVersion: 11 }, false)).toBeNull();
+  });
+
+  it("develops a DNG again when its lens warp's planes flip with the render version", () => {
+    const base = {
+      ...multiscaleBase,
+      deadPixelAdjacent: true,
+      unbiasedBlack: true,
+      borderBlack: true,
+      highlightRatios: true
+    };
+    const output = { ...base, cameraPlaneWarp: false };
+    const camera = { ...base, cameraPlaneWarp: true };
+    // Saved edits before render version 14 keep the output-channel warp.
+    expect(sourceDevelopToApply(output, { ...v2, renderVersion: 13 }, false)).toBeNull();
+    expect(sourceDevelopToApply(camera, { ...v2, renderVersion: 14 }, false)).toBeNull();
+    // Reset of an older edit (render version 14), and undo back.
+    expect(sourceDevelopToApply(output, { ...v2, renderVersion: 14 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+      unbiasedBlack: true,
+      borderBlack: true,
+      highlightRatios: true,
+      cameraPlaneWarp: true
+    });
+    expect(sourceDevelopToApply(camera, { ...v2, renderVersion: 13 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+      unbiasedBlack: true,
+      borderBlack: true,
+      highlightRatios: true,
+      cameraPlaneWarp: false
+    });
+    // Failed before: not retried; other formats (unknown) never develop
+    // again for it.
+    expect(
+      sourceDevelopToApply({ ...output, cameraPlaneWarpFailed: true }, { ...v2, renderVersion: 14 }, false)
+    ).toBeNull();
+    expect(sourceDevelopToApply(base, { ...v2, renderVersion: 14 }, false)).toBeNull();
+  });
+});
+
+describe('developmentSignature', () => {
+  const recipe = { aiDenoise: 0, aiDenoiseVersion: 1, colorNoiseVersion: 2 };
+  it("tells a lens warp's planes apart only where they change the decode", () => {
+    const v13 = { ...recipe, renderVersion: 13 };
+    const v14 = { ...recipe, renderVersion: 14 };
+    // A DNG whose warp differs per plane: a version 13 snapshot does not
+    // share the version 14 edit's source...
+    const affected = { cameraPlaneWarp: true };
+    expect(warpPlanesMatter(affected)).toBe(true);
+    expect(warpPlanesMatter({ cameraPlaneWarp: false })).toBe(true);
+    expect(developmentSignature(v13, true, warpPlanesMatter(affected))).not.toBe(
+      developmentSignature(v14, true, warpPlanesMatter(affected))
+    );
+    // ... while other photographs (no such warp, other formats, preview
+    // data: not reported) still do.
+    expect(warpPlanesMatter({})).toBe(false);
+    expect(warpPlanesMatter(null)).toBe(false);
+    expect(developmentSignature(v13, true, warpPlanesMatter({}))).toBe(
+      developmentSignature(v14, true, warpPlanesMatter({}))
+    );
+    expect(developmentSignature(v13, true)).toBe(developmentSignature(v14, true));
   });
 });

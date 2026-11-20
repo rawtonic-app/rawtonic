@@ -1,6 +1,7 @@
 import type { SelectedImage } from '../components/ui/AppProperties';
 import {
   borderBlack,
+  cameraPlaneWarp,
   colorNoiseMultiscale,
   deadPixelAdjacent,
   highlightRatios,
@@ -68,6 +69,9 @@ export interface SourceDevelop {
   /** With the ratio highlight rebuild (`renderVersion` 9; undefined: the
    * stored recipe's). */
   highlightRatios?: boolean;
+  /** With a DNG lens warp of the camera planes (`renderVersion` 14;
+   * undefined: the stored recipe's). */
+  cameraPlaneWarp?: boolean;
 }
 
 /**
@@ -76,8 +80,8 @@ export interface SourceDevelop {
  * its colour noise filter (`colorNoiseMultiscale`: reset of a legacy
  * edit, paste or a preset can change `colorNoiseVersion`) or its
  * dead-photosite test (`deadPixelAdjacent`), its black handling
- * (`unbiasedBlack`, `borderBlack`) or its highlight rebuild (`highlightRatios`) differs
- * from the source's. Only decoded RAWs on their file; never during a slider drag.
+ * (`unbiasedBlack`, `borderBlack`), its highlight rebuild (`highlightRatios`)
+ * or a DNG's lens warp (`cameraPlaneWarp`) differs from the source's. Only decoded RAWs on their file; never during a slider drag.
  */
 export function sourceDevelopToApply(
   image: Pick<
@@ -98,6 +102,8 @@ export function sourceDevelopToApply(
     | 'borderBlackFailed'
     | 'highlightRatios'
     | 'highlightRatiosFailed'
+    | 'cameraPlaneWarp'
+    | 'cameraPlaneWarpFailed'
     | 'offline'
   > | null,
   adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> &
@@ -130,13 +136,19 @@ export function sourceDevelopToApply(
   const haveRatios = image.highlightRatios;
   const wantedRatios = image.offline || haveRatios === undefined ? haveRatios : highlightRatios(adjustments);
   const ratios = wantedRatios === image.highlightRatiosFailed ? haveRatios : wantedRatios;
+  // And for a DNG's lens warp (`renderVersion` 14; unknown where it does
+  // not change the decode).
+  const haveWarp = image.cameraPlaneWarp;
+  const wantedWarp = image.offline || haveWarp === undefined ? haveWarp : cameraPlaneWarp(adjustments);
+  const warp = wantedWarp === image.cameraPlaneWarpFailed ? haveWarp : wantedWarp;
   if (
     aiDenoise === null &&
     multiscale === have &&
     dead === haveDead &&
     black === haveBlack &&
     border === haveBorder &&
-    ratios === haveRatios
+    ratios === haveRatios &&
+    warp === haveWarp
   )
     return null;
   const version = aiDenoise === null ? image.aiDenoiseVersion : adjustments.aiDenoiseVersion;
@@ -147,13 +159,22 @@ export function sourceDevelopToApply(
     deadPixelAdjacent: dead,
     unbiasedBlack: black,
     borderBlack: border,
-    highlightRatios: ratios
+    highlightRatios: ratios,
+    cameraPlaneWarp: warp
   };
 }
 
+/** Whether the open photograph's decode depends on its lens warp's planes
+ * (`cameraPlaneWarp`): the backend reports them only for DNGs whose warp
+ * has different coefficients per plane. */
+export const warpPlanesMatter = (image: Pick<SelectedImage, 'cameraPlaneWarp'> | null | undefined): boolean =>
+  image?.cameraPlaneWarp !== undefined;
+
 /**
  * How a recipe develops the RAW before any adjustment (AI Denoise amount and
- * version, colour noise filter, dead-photosite test, black handling), as a string: equal for
+ * version, colour noise filter, dead-photosite test, black handling and,
+ * where they change the decode (`warpPlanes`, `warpPlanesMatter`), its
+ * lens warp's planes), as a string: equal for
  * recipes whose renders can share one source. Empty for other photographs,
  * whose source does not depend on it.
  */
@@ -162,7 +183,8 @@ export function developmentSignature(
     Pick<Partial<Adjustments>, 'colorNoiseVersion' | 'colorNoiseReduction' | 'renderVersion'> & {
       sectionVisibility?: Record<string, boolean | undefined>;
     },
-  isRaw: boolean
+  isRaw: boolean,
+  warpPlanes = false
 ): string {
   if (!isRaw) return '';
   const amount = aiDenoiseAmount(adjustments);
@@ -172,6 +194,7 @@ export function developmentSignature(
     colorNoiseMultiscale(adjustments, true),
     deadPixelAdjacent(adjustments),
     unbiasedBlack(adjustments),
-    borderBlack(adjustments)
+    borderBlack(adjustments),
+    ...(warpPlanes ? [cameraPlaneWarp(adjustments)] : [])
   ]);
 }

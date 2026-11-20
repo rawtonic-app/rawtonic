@@ -4907,7 +4907,51 @@ pub struct PreparedAdjustments {
     /// The LUT is read through the stage its file names that the earlier
     /// reader ignored (`lutVersion` 2, `lut::Lut::stage`).
     pub lut_file_stage: bool,
+    /// The colour noise measurement of the whole photograph the render's
+    /// source is a region of (`gpu_processing::measure_color_noise`): the
+    /// multi-scale colour noise reduction takes its thresholds from it
+    /// instead of measuring the region, so that a region renders as the
+    /// same pixels of the whole photograph do. `None`: measured on the
+    /// source (whole-photo renders, exports).
+    pub color_noise_measurement: Option<Box<crate::color_noise::NoiseMeasurement>>,
+    /// Where the render's source lies in the photograph it is a region of
+    /// (the multi-view cells and the second window zoomed in): the render
+    /// then runs as a window of a render of the whole photograph, so that
+    /// every term that follows the photo's size (the short side's `scale`:
+    /// luminance noise reduction, sharpening, Clarity, blurs, Vignette,
+    /// grain, Glow …) and its position in it takes the whole photograph's.
+    /// `None`: the source is the whole photograph (exports, the Develop view).
+    pub photo_placement: Option<PhotoPlacement>,
+    /// What a drag's display frame may approximate (G76/GRN3); never set
+    /// for an export or a settled frame.
+    pub drag_effects: DragEffects,
 }
+
+/// A render source's place in the photograph it is a region of
+/// (`PreparedAdjustments::photo_placement`): the photograph's size and the
+/// source's top left in it, in the source's pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PhotoPlacement {
+    pub photo_width: u32,
+    pub photo_height: u32,
+    pub x: u32,
+    pub y: u32,
+}
+
+/// Effects a drag's display frame computes at half resolution, once per
+/// 2 x 2 pixels (G76/GRN3): the settled frame and every export compute
+/// them per pixel, and nothing here changes them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DragEffects {
+    /// Glow's and halation's terms (the blurred photo through exposure and
+    /// the tone stage), applied to each pixel's own colour.
+    pub half_terms: bool,
+    /// Film grain (`grainVersion` 3 on): the grain field of each block,
+    /// applied to each pixel's own colour. Not in a drag of a grain
+    /// control, which shows the grain being set as it settles.
+    pub half_grain: bool,
+}
+
 impl std::ops::Deref for PreparedAdjustments {
     type Target = AllAdjustments;
     fn deref(&self) -> &Self::Target {
@@ -4933,6 +4977,9 @@ impl From<AllAdjustments> for PreparedAdjustments {
             detail_pass_export: false,
             curve_table: None,
             lut_file_stage: false,
+            color_noise_measurement: None,
+            photo_placement: None,
+            drag_effects: DragEffects::default(),
         }
     }
 }
@@ -6247,9 +6294,14 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// clip, so fewer of them end at a channel's maximum
 /// (`GAMUT_KNEE_RENDER_VERSION`). 13 (2026-11-15) exports compute noise
 /// reduction and sharpening in a pass of their own
-/// (`DETAIL_PASS_EXPORT_RENDER_VERSION`).
+/// (`DETAIL_PASS_EXPORT_RENDER_VERSION`). 14 (2026-11-20) moves each camera
+/// plane of a DNG's embedded lens warp by its own coefficients, as the DNG
+/// specification defines them, instead of each output channel
+/// (`image_loader::CAMERA_PLANE_WARP_RENDER_VERSION`): a lateral chromatic
+/// aberration correction in the file (a DJI Osmo Action) moves the camera
+/// colours as the specification defines; other files develop as 13.
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 13;
+pub const RENDER_VERSION: u64 = 14;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the
@@ -6874,6 +6926,9 @@ fn get_all_adjustments_with_locals<'a>(
         detail_pass_export: versions.render.detail_pass_export(),
         curve_table,
         lut_file_stage: versions.lut.file_stage(),
+        color_noise_measurement: None,
+        photo_placement: None,
+        drag_effects: DragEffects::default(),
         uniforms: Box::new(AllAdjustments {
             global,
             mask_adjustments,

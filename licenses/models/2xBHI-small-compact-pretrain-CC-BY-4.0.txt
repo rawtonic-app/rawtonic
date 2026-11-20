@@ -10,6 +10,9 @@ Changes made by Rawtonic: the weights are unchanged; scripts/models/export_super
 exports them as an ONNX model (superres_compact_x2.onnx, fp32) and a Core ML
 program (superres_coreml_*, fp16 computation) that enlarge each 512 x 512 tile in
 its four right-angle rotations, average the results and clamp them to 0..1.
+scripts/models/convert_superres_fp16.py converts that ONNX model for GPUs
+(superres_compact_x2_fp16.onnx): the weights rounded to fp16 and fp16
+computation, fp32 input and output.
 The author does not endorse Rawtonic.
 
 The license text follows.

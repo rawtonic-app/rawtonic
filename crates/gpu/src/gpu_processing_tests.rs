@@ -9650,6 +9650,145 @@ fn effect_passes_frame_cost_probe() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; prints what grain costs per display frame"]
+fn grain_frame_cost_probe() {
+    // A measurement, not a check (G76/GRN1): whole display frames through
+    // the effect passes at the Radeon 680M's preview sizes (1024 x 682 the
+    // default fit view without grain, 1608 x 1072 with grain, 2048 x 1366
+    // with native DPI), for a Basic edit, the same with the first grain
+    // (grainVersion 1: the main pass stores the colour, the finish pass adds
+    // a hash grain), with film grain (grainVersion 3, the default of new
+    // edits) monochrome and in colour, with Glow + Halation (terms pass) and
+    // with all three, and (G76/GRN3) a drag's frames of the effects
+    // (`DragEffects`: terms and film grain once per 2 x 2 pixels). Each
+    // frame changes Exposure; the time runs until the GPU has finished the
+    // frame. Modes take turns, five frames each.
+    // `RAWTONIC_GRAIN_PROBE_SIZES=WxH,...` picks other sizes.
+    let context = context();
+    let _limit = DeviceCompileLimit::set(&context);
+    let sizes: Vec<(u32, u32)> = std::env::var("RAWTONIC_GRAIN_PROBE_SIZES")
+        .ok()
+        .map(|sizes| {
+            sizes
+                .split(',')
+                .map(|size| {
+                    let (w, h) = size.split_once('x').unwrap();
+                    (w.parse().unwrap(), h.parse().unwrap())
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| vec![(1024, 682), (1608, 1072), (2048, 1366)]);
+    let basic = json!({"exposure":0.3,"contrast":20,"shadows":25,"whites":-10,"vibrance":20,
+        "clarity":15,"toneVersion":18});
+    let with = |effects: serde_json::Value| {
+        let mut profile = basic.clone();
+        for (key, value) in effects.as_object().unwrap() {
+            profile[key] = value.clone();
+        }
+        profile
+    };
+    let film = json!({"grainAmount":40,"grainSize":25,"grainRoughness":50,"grainVersion":3});
+    let modes = [
+        ("basic", basic.clone()),
+        (
+            "grain_v1",
+            with(json!({"grainAmount":40,"grainSize":25,"grainRoughness":50})),
+        ),
+        ("film_grain", with(film.clone())),
+        (
+            "film_grain_colour",
+            with(json!({"grainAmount":40,"grainSize":25,
+            "grainRoughness":50,"grainVersion":3,"grainColor":100})),
+        ),
+        (
+            "glow_halation",
+            with(json!({"glowAmount":30,"halationAmount":30})),
+        ),
+        (
+            "all",
+            with(json!({"glowAmount":30,"halationAmount":30,"grainAmount":40,
+            "grainSize":25,"grainRoughness":50,"grainVersion":3})),
+        ),
+    ];
+    for (width, height) in sizes {
+        let view = input(&context, width, height, 31);
+        let processor = effect_pass_processor(&context, width, height, true);
+        let mut adjustments = modes
+            .iter()
+            .map(|(_, profile)| get_all_adjustments_from_json(profile, true, Some(3)))
+            .collect::<Vec<_>>();
+        // A drag's frames of the effects (G76/GRN3).
+        for drag in [4, 5, 2, 3] {
+            let mut frame = adjustments[drag].clone();
+            frame.drag_effects.half_terms = true;
+            frame.drag_effects.half_grain = true;
+            adjustments.push(frame);
+        }
+        for adjustments in &adjustments {
+            prepare_preview_pipeline(&processor, preview_features(adjustments));
+        }
+        let names = modes
+            .iter()
+            .map(|(name, _)| *name)
+            .chain([
+                "glow_halation_drag",
+                "all_drag",
+                "film_grain_drag",
+                "film_grain_colour_drag",
+            ])
+            .collect::<Vec<_>>();
+        let mut times = vec![Vec::new(); names.len()];
+        for round in 0..14 {
+            for (mode, adjustments) in adjustments.iter().enumerate() {
+                for frame in 0..5 {
+                    let mut adjustments = adjustments.clone();
+                    adjustments.uniforms.global.exposure += 0.01 * (1 + frame) as f32;
+                    let started = Instant::now();
+                    processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments,
+                                mask_bitmaps: &[],
+                                lut: None,
+                                roi: None,
+                            },
+                            true,
+                            RenderOutputPrecision::EightBit,
+                        )
+                        .unwrap();
+                    let _ = context.device.poll(wgpu::PollType::wait_indefinitely());
+                    // The first rounds build the blurs and the detail cache
+                    // and compile the passes.
+                    if round >= 2 {
+                        times[mode].push(started.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+            }
+        }
+        effect_passes::FORCED.with(|forced| forced.set(None));
+        let medians = times
+            .into_iter()
+            .map(|mut times| {
+                times.sort_by(f64::total_cmp);
+                times[times.len() / 2]
+            })
+            .collect::<Vec<_>>();
+        let mp = f64::from(width * height) / 1e6;
+        for (name, median) in names.iter().zip(&medians) {
+            println!(
+                "{}",
+                json!({"probe":"grain_frame_cost","edit":name,"width":width,"height":height,
+                    "median_ms":median,"added_ms":median - medians[0],
+                    "added_ms_per_mp":(median - medians[0]) / mp})
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; prints what the tone split costs per drag step"]
 fn tone_split_drag_render_time() {
     // A measurement, not a check (G76/COLD4): display frames at 2560 x
@@ -18814,6 +18953,508 @@ fn render_source(
     .unwrap()
 }
 
+/// `profile` rendered from `image` (8-bit), with `measurement` given.
+fn render_region_source(
+    context: &GpuContext,
+    image: &DynamicImage,
+    profile: &serde_json::Value,
+    measurement: Option<rawtonic_engine::color_noise::NoiseMeasurement>,
+) -> image::RgbaImage {
+    let processor = ProcessorSlot::new(None);
+    let cache = Mutex::new(None);
+    let mut adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+    adjustments.color_noise_measurement = measurement.map(Box::new);
+    process_and_get_dynamic_image_inner(
+        context,
+        &processor,
+        &cache,
+        RenderSource::Image {
+            image,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments,
+            mask_bitmaps: &[],
+            lut: None,
+            roi: None,
+        },
+        "test",
+        RenderOutputPrecision::EightBit,
+        false,
+        None,
+        None,
+        ReadbackShader::Export,
+    )
+    .unwrap()
+    .to_rgba8()
+}
+
+/// Differences (max, p99, mean in codes) of `region` rendered from its own
+/// pixels against the same pixels of `whole`, leaving out `inset` px at the
+/// region's sides inside the photograph.
+fn region_differences(
+    whole: &image::RgbaImage,
+    region: &image::RgbaImage,
+    (x0, y0): (u32, u32),
+    inset: u32,
+) -> (i32, i32, f64) {
+    let (w, h) = region.dimensions();
+    let left = if x0 == 0 { 0 } else { inset };
+    let top = if y0 == 0 { 0 } else { inset };
+    let right = if x0 + w == whole.width() {
+        w
+    } else {
+        w - inset
+    };
+    let bottom = if y0 + h == whole.height() {
+        h
+    } else {
+        h - inset
+    };
+    let mut diffs = Vec::new();
+    for y in top..bottom {
+        for x in left..right {
+            let (a, b) = (region.get_pixel(x, y), whole.get_pixel(x0 + x, y0 + y));
+            for c in 0..3 {
+                diffs.push((a[c] as i32 - b[c] as i32).abs());
+            }
+        }
+    }
+    let mean = diffs.iter().map(|d| *d as f64).sum::<f64>() / diffs.len() as f64;
+    diffs.sort_unstable();
+    (
+        diffs[diffs.len() - 1],
+        diffs[(diffs.len() - 1) * 99 / 100],
+        mean,
+    )
+}
+
+/// A noisy frame with a brightness ramp (the noise profile has several
+/// bins).
+fn ramped_chroma_noise_frame(width: u32, height: u32) -> DynamicImage {
+    let rgb = chroma_noise_frame(width, height).to_rgb32f();
+    DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let k = 0.15 + 1.5 * x as f32 / width as f32 + 0.3 * (y as f32 / height as f32);
+        image::Rgb(rgb.get_pixel(x, y).0.map(|v| v * k))
+    }))
+}
+
+/// A region of a photograph (the multi-view cells and the second window
+/// zoomed in) renders as the same pixels of the whole photograph with the
+/// colour noise reduction on when it is given the whole photograph's
+/// measurement, its origin lies on `REGION_NOISE_GRID` and it reaches
+/// `REGION_NOISE_MARGIN` beyond what is compared: within 1 code, as without
+/// the filter. Measured on its own (the region's measurement) or off the
+/// grid, it differed by up to 6–10 codes (NRR1).
+#[test]
+#[ignore = "requires a native GPU"]
+fn regions_filter_colour_noise_as_the_whole_photograph() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let image = ramped_chroma_noise_frame(fw, fh);
+    let margin = REGION_NOISE_MARGIN;
+    // Inside, and reaching the photograph's right and bottom edges.
+    let crops = [(512, 352, 1408, 1088), (1344, 960, 1056, 840)];
+    for profile in [
+        json!({ "colorNoiseReduction": 25, "colorNoiseVersion": 11 }),
+        json!({ "colorNoiseReduction": 100, "colorNoiseVersion": 11 }),
+        json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 10 }),
+    ] {
+        let whole = render_region_source(&context, &image, &profile, None);
+        let processor = ProcessorSlot::new(None);
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        assert!(measures_noise(&adjustments.global));
+        let measured = measure_color_noise(&context, &processor, &image, &adjustments, "test")
+            .unwrap()
+            .expect("a measurement");
+        for (x, y, w, h) in crops {
+            assert_eq!((x % REGION_NOISE_GRID, y % REGION_NOISE_GRID), (0, 0));
+            let crop = image.crop_imm(x, y, w, h);
+            let region = render_region_source(&context, &crop, &profile, Some(measured));
+            let (max, p99, mean) = region_differences(&whole, &region, (x, y), margin);
+            let own = render_region_source(&context, &crop, &profile, None);
+            let (own_max, ..) = region_differences(&whole, &own, (x, y), margin);
+            println!(
+                "{profile} region {x},{y} {w}x{h}: max {max} p99 {p99} mean {mean:.3}; measured on its own max {own_max}"
+            );
+            assert!(max <= 1, "{profile} region {x},{y}: max {max}");
+        }
+        // Off the grid, the coarse levels sample other pixels (8–9 codes).
+        let (x, y, w, h) = (530, 333, 1408, 1088);
+        let region = render_region_source(
+            &context,
+            &image.crop_imm(x, y, w, h),
+            &profile,
+            Some(measured),
+        );
+        let (max, ..) = region_differences(&whole, &region, (x, y), margin);
+        println!("{profile} region off the grid {x},{y}: max {max}");
+        assert!(max > 1, "off the grid the test no longer tells");
+    }
+    // Without a noise reduction nothing is measured.
+    let off = get_all_adjustments_from_json(&json!({ "colorNoiseReduction": 0 }), true, Some(1));
+    assert!(!measures_noise(&off.global));
+}
+
+/// `profile` rendered (8-bit, export shader) from `region`, the part of a
+/// `photo` sized photograph at `at`, with `measurement` given; as a window
+/// of the photograph (`PreparedAdjustments::photo_placement`) or, with
+/// `placed` false, as an image of its own (before NRR2).
+fn render_placed_region(
+    context: &GpuContext,
+    region: &DynamicImage,
+    profile: &serde_json::Value,
+    measurement: Option<rawtonic_engine::color_noise::NoiseMeasurement>,
+    (photo, at): ((u32, u32), (u32, u32)),
+    placed: bool,
+    masks: &[Arc<MaskBitmap>],
+) -> image::RgbaImage {
+    render_placed_region_with(
+        context,
+        region,
+        profile,
+        measurement,
+        (photo, at),
+        placed,
+        masks,
+        ReadbackShader::Export,
+    )
+}
+
+/// [`render_placed_region`] with `shader` (the multi-view cells and the
+/// second window develop with `ReadbackShader::Display`).
+#[allow(clippy::too_many_arguments)]
+fn render_placed_region_with(
+    context: &GpuContext,
+    region: &DynamicImage,
+    profile: &serde_json::Value,
+    measurement: Option<rawtonic_engine::color_noise::NoiseMeasurement>,
+    (photo, at): ((u32, u32), (u32, u32)),
+    placed: bool,
+    masks: &[Arc<MaskBitmap>],
+    shader: ReadbackShader,
+) -> image::RgbaImage {
+    let processor = ProcessorSlot::new(None);
+    let cache = Mutex::new(None);
+    let mut adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+    adjustments.color_noise_measurement = measurement.map(Box::new);
+    adjustments.photo_placement = placed.then_some(crate::image_processing::PhotoPlacement {
+        photo_width: photo.0,
+        photo_height: photo.1,
+        x: at.0,
+        y: at.1,
+    });
+    process_and_get_dynamic_image_inner(
+        context,
+        &processor,
+        &cache,
+        RenderSource::Image {
+            image: region,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments,
+            mask_bitmaps: masks,
+            lut: None,
+            roi: None,
+        },
+        "test",
+        RenderOutputPrecision::EightBit,
+        false,
+        None,
+        None,
+        shader,
+    )
+    .unwrap()
+    .to_rgba8()
+}
+
+/// The recipes whose terms follow the photo's size or position (NRR2).
+fn size_dependent_recipes() -> Vec<(&'static str, serde_json::Value)> {
+    vec![
+        ("luma 25", json!({ "lumaNoiseReduction": 25 })),
+        ("luma 50", json!({ "lumaNoiseReduction": 50 })),
+        ("luma 100", json!({ "lumaNoiseReduction": 100 })),
+        (
+            "colour 60 + luma 30",
+            json!({ "colorNoiseReduction": 60, "colorNoiseVersion": 11, "lumaNoiseReduction": 30 }),
+        ),
+        (
+            "colour 50 v10 + luma 30",
+            json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 10, "lumaNoiseReduction": 30 }),
+        ),
+        ("sharpness 60", json!({ "sharpness": 60 })),
+        ("clarity 50", json!({ "clarity": 50 })),
+        ("structure 50", json!({ "structure": 50 })),
+        ("texture 50", json!({ "texture": 50 })),
+        ("dehaze 30", json!({ "dehaze": 30 })),
+        ("centré 40", json!({ "centré": 40 })),
+        ("vignette -50", json!({ "vignetteAmount": -50 })),
+        ("grain 50", json!({ "grainAmount": 50 })),
+        ("glow 50", json!({ "glowAmount": 50 })),
+        ("halation 50", json!({ "halationAmount": 50 })),
+    ]
+}
+
+/// A region of a photograph renders as the same pixels of the whole
+/// photograph with every term that follows the photo's size or position
+/// on (luminance noise reduction, sharpening, Clarity, Structure, Texture,
+/// Dehaze, Centré, Vignette, grain, Glow, Halation) when it renders as a
+/// window of the photograph (`photo_placement`): byte for byte with the
+/// export shader, within 1 code with the display variants (8-bit dither),
+/// `REGION_NOISE_MARGIN` inside the region's cut edges. Rendered as an
+/// image of its own it differed by up to 8–26 codes
+/// with luminance noise reduction (NRR1; numbers in NRR2's report).
+#[test]
+#[ignore = "requires a native GPU"]
+fn regions_render_as_windows_of_the_whole_photograph() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let image = ramped_chroma_noise_frame(fw, fh);
+    let inset = REGION_NOISE_MARGIN;
+    // Inside, at the right and bottom edges, at the top left corner, as
+    // tall as the photograph, and off the colour noise grid (the window
+    // starts on it).
+    let crops = [
+        (512, 352, 1408, 1088),
+        (1344, 960, 1056, 840),
+        (0, 0, 960, 800),
+        (416, 0, 1408, 1800),
+        (530, 333, 1408, 1088),
+    ];
+    let mut worst = Vec::new();
+    for (name, profile) in size_dependent_recipes() {
+        let whole = render_region_source(&context, &image, &profile, None);
+        // The display shader variants the cells develop with.
+        let display = |source: &DynamicImage, place: ((u32, u32), (u32, u32)), placed: bool| {
+            render_placed_region_with(
+                &context,
+                source,
+                &profile,
+                None,
+                place,
+                placed,
+                &[],
+                ReadbackShader::Display,
+            )
+        };
+        let whole_display = display(&image, ((fw, fh), (0, 0)), false);
+        let processor = ProcessorSlot::new(None);
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let measured = measures_noise(&adjustments.global)
+            .then(|| measure_color_noise(&context, &processor, &image, &adjustments, "test"))
+            .transpose()
+            .unwrap()
+            .flatten();
+        for (x, y, w, h) in crops {
+            let crop = image.crop_imm(x, y, w, h);
+            let place = ((fw, fh), (x, y));
+            let region =
+                render_placed_region(&context, &crop, &profile, measured, place, true, &[]);
+            let (max, p99, mean) = region_differences(&whole, &region, (x, y), inset);
+            let own = render_placed_region(&context, &crop, &profile, measured, place, false, &[]);
+            let (own_max, own_p99, own_mean) = region_differences(&whole, &own, (x, y), inset);
+            let mut display_region = display(&crop, place, true);
+            if measured.is_some() {
+                display_region = render_placed_region_with(
+                    &context,
+                    &crop,
+                    &profile,
+                    measured,
+                    place,
+                    true,
+                    &[],
+                    ReadbackShader::Display,
+                );
+            }
+            let (d_max, d_p99, d_mean) =
+                region_differences(&whole_display, &display_region, (x, y), inset);
+            println!(
+                "{name}: region {x},{y} {w}x{h}: window max {max} p99 {p99} mean {mean:.3}; display window max {d_max} p99 {d_p99} mean {d_mean:.3}; own image max {own_max} p99 {own_p99} mean {own_mean:.3}"
+            );
+            worst.push((name, x, y, max, d_max));
+        }
+    }
+    // Byte for byte with the export shader; the display variants within
+    // 1 code (their 8-bit dither's phase).
+    let failed: Vec<_> = worst
+        .iter()
+        .filter(|(.., max, d_max)| *max > 0 || *d_max > 1)
+        .collect();
+    assert!(failed.is_empty(), "regions beyond 0 / 1 code: {failed:?}");
+}
+
+/// Timing of a 100 % region (1167 x 894, a multi-view cell with its reach)
+/// of a 24 MP photograph rendered as an image of its own and as a window
+/// of the photograph (with its edges extended by the render's reach).
+#[test]
+#[ignore = "native GPU timing probe"]
+fn placed_region_cost_probe() {
+    let context = context();
+    let (fw, fh) = (6000, 4000);
+    let (x, y, w, h) = (2400, 1600, 1167, 894);
+    let crop = ramped_chroma_noise_frame(fw, fh).crop_imm(x, y, w, h);
+    for profile in [
+        json!({ "lumaNoiseReduction": 30 }),
+        json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11, "lumaNoiseReduction": 30, "clarity": 30, "sharpness": 40 }),
+    ] {
+        for placed in [false, true] {
+            for run in 0..4 {
+                let start = std::time::Instant::now();
+                render_placed_region(
+                    &context,
+                    &crop,
+                    &profile,
+                    None,
+                    ((fw, fh), (x, y)),
+                    placed,
+                    &[],
+                );
+                println!(
+                    "{profile} placed {placed} run {run}: {:.1} ms",
+                    start.elapsed().as_secs_f64() * 1e3
+                );
+            }
+        }
+    }
+}
+
+/// A placed region whose window (the region and the render's reach) would
+/// exceed the GPU's texture limit renders as an image of its own, as before
+/// placements existed, instead of reaching the over-limit window renderer
+/// with the photograph's coordinates.
+#[test]
+#[ignore = "requires a native GPU"]
+fn placed_regions_beyond_the_texture_limit_render_on_their_own() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let image = ramped_chroma_noise_frame(fw, fh);
+    let (x, y, w, h) = (512, 352, 1408, 1088);
+    let crop = image.crop_imm(x, y, w, h);
+    let profile = json!({ "lumaNoiseReduction": 50 });
+    // The region fits, its window (with the margin on both sides) does not.
+    let limited = limited_context(&context, 1500);
+    let render = |context: &GpuContext, placed: bool| {
+        render_placed_region(
+            context,
+            &crop,
+            &profile,
+            None,
+            ((fw, fh), (x, y)),
+            placed,
+            &[],
+        )
+    };
+    let fallback = render(&limited, true);
+    assert_eq!(fallback.dimensions(), (w, h));
+    assert_eq!(fallback, render(&limited, false));
+    assert_eq!(fallback, render(&context, false));
+}
+
+/// A placed region with Light flare keeps the photograph's size and place
+/// (Vignette here) and builds the flare's map over the photograph's frame
+/// from its own pixels, without light outside it: on a dark photograph
+/// whose lights all lie in the region it renders as the whole one, also
+/// with a light in the region's last columns (repeating the region's edge
+/// stretched it across the taps beyond, NRR2 review round 3).
+#[test]
+#[ignore = "requires a native GPU"]
+fn placed_regions_keep_their_place_with_light_flare() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let (x, y, w, h) = (512, 352, 1408, 1088);
+    let profile = json!({ "flareAmount": 60, "vignetteAmount": -50 });
+    // A lamp in the middle, and one in the region's last 24 columns.
+    for (name, (cx, cy), radius) in [
+        ("lamp in the middle", (x + w / 2, y + h / 2), 120.0),
+        ("lamp in the last columns", (x + w - 12, y + h / 2), 12.0),
+    ] {
+        let image = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(fw, fh, |px, py| {
+            let d = (px as f32 - cx as f32).hypot(py as f32 - cy as f32);
+            image::Rgb([if d < radius { 4.0 } else { 0.02 }; 3])
+        }));
+        let whole = render_region_source(&context, &image, &profile, None);
+        let crop = image.crop_imm(x, y, w, h);
+        let place = ((fw, fh), (x, y));
+        let region = render_placed_region(&context, &crop, &profile, None, place, true, &[]);
+        let (max, p99, mean) = region_differences(&whole, &region, (x, y), REGION_NOISE_MARGIN);
+        let own = render_placed_region(&context, &crop, &profile, None, place, false, &[]);
+        let (own_max, ..) = region_differences(&whole, &own, (x, y), REGION_NOISE_MARGIN);
+        println!(
+            "flare + vignette, {name}: max {max} p99 {p99} mean {mean:.3}; own image max {own_max}"
+        );
+        assert!(max <= 1, "{name}: max {max}");
+        assert!(own_max > 1, "{name}: the test no longer tells");
+    }
+}
+
+/// A placed region with a mask renders as the whole photograph's pixels:
+/// its mask (cut from the photograph's) is extended with the region.
+#[test]
+#[ignore = "requires a native GPU"]
+fn placed_regions_take_their_masks() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let image = ramped_chroma_noise_frame(fw, fh);
+    let coverage: Vec<f32> = (0..fw * fh)
+        .map(|i| ((i % fw) as f32 / fw as f32).clamp(0.0, 1.0))
+        .collect();
+    let mask = MaskBitmap::from_coverage(fw, fh, &coverage);
+    let profile = json!({
+        "lumaNoiseReduction": 40,
+        "masks": [local_mask("m", json!({ "exposure": 1.0, "clarity": 40 }))]
+    });
+    let render = |source: &DynamicImage, masks: &[Arc<MaskBitmap>], place: Option<(u32, u32)>| {
+        render_placed_region(
+            &context,
+            source,
+            &profile,
+            None,
+            ((fw, fh), place.unwrap_or((0, 0))),
+            place.is_some(),
+            masks,
+        )
+    };
+    let whole = render(&image, &[Arc::new(mask.crop(0, 0, fw, fh))], None);
+    assert_ne!(whole, render(&image, &[], None), "the mask changes nothing");
+    let (x, y, w, h) = (512, 352, 1408, 1088);
+    let region = render(
+        &image.crop_imm(x, y, w, h),
+        &[Arc::new(mask.crop(x, y, w, h))],
+        Some((x, y)),
+    );
+    let (max, p99, mean) = region_differences(&whole, &region, (x, y), REGION_NOISE_MARGIN);
+    println!("masked region: max {max} p99 {p99} mean {mean:.3}");
+    assert!(max <= 1, "max {max}");
+}
+
+/// Timing of the whole-photograph measurement a region takes
+/// (`measure_color_noise`) at 24 and 61 MP.
+#[test]
+#[ignore = "native GPU timing probe"]
+fn region_noise_measurement_cost_probe() {
+    let context = context();
+    let processor = ProcessorSlot::new(None);
+    let adjustments = get_all_adjustments_from_json(
+        &json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11 }),
+        true,
+        Some(1),
+    );
+    for (w, h) in [(6000, 4000), (9504, 6336)] {
+        let image = ramped_chroma_noise_frame(w, h);
+        for run in 0..3 {
+            let start = std::time::Instant::now();
+            let measured =
+                measure_color_noise(&context, &processor, &image, &adjustments, "test").unwrap();
+            println!(
+                "{w}x{h} run {run}: measured in {:.1} ms ({})",
+                start.elapsed().as_secs_f64() * 1e3,
+                measured.is_some()
+            );
+        }
+    }
+}
+
 /// The fit view's render input (`color_noise_view::reduced_render_input`)
 /// is the export's: at full size and rendered at Color 0 it is the export's
 /// render at Color 25 / 50 (up to the 16-bit float input of the second
@@ -19428,6 +20069,7 @@ fn multiscale_color_noise_latency_probe() {
                 chroma: None,
                 chroma_gpu: None,
                 chroma_levels: None,
+                chroma_given: None,
                 spare: None,
             };
             let mut times = Vec::new();
@@ -19584,6 +20226,7 @@ fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
                 chroma: None,
                 chroma_gpu: None,
                 chroma_levels: None,
+                chroma_given: None,
                 spare: None,
             };
             let profile = json!({"colorNoiseReduction": 60, "colorNoiseVersion": version});
@@ -19677,6 +20320,7 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
             chroma: None,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare: None,
         }
     };
@@ -19761,6 +20405,7 @@ fn chroma_test_source(context: &GpuContext, image: &DynamicImage) -> GpuImageCac
         chroma: None,
         chroma_gpu: None,
         chroma_levels: None,
+        chroma_given: None,
         spare: None,
     }
 }
@@ -25009,5 +25654,726 @@ fn layer_colour_ranges_timing_probe() {
                 "height": height, "frames": t.len(), "median_ms": t[t.len() / 2],
                 "p90_ms": t[t.len() * 9 / 10]})
         );
+    }
+}
+
+fn luminance_s_curve() -> serde_json::Value {
+    json!([{"x":0,"y":0},{"x":64,"y":40},{"x":128,"y":128},{"x":192,"y":215},{"x":255,"y":255}])
+}
+
+#[test]
+#[ignore = "requires a native GPU; prepared Luminance curve of display frames against the direct one and exports"]
+fn luminance_curve_display_frames_stay_within_a_level_of_exports() {
+    // Display frames read the Luminance curve from its sampled table (or
+    // its prepared segments) and skip neutral RGB curves (preview_layers
+    // `LAYER_LUMINANCE_LUT`, `LAYER_RGB_CURVES_NEUTRAL`); exports keep the
+    // direct Hermite.
+    let context = context();
+    let (width, height) = (517, 389);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let s_curve = luminance_s_curve();
+    let lift = json!([{"x":0,"y":32},{"x":255,"y":255}]);
+    let dense: Vec<_> = (0..16)
+        .map(|i| {
+            let x = i as f64 * 17.0;
+            json!({"x": x, "y": (255.0 * (x / 255.0).powf(0.8)).round()})
+        })
+        .collect();
+    let steep = json!([{"x":0,"y":0},{"x":18,"y":1},{"x":24,"y":53},{"x":255,"y":255}]);
+    let crushed = json!([{"x":0,"y":0},{"x":24,"y":0},{"x":31,"y":53},{"x":255,"y":255}]);
+    let mut worst_change = 0;
+    for (profile, tables_expected) in [
+        (json!({"curves":{"luminance":s_curve}}), true),
+        (json!({"exposure":0.4,"curves":{"luminance":lift}}), true),
+        (json!({"curves":{"luminance":dense}}), true),
+        (
+            json!({"curves":{"luma":custom_curve()["luma"],"luminance":s_curve}}),
+            true,
+        ),
+        (
+            json!({"curves":{"version":3,"luminance":s_curve,"red":[{"x":0,"y":0},{"x":128,"y":140},{"x":255,"y":255}]}}),
+            true,
+        ),
+        (local_profile(json!({"curves":{"luminance":s_curve}})), true),
+        (
+            json!({"curves":{"luminance":lift},"masks":[local_mask("lum", json!({"curves":{"luminance":s_curve}}))]}),
+            true,
+        ),
+        // Steep shadows keep the prepared segments (the table would move a
+        // dark blue by over two levels).
+        (json!({"curves":{"luminance":steep}}), false),
+        (json!({"curves":{"luminance":crushed}}), false),
+    ] {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        prepare_preview_pipeline(&processor, preview_features(&adjustments));
+        let masks = generated_profile_masks(&profile, width, height);
+        for seed in [3, 29] {
+            let view = input(&context, width, height, seed);
+            *processor.luminance_lut_cache.lock().unwrap() = vec![None; MAX_MASKS + 1];
+            let render = |shader: ReadbackShader, direct: bool| {
+                processor
+                    .force_direct_luminance
+                    .store(direct, Ordering::Relaxed);
+                match readback_pixels(
+                    &processor,
+                    &view,
+                    (width, height),
+                    *adjustments,
+                    &masks,
+                    RenderOutputPrecision::EightBit,
+                    shader,
+                ) {
+                    RenderedPixels::U8(bytes) => bytes,
+                    RenderedPixels::U16(_) => unreachable!(),
+                }
+            };
+            let export = render(ReadbackShader::Export, false);
+            let direct = render(ReadbackShader::Display, true);
+            let prepared = render(ReadbackShader::Display, false);
+            // The smooth curves read their sampled tables, steep ones not.
+            let tables = processor.luminance_lut_cache.lock().unwrap().clone();
+            assert!(
+                tables
+                    .iter()
+                    .flatten()
+                    .all(|(_, table)| *table == tables_expected)
+                    && tables.iter().flatten().count() > 0,
+                "{profile}: Luminance tables {:?}",
+                tables
+                    .iter()
+                    .map(|t| t.as_ref().map(|(_, ok)| *ok))
+                    .collect::<Vec<_>>()
+            );
+            let worst =
+                |a: &[u8], b: &[u8]| a.iter().zip(b).map(|(x, y)| x.abs_diff(*y)).max().unwrap();
+            let differing = direct.iter().zip(&prepared).filter(|(a, b)| a != b).count();
+            let (change, direct_export, prepared_export) = (
+                worst(&direct, &prepared),
+                worst(&direct, &export),
+                worst(&prepared, &export),
+            );
+            println!(
+                "{}",
+                json!({"profile":profile.to_string().chars().take(90).collect::<String>(),"seed":seed,
+                    "prepared_vs_direct_worst":change,"prepared_vs_direct_differing":differing,
+                    "values":direct.len(),"direct_vs_export_worst":direct_export,
+                    "prepared_vs_export_worst":prepared_export})
+            );
+            assert!(
+                change <= 1,
+                "{profile}: prepared curve moved a display value by {change}"
+            );
+            assert!(
+                prepared_export <= direct_export.max(1),
+                "{profile}: display {prepared_export} levels from the export (direct {direct_export})"
+            );
+            worst_change = worst_change.max(change);
+        }
+    }
+    processor
+        .force_direct_luminance
+        .store(false, Ordering::Relaxed);
+    println!("sampled Luminance curve: at most {worst_change} level from the direct one");
+}
+
+#[test]
+#[ignore = "requires a native GPU; exports of Luminance and RGB curves under a compile limit keep their bytes"]
+fn luminance_curve_exports_under_a_compile_limit_keep_their_bytes() {
+    // Under a compile limit exports render with the display variant
+    // (8-bit: its main pass; 16-bit: its main pass and the display finish).
+    // There the neutral RGB curves are skipped (exactly what evaluating them
+    // gives) and the Luminance curve stays the direct Hermite (never its
+    // table or prepared segments): the bytes equal those with the skip off
+    // and with the display frames' sampling forced off.
+    let context = context();
+    let (width, height) = (517, 389);
+    let view = input(&context, width, height, 31);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    processor
+        .force_export_display
+        .store(true, Ordering::Relaxed);
+    let s_curve = luminance_s_curve();
+    let steep = json!([{"x":0,"y":0},{"x":18,"y":1},{"x":24,"y":53},{"x":255,"y":255}]);
+    let mut compared = 0;
+    for profile in [
+        json!({"curves":{"luminance":s_curve}}),
+        json!({"curves":{"luminance":steep}}),
+        json!({"curves":{"version":3,"luminance":s_curve}}),
+        json!({"curves":{"luma":custom_curve()["luma"],"luminance":s_curve}}),
+        local_profile(json!({"curves":{"luminance":s_curve}})),
+        json!({"curves":{"luminance":steep},"masks":[local_mask("rgb", json!({"curves":custom_curve()})), local_mask("lum", json!({"curves":{"luminance":s_curve}}))]}),
+    ] {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let masks = generated_profile_masks(&profile, width, height);
+        for precision in [
+            RenderOutputPrecision::EightBit,
+            RenderOutputPrecision::SixteenBit,
+        ] {
+            let render = |neutral_evaluated: bool, direct: bool| {
+                processor
+                    .force_neutral_rgb_curves
+                    .store(neutral_evaluated, Ordering::Relaxed);
+                processor
+                    .force_direct_luminance
+                    .store(direct, Ordering::Relaxed);
+                let (pixels, ..) = processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        RenderRequest {
+                            adjustments: adjustments.clone(),
+                            mask_bitmaps: &masks,
+                            lut: None,
+                            roi: None,
+                        },
+                        false,
+                        precision,
+                    )
+                    .unwrap();
+                match pixels {
+                    RenderedPixels::U8(bytes) => {
+                        bytes.into_iter().map(u16::from).collect::<Vec<_>>()
+                    }
+                    RenderedPixels::U16(values) => values,
+                }
+            };
+            let skipped = render(false, false);
+            assert!(
+                skipped == render(true, false),
+                "{profile}: the neutral RGB skip changed an export"
+            );
+            assert!(
+                skipped == render(false, true),
+                "{profile}: an export read the sampled Luminance curve"
+            );
+            compared += 1;
+        }
+    }
+    processor
+        .force_neutral_rgb_curves
+        .store(false, Ordering::Relaxed);
+    processor
+        .force_direct_luminance
+        .store(false, Ordering::Relaxed);
+    processor
+        .force_export_display
+        .store(false, Ordering::Relaxed);
+    println!(
+        "{compared} compile-limited Luminance exports byte-identical with and without the skip and sampling"
+    );
+}
+
+#[test]
+#[ignore = "requires a native GPU; clipping warnings with a Luminance curve as with the exports' curve"]
+fn luminance_curve_clipping_warnings_mark_as_the_direct_curve() {
+    // The table can move a value by a fraction of a level, across a
+    // warning's threshold: while the warnings show, display frames evaluate
+    // the curve directly, so every pixel gets the mark it had before.
+    let context = context();
+    let (width, height) = (517, 389);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 3);
+    for show in [json!(true), json!(0x4000_0001u32), json!(0x4000_0002u32)] {
+        let profile = json!({"exposure": -1.5, "showClipping": show,
+            "curves": {"luminance": luminance_s_curve()}});
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        prepare_preview_pipeline(&processor, preview_features(&adjustments));
+        let render = |direct: bool| {
+            processor
+                .force_direct_luminance
+                .store(direct, Ordering::Relaxed);
+            let (_, w, h, x, y) = processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments: adjustments.clone(),
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            read_texture_data_roi(
+                &context.device,
+                &context.queue,
+                &processor.test_working_texture(),
+                wgpu::Origin3d { x, y, z: 0 },
+                wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                4,
+            )
+            .unwrap()
+        };
+        let direct = render(true);
+        assert!(
+            render(false) == direct,
+            "showClipping {show}: marks differ from the direct curve"
+        );
+        let tables = processor.luminance_lut_cache.lock().unwrap().clone();
+        assert!(
+            tables.iter().all(Option::is_none),
+            "showClipping {show}: a table was built"
+        );
+    }
+    processor
+        .force_direct_luminance
+        .store(false, Ordering::Relaxed);
+}
+
+#[test]
+#[ignore = "native GPU probe; hashes of exports with Luminance curves, for a comparison with an earlier revision"]
+fn luminance_curve_export_hashes_probe() {
+    // Exports (8- and 16-bit; the export variants and, as under a compile
+    // limit, the display variant) of recipes with global and masked
+    // Luminance curves, printed as hashes. Run unchanged on two revisions;
+    // the lists must be equal.
+    use std::hash::{Hash, Hasher};
+    let context = context();
+    let (width, height) = (517, 389);
+    let s_curve = luminance_s_curve();
+    let steep = json!([{"x":0,"y":0},{"x":18,"y":1},{"x":24,"y":53},{"x":255,"y":255}]);
+    let lift = json!([{"x":0,"y":32},{"x":255,"y":255}]);
+    let profiles = [
+        json!({"curves":{"luminance":s_curve}}),
+        json!({"exposure":0.4,"curves":{"luminance":lift}}),
+        json!({"curves":{"luminance":steep}}),
+        json!({"curves":{"version":3,"luminance":s_curve,"red":[{"x":0,"y":0},{"x":128,"y":140},{"x":255,"y":255}]}}),
+        json!({"curves":{"luma":custom_curve()["luma"],"luminance":s_curve}}),
+        local_profile(json!({"curves":{"luminance":s_curve}})),
+        json!({"curves":{"luminance":lift},"masks":[local_mask("rgb", json!({"curves":custom_curve()})), local_mask("lum", json!({"curves":{"luminance":steep}}))]}),
+    ];
+    for seed in [3, 31] {
+        let view = input(&context, width, height, seed);
+        for limited in [false, true] {
+            let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+            processor
+                .force_export_display
+                .store(limited, Ordering::Relaxed);
+            for (index, profile) in profiles.iter().enumerate() {
+                let adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+                let masks = generated_profile_masks(profile, width, height);
+                for precision in [
+                    RenderOutputPrecision::EightBit,
+                    RenderOutputPrecision::SixteenBit,
+                ] {
+                    let (pixels, ..) = processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments: adjustments.clone(),
+                                mask_bitmaps: &masks,
+                                lut: None,
+                                roi: None,
+                            },
+                            false,
+                            precision,
+                        )
+                        .unwrap();
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    match pixels {
+                        RenderedPixels::U8(bytes) => bytes.hash(&mut hasher),
+                        RenderedPixels::U16(values) => values.hash(&mut hasher),
+                    }
+                    println!(
+                        "LUMINANCE_EXPORT seed={seed} limited={limited} profile={index} sixteen={} hash={:016x}",
+                        matches!(precision, RenderOutputPrecision::SixteenBit),
+                        hasher.finish()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "native GPU timing probe; Luminance curve set against unset at 6 MP"]
+fn luminance_curve_timing_probe() {
+    // A colourful 6 MP frame; display frames (8-bit, each variant compiled
+    // first) and 16-bit exports. Four requests alternate in a rotating
+    // order, so no two neighbouring requests are alike and every timed frame
+    // renders (none is reused): two without the curve and two with it, the
+    // pairs differing in Exposure ("steady": the curve's table is kept) or,
+    // for the curved pair, in a curve point ("curve_drag": the table is
+    // built for every frame). The same probe runs unchanged on an earlier
+    // revision for an A/B.
+    let context = context();
+    let (width, height) = (3000u32, 2000u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let data: Vec<f16> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let h = x as f32 / width as f32 * std::f32::consts::TAU;
+            let level = 0.05 + 0.5 * y as f32 / height as f32;
+            let c = 0.6 * (0.5 + 0.5 * (x as f32 * 0.37).sin());
+            [h.cos(), (h + 2.1).cos(), (h + 4.2).cos()]
+                .map(|v| f16::from_f32(level * (1.0 + c * v)))
+                .into_iter()
+                .chain([f16::ONE])
+        })
+        .collect();
+    let view = input_from(&context, width, height, &data);
+    let recipe = |exposure: f64, curve: Option<f64>| {
+        let mut r = json!({"exposure": exposure, "contrast": 10});
+        if let Some(y) = curve {
+            r["curves"] = json!({"luminance": luminance_s_curve()});
+            r["curves"]["luminance"][1]["y"] = json!(y);
+        }
+        get_all_adjustments_from_json(&r, true, Some(1))
+    };
+    // Per case and round: the curved pair's point moves every round while
+    // the curve is dragged, so no curved frame finds its table built.
+    let names = ["unset", "unset_b", "set", "set_b"];
+    for scenario in ["steady", "curve_drag"] {
+        let drag = scenario == "curve_drag";
+        let case = |k: usize, round: usize| match k {
+            0 => recipe(0.3, None),
+            1 => recipe(0.31, None),
+            2 if drag => recipe(0.3, Some(40.5 + 0.01 * round as f64)),
+            3 if drag => recipe(0.3, Some(41.5 + 0.01 * round as f64)),
+            2 => recipe(0.3, Some(40.0)),
+            _ => recipe(0.31, Some(40.0)),
+        };
+        for display in [true, false] {
+            if display {
+                for k in 0..names.len() {
+                    prepare_preview_pipeline(&processor, preview_features(&case(k, 0)));
+                }
+            }
+            let builds = processor.luminance_lut_builds.load(Ordering::Relaxed);
+            let mut times: Vec<Vec<f64>> = vec![Vec::new(); names.len()];
+            for round in 0..26 {
+                for k in 0..names.len() {
+                    let k = (k + round) % names.len();
+                    let adjustments = case(k, round);
+                    let start = Instant::now();
+                    let (_, w, h, ..) = processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments,
+                                mask_bitmaps: &[],
+                                lut: None,
+                                roi: None,
+                            },
+                            display,
+                            if display {
+                                RenderOutputPrecision::EightBit
+                            } else {
+                                RenderOutputPrecision::SixteenBit
+                            },
+                        )
+                        .unwrap();
+                    context
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .unwrap();
+                    assert_eq!(w * h, width * height, "every frame renders all 6 MP");
+                    // The first two rounds warm shaders and caches.
+                    if round >= 2 {
+                        times[k].push(start.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+            }
+            // Display frames: a table per curved frame while the curve is
+            // dragged, none after the first otherwise (exports build none).
+            let built = processor.luminance_lut_builds.load(Ordering::Relaxed) - builds;
+            let expected = match (display, drag) {
+                (false, _) => 0..=0,
+                (true, true) => 52..=52,
+                (true, false) => 0..=1,
+            };
+            assert!(
+                expected.contains(&built),
+                "{scenario}: {built} tables built"
+            );
+            let mut out = serde_json::Map::new();
+            out.insert(
+                "mode".into(),
+                json!(if display { "display" } else { "export16" }),
+            );
+            out.insert("scenario".into(), json!(scenario));
+            for (k, name) in names.iter().enumerate() {
+                let t = &mut times[k];
+                t.sort_by(f64::total_cmp);
+                // A reused frame takes about 0.1 ms; a 6 MP render several.
+                assert!(
+                    t[0] > 1.0,
+                    "{name}: a timed frame was not rendered ({} ms)",
+                    t[0]
+                );
+                out.insert(format!("{name}_median_ms"), json!(t[t.len() / 2]));
+                out.insert(format!("{name}_p25_ms"), json!(t[t.len() / 4]));
+                out.insert(format!("{name}_p75_ms"), json!(t[3 * t.len() / 4]));
+            }
+            println!("{}", serde_json::Value::Object(out));
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; a drag's effects frame and the settled frame after it"]
+fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
+    // G76/GRN3: a drag's display frame computes Glow's and Halation's terms
+    // and film grain once per 2 x 2 pixels (`DragEffects`). It stays close
+    // to the settled frame, and the settled frame after it (the same
+    // values, so the partial-frame path could reuse the drag's pixels)
+    // is byte for byte a settled frame rendered on its own.
+    let context = context();
+    let (width, height) = (1608, 1072);
+    // A gradient with a bright disk (above white, so glow and halation
+    // show) and the synthetic texture faintly on top.
+    let data: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let (x, y) = ((i % width) as f32, (i / width) as f32);
+            let disk = ((x - 800.0).powi(2) + (y - 500.0).powi(2)).sqrt() < 180.0;
+            let fine = ((i * 13) % 257) as f32 / 257.0 * 0.04;
+            let base = if disk {
+                3.0
+            } else {
+                0.05 + 0.5 * x / width as f32
+            };
+            [
+                f16::from_f32(base + fine),
+                f16::from_f32(base * 0.8 + 0.3 * y / height as f32),
+                f16::from_f32(base * 0.6 + fine),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = input_from(&context, width, height, &data);
+    let processor = effect_pass_processor(&context, width, height, true);
+    let render_in = |adjustments: &rawtonic_engine::image_processing::PreparedAdjustments,
+                     roi: Option<Roi>| {
+        processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: adjustments.clone(),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi,
+                },
+                true,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        let area = roi.unwrap_or(Roi {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        });
+        read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &processor.test_working_texture(),
+            wgpu::Origin3d {
+                x: area.x,
+                y: area.y,
+                z: 0,
+            },
+            wgpu::Extent3d {
+                width: area.width,
+                height: area.height,
+                depth_or_array_layers: 1,
+            },
+            4,
+        )
+        .unwrap()
+    };
+    let render = |adjustments: &rawtonic_engine::image_processing::PreparedAdjustments| {
+        render_in(adjustments, None)
+    };
+    let basic = json!({"exposure":0.3,"contrast":20,"shadows":25,"toneVersion":18});
+    let with = |effects: serde_json::Value| {
+        let mut profile = basic.clone();
+        for (key, value) in effects.as_object().unwrap() {
+            profile[key] = value.clone();
+        }
+        profile
+    };
+    let grain = json!({"grainAmount":40,"grainSize":25,"grainRoughness":50,"grainVersion":3});
+    let cases = [
+        (
+            "glow_halation",
+            with(json!({"glowAmount":60,"halationAmount":60})),
+        ),
+        ("film_grain", with(grain.clone())),
+        (
+            "all_colour_grain",
+            with(
+                json!({"glowAmount":30,"halationAmount":30,"grainAmount":40,"grainSize":25,
+                "grainRoughness":50,"grainVersion":3,"grainColor":100}),
+            ),
+        ),
+    ];
+    for (name, profile) in cases {
+        let settled = get_all_adjustments_from_json(&profile, true, Some(3));
+        prepare_preview_pipeline(&processor, preview_features(&settled));
+        let mut drag = settled.clone();
+        drag.drag_effects = rawtonic_engine::image_processing::DragEffects {
+            half_terms: true,
+            half_grain: true,
+        };
+        let exact = render(&settled);
+        let approximate = render(&drag);
+        let after_drag = render(&settled);
+        assert!(
+            exact == after_drag,
+            "{name}: the settled frame after a drag frame differs"
+        );
+        assert!(
+            exact != approximate,
+            "{name}: the drag frame is the settled one"
+        );
+        // A region on an odd column and row (a zoomed view): its blocks'
+        // first pixels lie outside it, and the drag frame must render them
+        // itself, not read what an earlier frame left in the tiles.
+        let region = Some(Roi {
+            x: 301,
+            y: 157,
+            width: 600,
+            height: 400,
+        });
+        let mut other = drag.clone();
+        other.uniforms.global.exposure += 1.0;
+        render(&other);
+        let after_other = render_in(&drag, region);
+        render(&settled);
+        let after_settled = render_in(&drag, region);
+        assert!(
+            after_other == after_settled,
+            "{name}: an odd region's drag frame depends on the frame before"
+        );
+        // Per channel: the mean signed difference (a shift of brightness or
+        // colour), the mean absolute one and the 99.9th percentile.
+        let mut abs: Vec<u8> = Vec::with_capacity(exact.len());
+        let mut signed = [0.0f64; 3];
+        for (i, (a, b)) in exact.iter().zip(&approximate).enumerate() {
+            if i % 4 < 3 {
+                signed[i % 4] += f64::from(*b) - f64::from(*a);
+                abs.push(a.abs_diff(*b));
+            }
+        }
+        let pixels = f64::from(width * height);
+        let mean_abs = abs.iter().map(|&d| f64::from(d)).sum::<f64>() / abs.len() as f64;
+        abs.sort_unstable();
+        let p999 = abs[abs.len() * 999 / 1000];
+        let shift = signed.map(|sum| sum / pixels);
+        let mut record = json!({"probe":"drag_effects","edit":name,"mean_signed_codes":shift,
+            "mean_abs_codes":mean_abs,"p999_abs_codes":p999});
+        // The grain alone (green, codes): each frame less the same render
+        // without grain, settled or a drag's. Its spread within 2 x 2
+        // blocks, and at half resolution (each block's mean against the
+        // blocks around it) its strength and how far the drag's follows
+        // the settled grain's pattern.
+        let grain_signal = |frame: &[u8], drag_frame: bool| -> Option<Vec<f64>> {
+            let mut without = profile.clone();
+            without
+                .as_object_mut()?
+                .insert("grainAmount".into(), json!(0));
+            let mut base = get_all_adjustments_from_json(&without, true, Some(3));
+            base.drag_effects = if drag_frame {
+                drag.drag_effects
+            } else {
+                Default::default()
+            };
+            let base = render(&base);
+            Some(
+                frame
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(base.as_chunks::<4>().0)
+                    .map(|(a, b)| f64::from(a[1]) - f64::from(b[1]))
+                    .collect(),
+            )
+        };
+        let (w, h) = (width as usize, height as usize);
+        let within = |g: &[f64]| {
+            let mut sum = 0.0f64;
+            for y in (0..h - 1).step_by(2) {
+                for x in (0..w - 1).step_by(2) {
+                    let at = |dx: usize, dy: usize| g[(y + dy) * w + x + dx];
+                    let mean = (at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4.0;
+                    sum += (0..4)
+                        .map(|k| (at(k % 2, k / 2) - mean).powi(2))
+                        .sum::<f64>();
+                }
+            }
+            (sum / (w / 2 * 2 * (h / 2 * 2)) as f64).sqrt()
+        };
+        let half_res = |g: &[f64]| -> Vec<f64> {
+            let (bw, bh) = (w / 2, h / 2);
+            let block: Vec<f64> = (0..bw * bh)
+                .map(|i| {
+                    let (x, y) = (i % bw * 2, i / bw * 2);
+                    (g[y * w + x] + g[y * w + x + 1] + g[(y + 1) * w + x] + g[(y + 1) * w + x + 1])
+                        / 4.0
+                })
+                .collect();
+            let mut high = Vec::with_capacity(bw * bh);
+            for y in 1..bh - 1 {
+                for x in 1..bw - 1 {
+                    let around = (0..9)
+                        .map(|k| block[(y + k / 3 - 1) * bw + x + k % 3 - 1])
+                        .sum::<f64>()
+                        / 9.0;
+                    high.push(block[y * bw + x] - around);
+                }
+            }
+            high
+        };
+        let rms = |v: &[f64]| (v.iter().map(|x| x * x).sum::<f64>() / v.len() as f64).sqrt();
+        let grain = (name != "glow_halation").then(|| {
+            let g = [
+                grain_signal(&exact, false).unwrap(),
+                grain_signal(&approximate, true).unwrap(),
+            ];
+            let high = [half_res(&g[0]), half_res(&g[1])];
+            let strength = [rms(&high[0]), rms(&high[1])];
+            let correlation = high[0]
+                .iter()
+                .zip(&high[1])
+                .map(|(a, b)| a * b)
+                .sum::<f64>()
+                / high[0].len() as f64
+                / (strength[0] * strength[1]);
+            record["grain_rms"] = json!([rms(&g[0]), rms(&g[1])]);
+            record["grain_within_2x2"] = json!([within(&g[0]), within(&g[1])]);
+            record["grain_half_res"] = json!(strength);
+            record["grain_half_res_correlation"] = json!(correlation);
+            (strength, correlation)
+        });
+        println!("{record}");
+        // No shift of the frame's brightness or colour while dragging.
+        for channel in shift {
+            assert!(channel.abs() < 0.5, "{name}: mean shift {shift:?} codes");
+        }
+        match grain {
+            // The terms come from the blurred photo: the coarser drag frame
+            // is within a code or two of the settled one.
+            None => assert!(mean_abs < 0.5 && p999 <= 3, "{name}: {mean_abs} / {p999}"),
+            // The settled grain seen at half resolution: most of its
+            // strength and the same pattern.
+            Some((strength, correlation)) => assert!(
+                strength[1] > 0.85 * strength[0] && correlation > 0.8,
+                "{name}: {strength:?}, correlation {correlation}"
+            ),
+        }
     }
 }

@@ -588,7 +588,9 @@ variant of a new RAW edit compiles ahead after the first display variant (`compi
 display variant is the main pass between two small passes of the same display source (`effect_passes.rs`: a terms pass
 for glow and halation before it; with grain, and for exports that encode per output, a finish pass after it with grain,
 the warnings, the output encoding and the histogram's image), its main pass split at the tone stage into two parts
-before it (`tone_split.rs`); exports without a compile limit keep their own one-pass export variants;
+before it (`tone_split.rs`); a drag's frame (`DragEffects`, set only by the editor preview) runs the terms pass
+and, with film grain, a grain field pass over 2 x 2 blocks, which the main and finish passes read per pixel;
+exports without a compile limit keep their own one-pass export variants;
 `memory_turns`: on an integrated GPU under a compile limit an idle compile, an export and a masking network on the CPU
 take turns (`src-tauri/src/ai_lifecycle.rs` `turn`, `export_turn`).
 

@@ -2418,7 +2418,7 @@
       "build": "this build",
       "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
       "creditDescriptions": {
-        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion).",
+        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
@@ -2441,7 +2441,7 @@
         "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
         "NegPy": "Inspiration for the negative conversion.",
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
-        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
@@ -5363,7 +5363,7 @@
           "shadowSplit": "Sombras"
         },
         "region": "Regiones",
-        "splitHint": "{{name}}: {{value}}. Arrastra o usa las flechas; doble clic para escribir un valor",
+        "splitHint": "{{name}}: {{value}}. Arrastra o usa las flechas; doble clic para restablecer, Intro para escribir un valor",
         "splits": "Divisiones"
       }
     },

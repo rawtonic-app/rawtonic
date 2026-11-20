@@ -860,6 +860,10 @@ export interface LoadImageResult {
   /** The source's clipped colours were rebuilt from colour ratios
    * (`renderVersion` 9); null for preview data. */
   highlight_ratios?: boolean | null;
+  /** The source DNG's lens warp moved the camera planes (`renderVersion`
+   * 14); null for preview data and for files whose decode it never changes
+   * (no lens warp with different coefficients per plane). */
+  camera_plane_warp?: boolean | null;
   /** The RAW data could not be developed; the camera's embedded preview is
    * shown. */
   developed_from_preview?: boolean;
@@ -940,6 +944,12 @@ export interface SelectedImage {
   highlightRatios?: boolean;
   /** A highlight rebuild the source failed to develop for (not retried). */
   highlightRatiosFailed?: boolean;
+  /** The decoded DNG's lens warp moved the camera planes (`cameraPlaneWarp`
+   * in src/utils/adjustments.ts); unknown for preview data and for files
+   * whose decode it never changes (`warpPlanesMatter`). */
+  cameraPlaneWarp?: boolean;
+  /** A lens warp the source failed to develop for (not retried). */
+  cameraPlaneWarpFailed?: boolean;
   /** The RAW is offline: the photograph shows (and is edited on) this preview. */
   offline?: OfflinePreview | null;
   unsupportedNikonHighEfficiency?: boolean;
@@ -1020,7 +1030,7 @@ export interface VectorscopeTarget {
   y: number;
 }
 
-/** Scope images (RGBA, base64; empty when not computed) from `analytics-update` (`WaveformData` in scopes.rs). */
+/** Scope images from `analytics-update`: each the id of its PNG on the `rawtonic-scope` scheme, empty when not computed (`WaveformUpdate` in scope_images.rs). */
 export interface WaveformData {
   height: number;
   luma: string;
@@ -1038,6 +1048,9 @@ export interface HistogramData {
   green: Array<number>;
   luma: Array<number>;
   red: Array<number>;
+  /** Red, green, blue, luma: factors that draw the per-channel bins on one
+   * scale (`displayHistogramBins`). */
+  displayScale?: [number, number, number, number];
   clippedShadows?: boolean;
   clippedHighlights?: boolean;
   /** Which of red, green, blue reach code 0 / code 255. */

@@ -6,7 +6,8 @@ import { installRenderCensus, startRenderCensus, takeRenderCensus } from '../../
 installRenderCensus(globalThis);
 
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn((name: string) => Promise.resolve(name === 'load_metadata' ? {} : undefined))
+  invoke: vi.fn((name: string) => Promise.resolve(name === 'load_metadata' ? {} : undefined)),
+  convertFileSrc: (id: string, scheme: string) => `${scheme}://localhost/${id}`
 }));
 
 let rtl: typeof import('@testing-library/react');
@@ -245,16 +246,16 @@ describe('Develop renders during a slider drag with 200 photographs selected', (
 });
 
 describe('scope updates', () => {
-  const bins = (peak: number) => Array.from({ length: 256 }, (_, i) => (i === peak ? 100 : 1));
+  const bins = (peak: number) => Array.from({ length: 256 }, (_, i) => (i === peak ? 1 : 0.01));
   const update = (peak: number) =>
     rtl.act(() =>
       useEditorStore.setState({
         histogram: { red: bins(peak), green: bins(peak), blue: bins(peak), luma: bins(peak) } as never,
-        // A 1×1 PNG stands for each scope image.
+        // Each scope image by its id (scope_images.rs).
         waveform: {
           width: 256,
           height: 256,
-          luma: `iVBORw0KGgo${peak}`,
+          luma: `00000000-0000-4000-8000-${String(peak).padStart(12, '0')}`,
           skinLineDegrees: 123,
           vectorscopeTargets: []
         } as never
@@ -281,7 +282,7 @@ describe('scope updates', () => {
     // Yet every display shows the new data.
     const after = [plot(), curve(), scope()];
     after.forEach((value, i) => expect(value).not.toBe(before[i]));
-    expect(scope()).toBe('data:image/png;base64,iVBORw0KGgo200');
+    expect(scope()).toBe('rawtonic-scope://localhost/00000000-0000-4000-8000-000000000200');
   });
 
   it('re-render the histogram panel when a clipping triangle changes', () => {
