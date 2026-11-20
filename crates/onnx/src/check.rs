@@ -31,7 +31,7 @@
 //! A check holds at most one CPU session of its model: an idle check runs
 //! its CPU part on the session of the model waiting on the CPU, a check
 //! before use on a session of its own that is dropped before the GPU
-//! session is made (`on_cpu_session`, G76/AIM1).
+//! session is made (`CpuSession`, G76/AIM1).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -43,7 +43,9 @@ use anyhow::{Result, anyhow};
 use ort::session::{RunOptions, Session};
 
 use crate::background::{Ran, Scheduler, Stop};
-use crate::bench::{Input, Output, Picture, compare, disagreement, inputs_for, run_once_with};
+use crate::bench::{
+    Input, Output, Picture, compare, disagreement, input_specs, inputs_from, run_once_with,
+};
 use crate::watch::{Held, Slot};
 use crate::{Device, ModelKind, Provider};
 
@@ -329,66 +331,70 @@ pub(crate) struct CpuRun {
     time: Duration,
 }
 
-/// Runs `f` on the check's CPU session: `borrowed`, the session of the
-/// model the app loaded on the CPU while this check waits, else one made by
-/// `create` and dropped before this returns. So a check never makes a
-/// second CPU session of a model beside the loaded one (in the app's idle
-/// checks it did: about 1 GB more for BiRefNet, and its build time), and
-/// the GPU session the check makes next never lives beside a CPU session
-/// of the check's own (G76/AIM1).
-fn on_cpu_session<S, T>(
-    borrowed: Option<Arc<Held<S>>>,
-    create: impl FnOnce() -> Result<S>,
-    f: impl FnOnce(&mut S) -> T,
-) -> Result<T> {
-    match borrowed {
-        Some(held) => Ok(held.with(f)),
-        None => {
-            let mut session = create()?;
-            Ok(f(&mut session))
+/// The check's CPU session: `Borrowed`, the session of the model the app
+/// loaded on the CPU while this check waits, or `Own`, made for the check
+/// and dropped with it (`cpu_run` drops it before the GPU session is made).
+/// So a check never makes a second CPU session of a model beside the
+/// loaded one (the app's idle checks did: about 1 GB more for BiRefNet,
+/// and its build time), and the GPU session never lives beside a CPU
+/// session of the check's own (G76/AIM1).
+enum CpuSession<S> {
+    Borrowed(Arc<Held<S>>),
+    Own(S),
+}
+
+impl<S> CpuSession<S> {
+    fn new(borrowed: Option<Arc<Held<S>>>, create: impl FnOnce() -> Result<S>) -> Result<Self> {
+        Ok(match borrowed {
+            Some(held) => CpuSession::Borrowed(held),
+            None => CpuSession::Own(create()?),
+        })
+    }
+
+    /// Runs `f` on the session; a borrowed one is held only for `f`.
+    fn with<T>(&mut self, f: impl FnOnce(&mut S) -> T) -> T {
+        match self {
+            CpuSession::Borrowed(held) => held.with(f),
+            CpuSession::Own(session) => f(session),
         }
     }
 }
 
 /// Runs `path` once on the CPU with the check's input, on `borrowed` when
-/// given (`on_cpu_session`); `None` when `stop` stopped it (a stopped run's
+/// given (`CpuSession`); `None` when `stop` stopped it (a stopped run's
 /// time is not the CPU's).
+///
+/// A borrowed session is held only to read the declared inputs and for
+/// the run; the inputs are made without it. A click that wants the model
+/// stops the check first (`Model::run` notes itself busy), which
+/// terminates the run (its options are registered before the run starts),
+/// so the session goes back within one operator.
 fn cpu_run(
     path: &Path,
     kind: ModelKind,
     borrowed: Option<Arc<Held<Session>>>,
     stop: &Arc<Stop>,
 ) -> Result<Option<CpuRun>> {
-    // Before the session is taken: a borrowed session is held only for
-    // the inputs' shapes and the run, and a stop (a click wants the model:
-    // `Model::run` notes itself busy first) terminates the run, so the
-    // session goes back within one operator.
     let options = stoppable(stop)?;
-    let picture = Picture::synthetic(1536, 1024);
-    on_cpu_session(
-        borrowed,
-        || crate::session(path, kind, None),
-        |cpu| {
-            if stop.stopped() {
-                return Ok(None);
-            }
-            let inputs = inputs_for(cpu, kind, &picture)?;
-            if stop.stopped() {
-                return Ok(None);
-            }
-            let t = Instant::now();
-            let reference = run_once_with(cpu, &inputs, Some(&options));
-            let time = t.elapsed();
-            if stop.stopped() {
-                return Ok(None);
-            }
-            Ok(Some(CpuRun {
-                inputs: Arc::new(inputs),
-                reference: reference?,
-                time,
-            }))
-        },
-    )?
+    let mut cpu = CpuSession::new(borrowed, || crate::session(path, kind, None))?;
+    let specs = cpu.with(|session| input_specs(session))?;
+    let inputs = inputs_from(&specs, kind, &Picture::synthetic(1536, 1024))?;
+    if stop.stopped() {
+        return Ok(None);
+    }
+    let (reference, time) = cpu.with(|session| {
+        let t = Instant::now();
+        let reference = run_once_with(session, &inputs, Some(&options));
+        (reference, t.elapsed())
+    });
+    if stop.stopped() {
+        return Ok(None);
+    }
+    Ok(Some(CpuRun {
+        inputs: Arc::new(inputs),
+        reference: reference?,
+        time,
+    }))
 }
 
 /// Run options that `stop` terminates.
@@ -413,7 +419,7 @@ enum Measured {
 
 /// Times `path` on the CPU (or takes `cpu_done`, an earlier stopped
 /// attempt's CPU run) and on `device`, and compares the outputs. The CPU
-/// run uses the session `borrowed` gives (`on_cpu_session`).
+/// run uses the session `borrowed` gives (`CpuSession`).
 fn measure(
     path: &Path,
     kind: ModelKind,
@@ -1165,9 +1171,10 @@ mod tests {
     fn a_check_before_use_drops_its_cpu_session_before_the_gpu_one() {
         use std::sync::atomic::Ordering::SeqCst;
         let (alive, peak) = counters();
-        let ran_on =
-            on_cpu_session(None, || Ok(Counted::new("cpu", &alive, &peak)), |s| s.on).unwrap();
-        assert_eq!(ran_on, "cpu");
+        // As `cpu_run`: its own session, dropped when it returns.
+        let mut cpu = CpuSession::new(None, || Ok(Counted::new("cpu", &alive, &peak))).unwrap();
+        assert_eq!(cpu.with(|s| s.on), "cpu");
+        drop(cpu);
         assert_eq!(alive.load(SeqCst), 0);
         let (a, p) = (alive.clone(), peak.clone());
         let end = gpu_runs(
@@ -1203,13 +1210,12 @@ mod tests {
             Provider::Cpu,
         ));
         let borrowed = cpu_session_of([on_gpu.clone(), waiting.clone()]);
-        let ran_on = on_cpu_session(
-            borrowed,
-            || -> Result<Counted> { panic!("a second CPU session") },
-            |s| s.on,
-        )
+        let mut cpu = CpuSession::new(borrowed, || -> Result<Counted> {
+            panic!("a second CPU session")
+        })
         .unwrap();
-        assert_eq!(ran_on, "loaded cpu");
+        assert_eq!(cpu.with(|s| s.on), "loaded cpu");
+        drop(cpu);
         assert_eq!(peak.load(SeqCst), 2);
         let gpu = Counted::new("checked gpu", &alive, &peak);
         // The loaded CPU model, the other model's GPU session and the
@@ -1222,9 +1228,35 @@ mod tests {
         assert_eq!(alive.load(SeqCst), 0);
     }
 
-    /// A click during an idle check's run on the borrowed session: its
-    /// `busy` stops the check, whose run ends at the stop (as a terminated
-    /// ONNX run does), and the click gets the session at once.
+    /// A check queued in the scheduler that runs on a borrowed session
+    /// until it is stopped (as a terminated ONNX run ends).
+    struct BorrowingJob {
+        held: Arc<Held<Counted>>,
+        running: Mutex<std::sync::mpsc::Sender<()>>,
+    }
+
+    fn run_borrowing(job: &BorrowingJob, stop: &Arc<Stop>) -> Ran {
+        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = stopped.clone();
+        stop.on_stop(move || flag.store(true, std::sync::atomic::Ordering::SeqCst));
+        let mut cpu = CpuSession::new(Some(job.held.clone()), || -> Result<Counted> {
+            panic!("a second CPU session")
+        })
+        .unwrap();
+        cpu.with(|_| {
+            job.running.lock().unwrap().send(()).unwrap();
+            let t = Instant::now();
+            while !stopped.load(std::sync::atomic::Ordering::SeqCst) {
+                assert!(t.elapsed() < Duration::from_secs(10), "never stopped");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        });
+        Ran::Stopped
+    }
+
+    /// A click during an idle check's run on the borrowed session: the
+    /// model's run notes itself busy (`Model::run`), which stops the
+    /// running check, and the click gets the session at once.
     #[test]
     fn a_click_gets_the_borrowed_session_back_when_it_stops_the_check() {
         let (alive, peak) = counters();
@@ -1233,34 +1265,22 @@ mod tests {
             Counted::new("loaded cpu", &alive, &peak),
             Provider::Cpu,
         ));
-        let stop = Stop::new();
-        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let flag = stopped.clone();
-        stop.on_stop(move || flag.store(true, std::sync::atomic::Ordering::SeqCst));
         let (running, started) = std::sync::mpsc::channel();
-        let borrowed = cpu_session_of([waiting.clone()]);
-        let check = std::thread::spawn(move || {
-            on_cpu_session(
-                borrowed,
-                || -> Result<Counted> { panic!("a second CPU session") },
-                |_| {
-                    running.send(()).unwrap();
-                    let t = Instant::now();
-                    while !stopped.load(std::sync::atomic::Ordering::SeqCst) {
-                        assert!(t.elapsed() < Duration::from_secs(10), "never stopped");
-                        std::thread::sleep(Duration::from_millis(1));
-                    }
-                },
-            )
-            .unwrap()
-        });
-        started.recv().unwrap();
+        let scheduler = Arc::new(Scheduler::new(Duration::ZERO, run_borrowing));
+        assert!(scheduler.enqueue(
+            "borrowing".to_string(),
+            BorrowingJob {
+                held: cpu_session_of([waiting.clone()]).unwrap(),
+                running: Mutex::new(running),
+            },
+        ));
+        started.recv_timeout(Duration::from_secs(10)).unwrap();
         let clicked = Instant::now();
-        stop.stop();
-        let on = waiting.session().with(|s| s.on);
-        assert_eq!(on, "loaded cpu");
+        let busy = scheduler.busy();
+        assert_eq!(waiting.session().with(|s| s.on), "loaded cpu");
         assert!(clicked.elapsed() < Duration::from_millis(500));
-        check.join().unwrap();
+        scheduler.shut();
+        drop(busy);
     }
 
     /// Without a model waiting on the CPU (it was unloaded, or moved to a
