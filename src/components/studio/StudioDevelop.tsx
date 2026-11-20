@@ -40,6 +40,7 @@ import {
   type Coord,
   type Curves,
   type GrainStructure,
+  GRAIN_KEYS,
   effectiveGrainStructure,
   isFilmGrain,
   withNewGrainStructure,
@@ -71,7 +72,7 @@ import StudioProfileBrowser from './StudioProfileBrowser';
 import StudioWhiteBalance from './StudioWhiteBalance';
 import type { CurveChannel, TatTarget } from '../../utils/targetedAdjustment';
 import { pointCurveValue, renderedLuminancePoints, renderedPoints } from '../../utils/pointCurve';
-import StudioHistogram, { histogramBins } from './StudioHistogram';
+import StudioHistogram, { displayHistogramBins } from './StudioHistogram';
 import { useEditorStoreDom } from '../../hooks/useEditorStoreDom';
 import StudioScopes from './StudioScopes';
 import { PerfProfiler } from '../../hooks/usePerformanceDiagnostics';
@@ -292,41 +293,78 @@ const SPLIT_LABELS = {
 } as const;
 /** Height of the split handles' strip under the plot, in curve units. */
 const SPLIT_STRIP = 16;
+/** How near the pointer must press to grab a curve point, in screen px
+ * (14 curve units at the former 210 px plot). */
+const CURVE_GRAB_PX = 11.5;
+const CURVE_ARROW_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
 
 const selectHistogram = (s: ReturnType<typeof useEditorStore.getState>) => s.histogram;
 
-/** The `d` of the photo's histogram behind the curve (square-root scale,
- * 255 × 240), the shown channel's; the RGB and Luminance curves show the
- * luminance one. Null without one. */
-export function curveHistogramPath(histogram: unknown, channel: string): string | null {
-  const data = histogram as Record<string, unknown> | null;
-  if (!data) return null;
-  const values = histogramBins(
-    channel === 'red' || channel === 'green' || channel === 'blue' ? data[channel] : data.luma
-  );
-  if (!values.length) return null;
-  const max = Math.max(1, ...values);
+const RGB_CHANNELS = ['red', 'green', 'blue'] as const;
+
+/** A filled outline of `values` in the 255 × 240 plot, square-root scale
+ * against `max`. */
+function histogramOutline(values: number[], max: number): string {
   const last = Math.max(1, values.length - 1);
   return `M0 255 ${values
     .map((v, i) => `L${((i * 255) / last).toFixed(2)} ${(255 - Math.sqrt(Math.max(0, v) / max) * 240).toFixed(2)}`)
     .join(' ')} L255 255 Z`;
 }
 
+/** The photo's histogram behind the curve. `fill` is the shown channel's
+ * (the Luminance curve shows the luminance one); the RGB curve shows the
+ * luminance fill with the red, green and blue channels as `lines` over it,
+ * as Capture One does. The scopes put every channel on one scale
+ * (scopes.rs), so their heights compare. Nulls where a channel is missing. */
+export function curveHistogramPaths(
+  histogram: unknown,
+  channel: string
+): { fill: string | null; lines: (string | null)[] } {
+  const data = histogram as Record<string, unknown> | null;
+  const single = channel === 'red' || channel === 'green' || channel === 'blue';
+  const fill = data ? displayHistogramBins(data, single ? (channel as 'red' | 'green' | 'blue') : 'luma') : [];
+  const lines = data && channel === 'luma' ? RGB_CHANNELS.map((c) => displayHistogramBins(data, c)) : [];
+  // The scopes' scale as it comes (bins up to 1), as the histogram draws it.
+  const max = Math.max(1, ...fill, ...lines.flat());
+  const outline = (values: number[]) => (values.length ? histogramOutline(values, max) : null);
+  return { fill: outline(fill), lines: RGB_CHANNELS.map((_, i) => outline(lines[i] ?? [])) };
+}
+
 /** The photo's histogram behind the curve (both reference editors), drawn
  * from the store without rendering the curve: scope updates arrive ten
  * times a second during drags (useEditorStoreDom). */
 const CurveHistogram = memo(function CurveHistogram({ channel }: { channel: string }) {
-  const path = useRef<SVGPathElement>(null);
+  const fill = useRef<SVGPathElement>(null);
+  const lines = useRef<(SVGPathElement | null)[]>([]);
+  const draw = (path: SVGPathElement | null | undefined, d: string | null) => {
+    if (d) path?.setAttribute('d', d);
+    else path?.removeAttribute('d');
+  };
   useEditorStoreDom(
     selectHistogram,
     (histogram) => {
-      const d = curveHistogramPath(histogram, channel);
-      if (d) path.current?.setAttribute('d', d);
-      else path.current?.removeAttribute('d');
+      const paths = curveHistogramPaths(histogram, channel);
+      draw(fill.current, paths.fill);
+      paths.lines.forEach((d, i) => draw(lines.current[i], d));
     },
     [channel]
   );
-  return <path ref={path} className="curve-histogram" data-channel={channel === 'luminance' ? 'luma' : channel} />;
+  return (
+    <>
+      <path ref={fill} className="curve-histogram" data-channel={channel === 'luminance' ? 'luma' : channel} />
+      {channel === 'luma' &&
+        RGB_CHANNELS.map((c, i) => (
+          <path
+            key={c}
+            ref={(el) => {
+              lines.current[i] = el;
+            }}
+            className="curve-histogram-line"
+            data-channel={c}
+          />
+        ))}
+    </>
+  );
 });
 
 export function PointCurve({
@@ -361,6 +399,7 @@ export function PointCurve({
     useEditorStore.getState().setEditor({ curveChannel, tatCurveMarker: null });
   const marker = useEditorStore((s) => (targeted && s.tatTarget === 'curve' ? s.tatCurveMarker : null));
   const [selected, setSelected] = useState<number | null>(null);
+  const [nudgeAnnouncement, setNudgeAnnouncement] = useState('');
   // A drag draws its points as they move, like a slider its knob; the
   // store gets them at the slider cadence and commits every
   // COMMIT_INTERVAL_MS (sliderDraft.ts), too seldom to draw from.
@@ -405,13 +444,19 @@ export function PointCurve({
   const dragging = useRef(false);
   const interaction = useRef(onInteraction);
   interaction.current = onInteraction;
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const svg = svgRef.current;
+    const endKeyboardGroup = () => {
+      if (svg) debouncedSetHistory.endGroup(svg);
+    };
+    window.addEventListener('blur', endKeyboardGroup);
+    return () => {
+      window.removeEventListener('blur', endKeyboardGroup);
+      endKeyboardGroup();
       send.flush();
       if (dragging.current) interaction.current(false);
-    },
-    [send]
-  );
+    };
+  }, [send]);
   const end = () => {
     send.flush();
     if (dragging.current) interaction.current(false);
@@ -466,8 +511,10 @@ export function PointCurve({
             key={key}
             aria-pressed={channel === key}
             onClick={() => {
+              if (key !== channel && svgRef.current) debouncedSetHistory.endGroup(svgRef.current);
               setChannel(key);
               setSelected(null);
+              setNudgeAnnouncement('');
             }}
           >
             {label}
@@ -481,16 +528,38 @@ export function PointCurve({
         aria-label={t('studio.develop.curve.aria', {
           channel: t(`studio.develop.curve.ariaChannels.${channel}`)
         })}
+        onKeyUp={(e) => {
+          if (CURVE_ARROW_KEYS.includes(e.key) && e.target instanceof Element) {
+            debouncedSetHistory.releaseGroup(e.target);
+          }
+        }}
         onPointerDown={(e) => {
           if (disabled || e.button !== 0) return;
           // The split strip under the plot adds no curve points.
           if ((e.target as Element).closest?.('.curve-split, .curve-split-track')) return;
+          // A drag of its own: no text selection, whose autoscroll moved the
+          // tool column under a drag that left its visible part, and no
+          // native focus that scrolls a half-hidden point into view.
+          e.preventDefault();
           const p = position(e);
           if (!p) return;
-          const nearest = points.findIndex((q) => Math.hypot(q.x - p.x, q.y - p.y) < 14 || Math.abs(q.x - p.x) < 1);
+          // A point is grabbed within the same screen distance at any plot
+          // size: a larger plot places points more finely.
+          const scale = e.currentTarget.getScreenCTM()?.a || 1;
+          const reach = CURVE_GRAB_PX / scale;
+          const nearest = points.findIndex((q) => Math.hypot(q.x - p.x, q.y - p.y) < reach);
+          // No two points share an input level: a press on a point's level
+          // but out of its reach neither adds nor grabs one.
+          if (nearest === -1 && points.some((q) => Math.abs(q.x - p.x) < 1)) return;
           if (nearest === -1 && points.length >= MAX_CURVE_POINTS) return;
           const next = nearest === -1 ? [...points, p].sort((a, b) => a.x - b.x) : points;
-          setSelected(nearest === -1 ? next.indexOf(p) : nearest);
+          const index = nearest === -1 ? next.indexOf(p) : nearest;
+          setSelected(index);
+          setNudgeAnnouncement('');
+          // The keyboard (arrows, Delete) acts on it, without scrolling.
+          requestAnimationFrame(() =>
+            svgRef.current?.querySelector<SVGElement>(`[data-curve-point="${index}"]`)?.focus({ preventScroll: true })
+          );
           if (nearest === -1) onChange({ ...curves, [channel]: next });
           dragging.current = true;
           onInteraction(true);
@@ -570,6 +639,9 @@ export function PointCurve({
                   onPointerDown={(e) => {
                     if (disabled || e.button !== 0) return;
                     e.stopPropagation();
+                    // As the curve's points: no selection autoscroll.
+                    e.preventDefault();
+                    e.currentTarget.focus({ preventScroll: true });
                     e.currentTarget.setPointerCapture(e.pointerId);
                     splitActive.current = true;
                     setSplitDrag(key);
@@ -592,6 +664,7 @@ export function PointCurve({
                   }}
                   onPointerCancel={() => splitDrag === key && endSplit()}
                   onLostPointerCapture={() => splitDrag === key && endSplit()}
+                  onBlur={(e) => debouncedSetHistory.endGroup(e.currentTarget)}
                   onKeyDown={(e) => {
                     if (disabled) return;
                     const step = e.shiftKey ? 10 : 1;
@@ -605,16 +678,31 @@ export function PointCurve({
                             : e.key === 'End'
                               ? max
                               : null;
+                    if (e.key === 'Enter') {
+                      // The exact value, typed.
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setSplitEdit(key);
+                      return;
+                    }
                     if (next === null) return;
                     e.preventDefault();
                     e.stopPropagation();
-                    debouncedSetHistory.flush();
-                    setSplit(key, next);
-                    debouncedSetHistory.flush();
+                    if (e.key === 'Home' || e.key === 'End') {
+                      debouncedSetHistory.flush();
+                      setSplit(key, next);
+                      debouncedSetHistory.flush();
+                    } else {
+                      debouncedSetHistory.group(e.currentTarget, () => setSplit(key, next));
+                    }
                   }}
                   onDoubleClick={(e) => {
+                    // Back to its default, as a slider's double-click does.
                     e.stopPropagation();
-                    if (!disabled) setSplitEdit(key);
+                    if (disabled) return;
+                    debouncedSetHistory.flush();
+                    setSplit(key, INITIAL_REGION_CURVE[key]);
+                    debouncedSetHistory.flush();
                   }}
                 >
                   <title>{t('studio.tone.regionCurve.splitHint', { name, value })}</title>
@@ -637,12 +725,19 @@ export function PointCurve({
             data-curve-point={i}
             tabIndex={disabled ? -1 : 0}
             role="button"
+            aria-disabled={disabled || undefined}
             aria-label={t('studio.develop.curve.point', {
               index: i + 1,
               input: Math.round(p.x),
               output: Math.round(p.y)
             })}
-            onFocus={() => setSelected(i)}
+            onFocus={() => {
+              if (!disabled) setSelected(i);
+            }}
+            onBlur={(e) => {
+              debouncedSetHistory.endGroup(e.currentTarget);
+              setNudgeAnnouncement('');
+            }}
             onKeyDown={(e) => {
               if (disabled || e.metaKey || e.ctrlKey || e.altKey) return;
               if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -664,7 +759,7 @@ export function PointCurve({
                 keyboardChange(next);
                 setSelected(left + 1);
                 focusPoint(left + 1);
-              } else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+              } else if (CURVE_ARROW_KEYS.includes(e.key)) {
                 e.preventDefault();
                 const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
                 const dy = e.key === 'ArrowDown' ? -1 : e.key === 'ArrowUp' ? 1 : 0;
@@ -673,7 +768,18 @@ export function PointCurve({
                     ? p.x
                     : Math.max(points[i - 1].x + 1, Math.min(points[i + 1].x - 1, p.x + dx));
                 const y = Math.max(0, Math.min(255, p.y + dy));
-                if (x !== p.x || y !== p.y) keyboardChange(points.map((q, n) => (n === i ? { x, y } : q)));
+                if (x === p.x && y === p.y) return;
+                debouncedSetHistory.group(e.currentTarget, () =>
+                  onChange({ ...curves, [channel]: points.map((q, n) => (n === i ? { x, y } : q)) })
+                );
+                // Focus already reads the point's name and key hints.
+                const input = Math.round(x);
+                const output = Math.round(y);
+                if (input !== Math.round(p.x) || output !== Math.round(p.y)) {
+                  setNudgeAnnouncement(
+                    `${t('studio.develop.curve.input')} ${input}, ${t('studio.develop.curve.output')} ${output}`
+                  );
+                }
               }
             }}
             onDoubleClick={(e) => {
@@ -702,12 +808,23 @@ export function PointCurve({
             onFocus={(e) => e.currentTarget.select()}
             onKeyDown={(e) => {
               e.stopPropagation();
+              // Accepted or cancelled, the keyboard goes back to the handle
+              // (arrows fine-tune it; on the page they would change photos).
+              const back = () => {
+                const name = t(SPLIT_LABELS[splitEdit]);
+                setSplitEdit(null);
+                requestAnimationFrame(() =>
+                  svgRef.current
+                    ?.querySelector<SVGElement>(`.curve-split[aria-label="${CSS.escape(name)}"]`)
+                    ?.focus({ preventScroll: true })
+                );
+              };
               if (e.key === 'Enter') {
                 const value = Number(e.currentTarget.value);
                 if (e.currentTarget.value.trim() && Number.isFinite(value)) setSplit(splitEdit, value);
-                setSplitEdit(null);
+                back();
               } else if (e.key === 'Escape') {
-                setSplitEdit(null);
+                back();
               }
             }}
             onBlur={(e) => {
@@ -719,13 +836,7 @@ export function PointCurve({
         </label>
       )}
       <span className="sr-only" aria-live="polite" aria-atomic="true">
-        {selected !== null &&
-          points[selected] &&
-          t('studio.develop.curve.point', {
-            index: selected + 1,
-            input: Math.round(points[selected].x),
-            output: Math.round(points[selected].y)
-          })}
+        {!disabled && nudgeAnnouncement}
       </span>
       {selected !== null && points[selected] && (
         <div className="curve-coordinate">
@@ -920,6 +1031,16 @@ export default function StudioDevelop() {
     (active: boolean) => useEditorStore.getState().setEditor({ isSliderDragging: active }),
     []
   );
+  const onGrainAmountInteraction = useCallback(
+    (active: boolean) =>
+      useEditorStore.getState().setEditor({ isSliderDragging: active, grainSliderDrag: active ? 'amount' : null }),
+    []
+  );
+  const onGrainDetailInteraction = useCallback(
+    (active: boolean) =>
+      useEditorStore.getState().setEditor({ isSliderDragging: active, grainSliderDrag: active ? 'detail' : null }),
+    []
+  );
   const change = (patch: Partial<Adjustments>) =>
     selectedImage?.isReady &&
     setAdjustments((prev) =>
@@ -996,7 +1117,13 @@ export default function StudioDevelop() {
       keys={key === 'exposure' ? EXPOSURE_KEYS : undefined}
       optionView={optionViewOf(key)}
       onChange={changeOf(key)}
-      onInteraction={onInteraction}
+      onInteraction={
+        key === 'grainAmount'
+          ? onGrainAmountInteraction
+          : GRAIN_KEYS.some((grainKey) => grainKey === key)
+            ? onGrainDetailInteraction
+            : onInteraction
+      }
     />
   );
   // Relative Temperature/Tint: JPEGs, layers and RAW edits made before the

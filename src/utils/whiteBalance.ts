@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import type { Adjustments } from './adjustments';
+import { browserSamplePoint, type SampleRegion } from './pointerSample';
 
 type Rgb = [number, number, number];
 
@@ -12,6 +13,8 @@ interface PreviewSample {
   normalizedY: number;
   useWgpu: boolean;
   finalPreviewUrl: string | null;
+  /** Linux at 100 %: the region frame over the whole frame. */
+  finalRegion?: SampleRegion | null;
 }
 
 function sampleRenderedImage(url: string, x: number, y: number): Promise<Rgb | null> {
@@ -170,9 +173,13 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
   // The CPU-rendered fallback only has the developed image: correct the
   // remaining cast there on top of the current values. A camera JPEG is only a
   // loading placeholder, so never sample its embedded thumbnail.
-  const rgb = request.finalPreviewUrl
-    ? await sampleRenderedImage(request.finalPreviewUrl, request.normalizedX, request.normalizedY)
-    : null;
+  const target = browserSamplePoint(
+    request.finalPreviewUrl,
+    request.finalRegion,
+    request.normalizedX,
+    request.normalizedY
+  );
+  const rgb = target ? await sampleRenderedImage(target.url, target.x, target.y) : null;
   if (!rgb || !stillCurrent()) return null;
   const correction = neutralWhiteBalance(
     rgb.map((channel) => Math.pow(channel / 255, 2.2)) as Rgb,

@@ -88,9 +88,8 @@ async function decodeNextFrame() {
   });
 }
 
-/** The photograph's frame in the pane's drawing, or null before one is shown. */
-function decodedFrame(pane: ParentNode) {
-  return pane.querySelector('svg.pointer-events-none image');
+function decodedFrames(pane: ParentNode) {
+  return pane.querySelectorAll('svg image');
 }
 
 beforeEach(() => {
@@ -118,6 +117,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  decode.pending.length = 0;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -137,13 +137,15 @@ it("shows the decoded preview in the photo pane, the picker's stage in the viewe
   // Nothing is drawn before the decode resolves, then the decoded frame is,
   // at the pane's whole size.
   expect(decode.pending).toHaveLength(1);
-  expect(decodedFrame(host)).toBeNull();
+  expect(decodedFrames(host)).toHaveLength(0);
   await decodeNextFrame();
-  const frame = decodedFrame(host);
-  expect(frame).not.toBeNull();
-  expect(frame!.getAttribute('href')).toBe('blob:frame');
-  expect(frame!.getAttribute('width')).toBe('100%');
-  expect(frame!.getAttribute('height')).toBe('100%');
+  const frames = decodedFrames(host);
+  expect(frames).toHaveLength(1);
+  expect(decodedFrames(container)).toHaveLength(0);
+  const frame = frames[0];
+  expect(frame.getAttribute('href')).toBe('blob:frame');
+  expect(frame.getAttribute('width')).toBe('100%');
+  expect(frame.getAttribute('height')).toBe('100%');
   host.remove();
 });
 
@@ -153,5 +155,7 @@ it('draws the photograph in place without a photo pane', async () => {
   expect(photo).not.toBeNull();
   expect(decode.pending).toHaveLength(1);
   await decodeNextFrame();
-  expect(decodedFrame(container)?.getAttribute('href')).toBe('blob:frame');
+  const frames = decodedFrames(container);
+  expect(frames).toHaveLength(1);
+  expect(frames[0].getAttribute('href')).toBe('blob:frame');
 });

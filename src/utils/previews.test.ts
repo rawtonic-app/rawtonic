@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { TFunction } from 'i18next';
 import { notify as toast } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
-import { formatBytes, previewTargetResolution, previewsMenu, viewerDimHint } from './previews';
+import { dragTargetResolution, formatBytes, previewTargetResolution, previewsMenu, viewerDimHint } from './previews';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), info: vi.fn() } }));
@@ -69,4 +69,23 @@ it('renders a grain preview at the display device pixels, other previews with he
   // Never above the photograph's own size (100 % = the export).
   expect(previewTargetResolution({ ...fit, display: { width: 4000, height: 2670 }, grain: true })).toBe(5796);
   expect(previewTargetResolution({ ...fit, display: { width: 4000, height: 2670 }, grain: false })).toBe(5796);
+});
+
+it('renders drags of other controls with grain at the size without grain, grain drags at the settled size', () => {
+  const fit = {
+    display: { width: 1034.893, height: 691 },
+    dpr: 2,
+    fullDpi: false,
+    zoomMultiplier: 1,
+    original: { width: 5796, height: 3870 }
+  };
+  // An Exposure drag with grain on: the 1536 px of a frame without grain
+  // instead of the settled 2070.
+  expect(dragTargetResolution({ ...fit, grain: true }, false)).toBe(1536);
+  // A drag of a grain control: one rendered pixel per screen pixel, as settled.
+  expect(dragTargetResolution({ ...fit, grain: true }, true)).toBe(2070);
+  // Never larger than the settled frame (full DPI: 2816 without grain).
+  expect(dragTargetResolution({ ...fit, fullDpi: true, grain: true }, false)).toBe(2070);
+  // Without grain drags keep the settled size.
+  expect(dragTargetResolution({ ...fit, grain: false }, false)).toBe(1536);
 });

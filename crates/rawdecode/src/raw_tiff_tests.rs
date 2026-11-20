@@ -325,6 +325,38 @@ fn a_phase_one_iiq_container_routes_as_raw() {
 }
 
 #[test]
+fn an_unmarked_camera_raw_tiff_routes_as_raw() {
+    // The Kodak DCS460D decoder finds the sensor strip by NewSubfileType
+    // and linearizes its samples with the GrayResponseCurve in IFD0.
+    let preview_bytes = 16 * 16 * 3;
+    let sensor_bytes = 128 * 96;
+    let preview = camera(
+        striped(image(16, 16, 2, 3, 8, 1), 8, preview_bytes, 16),
+        "KODAK",
+        "DCS460D         FILE VERSION 3",
+    )
+    .with(254, Value::Longs(vec![1]))
+    .with(291, Value::Shorts((0..256).collect()))
+    .with(330, Value::SubIfds(vec![1]));
+    // BlackIsZero and no CFA, DNG or LinearRaw tags. The classifier must
+    // recognize the decoder's sensor image behind the small RGB preview.
+    let sensor = striped(
+        image(128, 96, 1, 1, 8, 1),
+        8 + preview_bytes,
+        sensor_bytes,
+        96,
+    )
+    .with(254, Value::Longs(vec![0]));
+    let tiff = Tiff {
+        ifds: vec![preview, sensor],
+        chain: vec![0],
+        head: Vec::new(),
+        pad: (preview_bytes + sensor_bytes) as usize,
+    };
+    assert_eq!(classify_bytes(&tiff.build()), TiffKind::Raw);
+}
+
+#[test]
 fn a_cfa_image_behind_a_thumbnail_routes_as_raw() {
     // Kodak DCS 520C/560C layout: an RGB thumbnail in IFD0, the colour
     // filter array image in a SubIFD.

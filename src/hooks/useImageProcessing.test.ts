@@ -9,6 +9,7 @@ import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
+import { useSecondWindowStore } from '../store/useSecondWindowStore';
 import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER } from '../utils/adjustments';
 import { Invokes, Panel } from '../components/ui/AppProperties';
 import { debouncedSave } from './useEditorActions';
@@ -301,6 +302,134 @@ it('asks for the visible region first when a held before starts or ends zoomed i
   act(() => useEditorStore.setState({ showOriginal: false, previewOverride: null }));
   expect(calls()[7][1]).toMatchObject({ regionFirst: true });
   await finish();
+});
+
+/** A Linux settled region frame's reply: its magic, the drag frames' six
+ * dimensions (x, y, w, h of 1000 × 1000) and a PNG signature. */
+function regionReply([x, y, w, h]: number[]) {
+  const magic = new TextEncoder().encode('REGION_____');
+  const bytes = new Uint8Array(11 + 24 + 8);
+  bytes.set(magic);
+  const view = new DataView(bytes.buffer, 11);
+  [x, y, w, h, 1000, 1000].forEach((v, i) => view.setUint32(i * 4, v, true));
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 35);
+  return bytes.buffer;
+}
+
+describe('Linux region frames at 100 %', () => {
+  const transform = { scale: 4, positionX: -1500, positionY: -900 };
+  const mountZoomed = () =>
+    renderHook(() =>
+      useImageProcessing(
+        { current: { instance: { targetTransformState: transform } } } as never,
+        { current: null },
+        { previewJobIdRef: { current: 0 }, latestRenderedJobIdRef: { current: 0 }, currentResRef: { current: 4000 } }
+      )
+    );
+  beforeEach(() => {
+    transform.positionX = -1500;
+    useSettingsStore.setState({ osPlatform: 'linux' });
+    vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:region'), revokeObjectURL: vi.fn() });
+    useEditorStore.setState({
+      browserFullZoom: true,
+      finalPreview: { url: 'blob:whole', lossless: true, fullZoom: false },
+      finalRegion: null,
+      viewSettled: 0,
+      baseRenderSize: { width: 1000, height: 600, offsetX: 0, offsetY: 0, containerWidth: 1000, containerHeight: 600 }
+    } as never);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('shows the settled region over the whole frame and asks again only when a pan leaves it', async () => {
+    mountZoomed();
+    expect(calls()[0][1]).toMatchObject({ isInteractive: false, browserFullZoom: true, roi: expect.any(Array) });
+    await act(async () => {
+      complete.shift()!(regionReply([300, 300, 400, 400]));
+    });
+    const state = useEditorStore.getState();
+    expect(state.finalRegion).toMatchObject({ path: '/first.dng', normX: 0.3, normY: 0.3, normW: 0.4, normH: 0.4 });
+    // The whole frame stays under it (the backdrop of a pan).
+    expect(state.finalPreview?.url).toBe('blob:whole');
+    // A small pan within the region: nothing to render.
+    transform.positionX = -1600;
+    act(() => useEditorStore.setState((s) => ({ viewSettled: s.viewSettled + 1 })));
+    expect(calls()).toHaveLength(1);
+    // A pan out of it: the new visible region.
+    transform.positionX = -2600;
+    act(() => useEditorStore.setState((s) => ({ viewSettled: s.viewSettled + 1 })));
+    expect(calls()).toHaveLength(2);
+    expect((calls()[1][1] as { roi: number[] }).roi[0]).toBeGreaterThan(0.6);
+    // A whole frame (zoomed out again) replaces the region.
+    await act(async () => {
+      complete.shift()!(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]).buffer);
+    });
+    expect(useEditorStore.getState().finalRegion).toBeNull();
+  });
+
+  it('asks for the visible region again when the viewer grows past it', async () => {
+    mountZoomed();
+    await act(async () => {
+      complete.shift()!(regionReply([300, 300, 400, 400]));
+    });
+    expect(calls()).toHaveLength(1);
+    // A maximised window: the same zoom now shows more than the region.
+    act(() =>
+      useEditorStore.setState({
+        baseRenderSize: {
+          width: 1000,
+          height: 600,
+          offsetX: 0,
+          offsetY: 0,
+          containerWidth: 2000,
+          containerHeight: 1200
+        }
+      } as never)
+    );
+    expect(calls()).toHaveLength(2);
+    expect(calls()[1][1]).toMatchObject({ isInteractive: false, roi: expect.any(Array) });
+  });
+
+  it('renders the 100 % frame again when the second window opens or closes', async () => {
+    mountZoomed();
+    await act(async () => {
+      complete.shift()!(regionReply([300, 300, 400, 400]));
+    });
+    expect(calls()).toHaveLength(1);
+    act(() => useSecondWindowStore.setState((s) => ({ state: { ...s.state, open: true } })));
+    expect(calls()).toHaveLength(2);
+    await finish();
+    act(() => useSecondWindowStore.setState((s) => ({ state: { ...s.state, open: false } })));
+    expect(calls()).toHaveLength(3);
+    expect(calls()[2][1]).toMatchObject({ isInteractive: false, browserFullZoom: true, roi: expect.any(Array) });
+  });
+
+  it('asks again when a region arrives for a view a pan already left', async () => {
+    mountZoomed();
+    expect(calls()).toHaveLength(1);
+    // The pan settles while the first region renders: nothing to compare yet.
+    transform.positionX = -2600;
+    act(() => useEditorStore.setState((s) => ({ viewSettled: s.viewSettled + 1 })));
+    expect(calls()).toHaveLength(1);
+    await act(async () => {
+      complete.shift()!(regionReply([300, 300, 400, 400]));
+    });
+    expect(calls()).toHaveLength(2);
+    expect((calls()[1][1] as { roi: number[] }).roi[0]).toBeGreaterThan(0.6);
+    // A region covering the view asks for nothing more.
+    await act(async () => {
+      complete.shift()!(regionReply([600, 300, 400, 400]));
+    });
+    expect(calls()).toHaveLength(2);
+  });
+
+  it("drops another photograph's region frame", async () => {
+    mountZoomed();
+    await act(async () => {
+      complete.shift()!(regionReply([300, 300, 400, 400]));
+    });
+    act(() => useEditorStore.setState({ selectedImage: photo('/second.dng') }));
+    expect(useEditorStore.getState().finalRegion).toBeNull();
+  });
 });
 
 it('reports a native render failure but not a superseded preview', async () => {
@@ -611,6 +740,39 @@ describe('detail on zoom outside Develop', () => {
 
 describe("grain at the viewer's size", () => {
   const target = (index: number) => (calls()[index][1] as { targetResolution: number }).targetResolution;
+
+  it.each([0, 40])('holds the Grain Amount drag size from pointer down (starting at %i)', async (grainAmount) => {
+    const adjustments = { ...structuredClone(INITIAL_ADJUSTMENTS), grainAmount };
+    useEditorStore.setState({ adjustments, displaySize: { width: 1000, height: 750 } });
+    mount();
+    await finish();
+
+    // The press and the store-committed move use the same size as draft moves.
+    act(() => useEditorStore.setState({ isSliderDragging: true, grainSliderDrag: 'amount' }));
+    expect(target(1)).toBe(1000);
+    await finish();
+    const commit = vi.fn();
+    act(() => {
+      expect(renderDraft('/first.dng', { ...adjustments, grainAmount: 40 }, commit)).toBe(true);
+      expect(renderDraft('/first.dng', { ...adjustments, grainAmount: 0 }, commit)).toBe(true);
+      flushSliderDraft();
+    });
+    expect([target(2), target(3)]).toEqual([1000, 1000]);
+    await finish();
+    await finish();
+    act(() => useEditorStore.setState({ adjustments: { ...adjustments, grainAmount: 20 } }));
+    expect(target(4)).toBe(1000);
+    await finish();
+    act(() =>
+      useEditorStore.setState({
+        isSliderDragging: false,
+        grainSliderDrag: null,
+        adjustments: { ...adjustments, grainAmount: 0 }
+      })
+    );
+    expect(target(5)).toBe(1280);
+    await finish();
+  });
 
   it('renders a smaller frame again when the view zooms back out', async () => {
     useEditorStore.setState({

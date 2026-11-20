@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { interactivePreview } from './interactivePreview';
+import { interactivePreview, isRegionFrame } from './interactivePreview';
 vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: vi.fn((id, scheme) => `${scheme}://localhost/${id}`) }));
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -45,4 +45,27 @@ it('rejects malformed metadata before creating an image URL', () => {
   const invalid = new Uint8Array(packet(true));
   invalid[35] = 47;
   expect(() => interactivePreview(invalid.buffer)).toThrow('frame ID');
+});
+
+it('reads a settled region frame (Linux, 100 %) as a PNG placed at its region', () => {
+  const create = vi.fn((_blob: Blob) => 'blob:region');
+  vi.stubGlobal('URL', { createObjectURL: create });
+  const magic = new TextEncoder().encode('REGION_____');
+  const bytes = new Uint8Array(11 + 24 + 4);
+  bytes.set(magic);
+  const view = new DataView(bytes.buffer, 11);
+  [20, 30, 40, 50, 200, 100].forEach((v, i) => view.setUint32(i * 4, v, true));
+  bytes.set([0x89, 0x50, 0x4e, 0x47], 35);
+  expect(isRegionFrame(bytes.buffer)).toBe(true);
+  expect(isRegionFrame(packet(false))).toBe(false);
+  expect(interactivePreview(bytes.buffer)).toEqual({
+    url: 'blob:region',
+    normX: 0.1,
+    normY: 0.3,
+    normW: 0.2,
+    normH: 0.5
+  });
+  const blob = create.mock.calls[0][0];
+  expect(blob.type).toBe('image/png');
+  expect(blob.size).toBe(4);
 });

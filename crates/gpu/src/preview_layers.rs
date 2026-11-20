@@ -26,9 +26,26 @@ pub(super) struct PreparedCurve {
 #[repr(C)]
 #[derive(Clone, Copy, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct PreparedLayer {
-    curves: [PreparedCurve; 4],
+    // Luma, red, green, blue, then the Luminance curve (`LUMINANCE_CURVE`).
+    curves: [PreparedCurve; 5],
     flags: [u32; 4],
 }
+
+/// Index of the Luminance curve (`curves.luminance`) in a prepared layer.
+const LUMINANCE_CURVE: usize = 4;
+/// Layer flag: the layer's luma and R/G/B curves change nothing (each one
+/// bypassed), so the shader takes the clamp the bypassed curves would give
+/// and skips their evaluation. Exact: the same value as evaluating them.
+pub(super) const LAYER_RGB_CURVES_NEUTRAL: u32 = 256;
+/// Layer flag: the shader reads the Luminance curve from its prepared
+/// segments rather than the direct Hermite. Display frames only (not exact
+/// to the last bit), never exports, which keep `luminance_curve_value`.
+pub(super) const LAYER_PREPARED_LUMINANCE: u32 = 512;
+/// Layer flag: the shader reads the Luminance curve from the layer's sampled
+/// table (`luminance_lut`; display frames only, with `LAYER_PREPARED_LUMINANCE`).
+pub(super) const LAYER_LUMINANCE_LUT: u32 = 1024;
+/// vec4 words per layer of the Luminance tables (1,025 samples, four per word).
+pub(super) const LUMINANCE_LUT_WORDS: usize = CURVE_LUT_SAMPLES.div_ceil(4);
 
 impl PreparedLayer {
     pub(super) fn has_curves(&self) -> bool {
@@ -37,7 +54,56 @@ impl PreparedLayer {
 
     /// Exact curve data identifying this layer's display table.
     pub(super) fn curve_key(&self) -> &[u8] {
-        bytemuck::bytes_of(&self.curves)
+        bytemuck::cast_slice(&self.curves[..LUMINANCE_CURVE])
+    }
+
+    /// Whether this layer's Luminance curve is read from its prepared
+    /// segments; only for a curve that is set (count >= 2).
+    pub(super) fn set_prepared_luminance(&mut self, enabled: bool) {
+        if enabled && self.has_luminance() {
+            self.flags[0] |= LAYER_PREPARED_LUMINANCE;
+        } else {
+            self.flags[0] &= !LAYER_PREPARED_LUMINANCE;
+        }
+    }
+
+    /// Exact Luminance curve data identifying this layer's Luminance table.
+    pub(super) fn luminance_key(&self) -> &[u8] {
+        bytemuck::bytes_of(&self.curves[LUMINANCE_CURVE])
+    }
+
+    /// Whether the Luminance curve is set (it reaches the uniforms only when
+    /// it changes something).
+    pub(super) fn has_luminance(&self) -> bool {
+        self.curves[LUMINANCE_CURVE].count >= 2
+    }
+
+    pub(super) fn set_luminance_lut(&mut self, enabled: bool) {
+        if enabled && self.has_luminance() {
+            self.flags[0] |= LAYER_LUMINANCE_LUT;
+        } else {
+            self.flags[0] &= !LAYER_LUMINANCE_LUT;
+        }
+    }
+
+    /// Test oracle: evaluate the neutral RGB curves as before the skip.
+    #[cfg(test)]
+    pub(super) fn evaluate_neutral_rgb_curves(&mut self) {
+        self.flags[0] &= !LAYER_RGB_CURVES_NEUTRAL;
+    }
+
+    /// Whether the shader skips this layer's neutral RGB curves.
+    pub(super) fn rgb_curves_skipped(&self) -> bool {
+        self.flags[0] & LAYER_RGB_CURVES_NEUTRAL != 0
+    }
+
+    /// Whether the luma and R/G/B curves are all bypassed (shader
+    /// `apply_curves_prepared` then only clamps).
+    fn rgb_curves_neutral(&self) -> bool {
+        self.curves[0].bypass != 0
+            && self.curves[1..LUMINANCE_CURVE]
+                .iter()
+                .all(|c| c.bypass == 1)
     }
 
     pub(super) fn set_curve_lut(&mut self, enabled: bool) {
@@ -203,8 +269,10 @@ fn has_grade(grades: [ColorGradeSettings; 4]) -> bool {
         .iter()
         .any(|g| g.saturation > 0.001 || g.luminance != 0.0)
 }
-fn curves(curves: [(&[Point; 16], u32); 4]) -> [PreparedCurve; 4] {
-    std::array::from_fn(|i| prepare_curve(curves[i].0, curves[i].1, i != 0))
+/// A layer's luma, R/G/B and Luminance curves. The Luminance curve has no
+/// RGB bypass: it reaches the uniforms only when it changes something.
+fn curves(curves: [(&[Point; 16], u32); 5]) -> [PreparedCurve; 5] {
+    std::array::from_fn(|i| prepare_curve(curves[i].0, curves[i].1, i != 0 && i != LUMINANCE_CURVE))
 }
 
 /// Samples per channel in a layer's display curve table (1,024 intervals).
@@ -216,6 +284,14 @@ pub(super) const LAYER_CURVE_LUT: u32 = 8;
 // A quarter of one 8-bit level. Combined with output rounding, a table read
 // can move a display value by at most one level against the exact curves.
 const CURVE_LUT_TOLERANCE: f32 = 0.25 / 255.0;
+/// The Luminance table's tolerance on the curve's output. The shader scales
+/// the linear colour by the luminance ratio (at most 4, the rest as grey),
+/// which moves a displayed channel by up to 29.4 times the curve's change
+/// (a channel near black while the curve ends near white; sRGB slopes
+/// 12.92 × 2.27; `luminance_ratio_magnifies_less_than_32_times`), so a
+/// quarter level divided by 32 keeps every displayed channel within a
+/// quarter level.
+const LUMINANCE_LUT_TOLERANCE: f32 = CURVE_LUT_TOLERANCE / 32.0;
 
 /// CPU mirror of the shader's `apply_curve_prepared`/`apply_luma_prepared`.
 fn eval_curve(curve: &PreparedCurve, value: f32) -> f32 {
@@ -275,7 +351,7 @@ pub(super) fn curve_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
     // degenerate segment can change slope abruptly.
     let interior = (0..CURVE_LUT_SAMPLES - 1)
         .flat_map(|i| [0.25, 0.5, 0.75].map(|f| (i as f32 + f) / intervals));
-    let knots = layer.curves.iter().flat_map(|curve| {
+    let knots = layer.curves[..LUMINANCE_CURVE].iter().flat_map(|curve| {
         curve.segments[..(curve.count as usize).saturating_sub(1)]
             .iter()
             .flat_map(|s| [s.endpoints[0], s.endpoints[2]])
@@ -294,6 +370,67 @@ pub(super) fn curve_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
     Some(table)
 }
 
+fn srgb_decode(v: f32) -> f32 {
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// sRGB encoding of a linear value clamped to [0, 1], as the shader's
+/// `apply_luminance_curve` encodes the luminance.
+fn srgb_encode(v: f32) -> f32 {
+    let v = v.clamp(0.0, 1.0);
+    if v <= 0.0031308 {
+        v * 12.92
+    } else {
+        1.055 * v.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// Sampled display table of a layer's Luminance curve: the target linear
+/// luminance at 1,025 steps of the square root of the luminance (the shader
+/// then needs no sRGB powers for it), packed four per word (shader
+/// `luminance_table_value`), or `None` when linear interpolation cannot
+/// stay within the RGB tables' tolerance (a quarter 8-bit level) on the
+/// displayed colour: re-encoded, the table's value must stay within
+/// `LUMINANCE_LUT_TOLERANCE` of the curve's own output.
+pub(super) fn luminance_lut(layer: &PreparedLayer) -> Option<Vec<[f32; 4]>> {
+    let curve = &layer.curves[LUMINANCE_CURVE];
+    let intervals = (CURVE_LUT_SAMPLES - 1) as f32;
+    let curved = |root: f32| eval_curve(curve, srgb_encode(root * root));
+    let samples: Vec<f32> = (0..CURVE_LUT_SAMPLES)
+        .map(|i| srgb_decode(curved(i as f32 / intervals)))
+        .collect();
+    let read = |root: f32| {
+        let position = root.clamp(0.0, 1.0) * intervals;
+        let index = (position as usize).min(CURVE_LUT_SAMPLES - 2);
+        let t = position - index as f32;
+        samples[index] * (1.0 - t) + samples[index + 1] * t
+    };
+    let interior = (0..CURVE_LUT_SAMPLES - 1)
+        .flat_map(|i| [0.25, 0.5, 0.75].map(|f| (i as f32 + f) / intervals));
+    // Knots on the encoded axis, at the square root of their luminance.
+    let knots = curve.segments[..(curve.count as usize).saturating_sub(1)]
+        .iter()
+        .flat_map(|s| [s.endpoints[0], s.endpoints[2]])
+        .map(|x| x / 255.0)
+        .filter(|x| (0.0..=1.0).contains(x))
+        .map(|x| srgb_decode(x).sqrt())
+        .collect::<Vec<_>>();
+    for root in interior.chain(knots) {
+        if (srgb_encode(read(root)) - curved(root)).abs() > LUMINANCE_LUT_TOLERANCE {
+            return None;
+        }
+    }
+    let mut packed = vec![[0.0; 4]; LUMINANCE_LUT_WORDS];
+    for (i, v) in samples.into_iter().enumerate() {
+        packed[i / 4][i % 4] = v;
+    }
+    Some(packed)
+}
+
 pub(super) fn prepare_layers(a: &AllAdjustments) -> Vec<PreparedLayer> {
     let mut layers = vec![PreparedLayer::default(); MAX_MASKS + 1];
     let g = &a.global;
@@ -302,7 +439,13 @@ pub(super) fn prepare_layers(a: &AllAdjustments) -> Vec<PreparedLayer> {
         (&g.red_curve, g.red_curve_count),
         (&g.green_curve, g.green_curve_count),
         (&g.blue_curve, g.blue_curve_count),
+        (&g.luminance_curve, g.luminance_curve_count),
     ]);
+    // A global curve of more than 16 points lives in the curve table, not
+    // in these points: never neutral then.
+    if layers[0].rgb_curves_neutral() && g.region_curve_active[1] == 0 {
+        layers[0].flags[0] |= LAYER_RGB_CURVES_NEUTRAL;
+    }
     for (layer, m) in layers[1..]
         .iter_mut()
         .zip(a.mask_adjustments.iter().take(a.mask_count as usize))
@@ -312,6 +455,7 @@ pub(super) fn prepare_layers(a: &AllAdjustments) -> Vec<PreparedLayer> {
             (&m.red_curve, m.red_curve_count),
             (&m.green_curve, m.green_curve_count),
             (&m.blue_curve, m.blue_curve_count),
+            (&m.luminance_curve, m.luminance_curve_count),
         ]);
         let luma_identity = m.luma_curve_count < 2
             || (m.luma_curve_count == 2
@@ -320,7 +464,9 @@ pub(super) fn prepare_layers(a: &AllAdjustments) -> Vec<PreparedLayer> {
                 && m.luma_curve[1].x == 255.0
                 && m.luma_curve[1].y == 255.0);
         let has_curves = !luma_identity
-            || layer.curves[1..].iter().any(|c| c.bypass == 0)
+            || layer.curves[1..LUMINANCE_CURVE]
+                .iter()
+                .any(|c| c.bypass == 0)
             || m.luminance_curve_count >= 2;
         layer.flags[0] = u32::from(has_scalars(m))
             | (u32::from(has_grade([
@@ -333,7 +479,12 @@ pub(super) fn prepare_layers(a: &AllAdjustments) -> Vec<PreparedLayer> {
             | (u32::from(m.grading_active != 0) << 4)
             | (u32::from(m.color_range_count != 0) << 5)
             | (u32::from(has_detail(m)) << 6)
-            | (u32::from(has_hsl(m)) << 7);
+            | (u32::from(has_hsl(m)) << 7)
+            | if layer.rgb_curves_neutral() {
+                LAYER_RGB_CURVES_NEUTRAL
+            } else {
+                0
+            };
     }
     // The global slot's second word: the steps any layer has.
     layers[0].flags[1] = layers[1..]
@@ -632,6 +783,126 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn luminance_ratio_magnifies_less_than_32_times() {
+        // The shader's `apply_luminance_curve` on linear colours inside the
+        // cube: primaries, secondaries, grey and colours with one channel
+        // near zero (the worst found by a finer scan of 3,000 colours, 29.4),
+        // at 60 brightnesses, against the curve's output `curved`.
+        let colours = [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 0.0],
+            [1.0, 1.0, 1.0],
+            [0.989, 0.628, 0.000_85],
+            [0.000_5, 0.3, 1.0],
+            [1.0, 0.000_5, 0.7],
+        ];
+        let h = 1e-3;
+        let mut worst = 0.0f32;
+        for colour in colours {
+            for step in 0..60 {
+                let scale = 10f32.powf(-4.0 + step as f32 / 15.0);
+                let linear = colour.map(|c| c * scale);
+                let y = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+                let shown = |curved: f32| {
+                    let target = srgb_decode(curved);
+                    let ratio = (target / y.max(1e-9)).min(4.0);
+                    linear.map(|c| srgb_encode(c * ratio + target - y * ratio))
+                };
+                for i in 0..1000 {
+                    let curved = i as f32 / 1000.0;
+                    let (a, b) = (shown(curved), shown(curved + h));
+                    for c in 0..3 {
+                        worst = worst.max((b[c] - a[c]).abs() / h);
+                    }
+                }
+            }
+        }
+        assert!(worst < 32.0 && worst > 20.0, "{worst}");
+    }
+
+    #[test]
+    fn luminance_curve_is_prepared_and_neutral_rgb_curves_are_flagged() {
+        let points = [
+            (0.0, 0.0),
+            (64.0, 40.0),
+            (128.0, 128.0),
+            (192.0, 215.0),
+            (255.0, 255.0),
+        ];
+        let json: Vec<_> = points
+            .iter()
+            .map(|(x, y)| serde_json::json!({"x": x, "y": y}))
+            .collect();
+        let only_luminance = serde_json::json!({"curves": {"luminance": json}});
+        let a =
+            crate::image_processing::get_all_adjustments_from_json(&only_luminance, true, Some(1));
+        let layers = prepare_layers(&a);
+        assert!(layers[0].rgb_curves_skipped());
+        let curve = &layers[0].curves[LUMINANCE_CURVE];
+        assert_eq!(curve.bypass, 0);
+        // The prepared segments give the direct Hermite's values.
+        for i in 0..=1024 {
+            let v = i as f32 / 1024.0;
+            let direct = rawtonic_engine::point_curve::curve_value(&points, v);
+            assert!((eval_curve(curve, v) - direct).abs() < 2e-6, "{v}");
+        }
+        let mut flagged = layers[0];
+        flagged.set_prepared_luminance(true);
+        assert_ne!(flagged.flags[0] & LAYER_PREPARED_LUMINANCE, 0);
+        // The table key leaves the Luminance curve out.
+        let mut without = flagged;
+        without.curves[LUMINANCE_CURVE] = PreparedCurve::default();
+        assert_eq!(flagged.curve_key(), without.curve_key());
+        // Its table holds the target luminance by root luminance.
+        let table = luminance_lut(&layers[0]).expect("a smooth curve gets a table");
+        assert_eq!(table.len(), LUMINANCE_LUT_WORDS);
+        for i in 0..CURVE_LUT_SAMPLES {
+            let root = i as f32 / (CURVE_LUT_SAMPLES - 1) as f32;
+            let want = srgb_decode(eval_curve(curve, srgb_encode(root * root)));
+            assert!((table[i / 4][i % 4] - want).abs() < 1e-7);
+        }
+        // A step keeps the prepared segments.
+        let step = serde_json::json!({"curves": {"luminance": [{"x":0,"y":0},{"x":100,"y":0},{"x":100,"y":255},{"x":255,"y":255}]}});
+        let a = crate::image_processing::get_all_adjustments_from_json(&step, true, Some(1));
+        assert!(luminance_lut(&prepare_layers(&a)[0]).is_none());
+        // Steep shadow curves would move a dark blue's channel by over two
+        // levels: they keep the prepared segments too.
+        for points in [
+            [(0, 0), (18, 1), (24, 53), (255, 255)],
+            [(0, 0), (24, 0), (31, 53), (255, 255)],
+        ] {
+            let json: Vec<_> = points
+                .iter()
+                .map(|(x, y)| serde_json::json!({"x": x, "y": y}))
+                .collect();
+            let profile = serde_json::json!({"curves": {"luminance": json}});
+            let a = crate::image_processing::get_all_adjustments_from_json(&profile, true, Some(1));
+            assert!(
+                luminance_lut(&prepare_layers(&a)[0]).is_none(),
+                "{points:?}"
+            );
+        }
+        // No Luminance curve: never the prepared one.
+        let mut none = PreparedLayer::default();
+        none.set_prepared_luminance(true);
+        assert_eq!(none.flags[0] & LAYER_PREPARED_LUMINANCE, 0);
+        // A changed RGB curve or a long global curve is not neutral.
+        let mut rgb = only_luminance.clone();
+        rgb["curves"]["red"] =
+            serde_json::json!([{"x":0,"y":0},{"x":128,"y":140},{"x":255,"y":255}]);
+        let a = crate::image_processing::get_all_adjustments_from_json(&rgb, true, Some(1));
+        assert!(!prepare_layers(&a)[0].rgb_curves_skipped());
+        let mut long =
+            crate::image_processing::get_all_adjustments_from_json(&only_luminance, true, Some(1));
+        long.global.region_curve_active[1] = 1;
+        assert!(!prepare_layers(&long)[0].rgb_curves_skipped());
     }
 
     #[test]

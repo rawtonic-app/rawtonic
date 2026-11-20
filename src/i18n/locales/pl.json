@@ -5570,7 +5570,7 @@
           "shadowSplit": "Cienie"
         },
         "region": "Zakresy",
-        "splitHint": "{{name}}: {{value}}. Przeciągnij lub użyj strzałek; kliknij dwukrotnie, aby wpisać wartość",
+        "splitHint": "{{name}}: {{value}}. Przeciągnij lub użyj strzałek; kliknij dwukrotnie, aby zresetować, Enter, aby wpisać wartość",
         "splits": "Podziały"
       }
     },

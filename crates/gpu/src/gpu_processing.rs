@@ -65,8 +65,8 @@ pub use idle_compiles::{
 pub use multi_view::{CellExtent, CellLayer, CellZoom, MultiView, MultiViewCell};
 use multi_view::{DisplayBindings, DisplayPass, PrimaryDraw, encode_display_pass};
 use preview_layers::{
-    CURVE_LUT_SAMPLES, LAYER_SUMS_HEADER, LayerSumsPlan, PreparedLayer, SummedLayers, curve_lut,
-    plan_layer_sums, prepare_layers, summed_layers,
+    CURVE_LUT_SAMPLES, LAYER_SUMS_HEADER, LUMINANCE_LUT_WORDS, LayerSumsPlan, PreparedLayer,
+    SummedLayers, curve_lut, luminance_lut, plan_layer_sums, prepare_layers, summed_layers,
 };
 pub use processor_turns::ProcessorSlot;
 
@@ -3901,7 +3901,35 @@ fn off_global_pool<R: Send>(work: impl FnOnce() -> R + Send) -> R {
 /// nor, called from a worker, steals a queued render that needs the
 /// processor.
 fn film_grain_tile_data() -> Vec<u32> {
-    rawtonic_engine::film_grain::grain_tile()
+    level_pairs(&rawtonic_engine::film_grain::grain_tile())
+}
+
+/// The tile as the shader's `film_texel` reads it (G76/GRN1): per mip
+/// (finest first) one plane per pair of neighbouring levels the shader
+/// interpolates (plane `k0 + 1` holds levels `k0` and `k0 + 1` of every
+/// texel, row by row; `k0 = -1` is the empty level, a zero half), instead
+/// of the engine's texels of all levels side by side. A pixel and its
+/// neighbours read one plane, which the caches keep: film grain cost 0.38
+/// instead of 0.71 ms per megapixel of a display frame on Metal (M5 Pro;
+/// `grain_frame_cost_probe`). Twice the words, the same halves, so every
+/// value the shader reads is bit for bit the one it read before.
+fn level_pairs(tile: &[u32]) -> Vec<u32> {
+    use rawtonic_engine::film_grain::{LEVELS, mip_sides};
+    let half =
+        |texel: &[u32; LEVELS / 2], level: usize| (texel[level / 2] >> (16 * (level % 2))) & 0xffff;
+    let mut out = Vec::with_capacity(tile.len() * 2);
+    let mut start = 0;
+    for side in mip_sides() {
+        let mip = &tile[start..start + side * side * (LEVELS / 2)];
+        start += mip.len();
+        for pair in 0..LEVELS {
+            out.extend(mip.as_chunks::<{ LEVELS / 2 }>().0.iter().map(|texel| {
+                let lower = if pair == 0 { 0 } else { half(texel, pair - 1) };
+                lower | (half(texel, pair) << 16)
+            }));
+        }
+    }
+    out
 }
 
 /// Creates the Rgba16Float input texture of `image` band by band.
@@ -4536,6 +4564,8 @@ pub struct GpuProcessor {
     prepared_layers_buffer: wgpu::Buffer,
     curve_luts_buffer: wgpu::Buffer,
     curve_lut_cache: Mutex<Vec<CurveLutEntry>>,
+    /// Per layer: the Luminance curve whose table is in `curve_luts_buffer`.
+    luminance_lut_cache: Mutex<Vec<CurveLutEntry>>,
     /// The camera-profile tables currently in `curve_luts_buffer` (key).
     camera_profile_loaded: Mutex<Option<u32>>,
     dummy_blur_view: wgpu::TextureView,
@@ -4577,6 +4607,16 @@ pub struct GpuProcessor {
     force_general_display: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     force_exact_curves: std::sync::atomic::AtomicBool,
+    /// Display frames evaluate the Luminance curve directly, as exports.
+    #[cfg(test)]
+    force_direct_luminance: std::sync::atomic::AtomicBool,
+    /// The display shader evaluates neutral RGB curves instead of skipping
+    /// them (`LAYER_RGB_CURVES_NEUTRAL`).
+    #[cfg(test)]
+    force_neutral_rgb_curves: std::sync::atomic::AtomicBool,
+    /// Luminance tables built (`update_luminance_luts`).
+    #[cfg(test)]
+    luminance_lut_builds: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     force_general_pipeline: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -6198,6 +6238,16 @@ fn mixer_feature_slot(
 /// Per mask layer: the curve data its table was built from, and whether the
 /// table passed the tolerance check. Rebuilt only when that layer changes.
 type CurveLutEntry = Option<(Vec<u8>, bool)>;
+/// vec4 words before the Luminance tables in `curve_luts_buffer`.
+const LUMINANCE_LUT_OFFSET: usize =
+    CURVE_LUT_SAMPLES * (MAX_MASKS + 1) + crate::camera_profile::TABLE_CAPACITY;
+// shader.wgsl `LUMINANCE_TABLE_BASE` and `luminance_table_value`.
+const _: () = assert!(
+    crate::camera_profile::TABLE_CAPACITY == 65_536
+        && LUMINANCE_LUT_WORDS == 257
+        && CURVE_LUT_SAMPLES == 1025
+        && MAX_MASKS + 1 == 33
+);
 
 /// Float tiles of a processor for [`TILE_SIZE`] tiles and for
 /// [`EXPORT_TILE_SIZE`] tiles (`float_tile_index`), each made on its first
@@ -8435,10 +8485,10 @@ impl GpuProcessor {
 
         let curve_luts_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Display curve tables"),
-            // Mask layers' curve tables, then a camera profile's colour
-            // tables.
-            size: ((CURVE_LUT_SAMPLES * (MAX_MASKS + 1) + crate::camera_profile::TABLE_CAPACITY)
-                * 16) as u64,
+            // Mask layers' curve tables, a camera profile's colour tables,
+            // then the layers' Luminance tables (shader
+            // `LUMINANCE_TABLE_BASE`).
+            size: (LUMINANCE_LUT_OFFSET + LUMINANCE_LUT_WORDS * (MAX_MASKS + 1)) as u64 * 16,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -8624,6 +8674,7 @@ impl GpuProcessor {
             prepared_layers_buffer,
             curve_luts_buffer,
             curve_lut_cache: Mutex::new(vec![None; MAX_MASKS + 1]),
+            luminance_lut_cache: Mutex::new(vec![None; MAX_MASKS + 1]),
             camera_profile_loaded: Mutex::new(None),
             dummy_blur_view,
             empty_mask_view,
@@ -8656,6 +8707,12 @@ impl GpuProcessor {
             force_full_preparation: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             force_exact_curves: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            force_direct_luminance: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            force_neutral_rgb_curves: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            luminance_lut_builds: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
             force_general_pipeline: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
@@ -9643,7 +9700,8 @@ impl GpuProcessor {
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         for (index, layer) in layers.iter_mut().enumerate().skip(1).take(mask_count) {
-            if disabled || !layer.has_curves() {
+            // Neutral RGB curves are skipped (exactly), not sampled.
+            if disabled || !layer.has_curves() || layer.rgb_curves_skipped() {
                 layer.set_curve_lut(false);
                 continue;
             }
@@ -9663,6 +9721,60 @@ impl GpuProcessor {
                 }
             };
             layer.set_curve_lut(enabled);
+        }
+    }
+
+    /// Display only. The Luminance curves read their sampled tables, or
+    /// their prepared segments where a table fails the tolerance check;
+    /// tables are rebuilt for layers whose Luminance curve changed.
+    /// While the clipping warnings show, the curve stays the direct Hermite
+    /// of exports: a pixel a hair from a warning's threshold then gets the
+    /// same mark as before (the table can move it by a fraction of a level).
+    fn update_luminance_luts(
+        &self,
+        layers: &mut [PreparedLayer],
+        mask_count: usize,
+        show_clipping: u32,
+    ) {
+        let warnings = show_clipping != 0
+            && !is_sharpen_view(show_clipping)
+            && crate::image_processing::color_range_view_index(show_clipping).is_none();
+        #[cfg(test)]
+        let direct = warnings
+            || self
+                .force_direct_luminance
+                .load(std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(test))]
+        let direct = warnings;
+        let mut cache = self
+            .luminance_lut_cache
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        for (index, layer) in layers.iter_mut().enumerate().take(mask_count + 1) {
+            layer.set_prepared_luminance(!direct);
+            if direct || !layer.has_luminance() {
+                layer.set_luminance_lut(false);
+                continue;
+            }
+            let enabled = match &cache[index] {
+                Some((key, enabled)) if key.as_slice() == layer.luminance_key() => *enabled,
+                _ => {
+                    let table = luminance_lut(layer);
+                    #[cfg(test)]
+                    self.luminance_lut_builds
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if let Some(table) = &table {
+                        self.context.queue.write_buffer(
+                            &self.curve_luts_buffer,
+                            ((LUMINANCE_LUT_OFFSET + index * LUMINANCE_LUT_WORDS) * 16) as u64,
+                            bytemuck::cast_slice(table),
+                        );
+                    }
+                    cache[index] = Some((layer.luminance_key().to_vec(), table.is_some()));
+                    table.is_some()
+                }
+            };
+            layer.set_luminance_lut(enabled);
         }
     }
 
@@ -11097,6 +11209,8 @@ impl GpuProcessor {
             || [
                 &self.force_mask_upload,
                 &self.force_exact_curves,
+                &self.force_direct_luminance,
+                &self.force_neutral_rgb_curves,
                 &self.force_legacy_curves,
                 &self.force_unprepared_layers,
                 &self.force_full_display_render,
@@ -11249,6 +11363,15 @@ impl GpuProcessor {
         let mut summed_variant = false;
         if display_shader {
             let mut layers = prepare_layers(adjustments);
+            #[cfg(test)]
+            if self
+                .force_neutral_rgb_curves
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                layers
+                    .iter_mut()
+                    .for_each(PreparedLayer::evaluate_neutral_rgb_curves);
+            }
             if export_display || export_with_display_finish {
                 // Exports evaluate every curve exactly: the display's
                 // curve tables are approximations within a tolerance. A
@@ -11262,6 +11385,13 @@ impl GpuProcessor {
             } else {
                 self.update_curve_luts(&mut layers, adjustments.mask_count as usize);
                 layers[0].set_curve_lut(request.adjustments.curve_table.is_some());
+                // Display frames only: the prepared Luminance curve differs
+                // from the exports' direct Hermite in the last bits.
+                self.update_luminance_luts(
+                    &mut layers,
+                    adjustments.mask_count as usize,
+                    adjustments.global.show_clipping,
+                );
             }
             queue.write_buffer(
                 &self.prepared_layers_buffer,
@@ -14311,6 +14441,43 @@ mod display_geometry_tests {
             fit_placement([10.0, 20.0, 400.0, 200.0], 300.0, 300.0),
             [110.0, 20.0, 200.0, 200.0]
         );
+    }
+}
+
+#[cfg(test)]
+mod film_grain_tile_layout_tests {
+    use rawtonic_engine::film_grain::{LEVELS, grain_tile, mip_sides};
+
+    #[test]
+    fn every_level_pair_holds_the_engines_halves() {
+        // The shader's `film_mip_offset` and `film_texel` index into the
+        // planes; each word must hold the halves the engine's tile has for
+        // levels k0 and k0 + 1 (zero for the empty level k0 = -1).
+        let engine = grain_tile();
+        let pairs = super::level_pairs(&engine);
+        assert_eq!(pairs.len(), engine.len() * 2);
+        let half = |word: u32, level: usize| (word >> (16 * (level % 2))) & 0xffff;
+        let mut texels_before = 0;
+        for (j, side) in mip_sides().into_iter().enumerate() {
+            // The shader's closed form of the texels before mip j.
+            assert_eq!(texels_before, 0x55555 - (0x55555 >> (2 * j)));
+            let planes = texels_before * LEVELS;
+            for t in 0..side * side {
+                let texel = &engine[(texels_before + t) * (LEVELS / 2)..][..LEVELS / 2];
+                for k0 in -1..LEVELS as i32 - 1 {
+                    let k1 = (k0 + 1) as usize;
+                    let lower = if k0 < 0 {
+                        0
+                    } else {
+                        half(texel[k0 as usize / 2], k0 as usize)
+                    };
+                    let word = pairs[planes + k1 * side * side + t];
+                    assert_eq!(word, lower | (half(texel[k1 / 2], k1) << 16));
+                }
+            }
+            texels_before += side * side;
+        }
+        assert_eq!(texels_before * LEVELS, pairs.len());
     }
 }
 

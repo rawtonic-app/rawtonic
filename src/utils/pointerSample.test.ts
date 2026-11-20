@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  browserSamplePoint,
   createImagePatchFetch,
   createPatchSampler,
   patchFromRgba,
@@ -220,5 +221,17 @@ describe('browser-rendered preview patches (no native display)', () => {
     expect(await fetch('/a.raw', 0.5, 0.5)).toBeNull();
     getContext.mockRestore();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('browserSamplePoint', () => {
+  const region = { url: 'blob:region', normX: 0.5, normY: 0.25, normW: 0.25, normH: 0.5 };
+  it('samples the region frame where it holds the point, mapped into it', () => {
+    expect(browserSamplePoint('blob:whole', region, 0.625, 0.5)).toEqual({ url: 'blob:region', x: 0.5, y: 0.5 });
+  });
+  it('samples the whole frame elsewhere and without a region', () => {
+    expect(browserSamplePoint('blob:whole', region, 0.1, 0.5)).toEqual({ url: 'blob:whole', x: 0.1, y: 0.5 });
+    expect(browserSamplePoint('blob:whole', null, 0.6, 0.5)).toEqual({ url: 'blob:whole', x: 0.6, y: 0.5 });
+    expect(browserSamplePoint(null, null, 0.6, 0.5)).toBeNull();
   });
 });

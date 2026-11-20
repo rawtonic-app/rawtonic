@@ -233,6 +233,24 @@ impl ModelKind {
             .map(|(_, kind)| kind)
     }
 
+    /// Models with several hundred MB of weights or more in the model pack.
+    /// This includes external weights and the Moebius pipeline as a whole.
+    /// BiRefNet's 470 MB model used 8.4 GB during a WebGPU run on a 680M
+    /// (CPU: 3.5 GB, with similar runtime; notes: WMSK2).
+    fn is_large(self) -> bool {
+        matches!(
+            self,
+            Self::Subject
+                | Self::Relight
+                | Self::PeopleNormals
+                | Self::TagVision
+                | Self::TagText
+                | Self::MoebiusUnet
+                | Self::MoebiusEncoder
+                | Self::MoebiusDecoder
+        )
+    }
+
     /// Why this model stays on the CPU with `provider`, if it does. Each
     /// entry is a measurement (docs/decisions/0011-gpu-ai.md): models too
     /// small to gain from a GPU, which run many times per photo. Wrong
@@ -391,10 +409,11 @@ static CPU_ONLY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// without a verdict, so a later start without this checks as before); a
 /// forced provider still wins. The app calls it on an integrated GPU whose
 /// shader compiles run under a limit (a Radeon 680M under Windows): there
-/// a check ran the model on the CPU and on WebGPU at once and took the app
-/// to 10.6 GB of private memory with memory pressure on a 15 GB laptop,
-/// and the GPU was slower every time (G76/WSMOKE15; coordinator decision
-/// WCC11 D5). Logged once with `why`.
+/// BiRefNet's GPU check took the app to 10.2-10.6 GB of private memory
+/// with memory pressure on a 14 GB laptop, most of it the WebGPU run's
+/// shared memory (7.4 GB), and the GPU was slower every time
+/// (G76/WSMOKE15, WMSK1; coordinator decision WCC11 D5). Logged once with
+/// `why`.
 pub fn keep_models_on_cpu(why: &str) {
     if CPU_ONLY.set(why.to_string()).is_ok() {
         log::info!("AI: models stay on the CPU and no GPU check runs: {why}");
@@ -408,15 +427,67 @@ pub(crate) fn models_kept_on_cpu() -> bool {
 
 /// The providers to try for `kind`, best first, the CPU last.
 pub fn candidates(kind: ModelKind, settings: &Settings, forced: Option<Provider>) -> Vec<Provider> {
-    candidates_of(kind, settings, forced, models_kept_on_cpu())
+    candidates_of(kind, settings, forced, models_kept_on_cpu(), || {
+        Provider::WebGpu
+            .library_file()
+            .and_then(|file| plugin_library(&settings.plugin_dirs, file))
+            .is_some()
+            && integrated_ai_gpu()
+    })
 }
 
-/// `candidates` with `cpu_only` for `models_kept_on_cpu`.
+/// The backend of the bundled WebGPU provider. Core ML on macOS has its
+/// own device policy.
+fn ai_backend(os: &str) -> Option<wgpu::Backends> {
+    match os {
+        "windows" => Some(wgpu::Backends::DX12),
+        "linux" => Some(wgpu::Backends::VULKAN),
+        _ => None,
+    }
+}
+
+/// Detect UMA before a GPU session or a check can allocate model memory.
+/// Dawn selects its adapter independently of the renderer, so query
+/// adapters on the inference backend (also in the CLI). A discrete adapter can
+/// still serve the high-performance provider on a hybrid machine.
+fn integrated_ai_gpu() -> bool {
+    static INTEGRATED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *INTEGRATED.get_or_init(|| {
+        let Some(backends) = ai_backend(std::env::consts::OS) else {
+            return false;
+        };
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapters = pollster::block_on(instance.enumerate_adapters(backends));
+        integrated_only(
+            adapters
+                .iter()
+                .map(|adapter| adapter.get_info().device_type),
+        )
+    })
+}
+
+fn integrated_only(adapters: impl IntoIterator<Item = wgpu::DeviceType>) -> bool {
+    use wgpu::DeviceType;
+    let mut integrated = false;
+    for adapter in adapters {
+        match adapter {
+            DeviceType::IntegratedGpu => integrated = true,
+            DeviceType::Cpu => {}
+            _ => return false,
+        }
+    }
+    integrated
+}
+
 fn candidates_of(
     kind: ModelKind,
     settings: &Settings,
     forced: Option<Provider>,
     cpu_only: bool,
+    integrated_gpu: impl FnOnce() -> bool,
 ) -> Vec<Provider> {
     let mut list = Vec::new();
     match forced {
@@ -425,6 +496,12 @@ fn candidates_of(
         // they can be measured.
         Some(provider) => list.push(provider),
         None if cpu_only => {}
+        None if settings.gpu && kind.is_large() && integrated_gpu() => {
+            log::info!(
+                "AI {}: models stay on the CPU: integrated GPU, large model",
+                kind.name()
+            );
+        }
         None if settings.gpu => list.extend(
             GPU_PROVIDERS
                 .into_iter()
@@ -512,7 +589,7 @@ pub fn device(provider: Provider, dirs: &[PathBuf]) -> Result<Arc<Device>> {
         registry.remove(index);
     }
     // Not registered yet: a missing library may still be installed later.
-    let Some(library) = dirs.iter().map(|d| d.join(file)).find(|p| p.is_file()) else {
+    let Some(library) = plugin_library(dirs, file) else {
         return Err(anyhow!("{file} is not installed"));
     };
     let registration = match register(provider, &library) {
@@ -542,6 +619,16 @@ pub fn device(provider: Provider, dirs: &[PathBuf]) -> Result<Arc<Device>> {
     };
     registry.push((provider, registration));
     result
+}
+
+/// The first `file` in `dirs`, as an absolute path: ONNX Runtime resolves a
+/// relative plugin path against its own library's folder, not the working
+/// directory this lookup used, so a relative folder (`--plugins`,
+/// `RAWTONIC_ORT_PLUGIN_DIR`) found the plugin here but failed to register
+/// it, and the model moved on to the next provider.
+fn plugin_library(dirs: &[PathBuf], file: &str) -> Option<PathBuf> {
+    let library = dirs.iter().map(|d| d.join(file)).find(|p| p.is_file())?;
+    Some(std::path::absolute(&library).unwrap_or(library))
 }
 
 fn register(provider: Provider, library: &Path) -> Result<Device> {
@@ -1041,7 +1128,8 @@ impl Model {
         let checks_file = settings().checks_file;
         log_subject_load_step(kind, "provider setup", setup);
         let mut last_error = anyhow!("no provider to try");
-        // Checks queued for this load: the model waits for their verdicts.
+        // Checks for this load: queued, and the model waits for their
+        // verdicts, once it is loaded.
         let mut queued = Vec::new();
         for &provider in providers {
             let started = Instant::now();
@@ -1066,9 +1154,11 @@ impl Model {
                         Plan::CheckNow => check::check(path, kind, &device, checks_file.as_ref())?,
                         // The first click does not wait for a measurement
                         // (gap G76): the CPU now, the check when idle.
+                        // Queued once the CPU model is registered for its
+                        // verdict, so the check finds that model's session
+                        // and makes no CPU session of its own beside it.
                         Plan::Queue => {
-                            check::queue(path, kind, &device, checks_file.as_ref());
-                            queued.push(key);
+                            queued.push((key, device.clone()));
                             return Err(anyhow!("its check on this device has not run yet"));
                         }
                     };
@@ -1083,8 +1173,9 @@ impl Model {
                         started.elapsed().as_millis()
                     );
                     let state = Arc::new(watch::Slot::new(kind.name(), session, provider));
-                    for key in queued {
+                    for (key, device) in queued {
                         check::wait_for(key, &state);
+                        check::queue(path, kind, &device, checks_file.as_ref());
                     }
                     return Ok(Self {
                         kind,
@@ -1224,7 +1315,7 @@ mod tests {
     fn models_kept_on_the_cpu_try_no_gpu() {
         for kind in ModelKind::ALL {
             assert_eq!(
-                candidates_of(kind, &settings(true), None, true),
+                candidates_of(kind, &settings(true), None, true, || panic!("unused probe")),
                 vec![Provider::Cpu]
             );
         }
@@ -1233,10 +1324,51 @@ mod tests {
                 ModelKind::Subject,
                 &settings(true),
                 Some(Provider::WebGpu),
-                true
+                true,
+                || panic!("unused probe"),
             ),
             vec![Provider::WebGpu, Provider::Cpu]
         );
+    }
+
+    #[test]
+    fn large_models_stay_on_cpu_with_integrated_graphics() {
+        use wgpu::DeviceType::{Cpu, DiscreteGpu, IntegratedGpu, Other};
+        for (adapters, integrated) in [
+            (&[IntegratedGpu, Cpu][..], true),
+            (&[DiscreteGpu][..], false),
+            (&[IntegratedGpu, DiscreteGpu][..], false),
+            (&[Other][..], false),
+            (&[][..], false),
+        ] {
+            for (kind, large) in [(ModelKind::Subject, true), (ModelKind::Sky, false)] {
+                let providers = candidates_of(kind, &settings(true), None, false, || {
+                    integrated_only(adapters.iter().copied())
+                });
+                let expected = if integrated && large {
+                    vec![Provider::Cpu]
+                } else {
+                    vec![Provider::Cuda, Provider::WebGpu, Provider::Cpu]
+                };
+                assert_eq!(providers, expected, "{adapters:?} {kind:?}");
+            }
+        }
+        assert_eq!(ai_backend("macos"), None);
+    }
+
+    #[test]
+    fn forced_provider_bypasses_the_integrated_gpu_rule() {
+        for forced in [Provider::Cpu, Provider::WebGpu, Provider::Cuda] {
+            let providers = candidates_of(
+                ModelKind::Subject,
+                &settings(true),
+                Some(forced),
+                false,
+                || panic!("a forced provider skips adapter discovery"),
+            );
+            assert_eq!(providers.first(), Some(&forced));
+            assert_eq!(providers.last(), Some(&Provider::Cpu));
+        }
     }
 
     #[test]
@@ -1322,6 +1454,18 @@ mod tests {
         let dir = std::env::temp_dir().join("rawtonic-onnx-no-plugins");
         let error = device(Provider::WebGpu, &[dir]).unwrap_err();
         assert!(error.to_string().contains("not installed"), "{error}");
+    }
+
+    #[test]
+    fn a_plugin_in_a_relative_folder_is_registered_by_its_absolute_path() {
+        // Tests run in the crate's folder, which holds src/lib.rs.
+        let found = plugin_library(&[PathBuf::from("missing"), PathBuf::from("src")], "lib.rs")
+            .expect("src/lib.rs is found");
+        assert!(found.is_absolute(), "{}", found.display());
+        assert_eq!(
+            found,
+            std::env::current_dir().unwrap().join("src").join("lib.rs")
+        );
     }
 
     #[test]

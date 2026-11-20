@@ -107,6 +107,26 @@ export function previewTargetResolution({
 }
 
 /**
+ * The long edge a drag's frames render at. With grain on, a drag of another
+ * control renders at the size a frame without grain has, as Lightroom's and
+ * Capture One's drag previews are coarser than the settled view: one
+ * rendered pixel per screen pixel cost the Radeon 680M 2.5× the pixels of
+ * the default preview, and with them about 40 of 120 drag frames (notes:
+ * G76/GRN1). The grain stays visible, softer while the drag lasts; the
+ * settled frame shows it one rendered pixel per screen pixel again.
+ * `keepGrainSize`: a grain control or Full Resolution keeps the grain-sized
+ * target. The rendering backend also applies the live quality's limits.
+ */
+export function dragTargetResolution(
+  params: Parameters<typeof previewTargetResolution>[0],
+  keepGrainSize: boolean
+): number {
+  const settled = previewTargetResolution(params);
+  if (!params.grain || keepGrainSize) return settled;
+  return Math.min(settled, previewTargetResolution({ ...params, grain: false }));
+}
+
+/**
  * Whether the viewer needs a new frame of `target` px for its current size:
  * a larger one for more detail; with grain also a smaller one (zooming back
  * to fit, a smaller window), since a frame shown reduced no longer shows the

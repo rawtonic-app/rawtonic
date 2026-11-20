@@ -152,6 +152,12 @@ impl RenderVersion {
         self.0 >= crate::image_loader::HIGHLIGHT_RENDER_VERSION
     }
 
+    /// A DNG's embedded lens warp moves each camera plane by its own
+    /// coefficients (`image_loader::WarpPlanes::Camera`).
+    pub fn camera_plane_warp(self) -> bool {
+        self.0 >= crate::image_loader::CAMERA_PLANE_WARP_RENDER_VERSION
+    }
+
     /// RAWs at extended low ISOs get the default exposure of their capture
     /// gain.
     pub fn capture_gain(self) -> bool {
