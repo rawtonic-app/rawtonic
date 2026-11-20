@@ -191,7 +191,32 @@ const EFFECT_TERMS_DECLARATIONS: &str = "override EFFECT_TERMS: bool = false;\n\
      @group(0) @binding(29) var glow_terms_out: texture_storage_2d<rgba32float, write>;\n\
      @group(0) @binding(30) var halation_terms_out: texture_storage_2d<rgba32float, write>;\n\
      @group(0) @binding(31) var glow_terms: texture_2d<f32>;\n\
-     @group(0) @binding(32) var halation_terms: texture_2d<f32>;\n";
+     @group(0) @binding(32) var halation_terms: texture_2d<f32>;\n\
+     // A drag's frame (detail_cache.z, G76/GRN3): the terms once per 2 x 2\n\
+     // pixels of the photo (blocks of absolute coordinates), stored and read\n\
+     // at the block's index in the tile.\n\
+     // The grain field pass and the finish pass that reads it (`FILM_GRAIN_EDITS`).\n\
+     override GRAIN_FIELD_PASS: bool = false;\n\
+     override GRAIN_FROM_FIELD: bool = false;\n\
+     @group(0) @binding(40) var grain_field_out: texture_storage_2d<rgba32float, write>;\n\
+     @group(0) @binding(41) var grain_field: texture_2d<f32>;\n\
+     fn tile_offset() -> vec2<u32> {\n    \
+     return vec2<u32>(adjustments.tile_offset_x, adjustments.tile_offset_y);\n}\n\
+     // The 2 x 2 block (of absolute coordinates) of tile pixel `p`, at its\n\
+     // index in the tile.\n\
+     fn block_index(p: vec2<u32>) -> vec2<u32> {\n    \
+     return ((p + tile_offset()) >> vec2<u32>(1u)) - (tile_offset() >> vec2<u32>(1u));\n}\n\
+     fn terms_half() -> bool {\n    \
+     return adjustments.detail_cache.z != 0u;\n}\n\
+     fn terms_index(p: vec2<u32>) -> vec2<u32> {\n    \
+     if (!terms_half()) { return p; }\n    \
+     return block_index(p);\n}\n\
+     // A pass over 2 x 2 blocks: invocation `p` is the block at that index\n\
+     // in the tile, at its first pixel in the tile.\n\
+     fn terms_pixel(p: vec2<u32>) -> vec3<u32> {\n    \
+     if (!((EFFECT_TERMS_PASS && terms_half()) || GRAIN_FIELD_PASS)) { return vec3<u32>(p, 0u); }\n    \
+     let first = (p + (tile_offset() >> vec2<u32>(1u))) * 2u;\n    \
+     return vec3<u32>(max(first, tile_offset()) - tile_offset(), 0u);\n}\n";
 
 /// shader.wgsl's text (after `with_effects_apart`) and what the display
 /// source of a processor with effect passes writes instead, each found
@@ -201,7 +226,14 @@ const EFFECT_TERMS_DECLARATIONS: &str = "override EFFECT_TERMS: bool = false;\n\
 /// `apply_halation_term`); the operations and their order stay as they
 /// are, so the terms pass and a main pass reading its Rgba32Float textures
 /// compute what one pass did.
-const EFFECT_TERMS_EDITS: [(&str, &str); 4] = [
+const EFFECT_TERMS_EDITS: [(&str, &str); 5] = [
+    // The terms pass of a drag's frame (`terms_pixel`) works on 2 x 2
+    // blocks: each invocation is one block, at the block's first pixel in
+    // the tile.
+    (
+        "    let id = vec3<u32>(invocation + region.xy, 0u);\n",
+        "    let id = terms_pixel(invocation + region.xy);\n",
+    ),
     (
         ") -> vec3<f32> {\n    if (amount <= 0.0) {\n        return color;\n    }\n",
         ") -> vec3<f32> {\n    if (amount <= 0.0) {\n        return color;\n    }\n    \
@@ -229,8 +261,8 @@ const EFFECT_TERMS_EDITS: [(&str, &str); 4] = [
          glow = glow_term(structure_blurred, is_raw, t_exposure, t_brightness, t_whites);\n        }\n        \
          if (ENABLE_HALATION && t_halation > 0.0) {\n            \
          halation = halation_term(clarity_blurred, is_raw, t_exposure, t_brightness, t_whites);\n        }\n        \
-         textureStore(glow_terms_out, id.xy, vec4<f32>(glow, 0.0));\n        \
-         textureStore(halation_terms_out, id.xy, vec4<f32>(halation, 0.0));\n    \
+         textureStore(glow_terms_out, terms_index(id.xy), vec4<f32>(glow, 0.0));\n        \
+         textureStore(halation_terms_out, terms_index(id.xy), vec4<f32>(halation, 0.0));\n    \
          } else {\n",
     ),
     // The photo's glow and halation: from the terms pass or computed here.
@@ -245,12 +277,12 @@ const EFFECT_TERMS_EDITS: [(&str, &str); 4] = [
          t_exposure, t_brightness, t_contrast, t_whites\n            );\n        }\n",
         "        if (ENABLE_GLOW && t_glow > 0.0) {\n            \
          if (EFFECT_TERMS) {\n                \
-         processed_rgb = apply_glow_term(processed_rgb, textureLoad(glow_terms, id.xy, 0).rgb, t_glow);\n            \
+         processed_rgb = apply_glow_term(processed_rgb, textureLoad(glow_terms, terms_index(id.xy), 0).rgb, t_glow);\n            \
          } else {\n                \
          processed_rgb = apply_glow_bloom(processed_rgb, structure_blurred, t_glow, is_raw, t_exposure, t_brightness, t_contrast, t_whites);\n            }\n        }\n        \
          if (ENABLE_HALATION && t_halation > 0.0) {\n            \
          if (EFFECT_TERMS) {\n                \
-         processed_rgb = apply_halation_term(processed_rgb, textureLoad(halation_terms, id.xy, 0).rgb, t_halation);\n            \
+         processed_rgb = apply_halation_term(processed_rgb, textureLoad(halation_terms, terms_index(id.xy), 0).rgb, t_halation);\n            \
          } else {\n                \
          processed_rgb = apply_halation(processed_rgb, clarity_blurred, t_halation, is_raw, t_exposure, t_brightness, t_contrast, t_whites);\n            }\n        }\n",
     ),
@@ -297,7 +329,11 @@ const FINISH_MAIN_END: &str = "    if (FINISH_APART && adjustments.detail_cache.
 /// Where `main` starts its work on a pixel, and `main` as the finish pass
 /// before it: the stored colour through `finish_pixel`.
 const FINISH_PASS_AT: &str = "    let original_alpha = load_input(vec2<i32>(absolute_coord)).a;\n";
-const FINISH_PASS: &str = "    if (FINISH_PASS) {\n        \
+const FINISH_PASS: &str = "    if (GRAIN_FIELD_PASS) {\n        \
+     let stored = textureLoad(deferred_texture, vec2<i32>(id.xy), 0);\n        \
+     let grain = apply_film_grain(stored.rgb, absolute_coord >> vec2<u32>(1u));\n        \
+     textureStore(grain_field_out, block_index(id.xy), vec4<f32>(grain, 0.0));\n    \
+     } else if (FINISH_PASS) {\n        \
      let stored = textureLoad(deferred_texture, vec2<i32>(id.xy), 0);\n        \
      var views = vec2<f32>(-1.0, 1.0);\n        \
      if (textureDimensions(finish_views).x > 1u) {\n            \
@@ -305,6 +341,32 @@ const FINISH_PASS: &str = "    if (FINISH_PASS) {\n        \
      finish_pixel(id, absolute_coord, scale, stored.a, views.x, views.y, stored.rgb);\n    \
      } else {\n";
 const MAIN_START: &str = "@compute @workgroup_size(8, 8, 1)\nfn main(";
+
+/// Film grain of a drag's frame (G76/GRN3): shader.wgsl's text in
+/// `apply_film_grain` and what the display source writes instead. With
+/// `GRAIN_FIELD_PASS` the function returns the grain of a 2 x 2 block at
+/// the block's coordinates, twice the texels per pixel (the grain field
+/// rendered at half resolution); with `GRAIN_FROM_FIELD` it applies the
+/// block's grain (`grain_field`) to the pixel's own colour. Without either
+/// constant it computes what it did.
+const FILM_GRAIN_EDITS: [(&str, &str); 3] = [
+    (
+        "    let s_q = cells * (FILM_TEXELS_PER_CELL >> 12u) + ((cells * (FILM_TEXELS_PER_CELL & 4095u)) >> 12u);\n",
+        "    var s_q = cells * (FILM_TEXELS_PER_CELL >> 12u) + ((cells * (FILM_TEXELS_PER_CELL & 4095u)) >> 12u);\n    \
+         if (GRAIN_FIELD_PASS) {\n        s_q = s_q * 2u;\n    }\n",
+    ),
+    (
+        "    var grain: vec3<f32>;\n    if (rho >= 1.0) {\n        // One neutral layer at the luminance's density.\n",
+        "    var grain: vec3<f32>;\n    if (GRAIN_FROM_FIELD) {\n        \
+         grain = textureLoad(grain_field, block_index(coord - tile_offset()), 0).rgb;\n    \
+         } else if (rho >= 1.0) {\n        // One neutral layer at the luminance's density.\n",
+    ),
+    (
+        "    let printed = 1.0 / (1.0 + exp(-FILM_PRINT_SLOPE * (x + grain * (FILM_DMAX * amount))));\n",
+        "    if (GRAIN_FIELD_PASS) {\n        return grain;\n    }\n    \
+         let printed = 1.0 / (1.0 + exp(-FILM_PRINT_SLOPE * (x + grain * (FILM_DMAX * amount))));\n",
+    ),
+];
 
 /// The end of `main` as a function the main pass or a finish pass runs
 /// (G76/EFX): grain is 29.4k inlined expressions (four versions), the rest
@@ -328,6 +390,12 @@ fn with_finish_pass(source: &str) -> Option<String> {
     {
         return None;
     }
+    let source = FILM_GRAIN_EDITS
+        .iter()
+        .try_fold(source.to_string(), |source, (from, to)| {
+            (source.matches(from).count() == 1).then(|| source.replacen(from, to, 1))
+        })?;
+    let source = source.as_str();
     let start = source.find(FINISH_START)?;
     let end = source.find(EFFECT_TERMS_MAIN_END)?;
     let entry = source.find(MAIN_START)?;

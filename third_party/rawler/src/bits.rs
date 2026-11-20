@@ -207,7 +207,8 @@ pub fn LEu16(buf: &[u8], pos: usize) -> u16 {
 
 #[derive(Debug, Clone)]
 pub struct LookupTable {
-  table: Vec<(u16, u16, u16)>,
+  // Rawtonic patch (LJD1): the dither base is signed, see `dither`.
+  table: Vec<(u16, i32, u16)>,
 }
 
 impl LookupTable {
@@ -222,7 +223,7 @@ impl LookupTable {
       let base = if center == 0 {
         0
       } else {
-        center.wrapping_sub(upper.wrapping_sub(lower).wrapping_add(2) / 4)
+        center as i32 - (upper.wrapping_sub(lower).wrapping_add(2) / 4) as i32
       };
       let delta = upper.wrapping_sub(lower);
       tbl[i] = (center, base, delta);
@@ -260,11 +261,15 @@ impl LookupTable {
       Some(entry) => *entry,
       None => self.table.last().copied().unwrap_or_default(),
     };
-    let base = sbase as u32;
     let delta = sdelta as u32;
-    let pixel = base + ((delta * (*rand & 2047) + 1024) >> 12);
+    // Rawtonic patch (LJD1): the dithered value is clamped to 0..=65535. It
+    // wrapped around before, so the last entry of a table ending near 65535
+    // (an 8-bit LinearizationTable of a JPEG-to-DNG, the sNEF curve where it
+    // reaches 65535) gave near-black samples for about half the clipped
+    // highlights; values inside the range are unchanged.
+    let pixel = sbase + ((delta * (*rand & 2047) + 1024) >> 12) as i32;
     *rand = 15700 * (*rand & 65535) + (*rand >> 16);
-    pixel as u16
+    pixel.clamp(0, u16::MAX as i32) as u16
   }
 }
 

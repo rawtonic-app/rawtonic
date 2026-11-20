@@ -43,6 +43,9 @@ pub struct PreviewJob {
     pub sequence: Option<u64>,
     pub adjustments: serde_json::Value,
     pub is_interactive: bool,
+    /// A drag of a grain control (from its press): its frames show the
+    /// grain exactly (`DragEffects::half_grain` off).
+    pub grain_drag: bool,
     pub browser_full_zoom: bool,
     pub target_resolution: Option<u32>,
     pub roi: Option<(f32, f32, f32, f32)>,

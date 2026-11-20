@@ -133,6 +133,48 @@ mod rawtonic_dng_version_tests {
   }
 }
 
+/// Rawtonic patch (LJD1): a JPEG-to-DNG as Lightroom writes it for a
+/// converted JPEG, built for this test from a synthetic image (no
+/// photograph): LinearRaw RGB, 75x45 in 32x32 tiles (edge tiles padded),
+/// each a progressive JPEG with 4:2:0 chroma (Compression 34892), and an
+/// 8-bit LinearizationTable to 16-bit linear (the sRGB curve, 65535 at
+/// code 255). Left 40 columns white (255), right grey (128) with a red
+/// block at rows 10..30, columns 50..70.
+#[cfg(test)]
+mod rawtonic_lossy_jpeg_tests {
+  use super::*;
+
+  #[test]
+  fn progressive_subsampled_jpeg_tiles_with_a_linearization_table() {
+    let data = include_bytes!("dng_lossy_jpeg_test.dng");
+    let image = crate::decode(&RawSource::new_from_slice(data), &RawDecodeParams::default()).expect("decodes");
+    assert_eq!((image.width, image.height, image.cpp), (75, 45, 3));
+    let RawImageData::Integer(samples) = image.data else {
+      panic!("integer samples expected");
+    };
+    let at = |x: usize, y: usize| &samples[(y * 75 + x) * 3..(y * 75 + x) * 3 + 3];
+    // sRGB code 254 is 64 952: the dither of code 255 stays within
+    // 65 389..=65 535 and never wraps around to near black, in every tile
+    // the white area covers.
+    for y in 0..45 {
+      for x in 0..36 {
+        for &v in at(x, y) {
+          assert!(v >= 65_389, "white at ({x}, {y}) decoded to {v}");
+        }
+      }
+    }
+    // Code 128 is 14 146 (neighbours 13 909 and 14 387), across the tile
+    // edge at column 64 and in the padded right and bottom edge tiles.
+    for (x, y) in [(45, 2), (72, 40), (74, 44), (60, 35)] {
+      for &v in at(x, y) {
+        assert!((13_950..=14_350).contains(&v), "grey at ({x}, {y}) decoded to {v}");
+      }
+    }
+    let red = at(60, 20);
+    assert!(red[0] > 30_000 && red[1] < 2_000 && red[2] < 2_000, "red block decoded to {red:?}");
+  }
+}
+
 /// DNG format encapsulation for analyzer
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

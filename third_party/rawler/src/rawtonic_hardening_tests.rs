@@ -745,3 +745,20 @@ mod rw2_v8 {
     assert_decode_error(&source, &truncated_codes, "CF2 list shorter than its count");
   }
 }
+
+/// Rawtonic patch (LJD1): the dither of a table's last entry near 65535
+/// clamps instead of wrapping around to near black.
+#[test]
+fn lookup_table_dither_clamps_at_the_ends() {
+  let table = LookupTable::new(&[0, 30_000, 65_535]);
+  let mut random = 0x1234_5678;
+  for _ in 0..10_000 {
+    let v = table.dither(2, &mut random);
+    assert!(v >= 65_535 - (65_535 - 30_000) / 4 - 1, "top entry dithered to {v}");
+  }
+  let table = LookupTable::new(&[10, 4_000, 8_000]);
+  for _ in 0..10_000 {
+    let v = table.dither(0, &mut random);
+    assert!(v <= 10 + 3_990 / 4 + 1, "first entry dithered to {v}");
+  }
+}

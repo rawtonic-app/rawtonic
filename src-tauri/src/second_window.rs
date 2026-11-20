@@ -61,6 +61,15 @@ const STATE_FILE: &str = "second_window.json";
 const MIN_SIZE: (f64, f64) = (320.0, 240.0);
 /// How long the edit must rest before the window develops its own frame.
 const SETTLE: Duration = Duration::from_millis(120);
+/// The part of the visible size a zoomed region reaches past each side.
+/// Linux: none, as the main window's region frame (VPR1): the page's
+/// lossless frame costs encode, bytes and decode by its pixels (a margin of
+/// a quarter each side is 2.25× of them on every settled edit), and a pan
+/// past the edge cuts the new region from the kept base in milliseconds.
+#[cfg(target_os = "linux")]
+const REGION_MARGIN: f32 = 0.0;
+#[cfg(not(target_os = "linux"))]
+const REGION_MARGIN: f32 = multi_view::REGION_MARGIN;
 
 /// The window as kept for the next start. Bounds are logical px (points),
 /// which mean the same on displays of different scale: the outer top left
@@ -128,6 +137,9 @@ struct Whole {
     /// Developed for this window at this window area (device px; else
     /// copied from the main frame).
     own: Option<[f32; 4]>,
+    /// Its pixels as developed: not a JPEG (on Linux the main window's
+    /// whole frame at 100 % is one; see [`whole_is_sharp`]).
+    lossless: bool,
 }
 
 #[derive(Default)]
@@ -143,6 +155,10 @@ struct Inner {
     locked: bool,
     /// The background around the photograph (the main viewer's).
     background: [f32; 4],
+    /// The recipe whose region failed to develop: its whole frame goes
+    /// first then ([`REGION_BEFORE_WHOLE`]), so the window is not left
+    /// without a frame of it.
+    region_failed: Option<u64>,
 }
 
 /// The recipe of the newest preview the main window rendered.
@@ -245,6 +261,8 @@ struct Offered<'a> {
     /// A tool's view of the photograph (clipping warnings, the sharpening
     /// mask), not the photograph itself.
     tool_view: bool,
+    /// The frame's pixels as developed (not a JPEG).
+    lossless: bool,
 }
 
 /// The main display bound `frame`: shown here too (see [`take_live`]).
@@ -256,6 +274,7 @@ fn on_frame(app: &tauri::AppHandle, context: &GpuContext, frame: &LiveFrame) {
         size: (frame.width, frame.height),
         uncropped: frame.uncropped,
         tool_view: frame.tool_view,
+        lossless: true,
     };
     take_live(app, context, offered, |display, key, extent| {
         display.copy_cell_frame(
@@ -289,10 +308,35 @@ pub(crate) fn on_browser_frame(
         size,
         uncropped: false,
         tool_view,
+        // A reduced settled frame is a PNG (preview_jpeg::settled_lossless).
+        lossless: jpeg.starts_with(b"\x89PNG"),
     };
     take_live(app, context, offered, |view, key, extent| {
         view.set_jpeg(path, key, extent, CellLayer::Whole, size, jpeg.to_vec())
     });
+}
+
+/// Linux: the main window sent a settled frame of its visible region at
+/// 100 % (`editor_preview::browser_region_frame`), no whole frame: this
+/// window takes the new recipe and develops its own frames of it.
+#[cfg(target_os = "linux")]
+pub(crate) fn on_browser_region(
+    app: &tauri::AppHandle,
+    context: &GpuContext,
+    path: &str,
+    tool_view: bool,
+) {
+    if !is_open() {
+        return;
+    }
+    let offered = Offered {
+        path,
+        size: (0, 0),
+        uncropped: false,
+        tool_view,
+        lossless: false,
+    };
+    take_live(app, context, offered, |_, _, _| false);
 }
 
 /// Shows the main window's frame here too unless the window is locked, the
@@ -365,10 +409,13 @@ fn take_live(
                         recipe_key: key,
                         pixels: frame.size,
                         own: None,
+                        lossless: frame.lossless,
                     });
                 }
-                // A region of an earlier recipe would cover the edit.
-                if !region_is_of(display, path, key) {
+                // A region of an earlier recipe would cover the edit; over a
+                // whole frame as old it stays until its own replacement.
+                let whole_current = inner.whole.is_some_and(|whole| whole.recipe_key == key);
+                if whole_current && !region_is_of(display, path, key) {
                     display.remove_cell_region(path);
                 }
                 paint(display, context, inner.background);
@@ -478,20 +525,17 @@ fn paint(display: &mut View, context: &GpuContext, background: [f32; 4]) {
 }
 
 /// A frame developed for the window, made ready for its view outside the
-/// window's lock: the pixels for the native display, a JPEG for the page.
+/// window's lock: the pixels for the native display, a PNG for the page.
 #[cfg(not(target_os = "linux"))]
 type Prepared<'a> = &'a image::RgbaImage;
 #[cfg(target_os = "linux")]
 type Prepared<'a> = Result<Vec<u8>, String>;
 
-fn prepare(rgba: &image::RgbaImage, region: bool) -> Prepared<'_> {
+fn prepare(rgba: &image::RgbaImage) -> Prepared<'_> {
     #[cfg(not(target_os = "linux"))]
-    {
-        let _ = region;
-        rgba
-    }
+    return rgba;
     #[cfg(target_os = "linux")]
-    return browser::encode(rgba, region);
+    return browser::encode(rgba);
 }
 
 /// Puts a developed frame (`size` px) into the window's cell as `layer`.
@@ -582,6 +626,32 @@ fn whole_is_enough(whole: Whole, area: [f32; 4], shown: [f32; 2]) -> bool {
         || whole_suffices(whole.pixels, area, shown)
 }
 
+/// A photograph shown at most 1:1 by its whole frame needs no region; a
+/// JPEG whole does (it moved fine chroma out of the bar at 100 %, SWC1).
+fn whole_is_sharp(whole: Whole, shown: [f32; 2], zoom: CellZoom) -> bool {
+    whole.lossless
+        && whole.pixels.0.max(whole.pixels.1) as f32 >= shown[0].max(shown[1]) * zoom.scale * 0.97
+}
+
+/// Linux: zoomed in, a region the window needs is developed before a whole
+/// frame of the same recipe. The main window sends no whole frame at 100 %
+/// there (`editor_preview::browser_region_frame`), so each edit leaves both
+/// old; the region is what the window shows. Elsewhere every main frame is
+/// copied in as the whole.
+const REGION_BEFORE_WHOLE: bool = cfg!(target_os = "linux");
+
+/// The layer the window develops next: `whole_ok` whether its whole frame
+/// serves, `region_needed` whether the zoomed view lacks a current region.
+fn next_layer(whole_ok: bool, region_needed: bool, region_first: bool) -> Option<CellLayer> {
+    if region_needed && (whole_ok || region_first) {
+        Some(CellLayer::Region)
+    } else if !whole_ok {
+        Some(CellLayer::Whole)
+    } else {
+        None
+    }
+}
+
 fn want(inner: &Inner) -> Option<Want> {
     let shown = inner.shown.as_ref()?;
     let display = inner.display.as_ref()?;
@@ -593,27 +663,21 @@ fn want(inner: &Inner) -> Option<Want> {
         (Some(_), None) => true,
         (None, _) => false,
     };
-    if !whole_ok {
-        return Some(Want::Whole {
-            recipe: Arc::clone(&shown.recipe),
-        });
-    }
-    let zoom = inner.zoom?;
-    let size = shown.shown?;
-    let current = region_of(display, &shown.path)
-        .filter(|(key, _)| *key == region_recipe_tag(shown.recipe_key))
-        .and_then(|(_, extent)| extent.region)
-        .is_some_and(|region| {
-            gpu_processing::multi_view::region_covers(region, inner.area, size, zoom)
-        });
-    // A photograph shown at most 1:1 by its whole frame needs no region.
-    let whole_is_sharp = inner.whole.is_some_and(|w| {
-        w.pixels.0.max(w.pixels.1) as f32 >= size[0].max(size[1]) * zoom.scale * 0.97
+    let region_needed = inner.zoom.zip(shown.shown).filter(|&(zoom, size)| {
+        let current = region_of(display, &shown.path)
+            .filter(|(key, _)| *key == region_recipe_tag(shown.recipe_key))
+            .and_then(|(_, extent)| extent.region)
+            .is_some_and(|region| {
+                gpu_processing::multi_view::region_covers(region, inner.area, size, zoom)
+            });
+        !current && !whole_current.is_some_and(|w| whole_is_sharp(w, size, zoom))
     });
-    (!current && !whole_is_sharp).then(|| Want::Region {
-        recipe: Arc::clone(&shown.recipe),
-        zoom,
-    })
+    let recipe = Arc::clone(&shown.recipe);
+    let region_first = REGION_BEFORE_WHOLE && inner.region_failed != Some(shown.recipe_key);
+    match next_layer(whole_ok, region_needed.is_some(), region_first)? {
+        CellLayer::Whole => Some(Want::Whole { recipe }),
+        CellLayer::Region => region_needed.map(|(zoom, _)| Want::Region { recipe, zoom }),
+    }
 }
 
 fn run(app_handle: &tauri::AppHandle, job: Job) {
@@ -646,7 +710,7 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
             ) {
                 Ok(developed) => {
                     let mut changed = false;
-                    let frame = prepare(&developed.rgba, false);
+                    let frame = prepare(&developed.rgba);
                     {
                         let mut guard = lock_recover(&INNER);
                         let Some(inner) = guard.as_mut() else { return };
@@ -675,12 +739,17 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                                 developed.rgba.dimensions(),
                                 frame,
                             );
+                            // A region of an earlier recipe would cover it.
+                            if !region_is_of(display, &path, recipe_key) {
+                                display.remove_cell_region(&path);
+                            }
                             paint(display, &context, background);
                         }
                         inner.whole = Some(Whole {
                             recipe_key,
                             pixels: developed.rgba.dimensions(),
                             own: Some(area),
+                            lossless: true,
                         });
                     }
                     log::info!(
@@ -708,35 +777,43 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                 &path,
                 area,
                 zoom,
+                REGION_MARGIN,
                 (*recipe).clone(),
                 tag,
                 multi_view::CELL_RENDER,
             ) {
                 Ok(region) => {
-                    let frame = prepare(&region.rgba, true);
-                    let mut guard = lock_recover(&INNER);
-                    let Some(inner) = guard.as_mut() else { return };
-                    if !inner
-                        .shown
-                        .as_ref()
-                        .is_some_and(|s| s.path == path && s.recipe_key == recipe_key)
-                        || inner.zoom.map(|z| z.scale) != Some(zoom.scale)
-                    {
-                        return;
-                    }
-                    let background = inner.background;
-                    if let Some(display) = inner.display.as_mut() {
-                        upload(
-                            display,
-                            &context,
-                            &path,
-                            region.key,
-                            region.extent,
-                            CellLayer::Region,
-                            region.rgba.dimensions(),
-                            frame,
-                        );
-                        paint(display, &context, background);
+                    let frame = prepare(&region.rgba);
+                    let whole_old = {
+                        let mut guard = lock_recover(&INNER);
+                        let Some(inner) = guard.as_mut() else { return };
+                        if !inner
+                            .shown
+                            .as_ref()
+                            .is_some_and(|s| s.path == path && s.recipe_key == recipe_key)
+                            || inner.zoom.map(|z| z.scale) != Some(zoom.scale)
+                        {
+                            return;
+                        }
+                        let background = inner.background;
+                        if let Some(display) = inner.display.as_mut() {
+                            upload(
+                                display,
+                                &context,
+                                &path,
+                                region.key,
+                                region.extent,
+                                CellLayer::Region,
+                                region.rgba.dimensions(),
+                                frame,
+                            );
+                            paint(display, &context, background);
+                        }
+                        !inner.whole.is_some_and(|w| w.recipe_key == recipe_key)
+                    };
+                    // Developed first (REGION_BEFORE_WHOLE): the whole follows.
+                    if whole_old {
+                        schedule(app_handle);
                     }
                     log::info!(
                         "[second_window] {path}: region {}x{} in {:.1} ms",
@@ -745,7 +822,19 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                         region.ms
                     );
                 }
-                Err(error) => log::warn!("[second_window] {path}: region not developed: {error}"),
+                Err(error) => {
+                    log::warn!("[second_window] {path}: region not developed: {error}");
+                    let whole_old = {
+                        let mut guard = lock_recover(&INNER);
+                        let Some(inner) = guard.as_mut() else { return };
+                        inner.region_failed = Some(recipe_key);
+                        !inner.whole.is_some_and(|w| w.recipe_key == recipe_key)
+                    };
+                    // Developed first (REGION_BEFORE_WHOLE): the whole still follows.
+                    if whole_old {
+                        schedule(app_handle);
+                    }
+                }
             }
         }
     }
@@ -1572,6 +1661,7 @@ mod tests {
             recipe_key: 1,
             pixels: (1350, 900),
             own: Some(small),
+            lossless: true,
         };
         assert!(whole_is_enough(own, small, shown));
         assert!(
@@ -1585,6 +1675,46 @@ mod tests {
             ..own
         };
         assert!(whole_is_enough(short, small, shown));
+    }
+
+    #[test]
+    fn only_a_lossless_whole_at_one_to_one_stands_for_a_region() {
+        let shown = [6000.0, 4000.0];
+        let zoom = CellZoom {
+            scale: 1.0,
+            center: [0.5, 0.5],
+        };
+        let whole = Whole {
+            recipe_key: 1,
+            pixels: (6000, 4000),
+            own: None,
+            lossless: true,
+        };
+        assert!(whole_is_sharp(whole, shown, zoom));
+        // The main window's whole JPEG at 100 % (Linux): a region is developed.
+        let jpeg = Whole {
+            lossless: false,
+            ..whole
+        };
+        assert!(!whole_is_sharp(jpeg, shown, zoom));
+        let fit = Whole {
+            pixels: (3000, 2000),
+            ..whole
+        };
+        assert!(!whole_is_sharp(fit, shown, zoom));
+    }
+
+    #[test]
+    fn a_needed_region_goes_before_an_old_whole_where_main_sends_regions() {
+        let (region, whole) = (Some(CellLayer::Region), Some(CellLayer::Whole));
+        // Linux: the main window's 100 % frames leave the whole old.
+        assert_eq!(next_layer(false, true, true), region);
+        assert_eq!(next_layer(false, false, true), whole);
+        // Elsewhere the whole comes first, as before.
+        assert_eq!(next_layer(false, true, false), whole);
+        assert_eq!(next_layer(true, true, false), region);
+        assert_eq!(next_layer(true, false, true), None);
+        assert_eq!(REGION_BEFORE_WHOLE, cfg!(target_os = "linux"));
     }
 
     #[test]

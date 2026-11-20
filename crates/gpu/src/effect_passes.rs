@@ -105,11 +105,20 @@ pub(super) struct EffectPasses {
     terms_pipelines: Pipelines<(usize, bool)>,
     /// Glow's and halation's terms, tile-sized.
     terms_tiles: std::sync::OnceLock<[HighPrecisionTile; 2]>,
+    /// The regions of a drag's terms pass, in 2 x 2 blocks (`half_regions`).
+    terms_regions: wgpu::Buffer,
     /// The finish pass by output (8-bit, deferred): layouts, and variants
     /// by whether they hold grain and by output.
     finish_bgls: [wgpu::BindGroupLayout; 2],
     finish_layouts: [wgpu::PipelineLayout; 2],
-    finish_pipelines: Pipelines<(bool, bool)>,
+    finish_pipelines: Pipelines<(bool, bool, bool)>,
+    /// A drag's grain field pass (`GRAIN_FIELD_PASS`): the 8-bit finish
+    /// pass's layout with the field it writes.
+    field_layout: wgpu::PipelineLayout,
+    field_bgl: wgpu::BindGroupLayout,
+    field_pipelines: Pipelines<()>,
+    /// The grain of a drag's 2 x 2 blocks, a quarter of a tile.
+    field_tile: std::sync::OnceLock<HighPrecisionTile>,
     /// The colour a main pass stores for the finish pass.
     colour_tile: std::sync::OnceLock<HighPrecisionTile>,
     /// The view values a main pass stores (colour range view, sharpening
@@ -156,6 +165,11 @@ pub(super) const FINISH_VIEWS_BINDING: u32 = 33;
 pub(super) const VIEWS_OUTPUT_BINDING: u32 = 34;
 /// The colour a main pass stores for the finish pass (`finish_colour_out`).
 pub(super) const COLOUR_OUTPUT_BINDING: u32 = 35;
+/// A drag's film grain once per 2 x 2 pixels (G76/GRN3): the grain field
+/// pass's output and the finish pass's input (`grain_field_out`,
+/// `grain_field`).
+pub(super) const GRAIN_FIELD_OUTPUT_BINDING: u32 = 40;
+pub(super) const GRAIN_FIELD_BINDING: u32 = 41;
 
 /// The feature bits the terms pass's code depends on: layers (their
 /// sliders' sums per pixel) and the tone stage's switches. Every other bit
@@ -220,6 +234,56 @@ pub(super) fn terms_constants(features: usize, layer_sums: bool) -> Vec<(&'stati
     constants
 }
 
+/// A drag's terms pass (G76/GRN3): the tile-local `regions` (x, y,
+/// width, height) as the 2 x 2 blocks of absolute coordinates that cover
+/// them, at the blocks' index in the tile (the display source's
+/// `terms_index`), for the tile at `offset`. Each block's term is computed
+/// once, at its first pixel in the tile (`terms_pixel`), and every pixel of
+/// the block reads it.
+pub(super) fn half_regions(regions: &[[u32; 4]], offset: [u32; 2]) -> Vec<[u32; 4]> {
+    regions
+        .iter()
+        .map(|&[x, y, width, height]| {
+            let block = |at: u32, axis: usize| ((at + offset[axis]) >> 1) - (offset[axis] >> 1);
+            let (x0, y0) = (block(x, 0), block(y, 1));
+            if width == 0 || height == 0 {
+                return [x0, y0, 0, 0];
+            }
+            [
+                x0,
+                y0,
+                block(x + width - 1, 0) - x0 + 1,
+                block(y + height - 1, 1) - y0 + 1,
+            ]
+        })
+        .collect()
+}
+
+/// `region` (absolute coordinates) grown to whole 2 x 2 blocks: the pixels
+/// a drag's changed pixels change (G76/GRN3).
+pub(super) fn whole_blocks(region: Roi) -> Roi {
+    let (x, y) = (region.x & !1, region.y & !1);
+    Roi {
+        x,
+        y,
+        width: (region.x + region.width).next_multiple_of(2) - x,
+        height: (region.y + region.height).next_multiple_of(2) - y,
+    }
+}
+
+/// A tile-local dispatch region (x, y, width, height) of the tile at
+/// `offset`, started at the first pixel in the tile of the block its first
+/// pixel lies in (`terms_pixel`), so the main pass renders every pixel the
+/// passes over the blocks read.
+pub(super) fn with_block_starts(region: [u32; 4], offset: [u32; 2]) -> [u32; 4] {
+    let start = |at: u32, o: u32| {
+        let block = (at + o) >> 1;
+        (2 * block).max(o) - o
+    };
+    let (x, y) = (start(region[0], offset[0]), start(region[1], offset[1]));
+    [x, y, region[2] + region[0] - x, region[3] + region[1] - y]
+}
+
 /// The pipeline constants of the finish pass: with or without grain, into
 /// the 8-bit tile or (`deferred`) as the colour `encode_deferred` encodes.
 /// The sharpening view's two lines are always in: a frame without the view
@@ -279,6 +343,24 @@ impl EffectPasses {
             entries.push(output_entry(ANALYTICS_OUTPUT_BINDING, format));
             entries.push(float_texture_entry(FINISH_COLOUR_BINDING));
             entries.push(float_texture_entry(FINISH_VIEWS_BINDING));
+            entries.push(float_texture_entry(GRAIN_FIELD_BINDING));
+            entries
+        });
+        let mut field_entries = finish_bgls[0].clone();
+        field_entries.push(output_entry(
+            GRAIN_FIELD_OUTPUT_BINDING,
+            wgpu::TextureFormat::Rgba32Float,
+        ));
+        let field_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Grain Field BGL"),
+            entries: &field_entries,
+        });
+        let field_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Grain Field Pipeline Layout"),
+            bind_group_layouts: &[Some(&field_bgl)],
+            immediate_size: 0,
+        });
+        let finish_bgls = finish_bgls.map(|entries| {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Finish Pass BGL"),
                 entries: &entries,
@@ -313,6 +395,12 @@ impl EffectPasses {
         let no_colour = one_texel("No Finish Colour");
         let no_split_outputs = ["No Split Output 1", "No Split Output 2"].map(one_texel);
         let no_split_input = one_texel("No Split Input");
+        let terms_regions = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Effect Terms Regions Buffer"),
+            size: ((MAX_RENDER_REGIONS + 1) * 16) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         Self {
             display,
             float_display,
@@ -320,9 +408,14 @@ impl EffectPasses {
             terms_layout,
             terms_pipelines: Mutex::new(std::collections::HashMap::new()),
             terms_tiles: std::sync::OnceLock::new(),
+            terms_regions,
             finish_bgls,
             finish_layouts,
             finish_pipelines: Mutex::new(std::collections::HashMap::new()),
+            field_layout,
+            field_bgl,
+            field_pipelines: Mutex::new(std::collections::HashMap::new()),
+            field_tile: std::sync::OnceLock::new(),
             colour_tile: std::sync::OnceLock::new(),
             views_tile: std::sync::OnceLock::new(),
             no_views,
@@ -416,38 +509,87 @@ impl EffectPasses {
         })
     }
 
+    /// The render regions of a drag's terms pass (`half_regions`).
+    pub(super) fn terms_regions(&self) -> &wgpu::Buffer {
+        &self.terms_regions
+    }
+
     /// The finish pass's layout into the 8-bit tile or the deferred one.
     pub(super) fn finish_bind_group_layout(&self, deferred: bool) -> &wgpu::BindGroupLayout {
         &self.finish_bgls[usize::from(deferred)]
     }
 
     /// The finish pass, compiled on first use: a small compile (35.9k
-    /// inlined expressions with grain, 6.5k without).
+    /// inlined expressions with grain, 6.5k without). `from_field`: a
+    /// drag's, which applies the film grain of the grain field pass.
     pub(super) fn finish_pipeline(
         &self,
         device: &wgpu::Device,
         grain: bool,
         deferred: bool,
+        from_field: bool,
     ) -> Result<wgpu::ComputePipeline, String> {
-        pipeline_of(&self.finish_pipelines, (grain, deferred), || {
-            let label = format!(
-                "Finish pass{}{}",
-                if grain { " with grain" } else { "" },
-                if deferred { " (deferred)" } else { "" }
-            );
-            let display = if deferred {
-                &self.float_display
-            } else {
-                &self.display
-            };
+        pipeline_of(
+            &self.finish_pipelines,
+            (grain, deferred, from_field),
+            || {
+                let label = format!(
+                    "Finish pass{}{}{}",
+                    if grain { " with grain" } else { "" },
+                    if from_field {
+                        " from the grain field"
+                    } else {
+                        ""
+                    },
+                    if deferred { " (deferred)" } else { "" }
+                );
+                let mut constants = finish_constants(grain, deferred);
+                if from_field {
+                    constants.push(("GRAIN_FROM_FIELD", 1.0));
+                }
+                let display = if deferred {
+                    &self.float_display
+                } else {
+                    &self.display
+                };
+                small_pipeline(
+                    device,
+                    display,
+                    &constants,
+                    &self.finish_layouts[usize::from(deferred)],
+                    &label,
+                )
+            },
+        )
+    }
+
+    /// A drag's grain field pass (G76/GRN3): the film grain of each 2 x 2
+    /// block of the stored colour, into the field tile.
+    pub(super) fn field_pipeline(
+        &self,
+        device: &wgpu::Device,
+    ) -> Result<wgpu::ComputePipeline, String> {
+        pipeline_of(&self.field_pipelines, (), || {
+            let mut constants = finish_constants(true, false);
+            constants.push(("GRAIN_FIELD_PASS", 1.0));
             small_pipeline(
                 device,
-                display,
-                &finish_constants(grain, deferred),
-                &self.finish_layouts[usize::from(deferred)],
-                &label,
+                &self.display,
+                &constants,
+                &self.field_layout,
+                "Grain field pass",
             )
         })
+    }
+
+    pub(super) fn field_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.field_bgl
+    }
+
+    /// The tile of a drag's grain field: one texel per 2 x 2 block.
+    pub(super) fn field_tile(&self, processor: &GpuProcessor) -> &HighPrecisionTile {
+        self.field_tile
+            .get_or_init(|| processor.float_tile("Grain Field Tile", TILE_SIZE / 2 + 1))
     }
 
     /// After a frame on screen: the passes its photo's next effect edit
@@ -477,8 +619,15 @@ impl EffectPasses {
                     log::error!("Effect terms pass {key} unavailable: {error}");
                 }
             }
-            if let Err(error) = passes.finish_pipeline(&device, true, false) {
+            if let Err(error) = passes.finish_pipeline(&device, true, false, false) {
                 log::error!("Finish pass with grain unavailable: {error}");
+            }
+            // A drag's with film grain (G76/GRN3).
+            if let Err(error) = passes
+                .finish_pipeline(&device, true, false, true)
+                .and_then(|_| passes.field_pipeline(&device))
+            {
+                log::error!("Drag passes of film grain unavailable: {error}");
             }
         });
     }
@@ -550,6 +699,71 @@ mod tests {
     /// The terms pass compiles once per kind of tone stage
     /// (`TERMS_FEATURES`): no other feature bit changes its module, with
     /// and without the layers' sums.
+    #[test]
+    fn half_regions_cover_the_blocks_of_every_pixel() {
+        // Tile pixel p of a tile at `offset` reads the block at
+        // ((p + offset) >> 1) - (offset >> 1); a region's blocks must hold
+        // every such index of its pixels, and no other.
+        for offset in [[0, 0], [1, 0], [0, 1], [7, 13], [128, 255]] {
+            for region in [
+                [0, 0, 1, 1],
+                [0, 0, 9, 4],
+                [3, 5, 10, 7],
+                [1, 2, 2, 1],
+                [4, 4, 0, 3],
+            ] {
+                let [half] = half_regions(&[region], offset)[..] else {
+                    panic!("one region");
+                };
+                let [x, y, w, h] = region;
+                if w == 0 || h == 0 {
+                    assert_eq!(half[2..], [0, 0]);
+                    continue;
+                }
+                for axis in 0..2 {
+                    let (start, len, block_start, block_len) = if axis == 0 {
+                        (x, w, half[0], half[2])
+                    } else {
+                        (y, h, half[1], half[3])
+                    };
+                    let blocks: std::collections::BTreeSet<u32> = (start..start + len)
+                        .map(|p| ((p + offset[axis]) >> 1) - (offset[axis] >> 1))
+                        .collect();
+                    let expected: std::collections::BTreeSet<u32> =
+                        (block_start..block_start + block_len).collect();
+                    assert_eq!(blocks, expected, "{region:?} at {offset:?}, axis {axis}");
+                    // The display source's `terms_pixel`: the block's first
+                    // pixel in the tile, whose block it is.
+                    let o = offset[axis];
+                    for b in expected {
+                        let first = (2 * (b + (o >> 1))).max(o) - o;
+                        assert!(first < start + len);
+                        assert_eq!(((first + o) >> 1) - (o >> 1), b);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn drag_frames_render_whole_blocks_and_their_first_pixels() {
+        let roi = |x, y, width, height| Roi {
+            x,
+            y,
+            width,
+            height,
+        };
+        assert_eq!(whole_blocks(roi(3, 4, 2, 1)), roi(2, 4, 4, 2));
+        assert_eq!(whole_blocks(roi(2, 4, 2, 2)), roi(2, 4, 2, 2));
+        // A region from tile pixel 4 of a tile at 7: absolute 11, its
+        // block's first pixel absolute 10, tile pixel 3.
+        assert_eq!(with_block_starts([4, 6, 5, 2], [7, 0]), [3, 6, 6, 2]);
+        // At the tile's start the block's first pixel is outside the tile:
+        // the passes take the tile's first pixel (`terms_pixel`).
+        assert_eq!(with_block_starts([0, 0, 5, 2], [7, 7]), [0, 0, 5, 2]);
+        assert_eq!(with_block_starts([2, 1, 5, 2], [0, 0]), [2, 0, 5, 3]);
+    }
+
     #[test]
     fn the_terms_pass_depends_only_on_its_features() {
         let shader = DisplayShader::with_effect_passes(SHADER);
