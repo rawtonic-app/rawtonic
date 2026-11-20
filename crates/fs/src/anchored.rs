@@ -144,4 +144,56 @@ mod tests {
         assert!(fs::symlink_metadata(path).unwrap().is_symlink());
         assert_eq!(fs::read(other).unwrap(), b"keep");
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn removes_empty_staging_child() {
+        let temp = tempfile::tempdir().unwrap();
+        let updates = temp.path().join("updates");
+        let name = OsStr::new("0.1.0-AA1234");
+        let staged = updates.join(name);
+        fs::create_dir_all(&staged).unwrap();
+        let directory = Directory::open(&updates).unwrap();
+
+        directory.remove_empty_child(name).unwrap();
+
+        assert!(!staged.try_exists().unwrap());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn preserves_nonempty_staging_child() {
+        let temp = tempfile::tempdir().unwrap();
+        let updates = temp.path().join("updates");
+        let name = OsStr::new("0.1.0-AA1234");
+        let staged = updates.join(name);
+        fs::create_dir_all(&staged).unwrap();
+        let extra = staged.join("keep.txt");
+        fs::write(&extra, b"keep").unwrap();
+        let directory = Directory::open(&updates).unwrap();
+
+        assert!(directory.remove_empty_child(name).is_err());
+        assert_eq!(fs::read(extra).unwrap(), b"keep");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn preserves_symlinked_staging_child_and_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let updates = temp.path().join("updates");
+        let target = temp.path().join("outside-updates");
+        let name = OsStr::new("0.1.0-AA1234");
+        let staged = updates.join(name);
+        fs::create_dir(&updates).unwrap();
+        fs::create_dir(&target).unwrap();
+        if !link_or_skip(symlink_dir(&target, &staged)) {
+            return;
+        }
+        let directory = Directory::open(&updates).unwrap();
+
+        assert!(directory.remove_empty_child(name).is_err());
+        assert!(fs::symlink_metadata(staged).unwrap().is_symlink());
+        assert!(fs::metadata(target).unwrap().is_dir());
+        eprintln!("Checked removal of a symlinked staging child");
+    }
 }
