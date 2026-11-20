@@ -233,6 +233,9 @@ pub struct GpuImageCache {
     /// (`colorNoiseVersion` 11, `Tuning::gpu_pyramid`), built on first use;
     /// exports free it once their level 1 is rebuilt.
     chroma_levels: Option<Box<GpuPyramid>>,
+    /// The measurement `chroma` filters with instead of its own (`PreparedAdjustments::color_noise_measurement`: the source
+    /// is a region of a photograph); `None`: their own.
+    chroma_given: Option<Box<color_noise::NoiseMeasurement>>,
     /// The foreground source before this one, while it is small: drag drafts
     /// render from a smaller copy than the final frame, and each switch
     /// uploaded the source again, rebuilt its chroma pyramid and freed GPU
@@ -653,6 +656,9 @@ pub struct GpuPyramid {
     sizes: Vec<[u32; 2]>,
     /// The photo's colour and luminance noise.
     measured: color_noise::NoiseMeasurement,
+    /// Whether `measured` is another photograph's (the whole photograph the
+    /// source is a region of, `PreparedAdjustments::color_noise_measurement`).
+    given: bool,
 }
 
 impl GpuPyramid {
@@ -824,6 +830,7 @@ impl GpuPyramid {
             levels,
             sizes,
             measured,
+            given: false,
         }))
     }
 
@@ -1851,6 +1858,12 @@ fn rebuild_color_noise_ahead(
     }
     let settings = color_noise_settings(&mut global)?;
     let pyramid = cache.chroma.as_ref()?;
+    // A region's pyramid takes the whole photograph's measurement
+    // (`prepare_color_noise`), not yet applied to the cached one.
+    let given = adjustments.color_noise_measurement.as_deref().copied();
+    if given.is_some_and(|m| m != pyramid.measurement()) {
+        return None;
+    }
     if luma_profile {
         set_luma_profile(&mut global, pyramid);
     }
@@ -1892,6 +1905,7 @@ fn prepare_color_noise(
     interactive: bool,
     rebuilt: Option<RebuiltChroma>,
 ) -> Result<Option<(wgpu::TextureView, wgpu::TextureView)>, String> {
+    let given = adjustments.color_noise_measurement.as_deref().copied();
     let global = &mut adjustments.uniforms.global;
     let luma_profile = luma_profile_wanted(global);
     let versioned = color_noise_tuning(global);
@@ -1935,6 +1949,30 @@ fn prepare_color_noise(
                 ChromaPyramid::build_for(image, global.is_raw_image != 0, &versioned.1)
             })
             .map(Arc::new);
+        cache.chroma_given = None;
+    }
+    // A region of a photograph filters with the whole photograph's
+    // measurement, so that it renders as those pixels of the whole do.
+    if given != cache.chroma_given.as_deref().copied() {
+        cache.chroma_gpu = None;
+        match (given, cache.chroma.as_ref()) {
+            (Some(given), Some(pyramid)) => {
+                cache.chroma = Some(Arc::new(pyramid.with_measurement(&given)));
+                cache.chroma_given = Some(Box::new(given));
+            }
+            (Some(_), None) => {}
+            // Its own measurement again: built again from the source.
+            (None, _) => {
+                if source.is_some() {
+                    cache.chroma = source
+                        .and_then(|image| {
+                            ChromaPyramid::build_for(image, global.is_raw_image != 0, &versioned.1)
+                        })
+                        .map(Arc::new);
+                    cache.chroma_given = None;
+                }
+            }
+        }
     }
     let Some(pyramid) = cache.chroma.clone() else {
         log::warn!("No chroma pyramid for the render source; colour noise reduction falls back");
@@ -2020,12 +2058,19 @@ fn prepare_color_noise_on_gpu(
     (settings, luma_profile): (Option<color_noise::Settings>, bool),
     versioned: (u64, color_noise::Tuning),
 ) -> Result<Option<(wgpu::TextureView, wgpu::TextureView)>, String> {
+    let given = adjustments.color_noise_measurement.as_deref().copied();
     let global = &mut adjustments.uniforms.global;
     let is_raw = global.is_raw_image != 0;
     if cache.chroma_gpu.as_ref().is_some_and(|chroma| !chroma.gpu) {
         cache.chroma_gpu = None;
     }
     let pipelines = processor.chroma_pipelines.as_ref();
+    // Levels that filter with another photograph's measurement are measured
+    // again from the source when their own is wanted.
+    if given.is_none() && cache.chroma_levels.as_ref().is_some_and(|p| p.given) {
+        cache.chroma_levels = None;
+        cache.chroma_gpu = None;
+    }
     if cache.chroma_levels.is_none()
         && let Some(pipelines) = pipelines
     {
@@ -2043,6 +2088,15 @@ fn prepare_color_noise_on_gpu(
         )
         .inspect_err(|e| log::error!("Colour noise pyramid failed: {e}"))?
         .map(Box::new);
+    }
+    // A region of a photograph filters with the whole photograph's
+    // measurement, so that it renders as those pixels of the whole do.
+    if let (Some(given), Some(pyramid)) = (given, cache.chroma_levels.as_deref_mut())
+        && pyramid.measured != given
+    {
+        pyramid.measured = given;
+        pyramid.given = true;
+        cache.chroma_gpu = None;
     }
     // Without its passes (they failed to compile with the processor, which
     // logged it) or for photos too small to filter, as without a pyramid on
@@ -5373,6 +5427,9 @@ struct DisplayRenderState {
     lut_file_stage: bool,
     pipeline: wgpu::ComputePipeline,
     mask_layers: usize,
+    /// A drag's approximations (G76/GRN3): a settled frame after a drag
+    /// with the same values renders every pixel again.
+    drag_effects: rawtonic_engine::image_processing::DragEffects,
 }
 
 impl DisplayRenderState {
@@ -5391,6 +5448,7 @@ impl DisplayRenderState {
             && self.lut_file_stage == other.lut_file_stage
             && self.pipeline == other.pipeline
             && self.mask_layers == other.mask_layers
+            && self.drag_effects == other.drag_effects
     }
 }
 
@@ -11260,6 +11318,7 @@ impl GpuProcessor {
                     lut_file_stage: request.adjustments.lut_file_stage,
                     pipeline: output_pipeline.clone(),
                     mask_layers: request.mask_bitmaps.len().min(MAX_MASKS),
+                    drag_effects: request.adjustments.drag_effects,
                 });
         // Restrict this frame to the changed mask pixels when everything else
         // matches the previous complete frame. `Some` without regions skips work.
@@ -11498,6 +11557,8 @@ impl GpuProcessor {
             }
             _ => None,
         };
+        // A drag's frame: the terms once per 2 x 2 pixels (G76/GRN3).
+        let half_terms = terms_pass.is_some() && request.adjustments.drag_effects.half_terms;
         if let Some(passes) = passes.filter(|_| output_to_display) {
             passes.compile_ahead(device, export_display_features(&request.adjustments));
         }
@@ -11509,9 +11570,16 @@ impl GpuProcessor {
         // probe (`output_space.w`) ends the main pass before grain.
         let grain =
             adjustments.global.grain_amount != 0.0 && adjustments.global.output_space[3] == 0;
+        // A drag's film grain once per 2 x 2 pixels (G76/GRN3), in a frame
+        // that finishes into the 8-bit tile.
+        let half_grain = passes.is_some()
+            && grain
+            && !deferred
+            && adjustments.global.grain_version >= 3
+            && request.adjustments.drag_effects.half_grain;
         let finish_pass = match passes {
             Some(passes) if grain || deferred => Some((
-                passes.finish_pipeline(device, grain, deferred)?,
+                passes.finish_pipeline(device, grain, deferred, half_grain)?,
                 passes.colour_tile(self),
                 passes.views(self, adjustments.global.show_clipping != 0),
                 passes,
@@ -11787,7 +11855,14 @@ impl GpuProcessor {
                     None => vec![tile_rect],
                     Some(regions) => regions
                         .iter()
-                        .filter_map(|region| intersect_roi(*region, tile_rect))
+                        // A drag's frame re-renders whole 2 x 2 blocks: a
+                        // changed pixel changes its block's terms and grain
+                        // (G76/GRN3).
+                        .map(|region| match half_terms || half_grain {
+                            true => intersect_roi(effect_passes::whole_blocks(*region), bounds),
+                            false => Some(*region),
+                        })
+                        .filter_map(|region| intersect_roi(region?, tile_rect))
                         .collect(),
                 };
                 if retained_regions.is_empty() {
@@ -12236,6 +12311,13 @@ impl GpuProcessor {
                     let mut entries = bind_group_entries.clone();
                     entries[1].resource =
                         wgpu::BindingResource::TextureView(&self.tile_output_texture_view);
+                    if half_terms {
+                        for entry in &mut entries {
+                            if entry.binding == 16 {
+                                entry.resource = passes.terms_regions().as_entire_binding();
+                            }
+                        }
+                    }
                     entries.push(wgpu::BindGroupEntry {
                         binding: 14,
                         resource: wgpu::BindingResource::TextureView(&self.dummy_blur_view),
@@ -12255,48 +12337,86 @@ impl GpuProcessor {
                     });
                     (pipeline, bind_group, tiles)
                 });
-                let finish = finish_pass
-                    .as_ref()
-                    .map(|(pipeline, colour, views, passes)| {
+                // The finish pass, and a drag's grain field pass over the
+                // 2 x 2 blocks with the same resources (G76/GRN3).
+                let (finish, grain_field) = match &finish_pass {
+                    Some((pipeline, colour, views, passes)) => {
+                        let entries = vec![
+                            bind_group_entries[0].clone(),
+                            bind_group_entries[1].clone(),
+                            bind_group_entries[2].clone(),
+                            wgpu::BindGroupEntry {
+                                binding: 27,
+                                resource: film_grain.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: ANALYTICS_OUTPUT_BINDING,
+                                resource: wgpu::BindingResource::TextureView(
+                                    match analytics_tile {
+                                        Some((_, view)) => view,
+                                        None => {
+                                            &self.no_analytics_output
+                                                [usize::from(high_precision_layout)]
+                                        }
+                                    },
+                                ),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: effect_passes::FINISH_COLOUR_BINDING,
+                                resource: wgpu::BindingResource::TextureView(&colour.view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: effect_passes::FINISH_VIEWS_BINDING,
+                                resource: wgpu::BindingResource::TextureView(&views.view),
+                            },
+                        ];
+                        fn with<'a>(
+                            regions: &'a wgpu::Buffer,
+                            field: &'a wgpu::TextureView,
+                        ) -> [wgpu::BindGroupEntry<'a>; 2] {
+                            [
+                                wgpu::BindGroupEntry {
+                                    binding: 16,
+                                    resource: regions.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: effect_passes::GRAIN_FIELD_BINDING,
+                                    resource: wgpu::BindingResource::TextureView(field),
+                                },
+                            ]
+                        }
+                        // Made on a drag's first frame with film grain.
+                        let field_tile = half_grain.then(|| &passes.field_tile(self).view);
+                        let mut finish_entries = entries.clone();
+                        finish_entries.extend(with(
+                            &self.render_regions_buffer,
+                            field_tile.unwrap_or(passes.no_colour()),
+                        ));
                         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                             label: Some("Finish Pass Bind Group"),
                             layout: passes.finish_bind_group_layout(deferred),
-                            entries: &[
-                                bind_group_entries[0].clone(),
-                                bind_group_entries[1].clone(),
-                                bind_group_entries[2].clone(),
-                                wgpu::BindGroupEntry {
-                                    binding: 16,
-                                    resource: self.render_regions_buffer.as_entire_binding(),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 27,
-                                    resource: film_grain.as_entire_binding(),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: ANALYTICS_OUTPUT_BINDING,
-                                    resource: wgpu::BindingResource::TextureView(
-                                        match analytics_tile {
-                                            Some((_, view)) => view,
-                                            None => {
-                                                &self.no_analytics_output
-                                                    [usize::from(high_precision_layout)]
-                                            }
-                                        },
-                                    ),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: effect_passes::FINISH_COLOUR_BINDING,
-                                    resource: wgpu::BindingResource::TextureView(&colour.view),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: effect_passes::FINISH_VIEWS_BINDING,
-                                    resource: wgpu::BindingResource::TextureView(&views.view),
-                                },
-                            ],
+                            entries: &finish_entries,
                         });
-                        (pipeline, bind_group)
-                    });
+                        let grain_field = if let Some(field_tile) = field_tile {
+                            let mut field_entries = entries;
+                            field_entries.extend(with(passes.terms_regions(), passes.no_colour()));
+                            field_entries.push(wgpu::BindGroupEntry {
+                                binding: effect_passes::GRAIN_FIELD_OUTPUT_BINDING,
+                                resource: wgpu::BindingResource::TextureView(field_tile),
+                            });
+                            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("Grain Field Bind Group"),
+                                layout: passes.field_bind_group_layout(),
+                                entries: &field_entries,
+                            });
+                            Some((passes.field_pipeline(device)?, bind_group))
+                        } else {
+                            None
+                        };
+                        (Some((pipeline, bind_group)), grain_field)
+                    }
+                    None => (None, None),
+                };
                 if let Some(passes) = &self.effect_passes {
                     // What a main pass stores for the finish pass, or 1 x 1
                     // textures a frame without one leaves alone.
@@ -12467,6 +12587,18 @@ impl GpuProcessor {
                         bounds.height,
                     ]];
                 }
+                // A drag's frame renders the first pixel of every block a
+                // region touches, which the passes over the blocks read: a
+                // region starting on an odd column or row starts a pixel
+                // earlier (in the tile; that pixel is rendered, not kept).
+                if half_terms || half_grain {
+                    for region in &mut regions {
+                        *region = effect_passes::with_block_starts(
+                            *region,
+                            [input_x_start, input_y_start],
+                        );
+                    }
+                }
                 let workgroups: u32 = regions
                     .iter()
                     .map(|region| region[2].div_ceil(8) * region[3].div_ceil(8))
@@ -12486,6 +12618,26 @@ impl GpuProcessor {
                     0,
                     bytemuck::cast_slice(&region_data),
                 );
+                // A drag's terms pass and grain field pass cover the
+                // regions' 2 x 2 blocks.
+                let half_workgroups = match passes {
+                    Some(passes) if half_terms || half_grain => {
+                        let half =
+                            effect_passes::half_regions(&regions, [input_x_start, input_y_start]);
+                        let mut data = vec![region_data[0]];
+                        data.extend_from_slice(&half);
+                        queue.write_buffer(passes.terms_regions(), 0, bytemuck::cast_slice(&data));
+                        half.iter()
+                            .map(|region| region[2].div_ceil(8) * region[3].div_ceil(8))
+                            .sum()
+                    }
+                    _ => workgroups,
+                };
+                let terms_workgroups = if half_terms {
+                    half_workgroups
+                } else {
+                    workgroups
+                };
                 let mut tile_adjustments = boxed_uniforms(adjustments);
                 tile_adjustments.tile_offset_x = input_x_start;
                 tile_adjustments.tile_offset_y = input_y_start;
@@ -12495,7 +12647,7 @@ impl GpuProcessor {
                 tile_adjustments.detail_cache = [
                     u32::from(detail_view.is_some()),
                     u32::from(finish_pass.is_some()),
-                    0,
+                    u32::from(half_terms),
                     0,
                 ];
                 tile_adjustments.source_window = source_window;
@@ -12511,7 +12663,7 @@ impl GpuProcessor {
                     pass.set_bind_group(0, bind_group, &[]);
                     pass.dispatch_workgroups(
                         RENDER_REGION_GROUPS_X,
-                        workgroups.div_ceil(RENDER_REGION_GROUPS_X),
+                        terms_workgroups.div_ceil(RENDER_REGION_GROUPS_X),
                         1,
                     );
                 }
@@ -12532,6 +12684,16 @@ impl GpuProcessor {
                     compute_pass.dispatch_workgroups(
                         RENDER_REGION_GROUPS_X,
                         workgroups.div_ceil(RENDER_REGION_GROUPS_X),
+                        1,
+                    );
+                }
+                if let Some((pipeline, bind_group)) = &grain_field {
+                    let mut pass = main_encoder.begin_compute_pass(&Default::default());
+                    pass.set_pipeline(pipeline);
+                    pass.set_bind_group(0, bind_group, &[]);
+                    pass.dispatch_workgroups(
+                        RENDER_REGION_GROUPS_X,
+                        half_workgroups.div_ceil(RENDER_REGION_GROUPS_X),
                         1,
                     );
                 }
@@ -12770,6 +12932,7 @@ pub fn upload_render_source(
             chroma,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare: None,
         }),
         None,
@@ -12826,6 +12989,7 @@ pub fn upload_fringed_render_source(
             chroma: None,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare: None,
         }),
         None,
@@ -12928,6 +13092,7 @@ pub fn upload_warped_render_source(
             chroma: None,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare: None,
         }),
         None,
@@ -13211,9 +13376,18 @@ fn render_in_windows(
     let tuning = versioned.1;
     let luma_profile = luma_profile_wanted(&request.adjustments.uniforms.global);
     let settings = color_noise_settings(&mut request.adjustments.uniforms.global);
+    let given = request
+        .adjustments
+        .color_noise_measurement
+        .as_deref()
+        .copied();
     let pyramid = (settings.is_some() || luma_profile)
         .then(|| ChromaPyramid::build_for(image, is_raw, &tuning))
-        .flatten();
+        .flatten()
+        .map(|pyramid| match given {
+            Some(given) => pyramid.with_measurement(&given),
+            None => pyramid,
+        });
     if luma_profile && let Some(pyramid) = &pyramid {
         set_luma_profile(&mut request.adjustments.uniforms.global, pyramid);
     }
@@ -13524,6 +13698,78 @@ fn lock_processor<'a>(
     }
 
     Ok(processor_lock)
+}
+
+/// A region of a photograph renders as the same pixels of the whole
+/// photograph's render with the multi-scale colour noise reduction when its
+/// origin lies on this grid of the whole render's pixels (the pyramid's
+/// coarsest level samples every 32nd pixel), it is given the whole
+/// photograph's measurement ([`measure_color_noise`]) and its source reaches
+/// [`REGION_NOISE_MARGIN`] px beyond what it shows (notes:
+/// benchmark-results/nrr1-2026-11-20/REPORT.md).
+pub const REGION_NOISE_GRID: u32 = 1 << color_noise::LEVELS;
+
+/// Source pixels a region needs beyond what it shows for the multi-scale
+/// colour noise reduction to reach the whole render's values (≤ 1 code from
+/// 128 px at every amount; NRR1), with a margin.
+pub const REGION_NOISE_MARGIN: u32 = 160;
+
+/// Whether a render with `global` takes a noise measurement of its source:
+/// the multi-scale colour noise reduction, or the luminance noise
+/// reduction's noise profile.
+pub fn measures_noise(global: &crate::image_processing::GlobalAdjustments) -> bool {
+    let mut copy = *global;
+    color_noise_settings(&mut copy).is_some() || luma_profile_wanted(global)
+}
+
+/// The colour noise measurement of `image` as a render of it with
+/// `adjustments` takes it (its `colorNoiseVersion`: on the GPU from the
+/// uploaded texels for version 11, else on the CPU), for renders of regions
+/// of `image` (`PreparedAdjustments::color_noise_measurement`). `None` when
+/// the image is too small to filter or the GPU has no pyramid passes.
+pub fn measure_color_noise(
+    context: &GpuContext,
+    processor_slot: &GpuProcessorSlot,
+    image: &DynamicImage,
+    adjustments: &crate::image_processing::PreparedAdjustments,
+    caller_id: &str,
+) -> Result<Option<color_noise::NoiseMeasurement>, String> {
+    let global = &adjustments.uniforms.global;
+    let is_raw = global.is_raw_image != 0;
+    let (_, tuning) = color_noise_tuning(global);
+    if !tuning.gpu_pyramid {
+        return Ok(ChromaPyramid::build_for(image, is_raw, &tuning).map(|p| p.measurement()));
+    }
+    let (width, height) = image.dimensions();
+    let max_dim = context.limits.max_texture_dimension_2d;
+    if width > max_dim || height > max_dim {
+        return Err(texture_limit_error(width, height, max_dim));
+    }
+    let measure = || {
+        let processor_lock = lock_processor(
+            context,
+            processor_slot,
+            max_dim,
+            max_dim,
+            foreground_turn(caller_id, false),
+        )?;
+        let processor = &processor_lock.as_ref().unwrap().processor;
+        let Some(pipelines) = processor.chroma_pipelines.as_ref() else {
+            return Ok(None);
+        };
+        let texture = create_input_texture(
+            &context.device,
+            &context.queue,
+            image,
+            INPUT_UPLOAD_BAND_ROWS,
+        )?;
+        let view = texture.create_view(&Default::default());
+        Ok(
+            GpuPyramid::build(context, pipelines, &view, width, height, is_raw)?
+                .map(|pyramid| pyramid.measured),
+        )
+    };
+    processor_slot.scoped(|| gpu_scoped(&context.device, measure).and_then(|measured| measured))
 }
 
 pub enum RenderSource<'a> {
@@ -14017,6 +14263,7 @@ fn render_dynamic_image(
             chroma: None,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare,
         });
     }

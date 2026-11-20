@@ -128,7 +128,9 @@ const READ_VERSIONS: [u32; 3] = [1, 2, 3];
 /// white by ISO (2026-11-19).
 /// 61: Canon CR3 white at Adobe's per-body white (R5, R5 II, R6, R7, R8, R10,
 /// R50, R50 V, 1D X III) and ColorData version 48 white offsets (2026-11-19).
-pub const ENGINE_VERSION: u32 = 61;
+/// 62: dithered linearization and curve lookups clamp instead of wrapping at
+/// the table ends (JPEG-to-DNG and ProRAW highlights, small NEF) (2026-11-20).
+pub const ENGINE_VERSION: u32 = 62;
 /// Rows per band of half floats (format 1; written by tests only).
 #[cfg(test)]
 const F16_ROWS_PER_BAND: u32 = 64;

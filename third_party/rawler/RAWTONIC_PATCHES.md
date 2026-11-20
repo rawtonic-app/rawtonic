@@ -620,3 +620,41 @@ suite allows 120 seconds without progress and 600 seconds total.
   keeps its ColorData specular white; CRM movie frames were not measured
   and keep it too. Test: `rawtonic_white_tests`. Evidence: notes
   benchmark-results/rawl2-2026-11-19/ and rawl3-2026-11-19/.
+
+## Dithered lookup clamps at the table ends (2026-11-20, LJD1)
+
+`src/bits.rs` (`LookupTable`): the dither of an entry spans a quarter of
+the distance to its neighbours on either side, computed in `u16` with
+wrapping. At a table's last entry near 65535 (an 8-bit LinearizationTable
+of a JPEG-to-DNG ending at 65535, the iPhone ProRAW table, the small-NEF
+curve where it reaches 65535) the upper half of that span wrapped to near
+zero, so about half of the samples at that code came out black; at a first
+entry above zero with a steep next one the lower half wrapped to near
+65535. The base is now signed and the result clamped to `0..=65535`;
+values inside that range are unchanged. Tests:
+`rawtonic_hardening_tests::lookup_table_dither_clamps_at_the_ends` and
+`decoders::dng::rawtonic_lossy_jpeg_tests` (a 75x45 synthetic JPEG-to-DNG,
+`src/decoders/dng_lossy_jpeg_test.dng`: progressive 4:2:0 JPEG tiles with
+padded edge tiles and a LinearizationTable; generated from a flat
+synthetic image, no photograph).
+
+Measured 2026-11-20 on an M5 Pro with the release CLI (`rawtonic export
+… --format tiff --tiff-bit-depth 16`, before and after this patch, byte
+comparison):
+- Identical: Adobe DNG Converter lossy-JPEG DNGs (2 of Canon EOS 5D Mark III
+  from raw.pixls.us, 2 made with Converter 18.7 `-lossy -dng1.4` from
+  raw.pixls.us CR2/RAF), one Converter JPEG XL lossy DNG, Leica M8 and M9,
+  Sigma fp 8-bit, Autel XB015 DNG, Nikon D5100 lossy, D850 small NEF, Z 30,
+  E5400, Sony SLT-A33, NEX-5N, ILCE-7RM5 lossy, Leaf Aptus 22.
+- Changed: iPhone 12 Pro ProRAW (raw.pixls.us `IMG_1361.DNG`), 2 decoded
+  samples 0 → 65535, 818 export pixels by at most 765/65535.
+- A synthetic 1001x667 JPEG-to-DNG (progressive 4:2:0, strip and 256x256
+  tiles, built as the test fixture is), exported as 8-bit JPEG (quality 95,
+  default settings): of the 12,482 pixels that are pure white (255) in the
+  source, 3,987 had a channel below 200 of 255 before (lowest 0), none after
+  (lowest channel 242 of 255, at the white area's JPEG edges).
+- The Converter lossy DNGs' decode was compared with an independent
+  reference from the DNG specification (Pillow/libjpeg-turbo per tile,
+  stitched and cropped, LinearizationTable, normalised, MapPolynomial per
+  plane): 99.3-99.4 % of the samples identical, the rest within 3 codes
+  (JPEG rounding), edge tiles and seams no worse than the interior.

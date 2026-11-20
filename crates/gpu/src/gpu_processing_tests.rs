@@ -9691,8 +9691,10 @@ fn grain_frame_cost_probe() {
     // (grainVersion 1: the main pass stores the colour, the finish pass adds
     // a hash grain), with film grain (grainVersion 3, the default of new
     // edits) monochrome and in colour, with Glow + Halation (terms pass) and
-    // with all three. Each frame changes Exposure; the time runs until the
-    // GPU has finished the frame. Modes take turns, five frames each.
+    // with all three, and (G76/GRN3) a drag's frames of the effects
+    // (`DragEffects`: terms and film grain once per 2 x 2 pixels). Each
+    // frame changes Exposure; the time runs until the GPU has finished the
+    // frame. Modes take turns, five frames each.
     // `RAWTONIC_GRAIN_PROBE_SIZES=WxH,...` picks other sizes.
     let context = context();
     let _limit = DeviceCompileLimit::set(&context);
@@ -9743,14 +9745,31 @@ fn grain_frame_cost_probe() {
     for (width, height) in sizes {
         let view = input(&context, width, height, 31);
         let processor = effect_pass_processor(&context, width, height, true);
-        let adjustments = modes
+        let mut adjustments = modes
             .iter()
             .map(|(_, profile)| get_all_adjustments_from_json(profile, true, Some(3)))
             .collect::<Vec<_>>();
+        // A drag's frames of the effects (G76/GRN3).
+        for drag in [4, 5, 2, 3] {
+            let mut frame = adjustments[drag].clone();
+            frame.drag_effects.half_terms = true;
+            frame.drag_effects.half_grain = true;
+            adjustments.push(frame);
+        }
         for adjustments in &adjustments {
             prepare_preview_pipeline(&processor, preview_features(adjustments));
         }
-        let mut times = vec![Vec::new(); modes.len()];
+        let names = modes
+            .iter()
+            .map(|(name, _)| *name)
+            .chain([
+                "glow_halation_drag",
+                "all_drag",
+                "film_grain_drag",
+                "film_grain_colour_drag",
+            ])
+            .collect::<Vec<_>>();
+        let mut times = vec![Vec::new(); names.len()];
         for round in 0..14 {
             for (mode, adjustments) in adjustments.iter().enumerate() {
                 for frame in 0..5 {
@@ -9790,7 +9809,7 @@ fn grain_frame_cost_probe() {
             })
             .collect::<Vec<_>>();
         let mp = f64::from(width * height) / 1e6;
-        for ((name, _), median) in modes.iter().zip(&medians) {
+        for (name, median) in names.iter().zip(&medians) {
             println!(
                 "{}",
                 json!({"probe":"grain_frame_cost","edit":name,"width":width,"height":height,
@@ -19267,6 +19286,176 @@ fn render_source(
     .unwrap()
 }
 
+/// `profile` rendered from `image` (8-bit), with `measurement` given.
+fn render_region_source(
+    context: &GpuContext,
+    image: &DynamicImage,
+    profile: &serde_json::Value,
+    measurement: Option<rawtonic_engine::color_noise::NoiseMeasurement>,
+) -> image::RgbaImage {
+    let processor = ProcessorSlot::new(None);
+    let cache = Mutex::new(None);
+    let mut adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+    adjustments.color_noise_measurement = measurement.map(Box::new);
+    process_and_get_dynamic_image_inner(
+        context,
+        &processor,
+        &cache,
+        RenderSource::Image {
+            image,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments,
+            mask_bitmaps: &[],
+            lut: None,
+            roi: None,
+        },
+        "test",
+        RenderOutputPrecision::EightBit,
+        false,
+        None,
+        None,
+        ReadbackShader::Export,
+    )
+    .unwrap()
+    .to_rgba8()
+}
+
+/// Differences (max, p99, mean in codes) of `region` rendered from its own
+/// pixels against the same pixels of `whole`, leaving out `inset` px at the
+/// region's sides inside the photograph.
+fn region_differences(
+    whole: &image::RgbaImage,
+    region: &image::RgbaImage,
+    (x0, y0): (u32, u32),
+    inset: u32,
+) -> (i32, i32, f64) {
+    let (w, h) = region.dimensions();
+    let left = if x0 == 0 { 0 } else { inset };
+    let top = if y0 == 0 { 0 } else { inset };
+    let right = if x0 + w == whole.width() {
+        w
+    } else {
+        w - inset
+    };
+    let bottom = if y0 + h == whole.height() {
+        h
+    } else {
+        h - inset
+    };
+    let mut diffs = Vec::new();
+    for y in top..bottom {
+        for x in left..right {
+            let (a, b) = (region.get_pixel(x, y), whole.get_pixel(x0 + x, y0 + y));
+            for c in 0..3 {
+                diffs.push((a[c] as i32 - b[c] as i32).abs());
+            }
+        }
+    }
+    let mean = diffs.iter().map(|d| *d as f64).sum::<f64>() / diffs.len() as f64;
+    diffs.sort_unstable();
+    (
+        diffs[diffs.len() - 1],
+        diffs[(diffs.len() - 1) * 99 / 100],
+        mean,
+    )
+}
+
+/// A noisy frame with a brightness ramp (the noise profile has several
+/// bins).
+fn ramped_chroma_noise_frame(width: u32, height: u32) -> DynamicImage {
+    let rgb = chroma_noise_frame(width, height).to_rgb32f();
+    DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let k = 0.15 + 1.5 * x as f32 / width as f32 + 0.3 * (y as f32 / height as f32);
+        image::Rgb(rgb.get_pixel(x, y).0.map(|v| v * k))
+    }))
+}
+
+/// A region of a photograph (the multi-view cells and the second window
+/// zoomed in) renders as the same pixels of the whole photograph with the
+/// colour noise reduction on when it is given the whole photograph's
+/// measurement, its origin lies on `REGION_NOISE_GRID` and it reaches
+/// `REGION_NOISE_MARGIN` beyond what is compared: within 1 code, as without
+/// the filter. Measured on its own (the region's measurement) or off the
+/// grid, it differed by up to 6–10 codes (NRR1).
+#[test]
+#[ignore = "requires a native GPU"]
+fn regions_filter_colour_noise_as_the_whole_photograph() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let image = ramped_chroma_noise_frame(fw, fh);
+    let margin = REGION_NOISE_MARGIN;
+    // Inside, and reaching the photograph's right and bottom edges.
+    let crops = [(512, 352, 1408, 1088), (1344, 960, 1056, 840)];
+    for profile in [
+        json!({ "colorNoiseReduction": 25, "colorNoiseVersion": 11 }),
+        json!({ "colorNoiseReduction": 100, "colorNoiseVersion": 11 }),
+        json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 10 }),
+    ] {
+        let whole = render_region_source(&context, &image, &profile, None);
+        let processor = ProcessorSlot::new(None);
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        assert!(measures_noise(&adjustments.global));
+        let measured = measure_color_noise(&context, &processor, &image, &adjustments, "test")
+            .unwrap()
+            .expect("a measurement");
+        for (x, y, w, h) in crops {
+            assert_eq!((x % REGION_NOISE_GRID, y % REGION_NOISE_GRID), (0, 0));
+            let crop = image.crop_imm(x, y, w, h);
+            let region = render_region_source(&context, &crop, &profile, Some(measured));
+            let (max, p99, mean) = region_differences(&whole, &region, (x, y), margin);
+            let own = render_region_source(&context, &crop, &profile, None);
+            let (own_max, ..) = region_differences(&whole, &own, (x, y), margin);
+            println!(
+                "{profile} region {x},{y} {w}x{h}: max {max} p99 {p99} mean {mean:.3}; measured on its own max {own_max}"
+            );
+            assert!(max <= 1, "{profile} region {x},{y}: max {max}");
+        }
+        // Off the grid, the coarse levels sample other pixels (8–9 codes).
+        let (x, y, w, h) = (530, 333, 1408, 1088);
+        let region = render_region_source(
+            &context,
+            &image.crop_imm(x, y, w, h),
+            &profile,
+            Some(measured),
+        );
+        let (max, ..) = region_differences(&whole, &region, (x, y), margin);
+        println!("{profile} region off the grid {x},{y}: max {max}");
+        assert!(max > 1, "off the grid the test no longer tells");
+    }
+    // Without a noise reduction nothing is measured.
+    let off = get_all_adjustments_from_json(&json!({ "colorNoiseReduction": 0 }), true, Some(1));
+    assert!(!measures_noise(&off.global));
+}
+
+/// Timing of the whole-photograph measurement a region takes
+/// (`measure_color_noise`) at 24 and 61 MP.
+#[test]
+#[ignore = "native GPU timing probe"]
+fn region_noise_measurement_cost_probe() {
+    let context = context();
+    let processor = ProcessorSlot::new(None);
+    let adjustments = get_all_adjustments_from_json(
+        &json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11 }),
+        true,
+        Some(1),
+    );
+    for (w, h) in [(6000, 4000), (9504, 6336)] {
+        let image = ramped_chroma_noise_frame(w, h);
+        for run in 0..3 {
+            let start = std::time::Instant::now();
+            let measured =
+                measure_color_noise(&context, &processor, &image, &adjustments, "test").unwrap();
+            println!(
+                "{w}x{h} run {run}: measured in {:.1} ms ({})",
+                start.elapsed().as_secs_f64() * 1e3,
+                measured.is_some()
+            );
+        }
+    }
+}
+
 /// The fit view's render input (`color_noise_view::reduced_render_input`)
 /// is the export's: at full size and rendered at Color 0 it is the export's
 /// render at Color 25 / 50 (up to the 16-bit float input of the second
@@ -19881,6 +20070,7 @@ fn multiscale_color_noise_latency_probe() {
                 chroma: None,
                 chroma_gpu: None,
                 chroma_levels: None,
+                chroma_given: None,
                 spare: None,
             };
             let mut times = Vec::new();
@@ -20037,6 +20227,7 @@ fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
                 chroma: None,
                 chroma_gpu: None,
                 chroma_levels: None,
+                chroma_given: None,
                 spare: None,
             };
             let profile = json!({"colorNoiseReduction": 60, "colorNoiseVersion": version});
@@ -20130,6 +20321,7 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
             chroma: None,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare: None,
         }
     };
@@ -20214,6 +20406,7 @@ fn chroma_test_source(context: &GpuContext, image: &DynamicImage) -> GpuImageCac
         chroma: None,
         chroma_gpu: None,
         chroma_levels: None,
+        chroma_given: None,
         spare: None,
     }
 }
@@ -25926,6 +26119,262 @@ fn luminance_curve_timing_probe() {
                 out.insert(format!("{name}_p75_ms"), json!(t[3 * t.len() / 4]));
             }
             println!("{}", serde_json::Value::Object(out));
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; a drag's effects frame and the settled frame after it"]
+fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
+    // G76/GRN3: a drag's display frame computes Glow's and Halation's terms
+    // and film grain once per 2 x 2 pixels (`DragEffects`). It stays close
+    // to the settled frame, and the settled frame after it (the same
+    // values, so the partial-frame path could reuse the drag's pixels)
+    // is byte for byte a settled frame rendered on its own.
+    let context = context();
+    let (width, height) = (1608, 1072);
+    // A gradient with a bright disk (above white, so glow and halation
+    // show) and the synthetic texture faintly on top.
+    let data: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let (x, y) = ((i % width) as f32, (i / width) as f32);
+            let disk = ((x - 800.0).powi(2) + (y - 500.0).powi(2)).sqrt() < 180.0;
+            let fine = ((i * 13) % 257) as f32 / 257.0 * 0.04;
+            let base = if disk {
+                3.0
+            } else {
+                0.05 + 0.5 * x / width as f32
+            };
+            [
+                f16::from_f32(base + fine),
+                f16::from_f32(base * 0.8 + 0.3 * y / height as f32),
+                f16::from_f32(base * 0.6 + fine),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = input_from(&context, width, height, &data);
+    let processor = effect_pass_processor(&context, width, height, true);
+    let render_in = |adjustments: &rawtonic_engine::image_processing::PreparedAdjustments,
+                     roi: Option<Roi>| {
+        processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: adjustments.clone(),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi,
+                },
+                true,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        let area = roi.unwrap_or(Roi {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        });
+        read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &processor.test_working_texture(),
+            wgpu::Origin3d {
+                x: area.x,
+                y: area.y,
+                z: 0,
+            },
+            wgpu::Extent3d {
+                width: area.width,
+                height: area.height,
+                depth_or_array_layers: 1,
+            },
+            4,
+        )
+        .unwrap()
+    };
+    let render = |adjustments: &rawtonic_engine::image_processing::PreparedAdjustments| {
+        render_in(adjustments, None)
+    };
+    let basic = json!({"exposure":0.3,"contrast":20,"shadows":25,"toneVersion":18});
+    let with = |effects: serde_json::Value| {
+        let mut profile = basic.clone();
+        for (key, value) in effects.as_object().unwrap() {
+            profile[key] = value.clone();
+        }
+        profile
+    };
+    let grain = json!({"grainAmount":40,"grainSize":25,"grainRoughness":50,"grainVersion":3});
+    let cases = [
+        (
+            "glow_halation",
+            with(json!({"glowAmount":60,"halationAmount":60})),
+        ),
+        ("film_grain", with(grain.clone())),
+        (
+            "all_colour_grain",
+            with(
+                json!({"glowAmount":30,"halationAmount":30,"grainAmount":40,"grainSize":25,
+                "grainRoughness":50,"grainVersion":3,"grainColor":100}),
+            ),
+        ),
+    ];
+    for (name, profile) in cases {
+        let settled = get_all_adjustments_from_json(&profile, true, Some(3));
+        prepare_preview_pipeline(&processor, preview_features(&settled));
+        let mut drag = settled.clone();
+        drag.drag_effects = rawtonic_engine::image_processing::DragEffects {
+            half_terms: true,
+            half_grain: true,
+        };
+        let exact = render(&settled);
+        let approximate = render(&drag);
+        let after_drag = render(&settled);
+        assert!(
+            exact == after_drag,
+            "{name}: the settled frame after a drag frame differs"
+        );
+        assert!(
+            exact != approximate,
+            "{name}: the drag frame is the settled one"
+        );
+        // A region on an odd column and row (a zoomed view): its blocks'
+        // first pixels lie outside it, and the drag frame must render them
+        // itself, not read what an earlier frame left in the tiles.
+        let region = Some(Roi {
+            x: 301,
+            y: 157,
+            width: 600,
+            height: 400,
+        });
+        let mut other = drag.clone();
+        other.uniforms.global.exposure += 1.0;
+        render(&other);
+        let after_other = render_in(&drag, region);
+        render(&settled);
+        let after_settled = render_in(&drag, region);
+        assert!(
+            after_other == after_settled,
+            "{name}: an odd region's drag frame depends on the frame before"
+        );
+        // Per channel: the mean signed difference (a shift of brightness or
+        // colour), the mean absolute one and the 99.9th percentile.
+        let mut abs: Vec<u8> = Vec::with_capacity(exact.len());
+        let mut signed = [0.0f64; 3];
+        for (i, (a, b)) in exact.iter().zip(&approximate).enumerate() {
+            if i % 4 < 3 {
+                signed[i % 4] += f64::from(*b) - f64::from(*a);
+                abs.push(a.abs_diff(*b));
+            }
+        }
+        let pixels = f64::from(width * height);
+        let mean_abs = abs.iter().map(|&d| f64::from(d)).sum::<f64>() / abs.len() as f64;
+        abs.sort_unstable();
+        let p999 = abs[abs.len() * 999 / 1000];
+        let shift = signed.map(|sum| sum / pixels);
+        let mut record = json!({"probe":"drag_effects","edit":name,"mean_signed_codes":shift,
+            "mean_abs_codes":mean_abs,"p999_abs_codes":p999});
+        // The grain alone (green, codes): each frame less the same render
+        // without grain, settled or a drag's. Its spread within 2 x 2
+        // blocks, and at half resolution (each block's mean against the
+        // blocks around it) its strength and how far the drag's follows
+        // the settled grain's pattern.
+        let grain_signal = |frame: &[u8], drag_frame: bool| -> Option<Vec<f64>> {
+            let mut without = profile.clone();
+            without
+                .as_object_mut()?
+                .insert("grainAmount".into(), json!(0));
+            let mut base = get_all_adjustments_from_json(&without, true, Some(3));
+            base.drag_effects = if drag_frame {
+                drag.drag_effects
+            } else {
+                Default::default()
+            };
+            let base = render(&base);
+            Some(
+                frame
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(base.as_chunks::<4>().0)
+                    .map(|(a, b)| f64::from(a[1]) - f64::from(b[1]))
+                    .collect(),
+            )
+        };
+        let (w, h) = (width as usize, height as usize);
+        let within = |g: &[f64]| {
+            let mut sum = 0.0f64;
+            for y in (0..h - 1).step_by(2) {
+                for x in (0..w - 1).step_by(2) {
+                    let at = |dx: usize, dy: usize| g[(y + dy) * w + x + dx];
+                    let mean = (at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4.0;
+                    sum += (0..4)
+                        .map(|k| (at(k % 2, k / 2) - mean).powi(2))
+                        .sum::<f64>();
+                }
+            }
+            (sum / (w / 2 * 2 * (h / 2 * 2)) as f64).sqrt()
+        };
+        let half_res = |g: &[f64]| -> Vec<f64> {
+            let (bw, bh) = (w / 2, h / 2);
+            let block: Vec<f64> = (0..bw * bh)
+                .map(|i| {
+                    let (x, y) = (i % bw * 2, i / bw * 2);
+                    (g[y * w + x] + g[y * w + x + 1] + g[(y + 1) * w + x] + g[(y + 1) * w + x + 1])
+                        / 4.0
+                })
+                .collect();
+            let mut high = Vec::with_capacity(bw * bh);
+            for y in 1..bh - 1 {
+                for x in 1..bw - 1 {
+                    let around = (0..9)
+                        .map(|k| block[(y + k / 3 - 1) * bw + x + k % 3 - 1])
+                        .sum::<f64>()
+                        / 9.0;
+                    high.push(block[y * bw + x] - around);
+                }
+            }
+            high
+        };
+        let rms = |v: &[f64]| (v.iter().map(|x| x * x).sum::<f64>() / v.len() as f64).sqrt();
+        let grain = (name != "glow_halation").then(|| {
+            let g = [
+                grain_signal(&exact, false).unwrap(),
+                grain_signal(&approximate, true).unwrap(),
+            ];
+            let high = [half_res(&g[0]), half_res(&g[1])];
+            let strength = [rms(&high[0]), rms(&high[1])];
+            let correlation = high[0]
+                .iter()
+                .zip(&high[1])
+                .map(|(a, b)| a * b)
+                .sum::<f64>()
+                / high[0].len() as f64
+                / (strength[0] * strength[1]);
+            record["grain_rms"] = json!([rms(&g[0]), rms(&g[1])]);
+            record["grain_within_2x2"] = json!([within(&g[0]), within(&g[1])]);
+            record["grain_half_res"] = json!(strength);
+            record["grain_half_res_correlation"] = json!(correlation);
+            (strength, correlation)
+        });
+        println!("{record}");
+        // No shift of the frame's brightness or colour while dragging.
+        for channel in shift {
+            assert!(channel.abs() < 0.5, "{name}: mean shift {shift:?} codes");
+        }
+        match grain {
+            // The terms come from the blurred photo: the coarser drag frame
+            // is within a code or two of the settled one.
+            None => assert!(mean_abs < 0.5 && p999 <= 3, "{name}: {mean_abs} / {p999}"),
+            // The settled grain seen at half resolution: most of its
+            // strength and the same pattern.
+            Some((strength, correlation)) => assert!(
+                strength[1] > 0.85 * strength[0] && correlation > 0.8,
+                "{name}: {strength:?}, correlation {correlation}"
+            ),
         }
     }
 }
