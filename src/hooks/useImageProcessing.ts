@@ -50,12 +50,7 @@ import { useSecondWindowStore } from '../store/useSecondWindowStore';
 import { interactivePreview, isRegionFrame } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
-import {
-  dragTargetResolution,
-  grainSignature,
-  needsFrameSize,
-  previewTargetResolution
-} from '../utils/previews';
+import { dragTargetResolution, grainSignature, needsFrameSize, previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
 import { onSharpenViewReady, type SharpenView } from '../utils/sharpenView';
 import { onColorNoiseViewReady } from '../utils/colorNoiseView';

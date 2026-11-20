@@ -14465,7 +14465,11 @@ mod film_grain_tile_layout_tests {
                 let texel = &engine[(texels_before + t) * (LEVELS / 2)..][..LEVELS / 2];
                 for k0 in -1..LEVELS as i32 - 1 {
                     let k1 = (k0 + 1) as usize;
-                    let lower = if k0 < 0 { 0 } else { half(texel[k0 as usize / 2], k0 as usize) };
+                    let lower = if k0 < 0 {
+                        0
+                    } else {
+                        half(texel[k0 as usize / 2], k0 as usize)
+                    };
                     let word = pairs[planes + k1 * side * side + t];
                     assert_eq!(word, lower | (half(texel[k1 / 2], k1) << 16));
                 }

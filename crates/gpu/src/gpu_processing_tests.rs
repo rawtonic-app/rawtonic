@@ -9688,13 +9688,25 @@ fn grain_frame_cost_probe() {
     let film = json!({"grainAmount":40,"grainSize":25,"grainRoughness":50,"grainVersion":3});
     let modes = [
         ("basic", basic.clone()),
-        ("grain_v1", with(json!({"grainAmount":40,"grainSize":25,"grainRoughness":50}))),
+        (
+            "grain_v1",
+            with(json!({"grainAmount":40,"grainSize":25,"grainRoughness":50})),
+        ),
         ("film_grain", with(film.clone())),
-        ("film_grain_colour", with(json!({"grainAmount":40,"grainSize":25,
-            "grainRoughness":50,"grainVersion":3,"grainColor":100}))),
-        ("glow_halation", with(json!({"glowAmount":30,"halationAmount":30}))),
-        ("all", with(json!({"glowAmount":30,"halationAmount":30,"grainAmount":40,
-            "grainSize":25,"grainRoughness":50,"grainVersion":3}))),
+        (
+            "film_grain_colour",
+            with(json!({"grainAmount":40,"grainSize":25,
+            "grainRoughness":50,"grainVersion":3,"grainColor":100})),
+        ),
+        (
+            "glow_halation",
+            with(json!({"glowAmount":30,"halationAmount":30})),
+        ),
+        (
+            "all",
+            with(json!({"glowAmount":30,"halationAmount":30,"grainAmount":40,
+            "grainSize":25,"grainRoughness":50,"grainVersion":3})),
+        ),
     ];
     for (width, height) in sizes {
         let view = input(&context, width, height, 31);

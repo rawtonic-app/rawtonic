@@ -1874,7 +1874,9 @@ pub(crate) fn process_preview_job(
     });
     let interactive_divisor = match cached_preview_lock.as_ref() {
         Some(c) if base_valid => reduced_drag_divisor(is_interactive, c.preview_dim, preview_dim)
-            .map_or(interactive_divisor, |reduced| interactive_divisor.max(reduced)),
+            .map_or(interactive_divisor, |reduced| {
+                interactive_divisor.max(reduced)
+            }),
         _ => interactive_divisor,
     };
     let small_valid = base_valid
@@ -4655,7 +4657,10 @@ mod preview_memory_tests {
 
     #[test]
     fn a_smaller_drag_frame_renders_the_base_reduced() {
-        assert_eq!(reduced_drag_divisor(true, 1608, 1024), Some(1608.0 / 1024.0));
+        assert_eq!(
+            reduced_drag_divisor(true, 1608, 1024),
+            Some(1608.0 / 1024.0)
+        );
         // Settled frames and drags at the base's size or larger keep the
         // base's rules.
         assert_eq!(reduced_drag_divisor(false, 1608, 1024), None);
