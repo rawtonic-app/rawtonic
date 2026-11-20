@@ -6250,9 +6250,9 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// (`DETAIL_PASS_EXPORT_RENDER_VERSION`). 14 (2026-11-20) moves each camera
 /// plane of a DNG's embedded lens warp by its own coefficients, as the DNG
 /// specification defines them, instead of each output channel
-/// (`image_loader::CAMERA_PLANE_WARP_RENDER_VERSION`): lateral chromatic
-/// aberration corrections in the file (a DJI Osmo Action) leave no colour
-/// fringe; other files develop as 13.
+/// (`image_loader::CAMERA_PLANE_WARP_RENDER_VERSION`): a lateral chromatic
+/// aberration correction in the file (a DJI Osmo Action) moves the camera
+/// colours as the specification defines; other files develop as 13.
 /// Recipes without the key keep version 1.
 pub const RENDER_VERSION: u64 = 14;
 

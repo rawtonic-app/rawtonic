@@ -831,8 +831,8 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * near the output space's edge are eased towards it before the clip, so
    * they keep their gradation; 13 = exports compute noise reduction and
    * sharpening in a pass of their own (faster); 14 = a DNG's embedded lens
-   * warp moves each camera plane by its own coefficients (its lateral CA
-   * correction leaves no colour fringe); 1 or missing = before.
+   * warp moves each camera plane by its own coefficients, as the DNG
+   * specification defines them; 1 or missing = before.
    * Per photo, never copied. */
   renderVersion?: number;
   /** The frame of the RAW the recipe develops (crates/rawdecode/src/source_frame.rs,

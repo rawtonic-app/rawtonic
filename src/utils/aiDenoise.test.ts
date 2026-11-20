@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aiDenoiseToApply, sourceDevelopToApply } from './aiDenoise';
+import { aiDenoiseToApply, developmentSignature, isDngPath, sourceDevelopToApply } from './aiDenoise';
 
 const decoded = { isDecoded: true, isRaw: true, aiDenoise: 0 };
 
@@ -258,5 +258,26 @@ describe('sourceDevelopToApply', () => {
       sourceDevelopToApply({ ...output, cameraPlaneWarpFailed: true }, { ...v2, renderVersion: 14 }, false)
     ).toBeNull();
     expect(sourceDevelopToApply(base, { ...v2, renderVersion: 14 }, false)).toBeNull();
+  });
+});
+
+describe('developmentSignature', () => {
+  const recipe = { aiDenoise: 0, aiDenoiseVersion: 1, colorNoiseVersion: 2 };
+  it("tells a DNG's lens warp planes apart, and only for DNGs", () => {
+    const v13 = { ...recipe, renderVersion: 13 };
+    const v14 = { ...recipe, renderVersion: 14 };
+    // A version 13 snapshot of a DNG does not share the version 14 edit's source...
+    expect(developmentSignature(v13, true, true)).not.toBe(developmentSignature(v14, true, true));
+    // ... while other RAWs, whose decode it never changes, still do.
+    expect(developmentSignature(v13, true, false)).toBe(developmentSignature(v14, true, false));
+    expect(developmentSignature(v13, true)).toBe(developmentSignature(v14, true));
+  });
+
+  it('knows DNG paths, virtual copies included', () => {
+    expect(isDngPath('/p/DJI_0254.DNG')).toBe(true);
+    expect(isDngPath('/p/a.dng?vc=c2')).toBe(true);
+    expect(isDngPath('/p/a.NEF')).toBe(false);
+    expect(isDngPath('/p/dng.tif')).toBe(false);
+    expect(isDngPath(undefined)).toBe(false);
   });
 });

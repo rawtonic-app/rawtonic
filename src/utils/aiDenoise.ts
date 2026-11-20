@@ -163,9 +163,15 @@ export function sourceDevelopToApply(
   };
 }
 
+/** Whether `path` (a photograph's, a virtual copy's `…?vc=…` included) is
+ * a DNG, the one format whose decode a lens warp's planes change
+ * (crates/engine/src/image_loader.rs `is_dng_file`). */
+export const isDngPath = (path: string | null | undefined): boolean => /\.dng$/i.test((path ?? '').split('?')[0]);
+
 /**
  * How a recipe develops the RAW before any adjustment (AI Denoise amount and
- * version, colour noise filter, dead-photosite test, black handling), as a string: equal for
+ * version, colour noise filter, dead-photosite test, black handling and, for
+ * a DNG (`isDng`), its lens warp's planes), as a string: equal for
  * recipes whose renders can share one source. Empty for other photographs,
  * whose source does not depend on it.
  */
@@ -174,7 +180,8 @@ export function developmentSignature(
     Pick<Partial<Adjustments>, 'colorNoiseVersion' | 'colorNoiseReduction' | 'renderVersion'> & {
       sectionVisibility?: Record<string, boolean | undefined>;
     },
-  isRaw: boolean
+  isRaw: boolean,
+  isDng = false
 ): string {
   if (!isRaw) return '';
   const amount = aiDenoiseAmount(adjustments);
@@ -184,6 +191,7 @@ export function developmentSignature(
     colorNoiseMultiscale(adjustments, true),
     deadPixelAdjacent(adjustments),
     unbiasedBlack(adjustments),
-    borderBlack(adjustments)
+    borderBlack(adjustments),
+    ...(isDng ? [cameraPlaneWarp(adjustments)] : [])
   ]);
 }

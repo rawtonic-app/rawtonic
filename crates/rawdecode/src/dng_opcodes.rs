@@ -87,10 +87,11 @@ pub enum Opcode {
 /// `Output` (decodes before `renderVersion` 14) moves the output RGB
 /// channels instead, which differs only where the planes' coefficients
 /// differ: the camera colours are mixed in each output channel, so a
-/// camera plane follows a blend of the planes' displacements (up to 1 px
-/// of the 1 px lateral term of a DJI Osmo Action left as a colour fringe;
-/// notes: benchmark-results/dpw1-2026-11-20/). Warps with one set of
-/// coefficients for every plane are the same in both.
+/// camera plane follows a blend of the planes' displacements (on a DJI
+/// Osmo Action, whose plane 0 moves 1 px at the corners, the camera planes'
+/// edges ended up to 0.41 px from the specification's; notes:
+/// benchmark-results/dpw1-2026-11-20/). Warps with one set of coefficients
+/// for every plane are the same in both.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum WarpPlanes {
     #[default]

@@ -3,15 +3,19 @@ import { useSnapshotStore, type Snapshot } from '../store/useSnapshotStore';
 import { normalizeLoadedAdjustments, type Adjustments } from './adjustments';
 import { withOwnBitmapIds } from './bitmapIds';
 import { framingSignature, originalPreviewAdjustments } from './beforeAfter';
-import { aiDenoiseAmount, developmentSignature } from './aiDenoise';
+import { aiDenoiseAmount, developmentSignature, isDngPath } from './aiDenoise';
 import { useSettingsStore } from '../store/useSettingsStore';
 
-const loaded = new WeakMap<Snapshot, { isRaw: boolean; adjustments: Adjustments; comparable: string }>();
+const loaded = new WeakMap<
+  Snapshot,
+  { isRaw: boolean; isDng: boolean; adjustments: Adjustments; comparable: string }
+>();
 
 /** How a recipe frames the photograph and develops its RAW
- * (`framingSignature`, `developmentSignature`), as a string. */
-export function comparisonSignature(adjustments: Adjustments, isRaw: boolean): string {
-  return `${framingSignature(adjustments)}|${developmentSignature(adjustments, isRaw)}`;
+ * (`framingSignature`, `developmentSignature`; `isDng`: the photograph is a
+ * DNG, `isDngPath`), as a string. */
+export function comparisonSignature(adjustments: Adjustments, isRaw: boolean, isDng = false): string {
+  return `${framingSignature(adjustments)}|${developmentSignature(adjustments, isRaw, isDng)}`;
 }
 
 /** `snapshot` as a restore of it would load it, its AI bitmaps under ids of
@@ -19,11 +23,11 @@ export function comparisonSignature(adjustments: Adjustments, isRaw: boolean): s
  * must not take them for the edit's newer ones), and its
  * `comparisonSignature`. The same for each call while the snapshot stays as
  * it is, so its bitmaps are sent once. */
-function loadedSnapshot(snapshot: Snapshot, isRaw: boolean) {
+function loadedSnapshot(snapshot: Snapshot, isRaw: boolean, isDng: boolean) {
   const kept = loaded.get(snapshot);
-  if (kept?.isRaw === isRaw) return kept;
+  if (kept?.isRaw === isRaw && kept.isDng === isDng) return kept;
   const adjustments = withOwnBitmapIds(normalizeLoadedAdjustments(snapshot.adjustments, isRaw));
-  const entry = { isRaw, adjustments, comparable: comparisonSignature(adjustments, isRaw) };
+  const entry = { isRaw, isDng, adjustments, comparable: comparisonSignature(adjustments, isRaw, isDng) };
   loaded.set(snapshot, entry);
   return entry;
 }
@@ -37,8 +41,8 @@ function loadedSnapshot(snapshot: Snapshot, isRaw: boolean) {
  * filter, dead-photosite test), so both sides render from the edit's source
  * and Before is exactly the snapshot's export.
  */
-export function comparableWithEdit(snapshot: Snapshot, signature: string, isRaw: boolean): boolean {
-  return loadedSnapshot(snapshot, isRaw).comparable === signature;
+export function comparableWithEdit(snapshot: Snapshot, signature: string, isRaw: boolean, isDng = false): boolean {
+  return loadedSnapshot(snapshot, isRaw, isDng).comparable === signature;
 }
 
 /**
@@ -51,10 +55,11 @@ export function compareBlocker(
   snapshot: Snapshot,
   signature: string,
   isRaw: boolean,
-  osPlatform: string | null | undefined
+  osPlatform: string | null | undefined,
+  isDng = false
 ): 'differs' | 'aiDenoise' | null {
-  if (!comparableWithEdit(snapshot, signature, isRaw)) return 'differs';
-  if (osPlatform === 'linux' && isRaw && aiDenoiseAmount(loadedSnapshot(snapshot, isRaw).adjustments) > 0) {
+  if (!comparableWithEdit(snapshot, signature, isRaw, isDng)) return 'differs';
+  if (osPlatform === 'linux' && isRaw && aiDenoiseAmount(loadedSnapshot(snapshot, isRaw, isDng).adjustments) > 0) {
     return 'aiDenoise';
   }
   return null;
@@ -73,9 +78,10 @@ export function beforeSnapshot(): Snapshot | null {
   const snapshots = useSnapshotStore.getState();
   if (!chosen || !selectedImage || chosen.path !== selectedImage.path || snapshots.path !== chosen.path) return null;
   const snapshot = snapshots.snapshots.find((candidate) => candidate.id === chosen.id);
-  const signature = comparisonSignature(adjustments, selectedImage.isRaw);
+  const isDng = isDngPath(selectedImage.path);
+  const signature = comparisonSignature(adjustments, selectedImage.isRaw, isDng);
   const { osPlatform } = useSettingsStore.getState();
-  if (!snapshot || compareBlocker(snapshot, signature, selectedImage.isRaw, osPlatform)) return null;
+  if (!snapshot || compareBlocker(snapshot, signature, selectedImage.isRaw, osPlatform, isDng)) return null;
   return snapshot;
 }
 
@@ -85,7 +91,7 @@ export function beforeSnapshotAdjustments(): Adjustments | null {
   const snapshot = beforeSnapshot();
   const image = useEditorStore.getState().selectedImage;
   if (!snapshot || !image) return null;
-  return loadedSnapshot(snapshot, image.isRaw).adjustments;
+  return loadedSnapshot(snapshot, image.isRaw, isDngPath(image.path)).adjustments;
 }
 
 /** The recipe Before/After shows as the before of the edit `adjustments`:
