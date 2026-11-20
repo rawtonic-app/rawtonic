@@ -26,11 +26,13 @@ async fn model(
     let mut slot = ai_state.super_resolution.lock().await;
     let models_dir = get_models_dir(app_handle)?;
     if let Some(model) = slot.as_ref() {
-        // The fp16 graph's idle GPU check passed after this model loaded:
-        // the next photo loads it (exports hold the checks, so a batch
-        // does not switch between photos once it has started).
+        // The fp16 graph's idle GPU check passed after this model loaded,
+        // or its download failed before and works now (opening Export
+        // again): the next photo loads it again (exports hold the checks,
+        // so a batch does not switch between photos once it has started).
+        let fetched = download && fetch_gpu_graph(app_handle, &models_dir).await;
         let current = model.clone();
-        if !tokio::task::spawn_blocking(move || current.gpu_graph_ready()).await? {
+        if !fetched && !tokio::task::spawn_blocking(move || current.gpu_graph_ready()).await? {
             return Ok(Some(model.clone()));
         }
         let path = models_dir.join(rawtonic_superres::ONNX_FILE);
@@ -38,7 +40,7 @@ async fn model(
         match tokio::task::spawn_blocking(move || Model::onnx(&path)).await? {
             Ok(reloaded) => {
                 log::info!(
-                    "Super Resolution: model reloaded on {} in {} ms (its GPU check passed)",
+                    "Super Resolution: model reloaded on {} in {} ms (GPU graph fetched or its check passed)",
                     reloaded.backend_name(),
                     start.elapsed().as_millis()
                 );
@@ -83,29 +85,7 @@ async fn model(
             "Super Resolution Model",
         )
         .await?;
-        // The fp16 graph for GPU providers (1.2 MB). Optional: older packs
-        // lack it, and without it the original graph runs on the GPU.
-        // An unreadable installed copy counts as missing: it is replaced
-        // after the download's own SHA-256 check, or fp32 runs.
-        if !rawtonic_onnx::models_run_on_cpu_only()
-            && !verify_sha256(
-                &models_dir.join(rawtonic_superres::GPU_ONNX_FILE),
-                rawtonic_superres::GPU_ONNX_SHA256,
-            )
-            .unwrap_or(false)
-            && let Err(error) = download_verified(
-                app_handle,
-                &models_dir,
-                rawtonic_superres::GPU_ONNX_FILE,
-                rawtonic_superres::GPU_ONNX_SHA256,
-                "Super Resolution GPU Model",
-            )
-            .await
-        {
-            log::warn!(
-                "Optional Super Resolution GPU graph unavailable; using the original graph: {error:#}"
-            );
-        }
+        fetch_gpu_graph(app_handle, &models_dir).await;
     }
     let mut model = tokio::task::spawn_blocking(move || Model::onnx(&path)).await??;
     if download
@@ -152,6 +132,42 @@ async fn model(
     );
     crate::register_exit_handler();
     Ok(Some(slot.insert(Arc::new(model)).clone()))
+}
+
+/// Downloads the fp16 graph for GPU providers (1.2 MB) when ONNX Runtime's
+/// GPU providers may run it (Windows and Linux, GPU AI on) and it is not
+/// installed; `true` when it was downloaded now. Optional: older packs
+/// lack it, and without it the original graph runs. An unreadable
+/// installed copy counts as missing (replaced only after the download's
+/// SHA-256 check). PRIVACY.md names this download.
+async fn fetch_gpu_graph(app_handle: &tauri::AppHandle, models_dir: &std::path::Path) -> bool {
+    if !cfg!(any(target_os = "windows", target_os = "linux"))
+        || rawtonic_onnx::models_run_on_cpu_only()
+        || verify_sha256(
+            &models_dir.join(rawtonic_superres::GPU_ONNX_FILE),
+            rawtonic_superres::GPU_ONNX_SHA256,
+        )
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    match download_verified(
+        app_handle,
+        models_dir,
+        rawtonic_superres::GPU_ONNX_FILE,
+        rawtonic_superres::GPU_ONNX_SHA256,
+        "Super Resolution GPU Model",
+    )
+    .await
+    {
+        Ok(()) => true,
+        Err(error) => {
+            log::warn!(
+                "Optional Super Resolution GPU graph unavailable; using the original graph: {error:#}"
+            );
+            false
+        }
+    }
 }
 
 /// Fetches and loads the model when Super Resolution is ticked in the

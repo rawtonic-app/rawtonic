@@ -19,6 +19,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Result, bail, ensure};
 use image::{DynamicImage, ImageBuffer, Luma, Pixel, Primitive, Rgb, Rgba};
@@ -97,13 +98,14 @@ enum Backend {
     /// (it can move from the CPU to a GPU later, when the idle GPU check
     /// finds the GPU faster). `cpu` is the sequential conversion, used
     /// while `model` runs on the CPU. When `model` is the fp16 graph
-    /// (`GPU_ONNX_FILE`, on a GPU) and a GPU failure moved it to the CPU,
-    /// `fp32_cpu` takes over: the CPU conversion, else the original graph,
-    /// loaded then.
+    /// (`GPU_ONNX_FILE`, on a GPU) it runs without ONNX Runtime's move to
+    /// the CPU; once a run failed (`gpu_failed`) `fp32_cpu` takes over for
+    /// good: the CPU conversion, else the original graph, loaded then.
     Onnx {
         model: rawtonic_onnx::Model,
         cpu: Option<rawtonic_onnx::Model>,
         fp32_cpu: OnceLock<Option<rawtonic_onnx::Model>>,
+        gpu_failed: AtomicBool,
     },
     #[cfg(target_os = "macos")]
     CoreMl(rawtonic_denoise::coreml::CoreMlModel),
@@ -149,6 +151,7 @@ impl Model {
                 model,
                 cpu,
                 fp32_cpu: OnceLock::new(),
+                gpu_failed: AtomicBool::new(false),
             },
         }
     }
@@ -185,18 +188,19 @@ impl Model {
 
     /// The ONNX graph that runs a tile now (`None` for Core ML).
     fn onnx_graph(&self) -> Option<&rawtonic_onnx::Model> {
-        let (model, cpu, fp32_cpu) = match &self.backend {
+        let (model, cpu, fp32_cpu, gpu_failed) = match &self.backend {
             Backend::Onnx {
                 model,
                 cpu,
                 fp32_cpu,
-            } => (model, cpu, fp32_cpu),
+                gpu_failed,
+            } => (model, cpu, fp32_cpu, gpu_failed),
             #[cfg(target_os = "macos")]
             Backend::CoreMl(_) => return None,
         };
         let on_cpu = model.provider() == rawtonic_onnx::Provider::Cpu;
-        if on_cpu
-            && is_gpu_graph(model)
+        if is_gpu_graph(model)
+            && (on_cpu || gpu_failed.load(Ordering::Relaxed))
             && let Some(fp32) = fp32_cpu
                 .get_or_init(|| Self::fp32_on_cpu(model.path()))
                 .as_ref()
@@ -308,17 +312,26 @@ impl Model {
             "tile of {} values",
             input.len()
         );
+        let run = |session: &mut ort::session::Session| {
+            let array = Array4::from_shape_vec((1, 3, TILE, TILE), input.to_vec())?;
+            let outputs = session.run(ort::inputs![INPUT => Tensor::from_array(array)?])?;
+            let (_, data) = outputs[OUTPUT].try_extract_tensor::<f32>()?;
+            rawtonic_onnx::ensure_finite(data)?;
+            Ok(data.to_vec())
+        };
         let values = match &self.backend {
-            Backend::Onnx { .. } => self
-                .onnx_graph()
-                .expect("an ONNX backend has a graph")
-                .run(|session| {
-                    let array = Array4::from_shape_vec((1, 3, TILE, TILE), input.to_vec())?;
-                    let outputs = session.run(ort::inputs![INPUT => Tensor::from_array(array)?])?;
-                    let (_, data) = outputs[OUTPUT].try_extract_tensor::<f32>()?;
-                    rawtonic_onnx::ensure_finite(data)?;
-                    Ok(data.to_vec())
-                })?,
+            Backend::Onnx { gpu_failed, .. } => {
+                let graph = self.onnx_graph().expect("an ONNX backend has a graph");
+                if is_gpu_graph(graph) && graph.provider() != rawtonic_onnx::Provider::Cpu {
+                    // No retry of the fp16 graph on the CPU: the photo
+                    // starts again on the fp32 CPU graph (`enlarge`).
+                    graph
+                        .run_without_fallback(run)
+                        .inspect_err(|_| gpu_failed.store(true, Ordering::Relaxed))?
+                } else {
+                    graph.run(run)?
+                }
+            }
             #[cfg(target_os = "macos")]
             Backend::CoreMl(model) => {
                 let values = model.predict(INPUT, &[1, 3, TILE, TILE], input, OUTPUT)?.1;
@@ -334,20 +347,24 @@ impl Model {
         Ok(values)
     }
 
-    /// `image` enlarged 2× (see [`enlarge_with`]). When a GPU failure moved
-    /// the model to the CPU during the photo, the photo is enlarged again
-    /// on the CPU path, so all its tiles come from one graph and provider.
+    /// The graph file and provider tiles run on now (`None`: Core ML).
+    fn path_now(&self) -> Option<(PathBuf, rawtonic_onnx::Provider)> {
+        self.onnx_graph()
+            .map(|graph| (graph.path().to_path_buf(), graph.provider()))
+    }
+
+    /// `image` enlarged 2× (see [`enlarge_with`]), all its tiles on one
+    /// graph and provider: when a GPU failure changed them during the photo
+    /// (the fp16 graph stops at the failed tile, the fp32 graph moved to
+    /// the CPU), the photo is enlarged again on the CPU path.
     pub fn enlarge(
         &self,
         image: DynamicImage,
         cancelled: &dyn Fn() -> Result<(), String>,
     ) -> Result<DynamicImage, String> {
-        let on_gpu = matches!(self.backend, Backend::Onnx { .. }) && !self.uses_cpu();
-        let enlarged = enlarge_ref(&image, &mut |tile| self.enlarge_tile(tile), cancelled)?;
-        if redo_on_cpu(on_gpu, self.uses_cpu()) {
-            return enlarge_ref(&image, &mut |tile| self.enlarge_tile(tile), cancelled);
-        }
-        Ok(enlarged)
+        on_one_path(&|| self.path_now(), &mut || {
+            enlarge_ref(&image, &mut |tile| self.enlarge_tile(tile), cancelled)
+        })
     }
 }
 
@@ -371,11 +388,20 @@ fn is_gpu_graph(model: &rawtonic_onnx::Model) -> bool {
     model.path().file_name() == Some(GPU_ONNX_FILE.as_ref())
 }
 
-/// Whether a photo is enlarged again: it started on a GPU and the model is
-/// on the CPU now (a GPU failure during the photo), so its tiles would mix
-/// two graphs or providers.
-fn redo_on_cpu(started_on_gpu: bool, on_cpu_now: bool) -> bool {
-    started_on_gpu && on_cpu_now
+/// Runs `pass` (one whole photo) and, when the path its tiles run on
+/// (`path`) changed during it, once more on the new path, the first
+/// result (finished or failed) dropped before.
+fn on_one_path<P: PartialEq, T>(
+    path: &dyn Fn() -> P,
+    pass: &mut dyn FnMut() -> Result<T, String>,
+) -> Result<T, String> {
+    let before = path();
+    let first = pass();
+    if path() == before {
+        return first;
+    }
+    drop(first);
+    pass()
 }
 
 /// The graph that runs a tile: the CPU conversion while the original graph
@@ -712,13 +738,56 @@ mod tests {
         assert!(!tries_gpu_graph(true, || panic!("checked on the CPU path")));
     }
 
+    /// A GPU that fails at the third tile: the fp16 graph's pass stops
+    /// there and the photo starts again on the fp32 CPU graph; the fp32
+    /// graph's pass, moved to the CPU, finishes and runs again on the CPU.
     #[test]
-    fn a_photo_that_lost_its_gpu_midway_is_enlarged_again_on_the_cpu() {
-        assert!(redo_on_cpu(true, true));
-        assert!(!redo_on_cpu(true, false));
-        // Started on the CPU (or Core ML): one path throughout.
-        assert!(!redo_on_cpu(false, true));
-        assert!(!redo_on_cpu(false, false));
+    fn a_photo_that_lost_its_gpu_midway_is_enlarged_again_on_one_path() {
+        use std::cell::Cell;
+        let source = gradient(1200, 900);
+        for stops_at_failure in [true, false] {
+            let on_gpu = Cell::new(true);
+            let (gpu_tiles, cpu_tiles) = (Cell::new(0), Cell::new(0));
+            let mut run = |tile: &[f32]| -> Result<Vec<f32>> {
+                if on_gpu.get() {
+                    gpu_tiles.set(gpu_tiles.get() + 1);
+                    if gpu_tiles.get() == 3 {
+                        on_gpu.set(false);
+                        if stops_at_failure {
+                            bail!("GPU device lost");
+                        }
+                    }
+                } else {
+                    cpu_tiles.set(cpu_tiles.get() + 1);
+                }
+                nearest(tile)
+            };
+            let mut passes = 0;
+            let out = on_one_path(&|| on_gpu.get(), &mut || {
+                passes += 1;
+                enlarge_ref(
+                    &DynamicImage::ImageRgb32F(source.clone()),
+                    &mut run,
+                    &|| Ok(()),
+                )
+            })
+            .expect("the CPU pass finishes");
+            assert_eq!(passes, 2, "stops at failure: {stops_at_failure}");
+            assert_eq!(gpu_tiles.get(), 3);
+            assert_eq!(out.width(), 2400);
+            let tiles = cpu_tiles.get();
+            // The whole photo on the CPU in the second pass (plus, for the
+            // fp32 graph, the rest of the first pass).
+            assert!(tiles >= 6, "{tiles} CPU tiles");
+        }
+        // No change of path: one pass, its error kept (a cancelled export).
+        let mut passes = 0;
+        let err = on_one_path(&|| 0, &mut || -> Result<(), String> {
+            passes += 1;
+            Err("Export cancelled".into())
+        })
+        .unwrap_err();
+        assert_eq!((passes, err.as_str()), (1, "Export cancelled"));
     }
 
     #[test]
