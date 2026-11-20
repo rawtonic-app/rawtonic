@@ -9659,8 +9659,10 @@ fn grain_frame_cost_probe() {
     // (grainVersion 1: the main pass stores the colour, the finish pass adds
     // a hash grain), with film grain (grainVersion 3, the default of new
     // edits) monochrome and in colour, with Glow + Halation (terms pass) and
-    // with all three. Each frame changes Exposure; the time runs until the
-    // GPU has finished the frame. Modes take turns, five frames each.
+    // with all three, and (G76/GRN3) a drag's frames of the effects
+    // (`DragEffects`: terms and film grain once per 2 x 2 pixels). Each
+    // frame changes Exposure; the time runs until the GPU has finished the
+    // frame. Modes take turns, five frames each.
     // `RAWTONIC_GRAIN_PROBE_SIZES=WxH,...` picks other sizes.
     let context = context();
     let _limit = DeviceCompileLimit::set(&context);
@@ -9711,14 +9713,31 @@ fn grain_frame_cost_probe() {
     for (width, height) in sizes {
         let view = input(&context, width, height, 31);
         let processor = effect_pass_processor(&context, width, height, true);
-        let adjustments = modes
+        let mut adjustments = modes
             .iter()
             .map(|(_, profile)| get_all_adjustments_from_json(profile, true, Some(3)))
             .collect::<Vec<_>>();
+        // A drag's frames of the effects (G76/GRN3).
+        for drag in [4, 5, 2, 3] {
+            let mut frame = adjustments[drag].clone();
+            frame.drag_effects.half_terms = true;
+            frame.drag_effects.half_grain = true;
+            adjustments.push(frame);
+        }
         for adjustments in &adjustments {
             prepare_preview_pipeline(&processor, preview_features(adjustments));
         }
-        let mut times = vec![Vec::new(); modes.len()];
+        let names = modes
+            .iter()
+            .map(|(name, _)| *name)
+            .chain([
+                "glow_halation_drag",
+                "all_drag",
+                "film_grain_drag",
+                "film_grain_colour_drag",
+            ])
+            .collect::<Vec<_>>();
+        let mut times = vec![Vec::new(); names.len()];
         for round in 0..14 {
             for (mode, adjustments) in adjustments.iter().enumerate() {
                 for frame in 0..5 {
@@ -9758,7 +9777,7 @@ fn grain_frame_cost_probe() {
             })
             .collect::<Vec<_>>();
         let mp = f64::from(width * height) / 1e6;
-        for ((name, _), median) in modes.iter().zip(&medians) {
+        for (name, median) in names.iter().zip(&medians) {
             println!(
                 "{}",
                 json!({"probe":"grain_frame_cost","edit":name,"width":width,"height":height,
@@ -25593,6 +25612,207 @@ fn luminance_curve_timing_probe() {
                 out.insert(format!("{name}_p75_ms"), json!(t[3 * t.len() / 4]));
             }
             println!("{}", serde_json::Value::Object(out));
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; a drag's effects frame and the settled frame after it"]
+fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
+    // G76/GRN3: a drag's display frame computes Glow's and Halation's terms
+    // and film grain once per 2 x 2 pixels (`DragEffects`). It stays close
+    // to the settled frame, and the settled frame after it (the same
+    // values, so the partial-frame path could reuse the drag's pixels)
+    // is byte for byte a settled frame rendered on its own.
+    let context = context();
+    let (width, height) = (1608, 1072);
+    // A gradient with a bright disk (above white, so glow and halation
+    // show) and the synthetic texture faintly on top.
+    let data: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let (x, y) = ((i % width) as f32, (i / width) as f32);
+            let disk = ((x - 800.0).powi(2) + (y - 500.0).powi(2)).sqrt() < 180.0;
+            let fine = ((i * 13) % 257) as f32 / 257.0 * 0.04;
+            let base = if disk {
+                3.0
+            } else {
+                0.05 + 0.5 * x / width as f32
+            };
+            [
+                f16::from_f32(base + fine),
+                f16::from_f32(base * 0.8 + 0.3 * y / height as f32),
+                f16::from_f32(base * 0.6 + fine),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = input_from(&context, width, height, &data);
+    let processor = effect_pass_processor(&context, width, height, true);
+    let render = |adjustments: &rawtonic_engine::image_processing::PreparedAdjustments| {
+        processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: adjustments.clone(),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                true,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &processor.test_working_texture(),
+            wgpu::Origin3d::ZERO,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            4,
+        )
+        .unwrap()
+    };
+    let basic = json!({"exposure":0.3,"contrast":20,"shadows":25,"toneVersion":18});
+    let with = |effects: serde_json::Value| {
+        let mut profile = basic.clone();
+        for (key, value) in effects.as_object().unwrap() {
+            profile[key] = value.clone();
+        }
+        profile
+    };
+    let grain = json!({"grainAmount":40,"grainSize":25,"grainRoughness":50,"grainVersion":3});
+    let cases = [
+        (
+            "glow_halation",
+            with(json!({"glowAmount":60,"halationAmount":60})),
+        ),
+        ("film_grain", with(grain.clone())),
+        (
+            "all_colour_grain",
+            with(
+                json!({"glowAmount":30,"halationAmount":30,"grainAmount":40,"grainSize":25,
+                "grainRoughness":50,"grainVersion":3,"grainColor":100}),
+            ),
+        ),
+    ];
+    for (name, profile) in cases {
+        let settled = get_all_adjustments_from_json(&profile, true, Some(3));
+        prepare_preview_pipeline(&processor, preview_features(&settled));
+        let mut drag = settled.clone();
+        drag.drag_effects = rawtonic_engine::image_processing::DragEffects {
+            half_terms: true,
+            half_grain: true,
+        };
+        let exact = render(&settled);
+        let approximate = render(&drag);
+        let after_drag = render(&settled);
+        assert!(
+            exact == after_drag,
+            "{name}: the settled frame after a drag frame differs"
+        );
+        assert!(
+            exact != approximate,
+            "{name}: the drag frame is the settled one"
+        );
+        // Per channel: the mean signed difference (a shift of brightness or
+        // colour), the mean absolute one, the 99.9th percentile, and the
+        // spread of the frames' 2 x 2 detail (the grain's strength).
+        let mut abs: Vec<u8> = Vec::with_capacity(exact.len());
+        let mut signed = [0.0f64; 3];
+        for (i, (a, b)) in exact.iter().zip(&approximate).enumerate() {
+            if i % 4 < 3 {
+                signed[i % 4] += f64::from(*b) - f64::from(*a);
+                abs.push(a.abs_diff(*b));
+            }
+        }
+        let pixels = f64::from(width * height);
+        let mean_abs = abs.iter().map(|&d| f64::from(d)).sum::<f64>() / abs.len() as f64;
+        abs.sort_unstable();
+        let p999 = abs[abs.len() * 999 / 1000];
+        let detail = |frame: &[u8]| {
+            let mut sum = 0.0f64;
+            let mut count = 0.0f64;
+            for y in (0..height as usize - 1).step_by(2) {
+                for x in (0..width as usize - 1).step_by(2) {
+                    let at = |dx: usize, dy: usize| {
+                        f64::from(frame[((y + dy) * width as usize + x + dx) * 4 + 1])
+                    };
+                    let mean = (at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4.0;
+                    let local = (at(0, 0) - mean).powi(2) + (at(1, 1) - mean).powi(2);
+                    sum += local;
+                    count += 2.0;
+                }
+            }
+            (sum / count).sqrt()
+        };
+        let grain_detail = [detail(&exact), detail(&approximate)];
+        // The grain as seen at half resolution: each 2 x 2 block's mean
+        // against the mean of the blocks around it.
+        let coarse = |frame: &[u8]| -> Vec<f64> {
+            let (bw, bh) = (width as usize / 2, height as usize / 2);
+            let block: Vec<f64> = (0..bw * bh)
+                .map(|i| {
+                    let (x, y) = (i % bw * 2, i / bw * 2);
+                    let at = |dx: usize, dy: usize| {
+                        f64::from(frame[((y + dy) * width as usize + x + dx) * 4 + 1])
+                    };
+                    (at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4.0
+                })
+                .collect();
+            let mut high = Vec::with_capacity(bw * bh);
+            for y in 1..bh - 1 {
+                for x in 1..bw - 1 {
+                    let around = (0..9)
+                        .map(|k| block[(y + k / 3 - 1) * bw + x + k % 3 - 1])
+                        .sum::<f64>()
+                        / 9.0;
+                    high.push(block[y * bw + x] - around);
+                }
+            }
+            high
+        };
+        let high = [coarse(&exact), coarse(&approximate)];
+        let rms = |v: &[f64]| (v.iter().map(|x| x * x).sum::<f64>() / v.len() as f64).sqrt();
+        let grain_coarse = [rms(&high[0]), rms(&high[1])];
+        // The same grain, not another one: how far the drag's grain at half
+        // resolution follows the settled frame's.
+        let correlation = high[0]
+            .iter()
+            .zip(&high[1])
+            .map(|(a, b)| a * b)
+            .sum::<f64>()
+            / high[0].len() as f64
+            / (grain_coarse[0] * grain_coarse[1]);
+        let shift = signed.map(|sum| sum / pixels);
+        println!(
+            "{}",
+            json!({"probe":"drag_effects","edit":name,"mean_signed_codes":shift,
+                "mean_abs_codes":mean_abs,"p999_abs_codes":p999,
+                "detail_2x2_settled":grain_detail[0],"detail_2x2_drag":grain_detail[1],
+                "grain_half_res_settled":grain_coarse[0],"grain_half_res_drag":grain_coarse[1],
+                "grain_half_res_correlation":correlation})
+        );
+        // No shift of the frame's brightness or colour while dragging.
+        for channel in shift {
+            assert!(channel.abs() < 0.5, "{name}: mean shift {shift:?} codes");
+        }
+        if name == "glow_halation" {
+            // The terms come from the blurred photo: the coarser drag frame
+            // is within a code or two of the settled one.
+            assert!(mean_abs < 0.5 && p999 <= 3, "{name}: {mean_abs} / {p999}");
+        } else {
+            // The settled grain seen at half resolution: its strength and
+            // its pattern stay, only the detail within 2 x 2 pixels goes.
+            assert!(
+                grain_coarse[1] > 0.85 * grain_coarse[0] && correlation > 0.8,
+                "{name}: {grain_coarse:?}, correlation {correlation}"
+            );
         }
     }
 }

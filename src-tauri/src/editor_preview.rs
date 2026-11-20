@@ -2302,6 +2302,28 @@ fn process_preview_job(
             full_dims,
         );
     }
+    // A drag's frame computes Glow's and Halation's terms once per 2 x 2
+    // pixels, as Lightroom's and Capture One's drag frames are coarser
+    // (G76/GRN3); the settled frame (and the scopes' release input above)
+    // computes them per pixel. The Full Resolution live quality renders
+    // every pixel exactly while dragging.
+    // Film grain likewise, but in a drag of a grain control, which shows the
+    // grain being set as it settles.
+    let grain_dragged = state
+        .preview
+        .grain_drag
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .frame(
+            &loaded_image.path,
+            is_interactive,
+            &final_adjustments.global,
+        );
+    let coarser_drag = is_interactive && live_quality != "full";
+    final_adjustments.drag_effects = rawtonic_engine::image_processing::DragEffects {
+        half_terms: coarser_drag,
+        half_grain: coarser_drag && !grain_dragged,
+    };
     let final_processed_image_result =
         crate::image_processing::process_and_get_dynamic_image_with_analytics(
             context,
@@ -2554,6 +2576,50 @@ fn browser_region_frame(
     has_roi: bool,
 ) -> bool {
     !interactive && full_zoom && !crop_edit && has_roi
+}
+
+/// Whether the frames of the current drag have changed the grain
+/// (G76/GRN3), as the frontend's `GrainDrag` decides a drag's size: from
+/// the first drag frame whose grain differs from the last settled frame's
+/// until the next settled frame, also when the grain is back at its start.
+/// A drag without a settled frame of its photo before counts as changing
+/// it.
+#[derive(Default)]
+pub(crate) struct GrainDrag {
+    settled: Option<(String, [u32; 6])>,
+    changed: bool,
+}
+
+impl GrainDrag {
+    /// After a frame of the photo at `path` with `global`: whether it is a
+    /// drag's frame that has changed the grain.
+    pub(crate) fn frame(
+        &mut self,
+        path: &str,
+        interactive: bool,
+        global: &rawtonic_engine::image_processing::GlobalAdjustments,
+    ) -> bool {
+        let grain = (
+            path.to_string(),
+            [
+                global.grain_amount.to_bits(),
+                global.grain_size.to_bits(),
+                global.grain_roughness.to_bits(),
+                global.grain_color.to_bits(),
+                global.grain_version,
+                global.grain_structure,
+            ],
+        );
+        if !interactive {
+            self.settled = Some(grain);
+            self.changed = false;
+            return false;
+        }
+        if self.settled.as_ref() != Some(&grain) {
+            self.changed = true;
+        }
+        self.changed
+    }
 }
 
 /// A drag asking for fewer pixels than the cached base has (with grain,
@@ -4652,6 +4718,28 @@ mod fringe_draft_tests {
 #[cfg(test)]
 mod preview_memory_tests {
     use super::*;
+
+    #[test]
+    fn a_drag_drags_grain_from_its_first_grain_change_until_it_settles() {
+        // G76/GRN3: drags of other controls compute film grain once per
+        // 2 x 2 pixels; a drag that has changed a grain value shows it
+        // exactly until the next settled frame, also once it is back.
+        let mut global = rawtonic_engine::image_processing::GlobalAdjustments::default();
+        global.grain_amount = 0.2;
+        let mut drag = super::GrainDrag::default();
+        // No settled frame of the photo seen: as a grain drag.
+        assert!(drag.frame("a", true, &global));
+        assert!(!drag.frame("a", false, &global));
+        assert!(!drag.frame("a", true, &global));
+        let mut more = global;
+        more.grain_amount = 0.3;
+        assert!(drag.frame("a", true, &more));
+        assert!(drag.frame("a", true, &global));
+        assert!(!drag.frame("a", false, &global));
+        assert!(!drag.frame("a", true, &global));
+        // Another photo's settled frame says nothing about this one.
+        assert!(drag.frame("b", true, &global));
+    }
 
     #[test]
     fn accepts_full_zoom_from_the_browser_preview_request() {

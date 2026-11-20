@@ -33,6 +33,9 @@ pub struct PreviewState {
     pub scope_analytics_tx:
         Mutex<Option<LatestJobSender<crate::scope_analytics::ScopeAnalyticsJob>>>,
     pub scope_proxy: Mutex<Option<crate::scope_analytics::ScopeProxy>>,
+    /// Whether the current drag has changed the film grain
+    /// (`editor_preview::GrainDrag`).
+    pub grain_drag: Mutex<crate::editor_preview::GrainDrag>,
 }
 
 pub struct PreviewJob {

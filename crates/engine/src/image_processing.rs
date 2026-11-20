@@ -4907,7 +4907,25 @@ pub struct PreparedAdjustments {
     /// The LUT is read through the stage its file names that the earlier
     /// reader ignored (`lutVersion` 2, `lut::Lut::stage`).
     pub lut_file_stage: bool,
+    /// What a drag's display frame may approximate (G76/GRN3); never set
+    /// for an export or a settled frame.
+    pub drag_effects: DragEffects,
 }
+
+/// Effects a drag's display frame computes at half resolution, once per
+/// 2 x 2 pixels (G76/GRN3): the settled frame and every export compute
+/// them per pixel, and nothing here changes them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DragEffects {
+    /// Glow's and halation's terms (the blurred photo through exposure and
+    /// the tone stage), applied to each pixel's own colour.
+    pub half_terms: bool,
+    /// Film grain (`grainVersion` 3 on): the grain field of each block,
+    /// applied to each pixel's own colour. Not in a drag of a grain
+    /// control, which shows the grain being set as it settles.
+    pub half_grain: bool,
+}
+
 impl std::ops::Deref for PreparedAdjustments {
     type Target = AllAdjustments;
     fn deref(&self) -> &Self::Target {
@@ -4933,6 +4951,7 @@ impl From<AllAdjustments> for PreparedAdjustments {
             detail_pass_export: false,
             curve_table: None,
             lut_file_stage: false,
+            drag_effects: DragEffects::default(),
         }
     }
 }
@@ -6879,6 +6898,7 @@ fn get_all_adjustments_with_locals<'a>(
         detail_pass_export: versions.render.detail_pass_export(),
         curve_table,
         lut_file_stage: versions.lut.file_stage(),
+        drag_effects: DragEffects::default(),
         uniforms: Box::new(AllAdjustments {
             global,
             mask_adjustments,
