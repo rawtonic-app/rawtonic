@@ -233,6 +233,24 @@ impl ModelKind {
             .map(|(_, kind)| kind)
     }
 
+    /// Models with several hundred MB of weights or more in the model pack.
+    /// This includes external weights and the Moebius pipeline as a whole.
+    /// BiRefNet's 470 MB model used 8.4 GB during a WebGPU run on a 680M
+    /// (CPU: 3.5 GB, with similar runtime; notes: WMSK2).
+    fn is_large(self) -> bool {
+        matches!(
+            self,
+            Self::Subject
+                | Self::Relight
+                | Self::PeopleNormals
+                | Self::TagVision
+                | Self::TagText
+                | Self::MoebiusUnet
+                | Self::MoebiusEncoder
+                | Self::MoebiusDecoder
+        )
+    }
+
     /// Why this model stays on the CPU with `provider`, if it does. Each
     /// entry is a measurement (docs/decisions/0011-gpu-ai.md): models too
     /// small to gain from a GPU, which run many times per photo. Wrong
@@ -409,15 +427,67 @@ pub(crate) fn models_kept_on_cpu() -> bool {
 
 /// The providers to try for `kind`, best first, the CPU last.
 pub fn candidates(kind: ModelKind, settings: &Settings, forced: Option<Provider>) -> Vec<Provider> {
-    candidates_of(kind, settings, forced, models_kept_on_cpu())
+    candidates_of(kind, settings, forced, models_kept_on_cpu(), || {
+        Provider::WebGpu
+            .library_file()
+            .and_then(|file| plugin_library(&settings.plugin_dirs, file))
+            .is_some()
+            && integrated_ai_gpu()
+    })
 }
 
-/// `candidates` with `cpu_only` for `models_kept_on_cpu`.
+/// The backend of the bundled WebGPU provider. Core ML on macOS has its
+/// own device policy.
+fn ai_backend(os: &str) -> Option<wgpu::Backends> {
+    match os {
+        "windows" => Some(wgpu::Backends::DX12),
+        "linux" => Some(wgpu::Backends::VULKAN),
+        _ => None,
+    }
+}
+
+/// Detect UMA before a GPU session or a check can allocate model memory.
+/// Dawn selects its adapter independently of the renderer, so query
+/// adapters on the inference backend (also in the CLI). A discrete adapter can
+/// still serve the high-performance provider on a hybrid machine.
+fn integrated_ai_gpu() -> bool {
+    static INTEGRATED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *INTEGRATED.get_or_init(|| {
+        let Some(backends) = ai_backend(std::env::consts::OS) else {
+            return false;
+        };
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapters = pollster::block_on(instance.enumerate_adapters(backends));
+        integrated_only(
+            adapters
+                .iter()
+                .map(|adapter| adapter.get_info().device_type),
+        )
+    })
+}
+
+fn integrated_only(adapters: impl IntoIterator<Item = wgpu::DeviceType>) -> bool {
+    use wgpu::DeviceType;
+    let mut integrated = false;
+    for adapter in adapters {
+        match adapter {
+            DeviceType::IntegratedGpu => integrated = true,
+            DeviceType::Cpu => {}
+            _ => return false,
+        }
+    }
+    integrated
+}
+
 fn candidates_of(
     kind: ModelKind,
     settings: &Settings,
     forced: Option<Provider>,
     cpu_only: bool,
+    integrated_gpu: impl FnOnce() -> bool,
 ) -> Vec<Provider> {
     let mut list = Vec::new();
     match forced {
@@ -426,6 +496,12 @@ fn candidates_of(
         // they can be measured.
         Some(provider) => list.push(provider),
         None if cpu_only => {}
+        None if settings.gpu && kind.is_large() && integrated_gpu() => {
+            log::info!(
+                "AI {}: models stay on the CPU: integrated GPU, large model",
+                kind.name()
+            );
+        }
         None if settings.gpu => list.extend(
             GPU_PROVIDERS
                 .into_iter()
@@ -1239,7 +1315,7 @@ mod tests {
     fn models_kept_on_the_cpu_try_no_gpu() {
         for kind in ModelKind::ALL {
             assert_eq!(
-                candidates_of(kind, &settings(true), None, true),
+                candidates_of(kind, &settings(true), None, true, || panic!("unused probe")),
                 vec![Provider::Cpu]
             );
         }
@@ -1248,10 +1324,51 @@ mod tests {
                 ModelKind::Subject,
                 &settings(true),
                 Some(Provider::WebGpu),
-                true
+                true,
+                || panic!("unused probe"),
             ),
             vec![Provider::WebGpu, Provider::Cpu]
         );
+    }
+
+    #[test]
+    fn large_models_stay_on_cpu_with_integrated_graphics() {
+        use wgpu::DeviceType::{Cpu, DiscreteGpu, IntegratedGpu, Other};
+        for (adapters, integrated) in [
+            (&[IntegratedGpu, Cpu][..], true),
+            (&[DiscreteGpu][..], false),
+            (&[IntegratedGpu, DiscreteGpu][..], false),
+            (&[Other][..], false),
+            (&[][..], false),
+        ] {
+            for (kind, large) in [(ModelKind::Subject, true), (ModelKind::Sky, false)] {
+                let providers = candidates_of(kind, &settings(true), None, false, || {
+                    integrated_only(adapters.iter().copied())
+                });
+                let expected = if integrated && large {
+                    vec![Provider::Cpu]
+                } else {
+                    vec![Provider::Cuda, Provider::WebGpu, Provider::Cpu]
+                };
+                assert_eq!(providers, expected, "{adapters:?} {kind:?}");
+            }
+        }
+        assert_eq!(ai_backend("macos"), None);
+    }
+
+    #[test]
+    fn forced_provider_bypasses_the_integrated_gpu_rule() {
+        for forced in [Provider::Cpu, Provider::WebGpu, Provider::Cuda] {
+            let providers = candidates_of(
+                ModelKind::Subject,
+                &settings(true),
+                Some(forced),
+                false,
+                || panic!("a forced provider skips adapter discovery"),
+            );
+            assert_eq!(providers.first(), Some(&forced));
+            assert_eq!(providers.last(), Some(&Provider::Cpu));
+        }
     }
 
     #[test]
