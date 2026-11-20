@@ -513,6 +513,18 @@ fn candidates_of(
     list
 }
 
+/// The first GPU provider of `candidates` whose plugin registers.
+fn first_gpu(
+    kind: ModelKind,
+    settings: &Settings,
+    forced: Option<Provider>,
+) -> Option<Arc<Device>> {
+    candidates(kind, settings, forced)
+        .into_iter()
+        .filter(|&provider| provider != Provider::Cpu)
+        .find_map(|provider| device(provider, &settings.plugin_dirs).ok())
+}
+
 /// `RAWTONIC_AI_PROVIDER`, if set to a provider's name.
 pub fn forced_provider() -> Option<Provider> {
     std::env::var("RAWTONIC_AI_PROVIDER")
@@ -1109,6 +1121,79 @@ impl Model {
         Self::load_checked(path, kind, providers, dirs, checks)
     }
 
+    /// Loads `path` on the first GPU provider of `candidates(kind, …)` that
+    /// registers, only when it may run there now: its check on that device
+    /// found it matching the CPU and faster (checks off, or run at once as
+    /// for the CLI and a forced provider: checked now). Otherwise `None`,
+    /// and a GPU not checked yet gets its check queued for when the app is
+    /// idle, so a later load can use the file. Never the CPU: for a GPU-only
+    /// variant of a model whose caller then loads the usual graph
+    /// (Super Resolution's fp16 graph beside its fp32 graph).
+    pub fn load_on_checked_gpu(path: &Path, kind: ModelKind) -> Option<Self> {
+        ensure_runtime().ok()?;
+        let settings = settings();
+        let forced = forced_provider();
+        let checks = checks_for(&settings, forced);
+        let device = first_gpu(kind, &settings, forced)?;
+        if checks != check::Checks::Off {
+            check::CHECKS.activity();
+        }
+        let started = Instant::now();
+        let file = settings.checks_file.as_ref();
+        let (known, _) = check::known(path, kind, &device, file);
+        let session = match check::plan(known, checks, true) {
+            Plan::Use => session(path, kind, Some(&device)),
+            Plan::CheckNow => check::check(path, kind, &device, file),
+            Plan::Skip => Err(anyhow!("its check on this device did not pass")),
+            Plan::Queue => {
+                check::queue(path, kind, &device, file);
+                Err(anyhow!("its check on this device has not run yet"))
+            }
+        };
+        match session {
+            Ok(session) => {
+                log::info!(
+                    "AI {}: {} loaded on {} ({}) in {} ms",
+                    kind.name(),
+                    path.file_name().unwrap_or_default().to_string_lossy(),
+                    device.provider,
+                    device.label,
+                    started.elapsed().as_millis()
+                );
+                Some(Self {
+                    kind,
+                    path: path.to_path_buf(),
+                    state: Arc::new(watch::Slot::new(kind.name(), session, device.provider)),
+                })
+            }
+            Err(e) => {
+                log::info!(
+                    "AI {}: {} not on {}: {e:#}",
+                    kind.name(),
+                    path.file_name().unwrap_or_default().to_string_lossy(),
+                    device.provider
+                );
+                None
+            }
+        }
+    }
+
+    /// Whether `load_on_checked_gpu` would load `path` on a GPU now without
+    /// a check: its check on that GPU found it matching the CPU and faster.
+    /// Loads nothing and queues nothing (a cheap lookup), so a caller that
+    /// keeps a model loaded can switch to `path` once its idle check passed.
+    pub fn passed_gpu_check(path: &Path, kind: ModelKind) -> bool {
+        if ensure_runtime().is_err() {
+            return false;
+        }
+        let settings = settings();
+        let forced = forced_provider();
+        first_gpu(kind, &settings, forced).is_some_and(|device| {
+            let (known, _) = check::known(path, kind, &device, settings.checks_file.as_ref());
+            known == Some(check::Verdict::Faster)
+        })
+    }
+
     /// `load_on` with `checks` (`Off`: benchmarks report the GPU's output
     /// as it is).
     pub(crate) fn load_checked(
@@ -1200,6 +1285,11 @@ impl Model {
 
     pub fn kind(&self) -> ModelKind {
         self.kind
+    }
+
+    /// The model file.
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     /// While any model runs, also background tagging on a few CPU threads,
