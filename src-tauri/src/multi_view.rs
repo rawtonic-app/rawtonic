@@ -2527,12 +2527,7 @@ fn whole_base_size(shown: (f32, f32), scale: f32) -> (u32, u32) {
 /// with a noise reduction on also the noise reductions'), whatever tools
 /// are on: Glow, Clarity and the other blurs read beyond a cut at what is
 /// shown, also without a noise reduction (NRR3).
-fn render_reach(
-    recipe: &serde_json::Value,
-    is_raw: bool,
-    shown: (f32, f32),
-    scale: f32,
-) -> u32 {
+fn render_reach(recipe: &serde_json::Value, is_raw: bool, shown: (f32, f32), scale: f32) -> u32 {
     let (width, height) = whole_base_size(shown, scale);
     gpu_processing::region_reach(
         &get_all_adjustments_from_json(recipe, is_raw, None),
@@ -4109,7 +4104,10 @@ mod tests {
         assert_eq!(render_reach(&glow, true, shown, 1.0), plain_reach);
         // At 4000 x 3000: the tile overlap and Structure's 40 px blur at
         // the photograph's scale (3000 / 1080) and two more.
-        assert_eq!(plain_reach, 128 + (40.0f32 * 3000.0 / 1080.0).ceil() as u32 + 2);
+        assert_eq!(
+            plain_reach,
+            128 + (40.0f32 * 3000.0 / 1080.0).ceil() as u32 + 2
+        );
         assert!(filtered_reach >= gpu_processing::REGION_NOISE_MARGIN);
         let reach = plain_reach as f32;
         assert_eq!(

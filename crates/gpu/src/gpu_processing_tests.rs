@@ -19537,7 +19537,10 @@ fn region_reach_cost_probe() {
         let image = ramped_chroma_noise_frame(fw, fh);
         let shown = (fw / 2 - 576, fh / 2 - 448, 1167, 894);
         for (name, profile) in [
-            ("glow 40 + clarity 30", json!({ "glowAmount": 40, "clarity": 30 })),
+            (
+                "glow 40 + clarity 30",
+                json!({ "glowAmount": 40, "clarity": 30 }),
+            ),
             (
                 "colour 50 + luma 30 + clarity 30 + sharpness 40",
                 json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11, "lumaNoiseReduction": 30, "clarity": 30, "sharpness": 40 }),
@@ -19556,7 +19559,8 @@ fn region_reach_cost_probe() {
                 0
             };
             let reach = region_reach(&adjustments.uniforms, fw, fh);
-            for (label, reach, with_roi) in [("before", before_reach, false), ("after", reach, true)]
+            for (label, reach, with_roi) in
+                [("before", before_reach, false), ("after", reach, true)]
             {
                 let ((cx, cy, cw, ch), roi) = cut_with_reach(shown, reach, (fw, fh));
                 let cut = image.crop_imm(cx, cy, cw, ch);
@@ -19565,13 +19569,12 @@ fn region_reach_cost_probe() {
                 for run in 0..6u64 {
                     let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
                     adjustments.color_noise_measurement = measured.map(Box::new);
-                    adjustments.photo_placement =
-                        Some(crate::image_processing::PhotoPlacement {
-                            photo_width: fw,
-                            photo_height: fh,
-                            x: cx,
-                            y: cy,
-                        });
+                    adjustments.photo_placement = Some(crate::image_processing::PhotoPlacement {
+                        photo_width: fw,
+                        photo_height: fh,
+                        x: cx,
+                        y: cy,
+                    });
                     let start = std::time::Instant::now();
                     let out = process_and_get_dynamic_image_inner(
                         &context,
