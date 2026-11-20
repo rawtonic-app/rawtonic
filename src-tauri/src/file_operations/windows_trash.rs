@@ -741,6 +741,8 @@ mod tests {
         }
     }
 
+    /// Set `RAWTONIC_TEST_NO_BIN_DIR` to an existing writable folder on a
+    /// disposable Windows volume without a Recycle Bin before running this test.
     #[test]
     #[ignore = "Requires a fresh synthetic removable volume with no Recycle Bin"]
     fn platform_trash_refuses_a_volume_without_a_bin_and_preserves_its_file() {
