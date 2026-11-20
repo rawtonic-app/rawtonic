@@ -5365,6 +5365,9 @@ struct DisplayRenderState {
     lut_file_stage: bool,
     pipeline: wgpu::ComputePipeline,
     mask_layers: usize,
+    /// A drag's approximations (G76/GRN3): a settled frame after a drag
+    /// with the same values renders every pixel again.
+    drag_effects: rawtonic_engine::image_processing::DragEffects,
 }
 
 impl DisplayRenderState {
@@ -5383,6 +5386,7 @@ impl DisplayRenderState {
             && self.lut_file_stage == other.lut_file_stage
             && self.pipeline == other.pipeline
             && self.mask_layers == other.mask_layers
+            && self.drag_effects == other.drag_effects
     }
 }
 
@@ -11234,6 +11238,7 @@ impl GpuProcessor {
                     lut_file_stage: request.adjustments.lut_file_stage,
                     pipeline: output_pipeline.clone(),
                     mask_layers: request.mask_bitmaps.len().min(MAX_MASKS),
+                    drag_effects: request.adjustments.drag_effects,
                 });
         // Restrict this frame to the changed mask pixels when everything else
         // matches the previous complete frame. `Some` without regions skips work.
@@ -11472,6 +11477,8 @@ impl GpuProcessor {
             }
             _ => None,
         };
+        // A drag's frame: the terms once per 2 x 2 pixels (G76/GRN3).
+        let half_terms = terms_pass.is_some() && request.adjustments.drag_effects.half_terms;
         if let Some(passes) = passes.filter(|_| output_to_display) {
             passes.compile_ahead(device, export_display_features(&request.adjustments));
         }
@@ -11483,9 +11490,16 @@ impl GpuProcessor {
         // probe (`output_space.w`) ends the main pass before grain.
         let grain =
             adjustments.global.grain_amount != 0.0 && adjustments.global.output_space[3] == 0;
+        // A drag's film grain once per 2 x 2 pixels (G76/GRN3), in a frame
+        // that finishes into the 8-bit tile.
+        let half_grain = passes.is_some()
+            && grain
+            && !deferred
+            && adjustments.global.grain_version >= 3
+            && request.adjustments.drag_effects.half_grain;
         let finish_pass = match passes {
             Some(passes) if grain || deferred => Some((
-                passes.finish_pipeline(device, grain, deferred)?,
+                passes.finish_pipeline(device, grain, deferred, half_grain)?,
                 passes.colour_tile(self),
                 passes.views(self, adjustments.global.show_clipping != 0),
                 passes,
@@ -11761,7 +11775,14 @@ impl GpuProcessor {
                     None => vec![tile_rect],
                     Some(regions) => regions
                         .iter()
-                        .filter_map(|region| intersect_roi(*region, tile_rect))
+                        // A drag's frame re-renders whole 2 x 2 blocks: a
+                        // changed pixel changes its block's terms and grain
+                        // (G76/GRN3).
+                        .map(|region| match half_terms || half_grain {
+                            true => intersect_roi(effect_passes::whole_blocks(*region), bounds),
+                            false => Some(*region),
+                        })
+                        .filter_map(|region| intersect_roi(region?, tile_rect))
                         .collect(),
                 };
                 if retained_regions.is_empty() {
@@ -12210,6 +12231,13 @@ impl GpuProcessor {
                     let mut entries = bind_group_entries.clone();
                     entries[1].resource =
                         wgpu::BindingResource::TextureView(&self.tile_output_texture_view);
+                    if half_terms {
+                        for entry in &mut entries {
+                            if entry.binding == 16 {
+                                entry.resource = passes.terms_regions().as_entire_binding();
+                            }
+                        }
+                    }
                     entries.push(wgpu::BindGroupEntry {
                         binding: 14,
                         resource: wgpu::BindingResource::TextureView(&self.dummy_blur_view),
@@ -12229,48 +12257,86 @@ impl GpuProcessor {
                     });
                     (pipeline, bind_group, tiles)
                 });
-                let finish = finish_pass
-                    .as_ref()
-                    .map(|(pipeline, colour, views, passes)| {
+                // The finish pass, and a drag's grain field pass over the
+                // 2 x 2 blocks with the same resources (G76/GRN3).
+                let (finish, grain_field) = match &finish_pass {
+                    Some((pipeline, colour, views, passes)) => {
+                        let entries = vec![
+                            bind_group_entries[0].clone(),
+                            bind_group_entries[1].clone(),
+                            bind_group_entries[2].clone(),
+                            wgpu::BindGroupEntry {
+                                binding: 27,
+                                resource: film_grain.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: ANALYTICS_OUTPUT_BINDING,
+                                resource: wgpu::BindingResource::TextureView(
+                                    match analytics_tile {
+                                        Some((_, view)) => view,
+                                        None => {
+                                            &self.no_analytics_output
+                                                [usize::from(high_precision_layout)]
+                                        }
+                                    },
+                                ),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: effect_passes::FINISH_COLOUR_BINDING,
+                                resource: wgpu::BindingResource::TextureView(&colour.view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: effect_passes::FINISH_VIEWS_BINDING,
+                                resource: wgpu::BindingResource::TextureView(&views.view),
+                            },
+                        ];
+                        fn with<'a>(
+                            regions: &'a wgpu::Buffer,
+                            field: &'a wgpu::TextureView,
+                        ) -> [wgpu::BindGroupEntry<'a>; 2] {
+                            [
+                                wgpu::BindGroupEntry {
+                                    binding: 16,
+                                    resource: regions.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: effect_passes::GRAIN_FIELD_BINDING,
+                                    resource: wgpu::BindingResource::TextureView(field),
+                                },
+                            ]
+                        }
+                        // Made on a drag's first frame with film grain.
+                        let field_tile = half_grain.then(|| &passes.field_tile(self).view);
+                        let mut finish_entries = entries.clone();
+                        finish_entries.extend(with(
+                            &self.render_regions_buffer,
+                            field_tile.unwrap_or(passes.no_colour()),
+                        ));
                         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                             label: Some("Finish Pass Bind Group"),
                             layout: passes.finish_bind_group_layout(deferred),
-                            entries: &[
-                                bind_group_entries[0].clone(),
-                                bind_group_entries[1].clone(),
-                                bind_group_entries[2].clone(),
-                                wgpu::BindGroupEntry {
-                                    binding: 16,
-                                    resource: self.render_regions_buffer.as_entire_binding(),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 27,
-                                    resource: film_grain.as_entire_binding(),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: ANALYTICS_OUTPUT_BINDING,
-                                    resource: wgpu::BindingResource::TextureView(
-                                        match analytics_tile {
-                                            Some((_, view)) => view,
-                                            None => {
-                                                &self.no_analytics_output
-                                                    [usize::from(high_precision_layout)]
-                                            }
-                                        },
-                                    ),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: effect_passes::FINISH_COLOUR_BINDING,
-                                    resource: wgpu::BindingResource::TextureView(&colour.view),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: effect_passes::FINISH_VIEWS_BINDING,
-                                    resource: wgpu::BindingResource::TextureView(&views.view),
-                                },
-                            ],
+                            entries: &finish_entries,
                         });
-                        (pipeline, bind_group)
-                    });
+                        let grain_field = if let Some(field_tile) = field_tile {
+                            let mut field_entries = entries;
+                            field_entries.extend(with(passes.terms_regions(), passes.no_colour()));
+                            field_entries.push(wgpu::BindGroupEntry {
+                                binding: effect_passes::GRAIN_FIELD_OUTPUT_BINDING,
+                                resource: wgpu::BindingResource::TextureView(field_tile),
+                            });
+                            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("Grain Field Bind Group"),
+                                layout: passes.field_bind_group_layout(),
+                                entries: &field_entries,
+                            });
+                            Some((passes.field_pipeline(device)?, bind_group))
+                        } else {
+                            None
+                        };
+                        (Some((pipeline, bind_group)), grain_field)
+                    }
+                    None => (None, None),
+                };
                 if let Some(passes) = &self.effect_passes {
                     // What a main pass stores for the finish pass, or 1 x 1
                     // textures a frame without one leaves alone.
@@ -12441,6 +12507,18 @@ impl GpuProcessor {
                         bounds.height,
                     ]];
                 }
+                // A drag's frame renders the first pixel of every block a
+                // region touches, which the passes over the blocks read: a
+                // region starting on an odd column or row starts a pixel
+                // earlier (in the tile; that pixel is rendered, not kept).
+                if half_terms || half_grain {
+                    for region in &mut regions {
+                        *region = effect_passes::with_block_starts(
+                            *region,
+                            [input_x_start, input_y_start],
+                        );
+                    }
+                }
                 let workgroups: u32 = regions
                     .iter()
                     .map(|region| region[2].div_ceil(8) * region[3].div_ceil(8))
@@ -12460,6 +12538,26 @@ impl GpuProcessor {
                     0,
                     bytemuck::cast_slice(&region_data),
                 );
+                // A drag's terms pass and grain field pass cover the
+                // regions' 2 x 2 blocks.
+                let half_workgroups = match passes {
+                    Some(passes) if half_terms || half_grain => {
+                        let half =
+                            effect_passes::half_regions(&regions, [input_x_start, input_y_start]);
+                        let mut data = vec![region_data[0]];
+                        data.extend_from_slice(&half);
+                        queue.write_buffer(passes.terms_regions(), 0, bytemuck::cast_slice(&data));
+                        half.iter()
+                            .map(|region| region[2].div_ceil(8) * region[3].div_ceil(8))
+                            .sum()
+                    }
+                    _ => workgroups,
+                };
+                let terms_workgroups = if half_terms {
+                    half_workgroups
+                } else {
+                    workgroups
+                };
                 let mut tile_adjustments = boxed_uniforms(adjustments);
                 tile_adjustments.tile_offset_x = input_x_start;
                 tile_adjustments.tile_offset_y = input_y_start;
@@ -12469,7 +12567,7 @@ impl GpuProcessor {
                 tile_adjustments.detail_cache = [
                     u32::from(detail_view.is_some()),
                     u32::from(finish_pass.is_some()),
-                    0,
+                    u32::from(half_terms),
                     0,
                 ];
                 tile_adjustments.source_window = source_window;
@@ -12485,7 +12583,7 @@ impl GpuProcessor {
                     pass.set_bind_group(0, bind_group, &[]);
                     pass.dispatch_workgroups(
                         RENDER_REGION_GROUPS_X,
-                        workgroups.div_ceil(RENDER_REGION_GROUPS_X),
+                        terms_workgroups.div_ceil(RENDER_REGION_GROUPS_X),
                         1,
                     );
                 }
@@ -12506,6 +12604,16 @@ impl GpuProcessor {
                     compute_pass.dispatch_workgroups(
                         RENDER_REGION_GROUPS_X,
                         workgroups.div_ceil(RENDER_REGION_GROUPS_X),
+                        1,
+                    );
+                }
+                if let Some((pipeline, bind_group)) = &grain_field {
+                    let mut pass = main_encoder.begin_compute_pass(&Default::default());
+                    pass.set_pipeline(pipeline);
+                    pass.set_bind_group(0, bind_group, &[]);
+                    pass.dispatch_workgroups(
+                        RENDER_REGION_GROUPS_X,
+                        half_workgroups.div_ceil(RENDER_REGION_GROUPS_X),
                         1,
                     );
                 }

@@ -2655,6 +2655,7 @@ pub fn build_single_mask_adjustments(
         detail_pass_export: all.detail_pass_export,
         curve_table: all.curve_table.clone(),
         lut_file_stage: all.lut_file_stage,
+        drag_effects: all.drag_effects,
     }
 }
 

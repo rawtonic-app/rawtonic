@@ -1787,6 +1787,7 @@ fn process_editor_preview_job(
     develop: tauri::State<DevelopSession>,
     adjustments_json: serde_json::Value,
     is_interactive: bool,
+    grain_drag: bool,
     target_resolution: Option<u32>,
     roi: Option<(f32, f32, f32, f32)>,
     request_analytics: bool,
@@ -1812,6 +1813,7 @@ fn process_editor_preview_job(
         &develop,
         adjustments_json,
         is_interactive,
+        grain_drag,
         target_resolution,
         roi,
         request_analytics,
@@ -1832,6 +1834,7 @@ fn process_preview_job(
     develop: &DevelopSession,
     mut adjustments_json: serde_json::Value,
     is_interactive: bool,
+    grain_drag: bool,
     target_resolution: Option<u32>,
     roi: Option<(f32, f32, f32, f32)>,
     request_analytics: bool,
@@ -2302,6 +2305,18 @@ fn process_preview_job(
             full_dims,
         );
     }
+    // A drag's frame computes Glow's and Halation's terms once per 2 x 2
+    // pixels, as Lightroom's and Capture One's drag frames are coarser
+    // (G76/GRN3); the settled frame (and the scopes' release input above)
+    // computes them per pixel. The Full Resolution live quality renders
+    // every pixel exactly while dragging.
+    // Film grain likewise, but in a drag of a grain control (`grain_drag`,
+    // from the press on), which shows the grain being set as it settles.
+    let coarser_drag = is_interactive && live_quality != "full";
+    final_adjustments.drag_effects = rawtonic_engine::image_processing::DragEffects {
+        half_terms: coarser_drag,
+        half_grain: coarser_drag && !grain_drag,
+    };
     let final_processed_image_result =
         crate::image_processing::process_and_get_dynamic_image_with_analytics(
             context,
@@ -2768,6 +2783,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                             app_handle.state::<DevelopSession>(),
                             job.adjustments.clone(),
                             false,
+                            false,
                             job.target_resolution,
                             job.roi,
                             false,
@@ -2798,6 +2814,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                             develop,
                             job.adjustments,
                             job.is_interactive,
+                            job.grain_drag,
                             job.target_resolution,
                             job.roi,
                             job.request_analytics,
@@ -2975,6 +2992,7 @@ fn run_analytics_pass(app_handle: &tauri::AppHandle, pass: AnalyticsPass, newest
             app_handle.state::<DevelopSession>(),
             pass.adjustments,
             false,
+            false,
             pass.target_resolution,
             pass.roi,
             true,
@@ -3077,6 +3095,7 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
             develop,
             warm.adjustments,
             true,
+            false,
             warm.target_resolution,
             None,
             false,
@@ -3344,6 +3363,7 @@ fn submit_activation_frame(
         sequence: None,
         adjustments: recipe,
         is_interactive: false,
+        grain_drag: false,
         browser_full_zoom: false,
         target_resolution: preview_dim,
         roi: None,
@@ -4011,6 +4031,7 @@ pub(crate) async fn apply_adjustments(
     browser_preview_uri: Option<bool>,
     browser_full_zoom: Option<bool>,
     region_first: Option<bool>,
+    grain_drag: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Response, CommandError> {
     // An edit renders: a GPU check of an AI model gives way (rawtonic-onnx
@@ -4049,6 +4070,7 @@ pub(crate) async fn apply_adjustments(
         sequence,
         adjustments: js_adjustments,
         is_interactive,
+        grain_drag: is_interactive && grain_drag.unwrap_or(false),
         browser_full_zoom: browser_full_zoom.unwrap_or(false),
         target_resolution,
         roi,
@@ -4676,6 +4698,7 @@ mod preview_memory_tests {
                 sequence: None,
                 adjustments: serde_json::json!({"exposure": 1.0}),
                 is_interactive,
+                grain_drag: false,
                 browser_full_zoom: false,
                 target_resolution: Some(1920),
                 roi,
@@ -4739,6 +4762,7 @@ mod preview_memory_tests {
             sequence: None,
             adjustments: serde_json::json!({}),
             is_interactive,
+            grain_drag: false,
             browser_full_zoom: false,
             target_resolution: Some(4000),
             roi,
@@ -4769,6 +4793,7 @@ mod preview_memory_tests {
             sequence: None,
             adjustments: serde_json::json!({"exposure": 1}),
             is_interactive,
+            grain_drag: false,
             browser_full_zoom,
             target_resolution: Some(6000),
             roi,
@@ -4846,6 +4871,7 @@ mod preview_memory_tests {
                 &develop,
                 serde_json::json!({ "grainAmount": 40, "exposure": exposure }),
                 is_interactive,
+                false,
                 Some(size),
                 None,
                 false,
