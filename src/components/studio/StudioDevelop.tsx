@@ -296,6 +296,7 @@ const SPLIT_STRIP = 16;
 /** How near the pointer must press to grab a curve point, in screen px
  * (14 curve units at the former 210 px plot). */
 const CURVE_GRAB_PX = 11.5;
+const CURVE_ARROW_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
 
 const selectHistogram = (s: ReturnType<typeof useEditorStore.getState>) => s.histogram;
 
@@ -398,6 +399,7 @@ export function PointCurve({
     useEditorStore.getState().setEditor({ curveChannel, tatCurveMarker: null });
   const marker = useEditorStore((s) => (targeted && s.tatTarget === 'curve' ? s.tatCurveMarker : null));
   const [selected, setSelected] = useState<number | null>(null);
+  const [nudgeAnnouncement, setNudgeAnnouncement] = useState('');
   // A drag draws its points as they move, like a slider its knob; the
   // store gets them at the slider cadence and commits every
   // COMMIT_INTERVAL_MS (sliderDraft.ts), too seldom to draw from.
@@ -442,13 +444,19 @@ export function PointCurve({
   const dragging = useRef(false);
   const interaction = useRef(onInteraction);
   interaction.current = onInteraction;
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const svg = svgRef.current;
+    const endKeyboardGroup = () => {
+      if (svg) debouncedSetHistory.endGroup(svg);
+    };
+    window.addEventListener('blur', endKeyboardGroup);
+    return () => {
+      window.removeEventListener('blur', endKeyboardGroup);
+      endKeyboardGroup();
       send.flush();
       if (dragging.current) interaction.current(false);
-    },
-    [send]
-  );
+    };
+  }, [send]);
   const end = () => {
     send.flush();
     if (dragging.current) interaction.current(false);
@@ -503,8 +511,10 @@ export function PointCurve({
             key={key}
             aria-pressed={channel === key}
             onClick={() => {
+              if (key !== channel && svgRef.current) debouncedSetHistory.endGroup(svgRef.current);
               setChannel(key);
               setSelected(null);
+              setNudgeAnnouncement('');
             }}
           >
             {label}
@@ -518,6 +528,11 @@ export function PointCurve({
         aria-label={t('studio.develop.curve.aria', {
           channel: t(`studio.develop.curve.ariaChannels.${channel}`)
         })}
+        onKeyUp={(e) => {
+          if (CURVE_ARROW_KEYS.includes(e.key) && e.target instanceof Element) {
+            debouncedSetHistory.releaseGroup(e.target);
+          }
+        }}
         onPointerDown={(e) => {
           if (disabled || e.button !== 0) return;
           // The split strip under the plot adds no curve points.
@@ -540,6 +555,7 @@ export function PointCurve({
           const next = nearest === -1 ? [...points, p].sort((a, b) => a.x - b.x) : points;
           const index = nearest === -1 ? next.indexOf(p) : nearest;
           setSelected(index);
+          setNudgeAnnouncement('');
           // The keyboard (arrows, Delete) acts on it, without scrolling.
           requestAnimationFrame(() =>
             svgRef.current?.querySelector<SVGElement>(`[data-curve-point="${index}"]`)?.focus({ preventScroll: true })
@@ -648,6 +664,7 @@ export function PointCurve({
                   }}
                   onPointerCancel={() => splitDrag === key && endSplit()}
                   onLostPointerCapture={() => splitDrag === key && endSplit()}
+                  onBlur={(e) => debouncedSetHistory.endGroup(e.currentTarget)}
                   onKeyDown={(e) => {
                     if (disabled) return;
                     const step = e.shiftKey ? 10 : 1;
@@ -671,9 +688,13 @@ export function PointCurve({
                     if (next === null) return;
                     e.preventDefault();
                     e.stopPropagation();
-                    debouncedSetHistory.flush();
-                    setSplit(key, next);
-                    debouncedSetHistory.flush();
+                    if (e.key === 'Home' || e.key === 'End') {
+                      debouncedSetHistory.flush();
+                      setSplit(key, next);
+                      debouncedSetHistory.flush();
+                    } else {
+                      debouncedSetHistory.group(e.currentTarget, () => setSplit(key, next));
+                    }
                   }}
                   onDoubleClick={(e) => {
                     // Back to its default, as a slider's double-click does.
@@ -704,12 +725,19 @@ export function PointCurve({
             data-curve-point={i}
             tabIndex={disabled ? -1 : 0}
             role="button"
+            aria-disabled={disabled || undefined}
             aria-label={t('studio.develop.curve.point', {
               index: i + 1,
               input: Math.round(p.x),
               output: Math.round(p.y)
             })}
-            onFocus={() => setSelected(i)}
+            onFocus={() => {
+              if (!disabled) setSelected(i);
+            }}
+            onBlur={(e) => {
+              debouncedSetHistory.endGroup(e.currentTarget);
+              setNudgeAnnouncement('');
+            }}
             onKeyDown={(e) => {
               if (disabled || e.metaKey || e.ctrlKey || e.altKey) return;
               if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -731,7 +759,7 @@ export function PointCurve({
                 keyboardChange(next);
                 setSelected(left + 1);
                 focusPoint(left + 1);
-              } else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+              } else if (CURVE_ARROW_KEYS.includes(e.key)) {
                 e.preventDefault();
                 const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
                 const dy = e.key === 'ArrowDown' ? -1 : e.key === 'ArrowUp' ? 1 : 0;
@@ -740,7 +768,18 @@ export function PointCurve({
                     ? p.x
                     : Math.max(points[i - 1].x + 1, Math.min(points[i + 1].x - 1, p.x + dx));
                 const y = Math.max(0, Math.min(255, p.y + dy));
-                if (x !== p.x || y !== p.y) keyboardChange(points.map((q, n) => (n === i ? { x, y } : q)));
+                if (x === p.x && y === p.y) return;
+                debouncedSetHistory.group(e.currentTarget, () =>
+                  onChange({ ...curves, [channel]: points.map((q, n) => (n === i ? { x, y } : q)) })
+                );
+                // Focus already reads the point's name and key hints.
+                const input = Math.round(x);
+                const output = Math.round(y);
+                if (input !== Math.round(p.x) || output !== Math.round(p.y)) {
+                  setNudgeAnnouncement(
+                    `${t('studio.develop.curve.input')} ${input}, ${t('studio.develop.curve.output')} ${output}`
+                  );
+                }
               }
             }}
             onDoubleClick={(e) => {
@@ -797,13 +836,7 @@ export function PointCurve({
         </label>
       )}
       <span className="sr-only" aria-live="polite" aria-atomic="true">
-        {selected !== null &&
-          points[selected] &&
-          t('studio.develop.curve.point', {
-            index: selected + 1,
-            input: Math.round(points[selected].x),
-            output: Math.round(points[selected].y)
-          })}
+        {!disabled && nudgeAnnouncement}
       </span>
       {selected !== null && points[selected] && (
         <div className="curve-coordinate">

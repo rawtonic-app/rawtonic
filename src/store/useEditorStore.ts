@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import debounce from 'lodash.debounce';
 import { DEFAULT_BRUSH_SIZE } from '../utils/brushSize';
 import { Adjustments, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import { SelectedImage, WaveformData, BrushSettings, HistogramData } from '../components/ui/AppProperties';
@@ -13,6 +12,7 @@ import type { SharpenView } from '../utils/sharpenView';
 import { DEFAULT_SPLIT_POSITION, type SplitOrientation } from '../utils/beforeAfter';
 import { historyOrders, setHistoryOrders, inheritHistoryOrders, newEditOrder } from '../utils/undoOrder';
 import { noteEdit } from '../components/contribute/usageStats';
+import { COMMIT_INTERVAL_MS } from '../utils/sliderDraft';
 
 export interface InteractivePatch {
   url: string;
@@ -399,7 +399,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     ),
 
   pushHistory: (newAdj, batchOrder) => {
-    scheduledHistory.cancel();
+    cancelScheduledHistory();
     heldHistory = null;
     // Usage statistics (only while switched on): the tools this step used.
     noteEdit(get().history[get().historyIndex], newAdj);
@@ -441,7 +441,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   resetHistory: (initialState) => {
-    scheduledHistory.cancel();
+    cancelScheduledHistory();
     heldHistory = null;
     set({
       history: [initialState],
@@ -473,33 +473,76 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
 // The store owns pending history so every navigation path can settle it.
 // Slider edits still coalesce, but Undo is available from the first edit.
-const scheduledHistory = debounce((adjustments: Adjustments) => {
-  useEditorStore.getState().pushHistory(adjustments);
-}, 500);
+let scheduledHistory: {
+  adjustments: Adjustments;
+  control: Element | null;
+  timer: ReturnType<typeof setTimeout> | null;
+} | null = null;
+
+function cancelScheduledHistory() {
+  if (scheduledHistory?.timer != null) clearTimeout(scheduledHistory.timer);
+  scheduledHistory = null;
+}
+
+function flushScheduledHistory() {
+  if (scheduledHistory) useEditorStore.getState().pushHistory(scheduledHistory.adjustments);
+}
+
+function scheduleHistory(adjustments: Adjustments, control: Element | null = null) {
+  cancelScheduledHistory();
+  scheduledHistory = {
+    adjustments,
+    control,
+    // A held arrow can wait longer than a slider interval before its first
+    // auto-repeat. Start the keyboard inactivity timer when the key is released.
+    timer: control ? null : setTimeout(flushScheduledHistory, 500)
+  };
+}
+
 // The latest edit of a drag in progress (`isSliderDragging`): a drag is one
 // history step however long it pauses; it is scheduled when the drag ends.
 let heldHistory: Adjustments | null = null;
+let editingControl: Element | null = null;
 export const debouncedSetHistory = Object.assign(
   (adjustments: Adjustments) => {
     if (useEditorStore.getState().isSliderDragging) {
       // An edit scheduled before the drag stays its own step.
-      if (!heldHistory) scheduledHistory.flush();
+      if (!heldHistory) flushScheduledHistory();
       heldHistory = adjustments;
     } else {
       heldHistory = null;
-      scheduledHistory(adjustments);
+      if (scheduledHistory && scheduledHistory.control !== editingControl) flushScheduledHistory();
+      scheduleHistory(adjustments, editingControl);
     }
     if (!useEditorStore.getState().historyPending) useEditorStore.setState({ historyPending: true });
   },
   {
     flush: () => {
       if (heldHistory) useEditorStore.getState().pushHistory(heldHistory);
-      else scheduledHistory.flush();
+      else flushScheduledHistory();
     },
     cancel: () => {
-      scheduledHistory.cancel();
+      cancelScheduledHistory();
       heldHistory = null;
       if (useEditorStore.getState().historyPending) useEditorStore.setState({ historyPending: false });
+    },
+    // Scope the synchronous adjustment update to the control receiving the keys.
+    group: (control: Element, edit: () => void) => {
+      const previous = editingControl;
+      editingControl = control;
+      try {
+        edit();
+      } finally {
+        editingControl = previous;
+      }
+    },
+    releaseGroup: (control: Element) => {
+      if (scheduledHistory?.control === control && scheduledHistory.timer === null) {
+        scheduledHistory.timer = setTimeout(flushScheduledHistory, COMMIT_INTERVAL_MS);
+      }
+    },
+    endGroup: (control: Element) => {
+      if (scheduledHistory?.control && control.contains(scheduledHistory.control)) flushScheduledHistory();
     }
   }
 );
@@ -520,7 +563,7 @@ export function capturePendingSliderClick() {
       !current.isSliderDragging &&
       !heldHistory
     ) {
-      scheduledHistory.cancel();
+      cancelScheduledHistory();
       // Carry the click into the following interaction. If that press is
       // cancelled before a reset, the first click remains undoable.
       heldHistory = current.adjustments;
@@ -551,13 +594,13 @@ useEditorStore.subscribe((state, previous) => {
     // An interaction starts: the edit still waiting from the one before (a
     // drag's draft or a key press, committed as it ended) is its own step,
     // however soon this one follows.
-    scheduledHistory.flush();
+    flushScheduledHistory();
   } else if (previous.isSliderDragging && !state.isSliderDragging && heldHistory) {
     // The drag ended: its last edit becomes one step (a final value sent
     // just after the release still joins it).
     const held = heldHistory;
     heldHistory = null;
-    scheduledHistory(held);
+    scheduleHistory(held);
   }
   // The open photograph's size once it is known (Previous frames its
   // drawn masks with it).
