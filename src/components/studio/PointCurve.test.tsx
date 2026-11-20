@@ -409,17 +409,22 @@ describe('region curve split handles under the curve (UXR1 D4)', () => {
     fireEvent.keyDown(field, { key: 'Enter' });
     expect(onRegionChange).toHaveBeenLastCalledWith({ ...region, highlightSplit: 80 });
     expect(screen.queryByRole('spinbutton', { name: 'Region curve highlight split' })).toBeNull();
+    // Accepted: the keyboard is back on the handle.
+    await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
+    expect(document.activeElement).toBe(handle('Region curve highlight split'));
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowLeft' });
+    expect(onRegionChange).toHaveBeenLastCalledWith({ ...region, highlightSplit: 79 });
     // Escape leaves the value as it was.
     fireEvent.keyDown(handle('Region curve highlight split'), { key: 'Enter' });
     const again = screen.getByRole('spinbutton', { name: 'Region curve highlight split' });
     fireEvent.change(again, { target: { value: '60' } });
     fireEvent.keyDown(again, { key: 'Escape' });
-    expect(onRegionChange).toHaveBeenCalledTimes(1);
+    expect(onRegionChange).toHaveBeenCalledTimes(2);
     // The keyboard is back on the handle: the next arrow moves the split.
     await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
     expect(document.activeElement).toBe(handle('Region curve highlight split'));
     fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight' });
-    expect(onRegionChange).toHaveBeenLastCalledWith({ ...region, highlightSplit: 81 });
+    expect(onRegionChange).toHaveBeenLastCalledWith({ ...region, highlightSplit: 80 });
   });
 
   it('resets a split to its default on a double-click, as a slider does', () => {
