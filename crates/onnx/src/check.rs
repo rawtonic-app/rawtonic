@@ -359,12 +359,20 @@ fn cpu_run(
     borrowed: Option<Arc<Held<Session>>>,
     stop: &Arc<Stop>,
 ) -> Result<Option<CpuRun>> {
+    // Before the session is taken: a borrowed session is held only for
+    // the inputs' shapes and the run, and a stop (a click wants the model:
+    // `Model::run` notes itself busy first) terminates the run, so the
+    // session goes back within one operator.
     let options = stoppable(stop)?;
+    let picture = Picture::synthetic(1536, 1024);
     on_cpu_session(
         borrowed,
         || crate::session(path, kind, None),
         |cpu| {
-            let inputs = inputs_for(cpu, kind, &Picture::synthetic(1536, 1024))?;
+            if stop.stopped() {
+                return Ok(None);
+            }
+            let inputs = inputs_for(cpu, kind, &picture)?;
             if stop.stopped() {
                 return Ok(None);
             }
@@ -1212,6 +1220,47 @@ mod tests {
         assert_eq!(waiting.session().with(|s| s.on), "checked gpu");
         drop((on_gpu, waiting));
         assert_eq!(alive.load(SeqCst), 0);
+    }
+
+    /// A click during an idle check's run on the borrowed session: its
+    /// `busy` stops the check, whose run ends at the stop (as a terminated
+    /// ONNX run does), and the click gets the session at once.
+    #[test]
+    fn a_click_gets_the_borrowed_session_back_when_it_stops_the_check() {
+        let (alive, peak) = counters();
+        let waiting = Arc::new(Slot::new(
+            "subject",
+            Counted::new("loaded cpu", &alive, &peak),
+            Provider::Cpu,
+        ));
+        let stop = Stop::new();
+        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = stopped.clone();
+        stop.on_stop(move || flag.store(true, std::sync::atomic::Ordering::SeqCst));
+        let (running, started) = std::sync::mpsc::channel();
+        let borrowed = cpu_session_of([waiting.clone()]);
+        let check = std::thread::spawn(move || {
+            on_cpu_session(
+                borrowed,
+                || -> Result<Counted> { panic!("a second CPU session") },
+                |_| {
+                    running.send(()).unwrap();
+                    let t = Instant::now();
+                    while !stopped.load(std::sync::atomic::Ordering::SeqCst) {
+                        assert!(t.elapsed() < Duration::from_secs(10), "never stopped");
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                },
+            )
+            .unwrap()
+        });
+        started.recv().unwrap();
+        let clicked = Instant::now();
+        stop.stop();
+        let on = waiting.session().with(|s| s.on);
+        assert_eq!(on, "loaded cpu");
+        assert!(clicked.elapsed() < Duration::from_millis(500));
+        check.join().unwrap();
     }
 
     /// Without a model waiting on the CPU (it was unloaded, or moved to a

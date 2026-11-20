@@ -1042,7 +1042,8 @@ impl Model {
         let checks_file = settings().checks_file;
         log_subject_load_step(kind, "provider setup", setup);
         let mut last_error = anyhow!("no provider to try");
-        // Checks queued for this load: the model waits for their verdicts.
+        // Checks for this load: queued, and the model waits for their
+        // verdicts, once it is loaded.
         let mut queued = Vec::new();
         for &provider in providers {
             let started = Instant::now();
@@ -1067,9 +1068,11 @@ impl Model {
                         Plan::CheckNow => check::check(path, kind, &device, checks_file.as_ref())?,
                         // The first click does not wait for a measurement
                         // (gap G76): the CPU now, the check when idle.
+                        // Queued once the CPU model is registered for its
+                        // verdict, so the check finds that model's session
+                        // and makes no CPU session of its own beside it.
                         Plan::Queue => {
-                            check::queue(path, kind, &device, checks_file.as_ref());
-                            queued.push(key);
+                            queued.push((key, device.clone()));
                             return Err(anyhow!("its check on this device has not run yet"));
                         }
                     };
@@ -1084,8 +1087,9 @@ impl Model {
                         started.elapsed().as_millis()
                     );
                     let state = Arc::new(watch::Slot::new(kind.name(), session, provider));
-                    for key in queued {
+                    for (key, device) in queued {
                         check::wait_for(key, &state);
+                        check::queue(path, kind, &device, checks_file.as_ref());
                     }
                     return Ok(Self {
                         kind,
