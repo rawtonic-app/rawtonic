@@ -516,11 +516,19 @@ fn tiff_structure(data: &[u8]) -> Option<Vec<u8>> {
     };
     let u16_at = |o: usize| -> Option<usize> {
         let b: [u8; 2] = data.get(o..o.checked_add(2)?)?.try_into().ok()?;
-        Some(if le { u16::from_le_bytes(b) } else { u16::from_be_bytes(b) } as usize)
+        Some(if le {
+            u16::from_le_bytes(b)
+        } else {
+            u16::from_be_bytes(b)
+        } as usize)
     };
     let u32_at = |o: usize| -> Option<usize> {
         let b: [u8; 4] = data.get(o..o.checked_add(4)?)?.try_into().ok()?;
-        Some(if le { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) } as usize)
+        Some(if le {
+            u32::from_le_bytes(b)
+        } else {
+            u32::from_be_bytes(b)
+        } as usize)
     };
     let mut out = vec![0u8; data.len()];
     let mut copy = |start: usize, len: usize| {
@@ -2059,11 +2067,8 @@ pub fn read_exif_data_from_shared(
     path: &str,
     file: std::sync::Arc<dyn AsRef<[u8]> + Send + Sync>,
 ) -> HashMap<String, String> {
-    let raw_metadata = || {
-        raw_metadata_of(&rawler::rawsource::RawSource::new_from_shared(
-            file.clone(),
-        ))
-    };
+    let raw_metadata =
+        || raw_metadata_of(&rawler::rawsource::RawSource::new_from_shared(file.clone()));
     exif_data_with(path, (*file).as_ref(), &raw_metadata)
 }
 
@@ -2604,7 +2609,14 @@ mod tests {
         tiff.extend(std::iter::repeat_n(0xAB, image_data.len()));
         let fields = |exif: &Exif| -> Vec<String> {
             exif.fields()
-                .map(|f| format!("{} {} {}", f.ifd_num, f.tag, f.display_value().with_unit(exif)))
+                .map(|f| {
+                    format!(
+                        "{} {} {}",
+                        f.ifd_num,
+                        f.tag,
+                        f.display_value().with_unit(exif)
+                    )
+                })
                 .collect()
         };
         let whole = exif::Reader::new()
