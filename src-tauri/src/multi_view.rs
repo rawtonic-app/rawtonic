@@ -2545,6 +2545,11 @@ static NOISE_MEASUREMENTS: Mutex<
 /// Measurements kept (about 100 bytes each).
 const NOISE_MEASUREMENTS_KEPT: usize = 64;
 
+/// Held while a whole base is built and measured: one at a time, since
+/// each holds the whole photograph (about 0.6 GB at 24 MP with its GPU
+/// copy) for a moment.
+static MEASURING: Mutex<()> = Mutex::new(());
+
 /// What the whole photograph's noise measurement of a region `base` with
 /// `recipe` depends on: the photograph and its decode, the base's geometry,
 /// retouching and scale, and the measuring version.
@@ -2590,6 +2595,11 @@ fn whole_noise_measurement(
         let kept = NOISE_MEASUREMENTS.lock().unwrap_or_else(|e| e.into_inner());
         kept.iter().find(|(k, _)| *k == key).map(|(_, m)| *m)
     };
+    if let Some(measured) = kept(key) {
+        return measured;
+    }
+    let _measuring = MEASURING.lock().unwrap_or_else(|e| e.into_inner());
+    // Measured by another region while this one waited.
     if let Some(measured) = kept(key) {
         return measured;
     }
@@ -3653,6 +3663,48 @@ fn live_region(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Timing of the whole base a region's noise measurement is made from
+    /// (`whole_noise_measurement`): from the rows of a decode in memory, at
+    /// 24 MP with and without a lens correction (NRR1 cost).
+    #[test]
+    #[ignore = "timing probe"]
+    fn whole_noise_base_cost_probe() {
+        let (full_w, full_h) = (6000u32, 4000u32);
+        let source =
+            DynamicImage::ImageRgb32F(image::ImageBuffer::from_fn(full_w, full_h, |x, y| {
+                let v = |c: u32| ((x * 31 + y * 17 + c * 7 + (x ^ y) % 13) % 199) as f32 / 101.0;
+                image::Rgb([v(0), v(1), v(2)])
+            }));
+        let lens =
+            serde_json::json!({"k1": -0.08, "k2": 0.01, "k3": 0.0, "model": 0, "tca_vr": 1.001});
+        for recipe in [
+            serde_json::json!({}),
+            serde_json::json!({"lensDistortionParams": lens}),
+        ] {
+            for run in 0..3 {
+                let start = Instant::now();
+                let plan = image_processing::plan_transformed_region(
+                    full_w,
+                    full_h,
+                    &recipe,
+                    [0, 0, full_w, full_h],
+                )
+                .unwrap();
+                let raw = source.as_rgb32f().unwrap().as_raw();
+                let rows = image_processing::SourceRows::whole(raw, full_w, full_h);
+                let whole =
+                    image_processing::transformed_region(&rows, &recipe, &plan, true).unwrap();
+                println!(
+                    "{recipe} run {run}: whole base {}x{} ({} MB) in {:.1} ms",
+                    whole.width(),
+                    whole.height(),
+                    whole.as_bytes().len() >> 20,
+                    start.elapsed().as_secs_f64() * 1e3
+                );
+            }
+        }
+    }
 
     /// Region bases and developed regions start on the colour noise grid
     /// of the whole base and reach the noise reductions' context beyond
