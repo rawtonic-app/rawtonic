@@ -2583,9 +2583,10 @@ pub(crate) fn encode_browser_preview(
 /// well inside the ~100 ms between updates.
 const DRAG_SCOPE_THREADS: usize = 2;
 
-/// A drag frame's waveform, parade or vectorscope counts every this many
-/// rows (each count weighs as many): half the work beside the drag's next
-/// frames. With a scope open, the Radeon 680M's input -> preview p95 rose
+/// A drag frame's waveform, parade or vectorscope samples every this many
+/// rows (each sampled value weighs as many; the clipped ends still count
+/// from every row, `scopes::scope_counts_of_rows`): less work beside the
+/// drag's next frames. With a scope open, the Radeon 680M's input -> preview p95 rose
 /// +1.2…+2.9 ms (the invoke's own round trip +2.8…+4.3 ms) while a scope
 /// update took up to 20 ms on its threads (notes:
 /// benchmark-results/scp4-2026-11-20).

@@ -465,20 +465,84 @@ pub fn scope_counts(
     scope_counts_of_rows(image, space, active_channel, 1)
 }
 
-/// [`scope_counts`] of every `row_step`-th row (0, `row_step`, …): every
-/// column stays in, so a clipped one-pixel column still shows.
+/// What [`scope_counts_of_rows`] needs to count one row.
+struct Frame<'a> {
+    wanted: Wanted,
+    tables: &'a Tables,
+    columns: &'a [usize],
+    parade: &'a [[usize; 3]],
+    channels: usize,
+}
+
+impl Frame<'_> {
+    /// Adds one row's pixels to `acc`: each value once (`WEIGHTED` off), or
+    /// as much as `weight` says for its code. A row that is not `sampled`
+    /// adds no vectorscope point and skips pixels without a clipped end.
+    #[inline(always)]
+    fn count_row<const WEIGHTED: bool>(
+        &self,
+        acc: &mut ScopeCounts,
+        row: &[u8],
+        weight: &[u32; 256],
+        sampled: bool,
+    ) {
+        let wanted = self.wanted;
+        let add = |v: usize| if WEIGHTED { weight[v] } else { 1 };
+        // An inner code's weight: a sampled row's vectorscope points.
+        let vector_weight = if WEIGHTED { weight[128] } else { 1 };
+        for (x, pixel) in row.chunks_exact(self.channels).enumerate() {
+            let (r, g, b) = (pixel[0] as usize, pixel[1] as usize, pixel[2] as usize);
+            // A row not sampled only adds the ends of the range. A luma of
+            // 0 or 255 needs a channel there too (luma lies between the
+            // smallest and largest channel).
+            if WEIGHTED && !sampled && weight[r] | weight[g] | weight[b] == 0 {
+                continue;
+            }
+            // Counted column by column (`col * 256 + code`): neighbouring
+            // pixels share a column, so they stay in its 1 KB; `transposed`
+            // turns it into rows.
+            let col = self.columns[x] * SCOPE_SIZE;
+            if wanted.rgb {
+                acc.red[col + r] += add(r);
+                acc.green[col + g] += add(g);
+                acc.blue[col + b] += add(b);
+            }
+            if wanted.luma {
+                let y = self.tables.luma(r as u8, g as u8, b as u8);
+                acc.luma[col + y] += add(y);
+            }
+            if wanted.parade {
+                let [pr, pg, pb] = self.parade[x];
+                acc.parade[pr * SCOPE_SIZE + r] += add(r);
+                acc.parade[pg * SCOPE_SIZE + g] += add(g);
+                acc.parade[pb * SCOPE_SIZE + b] += add(b);
+            }
+            if wanted.vectorscope && sampled {
+                acc.vectorscope[self.tables.vector_bin(r as u8, g as u8, b as u8)] += vector_weight;
+            }
+        }
+    }
+}
+
+/// [`scope_counts`] from every `row_step`-th row (0, `row_step`, …), each
+/// of its values counted `row_step` times, an estimate of the whole frame's
+/// counts. Every column stays in, and the ends of the range (codes 0 and
+/// 255 of the waveforms and the parade) are counted exactly, from every
+/// row: a clipped highlight one row high still shows. `row_step` is at
+/// least 1 and at most the frame's height.
 pub fn scope_counts_of_rows(
     image: &DynamicImage,
     space: ScopeSpace,
     active_channel: Option<&str>,
     row_step: usize,
 ) -> Result<ScopeCounts, String> {
-    let row_step = row_step.max(1);
     let wanted = Wanted::of(active_channel);
     let (width, height) = (image.width() as usize, image.height() as usize);
     if width == 0 || height == 0 {
         return Err("Image has zero dimensions.".to_string());
     }
+    let row_step = row_step.clamp(1, height);
+    let step = row_step as u32;
     let (raw, channels) = rgb8(image);
     let tables = Tables::new(space);
     let columns: Vec<usize> = (0..width).map(|x| waveform_column(x, width)).collect();
@@ -488,40 +552,35 @@ pub fn scope_counts_of_rows(
     let stride = width * channels;
     // Two bands of rows per thread: each job zeroes and merges its own
     // tables (up to 1.5 MB), so more jobs cost more than they balance.
-    // A multiple of `row_step`, so each band starts on a counted row.
+    // A multiple of `row_step`, so each band starts on a sampled row.
     let rows_per_job = height
         .div_ceil(2 * rayon::current_num_threads())
         .max(1)
         .next_multiple_of(row_step);
+    // What a value adds: on a sampled row an inner code stands for
+    // `row_step` rows; the ends, read from every row, for one.
+    let sampled_weight: [u32; 256] =
+        std::array::from_fn(|v| if v == 0 || v == 255 { 1 } else { step });
+    let skipped_weight: [u32; 256] = std::array::from_fn(|v| u32::from(v == 0 || v == 255));
+    let frame = Frame {
+        wanted,
+        tables: &tables,
+        columns: &columns,
+        parade: &parade,
+        channels,
+    };
     Ok(raw
         .par_chunks(stride * rows_per_job)
         .fold(
             || ScopeCounts::zero(wanted),
             |mut acc, rows| {
-                for row in rows.chunks_exact(stride).step_by(row_step) {
-                    for (x, pixel) in row.chunks_exact(channels).enumerate() {
-                        let (r, g, b) = (pixel[0], pixel[1], pixel[2]);
-                        // Counted column by column (`col * 256 + code`):
-                        // neighbouring pixels share a column, so they stay
-                        // in its 1 KB; `transposed` turns it into rows.
-                        let col = columns[x] * SCOPE_SIZE;
-                        if wanted.rgb {
-                            acc.red[col + r as usize] += 1;
-                            acc.green[col + g as usize] += 1;
-                            acc.blue[col + b as usize] += 1;
-                        }
-                        if wanted.luma {
-                            acc.luma[col + tables.luma(r, g, b)] += 1;
-                        }
-                        if wanted.parade {
-                            let [pr, pg, pb] = parade[x];
-                            acc.parade[pr * SCOPE_SIZE + r as usize] += 1;
-                            acc.parade[pg * SCOPE_SIZE + g as usize] += 1;
-                            acc.parade[pb * SCOPE_SIZE + b as usize] += 1;
-                        }
-                        if wanted.vectorscope {
-                            acc.vectorscope[tables.vector_bin(r, g, b)] += 1;
-                        }
+                for (i, row) in rows.chunks_exact(stride).enumerate() {
+                    if row_step == 1 {
+                        frame.count_row::<false>(&mut acc, row, &sampled_weight, true);
+                    } else if i % row_step == 0 {
+                        frame.count_row::<true>(&mut acc, row, &sampled_weight, true);
+                    } else {
+                        frame.count_row::<true>(&mut acc, row, &skipped_weight, false);
                     }
                 }
                 acc
@@ -649,10 +708,10 @@ pub fn calculate_waveform_from_image(
     calculate_waveform_of_rows(image, space, active_channel, 1)
 }
 
-/// [`calculate_waveform_from_image`] of every `row_step`-th row
+/// [`calculate_waveform_from_image`] from every `row_step`-th row
 /// ([`scope_counts_of_rows`]): a drag frame's scopes at a fraction of the
-/// work. Each count stands for `row_step` rows: the log brightness of a
-/// sparse value would otherwise drop (1 of 500 is darker than 2 of 1000).
+/// work, close to the whole frame's but for sparse values; the clipped
+/// ends stay exact.
 pub fn calculate_waveform_of_rows(
     image: &DynamicImage,
     space: OutputColorSpace,
@@ -660,20 +719,7 @@ pub fn calculate_waveform_of_rows(
     row_step: usize,
 ) -> Result<WaveformData, String> {
     let weights = ScopeSpace::of(space);
-    let mut counts = scope_counts_of_rows(image, weights, active_channel, row_step)?;
-    if row_step > 1 {
-        let step = row_step as u32;
-        for bins in [
-            &mut counts.red,
-            &mut counts.green,
-            &mut counts.blue,
-            &mut counts.luma,
-            &mut counts.parade,
-            &mut counts.vectorscope,
-        ] {
-            bins.iter_mut().for_each(|c| *c = c.saturating_mul(step));
-        }
-    }
+    let counts = scope_counts_of_rows(image, weights, active_channel, row_step)?;
     let pixels = SCOPE_SIZE * SCOPE_SIZE;
     let encode = |rgba: Vec<u8>| {
         if rgba.is_empty() {
@@ -1249,17 +1295,19 @@ mod tests {
         assert_eq!(a, b);
     }
 
-    /// A drag's scopes count rows 0, 2, 4, … whatever the bands the threads
-    /// split the frame into; a settled frame's count every row.
+    /// A drag's scopes count the inner values of rows 0, 2, 4, … twice,
+    /// whatever the bands the threads split the frame into.
     #[test]
-    fn every_second_row_counts_the_even_rows() {
+    fn every_second_row_counts_the_even_rows_twice() {
         let k = ScopeSpace::of(OutputColorSpace::Srgb);
-        for (width, height) in [(257u32, 37u32), (600, 10), (64, 1), (300, 101)] {
+        for (width, height) in [(257u32, 37u32), (600, 10), (64, 2), (300, 101)] {
+            // Codes 1–254 only: the ends are counted from every row.
+            let inner = |v: u32| 1 + (v % 254) as u8;
             let frame = RgbImage::from_fn(width, height, |x, y| {
                 Rgb([
-                    (x * 7 + y * 13) as u8,
-                    (x * 3 + y * 29) as u8,
-                    (x + y * 101) as u8,
+                    inner(x * 7 + y * 13),
+                    inner(x * 3 + y * 29),
+                    inner(x + y * 101),
                 ])
             });
             let even =
@@ -1274,9 +1322,20 @@ mod tests {
                     .build()
                     .unwrap();
                 pool.install(|| {
+                    let mut twice = scope_counts(&even, k, None).unwrap();
+                    for bins in [
+                        &mut twice.red,
+                        &mut twice.green,
+                        &mut twice.blue,
+                        &mut twice.luma,
+                        &mut twice.parade,
+                        &mut twice.vectorscope,
+                    ] {
+                        bins.iter_mut().for_each(|c| *c *= 2);
+                    }
                     assert_eq!(
                         scope_counts_of_rows(&frame, k, None, 2).unwrap(),
-                        scope_counts(&even, k, None).unwrap(),
+                        twice,
                         "{width}x{height}, {threads} threads"
                     );
                     assert_eq!(
@@ -1286,6 +1345,58 @@ mod tests {
                 });
             }
         }
+        // A step beyond the frame's height counts its first row.
+        let tiny = DynamicImage::ImageRgba8(RgbaImage::from_pixel(1, 1, image::Rgba([9, 9, 9, 0])));
+        assert_eq!(
+            scope_counts_of_rows(&tiny, k, None, usize::MAX).unwrap(),
+            scope_counts(&tiny, k, None).unwrap()
+        );
+    }
+
+    /// A clipped highlight or a black one row high, on a row the drag
+    /// skips, still shows at the ends of the waveforms and the parade, with
+    /// the whole frame's counts there.
+    #[test]
+    fn a_clipped_detail_on_a_skipped_row_still_shows() {
+        let k = ScopeSpace::of(OutputColorSpace::Srgb);
+        let mut frame = RgbImage::from_fn(600, 41, |x, y| {
+            Rgb([(x % 200 + 20) as u8, 120, (y * 3 + 40) as u8])
+        });
+        // Rows 3 and 7 are not sampled with a step of 2.
+        for x in 100..104 {
+            frame.put_pixel(x, 3, Rgb([255, 255, 255]));
+            frame.put_pixel(x + 300, 7, Rgb([0, 0, 0]));
+        }
+        frame.put_pixel(450, 9, Rgb([255, 40, 0]));
+        let frame = DynamicImage::ImageRgb8(frame);
+        let all = scope_counts(&frame, k, None).unwrap();
+        let sampled = scope_counts_of_rows(&frame, k, None, 2).unwrap();
+        // Rows 0 (code 255) and 255 (code 0) of each waveform image.
+        let ends = |bins: &[u32]| -> Vec<u32> {
+            bins[..SCOPE_SIZE]
+                .iter()
+                .chain(&bins[255 * SCOPE_SIZE..])
+                .copied()
+                .collect()
+        };
+        for (a, b) in [
+            (&all.red, &sampled.red),
+            (&all.green, &sampled.green),
+            (&all.blue, &sampled.blue),
+            (&all.luma, &sampled.luma),
+            (&all.parade, &sampled.parade),
+        ] {
+            assert_eq!(ends(a), ends(b));
+            assert!(ends(b).iter().any(|c| *c > 0));
+        }
+        assert!(
+            sampled.luma[waveform_column(101, 600)] > 0,
+            "the white detail"
+        );
+        assert!(
+            sampled.luma[255 * SCOPE_SIZE + waveform_column(401, 600)] > 0,
+            "the black one"
+        );
     }
 
     /// Each counted row stands for two: a frame of identical row pairs
