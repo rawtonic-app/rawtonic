@@ -1,9 +1,13 @@
 import '../../i18n';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import StudioScopes, { scopeImage, scopeMode, waveformY } from './StudioScopes';
 import { useEditorStore } from '../../store/useEditorStore';
 import type { WaveformData } from '../ui/AppProperties';
+
+vi.mock('@tauri-apps/api/core', () => ({
+  convertFileSrc: (id: string, scheme: string) => `${scheme}://localhost/${id}`
+}));
 
 afterEach(() => {
   cleanup();
@@ -13,7 +17,7 @@ afterEach(() => {
 const data: WaveformData = {
   width: 256,
   height: 256,
-  luma: 'iVBORw0KGgo=',
+  luma: '17',
   rgb: '',
   parade: '',
   vectorscope: '',
@@ -31,8 +35,11 @@ it('graticule lines sit on the codes they name: 100 % on code 255, 0 % on code 0
   expect(waveformY(50)).toBe(128);
 });
 
-it('shows a computed scope as its PNG and nothing for a mode that was not computed', () => {
-  expect(scopeImage(data, 'luma')).toBe('data:image/png;base64,iVBORw0KGgo=');
+it('shows a computed scope by its URL and nothing for a mode that was not computed', () => {
+  // The image itself never comes through the event: only its id (scope_images.rs).
+  expect(scopeImage(data, 'luma')).toBe('rawtonic-scope://localhost/17');
+  // Not an id (e.g. an image inline as before): never put into a URL.
+  expect(scopeImage({ ...data, luma: 'iVBORw0KGgo=' }, 'luma')).toBeNull();
   expect(scopeImage(data, 'rgb')).toBeNull();
   expect(scopeImage(null, 'luma')).toBeNull();
   // An image of another size is never drawn.
@@ -46,7 +53,7 @@ it("switches modes and draws the backend's vectorscope targets and skin line", (
   const { container } = render(<StudioScopes />);
   expect(screen.getByRole('img', { name: 'Luma waveform of the shown photo' })).toBeTruthy();
   expect(container.querySelector('.studio-scope-plot > img')?.getAttribute('src')).toBe(
-    'data:image/png;base64,iVBORw0KGgo='
+    'rawtonic-scope://localhost/17'
   );
   expect(container.querySelectorAll('[data-percent]').length).toBe(5);
   fireEvent.click(screen.getByRole('button', { name: 'Vector' }));

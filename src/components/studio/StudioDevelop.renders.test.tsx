@@ -6,7 +6,8 @@ import { installRenderCensus, startRenderCensus, takeRenderCensus } from '../../
 installRenderCensus(globalThis);
 
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn((name: string) => Promise.resolve(name === 'load_metadata' ? {} : undefined))
+  invoke: vi.fn((name: string) => Promise.resolve(name === 'load_metadata' ? {} : undefined)),
+  convertFileSrc: (id: string, scheme: string) => `${scheme}://localhost/${id}`
 }));
 
 let rtl: typeof import('@testing-library/react');
@@ -250,11 +251,11 @@ describe('scope updates', () => {
     rtl.act(() =>
       useEditorStore.setState({
         histogram: { red: bins(peak), green: bins(peak), blue: bins(peak), luma: bins(peak) } as never,
-        // A 1×1 PNG stands for each scope image.
+        // Each scope image by its id (scope_images.rs).
         waveform: {
           width: 256,
           height: 256,
-          luma: `iVBORw0KGgo${peak}`,
+          luma: `${peak}`,
           skinLineDegrees: 123,
           vectorscopeTargets: []
         } as never
@@ -281,7 +282,7 @@ describe('scope updates', () => {
     // Yet every display shows the new data.
     const after = [plot(), curve(), scope()];
     after.forEach((value, i) => expect(value).not.toBe(before[i]));
-    expect(scope()).toBe('data:image/png;base64,iVBORw0KGgo200');
+    expect(scope()).toBe('rawtonic-scope://localhost/200');
   });
 
   it('re-render the histogram panel when a clipping triangle changes', () => {

@@ -11,7 +11,6 @@
 //! Cr = (R′ − Y′) / 2(1 − Kr)).
 
 use crate::output_color_space::OutputColorSpace;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use image::DynamicImage;
 use rayon::prelude::*;
 use serde::Serialize;
@@ -654,7 +653,9 @@ pub fn skin_line_degrees(space: OutputColorSpace) -> f64 {
 /// One scope image (`SCOPE_SIZE`² RGBA) as a PNG. The webview decodes it
 /// off its main thread (an `<img>`): raw RGBA was ~350 KB of base64 per
 /// update for the main thread to parse and unpack, which delayed the live
-/// preview frames during drags (notes: parity-gaps/G23-analysis.md, WFT).
+/// preview frames during drags (notes: parity-gaps/G23-analysis.md, WFT);
+/// the PNG as base64 inside the event still cost the main thread ~0.5 ms
+/// per RGB update (SCP5), so it is loaded by URL.
 /// Fast compression: the update rate (~10/s while dragging) matters more
 /// than the bytes; the images are mostly empty or smooth.
 fn encode_scope_png(rgba: &[u8]) -> Result<Vec<u8>, String> {
@@ -669,15 +670,16 @@ fn encode_scope_png(rgba: &[u8]) -> Result<Vec<u8>, String> {
     Ok(png)
 }
 
-/// The scope images are base64 PNGs (`encode_scope_png`) of `width` x
-/// `height` RGBA, empty for a mode that was not computed.
-#[derive(serde::Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
+/// The scope images are PNGs (`encode_scope_png`) of `width` x `height`
+/// RGBA, empty for a mode that was not computed. The desktop app serves
+/// them to its webview by URL (`scope_images` in src-tauri), never inside
+/// an event.
+#[derive(Clone)]
 pub struct WaveformData {
-    pub rgb: String,
-    pub luma: String,
-    pub parade: String,
-    pub vectorscope: String,
+    pub rgb: Vec<u8>,
+    pub luma: Vec<u8>,
+    pub parade: Vec<u8>,
+    pub vectorscope: Vec<u8>,
     pub width: u32,
     pub height: u32,
     /// Where the vectorscope's 75 % and 100 % targets are (scope pixels).
@@ -724,9 +726,9 @@ pub fn calculate_waveform_of_rows(
     let pixels = SCOPE_SIZE * SCOPE_SIZE;
     let encode = |rgba: Vec<u8>| {
         if rgba.is_empty() {
-            Ok(String::new())
+            Ok(Vec::new())
         } else {
-            encode_scope_png(&rgba).map(|png| BASE64.encode(png))
+            encode_scope_png(&rgba)
         }
     };
 
@@ -1180,8 +1182,7 @@ mod tests {
                 ("parade", &data.parade),
                 ("vectorscope", &data.vectorscope),
             ] {
-                let png = BASE64.decode(encoded).unwrap();
-                let decoded = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+                let decoded = image::load_from_memory_with_format(encoded, image::ImageFormat::Png)
                     .unwrap_or_else(|e| panic!("{mode} {space:?}: {e}"));
                 assert_eq!(decoded.color(), image::ColorType::Rgba8, "{mode}");
                 let rgba = decoded.to_rgba8();

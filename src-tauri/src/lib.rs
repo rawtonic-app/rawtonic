@@ -102,6 +102,7 @@ mod qa_control;
 mod qa_crash;
 mod red_eye;
 mod scope_analytics;
+mod scope_images;
 mod second_window;
 mod series_match;
 mod session_bridge;
@@ -247,7 +248,10 @@ fn start(args: Vec<String>) {
         qa_crash::at("start");
     }
 
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().register_asynchronous_uri_scheme_protocol(
+        scope_images::SCHEME,
+        |_context, request, responder| scope_images::serve(request, responder),
+    );
 
     #[cfg(target_os = "linux")]
     {

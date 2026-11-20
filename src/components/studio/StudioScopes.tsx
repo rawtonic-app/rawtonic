@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef } from 'react';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useEditorStoreDom } from '../../hooks/useEditorStoreDom';
@@ -24,16 +25,18 @@ export function waveformY(percent: number): number {
   return 255.5 - (percent / 100) * 255;
 }
 
-/** One scope image as a data URL (a PNG, `encode_scope_png` in scopes.rs),
- * or null when it was not computed. The `<img>` decodes it off the main
- * thread: unpacking raw RGBA here delayed the live preview during drags. */
+/** One scope image's URL (a PNG, `encode_scope_png` in scopes.rs, served by
+ * id from the `rawtonic-scope` scheme, scope_images.rs), or null when it was
+ * not computed. The `<img>` loads and decodes it off the main thread: the
+ * image inside the event (base64) cost the main thread ~0.5 ms per RGB
+ * update beside the drag's previews, unpacking raw RGBA here more. */
 export function scopeImage(waveform: WaveformData | null, mode: ScopeMode): string | null {
-  return hasScopeImage(waveform, mode) ? `data:image/png;base64,${waveform?.[mode]}` : null;
+  return waveform && hasScopeImage(waveform, mode) ? convertFileSrc(waveform[mode], 'rawtonic-scope') : null;
 }
 
 /** Whether `waveform` holds `mode`'s image (without building its URL). */
 export function hasScopeImage(waveform: WaveformData | null, mode: ScopeMode): boolean {
-  return !!waveform?.[mode] && waveform.width === SIZE && waveform.height === SIZE;
+  return !!waveform && /^\d+$/.test(waveform[mode]) && waveform.width === SIZE && waveform.height === SIZE;
 }
 
 function WaveformGraticule({ parade }: { parade: boolean }) {
