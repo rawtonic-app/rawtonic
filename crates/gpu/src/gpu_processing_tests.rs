@@ -19096,6 +19096,338 @@ fn regions_filter_colour_noise_as_the_whole_photograph() {
     assert!(!measures_noise(&off.global));
 }
 
+/// `profile` rendered (8-bit, export shader) from `region`, the part of a
+/// `photo` sized photograph at `at`, with `measurement` given; as a window
+/// of the photograph (`PreparedAdjustments::photo_placement`) or, with
+/// `placed` false, as an image of its own (before NRR2).
+fn render_placed_region(
+    context: &GpuContext,
+    region: &DynamicImage,
+    profile: &serde_json::Value,
+    measurement: Option<rawtonic_engine::color_noise::NoiseMeasurement>,
+    (photo, at): ((u32, u32), (u32, u32)),
+    placed: bool,
+    masks: &[Arc<MaskBitmap>],
+) -> image::RgbaImage {
+    render_placed_region_with(
+        context,
+        region,
+        profile,
+        measurement,
+        (photo, at),
+        placed,
+        masks,
+        ReadbackShader::Export,
+    )
+}
+
+/// [`render_placed_region`] with `shader` (the multi-view cells and the
+/// second window develop with `ReadbackShader::Display`).
+#[allow(clippy::too_many_arguments)]
+fn render_placed_region_with(
+    context: &GpuContext,
+    region: &DynamicImage,
+    profile: &serde_json::Value,
+    measurement: Option<rawtonic_engine::color_noise::NoiseMeasurement>,
+    (photo, at): ((u32, u32), (u32, u32)),
+    placed: bool,
+    masks: &[Arc<MaskBitmap>],
+    shader: ReadbackShader,
+) -> image::RgbaImage {
+    let processor = ProcessorSlot::new(None);
+    let cache = Mutex::new(None);
+    let mut adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+    adjustments.color_noise_measurement = measurement.map(Box::new);
+    adjustments.photo_placement = placed.then_some(crate::image_processing::PhotoPlacement {
+        photo_width: photo.0,
+        photo_height: photo.1,
+        x: at.0,
+        y: at.1,
+    });
+    process_and_get_dynamic_image_inner(
+        context,
+        &processor,
+        &cache,
+        RenderSource::Image {
+            image: region,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments,
+            mask_bitmaps: masks,
+            lut: None,
+            roi: None,
+        },
+        "test",
+        RenderOutputPrecision::EightBit,
+        false,
+        None,
+        None,
+        shader,
+    )
+    .unwrap()
+    .to_rgba8()
+}
+
+/// The recipes whose terms follow the photo's size or position (NRR2).
+fn size_dependent_recipes() -> Vec<(&'static str, serde_json::Value)> {
+    vec![
+        ("luma 25", json!({ "lumaNoiseReduction": 25 })),
+        ("luma 50", json!({ "lumaNoiseReduction": 50 })),
+        ("luma 100", json!({ "lumaNoiseReduction": 100 })),
+        (
+            "colour 60 + luma 30",
+            json!({ "colorNoiseReduction": 60, "colorNoiseVersion": 11, "lumaNoiseReduction": 30 }),
+        ),
+        (
+            "colour 50 v10 + luma 30",
+            json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 10, "lumaNoiseReduction": 30 }),
+        ),
+        ("sharpness 60", json!({ "sharpness": 60 })),
+        ("clarity 50", json!({ "clarity": 50 })),
+        ("structure 50", json!({ "structure": 50 })),
+        ("texture 50", json!({ "texture": 50 })),
+        ("dehaze 30", json!({ "dehaze": 30 })),
+        ("centré 40", json!({ "centré": 40 })),
+        ("vignette -50", json!({ "vignetteAmount": -50 })),
+        ("grain 50", json!({ "grainAmount": 50 })),
+        ("glow 50", json!({ "glowAmount": 50 })),
+        ("halation 50", json!({ "halationAmount": 50 })),
+    ]
+}
+
+/// A region of a photograph renders as the same pixels of the whole
+/// photograph with every term that follows the photo's size or position
+/// on (luminance noise reduction, sharpening, Clarity, Structure, Texture,
+/// Dehaze, Centré, Vignette, grain, Glow, Halation) when it renders as a
+/// window of the photograph (`photo_placement`): byte for byte with the
+/// export shader, within 1 code with the display variants (8-bit dither),
+/// `REGION_NOISE_MARGIN` inside the region's cut edges. Rendered as an
+/// image of its own it differed by up to 8–26 codes
+/// with luminance noise reduction (NRR1; numbers in NRR2's report).
+#[test]
+#[ignore = "requires a native GPU"]
+fn regions_render_as_windows_of_the_whole_photograph() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let image = ramped_chroma_noise_frame(fw, fh);
+    let inset = REGION_NOISE_MARGIN;
+    // Inside, at the right and bottom edges, at the top left corner, as
+    // tall as the photograph, and off the colour noise grid (the window
+    // starts on it).
+    let crops = [
+        (512, 352, 1408, 1088),
+        (1344, 960, 1056, 840),
+        (0, 0, 960, 800),
+        (416, 0, 1408, 1800),
+        (530, 333, 1408, 1088),
+    ];
+    let mut worst = Vec::new();
+    for (name, profile) in size_dependent_recipes() {
+        let whole = render_region_source(&context, &image, &profile, None);
+        // The display shader variants the cells develop with.
+        let display = |source: &DynamicImage, place: ((u32, u32), (u32, u32)), placed: bool| {
+            render_placed_region_with(
+                &context,
+                source,
+                &profile,
+                None,
+                place,
+                placed,
+                &[],
+                ReadbackShader::Display,
+            )
+        };
+        let whole_display = display(&image, ((fw, fh), (0, 0)), false);
+        let processor = ProcessorSlot::new(None);
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let measured = measures_noise(&adjustments.global)
+            .then(|| measure_color_noise(&context, &processor, &image, &adjustments, "test"))
+            .transpose()
+            .unwrap()
+            .flatten();
+        for (x, y, w, h) in crops {
+            let crop = image.crop_imm(x, y, w, h);
+            let place = ((fw, fh), (x, y));
+            let region =
+                render_placed_region(&context, &crop, &profile, measured, place, true, &[]);
+            let (max, p99, mean) = region_differences(&whole, &region, (x, y), inset);
+            let own = render_placed_region(&context, &crop, &profile, measured, place, false, &[]);
+            let (own_max, own_p99, own_mean) = region_differences(&whole, &own, (x, y), inset);
+            let mut display_region = display(&crop, place, true);
+            if measured.is_some() {
+                display_region = render_placed_region_with(
+                    &context,
+                    &crop,
+                    &profile,
+                    measured,
+                    place,
+                    true,
+                    &[],
+                    ReadbackShader::Display,
+                );
+            }
+            let (d_max, d_p99, d_mean) =
+                region_differences(&whole_display, &display_region, (x, y), inset);
+            println!(
+                "{name}: region {x},{y} {w}x{h}: window max {max} p99 {p99} mean {mean:.3}; display window max {d_max} p99 {d_p99} mean {d_mean:.3}; own image max {own_max} p99 {own_p99} mean {own_mean:.3}"
+            );
+            worst.push((name, x, y, max, d_max));
+        }
+    }
+    // Byte for byte with the export shader; the display variants within
+    // 1 code (their 8-bit dither's phase).
+    let failed: Vec<_> = worst
+        .iter()
+        .filter(|(.., max, d_max)| *max > 0 || *d_max > 1)
+        .collect();
+    assert!(failed.is_empty(), "regions beyond 0 / 1 code: {failed:?}");
+}
+
+/// Timing of a 100 % region (1167 x 894, a multi-view cell with its reach)
+/// of a 24 MP photograph rendered as an image of its own and as a window
+/// of the photograph (with its edges extended by the render's reach).
+#[test]
+#[ignore = "native GPU timing probe"]
+fn placed_region_cost_probe() {
+    let context = context();
+    let (fw, fh) = (6000, 4000);
+    let (x, y, w, h) = (2400, 1600, 1167, 894);
+    let crop = ramped_chroma_noise_frame(fw, fh).crop_imm(x, y, w, h);
+    for profile in [
+        json!({ "lumaNoiseReduction": 30 }),
+        json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11, "lumaNoiseReduction": 30, "clarity": 30, "sharpness": 40 }),
+    ] {
+        for placed in [false, true] {
+            for run in 0..4 {
+                let start = std::time::Instant::now();
+                render_placed_region(
+                    &context,
+                    &crop,
+                    &profile,
+                    None,
+                    ((fw, fh), (x, y)),
+                    placed,
+                    &[],
+                );
+                println!(
+                    "{profile} placed {placed} run {run}: {:.1} ms",
+                    start.elapsed().as_secs_f64() * 1e3
+                );
+            }
+        }
+    }
+}
+
+/// A placed region whose window (the region and the render's reach) would
+/// exceed the GPU's texture limit renders as an image of its own, as before
+/// placements existed, instead of reaching the over-limit window renderer
+/// with the photograph's coordinates.
+#[test]
+#[ignore = "requires a native GPU"]
+fn placed_regions_beyond_the_texture_limit_render_on_their_own() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let image = ramped_chroma_noise_frame(fw, fh);
+    let (x, y, w, h) = (512, 352, 1408, 1088);
+    let crop = image.crop_imm(x, y, w, h);
+    let profile = json!({ "lumaNoiseReduction": 50 });
+    // The region fits, its window (with the margin on both sides) does not.
+    let limited = limited_context(&context, 1500);
+    let render = |context: &GpuContext, placed: bool| {
+        render_placed_region(
+            context,
+            &crop,
+            &profile,
+            None,
+            ((fw, fh), (x, y)),
+            placed,
+            &[],
+        )
+    };
+    let fallback = render(&limited, true);
+    assert_eq!(fallback.dimensions(), (w, h));
+    assert_eq!(fallback, render(&limited, false));
+    assert_eq!(fallback, render(&context, false));
+}
+
+/// A placed region with Light flare keeps the photograph's size and place
+/// (Vignette here) and builds the flare's map over the photograph's frame
+/// from its own pixels, without light outside it: on a dark photograph
+/// whose lights all lie in the region it renders as the whole one, also
+/// with a light in the region's last columns (repeating the region's edge
+/// stretched it across the taps beyond, NRR2 review round 3).
+#[test]
+#[ignore = "requires a native GPU"]
+fn placed_regions_keep_their_place_with_light_flare() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let (x, y, w, h) = (512, 352, 1408, 1088);
+    let profile = json!({ "flareAmount": 60, "vignetteAmount": -50 });
+    // A lamp in the middle, and one in the region's last 24 columns.
+    for (name, (cx, cy), radius) in [
+        ("lamp in the middle", (x + w / 2, y + h / 2), 120.0),
+        ("lamp in the last columns", (x + w - 12, y + h / 2), 12.0),
+    ] {
+        let image = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(fw, fh, |px, py| {
+            let d = (px as f32 - cx as f32).hypot(py as f32 - cy as f32);
+            image::Rgb([if d < radius { 4.0 } else { 0.02 }; 3])
+        }));
+        let whole = render_region_source(&context, &image, &profile, None);
+        let crop = image.crop_imm(x, y, w, h);
+        let place = ((fw, fh), (x, y));
+        let region = render_placed_region(&context, &crop, &profile, None, place, true, &[]);
+        let (max, p99, mean) = region_differences(&whole, &region, (x, y), REGION_NOISE_MARGIN);
+        let own = render_placed_region(&context, &crop, &profile, None, place, false, &[]);
+        let (own_max, ..) = region_differences(&whole, &own, (x, y), REGION_NOISE_MARGIN);
+        println!(
+            "flare + vignette, {name}: max {max} p99 {p99} mean {mean:.3}; own image max {own_max}"
+        );
+        assert!(max <= 1, "{name}: max {max}");
+        assert!(own_max > 1, "{name}: the test no longer tells");
+    }
+}
+
+/// A placed region with a mask renders as the whole photograph's pixels:
+/// its mask (cut from the photograph's) is extended with the region.
+#[test]
+#[ignore = "requires a native GPU"]
+fn placed_regions_take_their_masks() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let image = ramped_chroma_noise_frame(fw, fh);
+    let coverage: Vec<f32> = (0..fw * fh)
+        .map(|i| ((i % fw) as f32 / fw as f32).clamp(0.0, 1.0))
+        .collect();
+    let mask = MaskBitmap::from_coverage(fw, fh, &coverage);
+    let profile = json!({
+        "lumaNoiseReduction": 40,
+        "masks": [local_mask("m", json!({ "exposure": 1.0, "clarity": 40 }))]
+    });
+    let render = |source: &DynamicImage, masks: &[Arc<MaskBitmap>], place: Option<(u32, u32)>| {
+        render_placed_region(
+            &context,
+            source,
+            &profile,
+            None,
+            ((fw, fh), place.unwrap_or((0, 0))),
+            place.is_some(),
+            masks,
+        )
+    };
+    let whole = render(&image, &[Arc::new(mask.crop(0, 0, fw, fh))], None);
+    assert_ne!(whole, render(&image, &[], None), "the mask changes nothing");
+    let (x, y, w, h) = (512, 352, 1408, 1088);
+    let region = render(
+        &image.crop_imm(x, y, w, h),
+        &[Arc::new(mask.crop(x, y, w, h))],
+        Some((x, y)),
+    );
+    let (max, p99, mean) = region_differences(&whole, &region, (x, y), REGION_NOISE_MARGIN);
+    println!("masked region: max {max} p99 {p99} mean {mean:.3}");
+    assert!(max <= 1, "max {max}");
+}
+
 /// Timing of the whole-photograph measurement a region takes
 /// (`measure_color_noise`) at 24 and 61 MP.
 #[test]

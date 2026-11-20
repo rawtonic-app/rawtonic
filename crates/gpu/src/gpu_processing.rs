@@ -13095,20 +13095,31 @@ fn flare_tap(i: u32, map_size: u32, size: u32) -> (u32, u32) {
 
 /// The photo pixels Light flare's threshold pass reads, gathered for a render
 /// from windows: the 2 x 2 pixels of map texel (x, y) at (2x, 2y), with the
-/// texels of the input texture (`rgba_f16_row`).
+/// texels of the input texture (`rgba_f16_row`). `image` is the photo, or
+/// for a region ([`PlacedSource`]) the part of a `photo`-sized photo at
+/// `part`: the taps then lie in the photo, those in `part` read from
+/// `image` (where `part` starts at `part_in_image`), the others zero (no
+/// light: the rest of the photo is not loaded, and repeating the part's
+/// edge would stretch a light at it across the map).
 fn create_flare_samples_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     image: &DynamicImage,
+    photo: (u32, u32),
+    part: Roi,
+    part_in_image: (u32, u32),
 ) -> wgpu::Texture {
     use rayon::prelude::*;
 
-    let (width, height) = image.dimensions();
+    let (width, height) = photo;
     let side = 2 * FLARE_MAP_SIZE;
-    let columns: Vec<u32> = (0..FLARE_MAP_SIZE)
+    let inside = |v: u32, start: u32, size: u32, offset: u32| {
+        (v >= start && v - start < size).then(|| v - start + offset)
+    };
+    let columns: Vec<Option<u32>> = (0..FLARE_MAP_SIZE)
         .flat_map(|i| {
             let (first, second) = flare_tap(i, FLARE_MAP_SIZE, width);
-            [first, second]
+            [first, second].map(|x| inside(x, part.x, part.width, part_in_image.0))
         })
         .collect();
     let mut texels = vec![f16::ZERO; side as usize * side as usize * 4];
@@ -13118,12 +13129,13 @@ fn create_flare_samples_texture(
             .enumerate()
             .for_each(|(i, rows)| {
                 let (first, second) = flare_tap(i as u32, FLARE_MAP_SIZE, height);
-                for (row, y) in rows
-                    .chunks_exact_mut(side as usize * 4)
-                    .zip([first, second])
-                {
-                    for (texel, &x) in row.as_chunks_mut::<4>().0.iter_mut().zip(&columns) {
-                        rgba_f16_row(image, x, y, texel.as_mut_slice());
+                let ys = [first, second].map(|y| inside(y, part.y, part.height, part_in_image.1));
+                for (row, y) in rows.chunks_exact_mut(side as usize * 4).zip(ys) {
+                    let Some(y) = y else { continue };
+                    for (texel, x) in row.as_chunks_mut::<4>().0.iter_mut().zip(&columns) {
+                        if let Some(x) = *x {
+                            rgba_f16_row(image, x, y, texel.as_mut_slice());
+                        }
                     }
                 }
             });
@@ -13384,7 +13396,21 @@ fn render_in_windows(
     }
     // Light flare's map is built from samples of the whole photo.
     let flare_samples = (request.adjustments.global.flare_amount > 0.0)
-        .then(|| create_flare_samples_texture(&context.device, &context.queue, image))
+        .then(|| {
+            create_flare_samples_texture(
+                &context.device,
+                &context.queue,
+                image,
+                (width, height),
+                Roi {
+                    x: 0,
+                    y: 0,
+                    width,
+                    height,
+                },
+                (0, 0),
+            )
+        })
         .map(|texture| texture.create_view(&Default::default()));
     let output_len = bounds.width as usize * bounds.height as usize * 4;
     let mut output = match output_precision {
@@ -14064,6 +14090,162 @@ fn scoped_result<T>(value: T, error: Option<wgpu::Error>, device_lost: bool) -> 
     }
 }
 
+/// A region of a photograph (`PreparedAdjustments::photo_placement`) as a
+/// window of it: the region with its edges repeated outward by the reach of
+/// the render's reads ([`render_window_margin`] for the whole photograph,
+/// up to the photograph's edges), so that the window render reads only
+/// inside it and its region's pixels take the whole photograph's size and
+/// position. The window starts on the colour noise grid of the photograph
+/// ([`REGION_NOISE_GRID`]). Its masks are the
+/// region's, extended alike. A window beyond the GPU's texture limit is not
+/// made: the region then renders as an image of its own, as before.
+struct PlacedSource {
+    image: DynamicImage,
+    transform_hash: u64,
+    photo_width: u32,
+    photo_height: u32,
+    /// The window in the photograph.
+    window: Roi,
+    /// The region in the photograph.
+    region: Roi,
+    masks: Vec<Arc<MaskBitmap>>,
+}
+
+impl PlacedSource {
+    fn new(
+        image: &DynamicImage,
+        transform_hash: u64,
+        placement: crate::image_processing::PhotoPlacement,
+        request: &RenderRequest,
+        max_dim: u32,
+    ) -> Result<Option<Self>, String> {
+        let (width, height) = image.dimensions();
+        let (photo_width, photo_height) = (placement.photo_width, placement.photo_height);
+        if width == 0
+            || height == 0
+            || placement
+                .x
+                .checked_add(width)
+                .is_none_or(|r| r > photo_width)
+            || placement
+                .y
+                .checked_add(height)
+                .is_none_or(|b| b > photo_height)
+        {
+            return Err(format!(
+                "A {width}x{height} region at {},{} lies outside its {photo_width}x{photo_height} photograph.",
+                placement.x, placement.y
+            ));
+        }
+        let margin = render_window_margin(&request.adjustments.uniforms, photo_width, photo_height)
+            .div_ceil(REGION_NOISE_GRID)
+            * REGION_NOISE_GRID;
+        let x = placement.x.saturating_sub(margin) / REGION_NOISE_GRID * REGION_NOISE_GRID;
+        let y = placement.y.saturating_sub(margin) / REGION_NOISE_GRID * REGION_NOISE_GRID;
+        let (left, top) = (placement.x - x, placement.y - y);
+        let right = margin.min(photo_width - placement.x - width);
+        let bottom = margin.min(photo_height - placement.y - height);
+        if width + left + right > max_dim || height + top + bottom > max_dim {
+            return Ok(None);
+        }
+        let masks = request
+            .mask_bitmaps
+            .iter()
+            .map(|mask| {
+                if mask.dimensions() != (width, height) {
+                    return Err(format!(
+                        "Mask dimensions ({}x{}) do not match render dimensions ({width}x{height}).",
+                        mask.width(),
+                        mask.height()
+                    ));
+                }
+                Ok(Arc::new(mask.extend_edges(left, top, right, bottom)))
+            })
+            .collect::<Result<_, String>>()?;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::hash::DefaultHasher::new();
+        (transform_hash, placement, left, top, right, bottom).hash(&mut hasher);
+        Ok(Some(Self {
+            image: extend_image_edges(image, left, top, right, bottom),
+            transform_hash: hasher.finish(),
+            photo_width,
+            photo_height,
+            window: Roi {
+                x,
+                y,
+                width: width + left + right,
+                height: height + top + bottom,
+            },
+            region: Roi {
+                x: placement.x,
+                y: placement.y,
+                width,
+                height,
+            },
+            masks,
+        }))
+    }
+
+    /// `roi` of the region (all of it when `None`) in the photograph.
+    fn roi(&self, roi: Option<Roi>) -> Roi {
+        match roi {
+            Some(roi) => Roi {
+                x: self.region.x + roi.x,
+                y: self.region.y + roi.y,
+                ..roi
+            },
+            None => self.region,
+        }
+    }
+}
+
+/// `image` grown by `left`, `top`, `right` and `bottom` pixels, each new
+/// pixel the nearest edge pixel's.
+fn extend_image_edges(
+    image: &DynamicImage,
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
+) -> DynamicImage {
+    fn extend<P: image::Pixel<Subpixel: Send + Sync>>(
+        buffer: &ImageBuffer<P, Vec<P::Subpixel>>,
+        (left, top, right, bottom): (u32, u32, u32, u32),
+    ) -> ImageBuffer<P, Vec<P::Subpixel>> {
+        let (w, h) = buffer.dimensions();
+        let channels = P::CHANNEL_COUNT as usize;
+        let (nw, nh) = (w + left + right, h + top + bottom);
+        let mut out = vec![buffer.as_raw()[0]; nw as usize * nh as usize * channels];
+        let raw = buffer.as_raw();
+        out.par_chunks_mut(nw as usize * channels)
+            .enumerate()
+            .for_each(|(row, out)| {
+                let sy = (row as u32).saturating_sub(top).min(h - 1) as usize;
+                let source = &raw[sy * w as usize * channels..(sy + 1) * w as usize * channels];
+                let first = &source[..channels];
+                let last = &source[source.len() - channels..];
+                let (head, rest) = out.split_at_mut(left as usize * channels);
+                let (body, tail) = rest.split_at_mut(w as usize * channels);
+                head.chunks_exact_mut(channels)
+                    .for_each(|px| px.copy_from_slice(first));
+                body.copy_from_slice(source);
+                tail.chunks_exact_mut(channels)
+                    .for_each(|px| px.copy_from_slice(last));
+            });
+        ImageBuffer::from_raw(nw, nh, out).expect("an extended buffer")
+    }
+    let sides = (left, top, right, bottom);
+    match image {
+        DynamicImage::ImageRgb32F(b) => DynamicImage::ImageRgb32F(extend(b, sides)),
+        DynamicImage::ImageRgba32F(b) => DynamicImage::ImageRgba32F(extend(b, sides)),
+        DynamicImage::ImageRgb16(b) => DynamicImage::ImageRgb16(extend(b, sides)),
+        DynamicImage::ImageRgba16(b) => DynamicImage::ImageRgba16(extend(b, sides)),
+        DynamicImage::ImageRgb8(b) => DynamicImage::ImageRgb8(extend(b, sides)),
+        DynamicImage::ImageRgba8(b) => DynamicImage::ImageRgba8(extend(b, sides)),
+        other => DynamicImage::ImageRgba32F(extend(&other.to_rgba32f(), sides)),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_dynamic_image(
     context: &GpuContext,
@@ -14080,6 +14262,39 @@ fn render_dynamic_image(
     stream: Option<RowStream<'_>>,
 ) -> Result<DynamicImage, String> {
     let streamed = stream.is_some();
+    let mut request = request;
+    // A region of a photograph renders as a window of the whole one.
+    let placed = match (request.adjustments.photo_placement.take(), &source) {
+        (
+            Some(placement),
+            RenderSource::Image {
+                image,
+                transform_hash,
+            },
+        ) if !output_to_display => PlacedSource::new(
+            image,
+            *transform_hash,
+            placement,
+            &request,
+            context.limits.max_texture_dimension_2d,
+        )?,
+        _ => None,
+    };
+    let (source, request) = match &placed {
+        Some(placed) => (
+            RenderSource::Image {
+                image: &placed.image,
+                transform_hash: placed.transform_hash,
+            },
+            RenderRequest {
+                roi: Some(placed.roi(request.roi)),
+                mask_bitmaps: &placed.masks,
+                adjustments: request.adjustments,
+                lut: request.lut,
+            },
+        ),
+        None => (source, request),
+    };
     let mut request = request;
     let tool_view = request.adjustments.global.show_clipping != 0;
     if output_to_display {
@@ -14261,6 +14476,51 @@ fn render_dynamic_image(
     } else {
         off_global_pool(|| gpu_scoped(&context.device, prepare))??
     };
+    // Level 1 of the window's pyramid, placed in the photograph's.
+    if let Some(placed) = &placed
+        && chroma.is_some()
+    {
+        let level_window = &mut request.adjustments.uniforms.global.color_noise_window;
+        let (x, y) = (placed.window.x / 2, placed.window.y / 2);
+        *level_window = [
+            x,
+            y,
+            x + level_window[2] - level_window[0],
+            y + level_window[3] - level_window[1],
+        ];
+    }
+    // Light flare's map reads the photograph: gathered from the region,
+    // the rest without light.
+    let placed_flare = placed
+        .as_ref()
+        .filter(|_| request.adjustments.global.flare_amount > 0.0)
+        .map(|placed| {
+            create_flare_samples_texture(
+                device,
+                queue,
+                &placed.image,
+                (placed.photo_width, placed.photo_height),
+                placed.region,
+                (
+                    placed.region.x - placed.window.x,
+                    placed.region.y - placed.window.y,
+                ),
+            )
+            .create_view(&Default::default())
+        });
+    let (photo_width, photo_height, window) = match &placed {
+        Some(placed) => (placed.photo_width, placed.photo_height, placed.window),
+        None => (
+            cache.width,
+            cache.height,
+            Roi {
+                x: 0,
+                y: 0,
+                width: cache.width,
+                height: cache.height,
+            },
+        ),
+    };
 
     let skip_readback = output_to_display;
     let display_targets = output_to_display.then(|| processor.display_targets(width, height));
@@ -14273,20 +14533,15 @@ fn render_dynamic_image(
         && output_precision == RenderOutputPrecision::EightBit;
     let (mut rendered, out_w, out_h, out_x, out_y) = processor.render_window(
         &cache.texture_view,
-        cache.width,
-        cache.height,
-        Roi {
-            x: 0,
-            y: 0,
-            width: cache.width,
-            height: cache.height,
-        },
+        photo_width,
+        photo_height,
+        window,
         request,
         output_to_display,
         output_precision,
         readback_shader,
         chroma.as_ref().map(|(packed, energy)| (packed, energy)),
-        None,
+        placed_flare.as_ref(),
         uploaded_masks,
         &[],
         &mut [stream],
