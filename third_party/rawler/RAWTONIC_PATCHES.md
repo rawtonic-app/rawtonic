@@ -649,8 +649,10 @@ comparison):
 - Changed: iPhone 12 Pro ProRAW (raw.pixls.us `IMG_1361.DNG`), 2 decoded
   samples 0 → 65535, 818 export pixels by at most 765/65535.
 - A synthetic 1001x667 JPEG-to-DNG (progressive 4:2:0, strip and 256x256
-  tiles, built as the test fixture is): 3,987 of 12,482 pure-white pixels
-  exported darker than 200 before, none after (minimum 242).
+  tiles, built as the test fixture is), exported as 8-bit JPEG (quality 95,
+  default settings): of the 12,482 pixels that are pure white (255) in the
+  source, 3,987 had a channel below 200 of 255 before (lowest 0), none after
+  (lowest channel 242 of 255, at the white area's JPEG edges).
 - The Converter lossy DNGs' decode was compared with an independent
   reference from the DNG specification (Pillow/libjpeg-turbo per tile,
   stitched and cropped, LinearizationTable, normalised, MapPolynomial per
