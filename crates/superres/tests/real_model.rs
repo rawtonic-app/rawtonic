@@ -160,3 +160,54 @@ fn cpu_legacy_pack_without_optional_conversion_still_runs() {
     assert_eq!(output.len(), 3 * (TILE * SCALE).pow(2));
     assert!(output.iter().all(|v| v.is_finite()));
 }
+
+/// The output of one tile on `graph` with only `provider` (no CPU fallback).
+fn tile_on(path: &std::path::Path, provider: rawtonic_onnx::Provider, tile: &[f32]) -> Vec<f32> {
+    let model = rawtonic_onnx::Model::load_on(
+        path,
+        rawtonic_onnx::ModelKind::SuperResolution,
+        &[provider],
+        &rawtonic_onnx::settings().plugin_dirs,
+    )
+    .unwrap();
+    model
+        .run_without_fallback(|session| {
+            let tensor = ort::value::Tensor::from_array(ndarray::Array4::from_shape_vec(
+                (1, 3, TILE, TILE),
+                tile.to_vec(),
+            )?)?;
+            let outputs = session.run(ort::inputs!["image" => tensor])?;
+            Ok(outputs["enlarged"].try_extract_tensor::<f32>()?.1.to_vec())
+        })
+        .unwrap()
+}
+
+/// The fp16 GPU conversion stays within about one 8-bit code of the fp32
+/// graph on the same GPU provider, and `Model::onnx` picks it on a GPU.
+#[test]
+#[ignore = "needs both ONNX models and a GPU; RAWTONIC_AI_PROVIDER=cuda or webgpu"]
+fn fp16_gpu_graph_matches_fp32_graph() {
+    let dir = models().expect("SUPERRES_MODELS must name the installed models");
+    let provider = rawtonic_onnx::forced_provider()
+        .filter(|p| *p != rawtonic_onnx::Provider::Cpu)
+        .expect("RAWTONIC_AI_PROVIDER=cuda or webgpu");
+    let input = pattern(TILE as u32, TILE as u32);
+    let tile: Vec<f32> = (0..3)
+        .flat_map(|channel| input.pixels().map(move |p| p[channel]))
+        .collect();
+    let fp32 = tile_on(&dir.join(rawtonic_superres::ONNX_FILE), provider, &tile);
+    let fp16 = tile_on(&dir.join(rawtonic_superres::GPU_ONNX_FILE), provider, &tile);
+    let worst = fp16
+        .iter()
+        .zip(&fp32)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0f32, f32::max);
+    println!("fp16 vs fp32 on {provider}: max |difference| {worst:.6}; tolerance 1/255");
+    assert!(worst < 1.0 / 255.0, "fp16 graph differs: {worst}");
+    let model = Model::onnx(&dir.join(rawtonic_superres::ONNX_FILE)).unwrap();
+    assert!(!model.uses_cpu());
+    assert_eq!(
+        model.backend_name(),
+        format!("ONNX Runtime ({provider}, fp16)")
+    );
+}

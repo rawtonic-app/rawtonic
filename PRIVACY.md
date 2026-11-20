@@ -73,9 +73,14 @@ Rawtonic otherwise goes online only when you ask it to:
   box's *Content* mode) downloads its model (1.5 GB, or 1.2 GB when automatic
   keywords already installed the image model) only when you click *Download
   search model*; it then reads what your library's photos show from their
-  thumbnails on your computer and keeps that in the library's catalog. No photo is uploaded; the models run on your computer, on its
+  thumbnails on your computer and keeps that in the library's catalog.
+  Ticking Super Resolution in the Export dialog (or opening the dialog with a
+  preset that has it) downloads its model if it is not installed yet, on
+  Windows and Linux with GPU AI on also its 1.2 MB graphics-card version.
+  No photo is uploaded; the models run on your computer, on its
   graphics card when it can (Windows, Linux: the WebGPU plugin ships with the
-  app; using the GPU downloads nothing).
+  app; apart from Super Resolution's graphics-card version, using the GPU
+  downloads nothing).
 - **ONNX Runtime (the AI runtime).** Microsoft's ONNX Runtime, which runs
   the models, has usage reporting to Microsoft built into Microsoft's release
   libraries. On Apple silicon Macs, Linux (x86_64 and arm64) and Windows x64,

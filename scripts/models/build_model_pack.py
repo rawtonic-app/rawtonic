@@ -306,6 +306,16 @@ SUPERRES_SHA256 = {
 }
 SUPERRES_CPU_SHA256 = {"superres_compact_x2_cpu.onnx": "40bf5c362bad13ca57c1e4493f66f9ab5f2ce7f57156e1d20a77aad7322cd7a1"}
 
+# fp16 compute for GPU providers, converted from the pinned fp32 graph by
+# convert_superres_fp16.py (fp32 input and output; the app uses it only on a
+# GPU provider, the fp32 graph stays the CPU and older builds' file).
+SUPERRES_FP16_SHA256 = {"superres_compact_x2_fp16.onnx": "4ee4e846aebe963d9739cca170df56b6b13f0fb6f604483d284ac227d250289d"}
+SUPERRES_FP16_EXPORT = [
+    "uv", "run", "--python", "3.12", "--with", "onnx==1.23.2", "--with", "onnxconverter-common==1.16.0",
+    "--with", "numpy==2.2.6",
+    "python", str(Path(__file__).resolve().parent / "convert_superres_fp16.py"),
+]
+
 SUPERRES_EXPORT = [
     "uv", "run", "--python", "3.12", "--with", "torch==2.7.0", "--with", "coremltools==9.0",
     "--with", "numpy==2.2.6", "--with", "onnx==1.23.2", "--with", "onnxruntime==1.30.0",
@@ -721,6 +731,18 @@ def main() -> None:
             if name not in carried:
                 entries.append(place(superres / name, args.out, name, expected) | SUPERRES_ENTRY | {
                     "source": SUPERRES_ENTRY["source"] + "; CPU conversion runs the rotations sequentially (same weights and average)",
+                })
+
+    if todo(SUPERRES_FP16_SHA256):
+        superres = args.cache / "superres-fp16"
+        source = args.out / "superres_compact_x2.onnx"  # placed above, SHA-256 checked
+        subprocess.run(SUPERRES_FP16_EXPORT + [str(source), str(superres)], check=True)
+        for name, expected in SUPERRES_FP16_SHA256.items():
+            if name not in carried:
+                entries.append(place(superres / name, args.out, name, expected) | SUPERRES_ENTRY | {
+                    "used_by": SUPERRES_ENTRY["used_by"] + " on a GPU provider (CUDA, WebGPU)",
+                    "source": SUPERRES_ENTRY["source"] + "; GPU conversion by scripts/models/convert_superres_fp16.py: "
+                              "weights rounded to fp16 and fp16 compute, fp32 input and output",
                 })
 
     if todo(FACES_SHA256):

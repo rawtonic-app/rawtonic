@@ -517,7 +517,15 @@ impl rawtonic_export::export_processing::Enlarger for SuperResolution {
         image: image::DynamicImage,
         cancelled: &dyn Fn() -> Result<(), String>,
     ) -> Result<image::DynamicImage, String> {
-        self.0.enlarge(image, cancelled)
+        let started = std::time::Instant::now();
+        let (width, height) = (image.width(), image.height());
+        let enlarged = self.0.enlarge(image, cancelled)?;
+        eprintln!(
+            "Super Resolution: {width}x{height} enlarged on {} in {:.2} s",
+            self.0.backend_name(),
+            started.elapsed().as_secs_f64()
+        );
+        Ok(enlarged)
     }
 }
 

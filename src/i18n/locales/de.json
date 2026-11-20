@@ -2281,7 +2281,7 @@
       "build": "dieser Build",
       "copyright": "Copyright © 2026 Rawtonic-Mitwirkende. Teile Copyright Timon Käch und die RapidRAW-Mitwirkenden.",
       "creditDescriptions": {
-        "2xBHI_small_compact_pretrain": "Super-Resolution beim Export (Philip Hofmann). Geändert: nach ONNX und Core ML umgewandelt, Mittel aus vier Drehungen jeder Kachel (in der CPU-Konvertierung nacheinander).",
+        "2xBHI_small_compact_pretrain": "Super-Resolution beim Export (Philip Hofmann). Geändert: nach ONNX und Core ML umgewandelt, Mittel aus vier Drehungen jeder Kachel (in der CPU-Konvertierung nacheinander; in der GPU-Konvertierung fp16-Gewichte und -Berechnung).",
         "avif-parse": "Liest den AVIF-Container.",
         "BiRefNet": "Motiv- und Hintergrundmasken (Peng Zheng und andere).",
         "ConvNeXt UperNet": "Himmelsmasken (Meta, ADE20K).",
