@@ -19319,36 +19319,341 @@ fn placed_region_cost_probe() {
     }
 }
 
-/// A placed region whose window (the region and the render's reach) would
-/// exceed the GPU's texture limit renders as an image of its own, as before
-/// placements existed, instead of reaching the over-limit window renderer
-/// with the photograph's coordinates.
+/// `profile` rendered (8-bit) from `region`, the part of a `photo` sized
+/// photograph at `at`, as a window of it: only `roi` of the region (all of
+/// it when `None`), with the whole photograph's `measurement` and Light
+/// flare `flare` samples when given.
+#[allow(clippy::too_many_arguments)]
+fn render_placed_roi(
+    context: &GpuContext,
+    region: &DynamicImage,
+    profile: &serde_json::Value,
+    measurement: Option<rawtonic_engine::color_noise::NoiseMeasurement>,
+    (photo, at): ((u32, u32), (u32, u32)),
+    roi: Option<Roi>,
+    flare: Option<Arc<crate::image_processing::FlareSamples>>,
+    shader: ReadbackShader,
+) -> image::RgbaImage {
+    let processor = ProcessorSlot::new(None);
+    let cache = Mutex::new(None);
+    let mut adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+    adjustments.color_noise_measurement = measurement.map(Box::new);
+    adjustments.flare_samples = flare;
+    adjustments.photo_placement = Some(crate::image_processing::PhotoPlacement {
+        photo_width: photo.0,
+        photo_height: photo.1,
+        x: at.0,
+        y: at.1,
+    });
+    process_and_get_dynamic_image_inner(
+        context,
+        &processor,
+        &cache,
+        RenderSource::Image {
+            image: region,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments,
+            mask_bitmaps: &[],
+            lut: None,
+            roi,
+        },
+        "test",
+        RenderOutputPrecision::EightBit,
+        false,
+        None,
+        None,
+        shader,
+    )
+    .unwrap()
+    .to_rgba8()
+}
+
+/// `visible` (x, y, w, h) of a `photo` grown by `reach` on every side
+/// within it, its origin moved onto the colour noise grid (as the
+/// multi-view cells cut a region): the cut and `visible` in it.
+fn cut_with_reach(
+    (x, y, w, h): (u32, u32, u32, u32),
+    reach: u32,
+    photo: (u32, u32),
+) -> ((u32, u32, u32, u32), Roi) {
+    let cx = x.saturating_sub(reach) / REGION_NOISE_GRID * REGION_NOISE_GRID;
+    let cy = y.saturating_sub(reach) / REGION_NOISE_GRID * REGION_NOISE_GRID;
+    let right = (x + w + reach).min(photo.0);
+    let bottom = (y + h + reach).min(photo.1);
+    (
+        (cx, cy, right - cx, bottom - cy),
+        Roi {
+            x: x - cx,
+            y: y - cy,
+            width: w,
+            height: h,
+        },
+    )
+}
+
+/// The noisy ramp with small bright lights every 90 px: the neighbourhood
+/// tools (Glow, Halation, Clarity, Structure, Dehaze, Light flare) carry a
+/// light just beyond a region's cut into its shown pixels.
+fn spotted_frame(width: u32, height: u32) -> DynamicImage {
+    let rgb = ramped_chroma_noise_frame(width, height).to_rgb32f();
+    DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let (dx, dy) = ((x % 90) as i32 - 45, (y % 90) as i32 - 45);
+        if dx * dx + dy * dy <= 9 {
+            image::Rgb([6.0, 5.0, 4.0])
+        } else {
+            *rgb.get_pixel(x, y)
+        }
+    }))
+}
+
+/// Regions cut with the render's reach of real pixels around what is shown
+/// (`region_reach`) render as the whole photograph's pixels up to the shown
+/// part's edges, with and without a noise reduction: byte for byte with the
+/// export shader, within 1 code with the display variants; Light flare with
+/// the whole photograph's samples (`whole_flare_samples`). Cut at what is
+/// shown (before NRR3, without a noise reduction), the pixels near the cut
+/// read repeated edge pixels (numbers in NRR3's report).
 #[test]
 #[ignore = "requires a native GPU"]
-fn placed_regions_beyond_the_texture_limit_render_on_their_own() {
+fn regions_with_the_render_reach_match_the_whole_photograph_to_their_edges() {
     let context = context();
     let (fw, fh) = (2400, 1800);
-    let image = ramped_chroma_noise_frame(fw, fh);
-    let (x, y, w, h) = (512, 352, 1408, 1088);
-    let crop = image.crop_imm(x, y, w, h);
-    let profile = json!({ "lumaNoiseReduction": 50 });
-    // The region fits, its window (with the margin on both sides) does not.
-    let limited = limited_context(&context, 1500);
-    let render = |context: &GpuContext, placed: bool| {
-        render_placed_region(
-            context,
-            &crop,
+    let image = spotted_frame(fw, fh);
+    let flare = Arc::new(whole_flare_samples(&image, (fw, fh)));
+    // Inside, at the right and bottom edges, at the top left corner and off
+    // the colour noise grid.
+    let shown = [
+        (512, 352, 1408, 1088),
+        (1344, 960, 1056, 840),
+        (0, 0, 960, 800),
+        (530, 333, 1408, 1088),
+    ];
+    let mut recipes = vec![
+        ("glow 50", json!({ "glowAmount": 50 })),
+        ("halation 50", json!({ "halationAmount": 50 })),
+        ("clarity 50", json!({ "clarity": 50 })),
+        ("structure 50", json!({ "structure": 50 })),
+        ("texture 50", json!({ "texture": 50 })),
+        ("dehaze 30", json!({ "dehaze": 30 })),
+        ("sharpness 60", json!({ "sharpness": 60 })),
+        ("flare 60", json!({ "flareAmount": 60 })),
+        ("luma 50", json!({ "lumaNoiseReduction": 50 })),
+        (
+            "colour 60 + luma 30",
+            json!({ "colorNoiseReduction": 60, "colorNoiseVersion": 11, "lumaNoiseReduction": 30 }),
+        ),
+        (
+            "glow + clarity + flare + colour 50 + luma 30",
+            json!({ "glowAmount": 40, "clarity": 30, "flareAmount": 40, "colorNoiseReduction": 50, "colorNoiseVersion": 11, "lumaNoiseReduction": 30 }),
+        ),
+    ];
+    if let Ok(only) = std::env::var("NRR3_RECIPE") {
+        recipes.retain(|(name, _)| name.contains(only.as_str()));
+    }
+    let mut failed = Vec::new();
+    for (name, profile) in recipes {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let reach = region_reach(&adjustments.uniforms, fw, fh);
+        let processor = ProcessorSlot::new(None);
+        let measured = measures_noise(&adjustments.global)
+            .then(|| measure_color_noise(&context, &processor, &image, &adjustments, "test"))
+            .transpose()
+            .unwrap()
+            .flatten();
+        let whole = render_region_source(&context, &image, &profile, None);
+        let whole_display = render_placed_region_with(
+            &context,
+            &image,
             &profile,
             None,
-            ((fw, fh), (x, y)),
-            placed,
+            ((fw, fh), (0, 0)),
+            false,
             &[],
-        )
-    };
-    let fallback = render(&limited, true);
-    assert_eq!(fallback.dimensions(), (w, h));
-    assert_eq!(fallback, render(&limited, false));
-    assert_eq!(fallback, render(&context, false));
+            ReadbackShader::Display,
+        );
+        for (x, y, w, h) in shown {
+            let ((cx, cy, cw, ch), roi) = cut_with_reach((x, y, w, h), reach, (fw, fh));
+            let cut = image.crop_imm(cx, cy, cw, ch);
+            let render = |shader| {
+                render_placed_roi(
+                    &context,
+                    &cut,
+                    &profile,
+                    measured,
+                    ((fw, fh), (cx, cy)),
+                    Some(roi),
+                    Some(flare.clone()),
+                    shader,
+                )
+            };
+            let region = render(ReadbackShader::Export);
+            assert_eq!(region.dimensions(), (w, h));
+            let (max, p99, mean) = region_differences(&whole, &region, (x, y), 0);
+            let display = render(ReadbackShader::Display);
+            let (d_max, d_p99, d_mean) = region_differences(&whole_display, &display, (x, y), 0);
+            // Before: cut at what is shown (NR off) or with 160 px (NR
+            // on); flare gathered from the cut.
+            let before_reach = if measured.is_some() {
+                REGION_NOISE_MARGIN
+            } else {
+                0
+            };
+            let ((bx, by, bw, bh), broi) = cut_with_reach((x, y, w, h), before_reach, (fw, fh));
+            let before = render_placed_roi(
+                &context,
+                &image.crop_imm(bx, by, bw, bh),
+                &profile,
+                measured,
+                ((fw, fh), (bx, by)),
+                Some(broi),
+                None,
+                ReadbackShader::Export,
+            );
+            let (b_max, b_p99, b_mean) = region_differences(&whole, &before, (x, y), 0);
+            println!(
+                "{name}: shown {x},{y} {w}x{h}, reach {reach}, cut {cx},{cy} {cw}x{ch}: export max {max} p99 {p99} mean {mean:.3}; display max {d_max} p99 {d_p99} mean {d_mean:.3}; before (reach {before_reach}) max {b_max} p99 {b_p99} mean {b_mean:.3}"
+            );
+            if max > 0 || d_max > 1 {
+                failed.push((name, x, y, max, d_max));
+            }
+        }
+    }
+    assert!(failed.is_empty(), "regions beyond 0 / 1 code: {failed:?}");
+}
+
+/// Display cost of a 100 % multi-view region (1167 x 894 shown with
+/// REGION_MARGIN) of a 24 MP and a 61 MP photograph through the cells'
+/// display variants, one processor kept as the app keeps it: before NRR3
+/// (cut at what is shown, with a noise reduction 160 px more, all of it
+/// rendered) and after (cut with `region_reach`, only the shown part
+/// rendered). Median of runs 2–6.
+#[test]
+#[ignore = "native GPU timing probe"]
+fn region_reach_cost_probe() {
+    let context = context();
+    for (fw, fh) in [(6000u32, 4000u32), (9504, 6336)] {
+        let image = ramped_chroma_noise_frame(fw, fh);
+        let shown = (fw / 2 - 576, fh / 2 - 448, 1167, 894);
+        for (name, profile) in [
+            ("glow 40 + clarity 30", json!({ "glowAmount": 40, "clarity": 30 })),
+            (
+                "colour 50 + luma 30 + clarity 30 + sharpness 40",
+                json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11, "lumaNoiseReduction": 30, "clarity": 30, "sharpness": 40 }),
+            ),
+        ] {
+            let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+            let processor = ProcessorSlot::new(None);
+            let measured = measures_noise(&adjustments.global)
+                .then(|| measure_color_noise(&context, &processor, &image, &adjustments, "test"))
+                .transpose()
+                .unwrap()
+                .flatten();
+            let before_reach = if measured.is_some() {
+                REGION_NOISE_MARGIN
+            } else {
+                0
+            };
+            let reach = region_reach(&adjustments.uniforms, fw, fh);
+            for (label, reach, with_roi) in [("before", before_reach, false), ("after", reach, true)]
+            {
+                let ((cx, cy, cw, ch), roi) = cut_with_reach(shown, reach, (fw, fh));
+                let cut = image.crop_imm(cx, cy, cw, ch);
+                let cache = Mutex::new(None);
+                let mut times = Vec::new();
+                for run in 0..6u64 {
+                    let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+                    adjustments.color_noise_measurement = measured.map(Box::new);
+                    adjustments.photo_placement =
+                        Some(crate::image_processing::PhotoPlacement {
+                            photo_width: fw,
+                            photo_height: fh,
+                            x: cx,
+                            y: cy,
+                        });
+                    let start = std::time::Instant::now();
+                    let out = process_and_get_dynamic_image_inner(
+                        &context,
+                        &processor,
+                        &cache,
+                        RenderSource::Image {
+                            image: &cut,
+                            // A new region each run (a pan), as in the app.
+                            transform_hash: 100 + run,
+                        },
+                        RenderRequest {
+                            adjustments,
+                            mask_bitmaps: &[],
+                            lut: None,
+                            roi: with_roi.then_some(roi),
+                        },
+                        "multi_view",
+                        RenderOutputPrecision::EightBit,
+                        false,
+                        None,
+                        None,
+                        ReadbackShader::Display,
+                    )
+                    .unwrap();
+                    std::hint::black_box(out);
+                    if run > 0 {
+                        times.push(start.elapsed().as_secs_f64() * 1e3);
+                    }
+                }
+                times.sort_by(f64::total_cmp);
+                println!(
+                    "cost {fw}x{fh} {name} {label}: cut {cw}x{ch} ({:.2}x shown px), rendered {}x{}: median {:.1} ms (min {:.1}, max {:.1})",
+                    (cw * ch) as f64 / (shown.2 * shown.3) as f64,
+                    if with_roi { roi.width } else { cw },
+                    if with_roi { roi.height } else { ch },
+                    times[times.len() / 2],
+                    times[0],
+                    times[times.len() - 1]
+                );
+            }
+        }
+    }
+}
+
+/// A placed region whose window (what it renders and the render's reach)
+/// would exceed the GPU's texture limit renders in pieces, each a window of
+/// the photograph: byte for byte as with the limit far away (it rendered as
+/// an image of its own before NRR3).
+#[test]
+#[ignore = "requires a native GPU"]
+fn placed_regions_beyond_the_texture_limit_render_in_pieces() {
+    let context = context();
+    let (fw, fh) = (4800, 3600);
+    let image = spotted_frame(fw, fh);
+    let flare = Arc::new(whole_flare_samples(&image, (fw, fh)));
+    for profile in [
+        json!({ "lumaNoiseReduction": 50, "glowAmount": 40 }),
+        json!({ "flareAmount": 50, "clarity": 30 }),
+    ] {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let reach = region_reach(&adjustments.uniforms, fw, fh);
+        let ((cx, cy, cw, ch), roi) = cut_with_reach((1024, 704, 2816, 2176), reach, (fw, fh));
+        let cut = image.crop_imm(cx, cy, cw, ch);
+        // Its window (with the margin on both sides) does not fit (as the
+        // over-limit test, a limit above the render's 2048 px tiles).
+        let limited = limited_context(&context, 2600);
+        let render = |context: &GpuContext| {
+            render_placed_roi(
+                context,
+                &cut,
+                &profile,
+                None,
+                ((fw, fh), (cx, cy)),
+                Some(roi),
+                Some(flare.clone()),
+                ReadbackShader::Export,
+            )
+        };
+        let pieces = render(&limited);
+        assert_eq!(pieces.dimensions(), (roi.width, roi.height));
+        assert!(pieces == render(&context), "{profile}: pieces differ");
+    }
 }
 
 /// A placed region with Light flare keeps the photograph's size and place

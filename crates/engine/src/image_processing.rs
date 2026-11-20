@@ -4922,6 +4922,12 @@ pub struct PreparedAdjustments {
     /// grain, Glow …) and its position in it takes the whole photograph's.
     /// `None`: the source is the whole photograph (exports, the Develop view).
     pub photo_placement: Option<PhotoPlacement>,
+    /// Light flare's samples of the whole photograph a placed region
+    /// (`photo_placement`) is cut from, gathered once from the whole base
+    /// (`gpu_processing::whole_flare_samples`): its map then reads lights
+    /// beyond the region as the whole photograph's does. `None`: a placed
+    /// region gathers them from its own pixels, without light outside it.
+    pub flare_samples: Option<std::sync::Arc<FlareSamples>>,
     /// What a drag's display frame may approximate (G76/GRN3); never set
     /// for an export or a settled frame.
     pub drag_effects: DragEffects,
@@ -4936,6 +4942,27 @@ pub struct PhotoPlacement {
     pub photo_height: u32,
     pub x: u32,
     pub y: u32,
+}
+
+/// Light flare's photo samples of a whole photograph
+/// (`PreparedAdjustments::flare_samples`): its size, and the half-float
+/// RGBA texels (as bits) the flare's threshold pass reads, row by row.
+#[derive(Clone, PartialEq, Eq)]
+pub struct FlareSamples {
+    pub photo_width: u32,
+    pub photo_height: u32,
+    pub side: u32,
+    pub texels: Vec<u16>,
+}
+
+impl std::fmt::Debug for FlareSamples {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "FlareSamples({}x{} photo, {} px side)",
+            self.photo_width, self.photo_height, self.side
+        )
+    }
 }
 
 /// Effects a drag's display frame computes at half resolution, once per
@@ -4979,6 +5006,7 @@ impl From<AllAdjustments> for PreparedAdjustments {
             lut_file_stage: false,
             color_noise_measurement: None,
             photo_placement: None,
+            flare_samples: None,
             drag_effects: DragEffects::default(),
         }
     }
@@ -6928,6 +6956,7 @@ fn get_all_adjustments_with_locals<'a>(
         lut_file_stage: versions.lut.file_stage(),
         color_noise_measurement: None,
         photo_placement: None,
+        flare_samples: None,
         drag_effects: DragEffects::default(),
         uniforms: Box::new(AllAdjustments {
             global,
