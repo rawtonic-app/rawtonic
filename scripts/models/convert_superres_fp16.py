@@ -12,10 +12,10 @@ asks to indicate them): the weights are rounded to fp16 (the converter
 raises magnitudes below 1e-7 to 1e-7; that touches one weight, 4.5e-8) and
 the network computes in fp16. Same weights and average otherwise.
 
-On an RTX 3080 the 24 -> 96 MP enlargement took 8.2 s with CUDA instead of
-11.9-12.2 s and 15.9 s with WebGPU instead of 22.4 s, PSNR 75 dB against the
-fp32 graph at 16 bit, at most one 8-bit code (notes:
-benchmark-results/cuda1-2026-11-20/REPORT.md, srf16-2026-11-20/REPORT.md).
+On an RTX 3080 (Linux) a 45 MP photo's enlargement took 15.4 s with CUDA
+instead of 22.2 s and 29.0 s with WebGPU instead of 40.4 s; 16-bit exports
+differ from the fp32 graph's by PSNR 75 / 73 dB, at most 1 / 2 8-bit codes
+(docs/benchmark-results/srf16-superres-fp16-2026-11-20/REPORT.md).
 ONNX Runtime's CPU provider has no fp16 convolution on x86 and casts back
 to fp32, so the app uses this graph only on a GPU provider.
 

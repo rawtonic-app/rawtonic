@@ -51,10 +51,11 @@ pub const CPU_ONNX_SHA256: &str =
 
 /// The same graph with fp16 weights and compute, fp32 input and output
 /// (`scripts/models/convert_superres_fp16.py`), for GPU providers only: on
-/// an RTX 3080 24 -> 96 MP took 8.2 s with CUDA instead of 12 s and 15.9 s
-/// with WebGPU instead of 22.4 s, at most one 8-bit code from the fp32
-/// graph (notes: benchmark-results/cuda1-2026-11-20/REPORT.md,
-/// srf16-2026-11-20/REPORT.md). Packs before pack-2026-11-20 lack it.
+/// an RTX 3080 (Linux) a 45 MP photo took 15.4 s with CUDA instead of
+/// 22.2 s and 29.0 s with WebGPU instead of 40.4 s, at most 1 (CUDA) and 2
+/// (WebGPU) 8-bit codes from the fp32 graph
+/// (`docs/benchmark-results/srf16-superres-fp16-2026-11-20/REPORT.md`).
+/// Packs before pack-2026-11-20 lack it.
 pub const GPU_ONNX_FILE: &str = "superres_compact_x2_fp16.onnx";
 pub const GPU_ONNX_SHA256: &str =
     "4ee4e846aebe963d9739cca170df56b6b13f0fb6f604483d284ac227d250289d";
