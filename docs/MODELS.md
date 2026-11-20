@@ -61,7 +61,7 @@ weights tensor by tensor.
 | `siglip2_text_ext.onnx` + `siglip2_text_ext.onnx.data` (with `siglip2_vision.onnx`, `siglip2_tokenizer.json`) | Content search (Library search box, *Content* mode) | `siglip2_text.onnx` (below) with its weights saved as ONNX external data by `scripts/models/external_data.py`: same graph and weights, outputs bit-identical (checked by the script and by `build_model_pack.py`), reproducible (same SHA-256 in two runs). ONNX Runtime maps the data file instead of copying it, so the loaded text encoder takes +0.35 GB instead of +2.68 GB (notes: benchmark-results/srs-search-ceiling-2026-11-03 § SRS2). Downloaded only on the user's click; the user's own tags still load `siglip2_text.onnx`. | Apache-2.0 | Added to pack-2026-11-07 on 2026-11-07 (additive extension, user decision: only while no released app points to that pack) |
 | `siglip2_vision.onnx`, `siglip2_tags.bin` (+ `siglip2_text.onnx`, `siglip2_tokenizer.json` for own tags) | Auto tags | Rawtonic's export of Google's SigLIP 2 B/16 (`google/siglip2-base-patch16-224`, revision 75de2d5) by `scripts/models/export_siglip2.py`; reproducible (same SHA-256 in two exports). Replaced the inherited CLIP (OpenAI ViT-B/32, model card: deployed use "out of scope") on 2026-10-08. | Apache-2.0 | In the pack |
 | `nlmf_coreml_*` (Core ML package), `nlmf.onnx` | AI Denoise (Detail → Noise reduction) | Nonlocal MatchFilter (Sánchez-Beeckman and Buades, MIT), Core ML and ONNX conversions by sheldonxxxx/RapidRAW-Nonlocal-Denoise at revision af6bf36, unchanged (hashes from its `distribution.json`) | MIT | In the pack |
-| `nlmf_mixed640_macos13_coreml_*` (Core ML package) | AI Denoise versions 3 and 4 on macOS | The same MatchFilter checkpoint (authors' release v1.0.0, SHA-256 pinned) converted by `scripts/models/convert_nlmf_coreml.py`: mixed precision (convolutions fp16, matching fp32), 640 px tiles, Core ML for macOS 13 like the app, through RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW `denoise/`, commit 2375e17); reproducible. Versions 3 and 4 (4 is the default for new RAW edits) run it; version 1 and 2 recipes keep `nlmf_coreml_*`. A macOS 15 build of it (`nlmf_mixed640_coreml_*`, same weights, same results on macOS 26) went into pack-2026-10-18 first and is used by no build. | MIT | In the pack (from pack-2026-10-18) |
+| `nlmf_mixed640_macos13_coreml_*` (Core ML package) | AI Denoise versions 3 to 5 on macOS | The same MatchFilter checkpoint (authors' release v1.0.0, SHA-256 pinned) converted by `scripts/models/convert_nlmf_coreml.py`: mixed precision (convolutions fp16, matching fp32), 640 px tiles, Core ML for macOS 13 like the app, through RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW `denoise/`, commit 2375e17); reproducible. Versions 3 and 4 (4 is the default for new RAW edits) run it; version 1 and 2 recipes keep `nlmf_coreml_*`. A macOS 15 build of it (`nlmf_mixed640_coreml_*`, same weights, same results on macOS 26) went into pack-2026-10-18 first and is used by no build. | MIT | In the pack (from pack-2026-10-18) |
 | `skyseg_upernet_convnext_t.onnx` | Sky mask | Rawtonic's export of UperNet + ConvNeXt-T on ADE20K (Meta's checkpoint from facebookresearch/ConvNeXt, MIT; transformers conversion `openmmlab/upernet-convnext-tiny`, revision 876ffc5) by `scripts/models/export_sky.py`; sky probability of ADE20K class 2, fp16 storage, reproducible (same SHA-256 in two exports). | MIT (Meta) | In the pack since 2026-10-09 |
 | `skyseg_coreml_*` (Core ML package: `Manifest.json`, `model.mlmodel`, `weight.bin`) | Sky mask on macOS (fast path) | The same UperNet + ConvNeXt-T checkpoint and revision converted from PyTorch with coremltools 9.0 by `scripts/models/convert_sky_coreml.py` (the export's graph; ML program, fp32, 237 MB; reproducible with `PYTHONHASHSEED=0`: same SHA-256 in three conversions). Probabilities equal to PyTorch's (largest difference < 1e-4, mask IoU 1.0 on 13 photos), 0.06 s on the GPU of an M5 Pro against 0.35-0.8 s on the CPU. Downloaded on macOS for the first Sky mask (before 2026-10-19 only `install_models.sh` installed them); if Core ML fails, the app uses the ONNX model. | MIT | Built 2026-10-10, in the pack |
 | `skyseg-u2net.onnx` | Sky mask (inherited) | Byte-identical to `JianyuanWang/skyseg` (a re-upload tagged MIT); originally from xiongzhu666's Sky-Segmentation repo (MIT code). The author states the model was trained on ADE20K plus private company data; the README does not license the ONNX file. | Unclear | Replaced 2026-10-09 |
@@ -1101,6 +1101,30 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   apart for each level (the same cast, 0.95 / 0.95 / 0.99 on the 60
   pairs, with more colour noise at ISO 12800+, 0.55 / 0.81 / 0.88 of
   version 3 against 0.53 / 0.71 / 0.81, and three times the code).
+  **AI Denoise version 5 (2026-11-21, macOS, M4 Pro; notes:
+  benchmark-results/dnz1-2026-11-19, task DNZ1).** Version 4 with slider
+  50 at 0.955 × the photo's noise (was 0.8 ×; 100 stays 1.25 ×). Against
+  Camera Raw 19.0 Denoise 50 on DNC1's ten RawNIND frames (5 bodies, ISO
+  6400–51200; each editor against its own clean render) version 4's 50
+  left 2.1× the flat-area noise. The equal flat-noise scale groups by
+  body, not by ISO or the noise estimate (α7C 0.96–1.05, EOS 6D 0.88–0.89,
+  7D / M100 / Z 6 0.98), so one constant: 0.955, fitted on five frames
+  (sharpening 0 and 40). Held out (five frames, sharpening 0 / 40, medians
+  of Rawtonic / Camera Raw): flat-area noise 1.30 / 1.13 (version 4 2.42 /
+  2.02), lightness error 1.29 / 1.15 (1.71 / 1.68), finest detail 0.97 /
+  0.99, colour error 0.92. Seven other RawNIND scenes against Camera Raw
+  18.7 Denoise 50 (sharpening 40, geometric means): flat noise 1.03 vs
+  1.30, lightness error 2.01 vs 2.05, finest detail 0.739 vs 0.778 (version
+  4: 1.72 / 2.65 / 0.763). Capture One 16.9.1 Enhanced Denoise 50 is
+  stronger still (flat noise 0.51 at sharpening 0; equal for Rawtonic at a
+  scale of about 1.2, i.e. slider ≈ 95). At equal flat noise Rawtonic's
+  lightness error stays +6 % / +4 % above Camera Raw's, finest detail
+  0.955 / 0.995; transposed self-ensemble, tile halo 16–80, luminance noise
+  reduction after the network and the noise model's read term ×0.5 / ×2
+  do not close it (the network's limit). Speed on the M4 Pro (Core ML):
+  1.15 s per 640 px tile on the GPU, 2.97 s on the Neural Engine, 2.72 s
+  with all units, 1.10 s with reduced-precision accumulation; 24 tiles per
+  24 MP, about 28 s, against Camera Raw's ≈ 10 s.
   Candidates measured for better fine texture, all with weights under MIT
   from their authors, on the same six scenes through Rawtonic's pipeline:
   DRUNet (KAIR, MIT) on the packed mosaic after a variance-stabilising

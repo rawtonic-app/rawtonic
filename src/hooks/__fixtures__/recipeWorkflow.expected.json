@@ -3775,7 +3775,7 @@
   "requestedFrame": 3,
   "savedJson": {
    "aiDenoise": 0,
-   "aiDenoiseVersion": 4,
+   "aiDenoiseVersion": 5,
    "aiPatches": [],
    "aspectRatio": 1.3333333333333333,
    "autoCaVersion": 3,
@@ -4168,7 +4168,7 @@
   "requestedFrame": 0,
   "savedJson": {
    "aiDenoise": 0,
-   "aiDenoiseVersion": 4,
+   "aiDenoiseVersion": 5,
    "aiPatches": [],
    "aspectRatio": 1.3333333333333333,
    "autoCaVersion": 3,
@@ -4558,7 +4558,7 @@
   "requestedFrame": 3,
   "savedJson": {
    "aiDenoise": 0,
-   "aiDenoiseVersion": 4,
+   "aiDenoiseVersion": 5,
    "aiPatches": [],
    "aspectRatio": 1.3333333333333333,
    "autoCaVersion": 3,
@@ -4951,7 +4951,7 @@
   "requestedFrame": 0,
   "savedJson": {
    "aiDenoise": 0,
-   "aiDenoiseVersion": 4,
+   "aiDenoiseVersion": 5,
    "aiPatches": [],
    "aspectRatio": 1.3333333333333333,
    "autoCaVersion": 3,
@@ -5344,7 +5344,7 @@
   "requestedFrame": 0,
   "savedJson": {
    "aiDenoise": 0,
-   "aiDenoiseVersion": 4,
+   "aiDenoiseVersion": 5,
    "aiPatches": [],
    "aspectRatio": 1.3333333333333333,
    "autoCaVersion": 3,
@@ -5733,7 +5733,7 @@
   "requestedFrame": 3,
   "savedJson": {
    "aiDenoise": 0,
-   "aiDenoiseVersion": 4,
+   "aiDenoiseVersion": 5,
    "aiPatches": [],
    "aspectRatio": 1.3333333333333333,
    "autoCaVersion": 3,
@@ -6127,7 +6127,7 @@
   "requestedFrame": 0,
   "savedJson": {
    "aiDenoise": 0,
-   "aiDenoiseVersion": 4,
+   "aiDenoiseVersion": 5,
    "aiPatches": [],
    "aspectRatio": 1.3333333333333333,
    "autoCaVersion": 3,
@@ -6785,7 +6785,7 @@
   "requestedFrame": 3,
   "savedJson": {
    "aiDenoise": 0,
-   "aiDenoiseVersion": 4,
+   "aiDenoiseVersion": 5,
    "aiPatches": [],
    "aspectRatio": 1.3333333333333333,
    "autoCaVersion": 3,
@@ -7180,7 +7180,7 @@
   "requestedFrame": 0,
   "savedJson": {
    "aiDenoise": 0,
-   "aiDenoiseVersion": 4,
+   "aiDenoiseVersion": 5,
    "aiPatches": [],
    "aspectRatio": 1.3333333333333333,
    "autoCaVersion": 3,

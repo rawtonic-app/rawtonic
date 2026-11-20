@@ -930,6 +930,9 @@ pub const MIXED_PRECISION_AI_DENOISE_VERSION: u8 = 3;
 /// The AI Denoise version whose result keeps the sensor's local means
 /// (`MosaicDenoise::sensor_means`).
 pub const SENSOR_MEANS_AI_DENOISE_VERSION: u8 = 4;
+/// The AI Denoise version whose slider 50 tells the network 0.955 × the
+/// photo's noise instead of 0.8 (`image_loader::ai_denoise_settings`).
+pub const STRONGER_50_AI_DENOISE_VERSION: u8 = 5;
 
 /// `aiDenoiseVersion` (`image_loader::AI_DENOISE_VERSION`): 1 when missing,
 /// never newer than this renderer knows.
@@ -965,6 +968,11 @@ impl AiDenoiseVersion {
     /// Keeps the sensor's local means in the network's result.
     pub fn sensor_means(self) -> bool {
         self.0 >= SENSOR_MEANS_AI_DENOISE_VERSION
+    }
+
+    /// Tells the network 0.955 × the photo's noise at slider 50.
+    pub fn stronger_50(self) -> bool {
+        self.0 >= STRONGER_50_AI_DENOISE_VERSION
     }
 }
 

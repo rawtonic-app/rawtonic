@@ -56,9 +56,10 @@ pub use rawtonic_metadata::provenance::{
 };
 
 /// The AI Denoise version new edits get (`aiDenoiseVersion`; recipes
-/// without the key are version 1): 4, the mixed-precision model (in the
-/// model pack since pack-2026-10-18) with the sensor's local means kept.
-pub const AI_DENOISE_VERSION: u8 = 4;
+/// without the key are version 1): 5, the mixed-precision model (in the
+/// model pack since pack-2026-10-18) with the sensor's local means kept and
+/// slider 50 at Camera Raw Denoise 50's strength.
+pub const AI_DENOISE_VERSION: u8 = 5;
 
 /// How a recipe's AI Denoise develops the mosaic.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -68,7 +69,8 @@ pub struct AiDenoiseSettings {
     /// first (full-precision) model. 3 is 2's mapping on the faster
     /// mixed-precision model. 4 is 3 with the sensor's local means kept in
     /// the network's result (`sensor_means`): the same model and the same
-    /// cached results. Each version has one model, so a saved recipe
+    /// cached results. 5 is 4 with a stronger slider 50
+    /// (`V5_SCALE_AT_50`). Each version has one model, so a saved recipe
     /// renders the same whatever models are installed.
     pub version: u8,
     /// Share of the network's result kept (`MosaicDenoise::amount`).
@@ -87,11 +89,24 @@ const V2_SCALE_AT_50: f32 = 0.8;
 /// Noise scale of version 2 at slider 100 (×1.25 the photo's: smoother,
 /// for the noisiest files); 75 is the network as trained (scale 1).
 const V2_SCALE_AT_100: f32 = 1.25;
+/// Noise scale of version 5 at slider 50. Version 4's 0.8 had become
+/// clearly weaker than Camera Raw 19.0 Denoise 50 (flat-area noise 2.1×
+/// on ten RawNIND frames, ISO 6400–51200); 0.955 is the equal flat-noise
+/// scale fitted on five of them (sharpening 0 and 40). On the five held
+/// out: flat-area noise 1.30× / 1.13× Camera Raw's at sharpening 0 / 40
+/// (version 4: 2.42× / 2.02×), lightness error 1.29× / 1.15× (1.71× /
+/// 1.68×), finest detail kept 0.97× / 0.99×; on seven other scenes against
+/// Camera Raw 18.7 Denoise 50 (sharpening 40): flat noise 1.03 vs 1.30,
+/// lightness error 2.01 vs 2.05, finest detail 0.739 vs 0.778 (notes:
+/// benchmark-results/dnz1-2026-11-19). Slider 100 stays at
+/// `V2_SCALE_AT_100`, about Capture One Enhanced Denoise 50's strength.
+const V5_SCALE_AT_50: f32 = 0.955;
 
 /// The recipe's AI Denoise, or `None` when it is off (`ai_denoise_amount`).
 /// Version 2: up to 50 the slider blends in the network's result at
-/// `V2_SCALE_AT_50` (at 50 fully), above 50 the full result at a noise
-/// scale growing geometrically to `V2_SCALE_AT_100`. A noise scale below 1
+/// `V2_SCALE_AT_50` (version 5: `V5_SCALE_AT_50`; at 50 fully), above 50
+/// the full result at a noise scale growing geometrically to
+/// `V2_SCALE_AT_100`. A noise scale below 1
 /// keeps more fine detail than blending at the same flat-area noise.
 pub fn ai_denoise_settings(adjustments: &Value) -> Option<AiDenoiseSettings> {
     let amount = ai_denoise_amount(adjustments);
@@ -100,6 +115,11 @@ pub fn ai_denoise_settings(adjustments: &Value) -> Option<AiDenoiseSettings> {
     }
     let version = crate::recipe_versions::AiDenoiseVersion::of(adjustments);
     let blend_only = version.blend_only();
+    let at_50 = if version.stronger_50() {
+        V5_SCALE_AT_50
+    } else {
+        V2_SCALE_AT_50
+    };
     let version = version.get();
     Some(if blend_only {
         AiDenoiseSettings {
@@ -111,14 +131,14 @@ pub fn ai_denoise_settings(adjustments: &Value) -> Option<AiDenoiseSettings> {
         AiDenoiseSettings {
             version,
             blend: amount / 0.5,
-            noise_scale: V2_SCALE_AT_50,
+            noise_scale: at_50,
         }
     } else {
         let t = (amount - 0.5) / 0.5;
         AiDenoiseSettings {
             version,
             blend: 1.0,
-            noise_scale: V2_SCALE_AT_50 * (V2_SCALE_AT_100 / V2_SCALE_AT_50).powf(t),
+            noise_scale: at_50 * (V2_SCALE_AT_100 / at_50).powf(t),
         }
     })
 }
@@ -2176,7 +2196,7 @@ mod ai_denoise_tests {
             ai_denoise_settings(&json!({ "aiDenoise": 50, "aiDenoiseVersion": 9 }))
                 .unwrap()
                 .version,
-            4
+            5
         );
         // Version 3: the same mapping on the mixed-precision model.
         let v3 = ai_denoise_settings(&json!({ "aiDenoise": 50, "aiDenoiseVersion": 3 })).unwrap();
@@ -2188,6 +2208,19 @@ mod ai_denoise_tests {
         assert_eq!((v4.blend, v4.noise_scale, v4.model()), (1.0, 0.8, 1));
         assert!(v4.sensor_means());
         assert!(!v3.sensor_means() && !at(50.0).sensor_means() && !v1.sensor_means());
+        // Version 5: version 4 with 50 at 0.955 × the photo's noise; below
+        // 50 a blend of that result, 100 still 1.25 ×.
+        let v5 = |v: f64| {
+            ai_denoise_settings(&json!({ "aiDenoise": v, "aiDenoiseVersion": 5 })).unwrap()
+        };
+        assert_eq!((v5(50.0).blend, v5(50.0).noise_scale), (1.0, 0.955));
+        assert_eq!((v5(25.0).blend, v5(25.0).noise_scale), (0.5, 0.955));
+        assert!((v5(100.0).noise_scale - 1.25).abs() < 1e-6);
+        assert!((v5(75.0).noise_scale - (0.955f32 * 1.25).sqrt()).abs() < 1e-6);
+        assert!(v5(50.0).sensor_means());
+        assert_eq!(v5(50.0).model(), 1);
+        // Versions 2 to 4 keep their mapping.
+        assert!((at(75.0).noise_scale - 1.0).abs() < 1e-6 && v4.noise_scale == 0.8);
     }
 }
 

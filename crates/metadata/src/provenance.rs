@@ -111,7 +111,12 @@ pub fn ai_denoise_amount(adjustments: &Value) -> f32 {
 }
 
 /// The newest AI Denoise version this build renders.
-pub const AI_DENOISE_LATEST: u8 = 4;
+pub const AI_DENOISE_LATEST: u8 = 5;
+
+/// The oldest AI Denoise version the Library does not call older
+/// (`OLDER_DENOISE`): 5 only re-maps 4's slider (the same model and result
+/// at the same noise scale), so a version 4 edit is not one to update.
+pub const AI_DENOISE_CURRENT_MODEL: u8 = 4;
 
 /// Sub-mask types of the inherited patches that no model makes: clone and
 /// heal copy pixels, liquify warps them, retouch smooths them.
@@ -207,8 +212,8 @@ pub const PENDING_DETECTION: u32 = 1 << 7;
 /// A shown model patch without its pixels (a fill that never finished):
 /// it changes nothing until it is filled again.
 pub const MISSING_FILL: u32 = 1 << 8;
-/// AI Denoise at an older version than this build's newest
-/// (`AI_DENOISE_LATEST`; kept so saved recipes render as before).
+/// AI Denoise at a version older than `AI_DENOISE_CURRENT_MODEL` (kept
+/// so saved recipes render as before).
 pub const OLDER_DENOISE: u32 = 1 << 9;
 
 /// Every fact with its rule name, in the order the Library lists them.
@@ -291,7 +296,9 @@ pub fn ai_facts(adjustments: &Value) -> u32 {
     }
     if ai_denoise_amount(adjustments) > 0.0 {
         facts |= AI_DENOISE;
-        if adjustments["aiDenoiseVersion"].as_u64().unwrap_or(1) < u64::from(AI_DENOISE_LATEST) {
+        if adjustments["aiDenoiseVersion"].as_u64().unwrap_or(1)
+            < u64::from(AI_DENOISE_CURRENT_MODEL)
+        {
             facts |= OLDER_DENOISE;
         }
     }
@@ -397,6 +404,10 @@ mod tests {
         assert_eq!(ai_facts(&brush), 0);
         assert_eq!(
             ai_facts(&json!({"aiDenoise": 40, "aiDenoiseVersion": 4})),
+            AI_DENOISE
+        );
+        assert_eq!(
+            ai_facts(&json!({"aiDenoise": 40, "aiDenoiseVersion": 5})),
             AI_DENOISE
         );
         assert_eq!(
