@@ -233,6 +233,9 @@ pub struct GpuImageCache {
     /// (`colorNoiseVersion` 11, `Tuning::gpu_pyramid`), built on first use;
     /// exports free it once their level 1 is rebuilt.
     chroma_levels: Option<Box<GpuPyramid>>,
+    /// The measurement `chroma` filters with instead of its own (`PreparedAdjustments::color_noise_measurement`: the source
+    /// is a region of a photograph); `None`: their own.
+    chroma_given: Option<Box<color_noise::NoiseMeasurement>>,
     /// The foreground source before this one, while it is small: drag drafts
     /// render from a smaller copy than the final frame, and each switch
     /// uploaded the source again, rebuilt its chroma pyramid and freed GPU
@@ -653,6 +656,9 @@ pub struct GpuPyramid {
     sizes: Vec<[u32; 2]>,
     /// The photo's colour and luminance noise.
     measured: color_noise::NoiseMeasurement,
+    /// Whether `measured` is another photograph's (the whole photograph the
+    /// source is a region of, `PreparedAdjustments::color_noise_measurement`).
+    given: bool,
 }
 
 impl GpuPyramid {
@@ -824,6 +830,7 @@ impl GpuPyramid {
             levels,
             sizes,
             measured,
+            given: false,
         }))
     }
 
@@ -1851,6 +1858,12 @@ fn rebuild_color_noise_ahead(
     }
     let settings = color_noise_settings(&mut global)?;
     let pyramid = cache.chroma.as_ref()?;
+    // A region's pyramid takes the whole photograph's measurement
+    // (`prepare_color_noise`), not yet applied to the cached one.
+    let given = adjustments.color_noise_measurement.as_deref().copied();
+    if given.is_some_and(|m| m != pyramid.measurement()) {
+        return None;
+    }
     if luma_profile {
         set_luma_profile(&mut global, pyramid);
     }
@@ -1892,6 +1905,7 @@ fn prepare_color_noise(
     interactive: bool,
     rebuilt: Option<RebuiltChroma>,
 ) -> Result<Option<(wgpu::TextureView, wgpu::TextureView)>, String> {
+    let given = adjustments.color_noise_measurement.as_deref().copied();
     let global = &mut adjustments.uniforms.global;
     let luma_profile = luma_profile_wanted(global);
     let versioned = color_noise_tuning(global);
@@ -1935,6 +1949,30 @@ fn prepare_color_noise(
                 ChromaPyramid::build_for(image, global.is_raw_image != 0, &versioned.1)
             })
             .map(Arc::new);
+        cache.chroma_given = None;
+    }
+    // A region of a photograph filters with the whole photograph's
+    // measurement, so that it renders as those pixels of the whole do.
+    if given != cache.chroma_given.as_deref().copied() {
+        cache.chroma_gpu = None;
+        match (given, cache.chroma.as_ref()) {
+            (Some(given), Some(pyramid)) => {
+                cache.chroma = Some(Arc::new(pyramid.with_measurement(&given)));
+                cache.chroma_given = Some(Box::new(given));
+            }
+            (Some(_), None) => {}
+            // Its own measurement again: built again from the source.
+            (None, _) => {
+                if source.is_some() {
+                    cache.chroma = source
+                        .and_then(|image| {
+                            ChromaPyramid::build_for(image, global.is_raw_image != 0, &versioned.1)
+                        })
+                        .map(Arc::new);
+                    cache.chroma_given = None;
+                }
+            }
+        }
     }
     let Some(pyramid) = cache.chroma.clone() else {
         log::warn!("No chroma pyramid for the render source; colour noise reduction falls back");
@@ -2020,12 +2058,19 @@ fn prepare_color_noise_on_gpu(
     (settings, luma_profile): (Option<color_noise::Settings>, bool),
     versioned: (u64, color_noise::Tuning),
 ) -> Result<Option<(wgpu::TextureView, wgpu::TextureView)>, String> {
+    let given = adjustments.color_noise_measurement.as_deref().copied();
     let global = &mut adjustments.uniforms.global;
     let is_raw = global.is_raw_image != 0;
     if cache.chroma_gpu.as_ref().is_some_and(|chroma| !chroma.gpu) {
         cache.chroma_gpu = None;
     }
     let pipelines = processor.chroma_pipelines.as_ref();
+    // Levels that filter with another photograph's measurement are measured
+    // again from the source when their own is wanted.
+    if given.is_none() && cache.chroma_levels.as_ref().is_some_and(|p| p.given) {
+        cache.chroma_levels = None;
+        cache.chroma_gpu = None;
+    }
     if cache.chroma_levels.is_none()
         && let Some(pipelines) = pipelines
     {
@@ -2043,6 +2088,15 @@ fn prepare_color_noise_on_gpu(
         )
         .inspect_err(|e| log::error!("Colour noise pyramid failed: {e}"))?
         .map(Box::new);
+    }
+    // A region of a photograph filters with the whole photograph's
+    // measurement, so that it renders as those pixels of the whole do.
+    if let (Some(given), Some(pyramid)) = (given, cache.chroma_levels.as_deref_mut())
+        && pyramid.measured != given
+    {
+        pyramid.measured = given;
+        pyramid.given = true;
+        cache.chroma_gpu = None;
     }
     // Without its passes (they failed to compile with the processor, which
     // logged it) or for photos too small to filter, as without a pyramid on
@@ -12744,6 +12798,7 @@ pub fn upload_render_source(
             chroma,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare: None,
         }),
         None,
@@ -12800,6 +12855,7 @@ pub fn upload_fringed_render_source(
             chroma: None,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare: None,
         }),
         None,
@@ -12902,6 +12958,7 @@ pub fn upload_warped_render_source(
             chroma: None,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare: None,
         }),
         None,
@@ -13185,9 +13242,14 @@ fn render_in_windows(
     let tuning = versioned.1;
     let luma_profile = luma_profile_wanted(&request.adjustments.uniforms.global);
     let settings = color_noise_settings(&mut request.adjustments.uniforms.global);
+    let given = request.adjustments.color_noise_measurement.as_deref().copied();
     let pyramid = (settings.is_some() || luma_profile)
         .then(|| ChromaPyramid::build_for(image, is_raw, &tuning))
-        .flatten();
+        .flatten()
+        .map(|pyramid| match given {
+            Some(given) => pyramid.with_measurement(&given),
+            None => pyramid,
+        });
     if luma_profile && let Some(pyramid) = &pyramid {
         set_luma_profile(&mut request.adjustments.uniforms.global, pyramid);
     }
@@ -13498,6 +13560,72 @@ fn lock_processor<'a>(
     }
 
     Ok(processor_lock)
+}
+
+/// A region of a photograph renders as the same pixels of the whole
+/// photograph's render with the multi-scale colour noise reduction when its
+/// origin lies on this grid of the whole render's pixels (the pyramid's
+/// coarsest level samples every 32nd pixel), it is given the whole
+/// photograph's measurement ([`measure_color_noise`]) and its source reaches
+/// [`REGION_NOISE_MARGIN`] px beyond what it shows (notes:
+/// benchmark-results/nrr1-2026-11-20/REPORT.md).
+pub const REGION_NOISE_GRID: u32 = 1 << color_noise::LEVELS;
+
+/// Source pixels a region needs beyond what it shows for the multi-scale
+/// colour noise reduction to reach the whole render's values (≤ 1 code from
+/// 128 px at every amount; NRR1), with a margin.
+pub const REGION_NOISE_MARGIN: u32 = 160;
+
+/// Whether a render with `global` takes a noise measurement of its source:
+/// the multi-scale colour noise reduction, or the luminance noise
+/// reduction's noise profile.
+pub fn measures_noise(global: &crate::image_processing::GlobalAdjustments) -> bool {
+    let mut copy = *global;
+    color_noise_settings(&mut copy).is_some() || luma_profile_wanted(global)
+}
+
+/// The colour noise measurement of `image` as a render of it with
+/// `adjustments` takes it (its `colorNoiseVersion`: on the GPU from the
+/// uploaded texels for version 11, else on the CPU), for renders of regions
+/// of `image` (`PreparedAdjustments::color_noise_measurement`). `None` when
+/// the image is too small to filter or the GPU has no pyramid passes.
+pub fn measure_color_noise(
+    context: &GpuContext,
+    processor_slot: &GpuProcessorSlot,
+    image: &DynamicImage,
+    adjustments: &crate::image_processing::PreparedAdjustments,
+    caller_id: &str,
+) -> Result<Option<color_noise::NoiseMeasurement>, String> {
+    let global = &adjustments.uniforms.global;
+    let is_raw = global.is_raw_image != 0;
+    let (_, tuning) = color_noise_tuning(global);
+    if !tuning.gpu_pyramid {
+        return Ok(ChromaPyramid::build_for(image, is_raw, &tuning).map(|p| p.measurement()));
+    }
+    let (width, height) = image.dimensions();
+    let max_dim = context.limits.max_texture_dimension_2d;
+    if width > max_dim || height > max_dim {
+        return Err(texture_limit_error(width, height, max_dim));
+    }
+    let measure = || {
+        let processor_lock = lock_processor(
+            context,
+            processor_slot,
+            max_dim,
+            max_dim,
+            foreground_turn(caller_id, false),
+        )?;
+        let processor = &processor_lock.as_ref().unwrap().processor;
+        let Some(pipelines) = processor.chroma_pipelines.as_ref() else {
+            return Ok(None);
+        };
+        let texture =
+            create_input_texture(&context.device, &context.queue, image, INPUT_UPLOAD_BAND_ROWS)?;
+        let view = texture.create_view(&Default::default());
+        Ok(GpuPyramid::build(context, pipelines, &view, width, height, is_raw)?
+            .map(|pyramid| pyramid.measured))
+    };
+    processor_slot.scoped(|| gpu_scoped(&context.device, measure).and_then(|measured| measured))
 }
 
 pub enum RenderSource<'a> {
@@ -13991,6 +14119,7 @@ fn render_dynamic_image(
             chroma: None,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare,
         });
     }

@@ -18934,6 +18934,164 @@ fn render_source(
     .unwrap()
 }
 
+/// `profile` rendered from `image` (8-bit), with `measurement` given.
+fn render_region_source(
+    context: &GpuContext,
+    image: &DynamicImage,
+    profile: &serde_json::Value,
+    measurement: Option<rawtonic_engine::color_noise::NoiseMeasurement>,
+) -> image::RgbaImage {
+    let processor = ProcessorSlot::new(None);
+    let cache = Mutex::new(None);
+    let mut adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+    adjustments.color_noise_measurement = measurement.map(Box::new);
+    process_and_get_dynamic_image_inner(
+        context,
+        &processor,
+        &cache,
+        RenderSource::Image {
+            image,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments,
+            mask_bitmaps: &[],
+            lut: None,
+            roi: None,
+        },
+        "test",
+        RenderOutputPrecision::EightBit,
+        false,
+        None,
+        None,
+        ReadbackShader::Export,
+    )
+    .unwrap()
+    .to_rgba8()
+}
+
+/// Differences (max, p99, mean in codes) of `region` rendered from its own
+/// pixels against the same pixels of `whole`, leaving out `inset` px at the
+/// region's sides inside the photograph.
+fn region_differences(
+    whole: &image::RgbaImage,
+    region: &image::RgbaImage,
+    (x0, y0): (u32, u32),
+    inset: u32,
+) -> (i32, i32, f64) {
+    let (w, h) = region.dimensions();
+    let left = if x0 == 0 { 0 } else { inset };
+    let top = if y0 == 0 { 0 } else { inset };
+    let right = if x0 + w == whole.width() { w } else { w - inset };
+    let bottom = if y0 + h == whole.height() { h } else { h - inset };
+    let mut diffs = Vec::new();
+    for y in top..bottom {
+        for x in left..right {
+            let (a, b) = (region.get_pixel(x, y), whole.get_pixel(x0 + x, y0 + y));
+            for c in 0..3 {
+                diffs.push((a[c] as i32 - b[c] as i32).abs());
+            }
+        }
+    }
+    let mean = diffs.iter().map(|d| *d as f64).sum::<f64>() / diffs.len() as f64;
+    diffs.sort_unstable();
+    (
+        diffs[diffs.len() - 1],
+        diffs[(diffs.len() - 1) * 99 / 100],
+        mean,
+    )
+}
+
+/// A noisy frame with a brightness ramp (the noise profile has several
+/// bins).
+fn ramped_chroma_noise_frame(width: u32, height: u32) -> DynamicImage {
+    let rgb = chroma_noise_frame(width, height).to_rgb32f();
+    DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let k = 0.15 + 1.5 * x as f32 / width as f32 + 0.3 * (y as f32 / height as f32);
+        image::Rgb(rgb.get_pixel(x, y).0.map(|v| v * k))
+    }))
+}
+
+/// A region of a photograph (the multi-view cells and the second window
+/// zoomed in) renders as the same pixels of the whole photograph with the
+/// colour noise reduction on when it is given the whole photograph's
+/// measurement, its origin lies on `REGION_NOISE_GRID` and it reaches
+/// `REGION_NOISE_MARGIN` beyond what is compared: within 1 code, as without
+/// the filter. Measured on its own (the region's measurement) or off the
+/// grid, it differed by up to 6–10 codes (NRR1).
+#[test]
+#[ignore = "requires a native GPU"]
+fn regions_filter_colour_noise_as_the_whole_photograph() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let image = ramped_chroma_noise_frame(fw, fh);
+    let margin = REGION_NOISE_MARGIN;
+    // Inside, and reaching the photograph's right and bottom edges.
+    let crops = [(512, 352, 1408, 1088), (1344, 960, 1056, 840)];
+    for profile in [
+        json!({ "colorNoiseReduction": 25, "colorNoiseVersion": 11 }),
+        json!({ "colorNoiseReduction": 100, "colorNoiseVersion": 11 }),
+        json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 10 }),
+    ] {
+        let whole = render_region_source(&context, &image, &profile, None);
+        let processor = ProcessorSlot::new(None);
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        assert!(measures_noise(&adjustments.global));
+        let measured = measure_color_noise(&context, &processor, &image, &adjustments, "test")
+            .unwrap()
+            .expect("a measurement");
+        for (x, y, w, h) in crops {
+            assert_eq!((x % REGION_NOISE_GRID, y % REGION_NOISE_GRID), (0, 0));
+            let crop = image.crop_imm(x, y, w, h);
+            let region = render_region_source(&context, &crop, &profile, Some(measured));
+            let (max, p99, mean) = region_differences(&whole, &region, (x, y), margin);
+            let own = render_region_source(&context, &crop, &profile, None);
+            let (own_max, ..) = region_differences(&whole, &own, (x, y), margin);
+            println!(
+                "{profile} region {x},{y} {w}x{h}: max {max} p99 {p99} mean {mean:.3}; measured on its own max {own_max}"
+            );
+            assert!(max <= 1, "{profile} region {x},{y}: max {max}");
+        }
+        // Off the grid, the coarse levels sample other pixels (8–9 codes).
+        let (x, y, w, h) = (530, 333, 1408, 1088);
+        let region =
+            render_region_source(&context, &image.crop_imm(x, y, w, h), &profile, Some(measured));
+        let (max, ..) = region_differences(&whole, &region, (x, y), margin);
+        println!("{profile} region off the grid {x},{y}: max {max}");
+        assert!(max > 1, "off the grid the test no longer tells");
+    }
+    // Without a noise reduction nothing is measured.
+    let off = get_all_adjustments_from_json(&json!({ "colorNoiseReduction": 0 }), true, Some(1));
+    assert!(!measures_noise(&off.global));
+}
+
+/// Timing of the whole-photograph measurement a region takes
+/// (`measure_color_noise`) at 24 and 61 MP.
+#[test]
+#[ignore = "native GPU timing probe"]
+fn region_noise_measurement_cost_probe() {
+    let context = context();
+    let processor = ProcessorSlot::new(None);
+    let adjustments = get_all_adjustments_from_json(
+        &json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11 }),
+        true,
+        Some(1),
+    );
+    for (w, h) in [(6000, 4000), (9504, 6336)] {
+        let image = ramped_chroma_noise_frame(w, h);
+        for run in 0..3 {
+            let start = std::time::Instant::now();
+            let measured =
+                measure_color_noise(&context, &processor, &image, &adjustments, "test").unwrap();
+            println!(
+                "{w}x{h} run {run}: measured in {:.1} ms ({})",
+                start.elapsed().as_secs_f64() * 1e3,
+                measured.is_some()
+            );
+        }
+    }
+}
+
 /// The fit view's render input (`color_noise_view::reduced_render_input`)
 /// is the export's: at full size and rendered at Color 0 it is the export's
 /// render at Color 25 / 50 (up to the 16-bit float input of the second
@@ -19548,6 +19706,7 @@ fn multiscale_color_noise_latency_probe() {
                 chroma: None,
                 chroma_gpu: None,
                 chroma_levels: None,
+                chroma_given: None,
                 spare: None,
             };
             let mut times = Vec::new();
@@ -19704,6 +19863,7 @@ fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
                 chroma: None,
                 chroma_gpu: None,
                 chroma_levels: None,
+                chroma_given: None,
                 spare: None,
             };
             let profile = json!({"colorNoiseReduction": 60, "colorNoiseVersion": version});
@@ -19797,6 +19957,7 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
             chroma: None,
             chroma_gpu: None,
             chroma_levels: None,
+            chroma_given: None,
             spare: None,
         }
     };
@@ -19881,6 +20042,7 @@ fn chroma_test_source(context: &GpuContext, image: &DynamicImage) -> GpuImageCac
         chroma: None,
         chroma_gpu: None,
         chroma_levels: None,
+        chroma_given: None,
         spare: None,
     }
 }

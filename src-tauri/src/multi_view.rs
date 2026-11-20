@@ -752,6 +752,7 @@ pub(crate) async fn render_browser_view(
                     prepared.base.unscaled_crop_offset.1 * scale,
                 ),
                 mask_source: prepared.mask_source.as_ref(),
+                noise_measurement: None,
                 key: prepared.key,
                 caller: CELL_RENDER,
             },
@@ -1303,6 +1304,10 @@ struct DevelopInput<'a> {
     scale: f32,
     crop_offset: (f32, f32),
     mask_source: Option<&'a ParametricMaskSource>,
+    /// For a region: the whole photograph's noise measurement at its scale
+    /// ([`whole_noise_measurement`]), so that the noise reductions filter it
+    /// as they filter those pixels of the whole photograph.
+    noise_measurement: Option<rawtonic_engine::color_noise::NoiseMeasurement>,
     key: u64,
     /// Whose render it is at the GPU processor (`gpu_processing`'s turns):
     /// [`CELL_RENDER`] or [`LIVE_RENDER`].
@@ -1365,6 +1370,7 @@ fn develop_rgba(
     );
     adjustments.global.detail_scale = input.scale;
     adjustments.global.show_clipping = 0;
+    adjustments.color_noise_measurement = input.noise_measurement.map(Box::new);
     // Encoded for the window, as the live frame beside it.
     let space = context.display_space;
     adjustments.global.output_space[0] = space.shader_code();
@@ -1446,6 +1452,7 @@ fn develop(
                 prepared.base.unscaled_crop_offset.1 * scale,
             ),
             mask_source: prepared.mask_source.as_ref(),
+            noise_measurement: None,
             key: prepared.key,
             caller,
         },
@@ -1554,6 +1561,7 @@ pub(crate) fn develop_whole(
                 prepared.base.unscaled_crop_offset.1 * scale,
             ),
             mask_source: prepared.mask_source.as_ref(),
+            noise_measurement: None,
             key: prepared.key,
             caller: CELL_RENDER,
         },
@@ -2243,14 +2251,14 @@ fn prepare_region(
         dim,
         scale,
     )?;
-    let wanted =
-        gpu_processing::multi_view::zoomed_region(area, [shown_w, shown_h], zoom, BASE_MARGIN);
-    let (base_w, base_h) = base.image.dimensions();
     let s = base.scale;
+    let wanted = base_region(area, [shown_w, shown_h], zoom, s, recipe, facts.is_raw);
+    let (base_w, base_h) = base.image.dimensions();
     let x = ((wanted[0] * s).floor() as u32).min(base_w.saturating_sub(1));
     let y = ((wanted[1] * s).floor() as u32).min(base_h.saturating_sub(1));
     let w = (((wanted[0] + wanted[2]) * s).ceil() as u32).clamp(x + 1, base_w) - x;
     let h = (((wanted[1] + wanted[3]) * s).ceil() as u32).clamp(y + 1, base_h) - y;
+    let [x, y, w, h] = on_noise_grid([x, y, w, h]);
     let image = Arc::new(base.image.crop_imm(x, y, w, h));
     drop(base.image);
     let masks: Vec<MaskDefinition> = recipe
@@ -2445,16 +2453,191 @@ fn region_plan(
     measures: Option<RegionMeasures>,
 ) -> Result<image_processing::RegionPlan, &'static str> {
     let (shown_w, shown_h) = shown_size(recipe, facts);
-    let wanted =
-        gpu_processing::multi_view::zoomed_region(area, [shown_w, shown_h], zoom, BASE_MARGIN);
+    let wanted = base_region(area, [shown_w, shown_h], zoom, 1.0, recipe, facts.is_raw);
     image_processing::plan_transformed_region_with(
         facts.full_width,
         facts.full_height,
         recipe,
-        whole_pixels(wanted),
+        on_noise_grid(whole_pixels(wanted)),
         measures,
     )
     .ok_or("lens blur, or whole-photograph measures (lateral CA, fringes) not known yet")
+}
+
+/// Whether `recipe` develops with a noise measurement of its source
+/// (`gpu_processing::measures_noise`).
+fn measures_noise(recipe: &serde_json::Value, is_raw: bool) -> bool {
+    gpu_processing::measures_noise(&get_all_adjustments_from_json(recipe, is_raw, None).global)
+}
+
+/// `rect` (shown px) and the source the noise reductions read around it at
+/// `scale` base px per shown px ([`gpu_processing::REGION_NOISE_MARGIN`]),
+/// within the `shown` frame.
+fn with_noise_reach(
+    rect: [f32; 4],
+    shown: (f32, f32),
+    scale: f32,
+    recipe: &serde_json::Value,
+    is_raw: bool,
+) -> [f32; 4] {
+    if !measures_noise(recipe, is_raw) {
+        return rect;
+    }
+    let reach = gpu_processing::REGION_NOISE_MARGIN as f32 / scale.max(1e-6);
+    let x1 = (rect[0] - reach).max(0.0);
+    let y1 = (rect[1] - reach).max(0.0);
+    let x2 = (rect[0] + rect[2] + reach).min(shown.0);
+    let y2 = (rect[1] + rect[3] + reach).min(shown.1);
+    [x1, y1, (x2 - x1).max(0.0), (y2 - y1).max(0.0)]
+}
+
+/// What a region of a cell `area` at `zoom` is developed from (shown px):
+/// the visible part, REGION_MARGIN around it and the noise reductions'
+/// reach.
+fn developed_region(
+    area: [f32; 4],
+    shown: (f32, f32),
+    zoom: CellZoom,
+    scale: f32,
+    recipe: &serde_json::Value,
+    is_raw: bool,
+) -> [f32; 4] {
+    let visible =
+        gpu_processing::multi_view::zoomed_region(area, [shown.0, shown.1], zoom, REGION_MARGIN);
+    with_noise_reach(visible, shown, scale, recipe, is_raw)
+}
+
+/// What a region's base holds (shown px): BASE_MARGIN around the visible
+/// part, and at least what a region of it is developed from.
+fn base_region(
+    area: [f32; 4],
+    shown: [f32; 2],
+    zoom: CellZoom,
+    scale: f32,
+    recipe: &serde_json::Value,
+    is_raw: bool,
+) -> [f32; 4] {
+    let wanted = gpu_processing::multi_view::zoomed_region(area, shown, zoom, BASE_MARGIN);
+    let developed = developed_region(area, (shown[0], shown[1]), zoom, scale, recipe, is_raw);
+    let x1 = wanted[0].min(developed[0]);
+    let y1 = wanted[1].min(developed[1]);
+    let x2 = (wanted[0] + wanted[2]).max(developed[0] + developed[2]);
+    let y2 = (wanted[1] + wanted[3]).max(developed[1] + developed[3]);
+    [x1, y1, x2 - x1, y2 - y1]
+}
+
+/// `rect` (base px of the whole base) grown up and left until its origin
+/// lies on the colour noise grid of the whole base
+/// (`gpu_processing::REGION_NOISE_GRID`): the multi-scale colour noise
+/// reduction then samples it as it samples the whole photograph.
+fn on_noise_grid([x, y, w, h]: [u32; 4]) -> [u32; 4] {
+    let grid = gpu_processing::REGION_NOISE_GRID;
+    let (dx, dy) = (x % grid, y % grid);
+    [x - dx, y - dy, w + dx, h + dy]
+}
+
+/// Whole-photograph noise measurements of the photographs whose regions
+/// were developed lately, by [`noise_measurement_key`].
+static NOISE_MEASUREMENTS: Mutex<Vec<(u64, Option<rawtonic_engine::color_noise::NoiseMeasurement>)>> =
+    Mutex::new(Vec::new());
+
+/// Measurements kept (about 100 bytes each).
+const NOISE_MEASUREMENTS_KEPT: usize = 64;
+
+/// What the whole photograph's noise measurement of a region `base` with
+/// `recipe` depends on: the photograph and its decode, the base's geometry,
+/// retouching and scale, and the measuring version.
+fn noise_measurement_key(
+    path: &str,
+    base: &RegionBase,
+    tuning: &rawtonic_engine::color_noise::Tuning,
+) -> u64 {
+    let mut hash = DefaultHasher::new();
+    path.hash(&mut hash);
+    base.preparation_key.hash(&mut hash);
+    base.scale.to_bits().hash(&mut hash);
+    base.facts.is_raw.hash(&mut hash);
+    tuning.gpu_pyramid.hash(&mut hash);
+    tuning.linear_means.hash(&mut hash);
+    crate::multi_view_prefetch::decodes_generation().hash(&mut hash);
+    hash.finish()
+}
+
+/// The noise measurement of the whole photograph a region `base` of `path`
+/// is cut from, at the base's scale, when `recipe` develops with one
+/// (`gpu_processing::measures_noise`): measured on the region alone, the
+/// colour noise reduction filtered it differently from the same pixels of
+/// the whole photograph (up to 8–10 codes; notes:
+/// benchmark-results/nrr1-2026-11-20/REPORT.md). Made once per photograph,
+/// decode, geometry and scale from the whole base (as `prepare_region`
+/// makes a base, bit for bit the pixels regions are cut from) and kept.
+/// `None` (the region measures itself) when it cannot be made.
+fn whole_noise_measurement(
+    app_handle: &tauri::AppHandle,
+    context: &GpuContext,
+    path: &str,
+    recipe: &serde_json::Value,
+    base: &RegionBase,
+) -> Option<rawtonic_engine::color_noise::NoiseMeasurement> {
+    let adjustments = get_all_adjustments_from_json(recipe, base.facts.is_raw, None);
+    if !gpu_processing::measures_noise(&adjustments.global) {
+        return None;
+    }
+    let (_, tuning) = gpu_processing::color_noise_tuning(&adjustments.global);
+    let key = noise_measurement_key(path, base, &tuning);
+    let kept = |key: u64| {
+        let kept = NOISE_MEASUREMENTS.lock().unwrap_or_else(|e| e.into_inner());
+        kept.iter().find(|(k, _)| *k == key).map(|(_, m)| *m)
+    };
+    if let Some(measured) = kept(key) {
+        return measured;
+    }
+    let start = Instant::now();
+    let (shown_w, shown_h) = shown_size(recipe, base.facts);
+    let zoom = CellZoom {
+        scale: base.zoom_scale,
+        center: [0.5, 0.5],
+    };
+    let everything = [0.0, 0.0, shown_w * zoom.scale, shown_h * zoom.scale];
+    let measured = prepare_region(app_handle, path, everything, zoom, recipe).and_then(
+        |(whole, kind)| {
+            if whole.scale != base.scale || whole.region[0] != 0.0 || whole.region[1] != 0.0 {
+                return Err(format!(
+                    "the whole base ({kind}) is not the region's (scale {} vs {})",
+                    whole.scale, base.scale
+                ));
+            }
+            let prepare_ms = start.elapsed().as_secs_f64() * 1e3;
+            let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+            let measured = gpu_processing::measure_color_noise(
+                context,
+                &gpu.processor,
+                &whole.image,
+                &adjustments,
+                CELL_RENDER,
+            )?;
+            let (w, h) = whole.image.dimensions();
+            log::info!(
+                "[multi_view] {path}: whole-photograph noise measurement of {w}x{h} ({kind}) in {:.1} ms (base {prepare_ms:.1} ms)",
+                start.elapsed().as_secs_f64() * 1e3
+            );
+            Ok(measured)
+        },
+    );
+    match measured {
+        Ok(measured) => {
+            let mut kept = NOISE_MEASUREMENTS.lock().unwrap_or_else(|e| e.into_inner());
+            if kept.len() >= NOISE_MEASUREMENTS_KEPT {
+                kept.remove(0);
+            }
+            kept.push((key, measured));
+            measured
+        }
+        Err(e) => {
+            log::warn!("[multi_view] {path}: no whole-photograph noise measurement: {e}");
+            None
+        }
+    }
 }
 
 /// The region base of `image`, the pixels `plan` asks for.
@@ -2581,12 +2764,12 @@ fn kept_base(
         .unwrap_or_else(|e| e.into_inner())
         .get(path)
         .filter(|base| {
-            let (w, h) = shown_size(recipe, base.facts);
+            let shown = shown_size(recipe, base.facts);
             base.preparation_key == preparation_key
                 && base.zoom_scale == zoom.scale
                 && contains(
                     base.region,
-                    gpu_processing::multi_view::zoomed_region(area, [w, h], zoom, REGION_MARGIN),
+                    developed_region(area, shown, zoom, base.scale, recipe, base.facts.is_raw),
                 )
         })
         .cloned()
@@ -2608,11 +2791,12 @@ pub(crate) fn develop_region(
     caller: &'static str,
 ) -> Result<Region, String> {
     let start = Instant::now();
-    // The texture covers the visible part and REGION_MARGIN around it; the
-    // kept base reaches further (BASE_MARGIN), so a pan is cut from it.
-    let wanted_in = |facts: Facts| {
-        let (w, h) = shown_size(&recipe, facts);
-        gpu_processing::multi_view::zoomed_region(area, [w, h], zoom, REGION_MARGIN)
+    // The texture covers the visible part and REGION_MARGIN around it (and
+    // the noise reductions' reach); the kept base reaches further
+    // (BASE_MARGIN), so a pan is cut from it.
+    let wanted_in = |base: &RegionBase| {
+        let shown = shown_size(&recipe, base.facts);
+        developed_region(area, shown, zoom, base.scale, &recipe, base.facts.is_raw)
     };
     let kept = kept_base(bases, path, area, zoom, &recipe);
     let (base, source_kind) = match kept {
@@ -2626,7 +2810,7 @@ pub(crate) fn develop_region(
             (base, kind)
         }
     };
-    let wanted = wanted_in(base.facts);
+    let wanted = wanted_in(&base);
     let s = base.scale;
     let (base_w, base_h) = base.image.dimensions();
     let x = (((wanted[0] - base.region[0]) * s).floor().max(0.0) as u32).min(base_w - 1);
@@ -2641,7 +2825,15 @@ pub(crate) fn develop_region(
         .max(0.0) as u32)
         .clamp(y + 1, base_h))
         - y;
+    // On the noise grid of the whole base, as the base's own origin.
+    let origin = |region: f32, local: u32| {
+        let whole = (region * s).round() as u32 + local;
+        local - (whole % gpu_processing::REGION_NOISE_GRID).min(local)
+    };
+    let (x0, y0) = (origin(base.region[0], x), origin(base.region[1], y));
+    let (x, y, w, h) = (x0, y0, w + x - x0, h + y - y0);
     let image = base.image.crop_imm(x, y, w, h);
+    let noise_measurement = whole_noise_measurement(app_handle, context, path, &recipe, &base);
     let rgba = develop_rgba(
         app_handle,
         context,
@@ -2653,6 +2845,7 @@ pub(crate) fn develop_region(
             scale: s,
             crop_offset: (base.crop_offset.0 + x as f32, base.crop_offset.1 + y as f32),
             mask_source: base.mask_source.as_ref(),
+            noise_measurement,
             key,
             caller,
         },
@@ -2837,6 +3030,7 @@ fn develop_interim_region(
                 base.unscaled_crop_offset.1 * s + y as f32,
             ),
             mask_source: None,
+            noise_measurement: None,
             key,
             caller: CELL_RENDER,
         },
@@ -3459,6 +3653,43 @@ fn live_region(
 mod tests {
     use super::*;
 
+    /// Region bases and developed regions start on the colour noise grid
+    /// of the whole base and reach the noise reductions' context beyond
+    /// what is shown (NRR1); without a noise reduction only the grid.
+    #[test]
+    fn regions_keep_the_noise_grid_and_the_noise_reach() {
+        let grid = gpu_processing::REGION_NOISE_GRID;
+        assert_eq!(grid, 32);
+        assert_eq!(on_noise_grid([37, 70, 100, 50]), [32, 64, 105, 56]);
+        assert_eq!(on_noise_grid([64, 0, 10, 10]), [64, 0, 10, 10]);
+        let filtered = serde_json::json!({"colorNoiseReduction": 50, "colorNoiseVersion": 11});
+        let plain = serde_json::json!({"colorNoiseReduction": 0, "lumaNoiseReduction": 0});
+        assert!(measures_noise(&filtered, true));
+        assert!(!measures_noise(&plain, true));
+        let shown = (4000.0, 3000.0);
+        let rect = [1000.0, 50.0, 500.0, 400.0];
+        assert_eq!(with_noise_reach(rect, shown, 1.0, &plain, true), rect);
+        let reach = gpu_processing::REGION_NOISE_MARGIN as f32;
+        assert_eq!(
+            with_noise_reach(rect, shown, 1.0, &filtered, true),
+            [1000.0 - reach, 0.0, 500.0 + 2.0 * reach, 450.0 + reach]
+        );
+        // At half size the reach is twice as many shown pixels.
+        let half = with_noise_reach(rect, shown, 0.5, &filtered, true);
+        assert_eq!(half[0], 1000.0 - 2.0 * reach);
+        // A base holds what its regions are developed from.
+        let zoom = CellZoom {
+            scale: 1.0,
+            center: [0.3, 0.6],
+        };
+        let area = [0.0, 0.0, 120.0, 90.0];
+        for recipe in [&filtered, &plain] {
+            let developed = developed_region(area, shown, zoom, 1.0, recipe, true);
+            let base = base_region(area, [shown.0, shown.1], zoom, 1.0, recipe, true);
+            assert!(contains(base, developed), "{recipe}");
+        }
+    }
+
     #[test]
     fn render_workers_use_the_explicit_render_stack() {
         // All scoped workers here may reach the GPU, including zoom/pan
@@ -3769,12 +4000,7 @@ mod tests {
                 let base =
                     reduced_preview_base(&source, 1.0, full_w, full_h, &recipe, true, dim, 1.0)
                         .unwrap();
-                let wanted = gpu_processing::multi_view::zoomed_region(
-                    area,
-                    [shown_w, shown_h],
-                    zoom,
-                    BASE_MARGIN,
-                );
+                let wanted = base_region(area, [shown_w, shown_h], zoom, 1.0, &recipe, true);
                 let (base_w, base_h) = base.image.dimensions();
                 let s = base.scale;
                 assert_eq!(s, 1.0);
@@ -3782,13 +4008,14 @@ mod tests {
                 let y = ((wanted[1] * s).floor() as u32).min(base_h.saturating_sub(1));
                 let w = (((wanted[0] + wanted[2]) * s).ceil() as u32).clamp(x + 1, base_w) - x;
                 let h = (((wanted[1] + wanted[3]) * s).ceil() as u32).clamp(y + 1, base_h) - y;
+                let [x, y, w, h] = on_noise_grid([x, y, w, h]);
                 let cut = base.image.crop_imm(x, y, w, h);
                 // From the rows.
                 let plan = image_processing::plan_transformed_region(
                     full_w,
                     full_h,
                     &recipe,
-                    whole_pixels(wanted),
+                    on_noise_grid(whole_pixels(wanted)),
                 )
                 .unwrap();
                 assert_eq!(plan.rect, [x, y, w, h], "{recipe}");
