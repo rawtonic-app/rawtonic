@@ -476,11 +476,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 let scheduledHistory: {
   adjustments: Adjustments;
   control: Element | null;
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | null;
 } | null = null;
 
 function cancelScheduledHistory() {
-  if (scheduledHistory) clearTimeout(scheduledHistory.timer);
+  if (scheduledHistory?.timer != null) clearTimeout(scheduledHistory.timer);
   scheduledHistory = null;
 }
 
@@ -493,7 +493,9 @@ function scheduleHistory(adjustments: Adjustments, control: Element | null = nul
   scheduledHistory = {
     adjustments,
     control,
-    timer: setTimeout(flushScheduledHistory, control ? COMMIT_INTERVAL_MS : 500)
+    // A held arrow can wait longer than a slider interval before its first
+    // auto-repeat. Start the keyboard inactivity timer when the key is released.
+    timer: control ? null : setTimeout(flushScheduledHistory, 500)
   };
 }
 
@@ -532,6 +534,11 @@ export const debouncedSetHistory = Object.assign(
         edit();
       } finally {
         editingControl = previous;
+      }
+    },
+    releaseGroup: (control: Element) => {
+      if (scheduledHistory?.control === control && scheduledHistory.timer === null) {
+        scheduledHistory.timer = setTimeout(flushScheduledHistory, COMMIT_INTERVAL_MS);
       }
     },
     endGroup: (control: Element) => {

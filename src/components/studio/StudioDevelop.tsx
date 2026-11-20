@@ -296,6 +296,7 @@ const SPLIT_STRIP = 16;
 /** How near the pointer must press to grab a curve point, in screen px
  * (14 curve units at the former 210 px plot). */
 const CURVE_GRAB_PX = 11.5;
+const CURVE_ARROW_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
 
 const selectHistogram = (s: ReturnType<typeof useEditorStore.getState>) => s.histogram;
 
@@ -443,13 +444,19 @@ export function PointCurve({
   const dragging = useRef(false);
   const interaction = useRef(onInteraction);
   interaction.current = onInteraction;
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const svg = svgRef.current;
+    const endKeyboardGroup = () => {
+      if (svg) debouncedSetHistory.endGroup(svg);
+    };
+    window.addEventListener('blur', endKeyboardGroup);
+    return () => {
+      window.removeEventListener('blur', endKeyboardGroup);
+      endKeyboardGroup();
       send.flush();
       if (dragging.current) interaction.current(false);
-    },
-    [send]
-  );
+    };
+  }, [send]);
   const end = () => {
     send.flush();
     if (dragging.current) interaction.current(false);
@@ -521,6 +528,11 @@ export function PointCurve({
         aria-label={t('studio.develop.curve.aria', {
           channel: t(`studio.develop.curve.ariaChannels.${channel}`)
         })}
+        onKeyUp={(e) => {
+          if (CURVE_ARROW_KEYS.includes(e.key) && e.target instanceof Element) {
+            debouncedSetHistory.releaseGroup(e.target);
+          }
+        }}
         onPointerDown={(e) => {
           if (disabled || e.button !== 0) return;
           // The split strip under the plot adds no curve points.
@@ -747,7 +759,7 @@ export function PointCurve({
                 keyboardChange(next);
                 setSelected(left + 1);
                 focusPoint(left + 1);
-              } else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+              } else if (CURVE_ARROW_KEYS.includes(e.key)) {
                 e.preventDefault();
                 const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
                 const dy = e.key === 'ArrowDown' ? -1 : e.key === 'ArrowUp' ? 1 : 0;

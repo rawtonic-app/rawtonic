@@ -92,8 +92,10 @@ describe('point curve keyboard', () => {
     mountHistory();
     const first = screen.getByRole('button', { name: /Point 1,/ });
     fireEvent.keyDown(first, { key: 'ArrowUp' });
+    fireEvent.keyUp(first, { key: 'ArrowUp' });
     act(() => vi.advanceTimersByTime(COMMIT_INTERVAL_MS - 1));
-    fireEvent.keyDown(first, { key: 'ArrowUp', repeat: true });
+    fireEvent.keyDown(first, { key: 'ArrowUp' });
+    fireEvent.keyUp(first, { key: 'ArrowUp' });
     expect(first.getAttribute('aria-label')).toContain('output 2');
     act(() => vi.advanceTimersByTime(COMMIT_INTERVAL_MS));
     fireEvent.keyDown(first, { key: 'ArrowUp' });
@@ -102,6 +104,22 @@ describe('point curve keyboard', () => {
     expect(first.getAttribute('aria-label')).toContain('output 2');
     act(() => useEditorStore.getState().undo());
     expect(first.getAttribute('aria-label')).toContain('output 0');
+  });
+
+  it.each([
+    ['point', 'button', /Point 1,/, 'ArrowUp'],
+    ['split handle', 'slider', 'Region curve shadow split', 'ArrowRight']
+  ])('undoes a held arrow on a %s in one step despite the initial key repeat delay', (_kind, role, name, key) => {
+    mountHistory();
+    const control = screen.getByRole(role, { name });
+    fireEvent.keyDown(control, { key });
+    // The OS can wait longer than the slider interval before repeating a held key.
+    act(() => vi.advanceTimersByTime(2 * COMMIT_INTERVAL_MS));
+    fireEvent.keyDown(control, { key, repeat: true });
+    fireEvent.keyDown(control, { key, repeat: true });
+    fireEvent.keyUp(control, { key });
+    act(() => useEditorStore.getState().undo());
+    expect(useEditorStore.getState().adjustments).toEqual(INITIAL_ADJUSTMENTS);
   });
 
   it('keeps different controls in separate steps even without a pause', () => {
