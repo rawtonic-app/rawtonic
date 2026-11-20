@@ -20,9 +20,11 @@ const RECENT: usize = 8;
 
 /// Photos whose newest update's images stay loadable beyond `RECENT`: the
 /// editor shows a photo's last scopes again when it returns to it
-/// (`globalImageCache` holds 20 photos, src/utils/ImageLRUCache.ts). A
-/// settled update holds up to four images (~0.5 MB).
-const PHOTOS: usize = 20;
+/// (`globalImageCache`, src/utils/ImageLRUCache.ts, the 20 photos visited
+/// last). Kept by the photos' last analytics, which every visit renders
+/// (also with the scopes hidden: the histogram), so in the same order, and
+/// for more photos than that cache: up to four images (~0.5 MB) each.
+const PHOTOS: usize = 32;
 
 type Images = Arc<[(Uuid, Arc<[u8]>)]>;
 
@@ -51,6 +53,19 @@ impl Kept {
         self.newest_per_photo
             .push_back((photo.to_owned(), images.clone()));
         images.iter().map(|(id, _)| *id).collect()
+    }
+
+    /// A visit to `photo` without scope images (the scopes hidden): its
+    /// newest images stay as long as the photo stays recent.
+    fn touch(&mut self, photo: &str) {
+        if let Some(at) = self
+            .newest_per_photo
+            .iter()
+            .position(|(path, _)| path == photo)
+        {
+            let entry = self.newest_per_photo.remove(at).expect("position within");
+            self.newest_per_photo.push_back(entry);
+        }
     }
 
     fn get(&self, id: Uuid) -> Option<Arc<[u8]>> {
@@ -91,6 +106,12 @@ pub(crate) fn update(
     histogram: Option<HistogramData>,
     waveform: Option<WaveformData>,
 ) -> serde_json::Value {
+    if waveform.is_none() {
+        kept()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .touch(photo);
+    }
     let waveform = waveform.map(|w| {
         let pngs = [w.rgb, w.luma, w.parade, w.vectorscope];
         let computed = pngs.each_ref().map(|png| !png.is_empty());
@@ -181,6 +202,31 @@ mod tests {
         assert_eq!(kept.get(first[0]), None);
         assert_eq!(kept.newest_per_photo.len(), PHOTOS);
         assert_eq!(kept.recent.len(), RECENT);
+    }
+
+    /// The review's culling pass: a photo whose scopes were hidden on its
+    /// last visit keeps its images as long as the frontend's cache (which
+    /// that visit refreshed) can show them again.
+    #[test]
+    fn a_visit_with_the_scopes_hidden_keeps_the_photo_s_images() {
+        let mut kept = Kept::default();
+        let a = kept.insert("a", vec![vec![1], vec![2], vec![3], vec![4]]);
+        for n in 1..PHOTOS {
+            kept.insert(&n.to_string(), vec![vec![5]]);
+        }
+        // Back to a with the scopes hidden: a histogram-only update.
+        kept.touch("a");
+        kept.insert("new", vec![vec![6]]);
+        for id in &a {
+            assert!(kept.get(*id).is_some());
+        }
+        // Without that visit, a would have been the oldest and gone.
+        assert_eq!(
+            kept.get(kept.newest_per_photo[0].1[0].0).as_deref(),
+            Some(&[5][..])
+        );
+        kept.touch("not kept");
+        assert_eq!(kept.newest_per_photo.len(), PHOTOS);
     }
 
     fn frame() -> image::DynamicImage {
