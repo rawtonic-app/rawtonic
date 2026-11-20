@@ -5229,6 +5229,34 @@ impl MaskBitmap {
         Self { bytes, wide }
     }
 
+    /// The mask grown by `left`, `top`, `right` and `bottom` pixels, each
+    /// new pixel the nearest edge pixel's.
+    pub fn extend_edges(&self, left: u32, top: u32, right: u32, bottom: u32) -> Self {
+        let (w, h) = self.bytes.dimensions();
+        let (nw, nh) = (w + left + right, h + top + bottom);
+        let source = |x: u32, y: u32| {
+            (
+                x.saturating_sub(left).min(w - 1),
+                y.saturating_sub(top).min(h - 1),
+            )
+        };
+        let bytes = GrayImage::from_fn(nw, nh, |x, y| {
+            let (sx, sy) = source(x, y);
+            *self.bytes.get_pixel(sx, sy)
+        });
+        let wide = self.wide.as_ref().map(|wide| {
+            (0..nh)
+                .flat_map(|y| {
+                    (0..nw).map(move |x| {
+                        let (sx, sy) = source(x, y);
+                        wide[sy as usize * w as usize + sx as usize]
+                    })
+                })
+                .collect()
+        });
+        Self { bytes, wide }
+    }
+
     /// The full-opacity mask scaled by a layer opacity, as the layer's own
     /// mask is made: `scale_mask_opacity` on 8-bit layers, in floating point
     /// on `maskVersion` 2 layers (`precise`).

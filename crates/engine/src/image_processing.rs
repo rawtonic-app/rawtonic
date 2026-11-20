@@ -4914,9 +4914,28 @@ pub struct PreparedAdjustments {
     /// same pixels of the whole photograph do. `None`: measured on the
     /// source (whole-photo renders, exports).
     pub color_noise_measurement: Option<Box<crate::color_noise::NoiseMeasurement>>,
+    /// Where the render's source lies in the photograph it is a region of
+    /// (the multi-view cells and the second window zoomed in): the render
+    /// then runs as a window of a render of the whole photograph, so that
+    /// every term that follows the photo's size (the short side's `scale`:
+    /// luminance noise reduction, sharpening, Clarity, blurs, Vignette,
+    /// grain, Glow …) and its position in it takes the whole photograph's.
+    /// `None`: the source is the whole photograph (exports, the Develop view).
+    pub photo_placement: Option<PhotoPlacement>,
     /// What a drag's display frame may approximate (G76/GRN3); never set
     /// for an export or a settled frame.
     pub drag_effects: DragEffects,
+}
+
+/// A render source's place in the photograph it is a region of
+/// (`PreparedAdjustments::photo_placement`): the photograph's size and the
+/// source's top left in it, in the source's pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PhotoPlacement {
+    pub photo_width: u32,
+    pub photo_height: u32,
+    pub x: u32,
+    pub y: u32,
 }
 
 /// Effects a drag's display frame computes at half resolution, once per
@@ -4959,6 +4978,7 @@ impl From<AllAdjustments> for PreparedAdjustments {
             curve_table: None,
             lut_file_stage: false,
             color_noise_measurement: None,
+            photo_placement: None,
             drag_effects: DragEffects::default(),
         }
     }
@@ -6907,6 +6927,7 @@ fn get_all_adjustments_with_locals<'a>(
         curve_table,
         lut_file_stage: versions.lut.file_stage(),
         color_noise_measurement: None,
+        photo_placement: None,
         drag_effects: DragEffects::default(),
         uniforms: Box::new(AllAdjustments {
             global,

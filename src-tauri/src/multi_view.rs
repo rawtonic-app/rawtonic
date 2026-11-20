@@ -753,6 +753,7 @@ pub(crate) async fn render_browser_view(
                 ),
                 mask_source: prepared.mask_source.as_ref(),
                 noise_measurement: None,
+                placement: None,
                 key: prepared.key,
                 caller: CELL_RENDER,
             },
@@ -1308,6 +1309,10 @@ struct DevelopInput<'a> {
     /// ([`whole_noise_measurement`]), so that the noise reductions filter it
     /// as they filter those pixels of the whole photograph.
     noise_measurement: Option<rawtonic_engine::color_noise::NoiseMeasurement>,
+    /// For a region: where `image` lies in the whole base of the photograph
+    /// at `scale` (its size, the region's top left), so that it develops as
+    /// a window of the whole photograph (`PreparedAdjustments::photo_placement`).
+    placement: Option<image_processing::PhotoPlacement>,
     key: u64,
     /// Whose render it is at the GPU processor (`gpu_processing`'s turns):
     /// [`CELL_RENDER`] or [`LIVE_RENDER`].
@@ -1371,6 +1376,7 @@ fn develop_rgba(
     adjustments.global.detail_scale = input.scale;
     adjustments.global.show_clipping = 0;
     adjustments.color_noise_measurement = input.noise_measurement.map(Box::new);
+    adjustments.photo_placement = input.placement;
     // Encoded for the window, as the live frame beside it.
     let space = context.display_space;
     adjustments.global.output_space[0] = space.shader_code();
@@ -1453,6 +1459,7 @@ fn develop(
             ),
             mask_source: prepared.mask_source.as_ref(),
             noise_measurement: None,
+            placement: None,
             key: prepared.key,
             caller,
         },
@@ -1562,6 +1569,7 @@ pub(crate) fn develop_whole(
             ),
             mask_source: prepared.mask_source.as_ref(),
             noise_measurement: None,
+            placement: None,
             key: prepared.key,
             caller: CELL_RENDER,
         },
@@ -2977,6 +2985,19 @@ pub(crate) fn develop_region(
         WholeNoise::Missing if caller == LIVE_RENDER => None,
         WholeNoise::Missing => whole_noise_measurement(app_handle, context, path, &recipe, &base),
     };
+    // Where it lies in the whole base (as `origin`), whose size is the
+    // shown photograph's at this scale.
+    let (shown_w, shown_h) = shown_size(&recipe, base.facts);
+    let (whole_x, whole_y) = (
+        (base.region[0] * s).round() as u32 + x,
+        (base.region[1] * s).round() as u32 + y,
+    );
+    let placement = image_processing::PhotoPlacement {
+        photo_width: ((shown_w * s).round() as u32).max(whole_x + w),
+        photo_height: ((shown_h * s).round() as u32).max(whole_y + h),
+        x: whole_x,
+        y: whole_y,
+    };
     let rgba = develop_rgba(
         app_handle,
         context,
@@ -2989,11 +3010,11 @@ pub(crate) fn develop_region(
             crop_offset: (base.crop_offset.0 + x as f32, base.crop_offset.1 + y as f32),
             mask_source: base.mask_source.as_ref(),
             noise_measurement,
+            placement: Some(placement),
             key,
             caller,
         },
     )?;
-    let (shown_w, shown_h) = shown_size(&recipe, base.facts);
     // Shown: the visible part and `margin` only. The noise reach and
     // the grid's pixels around it were filtered without all their
     // neighbours, and the cells take a region's extent as ready to show.
@@ -3190,6 +3211,13 @@ fn develop_interim_region(
             ),
             mask_source: None,
             noise_measurement: None,
+            // A window of the whole interim base.
+            placement: Some(image_processing::PhotoPlacement {
+                photo_width: base_w,
+                photo_height: base_h,
+                x,
+                y,
+            }),
             key,
             caller: CELL_RENDER,
         },
