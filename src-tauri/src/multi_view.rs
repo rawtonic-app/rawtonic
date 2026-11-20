@@ -2181,6 +2181,8 @@ pub(crate) struct Region {
 #[derive(Clone)]
 pub(crate) struct RegionBase {
     preparation_key: u64,
+    /// The file of the photograph when the base was begun (`file_stamp`).
+    file_stamp: u64,
     zoom_scale: f32,
     /// The region in full-resolution px of the shown photograph.
     region: [f32; 4],
@@ -2198,6 +2200,20 @@ pub(crate) struct RegionBase {
 /// retouching at the zoom's magnification (at most the source's), cut to
 /// the region.
 fn prepare_region(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    area: [f32; 4],
+    zoom: CellZoom,
+    recipe: &serde_json::Value,
+) -> Result<(RegionBase, &'static str), String> {
+    // Before the source is read: a save after it makes this base stale.
+    let stamp = file_stamp(path);
+    let (mut base, kind) = prepare_region_unstamped(app_handle, path, area, zoom, recipe)?;
+    base.file_stamp = stamp;
+    Ok((base, kind))
+}
+
+fn prepare_region_unstamped(
     app_handle: &tauri::AppHandle,
     path: &str,
     area: [f32; 4],
@@ -2273,6 +2289,7 @@ fn prepare_region(
     Ok((
         RegionBase {
             preparation_key: crate::preview_cache::preparation_key(recipe),
+            file_stamp: 0,
             zoom_scale: zoom.scale,
             region: [x as f32 / s, y as f32 / s, w as f32 / s, h as f32 / s],
             image,
@@ -2561,7 +2578,7 @@ fn noise_measurement_key(
     let mut hash = DefaultHasher::new();
     path.hash(&mut hash);
     // A save by another program (an Edit With render) is another photograph.
-    file_stamp(path).hash(&mut hash);
+    base.file_stamp.hash(&mut hash);
     base.preparation_key.hash(&mut hash);
     base.scale.to_bits().hash(&mut hash);
     base.facts.is_raw.hash(&mut hash);
@@ -2654,6 +2671,9 @@ fn whole_noise_measurement(
     let everything = [0.0, 0.0, shown_w * zoom.scale, shown_h * zoom.scale];
     let measured = prepare_region(app_handle, path, everything, zoom, recipe).and_then(
         |(whole, kind)| {
+            if whole.file_stamp != base.file_stamp {
+                return Err(format!("{path} changed since its region was prepared"));
+            }
             if whole.scale != base.scale || whole.region[0] != 0.0 || whole.region[1] != 0.0 {
                 return Err(format!(
                     "the whole base ({kind}) is not the region's (scale {} vs {})",
@@ -2708,6 +2728,7 @@ fn region_base(
             .map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
     RegionBase {
         preparation_key: crate::preview_cache::preparation_key(recipe),
+        file_stamp: 0,
         zoom_scale: zoom.scale,
         region: [rx as f32, ry as f32, rw as f32, rh as f32],
         image: Arc::new(image),
@@ -3700,10 +3721,16 @@ fn live_region(
         return LiveRegion::Unavailable;
     };
     // The whole photograph's noise measurement is made by the region
-    // worker, not here (it would hold the preview worker).
-    if matches!(kept_whole_noise(path, recipe, &base), WholeNoise::Missing) {
-        return LiveRegion::Unavailable;
-    }
+    // worker, not here (it would hold the preview worker): until then the
+    // region follows the drag measured on its own, under an interim key,
+    // so the region worker still develops it and replaces it.
+    let key = match kept_whole_noise(path, recipe, &base) {
+        WholeNoise::Missing if shown_key == Some(interim_key(key)) => {
+            return LiveRegion::Current;
+        }
+        WholeNoise::Missing => interim_key(key),
+        WholeNoise::NotWanted | WholeNoise::Kept(_) => key,
+    };
     match develop_region(
         app_handle,
         context,
@@ -4327,6 +4354,7 @@ mod tests {
             "a".into(),
             RegionBase {
                 preparation_key: 1,
+                file_stamp: 0,
                 zoom_scale: 1.0,
                 region: [0.0, 0.0, 10.0, 10.0],
                 image: Arc::new(DynamicImage::new_rgb32f(1, 1)),
@@ -4383,6 +4411,7 @@ mod tests {
             "a".into(),
             RegionBase {
                 preparation_key: crate::preview_cache::preparation_key(&recipe),
+                file_stamp: 0,
                 zoom_scale: 1.0,
                 region: [1400.0, 1050.0, 1200.0, 900.0],
                 image: Arc::new(DynamicImage::new_rgb32f(1, 1)),
