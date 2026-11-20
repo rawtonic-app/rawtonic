@@ -24,7 +24,9 @@ Needs: onnx 1.23.2, onnxconverter-common 1.16.0 (build_model_pack.py
 SUPERRES_FP16_EXPORT), in which the output repeats byte for byte.
 """
 import hashlib
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import onnx
@@ -42,11 +44,24 @@ def convert(source: Path, out: Path) -> Path:
     # keep_io_types: the graph's input and output stay float32.
     converted = float16.convert_float_to_float16(model, keep_io_types=True)
     onnx.checker.check_model(converted)
+    data = converted.SerializeToString(deterministic=True)
     out.mkdir(parents=True, exist_ok=True)
     path = out / FP16_FILE
-    part = path.with_suffix(".part")
-    part.write_bytes(converted.SerializeToString(deterministic=True))
-    part.replace(path)
+    if path.exists():
+        # Never replaced: an earlier conversion is kept only when identical.
+        if path.read_bytes() != data:
+            sys.exit(f"{path} exists with other bytes; convert into an empty directory")
+        return path
+    # A staging file of its own, published without replacing anything.
+    fd, part = tempfile.mkstemp(dir=out, prefix=f".{FP16_FILE}.", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(part, path)  # fails if `path` appeared meanwhile
+    finally:
+        os.unlink(part)
     return path
 
 

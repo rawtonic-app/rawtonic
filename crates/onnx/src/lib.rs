@@ -513,6 +513,18 @@ fn candidates_of(
     list
 }
 
+/// The first GPU provider of `candidates` whose plugin registers.
+fn first_gpu(
+    kind: ModelKind,
+    settings: &Settings,
+    forced: Option<Provider>,
+) -> Option<Arc<Device>> {
+    candidates(kind, settings, forced)
+        .into_iter()
+        .filter(|&provider| provider != Provider::Cpu)
+        .find_map(|provider| device(provider, &settings.plugin_dirs).ok())
+}
+
 /// `RAWTONIC_AI_PROVIDER`, if set to a provider's name.
 pub fn forced_provider() -> Option<Provider> {
     std::env::var("RAWTONIC_AI_PROVIDER")
@@ -1122,10 +1134,7 @@ impl Model {
         let settings = settings();
         let forced = forced_provider();
         let checks = checks_for(&settings, forced);
-        let device = candidates(kind, &settings, forced)
-            .into_iter()
-            .filter(|&provider| provider != Provider::Cpu)
-            .find_map(|provider| device(provider, &settings.plugin_dirs).ok())?;
+        let device = first_gpu(kind, &settings, forced)?;
         if checks != check::Checks::Off {
             check::CHECKS.activity();
         }
@@ -1167,6 +1176,22 @@ impl Model {
                 None
             }
         }
+    }
+
+    /// Whether `load_on_checked_gpu` would load `path` on a GPU now without
+    /// a check: its check on that GPU found it matching the CPU and faster.
+    /// Loads nothing and queues nothing (a cheap lookup), so a caller that
+    /// keeps a model loaded can switch to `path` once its idle check passed.
+    pub fn passed_gpu_check(path: &Path, kind: ModelKind) -> bool {
+        if ensure_runtime().is_err() {
+            return false;
+        }
+        let settings = settings();
+        let forced = forced_provider();
+        first_gpu(kind, &settings, forced).is_some_and(|device| {
+            let (known, _) = check::known(path, kind, &device, settings.checks_file.as_ref());
+            known == Some(check::Verdict::Faster)
+        })
     }
 
     /// `load_on` with `checks` (`Off`: benchmarks report the GPU's output

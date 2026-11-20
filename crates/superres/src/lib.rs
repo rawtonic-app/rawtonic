@@ -18,6 +18,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use anyhow::{Result, bail, ensure};
 use image::{DynamicImage, ImageBuffer, Luma, Pixel, Primitive, Rgb, Rgba};
@@ -95,10 +96,14 @@ enum Backend {
     /// `model` is the original graph, on the provider ONNX Runtime picked
     /// (it can move from the CPU to a GPU later, when the idle GPU check
     /// finds the GPU faster). `cpu` is the sequential conversion, used
-    /// while `model` runs on the CPU.
+    /// while `model` runs on the CPU. When `model` is the fp16 graph
+    /// (`GPU_ONNX_FILE`, on a GPU) and a GPU failure moved it to the CPU,
+    /// `fp32_cpu` takes over: the CPU conversion, else the original graph,
+    /// loaded then.
     Onnx {
         model: rawtonic_onnx::Model,
         cpu: Option<rawtonic_onnx::Model>,
+        fp32_cpu: OnceLock<Option<rawtonic_onnx::Model>>,
     },
     #[cfg(target_os = "macos")]
     CoreMl(rawtonic_denoise::coreml::CoreMlModel),
@@ -109,20 +114,17 @@ impl Model {
     /// the CPU. On a GPU the fp16 graph (`GPU_ONNX_FILE`) when it is
     /// installed and its check on that GPU passed; until that check has run
     /// (queued for when the app is idle) and with older packs, the original
-    /// graph.
+    /// graph. Which graph runs is not part of the recipe: GPU providers'
+    /// output already differs from the CPU's and between providers by about
+    /// one 8-bit code, so the provider's output is not pinned by recipe
+    /// version (coordinator decision CUDA1, 2026-11-20; the CHANGELOG states
+    /// the measured change).
     pub fn onnx(path: &Path) -> Result<Self> {
         let cpu_path = path.with_file_name(CPU_ONNX_FILE);
         let gpu_path = path.with_file_name(GPU_ONNX_FILE);
-        let forced = rawtonic_onnx::forced_provider();
-        let cpu_only = forced == Some(rawtonic_onnx::Provider::Cpu)
-            || (forced.is_none() && !rawtonic_onnx::settings().gpu);
+        let cpu_only = cpu_only();
         if cpu_only && let Some(cpu) = Self::optional_cpu(&cpu_path) {
-            return Ok(Self {
-                backend: Backend::Onnx {
-                    model: cpu,
-                    cpu: None,
-                },
-            });
+            return Ok(Self::onnx_backend(cpu, None));
         }
         if tries_gpu_graph(cpu_only, || verified(&gpu_path, GPU_ONNX_SHA256))
             && let Some(model) = rawtonic_onnx::Model::load_on_checked_gpu(
@@ -130,9 +132,7 @@ impl Model {
                 rawtonic_onnx::ModelKind::SuperResolution,
             )
         {
-            return Ok(Self {
-                backend: Backend::Onnx { model, cpu: None },
-            });
+            return Ok(Self::onnx_backend(model, None));
         }
         let model = rawtonic_onnx::Model::load(path, rawtonic_onnx::ModelKind::SuperResolution)?;
         let cpu = if model.provider() == rawtonic_onnx::Provider::Cpu {
@@ -140,27 +140,83 @@ impl Model {
         } else {
             None
         };
-        Ok(Self {
-            backend: Backend::Onnx { model, cpu },
+        Ok(Self::onnx_backend(model, cpu))
+    }
+
+    fn onnx_backend(model: rawtonic_onnx::Model, cpu: Option<rawtonic_onnx::Model>) -> Self {
+        Self {
+            backend: Backend::Onnx {
+                model,
+                cpu,
+                fp32_cpu: OnceLock::new(),
+            },
+        }
+    }
+
+    /// Whether `Model::onnx` would now load the fp16 graph on a GPU while
+    /// this model runs another graph: its check on that GPU passed after
+    /// this model was loaded (the app's idle check). The app then loads the
+    /// model again before the next photo. A cheap lookup; loads nothing.
+    pub fn gpu_graph_ready(&self) -> bool {
+        let model = match &self.backend {
+            Backend::Onnx { model, .. } => model,
+            #[cfg(target_os = "macos")]
+            Backend::CoreMl(_) => return false,
+        };
+        let gpu_path = model.path().with_file_name(GPU_ONNX_FILE);
+        !is_gpu_graph(model)
+            && tries_gpu_graph(cpu_only(), || verified(&gpu_path, GPU_ONNX_SHA256))
+            && rawtonic_onnx::Model::passed_gpu_check(
+                &gpu_path,
+                rawtonic_onnx::ModelKind::SuperResolution,
+            )
+    }
+
+    /// The fp32 graph on the CPU beside the fp16 graph's folder: the CPU
+    /// conversion, else the original graph.
+    fn fp32_on_cpu(gpu_path: &Path) -> Option<rawtonic_onnx::Model> {
+        Self::optional_cpu(&gpu_path.with_file_name(CPU_ONNX_FILE)).or_else(|| {
+            let original = gpu_path.with_file_name(ONNX_FILE);
+            verified(&original, ONNX_SHA256)
+                .then(|| Self::load_cpu_graph(&original).ok())
+                .flatten()
         })
+    }
+
+    /// The ONNX graph that runs a tile now (`None` for Core ML).
+    fn onnx_graph(&self) -> Option<&rawtonic_onnx::Model> {
+        let (model, cpu, fp32_cpu) = match &self.backend {
+            Backend::Onnx {
+                model,
+                cpu,
+                fp32_cpu,
+            } => (model, cpu, fp32_cpu),
+            #[cfg(target_os = "macos")]
+            Backend::CoreMl(_) => return None,
+        };
+        let on_cpu = model.provider() == rawtonic_onnx::Provider::Cpu;
+        if on_cpu
+            && is_gpu_graph(model)
+            && let Some(fp32) = fp32_cpu
+                .get_or_init(|| Self::fp32_on_cpu(model.path()))
+                .as_ref()
+        {
+            return Some(fp32);
+        }
+        Some(active_graph(model, cpu.as_ref(), on_cpu))
     }
 
     /// Loads a known CPU conversion directly, without probing GPU providers
     /// or building a session for the original graph first.
     pub fn cpu(path: &Path) -> Result<Self> {
-        Ok(Self {
-            backend: Backend::Onnx {
-                model: Self::load_cpu_graph(path)?,
-                cpu: None,
-            },
-        })
+        Ok(Self::onnx_backend(Self::load_cpu_graph(path)?, None))
     }
 
     /// Adds the sequential CPU conversion to a model loaded on the CPU, so
     /// the CPU runs it, while the original graph stays free to move to a
     /// GPU in this session (the idle GPU check, rawtonic-onnx `check`).
     pub fn attach_cpu_graph(&mut self, path: &Path) -> Result<()> {
-        if let Backend::Onnx { model, cpu } = &mut self.backend
+        if let Backend::Onnx { model, cpu, .. } = &mut self.backend
             && cpu.is_none()
             && model.provider() == rawtonic_onnx::Provider::Cpu
         {
@@ -235,22 +291,12 @@ impl Model {
     }
 
     pub fn backend_name(&self) -> String {
-        match &self.backend {
-            Backend::Onnx { model, cpu } => {
-                let graph = active_graph(
-                    model,
-                    cpu.as_ref(),
-                    model.provider() == rawtonic_onnx::Provider::Cpu,
-                );
-                let fp16 = if graph.path().file_name() == Some(GPU_ONNX_FILE.as_ref()) {
-                    ", fp16"
-                } else {
-                    ""
-                };
+        match self.onnx_graph() {
+            Some(graph) => {
+                let fp16 = if is_gpu_graph(graph) { ", fp16" } else { "" };
                 format!("ONNX Runtime ({}{fp16})", graph.provider())
             }
-            #[cfg(target_os = "macos")]
-            Backend::CoreMl(_) => "Core ML".to_string(),
+            None => "Core ML".to_string(),
         }
     }
 
@@ -263,18 +309,16 @@ impl Model {
             input.len()
         );
         let values = match &self.backend {
-            Backend::Onnx { model, cpu } => active_graph(
-                model,
-                cpu.as_ref(),
-                model.provider() == rawtonic_onnx::Provider::Cpu,
-            )
-            .run(|session| {
-                let array = Array4::from_shape_vec((1, 3, TILE, TILE), input.to_vec())?;
-                let outputs = session.run(ort::inputs![INPUT => Tensor::from_array(array)?])?;
-                let (_, data) = outputs[OUTPUT].try_extract_tensor::<f32>()?;
-                rawtonic_onnx::ensure_finite(data)?;
-                Ok(data.to_vec())
-            })?,
+            Backend::Onnx { .. } => self
+                .onnx_graph()
+                .expect("an ONNX backend has a graph")
+                .run(|session| {
+                    let array = Array4::from_shape_vec((1, 3, TILE, TILE), input.to_vec())?;
+                    let outputs = session.run(ort::inputs![INPUT => Tensor::from_array(array)?])?;
+                    let (_, data) = outputs[OUTPUT].try_extract_tensor::<f32>()?;
+                    rawtonic_onnx::ensure_finite(data)?;
+                    Ok(data.to_vec())
+                })?,
             #[cfg(target_os = "macos")]
             Backend::CoreMl(model) => {
                 let values = model.predict(INPUT, &[1, 3, TILE, TILE], input, OUTPUT)?.1;
@@ -290,13 +334,20 @@ impl Model {
         Ok(values)
     }
 
-    /// `image` enlarged 2× (see [`enlarge_with`]).
+    /// `image` enlarged 2× (see [`enlarge_with`]). When a GPU failure moved
+    /// the model to the CPU during the photo, the photo is enlarged again
+    /// on the CPU path, so all its tiles come from one graph and provider.
     pub fn enlarge(
         &self,
         image: DynamicImage,
         cancelled: &dyn Fn() -> Result<(), String>,
     ) -> Result<DynamicImage, String> {
-        enlarge_with(image, &mut |tile| self.enlarge_tile(tile), cancelled)
+        let on_gpu = matches!(self.backend, Backend::Onnx { .. }) && !self.uses_cpu();
+        let enlarged = enlarge_ref(&image, &mut |tile| self.enlarge_tile(tile), cancelled)?;
+        if redo_on_cpu(on_gpu, self.uses_cpu()) {
+            return enlarge_ref(&image, &mut |tile| self.enlarge_tile(tile), cancelled);
+        }
+        Ok(enlarged)
     }
 }
 
@@ -306,6 +357,25 @@ impl Model {
 /// installed with its SHA-256 (packs before pack-2026-11-20 lack it).
 fn tries_gpu_graph(cpu_only: bool, installed: impl FnOnce() -> bool) -> bool {
     !cpu_only && installed()
+}
+
+/// Whether the CPU path decides `Model::onnx`: `RAWTONIC_AI_PROVIDER=cpu`,
+/// or GPU AI turned off without a forced provider.
+fn cpu_only() -> bool {
+    let forced = rawtonic_onnx::forced_provider();
+    forced == Some(rawtonic_onnx::Provider::Cpu)
+        || (forced.is_none() && !rawtonic_onnx::settings().gpu)
+}
+
+fn is_gpu_graph(model: &rawtonic_onnx::Model) -> bool {
+    model.path().file_name() == Some(GPU_ONNX_FILE.as_ref())
+}
+
+/// Whether a photo is enlarged again: it started on a GPU and the model is
+/// on the CPU now (a GPU failure during the photo), so its tiles would mix
+/// two graphs or providers.
+fn redo_on_cpu(started_on_gpu: bool, on_cpu_now: bool) -> bool {
+    started_on_gpu && on_cpu_now
 }
 
 /// The graph that runs a tile: the CPU conversion while the original graph
@@ -370,34 +440,42 @@ pub fn enlarge_with(
     run: &mut dyn FnMut(&[f32]) -> Result<Vec<f32>>,
     cancelled: &dyn Fn() -> Result<(), String>,
 ) -> Result<DynamicImage, String> {
+    enlarge_ref(&image, run, cancelled)
+}
+
+fn enlarge_ref(
+    image: &DynamicImage,
+    run: &mut dyn FnMut(&[f32]) -> Result<Vec<f32>>,
+    cancelled: &dyn Fn() -> Result<(), String>,
+) -> Result<DynamicImage, String> {
     let error = |e: anyhow::Error| format!("Super Resolution failed: {e:#}");
     Ok(match image {
         DynamicImage::ImageRgb8(buf) => {
-            DynamicImage::ImageRgb8(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+            DynamicImage::ImageRgb8(enlarge_buffer(buf, run, cancelled).map_err(error)?)
         }
         DynamicImage::ImageRgba8(buf) => {
-            DynamicImage::ImageRgba8(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+            DynamicImage::ImageRgba8(enlarge_buffer(buf, run, cancelled).map_err(error)?)
         }
         DynamicImage::ImageRgb16(buf) => {
-            DynamicImage::ImageRgb16(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+            DynamicImage::ImageRgb16(enlarge_buffer(buf, run, cancelled).map_err(error)?)
         }
         DynamicImage::ImageRgba16(buf) => {
-            DynamicImage::ImageRgba16(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+            DynamicImage::ImageRgba16(enlarge_buffer(buf, run, cancelled).map_err(error)?)
         }
         DynamicImage::ImageRgb32F(buf) => {
-            DynamicImage::ImageRgb32F(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+            DynamicImage::ImageRgb32F(enlarge_buffer(buf, run, cancelled).map_err(error)?)
         }
         DynamicImage::ImageRgba32F(buf) => {
-            DynamicImage::ImageRgba32F(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+            DynamicImage::ImageRgba32F(enlarge_buffer(buf, run, cancelled).map_err(error)?)
         }
         DynamicImage::ImageLuma8(buf) => {
-            DynamicImage::ImageLuma8(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+            DynamicImage::ImageLuma8(enlarge_buffer(buf, run, cancelled).map_err(error)?)
         }
         DynamicImage::ImageLuma16(buf) => {
-            DynamicImage::ImageLuma16(enlarge_buffer(&buf, run, cancelled).map_err(error)?)
+            DynamicImage::ImageLuma16(enlarge_buffer(buf, run, cancelled).map_err(error)?)
         }
         other => {
-            let rgb = other.into_rgba32f();
+            let rgb = other.to_rgba32f();
             DynamicImage::ImageRgba32F(enlarge_buffer(&rgb, run, cancelled).map_err(error)?)
         }
     })
@@ -632,6 +710,15 @@ mod tests {
         assert!(!tries_gpu_graph(false, || false));
         // The CPU path never looks at the fp16 file.
         assert!(!tries_gpu_graph(true, || panic!("checked on the CPU path")));
+    }
+
+    #[test]
+    fn a_photo_that_lost_its_gpu_midway_is_enlarged_again_on_the_cpu() {
+        assert!(redo_on_cpu(true, true));
+        assert!(!redo_on_cpu(true, false));
+        // Started on the CPU (or Core ML): one path throughout.
+        assert!(!redo_on_cpu(false, true));
+        assert!(!redo_on_cpu(false, false));
     }
 
     #[test]

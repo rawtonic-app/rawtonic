@@ -24,10 +24,32 @@ async fn model(
 ) -> anyhow::Result<Option<Arc<Model>>> {
     let ai_state = app_handle.state::<AiState>();
     let mut slot = ai_state.super_resolution.lock().await;
-    if let Some(model) = slot.as_ref() {
-        return Ok(Some(model.clone()));
-    }
     let models_dir = get_models_dir(app_handle)?;
+    if let Some(model) = slot.as_ref() {
+        // The fp16 graph's idle GPU check passed after this model loaded:
+        // the next photo loads it (exports hold the checks, so a batch
+        // does not switch between photos once it has started).
+        let current = model.clone();
+        if !tokio::task::spawn_blocking(move || current.gpu_graph_ready()).await? {
+            return Ok(Some(model.clone()));
+        }
+        let path = models_dir.join(rawtonic_superres::ONNX_FILE);
+        let start = std::time::Instant::now();
+        match tokio::task::spawn_blocking(move || Model::onnx(&path)).await? {
+            Ok(reloaded) => {
+                log::info!(
+                    "Super Resolution: model reloaded on {} in {} ms (its GPU check passed)",
+                    reloaded.backend_name(),
+                    start.elapsed().as_millis()
+                );
+                return Ok(Some(slot.insert(Arc::new(reloaded)).clone()));
+            }
+            Err(error) => {
+                log::warn!("Super Resolution: keeping the loaded model: {error:#}");
+                return Ok(Some(model.clone()));
+            }
+        }
+    }
     let start = std::time::Instant::now();
     #[cfg(target_os = "macos")]
     if let Some(core_ml) = crate::ai_processing::load_core_ml(
@@ -63,11 +85,14 @@ async fn model(
         .await?;
         // The fp16 graph for GPU providers (1.2 MB). Optional: older packs
         // lack it, and without it the original graph runs on the GPU.
+        // An unreadable installed copy counts as missing: it is replaced
+        // after the download's own SHA-256 check, or fp32 runs.
         if !rawtonic_onnx::models_run_on_cpu_only()
             && !verify_sha256(
                 &models_dir.join(rawtonic_superres::GPU_ONNX_FILE),
                 rawtonic_superres::GPU_ONNX_SHA256,
-            )?
+            )
+            .unwrap_or(false)
             && let Err(error) = download_verified(
                 app_handle,
                 &models_dir,
