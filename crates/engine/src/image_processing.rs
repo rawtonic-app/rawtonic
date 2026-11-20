@@ -4907,6 +4907,13 @@ pub struct PreparedAdjustments {
     /// The LUT is read through the stage its file names that the earlier
     /// reader ignored (`lutVersion` 2, `lut::Lut::stage`).
     pub lut_file_stage: bool,
+    /// The colour noise measurement of the whole photograph the render's
+    /// source is a region of (`gpu_processing::measure_color_noise`): the
+    /// multi-scale colour noise reduction takes its thresholds from it
+    /// instead of measuring the region, so that a region renders as the
+    /// same pixels of the whole photograph do. `None`: measured on the
+    /// source (whole-photo renders, exports).
+    pub color_noise_measurement: Option<Box<crate::color_noise::NoiseMeasurement>>,
     /// What a drag's display frame may approximate (G76/GRN3); never set
     /// for an export or a settled frame.
     pub drag_effects: DragEffects,
@@ -4951,6 +4958,7 @@ impl From<AllAdjustments> for PreparedAdjustments {
             detail_pass_export: false,
             curve_table: None,
             lut_file_stage: false,
+            color_noise_measurement: None,
             drag_effects: DragEffects::default(),
         }
     }
@@ -6898,6 +6906,7 @@ fn get_all_adjustments_with_locals<'a>(
         detail_pass_export: versions.render.detail_pass_export(),
         curve_table,
         lut_file_stage: versions.lut.file_stage(),
+        color_noise_measurement: None,
         drag_effects: DragEffects::default(),
         uniforms: Box::new(AllAdjustments {
             global,
