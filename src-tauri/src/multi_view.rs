@@ -2840,6 +2840,20 @@ fn kept_base(
     zoom: CellZoom,
     recipe: &serde_json::Value,
 ) -> Option<RegionBase> {
+    kept_base_reaching(bases, path, area, zoom, recipe, true)
+}
+
+/// [`kept_base`]; with `noise_reach` false, one that covers the visible
+/// part and REGION_MARGIN only (a provisional live region: its pixels at
+/// the edges may filter noise without all their neighbours).
+fn kept_base_reaching(
+    bases: &RegionBases,
+    path: &str,
+    area: [f32; 4],
+    zoom: CellZoom,
+    recipe: &serde_json::Value,
+    noise_reach: bool,
+) -> Option<RegionBase> {
     let preparation_key = crate::preview_cache::preparation_key(recipe);
     bases
         .lock()
@@ -2847,12 +2861,19 @@ fn kept_base(
         .get(path)
         .filter(|base| {
             let shown = shown_size(recipe, base.facts);
+            let needed = if noise_reach {
+                developed_region(area, shown, zoom, base.scale, recipe, base.facts.is_raw)
+            } else {
+                gpu_processing::multi_view::zoomed_region(
+                    area,
+                    [shown.0, shown.1],
+                    zoom,
+                    REGION_MARGIN,
+                )
+            };
             base.preparation_key == preparation_key
                 && base.zoom_scale == zoom.scale
-                && contains(
-                    base.region,
-                    developed_region(area, shown, zoom, base.scale, recipe, base.facts.is_raw),
-                )
+                && contains(base.region, needed)
         })
         .cloned()
 }
@@ -2880,7 +2901,14 @@ pub(crate) fn develop_region(
         let shown = shown_size(&recipe, base.facts);
         developed_region(area, shown, zoom, base.scale, &recipe, base.facts.is_raw)
     };
-    let kept = kept_base(bases, path, area, zoom, &recipe);
+    // The live path never prepares a base (it would decode in the preview
+    // worker): it takes one without the noise reach too, for a provisional
+    // region (`live_region`).
+    let kept = kept_base(bases, path, area, zoom, &recipe).or_else(|| {
+        (caller == LIVE_RENDER)
+            .then(|| kept_base_reaching(bases, path, area, zoom, &recipe, false))
+            .flatten()
+    });
     let (base, source_kind) = match kept {
         Some(base) => (base, "region-cache"),
         None => {
@@ -3724,19 +3752,30 @@ fn live_region(
     if shown_key == Some(key) {
         return LiveRegion::Current;
     }
-    let Some(base) = kept_base(&regions.bases, path, area, zoom, recipe) else {
-        return LiveRegion::Unavailable;
+    // A base reaching the noise reductions' context, else (a base made for
+    // a viewport panned since, before a noise reduction was switched on)
+    // one covering the visible part only.
+    let (base, reaching) = match kept_base(&regions.bases, path, area, zoom, recipe) {
+        Some(base) => (base, true),
+        None => match kept_base_reaching(&regions.bases, path, area, zoom, recipe, false) {
+            Some(base) => (base, false),
+            None => return LiveRegion::Unavailable,
+        },
     };
     // The whole photograph's noise measurement is made by the region
-    // worker, not here (it would hold the preview worker): until then the
-    // region follows the drag measured on its own, under an interim key,
-    // so the region worker still develops it and replaces it.
-    let key = match kept_whole_noise(path, recipe, &base) {
-        WholeNoise::Missing if shown_key == Some(interim_key(key)) => {
+    // worker, not here (it would hold the preview worker): until then, or
+    // without the reach, the region follows the drag as a provisional one
+    // under an interim key, so the region worker still develops it and
+    // replaces it.
+    let provisional =
+        !reaching || matches!(kept_whole_noise(path, recipe, &base), WholeNoise::Missing);
+    let key = if provisional {
+        if shown_key == Some(interim_key(key)) {
             return LiveRegion::Current;
         }
-        WholeNoise::Missing => interim_key(key),
-        WholeNoise::NotWanted | WholeNoise::Kept(_) => key,
+        interim_key(key)
+    } else {
+        key
     };
     match develop_region(
         app_handle,
