@@ -1753,7 +1753,7 @@ fn plan_prefetch(app_handle: &tauri::AppHandle, job: &Job) {
 
 /// Zoomed in, each cell's region is developed with this much of the visible
 /// size around it on each side, so that panning stays sharp a while.
-const REGION_MARGIN: f32 = 0.25;
+pub(crate) const REGION_MARGIN: f32 = 0.25;
 
 /// The base a region is cut from reaches this much of the visible size
 /// around it on each side: a pan further than REGION_MARGIN develops the new
@@ -2525,8 +2525,21 @@ fn developed_region(
     recipe: &serde_json::Value,
     is_raw: bool,
 ) -> [f32; 4] {
-    let visible =
-        gpu_processing::multi_view::zoomed_region(area, [shown.0, shown.1], zoom, REGION_MARGIN);
+    developed_region_with(area, shown, zoom, REGION_MARGIN, scale, recipe, is_raw)
+}
+
+/// [`developed_region`] with `margin` of the visible size around it instead
+/// of REGION_MARGIN.
+fn developed_region_with(
+    area: [f32; 4],
+    shown: (f32, f32),
+    zoom: CellZoom,
+    margin: f32,
+    scale: f32,
+    recipe: &serde_json::Value,
+    is_raw: bool,
+) -> [f32; 4] {
+    let visible = gpu_processing::multi_view::zoomed_region(area, [shown.0, shown.1], zoom, margin);
     with_noise_reach(visible, shown, scale, recipe, is_raw)
 }
 
@@ -2878,9 +2891,11 @@ fn kept_base_reaching(
         .cloned()
 }
 
-/// Develops the region of `path` its cell shows at `zoom`, from a kept base
-/// when one still covers it at this magnification and geometry, else from
-/// a new one; then the region alone through the display's shader variants.
+/// Develops the region of `path` its cell shows at `zoom` with `margin` of
+/// the visible size around it on each side (at most REGION_MARGIN), from a
+/// kept base when one still covers it at this magnification and geometry,
+/// else from a new one; then the region alone through the display's shader
+/// variants.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn develop_region(
     app_handle: &tauri::AppHandle,
@@ -2889,17 +2904,27 @@ pub(crate) fn develop_region(
     path: &str,
     area: [f32; 4],
     zoom: CellZoom,
+    margin: f32,
     recipe: serde_json::Value,
     key: u64,
     caller: &'static str,
 ) -> Result<Region, String> {
     let start = Instant::now();
-    // The texture covers the visible part and REGION_MARGIN around it (and
-    // the noise reductions' reach); the kept base reaches further
+    // The texture covers the visible part and `margin` around it (and the
+    // noise reductions' reach); the kept base reaches further
     // (BASE_MARGIN), so a pan is cut from it.
+    let margin = margin.min(REGION_MARGIN);
     let wanted_in = |base: &RegionBase| {
         let shown = shown_size(&recipe, base.facts);
-        developed_region(area, shown, zoom, base.scale, &recipe, base.facts.is_raw)
+        developed_region_with(
+            area,
+            shown,
+            zoom,
+            margin,
+            base.scale,
+            &recipe,
+            base.facts.is_raw,
+        )
     };
     // The live path never prepares a base (it would decode in the preview
     // worker): it takes one without the noise reach too, for a provisional
@@ -2969,7 +2994,7 @@ pub(crate) fn develop_region(
         },
     )?;
     let (shown_w, shown_h) = shown_size(&recipe, base.facts);
-    // Shown: the visible part and REGION_MARGIN only. The noise reach and
+    // Shown: the visible part and `margin` only. The noise reach and
     // the grid's pixels around it were filtered without all their
     // neighbours, and the cells take a region's extent as ready to show.
     let developed = [
@@ -2978,8 +3003,7 @@ pub(crate) fn develop_region(
         w as f32 / s,
         h as f32 / s,
     ];
-    let visible =
-        gpu_processing::multi_view::zoomed_region(area, [shown_w, shown_h], zoom, REGION_MARGIN);
+    let visible = gpu_processing::multi_view::zoomed_region(area, [shown_w, shown_h], zoom, margin);
     let [cx, cy, cw, ch] = shown_part(developed, visible, s, (w, h));
     let rgba = if [cx, cy, cw, ch] == [0, 0, w, h] {
         rgba
@@ -3363,6 +3387,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                 &path,
                 area,
                 zoom,
+                REGION_MARGIN,
                 recipe,
                 key,
                 CELL_RENDER,
@@ -3395,6 +3420,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                 &path,
                 area,
                 zoom,
+                REGION_MARGIN,
                 recipe,
                 key,
                 CELL_RENDER,
@@ -3784,6 +3810,7 @@ fn live_region(
         path,
         area,
         zoom,
+        REGION_MARGIN,
         recipe.clone(),
         key,
         LIVE_RENDER,
