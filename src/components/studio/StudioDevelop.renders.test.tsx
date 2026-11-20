@@ -255,7 +255,7 @@ describe('scope updates', () => {
         waveform: {
           width: 256,
           height: 256,
-          luma: `${peak}`,
+          luma: `00000000-0000-4000-8000-${String(peak).padStart(12, '0')}`,
           skinLineDegrees: 123,
           vectorscopeTargets: []
         } as never
@@ -282,7 +282,7 @@ describe('scope updates', () => {
     // Yet every display shows the new data.
     const after = [plot(), curve(), scope()];
     after.forEach((value, i) => expect(value).not.toBe(before[i]));
-    expect(scope()).toBe('rawtonic-scope://localhost/200');
+    expect(scope()).toBe('rawtonic-scope://localhost/00000000-0000-4000-8000-000000000200');
   });
 
   it('re-render the histogram panel when a clipping triangle changes', () => {

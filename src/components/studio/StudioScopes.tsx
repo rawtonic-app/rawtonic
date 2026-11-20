@@ -34,9 +34,12 @@ export function scopeImage(waveform: WaveformData | null, mode: ScopeMode): stri
   return waveform && hasScopeImage(waveform, mode) ? convertFileSrc(waveform[mode], 'rawtonic-scope') : null;
 }
 
+/** A scope image's id (a UUID, scope_images.rs). */
+const SCOPE_ID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
+
 /** Whether `waveform` holds `mode`'s image (without building its URL). */
 export function hasScopeImage(waveform: WaveformData | null, mode: ScopeMode): boolean {
-  return !!waveform && /^\d+$/.test(waveform[mode]) && waveform.width === SIZE && waveform.height === SIZE;
+  return !!waveform && SCOPE_ID.test(waveform[mode]) && waveform.width === SIZE && waveform.height === SIZE;
 }
 
 function WaveformGraticule({ parade }: { parade: boolean }) {

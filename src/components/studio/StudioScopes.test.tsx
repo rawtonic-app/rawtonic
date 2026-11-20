@@ -17,7 +17,7 @@ afterEach(() => {
 const data: WaveformData = {
   width: 256,
   height: 256,
-  luma: '17',
+  luma: '0b5f2c1e-8d3a-4f6b-9c2d-7e1a3b5c9d0f',
   rgb: '',
   parade: '',
   vectorscope: '',
@@ -37,9 +37,10 @@ it('graticule lines sit on the codes they name: 100 % on code 255, 0 % on code 0
 
 it('shows a computed scope by its URL and nothing for a mode that was not computed', () => {
   // The image itself never comes through the event: only its id (scope_images.rs).
-  expect(scopeImage(data, 'luma')).toBe('rawtonic-scope://localhost/17');
+  expect(scopeImage(data, 'luma')).toBe('rawtonic-scope://localhost/0b5f2c1e-8d3a-4f6b-9c2d-7e1a3b5c9d0f');
   // Not an id (e.g. an image inline as before): never put into a URL.
   expect(scopeImage({ ...data, luma: 'iVBORw0KGgo=' }, 'luma')).toBeNull();
+  expect(scopeImage({ ...data, luma: '../17' }, 'luma')).toBeNull();
   expect(scopeImage(data, 'rgb')).toBeNull();
   expect(scopeImage(null, 'luma')).toBeNull();
   // An image of another size is never drawn.
@@ -53,7 +54,7 @@ it("switches modes and draws the backend's vectorscope targets and skin line", (
   const { container } = render(<StudioScopes />);
   expect(screen.getByRole('img', { name: 'Luma waveform of the shown photo' })).toBeTruthy();
   expect(container.querySelector('.studio-scope-plot > img')?.getAttribute('src')).toBe(
-    'rawtonic-scope://localhost/17'
+    'rawtonic-scope://localhost/0b5f2c1e-8d3a-4f6b-9c2d-7e1a3b5c9d0f'
   );
   expect(container.querySelectorAll('[data-percent]').length).toBe(5);
   fireEvent.click(screen.getByRole('button', { name: 'Vector' }));
