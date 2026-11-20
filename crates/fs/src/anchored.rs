@@ -155,6 +155,12 @@ mod tests {
         fs::create_dir_all(&staged).unwrap();
         let directory = Directory::open(&updates).unwrap();
 
+        let child = directory.open_child(name).unwrap();
+        let error = child
+            .remove_file(OsStr::new("Rawtonic_0.1.0_x64-setup.exe"), None)
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        drop(child);
         directory.remove_empty_child(name).unwrap();
 
         assert!(!staged.try_exists().unwrap());

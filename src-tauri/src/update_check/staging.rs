@@ -2,7 +2,7 @@
 
 use rawtonic_fs::anchored::Directory;
 use semver::Version;
-use std::{ffi::OsStr, fs, io, path::Path};
+use std::{ffi::OsStr, fmt, fs, io, path::Path};
 
 /// The updater has always used tempfile's six alphanumeric characters.
 pub(super) const SUFFIX_LEN: usize = 6;
@@ -20,12 +20,14 @@ pub(super) fn updates_dir(app: &tauri::AppHandle) -> tauri::Result<std::path::Pa
 #[cfg(windows)]
 pub(crate) fn cleanup_at_start(app: &tauri::AppHandle) {
     match updates_dir(app) {
-        Ok(root) => cleanup(&root, &app.package_info().version),
+        Ok(root) => cleanup(&root, &app.package_info().version, |message| {
+            log::warn!("{message}");
+        }),
         Err(error) => log::warn!("Could not locate staged updates: {error}"),
     }
 }
 
-fn cleanup(root: &Path, current: &Version) {
+fn cleanup(root: &Path, current: &Version, mut warn: impl FnMut(fmt::Arguments<'_>)) {
     let entries = || {
         let directory = Directory::open(root)?;
         Ok::<_, io::Error>((directory, fs::read_dir(root)?))
@@ -34,7 +36,7 @@ fn cleanup(root: &Path, current: &Version) {
         Ok(opened) => opened,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return,
         Err(error) => {
-            log::warn!("Could not scan staged updates: {error}");
+            warn(format_args!("Could not scan staged updates: {error}"));
             return;
         }
     };
@@ -42,7 +44,7 @@ fn cleanup(root: &Path, current: &Version) {
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
-                log::warn!("Could not read staged update entry: {error}");
+                warn(format_args!("Could not read staged update entry: {error}"));
                 continue;
             }
         };
@@ -65,12 +67,19 @@ fn cleanup(root: &Path, current: &Version) {
         // containing anything else is kept.
         let remove = || {
             let staged = directory.open_child(&name)?;
-            remove_setup(&staged, OsStr::new(&setup_name(version)))?;
+            match remove_setup(&staged, OsStr::new(&setup_name(version))) {
+                // An earlier cleanup may have stopped after deleting the setup.
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
             drop(staged);
             directory.remove_empty_child(&name)
         };
         if let Err(error) = remove() {
-            log::warn!("Could not clean staged update {version}: {error}");
+            warn(format_args!(
+                "Could not clean staged update {version}: {error}"
+            ));
         }
     }
 }
@@ -123,8 +132,10 @@ mod tests {
         let unrelated_folder = root.join("0.1.0-alpha.9-EE1234");
         fs::create_dir(&unrelated_folder).unwrap();
         fs::write(unrelated_folder.join("user.txt"), b"keep").unwrap();
+        let mixed = stage(&root, "0.1.0-alpha.9", "FF1234");
+        fs::write(mixed.join("user.txt"), b"keep").unwrap();
 
-        cleanup(&root, &Version::parse("0.1.0-alpha.10").unwrap());
+        cleanup(&root, &Version::parse("0.1.0-alpha.10").unwrap(), |_| {});
         assert!(!old.exists());
         assert!(!current.exists());
         assert!(newer.join(setup_name("0.1.0-alpha.11")).is_file());
@@ -134,6 +145,35 @@ mod tests {
             fs::read(unrelated_folder.join("user.txt")).unwrap(),
             b"keep"
         );
+        assert!(
+            !mixed
+                .join(setup_name("0.1.0-alpha.9"))
+                .try_exists()
+                .unwrap()
+        );
+        assert_eq!(fs::read(mixed.join("user.txt")).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn removes_empty_staging_folders_without_warnings_on_repeated_starts() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("updates");
+        let old = root.join("0.1.0-alpha.9-AA1234");
+        let current = root.join("0.1.0-alpha.10-BB1234");
+        let newer = root.join("0.1.0-alpha.11-CC1234");
+        let unrelated = root.join("empty-unrelated");
+        for folder in [&old, &current, &newer, &unrelated] {
+            fs::create_dir_all(folder).unwrap();
+        }
+        let running = Version::parse("0.1.0-alpha.10").unwrap();
+
+        for _ in 0..2 {
+            cleanup(&root, &running, |message| panic!("{message}"));
+            assert!(!old.try_exists().unwrap());
+            assert!(!current.try_exists().unwrap());
+            assert!(newer.is_dir());
+            assert!(unrelated.is_dir());
+        }
     }
 
     #[test]
@@ -168,8 +208,8 @@ mod tests {
         let linked_root = temp.path().join("linked-updates");
         symlink_dir(temp.path(), &linked_root).unwrap();
         let running = Version::new(0, 1, 0);
-        cleanup(&linked_root, &running);
-        cleanup(&root, &running);
+        cleanup(&linked_root, &running, |_| {});
+        cleanup(&root, &running, |_| {});
 
         assert!(fs::symlink_metadata(linked_dir).unwrap().is_symlink());
         assert!(fs::symlink_metadata(linked_setup).unwrap().is_symlink());
