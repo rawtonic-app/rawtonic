@@ -3901,7 +3901,34 @@ fn off_global_pool<R: Send>(work: impl FnOnce() -> R + Send) -> R {
 /// nor, called from a worker, steals a queued render that needs the
 /// processor.
 fn film_grain_tile_data() -> Vec<u32> {
-    rawtonic_engine::film_grain::grain_tile()
+    level_pairs(&rawtonic_engine::film_grain::grain_tile())
+}
+
+/// The tile as the shader's `film_texel` reads it (G76/GRN1): per mip
+/// (finest first) one plane per pair of neighbouring levels the shader
+/// interpolates (plane `k0 + 1` holds levels `k0` and `k0 + 1` of every
+/// texel, row by row; `k0 = -1` is the empty level, a zero half), instead
+/// of the engine's texels of all levels side by side. A pixel and its
+/// neighbours read one plane, which the caches keep: film grain cost 0.38
+/// instead of 0.71 ms per megapixel of a display frame on Metal (M5 Pro;
+/// `grain_frame_cost_probe`). Twice the words, the same halves, so every
+/// value the shader reads is bit for bit the one it read before.
+fn level_pairs(tile: &[u32]) -> Vec<u32> {
+    use rawtonic_engine::film_grain::{LEVELS, mip_sides};
+    let half = |texel: &[u32], level: usize| (texel[level / 2] >> (16 * (level % 2))) & 0xffff;
+    let mut out = Vec::with_capacity(tile.len() * 2);
+    let mut start = 0;
+    for side in mip_sides() {
+        let mip = &tile[start..start + side * side * (LEVELS / 2)];
+        start += mip.len();
+        for pair in 0..LEVELS {
+            out.extend(mip.chunks_exact(LEVELS / 2).map(|texel| {
+                let lower = if pair == 0 { 0 } else { half(texel, pair - 1) };
+                lower | (half(texel, pair) << 16)
+            }));
+        }
+    }
+    out
 }
 
 /// Creates the Rgba16Float input texture of `image` band by band.
@@ -14413,6 +14440,39 @@ mod display_geometry_tests {
             fit_placement([10.0, 20.0, 400.0, 200.0], 300.0, 300.0),
             [110.0, 20.0, 200.0, 200.0]
         );
+    }
+}
+
+#[cfg(test)]
+mod film_grain_tile_layout_tests {
+    use rawtonic_engine::film_grain::{LEVELS, grain_tile, mip_sides};
+
+    #[test]
+    fn every_level_pair_holds_the_engines_halves() {
+        // The shader's `film_mip_offset` and `film_texel` index into the
+        // planes; each word must hold the halves the engine's tile has for
+        // levels k0 and k0 + 1 (zero for the empty level k0 = -1).
+        let engine = grain_tile();
+        let pairs = super::level_pairs(&engine);
+        assert_eq!(pairs.len(), engine.len() * 2);
+        let half = |word: u32, level: usize| (word >> (16 * (level % 2))) & 0xffff;
+        let mut texels_before = 0;
+        for (j, side) in mip_sides().into_iter().enumerate() {
+            // The shader's closed form of the texels before mip j.
+            assert_eq!(texels_before, 0x55555 - (0x55555 >> (2 * j)));
+            let planes = texels_before * LEVELS;
+            for t in 0..side * side {
+                let texel = &engine[(texels_before + t) * (LEVELS / 2)..][..LEVELS / 2];
+                for k0 in -1..LEVELS as i32 - 1 {
+                    let k1 = (k0 + 1) as usize;
+                    let lower = if k0 < 0 { 0 } else { half(texel[k0 as usize / 2], k0 as usize) };
+                    let word = pairs[planes + k1 * side * side + t];
+                    assert_eq!(word, lower | (half(texel[k1 / 2], k1) << 16));
+                }
+            }
+            texels_before += side * side;
+        }
+        assert_eq!(texels_before * LEVELS, pairs.len());
     }
 }
 

@@ -272,10 +272,11 @@ pub fn mip_sides() -> Vec<usize> {
     std::iter::successors(Some(TILE), |&s| (s > 1).then_some(s / 2)).collect()
 }
 
-/// The tile for the shader's `film_grain_tile` buffer: for each mip (finest
-/// first) and texel (row by row), LEVELS / 2 words, each two levels' grain
-/// fluctuation (covered share minus the level's mean) as half floats, the
-/// lower level in the low half (WGSL `unpack2x16float`).
+/// The tile: for each mip (finest first) and texel (row by row), LEVELS / 2
+/// words, each two levels' grain fluctuation (covered share minus the
+/// level's mean) as half floats, the lower level in the low half (WGSL
+/// `unpack2x16float`). The GPU crate rearranges it into planes of level
+/// pairs for the shader's `film_grain_tile` buffer (`level_pairs`).
 pub fn grain_tile() -> Vec<u32> {
     let grains = grains();
     let levels: Vec<Vec<f32>> = coverage(&grains)
