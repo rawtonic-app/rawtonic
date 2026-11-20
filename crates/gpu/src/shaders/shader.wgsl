@@ -2816,33 +2816,75 @@ fn shadows_v19_level(coords: vec2<u32>) -> f32 {
     return exp2(wide + select(q * q / (4.0 * SH_V19_SOFT), d, d >= SH_V19_SOFT));
 }
 
-// Tone version 20 (notes: G02, benchmark-results/shg1-2026-11-18): a bright
-// pixel among thin dark detail is not lifted as shadow. Between dark strokes
-// (text, a fine grating, leaves against the sky) the blurred level is dark
-// although the pixel is bright, so version 19 lifted the bright gaps: +9.8
-// L* between 5 px strokes 5 px apart at Shadows +100, where Camera Raw and
-// Capture One lift them by less than 0.1 L*. The level may no longer fall
-// below the pixel's own luminance where the pixel itself is a light tone:
-// the floor's raise is faded in with the pixel's display level (before the
-// lift) from SH_V20_GATE.x to SH_V20_GATE.y EV (smoothstep; about L* 57 to
-// L* 80), so the shadows' own texture keeps version 19's level. Floor and
-// level meet in a smooth maximum SH_V20_SOFT EV wide (quadratic, as version
-// 19's stop).
-// The gate was chosen from four on the slider atlas (shadow detail at +100
-// against version 19's) and the stroke chart's gaps.
-const SH_V20_GATE: vec2<f32> = vec2<f32>(-2.0, -0.8);
+// Tone version 20 (notes: G02, benchmark-results/shg1-2026-11-18 and
+// shg2-2026-11-20): a bright pixel among thin dark detail is not lifted as
+// shadow. Between dark strokes (text, a fine grating, leaves against the
+// sky) the blurred level is dark although the pixel is bright, so version 19
+// lifted the bright gaps: +9.8 L* between 5 px strokes 5 px apart at Shadows
+// +100, where Camera Raw and Capture One lift them by less than 0.1 L*.
+// A pixel above its level is lifted as its level is, within two bounds:
+// from the tone the look shows at SH_V20_FROM EV (about L* 57) upwards the
+// lift falls by 1 − SH_V20_KEEP EV for each EV of the pixel, and no pixel
+// is lifted beyond the tone shown at SH_V20_TO EV (about L* 87). It is
+// never lifted less than its own luminance is. So light tones get their
+// own lift and darker pixels, the shadows' own texture, keep version 19's;
+// the second bound acts where the lift is larger than the first can take
+// back on the way (the darkest surroundings at high values).
+//
+// Order: in the same surroundings a brighter pixel is never rendered darker
+// than a darker one, because the lift is picked from renderings that each
+// rise with the pixel: the level's lift (1 EV per EV), the first bound
+// (SH_V20_KEEP EV per EV), the second (level) and the pixel's own lift (as
+// flat tones do). A detail wide enough to raise its own level lowers the
+// level's lift as it brightens (version 19 too); the first bound follows
+// that, so it needs flat tones to keep 1 − SH_V20_KEEP of their contrast
+// under the lift, which SH_V20_KEEP has room for (lines 1 to 8 px wide at
+// 1080 rows fall no more than version 19's own 0.002 EV, `tone_version_20_
+// shadows_keeps_fine_detail_in_order`; at 0.5, 0.011 EV at 8 px; at 0.25,
+// 0.08 EV at 3 px).
+// Tried and dropped: a weight on the level by the pixel's own brightness
+// (the first build) let the level outrun the pixel, so a one-pixel line on
+// a dark ground fell up to 0.75 EV while its value rose. Bounding the
+// level's own rise (1 EV per EV of the pixel) keeps the order but not the
+// gaps: the level has 4 EV to cross where the lifts differ by less than 2
+// (+3.0 to +6.0 L* left between the 5 px strokes). Compressing the lifted
+// result above the light tone keeps the order for every width, but takes
+// shadow detail (slider atlas +100: 0.19 under Camera Raw's, 0.13 before).
+//
+// It is applied as a factor (at most 1) on the pixel before the tone stage,
+// which then lifts it with the level as version 19 does: the stage keeps
+// the order of what it is given, and stays as it is.
+// SH_V20_KEEP and SH_V20_TO were chosen on the order test, the slider
+// atlas (shadow detail at +100), the stroke chart's gaps and two real
+// frames; SH_V20_FROM is the first build's.
+const SH_V20_FROM: f32 = -2.0;
+const SH_V20_KEEP: f32 = 0.6;
+const SH_V20_TO: f32 = -0.5;
+// The first bound starts in a quadratic knee this wide (EV to either side).
 const SH_V20_SOFT: f32 = 0.25;
 
-// `pixel_rgb` has Exposure applied, the wide level not: the floor compares
-// them before Exposure, the gate reads the display level after it.
-fn shadows_v20_level(wide_luma: f32, pixel_rgb: vec3<f32>, exposure_gain: f32) -> f32 {
-    let pixel = max(get_luma(max(pixel_rgb, vec3<f32>(0.0))) / exposure_gain, 0.0001);
-    let wide = log2(max(wide_luma, 0.0001));
-    let d = log2(pixel) - wide;
-    let q = clamp(d + SH_V20_SOFT, 0.0, 2.0 * SH_V20_SOFT);
-    let raise = select(q * q / (4.0 * SH_V20_SOFT), d, d >= SH_V20_SOFT);
-    let light = smoothstep(SH_V20_GATE.x, SH_V20_GATE.y, camera_raw_level_slope(pixel * exposure_gain).x);
-    return exp2(wide + raise * light);
+// `pixel_rgb` has Exposure applied, the level not. The second bound has to
+// hold for darker pixels too (a dark pixel lifted beyond SH_V20_TO would
+// otherwise render lighter than a brighter one at the bound), so the
+// level's lift is evaluated for every pixel above its level.
+fn shadows_v20_pixel_gain(level_luma: f32, pixel_rgb: vec3<f32>, sh: f32, bl: f32, exposure_gain: f32) -> f32 {
+    let pixel = get_luma(max(pixel_rgb, vec3<f32>(0.0)));
+    let level = max(level_luma, 0.0001) * exposure_gain;
+    if (pixel <= level) {
+        return 1.0;
+    }
+    let ramp = clamp(sh / SH_V6_FADE, 0.0, 1.0);
+    let fade = ramp * ramp;
+    let at_level = log2(max(shadows_v13_gain(level, sh, bl, fade), 1e-9));
+    let above = log2(pixel / max(cr_curve_level(SH_V20_FROM), 1e-6));
+    let q = clamp(above + SH_V20_SOFT, 0.0, 2.0 * SH_V20_SOFT);
+    let rise = select(q * q / (4.0 * SH_V20_SOFT), above, above >= SH_V20_SOFT);
+    let bound = min(at_level - (1.0 - SH_V20_KEEP) * rise, log2(max(cr_curve_level(SH_V20_TO), 1e-6) / pixel));
+    if (bound >= at_level) {
+        return 1.0;
+    }
+    let at_pixel = log2(max(shadows_v13_gain(pixel, sh, bl, fade), 1e-9));
+    return exp2(min(max(at_pixel, bound) - at_level, 0.0));
 }
 
 // The texture gain on top of the wide level's lift `gain`.
@@ -11414,9 +11456,6 @@ fn main(
         if (SHADOWS_V19 && t_shadows > 0.0 && adjustments.global.tone_version > 18.5) {
             wide_luma = shadows_v19_level(id.xy);
         }
-        if (SHADOWS_V19 && t_shadows > 0.0 && adjustments.global.tone_version > 19.5) {
-            wide_luma = shadows_v20_level(wide_luma, composite_rgb_linear, exposure_gain);
-        }
         var whites_offset = 0.0;
         if (t_whites < 0.0 && adjustments.global.tone_version > 9.5 && base_look_is_camera_raw()) {
             whites_offset = whites_v10_offset(vec2<i32>(id.xy), initial_linear_rgb, scale);
@@ -11430,6 +11469,11 @@ fn main(
         var scene_blacks = t_blacks;
         if (is_raw == 1u && adjustments.global.tone_version > 17.5 && adjustments.global.tonemapper_mode == 2u) {
             scene_blacks = max(t_blacks, -2.5);
+        }
+        if (SHADOWS_V19 && t_shadows > 0.0 && adjustments.global.tone_version > 19.5 && base_look_is_camera_raw()) {
+            // Blacks as the tone stage takes it (`apply_tonal_adjustments_v13`).
+            let stage_blacks = select(scene_blacks, 0.0, blacks_v9_active(scene_blacks, is_raw));
+            composite_rgb_linear *= shadows_v20_pixel_gain(wide_luma, composite_rgb_linear, t_shadows, stage_blacks, exposure_gain);
         }
         if (adjustments.global.tone_version < 5.5) {
             if (TONE_V5) {

@@ -7945,11 +7945,13 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// L* rim at +100 against Camera Raw's 0.36–0.43; notes:
 /// benchmark-results/shrim-shadows-rim-2026-11-16).
 /// 20 (2026-11-18) does not lift light tones among thin dark detail at
-/// raised Shadows: their level no longer falls below the pixel's own
-/// luminance (faded in from about L* 57 to 80), so the bright gaps between
-/// dark strokes stay as they are (+9.8 L* between 5 px strokes at +100,
-/// where Camera Raw and Capture One lift them < 0.1 L*; notes:
-/// benchmark-results/shg1-2026-11-18).
+/// raised Shadows: a pixel above its level loses 0.4 EV of the level's lift
+/// for each EV it lies above about L* 57, is not lifted beyond about L* 87
+/// and never gets less than its own luminance's lift, so the bright gaps
+/// between dark strokes stay as they are (+9.8 L* between 5 px strokes at
+/// +100, where Camera Raw and Capture One lift them < 0.1 L*) and a
+/// brighter pixel in the same surroundings is never rendered darker
+/// (notes: benchmark-results/shg1-2026-11-18, shg2-2026-11-20).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
 pub const TONE_VERSION: u64 = 20;
