@@ -904,6 +904,30 @@ pub fn developed_frame(source: &RawSource, frame_version: u32) -> Option<Develop
     })
 }
 
+/// Whether the DNG in `source` develops differently by
+/// `DecodeOptions::warp_planes`: its OpcodeList3 holds a lens warp whose
+/// planes' coefficients differ (`WarpRectilinear::differs_per_plane`).
+/// Reads the file's tags only; false for other files and files it cannot
+/// read.
+pub fn warp_planes_matter(source: &RawSource) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        rawler::get_decoder(source).is_ok_and(|decoder| {
+            read_dng_opcode_list(decoder.as_ref(), rawler::tags::DngTag::OpcodeList3)
+                .iter()
+                .any(|opcode| {
+                    matches!(opcode, crate::dng_opcodes::Opcode::WarpRectilinear(warp)
+                        if warp.differs_per_plane())
+                })
+        })
+    }))
+    .unwrap_or(false)
+}
+
+/// `warp_planes_matter` of the file at `path`, memory-mapped.
+pub fn warp_planes_matter_at(path: &std::path::Path) -> bool {
+    RawSource::new(path).is_ok_and(|source| warp_planes_matter(&source))
+}
+
 /// `developed_frame` of the file at `path`, memory-mapped (rawler's
 /// `RawSource::new_from_slice` copies the whole file).
 pub fn developed_frame_at(path: &std::path::Path, frame_version: u32) -> Option<DevelopedFrame> {
@@ -2248,11 +2272,14 @@ mod frame_tests {
             .to_rgb32f()
         };
         let plain = develop(&warped_square_dng(None), WarpPlanes::Camera);
+        let matters = |bytes: Vec<u8>| warp_planes_matter(&RawSource::new_from_slice(&bytes));
         // Lateral CA: only plane 0 (red) moves, by up to 3 px at the corners.
         let identity = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         let lateral = [[1.0, 0.05, 0.0, 0.0, 0.0, 0.0], identity, identity];
         let camera = develop(&warped_square_dng(Some(&lateral)), WarpPlanes::Camera);
         let output = develop(&warped_square_dng(Some(&lateral)), WarpPlanes::Output);
+        assert!(matters(warped_square_dng(Some(&lateral))));
+        assert!(!matters(warped_square_dng(None)));
         // Each change of the camera-plane warp is a change of plane 0 alone:
         // one colour direction (the camera red's) wherever it changed.
         let diffs = |img: &image::Rgb32FImage| -> Vec<[f32; 3]> {
@@ -2294,6 +2321,7 @@ mod frame_tests {
         // in both modes.
         let shared = [[1.0, 0.05, 0.0, 0.0, 0.0, 0.0]; 3];
         let bytes = warped_square_dng(Some(&shared));
+        assert!(!matters(bytes.clone()));
         assert_eq!(
             develop(&bytes, WarpPlanes::Camera).as_raw(),
             develop(&bytes, WarpPlanes::Output).as_raw()

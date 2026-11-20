@@ -257,13 +257,16 @@ pub fn decode_variant(adjustments: &Value, source: &str) -> DecodeVariant {
     decode_variant_for_frame(adjustments, source, frame)
 }
 
-/// Whether `source` is a DNG, the one format whose files carry lens opcodes
-/// (`DecodeVariant::warp_planes`).
-pub fn is_dng_file(source: &str) -> bool {
-    std::path::Path::new(source)
+/// Whether `source` may be a DNG, the one format whose files carry lens
+/// opcodes (`DecodeVariant::warp_planes`): a `.dng`, or a TIFF the RAW path
+/// takes by its content (`formats::is_raw_file`; a DNG renamed `.tif`).
+pub fn may_hold_dng_opcodes(source: &str) -> bool {
+    let extension = std::path::Path::new(source)
         .extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("dng"))
+        .unwrap_or("");
+    extension.eq_ignore_ascii_case("dng")
+        || (crate::formats::is_tiff_extension(extension) && crate::formats::is_raw_file(source))
 }
 
 /// The decode settings of the recipe rendered on the source file at
@@ -293,7 +296,7 @@ pub fn decode_variant_for_frame(adjustments: &Value, source: &str, frame: u32) -
         },
         // Other formats carry no lens opcodes: both develop alike, so they
         // keep one variant (no new decode, cache or preview for them).
-        warp_planes: if render.camera_plane_warp() && is_dng_file(source) {
+        warp_planes: if render.camera_plane_warp() && may_hold_dng_opcodes(source) {
             WarpPlanes::Camera
         } else {
             WarpPlanes::Output
@@ -2301,6 +2304,11 @@ mod decode_variant_tests {
         );
         assert_eq!(
             decode_variant(&json!({}), "/p/A.NEF").warp_planes,
+            WarpPlanes::Output
+        );
+        // A TIFF counts only when the RAW path takes it by its content.
+        assert_eq!(
+            decode_variant(&json!({}), "/p/missing.tif").warp_planes,
             WarpPlanes::Output
         );
         // The colour noise filter is decided as before.

@@ -136,7 +136,8 @@ export function sourceDevelopToApply(
   const haveRatios = image.highlightRatios;
   const wantedRatios = image.offline || haveRatios === undefined ? haveRatios : highlightRatios(adjustments);
   const ratios = wantedRatios === image.highlightRatiosFailed ? haveRatios : wantedRatios;
-  // And for a DNG's lens warp (`renderVersion` 14; unknown for other formats).
+  // And for a DNG's lens warp (`renderVersion` 14; unknown where it does
+  // not change the decode).
   const haveWarp = image.cameraPlaneWarp;
   const wantedWarp = image.offline || haveWarp === undefined ? haveWarp : cameraPlaneWarp(adjustments);
   const warp = wantedWarp === image.cameraPlaneWarpFailed ? haveWarp : wantedWarp;
@@ -163,15 +164,17 @@ export function sourceDevelopToApply(
   };
 }
 
-/** Whether `path` (a photograph's, a virtual copy's `…?vc=…` included) is
- * a DNG, the one format whose decode a lens warp's planes change
- * (crates/engine/src/image_loader.rs `is_dng_file`). */
-export const isDngPath = (path: string | null | undefined): boolean => /\.dng$/i.test((path ?? '').split('?')[0]);
+/** Whether the open photograph's decode depends on its lens warp's planes
+ * (`cameraPlaneWarp`): the backend reports them only for DNGs whose warp
+ * has different coefficients per plane. */
+export const warpPlanesMatter = (image: Pick<SelectedImage, 'cameraPlaneWarp'> | null | undefined): boolean =>
+  image?.cameraPlaneWarp !== undefined;
 
 /**
  * How a recipe develops the RAW before any adjustment (AI Denoise amount and
- * version, colour noise filter, dead-photosite test, black handling and, for
- * a DNG (`isDng`), its lens warp's planes), as a string: equal for
+ * version, colour noise filter, dead-photosite test, black handling and,
+ * where they change the decode (`warpPlanes`, `warpPlanesMatter`), its
+ * lens warp's planes), as a string: equal for
  * recipes whose renders can share one source. Empty for other photographs,
  * whose source does not depend on it.
  */
@@ -181,7 +184,7 @@ export function developmentSignature(
       sectionVisibility?: Record<string, boolean | undefined>;
     },
   isRaw: boolean,
-  isDng = false
+  warpPlanes = false
 ): string {
   if (!isRaw) return '';
   const amount = aiDenoiseAmount(adjustments);
@@ -192,6 +195,6 @@ export function developmentSignature(
     deadPixelAdjacent(adjustments),
     unbiasedBlack(adjustments),
     borderBlack(adjustments),
-    ...(isDng ? [cameraPlaneWarp(adjustments)] : [])
+    ...(warpPlanes ? [cameraPlaneWarp(adjustments)] : [])
   ]);
 }

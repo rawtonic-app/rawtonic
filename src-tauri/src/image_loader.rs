@@ -64,7 +64,8 @@ pub struct LoadImageResult {
     pub highlight_ratios: Option<bool>,
     /// The source's DNG lens warp moved the camera planes
     /// (`WarpPlanes::Camera`, `renderVersion` 14); None for preview data and
-    /// for other formats, whose decode it never changes.
+    /// for files whose decode it never changes (no lens warp with different
+    /// coefficients per plane, `warp_planes_matter_at`).
     pub camera_plane_warp: Option<bool>,
     /// The RAW data could not be developed and the camera's embedded preview
     /// is shown instead (an unsupported camera or RAW mode, a damaged file).
@@ -1459,8 +1460,11 @@ pub async fn load_image(
         unbiased_black: Some(variant.black.unbiased()),
         border_black: Some(variant.black == BlackLevels::UnbiasedBorder),
         highlight_ratios: Some(variant.highlights == HighlightRebuild::Ratios),
-        camera_plane_warp: is_dng_file(&source_path_str)
-            .then_some(variant.warp_planes == WarpPlanes::Camera),
+        camera_plane_warp: (may_hold_dng_opcodes(&source_path_str)
+            && rawtonic_rawdecode::raw_processing::warp_planes_matter_at(std::path::Path::new(
+                &source_path_str,
+            )))
+        .then_some(variant.warp_planes == WarpPlanes::Camera),
         developed_from_preview: preview_fallback.is_some(),
         unsupported_nikon_high_efficiency,
         camera_help: matches!(preview_fallback, Some(PreviewFallback::Other(_))),

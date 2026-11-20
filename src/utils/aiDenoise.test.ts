@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aiDenoiseToApply, developmentSignature, isDngPath, sourceDevelopToApply } from './aiDenoise';
+import { aiDenoiseToApply, developmentSignature, sourceDevelopToApply, warpPlanesMatter } from './aiDenoise';
 
 const decoded = { isDecoded: true, isRaw: true, aiDenoise: 0 };
 
@@ -263,21 +263,24 @@ describe('sourceDevelopToApply', () => {
 
 describe('developmentSignature', () => {
   const recipe = { aiDenoise: 0, aiDenoiseVersion: 1, colorNoiseVersion: 2 };
-  it("tells a DNG's lens warp planes apart, and only for DNGs", () => {
+  it("tells a lens warp's planes apart only where they change the decode", () => {
     const v13 = { ...recipe, renderVersion: 13 };
     const v14 = { ...recipe, renderVersion: 14 };
-    // A version 13 snapshot of a DNG does not share the version 14 edit's source...
-    expect(developmentSignature(v13, true, true)).not.toBe(developmentSignature(v14, true, true));
-    // ... while other RAWs, whose decode it never changes, still do.
-    expect(developmentSignature(v13, true, false)).toBe(developmentSignature(v14, true, false));
+    // A DNG whose warp differs per plane: a version 13 snapshot does not
+    // share the version 14 edit's source...
+    const affected = { cameraPlaneWarp: true };
+    expect(warpPlanesMatter(affected)).toBe(true);
+    expect(warpPlanesMatter({ cameraPlaneWarp: false })).toBe(true);
+    expect(developmentSignature(v13, true, warpPlanesMatter(affected))).not.toBe(
+      developmentSignature(v14, true, warpPlanesMatter(affected))
+    );
+    // ... while other photographs (no such warp, other formats, preview
+    // data: not reported) still do.
+    expect(warpPlanesMatter({})).toBe(false);
+    expect(warpPlanesMatter(null)).toBe(false);
+    expect(developmentSignature(v13, true, warpPlanesMatter({}))).toBe(
+      developmentSignature(v14, true, warpPlanesMatter({}))
+    );
     expect(developmentSignature(v13, true)).toBe(developmentSignature(v14, true));
-  });
-
-  it('knows DNG paths, virtual copies included', () => {
-    expect(isDngPath('/p/DJI_0254.DNG')).toBe(true);
-    expect(isDngPath('/p/a.dng?vc=c2')).toBe(true);
-    expect(isDngPath('/p/a.NEF')).toBe(false);
-    expect(isDngPath('/p/dng.tif')).toBe(false);
-    expect(isDngPath(undefined)).toBe(false);
   });
 });

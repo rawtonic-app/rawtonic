@@ -346,6 +346,13 @@ impl WarpRectilinear {
         std::array::from_fn(|c| self.coefficients[c.min(self.coefficients.len() - 1)])
     }
 
+    /// Whether the planes' coefficients differ, the one case in which the
+    /// warp's `WarpPlanes` changes the image.
+    pub fn differs_per_plane(&self) -> bool {
+        let [first, second, third] = self.plane_coefficients();
+        second != first || third != first
+    }
+
     fn is_identity(&self) -> bool {
         self.coefficients
             .iter()
@@ -783,10 +790,7 @@ fn apply_warp(
     // Work in developed coordinates: shift the centre by the crop offset.
     let (cx, cy) = (cx - frame.left, cy - frame.top);
     let plane_coefficients = warp.plane_coefficients();
-    let camera = camera.filter(|_| {
-        plane_coefficients[1] != plane_coefficients[0]
-            || plane_coefficients[2] != plane_coefficients[0]
-    });
+    let camera = camera.filter(|_| warp.differs_per_plane());
     let source = match camera {
         Some((_, inverse)) => pixels
             .par_iter()

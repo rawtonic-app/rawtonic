@@ -1683,7 +1683,8 @@ export const highlightRatios = (adjustments: Pick<Partial<Adjustments>, 'renderV
 export const CAMERA_PLANE_WARP_RENDER_VERSION = 14;
 
 /** Whether a recipe's DNG is developed with that lens warp, as the backend
- * decides (`image_loader::decode_variant`; other formats report none). */
+ * decides (`image_loader::decode_variant`; reported only where it changes
+ * the decode, src/utils/aiDenoise.ts `warpPlanesMatter`). */
 export const cameraPlaneWarp = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
   (adjustments.renderVersion ?? 1) >= CAMERA_PLANE_WARP_RENDER_VERSION;
 

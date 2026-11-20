@@ -861,8 +861,8 @@ export interface LoadImageResult {
    * (`renderVersion` 9); null for preview data. */
   highlight_ratios?: boolean | null;
   /** The source DNG's lens warp moved the camera planes (`renderVersion`
-   * 14); null for preview data and for other formats, whose decode it never
-   * changes. */
+   * 14); null for preview data and for files whose decode it never changes
+   * (no lens warp with different coefficients per plane). */
   camera_plane_warp?: boolean | null;
   /** The RAW data could not be developed; the camera's embedded preview is
    * shown. */
@@ -945,8 +945,8 @@ export interface SelectedImage {
   /** A highlight rebuild the source failed to develop for (not retried). */
   highlightRatiosFailed?: boolean;
   /** The decoded DNG's lens warp moved the camera planes (`cameraPlaneWarp`
-   * in src/utils/adjustments.ts); unknown for preview data and other
-   * formats. */
+   * in src/utils/adjustments.ts); unknown for preview data and for files
+   * whose decode it never changes (`warpPlanesMatter`). */
   cameraPlaneWarp?: boolean;
   /** A lens warp the source failed to develop for (not retried). */
   cameraPlaneWarpFailed?: boolean;

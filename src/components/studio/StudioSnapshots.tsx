@@ -6,7 +6,7 @@ import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useSnapshotStore, type Snapshot } from '../../store/useSnapshotStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
-import { isDngPath } from '../../utils/aiDenoise';
+import { warpPlanesMatter } from '../../utils/aiDenoise';
 import { splitViewAvailable } from '../../utils/beforeAfter';
 import { beforeSnapshot, compareBlocker, compareWithSnapshot, comparisonSignature } from '../../utils/beforeSnapshot';
 import { defaultSnapshotName, restoreSnapshot, takeSnapshot } from '../../utils/snapshots';
@@ -33,7 +33,7 @@ export default function StudioSnapshots() {
   const { toggleSplitView } = useEditorActions();
   useEditorStore((s) => s.beforeSnapshot);
   const signature = useEditorStore((s) =>
-    comparisonSignature(s.adjustments, s.selectedImage?.isRaw ?? false, isDngPath(s.selectedImage?.path))
+    comparisonSignature(s.adjustments, s.selectedImage?.isRaw ?? false, warpPlanesMatter(s.selectedImage))
   );
   const compared = beforeSnapshot();
   const osPlatform = useSettingsStore((s) => s.osPlatform);
@@ -103,7 +103,7 @@ export default function StudioSnapshots() {
               compared={compared?.id === snapshot.id}
               canCompare={splitAvailable}
               blocker={
-                image ? compareBlocker(snapshot, signature, image.isRaw, osPlatform, isDngPath(image.path)) : null
+                image ? compareBlocker(snapshot, signature, image.isRaw, osPlatform, warpPlanesMatter(image)) : null
               }
               onCompare={() => compare(snapshot)}
             />
