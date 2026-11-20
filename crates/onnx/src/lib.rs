@@ -513,7 +513,7 @@ pub fn device(provider: Provider, dirs: &[PathBuf]) -> Result<Arc<Device>> {
         registry.remove(index);
     }
     // Not registered yet: a missing library may still be installed later.
-    let Some(library) = dirs.iter().map(|d| d.join(file)).find(|p| p.is_file()) else {
+    let Some(library) = plugin_library(dirs, file) else {
         return Err(anyhow!("{file} is not installed"));
     };
     let registration = match register(provider, &library) {
@@ -543,6 +543,16 @@ pub fn device(provider: Provider, dirs: &[PathBuf]) -> Result<Arc<Device>> {
     };
     registry.push((provider, registration));
     result
+}
+
+/// The first `file` in `dirs`, as an absolute path: ONNX Runtime resolves a
+/// relative plugin path against its own library's folder, not the working
+/// directory this lookup used, so a relative folder (`--plugins`,
+/// `RAWTONIC_ORT_PLUGIN_DIR`) found the plugin here but failed to register
+/// it, and the model moved on to the next provider.
+fn plugin_library(dirs: &[PathBuf], file: &str) -> Option<PathBuf> {
+    let library = dirs.iter().map(|d| d.join(file)).find(|p| p.is_file())?;
+    Some(std::path::absolute(&library).unwrap_or(library))
 }
 
 fn register(provider: Provider, library: &Path) -> Result<Device> {
@@ -1327,6 +1337,15 @@ mod tests {
         let dir = std::env::temp_dir().join("rawtonic-onnx-no-plugins");
         let error = device(Provider::WebGpu, &[dir]).unwrap_err();
         assert!(error.to_string().contains("not installed"), "{error}");
+    }
+
+    #[test]
+    fn a_plugin_in_a_relative_folder_is_registered_by_its_absolute_path() {
+        // Tests run in the crate's folder, which holds src/lib.rs.
+        let found = plugin_library(&[PathBuf::from("missing"), PathBuf::from("src")], "lib.rs")
+            .expect("src/lib.rs is found");
+        assert!(found.is_absolute(), "{}", found.display());
+        assert_eq!(found, std::env::current_dir().unwrap().join("src").join("lib.rs"));
     }
 
     #[test]
