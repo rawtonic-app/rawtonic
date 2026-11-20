@@ -2657,6 +2657,7 @@ pub fn build_single_mask_adjustments(
         lut_file_stage: all.lut_file_stage,
         color_noise_measurement: all.color_noise_measurement.clone(),
         photo_placement: all.photo_placement,
+        flare_samples: all.flare_samples.clone(),
         drag_effects: all.drag_effects,
     }
 }
