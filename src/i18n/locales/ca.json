@@ -5363,7 +5363,7 @@
           "shadowSplit": "Ombres"
         },
         "region": "Regions",
-        "splitHint": "{{name}}: {{value}}. Arrossega o fes servir les fletxes; doble clic per escriure un valor",
+        "splitHint": "{{name}}: {{value}}. Arrossega o fes servir les fletxes; doble clic per restablir, Retorn per escriure un valor",
         "splits": "Divisions"
       }
     },

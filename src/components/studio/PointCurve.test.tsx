@@ -401,19 +401,27 @@ describe('region curve split handles under the curve (UXR1 D4)', () => {
     });
   });
 
-  it('takes an exact value after a double-click', () => {
+  it('takes an exact value after Enter', () => {
     const { onRegionChange } = mount();
-    fireEvent.doubleClick(handle('Region curve highlight split'));
+    fireEvent.keyDown(handle('Region curve highlight split'), { key: 'Enter' });
     const field = screen.getByRole('spinbutton', { name: 'Region curve highlight split' });
     fireEvent.change(field, { target: { value: '80' } });
     fireEvent.keyDown(field, { key: 'Enter' });
     expect(onRegionChange).toHaveBeenLastCalledWith({ ...region, highlightSplit: 80 });
     expect(screen.queryByRole('spinbutton', { name: 'Region curve highlight split' })).toBeNull();
     // Escape leaves the value as it was.
-    fireEvent.doubleClick(handle('Region curve highlight split'));
+    fireEvent.keyDown(handle('Region curve highlight split'), { key: 'Enter' });
     const again = screen.getByRole('spinbutton', { name: 'Region curve highlight split' });
     fireEvent.change(again, { target: { value: '60' } });
     fireEvent.keyDown(again, { key: 'Escape' });
     expect(onRegionChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('resets a split to its default on a double-click, as a slider does', () => {
+    const { onRegionChange } = mount();
+    fireEvent.keyDown(handle('Region curve highlight split'), { key: 'ArrowRight', shiftKey: true });
+    expect(onRegionChange).toHaveBeenLastCalledWith({ ...region, highlightSplit: 85 });
+    fireEvent.doubleClick(handle('Region curve highlight split'));
+    expect(onRegionChange).toHaveBeenLastCalledWith({ ...region, highlightSplit: 75 });
   });
 });

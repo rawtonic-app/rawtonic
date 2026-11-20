@@ -5363,7 +5363,7 @@
           "shadowSplit": "Ombre"
         },
         "region": "Zone",
-        "splitHint": "{{name}}: {{value}}. Trascina o usa le frecce; doppio clic per digitare un valore",
+        "splitHint": "{{name}}: {{value}}. Trascina o usa le frecce; doppio clic per ripristinare, Invio per digitare un valore",
         "splits": "Divisioni"
       }
     },

@@ -521,6 +521,10 @@ export function PointCurve({
           if (disabled || e.button !== 0) return;
           // The split strip under the plot adds no curve points.
           if ((e.target as Element).closest?.('.curve-split, .curve-split-track')) return;
+          // A drag of its own: no text selection, whose autoscroll moved the
+          // tool column under a drag that left its visible part, and no
+          // native focus that scrolls a half-hidden point into view.
+          e.preventDefault();
           const p = position(e);
           if (!p) return;
           // A point is grabbed within the same screen distance at any plot
@@ -533,7 +537,12 @@ export function PointCurve({
           if (nearest === -1 && points.some((q) => Math.abs(q.x - p.x) < 1)) return;
           if (nearest === -1 && points.length >= MAX_CURVE_POINTS) return;
           const next = nearest === -1 ? [...points, p].sort((a, b) => a.x - b.x) : points;
-          setSelected(nearest === -1 ? next.indexOf(p) : nearest);
+          const index = nearest === -1 ? next.indexOf(p) : nearest;
+          setSelected(index);
+          // The keyboard (arrows, Delete) acts on it, without scrolling.
+          requestAnimationFrame(() =>
+            svgRef.current?.querySelector<SVGElement>(`[data-curve-point="${index}"]`)?.focus({ preventScroll: true })
+          );
           if (nearest === -1) onChange({ ...curves, [channel]: next });
           dragging.current = true;
           onInteraction(true);
@@ -613,6 +622,9 @@ export function PointCurve({
                   onPointerDown={(e) => {
                     if (disabled || e.button !== 0) return;
                     e.stopPropagation();
+                    // As the curve's points: no selection autoscroll.
+                    e.preventDefault();
+                    e.currentTarget.focus({ preventScroll: true });
                     e.currentTarget.setPointerCapture(e.pointerId);
                     splitActive.current = true;
                     setSplitDrag(key);
@@ -648,6 +660,13 @@ export function PointCurve({
                             : e.key === 'End'
                               ? max
                               : null;
+                    if (e.key === 'Enter') {
+                      // The exact value, typed.
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setSplitEdit(key);
+                      return;
+                    }
                     if (next === null) return;
                     e.preventDefault();
                     e.stopPropagation();
@@ -656,8 +675,12 @@ export function PointCurve({
                     debouncedSetHistory.flush();
                   }}
                   onDoubleClick={(e) => {
+                    // Back to its default, as a slider's double-click does.
                     e.stopPropagation();
-                    if (!disabled) setSplitEdit(key);
+                    if (disabled) return;
+                    debouncedSetHistory.flush();
+                    setSplit(key, INITIAL_REGION_CURVE[key]);
+                    debouncedSetHistory.flush();
                   }}
                 >
                   <title>{t('studio.tone.regionCurve.splitHint', { name, value })}</title>
