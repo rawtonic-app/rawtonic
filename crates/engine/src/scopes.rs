@@ -462,6 +462,18 @@ pub fn scope_counts(
     space: ScopeSpace,
     active_channel: Option<&str>,
 ) -> Result<ScopeCounts, String> {
+    scope_counts_of_rows(image, space, active_channel, 1)
+}
+
+/// [`scope_counts`] of every `row_step`-th row (0, `row_step`, …): every
+/// column stays in, so a clipped one-pixel column still shows.
+pub fn scope_counts_of_rows(
+    image: &DynamicImage,
+    space: ScopeSpace,
+    active_channel: Option<&str>,
+    row_step: usize,
+) -> Result<ScopeCounts, String> {
+    let row_step = row_step.max(1);
     let wanted = Wanted::of(active_channel);
     let (width, height) = (image.width() as usize, image.height() as usize);
     if width == 0 || height == 0 {
@@ -476,13 +488,17 @@ pub fn scope_counts(
     let stride = width * channels;
     // Two bands of rows per thread: each job zeroes and merges its own
     // tables (up to 1.5 MB), so more jobs cost more than they balance.
-    let rows_per_job = height.div_ceil(2 * rayon::current_num_threads()).max(1);
+    // A multiple of `row_step`, so each band starts on a counted row.
+    let rows_per_job = height
+        .div_ceil(2 * rayon::current_num_threads())
+        .max(1)
+        .next_multiple_of(row_step);
     Ok(raw
         .par_chunks(stride * rows_per_job)
         .fold(
             || ScopeCounts::zero(wanted),
             |mut acc, rows| {
-                for row in rows.chunks_exact(stride) {
+                for row in rows.chunks_exact(stride).step_by(row_step) {
                     for (x, pixel) in row.chunks_exact(channels).enumerate() {
                         let (r, g, b) = (pixel[0], pixel[1], pixel[2]);
                         // Counted column by column (`col * 256 + code`):
@@ -630,8 +646,34 @@ pub fn calculate_waveform_from_image(
     space: OutputColorSpace,
     active_channel: Option<&str>,
 ) -> Result<WaveformData, String> {
+    calculate_waveform_of_rows(image, space, active_channel, 1)
+}
+
+/// [`calculate_waveform_from_image`] of every `row_step`-th row
+/// ([`scope_counts_of_rows`]): a drag frame's scopes at a fraction of the
+/// work. Each count stands for `row_step` rows: the log brightness of a
+/// sparse value would otherwise drop (1 of 500 is darker than 2 of 1000).
+pub fn calculate_waveform_of_rows(
+    image: &DynamicImage,
+    space: OutputColorSpace,
+    active_channel: Option<&str>,
+    row_step: usize,
+) -> Result<WaveformData, String> {
     let weights = ScopeSpace::of(space);
-    let counts = scope_counts(image, weights, active_channel)?;
+    let mut counts = scope_counts_of_rows(image, weights, active_channel, row_step)?;
+    if row_step > 1 {
+        let step = row_step as u32;
+        for bins in [
+            &mut counts.red,
+            &mut counts.green,
+            &mut counts.blue,
+            &mut counts.luma,
+            &mut counts.parade,
+            &mut counts.vectorscope,
+        ] {
+            bins.iter_mut().for_each(|c| *c = c.saturating_mul(step));
+        }
+    }
     let pixels = SCOPE_SIZE * SCOPE_SIZE;
     let encode = |rgba: Vec<u8>| {
         if rgba.is_empty() {
@@ -1205,5 +1247,64 @@ mod tests {
         let a = scope_counts(&DynamicImage::ImageRgba8(rgba), k, None).unwrap();
         let b = scope_counts(&DynamicImage::ImageRgb8(frame), k, None).unwrap();
         assert_eq!(a, b);
+    }
+
+    /// A drag's scopes count rows 0, 2, 4, … whatever the bands the threads
+    /// split the frame into; a settled frame's count every row.
+    #[test]
+    fn every_second_row_counts_the_even_rows() {
+        let k = ScopeSpace::of(OutputColorSpace::Srgb);
+        for (width, height) in [(257u32, 37u32), (600, 10), (64, 1), (300, 101)] {
+            let frame = RgbImage::from_fn(width, height, |x, y| {
+                Rgb([
+                    (x * 7 + y * 13) as u8,
+                    (x * 3 + y * 29) as u8,
+                    (x + y * 101) as u8,
+                ])
+            });
+            let even =
+                RgbImage::from_fn(width, height.div_ceil(2), |x, y| *frame.get_pixel(x, 2 * y));
+            let (frame, even) = (
+                DynamicImage::ImageRgb8(frame),
+                DynamicImage::ImageRgb8(even),
+            );
+            for threads in [1, 3, 8] {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(threads)
+                    .build()
+                    .unwrap();
+                pool.install(|| {
+                    assert_eq!(
+                        scope_counts_of_rows(&frame, k, None, 2).unwrap(),
+                        scope_counts(&even, k, None).unwrap(),
+                        "{width}x{height}, {threads} threads"
+                    );
+                    assert_eq!(
+                        scope_counts_of_rows(&frame, k, None, 1).unwrap(),
+                        scope_counts(&frame, k, None).unwrap()
+                    );
+                });
+            }
+        }
+    }
+
+    /// Each counted row stands for two: a frame of identical row pairs
+    /// draws the scopes of every row.
+    #[test]
+    fn every_second_row_keeps_the_brightness() {
+        let half = test_frame(600);
+        let doubled = RgbImage::from_fn(600, 20, |x, y| *half.get_pixel(x, y / 2));
+        let image = DynamicImage::ImageRgb8(doubled);
+        let all = calculate_waveform_from_image(&image, OutputColorSpace::Srgb, None).unwrap();
+        let sampled = calculate_waveform_of_rows(&image, OutputColorSpace::Srgb, None, 2).unwrap();
+        assert_eq!(
+            (&all.rgb, &all.luma, &all.parade, &all.vectorscope),
+            (
+                &sampled.rgb,
+                &sampled.luma,
+                &sampled.parade,
+                &sampled.vectorscope
+            )
+        );
     }
 }
