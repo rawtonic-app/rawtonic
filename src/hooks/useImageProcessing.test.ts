@@ -741,6 +741,39 @@ describe('detail on zoom outside Develop', () => {
 describe("grain at the viewer's size", () => {
   const target = (index: number) => (calls()[index][1] as { targetResolution: number }).targetResolution;
 
+  it.each([0, 40])('holds the Grain Amount drag size from pointer down (starting at %i)', async (grainAmount) => {
+    const adjustments = { ...structuredClone(INITIAL_ADJUSTMENTS), grainAmount };
+    useEditorStore.setState({ adjustments, displaySize: { width: 1000, height: 750 } });
+    mount();
+    await finish();
+
+    // The press and the store-committed move use the same size as draft moves.
+    act(() => useEditorStore.setState({ isSliderDragging: true, grainSliderDrag: 'amount' }));
+    expect(target(1)).toBe(1000);
+    await finish();
+    const commit = vi.fn();
+    act(() => {
+      expect(renderDraft('/first.dng', { ...adjustments, grainAmount: 40 }, commit)).toBe(true);
+      expect(renderDraft('/first.dng', { ...adjustments, grainAmount: 0 }, commit)).toBe(true);
+      flushSliderDraft();
+    });
+    expect([target(2), target(3)]).toEqual([1000, 1000]);
+    await finish();
+    await finish();
+    act(() => useEditorStore.setState({ adjustments: { ...adjustments, grainAmount: 20 } }));
+    expect(target(4)).toBe(1000);
+    await finish();
+    act(() =>
+      useEditorStore.setState({
+        isSliderDragging: false,
+        grainSliderDrag: null,
+        adjustments: { ...adjustments, grainAmount: 0 }
+      })
+    );
+    expect(target(5)).toBe(1280);
+    await finish();
+  });
+
   it('renders a smaller frame again when the view zooms back out', async () => {
     useEditorStore.setState({
       adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), grainAmount: 50 },

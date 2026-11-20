@@ -302,6 +302,18 @@ describe('Develop tool contracts', () => {
     );
   });
 
+  it('identifies the Grain Amount control from press through release', () => {
+    mount();
+    fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Detail' }));
+    openGroups();
+    const slider = screen.getByRole('slider', { name: 'Grain' });
+    slider.setPointerCapture = vi.fn();
+    fireEvent.pointerDown(slider, { button: 0 });
+    expect(useEditorStore.getState()).toMatchObject({ isSliderDragging: true, grainSliderDrag: 'amount' });
+    fireEvent.pointerUp(slider);
+    expect(useEditorStore.getState()).toMatchObject({ isSliderDragging: false, grainSliderDrag: null });
+  });
+
   it('keeps the structure choice for grain made before film grain', () => {
     useEditorStore.setState({
       adjustments: {

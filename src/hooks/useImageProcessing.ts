@@ -50,7 +50,7 @@ import { useSecondWindowStore } from '../store/useSecondWindowStore';
 import { interactivePreview, isRegionFrame } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
-import { dragTargetResolution, GrainDrag, needsFrameSize, previewTargetResolution } from '../utils/previews';
+import { dragTargetResolution, needsFrameSize, previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
 import { onSharpenViewReady, type SharpenView } from '../utils/sharpenView';
 import { onColorNoiseViewReady } from '../utils/colorNoiseView';
@@ -831,22 +831,8 @@ export function useImageProcessing(
     }
   }, [activeView, adjustments, activePanel, selectedImage?.isReady, generateUncroppedPreview]);
 
-  // The current drag's grain values (`dragTargetResolution`).
-  const grainDragRef = useRef<GrainDrag | null>(null);
-  useEffect(
-    () =>
-      useEditorStore.subscribe((state, previous) => {
-        if (state.isSliderDragging === previous.isSliderDragging) return;
-        grainDragRef.current = state.isSliderDragging
-          ? new GrainDrag(state.previewOverride ?? state.adjustments)
-          : null;
-      }),
-    []
-  );
-
-  // `dragAdjustments`: a drag's frame (`dragTargetResolution`).
   const calculateTargetRes = useCallback(
-    (dragAdjustments?: Adjustments) => {
+    (drag?: { grain: boolean; keepGrainSize: boolean }) => {
       const baseTargetRes = appSettings?.editorPreviewResolution || 1920;
       if (!(appSettings?.enableZoomHifi ?? true) || displaySize.width === 0) {
         return baseTargetRes;
@@ -858,19 +844,11 @@ export function useImageProcessing(
         fullDpi: !!appSettings?.useFullDpiRendering,
         zoomMultiplier: appSettings?.highResZoomMultiplier || 1.0,
         original: originalSize,
-        grain: hasGrain
+        grain: drag?.grain ?? hasGrain
       };
-      if (!dragAdjustments) return previewTargetResolution(params);
-      // A drag's own grain: dragging Amount up from zero renders at the
-      // grain size from its first move with grain, not only once the store
-      // commits it.
-      params.grain = (dragAdjustments.grainAmount ?? 0) > 0;
-      const drag = grainDragRef.current;
-      // The settled size: a drag of a grain control, a drag whose start was
-      // not seen, and the Full Resolution live quality, which renders every
-      // pixel while dragging.
-      const settled = !drag || drag.grainChanged(dragAdjustments) || appSettings?.livePreviewQuality === 'full';
-      return dragTargetResolution(params, settled);
+      return drag
+        ? dragTargetResolution(params, drag.keepGrainSize || appSettings?.livePreviewQuality === 'full')
+        : previewTargetResolution(params);
     },
     [
       appSettings?.enableZoomHifi,
@@ -885,14 +863,32 @@ export function useImageProcessing(
     ]
   );
 
+  // Both draft moves and store commits use the size chosen at the press.
+  // Amount can introduce grain at any move, including when it starts at 0.
+  const calculateTargetResRef = useRef(calculateTargetRes);
+  calculateTargetResRef.current = calculateTargetRes;
+  const dragTargetResRef = useRef<number | null>(null);
+  useLayoutEffect(
+    () =>
+      useEditorStore.subscribe((state, previous) => {
+        if (state.isSliderDragging === previous.isSliderDragging) return;
+        const { grainSliderDrag, previewOverride, adjustments } = state;
+        dragTargetResRef.current = state.isSliderDragging
+          ? calculateTargetResRef.current({
+              grain: grainSliderDrag === 'amount' || ((previewOverride ?? adjustments).grainAmount ?? 0) > 0,
+              keepGrainSize: grainSliderDrag !== null
+            })
+          : null;
+      }),
+    []
+  );
+
   // A slider drag's moves between store commits (utils/sliderDraft.ts), as
   // the drag branch of the effect below would render them, in the multi view
   // too: committing every move re-rendered Develop, the viewer and the image
   // hooks per move with several photographs selected. Edit all selected
   // (useEditAllSelected follows every committed move and writes once they
   // pause) and other views keep committing every move.
-  const calculateTargetResRef = useRef(calculateTargetRes);
-  calculateTargetResRef.current = calculateTargetRes;
   const activeViewRef = useRef(activeView);
   activeViewRef.current = activeView;
   useEffect(
@@ -912,7 +908,7 @@ export function useImageProcessing(
           path,
           adjustments: draftAdjustments,
           dragging: true,
-          targetRes: calculateTargetResRef.current(draftAdjustments),
+          targetRes: dragTargetResRef.current ?? calculateTargetResRef.current(),
           inputAt: performanceDiagnosticsEnabled ? latestPointerInputTime() : 0,
           dispatchAt: performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0
         });
@@ -1026,7 +1022,7 @@ export function useImageProcessing(
 
     if (isSliderDragging) {
       if (appSettings?.enableLivePreviews !== false && !wasRenderedAsDraft(renderAdjustments)) {
-        applyAdjustments(renderAdjustments, true, calculateTargetRes(renderAdjustments));
+        applyAdjustments(renderAdjustments, true, dragTargetResRef.current ?? targetRes);
       }
     } else {
       currentResRef.current = targetRes;

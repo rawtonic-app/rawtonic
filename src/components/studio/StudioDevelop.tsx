@@ -40,6 +40,7 @@ import {
   type Coord,
   type Curves,
   type GrainStructure,
+  GRAIN_KEYS,
   effectiveGrainStructure,
   isFilmGrain,
   withNewGrainStructure,
@@ -997,6 +998,16 @@ export default function StudioDevelop() {
     (active: boolean) => useEditorStore.getState().setEditor({ isSliderDragging: active }),
     []
   );
+  const onGrainAmountInteraction = useCallback(
+    (active: boolean) =>
+      useEditorStore.getState().setEditor({ isSliderDragging: active, grainSliderDrag: active ? 'amount' : null }),
+    []
+  );
+  const onGrainDetailInteraction = useCallback(
+    (active: boolean) =>
+      useEditorStore.getState().setEditor({ isSliderDragging: active, grainSliderDrag: active ? 'detail' : null }),
+    []
+  );
   const change = (patch: Partial<Adjustments>) =>
     selectedImage?.isReady &&
     setAdjustments((prev) =>
@@ -1073,7 +1084,13 @@ export default function StudioDevelop() {
       keys={key === 'exposure' ? EXPOSURE_KEYS : undefined}
       optionView={optionViewOf(key)}
       onChange={changeOf(key)}
-      onInteraction={onInteraction}
+      onInteraction={
+        key === 'grainAmount'
+          ? onGrainAmountInteraction
+          : GRAIN_KEYS.some((grainKey) => grainKey === key)
+            ? onGrainDetailInteraction
+            : onInteraction
+      }
     />
   );
   // Relative Temperature/Tint: JPEGs, layers and RAW edits made before the
