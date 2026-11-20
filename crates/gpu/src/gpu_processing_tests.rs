@@ -19641,21 +19641,51 @@ fn placed_regions_beyond_the_texture_limit_render_in_pieces() {
         // Its window (with the margin on both sides) does not fit (as the
         // over-limit test, a limit above the render's 2048 px tiles).
         let limited = limited_context(&context, 2600);
-        let render = |context: &GpuContext| {
-            render_placed_roi(
-                context,
-                &cut,
-                &profile,
-                None,
-                ((fw, fh), (cx, cy)),
-                Some(roi),
-                Some(flare.clone()),
-                ReadbackShader::Export,
-            )
-        };
-        let pieces = render(&limited);
-        assert_eq!(pieces.dimensions(), (roi.width, roi.height));
-        assert!(pieces == render(&context), "{profile}: pieces differ");
+        for precision in [
+            RenderOutputPrecision::EightBit,
+            RenderOutputPrecision::SixteenBit,
+        ] {
+            let render = |context: &GpuContext| {
+                let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+                adjustments.flare_samples = Some(flare.clone());
+                adjustments.photo_placement = Some(crate::image_processing::PhotoPlacement {
+                    photo_width: fw,
+                    photo_height: fh,
+                    x: cx,
+                    y: cy,
+                });
+                process_and_get_dynamic_image_inner(
+                    context,
+                    &ProcessorSlot::new(None),
+                    &Mutex::new(None),
+                    RenderSource::Image {
+                        image: &cut,
+                        transform_hash: 1,
+                    },
+                    RenderRequest {
+                        adjustments,
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: Some(roi),
+                    },
+                    "test",
+                    precision,
+                    false,
+                    None,
+                    None,
+                    ReadbackShader::Export,
+                )
+                .unwrap()
+            };
+            let pieces = render(&limited);
+            assert_eq!(pieces.dimensions(), (roi.width, roi.height));
+            let whole = render(&context);
+            assert_eq!(pieces.color(), whole.color());
+            assert!(
+                pieces.as_bytes() == whole.as_bytes(),
+                "{profile} {precision:?}: pieces differ"
+            );
+        }
     }
 }
 

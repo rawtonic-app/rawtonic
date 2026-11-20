@@ -2209,6 +2209,10 @@ pub(crate) struct RegionBase {
     image: Arc<DynamicImage>,
     /// Base px per full-resolution px.
     scale: f32,
+    /// The size of the whole base it is cut from (base px): the
+    /// photograph's frame at `scale` (its regions' `PhotoPlacement`, the
+    /// whole photograph's flare samples).
+    whole_size: (u32, u32),
     /// The region's top left in base px of the photograph's oriented frame.
     crop_offset: (f32, f32),
     facts: Facts,
@@ -2288,7 +2292,7 @@ fn prepare_region_unstamped(
         scale,
     )?;
     let s = base.scale;
-    let reach = base_reach(recipe, facts.is_raw, (shown_w, shown_h), s);
+    let reach = base_reach(recipe, facts.is_raw, whole_base_size((shown_w, shown_h), s));
     let wanted = base_region(area, [shown_w, shown_h], zoom, s, reach);
     let (base_w, base_h) = base.image.dimensions();
     let x = ((wanted[0] * s).floor() as u32).min(base_w.saturating_sub(1));
@@ -2315,6 +2319,7 @@ fn prepare_region_unstamped(
             region: [x as f32 / s, y as f32 / s, w as f32 / s, h as f32 / s],
             image,
             scale: s,
+            whole_size: (base_w, base_h),
             crop_offset: (
                 base.unscaled_crop_offset.0 * s + x as f32,
                 base.unscaled_crop_offset.1 * s + y as f32,
@@ -2491,7 +2496,11 @@ fn region_plan(
     measures: Option<RegionMeasures>,
 ) -> Result<image_processing::RegionPlan, &'static str> {
     let (shown_w, shown_h) = shown_size(recipe, facts);
-    let reach = base_reach(recipe, facts.is_raw, (shown_w, shown_h), 1.0);
+    let reach = base_reach(
+        recipe,
+        facts.is_raw,
+        whole_base_size((shown_w, shown_h), 1.0),
+    );
     let wanted = base_region(area, [shown_w, shown_h], zoom, 1.0, reach);
     image_processing::plan_transformed_region_with(
         facts.full_width,
@@ -2510,9 +2519,9 @@ fn measures_noise(recipe: &serde_json::Value, is_raw: bool) -> bool {
     gpu_processing::measures_noise(&get_all_adjustments_from_json(recipe, is_raw, None).global)
 }
 
-/// The size (base px) of the whole base a region of a `shown`-sized
-/// photograph at `scale` base px per shown px is cut from (as the region's
-/// `PhotoPlacement`).
+/// About the size (base px) of the whole base a `shown`-sized photograph
+/// at `scale` base px per shown px is cut from (within a pixel of its
+/// `RegionBase::whole_size`).
 fn whole_base_size(shown: (f32, f32), scale: f32) -> (u32, u32) {
     (
         ((shown.0 * scale).round() as u32).max(1),
@@ -2520,27 +2529,30 @@ fn whole_base_size(shown: (f32, f32), scale: f32) -> (u32, u32) {
     )
 }
 
-/// The source pixels (base px) a region of a `shown`-sized photograph at
-/// `scale` must hold around what it shows for `recipe` to develop it as
-/// the whole photograph's pixels up to its edges
-/// ([`gpu_processing::region_reach`]: every neighbourhood tool's reach,
-/// with a noise reduction on also the noise reductions'), whatever tools
-/// are on: Glow, Clarity and the other blurs read beyond a cut at what is
-/// shown, also without a noise reduction (NRR3).
-fn render_reach(recipe: &serde_json::Value, is_raw: bool, shown: (f32, f32), scale: f32) -> u32 {
-    let (width, height) = whole_base_size(shown, scale);
+/// The source pixels (base px) a region of a `whole`-sized whole base must
+/// hold around what it shows for `recipe` to develop it as the whole
+/// photograph's pixels up to its edges ([`gpu_processing::region_reach`]:
+/// every neighbourhood tool's reach, with a noise reduction on also the
+/// noise reductions'), whatever tools are on: Glow, Clarity and the other
+/// blurs read beyond a cut at what is shown, also without a noise
+/// reduction (NRR3).
+fn render_reach(recipe: &serde_json::Value, is_raw: bool, whole: (u32, u32)) -> u32 {
     gpu_processing::region_reach(
         &get_all_adjustments_from_json(recipe, is_raw, None),
-        width,
-        height,
+        whole.0,
+        whole.1,
     )
 }
 
-/// What a region's base holds around its regions (base px): the render's
-/// reach and the noise reductions', whether the recipe has one on or not
-/// (a base kept from before one is switched on still serves).
-fn base_reach(recipe: &serde_json::Value, is_raw: bool, shown: (f32, f32), scale: f32) -> u32 {
-    render_reach(recipe, is_raw, shown, scale).max(gpu_processing::REGION_NOISE_MARGIN)
+/// What a region's base holds around its regions (base px) for a whole base
+/// of about `whole` ([`whole_base_size`]): the render's reach and the noise
+/// reductions', whether the recipe has one on or not (a base kept from
+/// before one is switched on still serves), and a pixel or two for the
+/// estimate.
+fn base_reach(recipe: &serde_json::Value, is_raw: bool, whole: (u32, u32)) -> u32 {
+    render_reach(recipe, is_raw, (whole.0 + 2, whole.1 + 2))
+        .max(gpu_processing::REGION_NOISE_MARGIN)
+        + 2
 }
 
 /// `rect` grown by `reach` base px (at `scale` base px per shown px) on
@@ -2555,16 +2567,25 @@ fn with_reach(rect: [f32; 4], shown: (f32, f32), scale: f32, reach: u32) -> [f32
 }
 
 /// What a region of a cell `area` at `zoom` is developed from (shown px):
-/// the visible part, REGION_MARGIN around it and the render's reach.
+/// the visible part, REGION_MARGIN around it and the render's reach, for
+/// a region of a `whole`-sized whole base at `scale` base px per shown px.
 fn developed_region(
     area: [f32; 4],
     shown: (f32, f32),
     zoom: CellZoom,
-    scale: f32,
+    (scale, whole): (f32, (u32, u32)),
     recipe: &serde_json::Value,
     is_raw: bool,
 ) -> [f32; 4] {
-    developed_region_with(area, shown, zoom, REGION_MARGIN, scale, recipe, is_raw)
+    developed_region_with(
+        area,
+        shown,
+        zoom,
+        REGION_MARGIN,
+        (scale, whole),
+        recipe,
+        is_raw,
+    )
 }
 
 /// [`developed_region`] with `margin` of the visible size around it instead
@@ -2574,12 +2595,12 @@ fn developed_region_with(
     shown: (f32, f32),
     zoom: CellZoom,
     margin: f32,
-    scale: f32,
+    (scale, whole): (f32, (u32, u32)),
     recipe: &serde_json::Value,
     is_raw: bool,
 ) -> [f32; 4] {
     let visible = gpu_processing::multi_view::zoomed_region(area, [shown.0, shown.1], zoom, margin);
-    let reach = render_reach(recipe, is_raw, shown, scale);
+    let reach = render_reach(recipe, is_raw, whole);
     with_reach(visible, shown, scale, reach)
 }
 
@@ -2807,14 +2828,21 @@ fn whole_photo_measures(
             if whole.file_stamp != base.file_stamp {
                 return Err(format!("{path} changed since its region was prepared"));
             }
-            if whole.scale != base.scale || whole.region[0] != 0.0 || whole.region[1] != 0.0 {
+            if whole.scale != base.scale
+                || whole.region[0] != 0.0
+                || whole.region[1] != 0.0
+                || whole.whole_size != base.whole_size
+            {
                 return Err(format!(
-                    "the whole base ({kind}) is not the region's (scale {} vs {})",
-                    whole.scale, base.scale
+                    "the whole base ({kind}) is not the region's (scale {} vs {}, size {:?} vs {:?})",
+                    whole.scale, base.scale, whole.whole_size, base.whole_size
                 ));
             }
             let prepare_ms = start.elapsed().as_secs_f64() * 1e3;
             let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+            // Each on its own: a measurement the GPU cannot make (a
+            // photograph beyond its texture limit) leaves the flare
+            // samples, gathered on the CPU, to be had.
             let measured = if measure {
                 gpu_processing::measure_color_noise(
                     context,
@@ -2822,14 +2850,19 @@ fn whole_photo_measures(
                     &whole.image,
                     &adjustments,
                     CELL_RENDER,
-                )?
+                )
+                .inspect_err(|e| {
+                    log::warn!("[multi_view] {path}: no whole-photograph noise measurement: {e}")
+                })
+                .ok()
+                .flatten()
             } else {
                 None
             };
             let samples = gather.then(|| {
                 Arc::new(gpu_processing::whole_flare_samples(
                     &whole.image,
-                    whole_base_size((shown_w, shown_h), base.scale),
+                    whole.whole_size,
                 ))
             });
             let (w, h) = whole.image.dimensions();
@@ -2888,6 +2921,7 @@ fn region_base(
         region: [rx as f32, ry as f32, rw as f32, rh as f32],
         image: Arc::new(image),
         scale: 1.0,
+        whole_size: plan.frame,
         crop_offset: (
             unscaled_crop_offset.0 + rx as f32,
             unscaled_crop_offset.1 + ry as f32,
@@ -3010,7 +3044,14 @@ fn kept_base_reaching(
         .filter(|base| {
             let shown = shown_size(recipe, base.facts);
             let needed = if noise_reach {
-                developed_region(area, shown, zoom, base.scale, recipe, base.facts.is_raw)
+                developed_region(
+                    area,
+                    shown,
+                    zoom,
+                    (base.scale, base.whole_size),
+                    recipe,
+                    base.facts.is_raw,
+                )
             } else {
                 gpu_processing::multi_view::zoomed_region(
                     area,
@@ -3056,7 +3097,7 @@ pub(crate) fn develop_region(
             shown,
             zoom,
             margin,
-            base.scale,
+            (base.scale, base.whole_size),
             &recipe,
             base.facts.is_raw,
         )
@@ -3131,7 +3172,7 @@ pub(crate) fn develop_region(
         (base.region[0] * s).round() as u32 + x,
         (base.region[1] * s).round() as u32 + y,
     );
-    let (whole_w, whole_h) = whole_base_size((shown_w, shown_h), s);
+    let (whole_w, whole_h) = base.whole_size;
     let placement = image_processing::PhotoPlacement {
         photo_width: whole_w.max(whole_x + w),
         photo_height: whole_h.max(whole_y + h),
@@ -3334,7 +3375,7 @@ fn develop_interim_region(
     let s = base.scale;
     // Cut with the render's reach of real pixels around the visible part,
     // on the colour noise grid; only the visible part is developed.
-    let reach = render_reach(recipe, facts.is_raw, (shown_w, shown_h), s);
+    let reach = render_reach(recipe, facts.is_raw, (base_w, base_h));
     let wanted = with_reach(visible, (shown_w, shown_h), s, reach);
     let x = ((wanted[0] * s).floor().max(0.0) as u32).min(base_w.saturating_sub(1));
     let y = ((wanted[1] * s).floor().max(0.0) as u32).min(base_h.saturating_sub(1));
@@ -4098,10 +4139,11 @@ mod tests {
         // Every region reaches the render's reach beyond what it shows, a
         // noise reduction on or off (NRR3); with one on at least the noise
         // reductions' reach.
-        let plain_reach = render_reach(&plain, true, shown, 1.0);
-        let filtered_reach = render_reach(&filtered, true, shown, 1.0);
+        let whole = (4000, 3000);
+        let plain_reach = render_reach(&plain, true, whole);
+        let filtered_reach = render_reach(&filtered, true, whole);
         let glow = serde_json::json!({"glowAmount": 50});
-        assert_eq!(render_reach(&glow, true, shown, 1.0), plain_reach);
+        assert_eq!(render_reach(&glow, true, whole), plain_reach);
         // At 4000 x 3000: the tile overlap and Structure's 40 px blur at
         // the photograph's scale (3000 / 1080) and two more.
         assert_eq!(
@@ -4130,10 +4172,10 @@ mod tests {
             [shown.0, shown.1],
             zoom,
             1.0,
-            base_reach(&plain, true, shown, 1.0),
+            base_reach(&plain, true, whole),
         );
         for recipe in [&plain, &filtered, &glow] {
-            let developed = developed_region(area, shown, zoom, 1.0, recipe, true);
+            let developed = developed_region(area, shown, zoom, (1.0, whole), recipe, true);
             assert!(contains(base, developed));
         }
         // Shown of a developed region: the visible part, not the reach.
@@ -4463,7 +4505,7 @@ mod tests {
                 let base =
                     reduced_preview_base(&source, 1.0, full_w, full_h, &recipe, true, dim, 1.0)
                         .unwrap();
-                let reach = base_reach(&recipe, true, (shown_w, shown_h), 1.0);
+                let reach = base_reach(&recipe, true, whole_base_size((shown_w, shown_h), 1.0));
                 let wanted = base_region(area, [shown_w, shown_h], zoom, 1.0, reach);
                 let (base_w, base_h) = base.image.dimensions();
                 let s = base.scale;
@@ -4655,6 +4697,7 @@ mod tests {
                 region: [0.0, 0.0, 10.0, 10.0],
                 image: Arc::new(DynamicImage::new_rgb32f(1, 1)),
                 scale: 1.0,
+                whole_size: (4000, 3000),
                 crop_offset: (0.0, 0.0),
                 facts: Facts {
                     full_width: 10,
@@ -4714,6 +4757,7 @@ mod tests {
                 region: [1200.0, 850.0, 1600.0, 1300.0],
                 image: Arc::new(DynamicImage::new_rgb32f(1, 1)),
                 scale: 1.0,
+                whole_size: (4000, 3000),
                 crop_offset: (0.0, 0.0),
                 facts,
                 mask_source: None,

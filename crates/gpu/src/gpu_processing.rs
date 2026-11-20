@@ -13877,8 +13877,7 @@ pub fn process_and_get_dynamic_image_inner(
             )?;
             let out = out
                 .get_or_insert_with(|| DynamicImage::new(roi.width, roi.height, rendered.color()));
-            image::GenericImage::copy_from(out, &rendered, piece.x - roi.x, piece.y - roi.y)
-                .map_err(|e| format!("A region piece did not fit its render: {e}"))?;
+            paste_piece(out, &rendered, piece.x - roi.x, piece.y - roi.y)?;
         }
         return out.ok_or_else(|| "A region without pixels.".to_string());
     }
@@ -13902,6 +13901,41 @@ pub fn process_and_get_dynamic_image_inner(
         return render();
     }
     processor_slot.scoped(|| gpu_scoped(&context.device, render).and_then(|image| image))
+}
+
+/// Copies the rendered `piece` into `out` at `x`, `y`, pixel for pixel in
+/// their own type (a `DynamicImage` copy goes through 8-bit RGBA).
+fn paste_piece(out: &mut DynamicImage, piece: &DynamicImage, x: u32, y: u32) -> Result<(), String> {
+    let fits = x + piece.width() <= out.width() && y + piece.height() <= out.height();
+    match (out, piece) {
+        (DynamicImage::ImageRgba8(out), DynamicImage::ImageRgba8(piece)) if fits => {
+            image::imageops::replace(out, piece, x.into(), y.into())
+        }
+        (DynamicImage::ImageRgba16(out), DynamicImage::ImageRgba16(piece)) if fits => {
+            image::imageops::replace(out, piece, x.into(), y.into())
+        }
+        (DynamicImage::ImageRgb16(out), DynamicImage::ImageRgb16(piece)) if fits => {
+            image::imageops::replace(out, piece, x.into(), y.into())
+        }
+        (DynamicImage::ImageRgba32F(out), DynamicImage::ImageRgba32F(piece)) if fits => {
+            image::imageops::replace(out, piece, x.into(), y.into())
+        }
+        (DynamicImage::ImageRgb32F(out), DynamicImage::ImageRgb32F(piece)) if fits => {
+            image::imageops::replace(out, piece, x.into(), y.into())
+        }
+        (out, piece) => {
+            return Err(format!(
+                "A {:?} region piece of {}x{} at {x},{y} does not fit its {:?} {}x{} render.",
+                piece.color(),
+                piece.width(),
+                piece.height(),
+                out.color(),
+                out.width(),
+                out.height()
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// A placed region's render ([`PlacedSource`]) whose window would exceed
