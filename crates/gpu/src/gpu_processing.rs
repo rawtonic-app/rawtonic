@@ -3915,14 +3915,15 @@ fn film_grain_tile_data() -> Vec<u32> {
 /// value the shader reads is bit for bit the one it read before.
 fn level_pairs(tile: &[u32]) -> Vec<u32> {
     use rawtonic_engine::film_grain::{LEVELS, mip_sides};
-    let half = |texel: &[u32], level: usize| (texel[level / 2] >> (16 * (level % 2))) & 0xffff;
+    let half =
+        |texel: &[u32; LEVELS / 2], level: usize| (texel[level / 2] >> (16 * (level % 2))) & 0xffff;
     let mut out = Vec::with_capacity(tile.len() * 2);
     let mut start = 0;
     for side in mip_sides() {
         let mip = &tile[start..start + side * side * (LEVELS / 2)];
         start += mip.len();
         for pair in 0..LEVELS {
-            out.extend(mip.chunks_exact(LEVELS / 2).map(|texel| {
+            out.extend(mip.as_chunks::<{ LEVELS / 2 }>().0.iter().map(|texel| {
                 let lower = if pair == 0 { 0 } else { half(texel, pair - 1) };
                 lower | (half(texel, pair) << 16)
             }));
