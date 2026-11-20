@@ -383,6 +383,19 @@ pub mod synthetic {
         cfa: &[u8],
         samples: &[u16],
     ) -> Vec<u8> {
+        mosaic_dng_with_opcodes(width, height, cfa_size, cfa, samples, None)
+    }
+
+    /// `mosaic_dng` with `opcode_list3` (an encoded DNG opcode list) as its
+    /// OpcodeList3 when given.
+    pub fn mosaic_dng_with_opcodes(
+        width: u32,
+        height: u32,
+        cfa_size: (u16, u16),
+        cfa: &[u8],
+        samples: &[u16],
+        opcode_list3: Option<&[u8]>,
+    ) -> Vec<u8> {
         assert_eq!(samples.len(), (width * height) as usize);
         assert_eq!(cfa.len(), cfa_size.0 as usize * cfa_size.1 as usize);
         enum V {
@@ -392,6 +405,7 @@ pub mod synthetic {
             Ascii(&'static str),
             Rational(Vec<(u32, u32)>),
             SRational(Vec<(i32, i32)>),
+            Undefined(Vec<u8>),
         }
         let pixels: Vec<u8> = samples.iter().flat_map(|v| v.to_le_bytes()).collect();
         let matrix = [
@@ -431,6 +445,9 @@ pub mod synthetic {
             (50730, V::SRational(vec![(1, 2)])),
             (50778, V::Short(vec![21])),
         ];
+        if let Some(list) = opcode_list3 {
+            tags.push((51022, V::Undefined(list.to_vec())));
+        }
         tags.sort_by_key(|(tag, _)| *tag);
         let ifd_size = 2 + tags.len() * 12 + 4;
         let mut extra = Vec::new();
@@ -442,6 +459,7 @@ pub mod synthetic {
                 V::Short(v) => (3, v.len(), v.iter().flat_map(|x| x.to_le_bytes()).collect()),
                 V::Long(v) => (4, v.len(), v.iter().flat_map(|x| x.to_le_bytes()).collect()),
                 V::Byte(v) => (1, v.len(), v.clone()),
+                V::Undefined(v) => (7, v.len(), v.clone()),
                 V::Ascii(s) => {
                     let mut b = s.as_bytes().to_vec();
                     b.push(0);

@@ -661,7 +661,7 @@ export function useImageProcessing(
   );
 
   // AI Denoise, the colour noise filter's base, the dead-photosite test, the
-  // black handling and the highlight rebuild live in the decode: develop the RAW again when the recipe's differ from
+  // black handling, the highlight rebuild and a DNG's lens warp live in the decode: develop the RAW again when the recipe's differ from
   // the source's (src/utils/aiDenoise.ts), then render.
   const sourceDevelop = sourceDevelopToApply(selectedImage, adjustments, isSliderDragging);
   const developAiDenoise = sourceDevelop?.aiDenoise ?? null;
@@ -671,6 +671,7 @@ export function useImageProcessing(
   const developUnbiasedBlack = sourceDevelop?.unbiasedBlack;
   const developBorderBlack = sourceDevelop?.borderBlack;
   const developHighlightRatios = sourceDevelop?.highlightRatios;
+  const developCameraPlaneWarp = sourceDevelop?.cameraPlaneWarp;
   // The newest develop request: it alone clears the busy note, on every way
   // it ends (done, failed, cancelled, photograph switched).
   const sourceDevelopRequestRef = useRef(0);
@@ -684,6 +685,7 @@ export function useImageProcessing(
     const unbiasedBlack = developUnbiasedBlack;
     const borderBlack = developBorderBlack;
     const highlightRatios = developHighlightRatios;
+    const cameraPlaneWarp = developCameraPlaneWarp;
     const current = useEditorStore.getState().selectedImage;
     const changesAiDenoise =
       amount !== Math.round(current?.aiDenoise ?? 0) ||
@@ -693,6 +695,7 @@ export function useImageProcessing(
     const changesBlack = unbiasedBlack !== current?.unbiasedBlack;
     const changesBorderBlack = borderBlack !== current?.borderBlack;
     const changesHighlights = highlightRatios !== current?.highlightRatios;
+    const changesWarp = cameraPlaneWarp !== current?.cameraPlaneWarp;
     const request = ++sourceDevelopRequestRef.current;
     const settleBusy = () => {
       if (request === sourceDevelopRequestRef.current && useEditorStore.getState().aiDenoiseBusy)
@@ -707,7 +710,8 @@ export function useImageProcessing(
       deadPixelAdjacent,
       unbiasedBlack,
       borderBlack,
-      highlightRatios
+      highlightRatios,
+      cameraPlaneWarp
     })
       .then((applied) => {
         const editor = useEditorStore.getState();
@@ -724,7 +728,8 @@ export function useImageProcessing(
             ...(deadPixelAdjacent === undefined ? {} : { deadPixelAdjacent }),
             ...(unbiasedBlack === undefined ? {} : { unbiasedBlack }),
             ...(borderBlack === undefined ? {} : { borderBlack }),
-            ...(highlightRatios === undefined ? {} : { highlightRatios })
+            ...(highlightRatios === undefined ? {} : { highlightRatios }),
+            ...(cameraPlaneWarp === undefined ? {} : { cameraPlaneWarp })
           }
         });
         const targetRes = currentResRef.current;
@@ -753,7 +758,8 @@ export function useImageProcessing(
                   ...(!changesAiDenoise && changesDeadTest ? { deadPixelAdjacentFailed: deadPixelAdjacent } : {}),
                   ...(!changesAiDenoise && changesBlack ? { unbiasedBlackFailed: unbiasedBlack } : {}),
                   ...(!changesAiDenoise && changesBorderBlack ? { borderBlackFailed: borderBlack } : {}),
-                  ...(!changesAiDenoise && changesHighlights ? { highlightRatiosFailed: highlightRatios } : {})
+                  ...(!changesAiDenoise && changesHighlights ? { highlightRatiosFailed: highlightRatios } : {}),
+                  ...(!changesAiDenoise && changesWarp ? { cameraPlaneWarpFailed: cameraPlaneWarp } : {})
                 }
               }
             : {})
@@ -769,6 +775,7 @@ export function useImageProcessing(
     developUnbiasedBlack,
     developBorderBlack,
     developHighlightRatios,
+    developCameraPlaneWarp,
     setEditor,
     previewQueue,
     currentResRef

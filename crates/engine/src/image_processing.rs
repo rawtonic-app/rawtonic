@@ -6247,9 +6247,14 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// clip, so fewer of them end at a channel's maximum
 /// (`GAMUT_KNEE_RENDER_VERSION`). 13 (2026-11-15) exports compute noise
 /// reduction and sharpening in a pass of their own
-/// (`DETAIL_PASS_EXPORT_RENDER_VERSION`).
+/// (`DETAIL_PASS_EXPORT_RENDER_VERSION`). 14 (2026-11-20) moves each camera
+/// plane of a DNG's embedded lens warp by its own coefficients, as the DNG
+/// specification defines them, instead of each output channel
+/// (`image_loader::CAMERA_PLANE_WARP_RENDER_VERSION`): a lateral chromatic
+/// aberration correction in the file (a DJI Osmo Action) moves the camera
+/// colours as the specification defines; other files develop as 13.
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 13;
+pub const RENDER_VERSION: u64 = 14;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the

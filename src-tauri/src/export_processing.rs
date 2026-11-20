@@ -332,7 +332,7 @@ pub(crate) fn decode_unedited(
     };
     let options = crate::image_loader::base_options(
         settings,
-        rawtonic_engine::image_loader::decode_variant_for_frame(&adjustments, is_raw, frame),
+        rawtonic_engine::image_loader::decode_variant_for_frame(&adjustments, path, frame),
     );
     let (pristine, measures) =
         crate::image_loader::load_base_image_measured(bytes, path, false, &options, None)

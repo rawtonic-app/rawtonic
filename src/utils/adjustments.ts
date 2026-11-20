@@ -830,7 +830,9 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * variant specialized for the recipe's features; 12 = saturated colours
    * near the output space's edge are eased towards it before the clip, so
    * they keep their gradation; 13 = exports compute noise reduction and
-   * sharpening in a pass of their own (faster); 1 or missing = before.
+   * sharpening in a pass of their own (faster); 14 = a DNG's embedded lens
+   * warp moves each camera plane by its own coefficients, as the DNG
+   * specification defines them; 1 or missing = before.
    * Per photo, never copied. */
   renderVersion?: number;
   /** The frame of the RAW the recipe develops (crates/rawdecode/src/source_frame.rs,
@@ -1627,7 +1629,7 @@ export const SHARPEN_VERSION = 8;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 13;
+export const RENDER_VERSION = 14;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
@@ -1674,6 +1676,17 @@ export const HIGHLIGHT_RATIOS_RENDER_VERSION = 9;
  * the backend decides (`image_loader::decode_variant`). */
 export const highlightRatios = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
   (adjustments.renderVersion ?? 1) >= HIGHLIGHT_RATIOS_RENDER_VERSION;
+
+/** The render version from which a DNG's embedded lens warp moves each
+ * camera plane by its own coefficients (crates/engine/src/image_loader.rs
+ * `CAMERA_PLANE_WARP_RENDER_VERSION`). */
+export const CAMERA_PLANE_WARP_RENDER_VERSION = 14;
+
+/** Whether a recipe's DNG is developed with that lens warp, as the backend
+ * decides (`image_loader::decode_variant`; reported only where it changes
+ * the decode, src/utils/aiDenoise.ts `warpPlanesMatter`). */
+export const cameraPlaneWarp = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
+  (adjustments.renderVersion ?? 1) >= CAMERA_PLANE_WARP_RENDER_VERSION;
 
 /** The AI Denoise version new edits start with (`aiDenoiseVersion`; notes:
  * benchmark-results/ai-denoise-mac-2026-10-18). */

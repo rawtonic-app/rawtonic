@@ -9,6 +9,7 @@ use exif::{Reader as ExifReader, Tag};
 use image::{DynamicImage, GenericImageView, ImageReader, imageops};
 use rawler::Orientation;
 pub use rawtonic_rawdecode::black_bias::BlackLevels;
+pub use rawtonic_rawdecode::dng_opcodes::WarpPlanes;
 pub use rawtonic_rawdecode::highlight_reconstruction::HighlightRebuild;
 pub use rawtonic_rawdecode::hot_pixels::DeadTest;
 use rawtonic_recipe::geometry;
@@ -179,6 +180,8 @@ pub struct BaseImageOptions {
     pub black: BlackLevels,
     /// How clipped colours are rebuilt (`DecodeVariant::highlights`).
     pub highlights: HighlightRebuild,
+    /// The planes a DNG lens warp moves (`DecodeVariant::warp_planes`).
+    pub warp_planes: WarpPlanes,
 }
 
 /// What a recipe asks of the RAW decode beyond the app's preferences. Bases
@@ -204,6 +207,11 @@ pub struct DecodeVariant {
     /// `HighlightRebuild::Ratios` from `renderVersion` 9, so large partly
     /// clipped areas keep their colour and brightness.
     pub highlights: HighlightRebuild,
+    /// The planes a DNG's embedded lens warp (WarpRectilinear) moves
+    /// (dng_opcodes.rs): `WarpPlanes::Camera` from `renderVersion` 14, so
+    /// its lateral chromatic aberration correction acts on the camera
+    /// colours as the DNG specification defines it.
+    pub warp_planes: WarpPlanes,
 }
 
 /// The render version from which dead photosites must also be darker than
@@ -230,6 +238,12 @@ pub const BORDER_BLACK_RENDER_VERSION: u64 = 11;
 /// benchmark-results/hl-partial-clip-2026-10-31/).
 pub const HIGHLIGHT_RENDER_VERSION: u64 = 9;
 
+/// The render version from which a DNG's embedded lens warp moves each
+/// camera plane by its own coefficients (`WarpPlanes::Camera`; notes:
+/// benchmark-results/dpw1-2026-11-20/). Pixels change only on DNGs whose
+/// warp has different coefficients per plane.
+pub const CAMERA_PLANE_WARP_RENDER_VERSION: u64 = 14;
+
 /// The decode variant of the recipe rendered on the source file at
 /// `source` (a never-edited one renders as a new edit,
 /// `image_processing::apply_render_default`).
@@ -240,11 +254,25 @@ pub fn decode_variant(adjustments: &Value, source: &str) -> DecodeVariant {
     } else {
         0
     };
-    decode_variant_for_frame(adjustments, is_raw, frame)
+    decode_variant_for_frame(adjustments, source, frame)
 }
 
-/// The decode settings with a frame already known by the caller (no path reads).
-pub fn decode_variant_for_frame(adjustments: &Value, is_raw: bool, frame: u32) -> DecodeVariant {
+/// Whether `source` may be a DNG, the one format whose files carry lens
+/// opcodes (`DecodeVariant::warp_planes`): a `.dng`, or a TIFF the RAW path
+/// takes by its content (`formats::is_raw_file`; a DNG renamed `.tif`).
+pub fn may_hold_dng_opcodes(source: &str) -> bool {
+    let extension = std::path::Path::new(source)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("");
+    extension.eq_ignore_ascii_case("dng")
+        || (crate::formats::is_tiff_extension(extension) && crate::formats::is_raw_file(source))
+}
+
+/// The decode settings of the recipe rendered on the source file at
+/// `source`, with its frame already known by the caller (no file reads).
+pub fn decode_variant_for_frame(adjustments: &Value, source: &str, frame: u32) -> DecodeVariant {
+    let is_raw = crate::formats::is_raw_file(source);
     let render = crate::recipe_versions::RenderVersion::effective(adjustments);
     DecodeVariant {
         multiscale: crate::recipe_versions::ColorNoiseVersion::of(adjustments, is_raw).multiscale(),
@@ -265,6 +293,13 @@ pub fn decode_variant_for_frame(adjustments: &Value, is_raw: bool, frame: u32) -
             HighlightRebuild::Ratios
         } else {
             HighlightRebuild::Offsets
+        },
+        // Other formats carry no lens opcodes: both develop alike, so they
+        // keep one variant (no new decode, cache or preview for them).
+        warp_planes: if render.camera_plane_warp() && may_hold_dng_opcodes(source) {
+            WarpPlanes::Camera
+        } else {
+            WarpPlanes::Output
         },
     }
 }
@@ -299,6 +334,7 @@ impl BaseImageOptions {
             frame: 0,
             black: BlackLevels::Clipped,
             highlights: HighlightRebuild::Offsets,
+            warp_planes: WarpPlanes::Output,
         }
     }
 
@@ -322,6 +358,7 @@ impl BaseImageOptions {
         self.frame = variant.frame;
         self.black = variant.black;
         self.highlights = variant.highlights;
+        self.warp_planes = variant.warp_planes;
         self.for_color_noise(variant.multiscale)
     }
 
@@ -427,6 +464,7 @@ pub fn load_base_image_measured(
         frame,
         black,
         highlights,
+        warp_planes,
     } = options.clone();
     if is_raw_file(path_for_ext_check) {
         let cancelled = cancel_token
@@ -446,6 +484,7 @@ pub fn load_base_image_measured(
                     frame_version: frame,
                     black,
                     highlights,
+                    warp_planes,
                 },
             )
         })) {
@@ -2216,7 +2255,7 @@ mod color_noise_option_tests {
 
 #[cfg(test)]
 mod decode_variant_tests {
-    use super::{BlackLevels, DeadTest, HighlightRebuild, decode_variant};
+    use super::{BlackLevels, DeadTest, HighlightRebuild, WarpPlanes, decode_variant};
     use serde_json::json;
 
     #[test]
@@ -2254,6 +2293,24 @@ mod decode_variant_tests {
             HighlightRebuild::Ratios
         );
         assert_eq!(highlights(json!({})), HighlightRebuild::Ratios);
+        let warp = |recipe| decode_variant(&recipe, "/p/A.DNG").warp_planes;
+        assert_eq!(warp(json!({ "exposure": 1 })), WarpPlanes::Output);
+        assert_eq!(warp(json!({ "renderVersion": 13 })), WarpPlanes::Output);
+        assert_eq!(warp(json!({ "renderVersion": 14 })), WarpPlanes::Camera);
+        assert_eq!(warp(json!({})), WarpPlanes::Camera);
+        assert_eq!(
+            decode_variant(&json!({}), "/p/A.dng").warp_planes,
+            WarpPlanes::Camera
+        );
+        assert_eq!(
+            decode_variant(&json!({}), "/p/A.NEF").warp_planes,
+            WarpPlanes::Output
+        );
+        // A TIFF counts only when the RAW path takes it by its content.
+        assert_eq!(
+            decode_variant(&json!({}), "/p/missing.tif").warp_planes,
+            WarpPlanes::Output
+        );
         // The colour noise filter is decided as before.
         assert!(decode_variant(&json!({}), "/p/A.NEF").multiscale);
         assert!(!decode_variant(&json!({ "colorNoiseReduction": 25 }), "/p/A.NEF").multiscale);
