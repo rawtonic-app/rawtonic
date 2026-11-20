@@ -15391,18 +15391,52 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
     // Exposure ±0.7 too: the pixel arrives with it, the wide level without.
     // At Exposure −0.7 the gaps show at L* 84, below the tone no pixel is
     // lifted beyond (L* 87): they keep a part of the lift.
-    for (amount, exposure, most) in [
-        (50, 0.0, 0.3),
-        (100, 0.0, 0.3),
-        (100, -0.7, 3.0),
-        (100, 0.7, 0.3),
+    // The first step above 0, with Blacks raised too: the bounds fade in
+    // with the stage's level, so the gaps do not jump (the factor at full
+    // strength from +1 on took Blacks' lift from them at once).
+    for blacks in [0, 50] {
+        let step = |version: u64| {
+            let at = |amount: i32| {
+                render_raw_look(
+                    &processor,
+                    &grating,
+                    (width, height),
+                    &with(&json!({ "shadows": amount, "blacks": blacks }), version),
+                    look,
+                )
+            };
+            let (zero, one) = (at(0), at(1));
+            rows.clone()
+                .flat_map(|y| (200..560).map(move |x| y * w + x))
+                .map(|i| (lstar_of_codes(&one[i]) - lstar_of_codes(&zero[i])).abs())
+                .fold(0.0f64, f64::max)
+        };
+        let (step_19, step_20) = (step(19), step(20));
+        eprintln!("Shadows 0 → +1, Blacks {blacks}: largest dL* {step_19:.3} → {step_20:.3}");
+        assert!(
+            step_20 < step_19 + 0.05,
+            "Shadows 0 → +1, Blacks {blacks}: {step_20:.3} L* (version 19 {step_19:.3})"
+        );
+    }
+    for (amount, exposure, whites, most) in [
+        (50, 0.0, 0, 0.3),
+        (100, 0.0, 0, 0.3),
+        (100, -0.7, 0, 3.0),
+        (100, 0.7, 0, 0.3),
+        // Whites moves the gaps itself (raised, they are near white and
+        // version 19 lifts them little): the gaps stay unlifted.
+        (100, 0.0, 50, 0.3),
+        (100, 0.0, -50, 0.3),
     ] {
         let render = |view: &wgpu::TextureView, version: u64, amount: i32| {
             render_raw_look(
                 &processor,
                 view,
                 (width, height),
-                &with(&json!({ "shadows": amount, "exposure": exposure }), version),
+                &with(
+                    &json!({ "shadows": amount, "exposure": exposure, "whites": whites }),
+                    version,
+                ),
                 look,
             )
         };
@@ -15455,13 +15489,13 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
         let (lift_19, det_19) = shadows(&render(&ramp, 19, amount));
         let (lift_20, det_20) = shadows(&render(&ramp, 20, amount));
         eprintln!(
-            "Shadows +{amount}, Exposure {exposure}: gap dL* {gap_19:.2} → {gap_20:.2}, shadows dL* {lift_19:.3} → {lift_20:.3}, texture {det_19:.4} → {det_20:.4}"
+            "Shadows +{amount}, Exposure {exposure}, Whites {whites}: gap dL* {gap_19:.2} → {gap_20:.2}, shadows dL* {lift_19:.3} → {lift_20:.3}, texture {det_19:.4} → {det_20:.4}"
         );
         // Measured on Vulkan (RTX 3080): gaps +50 1.35 → 0.00, +100 3.83 →
         // 0.00 L*, at Exposure −0.7 11.84 → 2.41, +0.7 0.84 → 0.00; the
         // ramp's shadows' lift and texture equal to 3 decimals.
         assert!(
-            gap_19 > 0.5 && gap_20 > -0.3 && gap_20 < most,
+            (whites > 0 || gap_19 > 0.5) && gap_20 > -0.3 && gap_20 < most,
             "Shadows +{amount}, Exposure {exposure}: gap dL* {gap_20:.2} (version 19 {gap_19:.2})"
         );
         assert!(
@@ -15469,6 +15503,29 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
             "Shadows +{amount}: shadows dL* {lift_20:.3} / texture {det_20:.4} (version 19 {lift_19:.3} / {det_19:.4})"
         );
     }
+}
+
+/// Version 20's tone stage is version 13's with raised Shadows' gain of
+/// version 20: the copies must stay the same but for that line.
+#[test]
+fn tone_version_20_stage_is_version_13s_but_for_the_gain() {
+    let shader = include_str!("shaders/shader.wgsl");
+    let body = |name: &str| {
+        let start = shader
+            .find(&format!("\nfn {name}("))
+            .unwrap_or_else(|| panic!("{name} is missing"));
+        let rest = &shader[start + 4 + name.len()..];
+        &rest[..rest.find("\n}\n").unwrap()]
+    };
+    let v13_gain = "rgb *= shadows_v13_gain(level_luma * exposure_gain, sh, bl, fade);";
+    let v20_gain =
+        "rgb *= shadows_v20_gain(level_luma * exposure_gain, safe_pixel_luma, sh, bl, fade);";
+    let v13 = body("apply_tonal_adjustments_v13");
+    assert_eq!(v13.matches(v13_gain).count(), 1);
+    assert_eq!(
+        body("apply_tonal_adjustments_v20"),
+        v13.replace(v13_gain, v20_gain)
+    );
 }
 
 /// `renderVersion` of a new edit (the fixture new edits are checked
@@ -15537,15 +15594,22 @@ fn tone_version_20_shadows_keeps_fine_detail_in_order() {
         let view = grey_texture(&context, width, height, &levels);
         let w = width as usize;
         for look in [(3, 2.0), (3, 1.0)] {
-            for (amount, exposure, blacks) in [
-                (20, 0.0, 0),
-                (50, 0.0, 0),
-                (75, 0.0, 0),
-                (100, 0.0, 0),
-                (100, -1.0, 0),
-                (100, 1.0, 0),
-                (100, 0.0, 50),
-                (60, 0.0, -50),
+            for (amount, exposure, blacks, whites) in [
+                (20, 0.0, 0, 0),
+                (50, 0.0, 0, 0),
+                (75, 0.0, 0, 0),
+                (100, 0.0, 0, 0),
+                (100, -1.0, 0, 0),
+                (100, 1.0, 0, 0),
+                (100, 0.0, 50, 0),
+                (60, 0.0, -50, 0),
+                // The fade-in over the first Shadows values, Blacks raised.
+                (4, 0.0, 50, 0),
+                (9, 0.0, 50, 0),
+                // Whites: the stage applies it to the pixel the bounds
+                // have already lowered.
+                (100, 0.0, 0, 60),
+                (100, 0.0, 0, -60),
             ] {
                 let mut worst = [0.0f64; 2];
                 for (slot, version) in [19u64, 20].into_iter().enumerate() {
@@ -15554,6 +15618,7 @@ fn tone_version_20_shadows_keeps_fine_detail_in_order() {
                         &view,
                         (width, height),
                         &json!({ "shadows": amount, "exposure": exposure, "blacks": blacks,
+                            "whites": whites,
                             "toneVersion": version, "renderVersion": render_version }),
                         look,
                     );
@@ -15580,7 +15645,7 @@ fn tone_version_20_shadows_keeps_fine_detail_in_order() {
                                         failures.push((
                                             excess,
                                             format!(
-                                                "{scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks}: ground {} EV, {line} px line at {line_ev:.2} EV falls {ev:.3} EV",
+                                                "{scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks} Whites {whites}: ground {} EV, {line} px line at {line_ev:.2} EV falls {ev:.3} EV",
                                                 SHADOWS_V20_LINE_GROUNDS[band]
                                             ),
                                         ));
@@ -15592,7 +15657,7 @@ fn tone_version_20_shadows_keeps_fine_detail_in_order() {
                     }
                 }
                 eprintln!(
-                    "{scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks}: worst fall (limits) version 19 {:.2}, version 20 {:.2}",
+                    "{scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks} Whites {whites}: worst fall (limits) version 19 {:.2}, version 20 {:.2}",
                     worst[0], worst[1]
                 );
                 worst_19 = worst_19.max(worst[0]);

@@ -4289,7 +4289,7 @@ const TONE_V5_FEATURE: usize = 8388608;
 /// recipes' pipelines keep the code they had.
 const SHADOWS_V19_FEATURE: usize = 67108864;
 /// Raised Shadows' bounds of tone version 20 (`SHADOWS_V20`, shader
-/// `shadows_v20_pixel_gain`), compiled only for recipes that use them:
+/// `shadows_v20_gain`), compiled only for recipes that use them:
 /// behind version 19's bit, Metal compiled version 19's recipes differently
 /// (one 16-bit code in 31 of 108 M samples of an export with Shadows and
 /// Blacks raised; notes: reference/preservation-run.md, PRV44).

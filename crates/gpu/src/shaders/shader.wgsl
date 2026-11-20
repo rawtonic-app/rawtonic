@@ -69,7 +69,7 @@ override BLACKS_V16: bool = false;
 // Raised Shadows' level of tone version 19 (`shadows_v19_level`), for the
 // same reason (gpu_processing.rs `SHADOWS_V19_FEATURE`).
 override SHADOWS_V19: bool = false;
-// Raised Shadows' bounds of tone version 20 (`shadows_v20_pixel_gain`), for
+// Raised Shadows' bounds of tone version 20 (`shadows_v20_gain`), for
 // recipes of that version that raise Shadows.
 override SHADOWS_V20: bool = false;
 // Colour mixer response 2 or 3 (`apply_hsl_panel_v2`, `apply_hsl_panel_v3`)
@@ -2847,9 +2847,9 @@ fn shadows_v19_level(coords: vec2<u32>) -> f32 {
 // result above the light tone keeps the order for every width, but takes
 // shadow detail (slider atlas +100: 0.19 under Camera Raw's, 0.13 before).
 //
-// It is applied as a factor (at most 1) on the pixel before the tone stage,
-// which then lifts it with the level as version 19 does: the stage keeps
-// the order of what it is given, and stays as it is.
+// It replaces the gain of version 13's tone stage in a copy of that stage
+// (`apply_tonal_adjustments_v20`), after Whites and before Contrast, which
+// keeps the order of what it is given.
 // Compiled only where `SHADOWS_V20` is set (recipes of version 20 that
 // raise Shadows). Behind version 19's override and a test of the version
 // at run time, an export of a version 19 recipe with Shadows and Blacks
@@ -2865,28 +2865,32 @@ const SH_V20_TO: f32 = -0.5;
 // The first bound starts in a quadratic knee this wide (EV to either side).
 const SH_V20_SOFT: f32 = 0.25;
 
-// `pixel_rgb` has Exposure applied, the level not. The second bound has to
-// hold for darker pixels too (a dark pixel lifted beyond SH_V20_TO would
-// otherwise render lighter than a brighter one at the bound), so the
-// level's lift is evaluated for every pixel above its level.
-fn shadows_v20_pixel_gain(level_luma: f32, pixel_rgb: vec3<f32>, sh: f32, bl: f32, exposure_gain: f32) -> f32 {
-    let pixel = get_luma(max(pixel_rgb, vec3<f32>(0.0)));
-    let level = max(level_luma, 0.0001) * exposure_gain;
+// The gain of the tone stage's Shadows and Blacks for a pixel of version
+// 20: `level` is the stage's level and `pixel` the pixel's luminance, both
+// with Exposure and after Whites. The second bound has to hold for darker
+// pixels too (a dark pixel lifted beyond SH_V20_TO would otherwise render
+// lighter than a brighter one at the bound), so the level's lift is
+// evaluated first for every pixel.
+// Over Shadows 0 … +SH_V6_FADE the stage fades its level from the tonal
+// blur's to the wide one, and the gain holds Blacks' share too: the bounds
+// fade in with the same weight, so the first step above 0 changes nothing
+// at once, with Blacks raised or not. Both renderings rise with the pixel,
+// so their mix does.
+fn shadows_v20_gain(level: f32, pixel: f32, sh: f32, bl: f32, fade: f32) -> f32 {
+    let gain = shadows_v13_gain(level, sh, bl, fade);
     if (pixel <= level) {
-        return 1.0;
+        return gain;
     }
-    let ramp = clamp(sh / SH_V6_FADE, 0.0, 1.0);
-    let fade = ramp * ramp;
-    let at_level = log2(max(shadows_v13_gain(level, sh, bl, fade), 1e-9));
+    let at_level = log2(max(gain, 1e-9));
     let above = log2(pixel / max(cr_curve_level(SH_V20_FROM), 1e-6));
     let q = clamp(above + SH_V20_SOFT, 0.0, 2.0 * SH_V20_SOFT);
     let rise = select(q * q / (4.0 * SH_V20_SOFT), above, above >= SH_V20_SOFT);
     let bound = min(at_level - (1.0 - SH_V20_KEEP) * rise, log2(max(cr_curve_level(SH_V20_TO), 1e-6) / pixel));
     if (bound >= at_level) {
-        return 1.0;
+        return gain;
     }
     let at_pixel = log2(max(shadows_v13_gain(pixel, sh, bl, fade), 1e-9));
-    return exp2(min(max(at_pixel, bound) - at_level, 0.0));
+    return gain * exp2(fade * min(max(at_pixel, bound) - at_level, 0.0));
 }
 
 // The texture gain on top of the wide level's lift `gain`.
@@ -3608,6 +3612,207 @@ fn apply_tonal_adjustments_v13(
         // Version 13: no texture boost (the level stays version 6's wide
         // one), and less lift in the midtones (shadows_v13_gain).
         rgb *= shadows_v13_gain(level_luma * exposure_gain, sh, bl, fade);
+    } else if (sh != 0.0 || bl != 0.0) {
+        let t_pixel = pow(safe_pixel_luma, 0.4545);
+        let t_blurred = pow(safe_blurred_luma, 0.4545);
+
+        let shadow_gain = select(SHADOWS_LOWER, SHADOWS_RAISE, sh > 0.0);
+        let shadow_lift = sh * shadow_gain * t_pixel * pow(max(1.0 - t_pixel, 0.0), 4.5);
+        let black_lift = bl * t_pixel * pow(max(1.0 - t_pixel, 0.0), 12.0);
+        let lift_amount = max(shadow_lift + black_lift, 0.0);
+
+        let t_pixel_curved = max(t_pixel + shadow_lift + black_lift, 0.0);
+
+        let shadow_pivot = 0.2;
+        let stretch_factor = 1.0 + (lift_amount * 1.3);
+        let contrasted_t = shadow_pivot + (t_pixel_curved - shadow_pivot) * stretch_factor;
+
+        let final_t = max(mix(t_pixel_curved, contrasted_t, 0.85), 0.0);
+        let curved_luma = pow(final_t, 2.2);
+
+        let luma_ratio = curved_luma / safe_pixel_luma;
+        rgb *= luma_ratio;
+
+        let detail = t_pixel / max(t_blurred, 0.0001);
+        let safe_detail = clamp(detail, 0.8, 1.25);
+
+        let noise_protection = smoothstep(0.0, 0.1, t_blurred);
+
+        let detail_amp = 1.0 + (lift_amount * 1.2 * noise_protection);
+
+        let enhanced_detail = pow(safe_detail, detail_amp);
+        let detail_correction = enhanced_detail / safe_detail;
+
+        let linear_correction = pow(detail_correction, 2.2);
+        rgb *= linear_correction;
+
+        if (luma_ratio > 1.0) {
+            let recovered_luma = get_luma(rgb);
+            let boost_amount = clamp((luma_ratio - 1.0) * 0.15, 0.0, 0.4);
+            rgb = mix(rgb, vec3<f32>(recovered_luma), boost_amount);
+        }
+    }
+
+    if (con != 0.0 && base_look_is_camera_raw()) {
+        // Renderer value is slider / 100. Per channel alone over-shoots
+        // Lightroom's saturation change (×1.76 against ×1.49 at +100), so
+        // it is mixed with the same luminance change applied neutrally.
+        let safe = max(rgb, vec3<f32>(0.0));
+        let per_channel = cr_contrast(safe, clamp(con, -1.0, 1.0));
+        let neutral = safe * (get_luma(per_channel) / max(get_luma(safe), 1e-6));
+        let contrasted = mix(neutral, per_channel, CR_CONTRAST_CHANNEL_MIX);
+        if (any(rgb < vec3<f32>(0.0))) {
+            rgb = carry_scene(rgb, safe, contrasted);
+        } else {
+            rgb = contrasted;
+        }
+    } else if (con != 0.0) {
+        let safe_rgb = max(rgb, vec3<f32>(0.0));
+        let g = 2.2;
+        let perceptual = pow(safe_rgb, vec3<f32>(1.0 / g));
+        let clamped_perceptual = clamp(perceptual, vec3<f32>(0.0), vec3<f32>(1.0));
+        // Half the inherited slope: ±100 now matches Lightroom's ±100
+        // (the inherited ±50 did); notes: reference/tone-controls.md.
+        var strength = pow(2.0, con * 0.625);
+        if (base_look_is_standard() && con > 0.0) {
+            strength = pow(2.0, con * 0.625 * STANDARD_CONTRAST_RAISE);
+        }
+        var curved_perceptual: vec3<f32>;
+        if (base_look_is_standard()) {
+            let pivot = STANDARD_CONTRAST_PIVOT;
+            let condition = clamped_perceptual < vec3<f32>(pivot);
+            let high_part = 1.0 - (1.0 - pivot) * pow((1.0 - clamped_perceptual) / (1.0 - pivot), vec3<f32>(strength));
+            let low_part = pivot * pow(clamped_perceptual / pivot, vec3<f32>(strength));
+            curved_perceptual = select(high_part, low_part, condition);
+        } else {
+            let condition = clamped_perceptual < vec3<f32>(0.5);
+            let high_part = 1.0 - 0.5 * pow(2.0 * (1.0 - clamped_perceptual), vec3<f32>(strength));
+            let low_part = 0.5 * pow(2.0 * clamped_perceptual, vec3<f32>(strength));
+            curved_perceptual = select(high_part, low_part, condition);
+        }
+        let contrast_adjusted_rgb = pow(curved_perceptual, vec3<f32>(g));
+        let mix_factor = smoothstep(vec3<f32>(1.0), vec3<f32>(1.01), safe_rgb);
+        if (any(rgb < vec3<f32>(0.0))) {
+            rgb = carry_scene(rgb, safe_rgb, mix(contrast_adjusted_rgb, safe_rgb, mix_factor));
+        } else {
+            rgb = mix(contrast_adjusted_rgb, rgb, mix_factor);
+        }
+    }
+    return rgb;
+}
+
+// Tone version 20: `apply_tonal_adjustments_v13` with raised Shadows' gain
+// of version 20 (`shadows_v20_gain`, the one line that differs:
+// `tone_version_20_stage_is_version_13s_but_for_the_gain` compares the
+// texts), in its own function and compiled only where `SHADOWS_V20` is set
+// (recipes of version 20 that raise Shadows), so older recipes compile
+// exactly as before. The bounds sit where the gain is applied: after
+// Whites, with the level the stage uses. As a factor on the pixel before
+// the stage they met Whites and the stage's level only roughly, and a 5 px
+// line fell 0.08 EV with Whites +60.
+fn apply_tonal_adjustments_v20(
+    color: vec3<f32>,
+    blurred_color_input_space: vec3<f32>,
+    wide_luma_input_space: f32,
+    whites_offset_log: f32,
+    is_raw: u32,
+    con: f32,
+    sh: f32,
+    wh: f32,
+    bl_in: f32,
+    exposure_gain: f32
+) -> vec3<f32> {
+    var rgb = color;
+
+    var blurred_linear: vec3<f32>;
+    if (is_raw == 1u) {
+        blurred_linear = blurred_color_input_space;
+    } else {
+        blurred_linear = srgb_to_linear(blurred_color_input_space);
+    }
+
+    // Whites' luminance ratio at the pixel, which the blurred levels follow.
+    var whites_ratio = 1.0;
+    if (wh != 0.0 && base_look_is_camera_raw()) {
+        // Renderer value is slider / 30.
+        let amount = clamp(wh * 0.3, -1.0, 1.0);
+        let negative = any(rgb < vec3<f32>(0.0));
+        let floored = max(rgb, vec3<f32>(0.0));
+        var whitened: vec3<f32>;
+        if (amount < 0.0 && adjustments.global.tone_version > 9.5) {
+            whitened = whites_v12_lower(select(rgb, floored, negative), amount, whites_offset_log);
+        } else {
+            whitened = cr_whites(select(rgb, floored, negative), amount);
+        }
+        if (negative) {
+            whitened = carry_scene(rgb, floored, whitened);
+        }
+        let luma_before = max(get_luma(max(rgb, vec3<f32>(0.0))), 1e-6);
+        let ratio = max(get_luma(max(whitened, vec3<f32>(0.0))), 0.0) / luma_before;
+        rgb = whitened;
+        blurred_linear *= ratio;
+        whites_ratio = ratio;
+    } else if (wh != 0.0) {
+        // Whites moves the upper tones, as Capture One's and Lightroom's White
+        // sliders do (it used to scale every tone like a white-point gain).
+        // Raising reaches further down than lowering, as in both references.
+        var w = wh / WHITES_SCALE;
+        if (base_look_is_standard()) {
+            w *= select(STANDARD_WHITES_LOWER, STANDARD_WHITES_RAISE, w > 0.0);
+        }
+        let t = clamp(pow(max(get_luma(max(rgb, vec3<f32>(0.0))), 0.0), 0.4545), 0.0, 1.0);
+        let gain = select(WHITES_LOWER, WHITES_RAISE, w > 0.0);
+        let reach = select(WHITES_REACH_LOWER, WHITES_REACH_RAISE, w > 0.0);
+        // The result is (t · (1 + k · t^reach))^2.2, which turns down where
+        // 1 + k · (1 + reach) · t^reach < 0: Whites below about −75 under
+        // Standard darkened the tones from −0.37 EV up to white (−100: 0.09
+        // scene EV, the brightest grey lower than one 0.37 EV darker). From
+        // that level on the gain stays the level's, so brighter stays
+        // brighter; tones below it are unchanged.
+        let k = gain * w;
+        var t_gain = t;
+        if (k * (1.0 + reach) < -1.0) {
+            t_gain = min(t, pow(-1.0 / (k * (1.0 + reach)), 1.0 / reach));
+        }
+        let ratio = pow(max(1.0 + k * pow(t_gain, reach), 0.05), 2.2);
+        rgb *= ratio;
+        blurred_linear *= ratio;
+        whites_ratio = ratio;
+    }
+
+    // Version 9 lowers Blacks after the tone map (blacks_v9_black_point).
+    let bl = select(bl_in, 0.0, blacks_v9_active(bl_in, is_raw));
+    let pixel_luma = get_luma(max(rgb, vec3<f32>(0.0)));
+    let blurred_luma = get_luma(max(blurred_linear, vec3<f32>(0.0)));
+
+    let safe_pixel_luma = max(pixel_luma, 0.0001);
+    let safe_blurred_luma = max(blurred_luma, 0.0001);
+
+    if ((sh != 0.0 || bl != 0.0) && base_look_is_camera_raw()) {
+        // Lightroom's measured response by display level, applied as a
+        // gain from the blurred (exposed) luminance so detail is kept.
+        // Where the blur differs from the pixel by no more than its 16-bit
+        // float storage rounds (≤ 0.05 %), the pixel's own luminance is
+        // used: near the black point the black subtraction magnified that
+        // rounding into ±3-code wobble on smooth gradients (Blacks −40 fell
+        // 0.013 EV at display −6.6 EV). Detail keeps the blurred level.
+        let level_ratio = safe_blurred_luma / safe_pixel_luma;
+        let level_snap = smoothstep(0.001, 0.004, abs(log(level_ratio)));
+        var level_luma = safe_pixel_luma * pow(level_ratio, level_snap);
+        let v6 = sh > 0.0 && adjustments.global.tone_version > 5.5;
+        let tonal_level = level_luma;
+        // Faded in (quadratically) over Shadows 0 … +SH_V6_FADE, so raising
+        // Shadows from 0 does not switch the level of Blacks' (shared) gain
+        // at once.
+        let ramp = clamp(sh / SH_V6_FADE, 0.0, 1.0);
+        let fade = ramp * ramp;
+        if (v6) {
+            let wide = max(wide_luma_input_space * whites_ratio, 0.0001);
+            level_luma = exp2(mix(log2(max(tonal_level, 0.0001)), log2(wide), fade));
+        }
+        // Version 13: no texture boost (the level stays version 6's wide
+        // one), and less lift in the midtones (shadows_v13_gain).
+        rgb *= shadows_v20_gain(level_luma * exposure_gain, safe_pixel_luma, sh, bl, fade);
     } else if (sh != 0.0 || bl != 0.0) {
         let t_pixel = pow(safe_pixel_luma, 0.4545);
         let t_blurred = pow(safe_blurred_luma, 0.4545);
@@ -11501,12 +11706,9 @@ fn main(
         if (is_raw == 1u && adjustments.global.tone_version > 17.5 && adjustments.global.tonemapper_mode == 2u) {
             scene_blacks = max(t_blacks, -2.5);
         }
-        if (SHADOWS_V20 && t_shadows > 0.0 && adjustments.global.tone_version > 19.5 && base_look_is_camera_raw()) {
-            // Blacks as the tone stage takes it (`apply_tonal_adjustments_v13`).
-            let stage_blacks = select(scene_blacks, 0.0, blacks_v9_active(scene_blacks, is_raw));
-            composite_rgb_linear *= shadows_v20_pixel_gain(wide_luma, composite_rgb_linear, t_shadows, stage_blacks, exposure_gain);
-        }
-        if (adjustments.global.tone_version < 5.5) {
+        if (SHADOWS_V20 && t_shadows > 0.0 && adjustments.global.tone_version > 19.5) {
+            composite_rgb_linear = apply_tonal_adjustments_v20(composite_rgb_linear, tonal_blurred, wide_luma, whites_offset, is_raw, t_contrast, t_shadows, t_whites, scene_blacks, exposure_gain);
+        } else if (adjustments.global.tone_version < 5.5) {
             if (TONE_V5) {
                 composite_rgb_linear = apply_tonal_adjustments_v5(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, scene_blacks, exposure_gain);
             }
