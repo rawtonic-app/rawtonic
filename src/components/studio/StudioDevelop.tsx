@@ -768,12 +768,23 @@ export function PointCurve({
             onFocus={(e) => e.currentTarget.select()}
             onKeyDown={(e) => {
               e.stopPropagation();
+              // Accepted or cancelled, the keyboard goes back to the handle
+              // (arrows fine-tune it; on the page they would change photos).
+              const back = () => {
+                const name = t(SPLIT_LABELS[splitEdit]);
+                setSplitEdit(null);
+                requestAnimationFrame(() =>
+                  svgRef.current
+                    ?.querySelector<SVGElement>(`.curve-split[aria-label="${CSS.escape(name)}"]`)
+                    ?.focus({ preventScroll: true })
+                );
+              };
               if (e.key === 'Enter') {
                 const value = Number(e.currentTarget.value);
                 if (e.currentTarget.value.trim() && Number.isFinite(value)) setSplit(splitEdit, value);
-                setSplitEdit(null);
+                back();
               } else if (e.key === 'Escape') {
-                setSplitEdit(null);
+                back();
               }
             }}
             onBlur={(e) => {

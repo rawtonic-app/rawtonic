@@ -401,7 +401,7 @@ describe('region curve split handles under the curve (UXR1 D4)', () => {
     });
   });
 
-  it('takes an exact value after Enter', () => {
+  it('takes an exact value after Enter and gives the keyboard back to the handle', async () => {
     const { onRegionChange } = mount();
     fireEvent.keyDown(handle('Region curve highlight split'), { key: 'Enter' });
     const field = screen.getByRole('spinbutton', { name: 'Region curve highlight split' });
@@ -415,6 +415,11 @@ describe('region curve split handles under the curve (UXR1 D4)', () => {
     fireEvent.change(again, { target: { value: '60' } });
     fireEvent.keyDown(again, { key: 'Escape' });
     expect(onRegionChange).toHaveBeenCalledTimes(1);
+    // The keyboard is back on the handle: the next arrow moves the split.
+    await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
+    expect(document.activeElement).toBe(handle('Region curve highlight split'));
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight' });
+    expect(onRegionChange).toHaveBeenLastCalledWith({ ...region, highlightSplit: 81 });
   });
 
   it('resets a split to its default on a double-click, as a slider does', () => {
