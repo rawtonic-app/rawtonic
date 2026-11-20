@@ -391,10 +391,11 @@ static CPU_ONLY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// without a verdict, so a later start without this checks as before); a
 /// forced provider still wins. The app calls it on an integrated GPU whose
 /// shader compiles run under a limit (a Radeon 680M under Windows): there
-/// a check ran the model on the CPU and on WebGPU at once and took the app
-/// to 10.6 GB of private memory with memory pressure on a 15 GB laptop,
-/// and the GPU was slower every time (G76/WSMOKE15; coordinator decision
-/// WCC11 D5). Logged once with `why`.
+/// BiRefNet's GPU check took the app to 10.2-10.6 GB of private memory
+/// with memory pressure on a 14 GB laptop, most of it the WebGPU run's
+/// shared memory (7.4 GB), and the GPU was slower every time
+/// (G76/WSMOKE15, WMSK1; coordinator decision WCC11 D5). Logged once with
+/// `why`.
 pub fn keep_models_on_cpu(why: &str) {
     if CPU_ONLY.set(why.to_string()).is_ok() {
         log::info!("AI: models stay on the CPU and no GPU check runs: {why}");
@@ -1041,7 +1042,8 @@ impl Model {
         let checks_file = settings().checks_file;
         log_subject_load_step(kind, "provider setup", setup);
         let mut last_error = anyhow!("no provider to try");
-        // Checks queued for this load: the model waits for their verdicts.
+        // Checks for this load: queued, and the model waits for their
+        // verdicts, once it is loaded.
         let mut queued = Vec::new();
         for &provider in providers {
             let started = Instant::now();
@@ -1066,9 +1068,11 @@ impl Model {
                         Plan::CheckNow => check::check(path, kind, &device, checks_file.as_ref())?,
                         // The first click does not wait for a measurement
                         // (gap G76): the CPU now, the check when idle.
+                        // Queued once the CPU model is registered for its
+                        // verdict, so the check finds that model's session
+                        // and makes no CPU session of its own beside it.
                         Plan::Queue => {
-                            check::queue(path, kind, &device, checks_file.as_ref());
-                            queued.push(key);
+                            queued.push((key, device.clone()));
                             return Err(anyhow!("its check on this device has not run yet"));
                         }
                     };
@@ -1083,8 +1087,9 @@ impl Model {
                         started.elapsed().as_millis()
                     );
                     let state = Arc::new(watch::Slot::new(kind.name(), session, provider));
-                    for key in queued {
+                    for (key, device) in queued {
                         check::wait_for(key, &state);
+                        check::queue(path, kind, &device, checks_file.as_ref());
                     }
                     return Ok(Self {
                         kind,

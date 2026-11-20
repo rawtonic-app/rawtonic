@@ -266,6 +266,37 @@ pub(crate) fn inputs_for(
     kind: ModelKind,
     picture: &Picture,
 ) -> Result<Vec<(String, Input)>> {
+    inputs_from(&input_specs(session)?, kind, picture)
+}
+
+/// A model's declared inputs: name, element type and shape.
+pub(crate) type InputSpecs = Vec<(String, TensorElementType, Vec<i64>)>;
+
+/// The inputs `session` declares (quick: no tensor is made).
+pub(crate) fn input_specs(session: &Session) -> Result<InputSpecs> {
+    session
+        .inputs()
+        .iter()
+        .map(|input| {
+            let ValueType::Tensor { ty, shape, .. } = input.dtype() else {
+                return Err(anyhow!("{}: not a tensor input", input.name()));
+            };
+            Ok((
+                input.name().to_string(),
+                *ty,
+                shape.iter().copied().collect(),
+            ))
+        })
+        .collect()
+}
+
+/// `inputs_for` from the declared inputs (`input_specs`), without the
+/// session.
+pub(crate) fn inputs_from(
+    specs: &InputSpecs,
+    kind: ModelKind,
+    picture: &Picture,
+) -> Result<Vec<(String, Input)>> {
     {
         let mut seed = 0x2545_f491_4f6c_dd1du64;
         let mut noise = move || {
@@ -275,12 +306,9 @@ pub(crate) fn inputs_for(
             (seed >> 40) as f32 / (1u64 << 24) as f32
         };
         let mut inputs = Vec::new();
-        for input in session.inputs() {
-            let ValueType::Tensor { ty, shape, .. } = input.dtype() else {
-                return Err(anyhow!("{}: not a tensor input", input.name()));
-            };
-            let name = input.name();
-            let mut dims: Vec<i64> = shape.iter().copied().collect();
+        for (name, ty, shape) in specs {
+            let (name, ty) = (name.as_str(), *ty);
+            let mut dims: Vec<i64> = shape.clone();
             for (i, d) in dims.iter_mut().enumerate() {
                 if *d < 0 {
                     *d = match (kind, name, i) {
