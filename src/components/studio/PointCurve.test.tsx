@@ -3,17 +3,29 @@ import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
-import { useEditorStore } from '../../store/useEditorStore';
+import { debouncedSetHistory, useEditorStore } from '../../store/useEditorStore';
+import { updateAdjustments } from '../../hooks/useEditorActions';
+import { COMMIT_INTERVAL_MS } from '../../utils/sliderDraft';
 import { PointCurve } from './StudioDevelop';
 
 afterEach(() => {
   cleanup();
-  useEditorStore.setState({
-    curveChannel: 'luma',
-    tatTarget: null,
-    tatCurveMarker: null
-  });
+  debouncedSetHistory.cancel();
+  useEditorStore.setState(useEditorStore.getInitialState());
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
+
+const identity = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+const stubPointerCapture = (element: Element) =>
+  Object.assign(element, { setPointerCapture: () => {}, hasPointerCapture: () => false });
+
+function stubCurvePointer(container: HTMLElement, matrix = identity, inverse = identity) {
+  vi.stubGlobal('PointerEvent', MouseEvent);
+  const svg = container.querySelector('svg')!;
+  stubPointerCapture(svg);
+  return Object.assign(svg, { getScreenCTM: () => ({ ...matrix, inverse: () => inverse }) });
+}
 
 describe('point curve targeted marker', () => {
   it("marks the sampled input on the shown channel's curve, only for the targeted curve", () => {
@@ -54,8 +66,110 @@ describe('point curve targeted marker', () => {
 });
 
 describe('point curve keyboard', () => {
+  function mountHistory() {
+    vi.useFakeTimers();
+    useEditorStore.setState({
+      selectedImage: { path: '/qa/photo.dng', width: 6000, height: 4000, isReady: true } as never
+    });
+    useEditorStore.getState().resetHistory(INITIAL_ADJUSTMENTS);
+    function Harness() {
+      const { curves, regionCurve } = useEditorStore((state) => state.adjustments);
+      return (
+        <PointCurve
+          curves={curves}
+          region={regionCurve}
+          onRegionChange={(regionCurve) => updateAdjustments((prev) => ({ ...prev, regionCurve }))}
+          onChange={(curves) => updateAdjustments((prev) => ({ ...prev, curves }))}
+          disabled={false}
+          onInteraction={(isSliderDragging) => useEditorStore.setState({ isSliderDragging })}
+        />
+      );
+    }
+    return render(<Harness />);
+  }
+
+  it('undoes consecutive nudges to one point together and starts a new step after the slider interval', () => {
+    mountHistory();
+    const first = screen.getByRole('button', { name: /Point 1,/ });
+    fireEvent.keyDown(first, { key: 'ArrowUp' });
+    act(() => vi.advanceTimersByTime(COMMIT_INTERVAL_MS - 1));
+    fireEvent.keyDown(first, { key: 'ArrowUp', repeat: true });
+    expect(first.getAttribute('aria-label')).toContain('output 2');
+    act(() => vi.advanceTimersByTime(COMMIT_INTERVAL_MS));
+    fireEvent.keyDown(first, { key: 'ArrowUp' });
+    expect(first.getAttribute('aria-label')).toContain('output 3');
+    act(() => useEditorStore.getState().undo());
+    expect(first.getAttribute('aria-label')).toContain('output 2');
+    act(() => useEditorStore.getState().undo());
+    expect(first.getAttribute('aria-label')).toContain('output 0');
+  });
+
+  it('keeps different controls in separate steps even without a pause', () => {
+    mountHistory();
+    const first = screen.getByRole('button', { name: /Point 1,/ });
+    const second = screen.getByRole('button', { name: /Point 2,/ });
+    const shadow = screen.getByRole('slider', { name: 'Region curve shadow split' });
+    const midtone = screen.getByRole('slider', { name: 'Region curve midtone split' });
+    fireEvent.keyDown(first, { key: 'ArrowUp' });
+    fireEvent.keyDown(first, { key: 'ArrowUp', repeat: true });
+    fireEvent.keyDown(second, { key: 'ArrowDown' });
+    fireEvent.keyDown(shadow, { key: 'ArrowRight' });
+    fireEvent.keyDown(shadow, { key: 'ArrowRight', repeat: true });
+    fireEvent.keyDown(midtone, { key: 'ArrowRight' });
+    // An ordinary edit elsewhere in Develop also starts its own step.
+    act(() => updateAdjustments((prev) => ({ ...prev, exposure: 1 })));
+    const state = useEditorStore.getState;
+    act(() => state().undo());
+    expect(state().adjustments.exposure).toBe(INITIAL_ADJUSTMENTS.exposure);
+    expect(midtone.getAttribute('aria-valuenow')).toBe('51');
+    act(() => state().undo());
+    expect(midtone.getAttribute('aria-valuenow')).toBe('50');
+    expect(shadow.getAttribute('aria-valuenow')).toBe('27');
+    act(() => state().undo());
+    expect(shadow.getAttribute('aria-valuenow')).toBe('25');
+    expect(second.getAttribute('aria-label')).toContain('output 254');
+    act(() => state().undo());
+    expect(second.getAttribute('aria-label')).toContain('output 255');
+    expect(first.getAttribute('aria-label')).toContain('output 2');
+    act(() => state().undo());
+    expect(first.getAttribute('aria-label')).toContain('output 0');
+  });
+
+  it('uses the focus label for selection and announces a changed coordinate once', () => {
+    const { container } = mountHistory();
+    const status = container.querySelector('[aria-live]')!;
+    const first = screen.getByRole('button', { name: /Point 1,/ });
+    act(() => first.focus());
+    expect(status.textContent).toBe('');
+    fireEvent.keyDown(first, { key: 'ArrowUp' });
+    expect(status.textContent).toBe('Input 0, Output 1');
+    const observer = new MutationObserver(() => {});
+    observer.observe(status, { childList: true, subtree: true, characterData: true });
+    fireEvent.keyDown(first, { key: 'ArrowLeft' });
+    act(() => updateAdjustments((prev) => ({ ...prev, exposure: 1 })));
+    expect(observer.takeRecords()).toHaveLength(0);
+    observer.disconnect();
+    act(() => screen.getByRole('button', { name: /Point 2,/ }).focus());
+    expect(status.textContent).toBe('');
+  });
+
+  it('marks disabled points and ignores focus, keys and pointer input', () => {
+    const changed = vi.fn();
+    const { container } = render(
+      <PointCurve curves={INITIAL_ADJUSTMENTS.curves} onChange={changed} disabled onInteraction={() => {}} />
+    );
+    const svg = stubCurvePointer(container);
+    const first = screen.getByRole('button', { name: /Point 1,/ });
+    expect(first.getAttribute('aria-disabled')).toBe('true');
+    expect(first.getAttribute('tabindex')).toBe('-1');
+    fireEvent.focus(first);
+    expect(screen.queryByRole('spinbutton', { name: 'Output' })).toBeNull();
+    fireEvent.keyDown(first, { key: 'ArrowUp' });
+    fireEvent.pointerDown(svg, { button: 0, clientX: 64, clientY: 191 });
+    expect(changed).not.toHaveBeenCalled();
+  });
+
   it('uses the drawing transform for creation and dragging in every channel', () => {
-    vi.stubGlobal('PointerEvent', MouseEvent);
     const changed = vi.fn();
     function Harness() {
       const [curves, setCurves] = useState(INITIAL_ADJUSTMENTS.curves);
@@ -72,14 +186,11 @@ describe('point curve keyboard', () => {
       );
     }
     const { container } = render(<Harness />);
-    const svg = container.querySelector('svg')!;
-    Object.assign(svg, {
-      getScreenCTM: () => ({
-        inverse: () => ({ a: 255 / 210, b: 0, c: 0, d: 255 / 210, e: (-32.5 * 255) / 210, f: 0 })
-      }),
-      setPointerCapture: () => {},
-      hasPointerCapture: () => false
-    });
+    const svg = stubCurvePointer(
+      container,
+      { ...identity, a: 210 / 255, d: 210 / 255, e: 32.5 },
+      { ...identity, a: 255 / 210, d: 255 / 210, e: (-32.5 * 255) / 210 }
+    );
     for (const [button, channel] of [
       ['RGB', 'luma'],
       ['Luminance', 'luminance'],
@@ -94,7 +205,6 @@ describe('point curve keyboard', () => {
       fireEvent.pointerUp(svg);
       expect(changed.mock.lastCall![0][channel][1].x).toBeCloseTo((67.5 * 255) / 210);
     }
-    vi.unstubAllGlobals();
   });
   it('adds, moves and removes a point and keeps endpoint constraints', () => {
     const changed = vi.fn();
@@ -178,7 +288,6 @@ describe('point curve reading aids (UXR1 D3)', () => {
   });
 
   it('grabs a point within the same screen distance however large the plot is', () => {
-    vi.stubGlobal('PointerEvent', MouseEvent);
     const changed = vi.fn();
     const curves = {
       ...INITIAL_ADJUSTMENTS.curves,
@@ -191,12 +300,8 @@ describe('point curve reading aids (UXR1 D3)', () => {
     const { container } = render(
       <PointCurve curves={curves} onChange={changed} disabled={false} onInteraction={() => {}} />
     );
-    const svg = container.querySelector('svg')!;
     // A 510 px plot: two screen px per curve unit.
-    const matrix = { a: 2, b: 0, c: 0, d: 2, e: 0, f: 0 };
-    svg.getScreenCTM = () =>
-      ({ ...matrix, inverse: () => ({ a: 0.5, b: 0, c: 0, d: 0.5, e: 0, f: 0 }) }) as unknown as DOMMatrix;
-    svg.setPointerCapture = () => {};
+    const svg = stubCurvePointer(container, { ...identity, a: 2, d: 2 }, { ...identity, a: 0.5, d: 0.5 });
     // 20 screen px right of the midpoint (10 curve units): a new point, not the old one.
     fireEvent.pointerDown(svg, { button: 0, clientX: 276, clientY: 254, pointerId: 1 });
     expect(changed).toHaveBeenCalledTimes(1);
@@ -204,7 +309,6 @@ describe('point curve reading aids (UXR1 D3)', () => {
   });
 
   it('neither adds nor grabs a point on an existing input level out of its reach', () => {
-    vi.stubGlobal('PointerEvent', MouseEvent);
     const changed = vi.fn();
     const interaction = vi.fn();
     const curves = {
@@ -218,18 +322,7 @@ describe('point curve reading aids (UXR1 D3)', () => {
     const { container } = render(
       <PointCurve curves={curves} onChange={changed} disabled={false} onInteraction={interaction} />
     );
-    const svg = container.querySelector('svg')!;
-    svg.getScreenCTM = () =>
-      ({
-        a: 2,
-        b: 0,
-        c: 0,
-        d: 2,
-        e: 0,
-        f: 0,
-        inverse: () => ({ a: 0.5, b: 0, c: 0, d: 0.5, e: 0, f: 0 })
-      }) as unknown as DOMMatrix;
-    svg.setPointerCapture = () => {};
+    const svg = stubCurvePointer(container, { ...identity, a: 2, d: 2 }, { ...identity, a: 0.5, d: 0.5 });
     // 50 screen px straight below the midpoint.
     fireEvent.pointerDown(svg, { button: 0, clientX: 256, clientY: 304, pointerId: 1 });
     expect(changed).not.toHaveBeenCalled();
@@ -237,18 +330,12 @@ describe('point curve reading aids (UXR1 D3)', () => {
   });
 
   it('shows a crosshair through the dragged point only while it is dragged', () => {
-    vi.stubGlobal('PointerEvent', MouseEvent);
     function Harness() {
       const [curves, setCurves] = useState(INITIAL_ADJUSTMENTS.curves);
       return <PointCurve curves={curves} onChange={setCurves} disabled={false} onInteraction={() => {}} />;
     }
     const { container } = render(<Harness />);
-    const svg = container.querySelector('svg')!;
-    Object.assign(svg, {
-      getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
-      setPointerCapture: () => {},
-      hasPointerCapture: () => false
-    });
+    const svg = stubCurvePointer(container);
     fireEvent.pointerDown(svg, { button: 0, clientX: 64, clientY: 191 });
     fireEvent.pointerMove(svg, { buttons: 1, clientX: 64, clientY: 211 });
     const cross = container.querySelector('.curve-crosshair')!;
@@ -258,7 +345,6 @@ describe('point curve reading aids (UXR1 D3)', () => {
     expect(horizontal.getAttribute('y1')).toBe('211');
     fireEvent.pointerUp(svg);
     expect(container.querySelector('.curve-crosshair')).toBeNull();
-    vi.unstubAllGlobals();
   });
 });
 
@@ -316,16 +402,9 @@ describe('region curve split handles under the curve (UXR1 D4)', () => {
   });
 
   it("drags a handle along the curve's input axis", () => {
-    vi.stubGlobal('PointerEvent', MouseEvent);
     const { container, onRegionChange } = mount();
-    const svg = container.querySelector('svg')!;
-    Object.assign(svg, {
-      getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
-      setPointerCapture: () => {},
-      hasPointerCapture: () => false
-    });
-    const midtone = handle('Region curve midtone split');
-    Object.assign(midtone, { setPointerCapture: () => {}, hasPointerCapture: () => false });
+    stubCurvePointer(container);
+    const midtone = stubPointerCapture(handle('Region curve midtone split'));
     fireEvent.pointerDown(midtone, { button: 0, clientX: 127.5, clientY: 265 });
     // 40 % of the input axis.
     fireEvent.pointerMove(midtone, { buttons: 1, clientX: 102, clientY: 265 });
@@ -333,12 +412,10 @@ describe('region curve split handles under the curve (UXR1 D4)', () => {
     expect(onRegionChange).toHaveBeenLastCalledWith({ ...region, midtoneSplit: 40 });
     // The press did not add a curve point.
     expect(screen.queryByRole('button', { name: /Point 3/ })).toBeNull();
-    vi.unstubAllGlobals();
   });
 
   describe('a drag against a committed value that lags', () => {
     const setup = () => {
-      vi.stubGlobal('PointerEvent', MouseEvent);
       const onInteraction = vi.fn();
       // The parent never updates `region`: the 250 ms draft has not committed.
       const view = render(
@@ -351,17 +428,12 @@ describe('region curve split handles under the curve (UXR1 D4)', () => {
           onInteraction={onInteraction}
         />
       );
-      Object.assign(view.container.querySelector('svg')!, {
-        getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
-        hasPointerCapture: () => false
-      });
-      const midtone = handle('Region curve midtone split');
-      Object.assign(midtone, { setPointerCapture: () => {}, hasPointerCapture: () => false });
+      stubCurvePointer(view.container);
+      const midtone = stubPointerCapture(handle('Region curve midtone split'));
       fireEvent.pointerDown(midtone, { button: 0, clientX: 127.5, clientY: 265 });
       fireEvent.pointerMove(midtone, { buttons: 1, clientX: 102, clientY: 265 });
       return { ...view, midtone, onInteraction };
     };
-    afterEach(() => vi.unstubAllGlobals());
 
     it('draws the handle at the pointer, not at the committed value', () => {
       const { midtone } = setup();
