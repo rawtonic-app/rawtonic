@@ -1345,7 +1345,10 @@ mod tests {
         let found = plugin_library(&[PathBuf::from("missing"), PathBuf::from("src")], "lib.rs")
             .expect("src/lib.rs is found");
         assert!(found.is_absolute(), "{}", found.display());
-        assert_eq!(found, std::env::current_dir().unwrap().join("src").join("lib.rs"));
+        assert_eq!(
+            found,
+            std::env::current_dir().unwrap().join("src").join("lib.rs")
+        );
     }
 
     #[test]
