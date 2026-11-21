@@ -5445,6 +5445,7 @@
         "moveToolsLeft": "현상 도구를 왼쪽으로 이동",
         "moveToolsRight": "현상 도구를 오른쪽으로 이동"
       },
+      "lightroomHdr": "Lightroom의 HDR 편집 — SDR로 표시되고 내보내집니다",
       "loupe": {
         "adjust": "현상",
         "adjustTitle": "현상에서 조정",

@@ -5589,6 +5589,7 @@
         "moveToolsLeft": "Move the Develop tools to the left",
         "moveToolsRight": "Move the Develop tools to the right"
       },
+      "lightroomHdr": "HDR edit from Lightroom — shown and exported as SDR",
       "loupe": {
         "adjust": "Develop",
         "adjustTitle": "Adjust in Develop",
