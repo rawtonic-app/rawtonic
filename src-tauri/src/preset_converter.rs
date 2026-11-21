@@ -1630,6 +1630,21 @@ fn seq_items<'a, 'i>(parent: roxmltree::Node<'a, 'i>, name: &str) -> Vec<roxmltr
 /// local tone curves and Point Color come along. Corrections with other
 /// masks (people parts, colour and depth ranges) are left out and named in
 /// the second result.
+/// The Landscape part (`masks::LANDSCAPE_PARTS` key) of a Lightroom
+/// Landscape component's `MaskSubCategoryID`.
+fn lightroom_landscape_part(id: &str) -> Option<&'static str> {
+    Some(match id.trim() {
+        "50001" => "architecture",
+        "50002" => "mountains",
+        "50003" => "artificialGround",
+        "50004" => "naturalGround",
+        "50005" => "vegetation",
+        "50006" => "sky",
+        "50007" => "water",
+        _ => return None,
+    })
+}
+
 pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
     let mut layers = Vec::new();
     let mut skipped = Vec::new();
@@ -1717,6 +1732,25 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                     "ai-sky",
                     json!({masks::MASK_DATA_BASE64.into_name(): null, "grow": 0, "feather": 0}),
                 ),
+                // Lightroom's Landscape mask: one component per part, the
+                // part in `MaskSubCategoryID` (Classic 15's own Landscape
+                // masks, saved to XMP; notes:
+                // benchmark-results/lsm2-2026-11-21/REPORT.md). Detected
+                // again on the photo by Rawtonic's Landscape mask, as Sky
+                // and Subject are. Snow (50008) has no part here.
+                (Some("Mask/Image"), Some("0")) => {
+                    match mattr("MaskSubCategoryID").and_then(lightroom_landscape_part) {
+                        Some(part) => (
+                            "ai-landscape",
+                            json!({masks::MASK_DATA_BASE64.into_name(): null,
+                                masks::PARTS.name(): [part], "grow": 0, "feather": 0}),
+                        ),
+                        None => {
+                            supported = false;
+                            break;
+                        }
+                    }
+                }
                 (Some("Mask/Gradient"), _) => {
                     match (mnum("ZeroX"), mnum("ZeroY"), mnum("FullX"), mnum("FullY")) {
                         (Some(zx), Some(zy), Some(fx), Some(fy)) => (
@@ -2568,6 +2602,115 @@ mod tests {
                 std::fs::write(path.with_extension("json"), adjustments.to_string()).unwrap();
             }
         }
+    }
+
+    /// Lightroom's Landscape mask (Classic 15 / Camera Raw): each part is a
+    /// `Mask/Image` component with `MaskSubType` 0 and the part in
+    /// `MaskSubCategoryID` (50001 architecture … 50008 snow; written here
+    /// from the keys Lightroom Classic 15 saved for its own Landscape masks,
+    /// notes: benchmark-results/lsm2-2026-11-21/REPORT.md).
+    #[test]
+    fn landscape_masks_become_landscape_parts_detected_on_open() {
+        // `extra`: attributes in place of the usual ones (name="value" …).
+        let part = |id: u32, extra: &str| {
+            let mut attributes = vec![
+                ("What", "Mask/Image".to_string()),
+                ("MaskActive", "true".into()),
+                ("MaskBlendMode", "0".into()),
+                ("MaskInverted", "false".into()),
+                ("MaskValue", "1".into()),
+                ("MaskSubType", "0".into()),
+                ("MaskSubCategoryID", id.to_string()),
+                ("MaskVersion", "1".into()),
+                ("ReferencePoint", "0.5 0.5".into()),
+            ];
+            for pair in extra.split_whitespace() {
+                let (name, value) = pair.split_once('=').unwrap();
+                let name = name.trim_start_matches("crs:");
+                let value = value.trim_matches('"').to_string();
+                attributes.iter_mut().find(|(n, _)| *n == name).unwrap().1 = value;
+            }
+            let attributes: Vec<String> = attributes
+                .iter()
+                .map(|(n, v)| format!(r#"crs:{n}="{v}""#))
+                .collect();
+            format!(
+                "<rdf:li><rdf:Description {}/></rdf:li>",
+                attributes.join(" ")
+            )
+        };
+        let correction = |name: &str, parts: &[String]| {
+            format!(
+                r#"<rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="{name}" crs:LocalExposure2012="-0.25"><crs:CorrectionMasks><rdf:Seq>{}</rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li>"#,
+                parts.concat()
+            )
+        };
+        let xmp = format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+  <crs:MaskGroupBasedCorrections><rdf:Seq>{}{}{}{}</rdf:Seq></crs:MaskGroupBasedCorrections>
+ </rdf:Description></rdf:RDF></x:xmpmeta>"#,
+            correction(
+                "Mountains and water",
+                &[part(50002, ""), part(50007, "")]
+            ),
+            correction(
+                "Ground but not the road",
+                &[
+                    part(50004, ""),
+                    part(50003, r#"crs:MaskBlendMode="1""#),
+                    part(50001, r#"crs:MaskValue="0.5""#),
+                ]
+            ),
+            correction(
+                "All the others",
+                &[part(50005, ""), part(50006, r#"crs:MaskInverted="true""#)]
+            ),
+            correction("Snow", &[part(50008, "")]),
+        );
+        let (layers, skipped) = super::lightroom_masks(&xmp);
+        assert_eq!(skipped, vec!["Snow".to_string()]);
+        assert_eq!(layers.len(), 3);
+        let parts = |layer: &serde_json::Value| -> Vec<(String, serde_json::Value, bool, f64)> {
+            layer["subMasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|sub| {
+                    assert_eq!(sub["type"], "ai-landscape", "{sub}");
+                    // Detected for the photo when it is opened or exported.
+                    assert!(sub["parameters"]["maskDataBase64"].is_null(), "{sub}");
+                    (
+                        sub["mode"].as_str().unwrap().to_string(),
+                        sub["parameters"]["parts"].clone(),
+                        sub["invert"].as_bool().unwrap(),
+                        sub["opacity"].as_f64().unwrap(),
+                    )
+                })
+                .collect()
+        };
+        let add = |p: &str| ("additive".to_string(), json!([p]), false, 100.0);
+        assert_eq!(parts(&layers[0]), vec![add("mountains"), add("water")]);
+        assert_eq!(layers[0]["name"], "Mountains and water");
+        assert_eq!(layers[0]["adjustments"]["exposure"], json!(-1.0));
+        assert_eq!(
+            parts(&layers[1]),
+            vec![
+                add("naturalGround"),
+                ("intersect".to_string(), json!(["artificialGround"]), true, 100.0),
+                ("additive".to_string(), json!(["architecture"]), false, 50.0),
+            ]
+        );
+        assert_eq!(
+            parts(&layers[2]),
+            vec![
+                add("vegetation"),
+                ("additive".to_string(), json!(["sky"]), true, 100.0)
+            ]
+        );
+        assert!(crate::library_import::has_ai_masks_on_open(
+            &json!({"masks": layers})
+        ));
     }
 
     #[test]

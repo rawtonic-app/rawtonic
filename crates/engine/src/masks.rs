@@ -123,6 +123,10 @@ pub struct AiSkyMaskParameters {
     /// (`mask_generation::mask_warp`): a later change moves the mask along.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warp: Option<serde_json::Value>,
+    /// The photo's size when the bitmap is a coarser grid over it
+    /// (`mask_generation::BITMAP_GRID_OF`: the Landscape mask's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bitmap_grid_of: Option<serde_json::Value>,
 }
 /// A People mask: parts (`faceSkin`, `lips`, … as named by
 /// `rawtonic_faces::Part`) of everyone or of one person (the index of their

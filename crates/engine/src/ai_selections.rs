@@ -313,6 +313,7 @@ pub fn detected_parameters(own: &Value, adjustments: &Value, data_url: String) -
                 .map_or(0, |v| v.min(u8::MAX as u64) as u8),
         ),
         warp: Some(mask_warp(adjustments)),
+        bitmap_grid_of: None,
     };
     if let Ok(Value::Object(result)) = serde_json::to_value(result) {
         parameters.extend(result);
@@ -322,6 +323,8 @@ pub fn detected_parameters(own: &Value, adjustments: &Value, data_url: String) -
         DETECT_PENDING,
         crate::recipe_frame::DETECT_AGAIN,
         crate::mask_generation::BITMAP_FRAME,
+        // The export's detections are at the photo's size.
+        crate::mask_generation::BITMAP_GRID_OF,
     ] {
         parameters.remove(key);
     }

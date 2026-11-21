@@ -531,9 +531,9 @@ fn stack_id(source_name: &str, key: &str) -> String {
 }
 
 /// Whether the translated edit holds AI masks whose data a model computes
-/// when the photo is opened or exported (`ai-foreground`, `ai-sky` without
-/// data; `ai_selections::detect_missing`).
-fn has_ai_masks_on_open(adjustments: &Value) -> bool {
+/// when the photo is opened or exported (`ai-foreground`, `ai-sky`,
+/// `ai-landscape` without data; `ai_selections::detect_missing`).
+pub(crate) fn has_ai_masks_on_open(adjustments: &Value) -> bool {
     adjustments[masks::MASKS.name()]
         .as_array()
         .into_iter()
@@ -541,7 +541,10 @@ fn has_ai_masks_on_open(adjustments: &Value) -> bool {
         .filter_map(|layer| layer[masks::SUB_MASKS.name()].as_array())
         .flatten()
         .any(|sub| {
-            matches!(sub["type"].as_str(), Some("ai-foreground" | "ai-sky"))
+            matches!(
+                sub["type"].as_str(),
+                Some("ai-foreground" | "ai-sky" | "ai-landscape")
+            )
                 && sub["parameters"]["maskDataBase64"].is_null()
         })
 }
