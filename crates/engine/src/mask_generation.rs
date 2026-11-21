@@ -4063,7 +4063,7 @@ fn ai_bitmap_at_photo_size(
 /// An AI mask's stored bitmap (`maskDataBase64`, in the photo's own frame)
 /// in the frame `width` × `height` at `scale` with `crop_offset`, placed by
 /// the photo's current `geometry` (see `PhotoGeometry`).
-fn ai_bitmap_in_frame(
+pub(crate) fn ai_bitmap_in_frame(
     params_value: &Value,
     data_url: &str,
     width: u32,

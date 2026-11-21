@@ -1007,9 +1007,11 @@ mod tests {
             _: bool,
         ) -> Result<Vec<String>, String> {
             let mut png = std::io::Cursor::new(Vec::new());
-            image::GrayImage::new(self.0.0, self.0.1)
-                .write_to(&mut png, image::ImageFormat::Png)
-                .unwrap();
+            image::GrayImage::from_fn(self.0.0, self.0.1, |x, y| {
+                image::Luma([(x * 80 + y * 40) as u8])
+            })
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
             let url = format!(
                 "data:image/png;base64,{}",
                 base64::Engine::encode(&base64::engine::general_purpose::STANDARD, png.get_ref())
@@ -1052,6 +1054,24 @@ mod tests {
             let kept = &stored["masks"][0]["subMasks"][0]["parameters"];
             assert_eq!(kept["maskDataBase64"], parameters["maskDataBase64"]);
             assert_eq!(kept.get("bitmapGridOf").cloned(), recorded, "{size:?}");
+            // The saved edit renders the mask the export rendered: over the
+            // whole photo, not in its corner.
+            let geometry = crate::mask_generation::PhotoGeometry::default().with_decoded_size(6, 4);
+            let render = |p: &Value| {
+                crate::mask_generation::ai_bitmap_in_frame(
+                    p,
+                    p["maskDataBase64"].as_str().unwrap(),
+                    6,
+                    4,
+                    1.0,
+                    (0.0, 0.0),
+                    &geometry,
+                )
+                .unwrap()
+            };
+            let shown = render(parameters);
+            assert_eq!(shown, render(kept));
+            assert!(shown.get_pixel(5, 3)[0] > 0, "{size:?}");
         }
     }
 }
