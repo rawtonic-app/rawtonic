@@ -96,6 +96,12 @@ pub struct ImportReport {
     /// their model runs when the photo is opened in Develop, so exports
     /// before that leave those masks' layers without effect.
     pub ai_masks_on_open: usize,
+    /// Smart collections left out, each with the criterion that has no
+    /// counterpart (never imported with other rules or other members).
+    pub smart_albums_skipped: Vec<String>,
+    /// Albums with a virtual copy among their members: a Rawtonic album
+    /// holds photographs, so it holds the copy's photograph.
+    pub copies_in_albums: Vec<String>,
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -153,6 +159,27 @@ pub fn smart_rule(rules: &SmartRules) -> Option<Rule> {
         })
         .collect::<Option<Vec<_>>>()?;
     Some(Rule::Group { combine, rules })
+}
+
+/// What stops a smart collection's rules from translating: the first
+/// criterion (or combination) without a counterpart, named as Lightroom
+/// names it.
+pub fn smart_rule_gap(rules: &SmartRules) -> Option<String> {
+    if !matches!(rules.combine.as_str(), "intersect" | "union" | "exclude") {
+        return Some(format!("combination “{}”", rules.combine));
+    }
+    rules.rules.iter().find_map(|rule| match rule {
+        SmartRule::Group(group) => smart_rule_gap(group),
+        SmartRule::Condition {
+            criteria,
+            operation,
+            value,
+            value2,
+            units,
+        } => smart_condition(criteria, operation, value, value2, units.as_deref())
+            .is_none()
+            .then(|| format!("“{criteria}” ({operation})")),
+    })
 }
 
 fn smart_condition(
@@ -419,8 +446,19 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
             let smart = match &album.smart {
                 Some(rules) => match smart_rule(rules) {
                     Some(rule) => Some(rule),
-                    // Announced in the preview as not imported.
-                    None => continue,
+                    // Announced in the preview as not imported, named here.
+                    None => {
+                        report.smart_albums_skipped.push(format!(
+                            "{}: no counterpart for {}",
+                            album.name,
+                            album
+                                .smart
+                                .as_ref()
+                                .and_then(smart_rule_gap)
+                                .unwrap_or_else(|| "its rules".into())
+                        ));
+                        continue;
+                    }
                 },
                 None => None,
             };
@@ -463,12 +501,26 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                     .photos
                     .iter()
                     .filter_map(|key| {
-                        let key = source
-                            .photos
-                            .iter()
-                            .find(|p| &p.key == key)
-                            .map(|p| p.copy_of.as_deref().unwrap_or(&p.key))?;
-                        assets.get(key).cloned()
+                        let photo = source.photos.iter().find(|p| &p.key == key)?;
+                        if photo.copy_of.is_some() {
+                            report.copies_in_albums.push(format!(
+                                "{}: {}{}",
+                                album.name,
+                                photo
+                                    .path
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().into_owned())
+                                    .unwrap_or_default(),
+                                photo
+                                    .copy_name
+                                    .as_ref()
+                                    .map(|n| format!(" ({n})"))
+                                    .unwrap_or_default()
+                            ));
+                        }
+                        assets
+                            .get(photo.copy_of.as_deref().unwrap_or(&photo.key))
+                            .cloned()
                     })
                     .collect();
                 if !members.is_empty() {
@@ -1872,6 +1924,12 @@ mod tests {
             ),
             (1, 1, 1, 0, 1, 2)
         );
+        // What was left out or became something else is named, never silent.
+        assert_eq!(
+            report.smart_albums_skipped,
+            ["Recently edited: no counterpart for “touchTime” (inLast)"]
+        );
+        assert_eq!(report.copies_in_albums, ["Italy: A.NEF"]);
         let asset = catalog.asset_at(&photos.join("A.NEF")).unwrap().unwrap();
         let meta = catalog.metadata(&asset.id).unwrap();
         assert_eq!((meta.rating, meta.label.as_str(), meta.flag), (4, "Red", 1));
@@ -2250,6 +2308,40 @@ mod tests {
 
     /// Lightroom's smart collection criteria as smart album rules; one
     /// criterion without a counterpart leaves the whole collection out.
+    /// The criterion that keeps a collection out is named, also inside
+    /// nested groups, as Lightroom names it.
+    #[test]
+    fn the_untranslatable_criterion_of_a_smart_collection_is_named() {
+        let rules = |combine: &str, rules: Vec<SmartRule>| SmartRules {
+            combine: combine.into(),
+            rules,
+        };
+        let nested = rules(
+            "intersect",
+            vec![
+                condition("rating", ">=", SmartValue::Number(3.0)),
+                SmartRule::Group(rules(
+                    "union",
+                    vec![
+                        condition("labelColor", "==", SmartValue::Number(1.0)),
+                        condition("camera", "words", SmartValue::Text("Canon".into())),
+                    ],
+                )),
+            ],
+        );
+        assert_eq!(smart_rule_gap(&nested).as_deref(), Some("“camera” (words)"));
+        assert!(smart_rule(&nested).is_none());
+        assert_eq!(
+            smart_rule_gap(&rules("sideways", vec![])).as_deref(),
+            Some("combination “sideways”")
+        );
+        let fine = rules(
+            "intersect",
+            vec![condition("rating", ">=", SmartValue::Number(3.0))],
+        );
+        assert_eq!(smart_rule_gap(&fine), None);
+    }
+
     #[test]
     fn lightroom_smart_collections_translate() {
         let rules = |combine: &str, rules: Vec<SmartRule>| SmartRules {
@@ -2736,6 +2828,65 @@ ProcessVersion = "15.4" }}"#,
             not_read: NotRead::default(),
         };
         assert!(import_into(&session, &source).is_err());
+    }
+
+    /// Smart collection membership of an imported Lightroom catalog, as the
+    /// app shows it (`SMR_LRCAT`, photographs at their catalog paths,
+    /// `SMR_OUT` the scratch catalog and result files). Run by hand.
+    #[test]
+    #[ignore = "tool: needs SMR_LRCAT and SMR_OUT"]
+    fn smart_collection_membership_of_a_lightroom_catalog() {
+        use std::sync::atomic::AtomicBool;
+        let lrcat = std::env::var("SMR_LRCAT").unwrap();
+        let out = std::path::PathBuf::from(std::env::var("SMR_OUT").unwrap());
+        fs::create_dir_all(&out).unwrap();
+        let catalog = Library::create(&out.join("Scratch"), "Scratch", Mode::Catalog).unwrap();
+        let (lib, kind) = read_source(Path::new(&lrcat)).unwrap();
+        let shown = preview(&lib, kind);
+        let report = import_into(&catalog, &lib).unwrap();
+        // The app's background pass: capture facts (dates, camera, lens).
+        let cancel = AtomicBool::new(false);
+        let mut cursor = 0;
+        loop {
+            let (looked, _, _) = catalog
+                .fill_facts(
+                    &mut cursor,
+                    256,
+                    std::time::Duration::ZERO,
+                    &cancel,
+                    &rawtonic_ingest::capture::capture_facts,
+                    &|| (),
+                )
+                .unwrap();
+            if looked == 0 {
+                break;
+            }
+        }
+        let mut tsv = String::new();
+        for c in catalog.collections().unwrap() {
+            let paths: Vec<String> = catalog
+                .collection_assets(&c.id)
+                .map(|a| {
+                    a.into_iter()
+                        .map(|a| a.path.to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_else(|e| vec![format!("ERROR {e}")]);
+            tsv += &format!(
+                "{}\t{}\t{}\t{}\t{}\n",
+                c.id,
+                c.name,
+                c.kind,
+                paths.len(),
+                paths.join(",")
+            );
+        }
+        fs::write(out.join("rawtonic-collections.tsv"), tsv).unwrap();
+        fs::write(
+            out.join("preview-and-report.txt"),
+            format!("{shown:#?}\n{report:#?}\n"),
+        )
+        .unwrap();
     }
 
     /// Imports a real library (`RAWTONIC_IMPORT_SAMPLE`) into a temporary
