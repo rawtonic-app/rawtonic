@@ -702,3 +702,29 @@ describe('Tab between value fields (UX4-01)', () => {
     expect(change.Contrast).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('whole steps of a stored fraction (an old AI Denoise 0.4 or 50.4)', () => {
+  it('shows the rounded value but keeps the stored one until it is reset', () => {
+    const change = vi.fn();
+    render(<AdjustmentControl label="AI Denoise" value={50.4} min={0} max={100} wholeSteps onChange={change} />);
+    expect((screen.getByRole('slider', { name: 'AI Denoise' }) as HTMLInputElement).value).toBe('50.4');
+    expect(screen.getByDisplayValue('50')).toBeTruthy();
+    expect(change).not.toHaveBeenCalled();
+  });
+
+  it('keeps the stored value when the field is left untouched (Tab out)', () => {
+    const change = vi.fn();
+    render(<AdjustmentControl label="AI Denoise" value={50.4} min={0} max={100} wholeSteps onChange={change} />);
+    const field = screen.getByDisplayValue('50');
+    fireEvent.focus(field);
+    fireEvent.blur(field);
+    expect(change).not.toHaveBeenCalled();
+  });
+
+  it('commits a reset to 0 of a stored 0.4 that reads 0', () => {
+    const change = vi.fn();
+    render(<AdjustmentControl label="AI Denoise" value={0.4} min={0} max={100} wholeSteps onChange={change} />);
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'AI Denoise' }), { key: 'Home' });
+    expect(change).toHaveBeenLastCalledWith(0);
+  });
+});

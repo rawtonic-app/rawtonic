@@ -75,6 +75,7 @@ turbojpeg = { workspace = true, features = ["cmake", "require-simd"] }
 
 [dev-dependencies]
 ciborium = "0.2.2"
+rawtonic-faces = { path = "../faces", version = "0.1.0" }
 rawtonic-segment = { path = "../segment", version = "0.1.0" }
 rawtonic-engine = { path = "../engine", version = "0.1.0", features = ["test-support"] }
 tempfile = { workspace = true }

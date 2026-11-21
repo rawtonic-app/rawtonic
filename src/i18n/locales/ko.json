@@ -11,6 +11,11 @@
       "sky": "AI 마스크: 하늘",
       "subject": "AI 마스크: 피사체"
     },
+    "aiSelections": {
+      "done": "닫힌 사진의 AI 선택 영역 계산 완료 ({{total}})",
+      "failed": "{{total}}장 중 {{failed}}장의 AI 선택 영역을 계산하지 못했습니다",
+      "running": "AI 선택 영역 계산 중: {{total}}장 중 {{done}}장"
+    },
     "batch": {
       "auto_other": "자동 보정: 사진 {{count}}장",
       "faceRetouch_other": "얼굴 보정: 사진 {{count}}장",
@@ -4763,6 +4768,11 @@
       "appliesSaved": "저장할 때 포함한 설정을 적용합니다",
       "appliesToSelection_other": "클릭하면 선택한 사진 {{count}}장에 적용됩니다.",
       "builtin": {
+        "adaptive-background-darker": "배경: 더 어둡게",
+        "adaptive-eyes-brighter": "인물: 더 밝은 눈",
+        "adaptive-skin-smoother": "인물: 더 매끄러운 피부",
+        "adaptive-sky-deeper": "하늘: 더 깊게",
+        "adaptive-subject-lift": "피사체: 돋보이게",
         "bw-darker-skies": "흑백 더 어두운 하늘",
         "bw-high-contrast": "흑백 고대비",
         "bw-lighter-skin": "흑백 더 밝은 피부톤",

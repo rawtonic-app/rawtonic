@@ -292,6 +292,17 @@ pub fn frame_matches(frame: &str, adjustments: &Value) -> bool {
     }
 }
 
+/// Whether the recipe's face retouch is drawn through its stored frame:
+/// its faces were found before the photo's geometry changed.
+pub fn follows_stored_frame(adjustments: &Value) -> bool {
+    is_active(adjustments)
+        && adjustments
+            .get("faceRetouch")
+            .and_then(|r| r.get("frame"))
+            .and_then(Value::as_str)
+            .is_some_and(|frame| !frame_matches(frame, adjustments))
+}
+
 /// The geometry keys a frame lists: those of `frame_key` for a frame of
 /// `FRAME_VERSION_2`, every geometry key before it.
 fn frame_keys(version_2: bool) -> impl Iterator<Item = &'static str> {

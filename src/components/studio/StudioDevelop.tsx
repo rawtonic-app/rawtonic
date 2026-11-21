@@ -1150,6 +1150,7 @@ export default function StudioDevelop() {
       key={key}
       label={label}
       value={(values[key] ?? defaults[key] ?? 0) as number}
+      wholeSteps={key === 'aiDenoise'}
       min={min}
       max={max}
       step={step}

@@ -107,6 +107,35 @@ pub fn retouch_faces(
         .map(|faces| faces.into_iter().flatten().collect())
 }
 
+/// A People selection (`ai-people`) of `parts` (`Part::name`) of everyone
+/// or of `person` on `warped` (the photo with its lens and transform
+/// geometry, linear light when `linear`), as the editor's People mask
+/// computes it: at `warped`'s size. A person the photo does not have is an
+/// error (the editor refuses it too); a photo without faces selects nothing.
+pub fn people_selection(
+    warped: &DynamicImage,
+    linear: bool,
+    models: &crate::FaceModels,
+    parts: &[String],
+    person: Option<usize>,
+) -> Result<GrayImage, String> {
+    let selected: Vec<crate::Part> = parts
+        .iter()
+        .filter_map(|p| crate::Part::from_name(p))
+        .collect();
+    if selected.is_empty() {
+        return Err("no person parts selected".into());
+    }
+    let image = display_rgb8(warped, linear);
+    let analysis = crate::analyze(&image, models).map_err(|e| format!("{e:#}"))?;
+    if let Some(i) = person
+        && i >= analysis.faces.len()
+    {
+        return Err(format!("there is no person {} in this photo", i + 1));
+    }
+    Ok(crate::part_mask(&image, &analysis, &selected, person))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

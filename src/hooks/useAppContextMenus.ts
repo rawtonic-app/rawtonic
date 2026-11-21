@@ -247,7 +247,8 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       label: preset.name,
       onClick: () => {
         // A style replaces each photo's last applied one, as in the styles list.
-        const style = preset.presetType !== 'tool' ? { style: { id: preset.id } } : undefined;
+        const style =
+          preset.presetType !== 'tool' && preset.presetType !== 'adaptive' ? { style: { id: preset.id } } : undefined;
         applyAdjustmentsToPaths(withPresetVersions(structuredClone(preset.adjustments) as never), paths, style);
         noteTool('presets');
       }

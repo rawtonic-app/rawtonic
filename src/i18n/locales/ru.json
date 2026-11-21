@@ -11,6 +11,11 @@
       "sky": "ИИ-маска: небо",
       "subject": "ИИ-маска: объект съёмки"
     },
+    "aiSelections": {
+      "done": "Выделения ИИ для закрытых фото вычислены ({{total}})",
+      "failed": "Выделения ИИ не вычислены для {{failed}} из {{total}} фото",
+      "running": "Вычисление выделений ИИ: {{done}} из {{total}} фото"
+    },
     "batch": {
       "auto_one": "Автокоррекция: {{count}} фото",
       "auto_few": "Автокоррекция: {{count}} фото",
@@ -5298,6 +5303,11 @@
       "appliesToSelection_many": "Щелчок применяется к {{count}} выбранным фото.",
       "appliesToSelection_other": "Щелчок применяется к {{count}} выбранным фото.",
       "builtin": {
+        "adaptive-background-darker": "Фон: темнее",
+        "adaptive-eyes-brighter": "Портрет: светлее глаза",
+        "adaptive-skin-smoother": "Портрет: глаже кожа",
+        "adaptive-sky-deeper": "Небо: глубже",
+        "adaptive-subject-lift": "Объект: выделить",
         "bw-darker-skies": "Ч/б темнее небо",
         "bw-high-contrast": "Ч/б высокий контраст",
         "bw-lighter-skin": "Ч/б светлее кожа",

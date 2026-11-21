@@ -51,6 +51,7 @@ import {
   RESPONSES_CHOSEN,
   RESPONSE_KEYS,
   chosenSettings,
+  joinedLayers,
   newEditResponses,
   pasteInto,
   samePhotograph
@@ -516,14 +517,14 @@ export function pastedOpen(
         ...target,
         recipe: target.isNew ? current : target.recipe,
         isRaw: open.isRaw,
-        replaceLayers: paste?.replaceLayers ?? true,
+        replaceLayers: paste?.replaceLayers ?? false,
         mergeGroups: Boolean(style)
       });
   let merged = style?.remove
     ? base
     : pasteInto(base, styleGroupsJoined(base, here, style), {
         samePhoto: Boolean(paste && samePhotograph(paste.source, open.path)),
-        replaceLayers: paste?.replaceLayers ?? true,
+        replaceLayers: paste?.replaceLayers ?? false,
         keepNulls: !paste,
         // A never-edited (or Reset) photo takes a new edit's versions first,
         // whatever brings the settings (a preset too), as the backend's
@@ -1659,7 +1660,7 @@ export function useEditorActions() {
               ? expressPastedSettings(adjustmentsToApply, {
                   ...openPasteTarget(open.path, without!, true),
                   isRaw: open.isRaw,
-                  replaceLayers: true,
+                  replaceLayers: false,
                   mergeGroups: true
                 })
               : null;
@@ -1680,14 +1681,14 @@ export function useEditorActions() {
           if (unresolved !== merged) void resolvePastedLens(open.path, pastedStep);
         }
       } else if (open) {
-        setAdjustments({
-          ...adjustments,
-          ...expressPastedSettings(adjustmentsToApply, {
-            ...openPasteTarget(open.path, adjustments),
-            isRaw: open.isRaw,
-            replaceLayers: true
-          })
+        const values = expressPastedSettings(adjustmentsToApply, {
+          ...openPasteTarget(open.path, adjustments),
+          isRaw: open.isRaw,
+          replaceLayers: false
         });
+        // A preset's layers join the photo's own (`joinedLayers`).
+        if (values.masks) values.masks = joinedLayers(adjustments.masks, values.masks);
+        setAdjustments({ ...adjustments, ...values });
         // Its History entry now, so it is the open photograph's part of the
         // batch's undo step (not a later step of its own).
         debouncedSetHistory.flush();

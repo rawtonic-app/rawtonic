@@ -5974,6 +5974,7 @@ dependencies = [
  "png 0.18.1",
  "rawler",
  "rawtonic-engine",
+ "rawtonic-faces",
  "rawtonic-fs",
  "rawtonic-gpu",
  "rawtonic-metadata",

@@ -11,6 +11,11 @@
       "sky": "Maska AI: niebo",
       "subject": "Maska AI: obiekt główny"
     },
+    "aiSelections": {
+      "done": "Zaznaczenia AI obliczone dla zamkniętych zdjęć ({{total}})",
+      "failed": "Nie obliczono zaznaczeń AI dla {{failed}} z {{total}} zdjęć",
+      "running": "Obliczanie zaznaczeń AI: {{done}} z {{total}} zdjęć"
+    },
     "batch": {
       "auto_one": "Automatyczne korekty: {{count}} zdjęcie",
       "auto_few": "Automatyczne korekty: {{count}} zdjęcia",
@@ -5298,6 +5303,11 @@
       "appliesToSelection_many": "Kliknięcie dotyczy {{count}} zaznaczonych zdjęć.",
       "appliesToSelection_other": "Kliknięcie dotyczy {{count}} zaznaczonego zdjęcia.",
       "builtin": {
+        "adaptive-background-darker": "Tło: ciemniejsze",
+        "adaptive-eyes-brighter": "Portret: jaśniejsze oczy",
+        "adaptive-skin-smoother": "Portret: gładsza skóra",
+        "adaptive-sky-deeper": "Niebo: głębsze",
+        "adaptive-subject-lift": "Obiekt: rozjaśnienie",
         "bw-darker-skies": "Cz-b ciemniejsze niebo",
         "bw-high-contrast": "Cz-b wysoki kontrast",
         "bw-lighter-skin": "Cz-b jaśniejsza skóra",

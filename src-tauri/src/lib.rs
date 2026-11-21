@@ -105,6 +105,7 @@ mod red_eye;
 mod scope_analytics;
 mod scope_images;
 mod second_window;
+mod selection_queue;
 mod series_match;
 mod session_bridge;
 mod session_folders;
@@ -382,6 +383,7 @@ fn start(args: Vec<String>) {
         .setup(move |app| {
             // Before anything reads settings or user content (see the module).
             let carried_over = identity_migration::carry_over(app.handle());
+            selection_queue::install(app.handle());
             gpu_processing::notify_sharpen_view_ready(app.handle());
             gpu_processing::notify_compile_activity(app.handle());
             gpu_processing::hold_ai_checks_during_compiles();
