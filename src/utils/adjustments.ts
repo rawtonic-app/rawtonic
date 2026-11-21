@@ -1067,8 +1067,14 @@ export interface MaskContainer
     Omit<MaskContainerKeys, RequiredMaskContainerKey>,
     Required<Pick<MaskContainerKeys, RequiredMaskContainerKey>> {}
 
-/** The mask version new layers get (crates/engine/src/masks.rs). */
-export const MASK_VERSION = 4;
+/** The mask version new layers get (crates/engine/src/masks.rs): 5 adds
+ * components as a + b − a·b and intersects them as a·b. */
+export const MASK_VERSION = 5;
+
+/** The version Refine edge moves an older layer to: the 16-bit mask with
+ * the current Refine edge, keeping how its components combine (version 5
+ * changes that, so it is only for new layers). */
+export const REFINE_EDGE_MASK_VERSION = 4;
 
 export interface Sections {
   [index: string]: Array<string>;

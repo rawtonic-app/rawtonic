@@ -42,7 +42,9 @@ pub struct MaskDefinition {
     /// (`mask_generation::generate_layer_mask`). 3: the same, with Refine
     /// edge also reading a thin mask's far side (`precise::refine_edge`).
     /// 4: the same, with AI masks grown and feathered from the photo around
-    /// the crop (`precise::PhotoMargin`). Absent (every layer before 2026-10-18): the 8-bit mask, unchanged.
+    /// the crop (`precise::PhotoMargin`). 5: the same, with components
+    /// added as a + b − a·b and intersected as a·b instead of max and min
+    /// (`mask_generation::fold`). Absent (every layer before 2026-10-18): the 8-bit mask, unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mask_version: Option<u32>,
     /// Refine edge: radius in pixels of the full-resolution photo within
