@@ -1,14 +1,23 @@
-import { Eye, Pipette, Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Eye, Pipette, Plus, Target, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useEditorStore } from '../../store/useEditorStore';
 import { capturingAdjustments } from '../../hooks/useEditorActions';
 import { MAX_COLOR_RANGES, type Adjustments, type ColorRange } from '../../utils/adjustments';
-import { applyColorPick, colorRangesOf, invalidatePendingColorPicks, skinRangeOf } from '../../utils/colorRanges';
+import {
+  applyColorPick,
+  colorRangesOf,
+  invalidatePendingColorPicks,
+  isTargetPick,
+  skinRangeOf,
+  TARGET_PICK,
+  targetPickFor
+} from '../../utils/colorRanges';
 import { oklchCss } from '../../utils/oklab';
 import AdjustmentControl from './AdjustmentControl';
 import StudioColorRangeWheel from './StudioColorRangeWheel';
+import StudioColorTarget from './StudioColorTarget';
 import { ToolGroup } from './StudioDevelop';
 import type { ToolParams } from './StudioToolCopy';
 
@@ -72,6 +81,18 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
       setEditor: s.setEditor
     }))
   );
+  // A pick armed here (a new range, picking one again, its target) ends when
+  // this tool turns to another layer or goes away: the click would otherwise
+  // edit ranges no longer shown. Sampling a target edits nothing and stays.
+  useEffect(
+    () => () => {
+      const state = useEditorStore.getState();
+      const armed = state.colorPickerTarget;
+      if (armed && armed !== TARGET_PICK && state.colorPickerLayer === (layerId ?? null))
+        state.setEditor({ colorPickerTarget: null, colorPickerLayer: null });
+    },
+    [layerId]
+  );
   const ranges = colorRangesOf(values);
   const skin = skinRangeOf(ranges);
   const [mode, setMode] = useState<Mode>(skin && skin.id === activeId ? 'skin' : 'ranges');
@@ -83,6 +104,8 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
       colorRanges: ranges.map((r) => (r.id === active.id ? { ...r, ...patch } : r))
     });
   const limit = MAX_COLOR_RANGES;
+  const rangePickArmed =
+    !!pickerTarget && pickerTarget !== 'new' && pickerTarget !== 'skin' && pickerTarget !== TARGET_PICK;
   const hue = t('adjustments.color.hue');
   const saturation = t('adjustments.color.saturation');
   const lightness = t('studio.color.editor.lightness');
@@ -94,7 +117,8 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
     });
   /** A press on the wheel while picking (or with no range yet). */
   const pickOnWheel = (hue: number, chroma: number) => {
-    const target = mode === 'skin' ? 'skin' : (pickerTarget ?? 'new');
+    const armed = isTargetPick(pickerTarget) ? null : pickerTarget;
+    const target = mode === 'skin' ? 'skin' : (armed ?? 'new');
     const picked = applyColorPick(
       ranges,
       target,
@@ -226,7 +250,28 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
       {slider(hue, 'hueShift', -100, 100, 0)}
       {slider(saturation, 'saturation', -100, 100, 0)}
       {slider(lightness, 'lightnessShift', -100, 100, 0)}
+      <StudioColorTarget
+        ranges={ranges}
+        active={active}
+        layerId={layerId}
+        disabled={disabled}
+        apply={(next) => change({ colorRanges: next })}
+      />
     </>
+  );
+  // Samples a target colour only (to use in this or another photo).
+  const sampleTarget = (
+    <button
+      type="button"
+      className="studio-color-range-add"
+      aria-pressed={pickerTarget === TARGET_PICK}
+      aria-label={t('studio.color.editor.target.sampleAria')}
+      title={t('studio.color.editor.target.sampleTitle')}
+      disabled={disabled}
+      onClick={() => pick(TARGET_PICK)}
+    >
+      <Target size={13} />
+    </button>
   );
   return (
     <ToolGroup
@@ -272,7 +317,16 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
               style={{
                 background: `linear-gradient(90deg, ${rangeSwatch(range)} 50%, ${rangeSwatch(range, true)} 50%)`
               }}
-              onClick={() => setEditor({ activeColorRangeId: range.id })}
+              onClick={() =>
+                setEditor({
+                  activeColorRangeId: range.id,
+                  // A pick armed for another range (picking it again or its
+                  // target) would edit a range no longer shown: end it.
+                  ...(rangePickArmed && pickerTarget !== targetPickFor(range.id) && pickerTarget !== range.id
+                    ? { colorPickerTarget: null, colorPickerLayer: null }
+                    : {})
+                })
+              }
             />
           ))}
           <button
@@ -286,6 +340,7 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
           >
             <Plus size={13} />
           </button>
+          {sampleTarget}
         </div>
       )}
       {mode === 'skin' && !skin && (
@@ -300,6 +355,7 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
           >
             <Pipette size={14} />
           </button>
+          {sampleTarget}
         </div>
       )}
       {!active && (

@@ -3006,6 +3006,40 @@
           "pickTitle": "Pick skin in the photo"
         },
         "smoothness": "Smoothness",
+        "target": {
+          "blueAria": "Target blue (sRGB 0–255)",
+          "chromaAria": "Target chroma C* (CIELAB D50)",
+          "distance": "ΔE00 {{value}} from the target.",
+          "greenAria": "Target green (sRGB 0–255)",
+          "grey": "This range is too gray to take a color.",
+          "heading": "Target",
+          "hexAria": "Target color as sRGB hex",
+          "hueAria": "Target hue h° (CIELAB D50)",
+          "layerPredicted": "At full layer strength the range lands ΔE00 {{value}} from the target; where the mask is feathered the color moves less.",
+          "layerStrength": "Predicted at full layer strength; where the mask is feathered the color moves less.",
+          "lch": "L*C*h°",
+          "lightnessAria": "Target lightness L* (CIELAB D50)",
+          "limit": {
+            "hue": "hue (±50°)",
+            "lightness": "lightness (×0.6–1.4)",
+            "saturation": "saturation (0–200 %)"
+          },
+          "outOfReach": "Out of reach: ΔE00 {{value}} left; {{limits}} at its limit.",
+          "outsideSrgb": "The target is outside sRGB.",
+          "pickAria": "Pick the target color",
+          "pickedThrough": "Predicted ΔE00 {{value}} from the target, but this color was picked through the range's own strong change: check the result in the photo, or pick it again with the sliders at 0.",
+          "pickTitle": "Pick the target color in the photo; this range moves onto it",
+          "reached": "Target reached (ΔE00 {{value}}).",
+          "readoutTitle": "Predicted for the range's picked color, before later tools such as curves and color grading",
+          "redAria": "Target red (sRGB 0–255)",
+          "sampleAria": "Sample a target color",
+          "sampleTitle": "Sample a target color in this photo, for a range here or in another photo",
+          "sourceClipped": "The picked color is at the edge of sRGB: check the result in the photo.",
+          "srgb": "sRGB",
+          "swatchAria": "Range result {{result}}, target {{target}}",
+          "useSampled": "Use target from {{name}}",
+          "useSampledTitle": "Move this range onto the color sampled in {{name}}"
+        },
         "title": "Color editor",
         "uniformity": "Uniformity",
         "wheel": {
@@ -3789,10 +3823,32 @@
         "darkCircles": "Face dark circles",
         "evenSkin": "Face even skin",
         "impact": "Face impact",
+        "iris": "Iris ({{side}})",
+        "sclera": "Sclera ({{side}})",
         "shine": "Face shine",
+        "teethBrightness": "Teeth brightness",
+        "teethWhiten": "Teeth whiten",
         "texture": "Face texture"
       },
       "downloadModels": "Download face models",
+      "eyes": {
+        "find": "Find eyes and teeth",
+        "finding": "Finding eyes and teeth…",
+        "missing": "Eyes and Teeth need the eyes and mouth of these faces, which were found before these tools existed.",
+        "none": "No eyes or open mouth found on this face.",
+        "sideAria": "Eye",
+        "sideHint": {
+          "both": "Both eyes",
+          "left": "The eye on the left of the photo",
+          "right": "The eye on the right of the photo"
+        },
+        "sides": {
+          "both": "Both",
+          "left": "Left",
+          "right": "Right"
+        },
+        "title": "Eyes"
+      },
       "face": "Face {{n}}",
       "faceOwn": "Face {{n}} (own settings)",
       "facesAria": "Faces",
@@ -3824,8 +3880,15 @@
         "darkCircles": "Dark circles",
         "evenSkin": "Even skin",
         "impact": "Impact",
+        "iris": "Iris",
+        "sclera": "Sclera",
         "shine": "Shine",
+        "teethBrightness": "Brightness",
+        "teethWhiten": "Whiten",
         "texture": "Texture"
+      },
+      "teeth": {
+        "title": "Teeth"
       },
       "useAll": "Use the values of all faces"
     },

@@ -10,6 +10,7 @@
 //! images.
 
 pub mod detect;
+pub mod eye_teeth;
 pub mod eyes;
 pub mod geometry;
 pub mod landmarks;

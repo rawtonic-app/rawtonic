@@ -53,6 +53,14 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: the terms' block shift of drag frames rendered on this thread,
+    /// whatever the frame (`terms_block_shift`).
+    pub(super) static FORCED_TERMS_SHIFT: std::cell::Cell<Option<u32>> =
+        const { std::cell::Cell::new(None) };
+}
+
 /// Whether processors made now render display variants with effect
 /// passes: always, but for tests that compare.
 pub(super) fn here() -> bool {
@@ -105,8 +113,10 @@ pub(super) struct EffectPasses {
     terms_pipelines: Pipelines<(usize, bool)>,
     /// Glow's and halation's terms, tile-sized.
     terms_tiles: std::sync::OnceLock<[HighPrecisionTile; 2]>,
-    /// The regions of a drag's terms pass, in 2 x 2 blocks (`half_regions`).
+    /// The regions of a drag's terms pass and grain field pass, in their
+    /// blocks (`block_regions`).
     terms_regions: wgpu::Buffer,
+    field_regions: wgpu::Buffer,
     /// The finish pass by output (8-bit, deferred): layouts, and variants
     /// by whether they hold grain and by output.
     finish_bgls: [wgpu::BindGroupLayout; 2],
@@ -235,17 +245,57 @@ pub(super) fn terms_constants(features: usize, layer_sums: bool) -> Vec<(&'stati
     constants
 }
 
-/// A drag's terms pass (G76/GRN3): the tile-local `regions` (x, y,
-/// width, height) as the 2 x 2 blocks of absolute coordinates that cover
-/// them, at the blocks' index in the tile (the display source's
-/// `terms_index`), for the tile at `offset`. Each block's term is computed
-/// once, at its first pixel in the tile (`terms_pixel`), and every pixel of
-/// the block reads it.
-pub(super) fn half_regions(regions: &[[u32; 4]], offset: [u32; 2]) -> Vec<[u32; 4]> {
+/// The size of a drag's term blocks (G76/GRN4), as a shift: 4 x 4 pixels
+/// (2) when the frame's short side is at least 1080 pixels and no mask
+/// layer changes what a term depends on, else 2 x 2 (1).
+///
+/// A term is the blurred photo through the pixel's Exposure, Brightness
+/// and Whites, used where its Glow or Halation amount is above zero. The
+/// blurs scale with the frame (`scale`, short side / 1080): halation's, the
+/// smaller, has a sigma of 4 px at scale 1 (radius 8, blur.wgsl's sigma =
+/// radius / 2), so from there a 4 x 4 block is no coarser than its sigma,
+/// as a 2 x 2 block is at half that size. A mask layer with one of those
+/// five sliders can change them from one pixel to the next (a hard mask
+/// edge); such frames keep GRN3's 2 x 2 blocks. On a Radeon 680M the terms
+/// pass is mostly arithmetic and scales with the blocks: 2 x 2 left
+/// 1.56 ms of glow's 2.12 ms at 2048 x 1366 (notes:
+/// benchmark-results/grn4-2026-11-21).
+pub(super) fn terms_block_shift(width: u32, height: u32, adjustments: &AllAdjustments) -> u32 {
+    #[cfg(test)]
+    if let Some(shift) = FORCED_TERMS_SHIFT.with(std::cell::Cell::get) {
+        return shift;
+    }
+    let local_inputs = adjustments
+        .mask_adjustments
+        .iter()
+        .take(adjustments.mask_count as usize)
+        .any(|m| {
+            m.exposure != 0.0
+                || m.brightness != 0.0
+                || m.whites != 0.0
+                || m.glow_amount != 0.0
+                || m.halation_amount != 0.0
+        });
+    if width.min(height) >= 1080 && !local_inputs {
+        2
+    } else {
+        1
+    }
+}
+
+/// A drag's pass over blocks (G76/GRN3, GRN4): the tile-local `regions`
+/// (x, y, width, height) as the blocks of `1 << shift` x `1 << shift`
+/// pixels of absolute coordinates that cover them, at the blocks' index in
+/// the tile (the display source's `terms_index`, `block_index`), for the
+/// tile at `offset`. Each block's term (or grain) is computed once, at its
+/// first pixel in the tile (`terms_pixel`), and every pixel of the block
+/// reads it.
+pub(super) fn block_regions(regions: &[[u32; 4]], offset: [u32; 2], shift: u32) -> Vec<[u32; 4]> {
     regions
         .iter()
         .map(|&[x, y, width, height]| {
-            let block = |at: u32, axis: usize| ((at + offset[axis]) >> 1) - (offset[axis] >> 1);
+            let block =
+                |at: u32, axis: usize| ((at + offset[axis]) >> shift) - (offset[axis] >> shift);
             let (x0, y0) = (block(x, 0), block(y, 1));
             if width == 0 || height == 0 {
                 return [x0, y0, 0, 0];
@@ -260,15 +310,16 @@ pub(super) fn half_regions(regions: &[[u32; 4]], offset: [u32; 2]) -> Vec<[u32; 
         .collect()
 }
 
-/// `region` (absolute coordinates) grown to whole 2 x 2 blocks: the pixels
-/// a drag's changed pixels change (G76/GRN3).
-pub(super) fn whole_blocks(region: Roi) -> Roi {
-    let (x, y) = (region.x & !1, region.y & !1);
+/// `region` (absolute coordinates) grown to whole blocks of `1 << shift`
+/// pixels: the pixels a drag's changed pixels change (G76/GRN3).
+pub(super) fn whole_blocks(region: Roi, shift: u32) -> Roi {
+    let size = 1 << shift;
+    let (x, y) = (region.x & !(size - 1), region.y & !(size - 1));
     Roi {
         x,
         y,
-        width: (region.x + region.width).next_multiple_of(2) - x,
-        height: (region.y + region.height).next_multiple_of(2) - y,
+        width: (region.x + region.width).next_multiple_of(size) - x,
+        height: (region.y + region.height).next_multiple_of(size) - y,
     }
 }
 
@@ -276,10 +327,11 @@ pub(super) fn whole_blocks(region: Roi) -> Roi {
 /// `offset`, started at the first pixel in the tile of the block its first
 /// pixel lies in (`terms_pixel`), so the main pass renders every pixel the
 /// passes over the blocks read.
-pub(super) fn with_block_starts(region: [u32; 4], offset: [u32; 2]) -> [u32; 4] {
+/// Blocks of `1 << shift` pixels; smaller blocks nest in them.
+pub(super) fn with_block_starts(region: [u32; 4], offset: [u32; 2], shift: u32) -> [u32; 4] {
     let start = |at: u32, o: u32| {
-        let block = (at + o) >> 1;
-        (2 * block).max(o) - o
+        let block = (at + o) >> shift;
+        (block << shift).max(o) - o
     };
     let (x, y) = (start(region[0], offset[0]), start(region[1], offset[1]));
     [x, y, region[2] + region[0] - x, region[3] + region[1] - y]
@@ -396,12 +448,15 @@ impl EffectPasses {
         let no_colour = one_texel("No Finish Colour");
         let no_split_outputs = ["No Split Output 1", "No Split Output 2"].map(one_texel);
         let no_split_input = one_texel("No Split Input");
-        let terms_regions = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Effect Terms Regions Buffer"),
-            size: ((MAX_RENDER_REGIONS + 1) * 16) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let [terms_regions, field_regions] =
+            ["Effect Terms Regions Buffer", "Grain Field Regions Buffer"].map(|label| {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(label),
+                    size: ((MAX_RENDER_REGIONS + 1) * 16) as u64,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })
+            });
         Self {
             display,
             float_display,
@@ -410,6 +465,7 @@ impl EffectPasses {
             terms_pipelines: Mutex::new(std::collections::HashMap::new()),
             terms_tiles: std::sync::OnceLock::new(),
             terms_regions,
+            field_regions,
             finish_bgls,
             finish_layouts,
             finish_pipelines: Mutex::new(std::collections::HashMap::new()),
@@ -510,9 +566,14 @@ impl EffectPasses {
         })
     }
 
-    /// The render regions of a drag's terms pass (`half_regions`).
+    /// The render regions of a drag's terms pass (`block_regions`).
     pub(super) fn terms_regions(&self) -> &wgpu::Buffer {
         &self.terms_regions
+    }
+
+    /// The render regions of a drag's grain field pass, in 2 x 2 blocks.
+    pub(super) fn field_regions(&self) -> &wgpu::Buffer {
+        &self.field_regions
     }
 
     /// The finish pass's layout into the 8-bit tile or the deferred one.
@@ -701,11 +762,13 @@ mod tests {
     /// (`TERMS_FEATURES`): no other feature bit changes its module, with
     /// and without the layers' sums.
     #[test]
-    fn half_regions_cover_the_blocks_of_every_pixel() {
+    fn block_regions_cover_the_blocks_of_every_pixel() {
         // Tile pixel p of a tile at `offset` reads the block at
-        // ((p + offset) >> 1) - (offset >> 1); a region's blocks must hold
-        // every such index of its pixels, and no other.
-        for offset in [[0, 0], [1, 0], [0, 1], [7, 13], [128, 255]] {
+        // ((p + offset) >> shift) - (offset >> shift); a region's blocks
+        // must hold every such index of its pixels, and no other.
+        for (shift, offset) in [1, 2].into_iter().flat_map(|shift| {
+            [[0, 0], [1, 0], [0, 1], [7, 13], [128, 255], [2, 3]].map(|offset| (shift, offset))
+        }) {
             for region in [
                 [0, 0, 1, 1],
                 [0, 0, 9, 4],
@@ -713,7 +776,7 @@ mod tests {
                 [1, 2, 2, 1],
                 [4, 4, 0, 3],
             ] {
-                let [half] = half_regions(&[region], offset)[..] else {
+                let [half] = block_regions(&[region], offset, shift)[..] else {
                     panic!("one region");
                 };
                 let [x, y, w, h] = region;
@@ -728,7 +791,7 @@ mod tests {
                         (y, h, half[1], half[3])
                     };
                     let blocks: std::collections::BTreeSet<u32> = (start..start + len)
-                        .map(|p| ((p + offset[axis]) >> 1) - (offset[axis] >> 1))
+                        .map(|p| ((p + offset[axis]) >> shift) - (offset[axis] >> shift))
                         .collect();
                     let expected: std::collections::BTreeSet<u32> =
                         (block_start..block_start + block_len).collect();
@@ -737,9 +800,13 @@ mod tests {
                     // pixel in the tile, whose block it is.
                     let o = offset[axis];
                     for b in expected {
-                        let first = (2 * (b + (o >> 1))).max(o) - o;
+                        let first = ((b + (o >> shift)) << shift).max(o) - o;
                         assert!(first < start + len);
-                        assert_eq!(((first + o) >> 1) - (o >> 1), b);
+                        assert_eq!(((first + o) >> shift) - (o >> shift), b);
+                        // `with_block_starts` renders that first pixel.
+                        let started = with_block_starts(region, offset, shift);
+                        let begin = if axis == 0 { started[0] } else { started[1] };
+                        assert!(begin <= first);
                     }
                 }
             }
@@ -754,15 +821,41 @@ mod tests {
             width,
             height,
         };
-        assert_eq!(whole_blocks(roi(3, 4, 2, 1)), roi(2, 4, 4, 2));
-        assert_eq!(whole_blocks(roi(2, 4, 2, 2)), roi(2, 4, 2, 2));
+        assert_eq!(whole_blocks(roi(3, 4, 2, 1), 1), roi(2, 4, 4, 2));
+        assert_eq!(whole_blocks(roi(2, 4, 2, 2), 1), roi(2, 4, 2, 2));
+        // 4 x 4 blocks (G76/GRN4).
+        assert_eq!(whole_blocks(roi(3, 5, 2, 1), 2), roi(0, 4, 8, 4));
+        assert_eq!(whole_blocks(roi(4, 8, 4, 4), 2), roi(4, 8, 4, 4));
         // A region from tile pixel 4 of a tile at 7: absolute 11, its
         // block's first pixel absolute 10, tile pixel 3.
-        assert_eq!(with_block_starts([4, 6, 5, 2], [7, 0]), [3, 6, 6, 2]);
+        assert_eq!(with_block_starts([4, 6, 5, 2], [7, 0], 1), [3, 6, 6, 2]);
         // At the tile's start the block's first pixel is outside the tile:
         // the passes take the tile's first pixel (`terms_pixel`).
-        assert_eq!(with_block_starts([0, 0, 5, 2], [7, 7]), [0, 0, 5, 2]);
-        assert_eq!(with_block_starts([2, 1, 5, 2], [0, 0]), [2, 0, 5, 3]);
+        assert_eq!(with_block_starts([0, 0, 5, 2], [7, 7], 1), [0, 0, 5, 2]);
+        assert_eq!(with_block_starts([2, 1, 5, 2], [0, 0], 1), [2, 0, 5, 3]);
+        // 4 x 4: absolute 11's block starts at absolute 8, tile pixel 1.
+        assert_eq!(with_block_starts([4, 6, 5, 2], [7, 0], 2), [1, 4, 8, 4]);
+        let mut adjustments = AllAdjustments::default();
+        assert_eq!(terms_block_shift(2048, 1366, &adjustments), 2);
+        assert_eq!(terms_block_shift(1608, 1072, &adjustments), 1);
+        // A mask layer that changes a term's inputs keeps 2 x 2; one with
+        // other sliders, or beyond the layer count, does not.
+        adjustments.mask_count = 1;
+        adjustments.mask_adjustments[0].saturation = 20.0;
+        adjustments.mask_adjustments[1].exposure = 1.0;
+        assert_eq!(terms_block_shift(2048, 1366, &adjustments), 2);
+        let sliders: [fn(&mut crate::image_processing::MaskAdjustments); 5] = [
+            |m| m.exposure = -0.5,
+            |m| m.brightness = 10.0,
+            |m| m.whites = -20.0,
+            |m| m.glow_amount = 30.0,
+            |m| m.halation_amount = 30.0,
+        ];
+        for set in sliders {
+            let mut local = adjustments;
+            set(&mut local.mask_adjustments[0]);
+            assert_eq!(terms_block_shift(2048, 1366, &local), 1);
+        }
     }
 
     #[test]

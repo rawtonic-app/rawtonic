@@ -2913,6 +2913,40 @@
           "pickTitle": "写真の肌を取得"
         },
         "smoothness": "滑らかさ",
+        "target": {
+          "blueAria": "ターゲットの青(sRGB 0–255)",
+          "chromaAria": "ターゲットの彩度 C*(CIELAB D50)",
+          "distance": "ターゲットまで ΔE00 {{value}}。",
+          "greenAria": "ターゲットの緑(sRGB 0–255)",
+          "grey": "この範囲はグレーに近すぎて色を付けられません。",
+          "heading": "ターゲット",
+          "hexAria": "ターゲットカラー(sRGB 16進)",
+          "hueAria": "ターゲットの色相 h°(CIELAB D50)",
+          "layerPredicted": "レイヤーの強さ100%では範囲はターゲットから ΔE00 {{value}} です。マスクがぼかされた部分では色の変化が小さくなります。",
+          "layerStrength": "レイヤーの強さ100%での予測値です。マスクがぼかされた部分では色の変化が小さくなります。",
+          "lch": "L*C*h°",
+          "lightnessAria": "ターゲットの明度 L*(CIELAB D50)",
+          "limit": {
+            "hue": "色相(±50°)",
+            "lightness": "明度(×0.6–1.4)",
+            "saturation": "彩度(0–200 %)"
+          },
+          "outOfReach": "到達不可:残り ΔE00 {{value}}。{{limits}} が上限です。",
+          "outsideSrgb": "ターゲットは sRGB の範囲外です。",
+          "pickAria": "ターゲットカラーを取得",
+          "pickedThrough": "予測はターゲットから ΔE00 {{value}} ですが、この色は範囲自体の大きな変更を通して取得されました。写真で結果を確認するか、スライダーを0にして取得し直してください。",
+          "pickTitle": "写真でターゲットカラーを取得し、この範囲をその色へ移動",
+          "reached": "ターゲットに到達(ΔE00 {{value}})。",
+          "readoutTitle": "範囲の取得色に対する予測値(トーンカーブやカラーグレーディングなど後段のツールの前)",
+          "redAria": "ターゲットの赤(sRGB 0–255)",
+          "sampleAria": "ターゲットカラーを取得",
+          "sampleTitle": "この写真でターゲットカラーを取得(この写真や別の写真の範囲用)",
+          "sourceClipped": "取得した色は sRGB の境界にあります。写真で結果を確認してください。",
+          "srgb": "sRGB",
+          "swatchAria": "範囲の結果 {{result}}、ターゲット {{target}}",
+          "useSampled": "{{name}} のターゲットを使用",
+          "useSampledTitle": "この範囲を {{name}} で取得した色へ移動"
+        },
         "title": "カラーエディター",
         "uniformity": "均一化",
         "wheel": {
@@ -3687,10 +3721,32 @@
         "darkCircles": "顔: 目の下のクマ",
         "evenSkin": "顔: 肌を均一に",
         "impact": "顔: 適用度",
+        "iris": "虹彩（{{side}}）",
+        "sclera": "白目（{{side}}）",
         "shine": "顔: テカリ",
+        "teethBrightness": "歯の明るさ",
+        "teethWhiten": "歯のホワイトニング",
         "texture": "顔: テクスチャ"
       },
       "downloadModels": "顔モデルをダウンロード",
+      "eyes": {
+        "find": "目と歯を検出",
+        "finding": "目と歯を検出中…",
+        "missing": "「目」と「歯」には、これらのツールより前に検出された顔の目と口が必要です。",
+        "none": "この顔には目または開いた口が見つかりません。",
+        "sideAria": "目",
+        "sideHint": {
+          "both": "両目",
+          "left": "写真の左側の目",
+          "right": "写真の右側の目"
+        },
+        "sides": {
+          "both": "両方",
+          "left": "左",
+          "right": "右"
+        },
+        "title": "目"
+      },
       "face": "顔 {{n}}",
       "faceOwn": "顔 {{n}}（個別設定）",
       "facesAria": "顔",
@@ -3721,8 +3777,15 @@
         "darkCircles": "目の下のクマ",
         "evenSkin": "肌を均一に",
         "impact": "適用度",
+        "iris": "虹彩",
+        "sclera": "白目",
         "shine": "テカリ",
+        "teethBrightness": "明るさ",
+        "teethWhiten": "ホワイトニング",
         "texture": "テクスチャ"
+      },
+      "teeth": {
+        "title": "歯"
       },
       "useAll": "すべての顔の値を使用"
     },

@@ -3160,6 +3160,40 @@
           "pickTitle": "Capturar a pele na foto"
         },
         "smoothness": "Suavidade",
+        "target": {
+          "blueAria": "Azul alvo (sRGB 0–255)",
+          "chromaAria": "Croma alvo C* (CIELAB D50)",
+          "distance": "A ΔE00 {{value}} do alvo.",
+          "greenAria": "Verde alvo (sRGB 0–255)",
+          "grey": "Este intervalo é demasiado cinzento para receber uma cor.",
+          "heading": "Alvo",
+          "hexAria": "Cor alvo em hexadecimal sRGB",
+          "hueAria": "Matiz alvo h° (CIELAB D50)",
+          "layerPredicted": "Com a camada em plena intensidade, o intervalo fica a ΔE00 {{value}} do alvo; onde a máscara é suavizada, a cor muda menos.",
+          "layerStrength": "Previsão com a camada em plena intensidade; onde a máscara é suavizada, a cor muda menos.",
+          "lch": "L*C*h°",
+          "lightnessAria": "Luminosidade alvo L* (CIELAB D50)",
+          "limit": {
+            "hue": "matiz (±50°)",
+            "lightness": "luminosidade (×0,6–1,4)",
+            "saturation": "saturação (0–200 %)"
+          },
+          "outOfReach": "Fora de alcance: restam ΔE00 {{value}}; {{limits}} no limite.",
+          "outsideSrgb": "O alvo está fora de sRGB.",
+          "pickAria": "Recolher a cor alvo",
+          "pickedThrough": "Previsto a ΔE00 {{value}} do alvo, mas esta cor foi recolhida através da forte alteração do próprio intervalo: verifique o resultado na foto ou recolha-a de novo com os controlos a 0.",
+          "pickTitle": "Recolha a cor alvo na foto; este intervalo move-se para ela",
+          "reached": "Alvo atingido (ΔE00 {{value}}).",
+          "readoutTitle": "Previsão para a cor recolhida do intervalo, antes de ferramentas posteriores como curvas e gradação de cor",
+          "redAria": "Vermelho alvo (sRGB 0–255)",
+          "sampleAria": "Recolher uma cor alvo",
+          "sampleTitle": "Recolha uma cor alvo nesta foto, para um intervalo aqui ou noutra foto",
+          "sourceClipped": "A cor recolhida está no limite de sRGB: verifique o resultado na foto.",
+          "srgb": "sRGB",
+          "swatchAria": "Resultado do intervalo {{result}}, alvo {{target}}",
+          "useSampled": "Usar o alvo de {{name}}",
+          "useSampledTitle": "Mover este intervalo para a cor recolhida em {{name}}"
+        },
         "title": "Editor de cores",
         "uniformity": "Uniformidade",
         "wheel": {
@@ -3952,10 +3986,32 @@
         "darkCircles": "Rosto: olheiras",
         "evenSkin": "Rosto: pele uniforme",
         "impact": "Rosto: intensidade",
+        "iris": "Íris ({{side}})",
+        "sclera": "Esclera ({{side}})",
         "shine": "Rosto: brilho",
+        "teethBrightness": "Brilho dos dentes",
+        "teethWhiten": "Branquear dentes",
         "texture": "Rosto: textura"
       },
       "downloadModels": "Transferir modelos de rosto",
+      "eyes": {
+        "find": "Encontrar olhos e dentes",
+        "finding": "A encontrar olhos e dentes…",
+        "missing": "Olhos e Dentes precisam dos olhos e da boca destes rostos, encontrados antes de estas ferramentas existirem.",
+        "none": "Nenhum olho ou boca aberta encontrado neste rosto.",
+        "sideAria": "Olho",
+        "sideHint": {
+          "both": "Ambos os olhos",
+          "left": "O olho à esquerda da foto",
+          "right": "O olho à direita da foto"
+        },
+        "sides": {
+          "both": "Ambos",
+          "left": "Esquerdo",
+          "right": "Direito"
+        },
+        "title": "Olhos"
+      },
       "face": "Rosto {{n}}",
       "faceOwn": "Rosto {{n}} (valores próprios)",
       "facesAria": "Rostos",
@@ -3988,8 +4044,15 @@
         "darkCircles": "Olheiras",
         "evenSkin": "Pele uniforme",
         "impact": "Intensidade",
+        "iris": "Íris",
+        "sclera": "Esclera",
         "shine": "Brilho",
+        "teethBrightness": "Brilho",
+        "teethWhiten": "Branquear",
         "texture": "Textura"
+      },
+      "teeth": {
+        "title": "Dentes"
       },
       "useAll": "Usar os valores de todos os rostos"
     },

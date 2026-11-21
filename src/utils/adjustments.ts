@@ -329,6 +329,24 @@ export interface FaceRetouchSettings {
   contouring?: number;
   /** Blemishes, even skin and texture on the neck too. */
   includeNeck?: boolean;
+  /** Eyes, 0–100, both eyes; the `Left`/`Right` values (−100–100) are
+   * added for the eye on the left or right of the photo. */
+  iris?: number;
+  sclera?: number;
+  irisLeft?: number;
+  irisRight?: number;
+  scleraLeft?: number;
+  scleraRight?: number;
+  /** Teeth, 0–100. */
+  teethBrightness?: number;
+  teethWhiten?: number;
+}
+
+/** An eye of a face as the analysis found it (mask-frame pixels): the
+ * fitted iris circle [x, y, r] and the lid opening. */
+export interface RetouchEye {
+  iris: number[];
+  lid: number[][];
 }
 
 /** A blemish found on a face (mask-frame pixels; `score`: prominence). */
@@ -354,6 +372,11 @@ export interface RetouchFace {
   /** Neck skin below the chin (PNG data URL), if visible. */
   neck?: string | null;
   blemishes: RetouchBlemish[];
+  /** The eyes on the left and right of the photo (`null`: not seen);
+   * missing on faces found before Eyes and Teeth. */
+  eyes?: (RetouchEye | null)[];
+  /** Inner lip outline of an open mouth (mask-frame pixels). */
+  mouth?: number[][] | null;
   /** Blemishes (ids) the user keeps. */
   kept: number[];
   /** Blemishes (ids) the user heals below the slider's reach. */
@@ -1067,8 +1090,14 @@ export interface MaskContainer
     Omit<MaskContainerKeys, RequiredMaskContainerKey>,
     Required<Pick<MaskContainerKeys, RequiredMaskContainerKey>> {}
 
-/** The mask version new layers get (crates/engine/src/masks.rs). */
-export const MASK_VERSION = 4;
+/** The mask version new layers get (crates/engine/src/masks.rs): 5 adds
+ * components as a + b − a·b and intersects them as a·b. */
+export const MASK_VERSION = 5;
+
+/** The version Refine edge moves an older layer to: the 16-bit mask with
+ * the current Refine edge, keeping how its components combine (version 5
+ * changes that, so it is only for new layers). */
+export const REFINE_EDGE_MASK_VERSION = 4;
 
 export interface Sections {
   [index: string]: Array<string>;
