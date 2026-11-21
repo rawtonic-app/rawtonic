@@ -1261,7 +1261,7 @@ fn prepare_in(
                 )?;
                 if mask_source.image.width().max(mask_source.image.height()) > dim {
                     let reduced =
-                        image_processing::downscale_f32_image(&mask_source.image, dim, dim);
+                        image_processing::downscale_f32_image_signed(&mask_source.image, dim, dim);
                     mask_source = mask_source.with_resized_image(reduced);
                 }
                 Some(mask_source)

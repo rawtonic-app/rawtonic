@@ -520,7 +520,6 @@
       "confirmReset": "Confirmer la réinitialisation",
       "convertNegative": "Convertir le négatif",
       "copyAdjustments": "Copier les ajustements",
-      "cullImage": "Trier l'image",
       "editImage": "Modifier l'image",
       "exportImage": "Exporter l'image",
       "frameImage": "Encadrer l'image",
@@ -598,9 +597,6 @@
       "copyImage_one": "Copier l'image",
       "copyImage_many": "Copier {{count}} images",
       "copyImage_other": "Copier {{count}} images",
-      "cullImage_one": "Trier l'image",
-      "cullImage_many": "Trier les images",
-      "cullImage_other": "Trier les images",
       "deleteAssociated": "Supprimer + Associés",
       "deleteImage_one": "Supprimer l'image",
       "deleteImage_many": "Supprimer {{count}} images",
@@ -930,6 +926,10 @@
       "exporting": "Exportation…",
       "savesTo": "Modification externe — s'enregistre dans"
     },
+    "frameMove": {
+      "action": "Déplacer sur l’image complète",
+      "undecided": "Cette retouche a peut-être été faite sur le petit aperçu que ce fichier TIFF affichait avant Rawtonic 0.1.0-alpha.17.1. Si son recadrage et ses corrections ponctuelles sont mal placés, déplacez-les sur l’image complète."
+    },
     "guided": {
       "cancel": "Annuler",
       "drawingActive": "Dessin actif",
@@ -1004,6 +1004,9 @@
         "maskName_other": "Masques {{count}}"
       },
       "rangeTitle": "Plages & Global",
+      "recomputedFullFrame_one": "Les masques IA de {{count}} calque ont été recalculés pour l’image en pleine résolution. Annuler rétablit les précédents.",
+      "recomputedFullFrame_many": "Les masques IA de {{count}} calques ont été recalculés pour l’image en pleine résolution. Annuler rétablit les précédents.",
+      "recomputedFullFrame_other": "Les masques IA de {{count}} calques ont été recalculés pour l’image en pleine résolution. Annuler rétablit les précédents.",
       "resetMaskingTooltip": "Réinitialiser le masquage",
       "settings": {
         "aiModelDownloading": "Téléchargement du modèle IA : ",
@@ -1181,40 +1184,6 @@
       "create": "Créer",
       "placeholder": "Saisir le nom du dossier...",
       "title": "Créer un nouveau dossier"
-    },
-    "culling": {
-      "actionDelete": "Mettre à la corbeille",
-      "actionRateZero": "Définir la note sur 1 étoile",
-      "actionReject": "Marquer comme rejeté (Étiquette rouge)",
-      "applyButton_one": "Appliquer à 1 image",
-      "applyButton_many": "Appliquer à {{count}} images",
-      "applyButton_other": "Appliquer à {{count}} images",
-      "bestImage": "Meilleure image",
-      "blurryImagesTab": "Images floues",
-      "blurThreshold": "Seuil de flou",
-      "blurThresholdDesc": "Les images avec un score de netteté inférieur à cette valeur sont signalées. Une valeur plus élevée est plus stricte.",
-      "cancel": "Annuler",
-      "close": "Fermer",
-      "cullingFailed": "Échec du tri",
-      "cullingSuggestions": "Suggestions de tri",
-      "done": "Terminé",
-      "duplicatesHeader": "Doublons ({{count}})",
-      "duplicatesHeader_one": "Doublon ({{count}})",
-      "duplicatesHeader_many": "Doublons ({{count}})",
-      "duplicatesHeader_other": "Doublons ({{count}})",
-      "filterBlurry": "Filtrer les images floues",
-      "groupHeader": "Groupe {{index}}",
-      "groupSimilar": "Grouper les images similaires",
-      "noIssuesDesc": "Toutes les images semblent uniques et nettes.",
-      "noIssuesFound": "Aucun problème trouvé !",
-      "score": "Score : {{score}}",
-      "sharpness": "Netteté : {{sharpness}}",
-      "similarGroupsTab": "Groupes similaires",
-      "similarityThreshold": "Seuil de similarité",
-      "similarityThresholdDesc": "Une valeur plus basse est plus stricte (doublons exacts). Une valeur plus élevée est plus souple (quasi-doublons). Une valeur de 24 à 32 est recommandée.",
-      "startCulling": "Démarrer le tri",
-      "starting": "Démarrage...",
-      "title": "Trier les images"
     },
     "merge": {
       "align": "Aligner les photos",
@@ -2447,9 +2416,11 @@
         "NegPy": "Inspiration for the negative conversion.",
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
         "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
+        "p12-keystore / RustCrypto": "Ouverture du fichier de certificat PKCS#12 dont un certificat de signature est importé.",
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "ring": "Signature des manifestes de provenance (C2PA) des exports : signatures ECDSA, RSA-PSS et Ed25519, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
@@ -2457,6 +2428,7 @@
         "SQLite / rusqlite": "Base de données de la photothèque, avec un correctif Rawtonic du verrouillage WAL sous Windows.",
         "Tauri bundler": "Modèle de programme d’installation NSIS pour Windows, adapté pour permettre une installation individuelle en parallèle d’une installation pour tous les utilisateurs.",
         "Tauri updater plugin": "« Installer la mise à jour » : récupère le manifeste et le paquet de la version, vérifie sa signature et remplace l’app macOS.",
+        "x509-parser": "Lecture des certificats de signature (signataire, validité, usages autorisés).",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -2967,7 +2939,7 @@
       "done_many": "{{count}} piles créées",
       "done_other": "{{count}} piles créées",
       "interval": "Temps entre les photos",
-      "intro": "Les photos prises au plus tard ce délai après la précédente forment une pile. Les photos déjà dans une pile restent telles quelles.",
+      "intro": "Les photos prises au plus cet intervalle après la précédente forment une pile ; avec « Seulement les photos qui se ressemblent », elles doivent aussi montrer la même scène. Les photos déjà empilées restent telles quelles.",
       "kind": {
         "bracket_one": "{{count}} bracketing",
         "bracket_many": "{{count}} bracketings",
@@ -2990,10 +2962,15 @@
       "seconds_one": "{{count}} seconde",
       "seconds_many": "{{count}} secondes",
       "seconds_other": "{{count}} secondes",
+      "similar": "Seulement les photos qui se ressemblent",
+      "similarity": "Ressemblance minimale",
       "single_one": "{{count}} photo reste seule",
       "single_many": "{{count}} photos restent seules",
       "single_other": "{{count}} photos restent seules",
       "title": "Empiler automatiquement par heure de prise de vue",
+      "unread_one": "{{count}} photo pas encore lue est groupée par heure seule",
+      "unread_many": "{{count}} photos pas encore lues sont groupées par heure seule",
+      "unread_other": "{{count}} photos pas encore lues sont groupées par heure seule",
       "useCameraData": "Utiliser les données de rafale et de bracketing de l’appareil si disponibles"
     },
     "badge": {
@@ -3343,6 +3320,41 @@
       "straightenToolTitle": "Tracez une ligne le long d’un bord qui doit être horizontal ou vertical",
       "swapOrientation": "Inverser portrait et paysage",
       "turnOverlay": "Faire pivoter la superposition"
+    },
+    "culling": {
+      "analyse": "Trouver ratés et documents",
+      "analyseDownload": "Trouver ratés et documents (télécharger {{size}})",
+      "autoStack": "Empilement auto…",
+      "badge": "Suggéré : {{names}}",
+      "checkEyes": "Vérifier les yeux…",
+      "checkTitle": "Rejeter prend les suggestions cochées",
+      "criteria": {
+        "document": "Documents",
+        "eyesClosed": "Yeux fermés",
+        "misfire": "Ratés"
+      },
+      "criteriaLabel": "Suggestions",
+      "dismiss_one": "Pas un problème ({{n}} sélectionnée)",
+      "dismiss_many": "Pas un problème ({{n}} sélectionnées)",
+      "dismiss_other": "Pas un problème ({{n}} sélectionnées)",
+      "dismissTitle": "Les suggestions cochées des photos sélectionnées ne sont plus affichées",
+      "failed": "Suggestions de tri non enregistrées : {{error}}",
+      "gridOnly": "Rejeter agit sur les photos affichées dans la grille : G affiche la grille.",
+      "needsModel": "Pour trouver ratés et documents, le modèle de recherche lit chaque photo.",
+      "reading": "{{scored}} photos lues sur {{total}}",
+      "reject_one": "Rejeter {{n}} photo suggérée",
+      "reject_many": "Rejeter {{n}} photos suggérées",
+      "reject_other": "Rejeter {{n}} photos suggérées",
+      "rejectTitle": "Marque comme rejetées les suggestions cochées parmi les photos affichées, en une étape d’annulation ; rien n’est déplacé ni supprimé",
+      "showAgain_one": "Réafficher les suggestions ({{n}} sélectionnée)",
+      "showAgain_many": "Réafficher les suggestions ({{n}} sélectionnées)",
+      "showAgain_other": "Réafficher les suggestions ({{n}} sélectionnées)",
+      "showOnly": "Afficher seulement : {{name}} ({{n}})",
+      "suggestionOnly": "Suggestions seulement : rien n’est rejeté avant que vous cliquiez sur Rejeter, et Annuler le reprend.",
+      "title": "Tri",
+      "unreadable_one": "{{n}} photo n’a pas pu être lue pour les suggestions ; elle sera relue à l’ouverture de la bibliothèque.",
+      "unreadable_many": "{{n}} photos n’ont pas pu être lues pour les suggestions ; elles seront relues à l’ouverture de la bibliothèque.",
+      "unreadable_other": "{{n}} photos n’ont pas pu être lues pour les suggestions ; elles seront relues à l’ouverture de la bibliothèque."
     },
     "develop": {
       "auto": {
@@ -3788,6 +3800,49 @@
         "complete": "Exportation terminée.",
         "exporting": "Exportation {{current}} sur {{total}}"
       },
+      "provenance": {
+        "about": "Indique la photo dont chaque fichier a été développé, les types de retouches et chaque zone créée par un modèle génératif, signé avec votre certificat. JPEG, PNG et TIFF. Rien n'est envoyé.",
+        "add": "Signer un manifeste de provenance dans chaque fichier",
+        "author": "Nommer le créateur de la photo comme auteur",
+        "blocked": "La provenance (C2PA) ne peut pas signer {{recipes}} : configurez un certificat de signature valide et exportez en JPEG, PNG ou TIFF.",
+        "certificateFilter": "Certificat PKCS#12",
+        "expired": "Ce certificat n'est pas valide actuellement (valide jusqu'au {{until}}) : les exports ne peuvent pas être signés avec. Importez un certificat renouvelé ou créez-en un nouveau.",
+        "formatUnsupported": "Les fichiers {{format}} ne peuvent pas encore porter de manifeste de provenance. Choisissez JPEG, PNG ou TIFF, ou désactivez l'option.",
+        "generate": "Créer un certificat sur cet ordinateur",
+        "import": "Importer votre certificat (.p12)…",
+        "importConfirm": "Importer",
+        "importTitle": "Choisir votre certificat de signature",
+        "keyStored": "Le mot de passe ouvre le fichier une fois et n'est pas conservé. La clé privée est copiée dans le dossier de données de Rawtonic, lisible uniquement par votre compte utilisateur.",
+        "legend": "Provenance (C2PA)",
+        "none": "Aucun certificat de signature n'est configuré.",
+        "password": "Mot de passe du certificat",
+        "planSigned": "signé (C2PA)",
+        "remove": "Supprimer le certificat de signature",
+        "removeConfirm": "Supprimer le certificat et sa clé privée de cet ordinateur ? Les exports avec cette option échouent tant qu'aucun autre n'est configuré. Le fichier d'un certificat importé n'est pas touché.",
+        "removeNo": "Annuler",
+        "removeYes": "Supprimer",
+        "review": {
+          "actions": "Retouches",
+          "author": "Auteur",
+          "certificate": "Certificat (dans chaque fichier, lisible par les destinataires)",
+          "generated": "créé par un modèle génératif ({{type}})",
+          "generator": "Créé avec",
+          "ingredient": "Développé depuis",
+          "noAuthor": "Non nommé",
+          "noSigner": "Pas encore de certificat",
+          "notIncluded": "Non inclus de la photo",
+          "notIncludedList": "Ni vignette ni pixels de l'original, ni valeurs de réglage, ni lieu, ni compte, ni service d'horodatage.",
+          "signer": "Signé par"
+        },
+        "reviewHint": "Affiché pour la première photo ; chaque photo reçoit son propre nom de fichier et ses retouches.",
+        "reviewLegend": "Contenu du manifeste",
+        "reviewLegendFor": "Contenu du manifeste : {{recipe}}",
+        "signedImported": "Signé en tant que « {{signer}} » ; certificat délivré par {{issuer}}, valide jusqu'au {{until}}.",
+        "signedLocal": "Signé en tant que « {{signer}} » avec un certificat créé sur cet ordinateur.",
+        "signerName": "Nom du signataire",
+        "signerPlaceholder": "Votre nom ou studio",
+        "unknownSigner": "Les vérificateurs affichent un certificat créé sur cet ordinateur comme signataire inconnu : aucune autorité de certification ne s'en porte garante. Importez votre propre certificat pour un signataire reconnu."
+      },
       "queue": {
         "button": "File",
         "buttonActive_one": "File ({{count}})",
@@ -3911,6 +3966,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "Rien n'a été exporté : {{error}}",
         "queuedMany_one": "{{count}} exportation ajoutée à la file.",
         "queuedMany_many": "{{count}} exportations ajoutées à la file.",
         "queuedMany_other": "{{count}} exportations ajoutées à la file.",
@@ -4616,6 +4672,11 @@
             "purple": "Violet",
             "red": "Rouge",
             "yellow": "Jaune"
+          },
+          "suggestion": {
+            "document": "Document",
+            "eyesClosed": "Yeux fermés",
+            "misfire": "Raté"
           }
         },
         "combine": {
@@ -4653,6 +4714,8 @@
           "previousImport": "Dans l’importation précédente",
           "rating": "Note",
           "sourceType": "Source numérique (dans le fichier)",
+          "stacked": "Dans une pile",
+          "suggestion": "Suggestion de tri",
           "text": "Tout texte consultable"
         },
         "folderPlaceholder": "Chemin du dossier",

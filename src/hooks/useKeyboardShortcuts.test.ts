@@ -99,7 +99,7 @@ it('leaves Preferences open when the Escape was already handled (shortcut record
   expect(useUIStore.getState().isSettingsOpen).toBe(true);
 });
 
-it.each(['mergeModalState', 'cullingModalState'] as const)('leaves keys to the open %s dialog', (modal) => {
+it.each(['mergeModalState'] as const)('leaves keys to the open %s dialog', (modal) => {
   useUIStore.setState({
     activeView: 'editor',
     [modal]: { ...useUIStore.getState()[modal], isOpen: true }

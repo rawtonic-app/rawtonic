@@ -132,7 +132,6 @@ export enum Invokes {
   CopyFiles = 'copy_files',
   CreateFolder = 'create_folder',
   CreateVirtualCopy = 'create_virtual_copy',
-  CullImages = 'cull_images',
   DeleteFolder = 'delete_folder',
   DuplicateFile = 'duplicate_file',
   EstimateExportSizes = 'estimate_export_sizes',
@@ -140,6 +139,11 @@ export enum Invokes {
   ExportImages = 'export_images',
   ExportImagesBatch = 'export_images_batch',
   ExportNamingPreview = 'export_naming_preview',
+  ExportProvenancePreview = 'export_provenance_preview',
+  ProvenanceIdentity = 'provenance_identity',
+  GenerateProvenanceIdentity = 'generate_provenance_identity',
+  ImportProvenanceCertificate = 'import_provenance_certificate',
+  RemoveProvenanceIdentity = 'remove_provenance_identity',
   ExportQueueJobs = 'export_queue_jobs',
   ExportQueueResume = 'export_queue_resume',
   ExportQueueRemove = 'export_queue_remove',
@@ -158,6 +162,8 @@ export enum Invokes {
   StopContentIndex = 'stop_content_index',
   ContentSearchStatus = 'content_search_status',
   ContentSearchDownload = 'content_search_download',
+  CullSuggestions = 'cull_suggestions',
+  CullDismiss = 'cull_dismiss',
   ContentSearchRank = 'content_search_rank',
   StartEyeCheck = 'start_eye_check',
   StopEyeCheck = 'stop_eye_check',
@@ -203,6 +209,8 @@ export enum Invokes {
   CalculateUpright = 'calculate_upright',
   CalculateAutoStraighten = 'calculate_auto_straighten',
   GetCameraCrops = 'get_camera_crops',
+  UndecidedFrameMove = 'undecided_frame_move',
+  InstalledSelectionModels = 'installed_selection_models',
   DevelopDefaultsFor = 'develop_defaults_for',
   GetCameraLensProfile = 'get_camera_lens_profile',
   GetLensDistortionParams = 'get_lens_distortion_params',
@@ -694,6 +702,9 @@ export const EditedStatus = {
 
 export type EditedStatus = (typeof EditedStatus)[keyof typeof EditedStatus];
 
+/** A culling suggestion (`rawtonic_catalog::cull::CRITERIA`). */
+export type CullCriterion = 'misfire' | 'document' | 'eyesClosed';
+
 export interface FilterCriteria {
   colors: Array<string>;
   rating: number;
@@ -703,6 +714,9 @@ export interface FilterCriteria {
   /** Faces' eyes: closed (or partly, never counting uncertain ones) or
    * needing a check (`face_eyes`). */
   eyes?: 'all' | 'closed' | 'check';
+  /** A culling suggestion the photographer has not dismissed
+   * (`rawtonic_catalog::cull`): the Culling panel's filters. */
+  suggestion?: 'all' | CullCriterion;
   /** Values chosen in the Library's metadata lists (camera, lens, …); the
    * library's catalog finds the photographs that have them. */
   metadata?: MetadataSelection;
@@ -1071,34 +1085,6 @@ export interface HistogramData {
   /** Which of red, green, blue reach code 0 / code 255. */
   shadowChannels?: [boolean, boolean, boolean];
   highlightChannels?: [boolean, boolean, boolean];
-}
-
-export interface CullingSettings {
-  similarityThreshold: number;
-  blurThreshold: number;
-  groupSimilar: boolean;
-  filterBlurry: boolean;
-}
-
-interface ImageAnalysisResult {
-  path: string;
-  qualityScore: number;
-  sharpnessMetric: number;
-  centerFocusMetric: number;
-  exposureMetric: number;
-  width: number;
-  height: number;
-}
-
-interface CullGroup {
-  representative: ImageAnalysisResult;
-  duplicates: ImageAnalysisResult[];
-}
-
-export interface CullingSuggestions {
-  similarGroups: CullGroup[];
-  blurryImages: ImageAnalysisResult[];
-  failedPaths: string[];
 }
 
 export type AlbumItem = Album | AlbumGroup;

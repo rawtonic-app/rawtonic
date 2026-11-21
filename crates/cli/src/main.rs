@@ -337,6 +337,14 @@ struct ExportArgs {
     /// before any resize and output sharpening, as the app's export option.
     #[arg(long)]
     super_resolution: bool,
+    /// Sign a provenance manifest (C2PA) into each JPEG, PNG or TIFF with the
+    /// signing identity in DIR, as the app keeps it (its data folder's
+    /// `provenance/`, holding `signing-identity.json`).
+    #[arg(long, value_name = "DIR")]
+    provenance_identity: Option<PathBuf>,
+    /// With --provenance-identity: name the photo's creator as author.
+    #[arg(long, requires = "provenance_identity")]
+    provenance_author: bool,
     /// Face retouch for every photo: the sliders for all faces as JSON
     /// (`{"blemishes":60,"evenSkin":50}`, see docs/RECIPE_SCHEMA.md). The
     /// faces are found with the face models in --models (ONNX Runtime from
@@ -1163,6 +1171,8 @@ fn export(args: ExportArgs) -> Result<()> {
         models,
         output_sharpening,
         super_resolution,
+        provenance_identity,
+        provenance_author,
         face_retouch,
         render_inputs,
         jobs: max_jobs,
@@ -1211,6 +1221,12 @@ fn export(args: ExportArgs) -> Result<()> {
         subfolder: None,
         output_sharpening,
         super_resolution,
+        provenance: provenance_identity.as_ref().map(|_| {
+            rawtonic_export::export_processing::ProvenanceSettings {
+                include_author: provenance_author,
+                signer: None,
+            }
+        }),
     };
 
     // (photo path, output) pairs. A folder exports every supported image below
@@ -1340,7 +1356,20 @@ fn export(args: ExportArgs) -> Result<()> {
     } else {
         exporter
     };
-    let exporter = with_recipe_models(exporter, models, &recipes);
+    let exporter = match &provenance_identity {
+        Some(dir) => {
+            let identity = rawtonic_export::c2pa::identity::load(dir)
+                .map_err(anyhow::Error::msg)?
+                .with_context(|| format!("No signing identity in {}", dir.display()))?;
+            exporter.with_provenance(std::sync::Arc::new(identity))
+        }
+        None => exporter,
+    };
+    let sources: Vec<PathBuf> = jobs
+        .iter()
+        .map(|(photo, _)| rawtonic_export::sidecars::parse_virtual_path(photo).0)
+        .collect();
+    let exporter = with_recipe_models(exporter, models, &recipes, &sources);
     let inputs = render_inputs
         .as_ref()
         .map(|_| rawtonic_export::render_inputs::RenderInputs::new());
@@ -1504,7 +1533,11 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
     let exporter =
         rawtonic_export::file_export::FileExporter::new(&lensfun_folder(args.lensfun_db)?)
             .map_err(anyhow::Error::msg)?;
-    let exporter = with_recipe_models(exporter, args.models, &recipes);
+    let sources: Vec<PathBuf> = photos
+        .iter()
+        .map(|photo| parse_virtual_path(photo).0)
+        .collect();
+    let exporter = with_recipe_models(exporter, args.models, &recipes, &sources);
     let cells_dir = tempfile::tempdir()?;
     let total = photos.len();
     let mut cells = Vec::with_capacity(total);
@@ -1602,6 +1635,7 @@ fn with_recipe_models(
     mut exporter: rawtonic_export::file_export::FileExporter,
     models: Option<PathBuf>,
     recipes: &[Option<serde_json::Value>],
+    sources: &[PathBuf],
 ) -> rawtonic_export::file_export::FileExporter {
     let ai_models: std::collections::BTreeSet<usize> = recipes
         .iter()
@@ -1617,12 +1651,15 @@ fn with_recipe_models(
     }
     // Automatic selections a never-opened photo holds without their bitmap
     // are computed with the app's models, as the app's export does; without
-    // the models those photos fail.
-    if recipes
-        .iter()
-        .flatten()
-        .any(|r| !rawtonic_engine::ai_selections::undetected(r).is_empty())
-    {
+    // the models those photos fail. So are those of a camera TIFF's edit made
+    // on its thumbnail, once moved to the full frame (`recipe_frame`).
+    if recipes.iter().zip(sources).any(|(recipe, source)| {
+        recipe.as_ref().is_some_and(|recipe| {
+            let mut recipe = recipe.clone();
+            rawtonic_engine::recipe_frame::conform(&mut recipe, source);
+            !rawtonic_engine::ai_selections::undetected(&recipe).is_empty()
+        })
+    }) {
         match models_dir(models.clone()) {
             Ok(dir) => {
                 ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);

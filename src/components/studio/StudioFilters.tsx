@@ -68,6 +68,7 @@ export default function StudioFilters({
   const filtering =
     (filter.flag ?? 'all') !== 'all' ||
     (filter.eyes ?? 'all') !== 'all' ||
+    (filter.suggestion ?? 'all') !== 'all' ||
     filter.rating !== 0 ||
     filter.colors.length > 0 ||
     filter.rawStatus !== RawStatus.All ||
@@ -189,6 +190,7 @@ export default function StudioFilters({
           setFilter({
             flag: 'all',
             eyes: 'all',
+            suggestion: 'all',
             rating: 0,
             colors: [],
             rawStatus: RawStatus.All,

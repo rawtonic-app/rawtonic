@@ -132,6 +132,9 @@ const DETECTION_RESULT_KEYS = [
   'maskDataBase64',
   'mask_data_base64',
   DETECT_PENDING,
+  // A bitmap migrated from a camera TIFF's thumbnail (crates/engine/src/recipe_frame.rs).
+  'detectAgain',
+  'bitmapFrame',
   'rotation',
   'flipHorizontal',
   'flipVertical',

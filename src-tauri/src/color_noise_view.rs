@@ -253,10 +253,10 @@ impl ColorNoiseView {
         keep_last(&mut builds.wanted, wanted);
     }
 
-    fn store(&self, wanted: &Wanted, mut input: Rgb32FImage) {
-        // Ringing cut at 0, as the view's own reduction
-        // (`resample_f32_image`) cuts it.
-        input.iter_mut().for_each(|v| *v = v.max(0.0));
+    fn store(&self, wanted: &Wanted, input: Rgb32FImage) {
+        // Ringing is cut at 0 and colours beyond sRGB keep their negative
+        // channels already, as in the view's own reduction
+        // (`resample_f32_image`, `lanczos::resize_wide_gamut`).
         let mut inputs = lock_recover(&self.inputs);
         inputs.retain(|c| Weak::ptr_eq(&c.source, &wanted.source) && c.key != wanted.key);
         keep_last(
@@ -947,16 +947,17 @@ mod tests {
         assert!(thumb("a.raw", 25, true).is_none());
     }
 
-    /// The stored render input has no negative values (Lanczos ringing),
-    /// as the view's own reduction.
+    /// The stored render input keeps a colour beyond sRGB (negative red):
+    /// its reduction (`SignedRowStream::wide_gamut`) cut the ringing already
+    /// and kept such colours, as the view's own reduction.
     #[test]
-    fn stored_render_inputs_cut_ringing_at_zero() {
+    fn stored_render_inputs_keep_colours_beyond_srgb() {
         let view = ColorNoiseView::default();
         let source = image(600, 400);
         let mut input = Rgb32FImage::new(4, 4);
         input.put_pixel(1, 1, image::Rgb([-0.01, 0.5, 0.2]));
         view.store(&wanted_for(&source, recipe(25), None, (4, 4)), input);
         let kept = for_thumbnail(&view, "a.raw", &all(25), &recipe(25), true).unwrap();
-        assert_eq!(kept.get_pixel(1, 1).0, [0.0, 0.5, 0.2]);
+        assert_eq!(kept.get_pixel(1, 1).0, [-0.01, 0.5, 0.2]);
     }
 }

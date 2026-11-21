@@ -261,8 +261,16 @@ fn edit_sidecars(
         .filter_map(|path| {
             let _turn = sidecar_field_edit();
             let (source_path, sidecar_path) = parse_virtual_path(path);
-            let saved = edit(path, &source_path, &sidecar_path)
-                .and_then(|metadata| save_sidecar(path, &metadata).map(|()| metadata));
+            let edited = match conformed_frame(&source_path, &sidecar_path) {
+                Some(metadata) => {
+                    crate::exif_processing::reading_conformed(&sidecar_path, metadata, || {
+                        edit(path, &source_path, &sidecar_path)
+                    })
+                }
+                None => edit(path, &source_path, &sidecar_path),
+            };
+            let saved =
+                edited.and_then(|metadata| save_sidecar(path, &metadata).map(|()| metadata));
             match saved {
                 Ok(metadata) => {
                     if let Some(create_if_missing) = xmp {
@@ -274,6 +282,19 @@ fn edit_sidecars(
             }
         })
         .collect()
+}
+
+/// A camera TIFF's edit made on its embedded thumbnail, moved to the full
+/// frame (`recipe_frame::conform`), for a batch edit to change: settings
+/// pasted from a RAW (its processing versions) would otherwise make it read
+/// as made on the full frame. The edit reads it in memory and writes it once
+/// (`exif_processing::reading_conformed`); a refused edit writes nothing.
+/// None for other recipes; other files are not read.
+fn conformed_frame(source_path: &Path, sidecar_path: &Path) -> Option<ImageMetadata> {
+    rawtonic_engine::recipe_frame::tiff_frames(source_path)?;
+    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+    rawtonic_engine::recipe_frame::conform(&mut metadata.adjustments, source_path)
+        .then_some(metadata)
 }
 
 /// Runs the blocking `work` (which writes the recipes of `paths` and returns
@@ -3020,6 +3041,47 @@ mod tests {
             })
             .collect();
         (temp, paths)
+    }
+
+    /// A camera TIFF's edit made on its thumbnail is moved to the full frame
+    /// when a batch edit changes it: Processing Versions pasted from a RAW
+    /// would otherwise make it read as made on the full frame (TIFR2 open
+    /// case 2). A refused edit writes nothing.
+    #[test]
+    fn a_batch_edit_moves_a_thumbnail_edit_first() {
+        use rawtonic_engine::recipe_frame;
+        let (_temp, paths) = session_with_photos(1);
+        let (source, sidecar) = parse_virtual_path(&paths[0]);
+        recipe_frame::pretend_frames(
+            &source,
+            recipe_frame::TiffFrames {
+                thumbnail: (288, 192),
+                full: (2496, 1662),
+            },
+        );
+        let legacy = serde_json::json!({"version": 1, "rating": 0, "tags": [], "adjustments": {
+            "exposure": 0.1, "crop": {"x": 10.0, "y": 10.0, "width": 100.0, "height": 80.0}}});
+        crate::session_bridge::write_editor_sidecar(&sidecar, serde_json::to_vec(&legacy).unwrap())
+            .unwrap();
+        let failed = edit_sidecars(&paths, None, |_, _, sidecar| {
+            let mut metadata = crate::exif_processing::load_sidecar(sidecar);
+            metadata.adjustments["fringeVersion"] = serde_json::json!(6);
+            Ok(metadata)
+        });
+        assert!(failed.is_empty(), "{failed:?}");
+        let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert_eq!(saved["fringeVersion"], 6);
+        assert_eq!(recipe_frame::stamped(&saved), Some((2496.0, 1662.0)));
+        let width = saved["crop"]["width"].as_f64().unwrap();
+        assert!((width - 100.0 * 2496.0 / 288.0).abs() < 1e-6, "{width}");
+        // A refused edit leaves the sidecar as it was, not moved.
+        crate::session_bridge::write_editor_sidecar(&sidecar, serde_json::to_vec(&legacy).unwrap())
+            .unwrap();
+        let failed = edit_sidecars(&paths, None, |_, _, _| Err("too many layers".to_string()));
+        assert_eq!(failed.len(), 1);
+        let kept = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert_eq!(kept["crop"], legacy["adjustments"]["crop"]);
+        assert_eq!(recipe_frame::stamped(&kept), None);
     }
 
     #[test]

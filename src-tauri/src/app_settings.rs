@@ -389,6 +389,12 @@ pub struct ExportPreset {
     /// Output colour space ("srgb", "displayP3", "adobeRgb", "proPhoto").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_space: Option<String>,
+    /// Sign a provenance manifest (C2PA) into the files; absent = off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<bool>,
+    /// Name the photo's creator as the manifest's author.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance_author: Option<bool>,
 }
 
 pub fn default_export_presets() -> Vec<ExportPreset> {
@@ -406,6 +412,8 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             keep_metadata: true,
             strip_gps: false,
             keep_creator_contact: false,
+            provenance: None,
+            provenance_author: None,
             filename_template: String::new(),
             name_template: Some("{orig_base}".to_string()),
             sequence_start: None,
@@ -452,6 +460,8 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             keep_metadata: false,
             strip_gps: true,
             keep_creator_contact: false,
+            provenance: None,
+            provenance_author: None,
             filename_template: String::new(),
             name_template: Some("{orig_base}_web".to_string()),
             sequence_start: None,

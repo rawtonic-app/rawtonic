@@ -238,7 +238,8 @@ pub async fn stacks_auto_plan(
             .filter(|m| m.copy.is_empty())
             .map(|m| m.asset_id)
             .collect();
-        let plan = lib.auto_stack_plan(&assets, options)?;
+        let plan =
+            lib.auto_stack_plan_with(&assets, options, Some(crate::content_search::MODEL_ID))?;
         Ok(WebAutoPlan {
             library: directory.to_string_lossy().into_owned(),
             plan,

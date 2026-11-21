@@ -1792,6 +1792,10 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                     value = 1.0;
                     ("subtractive", inverted)
                 }
+                // Lightroom's Subtract is a · (1 − b), Intersect with the
+                // inverse in Rawtonic's version 5 algebra (a − b is its
+                // own Subtract). Exact at full strength only.
+                (Some("1"), false, v) if v >= 1.0 && group_value >= 1.0 => ("intersect", true),
                 (Some("1"), _, _) => ("subtractive", inverted),
                 (Some("2"), _, _) => ("intersect", inverted),
                 _ => ("additive", inverted),
@@ -1940,7 +1944,7 @@ pub fn lightroom_subtract_warning(xmp: &str) -> Option<&'static str> {
                 .any(|sub| sub["mode"] == "subtractive")
         })
         .then_some(
-            "Subtract can differ where soft mask edges overlap. Rawtonic uses max(a − b, 0); Lightroom and Camera Raw use a × (1 − b).",
+            "A Subtract (below full strength, or a brush eraser) is imported as max(a − b, 0) and can differ from Lightroom and Camera Raw where soft mask edges overlap.",
         )
 }
 
@@ -2844,11 +2848,15 @@ mod tests {
         use rawtonic_engine::masks::{MaskDefinition, SubMaskMode};
         use serde_json::json;
 
-        for (blend, inverted, value, mode) in [
-            (0, false, 1, "additive"),
-            (1, true, 0, "intersect"),
-            (1, true, 1, "intersect"),
-            (1, false, 1, "subtractive"),
+        // (blend, inverted, MaskValue, expected mode, expected law)
+        for (blend, inverted, value, mode, law) in [
+            (0, false, "1", "additive", "screen"),
+            (1, true, "0", "intersect", "product"),
+            (1, true, "1", "intersect", "product"),
+            // Lightroom's Subtract is a · (1 − b): Intersect with the inverse.
+            (1, false, "1", "intersect", "complement"),
+            // Below full strength no single component gives a · (1 − v·b).
+            (1, false, "0.5", "subtractive", "difference"),
         ] {
             let xmp = format!(
                 r#"<rdf:RDF xmlns:rdf="{rdf}" xmlns:crs="{crs}"><rdf:Description>
@@ -2876,7 +2884,7 @@ mod tests {
             assert_eq!(adjustments["masks"][0]["subMasks"][1]["mode"], json!(mode));
             assert_eq!(
                 super::lightroom_subtract_warning(&xmp).is_some(),
-                mode == "subtractive"
+                law == "difference"
             );
 
             let sample = |layer: &MaskDefinition| {
@@ -2898,16 +2906,19 @@ mod tests {
             let a = sample(&single);
             single.sub_masks[0] = layer.sub_masks[1].clone();
             single.sub_masks[0].mode = SubMaskMode::Additive;
+            single.sub_masks[0].invert = false;
+            single.sub_masks[0].opacity = 100.0;
             let b = sample(&single);
             assert!((0.4..0.6).contains(&a) && (0.4..0.6).contains(&b));
-            let expected = match mode {
-                "additive" => a + b - a * b,
-                "intersect" => a * b,
-                _ => (a - b).max(0.0),
+            let expected = match law {
+                "screen" => a + b - a * b,
+                "product" => a * b,
+                "complement" => a * (1.0 - b),
+                _ => (a - 0.5 * b).max(0.0),
             };
             assert!(
                 (actual - expected).abs() <= 2.0 / 65535.0,
-                "{mode}: {actual} vs {expected}"
+                "{law}: {actual} vs {expected}"
             );
         }
     }
@@ -3025,6 +3036,10 @@ mod tests {
             json!([[0.62, 0.5], [0.64, 0.51]])
         );
         assert_eq!(subs[1]["mode"], "subtractive", "the eraser");
+        assert!(
+            super::lightroom_subtract_warning(&brush("0", "false")).is_some(),
+            "an eraser stays Subtract: reported"
+        );
         // After another component its erasers would cut that one too:
         // left out; without erasers it is flattened.
         let gradient = r#"<rdf:li><rdf:Description crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.5" crs:ZeroY="0.5" crs:FullX="0.5" crs:FullY="0"/></rdf:li>

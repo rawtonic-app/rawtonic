@@ -483,7 +483,6 @@
       "confirmReset": "确认重置",
       "convertNegative": "转换负片",
       "copyAdjustments": "复制调整",
-      "cullImage": "筛选图像",
       "editImage": "编辑图像",
       "exportImage": "导出图像",
       "frameImage": "装裱图像",
@@ -555,8 +554,6 @@
       "convertNegative_other": "转换负片",
       "copyImage_one": "复制图像",
       "copyImage_other": "复制 {{count}} 张图像",
-      "cullImage_one": "筛选图像",
-      "cullImage_other": "筛选图像",
       "deleteAssociated": "删除 + 关联文件",
       "deleteImage_one": "删除图像",
       "deleteImage_other": "删除 {{count}} 张图像",
@@ -869,6 +866,10 @@
       "exporting": "正在导出…",
       "savesTo": "外部编辑 — 保存至"
     },
+    "frameMove": {
+      "action": "移到完整图像",
+      "undecided": "此编辑可能是在 Rawtonic 0.1.0-alpha.17.1 之前此 TIFF 文件显示的小预览图上完成的。如果裁剪和污点修复位置不对，请将其移到完整图像上。"
+    },
     "guided": {
       "cancel": "取消",
       "drawingActive": "绘图中",
@@ -942,6 +943,7 @@
         "maskName_other": "蒙版 {{count}}"
       },
       "rangeTitle": "范围与全局",
+      "recomputedFullFrame_other": "已为全分辨率图像重新计算 {{count}} 个图层的 AI 蒙版。撤销可恢复之前的蒙版。",
       "resetMaskingTooltip": "重置蒙版",
       "settings": {
         "aiModelDownloading": "AI 模型下载中：",
@@ -1119,38 +1121,6 @@
       "create": "创建",
       "placeholder": "输入文件夹名称...",
       "title": "创建新文件夹"
-    },
-    "culling": {
-      "actionDelete": "移至回收站",
-      "actionRateZero": "将评分设为 1 星",
-      "actionReject": "标记为已拒绝（红色标签）",
-      "applyButton_one": "应用到 1 张图像",
-      "applyButton_other": "应用到 {{count}} 张图像",
-      "bestImage": "最佳图像",
-      "blurryImagesTab": "模糊图像",
-      "blurThreshold": "模糊阈值",
-      "blurThresholdDesc": "锐度评分低于此值的图像将被标记。值越高越严格。",
-      "cancel": "取消",
-      "close": "关闭",
-      "cullingFailed": "筛选失败",
-      "cullingSuggestions": "筛选建议",
-      "done": "完成",
-      "duplicatesHeader": "重复项（{{count}}）",
-      "duplicatesHeader_one": "重复项（{{count}}）",
-      "duplicatesHeader_other": "重复项（{{count}}）",
-      "filterBlurry": "过滤模糊图像",
-      "groupHeader": "第 {{index}} 组",
-      "groupSimilar": "分组相似图像",
-      "noIssuesDesc": "所有图像似乎都是唯一且清晰的。",
-      "noIssuesFound": "未发现问题！",
-      "score": "评分：{{score}}",
-      "sharpness": "锐度：{{sharpness}}",
-      "similarGroupsTab": "相似组",
-      "similarityThreshold": "相似度阈值",
-      "similarityThresholdDesc": "值越低越严格（完全重复）。值越高越宽松（近似重复）。建议值 24-32。",
-      "startCulling": "开始筛选",
-      "starting": "启动中...",
-      "title": "筛选图像"
     },
     "merge": {
       "align": "对齐照片",
@@ -2217,9 +2187,11 @@
         "NegPy": "Inspiration for the negative conversion.",
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
         "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
+        "p12-keystore / RustCrypto": "打开导入签名证书所用的 PKCS#12 证书文件。",
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "ring": "为导出文件的来源证明 (C2PA) 清单签名：ECDSA、RSA-PSS 和 Ed25519 签名，SHA-256。",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
@@ -2227,6 +2199,7 @@
         "SQLite / rusqlite": "图库数据库，包含 Rawtonic 对 Windows WAL 锁定的修复。",
         "Tauri bundler": "Windows NSIS 安装程序模板，经过调整，支持仅为当前用户安装的版本与为所有用户安装的版本并存。",
         "Tauri updater plugin": "“安装更新”：获取版本的清单和更新包，检查其签名并替换 macOS 应用。",
+        "x509-parser": "读取签名证书（签名者、有效期、允许的用途）。",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -2731,7 +2704,7 @@
       "done_one": "已创建 {{count}} 个堆栈",
       "done_other": "已创建 {{count}} 个堆栈",
       "interval": "照片间隔",
-      "intro": "与上一张相隔不超过此时间拍摄的照片归入同一堆栈。已在堆栈中的照片保持不变。",
+      "intro": "与上一张相隔不超过此时间拍摄的照片放入同一堆叠；勾选“只限看起来相似的照片”后，还须是同一场景。已在堆叠中的照片保持不变。",
       "kind": {
         "bracket_one": "{{count}} 组包围曝光",
         "bracket_other": "{{count}} 组包围曝光",
@@ -2748,9 +2721,12 @@
       "reading": "正在计算…",
       "seconds_one": "{{count}} 秒",
       "seconds_other": "{{count}} 秒",
+      "similar": "只限看起来相似的照片",
+      "similarity": "最低相似度",
       "single_one": "{{count}} 张照片保持单独",
       "single_other": "{{count}} 张照片保持单独",
       "title": "按拍摄时间自动堆栈",
+      "unread_other": "{{count}} 张尚未读取的照片仅按时间分组",
       "useCameraData": "如有相机连拍和包围曝光数据则使用"
     },
     "badge": {
@@ -3094,6 +3070,33 @@
       "straightenToolTitle": "沿应水平或垂直的边缘画一条线",
       "swapOrientation": "切换纵向和横向",
       "turnOverlay": "旋转叠加"
+    },
+    "culling": {
+      "analyse": "找出误拍和文档",
+      "analyseDownload": "找出误拍和文档（下载 {{size}}）",
+      "autoStack": "自动堆叠…",
+      "badge": "建议：{{names}}",
+      "checkEyes": "检查眼睛…",
+      "checkTitle": "“拒绝”作用于已勾选的建议",
+      "criteria": {
+        "document": "文档",
+        "eyesClosed": "闭眼",
+        "misfire": "误拍"
+      },
+      "criteriaLabel": "建议",
+      "dismiss_other": "没有问题（已选 {{n}} 张）",
+      "dismissTitle": "所选照片的已勾选建议不再显示",
+      "failed": "筛选建议未保存：{{error}}",
+      "gridOnly": "“拒绝”作用于网格中显示的照片：按 G 显示网格。",
+      "needsModel": "为找出误拍和文档，搜索模型会读取每张照片。",
+      "reading": "已读取 {{scored}}/{{total}} 张照片",
+      "reject_other": "拒绝 {{n}} 张建议的照片",
+      "rejectTitle": "将所显示照片中已勾选的建议标为拒绝，可一步撤销；不移动也不删除任何文件",
+      "showAgain_other": "重新显示建议（已选 {{n}} 张）",
+      "showOnly": "只显示{{name}}（{{n}}）",
+      "suggestionOnly": "仅为建议：点击“拒绝”之前不会拒绝任何照片，撤销即可恢复。",
+      "title": "筛选",
+      "unreadable_other": "有 {{n}} 张照片无法读取以生成建议；打开图库时会重试。"
     },
     "develop": {
       "auto": {
@@ -3535,6 +3538,49 @@
         "complete": "导出完成。",
         "exporting": "正在导出 {{current}}/{{total}}"
       },
+      "provenance": {
+        "about": "记录每个文件冲洗自哪张照片、编辑的类型，以及生成模型创建的每个区域，并用您的证书签名。JPEG、PNG 和 TIFF。不会发送任何内容。",
+        "add": "在每个文件中签署来源清单",
+        "author": "将照片的创作者署名为作者",
+        "blocked": "来源证明 (C2PA) 无法为 {{recipes}} 签名：请设置有效的签名证书，并导出为 JPEG、PNG 或 TIFF。",
+        "certificateFilter": "PKCS#12 证书",
+        "expired": "此证书当前无效（有效期至 {{until}}）：无法用它为导出签名。请导入续期的证书或新建一个。",
+        "formatUnsupported": "{{format}} 文件暂不能携带来源清单。请选择 JPEG、PNG 或 TIFF，或关闭此选项。",
+        "generate": "在此电脑上创建证书",
+        "import": "导入您的证书 (.p12)…",
+        "importConfirm": "导入",
+        "importTitle": "选择您的签名证书",
+        "keyStored": "密码只用于打开文件一次，不会保存。私钥会复制到 Rawtonic 的数据文件夹，仅您的用户帐户可读取。",
+        "legend": "来源证明 (C2PA)",
+        "none": "尚未设置签名证书。",
+        "password": "证书密码",
+        "planSigned": "已签名 (C2PA)",
+        "remove": "移除签名证书",
+        "removeConfirm": "要从此电脑移除证书及其私钥吗？在设置其他证书之前，使用此选项的导出都会失败。已导入证书的原文件不会被改动。",
+        "removeNo": "取消",
+        "removeYes": "移除",
+        "review": {
+          "actions": "编辑",
+          "author": "作者",
+          "certificate": "证书（包含在每个文件中，接收者可读取）",
+          "generated": "由生成模型创建 ({{type}})",
+          "generator": "制作软件",
+          "ingredient": "冲洗自",
+          "noAuthor": "未署名",
+          "noSigner": "尚无证书",
+          "notIncluded": "不包含照片中的",
+          "notIncludedList": "原图的缩略图或像素、调整数值、位置、帐户、时间戳服务。",
+          "signer": "签名者"
+        },
+        "reviewHint": "针对第一张照片显示；每张照片会记录各自的文件名和编辑。",
+        "reviewLegend": "清单包含的内容",
+        "reviewLegendFor": "清单包含的内容：{{recipe}}",
+        "signedImported": "以“{{signer}}”的身份签名；证书由 {{issuer}} 颁发，有效期至 {{until}}。",
+        "signedLocal": "以“{{signer}}”的身份，用在此电脑上创建的证书签名。",
+        "signerName": "签名者名称",
+        "signerPlaceholder": "您的姓名或工作室",
+        "unknownSigner": "验证工具会把在此电脑上创建的证书显示为未知签名者：没有证书颁发机构为其担保。导入您自己的证书即可让签名者被识别。"
+      },
       "queue": {
         "button": "队列",
         "buttonActive_other": "队列 ({{count}})",
@@ -3652,6 +3698,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "未导出任何内容：{{error}}",
         "queuedMany_other": "已将 {{count}} 个导出加入队列。",
         "queuedOne": "已加入导出队列。",
         "unsavedEdits": "无法保存 {{names}} 的编辑，因此未导出任何内容。保存后请重新导出。"
@@ -4308,6 +4355,11 @@
             "purple": "紫色",
             "red": "红色",
             "yellow": "黄色"
+          },
+          "suggestion": {
+            "document": "文档",
+            "eyesClosed": "闭眼",
+            "misfire": "误拍"
           }
         },
         "combine": {
@@ -4345,6 +4397,8 @@
           "previousImport": "在上次导入中",
           "rating": "星级",
           "sourceType": "数字来源类型（文件中）",
+          "stacked": "在堆叠中",
+          "suggestion": "筛选建议",
           "text": "任何可搜索的文本"
         },
         "folderPlaceholder": "文件夹路径",

@@ -95,11 +95,13 @@ mod preview_slot;
 mod privacy_notice;
 mod profile_thumbnails;
 mod proof_sheet;
+mod provenance;
 mod proxy_worker;
 #[cfg(feature = "qa-control")]
 mod qa_control;
 #[cfg(feature = "qa-control")]
 mod qa_crash;
+mod recipe_frame;
 mod red_eye;
 mod scope_analytics;
 mod scope_images;
@@ -1038,6 +1040,8 @@ fn start(args: Vec<String>) {
             keyboard_layout::keyboard_layout,
             lut_processing::load_and_parse_lut,
             camera_profile::import_camera_profile,
+            recipe_frame::undecided_frame_move,
+            recipe_frame::installed_selection_models,
             camera_profile::list_camera_profiles,
             camera_profile::white_balance_info,
             develop_defaults::develop_defaults_for,
@@ -1136,6 +1140,11 @@ fn start(args: Vec<String>) {
             export_processing::export_images,
             export_processing::export_images_batch,
             export_processing::export_naming_preview,
+            provenance::provenance_identity,
+            provenance::generate_provenance_identity,
+            provenance::import_provenance_certificate,
+            provenance::remove_provenance_identity,
+            provenance::export_provenance_preview,
             export_processing::cancel_export,
             export_processing::estimate_export_sizes,
             export_processing::list_font_families,
@@ -1262,7 +1271,8 @@ fn start(args: Vec<String>) {
             tagging::rename_keyword_for_paths,
             tagging::delete_keyword_for_paths,
             tagging::restore_keywords,
-            culling::cull_images,
+            culling::cull_suggestions,
+            culling::cull_dismiss,
             lens_correction::get_lensfun_makers,
             embedded_lens::get_camera_lens_profile,
             camera_crop::get_camera_crops,
