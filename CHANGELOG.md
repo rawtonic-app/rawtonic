@@ -40,6 +40,7 @@
 
 ### Fixes
 
+- Zoomed multi-view and second-window previews keep Light flare consistent when zoom changes slightly and on tall panoramas. Oversized preview regions fit the GPU texture limit while keeping the whole displayed area.
 - **Face retouch survives a later flip, turn, straightening, lens or perspective correction.** After retouching faces (skin, Eyes or Teeth) and then flipping, turning, straightening or correcting the photo's lens or perspective in Crop, the preview and the export left out the whole face retouch until the Retouch tab was opened again. The faces are now placed through the geometry they were found in, so their retouch stays on the same pixels of the photo; edits without such a change render exactly as before (see Changes to existing edits).
 - Newly imported Lightroom and Camera Raw masks combine soft components using screen for Add and multiplication for Intersect. Subtract can differ where two soft edges overlap.
 
