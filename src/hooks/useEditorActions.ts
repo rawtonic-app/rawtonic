@@ -653,11 +653,8 @@ async function resolvePastedLens(path: string, pastedStep: Adjustments) {
 
 /** The settings a copy, sync or Previous takes from: the open photograph's
  * (its size known) or `path`'s saved recipe. */
-async function settingsSource(path?: string): Promise<(SettingsSource & { width?: number; height?: number }) | null> {
+async function settingsSource(from: string): Promise<(SettingsSource & { width?: number; height?: number }) | null> {
   const { selectedImage, adjustments } = useEditorStore.getState();
-  const { libraryActivePath, multiSelectedPaths } = useLibraryStore.getState();
-  const from = path || (selectedImage ? selectedImage.path : libraryActivePath || multiSelectedPaths[0]);
-  if (!from) return null;
   if (selectedImage?.isReady && from === selectedImage.path) {
     return {
       path: from,
@@ -1777,17 +1774,25 @@ export function useEditorActions() {
   );
 
   /** Lightroom's Copy Settings: the picker (which tools, which layers; the
-   * choice is remembered) puts the chosen settings of the open photo (or of
-   * `pathOrEvent`, else the Library's active one) on the clipboard. `quick`
+   * choice is remembered) puts the chosen settings of the Library's active
+   * selection, the open Develop photo or an explicit path on the clipboard. `quick`
    * (Option-click): with the choice of last time, without the picker. */
   const handleCopyAdjustments = useCallback(
     async (pathOrEvent?: string | SyntheticEvent, { quick = false }: { quick?: boolean } = {}) => {
-      const pathOverride = typeof pathOrEvent === 'string' ? pathOrEvent : undefined;
-      const libraryPath =
-        useUIStore.getState().activeView === 'library'
-          ? useLibraryStore.getState().libraryActivePath || useLibraryStore.getState().multiSelectedPaths[0]
-          : undefined;
-      const source = await settingsSource(pathOverride ?? libraryPath);
+      let path = typeof pathOrEvent === 'string' ? pathOrEvent : undefined;
+      if (!path) {
+        if (useUIStore.getState().activeView === 'library') {
+          const { libraryActivePath, multiSelectedPaths } = useLibraryStore.getState();
+          path =
+            libraryActivePath && multiSelectedPaths.includes(libraryActivePath)
+              ? libraryActivePath
+              : multiSelectedPaths[0];
+        } else {
+          path = useEditorStore.getState().selectedImage?.path;
+        }
+      }
+      if (!path) return;
+      const source = await settingsSource(path);
       if (!source) return;
       const copy = (choice: SettingsChoice) => {
         rememberChoice(choice, source.path);
