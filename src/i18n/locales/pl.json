@@ -3313,6 +3313,37 @@
           "pickTitle": "Pobierz skórę ze zdjęcia"
         },
         "smoothness": "Wygładzenie",
+        "target": {
+          "blueAria": "Niebieski docelowy (sRGB 0–255)",
+          "chromaAria": "Chroma docelowa C* (CIELAB D50)",
+          "distance": "ΔE00 {{value}} od celu.",
+          "greenAria": "Zielony docelowy (sRGB 0–255)",
+          "grey": "Ten zakres jest zbyt szary, by przyjąć kolor.",
+          "heading": "Kolor docelowy",
+          "hexAria": "Kolor docelowy jako hex sRGB",
+          "hueAria": "Odcień docelowy h° (CIELAB D50)",
+          "lch": "L*C*h°",
+          "lightnessAria": "Jasność docelowa L* (CIELAB D50)",
+          "limit": {
+            "hue": "odcień (±50°)",
+            "lightness": "jasność (×0,6–1,4)",
+            "saturation": "nasycenie (0–200 %)"
+          },
+          "outOfReach": "Poza zasięgiem: zostaje ΔE00 {{value}}; {{limits}} na granicy.",
+          "outsideSrgb": "Cel leży poza sRGB.",
+          "pickAria": "Pobierz kolor docelowy",
+          "pickTitle": "Pobierz kolor docelowy ze zdjęcia; ten zakres zostanie na niego przesunięty",
+          "reached": "Cel osiągnięty (ΔE00 {{value}}).",
+          "readoutTitle": "Prognoza dla pobranego koloru zakresu, przed dalszymi narzędziami, takimi jak krzywe i gradacja kolorów",
+          "redAria": "Czerwony docelowy (sRGB 0–255)",
+          "sampleAria": "Pobierz kolor docelowy",
+          "sampleTitle": "Pobierz kolor docelowy z tego zdjęcia, dla zakresu tutaj lub na innym zdjęciu",
+          "sourceClipped": "Pobrany kolor jest na granicy sRGB: sprawdź wynik na zdjęciu.",
+          "srgb": "sRGB",
+          "swatchAria": "Wynik zakresu {{result}}, cel {{target}}",
+          "useSampled": "Użyj celu z {{name}}",
+          "useSampledTitle": "Przesuń ten zakres na kolor pobrany z {{name}}"
+        },
         "title": "Edytor kolorów",
         "uniformity": "Jednolitość",
         "wheel": {

@@ -1,14 +1,22 @@
-import { Eye, Pipette, Plus, Trash2 } from 'lucide-react';
+import { Eye, Pipette, Plus, Target, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useEditorStore } from '../../store/useEditorStore';
 import { capturingAdjustments } from '../../hooks/useEditorActions';
 import { MAX_COLOR_RANGES, type Adjustments, type ColorRange } from '../../utils/adjustments';
-import { applyColorPick, colorRangesOf, invalidatePendingColorPicks, skinRangeOf } from '../../utils/colorRanges';
+import {
+  applyColorPick,
+  colorRangesOf,
+  invalidatePendingColorPicks,
+  isTargetPick,
+  skinRangeOf,
+  TARGET_PICK
+} from '../../utils/colorRanges';
 import { oklchCss } from '../../utils/oklab';
 import AdjustmentControl from './AdjustmentControl';
 import StudioColorRangeWheel from './StudioColorRangeWheel';
+import StudioColorTarget from './StudioColorTarget';
 import { ToolGroup } from './StudioDevelop';
 import type { ToolParams } from './StudioToolCopy';
 
@@ -94,7 +102,8 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
     });
   /** A press on the wheel while picking (or with no range yet). */
   const pickOnWheel = (hue: number, chroma: number) => {
-    const target = mode === 'skin' ? 'skin' : (pickerTarget ?? 'new');
+    const armed = isTargetPick(pickerTarget) ? null : pickerTarget;
+    const target = mode === 'skin' ? 'skin' : (armed ?? 'new');
     const picked = applyColorPick(
       ranges,
       target,
@@ -226,7 +235,28 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
       {slider(hue, 'hueShift', -100, 100, 0)}
       {slider(saturation, 'saturation', -100, 100, 0)}
       {slider(lightness, 'lightnessShift', -100, 100, 0)}
+      <StudioColorTarget
+        ranges={ranges}
+        active={active}
+        layerId={layerId}
+        disabled={disabled}
+        apply={(next) => change({ colorRanges: next })}
+      />
     </>
+  );
+  // Samples a target colour only (to use in this or another photo).
+  const sampleTarget = (
+    <button
+      type="button"
+      className="studio-color-range-add"
+      aria-pressed={pickerTarget === TARGET_PICK}
+      aria-label={t('studio.color.editor.target.sampleAria')}
+      title={t('studio.color.editor.target.sampleTitle')}
+      disabled={disabled}
+      onClick={() => pick(TARGET_PICK)}
+    >
+      <Target size={13} />
+    </button>
   );
   return (
     <ToolGroup
@@ -286,6 +316,7 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
           >
             <Plus size={13} />
           </button>
+          {sampleTarget}
         </div>
       )}
       {mode === 'skin' && !skin && (
@@ -300,6 +331,7 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
           >
             <Pipette size={14} />
           </button>
+          {sampleTarget}
         </div>
       )}
       {!active && (

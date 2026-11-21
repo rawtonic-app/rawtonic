@@ -7,6 +7,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 import { newColorRange, type Adjustments, type ColorRange } from '../../utils/adjustments';
 import { useEditorStore } from '../../store/useEditorStore';
+import { srgbToOklch } from '../../utils/oklab';
 import StudioColorEditor from './StudioColorEditor';
 import StudioColorRangeWheel, { chromaOf, radiusOf, rangeBand, wheelPoint } from './StudioColorRangeWheel';
 
@@ -420,5 +421,87 @@ describe('skin tone mode', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Pick the skin tone' }));
     expect(useEditorStore.getState().colorPickerTarget).toBe('skin');
     expect(screen.getByText('Click skin in the photo.')).toBeTruthy();
+  });
+});
+
+describe('target colour', () => {
+  const photo = { path: '/a.cr3', isReady: true } as never;
+  const red = () => {
+    const { hue, chroma, lightness } = srgbToOklch([200, 60, 50]);
+    return newColorRange(hue, chroma, lightness);
+  };
+  beforeEach(() => useEditorStore.setState({ selectedImage: photo, colorTarget: null }));
+
+  const typeInto = (name: string, text: string) => {
+    const field = screen.getByRole('textbox', { name });
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: text } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+  };
+
+  it('a typed hex target moves the range in one edit and says it was reached', () => {
+    const range = red();
+    render(<Harness initial={[range]} />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    expect(changes).toHaveLength(1);
+    const [moved] = lastRanges();
+    expect(moved.hueShift).not.toBe(0);
+    expect({ ...moved, hueShift: 0, saturation: 0, lightnessShift: 0 }).toEqual(range);
+    expect(screen.getByRole('status').textContent).toMatch(/^Target reached \(ΔE00 0\.\d\)\./);
+    // The fields now show the target.
+    expect((screen.getByRole('textbox', { name: 'Target color as sRGB hex' }) as HTMLInputElement).value).toBe(
+      '#C81E2D'
+    );
+    // An invalid entry changes nothing and the field shows the target again.
+    typeInto('Target color as sRGB hex', '#12');
+    expect(changes).toHaveLength(1);
+  });
+
+  it('says which shift ran out for a target beyond reach', () => {
+    render(<Harness initial={[red()]} />);
+    openTool();
+    typeInto('Target hue h° (CIELAB D50)', '250');
+    expect(changes).toHaveLength(1);
+    expect(lastRanges()[0].hueShift).toBe(-100);
+    expect(screen.getByRole('status').textContent).toMatch(
+      /^Out of reach: ΔE00 [\d.]+ left; hue \(±50°\) at its limit\./
+    );
+  });
+
+  it('flags a typed target outside sRGB', () => {
+    render(<Harness initial={[red()]} />);
+    openTool();
+    typeInto('Target chroma C* (CIELAB D50)', '130');
+    expect(screen.getByRole('status').textContent).toContain('The target is outside sRGB.');
+  });
+
+  it('arms the target pickers', () => {
+    const range = red();
+    render(<Harness initial={[range]} />);
+    openTool();
+    fireEvent.click(screen.getByRole('button', { name: 'Pick the target color' }));
+    expect(useEditorStore.getState().colorPickerTarget).toBe(`target:${range.id}`);
+    fireEvent.click(screen.getByRole('button', { name: 'Sample a target color' }));
+    expect(useEditorStore.getState().colorPickerTarget).toBe('target');
+    expect(changes).toHaveLength(0);
+  });
+
+  it('uses a target sampled in another photo on a click', () => {
+    const range = red();
+    const lab = [45, 62, 38] as [number, number, number];
+    useEditorStore.setState({ colorTarget: { lab, sampledIn: '/b/ref.nef', appliedTo: null } });
+    render(<Harness initial={[range]} />);
+    openTool();
+    expect(screen.queryByRole('status')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Use target from ref\.nef/ }));
+    expect(changes).toHaveLength(1);
+    expect(useEditorStore.getState().colorTarget).toEqual({
+      lab,
+      sampledIn: '/b/ref.nef',
+      appliedTo: { photo: '/a.cr3', layer: null, rangeId: range.id }
+    });
+    expect(screen.queryByRole('button', { name: /Use target from/ })).toBeNull();
+    expect(screen.getByRole('status')).toBeTruthy();
   });
 });

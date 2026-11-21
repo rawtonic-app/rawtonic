@@ -3160,6 +3160,37 @@
           "pickTitle": "Preleva la pelle nella foto"
         },
         "smoothness": "Morbidezza",
+        "target": {
+          "blueAria": "Blu obiettivo (sRGB 0–255)",
+          "chromaAria": "Croma obiettivo C* (CIELAB D50)",
+          "distance": "A ΔE00 {{value}} dall'obiettivo.",
+          "greenAria": "Verde obiettivo (sRGB 0–255)",
+          "grey": "Questo intervallo è troppo grigio per prendere un colore.",
+          "heading": "Obiettivo",
+          "hexAria": "Colore obiettivo in esadecimale sRGB",
+          "hueAria": "Tinta obiettivo h° (CIELAB D50)",
+          "lch": "L*C*h°",
+          "lightnessAria": "Luminosità obiettivo L* (CIELAB D50)",
+          "limit": {
+            "hue": "tinta (±50°)",
+            "lightness": "luminosità (×0,6–1,4)",
+            "saturation": "saturazione (0–200 %)"
+          },
+          "outOfReach": "Fuori portata: restano ΔE00 {{value}}; {{limits}} al limite.",
+          "outsideSrgb": "L'obiettivo è fuori da sRGB.",
+          "pickAria": "Preleva il colore obiettivo",
+          "pickTitle": "Preleva il colore obiettivo nella foto; questo intervallo vi si sposta",
+          "reached": "Obiettivo raggiunto (ΔE00 {{value}}).",
+          "readoutTitle": "Previsione per il colore prelevato dell'intervallo, prima degli strumenti successivi come curve e color grading",
+          "redAria": "Rosso obiettivo (sRGB 0–255)",
+          "sampleAria": "Preleva un colore obiettivo",
+          "sampleTitle": "Preleva un colore obiettivo in questa foto, per un intervallo qui o in un'altra foto",
+          "sourceClipped": "Il colore prelevato è al limite di sRGB: controlla il risultato nella foto.",
+          "srgb": "sRGB",
+          "swatchAria": "Risultato dell'intervallo {{result}}, obiettivo {{target}}",
+          "useSampled": "Usa l'obiettivo da {{name}}",
+          "useSampledTitle": "Sposta questo intervallo sul colore prelevato in {{name}}"
+        },
         "title": "Editor colore",
         "uniformity": "Uniformità",
         "wheel": {

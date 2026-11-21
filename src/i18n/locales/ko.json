@@ -2913,6 +2913,37 @@
           "pickTitle": "사진에서 피부 선택"
         },
         "smoothness": "부드러움",
+        "target": {
+          "blueAria": "목표 파랑(sRGB 0–255)",
+          "chromaAria": "목표 채도 C*(CIELAB D50)",
+          "distance": "목표까지 ΔE00 {{value}}.",
+          "greenAria": "목표 초록(sRGB 0–255)",
+          "grey": "이 범위는 너무 회색이라 색을 입힐 수 없습니다.",
+          "heading": "목표 색상",
+          "hexAria": "목표 색상(sRGB 16진수)",
+          "hueAria": "목표 색조 h°(CIELAB D50)",
+          "lch": "L*C*h°",
+          "lightnessAria": "목표 명도 L*(CIELAB D50)",
+          "limit": {
+            "hue": "색조(±50°)",
+            "lightness": "명도(×0.6–1.4)",
+            "saturation": "채도(0–200 %)"
+          },
+          "outOfReach": "도달 불가: ΔE00 {{value}} 남음, {{limits}} 한계 도달.",
+          "outsideSrgb": "목표가 sRGB 밖에 있습니다.",
+          "pickAria": "목표 색상 찍기",
+          "pickTitle": "사진에서 목표 색상을 찍으면 이 범위가 그 색으로 이동합니다",
+          "reached": "목표 도달(ΔE00 {{value}}).",
+          "readoutTitle": "범위의 찍은 색에 대한 예측값(커브, 컬러 그레이딩 등 이후 도구 적용 전)",
+          "redAria": "목표 빨강(sRGB 0–255)",
+          "sampleAria": "목표 색상 샘플링",
+          "sampleTitle": "이 사진에서 목표 색상을 찍어 여기나 다른 사진의 범위에 사용",
+          "sourceClipped": "찍은 색이 sRGB 경계에 있습니다. 사진에서 결과를 확인하세요.",
+          "srgb": "sRGB",
+          "swatchAria": "범위 결과 {{result}}, 목표 {{target}}",
+          "useSampled": "{{name}}의 목표 사용",
+          "useSampledTitle": "이 범위를 {{name}}에서 찍은 색으로 이동"
+        },
         "title": "색상 편집기",
         "uniformity": "균일성",
         "wheel": {

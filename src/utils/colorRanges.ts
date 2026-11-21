@@ -4,6 +4,43 @@ import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
 import { MAX_COLOR_RANGES, newColorRange, type Adjustments, type ColorRange } from './adjustments';
 import { srgbToOklch } from './oklab';
+import { linearToLab, solveColorTarget, srgb8ToLinear, type Vec3 } from './colorTarget';
+
+/** The picker target that samples a target colour; `targetPickFor(id)` also
+ * moves range `id` onto it. */
+export const TARGET_PICK = 'target';
+export const targetPickFor = (id: string) => `${TARGET_PICK}:${id}`;
+export const isTargetPick = (target: string | null) =>
+  target === TARGET_PICK || !!target?.startsWith(`${TARGET_PICK}:`);
+
+/**
+ * The ranges with range `id`'s hue, saturation and lightness shifts solved
+ * so that its sampled colour lands on `lab` (CIELAB D50) — one edit, the
+ * other ranges and the range's shape untouched. Unchanged when `id` is gone.
+ */
+export function rangesWithTarget(ranges: ColorRange[], id: string, lab: Vec3): ColorRange[] {
+  const solve = solveColorTarget(ranges, id, lab);
+  if (!solve) return ranges;
+  return ranges.map((range) => (range.id === id ? { ...range, ...solve.shifts } : range));
+}
+
+/** The recipe with the ranges of the photo (`layer` null) or of a mask layer replaced. */
+function withRanges(
+  prev: Adjustments,
+  layer: string | null,
+  next: (ranges: ColorRange[]) => ColorRange[]
+): Adjustments {
+  return layer
+    ? {
+        ...prev,
+        masks: prev.masks.map((mask) =>
+          mask.id === layer
+            ? { ...mask, adjustments: { ...mask.adjustments, colorRanges: next(colorRangesOf(mask.adjustments)) } }
+            : mask
+        )
+      }
+    : { ...prev, colorRanges: next(colorRangesOf(prev)) };
+}
 
 /** Colour ranges of a recipe, or none. */
 export const colorRangesOf = (adjustments: Partial<Adjustments>): ColorRange[] =>
@@ -69,6 +106,18 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   if (!rgb || state.selectedImage?.path !== path) return false;
   if (generation !== pickGeneration || state.colorPickerTarget !== armed || state.colorPickerLayer !== layer)
     return false;
+  if (isTargetPick(target)) {
+    const lab = linearToLab(srgb8ToLinear(rgb));
+    const rangeId = target === TARGET_PICK ? null : target.slice(TARGET_PICK.length + 1);
+    useEditorStore.getState().setEditor({
+      colorTarget: { lab, sampledIn: path, appliedTo: rangeId ? { photo: path, layer, rangeId } : null },
+      colorPickerTarget: null,
+      colorPickerLayer: null
+    });
+    if (rangeId)
+      updateAdjustments((prev: Adjustments) => withRanges(prev, layer, (r) => rangesWithTarget(r, rangeId, lab)));
+    return true;
+  }
   const { hue, chroma, lightness } = srgbToOklch(rgb);
   let activeId: string | null = target;
   const next = (ranges: ColorRange[], limit: number) => {
@@ -76,24 +125,7 @@ export async function pickColorRange(path: string, target: string, x: number, y:
     activeId = picked.id;
     return picked.ranges;
   };
-  updateAdjustments((prev: Adjustments) =>
-    layer
-      ? {
-          ...prev,
-          masks: prev.masks.map((mask) =>
-            mask.id === layer
-              ? {
-                  ...mask,
-                  adjustments: {
-                    ...mask.adjustments,
-                    colorRanges: next(colorRangesOf(mask.adjustments), MAX_COLOR_RANGES)
-                  }
-                }
-              : mask
-          )
-        }
-      : { ...prev, colorRanges: next(colorRangesOf(prev), MAX_COLOR_RANGES) }
-  );
+  updateAdjustments((prev: Adjustments) => withRanges(prev, layer, (ranges) => next(ranges, MAX_COLOR_RANGES)));
   useEditorStore
     .getState()
     .setEditor({ colorPickerTarget: null, colorPickerLayer: null, activeColorRangeId: activeId });

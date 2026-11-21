@@ -3006,6 +3006,37 @@
           "pickTitle": "Haut im Foto aufnehmen"
         },
         "smoothness": "Glättung",
+        "target": {
+          "blueAria": "Ziel Blau (sRGB 0–255)",
+          "chromaAria": "Ziel-Buntheit C* (CIELAB D50)",
+          "distance": "ΔE00 {{value}} vom Ziel entfernt.",
+          "greenAria": "Ziel Grün (sRGB 0–255)",
+          "grey": "Dieser Bereich ist zu grau, um eine Farbe anzunehmen.",
+          "heading": "Zielfarbe",
+          "hexAria": "Zielfarbe als sRGB-Hex",
+          "hueAria": "Ziel-Farbton h° (CIELAB D50)",
+          "lch": "L*C*h°",
+          "lightnessAria": "Ziel-Helligkeit L* (CIELAB D50)",
+          "limit": {
+            "hue": "Farbton (±50°)",
+            "lightness": "Helligkeit (×0,6–1,4)",
+            "saturation": "Sättigung (0–200 %)"
+          },
+          "outOfReach": "Nicht erreichbar: ΔE00 {{value}} bleiben; {{limits}} am Anschlag.",
+          "outsideSrgb": "Das Ziel liegt außerhalb von sRGB.",
+          "pickAria": "Zielfarbe aufnehmen",
+          "pickTitle": "Zielfarbe im Foto aufnehmen; dieser Bereich wird darauf verschoben",
+          "reached": "Ziel erreicht (ΔE00 {{value}}).",
+          "readoutTitle": "Vorhersage für die aufgenommene Farbe des Bereichs, vor späteren Werkzeugen wie Kurven und Color Grading",
+          "redAria": "Ziel Rot (sRGB 0–255)",
+          "sampleAria": "Zielfarbe aufnehmen (merken)",
+          "sampleTitle": "Zielfarbe in diesem Foto aufnehmen, für einen Bereich hier oder in einem anderen Foto",
+          "sourceClipped": "Die aufgenommene Farbe liegt am Rand von sRGB: Ergebnis im Foto prüfen.",
+          "srgb": "sRGB",
+          "swatchAria": "Ergebnis des Bereichs {{result}}, Ziel {{target}}",
+          "useSampled": "Zielfarbe aus {{name}} verwenden",
+          "useSampledTitle": "Diesen Bereich auf die in {{name}} aufgenommene Farbe verschieben"
+        },
         "title": "Farbeditor",
         "uniformity": "Gleichmäßigkeit",
         "wheel": {

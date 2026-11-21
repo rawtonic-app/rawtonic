@@ -3160,6 +3160,37 @@
           "pickTitle": "Tomar la piel en la foto"
         },
         "smoothness": "Suavidad",
+        "target": {
+          "blueAria": "Azul objetivo (sRGB 0–255)",
+          "chromaAria": "Croma objetivo C* (CIELAB D50)",
+          "distance": "A ΔE00 {{value}} del objetivo.",
+          "greenAria": "Verde objetivo (sRGB 0–255)",
+          "grey": "Este rango es demasiado gris para tomar un color.",
+          "heading": "Objetivo",
+          "hexAria": "Color objetivo en hexadecimal sRGB",
+          "hueAria": "Tono objetivo h° (CIELAB D50)",
+          "lch": "L*C*h°",
+          "lightnessAria": "Luminosidad objetivo L* (CIELAB D50)",
+          "limit": {
+            "hue": "tono (±50°)",
+            "lightness": "luminosidad (×0,6–1,4)",
+            "saturation": "saturación (0–200 %)"
+          },
+          "outOfReach": "Fuera de alcance: quedan ΔE00 {{value}}; {{limits}} en su límite.",
+          "outsideSrgb": "El objetivo está fuera de sRGB.",
+          "pickAria": "Tomar el color objetivo",
+          "pickTitle": "Toma el color objetivo en la foto; este rango se mueve hacia él",
+          "reached": "Objetivo alcanzado (ΔE00 {{value}}).",
+          "readoutTitle": "Previsión para el color tomado del rango, antes de herramientas posteriores como curvas y gradación de color",
+          "redAria": "Rojo objetivo (sRGB 0–255)",
+          "sampleAria": "Tomar un color objetivo",
+          "sampleTitle": "Toma un color objetivo en esta foto, para un rango aquí o en otra foto",
+          "sourceClipped": "El color tomado está en el borde de sRGB: comprueba el resultado en la foto.",
+          "srgb": "sRGB",
+          "swatchAria": "Resultado del rango {{result}}, objetivo {{target}}",
+          "useSampled": "Usar el objetivo de {{name}}",
+          "useSampledTitle": "Mover este rango al color tomado en {{name}}"
+        },
         "title": "Editor de color",
         "uniformity": "Uniformidad",
         "wheel": {
