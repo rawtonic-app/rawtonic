@@ -2287,14 +2287,15 @@ export const withGrainVersion = <T extends Partial<Adjustments>>(
   return versioned;
 };
 
-/** The AI Denoise version of a saved recipe: its own; else the current one
- * when it does not use AI Denoise (the key only matters above 0), the
- * earlier one otherwise (missing key). */
+/** The AI Denoise version of a saved recipe: the current one when it does
+ * not use AI Denoise (the key only matters above 0, so turning AI Denoise
+ * on later starts at today's strength), else its own, else the earliest
+ * (missing key). */
 const loadedAiDenoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): number | undefined => {
-  if (loaded.aiDenoiseVersion !== undefined && loaded.aiDenoiseVersion !== null) {
-    return loaded.aiDenoiseVersion;
+  if (isRaw && (loaded.aiDenoise ?? 0) <= 0) {
+    return AI_DENOISE_VERSION;
   }
-  return isRaw && (loaded.aiDenoise ?? 0) <= 0 ? AI_DENOISE_VERSION : undefined;
+  return loaded.aiDenoiseVersion ?? undefined;
 };
 
 /** The tone-slider response of a saved recipe: its own; else the current
