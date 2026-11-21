@@ -282,8 +282,8 @@ impl Class {
                 var[c] += (f[c] - mean[c]).powi(2) / n;
             }
         }
-        for c in 0..3 {
-            var[c] = var[c].max(Self::FLOOR[c]);
+        for (v, floor) in var.iter_mut().zip(Self::FLOOR) {
+            *v = v.max(floor);
         }
         Some(Class { mean, var })
     }
@@ -563,9 +563,9 @@ fn retouch_eye(
     // contrast and its ceiling.
     let mean_of = |w: &[f32]| {
         let (mut sum, mut total) = (0.0f32, 0.0f32);
-        for k in 0..n {
-            if w[k] > 0.5 {
-                sum += encode(lum(patch.rgb[k]));
+        for (&weight, &rgb) in w.iter().zip(&patch.rgb) {
+            if weight > 0.5 {
+                sum += encode(lum(rgb));
                 total += 1.0;
             }
         }
