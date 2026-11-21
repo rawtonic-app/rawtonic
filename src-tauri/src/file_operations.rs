@@ -360,9 +360,9 @@ fn xmp_for(image: &Path) -> PathBuf {
 }
 
 /// The XMP sidecars of `images` that take another name in `dest`: a lone
-/// JPEG's `A.xmp` moved beside a file of its stem (its RAW) becomes
-/// `A.JPG.xmp`, so the RAW never takes it for its own there
-/// (`rawtonic_metadata::sidecars`).
+/// JPEG's `A.xmp` moved beside a file of its stem (its RAW, there already or
+/// moved with it) becomes `A.JPG.xmp`, so the RAW never takes it for its own
+/// there (`rawtonic_metadata::sidecars`).
 pub fn xmp_targets(images: &[PathBuf], dest: &Path) -> HashMap<PathBuf, PathBuf> {
     let there = rawtonic_metadata::sidecars::Sidecars::new();
     let mut targets = HashMap::new();
@@ -370,23 +370,72 @@ pub fn xmp_targets(images: &[PathBuf], dest: &Path) -> HashMap<PathBuf, PathBuf>
         let (Some(name), Some(stem)) = (image.file_name(), image.file_stem()) else {
             continue;
         };
+        if !is_developed(image) {
+            continue;
+        }
         let Some(xmp) = rawtonic_metadata::existing_sidecar(image) else {
             continue;
         };
-        let developed = image
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(rawtonic_metadata::sidecars::is_developed_image);
         let stem_form = xmp
             .file_stem()
             .is_some_and(|s| s.eq_ignore_ascii_case(stem));
-        if developed && stem_form && there.has_partner(&dest.join(name)) {
-            let mut full = name.to_os_string();
-            full.push(".xmp");
-            targets.insert(xmp, dest.join(full));
+        let partner_moves = images.iter().any(|other| {
+            other != image
+                && other
+                    .file_stem()
+                    .is_some_and(|s| s.eq_ignore_ascii_case(stem))
+        });
+        if stem_form && (partner_moves || there.has_partner(&dest.join(name))) {
+            targets.insert(xmp, full_name_sidecar(&dest.join(name)));
         }
     }
     targets
+}
+
+/// Renames a move into `dest` needs first: a JPEG there alone whose
+/// `A.xmp` would become the RAW's moved in beside it takes `A.JPG.xmp`
+/// (`xmp_targets` for the JPEG that stays).
+pub fn partner_xmp_renames(images: &[PathBuf], dest: &Path) -> Vec<(PathBuf, PathBuf)> {
+    let mut renames = Vec::new();
+    let Ok(entries) = fs::read_dir(dest) else {
+        return renames;
+    };
+    let there: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    for image in images.iter().filter(|image| !is_developed(image)) {
+        let Some(stem) = image.file_stem() else {
+            continue;
+        };
+        for jpeg in there.iter().filter(|p| {
+            is_developed(p)
+                && p.is_file()
+                && p.file_stem().is_some_and(|s| s.eq_ignore_ascii_case(stem))
+        }) {
+            // Its sidecar now, while it is alone there.
+            if let Some(xmp) = rawtonic_metadata::existing_sidecar(jpeg)
+                && xmp
+                    .file_stem()
+                    .is_some_and(|s| s.eq_ignore_ascii_case(stem))
+                && !renames.iter().any(|(from, _)| from == &xmp)
+            {
+                renames.push((xmp, full_name_sidecar(jpeg)));
+            }
+        }
+    }
+    renames
+}
+
+fn is_developed(image: &Path) -> bool {
+    image
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(rawtonic_metadata::sidecars::is_developed_image)
+}
+
+/// `A.JPG.xmp` for `A.JPG`.
+fn full_name_sidecar(image: &Path) -> PathBuf {
+    let mut name = image.file_name().unwrap_or_default().to_os_string();
+    name.push(".xmp");
+    image.with_file_name(name)
 }
 
 /// Every file that belongs to `images` and moves with them: editor sidecars,
@@ -407,14 +456,25 @@ pub fn associated_files(images: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
         }
         let xmp = xmp_for(image);
         // Listed already (a JPEG's own `A.JPG.xmp`), maybe under its stored
-        // spelling (`A.JPG.XMP` on a case-insensitive volume).
-        let listed = files.iter().any(|f| {
-            f.parent() == xmp.parent()
-                && f.file_name().zip(xmp.file_name()).is_some_and(|(a, b)| {
-                    a.to_string_lossy()
-                        .eq_ignore_ascii_case(&b.to_string_lossy())
-                })
-        });
+        // spelling (`A.JPG.XMP` on a case-insensitive volume, where the
+        // name asked for is not in the folder's listing). On a
+        // case-sensitive volume `a.xmp` beside `A.xmp` is a file of its own.
+        let parent = image.parent().ok_or("No parent folder")?;
+        let spelled_so = || {
+            fs::read_dir(parent)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .any(|e| Some(e.file_name().as_os_str()) == xmp.file_name())
+        };
+        let listed = files.contains(&xmp)
+            || (files.iter().any(|f| {
+                f.parent() == xmp.parent()
+                    && f.file_name().zip(xmp.file_name()).is_some_and(|(a, b)| {
+                        a.to_string_lossy()
+                            .eq_ignore_ascii_case(&b.to_string_lossy())
+                    })
+            }) && !spelled_so());
         if !xmp.is_file() || listed {
             continue;
         }
@@ -1623,6 +1683,38 @@ mod tests {
             targets.get(&from.join("B.xmp")),
             None,
             "B stays alone there"
+        );
+    }
+
+    #[test]
+    fn a_pair_brought_together_by_a_move_keeps_each_its_own_xmp() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (jpegs, raws, to) = (
+            tmp.path().join("jpegs"),
+            tmp.path().join("raws"),
+            tmp.path().join("to"),
+        );
+        for dir in [&jpegs, &raws, &to] {
+            fs::create_dir_all(dir).unwrap();
+        }
+        fs::write(jpegs.join("A.JPG"), b"jpg").unwrap();
+        fs::write(jpegs.join("A.xmp"), b"jpeg's").unwrap();
+        fs::write(raws.join("A.NEF"), b"raw").unwrap();
+        // Both moved in one operation into an empty folder.
+        let images = [jpegs.join("A.JPG"), raws.join("A.NEF")];
+        assert_eq!(
+            xmp_targets(&images, &to).get(&jpegs.join("A.xmp")),
+            Some(&to.join("A.JPG.xmp"))
+        );
+        assert!(partner_xmp_renames(&images, &to).is_empty());
+        // The RAW moved alone into the folder that holds the JPEG and its
+        // XMP: the JPEG's takes its own name there first.
+        fs::write(to.join("B.JPG"), b"jpg").unwrap();
+        fs::write(to.join("B.xmp"), b"jpeg's").unwrap();
+        fs::write(raws.join("B.NEF"), b"raw").unwrap();
+        assert_eq!(
+            partner_xmp_renames(&[raws.join("B.NEF")], &to),
+            [(to.join("B.xmp"), to.join("B.JPG.xmp"))]
         );
     }
 

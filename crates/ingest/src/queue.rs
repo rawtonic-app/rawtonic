@@ -162,12 +162,11 @@ pub fn run_job_in_turn(
     // of its own: the JPEG's XMP then takes its own name beside the RAW
     // (`rawtonic_metadata::sidecars`), never the one the RAW's gets. Names
     // and sequence numbers were planned with the job and stay as they are.
+    // By name alone: a RAW and its JPEG may come from two folders (two
+    // cards of a camera that writes RAW to one and JPEG to the other).
     let stem_key = |path: &Path| {
-        (
-            path.parent().map(Path::to_path_buf),
-            path.file_stem()
-                .map(|s| s.to_string_lossy().to_ascii_lowercase()),
-        )
+        path.file_stem()
+            .map(|s| s.to_string_lossy().to_ascii_lowercase())
     };
     let developed = |path: &Path| {
         path.extension()

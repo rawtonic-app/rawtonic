@@ -286,7 +286,10 @@ impl Library {
     ) -> Result<()> {
         let digest = rawtonic_fs::sha256_hex(bytes);
         for (partner, path) in self.same_stem_assets(photo)? {
-            if partner == asset || sidecars.path(&path) == sidecar {
+            // A partner that has its own sidecar holds that one's digest,
+            // even when its bytes are the same as the RAW's.
+            let own = sidecars.path(&path);
+            if partner == asset || own == sidecar || own.exists() {
                 continue;
             }
             self.conn.execute(

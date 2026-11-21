@@ -148,6 +148,13 @@ fn file_name(path: &Path) -> String {
         .into_owned()
 }
 
+/// A JPEG, HEIF, TIFF, … rather than a RAW (`rawtonic_metadata::sidecars`).
+fn is_developed(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(rawtonic_metadata::sidecars::is_developed_image)
+}
+
 fn stem(path: &Path) -> String {
     path.file_stem()
         .unwrap_or_default()
@@ -386,10 +393,31 @@ fn plan_xmp(
     facts: &mut PhotoFacts,
 ) {
     let old_stem = stem(&planned[members[0]].from);
-    let Some(xmp) = entries.iter().map(|e| folder.join(e)).find(|p| {
-        stem(p).eq_ignore_ascii_case(&old_stem)
-            && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
-    }) else {
+    // The XMP of exactly this name first (`A.xmp`, `A.XMP`); another
+    // letter case of the stem only when there is none (on a case-sensitive
+    // volume `a.xmp` beside `A.NEF` and `a.NEF` is `a.NEF`'s).
+    let is_xmp = |p: &PathBuf| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp"));
+    let candidates: Vec<PathBuf> = entries
+        .iter()
+        .map(|e| folder.join(e))
+        .filter(is_xmp)
+        .collect();
+    let other_case_photo = entries.iter().map(|e| folder.join(e)).any(|p| {
+        is_supported_image_file(&p)
+            && stem(&p) != old_stem
+            && stem(&p).eq_ignore_ascii_case(&old_stem)
+            && !is_developed(&p)
+    });
+    let Some(xmp) = candidates
+        .iter()
+        .find(|p| stem(p) == old_stem)
+        .or_else(|| {
+            candidates
+                .iter()
+                .find(|p| !other_case_photo && stem(p).eq_ignore_ascii_case(&old_stem))
+        })
+        .cloned()
+    else {
         return;
     };
     let selected: Vec<&PathBuf> = members.iter().map(|&i| &planned[i].from).collect();
@@ -399,7 +427,14 @@ fn plan_xmp(
         .map(|e| folder.join(e))
         // Letter case ignored, as the sidecar rule does (`img.NEF` and
         // `IMG.JPG` are a pair on a case-insensitive volume).
-        .filter(|p| stem(p).eq_ignore_ascii_case(&old_stem) && is_supported_image_file(p))
+        .filter(|p| {
+            is_supported_image_file(p)
+                && if other_case_photo {
+                    stem(p) == old_stem
+                } else {
+                    stem(p).eq_ignore_ascii_case(&old_stem)
+                }
+        })
         .collect();
     let hidden: Vec<PathBuf> = named
         .iter()
@@ -409,13 +444,8 @@ fn plan_xmp(
     let owners: Vec<PathBuf> = named.into_iter().filter(|p| !hidden.contains(p)).collect();
     // Beside a RAW, a JPEG of the name has its own sidecar (`A.JPG.xmp`,
     // `rawtonic_metadata::sidecars`): the stem one is the RAW's alone.
-    let developed = |p: &PathBuf| {
-        p.extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(rawtonic_metadata::sidecars::is_developed_image)
-    };
-    let owners: Vec<PathBuf> = if owners.iter().any(|p| !developed(p)) {
-        owners.into_iter().filter(|p| !developed(p)).collect()
+    let owners: Vec<PathBuf> = if owners.iter().any(|p| !is_developed(p)) {
+        owners.into_iter().filter(|p| !is_developed(p)).collect()
     } else {
         owners
     };
@@ -811,6 +841,21 @@ mod tests {
         let paths = [arg(&dir.path().join("A.NEF"))];
         let plan = plan_rename(&paths, "Job_{orig}");
         assert_eq!(plan.photos[0].to, dir.path().join("Job_A.NEF"));
+    }
+
+    /// On a case-sensitive volume `A.NEF` and `a.NEF` are two photos; each
+    /// keeps the XMP of its own spelling.
+    #[test]
+    fn a_rename_takes_only_the_xmp_of_its_own_letter_case() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().canonical().unwrap();
+        write(&dir, &["A.NEF"]);
+        if dir.join("a.NEF").exists() {
+            return; // case-insensitive volume: one file
+        }
+        write(&dir, &["a.NEF", "a.xmp"]);
+        let plan = plan_rename(&[arg(&dir.join("A.NEF"))], "Job");
+        assert_eq!(renames(&plan), ["A.NEF → Job.NEF"]);
     }
 
     #[test]

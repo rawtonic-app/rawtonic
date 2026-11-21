@@ -245,3 +245,27 @@ fn a_raw_writing_first_releases_the_digest_its_jpeg_held_from_before_the_pair_ru
     assert_eq!(rating_in(&capture.join("E.JPG.xmp")), 4);
     assert_eq!(rating_in(&capture.join("E.xmp")), 2);
 }
+
+/// The RAW's and the JPEG's sidecars hold the same bytes (one preset for
+/// both): the RAW's write leaves the JPEG's digest of its own sidecar alone.
+#[test]
+fn identical_sidecars_of_a_pair_stay_each_their_own() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, capture) = session(
+        d.path(),
+        &[
+            ("F.NEF", b"raw"),
+            ("F.JPG", b"jpg"),
+            ("F.xmp", JPEG_XMP.as_bytes()),
+            ("F.JPG.xmp", JPEG_XMP.as_bytes()),
+        ],
+    );
+    let raw = add(&lib, &capture.join("F.NEF"));
+    let jpg = add(&lib, &capture.join("F.JPG"));
+    rate(&lib, &raw, 5);
+    lib.sync_xmp(&raw).unwrap();
+    rate(&lib, &jpg, 1);
+    lib.sync_xmp(&jpg).unwrap();
+    assert_eq!(rating_in(&capture.join("F.xmp")), 5);
+    assert_eq!(rating_in(&capture.join("F.JPG.xmp")), 1);
+}

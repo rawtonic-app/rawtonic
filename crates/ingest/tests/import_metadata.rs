@@ -268,17 +268,25 @@ fn add_keeps_sidecar_digest_for_the_normal_later_sync() {
 
 #[test]
 fn independent_same_stem_photos_each_write_their_own_xmp() {
-    for jpeg_first in [false, true] {
-        same_stem_import(jpeg_first);
+    for (jpeg_first, two_cards) in [(false, false), (true, false), (true, true)] {
+        same_stem_import(jpeg_first, two_cards);
     }
 }
 
-/// The RAW is copied first whatever the order chosen, so the JPEG's XMP
-/// never takes the name the RAW's has.
-fn same_stem_import(jpeg_first: bool) {
+/// The RAW is copied first whatever the order chosen, also from another
+/// folder (a camera writing RAW to one card and JPEG to the other), so the
+/// JPEG's XMP never takes the name the RAW's has.
+fn same_stem_import(jpeg_first: bool, two_cards: bool) {
     let d = tempfile::tempdir().unwrap();
-    let raw = d.path().join("source.NEF");
-    let jpeg = d.path().join("source.JPG");
+    let (raw_card, jpeg_card) = if two_cards {
+        (d.path().join("card1"), d.path().join("card2"))
+    } else {
+        (d.path().to_path_buf(), d.path().to_path_buf())
+    };
+    fs::create_dir_all(&raw_card).unwrap();
+    fs::create_dir_all(&jpeg_card).unwrap();
+    let raw = raw_card.join("source.NEF");
+    let jpeg = jpeg_card.join("source.JPG");
     fs::write(&raw, b"raw").unwrap();
     fs::write(&jpeg, b"jpeg").unwrap();
     let lib = Library::create(&d.path().join("Library"), "Library", Mode::Session).unwrap();
