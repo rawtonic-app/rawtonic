@@ -392,6 +392,9 @@ pub async fn analyze_face_retouch(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, CommandError> {
+    // The photo open now, taken before any download: a photo switch while
+    // a model downloads cannot give one photo's faces to another.
+    let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
     // Opening the Retouch tab analyses with installed models only; the
     // download needs the user's click (`download`, `download_eyes_teeth`).
     let models = models(&app_handle, download.unwrap_or(false)).await?;
@@ -401,7 +404,6 @@ pub async fn analyze_face_retouch(
         None
     };
     let eyes_teeth_missing = eyes_teeth.unwrap_or(false) && portrait.is_none();
-    let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
     tokio::task::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
         let develop = app_handle.state::<DevelopSession>();

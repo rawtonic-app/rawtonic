@@ -14,8 +14,7 @@ import {
   withEyesAndMouth,
   eyesTeethParsed,
   eyesTeethSet,
-  withParsedEyesTeeth,
-  withoutParsed
+  withParsedEyesTeeth
 } from './StudioFaceRetouch';
 import type { RetouchFace } from '../../utils/adjustments';
 import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
@@ -168,15 +167,11 @@ describe('eye and teeth parser outlines', () => {
     expect(eyesTeethSet(retouch({ iris: 0 }))).toBe(false);
   });
 
-  it('takes the outlines of the face at the same place and drops them again', () => {
+  it('takes the outlines of the face at the same place', () => {
     const [merged, far] = withParsedEyesTeeth([face('a', 0, { settings: { iris: 30 } }), face('b', 2000)], [parsed]);
     expect(merged).toMatchObject({ id: 'a', mouth: [[1, 1]], parsedTeeth: loop, settings: { iris: 30 } });
     expect(merged.eyes?.[0]?.parsedEye).toEqual(loop);
     expect(far.parsedTeeth).toBeUndefined();
-    const plain = withoutParsed(merged);
-    expect(plain.parsedTeeth).toBeUndefined();
-    expect(plain.eyes?.[0]).toEqual({ iris: [1, 2, 3], lid: [[0, 0]] });
-    expect(plain.eyes?.[1]).toBeNull();
   });
 });
 
