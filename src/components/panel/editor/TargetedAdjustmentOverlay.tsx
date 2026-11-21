@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useRef, type PointerEvent } from 'react';
 import { updateAdjustments } from '../../../hooks/useEditorActions';
+import { reportPerformance } from '../../../hooks/usePerformanceDiagnostics';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { levelsInputKey, pickedLevels } from '../../../utils/levels';
 import {
@@ -186,10 +187,13 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       const press = levelsPickerPress + 1;
       useEditorStore.setState({ levelsPickerPress: press });
       const input = levelsInputKey(path, adjustments);
+      const asked = performance.now();
       const pixels = await invoke<[number, number, number][] | null>(Invokes.SampleLevelsInput, {
         ...point,
         adjustments
       }).catch(() => null);
+      // Profiling builds only: press to sample, the IPC round trip included.
+      reportPerformance('levels_picker_sample', { ms: performance.now() - asked, press });
       const now = useEditorStore.getState();
       // A slider drag's newest values may not be committed yet (sliderDraft):
       // check and compute against them, so a pending drag is neither undone
