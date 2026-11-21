@@ -640,7 +640,7 @@ fn pasted_into(
         style,
         size,
         lens_db,
-        true,
+        false,
     )
 }
 
