@@ -32,6 +32,7 @@
     },
     "copied": "コピーしました",
     "copyDetails": "詳細をコピー",
+    "cropMissing_other": "カメラのトリミングを {{count}} 枚に適用できませんでした。オリジナルがクラウドにあります。編集は保存済みです。オリジナルをダウンロードして、現像でトリミングを設定してください。",
     "dismiss": "閉じる: {{title}}",
     "dismissShort": "閉じる",
     "download": {

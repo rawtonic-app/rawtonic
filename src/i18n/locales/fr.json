@@ -38,6 +38,9 @@
     },
     "copied": "Copié",
     "copyDetails": "Copier les détails",
+    "cropMissing_one": "Recadrage de l'appareil non appliqué à {{count}} photo : son original est dans le cloud. La retouche est enregistrée ; téléchargez l'original et réglez le recadrage dans Développer.",
+    "cropMissing_many": "Recadrage de l'appareil non appliqué à {{count}} photos : leurs originaux sont dans le cloud. Les retouches sont enregistrées ; téléchargez les originaux et réglez le recadrage dans Développer.",
+    "cropMissing_other": "Recadrage de l'appareil non appliqué à {{count}} photos : leurs originaux sont dans le cloud. Les retouches sont enregistrées ; téléchargez les originaux et réglez le recadrage dans Développer.",
     "dismiss": "Masquer : {{title}}",
     "dismissShort": "Masquer",
     "download": {

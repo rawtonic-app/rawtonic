@@ -62,6 +62,9 @@ use crate::lens_correction::LensDistortionParams;
 /// ratio set in the camera (RawImageAspectRatio).
 pub const VERSION: u32 = 23;
 
+/// The facts version from which `camera_crop` knows a RAF's aspect ratio.
+pub const RAF_CROP_VERSION: u32 = 23;
+
 /// The facts version from which `camera_lens_frames` is kept.
 const CAMERA_LENS_FRAMES: u32 = 18;
 

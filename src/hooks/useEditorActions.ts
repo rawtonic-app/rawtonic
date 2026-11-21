@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
 import i18next from 'i18next';
 import { notify } from '../activity/notify';
-import { noteWriteError } from '../activity/bridges';
+import { noteCropMissing, noteWriteError } from '../activity/bridges';
 import { useEditorStore, debouncedSetHistory } from '../store/useEditorStore';
 export { debouncedSetHistory } from '../store/useEditorStore';
 import { isRawInLibrary, isRawPhoto, useLibraryStore } from '../store/useLibraryStore';
@@ -347,7 +347,13 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string, qu
 
 /** `unwritten`: the photographs saved in their library whose sidecar beside
  * the photo could not be written (among `changes`: their undo step holds). */
-type RecipeBatch = { changes: RecipeSnapshot[]; failure?: { message: string; failed: string[] }; unwritten?: string };
+type RecipeBatch = {
+  changes: RecipeSnapshot[];
+  failure?: { message: string; failed: string[] };
+  unwritten?: string;
+  /** First edits written without the camera's crop (original in the cloud, nothing cached). */
+  cropMissing?: string[];
+};
 
 /** A batch recipe command that returns what it wrote (`RecipeBatch` in
  * edits.rs): tells the user what was not saved (and which saved photos'
@@ -360,7 +366,8 @@ function recordedBatch(
   quiet = false
 ): Promise<{ failed: string[]; changes: RecipeSnapshot[] }> {
   return command.then(
-    ({ changes, failure, unwritten }) => {
+    ({ changes, failure, unwritten, cropMissing }) => {
+      if (cropMissing?.length && !quiet) noteCropMissing(cropMissing);
       if (failure) {
         console.error(`Failed to ${what}:`, failure);
         if (!quiet) noteWriteError(`Failed to ${what}: ${failure.message}`);
