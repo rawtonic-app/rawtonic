@@ -33,7 +33,11 @@ fn main() -> Result<()> {
         )?),
         other => bail!("unknown backend {other}"),
     };
-    println!("load {} ms ({})", start.elapsed().as_millis(), model.backend_name());
+    println!(
+        "load {} ms ({})",
+        start.elapsed().as_millis(),
+        model.backend_name()
+    );
     let mut times = Vec::new();
     for (k, photo) in photos.iter().enumerate() {
         let image = image::open(photo).with_context(|| photo.clone())?.to_rgb8();
