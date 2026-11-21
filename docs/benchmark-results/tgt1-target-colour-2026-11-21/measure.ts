@@ -2,6 +2,7 @@
 // the CLI, sample the same block, ΔE00 (CIELAB D50) to the target.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import type { TargetSolve } from '../../../src/utils/colorTarget';
 // RAWTONIC_REPO: the Rawtonic checkout; TGT1_SCRATCH: folder with src/ (the
 // RAW copies) and out/<id>_base.tif (default-recipe exports). Each run
 // writes only into a new folder runs/<time>/ (recipe, renders while they are
@@ -125,7 +126,7 @@ for (const p of picks) {
     // pass's ΔE00.
     let aim = t.lab;
     const loop: number[] = [];
-    let first: { solve: any; got: V; gotLab: V; ms: number } | null = null;
+    let first: { solve: TargetSolve; got: V; gotLab: V; ms: number } | null = null;
     for (let k = 0; k < 3; k++) {
       const solve = solveColorTarget([range as never], 'r1', aim)!;
       const t0 = Date.now();
