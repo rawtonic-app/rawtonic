@@ -4,6 +4,59 @@ import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
 import { MAX_COLOR_RANGES, newColorRange, type Adjustments, type ColorRange } from './adjustments';
 import { srgbToOklch } from './oklab';
+import {
+  colorBeforeRanges,
+  inverseGain,
+  linearToLab,
+  rangeCentre,
+  solveColorTarget,
+  srgb8ToLinear,
+  type Vec3
+} from './colorTarget';
+
+/** Error gain above which a colour picked through the ranges is uncertain:
+ * a turn or a lift keeps it near 1; taking chroma away raises it (−50 % ≈
+ * 2), and near grey several colours end the same (review TGT1 round 3). */
+const UNCERTAIN_GAIN = 1.5;
+
+/** The key of a range in `colorPicksThroughRanges`. */
+export const rangePickKey = (photo: string, layer: string | null, id: string) => `${photo}|${layer ?? ''}|${id}`;
+
+/** The picker target that samples a target colour; `targetPickFor(id)` also
+ * moves range `id` onto it. */
+export const TARGET_PICK = 'target';
+export const targetPickFor = (id: string) => `${TARGET_PICK}:${id}`;
+export const isTargetPick = (target: string | null) =>
+  target === TARGET_PICK || !!target?.startsWith(`${TARGET_PICK}:`);
+
+/**
+ * The ranges with range `id`'s hue, saturation and lightness shifts solved
+ * so that its sampled colour lands on `lab` (CIELAB D50) — one edit, the
+ * other ranges and the range's shape untouched. Unchanged when `id` is gone.
+ */
+export function rangesWithTarget(ranges: ColorRange[], id: string, lab: Vec3): ColorRange[] {
+  const solve = solveColorTarget(ranges, id, lab);
+  if (!solve) return ranges;
+  return ranges.map((range) => (range.id === id ? { ...range, ...solve.shifts } : range));
+}
+
+/** The recipe with the ranges of the photo (`layer` null) or of a mask layer replaced. */
+function withRanges(
+  prev: Adjustments,
+  layer: string | null,
+  next: (ranges: ColorRange[]) => ColorRange[]
+): Adjustments {
+  return layer
+    ? {
+        ...prev,
+        masks: prev.masks.map((mask) =>
+          mask.id === layer
+            ? { ...mask, adjustments: { ...mask.adjustments, colorRanges: next(colorRangesOf(mask.adjustments)) } }
+            : mask
+        )
+      }
+    : { ...prev, colorRanges: next(colorRangesOf(prev)) };
+}
 
 /** Colour ranges of a recipe, or none. */
 export const colorRangesOf = (adjustments: Partial<Adjustments>): ColorRange[] =>
@@ -69,33 +122,44 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   if (!rgb || state.selectedImage?.path !== path) return false;
   if (generation !== pickGeneration || state.colorPickerTarget !== armed || state.colorPickerLayer !== layer)
     return false;
-  const { hue, chroma, lightness } = srgbToOklch(rgb);
+  if (isTargetPick(target)) {
+    const lab = linearToLab(srgb8ToLinear(rgb));
+    const rangeId = target === TARGET_PICK ? null : target.slice(TARGET_PICK.length + 1);
+    useEditorStore.getState().setEditor({
+      colorTarget: { lab, sampledIn: path, appliedTo: rangeId ? { photo: path, layer, rangeId } : null },
+      colorPickerTarget: null,
+      colorPickerLayer: null
+    });
+    if (rangeId)
+      updateAdjustments((prev: Adjustments) => withRanges(prev, layer, (r) => rangesWithTarget(r, rangeId, lab)));
+    return true;
+  }
+  const shown = srgbToOklch(rgb);
   let activeId: string | null = target;
+  let uncertain = false;
   const next = (ranges: ColorRange[], limit: number) => {
-    const picked = applyColorPick(ranges, target, limit, hue, chroma, lightness);
+    // The sample shows the ranges' work (a range picked again after its own
+    // shift, or a colour another range moves): select by the colour before.
+    const h = (shown.hue * Math.PI) / 180;
+    const again = target === 'skin' ? skinRangeOf(ranges) : ranges.find((r) => r.id === target);
+    const sample: Vec3 = [shown.lightness, shown.chroma * Math.cos(h), shown.chroma * Math.sin(h)];
+    const [lightness, a, b] = colorBeforeRanges(ranges, sample, again ? [rangeCentre(again)] : []);
+    const hue = ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
+    const picked = applyColorPick(ranges, target, limit, hue, Math.hypot(a, b), lightness);
+    const moved = Math.hypot(lightness - sample[0], a - sample[1], b - sample[2]) > 1e-4;
+    uncertain = moved && inverseGain(ranges, [lightness, a, b]) > UNCERTAIN_GAIN;
     activeId = picked.id;
     return picked.ranges;
   };
-  updateAdjustments((prev: Adjustments) =>
-    layer
-      ? {
-          ...prev,
-          masks: prev.masks.map((mask) =>
-            mask.id === layer
-              ? {
-                  ...mask,
-                  adjustments: {
-                    ...mask.adjustments,
-                    colorRanges: next(colorRangesOf(mask.adjustments), MAX_COLOR_RANGES)
-                  }
-                }
-              : mask
-          )
-        }
-      : { ...prev, colorRanges: next(colorRangesOf(prev), MAX_COLOR_RANGES) }
-  );
-  useEditorStore
-    .getState()
-    .setEditor({ colorPickerTarget: null, colorPickerLayer: null, activeColorRangeId: activeId });
+  updateAdjustments((prev: Adjustments) => withRanges(prev, layer, (ranges) => next(ranges, MAX_COLOR_RANGES)));
+  const after = useEditorStore.getState();
+  const key = activeId ? rangePickKey(path, layer, activeId) : null;
+  const through = after.colorPicksThroughRanges.filter((k) => k !== key);
+  after.setEditor({
+    colorPickerTarget: null,
+    colorPickerLayer: null,
+    activeColorRangeId: activeId,
+    colorPicksThroughRanges: uncertain && key ? [...through, key] : through
+  });
   return true;
 }

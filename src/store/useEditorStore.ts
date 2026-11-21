@@ -9,6 +9,7 @@ import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } fr
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
 import type { SharpenView } from '../utils/sharpenView';
+import type { ColorTarget } from '../utils/colorTarget';
 import { DEFAULT_SPLIT_POSITION, type SplitOrientation } from '../utils/beforeAfter';
 import { historyOrders, setHistoryOrders, inheritHistoryOrders, newEditOrder } from '../utils/undoOrder';
 import { noteEdit } from '../components/contribute/usageStats';
@@ -163,8 +164,19 @@ interface EditorState {
   faceProtect: { painting: boolean; erase: boolean; size: number; feather: number };
   /** The protected areas shown on the photograph (always while painting). */
   showFaceProtection: boolean;
-  /** Colour editor picker: 'new' adds a range, an id re-samples that range. */
+  /** Colour editor picker: 'new' adds a range, an id re-samples that range;
+   * 'target' samples a target colour, 'target:<id>' also moves that range
+   * onto it (utils/colorRanges `isTargetPick`). */
   colorPickerTarget: string | null;
+  /** The colour editor's target colour (view state, never in the recipe;
+   * kept across photographs so a colour sampled in one can be used in
+   * another). */
+  colorTarget: ColorTarget | null;
+  /** Colour editor ranges (`photo|layer|range id`) last picked through a
+   * strong change of the ranges themselves (utils/colorTarget
+   * `inverseGain`): their sampled colour, and so a target's readout, is
+   * uncertain. View state. */
+  colorPicksThroughRanges: string[];
   /** The mask layer the picker edits, or null for the photo. */
   colorPickerLayer: string | null;
   /** The colour editor range shown in the tool. */
@@ -352,6 +364,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   faceProtect: { painting: false, erase: false, size: 30, feather: 50 },
   showFaceProtection: false,
   colorPickerTarget: null,
+  colorTarget: null,
+  colorPicksThroughRanges: [],
   colorPickerLayer: null,
   activeColorRangeId: null,
   colorRangeShow: null,
