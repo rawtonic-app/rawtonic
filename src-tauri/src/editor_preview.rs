@@ -13,6 +13,7 @@ use crate::file_management::parse_virtual_path;
 use crate::file_management::read_file_mapped;
 use crate::formats::is_raw_file;
 use crate::gpu_processing;
+use crate::gpu_processing::RenderOutputPrecision;
 use crate::image_loader::composite_patches_on_image;
 use crate::image_processing;
 use crate::image_processing::RenderRequest;
@@ -1337,6 +1338,41 @@ pub async fn sample_curve_input(
     .map_err(|error| format!("Curve input sampling task failed: {error}"))?
 }
 
+/// Levels' clipped sRGB display codes around the chosen point, in 0–255
+/// units with the fractional precision of the undithered 16-bit readback.
+#[tauri::command]
+pub async fn sample_levels_input(
+    path: String,
+    normalized_x: f64,
+    normalized_y: f64,
+    adjustments: serde_json::Value,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<Vec<[f64; 3]>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let image = render_probe(
+            &app_handle,
+            &path,
+            levels_input_probe(&adjustments),
+            ProbeArea::Point(normalized_x, normalized_y),
+            ProbeOutput::LevelsInput(RenderOutputPrecision::SixteenBit),
+            "sample_levels_input",
+        )?;
+        image
+            .map(|image| {
+                let rgba = image.as_rgba16().ok_or("Expected a 16-bit Levels sample")?;
+                Ok(rgba
+                    .pixels()
+                    .map(|pixel| {
+                        [0, 1, 2].map(|c| f64::from(pixel[c]) * 255.0 / f64::from(u16::MAX))
+                    })
+                    .collect())
+            })
+            .transpose()
+    })
+    .await
+    .map_err(|error| format!("Levels input sampling task failed: {error}"))?
+}
+
 /// The mixer whose input a colour target of the targeted adjustment samples
 /// (`mixer` of [`sample_mixer_input`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -1707,7 +1743,7 @@ pub async fn levels_input_histogram(
             &path,
             levels_input_probe(&adjustments),
             ProbeArea::Whole,
-            ProbeOutput::LevelsInput,
+            ProbeOutput::LevelsInput(RenderOutputPrecision::EightBit),
             "levels_input_histogram",
         )?
         else {
@@ -1756,7 +1792,7 @@ enum ProbeArea {
 /// output mapping: `LEVELS_INPUT_PROBE`).
 enum ProbeOutput {
     Space(rawtonic_engine::output_color_space::OutputColorSpace),
-    LevelsInput,
+    LevelsInput(RenderOutputPrecision),
     /// A mixer's input (`MIXER_INPUT_PROBE`, `BW_INPUT_PROBE`).
     Mixer(MixerProbe),
     /// The colour editor's input of renderer slot `slot` (0: the photo's
@@ -1839,14 +1875,16 @@ fn render_probe(
         crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
     );
     probe.global.detail_scale = scale;
+    let mut precision = RenderOutputPrecision::EightBit;
     match output {
         ProbeOutput::Space(space) => {
             probe.global.output_space[0] = space.shader_code();
             probe.global.output_matrix =
                 image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
         }
-        ProbeOutput::LevelsInput => {
+        ProbeOutput::LevelsInput(output_precision) => {
             probe.global.output_space[3] = image_processing::LEVELS_INPUT_PROBE;
+            precision = output_precision;
         }
         ProbeOutput::Mixer(mixer) => {
             probe.global.output_space[3] = match mixer {
@@ -1864,19 +1902,21 @@ fn render_probe(
             lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p)
                 .ok()
         });
+    let request = RenderRequest {
+        adjustments: probe,
+        mask_bitmaps: &mask_bitmaps,
+        lut,
+        roi,
+    };
     gpu_processing::process_and_get_dynamic_image_with_preview_shader(
         &context,
         &gpu,
         &develop,
         &base,
         transform_hash,
-        RenderRequest {
-            adjustments: probe,
-            mask_bitmaps: &mask_bitmaps,
-            lut,
-            roi,
-        },
+        request,
         caller_id,
+        precision,
     )
     .map(Some)
 }

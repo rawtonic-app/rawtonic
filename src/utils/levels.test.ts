@@ -14,7 +14,6 @@ import {
   withHandleAt,
   withLevelValue
 } from './levels';
-import { linearFromSrgb } from './targetedAdjustment';
 
 const identity: Level = { ...INITIAL_LEVELS.rgb };
 
@@ -121,20 +120,19 @@ describe('levels keys', () => {
 });
 
 describe('levels pickers', () => {
-  const grey = (v: number) => linearFromSrgb([v, v, v]);
+  const grey = (v: number): [number, number, number] => [v, v, v];
   /** The display colour Levels give a display colour: the composite, then
    * each channel. */
   const shown = (levels: Levels, rgb: number[]) =>
     (['red', 'green', 'blue'] as const).map((c, i) => levelOutput(levels[c], levelOutput(levels.rgb, rgb[i])));
 
   it('neutralises the sample on the RGB tab through the colour channels', () => {
-    const sample = [40, 60, 80];
-    const pixel = linearFromSrgb(sample as [number, number, number]);
-    const black = pickedLevels(INITIAL_LEVELS, 'rgb', 'black', [pixel])!;
+    const sample: [number, number, number] = [40, 60, 80];
+    const black = pickedLevels(INITIAL_LEVELS, 'rgb', 'black', [sample])!;
     expect(black.rgb).toEqual(INITIAL_LEVELS.rgb);
     expect([black.red.inBlack, black.green.inBlack, black.blue.inBlack]).toEqual(sample);
     for (const v of shown(black, sample)) expect(v).toBeLessThanOrEqual(1);
-    const white = pickedLevels(INITIAL_LEVELS, 'rgb', 'white', [pixel])!;
+    const white = pickedLevels(INITIAL_LEVELS, 'rgb', 'white', [sample])!;
     expect(white.rgb).toEqual(INITIAL_LEVELS.rgb);
     for (const v of shown(white, sample)) expect(v).toBeGreaterThanOrEqual(254);
   });
@@ -144,12 +142,12 @@ describe('levels pickers', () => {
       ...INITIAL_LEVELS,
       rgb: { ...identity, inBlack: 10, inWhite: 230, gamma: 1.4 }
     };
-    const dark = [40, 60, 80];
-    const black = pickedLevels(levels, 'rgb', 'black', [linearFromSrgb([40, 60, 80])])!;
+    const dark: [number, number, number] = [40, 60, 80];
+    const black = pickedLevels(levels, 'rgb', 'black', [dark])!;
     expect(black.rgb).toEqual(levels.rgb);
     for (const v of shown(black, dark)) expect(v).toBeLessThanOrEqual(1);
-    const light = [200, 180, 150];
-    const white = pickedLevels(levels, 'rgb', 'white', [linearFromSrgb([200, 180, 150])])!;
+    const light: [number, number, number] = [200, 180, 150];
+    const white = pickedLevels(levels, 'rgb', 'white', [light])!;
     for (const v of shown(white, light)) expect(v).toBeGreaterThanOrEqual(254);
     // Mean of the sampled area per channel.
     const area = pickedLevels(INITIAL_LEVELS, 'rgb', 'black', [grey(30), grey(34)])!;
@@ -158,19 +156,18 @@ describe('levels pickers', () => {
 
   it('rounds a fractional sample toward clipping, so a steep channel gamma leaves no cast', () => {
     const levels = { ...INITIAL_LEVELS, red: { ...identity, gamma: 4 } };
-    const sample = [40.4, 40.4, 40.4];
-    const pixel = linearFromSrgb(sample as [number, number, number]);
-    const black = pickedLevels(levels, 'rgb', 'black', [pixel])!;
+    const sample = grey(40.4);
+    const black = pickedLevels(levels, 'rgb', 'black', [sample])!;
     expect([black.red.inBlack, black.green.inBlack, black.blue.inBlack]).toEqual([41, 41, 41]);
     for (const v of shown(black, sample)) expect(v).toBe(0);
-    const light = [214.6, 214.6, 214.6];
-    const white = pickedLevels(levels, 'rgb', 'white', [linearFromSrgb(light as [number, number, number])])!;
+    const light = grey(214.6);
+    const white = pickedLevels(levels, 'rgb', 'white', [light])!;
     for (const v of shown(white, light)) expect(v).toBe(255);
   });
 
   it("sets only that channel on a colour tab, from the composite's output", () => {
     const levels = { ...INITIAL_LEVELS, rgb: { ...identity, inBlack: 20, inWhite: 220 } };
-    const pixel = linearFromSrgb([120, 60, 80]);
+    const pixel: [number, number, number] = [120, 60, 80];
     const picked = pickedLevels(levels, 'red', 'white', [pixel])!;
     expect(picked.red.inWhite).toBe(Math.floor(levelOutput(levels.rgb, 120)));
     expect(picked.rgb).toEqual(levels.rgb);

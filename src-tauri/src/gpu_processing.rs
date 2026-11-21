@@ -677,9 +677,10 @@ pub fn process_and_get_dynamic_image_with_display_shader(
     )
 }
 
-/// CPU readback with the display arithmetic and the foreground preview's
-/// retained intermediates (blurs, masks); see [`ReadbackShader::Preview`].
-/// For small samples of the shown preview's base, never for exports.
+/// CPU readback of the shown preview's base. Eight-bit reads use the display
+/// arithmetic and retain foreground intermediates ([`ReadbackShader::Preview`]).
+/// Sixteen-bit reads use the high-precision shader without output encoding.
+#[allow(clippy::too_many_arguments)]
 pub fn process_and_get_dynamic_image_with_preview_shader(
     context: &GpuContext,
     gpu: &GpuState,
@@ -688,6 +689,7 @@ pub fn process_and_get_dynamic_image_with_preview_shader(
     transform_hash: u64,
     request: RenderRequest,
     caller_id: &str,
+    output_precision: RenderOutputPrecision,
 ) -> Result<DynamicImage, String> {
     process_and_get_dynamic_image_inner(
         context,
@@ -699,7 +701,7 @@ pub fn process_and_get_dynamic_image_with_preview_shader(
         },
         request,
         caller_id,
-        RenderOutputPrecision::EightBit,
+        output_precision,
         false,
         None,
         None,

@@ -191,6 +191,7 @@ fn render_tiles(
                 roi: None,
             },
             "profile_thumbnails",
+            gpu_processing::RenderOutputPrecision::EightBit,
         )?;
         let jpeg = crate::file_management::encode_thumbnail(&image, size)
             .map_err(|e| format!("Encoding a profile tile failed: {e:#}"))?;
