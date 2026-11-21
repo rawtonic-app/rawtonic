@@ -1,0 +1,2502 @@
+[
+ {
+  "part": "global",
+  "pick": "skin-face",
+  "kind": "skin",
+  "file": "c0108.cr3",
+  "target": "h+12 C×1.15",
+  "source": "#8a6152",
+  "sourceInSrgb": true,
+  "targetHex": "#896249",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 26,
+   "saturation": 9,
+   "lightnessShift": 0
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.14,
+  "measuredDE": 0.14,
+  "srgbDE": 0.13,
+  "predVsMeasured": 0,
+  "renderMs": 3419
+ },
+ {
+  "part": "global",
+  "pick": "skin-face",
+  "kind": "skin",
+  "file": "c0108.cr3",
+  "target": "h−20 C×0.8 L−6",
+  "source": "#8a6152",
+  "sourceInSrgb": true,
+  "targetHex": "#785251",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -39,
+   "saturation": -14,
+   "lightnessShift": -24
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.07,
+  "measuredDE": 0.07,
+  "srgbDE": 0.06,
+  "predVsMeasured": 0,
+  "renderMs": 4632
+ },
+ {
+  "part": "global",
+  "pick": "skin-face",
+  "kind": "skin",
+  "file": "c0108.cr3",
+  "target": "h+5 C×1.3 L+5",
+  "source": "#8a6152",
+  "sourceInSrgb": true,
+  "targetHex": "#9d6b54",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 11,
+   "saturation": 26,
+   "lightnessShift": 20
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.15,
+  "measuredDE": 0.15,
+  "srgbDE": 0.16,
+  "predVsMeasured": 0,
+  "renderMs": 2797
+ },
+ {
+  "part": "global",
+  "pick": "skin-face",
+  "kind": "skin",
+  "file": "c0108.cr3",
+  "target": "h+80 (out of reach)",
+  "source": "#8a6152",
+  "sourceInSrgb": true,
+  "targetHex": "#5e704c",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": -38,
+   "lightnessShift": -2
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 12.64,
+  "measuredDE": 12.66,
+  "srgbDE": 12.66,
+  "predVsMeasured": 0.01,
+  "renderMs": 2379
+ },
+ {
+  "part": "global",
+  "pick": "skin-face",
+  "kind": "skin",
+  "file": "c0108.cr3",
+  "target": "hex #E3A98C",
+  "source": "#8a6152",
+  "sourceInSrgb": true,
+  "targetHex": "#e3a98c",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 15,
+   "saturation": 35,
+   "lightnessShift": 100
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": true
+  },
+  "predictedDE": 3.42,
+  "measuredDE": 3.43,
+  "srgbDE": 3.45,
+  "predVsMeasured": 0.01,
+  "renderMs": 3124
+ },
+ {
+  "part": "global",
+  "pick": "red-sash",
+  "kind": "product",
+  "file": "c0108.cr3",
+  "target": "h+12 C×1.15",
+  "source": "#af003f",
+  "sourceInSrgb": false,
+  "targetHex": "#b50024",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 17,
+   "saturation": 6,
+   "lightnessShift": -1
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.16,
+  "measuredDE": 0.17,
+  "srgbDE": 1.67,
+  "predVsMeasured": 0.01,
+  "renderMs": 2301
+ },
+ {
+  "part": "global",
+  "pick": "red-sash",
+  "kind": "product",
+  "file": "c0108.cr3",
+  "target": "h−20 C×0.8 L−6",
+  "source": "#af003f",
+  "sourceInSrgb": false,
+  "targetHex": "#8d1151",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -32,
+   "saturation": -16,
+   "lightnessShift": -27
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.09,
+  "measuredDE": 0.09,
+  "srgbDE": 0.09,
+  "predVsMeasured": 0,
+  "renderMs": 1623
+ },
+ {
+  "part": "global",
+  "pick": "red-sash",
+  "kind": "product",
+  "file": "c0108.cr3",
+  "target": "h+5 C×1.3 L+5",
+  "source": "#af003f",
+  "sourceInSrgb": false,
+  "targetHex": "#d30038",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 6,
+   "saturation": 27,
+   "lightnessShift": 25
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.17,
+  "measuredDE": 0.17,
+  "srgbDE": 4.13,
+  "predVsMeasured": 0.01,
+  "renderMs": 1573
+ },
+ {
+  "part": "global",
+  "pick": "red-sash",
+  "kind": "product",
+  "file": "c0108.cr3",
+  "target": "h+80 (out of reach)",
+  "source": "#af003f",
+  "sourceInSrgb": false,
+  "targetHex": "#5d5b00",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": false,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": -51,
+   "lightnessShift": -15
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 20.98,
+  "measuredDE": 20.96,
+  "srgbDE": 20.96,
+  "predVsMeasured": 0.01,
+  "renderMs": 1978
+ },
+ {
+  "part": "global",
+  "pick": "red-sash",
+  "kind": "product",
+  "file": "c0108.cr3",
+  "target": "hex #C8102E",
+  "source": "#af003f",
+  "sourceInSrgb": false,
+  "targetHex": "#c8102e",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 20,
+   "saturation": 7,
+   "lightnessShift": 27
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.22,
+  "measuredDE": 0.21,
+  "srgbDE": 0.12,
+  "predVsMeasured": 0.01,
+  "renderMs": 1508
+ },
+ {
+  "part": "global",
+  "pick": "red-can",
+  "kind": "product",
+  "file": "c0398.nef",
+  "target": "h+12 C×1.15",
+  "source": "#e3676d",
+  "sourceInSrgb": true,
+  "targetHex": "#e76554",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 21,
+   "saturation": 7,
+   "lightnessShift": 0
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.07,
+  "measuredDE": 0.08,
+  "srgbDE": 0.13,
+  "predVsMeasured": 0.01,
+  "renderMs": 1312
+ },
+ {
+  "part": "global",
+  "pick": "red-can",
+  "kind": "product",
+  "file": "c0398.nef",
+  "target": "h−20 C×0.8 L−6",
+  "source": "#e3676d",
+  "sourceInSrgb": true,
+  "targetHex": "#c35f7e",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -34,
+   "saturation": -15,
+   "lightnessShift": -20
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.15,
+  "measuredDE": 0.13,
+  "srgbDE": 0.23,
+  "predVsMeasured": 0.03,
+  "renderMs": 1255
+ },
+ {
+  "part": "global",
+  "pick": "red-can",
+  "kind": "product",
+  "file": "c0398.nef",
+  "target": "h+5 C×1.3 L+5",
+  "source": "#e3676d",
+  "sourceInSrgb": true,
+  "targetHex": "#ff6566",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 8,
+   "saturation": 26,
+   "lightnessShift": 18
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.11,
+  "measuredDE": 0.09,
+  "srgbDE": 1.65,
+  "predVsMeasured": 0.02,
+  "renderMs": 1267
+ },
+ {
+  "part": "global",
+  "pick": "red-can",
+  "kind": "product",
+  "file": "c0398.nef",
+  "target": "h+80 (out of reach)",
+  "source": "#e3676d",
+  "sourceInSrgb": true,
+  "targetHex": "#8f9528",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": -58,
+   "lightnessShift": -5
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 19.01,
+  "measuredDE": 19.04,
+  "srgbDE": 19,
+  "predVsMeasured": 0.04,
+  "renderMs": 1307
+ },
+ {
+  "part": "global",
+  "pick": "red-can",
+  "kind": "product",
+  "file": "c0398.nef",
+  "target": "hex #E4002B",
+  "source": "#e3676d",
+  "sourceInSrgb": true,
+  "targetHex": "#e4002b",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 10,
+   "saturation": 48,
+   "lightnessShift": -31
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.27,
+  "measuredDE": 0.58,
+  "srgbDE": 1.54,
+  "predVsMeasured": 0.46,
+  "renderMs": 1366
+ },
+ {
+  "part": "global",
+  "pick": "terracotta",
+  "kind": "product",
+  "file": "c0398.nef",
+  "target": "h+12 C×1.15",
+  "source": "#d4a182",
+  "sourceInSrgb": true,
+  "targetHex": "#d0a375",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 28,
+   "saturation": 10,
+   "lightnessShift": -1
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.14,
+  "measuredDE": 0.16,
+  "srgbDE": 0.18,
+  "predVsMeasured": 0.02,
+  "renderMs": 2018
+ },
+ {
+  "part": "global",
+  "pick": "terracotta",
+  "kind": "product",
+  "file": "c0398.nef",
+  "target": "h−20 C×0.8 L−6",
+  "source": "#d4a182",
+  "sourceInSrgb": true,
+  "targetHex": "#c39086",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -42,
+   "saturation": -13,
+   "lightnessShift": -17
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.1,
+  "measuredDE": 0.1,
+  "srgbDE": 0.14,
+  "predVsMeasured": 0.04,
+  "renderMs": 3176
+ },
+ {
+  "part": "global",
+  "pick": "terracotta",
+  "kind": "product",
+  "file": "c0398.nef",
+  "target": "h+5 C×1.3 L+5",
+  "source": "#d4a182",
+  "sourceInSrgb": true,
+  "targetHex": "#e8ad7f",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 12,
+   "saturation": 26,
+   "lightnessShift": 14
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.13,
+  "measuredDE": 0.14,
+  "srgbDE": 0.22,
+  "predVsMeasured": 0.02,
+  "renderMs": 2652
+ },
+ {
+  "part": "global",
+  "pick": "terracotta",
+  "kind": "product",
+  "file": "c0398.nef",
+  "target": "h+80 (out of reach)",
+  "source": "#d4a182",
+  "sourceInSrgb": true,
+  "targetHex": "#90b786",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": -24,
+   "lightnessShift": -1
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 12.92,
+  "measuredDE": 12.98,
+  "srgbDE": 12.97,
+  "predVsMeasured": 0.06,
+  "renderMs": 2689
+ },
+ {
+  "part": "global",
+  "pick": "terracotta",
+  "kind": "product",
+  "file": "c0398.nef",
+  "target": "hex #C0603A",
+  "source": "#d4a182",
+  "sourceInSrgb": true,
+  "targetHex": "#c0603a",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -22,
+   "saturation": 81,
+   "lightnessShift": -51
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.18,
+  "measuredDE": 0.21,
+  "srgbDE": 0.53,
+  "predVsMeasured": 0.11,
+  "renderMs": 2897
+ },
+ {
+  "part": "global",
+  "pick": "orange-robot",
+  "kind": "product",
+  "file": "c1182.arw",
+  "target": "h+12 C×1.15",
+  "source": "#ffa670",
+  "sourceInSrgb": false,
+  "targetHex": "#ffab47",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 26,
+   "saturation": 4,
+   "lightnessShift": -1
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.09,
+  "measuredDE": 0.09,
+  "srgbDE": 9.52,
+  "predVsMeasured": 0,
+  "renderMs": 1825
+ },
+ {
+  "part": "global",
+  "pick": "orange-robot",
+  "kind": "product",
+  "file": "c1182.arw",
+  "target": "h−20 C×0.8 L−6",
+  "source": "#ffa670",
+  "sourceInSrgb": false,
+  "targetHex": "#ff9494",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -38,
+   "saturation": -9,
+   "lightnessShift": -14
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.15,
+  "measuredDE": 0.15,
+  "srgbDE": 4.98,
+  "predVsMeasured": 0,
+  "renderMs": 1867
+ },
+ {
+  "part": "global",
+  "pick": "orange-robot",
+  "kind": "product",
+  "file": "c1182.arw",
+  "target": "h+5 C×1.3 L+5",
+  "source": "#ffa670",
+  "sourceInSrgb": false,
+  "targetHex": "#ffaa51",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": false,
+  "shifts": {
+   "hueShift": -20,
+   "saturation": 89,
+   "lightnessShift": 34
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 3.56,
+  "measuredDE": 3.56,
+  "srgbDE": 14.07,
+  "predVsMeasured": 0,
+  "renderMs": 2327
+ },
+ {
+  "part": "global",
+  "pick": "orange-robot",
+  "kind": "product",
+  "file": "c1182.arw",
+  "target": "h+80 (out of reach)",
+  "source": "#ffa670",
+  "sourceInSrgb": false,
+  "targetHex": "#95e456",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": -61,
+   "lightnessShift": -3
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 22.6,
+  "measuredDE": 22.6,
+  "srgbDE": 22.6,
+  "predVsMeasured": 0,
+  "renderMs": 1934
+ },
+ {
+  "part": "global",
+  "pick": "orange-robot",
+  "kind": "product",
+  "file": "c1182.arw",
+  "target": "hex #FF6A13",
+  "source": "#ffa670",
+  "sourceInSrgb": false,
+  "targetHex": "#ff6a13",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 6,
+   "saturation": 10,
+   "lightnessShift": -48
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.15,
+  "measuredDE": 0.15,
+  "srgbDE": 0.16,
+  "predVsMeasured": 0,
+  "renderMs": 1860
+ },
+ {
+  "part": "global",
+  "pick": "blue-robot",
+  "kind": "product",
+  "file": "c1182.arw",
+  "target": "h+12 C×1.15",
+  "source": "#0034f0",
+  "sourceInSrgb": false,
+  "targetHex": "#5c00f3",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 57,
+   "saturation": 1,
+   "lightnessShift": 8
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.15,
+  "measuredDE": 0.15,
+  "srgbDE": 2.09,
+  "predVsMeasured": 0.01,
+  "renderMs": 1994
+ },
+ {
+  "part": "global",
+  "pick": "blue-robot",
+  "kind": "product",
+  "file": "c1182.arw",
+  "target": "h−20 C×0.8 L−6",
+  "source": "#0034f0",
+  "sourceInSrgb": false,
+  "targetHex": "#0042c9",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -72,
+   "saturation": 34,
+   "lightnessShift": -45
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.13,
+  "measuredDE": 0.15,
+  "srgbDE": 17.28,
+  "predVsMeasured": 0.01,
+  "renderMs": 1753
+ },
+ {
+  "part": "global",
+  "pick": "blue-robot",
+  "kind": "product",
+  "file": "c1182.arw",
+  "target": "h+5 C×1.3 L+5",
+  "source": "#0034f0",
+  "sourceInSrgb": false,
+  "targetHex": "#0022ff",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": false,
+  "shifts": {
+   "hueShift": -18,
+   "saturation": 40,
+   "lightnessShift": 30
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 2.29,
+  "measuredDE": 2.29,
+  "srgbDE": 3.94,
+  "predVsMeasured": 0,
+  "renderMs": 1704
+ },
+ {
+  "part": "global",
+  "pick": "blue-robot",
+  "kind": "product",
+  "file": "c1182.arw",
+  "target": "h+80 (out of reach)",
+  "source": "#0034f0",
+  "sourceInSrgb": false,
+  "targetHex": "#ce002c",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": false,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": -99,
+   "lightnessShift": -23
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 31.66,
+  "measuredDE": 31.66,
+  "srgbDE": 31.66,
+  "predVsMeasured": 0,
+  "renderMs": 1820
+ },
+ {
+  "part": "global",
+  "pick": "blue-robot",
+  "kind": "product",
+  "file": "c1182.arw",
+  "target": "hex #0057B8",
+  "source": "#0034f0",
+  "sourceInSrgb": false,
+  "targetHex": "#0057b8",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 3,
+   "saturation": -42,
+   "lightnessShift": 11
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.12,
+  "measuredDE": 0.11,
+  "srgbDE": 0.18,
+  "predVsMeasured": 0,
+  "renderMs": 2062
+ },
+ {
+  "part": "global",
+  "pick": "teal-bead",
+  "kind": "product",
+  "file": "c0402.nef",
+  "target": "h+12 C×1.15",
+  "source": "#00212d",
+  "sourceInSrgb": false,
+  "targetHex": "#002033",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 16,
+   "saturation": 18,
+   "lightnessShift": 2
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.06,
+  "measuredDE": 0.06,
+  "srgbDE": 4.05,
+  "predVsMeasured": 0,
+  "renderMs": 1780
+ },
+ {
+  "part": "global",
+  "pick": "teal-bead",
+  "kind": "product",
+  "file": "c0402.nef",
+  "target": "h−20 C×0.8 L−6",
+  "source": "#00212d",
+  "sourceInSrgb": false,
+  "targetHex": "#001618",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -48,
+   "saturation": 49,
+   "lightnessShift": -72
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.05,
+  "measuredDE": 0.05,
+  "srgbDE": 5.55,
+  "predVsMeasured": 0,
+  "renderMs": 1875
+ },
+ {
+  "part": "global",
+  "pick": "teal-bead",
+  "kind": "product",
+  "file": "c0402.nef",
+  "target": "h+5 C×1.3 L+5",
+  "source": "#00212d",
+  "sourceInSrgb": false,
+  "targetHex": "#002c3f",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 7,
+   "saturation": 32,
+   "lightnessShift": 49
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.09,
+  "measuredDE": 0.09,
+  "srgbDE": 4.23,
+  "predVsMeasured": 0,
+  "renderMs": 2047
+ },
+ {
+  "part": "global",
+  "pick": "teal-bead",
+  "kind": "product",
+  "file": "c0402.nef",
+  "target": "h+80 (out of reach)",
+  "source": "#00212d",
+  "sourceInSrgb": false,
+  "targetHex": "#22172f",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": 1,
+   "lightnessShift": -17
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 8.58,
+  "measuredDE": 8.58,
+  "srgbDE": 8.58,
+  "predVsMeasured": 0,
+  "renderMs": 1612
+ },
+ {
+  "part": "global",
+  "pick": "teal-bead",
+  "kind": "product",
+  "file": "c0402.nef",
+  "target": "hex #007C80",
+  "source": "#00212d",
+  "sourceInSrgb": false,
+  "targetHex": "#007c80",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -42,
+   "saturation": 77,
+   "lightnessShift": 100
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": true
+  },
+  "predictedDE": 20.67,
+  "measuredDE": 20.67,
+  "srgbDE": 20.32,
+  "predVsMeasured": 0,
+  "renderMs": 2132
+ },
+ {
+  "part": "global",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "file": "c0428.nef",
+  "target": "h+12 C×1.15",
+  "source": "#83a9c5",
+  "sourceInSrgb": true,
+  "targetHex": "#87a7cd",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 23,
+   "saturation": 13,
+   "lightnessShift": 1
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.11,
+  "measuredDE": 0.11,
+  "srgbDE": 0.11,
+  "predVsMeasured": 0,
+  "renderMs": 1147
+ },
+ {
+  "part": "global",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "file": "c0428.nef",
+  "target": "h−20 C×0.8 L−6",
+  "source": "#83a9c5",
+  "sourceInSrgb": true,
+  "targetHex": "#739aa9",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -38,
+   "saturation": -18,
+   "lightnessShift": -19
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.1,
+  "measuredDE": 0.1,
+  "srgbDE": 0.1,
+  "predVsMeasured": 0,
+  "renderMs": 1265
+ },
+ {
+  "part": "global",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "file": "c0428.nef",
+  "target": "h+5 C×1.3 L+5",
+  "source": "#83a9c5",
+  "sourceInSrgb": true,
+  "targetHex": "#89b7df",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 8,
+   "saturation": 30,
+   "lightnessShift": 15
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.1,
+  "measuredDE": 0.1,
+  "srgbDE": 0.1,
+  "predVsMeasured": 0,
+  "renderMs": 1479
+ },
+ {
+  "part": "global",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "file": "c0428.nef",
+  "target": "h+80 (out of reach)",
+  "source": "#83a9c5",
+  "sourceInSrgb": true,
+  "targetHex": "#bc99b8",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": -14,
+   "lightnessShift": 1
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 10.76,
+  "measuredDE": 10.76,
+  "srgbDE": 10.76,
+  "predVsMeasured": 0,
+  "renderMs": 1306
+ },
+ {
+  "part": "global",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "file": "c0428.nef",
+  "target": "hex #6CA0DC",
+  "source": "#83a9c5",
+  "sourceInSrgb": true,
+  "targetHex": "#6ca0dc",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 23,
+   "saturation": 80,
+   "lightnessShift": -8
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.05,
+  "measuredDE": 0.06,
+  "srgbDE": 0.06,
+  "predVsMeasured": 0,
+  "renderMs": 1352
+ },
+ {
+  "part": "global",
+  "pick": "sky-trees",
+  "kind": "sky",
+  "file": "c0519.nef",
+  "target": "h+12 C×1.15",
+  "source": "#b1cdf9",
+  "sourceInSrgb": true,
+  "targetHex": "#bbcaff",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 25,
+   "saturation": 13,
+   "lightnessShift": 1
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.12,
+  "measuredDE": 0.12,
+  "srgbDE": 0.29,
+  "predVsMeasured": 0,
+  "renderMs": 5746
+ },
+ {
+  "part": "global",
+  "pick": "sky-trees",
+  "kind": "sky",
+  "file": "c0519.nef",
+  "target": "h−20 C×0.8 L−6",
+  "source": "#b1cdf9",
+  "sourceInSrgb": true,
+  "targetHex": "#99c0db",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -40,
+   "saturation": -18,
+   "lightnessShift": -16
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.1,
+  "measuredDE": 0.1,
+  "srgbDE": 0.1,
+  "predVsMeasured": 0,
+  "renderMs": 5516
+ },
+ {
+  "part": "global",
+  "pick": "sky-trees",
+  "kind": "sky",
+  "file": "c0519.nef",
+  "target": "h+5 C×1.3 L+5",
+  "source": "#b1cdf9",
+  "sourceInSrgb": true,
+  "targetHex": "#bcdaff",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": false,
+  "shifts": {
+   "hueShift": 1,
+   "saturation": 9,
+   "lightnessShift": 7
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 2.21,
+  "measuredDE": 2.21,
+  "srgbDE": 3.17,
+  "predVsMeasured": 0,
+  "renderMs": 5535
+ },
+ {
+  "part": "global",
+  "pick": "sky-trees",
+  "kind": "sky",
+  "file": "c0519.nef",
+  "target": "h+80 (out of reach)",
+  "source": "#b1cdf9",
+  "sourceInSrgb": true,
+  "targetHex": "#f3bad8",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": -13,
+   "lightnessShift": 1
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 10.63,
+  "measuredDE": 10.63,
+  "srgbDE": 10.63,
+  "predVsMeasured": 0,
+  "renderMs": 5763
+ },
+ {
+  "part": "global",
+  "pick": "sky-trees",
+  "kind": "sky",
+  "file": "c0519.nef",
+  "target": "hex #87CEEB",
+  "source": "#b1cdf9",
+  "sourceInSrgb": true,
+  "targetHex": "#87ceeb",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -68,
+   "saturation": 18,
+   "lightnessShift": -8
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.12,
+  "measuredDE": 0.12,
+  "srgbDE": 0.12,
+  "predVsMeasured": 0,
+  "renderMs": 5645
+ },
+ {
+  "part": "global",
+  "pick": "sky-ferry",
+  "kind": "sky",
+  "file": "c0320.raf",
+  "target": "h+12 C×1.15",
+  "source": "#6293b7",
+  "sourceInSrgb": true,
+  "targetHex": "#6791c0",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 22,
+   "saturation": 13,
+   "lightnessShift": 1
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.03,
+  "measuredDE": 0.03,
+  "srgbDE": 0.03,
+  "predVsMeasured": 0,
+  "renderMs": 2655
+ },
+ {
+  "part": "global",
+  "pick": "sky-ferry",
+  "kind": "sky",
+  "file": "c0320.raf",
+  "target": "h−20 C×0.8 L−6",
+  "source": "#6293b7",
+  "sourceInSrgb": true,
+  "targetHex": "#538597",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -36,
+   "saturation": -19,
+   "lightnessShift": -21
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.06,
+  "measuredDE": 0.06,
+  "srgbDE": 0.06,
+  "predVsMeasured": 0,
+  "renderMs": 2430
+ },
+ {
+  "part": "global",
+  "pick": "sky-ferry",
+  "kind": "sky",
+  "file": "c0320.raf",
+  "target": "h+5 C×1.3 L+5",
+  "source": "#6293b7",
+  "sourceInSrgb": true,
+  "targetHex": "#63a1d3",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 7,
+   "saturation": 31,
+   "lightnessShift": 17
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.08,
+  "measuredDE": 0.08,
+  "srgbDE": 0.08,
+  "predVsMeasured": 0,
+  "renderMs": 1670
+ },
+ {
+  "part": "global",
+  "pick": "sky-ferry",
+  "kind": "sky",
+  "file": "c0320.raf",
+  "target": "h+80 (out of reach)",
+  "source": "#6293b7",
+  "sourceInSrgb": true,
+  "targetHex": "#aa7fa6",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": -22,
+   "lightnessShift": 1
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 12.22,
+  "measuredDE": 12.22,
+  "srgbDE": 12.22,
+  "predVsMeasured": 0,
+  "renderMs": 2381
+ },
+ {
+  "part": "global",
+  "pick": "sky-ferry",
+  "kind": "sky",
+  "file": "c0320.raf",
+  "target": "hex #3D85C6",
+  "source": "#6293b7",
+  "sourceInSrgb": true,
+  "targetHex": "#3d85c6",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 15,
+   "saturation": 64,
+   "lightnessShift": -16
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.13,
+  "measuredDE": 0.13,
+  "srgbDE": 0.13,
+  "predVsMeasured": 0,
+  "renderMs": 2034
+ },
+ {
+  "part": "global",
+  "pick": "sky-city",
+  "kind": "sky",
+  "file": "c0326.rwl",
+  "target": "h+12 C×1.15",
+  "source": "#5284b2",
+  "sourceInSrgb": true,
+  "targetHex": "#5b81bb",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 22,
+   "saturation": 11,
+   "lightnessShift": 1
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.1,
+  "measuredDE": 0.1,
+  "srgbDE": 0.1,
+  "predVsMeasured": 0,
+  "renderMs": 2261
+ },
+ {
+  "part": "global",
+  "pick": "sky-city",
+  "kind": "sky",
+  "file": "c0326.rwl",
+  "target": "h−20 C×0.8 L−6",
+  "source": "#5284b2",
+  "sourceInSrgb": true,
+  "targetHex": "#3e7791",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -35,
+   "saturation": -18,
+   "lightnessShift": -23
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.1,
+  "measuredDE": 0.1,
+  "srgbDE": 0.1,
+  "predVsMeasured": 0,
+  "renderMs": 3000
+ },
+ {
+  "part": "global",
+  "pick": "sky-city",
+  "kind": "sky",
+  "file": "c0326.rwl",
+  "target": "h+5 C×1.3 L+5",
+  "source": "#5284b2",
+  "sourceInSrgb": true,
+  "targetHex": "#5490d0",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 6,
+   "saturation": 30,
+   "lightnessShift": 19
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.09,
+  "measuredDE": 0.1,
+  "srgbDE": 0.1,
+  "predVsMeasured": 0,
+  "renderMs": 2276
+ },
+ {
+  "part": "global",
+  "pick": "sky-city",
+  "kind": "sky",
+  "file": "c0326.rwl",
+  "target": "h+80 (out of reach)",
+  "source": "#5284b2",
+  "sourceInSrgb": true,
+  "targetHex": "#a66c94",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": -27,
+   "lightnessShift": 1
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 13.19,
+  "measuredDE": 13.2,
+  "srgbDE": 13.19,
+  "predVsMeasured": 0,
+  "renderMs": 2637
+ },
+ {
+  "part": "global",
+  "pick": "sky-city",
+  "kind": "sky",
+  "file": "c0326.rwl",
+  "target": "hex #4A90D9",
+  "source": "#5284b2",
+  "sourceInSrgb": true,
+  "targetHex": "#4a90d9",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 7,
+   "saturation": 48,
+   "lightnessShift": 19
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.09,
+  "measuredDE": 0.09,
+  "srgbDE": 0.09,
+  "predVsMeasured": 0,
+  "renderMs": 2730
+ },
+ {
+  "part": "global",
+  "pick": "sky-venice",
+  "kind": "sky",
+  "file": "c1015.rw2",
+  "target": "h+12 C×1.15",
+  "source": "#f5fafb",
+  "sourceInSrgb": true,
+  "targetHex": "#f5fafc",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": 100,
+   "lightnessShift": 0
+  },
+  "limited": {
+   "hue": true,
+   "saturation": true,
+   "lightness": false
+  },
+  "predictedDE": 0.42,
+  "measuredDE": 0.42,
+  "srgbDE": 0.42,
+  "predVsMeasured": 0,
+  "renderMs": 2662
+ },
+ {
+  "part": "global",
+  "pick": "sky-venice",
+  "kind": "sky",
+  "file": "c1015.rw2",
+  "target": "h−20 C×0.8 L−6",
+  "source": "#f5fafb",
+  "sourceInSrgb": true,
+  "targetHex": "#e4e8e8",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": -100,
+   "saturation": -100,
+   "lightnessShift": -100
+  },
+  "limited": {
+   "hue": true,
+   "saturation": true,
+   "lightness": true
+  },
+  "predictedDE": 2.61,
+  "measuredDE": 2.61,
+  "srgbDE": 2.61,
+  "predVsMeasured": 0,
+  "renderMs": 3019
+ },
+ {
+  "part": "global",
+  "pick": "sky-venice",
+  "kind": "sky",
+  "file": "c1015.rw2",
+  "target": "h+5 C×1.3 L+5",
+  "source": "#f5fafb",
+  "sourceInSrgb": true,
+  "targetHex": "#ffffff",
+  "targetInSrgb": false,
+  "targetInWorkingGamut": false,
+  "shifts": {
+   "hueShift": -100,
+   "saturation": -100,
+   "lightnessShift": 100
+  },
+  "limited": {
+   "hue": false,
+   "saturation": true,
+   "lightness": true
+  },
+  "predictedDE": 2.11,
+  "measuredDE": 2.12,
+  "srgbDE": 2.15,
+  "predVsMeasured": 0.01,
+  "renderMs": 3248
+ },
+ {
+  "part": "global",
+  "pick": "sky-venice",
+  "kind": "sky",
+  "file": "c1015.rw2",
+  "target": "h+80 (out of reach)",
+  "source": "#f5fafb",
+  "sourceInSrgb": true,
+  "targetHex": "#f9f8fc",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": -100,
+   "lightnessShift": 0
+  },
+  "limited": {
+   "hue": true,
+   "saturation": true,
+   "lightness": false
+  },
+  "predictedDE": 3.41,
+  "measuredDE": 3.41,
+  "srgbDE": 3.41,
+  "predVsMeasured": 0,
+  "renderMs": 2610
+ },
+ {
+  "part": "global",
+  "pick": "sky-venice",
+  "kind": "sky",
+  "file": "c1015.rw2",
+  "target": "hex #A7C7E7",
+  "source": "#f5fafb",
+  "sourceInSrgb": true,
+  "targetHex": "#a7c7e7",
+  "targetInSrgb": true,
+  "targetInWorkingGamut": true,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": 100,
+   "lightnessShift": -100
+  },
+  "limited": {
+   "hue": true,
+   "saturation": true,
+   "lightness": true
+  },
+  "predictedDE": 16.91,
+  "measuredDE": 16.91,
+  "srgbDE": 16.91,
+  "predVsMeasured": 0,
+  "renderMs": 2610
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "red-sash",
+  "kind": "product",
+  "target": "h+12 C×1.15",
+  "influence": 0.499,
+  "targetInSrgb": false,
+  "shifts": {
+   "hueShift": 27,
+   "saturation": 9,
+   "lightnessShift": 2
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.57,
+  "measuredDE": 0.57,
+  "predVsMeasured": 0.01
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "red-sash",
+  "kind": "product",
+  "target": "h+12 C×1.15",
+  "influence": 0.499,
+  "targetInSrgb": false,
+  "shifts": {
+   "hueShift": 17,
+   "saturation": 7,
+   "lightnessShift": 0
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.12,
+  "measuredDE": 3.67,
+  "predVsMeasured": 0.01
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "red-sash",
+  "kind": "product",
+  "target": "h−20 C×0.8 L−6",
+  "influence": 0.499,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": -80,
+   "saturation": -34,
+   "lightnessShift": -45
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.06,
+  "measuredDE": 0.08,
+  "predVsMeasured": 0.06
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "red-sash",
+  "kind": "product",
+  "target": "h−20 C×0.8 L−6",
+  "influence": 0.499,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": -32,
+   "saturation": -16,
+   "lightnessShift": -27
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.1,
+  "measuredDE": 5.82,
+  "predVsMeasured": 0.01
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "red-sash",
+  "kind": "product",
+  "target": "h+5 C×1.3 L+5",
+  "influence": 0.499,
+  "targetInSrgb": false,
+  "shifts": {
+   "hueShift": 4,
+   "saturation": 65,
+   "lightnessShift": 38
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.2,
+  "measuredDE": 0.14,
+  "predVsMeasured": 0.08
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "red-sash",
+  "kind": "product",
+  "target": "h+5 C×1.3 L+5",
+  "influence": 0.499,
+  "targetInSrgb": false,
+  "shifts": {
+   "hueShift": 6,
+   "saturation": 27,
+   "lightnessShift": 25
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.23,
+  "measuredDE": 3.19,
+  "predVsMeasured": 0.04
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "red-sash",
+  "kind": "product",
+  "target": "hex #C8102E",
+  "influence": 0.499,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 34,
+   "saturation": 12,
+   "lightnessShift": 55
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.15,
+  "measuredDE": 0.17,
+  "predVsMeasured": 0.09
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "red-sash",
+  "kind": "product",
+  "target": "hex #C8102E",
+  "influence": 0.499,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 20,
+   "saturation": 7,
+   "lightnessShift": 26
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.09,
+  "measuredDE": 4.99,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "terracotta",
+  "kind": "product",
+  "target": "h+12 C×1.15",
+  "influence": 0.749,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 37,
+   "saturation": 14,
+   "lightnessShift": -1
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.09,
+  "measuredDE": 0.07,
+  "predVsMeasured": 0.02
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "terracotta",
+  "kind": "product",
+  "target": "h+12 C×1.15",
+  "influence": 0.749,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 28,
+   "saturation": 10,
+   "lightnessShift": -1
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.14,
+  "measuredDE": 1.37,
+  "predVsMeasured": 0.01
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "terracotta",
+  "kind": "product",
+  "target": "h−20 C×0.8 L−6",
+  "influence": 0.749,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": -59,
+   "saturation": -15,
+   "lightnessShift": -22
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.08,
+  "measuredDE": 0.11,
+  "predVsMeasured": 0.04
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "terracotta",
+  "kind": "product",
+  "target": "h−20 C×0.8 L−6",
+  "influence": 0.749,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": -42,
+   "saturation": -13,
+   "lightnessShift": -17
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.11,
+  "measuredDE": 2.41,
+  "predVsMeasured": 0.03
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "terracotta",
+  "kind": "product",
+  "target": "h+5 C×1.3 L+5",
+  "influence": 0.749,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 14,
+   "saturation": 34,
+   "lightnessShift": 19
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.08,
+  "measuredDE": 0.1,
+  "predVsMeasured": 0.02
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "terracotta",
+  "kind": "product",
+  "target": "h+5 C×1.3 L+5",
+  "influence": 0.749,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 12,
+   "saturation": 26,
+   "lightnessShift": 14
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.12,
+  "measuredDE": 1.35,
+  "predVsMeasured": 0.02
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "terracotta",
+  "kind": "product",
+  "target": "hex #C0603A",
+  "influence": 0.749,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": -27,
+   "saturation": 100,
+   "lightnessShift": -66
+  },
+  "limited": {
+   "hue": false,
+   "saturation": true,
+   "lightness": false
+  },
+  "predictedDE": 0.56,
+  "measuredDE": 0.52,
+  "predVsMeasured": 0.18
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "terracotta",
+  "kind": "product",
+  "target": "hex #C0603A",
+  "influence": 0.749,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": -22,
+   "saturation": 81,
+   "lightnessShift": -51
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.15,
+  "measuredDE": 4.67,
+  "predVsMeasured": 0.16
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "blue-robot",
+  "kind": "product",
+  "target": "h+12 C×1.15",
+  "influence": 0.498,
+  "targetInSrgb": false,
+  "shifts": {
+   "hueShift": 100,
+   "saturation": 73,
+   "lightnessShift": 85
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 1.82,
+  "measuredDE": 1.82,
+  "predVsMeasured": 0.01
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "blue-robot",
+  "kind": "product",
+  "target": "h+12 C×1.15",
+  "influence": 0.498,
+  "targetInSrgb": false,
+  "shifts": {
+   "hueShift": 57,
+   "saturation": 1,
+   "lightnessShift": 9
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.07,
+  "measuredDE": 6.22,
+  "predVsMeasured": 0.03
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "blue-robot",
+  "kind": "product",
+  "target": "h−20 C×0.8 L−6",
+  "influence": 0.498,
+  "targetInSrgb": false,
+  "shifts": {
+   "hueShift": -100,
+   "saturation": 0,
+   "lightnessShift": -32
+  },
+  "limited": {
+   "hue": true,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 4.63,
+  "measuredDE": 4.64,
+  "predVsMeasured": 0.02
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "blue-robot",
+  "kind": "product",
+  "target": "h−20 C×0.8 L−6",
+  "influence": 0.498,
+  "targetInSrgb": false,
+  "shifts": {
+   "hueShift": -72,
+   "saturation": 34,
+   "lightnessShift": -45
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.05,
+  "measuredDE": 12.52,
+  "predVsMeasured": 0.01
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "blue-robot",
+  "kind": "product",
+  "target": "h+5 C×1.3 L+5",
+  "influence": 0.498,
+  "targetInSrgb": false,
+  "shifts": {
+   "hueShift": 35,
+   "saturation": 20,
+   "lightnessShift": 70
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 3.7,
+  "measuredDE": 3.7,
+  "predVsMeasured": 0.01
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "blue-robot",
+  "kind": "product",
+  "target": "h+5 C×1.3 L+5",
+  "influence": 0.498,
+  "targetInSrgb": false,
+  "shifts": {
+   "hueShift": -18,
+   "saturation": 40,
+   "lightnessShift": 30
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 2.29,
+  "measuredDE": 4.06,
+  "predVsMeasured": 0.04
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "blue-robot",
+  "kind": "product",
+  "target": "hex #0057B8",
+  "influence": 0.498,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": -100,
+   "saturation": -76,
+   "lightnessShift": 47
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.14,
+  "measuredDE": 0.15,
+  "predVsMeasured": 0.01
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "blue-robot",
+  "kind": "product",
+  "target": "hex #0057B8",
+  "influence": 0.498,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 2,
+   "saturation": -41,
+   "lightnessShift": 11
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.14,
+  "measuredDE": 6.35,
+  "predVsMeasured": 0.02
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "target": "h+12 C×1.15",
+  "influence": 0.748,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 30,
+   "saturation": 19,
+   "lightnessShift": 1
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.05,
+  "measuredDE": 0.05,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "target": "h+12 C×1.15",
+  "influence": 0.748,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 23,
+   "saturation": 13,
+   "lightnessShift": 1
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.11,
+  "measuredDE": 0.9,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "target": "h−20 C×0.8 L−6",
+  "influence": 0.748,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": -54,
+   "saturation": -22,
+   "lightnessShift": -25
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.02,
+  "measuredDE": 0.02,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "target": "h−20 C×0.8 L−6",
+  "influence": 0.748,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": -38,
+   "saturation": -18,
+   "lightnessShift": -19
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.1,
+  "measuredDE": 1.89,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "target": "h+5 C×1.3 L+5",
+  "influence": 0.748,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 10,
+   "saturation": 40,
+   "lightnessShift": 20
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.1,
+  "measuredDE": 0.1,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "target": "h+5 C×1.3 L+5",
+  "influence": 0.748,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 8,
+   "saturation": 30,
+   "lightnessShift": 15
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.1,
+  "measuredDE": 1.24,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "target": "hex #6CA0DC",
+  "influence": 0.748,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 26,
+   "saturation": 100,
+   "lightnessShift": -11
+  },
+  "limited": {
+   "hue": false,
+   "saturation": true,
+   "lightness": false
+  },
+  "predictedDE": 0.3,
+  "measuredDE": 0.3,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "sky-hills",
+  "kind": "sky",
+  "target": "hex #6CA0DC",
+  "influence": 0.748,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 23,
+   "saturation": 80,
+   "lightnessShift": -8
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.06,
+  "measuredDE": 1.37,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "skin-face",
+  "kind": "skin",
+  "target": "h+12 C×1.15",
+  "influence": 0.499,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 47,
+   "saturation": 21,
+   "lightnessShift": -1
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.05,
+  "measuredDE": 0.05,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "skin-face",
+  "kind": "skin",
+  "target": "h+12 C×1.15",
+  "influence": 0.499,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 26,
+   "saturation": 9,
+   "lightnessShift": 0
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.14,
+  "measuredDE": 2.2,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "skin-face",
+  "kind": "skin",
+  "target": "h−20 C×0.8 L−6",
+  "influence": 0.499,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": -90,
+   "saturation": -14,
+   "lightnessShift": -48
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.05,
+  "measuredDE": 0.05,
+  "predVsMeasured": 0.01
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "skin-face",
+  "kind": "skin",
+  "target": "h−20 C×0.8 L−6",
+  "influence": 0.499,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": -39,
+   "saturation": -14,
+   "lightnessShift": -24
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.07,
+  "measuredDE": 4.04,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "skin-face",
+  "kind": "skin",
+  "target": "h+5 C×1.3 L+5",
+  "influence": 0.499,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 17,
+   "saturation": 51,
+   "lightnessShift": 41
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.02,
+  "measuredDE": 0.02,
+  "predVsMeasured": 0.01
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "skin-face",
+  "kind": "skin",
+  "target": "h+5 C×1.3 L+5",
+  "influence": 0.499,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 11,
+   "saturation": 26,
+   "lightnessShift": 20
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": false
+  },
+  "predictedDE": 0.14,
+  "measuredDE": 3.05,
+  "predVsMeasured": 0
+ },
+ {
+  "part": "layer",
+  "mode": "influence",
+  "pick": "skin-face",
+  "kind": "skin",
+  "target": "hex #E3A98C",
+  "influence": 0.499,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 27,
+   "saturation": 59,
+   "lightnessShift": 100
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": true
+  },
+  "predictedDE": 13.5,
+  "measuredDE": 13.51,
+  "predVsMeasured": 0.01
+ },
+ {
+  "part": "layer",
+  "mode": "full strength",
+  "pick": "skin-face",
+  "kind": "skin",
+  "target": "hex #E3A98C",
+  "influence": 0.499,
+  "targetInSrgb": true,
+  "shifts": {
+   "hueShift": 15,
+   "saturation": 35,
+   "lightnessShift": 100
+  },
+  "limited": {
+   "hue": false,
+   "saturation": false,
+   "lightness": true
+  },
+  "predictedDE": 3.39,
+  "measuredDE": 13.68,
+  "predVsMeasured": 0.01
+ }
+]
