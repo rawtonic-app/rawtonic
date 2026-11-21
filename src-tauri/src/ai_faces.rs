@@ -149,14 +149,11 @@ pub(crate) async fn models(
     let generation = ai_state.lifecycle.generation();
     crate::ai_processing::ensure_runtime()?;
     let dir = crate::ai_processing::models_dir(app_handle).map_err(|e| e.to_string())?;
-    let mut batch = crate::ai_processing::DownloadBatch {
-        total: if download {
-            missing_bytes(&dir, MODEL_FILES.into_iter())
-        } else {
-            0
-        },
-        ..Default::default()
-    };
+    let mut batch = crate::ai_processing::DownloadBatch::of(if download {
+        missing_bytes(&dir, MODEL_FILES.into_iter())
+    } else {
+        0
+    });
     for (file, sha) in MODEL_FILES {
         if !download {
             if crate::ai_processing::verify_sha256(&dir.join(file), sha)
@@ -217,19 +214,16 @@ pub(crate) async fn portrait_model(
     let start = std::time::Instant::now();
     #[cfg(target_os = "macos")]
     let core_ml = {
-        let mut batch = crate::ai_processing::DownloadBatch {
-            total: if download {
-                missing_bytes(
-                    &dir,
-                    portrait::CORE_ML_FILES
-                        .iter()
-                        .map(|&(file, _, sha)| (file, sha)),
-                )
-            } else {
-                0
-            },
-            ..Default::default()
-        };
+        let mut batch = crate::ai_processing::DownloadBatch::of(if download {
+            missing_bytes(
+                &dir,
+                portrait::CORE_ML_FILES
+                    .iter()
+                    .map(|&(file, _, sha)| (file, sha)),
+            )
+        } else {
+            0
+        });
         crate::ai_processing::load_core_ml_in(
             app_handle,
             &dir,

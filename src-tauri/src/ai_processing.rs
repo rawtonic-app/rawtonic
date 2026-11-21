@@ -625,6 +625,17 @@ pub(crate) struct DownloadBatch {
     pub started: Option<(tauri::AppHandle, String)>,
 }
 
+impl DownloadBatch {
+    /// A batch of `total` bytes still to download.
+    pub fn of(total: u64) -> Self {
+        Self {
+            done: 0,
+            total,
+            started: None,
+        }
+    }
+}
+
 impl Drop for DownloadBatch {
     fn drop(&mut self) {
         if let Some((app_handle, model_name)) = self.started.take() {
