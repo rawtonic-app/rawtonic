@@ -23,34 +23,37 @@ async fn model(
     download: bool,
 ) -> anyhow::Result<Option<Arc<Model>>> {
     let ai_state = app_handle.state::<AiState>();
-    let mut slot = ai_state.super_resolution.lock().await;
     let models_dir = get_models_dir(app_handle)?;
+    // The fp16 graph's idle GPU check passed after this model loaded, or
+    // its download failed before and works now (opening Export again): the
+    // next photo loads it again (exports hold the checks, so a batch does
+    // not switch between photos once it has started).
+    let reload_path = models_dir.join(rawtonic_superres::ONNX_FILE);
+    if let Some(model) = refreshed(
+        &ai_state.super_resolution,
+        async || download && fetch_gpu_graph(app_handle, &models_dir).await,
+        async |current: Arc<Model>| {
+            Ok(tokio::task::spawn_blocking(move || current.gpu_graph_ready()).await?)
+        },
+        async move || {
+            let start = std::time::Instant::now();
+            let reloaded = tokio::task::spawn_blocking(move || Model::onnx(&reload_path)).await??;
+            log::info!(
+                "Super Resolution: model reloaded on {} in {} ms (GPU graph fetched or its check passed)",
+                reloaded.backend_name(),
+                start.elapsed().as_millis()
+            );
+            Ok(reloaded)
+        },
+    )
+    .await?
+    {
+        return Ok(Some(model));
+    }
+    let mut slot = ai_state.super_resolution.lock().await;
     if let Some(model) = slot.as_ref() {
-        // The fp16 graph's idle GPU check passed after this model loaded,
-        // or its download failed before and works now (opening Export
-        // again): the next photo loads it again (exports hold the checks,
-        // so a batch does not switch between photos once it has started).
-        let fetched = download && fetch_gpu_graph(app_handle, &models_dir).await;
-        let current = model.clone();
-        if !fetched && !tokio::task::spawn_blocking(move || current.gpu_graph_ready()).await? {
-            return Ok(Some(model.clone()));
-        }
-        let path = models_dir.join(rawtonic_superres::ONNX_FILE);
-        let start = std::time::Instant::now();
-        match tokio::task::spawn_blocking(move || Model::onnx(&path)).await? {
-            Ok(reloaded) => {
-                log::info!(
-                    "Super Resolution: model reloaded on {} in {} ms (GPU graph fetched or its check passed)",
-                    reloaded.backend_name(),
-                    start.elapsed().as_millis()
-                );
-                return Ok(Some(slot.insert(Arc::new(reloaded)).clone()));
-            }
-            Err(error) => {
-                log::warn!("Super Resolution: keeping the loaded model: {error:#}");
-                return Ok(Some(model.clone()));
-            }
-        }
+        // Loaded by another call while this one waited for the lock.
+        return Ok(Some(model.clone()));
     }
     let start = std::time::Instant::now();
     #[cfg(target_os = "macos")]
@@ -134,6 +137,38 @@ async fn model(
     Ok(Some(slot.insert(Arc::new(model)).clone()))
 }
 
+/// The loaded model (`None`: nothing loaded yet), replaced by `reload`'s
+/// when `fetch` (the optional fp16 download) installed a graph now or
+/// `ready` finds one that passed its GPU check since. `slot`'s lock is not
+/// held while `fetch` and `reload` run, so export workers keep running on
+/// the loaded model during a slow download; a failed reload keeps it.
+async fn refreshed<M>(
+    slot: &tokio::sync::Mutex<Option<Arc<M>>>,
+    fetch: impl AsyncFnOnce() -> bool,
+    ready: impl AsyncFnOnce(Arc<M>) -> anyhow::Result<bool>,
+    reload: impl AsyncFnOnce() -> anyhow::Result<M>,
+) -> anyhow::Result<Option<Arc<M>>> {
+    let Some(current) = slot.lock().await.clone() else {
+        return Ok(None);
+    };
+    if !fetch().await && !ready(current.clone()).await? {
+        return Ok(Some(current));
+    }
+    let reloaded = match reload().await {
+        Ok(reloaded) => Arc::new(reloaded),
+        Err(error) => {
+            log::warn!("Super Resolution: keeping the loaded model: {error:#}");
+            return Ok(Some(current));
+        }
+    };
+    let mut slot = slot.lock().await;
+    match slot.as_ref() {
+        // Another call replaced it meanwhile: keep that one.
+        Some(newer) if !Arc::ptr_eq(newer, &current) => Ok(Some(newer.clone())),
+        _ => Ok(Some(slot.insert(reloaded).clone())),
+    }
+}
+
 /// Downloads the fp16 graph for GPU providers (1.2 MB) when ONNX Runtime's
 /// GPU providers may run it (Windows and Linux, GPU AI on) and it is not
 /// installed; `true` when it was downloaded now. Optional: older packs
@@ -209,5 +244,89 @@ impl rawtonic_export::export_processing::Enlarger for ExportEnlarger<'_> {
             started.elapsed().as_millis()
         );
         Ok(enlarged)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A slow retry of the optional fp16 download (Export opened again
+    /// while a batch runs) must not hold the model's lock: export workers
+    /// take the loaded model meanwhile, and the reloaded one replaces it
+    /// afterwards.
+    #[tokio::test]
+    async fn retry_of_the_fp16_download_leaves_the_loaded_model_to_exports() {
+        let slot = tokio::sync::Mutex::new(Some(Arc::new(32u32)));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (finish_tx, finish_rx) = tokio::sync::oneshot::channel::<()>();
+        let refresh = refreshed(
+            &slot,
+            async || {
+                started_tx.send(()).unwrap();
+                finish_rx.await.unwrap();
+                true
+            },
+            async |_| panic!("a fetched graph needs no check"),
+            async || Ok(16u32),
+        );
+        let export = async {
+            started_rx.await.unwrap();
+            let during = tokio::time::timeout(std::time::Duration::from_secs(5), slot.lock())
+                .await
+                .expect("an export waits for the download")
+                .clone();
+            finish_tx.send(()).unwrap();
+            during
+        };
+        let (refreshed, during) = tokio::join!(refresh, export);
+        assert_eq!(during.as_deref(), Some(&32));
+        assert_eq!(refreshed.unwrap().as_deref(), Some(&16));
+        assert_eq!(slot.lock().await.as_deref(), Some(&16));
+    }
+
+    #[tokio::test]
+    async fn nothing_new_keeps_the_model_and_a_failed_reload_too() {
+        let slot = tokio::sync::Mutex::new(Some(Arc::new(32u32)));
+        let kept = refreshed(
+            &slot,
+            async || false,
+            async |_| Ok(false),
+            async || panic!("nothing to reload"),
+        );
+        assert_eq!(kept.await.unwrap().as_deref(), Some(&32));
+        let kept = refreshed(
+            &slot,
+            async || true,
+            async |_| Ok(false),
+            async || anyhow::bail!("graph unreadable"),
+        );
+        assert_eq!(kept.await.unwrap().as_deref(), Some(&32));
+        let empty = tokio::sync::Mutex::new(None::<Arc<u32>>);
+        let none = refreshed(
+            &empty,
+            async || panic!("not loaded"),
+            async |_| Ok(true),
+            async || Ok(1),
+        );
+        assert!(none.await.unwrap().is_none());
+    }
+
+    /// Two refreshes at once: the second one's model is not replaced by
+    /// the first one's older reload.
+    #[tokio::test]
+    async fn a_newer_model_in_the_slot_is_kept() {
+        let first = Arc::new(32u32);
+        let slot = tokio::sync::Mutex::new(Some(first));
+        let out = refreshed(
+            &slot,
+            async || true,
+            async |_| Ok(false),
+            async || {
+                *slot.lock().await = Some(Arc::new(99));
+                Ok(16)
+            },
+        );
+        assert_eq!(out.await.unwrap().as_deref(), Some(&99));
     }
 }
