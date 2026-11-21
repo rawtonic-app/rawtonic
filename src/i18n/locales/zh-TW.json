@@ -2144,7 +2144,7 @@
         "failed_other": "無法寫入 {{count}} 個 XMP 檔案：{{error}}",
         "offline_other": "{{count}} 張照片處於離線狀態。重新連接磁碟後會更新其 XMP 檔案。",
         "pending_other": "{{count}} 個 XMP 檔案可以重新寫入。",
-        "sharedName_other": "{{count}} 張照片與另一張同名（RAW 和 JPEG），兩者會寫入同一個 XMP 檔案。"
+        "sharedName_other": "{{count}} 張照片與另一張同名（兩個 RAW 檔案，例如 CR3 和 DNG），兩者會寫入同一個 XMP 檔案。"
       },
       "resolved_other": "已為 {{count}} 張照片解決 XMP 衝突",
       "retry": "重試",
@@ -2169,6 +2169,7 @@
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
@@ -3543,13 +3544,13 @@
         "exporting": "正在匯出 {{current}}/{{total}}"
       },
       "provenance": {
-        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG 與 TIFF。不會傳送任何內容。",
+        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG、TIFF、WebP 與 AVIF。不會傳送任何內容。",
         "add": "在每個檔案中簽署來源清單",
         "author": "將相片的創作者列為作者",
-        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG 或 TIFF。",
+        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG、TIFF、WebP 或 AVIF。",
         "certificateFilter": "PKCS#12 憑證",
         "expired": "此憑證目前無效（有效至 {{until}}）：無法用它為輸出簽署。請匯入更新的憑證或建立新的憑證。",
-        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG 或 TIFF，或關閉此選項。",
+        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG、TIFF、WebP 或 AVIF，或關閉此選項。",
         "generate": "在此電腦上建立憑證",
         "import": "匯入您的憑證 (.p12)…",
         "importConfirm": "匯入",

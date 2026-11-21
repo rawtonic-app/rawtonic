@@ -2175,11 +2175,50 @@ pub fn get_cached_or_generate_thumbnail_image(
     if let Err(error) = entry.save(path_str, &image, embedded, &settings) {
         log::warn!("Thumbnail of {path_str} not cached: {error:#}");
     }
-    Ok(image)
+    let medium = settings.medium_thumbnail_resolution.unwrap_or(1280);
+    Ok(as_cached(path_str, image, medium))
+}
+
+/// The thumbnail as its cached medium file gives it (`medium` pixels wide,
+/// compressed; the same bytes `ThumbnailCacheEntry::save` writes), also when
+/// that file could not be written: the photograph is read from the same
+/// pixels the first time and every later time, so its content embedding and
+/// culling scores do not depend on whether the pass or the grid made its
+/// thumbnail (notes: benchmark-results/cul3-2026-11-21/REPORT.md). The
+/// `generated` image only if it cannot be encoded.
+fn as_cached(path_str: &str, generated: DynamicImage, medium: u32) -> DynamicImage {
+    match encode_thumbnail(&generated, medium).and_then(|jpeg| {
+        Ok(image::load_from_memory_with_format(
+            &jpeg,
+            image::ImageFormat::Jpeg,
+        )?)
+    }) {
+        Ok(cached) => cached,
+        Err(error) => {
+            log::warn!("Thumbnail of {path_str} not read as cached: {error:#}");
+            generated
+        }
+    }
 }
 
 #[cfg(test)]
 mod source_preview_tests {
+    #[test]
+    fn a_thumbnail_just_made_is_read_as_its_cached_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let medium = temp.path().join("hash_medium.jpg");
+        let generated =
+            image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(1600, 1000, |x, y| {
+                image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x ^ y) % 256) as u8])
+            }));
+        // What a later reading opens: the cached file.
+        std::fs::write(&medium, super::encode_thumbnail(&generated, 1280).unwrap()).unwrap();
+        let later = image::open(&medium).unwrap();
+        assert_ne!(later, generated);
+        // The first reading, whether or not that file was written.
+        assert_eq!(super::as_cached("photo.jpg", generated, 1280), later);
+    }
+
     #[test]
     fn an_announced_medium_thumbnail_is_found_while_its_file_is_cached() {
         let temp = tempfile::tempdir().unwrap();

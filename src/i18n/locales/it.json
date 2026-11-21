@@ -2367,9 +2367,9 @@
         "pending_one": "{{count}} file XMP può essere riscritto.",
         "pending_many": "{{count}} file XMP possono essere riscritti.",
         "pending_other": "{{count}} file XMP possono essere riscritti.",
-        "sharedName_one": "{{count}} foto ha lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP.",
-        "sharedName_many": "{{count}} foto hanno lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP.",
-        "sharedName_other": "{{count}} foto hanno lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP."
+        "sharedName_one": "{{count}} foto ha lo stesso nome di un’altra (due file RAW, ad esempio CR3 e DNG), quindi entrambe scriverebbero lo stesso file XMP.",
+        "sharedName_many": "{{count}} foto hanno lo stesso nome di un’altra (due file RAW, ad esempio CR3 e DNG), quindi entrambe scriverebbero lo stesso file XMP.",
+        "sharedName_other": "{{count}} foto hanno lo stesso nome di un’altra (due file RAW, ad esempio CR3 e DNG), quindi entrambe scriverebbero lo stesso file XMP."
       },
       "resolved_one": "Conflitto XMP risolto per {{count}} foto",
       "resolved_many": "Conflitti XMP risolti per {{count}} foto",
@@ -2398,6 +2398,7 @@
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
@@ -3805,13 +3806,13 @@
         "exporting": "Esportazione {{current}} di {{total}}"
       },
       "provenance": {
-        "about": "Registra la foto da cui ogni file è stato sviluppato, i tipi di modifica e ogni area creata da un modello generativo, firmato con il tuo certificato. JPEG, PNG e TIFF. Non viene inviato nulla.",
+        "about": "Registra la foto da cui ogni file è stato sviluppato, i tipi di modifica e ogni area creata da un modello generativo, firmato con il tuo certificato. JPEG, PNG, TIFF, WebP e AVIF. Non viene inviato nulla.",
         "add": "Firma un manifesto di provenienza in ogni file",
         "author": "Indica il creatore della foto come autore",
-        "blocked": "La provenienza (C2PA) non può firmare {{recipes}}: imposta un certificato di firma valido ed esporta JPEG, PNG o TIFF.",
+        "blocked": "La provenienza (C2PA) non può firmare {{recipes}}: imposta un certificato di firma valido ed esporta JPEG, PNG, TIFF, WebP o AVIF.",
         "certificateFilter": "Certificato PKCS#12",
         "expired": "Questo certificato non è valido ora (valido fino al {{until}}): non è possibile firmare le esportazioni con esso. Importa un certificato rinnovato o creane uno nuovo.",
-        "formatUnsupported": "I file {{format}} non possono ancora contenere un manifesto di provenienza. Scegli JPEG, PNG o TIFF, oppure disattiva l'opzione.",
+        "formatUnsupported": "I file {{format}} non possono ancora contenere un manifesto di provenienza. Scegli JPEG, PNG, TIFF, WebP o AVIF, oppure disattiva l'opzione.",
         "generate": "Crea un certificato su questo computer",
         "import": "Importa il tuo certificato (.p12)…",
         "importConfirm": "Importa",

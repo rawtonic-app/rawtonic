@@ -1127,13 +1127,6 @@ fn raf_jpeg(bytes: &[u8]) -> Option<&[u8]> {
     bytes.get(offset..offset.saturating_add(length).min(bytes.len()))
 }
 
-/// Formats whose files are developed images rather than RAWs: a sidecar
-/// named after the stem alone (`IMG_0001.xmp`) belongs to the RAW of a
-/// RAW+JPEG pair, not to them.
-const IMAGE_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "heic", "heif", "hif", "png", "webp", "avif", "jxl", "tif", "tiff",
-];
-
 /// The XMP sidecar of `photo` on its card: `NAME.EXT.xmp` (unambiguous),
 /// else `NAME.xmp` (Lightroom's and most tools' form). A developed image
 /// (JPEG, HEIF, …) takes `NAME.xmp` only when no other file shares its
@@ -1284,13 +1277,7 @@ fn folder_files(folder: &Path) -> Option<Arc<FolderFiles>> {
     Some(files)
 }
 
-/// Whether `extension` is a developed image's (JPEG, HEIF, TIFF, …), not
-/// a RAW's.
-pub fn is_developed_image(extension: &str) -> bool {
-    IMAGE_EXTENSIONS
-        .iter()
-        .any(|known| extension.eq_ignore_ascii_case(known))
-}
+pub use rawtonic_metadata::sidecars::is_developed_image;
 
 /// Fills the descriptive tokens from a card sidecar's metadata: rating,
 /// colour label and title, and creator and copyright over the EXIF ones

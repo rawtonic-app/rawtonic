@@ -61,6 +61,14 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: the grain field's block shift of drag frames rendered on this
+    /// thread, whatever the frame (`grain_block_shift`).
+    pub(super) static FORCED_GRAIN_SHIFT: std::cell::Cell<Option<u32>> =
+        const { std::cell::Cell::new(None) };
+}
+
 /// Whether processors made now render display variants with effect
 /// passes: always, but for tests that compare.
 pub(super) fn here() -> bool {
@@ -281,6 +289,26 @@ pub(super) fn terms_block_shift(width: u32, height: u32, adjustments: &AllAdjust
     } else {
         1
     }
+}
+
+/// The size of the film grain blocks of a drag of another control than a
+/// grain control (`DragEffects::half_grain`), as a shift: 4 x 4 pixels (2)
+/// when the frame's short side is below 1080 pixels, else 2 x 2 (1)
+/// (G76/GRN6). With grain on, a drag of another control renders at the
+/// size without grain (GRN1): the default fit view of a Radeon 680M laptop
+/// at 1024 x 682, native DPI at 1608 x 1072. There the grain field pass
+/// took 0.54 ms of a 0.83 ms grain drag frame at 2 x 2 (notes:
+/// benchmark-results/grn5-2026-11-21 §4), and all three effects together
+/// were over the +1 ms drag budget. The cells are coarser while such a
+/// drag lasts (coordinator decision 2026-11-21); a drag of Grain Amount,
+/// Size or Roughness keeps every pixel's grain, and the settled frame and
+/// exports are exact.
+pub(super) fn grain_block_shift(width: u32, height: u32) -> u32 {
+    #[cfg(test)]
+    if let Some(shift) = FORCED_GRAIN_SHIFT.with(std::cell::Cell::get) {
+        return shift;
+    }
+    if width.min(height) < 1080 { 2 } else { 1 }
 }
 
 /// A drag's pass over blocks (G76/GRN3, GRN4): the tile-local `regions`
@@ -571,7 +599,8 @@ impl EffectPasses {
         &self.terms_regions
     }
 
-    /// The render regions of a drag's grain field pass, in 2 x 2 blocks.
+    /// The render regions of a drag's grain field pass, in its blocks
+    /// (`grain_block_shift`).
     pub(super) fn field_regions(&self) -> &wgpu::Buffer {
         &self.field_regions
     }
@@ -625,8 +654,8 @@ impl EffectPasses {
         )
     }
 
-    /// A drag's grain field pass (G76/GRN3): the film grain of each 2 x 2
-    /// block of the stored colour, into the field tile.
+    /// A drag's grain field pass (G76/GRN3, GRN6): the film grain of each
+    /// 2 x 2 or 4 x 4 block of the stored colour, into the field tile.
     pub(super) fn field_pipeline(
         &self,
         device: &wgpu::Device,
@@ -648,7 +677,8 @@ impl EffectPasses {
         &self.field_bgl
     }
 
-    /// The tile of a drag's grain field: one texel per 2 x 2 block.
+    /// The tile of a drag's grain field: one texel per block (2 x 2 at the
+    /// smallest).
     pub(super) fn field_tile(&self, processor: &GpuProcessor) -> &HighPrecisionTile {
         self.field_tile
             .get_or_init(|| processor.float_tile("Grain Field Tile", TILE_SIZE / 2 + 1))
@@ -811,6 +841,18 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn drags_of_other_controls_take_grain_per_4x4_below_1080_px() {
+        // G76/GRN6: the default fit view and native DPI with grain on
+        // (1024 x 682, 1608 x 1072) take 4 x 4 grain blocks; frames whose
+        // short side is 1080 or more keep 2 x 2.
+        assert_eq!(grain_block_shift(1024, 682), 2);
+        assert_eq!(grain_block_shift(1608, 1072), 2);
+        assert_eq!(grain_block_shift(682, 1024), 2);
+        assert_eq!(grain_block_shift(1920, 1080), 1);
+        assert_eq!(grain_block_shift(2048, 1366), 1);
     }
 
     #[test]

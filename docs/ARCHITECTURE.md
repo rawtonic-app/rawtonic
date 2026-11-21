@@ -253,7 +253,12 @@ notifications; the catalog builds volume identity from it, file operations plan 
 #### `metadata`
 
 `metadata`: XMP sidecar IO (written through `rawtonic_fs::atomic_write`) and shared recipe provenance predicates
-(`provenance`, consumed by the renderer, export and catalog).
+(`provenance`, consumed by the renderer, export and catalog). `sidecars` decides which XMP belongs to which photo, from
+the files on disk: a RAW owns `<stem>.xmp`; a developed image (JPEG, HEIF, TIFF, …) that shares its stem with another
+file has `<name>.<ext>.xmp` and never reads the stem one; alone it keeps `<stem>.xmp`, and an existing full-name sidecar
+is always its own. Every reader and writer (catalog, folder mode, file moves/renames, ingest copies) asks it
+(`sidecar_path`, `existing_sidecar`, `Sidecars` for batches); the catalog still refuses two photos whose sidecar has one
+name (two RAWs of one stem).
 
 #### `naming`
 
@@ -623,8 +628,12 @@ orientation, in that order; every render caller in the app and the CLI calls it 
 
 `export::c2pa`: provenance manifests (C2PA 2.x) for exports whose settings ask for them (`ExportSettings::provenance`,
 off by default): its own CBOR/JUMBF/COSE_Sign1 writer on `ring` (no c2pa-rs: its RSA and chrono dependencies fail the
-advisory gates), JPEG APP11, PNG `caBX` and TIFF tag 0xCD41 (`tiff_exif::append_reserved_tag`), signed after every other write of
-the file (`with_provenance` in `export_processing`; a streamed TIFF once it is written); `identity` keeps the signing key
+advisory gates), JPEG APP11, PNG `caBX`, TIFF tag 0xCD41 (`tiff_exif::append_reserved_tag`), WebP `C2PA` chunk (`c2pa.hash.data`)
+and AVIF C2PA `uuid` box right before the first `mdat`, item locations moved (`avif_container::insert_before_media`;
+`c2pa.hash.bmff.v3`: each top-level box with its offset, but the manifest box and `/mfra`), signed after every other write of
+the file (`with_provenance` in `export_processing`); a TIFF is written in two passes, the layout with its strips left out
+and the metadata and reserved manifest appended, then the strips while a thread hashes them (`signed_tiff`): the
+pixel strips are not read back, only the few KB around them; `identity` keeps the signing key
 and certificate in a folder the app gives (`src-tauri/src/provenance.rs`: the app data folder's `provenance/`, and the
 Export panel's commands). `ExportOutput::provenance` carries the loaded identity (`FileExporter::with_provenance`, the CLI's
 `--provenance-identity`); the app checks and pins it when a job is queued (`provenance::pin_signers` from
