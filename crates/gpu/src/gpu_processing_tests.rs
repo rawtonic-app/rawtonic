@@ -420,6 +420,33 @@ fn dehaze_version_2_compiles_only_where_dehaze_is_lowered() {
 }
 
 #[test]
+fn shadows_version_20_compiles_only_for_its_recipes() {
+    let adjustments =
+        |profile: serde_json::Value| get_all_adjustments_from_json(&profile, true, Some(1));
+    let features =
+        |profile: serde_json::Value| preview_features(&adjustments(profile)) & SHADOWS_V20_FEATURE;
+    assert_eq!(
+        features(json!({"shadows": 30, "toneVersion": 20})),
+        SHADOWS_V20_FEATURE
+    );
+    let mut layer = local_profile(json!({"shadows": 30}));
+    layer["toneVersion"] = json!(20);
+    assert_eq!(features(layer), SHADOWS_V20_FEATURE);
+    // Version 19's recipes, lowered Shadows and the key alone keep the
+    // shader without it: saved edits compile the code they had.
+    assert_eq!(features(json!({"shadows": 30, "toneVersion": 19})), 0);
+    assert_eq!(features(json!({"shadows": -30, "toneVersion": 20})), 0);
+    assert_eq!(features(json!({"toneVersion": 20})), 0);
+    // Its feature pipeline is version 19's plus the bounds.
+    let raised = adjustments(json!({"shadows": 30, "toneVersion": 20}));
+    assert_eq!(tone_level(&raised), 2 | 16 | 32);
+    assert_eq!(
+        tone_level(&adjustments(json!({"shadows": 30, "toneVersion": 19}))),
+        2 | 16
+    );
+}
+
+#[test]
 fn shadows_version_19_compiles_only_where_shadows_are_raised() {
     let adjustments =
         |profile: serde_json::Value| get_all_adjustments_from_json(&profile, true, Some(1));
@@ -589,6 +616,11 @@ fn preview_features_preserve_global_and_local_effects() {
         // Raised Shadows' level of version 19 likewise
         // (`shadows_version_19_compiles_only_where_shadows_are_raised`).
         if expected & SHADOWS_V19_FEATURE != 0 {
+            continue;
+        }
+        // Raised Shadows' bounds of version 20 likewise
+        // (`shadows_version_20_compiles_only_for_its_recipes`).
+        if expected & SHADOWS_V20_FEATURE != 0 {
             continue;
         }
         // Lowered Dehaze of version 2 likewise
@@ -15291,10 +15323,403 @@ fn tone_version_19_shadows_no_light_rim() {
     }
 }
 
+/// A bright panel (−0.5 EV) with a grating of thin dark strokes (−7 EV) in
+/// x 128–639: 2 px strokes 2 px apart at 1080 rows (13 px at 7000 px), as
+/// text or a fine pattern on a light ground.
+fn shadows_v20_grating(width: u32, height: u32) -> Vec<f32> {
+    (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, _)| {
+            if (128..640).contains(&x) && x % 4 < 2 {
+                (2.0f32).powf(-7.0)
+            } else {
+                (2.0f32).powf(-0.5)
+            }
+        })
+        .collect()
+}
+
 #[test]
-#[ignore = "requires a native GPU; raised Shadows of tone version 19 against version 18: GPU time of a preview render per drag step"]
+#[ignore = "requires a native GPU; raised Shadows of tone version 20 does not lift light gaps between thin dark strokes"]
+fn tone_version_20_shadows_no_bright_gap_lift() {
+    let context = context();
+    // 1080 rows: the blurs at their reference size.
+    let (width, height) = (1024u32, 1080u32);
+    // One compile at a time and nothing compiled ahead (as version 19's test).
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    let grating = grey_texture(&context, width, height, &shadows_v20_grating(width, height));
+    let ramp = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    // A new edit's render version: the export path new edits use.
+    let render_version = new_edit_render_version();
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe["renderVersion"] = json!(render_version);
+        recipe
+    };
+    // Without raised Shadows version 20 renders as version 19.
+    for recipe in [
+        json!({}),
+        json!({ "shadows": -60 }),
+        json!({ "whites": -80, "blacks": -40, "highlights": -50, "contrast": 30 }),
+    ] {
+        for view in [&grating, &ramp] {
+            for look in [(3, 2.0), (0, 2.0)] {
+                assert!(
+                    render_raw_look(&processor, view, (width, height), &with(&recipe, 19), look)
+                        == render_raw_look(
+                            &processor,
+                            view,
+                            (width, height),
+                            &with(&recipe, 20),
+                            look
+                        ),
+                    "{recipe} under {look:?} differs"
+                );
+            }
+        }
+    }
+    let look = (3, 2.0);
+    let w = width as usize;
+    let rows = (64..height as usize - 64).step_by(4);
+    // Exposure ±0.7 too: the pixel arrives with it, the wide level without.
+    // At Exposure −0.7 the gaps show at L* 84, below the tone no pixel is
+    // lifted beyond (L* 87): they keep a part of the lift.
+    // Shadows 0 … +14 in single steps, with Blacks raised too and at
+    // Exposure −0.7 (the stage fades its level in over 0 … +12): the gaps
+    // do not jump at the first step and never darken as Shadows rises. The
+    // bounds act on Shadows' share of the gain; on the whole gain they took
+    // Blacks' lift from the gaps too.
+    for (blacks, exposure) in [(0, 0.0), (50, 0.0), (50, -0.7)] {
+        let sweep = |version: u64| -> Vec<f64> {
+            (0..=14)
+                .map(|amount| {
+                    let img = render_raw_look(
+                        &processor,
+                        &grating,
+                        (width, height),
+                        &with(
+                            &json!({ "shadows": amount, "blacks": blacks, "exposure": exposure }),
+                            version,
+                        ),
+                        look,
+                    );
+                    let (mut sum, mut n) = (0.0f64, 0.0f64);
+                    for y in rows.clone() {
+                        for x in (200..560).filter(|x| x % 4 >= 2) {
+                            sum += lstar_of_codes(&img[y * w + x]);
+                            n += 1.0;
+                        }
+                    }
+                    sum / n
+                })
+                .collect()
+        };
+        let (v19, v20) = (sweep(19), sweep(20));
+        let fall = |v: &[f64]| v.windows(2).map(|p| p[0] - p[1]).fold(0.0f64, f64::max);
+        eprintln!(
+            "Shadows 0 … +14, Blacks {blacks}, Exposure {exposure}: gaps L* {:.2} → {:.2} (version 19 → {:.2}), first step {:.3} (version 19 {:.3}), largest fall per step {:.3}",
+            v20[0],
+            v20[14],
+            v19[14],
+            v20[1] - v20[0],
+            v19[1] - v19[0],
+            fall(&v20)
+        );
+        assert!(
+            (v20[0] - v19[0]).abs() < 0.01
+                && (v20[1] - v20[0]).abs() < (v19[1] - v19[0]).abs() + 0.05,
+            "Shadows 0 → +1, Blacks {blacks}, Exposure {exposure}: {:.3} L* (version 19 {:.3})",
+            v20[1] - v20[0],
+            v19[1] - v19[0]
+        );
+        assert!(
+            fall(&v20) < 0.02,
+            "Blacks {blacks}, Exposure {exposure}: the gaps darken by {:.3} L* in one Shadows step",
+            fall(&v20)
+        );
+    }
+    for (amount, exposure, whites, most) in [
+        (50, 0.0, 0, 0.3),
+        (100, 0.0, 0, 0.3),
+        (100, -0.7, 0, 3.0),
+        (100, 0.7, 0, 0.3),
+        // Whites moves the gaps itself (raised, they are near white and
+        // version 19 lifts them little): the gaps stay unlifted.
+        (100, 0.0, 50, 0.3),
+        (100, 0.0, -50, 0.3),
+    ] {
+        let render = |view: &wgpu::TextureView, version: u64, amount: i32| {
+            render_raw_look(
+                &processor,
+                view,
+                (width, height),
+                &with(
+                    &json!({ "shadows": amount, "exposure": exposure, "whites": whites }),
+                    version,
+                ),
+                look,
+            )
+        };
+        // The gaps' mean dL* minus the far panel's (x ≥ 800).
+        let neutral = render(&grating, 20, 0);
+        let gap_lift = |img: &[[u16; 3]]| {
+            let (mut gap, mut far, mut ng, mut nf) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+            for y in rows.clone() {
+                for x in 200..560 {
+                    if x % 4 >= 2 {
+                        let i = y * w + x;
+                        gap += lstar_of_codes(&img[i]) - lstar_of_codes(&neutral[i]);
+                        ng += 1.0;
+                    }
+                }
+                for x in 800..1000 {
+                    let i = y * w + x;
+                    far += lstar_of_codes(&img[i]) - lstar_of_codes(&neutral[i]);
+                    nf += 1.0;
+                }
+            }
+            gap / ng - far / nf
+        };
+        let gap_19 = gap_lift(&render(&grating, 19, amount));
+        let gap_20 = gap_lift(&render(&grating, 20, amount));
+        // The shadows of the textured ramp (below −4 EV): mean dL* and
+        // texture (std of L* minus the row's 9-pixel mean) against neutral.
+        let neutral = render(&ramp, 20, 0);
+        let shadows = |img: &[[u16; 3]]| {
+            let (mut lift, mut n) = (0.0f64, 0.0f64);
+            let mut det = [0.0f64; 2];
+            for y in rows.clone() {
+                for x in 8..w / 2 {
+                    let i = y * w + x;
+                    lift += lstar_of_codes(&img[i]) - lstar_of_codes(&neutral[i]);
+                    n += 1.0;
+                    let local = |p: &[[u16; 3]]| {
+                        let mean = (x - 4..=x + 4)
+                            .map(|k| lstar_of_codes(&p[y * w + k]))
+                            .sum::<f64>()
+                            / 9.0;
+                        (lstar_of_codes(&p[i]) - mean).powi(2)
+                    };
+                    det[0] += local(&neutral);
+                    det[1] += local(img);
+                }
+            }
+            (lift / n, (det[1] / det[0]).sqrt())
+        };
+        let (lift_19, det_19) = shadows(&render(&ramp, 19, amount));
+        let (lift_20, det_20) = shadows(&render(&ramp, 20, amount));
+        eprintln!(
+            "Shadows +{amount}, Exposure {exposure}, Whites {whites}: gap dL* {gap_19:.2} → {gap_20:.2}, shadows dL* {lift_19:.3} → {lift_20:.3}, texture {det_19:.4} → {det_20:.4}"
+        );
+        // Measured on Vulkan (RTX 3080): gaps +50 1.35 → 0.00, +100 3.83 →
+        // 0.00 L*, at Exposure −0.7 11.84 → 2.41, +0.7 0.84 → 0.00; the
+        // ramp's shadows' lift and texture equal to 3 decimals.
+        assert!(
+            (whites > 0 || gap_19 > 0.5) && gap_20 > -0.3 && gap_20 < most,
+            "Shadows +{amount}, Exposure {exposure}: gap dL* {gap_20:.2} (version 19 {gap_19:.2})"
+        );
+        assert!(
+            (lift_20 - lift_19).abs() < 0.05 && (det_20 - det_19).abs() < 0.005,
+            "Shadows +{amount}: shadows dL* {lift_20:.3} / texture {det_20:.4} (version 19 {lift_19:.3} / {det_19:.4})"
+        );
+    }
+}
+
+/// Version 20's tone stage is version 13's with raised Shadows' gain of
+/// version 20: the copies must stay the same but for that line.
+#[test]
+fn tone_version_20_stage_is_version_13s_but_for_the_gain() {
+    let shader = include_str!("shaders/shader.wgsl");
+    let body = |name: &str| {
+        let start = shader
+            .find(&format!("\nfn {name}("))
+            .unwrap_or_else(|| panic!("{name} is missing"));
+        let rest = &shader[start + 4 + name.len()..];
+        &rest[..rest.find("\n}\n").unwrap()]
+    };
+    let v13_gain = "rgb *= shadows_v13_gain(level_luma * exposure_gain, sh, bl, fade);";
+    let v20_gain =
+        "rgb *= shadows_v20_gain(level_luma * exposure_gain, safe_pixel_luma, sh, bl, fade);";
+    let v13 = body("apply_tonal_adjustments_v13");
+    assert_eq!(v13.matches(v13_gain).count(), 1);
+    assert_eq!(
+        body("apply_tonal_adjustments_v20"),
+        v13.replace(v13_gain, v20_gain)
+    );
+}
+
+/// `renderVersion` of a new edit (the fixture new edits are checked
+/// against), so a test of a new tone version renders through the export
+/// path new edits use.
+fn new_edit_render_version() -> u64 {
+    let recipe: serde_json::Value = serde_json::from_str(include_str!(
+        "../../engine/tests/fixtures/new-edit-recipe.raw.json"
+    ))
+    .unwrap();
+    recipe["renderVersion"].as_u64().unwrap()
+}
+
+/// Backgrounds (log2 scene luminance) of `shadows_v20_lines`' bands.
+const SHADOWS_V20_LINE_GROUNDS: [f32; 5] = [-9.0, -6.4, -4.5, -3.0, -1.5];
+/// Line values run from this EV at the first row to 0 EV at the last.
+const SHADOWS_V20_LINE_LOW_EV: f32 = -8.0;
+
+/// Widths of the lines in each band, pixels: thin ones, which hardly move
+/// the blurred level under them, to ones that carry most of it.
+const SHADOWS_V20_LINE_WIDTHS: [usize; 5] = [1, 2, 3, 5, 8];
+
+/// Five flat bands (`SHADOWS_V20_LINE_GROUNDS`), each with vertical lines of
+/// `SHADOWS_V20_LINE_WIDTHS` whose value rises down the rows, evenly in EV:
+/// every row is the same neighbourhood with a brighter line. Returns the
+/// levels and each line's (band, width, first column).
+fn shadows_v20_lines(width: u32, height: u32) -> (Vec<f32>, Vec<(usize, usize, usize)>) {
+    let band = width as usize / SHADOWS_V20_LINE_GROUNDS.len();
+    let mut levels = Vec::with_capacity((width * height) as usize);
+    let mut lines = Vec::new();
+    for (b, _) in SHADOWS_V20_LINE_GROUNDS.iter().enumerate() {
+        for (k, line) in SHADOWS_V20_LINE_WIDTHS.into_iter().enumerate() {
+            lines.push((b, line, b * band + (k + 1) * band / 6));
+        }
+    }
+    for y in 0..height {
+        let value = (2.0f32).powf(SHADOWS_V20_LINE_LOW_EV * (1.0 - y as f32 / (height - 1) as f32));
+        for x in 0..width as usize {
+            let b = (x / band).min(SHADOWS_V20_LINE_GROUNDS.len() - 1);
+            let on_line = lines
+                .iter()
+                .any(|&(lb, line, first)| lb == b && (first..first + line).contains(&x));
+            levels.push(if on_line {
+                value
+            } else {
+                (2.0f32).powf(SHADOWS_V20_LINE_GROUNDS[b])
+            });
+        }
+    }
+    (levels, lines)
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Shadows of tone version 20 keeps fine detail in tonal order: a brighter thin line never renders darker"]
+fn tone_version_20_shadows_keeps_fine_detail_in_order() {
+    let context = context();
+    let _limit = DeviceCompileLimit::set(&context);
+    let render_version = new_edit_render_version();
+    let mut worst_19 = 0.0f64;
+    let mut failures = Vec::new();
+    // 1080 rows (the blurs at their reference size) and twice that.
+    for scale in [1u32, 2] {
+        let (width, height) = (1000 * scale, 1080 * scale);
+        let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+        let (levels, lines) = shadows_v20_lines(width, height);
+        let view = grey_texture(&context, width, height, &levels);
+        let w = width as usize;
+        for look in [(3, 2.0), (3, 1.0)] {
+            for (amount, exposure, blacks, whites) in [
+                (20, 0.0, 0, 0),
+                (50, 0.0, 0, 0),
+                (75, 0.0, 0, 0),
+                (100, 0.0, 0, 0),
+                (100, -1.0, 0, 0),
+                (100, 1.0, 0, 0),
+                (100, 0.0, 50, 0),
+                (60, 0.0, -50, 0),
+                // The fade-in over the first Shadows values, Blacks raised.
+                (4, 0.0, 50, 0),
+                (9, 0.0, 50, 0),
+                // Whites: the stage applies it to the pixel the bounds
+                // have already lowered.
+                (100, 0.0, 0, 60),
+                (100, 0.0, 0, -60),
+            ] {
+                let mut worst = [0.0f64; 2];
+                for (slot, version) in [19u64, 20].into_iter().enumerate() {
+                    let img = render_raw_look(
+                        &processor,
+                        &view,
+                        (width, height),
+                        &json!({ "shadows": amount, "exposure": exposure, "blacks": blacks,
+                            "whites": whites,
+                            "toneVersion": version, "renderVersion": render_version }),
+                        look,
+                    );
+                    for &(band, line, first) in &lines {
+                        for x in first..first + line {
+                            // The fall below the brightest output of any
+                            // darker line value, in units of the limit
+                            // (0.01 EV or two 16-bit codes, whichever is
+                            // more, as `worst_tone_reversal`).
+                            let mut highest = 0u16;
+                            for y in 8..height as usize - 8 {
+                                let code = img[y * w + x][1];
+                                if code < highest {
+                                    let ev = (srgb_code_to_linear(highest)
+                                        / srgb_code_to_linear(code).max(1e-12))
+                                    .log2();
+                                    let excess = (ev / 0.01).min((highest - code) as f64 / 2.0);
+                                    if excess > worst[slot] {
+                                        worst[slot] = excess;
+                                    }
+                                    if version == 20 && excess > 1.0 {
+                                        let line_ev = SHADOWS_V20_LINE_LOW_EV
+                                            * (1.0 - y as f32 / (height - 1) as f32);
+                                        failures.push((
+                                            excess,
+                                            format!(
+                                                "{scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks} Whites {whites}: ground {} EV, {line} px line at {line_ev:.2} EV falls {ev:.3} EV",
+                                                SHADOWS_V20_LINE_GROUNDS[band]
+                                            ),
+                                        ));
+                                    }
+                                }
+                                highest = highest.max(code);
+                            }
+                        }
+                    }
+                }
+                eprintln!(
+                    "{scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks} Whites {whites}: worst fall (limits) version 19 {:.2}, version 20 {:.2}",
+                    worst[0], worst[1]
+                );
+                worst_19 = worst_19.max(worst[0]);
+            }
+        }
+    }
+    failures.sort_by(|a, b| b.0.total_cmp(&a.0));
+    assert!(
+        failures.is_empty(),
+        "{} falls, worst {:.1} limits: {}",
+        failures.len(),
+        failures[0].0,
+        failures[0].1
+    );
+    // Version 19's level does not read the pixel, so it is the reference.
+    assert!(worst_19 <= 1.0, "version 19 falls {worst_19:.2} limits");
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Shadows of tone version 19 against version 18: wall-clock time of a preview render with its readback per drag step"]
 fn tone_version_19_shadows_drag_render_time() {
     // As `tone_version_13_shadows_drag_render_time`, against version 18.
+    shadows_drag_render_time(18);
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Shadows of tone version 20 against version 19: wall-clock time of a preview render with its readback per drag step"]
+fn tone_version_20_shadows_drag_render_time() {
+    shadows_drag_render_time(19);
+}
+
+/// Wall-clock time of a raised-Shadows preview render and its readback per
+/// drag step (not GPU time alone), tone version `base` against `base + 1`,
+/// interleaved in blocks.
+fn shadows_drag_render_time(base: u64) {
     let context = context();
     let (width, height) = (2560u32, 1707u32);
     // One compile at a time on AMD's Windows Vulkan driver and nothing
@@ -15311,7 +15736,7 @@ fn tone_version_19_shadows_drag_render_time() {
     );
     let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
     for block in 0..24 {
-        let version = 18 + (block % 2) as u64;
+        let version = base + (block % 2) as u64;
         for step in 0..10 {
             let recipe = json!({ "shadows": 20 + 8 * step, "toneVersion": version });
             let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
@@ -15326,7 +15751,7 @@ fn tone_version_19_shadows_drag_render_time() {
                 ReadbackShader::Preview,
             );
             if step >= 2 && block >= 2 {
-                times[(version - 18) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+                times[(version - base) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
             }
         }
     }
@@ -15334,7 +15759,7 @@ fn tone_version_19_shadows_drag_render_time() {
         t.sort_by(|a, b| a.partial_cmp(b).unwrap());
         eprintln!(
             "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
-            18 + k,
+            base as usize + k,
             t[t.len() / 2],
             t[t.len() * 9 / 10],
             t.len()

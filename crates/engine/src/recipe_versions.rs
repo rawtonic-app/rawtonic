@@ -198,6 +198,9 @@ pub const BLACKS_TRAVEL_TONE_VERSION: u64 = 18;
 /// The tone-slider response from which raised Shadows' level does not fall
 /// below the tonal blur's beside a strong edge (`toneVersion` 19).
 pub const SHADOWS_EDGE_STOP_TONE_VERSION: u64 = 19;
+/// The tone-slider response from which raised Shadows do not lift light
+/// tones among thin dark detail (`toneVersion` 20).
+pub const SHADOWS_LIGHT_GAPS_TONE_VERSION: u64 = 20;
 
 /// `toneVersion` (`image_processing::TONE_VERSION`): 1 when missing, never
 /// newer than this renderer knows.
@@ -257,6 +260,11 @@ impl ToneVersion {
     /// Raised Shadows leave no light rim on the bright side of a strong edge.
     pub fn shadows_edge_stop(self) -> bool {
         self.0 >= SHADOWS_EDGE_STOP_TONE_VERSION
+    }
+
+    /// Raised Shadows leave light tones among thin dark detail as they are.
+    pub fn shadows_light_gaps(self) -> bool {
+        self.0 >= SHADOWS_LIGHT_GAPS_TONE_VERSION
     }
 
     /// The Whites amount (recipe units) the renderer applies for the slider

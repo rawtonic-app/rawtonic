@@ -183,6 +183,7 @@ pub(super) const TERMS_FEATURES: usize = 8
     | SHADOWS_V13_FEATURE
     | BLACKS_V16_FEATURE
     | SHADOWS_V19_FEATURE
+    | SHADOWS_V20_FEATURE
     | TONE_V5_FEATURE;
 
 pub(super) fn float_texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
