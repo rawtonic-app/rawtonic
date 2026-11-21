@@ -17,13 +17,25 @@ export function aiDenoiseAmount(
 ): number {
   const visibility = adjustments.sectionVisibility ?? {};
   const switchedOff = visibility.details === false || visibility.noiseReduction === false;
-  return switchedOff ? 0 : Math.round(Math.min(100, Math.max(0, adjustments.aiDenoise ?? 0)));
+  return switchedOff ? 0 : Math.min(100, Math.max(0, adjustments.aiDenoise ?? 0));
+}
+
+/** Whether two AI Denoise amounts are one: the backend reports its f32. */
+export const sameAiDenoiseAmount = (a: number, b: number): boolean => Math.abs(a - b) < 0.01;
+
+/** The amount `aiDenoiseAmount` returns is the stored one, as every export
+ * reads it: an old recipe's fraction (50.4) develops at 50.4, not 50. */
+
+/** The value the Develop slider shows for `key`: AI Denoise in whole steps;
+ * the recipe keeps its stored amount until the slider is moved. */
+export function shownSliderValue(key: string, value: number): number {
+  return key === 'aiDenoise' ? Math.round(value) : value;
 }
 
 /** The value a Develop slider stores for `key`: AI Denoise in whole steps
  * (drags, fine Option drags, typed values), the amount Develop develops and
  * every export reads, so a new edit renders the same open or not. Recipes
- * that already hold a fraction keep it. */
+ * that already hold a fraction keep it until the slider is moved. */
 export function storedSliderValue(key: string, value: number): number {
   return key === 'aiDenoise' ? Math.round(value) : value;
 }
@@ -37,7 +49,13 @@ export function storedSliderValue(key: string, value: number): number {
 export function aiDenoiseToApply(
   image: Pick<
     SelectedImage,
-    'isDecoded' | 'isRaw' | 'aiDenoise' | 'aiDenoiseVersion' | 'aiDenoiseFailed' | 'aiDenoiseFailedVersion'
+    | 'isDecoded'
+    | 'isRaw'
+    | 'aiDenoise'
+    | 'aiDenoiseVersion'
+    | 'aiDenoiseFailed'
+    | 'aiDenoiseFailedVersion'
+    | 'aiDenoiseStandIn'
   > | null,
   adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> & {
     sectionVisibility?: Record<string, boolean | undefined>;
@@ -46,13 +64,19 @@ export function aiDenoiseToApply(
 ): number | null {
   if (!image?.isDecoded || !image.isRaw || dragging) return null;
   const wanted = aiDenoiseAmount(adjustments);
-  const have = Math.round(image.aiDenoise ?? 0);
+  const have = image.aiDenoise ?? 0;
+  // The pixels of a sensor AI Denoise skipped stand in for its amount (they
+  // are not Apple's engine's): without AI Denoise they are developed again,
+  // once (a failure marks the amount).
+  if (wanted === 0 && image.aiDenoiseStandIn && image.aiDenoiseFailed !== 0) return 0;
   // The version only matters with AI Denoise on (reset or paste can change it).
   const sameVersion = wanted === 0 || (adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseVersion ?? 1);
   // An amount that failed is not retried with the same version.
   const failed =
-    wanted === image.aiDenoiseFailed && (adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseFailedVersion ?? 1);
-  if ((wanted === have && sameVersion) || failed) return null;
+    image.aiDenoiseFailed !== undefined &&
+    sameAiDenoiseAmount(wanted, image.aiDenoiseFailed) &&
+    (adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseFailedVersion ?? 1);
+  if ((sameAiDenoiseAmount(wanted, have) && sameVersion) || failed) return null;
   return wanted;
 }
 
@@ -100,6 +124,7 @@ export function sourceDevelopToApply(
     | 'aiDenoiseVersion'
     | 'aiDenoiseFailed'
     | 'aiDenoiseFailedVersion'
+    | 'aiDenoiseStandIn'
     | 'colorNoiseMultiscale'
     | 'colorNoiseMultiscaleFailed'
     | 'deadPixelAdjacent'
@@ -161,7 +186,7 @@ export function sourceDevelopToApply(
     return null;
   const version = aiDenoise === null ? image.aiDenoiseVersion : adjustments.aiDenoiseVersion;
   return {
-    aiDenoise: aiDenoise ?? Math.round(image.aiDenoise ?? 0),
+    aiDenoise: aiDenoise ?? image.aiDenoise ?? 0,
     ...(version !== undefined && version !== null ? { aiDenoiseVersion: version } : {}),
     multiscale,
     deadPixelAdjacent: dead,

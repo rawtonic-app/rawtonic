@@ -41,6 +41,11 @@ pub struct LoadImageResult {
     pub ai_denoise_version: u8,
     /// Why the recipe's AI Denoise could not be applied, if it could not.
     pub ai_denoise_error: Option<String>,
+    /// The source is the rawler decode of a sensor AI Denoise skipped,
+    /// although the recipe without AI Denoise decodes with Apple RAW 9
+    /// (`skipped_stands_in`): the editor develops it again once AI Denoise
+    /// is off.
+    pub ai_denoise_stand_in: bool,
     /// The RAW is offline and the photograph opened on its preview proxy:
     /// "full" (its 1:1 preview, full resolution) or "standard".
     pub offline: Option<&'static str>,
@@ -655,6 +660,88 @@ pub fn new_edit_frame(source: &str, shown: u32) -> Option<u32> {
     (shown != newest).then_some(shown)
 }
 
+/// Whether the pixels of a sensor AI Denoise skipped (rawler's decode, never
+/// Apple's engine) differ from the plain decode of the same recipe without
+/// AI Denoise: with Apple RAW 9 on.
+pub fn skipped_stands_in(settings: &AppSettings) -> bool {
+    settings.use_apple_raw9.unwrap_or(false)
+}
+
+/// The preferences that change a decode's pixels (linear RAW mode,
+/// preprocessing colour noise and sharpening, preprocessing of other
+/// formats, Apple RAW 9), as the identity of a decode: part of the
+/// decoded-image cache key, of the open photograph (`LoadedImage::decoder`)
+/// and of the preview proxies' key (`preview_proxy::decoder_key`).
+pub fn decode_preferences(settings: &AppSettings) -> String {
+    format!(
+        "linear={};cnr={:?};sharp={:?};nonraw={:?};raw9={:?}",
+        settings.linear_raw_mode,
+        settings.raw_preprocessing_color_nr.unwrap_or(0.5),
+        settings.raw_preprocessing_sharpening.unwrap_or(0.35),
+        settings.apply_preprocessing_to_non_raws.unwrap_or(false),
+        settings.use_apple_raw9.unwrap_or(false),
+    )
+}
+
+/// The decode preferences in force, published by the settings store before
+/// readers see the settings (like the develop defaults); None until it has
+/// read the file (the defaults then).
+static DECODE_PREFERENCES: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
+
+/// Publishes the preferences of `settings` (`decode_preferences`).
+pub(crate) fn publish_decode_preferences(settings: &AppSettings) {
+    *DECODE_PREFERENCES
+        .write()
+        .unwrap_or_else(|e| e.into_inner()) = Some(decode_preferences(settings));
+}
+
+/// The decode preferences in force (`decode_preferences`).
+pub fn current_decode_preferences() -> String {
+    DECODE_PREFERENCES
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+        .unwrap_or_else(|| decode_preferences(&AppSettings::default()))
+}
+
+/// A decode AI Denoise skipped (`settle_decode`).
+#[derive(Debug, PartialEq)]
+struct SkippedSensor {
+    /// Why the recipe's AI Denoise was not applied.
+    error: String,
+    /// See `skipped_stands_in`.
+    stands_in: bool,
+}
+
+/// What follows a full decode made for `denoise`: a sensor the denoiser
+/// skips develops without AI Denoise, but by the decoder AI Denoise asks
+/// for (never Apple's RAW engine): its pixels keep standing for the
+/// recipe's AI Denoise (`LoadedImage::ai_denoise`) and are not cached, so
+/// they never stand in for a decode without it; it returns what the editor
+/// is told (`stands_in`: `skipped_stands_in` of the preferences). Any other decode goes into the decoded-image cache under `key`.
+fn settle_decode(
+    develop: &DevelopSession,
+    denoise: Option<&rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
+    stands_in: bool,
+    key: &str,
+    image: &Arc<DynamicImage>,
+    exif: &HashMap<String, String>,
+    measures: Option<DecodeMeasures>,
+) -> Option<SkippedSensor> {
+    if denoise.is_some_and(|d| !d.was_applied()) {
+        return Some(SkippedSensor {
+            error: NOT_BAYER.to_string(),
+            stands_in,
+        });
+    }
+    develop
+        .decoded_image_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key.to_string(), image.clone(), exif.clone(), measures);
+    None
+}
+
 const NOT_BAYER: &str = "AI Denoise works on Bayer sensors only; this photograph's sensor (X-Trans, Foveon or a linear DNG) is not supported";
 
 /// The decoded-image cache key of a full decode of the source at `path`:
@@ -662,13 +749,30 @@ const NOT_BAYER: &str = "AI Denoise works on Bayer sensors only; this photograph
 /// the multi-scale colour noise filter (no decode-time chroma clean-up) and
 /// for the second dead-photosite test, and the frame (`source_frame`), so
 /// bases of different variants never stand for each other. A base of the default variant without AI Denoise
-/// keeps the plain path.
+/// keeps the plain path. The decode preferences in force are part of it
+/// (`current_decode_preferences`): a decode made under other preferences is
+/// another decode.
 pub fn decoded_cache_key(
     path: &str,
     denoise: Option<&rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
     variant: DecodeVariant,
 ) -> String {
+    decoded_cache_key_for(path, denoise, variant, &current_decode_preferences())
+}
+
+/// `decoded_cache_key` under `preferences` (`decode_preferences`).
+fn decoded_cache_key_for(
+    path: &str,
+    denoise: Option<&rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
+    variant: DecodeVariant,
+    preferences: &str,
+) -> String {
     let mut key = path.to_string();
+    // The default preferences keep the plain path.
+    if preferences != decode_preferences(&AppSettings::default()) {
+        key.push_str("\u{1}decoder ");
+        key.push_str(preferences);
+    }
     if let Some(d) = denoise {
         key.push_str(&format!("\u{1}ai-denoise {:.3}", d.amount));
         // Versions differ in the noise scale, the model and whether the
@@ -843,7 +947,8 @@ pub async fn apply_ai_denoise(
         .fetch_add(1, Ordering::SeqCst)
         + 1;
     let tracker = state.source.load_image_generation.clone();
-    let key = decoded_cache_key(&source, denoise.as_ref(), variant);
+    let decoder = current_decode_preferences();
+    let key = decoded_cache_key_for(&source, denoise.as_ref(), variant, &decoder);
     let cached = develop
         .decoded_image_cache
         .lock()
@@ -923,6 +1028,7 @@ pub async fn apply_ai_denoise(
             is_raw: true,
             decode: Some(variant),
             ai_denoise: applied_ai,
+            decoder: Some(decoder),
             measures,
         },
     )
@@ -1117,6 +1223,9 @@ pub async fn load_image(
 
     let settings = crate::state::settings::current(&app_handle);
     let proxy_settings = settings.clone();
+    // The decode's preferences, for what follows it (the decode moves its own).
+    let decoder = decode_preferences(&settings);
+    let decode_stands_in = skipped_stands_in(&settings);
 
     let path_clone = source_path_str.clone();
 
@@ -1139,6 +1248,7 @@ pub async fn load_image(
     let applied_ai = rawtonic_engine::image_loader::ai_denoise_settings(&metadata.adjustments)
         .filter(|_| denoise.is_some());
     let ai_denoise_version = applied_ai.map_or(1, |ai| ai.version);
+    let mut ai_denoise_stand_in = false;
     // The opened recipe decides the decode-time chroma clean-up, the
     // dead-photosite test and the frame (a virtual copy's own recipe).
     let variant = decode_variant(&metadata.adjustments, &source_path_str);
@@ -1304,26 +1414,18 @@ pub async fn load_image(
         .map_err(|e| e.to_string())??;
 
         let arc_img = pristine_img;
-        // A sensor the denoiser skips develops without AI Denoise, but by
-        // the decoder AI Denoise asks for (never Apple's RAW engine): its
-        // pixels keep standing for the recipe's AI Denoise
-        // (`LoadedImage::ai_denoise`) and are not cached, so they never
-        // stand in for a decode without it.
-        let skipped = denoise.as_ref().is_some_and(|d| !d.was_applied());
-        if skipped {
+        if let Some(skipped) = settle_decode(
+            &develop,
+            denoise.as_ref(),
+            decode_stands_in,
+            &cache_key,
+            &arc_img,
+            &exif_data_loaded,
+            measures,
+        ) {
             ai_denoise = 0.0;
-            ai_denoise_error = Some(NOT_BAYER.to_string());
-        } else {
-            develop
-                .decoded_image_cache
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(
-                    cache_key.clone(),
-                    arc_img.clone(),
-                    exif_data_loaded.clone(),
-                    measures,
-                );
+            ai_denoise_error = Some(skipped.error);
+            ai_denoise_stand_in = skipped.stands_in;
         }
 
         (arc_img, exif_data_loaded, measures)
@@ -1359,6 +1461,7 @@ pub async fn load_image(
             is_raw,
             decode: Some(variant),
             ai_denoise: applied_ai,
+            decoder: Some(decoder),
             measures,
         },
     )?;
@@ -1462,6 +1565,7 @@ pub async fn load_image(
         ai_denoise,
         ai_denoise_version,
         ai_denoise_error,
+        ai_denoise_stand_in,
         offline: None,
         color_noise_multiscale: Some(variant.multiscale),
         dead_pixel_adjacent: Some(variant.dead_test == DeadTest::Adjacent),
@@ -1538,6 +1642,7 @@ pub(crate) fn open_kept_decode(
         is_raw: true,
         decode: Some(variant),
         ai_denoise: None,
+        decoder: None,
         measures,
     });
     drop(original);
@@ -1665,6 +1770,7 @@ async fn open_offline(
                 is_raw: true,
                 decode: None,
                 ai_denoise: None,
+                decoder: None,
                 measures: full.measures,
             },
         )
@@ -1678,6 +1784,7 @@ async fn open_offline(
             ai_denoise: 0.0,
             ai_denoise_version: 1,
             ai_denoise_error: None,
+            ai_denoise_stand_in: false,
             offline: Some("full"),
             color_noise_multiscale: None,
             dead_pixel_adjacent: None,
@@ -1745,6 +1852,7 @@ async fn open_offline(
         ai_denoise: 0.0,
         ai_denoise_version: 1,
         ai_denoise_error: None,
+        ai_denoise_stand_in: false,
         offline: Some("standard"),
         color_noise_multiscale: None,
         dead_pixel_adjacent: None,
@@ -1772,6 +1880,7 @@ mod activation_tests {
             is_raw: true,
             decode: None,
             ai_denoise: None,
+            decoder: None,
             measures: None,
         };
         // Marked offline, its 1:1 preview not published yet.
@@ -1802,6 +1911,7 @@ mod activation_tests {
             is_raw: true,
             decode: None,
             ai_denoise: None,
+            decoder: None,
             measures: None,
         };
         publish_loaded_image(
@@ -1834,6 +1944,7 @@ mod activation_tests {
             is_raw: true,
             decode: None,
             ai_denoise: None,
+            decoder: None,
             measures: None,
         };
         publish_loaded_image(&original, &signal, &generation, 1, loaded("first.raf")).unwrap();
@@ -1863,6 +1974,7 @@ mod activation_tests {
             is_raw: true,
             decode: None,
             ai_denoise: None,
+            decoder: None,
             measures: None,
         };
         let publish = |generation: &AtomicUsize, expected: usize, path: &str| {
@@ -2246,6 +2358,7 @@ mod develop_cache_scenarios {
                 is_raw: true,
                 decode: Some(DecodeVariant::default()),
                 ai_denoise: None,
+                decoder: None,
                 measures: None,
             });
             self.preview(1);
@@ -2390,5 +2503,121 @@ mod new_edit_frame_tests {
         assert_eq!(new_edit_frame(cr3, 1), None);
         assert_eq!(new_edit_frame(cr3, 0), Some(0));
         forget(cr3);
+    }
+}
+
+#[cfg(test)]
+mod decode_identity_tests {
+    //! The decode preferences and a skipped sensor in the loader's decisions.
+    use super::*;
+    use rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser;
+
+    fn settings_with(change: impl FnOnce(&mut AppSettings)) -> AppSettings {
+        let mut settings = AppSettings::default();
+        change(&mut settings);
+        settings
+    }
+
+    /// Decodes made under other preferences (linear RAW mode, preprocessing
+    /// colour noise and sharpening, preprocessing of other formats, Apple
+    /// RAW 9) never share a decoded-image cache entry.
+    #[test]
+    fn decodes_under_other_preferences_never_share_a_cache_entry() {
+        let key = |settings: &AppSettings| {
+            decoded_cache_key_for(
+                "/p/A.NEF",
+                None,
+                DecodeVariant::default(),
+                &decode_preferences(settings),
+            )
+        };
+        let plain = key(&AppSettings::default());
+        assert_eq!(plain, key(&AppSettings::default()));
+        let others = [
+            settings_with(|s| s.linear_raw_mode = "linear".to_string()),
+            settings_with(|s| s.raw_preprocessing_color_nr = Some(0.9)),
+            settings_with(|s| s.raw_preprocessing_sharpening = Some(0.9)),
+            settings_with(|s| s.apply_preprocessing_to_non_raws = Some(true)),
+            settings_with(|s| s.use_apple_raw9 = Some(true)),
+        ];
+        for (i, other) in others.iter().enumerate() {
+            assert_ne!(plain, key(other), "preference {i}");
+            for (j, third) in others.iter().enumerate().skip(i + 1) {
+                assert_ne!(key(other), key(third), "preferences {i} and {j}");
+            }
+        }
+        // Unset preferences are their defaults: the same decode.
+        assert_eq!(
+            plain,
+            key(&settings_with(|s| s.raw_preprocessing_color_nr = Some(0.5)))
+        );
+    }
+
+    /// The preview proxies' key keeps what it was (stored proxies stay valid).
+    #[test]
+    fn decode_preferences_are_the_proxy_keys_prefix() {
+        assert_eq!(
+            decode_preferences(&AppSettings::default()),
+            format!(
+                "linear={};cnr=0.5;sharp=0.35;nonraw=false;raw9=false",
+                AppSettings::default().linear_raw_mode
+            )
+        );
+    }
+
+    struct Same;
+    impl MosaicDenoiser for Same {
+        fn denoise(
+            &self,
+            mosaic: &[f32],
+            _: usize,
+            _: usize,
+            _: [u8; 4],
+        ) -> anyhow::Result<Vec<f32>> {
+            Ok(mosaic.to_vec())
+        }
+    }
+
+    fn denoise() -> rawtonic_rawdecode::mosaic_denoise::MosaicDenoise {
+        rawtonic_engine::image_loader::ai_denoise_settings(
+            &serde_json::json!({ "aiDenoise": 50, "aiDenoiseVersion": 4 }),
+        )
+        .unwrap()
+        .mosaic_denoise(Arc::new(Same))
+    }
+
+    /// A sensor the denoiser skips (X-Trans, Foveon, linear DNG) opens with
+    /// the reason, is never cached (it would stand in for a decode without
+    /// AI Denoise), and with Apple RAW 9 on is flagged: its rawler pixels
+    /// differ from the plain decode the export makes.
+    #[test]
+    fn a_skipped_sensor_is_reported_and_never_cached() {
+        let develop = DevelopSession::default();
+        let image = Arc::new(DynamicImage::new_rgb32f(2, 2));
+        let settle = |denoise: Option<&_>, settings: &AppSettings, key: &str| {
+            let stands_in = skipped_stands_in(settings);
+            settle_decode(&develop, denoise, stands_in, key, &image, &HashMap::new(), None)
+        };
+        let cached = |key: &str| develop.decoded_image_cache.lock().unwrap().get(key).is_some();
+
+        let skipped = denoise();
+        let off = AppSettings::default();
+        let outcome = settle(Some(&skipped), &off, "skipped").unwrap();
+        assert_eq!(outcome.error, NOT_BAYER);
+        assert!(!outcome.stands_in, "without Apple RAW 9 rawler is the plain decode");
+        assert!(!cached("skipped"));
+
+        let apple = settings_with(|s| s.use_apple_raw9 = Some(true));
+        let outcome = settle(Some(&skipped), &apple, "skipped").unwrap();
+        assert!(outcome.stands_in);
+        assert!(!cached("skipped"));
+
+        // A denoiser that ran, or none asked for: cached, nothing reported.
+        let ran = denoise();
+        ran.applied.store(true, Ordering::SeqCst);
+        assert_eq!(settle(Some(&ran), &apple, "ran"), None);
+        assert!(cached("ran"));
+        assert_eq!(settle(None, &apple, "plain"), None);
+        assert!(cached("plain"));
     }
 }

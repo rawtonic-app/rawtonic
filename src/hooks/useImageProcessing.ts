@@ -29,7 +29,7 @@ import {
   noteBrowserPreview
 } from './usePerformanceDiagnostics';
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
-import { sourceDevelopToApply } from '../utils/aiDenoise';
+import { sameAiDenoiseAmount, sourceDevelopToApply } from '../utils/aiDenoise';
 import { beforeAdjustments, beforeSnapshot } from '../utils/beforeSnapshot';
 import { toastAiError } from '../utils/aiErrors';
 import { errorCode, errorMessage } from '../shared/ipc/errors';
@@ -690,7 +690,8 @@ export function useImageProcessing(
     const cameraPlaneWarp = developCameraPlaneWarp;
     const current = useEditorStore.getState().selectedImage;
     const changesAiDenoise =
-      amount !== Math.round(current?.aiDenoise ?? 0) ||
+      !sameAiDenoiseAmount(amount, current?.aiDenoise ?? 0) ||
+      (amount === 0 && current?.aiDenoiseStandIn === true) ||
       (amount > 0 && (version ?? 1) !== (current?.aiDenoiseVersion ?? 1));
     const changesFilter = multiscale !== current?.colorNoiseMultiscale;
     const changesDeadTest = deadPixelAdjacent !== current?.deadPixelAdjacent;
@@ -724,8 +725,9 @@ export function useImageProcessing(
         editor.setEditor({
           selectedImage: {
             ...editor.selectedImage,
-            aiDenoise: Math.round(applied),
+            aiDenoise: applied,
             aiDenoiseVersion: applied > 0 ? (version ?? 1) : 1,
+            aiDenoiseStandIn: false,
             ...(multiscale === undefined ? {} : { colorNoiseMultiscale: multiscale }),
             ...(deadPixelAdjacent === undefined ? {} : { deadPixelAdjacent }),
             ...(unbiasedBlack === undefined ? {} : { unbiasedBlack }),

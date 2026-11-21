@@ -518,6 +518,7 @@ export default function SettingsPanel({
     } else {
       await onSettingsChange({ ...appSettings, [key]: value });
       if (
+        key === 'linearRawMode' ||
         key === 'rawPreprocessingColorNr' ||
         key === 'rawPreprocessingSharpening' ||
         key === 'applyPreprocessingToNonRaws' ||

@@ -426,7 +426,8 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             ...(loadImageResult.ai_denoise_error
               ? {
                   aiDenoiseFailed: Number(storedMetadata?.adjustments?.aiDenoise ?? 0),
-                  aiDenoiseFailedVersion: Number(storedMetadata?.adjustments?.aiDenoiseVersion ?? 1)
+                  aiDenoiseFailedVersion: Number(storedMetadata?.adjustments?.aiDenoiseVersion ?? 1),
+                  ...(loadImageResult.ai_denoise_stand_in ? { aiDenoiseStandIn: true } : {})
                 }
               : {}),
             metadata: storedMetadata

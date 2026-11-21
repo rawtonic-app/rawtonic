@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { debouncedSetHistory, panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { sharpenViewFor } from '../../utils/sharpenView';
-import { storedSliderValue } from '../../utils/aiDenoise';
+import { shownSliderValue, storedSliderValue } from '../../utils/aiDenoise';
 import { useUIStore } from '../../store/useUIStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
@@ -1149,7 +1149,7 @@ export default function StudioDevelop() {
     <AdjustmentControl
       key={key}
       label={label}
-      value={(values[key] ?? defaults[key] ?? 0) as number}
+      value={shownSliderValue(key, (values[key] ?? defaults[key] ?? 0) as number)}
       min={min}
       max={max}
       step={step}

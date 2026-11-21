@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { PasteMode, pastedAdjustments, type Adjustments } from './adjustments';
 import {
+  aiDenoiseAmount,
   aiDenoiseToApply,
   developmentSignature,
+  shownSliderValue,
   sourceDevelopToApply,
   storedSliderValue,
   warpPlanesMatter
@@ -16,7 +19,7 @@ describe('aiDenoiseToApply', () => {
   });
 
   it('does nothing when the source already has it, during a drag, or before the decode', () => {
-    expect(aiDenoiseToApply({ ...decoded, aiDenoise: 60 }, { aiDenoise: 60.4 }, false)).toBeNull();
+    expect(aiDenoiseToApply({ ...decoded, aiDenoise: 60 }, { aiDenoise: 60 }, false)).toBeNull();
     expect(aiDenoiseToApply(decoded, { aiDenoise: 60 }, true)).toBeNull();
     expect(aiDenoiseToApply({ ...decoded, isDecoded: false }, { aiDenoise: 60 }, false)).toBeNull();
     expect(aiDenoiseToApply(decoded, {}, false)).toBeNull();
@@ -302,5 +305,58 @@ describe('storedSliderValue', () => {
   it('leaves the other sliders as they are', () => {
     expect(storedSliderValue('exposure', 0.37)).toBe(0.37);
     expect(storedSliderValue('lumaNoiseReduction', 12.4)).toBe(12.4);
+  });
+});
+
+describe('old fractional AI Denoise amounts', () => {
+  const recipe = { aiDenoise: 50.4, aiDenoiseVersion: 4 };
+
+  it('develops the stored amount, as the export reads it', () => {
+    expect(aiDenoiseAmount(recipe)).toBe(50.4);
+    expect(aiDenoiseToApply({ ...decoded, aiDenoise: 50, aiDenoiseVersion: 4 }, recipe, false)).toBe(50.4);
+    expect(sourceDevelopToApply({ ...decoded, aiDenoise: 50, aiDenoiseVersion: 4 }, recipe, false)).toMatchObject({
+      aiDenoise: 50.4
+    });
+  });
+
+  it('keeps a source developed at the stored amount (no endless develop, f32 round trip)', () => {
+    const source = { ...decoded, aiDenoise: 50.400002, aiDenoiseVersion: 4 };
+    expect(aiDenoiseToApply(source, recipe, false)).toBeNull();
+    expect(aiDenoiseToApply({ ...source, aiDenoise: 50.4 }, recipe, false)).toBeNull();
+  });
+
+  it('tells the signature of 50 and 50.4 apart: their sources differ', () => {
+    expect(developmentSignature(recipe, true)).not.toBe(developmentSignature({ ...recipe, aiDenoise: 50 }, true));
+  });
+
+  it('shows the slider rounded but writes nothing until it is moved', () => {
+    expect(shownSliderValue('aiDenoise', 50.4)).toBe(50);
+    expect(shownSliderValue('aiDenoise', 50.5)).toBe(51);
+    expect(shownSliderValue('exposure', 0.37)).toBe(0.37);
+  });
+
+  it('is copied as stored by a paste', () => {
+    const pasted = pastedAdjustments(recipe as Adjustments, ['aiDenoise', 'aiDenoiseVersion'], PasteMode.Replace);
+    expect(pasted.aiDenoise).toBe(50.4);
+    expect(pasted.aiDenoiseVersion).toBe(4);
+  });
+});
+
+describe('a sensor AI Denoise skipped, with Apple RAW 9 on', () => {
+  // Its rawler pixels stand in for the recipe's AI Denoise: with it off, the
+  // export decodes with Apple's engine, so Develop must develop again.
+  const skipped = { ...decoded, aiDenoise: 0, aiDenoiseFailed: 60, aiDenoiseFailedVersion: 4, aiDenoiseStandIn: true };
+
+  it('is developed again when AI Denoise is turned off', () => {
+    expect(aiDenoiseToApply(skipped, { aiDenoise: 0, aiDenoiseVersion: 4 }, false)).toBe(0);
+  });
+
+  it('is kept while the recipe still asks for the amount that was skipped', () => {
+    expect(aiDenoiseToApply(skipped, { aiDenoise: 60, aiDenoiseVersion: 4 }, false)).toBeNull();
+  });
+
+  it('is developed again for another amount, then plain once developed', () => {
+    expect(aiDenoiseToApply(skipped, { aiDenoise: 70, aiDenoiseVersion: 4 }, false)).toBe(70);
+    expect(aiDenoiseToApply({ ...skipped, aiDenoiseStandIn: false }, { aiDenoise: 0, aiDenoiseVersion: 4 }, false)).toBeNull();
   });
 });
