@@ -104,11 +104,6 @@ export function withHandleAt(level: Level, key: LevelValue, position: number): L
   return withLevelValue(level, 'midtone', 50 * Math.log2(gamma));
 }
 
-const toEncoded = (v: number) => {
-  const c = clamp(v, 0, 1);
-  return c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
-};
-
 /** The shader's `level` for one display value (0–255). */
 export function levelOutput(level: Level, v: number): number {
   const x = clamp((v - level.inBlack) / Math.max(level.inWhite - level.inBlack, 1e-4 * 255), 0, 1);
@@ -118,8 +113,8 @@ export function levelOutput(level: Level, v: number): number {
 
 /**
  * The levels after the black or white point picker: `pixels` are the
- * colours (linear sRGB) Levels receives around the picked point, sampled
- * with Levels left out (editor_preview.rs `sample_curve_input`). The
+ * sRGB display codes (0–255, including fractions) received by Levels
+ * around the picked point (`sample_levels_input`). The
  * channels act after the RGB composite, so each sets its input black or
  * white to the composite's output of its mean display value. On the RGB tab
  * the picker neutralises: the red, green and blue channels each take their
@@ -140,12 +135,11 @@ export function pickedLevels(
   const colours = ['red', 'green', 'blue'] as const;
   colours.forEach((c, i) => {
     if (channel !== 'rgb' && channel !== c) return;
-    const mean = pixels.reduce((sum, p) => sum + toEncoded(p[i]) * 255, 0) / pixels.length;
+    const mean = pixels.reduce((sum, p) => sum + p[i], 0) / pixels.length;
     // Levels hold whole codes: round toward clipping (black up, white down)
     // so the sample really reaches black or white; rounding to the nearest
     // code would leave a remainder that a steep channel gamma turns into a
-    // cast. (The tolerance keeps a code that round-trips through linear
-    // light on that code.)
+    // cast. The tolerance absorbs floating-point arithmetic at whole codes.
     const value = levelOutput(all.rgb, mean);
     next[c] = withLevelValue(all[c], key, point === 'black' ? Math.ceil(value - 1e-6) : Math.floor(value + 1e-6));
   });

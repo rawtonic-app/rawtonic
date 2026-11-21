@@ -2,7 +2,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useRef, type PointerEvent } from 'react';
 import { updateAdjustments } from '../../../hooks/useEditorActions';
 import { useEditorStore } from '../../../store/useEditorStore';
-import { INITIAL_LEVELS } from '../../../utils/adjustments';
 import { levelsInputKey, pickedLevels } from '../../../utils/levels';
 import {
   curveInputMean,
@@ -187,9 +186,9 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       const press = levelsPickerPress + 1;
       useEditorStore.setState({ levelsPickerPress: press });
       const input = levelsInputKey(path, adjustments);
-      const pixels = await invoke<[number, number, number][] | null>(Invokes.SampleCurveInput, {
+      const pixels = await invoke<[number, number, number][] | null>(Invokes.SampleLevelsInput, {
         ...point,
-        adjustments: { ...adjustments, levels: INITIAL_LEVELS }
+        adjustments
       }).catch(() => null);
       const now = useEditorStore.getState();
       // A slider drag's newest values may not be committed yet (sliderDraft):

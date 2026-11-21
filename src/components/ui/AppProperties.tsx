@@ -380,6 +380,7 @@ export enum Invokes {
   SamplePreviewColor = 'sample_preview_color',
   SamplePreviewPatch = 'sample_preview_patch',
   SampleCurveInput = 'sample_curve_input',
+  SampleLevelsInput = 'sample_levels_input',
   SampleMixerInput = 'sample_mixer_input',
   SampleColorRangeInput = 'sample_color_range_input',
   SampleColorRangeResult = 'sample_color_range_result',

@@ -1337,6 +1337,85 @@ pub async fn sample_curve_input(
     .map_err(|error| format!("Curve input sampling task failed: {error}"))?
 }
 
+/// What Levels receive around a point (sRGB display values clipped to the
+/// cube, before Levels): 0–255 per channel with the fractions of 16-bit
+/// codes rounded half up, for the black and white point pickers. Two
+/// renders of the shown preview's display path (`levels_precise_probe`),
+/// whose shader is warm and whose retained blurs and masks it reuses; a
+/// variant without the probe (the general shader standing in) gives its
+/// 8-bit values. `adjustments` is the recipe (without view states); its
+/// levels do not matter. None while no preview base of the recipe's
+/// geometry is cached.
+#[tauri::command]
+pub async fn sample_levels_input(
+    path: String,
+    normalized_x: f64,
+    normalized_y: f64,
+    adjustments: serde_json::Value,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<Vec<[f64; 3]>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("sample_levels_input");
+        let recipe = levels_input_probe(&adjustments);
+        let render = |low: bool| {
+            render_probe(
+                &app_handle,
+                &path,
+                recipe.clone(),
+                ProbeArea::Point(normalized_x, normalized_y),
+                ProbeOutput::LevelsPrecise { low },
+                "sample_levels_input",
+            )
+        };
+        let Some(high) = render(false)? else {
+            return Ok(None);
+        };
+        let high = high.to_rgba8();
+        if let Some(codes) = levels_probe_marked(high.as_raw()) {
+            let Some(low) = render(true)? else {
+                return Ok(None);
+            };
+            return Ok(levels_input_codes(codes, low.to_rgba8().as_raw()));
+        }
+        log::warn!("Levels picker: no display variant holds the 16-bit probe; 8-bit sample");
+        Ok(Some(
+            high.as_raw()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| [0, 1, 2].map(|c| f64::from(p[c])))
+                .collect(),
+        ))
+    })
+    .await
+    .map_err(|error| format!("Levels input sampling task failed: {error}"))?
+}
+
+/// The high bytes of the Levels pickers' probe, when every pixel carries
+/// its mark (alpha 0; shader `levels_precise_probe_pixel`).
+fn levels_probe_marked(high: &[u8]) -> Option<&[[u8; 4]]> {
+    let high = high.as_chunks::<4>().0;
+    (!high.is_empty() && high.iter().all(|p| p[3] == 0)).then_some(high)
+}
+
+/// The probe's two renders as display values (0–255 with the 16-bit
+/// codes' fractions).
+fn levels_input_codes(high: &[[u8; 4]], low: &[u8]) -> Option<Vec<[f64; 3]>> {
+    let low = low.as_chunks::<4>().0;
+    (high.len() == low.len()).then(|| {
+        high.iter()
+            .zip(low)
+            .map(|(h, l)| {
+                [0, 1, 2].map(|c| {
+                    f64::from(u16::from(h[c]) << 8 | u16::from(l[c])) * 255.0
+                        / f64::from(u16::MAX)
+                })
+            })
+            .collect()
+    })
+}
+
 /// The mixer whose input a colour target of the targeted adjustment samples
 /// (`mixer` of [`sample_mixer_input`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -1757,6 +1836,11 @@ enum ProbeArea {
 enum ProbeOutput {
     Space(rawtonic_engine::output_color_space::OutputColorSpace),
     LevelsInput,
+    /// Levels' input as 16-bit codes, one of the pickers' two renders
+    /// (`levels_precise_probe`).
+    LevelsPrecise {
+        low: bool,
+    },
     /// A mixer's input (`MIXER_INPUT_PROBE`, `BW_INPUT_PROBE`).
     Mixer(MixerProbe),
     /// The colour editor's input of renderer slot `slot` (0: the photo's
@@ -1847,6 +1931,9 @@ fn render_probe(
         }
         ProbeOutput::LevelsInput => {
             probe.global.output_space[3] = image_processing::LEVELS_INPUT_PROBE;
+        }
+        ProbeOutput::LevelsPrecise { low } => {
+            probe.global.output_space[3] = image_processing::levels_precise_probe(low);
         }
         ProbeOutput::Mixer(mixer) => {
             probe.global.output_space[3] = match mixer {
@@ -6123,5 +6210,31 @@ mod mixer_input_tests {
         assert_eq!(mixer_sample(&[]), None);
         // A photo pixel (alpha 1): the pipeline had no probe.
         assert_eq!(mixer_sample(&[200, 120, 90, 255]), None);
+    }
+}
+
+#[cfg(test)]
+mod levels_picker_tests {
+    use super::{levels_input_codes, levels_probe_marked};
+
+    #[test]
+    fn the_levels_probe_reads_sixteen_bit_codes_from_its_two_renders() {
+        // 128.5 of 255 is 33,024.5 of 65,535, rounded half up to 33,025
+        // (0x8101): between 8-bit levels. 0x0101 is level 1 exactly.
+        let high = [0x81, 0x00, 0xff, 0, 0x01, 0x00, 0x00, 0];
+        let low = [0x01, 0x00, 0xff, 255, 0x01, 0x00, 0x00, 255];
+        let marked = levels_probe_marked(&high).expect("probe pixels");
+        let values = levels_input_codes(marked, &low).unwrap();
+        assert_eq!(values.len(), 2);
+        assert!((values[0][0] - 33_025.0 / 257.0).abs() < 1e-9, "{values:?}");
+        assert!((values[0][0] - 128.5).abs() < 1.0 / 256.0, "{values:?}");
+        assert_eq!(values[0][1], 0.0);
+        assert!((values[0][2] - 255.0).abs() < 1e-9, "{values:?}");
+        assert!((values[1][0] - 1.0).abs() < 1e-9, "{values:?}");
+        // A photo pixel (alpha above 0): the pipeline had no probe.
+        assert_eq!(levels_probe_marked(&[128, 128, 128, 255]), None);
+        assert_eq!(levels_probe_marked(&[]), None);
+        // Renders of different sizes do not pair.
+        assert_eq!(levels_input_codes(marked, &low[..4]), None);
     }
 }
