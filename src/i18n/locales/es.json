@@ -5813,6 +5813,7 @@
         "moveToolsLeft": "Mover las herramientas de Revelado a la izquierda",
         "moveToolsRight": "Mover las herramientas de Revelado a la derecha"
       },
+      "lightroomHdr": "Edición HDR de Lightroom: se muestra y se exporta como SDR",
       "loupe": {
         "adjust": "Revelado",
         "adjustTitle": "Ajustar en Revelado",

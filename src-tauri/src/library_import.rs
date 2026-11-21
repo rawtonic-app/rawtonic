@@ -614,7 +614,15 @@ fn recipe_for_with(
         capture_one_lens(entries, path, &mut adjustments);
         capture_one_chromatic_aberration(entries, path, &mut adjustments);
     }
-    let edited = translated.is_some() || adjustments.as_object().is_some_and(|m| !m.is_empty());
+    // An HDR edit whose settings the converter does not translate is still
+    // an imported edit: its HDR settings are kept (below).
+    let hdr = match develop {
+        Develop::LightroomXmp(xmp) => rawtonic_interop::lightroom_hdr::hdr_settings(xmp),
+        _ => Default::default(),
+    };
+    let edited = translated.is_some()
+        || !hdr.is_empty()
+        || adjustments.as_object().is_some_and(|m| !m.is_empty());
     if !edited && c1_layers.is_empty() {
         return None;
     }
@@ -670,6 +678,16 @@ fn recipe_for_with(
     }
     let mut clipped = false;
     if let Develop::LightroomXmp(xmp) = develop {
+        // An HDR edit is not rendered (SDR only) but kept for the sidecar
+        // (`rawtonic_interop::lightroom_hdr`).
+        if !hdr.is_empty()
+            && let Some(map) = adjustments.as_object_mut()
+        {
+            map.insert(
+                rawtonic_interop::lightroom_hdr::LIGHTROOM_HDR_KEY.into(),
+                json!(hdr),
+            );
+        }
         let attrs = crate::preset_converter::crs_attributes(xmp);
         lightroom_lens(&attrs, path, &mut adjustments);
         clipped = lightroom_crop(&attrs, path, &mut adjustments);
@@ -1722,6 +1740,42 @@ mod tests {
         assert_eq!(c1["exposure"], 0.7);
         assert!(c1["highlights"].as_f64().unwrap() < -40.0, "{c1}");
         assert!(translate(&Develop::None).is_none());
+    }
+
+    /// A Lightroom HDR edit keeps its `crs:HDR…`/`crs:SDR…` settings in the
+    /// recipe (they are written back to the sidecar, `rawtonic_metadata`);
+    /// a recipe of a photo without them has no such key.
+    #[test]
+    fn lightroom_hdr_settings_are_kept_with_the_recipe_and_absent_otherwise() {
+        let hdr = r#"s = { Exposure2012 = 0.5, HDREditMode = 1, HDRMaxValue = 4, SDRBrightness = 12, SDRBlend = 0.5 }"#;
+        let xmp = rawtonic_interop::lightroom_settings::to_xmp(hdr).unwrap();
+        let path = Path::new("A.NEF");
+        let (adjustments, _) =
+            recipe_for(&Develop::LightroomXmp(xmp), &[], path).expect("translated");
+        let kept = &adjustments[rawtonic_interop::lightroom_hdr::LIGHTROOM_HDR_KEY];
+        assert_eq!(kept["HDREditMode"], "1");
+        assert_eq!(kept["HDRMaxValue"], "4");
+        assert_eq!(kept["SDRBrightness"], "12");
+        assert_eq!(adjustments["exposure"], 0.5);
+
+        // Settings the converter has nothing to translate keep the HDR edit.
+        let only = rawtonic_interop::lightroom_settings::to_xmp("s = { HDREditMode = 1 }").unwrap();
+        let (adjustments, _) =
+            recipe_for(&Develop::LightroomXmp(only), &[], path).expect("kept as an edit");
+        assert_eq!(
+            adjustments[rawtonic_interop::lightroom_hdr::LIGHTROOM_HDR_KEY]["HDREditMode"],
+            "1"
+        );
+
+        let plain =
+            rawtonic_interop::lightroom_settings::to_xmp("s = { Exposure2012 = 0.5 }").unwrap();
+        let (adjustments, _) =
+            recipe_for(&Develop::LightroomXmp(plain), &[], path).expect("translated");
+        assert!(
+            adjustments
+                .get(rawtonic_interop::lightroom_hdr::LIGHTROOM_HDR_KEY)
+                .is_none()
+        );
     }
 
     /// A catalog's Guided Upright (its develop settings as Lua) keeps its
