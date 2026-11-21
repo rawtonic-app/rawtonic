@@ -2592,18 +2592,7 @@ fn process_preview_job(
             full_dims,
         );
     }
-    // A drag's frame computes Glow's and Halation's terms once per 2 x 2
-    // pixels, as Lightroom's and Capture One's drag frames are coarser
-    // (G76/GRN3); the settled frame (and the scopes' release input above)
-    // computes them per pixel. The Full Resolution live quality renders
-    // every pixel exactly while dragging.
-    // Film grain likewise, but in a drag of a grain control (`grain_drag`,
-    // from the press on), which shows the grain being set as it settles.
-    let coarser_drag = is_interactive && live_quality != "full";
-    final_adjustments.drag_effects = rawtonic_engine::image_processing::DragEffects {
-        half_terms: coarser_drag,
-        half_grain: coarser_drag && !grain_drag,
-    };
+    final_adjustments.drag_effects = drag_effects(is_interactive, live_quality, grain_drag);
     let final_processed_image_result =
         crate::image_processing::process_and_get_dynamic_image_with_analytics(
             context,
@@ -2856,6 +2845,26 @@ fn browser_region_frame(
     has_roi: bool,
 ) -> bool {
     !interactive && full_zoom && !crop_edit && has_roi
+}
+
+/// A drag's frame computes Glow's and Halation's terms once per block of
+/// pixels, as Lightroom's and Capture One's drag frames are coarser
+/// (G76/GRN3); the settled frame (and the scopes' release input) computes
+/// them per pixel. The Full Resolution live quality renders every pixel
+/// exactly while dragging. Film grain likewise (4 x 4 blocks below a short
+/// side of 1080 px, G76/GRN6), but in a drag of a grain control
+/// (`grain_drag`, from the press on), which shows the grain being set as it
+/// settles: every pixel's grain, as the settled frame.
+fn drag_effects(
+    is_interactive: bool,
+    live_quality: &str,
+    grain_drag: bool,
+) -> rawtonic_engine::image_processing::DragEffects {
+    let coarser_drag = is_interactive && live_quality != "full";
+    rawtonic_engine::image_processing::DragEffects {
+        half_terms: coarser_drag,
+        half_grain: coarser_drag && !grain_drag,
+    }
 }
 
 /// A drag asking for fewer pixels than the cached base has (with grain,
@@ -5104,6 +5113,20 @@ mod preview_memory_tests {
         assert!(pass_of(&job(false, false, true, zoomed)).is_none());
         assert!(pass_of(&job(false, true, false, zoomed)).is_none());
         assert!(pass_of(&job(false, true, true, None)).is_none());
+    }
+
+    #[test]
+    fn only_drags_of_other_controls_take_coarser_grain() {
+        // G76/GRN6: a drag of Grain Amount, Size or Roughness shows every
+        // pixel's grain; a drag of any other control takes the grain per
+        // block (4 x 4 below 1080 px, the GPU's `grain_block_shift`); the
+        // settled frame and Full Resolution live quality are exact.
+        let other = drag_effects(true, "high", false);
+        assert!(other.half_grain && other.half_terms);
+        let grain = drag_effects(true, "high", true);
+        assert!(!grain.half_grain && grain.half_terms);
+        assert_eq!(drag_effects(false, "high", false), Default::default());
+        assert_eq!(drag_effects(true, "full", false), Default::default());
     }
 
     #[test]

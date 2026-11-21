@@ -2145,7 +2145,7 @@
         "failed_other": "{{count}} 件の XMP ファイルを書き込めませんでした: {{error}}",
         "offline_other": "{{count}} 枚の写真がオフラインです。ドライブを再接続すると XMP ファイルが更新されます。",
         "pending_other": "{{count}} 件の XMP ファイルを再度書き込めます。",
-        "sharedName_other": "{{count}} 枚の写真がほかの写真と同じ名前です (RAW と JPEG)。両方が同じ XMP ファイルに書き込むことになります。"
+        "sharedName_other": "{{count}} 枚の写真がほかの写真と同じ名前です (CR3 と DNG など 2 つの RAW ファイル)。両方が同じ XMP ファイルに書き込むことになります。"
       },
       "resolved_other": "{{count}} 枚の写真の XMP の競合を解決しました",
       "retry": "再試行",
@@ -2170,12 +2170,14 @@
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "顔のレタッチ用の目の開口部と歯（SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin）。変更: ONNX と Core ML に変換し、CC BY-SA 4.0 で公開。",
         "Jiff / Unicode CLDR": "Windows のタイムゾーン名と IANA 識別子の対応表。",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -3795,9 +3797,11 @@
       },
       "downloadModels": "顔モデルをダウンロード",
       "eyes": {
+        "downloadModel": "目と歯のモデルをダウンロード",
         "find": "目と歯を検出",
         "finding": "目と歯を検出中…",
         "missing": "「目」と「歯」には、これらのツールより前に検出された顔の目と口が必要です。",
+        "modelMissing": "目と歯には目と歯のモデル（57 MB）を使います。GitHub 上の Rawtonic のモデルパックから一度だけダウンロードされ、このコンピューター上で動作します。",
         "none": "この顔には目または開いた口が見つかりません。",
         "sideAria": "目",
         "sideHint": {

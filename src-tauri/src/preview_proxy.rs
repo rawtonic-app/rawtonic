@@ -131,6 +131,13 @@ const READ_VERSIONS: [u32; 3] = [1, 2, 3];
 /// 62: dithered linearization and curve lookups clamp instead of wrapping at
 /// the table ends (JPEG-to-DNG and ProRAW highlights, small NEF) (2026-11-20).
 pub const ENGINE_VERSION: u32 = 62;
+/// What a reduced copy (a Standard proxy, a thumbnail's source) keeps of the
+/// photograph's colours. 1: colours beyond sRGB (the working space's negative
+/// channels) survive the reduction, as the export develops them (2026-11-21;
+/// before, every reduction clamped them at 0 and the display differed).
+/// Proxies without it (made before) are renewed while the RAW is available and
+/// read as they are while it is not; the marker is no part of the key.
+pub const DISPLAY_COPY: u32 = 1;
 /// Rows per band of half floats (format 1; written by tests only).
 #[cfg(test)]
 const F16_ROWS_PER_BAND: u32 = 64;
@@ -206,9 +213,19 @@ struct Header {
     /// The RAW's EXIF as the editor shows it (capture details offline).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     exif: Option<HashMap<String, String>>,
+    /// `DISPLAY_COPY` when written; absent before 2026-11-21.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    display_copy: Option<u32>,
 }
 
 impl Header {
+    /// Whether this file is a reduced copy made before reductions kept colours
+    /// beyond sRGB. A copy of the whole decode was never reduced.
+    fn display_copy_is_stale(&self) -> bool {
+        self.display_copy != Some(DISPLAY_COPY)
+            && (self.width < self.full_width || self.height < self.full_height)
+    }
+
     /// Whether this file is in the current encoding. Others are still read,
     /// and replaced whenever the RAW is decoded.
     fn is_current_encoding(&self) -> bool {
@@ -230,6 +247,8 @@ pub struct Proxy {
     pub key: ProxyKey,
     /// The measures of the decode it was made from (its facts).
     pub measures: Option<DecodeMeasures>,
+    /// Reduced before reductions kept colours beyond sRGB (`DISPLAY_COPY`).
+    pub clamped: bool,
 }
 
 /// The measures a proxy's facts keep of the decode it was made from.
@@ -749,6 +768,7 @@ fn encode_with_sample(
         transfer: Some(transfer),
         facts: data.facts,
         exif: data.exif,
+        display_copy: Some(DISPLAY_COPY),
     })
     .expect("serializable header");
     let mut out =
@@ -838,6 +858,7 @@ fn decode_checked(bytes: &[u8], accept: impl FnOnce(&Header) -> bool) -> Option<
         full_width: header.full_width,
         full_height: header.full_height,
         measures: measures_of(header.facts.as_ref()),
+        clamped: header.display_copy_is_stale(),
         key: header.key,
     })
 }
@@ -1136,8 +1157,23 @@ pub(crate) fn standard_header_is_current(source: &Path, settings: &AppSettings) 
 /// (made from the photograph as it is now, in the current encoding).
 pub fn stored_size(source: &Path, settings: &AppSettings) -> Option<u32> {
     let header = read_header(&proxy_path(source)?)?;
-    (header.is_current_encoding() && header_is_current(&header, source, settings))
-        .then_some(header.width.max(header.height))
+    // A copy reduced before reductions kept colours beyond sRGB is made again
+    // once the RAW can be decoded (a view or a build does); offline it is all
+    // there is (`read` serves it either way).
+    (header.is_current_encoding()
+        && header_is_current(&header, source, settings)
+        && !(header.display_copy_is_stale() && source_available(source)))
+    .then_some(header.width.max(header.height))
+}
+
+/// Whether the Standard proxy of `source` is a reduced copy that clamped
+/// colours beyond sRGB (`DISPLAY_COPY`): what a thumbnail developed from it
+/// shows is the old display, so its key keeps the old salt until the proxy is
+/// made again.
+pub(crate) fn standard_display_copy_is_stale(source: &Path) -> bool {
+    proxy_path(source)
+        .and_then(|path| read_header(&path))
+        .is_some_and(|header| header.display_copy_is_stale())
 }
 
 /// Whether a current 1:1 proxy of `source` is stored (in the current
@@ -1192,6 +1228,7 @@ pub fn write(
         full_height,
         key,
         measures,
+        clamped: false,
     })
 }
 
@@ -1647,6 +1684,35 @@ pub(crate) mod frame_fixture {
     pub(crate) fn frame_one_edit() -> serde_json::Value {
         serde_json::json!({"exposure": 1.0, "renderVersion": 4, "sourceFrameVersion": 1})
     }
+}
+
+/// Test helpers for other modules: a Standard proxy of a never-edited RAW,
+/// and one made before `DISPLAY_COPY`.
+#[cfg(test)]
+pub(crate) fn write_for_test(source: &Path, image: &DynamicImage, size: u32) {
+    let variant = DecodeVariant {
+        multiscale: true,
+        dead_test: DeadTest::Adjacent,
+        frame: 0,
+        black: BlackLevels::UnbiasedBorder,
+        highlights: HighlightRebuild::Ratios,
+        warp_planes: WarpPlanes::Output,
+    };
+    write(source, image, size, &AppSettings::default(), variant, None).unwrap();
+}
+
+#[cfg(test)]
+pub(crate) fn clear_display_copy_marker_for_test(source: &Path) {
+    let path = proxy_path(source).unwrap();
+    let bytes = fs::read(&path).unwrap();
+    let (mut header, at) = parse_header(&bytes).unwrap();
+    header.display_copy = None;
+    let json = serde_json::to_vec(&header).unwrap();
+    let mut out = bytes[..8].to_vec();
+    out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+    out.extend_from_slice(&json);
+    out.extend_from_slice(&bytes[at..]);
+    fs::write(path, out).unwrap();
 }
 
 #[cfg(test)]
@@ -2224,6 +2290,56 @@ pub(crate) mod tests {
         out.extend_from_slice(&json);
         out.extend_from_slice(&bytes[at..]);
         fs::write(path, out).unwrap();
+    }
+
+    /// Rewrites the header of `path` (a proxy written by this module).
+    fn rewrite_header(path: &Path, change: impl FnOnce(&mut Header)) {
+        let bytes = fs::read(path).unwrap();
+        let (mut header, at) = parse_header(&bytes).unwrap();
+        change(&mut header);
+        let json = serde_json::to_vec(&header).unwrap();
+        let mut out = bytes[..8].to_vec();
+        out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+        out.extend_from_slice(&json);
+        out.extend_from_slice(&bytes[at..]);
+        fs::write(path, out).unwrap();
+    }
+
+    #[test]
+    fn a_reduced_preview_that_clamped_colours_is_renewed_online_and_kept_offline() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+        assert_eq!(stored_size(&photo, &settings), Some(40));
+        assert!(!standard_display_copy_is_stale(&photo));
+        // Made before reductions kept colours beyond sRGB: no marker.
+        let path = proxy_path(&photo).unwrap();
+        rewrite_header(&path, |header| header.display_copy = None);
+        assert!(standard_display_copy_is_stale(&photo));
+        // Online it is still shown, and made again by the next view or build.
+        assert!(read(&photo, &settings).is_some());
+        assert_eq!(stored_size(&photo, &settings), None);
+        write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+        assert_eq!(stored_size(&photo, &settings), Some(40));
+        assert!(!standard_display_copy_is_stale(&photo));
+        // Offline (nothing to decode from) the old preview is all there is.
+        rewrite_header(&path, |header| header.display_copy = None);
+        fs::remove_file(&photo).unwrap();
+        assert!(read(&photo, &settings).is_some());
+        assert_eq!(stored_size(&photo, &settings), Some(40));
+    }
+
+    #[test]
+    fn a_preview_of_the_whole_decode_was_never_reduced() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 80, &settings, NEW_EDIT, None).unwrap();
+        rewrite_header(&proxy_path(&photo).unwrap(), |header| {
+            header.display_copy = None
+        });
+        assert_eq!(stored_size(&photo, &settings), Some(80));
     }
 
     #[test]

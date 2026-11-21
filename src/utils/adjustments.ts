@@ -347,6 +347,11 @@ export interface FaceRetouchSettings {
 export interface RetouchEye {
   iris: number[];
   lid: number[][];
+  /** The eye and teeth parser's eye opening and its wider opening for the
+   * iris (closed outlines, mask-frame pixels); missing where the masks come
+   * from `lid` (eyes found before the parser, or an eye it missed). */
+  parsedEye?: number[][][];
+  parsedIris?: number[][][];
 }
 
 /** A blemish found on a face (mask-frame pixels; `score`: prominence). */
@@ -377,6 +382,10 @@ export interface RetouchFace {
   eyes?: (RetouchEye | null)[];
   /** Inner lip outline of an open mouth (mask-frame pixels). */
   mouth?: number[][] | null;
+  /** The eye and teeth parser's teeth outlines; present (maybe empty) on
+   * faces it looked at, missing on faces whose Eyes and Teeth keep the
+   * Face Mesh outlines (edits made before it). */
+  parsedTeeth?: number[][][];
   /** Blemishes (ids) the user keeps. */
   kept: number[];
   /** Blemishes (ids) the user heals below the slider's reach. */

@@ -222,9 +222,30 @@ pub fn preview_name(
 }
 
 /// Copies the card sidecar `sidecar` beside `photo` (a verified copy of its
-/// photograph) as `<photo stem>.xmp` (`copy_beside`).
+/// photograph) under the name the photo's own sidecar has there
+/// (`rawtonic_metadata::sidecars`): `<stem>.xmp` for a RAW; a developed
+/// image's full-name card sidecar (`NAME.JPG.xmp`, from a RAW+JPEG pair)
+/// keeps that form, so it never takes the name its RAW's sidecar has
+/// (`copy_beside`).
 fn copy_sidecar(sidecar: &Path, photo: &Path, barrier: &mut Barrier) -> Result<PathBuf> {
-    let target = rawtonic_metadata::sidecar_path(photo);
+    let extension = photo.extension().and_then(|e| e.to_str());
+    let full_name = sidecar
+        .file_stem()
+        .and_then(|stem| Path::new(stem).extension())
+        .and_then(|e| e.to_str())
+        .zip(extension)
+        .is_some_and(|(of_sidecar, of_photo)| of_sidecar.eq_ignore_ascii_case(of_photo));
+    let target =
+        if full_name && extension.is_some_and(rawtonic_metadata::sidecars::is_developed_image) {
+            let mut name = photo
+                .file_name()
+                .context("Photo has no filename")?
+                .to_os_string();
+            name.push(".xmp");
+            photo.with_file_name(name)
+        } else {
+            rawtonic_metadata::sidecar_path(photo)
+        };
     copy_beside_all(
         sidecar,
         &[target],

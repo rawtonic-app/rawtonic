@@ -267,10 +267,26 @@ fn add_keeps_sidecar_digest_for_the_normal_later_sync() {
 }
 
 #[test]
-fn independent_same_stem_photos_keep_metadata_pending_and_report_xmp_conflict() {
+fn independent_same_stem_photos_each_write_their_own_xmp() {
+    for (jpeg_first, two_cards) in [(false, false), (true, false), (true, true)] {
+        same_stem_import(jpeg_first, two_cards);
+    }
+}
+
+/// The RAW is copied first whatever the order chosen, also from another
+/// folder (a camera writing RAW to one card and JPEG to the other), so the
+/// JPEG's XMP never takes the name the RAW's has.
+fn same_stem_import(jpeg_first: bool, two_cards: bool) {
     let d = tempfile::tempdir().unwrap();
-    let raw = d.path().join("source.NEF");
-    let jpeg = d.path().join("source.JPG");
+    let (raw_card, jpeg_card) = if two_cards {
+        (d.path().join("card1"), d.path().join("card2"))
+    } else {
+        (d.path().to_path_buf(), d.path().to_path_buf())
+    };
+    fs::create_dir_all(&raw_card).unwrap();
+    fs::create_dir_all(&jpeg_card).unwrap();
+    let raw = raw_card.join("source.NEF");
+    let jpeg = jpeg_card.join("source.JPG");
     fs::write(&raw, b"raw").unwrap();
     fs::write(&jpeg, b"jpeg").unwrap();
     let lib = Library::create(&d.path().join("Library"), "Library", Mode::Session).unwrap();
@@ -288,14 +304,8 @@ fn independent_same_stem_photos_keep_metadata_pending_and_report_xmp_conflict() 
         album: None,
         metadata: Some(&preset),
     };
-    let results = import_batch(
-        &lib,
-        &[raw, jpeg],
-        &options,
-        &AtomicBool::new(false),
-        |_| {},
-    )
-    .unwrap();
+    let sources = if jpeg_first { [jpeg, raw] } else { [raw, jpeg] };
+    let results = import_batch(&lib, &sources, &options, &AtomicBool::new(false), |_| {}).unwrap();
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|r| r.error.is_none()));
     for result in &results {
@@ -306,14 +316,20 @@ fn independent_same_stem_photos_keep_metadata_pending_and_report_xmp_conflict() 
             "Creator"
         );
     }
+    // The RAW's is `source.xmp`, the JPEG's `source.JPG.xmp`: neither
+    // takes the other's.
+    assert!(results.iter().all(|r| r.warning.is_none()), "{results:?}");
+    let sidecars: Vec<_> = results
+        .iter()
+        .map(|r| r.sidecar.clone().unwrap().file_name().unwrap().to_owned())
+        .collect();
+    assert_eq!(sidecars, ["source.xmp", "source.JPG.xmp"]);
     assert!(
-        results[1]
-            .warning
-            .as_ref()
-            .unwrap()
-            .contains("pair resolution")
+        results
+            .iter()
+            .all(|r| r.sidecar.as_ref().unwrap().is_file())
     );
-    assert_eq!(lib.summary().unwrap().xmp_pending, 1);
+    assert_eq!(lib.summary().unwrap().xmp_pending, 0);
 }
 
 #[test]

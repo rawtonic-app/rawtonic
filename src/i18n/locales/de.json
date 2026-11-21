@@ -2237,8 +2237,8 @@
         "offline_other": "{{count}} Fotos sind offline. Ihre XMP-Dateien werden aktualisiert, sobald das Laufwerk wieder verbunden ist.",
         "pending_one": "{{count}} XMP-Datei kann erneut geschrieben werden.",
         "pending_other": "{{count}} XMP-Dateien können erneut geschrieben werden.",
-        "sharedName_one": "{{count}} Foto heißt genauso wie ein anderes (RAW und JPEG), daher würden beide dieselbe XMP-Datei schreiben.",
-        "sharedName_other": "{{count}} Fotos heißen genauso wie ein anderes (RAW und JPEG), daher würden beide dieselbe XMP-Datei schreiben."
+        "sharedName_one": "{{count}} Foto heißt genauso wie ein anderes (zwei RAW-Dateien, etwa CR3 und DNG), daher würden beide dieselbe XMP-Datei schreiben.",
+        "sharedName_other": "{{count}} Fotos heißen genauso wie ein anderes (zwei RAW-Dateien, etwa CR3 und DNG), daher würden beide dieselbe XMP-Datei schreiben."
       },
       "resolved_one": "XMP-Konflikt für {{count}} Foto gelöst",
       "resolved_other": "XMP-Konflikte für {{count}} Fotos gelöst",
@@ -2265,12 +2265,14 @@
         "avif-parse": "Liest den AVIF-Container.",
         "BiRefNet": "Motiv- und Hintergrundmasken (Peng Zheng und andere).",
         "ConvNeXt UperNet": "Himmels- und Landschaftsmasken (Meta, ADE20K).",
+        "cyrb53": "String-Hash von bryc, mit dem Editor und Renderer den Inhalt einer Masken-Bitmap benennen.",
         "darktable": "Referenzimplementierungen für Teile des übernommenen Editors.",
         "DAViD": "Oberflächennormalen von Personen für Relight (Microsoft).",
         "Dawn": "WebGPU für KI-Modelle unter Windows und Linux im WebGPU-Plugin von ONNX Runtime (Google).",
         "Depth Anything 3 Base": "Relative Szenengeometrie und Kameraschätzung für Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Tiefenmasken.",
         "DirectX Shader Compiler": "Unter Windows Microsofts Shader-Compiler (dxcompiler.dll, dxil.dll), mit dem das WebGPU-Plugin von ONNX Runtime die KI-Modelle auf der GPU ausführt (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Augenöffnungen und Zähne für die Gesichtsretusche (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Geändert: nach ONNX und Core ML umgewandelt, veröffentlicht unter CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Zuordnung von Windows-Zeitzonennamen zu IANA-Kennungen.",
         "jxl-oxide": "Öffnet JPEG-XL-Dateien (Wonwoo Choi), mit einer Rawtonic-Korrektur für leere Modular-Datenströme.",
         "Lensfun database": "Objektivprofile für die automatische Objektivkorrektur (nur Daten, kein Lensfun-Code).",
@@ -3904,9 +3906,11 @@
       },
       "downloadModels": "Gesichtsmodelle laden",
       "eyes": {
+        "downloadModel": "Augen- und Zahnmodell laden",
         "find": "Augen und Zähne finden",
         "finding": "Augen und Zähne werden gefunden…",
         "missing": "Augen und Zähne brauchen Augen und Mund dieser Gesichter; sie wurden gefunden, bevor es diese Werkzeuge gab.",
+        "modelMissing": "Augen und Zähne verwenden ein Augen- und Zahnmodell (57 MB). Es wird einmal aus Rawtonics Modellpaket auf GitHub geladen und läuft auf diesem Computer.",
         "none": "Auf diesem Gesicht wurden keine Augen und kein offener Mund gefunden.",
         "sideAria": "Auge",
         "sideHint": {
