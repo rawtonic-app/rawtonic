@@ -557,11 +557,9 @@ fn pasted_metadata(
     let mut existing_metadata =
         crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
     let in_cloud = crate::file_management::is_cloud_placeholder(source_path);
-    let resolve_lens = if in_cloud {
-        cloud_gate(path, &existing_metadata, adjustments, size)?
-    } else {
-        true
-    };
+    if in_cloud {
+        cloud_gate(path, source_path, &existing_metadata, adjustments, size)?;
+    }
     existing_metadata.adjustments = pasted_into_with(
         std::mem::take(&mut existing_metadata.adjustments),
         &existing_metadata.exif,
@@ -572,7 +570,7 @@ fn pasted_metadata(
         style,
         size,
         lens_db,
-        resolve_lens,
+        in_cloud,
     )?;
     Ok(existing_metadata)
 }
@@ -580,45 +578,40 @@ fn pasted_metadata(
 /// What a batch edit of a photograph whose original is only in the cloud
 /// (an evicted placeholder; reading it makes macOS download it) cannot do
 /// without the file: Err naming it, so the photograph is left as it is and
-/// the photographer downloads it and applies again. Otherwise whether the
-/// lens choice may be resolved (from the cached EXIF, never the file).
+/// the photographer downloads it and applies again. (A lens choice the paste
+/// changes is checked once the settings are merged, `pasted_into_with`.)
 fn cloud_gate(
     path: &str,
+    source_path: &Path,
     metadata: &ImageMetadata,
     adjustments: &Value,
     size: Option<(f64, f64)>,
-) -> Result<bool, String> {
-    let refuse = |what: &str| {
-        Err(format!(
-            "{path}: original is in the cloud — download it to apply {what}"
-        ))
-    };
+) -> Result<(), String> {
     // The camera's crop and the camera's develop defaults come from the file.
     if crate::image_processing::is_new_recipe(&metadata.adjustments) {
-        return refuse("the camera's crop and defaults of its first edit");
+        return Err(cloud_refusal(
+            path,
+            "the camera's crop and defaults of its first edit",
+        ));
     }
     // Lightroom gradients and brushes are placed in the photo's pixels.
     if size.is_none() && adjustments.to_string().contains("lrNormalized") {
-        return refuse("a preset's gradients and brushes");
+        return Err(cloud_refusal(path, "a preset's gradients and brushes"));
     }
-    let pastes_lens = [
-        lens::CORRECTION_MODE.name(),
-        lens::MAKER.name(),
-        lens::MODEL.name(),
-    ]
-    .iter()
-    .any(|key| adjustments.get(*key).is_some_and(|v| !v.is_null()));
-    if !pastes_lens {
-        return Ok(false);
+    // Whether a TIFF is a camera's RAW is read from the file; the tone
+    // settings pasted into it depend on that.
+    if source_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("tif") || e.eq_ignore_ascii_case("tiff"))
+    {
+        return Err(cloud_refusal(path, "settings to a TIFF"));
     }
-    let camera_data = adjustments
-        .get(lens::CORRECTION_MODE.name())
-        .and_then(Value::as_str)
-        == Some(rawtonic_engine::embedded_lens::CAMERA_MODE);
-    if metadata.exif.is_none() || camera_data {
-        return refuse("the lens correction");
-    }
-    Ok(true)
+    Ok(())
+}
+
+fn cloud_refusal(path: &str, what: &str) -> String {
+    format!("{path}: original is in the cloud — download it to apply {what}")
 }
 
 /// `base` (a photograph's recipe) with `adjustments` pasted as
@@ -651,8 +644,8 @@ fn pasted_into(
     )
 }
 
-/// `pasted_into`; without `resolve_lens` the lens data is left as the
-/// photograph has it (the original cannot be read, `cloud_gate`).
+/// `pasted_into`; `in_cloud`: the original cannot be read (`cloud_gate`), so
+/// a lens choice the paste changes is resolved from cached EXIF only.
 #[allow(clippy::too_many_arguments)]
 fn pasted_into_with(
     base: Value,
@@ -664,7 +657,7 @@ fn pasted_into_with(
     style: Option<&StyleOp>,
     size: Option<(f64, f64)>,
     lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
-    resolve_lens: bool,
+    in_cloud: bool,
 ) -> Result<Value, String> {
     use rawtonic_engine::applied_style;
     // Taking back a style the photograph does not have as its last: unchanged.
@@ -790,7 +783,21 @@ fn pasted_into_with(
     // masks stay on its content.
     crate::mask_generation::keep_drawn_masks_on_photo(&previous, &mut new_adjustments, size);
 
-    if resolve_lens {
+    // An evicted original is not read for its lens: a lens choice that stays
+    // is kept, a changed one needs cached EXIF (and not the camera's own
+    // data, which is in the file).
+    let lens_changed = rawtonic_engine::lens_recipe::lens_profile_stamp(&previous)
+        != rawtonic_engine::lens_recipe::lens_profile_stamp(&new_adjustments);
+    if in_cloud && lens_changed {
+        let camera_data = new_adjustments
+            .get(lens::CORRECTION_MODE.name())
+            .and_then(Value::as_str)
+            == Some(rawtonic_engine::embedded_lens::CAMERA_MODE);
+        if exif.is_none() || camera_data {
+            return Err(cloud_refusal(path, "the lens correction"));
+        }
+    }
+    if !in_cloud || lens_changed {
         resolve_lens_params_in_adjustments(
             &mut new_adjustments,
             LensLookup::Keep {
@@ -3304,6 +3311,50 @@ mod tests {
                 .adjustments
                 .is_null()
         );
+    }
+
+    #[test]
+    fn evicted_original_is_kept_open_for_a_lens_amount_a_saved_choice_and_a_batch_save() {
+        let (_temp, paths) = session_with_photos(1);
+        let (source, sidecar) = parse_virtual_path(&paths[0]);
+        // An edited photo with the camera's lens data resolved and stamped.
+        let mut lens = serde_json::json!({"exposure": 0.1, "lensCorrectionMode": "camera",
+            "lensDistortionParams": {"k1": 0.1}});
+        lens[LENS_PROFILE_FOR] = serde_json::json!(lens_profile_stamp(&lens));
+        let mut saved = crate::exif_processing::load_sidecar(&sidecar);
+        saved.adjustments = lens.clone();
+        save_sidecar(&paths[0], &saved).unwrap();
+        in_cloud(&paths[0]);
+        // Unreadable: any open of the original would fail the batch.
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o000)).unwrap();
+        let amount =
+            serde_json::json!({"lensCorrectionMode": "camera", "lensDistortionAmount": 50});
+        let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
+            pasted_metadata(path, source, sidecar, &amount, None, None, None, None)
+        });
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(failed.is_empty(), "{failed:?}");
+        let after = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert_eq!(after["lensDistortionAmount"], 50);
+        assert_eq!(after[LENS_PROFILE_FOR], lens[LENS_PROFILE_FOR]);
+    }
+
+    #[test]
+    fn evicted_camera_tiff_is_reported_for_a_paste() {
+        let metadata = ImageMetadata {
+            adjustments: serde_json::json!({"exposure": 0.1}),
+            ..Default::default()
+        };
+        let error = cloud_gate(
+            "/p/a.tif",
+            Path::new("/p/a.tif"),
+            &metadata,
+            &serde_json::json!({"blacks": -20}),
+            None,
+        )
+        .unwrap_err();
+        assert!(error.contains("original is in the cloud"), "{error}");
     }
 
     #[test]

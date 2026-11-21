@@ -1566,6 +1566,11 @@ pub(crate) fn generate_single_thumbnail_and_cache(
     app_handle: &AppHandle,
     settings: &AppSettings,
 ) -> Option<CachedThumbnails> {
+    // Developing again needs the file; an evicted original is not downloaded
+    // for it (and the cache entry itself would open it for its camera).
+    if force_regenerate && is_cloud_placeholder(&parse_virtual_path(path_str).0) {
+        return None;
+    }
     let mut entry = ThumbnailCacheEntry::of(path_str, thumb_cache_dir, app_handle, settings)?;
 
     if !force_regenerate && let Some(cached) = entry.cached() {

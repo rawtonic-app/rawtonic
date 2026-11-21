@@ -345,7 +345,7 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
         let lib = Library::open(&dir).map_err(io_error)?;
         let state: Value = serde_json::from_slice(bytes).map_err(io_error)?;
         let online = source.is_file();
-        let asset = if online {
+        let asset = if online && !crate::file_management::is_cloud_placeholder(&source) {
             lib.add_asset(&source).ok()
         } else {
             lib.asset_at(&source).map_err(io_error)?
@@ -386,7 +386,15 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
     {
         let lib = Library::open(&dir).map_err(io_error)?;
         let state: Value = serde_json::from_slice(bytes).map_err(io_error)?;
-        let asset = lib.add_asset(&source).map_err(io_error)?;
+        // An evicted original is not fingerprinted (macOS would download it):
+        // only a photograph the library already has is saved for it.
+        let asset = if crate::file_management::is_cloud_placeholder(&source) {
+            lib.asset_at(&source).map_err(io_error)?.ok_or_else(|| {
+                io::Error::other("original is in the cloud — download it to apply settings")
+            })?
+        } else {
+            lib.add_asset(&source).map_err(io_error)?
+        };
         // The first save of a photograph whose sidecar the library has not
         // adopted takes over that sidecar's snapshots (`save_editor_state`).
         crate::library_search::announcing_ai_facts(&lib, &asset.id, || {
