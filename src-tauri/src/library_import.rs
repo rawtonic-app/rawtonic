@@ -326,6 +326,7 @@ fn import_warnings(photo: &Photo) -> Vec<String> {
                 crate::preset_converter::tone_curve_warning(xmp),
                 crate::preset_converter::point_color_overflow_warning(xmp),
                 crate::preset_converter::lightroom_subtract_warning(xmp).map(str::to_string),
+                crate::preset_converter::skipped_masks_warning(xmp),
             ]
             .into_iter()
             .flatten()
@@ -535,9 +536,9 @@ fn stack_id(source_name: &str, key: &str) -> String {
 }
 
 /// Whether the translated edit holds AI masks whose data a model computes
-/// when the photo is opened or exported (`ai-foreground`, `ai-sky` without
-/// data; `ai_selections::detect_missing`).
-fn has_ai_masks_on_open(adjustments: &Value) -> bool {
+/// when the photo is opened or exported (`ai-foreground`, `ai-sky`,
+/// `ai-landscape` without data; `ai_selections::detect_missing`).
+pub(crate) fn has_ai_masks_on_open(adjustments: &Value) -> bool {
     adjustments[masks::MASKS.name()]
         .as_array()
         .into_iter()
@@ -545,8 +546,10 @@ fn has_ai_masks_on_open(adjustments: &Value) -> bool {
         .filter_map(|layer| layer[masks::SUB_MASKS.name()].as_array())
         .flatten()
         .any(|sub| {
-            matches!(sub["type"].as_str(), Some("ai-foreground" | "ai-sky"))
-                && sub["parameters"]["maskDataBase64"].is_null()
+            matches!(
+                sub["type"].as_str(),
+                Some("ai-foreground" | "ai-sky" | "ai-landscape")
+            ) && sub["parameters"]["maskDataBase64"].is_null()
         })
 }
 
@@ -2446,6 +2449,64 @@ ProcessVersion = "15.4" }}"#,
         assert!(
             warnings[0].contains("A.dng: Point Color: could not convert 1 swatch(es)"),
             "{warnings:?}"
+        );
+    }
+
+    /// A Lightroom mask the import leaves out (here a Landscape mask with
+    /// the Snow part, which has no equivalent) is named in the report.
+    #[test]
+    fn skipped_lightroom_masks_are_named_in_the_report() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let path = tmp.path().join("IMG_3.jpg");
+        let mut jpeg = Vec::new();
+        image::DynamicImage::new_rgb8(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        fs::write(&path, &jpeg).unwrap();
+        let landscape = |id: u32| {
+            format!(
+                r#"<rdf:li crs:What="Mask/Image" crs:MaskSubType="0" crs:MaskSubCategoryID="{id}"/>"#
+            )
+        };
+        let xmp = format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:ProcessVersion="15.4">
+ <crs:MaskGroupBasedCorrections><rdf:Seq>
+  <rdf:li><rdf:Description crs:CorrectionName="Peaks" crs:LocalExposure2012="-0.1"><crs:CorrectionMasks><rdf:Seq>{}{}</rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li>
+  <rdf:li><rdf:Description crs:CorrectionName="Lake" crs:LocalExposure2012="0.1"><crs:CorrectionMasks><rdf:Seq>{}</rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li>
+ </rdf:Seq></crs:MaskGroupBasedCorrections></rdf:Description></rdf:RDF></x:xmpmeta>"#,
+            landscape(50002),
+            landscape(50008),
+            landscape(50007),
+        );
+        let source = Source {
+            name: "LR".into(),
+            photos: vec![photo("1", path.clone(), Develop::LightroomXmp(xmp), None)],
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        let report = import_into(&catalog, &source).unwrap();
+        assert_eq!((report.imported, report.ai_masks_on_open), (1, 1));
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.contains("Lightroom masks not imported") && w.contains("Peaks")),
+            "{:?}",
+            report.warnings
+        );
+        let asset = catalog.asset_at(&path).unwrap().unwrap();
+        let state = catalog.editor_state(&asset.id).unwrap().unwrap();
+        let masks = state["adjustments"]["masks"].as_array().unwrap();
+        assert_eq!(masks.len(), 1);
+        assert_eq!(
+            masks[0]["subMasks"][0]["parameters"]["parts"],
+            json!(["water"])
         );
     }
 
