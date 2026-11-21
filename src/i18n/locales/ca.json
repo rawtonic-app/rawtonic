@@ -3179,7 +3179,7 @@
             "saturation": "saturació (0–200 %)"
           },
           "outOfReach": "Fora d'abast: queden ΔE00 {{value}}; {{limits}} al límit.",
-          "outsideSrgb": "L'objectiu és fora de sRGB.",
+          "outsideSrgb": "L'objectiu és fora de sRGB: la foto el conserva, una exportació sRGB mostra el color més proper que sRGB pot contenir.",
           "pickAria": "Agafar el color objectiu",
           "pickedThrough": "Previst a ΔE00 {{value}} de l'objectiu, però aquest color s'ha agafat a través del fort canvi del mateix interval: comprova el resultat a la foto o torna'l a agafar amb els controls a 0.",
           "pickTitle": "Agafa el color objectiu a la foto; aquest interval s'hi desplaça",

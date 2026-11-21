@@ -1386,6 +1386,96 @@ pub async fn sample_mixer_input(
     .map_err(|error| format!("Mixer input sampling task failed: {error}"))?
 }
 
+/// The colour editor's input around a point (`sample_color_range_input`):
+/// per preview pixel of the picker's block, the colour entering the edited
+/// ranges as signed linear sRGB (unclipped in the working gamut: before the
+/// photo's ranges, or for a mask layer after the photo's ranges and the
+/// layers below it), and the layer's mask influence (1 for the photo's
+/// ranges).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ColorRangeInput {
+    pub pixels: Vec<[f64; 3]>,
+    pub influence: Vec<f64>,
+}
+
+/// The target colour solve's sample: what the colour editor of the photo
+/// (`layer` None) or of mask layer `layer` receives in the pixels around a
+/// point of the shown preview, rendered in two probe passes (shader
+/// `color_range_probe_pixel`: 16 bits per channel over two 8-bit renders,
+/// the second with the influence). `adjustments` is the recipe (without
+/// view states). None while no preview base of the recipe's geometry is
+/// cached, for a layer that draws no mask, or when the render had no
+/// display variant with the probe (the frontend then samples the frame).
+#[tauri::command]
+pub async fn sample_color_range_input(
+    path: String,
+    normalized_x: f64,
+    normalized_y: f64,
+    adjustments: serde_json::Value,
+    layer: Option<String>,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<ColorRangeInput>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let render = |low: bool| {
+            render_probe(
+                &app_handle,
+                &path,
+                adjustments.clone(),
+                ProbeArea::Point(normalized_x, normalized_y),
+                ProbeOutput::ColorRanges {
+                    layer: layer.clone(),
+                    low,
+                },
+                "sample_color_range_input",
+            )
+        };
+        let Some(high) = render(false)? else {
+            return Ok(None);
+        };
+        let Some(low) = render(true)? else {
+            return Ok(None);
+        };
+        Ok(color_range_input(
+            high.to_rgba8().as_raw(),
+            low.to_rgba8().as_raw(),
+        ))
+    })
+    .await
+    .map_err(|error| format!("Colour editor input sampling task failed: {error}"))?
+}
+
+/// The colour editor probe's two renders as colours and influences (shader
+/// `color_range_probe_pixel`): 16-bit codes of sqrt(linear ProPhoto), high
+/// bytes in `high` (alpha 0 marks the probe), low bytes and the influence in
+/// `low`. None without pixels, for renders of different sizes or when a
+/// pixel of `high` is no probe pixel.
+fn color_range_input(high: &[u8], low: &[u8]) -> Option<ColorRangeInput> {
+    let high = high.as_chunks::<4>().0;
+    let low = low.as_chunks::<4>().0;
+    if high.is_empty() || high.len() != low.len() || high.iter().any(|p| p[3] != 0) {
+        return None;
+    }
+    // The shader's `prophoto_to_srgb`, the inverse of the matrix it encoded with.
+    const TO_SRGB: [[f64; 3]; 3] = [
+        [2.0340763, -0.7273343, -0.3067417],
+        [-0.2288135, 1.2317302, -0.0029169],
+        [-0.0085698, -0.1532866, 1.1618565],
+    ];
+    let pixels = high
+        .iter()
+        .zip(low)
+        .map(|(h, l)| {
+            let pro: [f64; 3] = std::array::from_fn(|c| {
+                let code = f64::from(u16::from(h[c]) << 8 | u16::from(l[c])) / 65535.0;
+                code * code
+            });
+            std::array::from_fn(|r| (0..3).map(|c| TO_SRGB[r][c] * pro[c]).sum())
+        })
+        .collect();
+    let influence = low.iter().map(|p| f64::from(p[3]) / 255.0).collect();
+    Some(ColorRangeInput { pixels, influence })
+}
+
 /// The mean of a mixer probe's pixels (shader `mixer_probe_pixel`: r chroma
 /// × 4, g/b the hue direction, alpha 0): hue directions weighted by chroma,
 /// as the mean Oklab a/b. None without pixels or when a pixel is not a probe
@@ -1483,6 +1573,12 @@ enum ProbeOutput {
     LevelsInput,
     /// A mixer's input (`MIXER_INPUT_PROBE`, `BW_INPUT_PROBE`).
     Mixer(MixerProbe),
+    /// The colour editor's input of the photo (`layer` None) or a mask
+    /// layer, one of its two renders (`COLOR_RANGE_INPUT_PROBE`).
+    ColorRanges {
+        layer: Option<String>,
+        low: bool,
+    },
 }
 
 /// Renders `recipe` (a probe of the current recipe, without view states)
@@ -1570,6 +1666,24 @@ fn render_probe(
                 MixerProbe::ColorMixer => image_processing::MIXER_INPUT_PROBE,
                 MixerProbe::BlackAndWhite => image_processing::BW_INPUT_PROBE,
             };
+        }
+        ProbeOutput::ColorRanges { layer, low } => {
+            // The renderer's layers are the ones that draw a mask.
+            let slot = match layer {
+                None => 0,
+                Some(id) => {
+                    let Some(index) = mask_definitions
+                        .iter()
+                        .filter(|mask| mask.produces_bitmap())
+                        .take(image_processing::MAX_MASKS)
+                        .position(|mask| mask.id == id)
+                    else {
+                        return Ok(None);
+                    };
+                    index as u32 + 1
+                }
+            };
+            probe.global.output_space[3] = image_processing::color_range_input_probe(slot, low);
         }
     }
     let lut = recipe[effects::LUT_PATH.into_name()]
@@ -5663,6 +5777,50 @@ mod levels_input_tests {
                 .collect::<Vec<_>>(),
             [4, 4, 4]
         );
+    }
+}
+
+#[cfg(test)]
+mod color_range_input_tests {
+    use super::color_range_input;
+
+    /// Shader `color_range_probe_pixel` of linear ProPhoto `pro` with `influence`.
+    fn encoded(pro: [f64; 3], influence: f64) -> ([u8; 4], [u8; 4]) {
+        let code = pro.map(|v| (v.sqrt() * 65535.0).round() as u16);
+        (
+            [
+                (code[0] >> 8) as u8,
+                (code[1] >> 8) as u8,
+                (code[2] >> 8) as u8,
+                0,
+            ],
+            [
+                code[0] as u8,
+                code[1] as u8,
+                code[2] as u8,
+                (influence * 255.0).round() as u8,
+            ],
+        )
+    }
+
+    #[test]
+    fn decodes_both_renders_into_unclipped_colours_and_influences() {
+        // A blue beyond sRGB (ProPhoto red low) and a dark grey.
+        let pixels = [([0.06, 0.02, 0.7], 0.5), ([0.002, 0.002, 0.002], 1.0)];
+        let (high, low): (Vec<_>, Vec<_>) = pixels.iter().map(|(p, m)| encoded(*p, *m)).unzip();
+        let input = color_range_input(high.as_flattened(), low.as_flattened()).unwrap();
+        assert_eq!(input.influence, vec![128.0 / 255.0, 1.0]);
+        // Linear sRGB: red below 0, kept.
+        assert!(input.pixels[0][0] < -0.05, "{:?}", input.pixels[0]);
+        // The grey stays grey to 16-bit precision.
+        let grey = input.pixels[1];
+        assert!(grey.iter().all(|v| (v - 0.002).abs() < 2e-5), "{grey:?}");
+        // A render without the probe (alpha above 0), or of another size: none.
+        let mut plain = high.clone();
+        plain[1][3] = 255;
+        assert!(color_range_input(plain.as_flattened(), low.as_flattened()).is_none());
+        assert!(color_range_input(high[..1].as_flattened(), low.as_flattened()).is_none());
+        assert!(color_range_input(&[], &[]).is_none());
     }
 }
 

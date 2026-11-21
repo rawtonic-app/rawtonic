@@ -3179,7 +3179,7 @@
             "saturation": "saturazione (0–200 %)"
           },
           "outOfReach": "Fuori portata: restano ΔE00 {{value}}; {{limits}} al limite.",
-          "outsideSrgb": "L'obiettivo è fuori da sRGB.",
+          "outsideSrgb": "L'obiettivo è fuori da sRGB: la foto lo conserva, un'esportazione sRGB mostra il colore più vicino che sRGB può contenere.",
           "pickAria": "Preleva il colore obiettivo",
           "pickedThrough": "Previsto a ΔE00 {{value}} dall'obiettivo, ma questo colore è stato prelevato attraverso la forte modifica dell'intervallo stesso: controlla il risultato nella foto o prelevalo di nuovo con i cursori a 0.",
           "pickTitle": "Preleva il colore obiettivo nella foto; questo intervallo vi si sposta",

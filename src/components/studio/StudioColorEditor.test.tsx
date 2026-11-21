@@ -474,7 +474,7 @@ describe('target colour', () => {
     render(<Harness initial={[red()]} />);
     openTool();
     typeInto('Target chroma C* (CIELAB D50)', '130');
-    expect(screen.getByRole('status').textContent).toContain('The target is outside sRGB.');
+    expect(screen.getByRole('status').textContent).toContain('The target is outside sRGB: the photo holds it');
   });
 
   it('Escape restores the field without applying; Return applies and leaves the field', () => {

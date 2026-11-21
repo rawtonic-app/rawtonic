@@ -120,6 +120,10 @@ override ENABLE_EFFECTS: bool = true;
 override TONE_V5: bool = true;
 const MIXER_INPUT_PROBE: u32 = 2u;
 const BW_INPUT_PROBE: u32 = 3u;
+// The colour editor's input probe (also MIXER_PROBES): `output_space.w` =
+// COLOR_RANGE_INPUT_PROBE | part << 4 | slot << 8 (crates/engine
+// `color_range_input_probe`), see `color_range_probe_pixel`.
+const COLOR_RANGE_INPUT_PROBE: u32 = 4u;
 const SHARPEN_VIEW_MASK: u32 = 0x40000004u;
 const SHARPEN_VIEW_GREY: u32 = 0x40000008u;
 // In the mask view the sharpening returns its Masking factor m (0–1) as
@@ -4674,6 +4678,31 @@ fn mixer_probe_pixel(linear: vec3<f32>) -> vec4<f32> {
     let chroma = length(lab.yz);
     let direction = select(vec2<f32>(0.0), lab.yz / chroma, chroma > 1.0e-6);
     return vec4<f32>(clamp(chroma * 4.0, 0.0, 1.0), 0.5 + 0.5 * direction, 0.0);
+}
+
+// The colour editor's probe slot: 1 for the photo's ranges, 2 + i for mask
+// layer i's, 0 when the render is no such probe.
+fn color_range_probe_slot() -> u32 {
+    let w = adjustments.global.output_space.w;
+    if (!MIXER_PROBES || (w & 15u) != COLOR_RANGE_INPUT_PROBE) {
+        return 0u;
+    }
+    return (w >> 8u) + 1u;
+}
+
+// A colour editor probe's pixel: the colour entering the ranges (display
+// values) as linear ProPhoto, unclipped in the working gamut, encoded as
+// sqrt and split into 16 bits over two renders: part 0 the high bytes with
+// alpha 0 (which marks the probe; photos have alpha above 0), part 1 the
+// low bytes with the layer's mask influence in alpha (src-tauri
+// editor_preview.rs `color_range_input`).
+fn color_range_probe_pixel(display: vec3<f32>, influence: f32) -> vec4<f32> {
+    let pro = clamp(srgb_to_prophoto(display_to_linear(display)), vec3<f32>(0.0), vec3<f32>(1.0));
+    let code = vec3<u32>(round(sqrt(pro) * 65535.0));
+    if (((adjustments.global.output_space.w >> 4u) & 1u) == 0u) {
+        return vec4<f32>(vec3<f32>(code >> vec3<u32>(8u)) / 255.0, 0.0);
+    }
+    return vec4<f32>(vec3<f32>(code & vec3<u32>(255u)) / 255.0, clamp(influence, 0.0, 1.0));
 }
 
 fn apply_hsl_panel(color: vec3<f32>, hsl_adjustments: array<HslColor, 8>, coords_i: vec2<i32>) -> vec3<f32> {
@@ -11865,10 +11894,20 @@ fn main(
         && adjustments.global.show_clipping - 2u < 8u) {
         range_view = color_range_view_weight(default_tonemapped, adjustments.global.show_clipping - 2u);
     }
+    // The colour each colour editor receives (its probe, display variants only).
+    let range_probe = color_range_probe_slot();
+    if (range_probe == 1u) {
+        textureStore(output_texture, id.xy, color_range_probe_pixel(default_tonemapped, 1.0));
+        return;
+    }
     if (adjustments.global.color_range_count.x > 0u) {
         default_tonemapped = apply_color_ranges(default_tonemapped, 0u, adjustments.global.color_range_count.x);
     }
-    for (var i = 0u; ENABLE_MASKS && any_layer_has(32u) && i < adjustments.mask_count; i = i + 1u) {
+    for (var i = 0u; ENABLE_MASKS && (any_layer_has(32u) || range_probe > 1u) && i < adjustments.mask_count; i = i + 1u) {
+        if (range_probe == i + 2u) {
+            textureStore(output_texture, id.xy, color_range_probe_pixel(default_tonemapped, get_mask_influence(i, absolute_coord)));
+            return;
+        }
         if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 32u) == 0u) { continue; }
         let count = adjustments.mask_adjustments[i].color_range_count;
         if (count == 0u) { continue; }

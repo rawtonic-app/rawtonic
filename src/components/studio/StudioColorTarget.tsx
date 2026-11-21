@@ -4,9 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useEditorStore } from '../../store/useEditorStore';
 import type { ColorRange } from '../../utils/adjustments';
-import { rangePickKey, rangesWithTarget, targetPickFor } from '../../utils/colorRanges';
+import { rangeInputFor, rangePickKey, rangePickOf, rangesWithTarget, targetPickFor } from '../../utils/colorRanges';
 import {
-  applyColorRanges,
+  centreInput,
   deltaE00,
   hexOf,
   insideSrgb,
@@ -18,6 +18,7 @@ import {
   oklabToLinear,
   parseHex,
   rangeCentre,
+  renderedLab,
   solveColorTarget,
   srgb8ToLinear,
   TARGET_REACHED,
@@ -106,6 +107,8 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
     useShallow((s) => ({
       target: s.colorTarget,
       through: s.colorPicksThroughRanges,
+      // Re-renders when the renderer's sample at a pick arrives.
+      inputs: s.colorRangeInputs,
       photo: s.selectedImage?.path ?? null,
       pickerTarget: s.colorPickerTarget,
       setEditor: s.setEditor
@@ -120,8 +123,13 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
       ? target
       : null;
   const centre = rangeCentre(active);
-  // The range's colour as the renderer leaves it (the sliders as they are).
-  const resultLab = linearToLab(clip01(oklabToLinear(applyColorRanges(ranges, centre))));
+  // The renderer's sample at the range's pick (the colour entering the
+  // colour editor and the layer's mask influence), else the range's colour
+  // at full strength.
+  const pick = photo ? rangePickOf(photo, layer, active) : null;
+  const input = pick?.input ?? centreInput(active);
+  // The colour at the pick as the renderer leaves it (the sliders as they are).
+  const resultLab = renderedLab(ranges, input);
   const shown = own ? own.lab : resultLab;
   const shownLinear = labToLinear(shown);
   const rgb = linearToSrgb8(shownLinear);
@@ -130,7 +138,18 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
   const setTarget = (lab: Vec3, sampledIn: string | null = null) => {
     if (!photo || !lab.every(Number.isFinite)) return false;
     setEditor({ colorTarget: { lab, sampledIn, appliedTo: { photo, layer, rangeId: active.id } } });
-    apply(rangesWithTarget(ranges, active.id, lab));
+    if (!rangePickOf(photo, layer, active)) {
+      apply(rangesWithTarget(ranges, active.id, lab));
+      return true;
+    }
+    // Picked in the photo: solve on the renderer's sample there, taken again
+    // (one edit once it is back; nothing when the photo or range changed).
+    const asked = { ranges, id: active.id };
+    void rangeInputFor(photo, layer, active).then((fresh) => {
+      const state = useEditorStore.getState();
+      if (state.selectedImage?.path !== photo || state.colorTarget?.appliedTo?.rangeId !== asked.id) return;
+      apply(rangesWithTarget(asked.ranges, asked.id, lab, fresh));
+    });
     return true;
   };
   const number = (text: string) => {
@@ -168,7 +187,7 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
     />
   );
 
-  const solve = own ? solveColorTarget(ranges, active.id, own.lab) : null;
+  const solve = own ? solveColorTarget(ranges, active.id, own.lab, input) : null;
   const deltaE = own ? deltaE00(own.lab, resultLab) : 0;
   const limits = solve
     ? (['hue', 'saturation', 'lightness'] as const)
@@ -183,7 +202,10 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
   // A colour picked at the edge of sRGB was clipped by the display: the
   // photo's own colour lies beyond it and may move differently
   // (docs/benchmark-results/tgt1-target-colour-2026-11-21).
-  const sourceClipped = linearToSrgb8(oklabToLinear(centre)).some((v) => v <= 1 || v >= 254);
+  // With the renderer's sample the colour is the photo's own.
+  const sourceClipped = !pick && linearToSrgb8(oklabToLinear(centre)).some((v) => v <= 1 || v >= 254);
+  // A layer's prediction is at full strength without the mask influence at the pick.
+  const fullStrength = !!layerId && !pick;
   // A sampled target not on this range yet (from another photo, or sampled
   // here without a range).
   const sampled = target?.sampledIn && !own ? target : null;
@@ -266,14 +288,14 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
             : pickedThrough
               ? t('studio.color.editor.target.pickedThrough', { value })
               : deltaE <= TARGET_REACHED
-                ? layerId
+                ? fullStrength
                   ? t('studio.color.editor.target.layerPredicted', { value })
                   : t('studio.color.editor.target.reached', { value })
                 : limits.length
                   ? t('studio.color.editor.target.outOfReach', { value, limits: limits.join(', ') })
                   : t('studio.color.editor.target.distance', { value })}
           {!insideSrgb(shownLinear) && <> {t('studio.color.editor.target.outsideSrgb')}</>}
-          {layerId && !grey && !(deltaE <= TARGET_REACHED && !pickedThrough) && (
+          {fullStrength && !grey && !(deltaE <= TARGET_REACHED && !pickedThrough) && (
             <> {t('studio.color.editor.target.layerStrength')}</>
           )}
           {sourceClipped && !grey && <> {t('studio.color.editor.target.sourceClipped')}</>}

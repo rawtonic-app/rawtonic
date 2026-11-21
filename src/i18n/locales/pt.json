@@ -3179,7 +3179,7 @@
             "saturation": "saturação (0–200 %)"
           },
           "outOfReach": "Fora de alcance: restam ΔE00 {{value}}; {{limits}} no limite.",
-          "outsideSrgb": "O alvo está fora de sRGB.",
+          "outsideSrgb": "O alvo está fora de sRGB: a foto mantém-no, uma exportação sRGB mostra a cor mais próxima que o sRGB pode conter.",
           "pickAria": "Recolher a cor alvo",
           "pickedThrough": "Previsto a ΔE00 {{value}} do alvo, mas esta cor foi recolhida através da forte alteração do próprio intervalo: verifique o resultado na foto ou recolha-a de novo com os controlos a 0.",
           "pickTitle": "Recolha a cor alvo na foto; este intervalo move-se para ela",

@@ -3025,7 +3025,7 @@
             "saturation": "saturation (0–200 %)"
           },
           "outOfReach": "Out of reach: ΔE00 {{value}} left; {{limits}} at its limit.",
-          "outsideSrgb": "The target is outside sRGB.",
+          "outsideSrgb": "The target is outside sRGB: the photo holds it, an sRGB export shows the nearest colour sRGB can hold.",
           "pickAria": "Pick the target color",
           "pickedThrough": "Predicted ΔE00 {{value}} from the target, but this color was picked through the range's own strong change: check the result in the photo, or pick it again with the sliders at 0.",
           "pickTitle": "Pick the target color in the photo; this range moves onto it",
