@@ -20221,7 +20221,7 @@ fn region_noise_measurement_cost_probe() {
 /// The fit view's render input (`color_noise_view::reduced_render_input`)
 /// is the export's: at full size and rendered at Color 0 it is the export's
 /// render at Color 25 / 50 (up to the 16-bit float input of the second
-/// render); reduced, it is that input resampled (`lanczos::resize_signed`);
+/// render); reduced, it is that input resampled (`lanczos::resize_wide_gamut`);
 /// at Color 0 it is the export's edge-fringe pass of the source; a stop
 /// ends it, and a colour noise reduction below version 11 has none.
 #[test]
@@ -20281,7 +20281,7 @@ fn fit_view_render_input_is_the_exports() {
         assert!(changed as f64 / n > 100.0 * (sum as f64 / n).max(1.0));
         assert!(worst < 64, "max {worst}");
         let reduced = input(&recipe, (800, 104), &|| false).unwrap();
-        let expected = rawtonic_engine::lanczos::resize_signed(&full, 800, 104);
+        let expected = rawtonic_engine::lanczos::resize_wide_gamut(&full, 800, 104);
         assert_eq!(reduced.as_raw(), expected.as_raw());
         assert!(input(&recipe, (800, 104), &|| true).is_none());
     }
@@ -25640,6 +25640,109 @@ fn color_range_probe_stores_the_unclipped_colour_entering_each_colour_editor_and
     // No such layer, and export pipelines: no probe.
     assert_eq!(probe(layered, 2, display), None);
     assert_eq!(probe(json!({}), 0, ReadbackShader::Export), None);
+}
+
+/// The colour editor's input at a pick on the fit view's reduced base
+/// (`resample_f32_image`) is the export's at full resolution for a colour
+/// beyond sRGB (negative red, the blue toy of notes:
+/// benchmark-results/pvx1-2026-11-21): a colour range picked on the
+/// preview selects the export's pixels. Before, the reduction clamped the
+/// red at 0, so the preview showed and picked another colour.
+#[test]
+#[ignore = "requires a native GPU; preview vs export of colours beyond sRGB"]
+fn reduced_base_probe_is_the_exports_colour_beyond_srgb() {
+    use rawtonic_engine::image_processing::color_range_input_probe;
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let context = context();
+    let blue = [-0.16f32, 0.087, 1.24];
+    // Blue beyond sRGB, black, then bright white (Lanczos ringing).
+    let (fw, fh) = (192u32, 48u32);
+    let full = image::Rgb32FImage::from_fn(fw, fh, |x, _| {
+        image::Rgb(if x < fw / 3 {
+            blue
+        } else if x < fw * 2 / 3 {
+            [0.0; 3]
+        } else {
+            [4.0; 3]
+        })
+    });
+    let reduced = crate::image_processing::resample_f32_image(
+        &image::DynamicImage::ImageRgb32F(full.clone()),
+        fw / 3,
+        fh / 3,
+    )
+    .to_rgb32f();
+    let upload = |image: &image::Rgb32FImage| {
+        let data: Vec<f16> = image
+            .pixels()
+            .flat_map(|p| p.0.map(f16::from_f32).into_iter().chain([f16::ONE]))
+            .collect();
+        input_from(&context, image.width(), image.height(), &data)
+    };
+    let recipe = json!({"renderVersion": 14});
+    let prepared = |recipe: &serde_json::Value| {
+        rawtonic_engine::image_processing::get_all_adjustments_with_masks(
+            recipe,
+            true,
+            Some(1),
+            &[],
+            &rawtonic_engine::recipe_versions::RecipeVersions::of(recipe, true),
+        )
+    };
+    // The probe on the reduced base, at the blue patch's centre.
+    let (rw, rh) = reduced.dimensions();
+    let processor = GpuProcessor::new(context.clone(), rw, rh).unwrap();
+    let view = upload(&reduced);
+    let render = |low: bool| -> Vec<u8> {
+        let mut adjustments = prepared(&recipe);
+        adjustments.global.output_space[3] = color_range_input_probe(0, low);
+        prepare_preview_pipeline(&processor, preview_features(&adjustments));
+        let RenderedPixels::U8(pixels) = readback_pixels(
+            &processor,
+            &view,
+            (rw, rh),
+            *adjustments,
+            &[],
+            RenderOutputPrecision::EightBit,
+            ReadbackShader::Display,
+        ) else {
+            unreachable!()
+        };
+        pixels
+    };
+    let probed = color_range_probe_decode(&render(false), &render(true))
+        .expect("display variants hold the probe");
+    let at = |w: u32, x: u32, y: u32| (y * w + x) as usize;
+    let preview = probed[at(rw, rw / 6, rh / 2)].0;
+    // The export at full resolution in ProPhoto (nothing after the colour
+    // editor acts in this recipe; ProPhoto keeps the working gamut).
+    let processor = GpuProcessor::new(context.clone(), fw, fh).unwrap();
+    let view = upload(&full);
+    let mut adjustments = prepared(&recipe);
+    let space = OutputColorSpace::ProPhoto;
+    adjustments.global.output_space[0] = space.shader_code();
+    adjustments.global.output_matrix =
+        crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+    let RenderedPixels::U16(pixels) = readback_pixels(
+        &processor,
+        &view,
+        (fw, fh),
+        *adjustments,
+        &[],
+        RenderOutputPrecision::SixteenBit,
+        ReadbackShader::Export,
+    ) else {
+        unreachable!()
+    };
+    let i = at(fw, fw / 6, fh / 2) * 4;
+    let export: [f64; 3] =
+        std::array::from_fn(|c| (f64::from(pixels[i + c]) / 65535.0).powf(461.0 / 256.0));
+    for c in 0..3 {
+        assert!(
+            (preview[c].sqrt() - export[c].sqrt()).abs() <= 1.0 / 255.0,
+            "preview probe {preview:?} vs export {export:?}"
+        );
+    }
 }
 
 /// Vibrance version 2 (`vibranceVersion`): without Vibrance it renders

@@ -780,7 +780,7 @@ fn develop_thumbnail_with_source(
                 )
                 .map_err(anyhow::Error::msg)?;
                 if source.image.width().max(source.image.height()) > target_res {
-                    let reduced = crate::image_processing::downscale_f32_image(
+                    let reduced = crate::image_processing::downscale_f32_image_signed(
                         &source.image,
                         target_res,
                         target_res,
