@@ -572,6 +572,17 @@ fn signed_webp_and_avif_validate_and_bind_every_byte() {
     );
 }
 
+/// Keeps a signed sample in the folder `C2PA_KEEP` names, never replacing
+/// a file there (no-clobber publish: an existing name fails the test).
+fn keep_sample(folder: &str, name: &str, bytes: &[u8]) {
+    let folder = std::path::Path::new(folder);
+    let mut temp = tempfile::NamedTempFile::new_in(folder).unwrap();
+    temp.write_all(bytes).unwrap();
+    temp.as_file().sync_all().unwrap();
+    rawtonic_fs::no_clobber::persist(temp, &folder.join(name))
+        .unwrap_or_else(|e| panic!("{name} not kept in {}: {e}", folder.display()));
+}
+
 /// The C2PA reference validator on our files: `C2PATOOL=/path/to/c2patool
 /// cargo test -p rawtonic-export --lib c2pa::tests::c2patool -- --ignored`
 /// (c2patool is a test tool only, never a dependency). Every file must be
@@ -623,7 +634,7 @@ fn c2patool_validates_signed_files() {
         let path = out.path().join(name);
         std::fs::write(&path, &bytes).unwrap();
         if let Ok(keep) = std::env::var("C2PA_KEEP") {
-            std::fs::write(std::path::Path::new(&keep).join(name), &bytes).unwrap();
+            keep_sample(&keep, name, &bytes);
         }
         let report = std::process::Command::new(&tool)
             .arg(&path)
@@ -705,7 +716,7 @@ fn imported_certificate_signs_files_c2patool_accepts() {
     let path = dir.path().join("signed.jpg");
     std::fs::write(&path, &signed).unwrap();
     if let Ok(keep) = std::env::var("C2PA_KEEP") {
-        std::fs::write(std::path::Path::new(&keep).join("imported.jpg"), &signed).unwrap();
+        keep_sample(&keep, "imported.jpg", &signed);
     }
     let report = std::process::Command::new(&tool)
         .arg(&path)

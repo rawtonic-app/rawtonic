@@ -402,6 +402,18 @@ fn algorithm_oid(identifier: &[u8]) -> Option<(String, &[u8])> {
     Some((oid, params))
 }
 
+/// Whether `value` is the universal type `tag`, constructed (a SEQUENCE)
+/// or primitive (NULL) as `constructed` says.
+fn universal(
+    value: &x509_parser::asn1_rs::Any<'_>,
+    tag: x509_parser::asn1_rs::Tag,
+    constructed: bool,
+) -> bool {
+    value.header.class() == x509_parser::asn1_rs::Class::Universal
+        && value.header.is_constructed() == constructed
+        && value.tag() == tag
+}
+
 /// What RSASSA-PSS parameters say.
 struct Pss {
     /// The hash (dotted OID).
@@ -417,7 +429,7 @@ struct Pss {
 /// field 1, in this order and nothing else (the defaults, SHA-1, are not
 /// allowed).
 fn pss_parameters(params: &x509_parser::asn1_rs::Any<'_>) -> Option<Pss> {
-    if params.tag() != x509_parser::asn1_rs::Tag::Sequence {
+    if !universal(params, x509_parser::asn1_rs::Tag::Sequence, true) {
         return None;
     }
     let hash_params_ok = |params: &[u8]| params.is_empty() || params == [0x05, 0x00];
@@ -443,12 +455,16 @@ fn pss_parameters(params: &x509_parser::asn1_rs::Any<'_>) -> Option<Pss> {
         let (0x02, value, []) = der_element(field)? else {
             return None;
         };
-        // A non-negative salt length that fits 64 bits.
+        // A non-negative salt length (its sign bit clear; a leading zero
+        // byte keeps it clear for 128 and more) that fits 64 bits.
+        if value.first().is_none_or(|first| first & 0x80 != 0) {
+            return None;
+        }
         let value = match value {
             [0, rest @ ..] if !rest.is_empty() => rest,
             value => value,
         };
-        if value.is_empty() || value[0] & 0x80 != 0 || value.len() > 8 {
+        if value.len() > 8 {
             return None;
         }
         salt = value.iter().fold(0u64, |n, b| (n << 8) | u64::from(*b));
@@ -469,7 +485,9 @@ fn pss_parameters(params: &x509_parser::asn1_rs::Any<'_>) -> Option<Pss> {
 /// parameters or restricted to SHA-256 and a salt of at most 32 bytes.
 fn rsa_key_named_ok(oid: &str, params: Option<&x509_parser::asn1_rs::Any<'_>>) -> bool {
     match oid {
-        RSA_ENCRYPTION => params.is_none_or(|p| p.tag() == x509_parser::asn1_rs::Tag::Null),
+        RSA_ENCRYPTION => params.is_none_or(|p| {
+            universal(p, x509_parser::asn1_rs::Tag::Null, false) && p.data.is_empty()
+        }),
         RSASSA_PSS => params.is_none_or(|p| {
             pss_parameters(p).is_some_and(|pss| pss.hash == SHA256 && pss.salt <= 32)
         }),
@@ -593,6 +611,9 @@ pub fn load(dir: &Path) -> Result<Option<SigningIdentity>, String> {
     if cert.public_key().subject_public_key.data.as_ref() != public_key(&key) {
         return Err("The signing identity's key does not belong to its certificate.".to_string());
     }
+    // An identity saved before a check was added gets it too: what the
+    // manifests are signed with must be what its certificate allows.
+    check_public_key_algorithm(&cert, &key)?;
     Ok(Some(SigningIdentity {
         key,
         chain,
@@ -1100,6 +1121,49 @@ mod tests {
         assert!(error.contains("does not belong"), "{error}");
     }
 
+    /// A record saved before the public-key check (here its certificate
+    /// names the P-256 key on another curve) is refused when it is loaded,
+    /// so it never signs.
+    #[test]
+    fn a_saved_identity_its_certificate_does_not_allow_is_refused_on_load() {
+        let rng = SystemRandom::new();
+        let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
+        let key = EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref(), &rng).unwrap();
+        let now = jiff::Timestamp::now();
+        let day = jiff::SignedDuration::from_hours(24);
+        let on_p384 = der::seq(&[
+            der::seq(&[der::oid(EC_PUBLIC_KEY), der::oid("1.3.132.0.34")]),
+            der::bit_string(key.public_key().as_ref()),
+        ]);
+        let cert = certificate_named(
+            &rng,
+            &key,
+            &der::seq(&[der::oid("1.2.840.10045.4.3.2")]),
+            (&name("Old"), &name("Old")),
+            &on_p384,
+            (now - day, now + day),
+            &[],
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let record = Record {
+            kind: IdentityKind::Imported,
+            key: {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD.encode(pkcs8.as_ref())
+            },
+            chain: pem(&[cert]),
+        };
+        std::fs::write(
+            dir.path().join(IDENTITY_FILE),
+            serde_json::to_vec(&record).unwrap(),
+        )
+        .unwrap();
+        let error = load(dir.path()).err().expect("refused");
+        assert!(error.contains("public key"), "{error}");
+    }
+
     #[test]
     fn an_expired_certificate_cannot_sign() {
         let rng = SystemRandom::new();
@@ -1505,6 +1569,8 @@ mod tests {
             (pss(SHA256, Some(&[32])), true),
             (pss(SHA256, None), true),
             (pss(SHA256, Some(&[0, 0x20])), true),
+            (pss(SHA256, Some(&[0, 0xde])), false),
+            (pss(SHA256, Some(&[0xde])), false),
             (pss(SHA256, Some(&[33])), false),
             (pss(SHA256, Some(&[64])), false),
             (pss(SHA256, Some(&[1, 0, 0, 0, 0, 0, 0, 0, 0])), false),
@@ -1518,6 +1584,24 @@ mod tests {
             );
         }
         assert!(!rsa_key_named_ok(EC_PUBLIC_KEY, None));
+        // Tag 16 as a primitive or a context-specific value is no SEQUENCE.
+        let valid = pss(SHA256, Some(&[32]));
+        for first in [0x10, 0xb0] {
+            let mut other = valid.clone();
+            other[0] = first;
+            assert!(
+                !rsa_key_named_ok(RSASSA_PSS, Some(&any(&other))),
+                "{first:02x}"
+            );
+        }
+        assert!(!rsa_key_named_ok(RSA_ENCRYPTION, Some(&any(&[0x25, 0x00]))));
+        // The salt of 222 bytes an issuer may use with 2048-bit keys is read
+        // as 222, not as a negative number: allowed in a certificate's own
+        // signature parameters, beyond what a signing key may require.
+        let params = any(&valid);
+        assert_eq!(pss_parameters(&params).unwrap().salt, 32);
+        let big = pss(SHA256, Some(&[0, 0xde]));
+        assert_eq!(pss_parameters(&any(&big)).unwrap().salt, 222);
     }
 
     /// A PKCS#12 file whose key is tied to the authority's certificate

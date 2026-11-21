@@ -102,6 +102,9 @@ struct Location {
 }
 
 fn parse_iloc(full: &[u8]) -> Result<(u8, Vec<Location>), String> {
+    if full.len() < 4 {
+        return Err("AVIF item table is truncated".to_string());
+    }
     let version = full[0];
     let mut r = Reader {
         data: &full[4..],
@@ -266,6 +269,9 @@ pub fn insert_before_media(avif: &[u8], new_box: &[u8]) -> Result<Vec<u8>, Strin
     let meta_end = start(meta_index) + meta.bytes.len() as u64;
     let insert_at = start(mdat_index);
     let meta_full = meta.payload();
+    if meta_full.len() < 4 {
+        return Err("AVIF meta box is truncated".to_string());
+    }
     let children = boxes(&meta_full[4..])?;
     let (_, mut locations) = parse_iloc(
         children
