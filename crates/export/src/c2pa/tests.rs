@@ -913,14 +913,10 @@ mod export {
         let (result, file) = export("jpg", &settings(true), None, &json!({}));
         assert_eq!(result.unwrap_err(), PROVENANCE_NEEDS_IDENTITY);
         assert!(file.is_none());
-        for extension in ["jxl"] {
-            let (result, file) = export(extension, &settings(true), Some(&identity), &json!({}));
-            assert!(
-                result.unwrap_err().contains("cannot be written to"),
-                "{extension}"
-            );
-            assert!(file.is_none(), "{extension}");
-        }
+        // JPEG XL cannot carry a manifest yet.
+        let (result, file) = export("jxl", &settings(true), Some(&identity), &json!({}));
+        assert!(result.unwrap_err().contains("cannot be written to"));
+        assert!(file.is_none());
     }
 }
 

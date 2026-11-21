@@ -622,7 +622,7 @@ pub fn sign_webp(
         return Err("Not a WebP file.".to_string());
     }
     let riff_len = u32::from_le_bytes(webp[4..8].try_into().expect("4 bytes")) as usize;
-    if riff_len + 8 != webp.len() || webp.len() % 2 != 0 {
+    if riff_len + 8 != webp.len() || !webp.len().is_multiple_of(2) {
         return Err("The WebP file's length does not match its RIFF header.".to_string());
     }
     if &webp[12..16] != b"VP8X" {
