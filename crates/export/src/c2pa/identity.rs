@@ -1,0 +1,1122 @@
+//! The signing identity a provenance manifest is signed with: a key the app
+//! generated with its own local certificate (verifiers show an unknown
+//! signer), or a certificate the user imported from a PKCS#12 file.
+//!
+//! Stored as one record in a folder the app gives (its data folder):
+//! `signing-identity.json`, readable by the user's account only, with which
+//! kind it is, the private key (PKCS#8) and the certificate chain, replaced
+//! as a whole. The key never goes into recipes, the catalog, logs or
+//! reports; only [`remove`] deletes it, on the user's request.
+
+use std::path::{Path, PathBuf};
+
+use ring::rand::{SecureRandom, SystemRandom};
+use ring::signature::{self, EcdsaKeyPair, Ed25519KeyPair, KeyPair, RsaKeyPair};
+use serde::{Deserialize, Serialize};
+use x509_parser::prelude::{FromDer, X509Certificate};
+
+use super::der;
+
+const IDENTITY_FILE: &str = "signing-identity.json";
+
+/// EKUs C2PA accepts for a claim signer (C2PA 2.x, "Certificate profile").
+const EMAIL_PROTECTION: &str = "1.3.6.1.5.5.7.3.4";
+const DOCUMENT_SIGNING: &str = "1.3.6.1.5.5.7.3.36";
+const C2PA_CLAIM_SIGNING: &str = "1.3.6.1.4.1.62558.2.1";
+
+/// Where an identity came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum IdentityKind {
+    /// Made on this computer: no certificate authority vouches for it.
+    Generated,
+    /// The user's own certificate (PKCS#12).
+    Imported,
+}
+
+/// What the Export dialog shows about the identity (no key material).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentityInfo {
+    pub kind: IdentityKind,
+    /// The signing certificate's common name (or whole subject).
+    pub signer: String,
+    pub issuer: String,
+    /// The certificate's end of validity (RFC 3339).
+    pub valid_until: String,
+    /// The COSE algorithm the manifests are signed with (`ES256`, …).
+    pub algorithm: String,
+    /// SHA-256 of the signing certificate (hex), to tell identities apart.
+    pub fingerprint: String,
+    /// The signing certificate's whole subject (`CN=…, O=…, …`): every
+    /// signed file carries it, readable by its recipients.
+    pub subject: String,
+    /// The certificate is not valid now: exports cannot be signed with it.
+    pub expired: bool,
+}
+
+/// The stored record (never shown or logged).
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Record {
+    kind: IdentityKind,
+    /// The private key, PKCS#8 DER in base64.
+    key: String,
+    /// The certificates, the signer's first, in PEM.
+    chain: String,
+}
+
+enum Key {
+    Ecdsa(EcdsaKeyPair, Algorithm),
+    Rsa(RsaKeyPair),
+    Ed25519(Ed25519KeyPair),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Algorithm {
+    Es256,
+    Es384,
+    Ps256,
+    EdDsa,
+}
+
+impl Algorithm {
+    fn name(self) -> &'static str {
+        match self {
+            Algorithm::Es256 => "ES256",
+            Algorithm::Es384 => "ES384",
+            Algorithm::Ps256 => "PS256",
+            Algorithm::EdDsa => "EdDSA",
+        }
+    }
+
+    /// The COSE algorithm identifier (RFC 9053).
+    fn cose(self) -> i64 {
+        match self {
+            Algorithm::Es256 => -7,
+            Algorithm::Es384 => -35,
+            Algorithm::Ps256 => -37,
+            Algorithm::EdDsa => -8,
+        }
+    }
+}
+
+/// A loaded identity: signs claims.
+pub struct SigningIdentity {
+    key: Key,
+    /// DER certificates, the signer's first.
+    chain: Vec<Vec<u8>>,
+    kind: IdentityKind,
+    rng: SystemRandom,
+}
+
+impl std::fmt::Debug for SigningIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never the key.
+        f.debug_struct("SigningIdentity")
+            .field("kind", &self.kind)
+            .field("algorithm", &self.algorithm().name())
+            .finish_non_exhaustive()
+    }
+}
+
+impl SigningIdentity {
+    fn algorithm(&self) -> Algorithm {
+        match &self.key {
+            Key::Ecdsa(_, alg) => *alg,
+            Key::Rsa(_) => Algorithm::Ps256,
+            Key::Ed25519(_) => Algorithm::EdDsa,
+        }
+    }
+
+    pub fn cose_algorithm(&self) -> i64 {
+        self.algorithm().cose()
+    }
+
+    /// The length of every signature this identity makes.
+    pub fn signature_len(&self) -> usize {
+        match &self.key {
+            Key::Ecdsa(_, Algorithm::Es384) => 96,
+            Key::Ecdsa(..) | Key::Ed25519(_) => 64,
+            Key::Rsa(rsa) => rsa.public().modulus_len(),
+        }
+    }
+
+    /// The COSE signature of `message` (ECDSA as r‖s).
+    pub fn sign(&self, message: &[u8]) -> Result<Vec<u8>, String> {
+        let failed = |_| "The manifest could not be signed.".to_string();
+        match &self.key {
+            Key::Ecdsa(key, _) => key
+                .sign(&self.rng, message)
+                .map(|s| s.as_ref().to_vec())
+                .map_err(failed),
+            Key::Ed25519(key) => Ok(key.sign(message).as_ref().to_vec()),
+            Key::Rsa(key) => {
+                let mut out = vec![0; key.public().modulus_len()];
+                key.sign(&signature::RSA_PSS_SHA256, &self.rng, message, &mut out)
+                    .map_err(failed)?;
+                Ok(out)
+            }
+        }
+    }
+
+    pub fn chain(&self) -> &[Vec<u8>] {
+        &self.chain
+    }
+
+    pub fn kind(&self) -> IdentityKind {
+        self.kind
+    }
+
+    pub fn info(&self) -> Result<IdentityInfo, String> {
+        let (_, cert) = X509Certificate::from_der(&self.chain[0])
+            .map_err(|e| format!("The signing certificate cannot be read: {e}"))?;
+        let name = |n: &x509_parser::x509::X509Name<'_>| {
+            n.iter_common_name()
+                .next()
+                .and_then(|cn| cn.as_str().ok())
+                .map(str::to_string)
+                .unwrap_or_else(|| n.to_string())
+        };
+        let until = jiff::Timestamp::from_second(cert.validity().not_after.timestamp())
+            .map(|t| t.to_string())
+            .unwrap_or_default();
+        Ok(IdentityInfo {
+            kind: self.kind,
+            signer: name(cert.subject()),
+            issuer: name(cert.issuer()),
+            valid_until: until,
+            algorithm: self.algorithm().name().to_string(),
+            fingerprint: self.fingerprint(),
+            subject: cert.subject().to_string(),
+            expired: !cert.validity().is_valid(),
+        })
+    }
+
+    /// SHA-256 of the signing certificate (hex).
+    pub fn fingerprint(&self) -> String {
+        rawtonic_fs::sha256_hex(&self.chain[0])
+    }
+
+    /// Whether manifests can be signed now: the signing certificate is
+    /// valid at this moment (verifiers reject a signature made outside it).
+    pub fn check_usable(&self) -> Result<(), String> {
+        let (_, cert) = X509Certificate::from_der(&self.chain[0])
+            .map_err(|e| format!("The signing certificate cannot be read: {e}"))?;
+        if cert.validity().is_valid() {
+            return Ok(());
+        }
+        let at = |t: x509_parser::time::ASN1Time| {
+            jiff::Timestamp::from_second(t.timestamp())
+                .map(|t| t.to_string())
+                .unwrap_or_default()
+        };
+        Err(format!(
+            "The signing certificate is valid from {} to {}, not now: import a renewed certificate or make a new one in the Export panel's Provenance section.",
+            at(cert.validity().not_before),
+            at(cert.validity().not_after)
+        ))
+    }
+}
+
+/// A private key from PKCS#8 DER, of any type C2PA and ring sign with.
+fn key_from_pkcs8(pkcs8: &[u8], rng: &SystemRandom) -> Result<Key, String> {
+    if let Ok(key) =
+        EcdsaKeyPair::from_pkcs8(&signature::ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8, rng)
+    {
+        return Ok(Key::Ecdsa(key, Algorithm::Es256));
+    }
+    if let Ok(key) =
+        EcdsaKeyPair::from_pkcs8(&signature::ECDSA_P384_SHA384_FIXED_SIGNING, pkcs8, rng)
+    {
+        return Ok(Key::Ecdsa(key, Algorithm::Es384));
+    }
+    if let Ok(key) = RsaKeyPair::from_pkcs8(pkcs8) {
+        return Ok(Key::Rsa(key));
+    }
+    if let Ok(key) = Ed25519KeyPair::from_pkcs8_maybe_unchecked(pkcs8) {
+        return Ok(Key::Ed25519(key));
+    }
+    Err(
+        "The private key is not one C2PA signs with (ECDSA P-256 or P-384, RSA of 2048 bits or more, Ed25519)."
+            .to_string(),
+    )
+}
+
+fn public_key(key: &Key) -> &[u8] {
+    match key {
+        Key::Ecdsa(k, _) => k.public_key().as_ref(),
+        Key::Rsa(k) => k.public_key().as_ref(),
+        Key::Ed25519(k) => k.public_key().as_ref(),
+    }
+}
+
+/// Checks that `chain[0]` is a certificate C2PA verifiers accept for
+/// signing manifests and that it belongs to `key`.
+fn check_signing_certificate(chain: &[Vec<u8>], key: &Key) -> Result<(), String> {
+    let first = chain.first().ok_or("The file holds no certificate.")?;
+    let (_, cert) = X509Certificate::from_der(first)
+        .map_err(|e| format!("The certificate cannot be read: {e}"))?;
+    let spki = &cert.public_key().subject_public_key.data;
+    // ring gives RSA keys as the PKCS#1 RSAPublicKey, the others raw: both
+    // are what the certificate's subjectPublicKey bit string holds.
+    if spki.as_ref() != public_key(key) {
+        return Err("The certificate does not belong to the private key.".to_string());
+    }
+    // Verifiers name the signer by the subject's organisation; c2pa-rs
+    // (c2patool 0.27) rejects a signature whose certificate has none.
+    if cert.subject().iter_organization().next().is_none() {
+        return Err(
+            "The certificate names no organisation (O); C2PA verifiers reject signatures made with it."
+                .to_string(),
+        );
+    }
+    if cert.is_ca() {
+        return Err(
+            "This is a certificate authority's certificate; C2PA needs a signing (end-entity) certificate."
+                .to_string(),
+        );
+    }
+    if !cert.validity().is_valid() {
+        return Err("The certificate is not valid now (expired or not yet valid).".to_string());
+    }
+    let digital_signature = cert
+        .key_usage()
+        .ok()
+        .flatten()
+        .is_some_and(|ku| ku.value.digital_signature());
+    if !digital_signature {
+        return Err(
+            "The certificate is not allowed to make digital signatures (key usage).".to_string(),
+        );
+    }
+    let eku_ok = cert.extended_key_usage().ok().flatten().is_some_and(|eku| {
+        let eku = eku.value;
+        !eku.any
+            && (eku.email_protection
+                || eku.other.iter().any(|oid| {
+                    let oid = oid.to_id_string();
+                    oid == DOCUMENT_SIGNING || oid == C2PA_CLAIM_SIGNING
+                }))
+    });
+    if !eku_ok {
+        return Err(
+            "The certificate's extended key usage does not allow C2PA signing (it needs email protection, document signing or C2PA claim signing)."
+                .to_string(),
+        );
+    }
+    check_certificate_profile(&cert)
+}
+
+/// Signature algorithms C2PA accepts for certificates (C2PA 2.x,
+/// "Certificate profile"): RSA PKCS#1 v1.5 and PSS with SHA-2, ECDSA with
+/// SHA-2, Ed25519.
+const CERTIFICATE_ALGORITHMS: [&str; 8] = [
+    "1.2.840.113549.1.1.11",
+    "1.2.840.113549.1.1.12",
+    "1.2.840.113549.1.1.13",
+    "1.2.840.113549.1.1.10",
+    "1.2.840.10045.4.3.2",
+    "1.2.840.10045.4.3.3",
+    "1.2.840.10045.4.3.4",
+    "1.3.101.112",
+];
+
+const RSASSA_PSS: &str = "1.2.840.113549.1.1.10";
+
+/// One DER element of `input`: its tag, its contents and what follows.
+fn der_element(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
+    let (&tag, rest) = input.split_first()?;
+    let (&first, rest) = rest.split_first()?;
+    let (len, rest) = if first < 0x80 {
+        (first as usize, rest)
+    } else {
+        let count = (first & 0x7f) as usize;
+        if count == 0 || count > 4 || rest.len() < count {
+            return None;
+        }
+        let len = rest[..count]
+            .iter()
+            .fold(0usize, |len, b| (len << 8) | *b as usize);
+        (len, &rest[count..])
+    };
+    (rest.len() >= len).then(|| (tag, &rest[..len], &rest[len..]))
+}
+
+/// The OID inside an AlgorithmIdentifier SEQUENCE's encoding, and its
+/// parameters.
+fn algorithm_oid(identifier: &[u8]) -> Option<(&[u8], &[u8])> {
+    let (0x30, content, _) = der_element(identifier)? else {
+        return None;
+    };
+    let (0x06, oid, params) = der_element(content)? else {
+        return None;
+    };
+    Some((oid, params))
+}
+
+/// Whether RSASSA-PSS parameters (the contents of their SEQUENCE) name a
+/// SHA-2 hash and MGF1 with the same hash, as C2PA requires (the defaults,
+/// SHA-1, are not allowed).
+fn pss_parameters_ok(params: &[u8]) -> bool {
+    let oid_contents = |dotted: &str| der::oid(dotted)[2..].to_vec();
+    let sha2 = [
+        "2.16.840.1.101.3.4.2.1",
+        "2.16.840.1.101.3.4.2.2",
+        "2.16.840.1.101.3.4.2.3",
+    ]
+    .map(oid_contents);
+    let mgf1 = oid_contents("1.2.840.113549.1.1.8");
+    let (mut hash, mut mgf_hash) = (None, None);
+    let mut rest = params;
+    while !rest.is_empty() {
+        let Some((tag, content, after)) = der_element(rest) else {
+            return false;
+        };
+        rest = after;
+        match tag {
+            0xa0 => hash = algorithm_oid(content).map(|(oid, _)| oid.to_vec()),
+            0xa1 => {
+                mgf_hash = algorithm_oid(content)
+                    .filter(|(oid, _)| *oid == mgf1.as_slice())
+                    .and_then(|(_, params)| algorithm_oid(params))
+                    .map(|(oid, _)| oid.to_vec())
+            }
+            _ => {}
+        }
+    }
+    hash.is_some_and(|hash| sha2.contains(&hash) && mgf_hash.as_ref() == Some(&hash))
+}
+
+/// The rest of the C2PA certificate profile a signing certificate must
+/// follow, as the reference validator checks it (c2pa-rs
+/// `check_certificate_profile`): X.509 v3, an accepted signature algorithm
+/// named alike inside and outside the signed part, no unique identifiers,
+/// an Authority Key Identifier, no certificate-signing key usage, not both
+/// time-stamping and OCSP signing, and no critical extension it does not
+/// know.
+fn check_certificate_profile(cert: &X509Certificate<'_>) -> Result<(), String> {
+    use x509_parser::extensions::ParsedExtension;
+    let refuse = |what: &str| {
+        Err(format!(
+            "The certificate does not follow the C2PA certificate profile ({what}); C2PA verifiers reject signatures made with it."
+        ))
+    };
+    if cert.version() != x509_parser::x509::X509Version::V3 {
+        return refuse("not an X.509 version 3 certificate");
+    }
+    let algorithm = cert.signature_algorithm.algorithm.to_id_string();
+    // The whole identifiers, parameters included.
+    if cert.tbs_certificate.signature != cert.signature_algorithm
+        || !CERTIFICATE_ALGORITHMS.contains(&algorithm.as_str())
+    {
+        return refuse("its signature algorithm");
+    }
+    if algorithm == RSASSA_PSS
+        && !cert
+            .signature_algorithm
+            .parameters
+            .as_ref()
+            .is_some_and(|params| pss_parameters_ok(params.data))
+    {
+        return refuse("its RSA-PSS parameters");
+    }
+    if cert.tbs_certificate.issuer_uid.is_some() || cert.tbs_certificate.subject_uid.is_some() {
+        return refuse("unique identifiers");
+    }
+    let mut authority_key_id = false;
+    for extension in cert.extensions() {
+        match extension.parsed_extension() {
+            ParsedExtension::AuthorityKeyIdentifier(_) => authority_key_id = true,
+            ParsedExtension::KeyUsage(usage) if usage.key_cert_sign() => {
+                return refuse("it may sign certificates");
+            }
+            // A claim signer is not a time-stamping or OCSP responder.
+            ParsedExtension::ExtendedKeyUsage(eku) if eku.ocsp_signing || eku.time_stamping => {
+                return refuse("time-stamping or OCSP signing use");
+            }
+            ParsedExtension::UnsupportedExtension { .. }
+            | ParsedExtension::ParseError { .. }
+            | ParsedExtension::Unparsed
+                if extension.critical =>
+            {
+                return refuse("a critical extension verifiers do not know");
+            }
+            _ => {}
+        }
+    }
+    if !authority_key_id {
+        return refuse("no Authority Key Identifier");
+    }
+    Ok(())
+}
+
+/// The identity stored in `dir`, if there is one. A record whose key does
+/// not belong to its certificate is refused.
+pub fn load(dir: &Path) -> Result<Option<SigningIdentity>, String> {
+    let path = dir.join(IDENTITY_FILE);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("The signing identity cannot be read: {e}")),
+    };
+    let record: Record = serde_json::from_str(&text)
+        .map_err(|_| "The signing identity cannot be read.".to_string())?;
+    use base64::Engine;
+    let pkcs8 = base64::engine::general_purpose::STANDARD
+        .decode(record.key.as_bytes())
+        .map_err(|_| "The signing identity cannot be read.".to_string())?;
+    let rng = SystemRandom::new();
+    let key = key_from_pkcs8(&pkcs8, &rng)?;
+    let chain = pem_certificates(&record.chain)?;
+    let first = chain
+        .first()
+        .ok_or("The signing identity has no certificate.")?;
+    let (_, cert) = X509Certificate::from_der(first)
+        .map_err(|e| format!("The signing certificate cannot be read: {e}"))?;
+    if cert.public_key().subject_public_key.data.as_ref() != public_key(&key) {
+        return Err("The signing identity's key does not belong to its certificate.".to_string());
+    }
+    Ok(Some(SigningIdentity {
+        key,
+        chain,
+        kind: record.kind,
+        rng,
+    }))
+}
+
+/// What [`load`] would load, without the key in memory longer than needed.
+pub fn info(dir: &Path) -> Result<Option<IdentityInfo>, String> {
+    load(dir)?.map(|identity| identity.info()).transpose()
+}
+
+/// Deletes the identity in `dir` (the user's request). Whether there was one.
+pub fn remove(dir: &Path) -> Result<bool, String> {
+    match std::fs::remove_file(dir.join(IDENTITY_FILE)) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(format!("The signing identity could not be removed: {e}")),
+    }
+}
+
+/// Generates a key and a local certificate for it, naming `signer`, and
+/// stores them in `dir` (replacing an identity there). The certificate is
+/// issued by a local authority made for it alone, whose key is not kept:
+/// C2PA does not accept self-signed signing certificates, and no one can
+/// issue another certificate in its name later.
+pub fn generate(dir: &Path, signer: &str) -> Result<IdentityInfo, String> {
+    let rng = SystemRandom::new();
+    fn failed<E>(_: E) -> String {
+        "A signing key could not be generated.".to_string()
+    }
+    let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
+    let ca_pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).map_err(failed)?;
+    let ca = EcdsaKeyPair::from_pkcs8(alg, ca_pkcs8.as_ref(), &rng).map_err(failed)?;
+    let ee_pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).map_err(failed)?;
+    let ee = EcdsaKeyPair::from_pkcs8(alg, ee_pkcs8.as_ref(), &rng).map_err(failed)?;
+    let signer = signer.trim();
+    let signer = if signer.is_empty() {
+        "Rawtonic local signer"
+    } else {
+        signer
+    };
+    let now = jiff::Timestamp::now();
+    let start = now - jiff::SignedDuration::from_hours(24);
+    let ca_name = name(&format!("{signer} (local certificate authority)"));
+    let ca_ski = key_id(ca.public_key().as_ref());
+    let ca_cert = certificate(
+        &rng,
+        &ca,
+        &ca_name,
+        &ca_name,
+        ca.public_key().as_ref(),
+        (
+            start,
+            now + jiff::SignedDuration::from_hours(24 * 365 * 10 + 48),
+        ),
+        &[
+            extension("2.5.29.19", true, &der::seq(&[der::boolean(true)])),
+            // keyCertSign, cRLSign.
+            extension("2.5.29.15", true, &der::tlv(0x03, &[0x01, 0x06])),
+            extension("2.5.29.14", false, &der::octets(&ca_ski)),
+        ],
+    )?;
+    let ee_cert = certificate(
+        &rng,
+        &ca,
+        &ca_name,
+        &name(signer),
+        ee.public_key().as_ref(),
+        (
+            start,
+            now + jiff::SignedDuration::from_hours(24 * 365 * 5 + 24),
+        ),
+        &[
+            extension("2.5.29.19", true, &der::seq(&[])),
+            // digitalSignature.
+            extension("2.5.29.15", true, &der::tlv(0x03, &[0x07, 0x80])),
+            extension(
+                "2.5.29.37",
+                false,
+                &der::seq(&[der::oid(EMAIL_PROTECTION), der::oid(DOCUMENT_SIGNING)]),
+            ),
+            extension(
+                "2.5.29.14",
+                false,
+                &der::octets(&key_id(ee.public_key().as_ref())),
+            ),
+            extension("2.5.29.35", false, &der::seq(&[der::tlv(0x80, &ca_ski)])),
+        ],
+    )?;
+    // `ca` and its PKCS#8 go out of scope here: never stored.
+    store(
+        dir,
+        ee_pkcs8.as_ref(),
+        &[ee_cert, ca_cert],
+        IdentityKind::Generated,
+    )
+}
+
+/// Imports the key and certificate chain of a PKCS#12 file into `dir`
+/// (replacing an identity there), after checking that C2PA verifiers accept
+/// the certificate for signing.
+pub fn import_pkcs12(dir: &Path, file: &Path, password: &str) -> Result<IdentityInfo, String> {
+    let data =
+        std::fs::read(file).map_err(|e| format!("{} cannot be read: {e}", file.display()))?;
+    let store_ = p12_keystore::KeyStore::from_pkcs12(
+        &data,
+        password,
+        p12_keystore::Pkcs12ImportPolicy::Strict,
+    )
+    .map_err(|_| {
+        "The file could not be opened: wrong password, or not a PKCS#12 (.p12/.pfx) file."
+            .to_string()
+    })?;
+    let (_, entry) = store_
+        .private_key_chain()
+        .ok_or("The file holds no private key with its certificate.")?;
+    let pkcs8 = entry.key().as_der().to_vec();
+    let chain: Vec<Vec<u8>> = entry.certs().iter().map(|c| c.as_der().to_vec()).collect();
+    let rng = SystemRandom::new();
+    let key = key_from_pkcs8(&pkcs8, &rng)?;
+    check_signing_certificate(&chain, &key)?;
+    store(dir, &pkcs8, &chain, IdentityKind::Imported)
+}
+
+fn store(
+    dir: &Path,
+    pkcs8: &[u8],
+    chain: &[Vec<u8>],
+    kind: IdentityKind,
+) -> Result<IdentityInfo, String> {
+    let failed = |e: anyhow::Error| format!("The signing identity could not be saved: {e:#}");
+    private_dir(dir).map_err(|e| failed(e.into()))?;
+    use base64::Engine;
+    let record = Record {
+        kind,
+        key: base64::engine::general_purpose::STANDARD.encode(pkcs8),
+        chain: pem(chain),
+    };
+    let bytes = serde_json::to_vec(&record).expect("an identity record");
+    // One file, replaced whole: `atomic_write`'s temporary file is readable
+    // by the user only and a new file keeps that; a replaced one keeps its
+    // permissions, so a record others can read is removed first.
+    let path = dir.join(IDENTITY_FILE);
+    remove_if_shared(&path).map_err(|e| failed(e.into()))?;
+    rawtonic_fs::atomic_write(&path, bytes).map_err(failed)?;
+    load(dir)?
+        .ok_or("The signing identity was not saved.")?
+        .info()
+}
+
+/// Creates `dir` readable by the user only (Unix).
+fn private_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
+/// An existing record others can read is removed before the new one is
+/// written (an atomic replace keeps the replaced file's permissions).
+fn remove_if_shared(path: &PathBuf) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::symlink_metadata(path)
+            && meta.permissions().mode() & 0o077 != 0
+        {
+            std::fs::remove_file(path)?;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
+fn name(common_name: &str) -> Vec<u8> {
+    der::seq(&[
+        der::set(&[der::seq(&[der::oid("2.5.4.3"), der::utf8(common_name)])]),
+        der::set(&[der::seq(&[
+            der::oid("2.5.4.10"),
+            der::utf8("Rawtonic local identity (unverified)"),
+        ])]),
+    ])
+}
+
+/// A key identifier: the first 20 bytes of SHA-256 of the public key
+/// (RFC 7093 method 1).
+fn key_id(public_key: &[u8]) -> Vec<u8> {
+    ring::digest::digest(&ring::digest::SHA256, public_key).as_ref()[..20].to_vec()
+}
+
+fn extension(oid: &str, critical: bool, value: &[u8]) -> Vec<u8> {
+    let mut parts = vec![der::oid(oid)];
+    if critical {
+        parts.push(der::boolean(true));
+    }
+    parts.push(der::octets(value));
+    der::seq(&parts)
+}
+
+/// An X.509 v3 certificate for a P-256 `public_key`, signed by `issuer_key`.
+fn certificate(
+    rng: &SystemRandom,
+    issuer_key: &EcdsaKeyPair,
+    issuer: &[u8],
+    subject: &[u8],
+    public_key: &[u8],
+    validity: (jiff::Timestamp, jiff::Timestamp),
+    extensions: &[Vec<u8>],
+) -> Result<Vec<u8>, String> {
+    let ecdsa_sha256 = der::seq(&[der::oid("1.2.840.10045.4.3.2")]);
+    certificate_named(
+        rng,
+        issuer_key,
+        &ecdsa_sha256,
+        (issuer, subject),
+        public_key,
+        validity,
+        extensions,
+    )
+}
+
+/// [`certificate`] whose signature algorithm is named `algorithm` (tests
+/// name others than the ECDSA it is signed with).
+fn certificate_named(
+    rng: &SystemRandom,
+    issuer_key: &EcdsaKeyPair,
+    algorithm: &[u8],
+    (issuer, subject): (&[u8], &[u8]),
+    public_key: &[u8],
+    (not_before, not_after): (jiff::Timestamp, jiff::Timestamp),
+    extensions: &[Vec<u8>],
+) -> Result<Vec<u8>, String> {
+    let ecdsa_sha256 = algorithm.to_vec();
+    let mut serial = [0u8; 16];
+    rng.fill(&mut serial)
+        .map_err(|_| "A certificate serial number could not be made.".to_string())?;
+    serial[0] &= 0x7f;
+    let tbs = der::seq(&[
+        der::explicit(0, &der::uint(&[2])),
+        der::uint(&serial),
+        ecdsa_sha256.clone(),
+        issuer.to_vec(),
+        der::seq(&[der::time(not_before), der::time(not_after)]),
+        subject.to_vec(),
+        der::seq(&[
+            der::seq(&[
+                der::oid("1.2.840.10045.2.1"),
+                der::oid("1.2.840.10045.3.1.7"),
+            ]),
+            der::bit_string(public_key),
+        ]),
+        der::explicit(3, &der::seq(extensions)),
+    ]);
+    // ring signs r‖s; X.509 takes the same signature in DER.
+    let fixed = issuer_key
+        .sign(rng, &tbs)
+        .map_err(|_| "A certificate could not be signed.".to_string())?;
+    Ok(der::seq(&[
+        tbs,
+        ecdsa_sha256,
+        der::bit_string(&ecdsa_der(fixed.as_ref())),
+    ]))
+}
+
+/// An ECDSA r‖s signature as the DER `Ecdsa-Sig-Value` X.509 uses.
+fn ecdsa_der(fixed: &[u8]) -> Vec<u8> {
+    let (r, s) = fixed.split_at(fixed.len() / 2);
+    der::seq(&[der::uint(r), der::uint(s)])
+}
+
+fn pem(chain: &[Vec<u8>]) -> String {
+    use base64::Engine;
+    let mut out = String::new();
+    for cert in chain {
+        out.push_str("-----BEGIN CERTIFICATE-----\n");
+        let b64 = base64::engine::general_purpose::STANDARD.encode(cert);
+        for line in b64.as_bytes().chunks(64) {
+            out.push_str(std::str::from_utf8(line).expect("base64 is ASCII"));
+            out.push('\n');
+        }
+        out.push_str("-----END CERTIFICATE-----\n");
+    }
+    out
+}
+
+fn pem_certificates(pem: &str) -> Result<Vec<Vec<u8>>, String> {
+    use base64::Engine;
+    let mut certs = Vec::new();
+    let mut current: Option<String> = None;
+    for line in pem.lines().map(str::trim) {
+        match (line, current.as_mut()) {
+            ("-----BEGIN CERTIFICATE-----", _) => current = Some(String::new()),
+            ("-----END CERTIFICATE-----", Some(b64)) => {
+                certs.push(
+                    base64::engine::general_purpose::STANDARD
+                        .decode(b64.as_bytes())
+                        .map_err(|e| format!("The certificate chain cannot be read: {e}"))?,
+                );
+                current = None;
+            }
+            (text, Some(b64)) => b64.push_str(text),
+            _ => {}
+        }
+    }
+    Ok(certs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The key (PKCS#8) and chain of the record in `dir`.
+    fn stored(dir: &Path) -> (Vec<u8>, Vec<Vec<u8>>) {
+        use base64::Engine;
+        let record: Record =
+            serde_json::from_slice(&std::fs::read(dir.join(IDENTITY_FILE)).unwrap()).unwrap();
+        let key = base64::engine::general_purpose::STANDARD
+            .decode(record.key.as_bytes())
+            .unwrap();
+        (key, pem_certificates(&record.chain).unwrap())
+    }
+
+    #[test]
+    fn generated_identity_is_private_and_valid_for_c2pa() {
+        let dir = tempfile::tempdir().unwrap();
+        let store_dir = dir.path().join("provenance");
+        let info = generate(&store_dir, "Jane Example").unwrap();
+        assert_eq!(info.kind, IdentityKind::Generated);
+        assert_eq!(info.signer, "Jane Example");
+        assert_eq!(info.issuer, "Jane Example (local certificate authority)");
+        assert_eq!(info.algorithm, "ES256");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode(&store_dir.join(IDENTITY_FILE)), 0o600);
+            assert_eq!(mode(&store_dir), 0o700);
+        }
+        let identity = load(&store_dir).unwrap().unwrap();
+        assert_eq!(identity.chain().len(), 2);
+        // The certificate passes the checks an imported one must pass.
+        check_signing_certificate(identity.chain(), &identity.key).unwrap();
+        let (_, ca) = X509Certificate::from_der(&identity.chain()[1]).unwrap();
+        assert!(ca.is_ca());
+        let (_, ee) = X509Certificate::from_der(&identity.chain()[0]).unwrap();
+        let signed_by = |cert: &X509Certificate<'_>, issuer: &X509Certificate<'_>| {
+            signature::UnparsedPublicKey::new(
+                &signature::ECDSA_P256_SHA256_ASN1,
+                &issuer.public_key().subject_public_key.data,
+            )
+            .verify(cert.tbs_certificate.as_ref(), &cert.signature_value.data)
+            .is_ok()
+        };
+        assert!(signed_by(&ee, &ca));
+        assert!(signed_by(&ca, &ca));
+        assert!(!signed_by(&ee, &ee));
+        // The issuing authority's key is not kept: only the signer's key is.
+        let files: Vec<_> = std::fs::read_dir(&store_dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(files, [IDENTITY_FILE], "{files:?}");
+        assert!(!info.expired);
+        identity.check_usable().unwrap();
+        let message = b"claim";
+        let sig = identity.sign(message).unwrap();
+        assert_eq!(sig.len(), identity.signature_len());
+        signature::UnparsedPublicKey::new(
+            &signature::ECDSA_P256_SHA256_FIXED,
+            public_key(&identity.key),
+        )
+        .verify(message, &sig)
+        .unwrap();
+        // The key does not show in debug output.
+        assert!(!format!("{identity:?}").contains("key:"));
+        assert!(remove(&store_dir).unwrap());
+        assert!(load(&store_dir).unwrap().is_none());
+        assert!(!remove(&store_dir).unwrap());
+    }
+
+    #[test]
+    fn a_shared_key_file_is_replaced_by_a_private_one() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join(IDENTITY_FILE), b"old").unwrap();
+            std::fs::set_permissions(
+                dir.path().join(IDENTITY_FILE),
+                std::fs::Permissions::from_mode(0o644),
+            )
+            .unwrap();
+            generate(dir.path(), "").unwrap();
+            let mode = std::fs::metadata(dir.path().join(IDENTITY_FILE))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+    }
+
+    /// A PKCS#12 of `chain` and `key`, encrypted with `algorithm`.
+    fn pkcs12(
+        key: &[u8],
+        chain: &[Vec<u8>],
+        algorithm: p12_keystore::EncryptionAlgorithm,
+    ) -> Vec<u8> {
+        let certs = chain
+            .iter()
+            .map(|c| p12_keystore::Certificate::from_der(c).unwrap());
+        let entry = p12_keystore::PrivateKeyChain::new(
+            vec![1u8, 2, 3],
+            p12_keystore::PrivateKey::from_der(key).unwrap(),
+            certs,
+        );
+        let mut store = p12_keystore::KeyStore::new();
+        store.add_entry(
+            "signer",
+            p12_keystore::KeyStoreEntry::PrivateKeyChain(entry),
+        );
+        store
+            .writer("secret")
+            .encryption_algorithm(algorithm)
+            .write()
+            .unwrap()
+    }
+
+    #[test]
+    fn imports_a_pkcs12_certificate_and_refuses_wrong_ones() {
+        let made = tempfile::tempdir().unwrap();
+        let generated = generate(made.path(), "Studio Example").unwrap();
+        let (key, chain) = stored(made.path());
+        use p12_keystore::EncryptionAlgorithm::*;
+        for algorithm in [PbeWithHmacSha256AndAes256, PbeWithShaAnd3KeyTripleDesCbc] {
+            let file = made.path().join("signer.p12");
+            std::fs::write(&file, pkcs12(&key, &chain, algorithm)).unwrap();
+            let target = tempfile::tempdir().unwrap();
+            let info = import_pkcs12(target.path(), &file, "secret").unwrap();
+            assert_eq!(info.kind, IdentityKind::Imported);
+            assert_eq!(info.fingerprint, generated.fingerprint);
+            assert_eq!(info.signer, "Studio Example");
+            assert_eq!(
+                load(target.path()).unwrap().unwrap().chain(),
+                chain.as_slice()
+            );
+            let wrong = import_pkcs12(target.path(), &file, "guess").unwrap_err();
+            assert!(wrong.contains("wrong password"), "{wrong}");
+            // The identity imported before stays.
+            assert!(info_matches(target.path(), &info));
+        }
+        // A certificate of another key is refused, and nothing is stored.
+        let other = tempfile::tempdir().unwrap();
+        generate(other.path(), "Other").unwrap();
+        let (other_key, _) = stored(other.path());
+        let file = made.path().join("mismatch.p12");
+        std::fs::write(
+            &file,
+            pkcs12(&other_key, &chain, PbeWithHmacSha256AndAes256),
+        )
+        .unwrap();
+        let target = tempfile::tempdir().unwrap();
+        assert!(import_pkcs12(target.path(), &file, "secret").is_err());
+        assert!(load(target.path()).unwrap().is_none());
+        // A chain that does not start with the key's certificate (here the
+        // local authority's) is refused.
+        let ca_only = vec![chain[1].clone()];
+        let rng = SystemRandom::new();
+        let key = key_from_pkcs8(&key, &rng).unwrap();
+        assert!(check_signing_certificate(&ca_only, &key).is_err());
+    }
+
+    #[test]
+    fn a_record_whose_key_is_not_its_certificates_is_refused() {
+        let one = tempfile::tempdir().unwrap();
+        let two = tempfile::tempdir().unwrap();
+        generate(one.path(), "One").unwrap();
+        generate(two.path(), "Two").unwrap();
+        let (key_two, _) = stored(two.path());
+        let (_, chain_one) = stored(one.path());
+        let mixed = tempfile::tempdir().unwrap();
+        // As if a replacement had been cut short between key and chain.
+        let record = Record {
+            kind: IdentityKind::Generated,
+            key: {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD.encode(&key_two)
+            },
+            chain: pem(&chain_one),
+        };
+        std::fs::write(
+            mixed.path().join(IDENTITY_FILE),
+            serde_json::to_vec(&record).unwrap(),
+        )
+        .unwrap();
+        let error = load(mixed.path()).unwrap_err();
+        assert!(error.contains("does not belong"), "{error}");
+    }
+
+    #[test]
+    fn an_expired_certificate_cannot_sign() {
+        let rng = SystemRandom::new();
+        let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
+        let key = EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref(), &rng).unwrap();
+        let name = name("Expired");
+        let day = jiff::SignedDuration::from_hours(24);
+        let now = jiff::Timestamp::now();
+        let cert = certificate(
+            &rng,
+            &key,
+            &name,
+            &name,
+            key.public_key().as_ref(),
+            (now - day * 10, now - day),
+            &[],
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let info = store(dir.path(), pkcs8.as_ref(), &[cert], IdentityKind::Imported).unwrap();
+        assert!(info.expired);
+        let error = load(dir.path())
+            .unwrap()
+            .unwrap()
+            .check_usable()
+            .unwrap_err();
+        assert!(error.contains("not now"), "{error}");
+    }
+
+    #[test]
+    fn a_certificate_outside_the_c2pa_profile_is_refused_at_import() {
+        let rng = SystemRandom::new();
+        let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
+        let ca_pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
+        let ca = EcdsaKeyPair::from_pkcs8(alg, ca_pkcs8.as_ref(), &rng).unwrap();
+        let ee_pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
+        let ee = EcdsaKeyPair::from_pkcs8(alg, ee_pkcs8.as_ref(), &rng).unwrap();
+        let now = jiff::Timestamp::now();
+        let day = jiff::SignedDuration::from_hours(24);
+        let leaf = |extensions: &[Vec<u8>]| {
+            certificate(
+                &rng,
+                &ca,
+                &name("A Studio CA"),
+                &name("Studio"),
+                ee.public_key().as_ref(),
+                (now - day, now + day * 30),
+                extensions,
+            )
+            .unwrap()
+        };
+        let base = || {
+            vec![
+                extension("2.5.29.19", true, &der::seq(&[])),
+                extension("2.5.29.15", true, &der::tlv(0x03, &[0x07, 0x80])),
+                extension("2.5.29.37", false, &der::seq(&[der::oid(EMAIL_PROTECTION)])),
+            ]
+        };
+        let key = key_from_pkcs8(ee_pkcs8.as_ref(), &rng).unwrap();
+        // Everything C2PA asks for, with an Authority Key Identifier: accepted.
+        let mut with_aki = base();
+        with_aki.push(extension(
+            "2.5.29.35",
+            false,
+            &der::seq(&[der::tlv(0x80, &[1; 20])]),
+        ));
+        check_signing_certificate(&[leaf(&with_aki)], &key).unwrap();
+        // The same without it, as a CA might issue it: refused.
+        let error = check_signing_certificate(&[leaf(&base())], &key).unwrap_err();
+        assert!(error.contains("Authority Key Identifier"), "{error}");
+        // Time-stamping or OCSP signing beside document signing: refused, each.
+        for purpose in ["1.3.6.1.5.5.7.3.8", "1.3.6.1.5.5.7.3.9"] {
+            let mut mixed = base();
+            mixed[2] = extension(
+                "2.5.29.37",
+                false,
+                &der::seq(&[der::oid(DOCUMENT_SIGNING), der::oid(purpose)]),
+            );
+            mixed.push(extension(
+                "2.5.29.35",
+                false,
+                &der::seq(&[der::tlv(0x80, &[1; 20])]),
+            ));
+            let error = check_signing_certificate(&[leaf(&mixed)], &key).unwrap_err();
+            assert!(
+                error.contains("time-stamping or OCSP"),
+                "{purpose}: {error}"
+            );
+        }
+        // RSA-PSS named with SHA-256 but MGF1 with SHA-384: refused; matching: accepted.
+        let pss = |mgf_hash: &str| {
+            let hash = |dotted: &str| der::seq(&[der::oid(dotted)]);
+            der::seq(&[
+                der::oid(RSASSA_PSS),
+                der::seq(&[
+                    der::explicit(0, &hash("2.16.840.1.101.3.4.2.1")),
+                    der::explicit(
+                        1,
+                        &der::seq(&[der::oid("1.2.840.113549.1.1.8"), hash(mgf_hash)]),
+                    ),
+                    der::explicit(2, &der::uint(&[32])),
+                ]),
+            ])
+        };
+        for (mgf_hash, ok) in [
+            ("2.16.840.1.101.3.4.2.2", false),
+            ("2.16.840.1.101.3.4.2.1", true),
+        ] {
+            let cert = certificate_named(
+                &rng,
+                &ca,
+                &pss(mgf_hash),
+                (&name("A Studio CA"), &name("Studio")),
+                ee.public_key().as_ref(),
+                (now - day, now + day * 30),
+                &with_aki,
+            )
+            .unwrap();
+            let result = check_signing_certificate(&[cert], &key);
+            assert_eq!(result.is_ok(), ok, "{mgf_hash}: {result:?}");
+        }
+        // A critical extension verifiers do not know: refused.
+        let mut unknown = with_aki.clone();
+        unknown.push(extension("1.3.6.1.4.1.99999.1", true, &der::octets(&[1])));
+        let error = check_signing_certificate(&[leaf(&unknown)], &key).unwrap_err();
+        assert!(error.contains("critical extension"), "{error}");
+    }
+
+    fn info_matches(dir: &Path, want: &IdentityInfo) -> bool {
+        info(dir).unwrap().as_ref() == Some(want)
+    }
+
+    #[test]
+    fn pem_round_trip() {
+        let chain = vec![vec![1u8; 100], vec![2u8; 3]];
+        assert_eq!(pem_certificates(&pem(&chain)).unwrap(), chain);
+    }
+}

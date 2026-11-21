@@ -95,6 +95,7 @@ mod preview_slot;
 mod privacy_notice;
 mod profile_thumbnails;
 mod proof_sheet;
+mod provenance;
 mod proxy_worker;
 #[cfg(feature = "qa-control")]
 mod qa_control;
@@ -1135,6 +1136,11 @@ fn start(args: Vec<String>) {
             export_processing::export_images,
             export_processing::export_images_batch,
             export_processing::export_naming_preview,
+            provenance::provenance_identity,
+            provenance::generate_provenance_identity,
+            provenance::import_provenance_certificate,
+            provenance::remove_provenance_identity,
+            provenance::export_provenance_preview,
             export_processing::cancel_export,
             export_processing::estimate_export_sizes,
             export_processing::list_font_families,

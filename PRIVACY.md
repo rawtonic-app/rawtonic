@@ -144,6 +144,25 @@ fields are stripped. Rawtonic's creating-tool name is written. A photo with
 areas made by a generative AI tool also records that fact (IPTC Digital Source
 Type), as the EU AI Act requires.
 
+**Provenance (C2PA), off by default.** With Export > Provenance (C2PA) on, each
+JPEG, PNG or TIFF carries a signed manifest: Rawtonic's name and version, the file
+name and type of the photograph it was developed from, the kinds of edits
+(opened, tone and colour, cropped, rotated, local adjustments, retouching,
+resized, border or watermark) and each area a generative model made, and,
+only if you tick it, the photo's creator as author. From the photo: no
+thumbnail or pixels of the original, no slider values, no location, no account. The manifest also
+holds your signing certificate, readable by everyone who gets the file: a
+certificate made on this computer names the name you typed; an imported one
+holds whatever its authority wrote into its subject (organisation, and
+possibly a place or an e-mail address). The Export panel shows what goes into
+the manifest, the certificate's subject included, before you export. Signing happens on this computer and sends
+nothing: there is no time-stamp authority (that would send a hash of each
+file to a third party; verifiers then take the certificate's validity
+instead), no account and no upload. The private key stays in Rawtonic's data
+folder, readable only by your user account, and is deleted when you click
+*Remove signing certificate*; an imported certificate's password opens the
+file once and is not kept.
+
 ## Sending reports to Rawtonic's makers
 
 Three optional ways to send reports exist in this version. Each sends only

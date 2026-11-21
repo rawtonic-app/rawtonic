@@ -700,6 +700,8 @@ fn save_image_with_metadata(
             catalog: &catalog,
             write: &write_export_bytes,
             enlarger: None,
+            // Mask images carry no manifest.
+            provenance: None,
         },
     )
 }
@@ -2033,6 +2035,12 @@ fn export_photo(
         render_inputs: None,
     };
     let enlarger = crate::super_resolution::ExportEnlarger { app_handle };
+    // Loaded only when a recipe of this photo asks for a manifest.
+    let provenance = targets
+        .iter()
+        .any(|target| target.export_settings.provenance.is_some())
+        .then(|| crate::provenance::identity_for_export(app_handle))
+        .flatten();
     // The develop of each kind of main file the recipes want: with its
     // mask layers, or without them when they go to separate files.
     let with_mask_files = |target: usize| targets[target].export_settings.export_masks;
@@ -2132,6 +2140,7 @@ fn export_photo(
                 catalog: &catalog,
                 write: &write_export_bytes,
                 enlarger: Some(&enlarger),
+                provenance: provenance.as_deref(),
             };
             let cancelled = || ensure_export_not_cancelled(cancellation_token);
             // A group renders at the first of its recipes still to be
@@ -2466,6 +2475,7 @@ pub async fn run_headless_export(
         subfolder: None,
         output_sharpening: None,
         super_resolution: false,
+        provenance: None,
     };
 
     let mut custom_adjustments = None;

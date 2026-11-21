@@ -51,6 +51,10 @@ export interface RecipeDraft {
   metadata: boolean;
   stripGps: boolean;
   keepCreatorContact?: boolean;
+  /** Sign a provenance manifest (C2PA) into each file (JPEG, PNG, TIFF). */
+  provenance: boolean;
+  /** Name the photo's creator as the manifest's author. */
+  provenanceAuthor: boolean;
   /** The name template, in the naming tokens (`rawtonic_naming`). */
   template: string;
   sequenceStart: number;
@@ -118,6 +122,8 @@ export const DEFAULT_RECIPE_DRAFT: RecipeDraft = {
   metadata: true,
   stripGps: true,
   keepCreatorContact: false,
+  provenance: false,
+  provenanceAuthor: false,
   template: '{orig_base}-edited',
   sequenceStart: 1,
   where: 'choose',
@@ -191,6 +197,11 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 const hex = (value: string | undefined, fallback: string) =>
   value && /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : fallback;
 
+/** Formats a provenance manifest (C2PA) can be written into (`c2pa::supports`). */
+export function provenanceFormat(format: string): boolean {
+  return ['jpg', 'jpeg', 'png', 'tif', 'tiff'].includes(format.toLowerCase());
+}
+
 /** A recipe from the form. */
 export function presetFromDraft(draft: RecipeDraft, id: string, name: string, base?: ExportPreset): ExportPreset {
   return {
@@ -210,6 +221,10 @@ export function presetFromDraft(draft: RecipeDraft, id: string, name: string, ba
     keepMetadata: draft.metadata,
     stripGps: draft.stripGps,
     keepCreatorContact: !!draft.keepCreatorContact,
+    // Saved only when on, so recipes without it stay as they were; turned
+    // off, a recipe that had it loses both (never kept from `base`).
+    provenance: draft.provenance ? true : undefined,
+    provenanceAuthor: draft.provenance ? draft.provenanceAuthor : undefined,
     // The naming tokens; `filenameTemplate` held the first export tokens.
     filenameTemplate: '',
     nameTemplate: draft.template,
@@ -272,6 +287,8 @@ export function draftFromPreset(preset: ExportPreset): RecipeDraft {
     metadata: !!preset.keepMetadata,
     stripGps: !!preset.stripGps,
     keepCreatorContact: !!preset.keepCreatorContact,
+    provenance: !!preset.provenance,
+    provenanceAuthor: !!preset.provenanceAuthor,
     // Recipes saved before the naming tokens are read in them.
     template: preset.nameTemplate || translateLegacyExport(preset.filenameTemplate || '{original_filename}'),
     sequenceStart: validSequenceStart(preset.sequenceStart ?? 1) ? (preset.sequenceStart ?? 1) : 1,
@@ -333,6 +350,9 @@ export function exportSettingsFromDraft(draft: RecipeDraft): { settings: ExportS
       stripGps: draft.stripGps,
       keepCreatorContact: !!draft.keepCreatorContact,
       superResolution: draft.superResolution,
+      // Kept for every format: one that cannot carry a manifest fails its
+      // export rather than leaving without it (the panel says so first).
+      ...(draft.provenance ? { provenance: { includeAuthor: draft.provenanceAuthor } } : {}),
       resize: draft.resize
         ? {
             mode: draft.resizeMode,

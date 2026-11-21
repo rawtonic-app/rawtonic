@@ -173,6 +173,9 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
     return started;
   } catch (error) {
     useProcessStore.getState().setExportState({ status: Status.Error, errorMessage: String(error) });
+    // Also where the command ran: the File menu's recipes start exports with
+    // the Export panel closed (a refusal names its recipe).
+    notify.error(t('studio.export.toasts.notQueued', { error: String(error) }));
     return 0;
   }
 }
