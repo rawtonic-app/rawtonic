@@ -11064,6 +11064,16 @@ mod bitmap_frame_tests {
                 render(Some(WARP_BY_GEOMETRY), &unwarped),
                 "{kind}"
             );
+            // A correction changed after the mask was made still moves it.
+            let mut changed = recipe.clone();
+            changed["lensDistortionAmount"] = json!(50);
+            let changed = PhotoGeometry::from_adjustments(&changed).with_decoded_size(w, h);
+            assert!(changed.warp_change(&parameters, w, h, true).is_some());
+            assert_ne!(
+                render(Some(WARP_BY_GEOMETRY), &changed),
+                render(Some(WARP_BY_GEOMETRY), &unwarped),
+                "{kind}"
+            );
             // Saved layers: mapped through both warps, as before.
             for version in [None, Some(4), Some(SOFT_FOLD)] {
                 let old = render(version, &geometry);
