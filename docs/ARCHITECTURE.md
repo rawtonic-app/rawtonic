@@ -412,7 +412,9 @@ preview/performance limits: notes `benchmark-results/fp-protection-2026-10-27/RE
 
 #### `segment`
 
-`segment` (the Sky (UperNet) and Subject (BiRefNet) networks on ONNX Runtime or Core ML and their masks, `Models` to
+`segment` (the Sky (UperNet) and Subject (BiRefNet) networks on ONNX Runtime or Core ML and their masks, the
+landscape parts (`landscape.rs`: the same UperNet with a seven-part head on ONNX Runtime; one run per photo gives every
+part, `landscape_mask` sums the chosen parts and cuts them off the sky's fitted edge), `Models` to
 load them from a model folder; the app loads them for the editor and its exports, the CLI from `--models`, so both
 compute the same masks; Select Subject is `subject_selection` at the component's `subjectVersion`: version 2
 (`select_subject`) is BiRefNet's foreground without separate objects clearly out of focus next to the sharpest
@@ -533,8 +535,9 @@ recipe `*Version` key read once, with its clamp and a named predicate per gate).
 under their former module names and keeps their Tauri commands in thin modules of the same name. `engine` also holds
 mask rasterisation and the recipe hashes.
 
-`engine::ai_selections` computes the Sky and Subject selections a never-opened photo (an import, pasted settings) holds
-without a bitmap at export, as the editor does on open (same warped photo, same parameters), through a
+`engine::ai_selections` computes the Sky, Subject and Landscape selections a never-opened photo (an import, pasted
+settings, a preset) holds without a bitmap at export (the Landscape selections of a photo from one network run,
+`SelectionDetector::detect_landscape`), as the editor does on open (same warped photo, same parameters), through a
 `SelectionDetector` (`ai_commands::ExportSelections` in the app, `SelectionModels` in the CLI); the app keeps the result
 in the stored recipe (`export_processing::keep_detected_selections`), a missing model fails that photo, and
 `prepare_export_source` refuses any shown Sky or Subject selection still without its bitmap.

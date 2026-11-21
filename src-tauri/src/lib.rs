@@ -1113,6 +1113,8 @@ fn start(args: Vec<String>) {
             ai_lifecycle::note_ai_mask_use,
             ai_commands::generate_ai_foreground_mask,
             ai_commands::generate_ai_sky_mask,
+            ai_commands::generate_ai_landscape_mask,
+            ai_commands::detect_landscape_parts,
             ai_commands::generate_relight_depth,
             ai_commands::load_relight_pattern,
             ai_commands::cancel_ai_task,

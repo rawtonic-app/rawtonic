@@ -8,13 +8,15 @@ use rawtonic_recipe::masks;
 use serde_json::Value;
 
 /// Mask component types the AI detects on each photograph: Subject, Sky,
-/// depth range and People (detected again when the photograph is opened) and
+/// landscape parts, depth range and People (detected again when the
+/// photograph is opened) and
 /// an Object selection (pointed at again by the user). Pasted or synced onto
 /// another photograph they never keep the source's bitmap.
-pub const DETECTED_TYPES: [&str; 5] = [
+pub const DETECTED_TYPES: [&str; 6] = [
     "ai-subject",
     "ai-foreground",
     "ai-sky",
+    "ai-landscape",
     "ai-depth",
     "ai-people",
 ];

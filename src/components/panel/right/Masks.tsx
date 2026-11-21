@@ -6,6 +6,7 @@ import {
   Droplet,
   Droplets,
   Eraser,
+  MountainSnow,
   SquareMousePointer,
   RectangleHorizontal,
   TriangleRight,
@@ -25,6 +26,8 @@ import type { ShapeFrame } from '../../../utils/maskGeometry';
 export enum Mask {
   AiDepth = 'ai-depth',
   AiForeground = 'ai-foreground',
+  /** Lightroom's Landscape mask: parts of the landscape (mountains, water, …). */
+  AiLandscape = 'ai-landscape',
   /** Lightroom's People mask: parts of everyone or of one person. */
   AiPeople = 'ai-people',
   AiSky = 'ai-sky',
@@ -155,6 +158,7 @@ export function formatMaskTypeName(type: string) {
   if (type === Mask.AiSubject) return i18n.t('masks.types.subject');
   if (type === Mask.AiForeground) return i18n.t('masks.types.foreground');
   if (type === Mask.AiSky) return i18n.t('masks.types.sky');
+  if (type === Mask.AiLandscape) return i18n.t('masks.types.landscape');
   if (type === Mask.AiPeople) return i18n.t('masks.types.people');
   if (type === Mask.All) return i18n.t('masks.types.all');
   if (type === Mask.QuickEraser) return i18n.t('masks.types.quickEraser');
@@ -180,6 +184,7 @@ export function getSubMaskName(subMask: Pick<SubMask, 'name' | 'type'>) {
 export const MASK_ICON_MAP: Record<Mask, LucideIcon> = {
   [Mask.AiDepth]: BringToFront,
   [Mask.AiForeground]: User,
+  [Mask.AiLandscape]: MountainSnow,
   [Mask.AiPeople]: Users,
   [Mask.AiSky]: Cloud,
   [Mask.AiSubject]: SquareMousePointer,

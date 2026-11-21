@@ -157,6 +157,8 @@ export enum Invokes {
   GenerateAiForegroundMask = 'generate_ai_foreground_mask',
   GenerateAiSkyMask = 'generate_ai_sky_mask',
   GenerateAiPeopleMask = 'generate_ai_people_mask',
+  GenerateAiLandscapeMask = 'generate_ai_landscape_mask',
+  DetectLandscapeParts = 'detect_landscape_parts',
   DetectPeople = 'detect_people',
   StartContentIndex = 'start_content_index',
   StopContentIndex = 'stop_content_index',
