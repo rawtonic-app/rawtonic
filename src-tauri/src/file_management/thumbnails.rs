@@ -2146,33 +2146,30 @@ pub fn get_cached_or_generate_thumbnail_image(
     let mut embedded = false;
     let image =
         generate_thumbnail_with_source(path_str, gpu_context, None, app_handle, &mut embedded)?;
-    let saved = entry.save(path_str, &image, embedded, &settings);
-    Ok(as_cached(path_str, &entry.medium, image, saved))
+    if let Err(error) = entry.save(path_str, &image, embedded, &settings) {
+        log::warn!("Thumbnail of {path_str} not cached: {error:#}");
+    }
+    let medium = settings.medium_thumbnail_resolution.unwrap_or(1280);
+    Ok(as_cached(path_str, image, medium))
 }
 
-/// The thumbnail as its cached file gives it (`medium`, resized and
-/// compressed), once `saved` cached it: the photograph is read from the same
+/// The thumbnail as its cached medium file gives it (`medium` pixels wide,
+/// compressed; the same bytes `ThumbnailCacheEntry::save` writes), also when
+/// that file could not be written: the photograph is read from the same
 /// pixels the first time and every later time, so its content embedding and
 /// culling scores do not depend on whether the pass or the grid made its
 /// thumbnail (notes: benchmark-results/cul3-2026-11-21/REPORT.md). The
-/// `generated` image when it was not cached or cannot be read back.
-fn as_cached(
-    path_str: &str,
-    medium: &Path,
-    generated: DynamicImage,
-    saved: Result<()>,
-) -> DynamicImage {
-    if let Err(error) = saved {
-        log::warn!("Thumbnail of {path_str} not cached: {error:#}");
-        return generated;
-    }
-    match image::open(medium) {
-        Ok(cached) => {
-            crate::storage_fs::mark_used(medium);
-            cached
-        }
+/// `generated` image only if it cannot be encoded.
+fn as_cached(path_str: &str, generated: DynamicImage, medium: u32) -> DynamicImage {
+    match encode_thumbnail(&generated, medium).and_then(|jpeg| {
+        Ok(image::load_from_memory_with_format(
+            &jpeg,
+            image::ImageFormat::Jpeg,
+        )?)
+    }) {
+        Ok(cached) => cached,
         Err(error) => {
-            log::warn!("Cached thumbnail of {path_str} not read back: {error}");
+            log::warn!("Thumbnail of {path_str} not read as cached: {error:#}");
             generated
         }
     }
@@ -2188,21 +2185,12 @@ mod source_preview_tests {
             image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(1600, 1000, |x, y| {
                 image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x ^ y) % 256) as u8])
             }));
+        // What a later reading opens: the cached file.
         std::fs::write(&medium, super::encode_thumbnail(&generated, 1280).unwrap()).unwrap();
-        let read = super::as_cached("photo.jpg", &medium, generated.clone(), Ok(()));
-        assert_eq!(read, image::open(&medium).unwrap());
-        // Not cached: the image as made.
-        let read = super::as_cached(
-            "photo.jpg",
-            &medium,
-            generated.clone(),
-            Err(anyhow::anyhow!("full")),
-        );
-        assert_eq!(read, generated);
-        // Cached but unreadable: the image as made.
-        std::fs::write(&medium, b"not a jpeg").unwrap();
-        let read = super::as_cached("photo.jpg", &medium, generated.clone(), Ok(()));
-        assert_eq!(read, generated);
+        let later = image::open(&medium).unwrap();
+        assert_ne!(later, generated);
+        // The first reading, whether or not that file was written.
+        assert_eq!(super::as_cached("photo.jpg", generated, 1280), later);
     }
 
     #[test]
