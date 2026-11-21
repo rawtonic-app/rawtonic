@@ -150,12 +150,12 @@ pub(crate) async fn models(
     crate::ai_processing::ensure_runtime()?;
     let dir = crate::ai_processing::models_dir(app_handle).map_err(|e| e.to_string())?;
     let mut batch = crate::ai_processing::DownloadBatch {
-        done: 0,
         total: if download {
             missing_bytes(&dir, MODEL_FILES.into_iter())
         } else {
             0
         },
+        ..Default::default()
     };
     for (file, sha) in MODEL_FILES {
         if !download {
@@ -218,7 +218,6 @@ pub(crate) async fn portrait_model(
     #[cfg(target_os = "macos")]
     let core_ml = {
         let mut batch = crate::ai_processing::DownloadBatch {
-            done: 0,
             total: if download {
                 missing_bytes(
                     &dir,
@@ -229,6 +228,7 @@ pub(crate) async fn portrait_model(
             } else {
                 0
             },
+            ..Default::default()
         };
         crate::ai_processing::load_core_ml_in(
             app_handle,

@@ -454,24 +454,29 @@ fn lighten(e: f32, strength: f32) -> f32 {
 }
 
 /// The Iris tone of a pixel of the parser's eyes at `e` (square-root
-/// lightness), below the eye white's `ceiling`: its `contrast` value, where
+/// lightness) under the eye white's `ceiling`: its `contrast` value, where
 /// the contrast step lifts it, eased into the room left below the ceiling
 /// (light tones the contrast step pushes past the white stay apart, in
-/// order), then lighter towards the ceiling by `strength` (`lighten`). Full
-/// gain in the darks, none at the white, increasing throughout: a pale iris
-/// keeps its texture instead of being clipped flat against the white, and a
-/// mid-tone one is not lifted past what the white leaves room for.
+/// order; a pixel at or above the ceiling, a catchlight, is not lifted),
+/// then, below the ceiling, lighter towards it by `strength` (`lighten`).
+/// Full gain in the darks, none at the white, continuous and increasing
+/// throughout, also where the iris is lighter than a shaded white: a pale
+/// iris keeps its texture instead of being clipped flat against the white,
+/// and a mid-tone one is not lifted past what the white leaves room for.
 fn parsed_iris_tone(e: f32, contrast: f32, ceiling: f32, strength: f32) -> f32 {
-    let room = ceiling - e;
-    if room <= 0.0 {
-        return contrast.min(e);
-    }
-    let contrast = if contrast > e {
+    let room = (ceiling - e).max(0.0);
+    let contrast = if contrast <= e {
+        contrast
+    } else if room > 0.0 {
         e + room * (1.0 - (-(contrast - e) / room).exp())
     } else {
-        contrast
+        e
     };
-    ceiling * lighten(contrast / ceiling, strength)
+    if ceiling > 0.0 && contrast < ceiling {
+        ceiling * lighten(contrast / ceiling, strength)
+    } else {
+        contrast
+    }
 }
 
 /// The pixels of a box of the image and its geometry.
@@ -794,10 +799,10 @@ fn retouch_eye(
                 let y = match white {
                     // The parser's eyes: lighter towards the eye white with
                     // a roll-off (`parsed_iris_tone`).
-                    Some(wv) if parsed.is_some() && e < 0.95 * wv => {
+                    Some(wv) if parsed.is_some() => {
                         parsed_iris_tone(e, contrast, 0.95 * wv, tune.parsed_iris_light * a)
                     }
-                    _ if parsed.is_some() => contrast.min(ceiling),
+                    None if parsed.is_some() => contrast.min(ceiling),
                     _ => (contrast * (1.0 + tune.iris_light * a)).min(ceiling),
                 };
                 let gain = 1.0 + tune.iris_colour * a;
@@ -1581,6 +1586,32 @@ mod tests {
         }
         let dark = mean + (0.2 - mean) * stretch;
         assert!(tones[0] > 1.5 * dark, "the darks are lifted: {tones:?}");
+    }
+
+    #[test]
+    fn a_pale_iris_lighter_than_a_shaded_white_keeps_its_order() {
+        // An iris mean of 0.65 above a shaded white's ceiling of 0.6: the
+        // tones on both sides of the ceiling stay in order (no dark
+        // contour where they meet).
+        let (mean, ceiling, stretch) = (0.65f32, 0.6f32, 1.0 + TUNE.iris_contrast);
+        let tone = |e: f32| {
+            parsed_iris_tone(
+                e,
+                mean + (e - mean) * stretch,
+                ceiling,
+                TUNE.parsed_iris_light,
+            )
+        };
+        let inputs = [0.5, 0.58, 0.599, 0.6, 0.601, 0.62, 0.66, 0.7];
+        let tones: Vec<f32> = inputs.map(tone).to_vec();
+        for pair in tones.windows(2) {
+            assert!(pair[1] >= pair[0], "{tones:?}");
+        }
+        assert!((tone(0.5999) - tone(0.6001)).abs() < 1e-3, "{tones:?}");
+        // Never lighter than the white or the pixel itself.
+        for (t, e) in tones.iter().zip(inputs) {
+            assert!(*t <= ceiling.max(e) + 1e-6, "{tones:?}");
+        }
     }
 
     #[test]

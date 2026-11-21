@@ -494,8 +494,8 @@ pub async fn content_search_download(
         .await
         .map_err(|e| e.to_string())?;
     let mut batch = crate::ai_processing::DownloadBatch {
-        done: 0,
         total: missing.iter().map(|(_, _, size)| size).sum(),
+        ..Default::default()
     };
     for (file, sha, _) in missing {
         crate::ai_processing::download_verified_in(

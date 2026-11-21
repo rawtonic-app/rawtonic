@@ -524,6 +524,9 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   // Which download that is: a failure of the face models' download asks
   // for them again, one of the parser's for the parser.
   const fetchingFaces = useRef(false);
+  // "Try again" after a failure that is not a missing model: the same
+  // analysis once more.
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!path || !ready || (current && !findEyes)) return;
     let live = true;
@@ -585,7 +588,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, ready, geometry, Boolean(current), findEyes, downloadFaces, storedParsed, downloadNow]);
+  }, [path, ready, geometry, Boolean(current), findEyes, downloadFaces, storedParsed, downloadNow, attempt]);
 
   const analysis = found?.key === key ? found.analysis : undefined;
   // New Eyes and Teeth use the eye and teeth parser: a retouch it has not
@@ -709,6 +712,17 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
           {failure ? <p role="alert">{failure}</p> : <p>{t('studio.faceRetouch.eyes.modelMissing')}</p>}
           {isFetching ? (
             <ModelDownloadStatus model={EYES_TEETH_MODEL} />
+          ) : failure && !downloadFailure ? (
+            <button
+              type="button"
+              className="studio-text-button"
+              onClick={() => {
+                setFound(null);
+                setAttempt((n) => n + 1);
+              }}
+            >
+              {t('activity.tryAgain')}
+            </button>
           ) : (
             <button type="button" className="studio-text-button" onClick={downloadEyesTeeth}>
               {t('studio.faceRetouch.eyes.downloadModel')}

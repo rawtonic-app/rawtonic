@@ -258,7 +258,7 @@ describe('the eye and teeth parser', () => {
   it('offers the parser download again after it failed for a stored parser retouch', async () => {
     invoke.mockImplementation((_command: string, args: { downloadEyesTeeth?: boolean }) =>
       args.downloadEyesTeeth
-        ? Promise.reject({ code: 'network', message: 'offline' })
+        ? Promise.reject({ code: 'download_failed', message: 'offline' })
         : Promise.resolve({ frame: '2:{}', faces: [analysed], eyesTeethMissing: true })
     );
     const adjustments = { ...INITIAL_ADJUSTMENTS };
@@ -338,6 +338,41 @@ describe('model downloads in the Retouch tab', () => {
     expect(await screen.findByText(sentence)).toBeTruthy();
     expect(screen.queryByText(raw)).toBeNull();
     expect(screen.getByRole('button', { name: 'Download eye and teeth model' })).toBeTruthy();
+  });
+
+  it('offers the analysis again, not a download, when a stored parser retouch fails otherwise', async () => {
+    let attempts = 0;
+    invoke.mockImplementation((_command: string, args: { eyesTeeth?: boolean }) => {
+      if (!args.eyesTeeth) return Promise.resolve({ frame: '2:{}', faces: [analysed] });
+      attempts += 1;
+      return attempts === 1
+        ? Promise.reject({ code: 'internal', message: 'inference failed' })
+        : Promise.resolve({ frame: '2:{}', faces: [analysed], eyesTeethMissing: true });
+    });
+    const adjustments = { ...INITIAL_ADJUSTMENTS };
+    const loop = [
+      [
+        [0, 0],
+        [4, 0],
+        [4, 4]
+      ]
+    ];
+    const faceRetouch = {
+      settings: { iris: 50 },
+      faces: [{ ...analysed, parsedTeeth: loop, enabled: true }],
+      frame: '2:{}',
+      geometry: JSON.stringify(faceRetouchGeometry({ ...adjustments, rotation: 3 }))
+    } as unknown as FaceRetouch;
+    useEditorStore.setState({
+      selectedImage: { path: '/s/m4.CR3', isReady: true } as never,
+      adjustments: { ...adjustments, faceRetouch }
+    });
+    render(<StudioFaceRetouch onInteraction={() => {}} />);
+    expect(await screen.findByText('inference failed')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Download eye and teeth model' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await screen.findByRole('button', { name: 'Download eye and teeth model' });
+    expect(attempts).toBe(2);
   });
 
   it('shows the download progress in place of the button while it runs', async () => {
