@@ -11559,6 +11559,13 @@ impl GpuProcessor {
         };
         // A drag's frame: the terms once per 2 x 2 pixels (G76/GRN3).
         let half_terms = terms_pass.is_some() && request.adjustments.drag_effects.half_terms;
+        // Its blocks: 4 x 4 pixels in a large frame (G76/GRN4), as a shift
+        // (0: per pixel).
+        let terms_shift = if half_terms {
+            effect_passes::terms_block_shift(width, height, adjustments)
+        } else {
+            0
+        };
         if let Some(passes) = passes.filter(|_| output_to_display) {
             passes.compile_ahead(device, export_display_features(&request.adjustments));
         }
@@ -11577,6 +11584,8 @@ impl GpuProcessor {
             && !deferred
             && adjustments.global.grain_version >= 3
             && request.adjustments.drag_effects.half_grain;
+        // The largest block of the frame, in which the smaller nest.
+        let block_shift = terms_shift.max(u32::from(half_grain));
         let finish_pass = match passes {
             Some(passes) if grain || deferred => Some((
                 passes.finish_pipeline(device, grain, deferred, half_grain)?,
@@ -11855,12 +11864,14 @@ impl GpuProcessor {
                     None => vec![tile_rect],
                     Some(regions) => regions
                         .iter()
-                        // A drag's frame re-renders whole 2 x 2 blocks: a
-                        // changed pixel changes its block's terms and grain
+                        // A drag's frame re-renders whole blocks: a changed
+                        // pixel changes its block's terms and grain
                         // (G76/GRN3).
-                        .map(|region| match half_terms || half_grain {
-                            true => intersect_roi(effect_passes::whole_blocks(*region), bounds),
-                            false => Some(*region),
+                        .map(|region| match block_shift {
+                            0 => Some(*region),
+                            shift => {
+                                intersect_roi(effect_passes::whole_blocks(*region, shift), bounds)
+                            }
                         })
                         .filter_map(|region| intersect_roi(region?, tile_rect))
                         .collect(),
@@ -12399,7 +12410,7 @@ impl GpuProcessor {
                         });
                         let grain_field = if let Some(field_tile) = field_tile {
                             let mut field_entries = entries;
-                            field_entries.extend(with(passes.terms_regions(), passes.no_colour()));
+                            field_entries.extend(with(passes.field_regions(), passes.no_colour()));
                             field_entries.push(wgpu::BindGroupEntry {
                                 binding: effect_passes::GRAIN_FIELD_OUTPUT_BINDING,
                                 resource: wgpu::BindingResource::TextureView(field_tile),
@@ -12589,13 +12600,15 @@ impl GpuProcessor {
                 }
                 // A drag's frame renders the first pixel of every block a
                 // region touches, which the passes over the blocks read: a
-                // region starting on an odd column or row starts a pixel
-                // earlier (in the tile; that pixel is rendered, not kept).
-                if half_terms || half_grain {
+                // region not starting on a block's first column or row
+                // starts earlier (in the tile; those pixels are rendered, not
+                // kept).
+                if block_shift > 0 {
                     for region in &mut regions {
                         *region = effect_passes::with_block_starts(
                             *region,
                             [input_x_start, input_y_start],
+                            block_shift,
                         );
                     }
                 }
@@ -12619,24 +12632,31 @@ impl GpuProcessor {
                     bytemuck::cast_slice(&region_data),
                 );
                 // A drag's terms pass and grain field pass cover the
-                // regions' 2 x 2 blocks.
-                let half_workgroups = match passes {
-                    Some(passes) if half_terms || half_grain => {
-                        let half =
-                            effect_passes::half_regions(&regions, [input_x_start, input_y_start]);
-                        let mut data = vec![region_data[0]];
-                        data.extend_from_slice(&half);
-                        queue.write_buffer(passes.terms_regions(), 0, bytemuck::cast_slice(&data));
-                        half.iter()
-                            .map(|region| region[2].div_ceil(8) * region[3].div_ceil(8))
-                            .sum()
+                // regions' blocks (4 x 4 or 2 x 2 for the terms, 2 x 2 for
+                // the grain).
+                let block_workgroups = |shift: u32, buffer: &wgpu::Buffer| -> u32 {
+                    let blocks = effect_passes::block_regions(
+                        &regions,
+                        [input_x_start, input_y_start],
+                        shift,
+                    );
+                    let mut data = vec![region_data[0]];
+                    data.extend_from_slice(&blocks);
+                    queue.write_buffer(buffer, 0, bytemuck::cast_slice(&data));
+                    blocks
+                        .iter()
+                        .map(|region| region[2].div_ceil(8) * region[3].div_ceil(8))
+                        .sum()
+                };
+                let terms_workgroups = match passes {
+                    Some(passes) if half_terms => {
+                        block_workgroups(terms_shift, passes.terms_regions())
                     }
                     _ => workgroups,
                 };
-                let terms_workgroups = if half_terms {
-                    half_workgroups
-                } else {
-                    workgroups
+                let field_workgroups = match passes {
+                    Some(passes) if half_grain => block_workgroups(1, passes.field_regions()),
+                    _ => workgroups,
                 };
                 let mut tile_adjustments = boxed_uniforms(adjustments);
                 tile_adjustments.tile_offset_x = input_x_start;
@@ -12647,7 +12667,8 @@ impl GpuProcessor {
                 tile_adjustments.detail_cache = [
                     u32::from(detail_view.is_some()),
                     u32::from(finish_pass.is_some()),
-                    u32::from(half_terms),
+                    // z: the terms' block shift (`terms_shift`).
+                    terms_shift,
                     0,
                 ];
                 tile_adjustments.source_window = source_window;
@@ -12693,7 +12714,7 @@ impl GpuProcessor {
                     pass.set_bind_group(0, bind_group, &[]);
                     pass.dispatch_workgroups(
                         RENDER_REGION_GROUPS_X,
-                        half_workgroups.div_ceil(RENDER_REGION_GROUPS_X),
+                        field_workgroups.div_ceil(RENDER_REGION_GROUPS_X),
                         1,
                     );
                 }
