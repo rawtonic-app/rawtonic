@@ -759,6 +759,7 @@ pub(crate) async fn render_browser_view(
                 key: prepared.key,
                 caller: CELL_RENDER,
                 space: None,
+                probe: None,
             },
         )?;
         let (width, height) = shown_size(&prepared.recipe, prepared.facts);
@@ -1327,6 +1328,9 @@ struct DevelopInput<'a> {
     caller: &'static str,
     /// The output space; None encodes for the display (the cells).
     space: Option<rawtonic_engine::output_color_space::OutputColorSpace>,
+    /// A probe the shader writes instead of the developed colour
+    /// (`output_space.w`, e.g. `image_processing::color_range_input_probe`).
+    probe: Option<u32>,
 }
 
 /// The cell worker's renders: background renders at the GPU processor,
@@ -1393,6 +1397,9 @@ fn develop_rgba(
     adjustments.global.output_space[0] = space.shader_code();
     adjustments.global.output_matrix =
         image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+    if let Some(probe) = input.probe {
+        adjustments.global.output_space[3] = probe;
+    }
     let lut = recipe[effects::LUT_PATH.into_name()]
         .as_str()
         .and_then(|p| crate::lut_processing::get_or_load_lut(&luts, p).ok());
@@ -1476,6 +1483,7 @@ fn develop(
             key: prepared.key,
             caller,
             space: None,
+            probe: None,
         },
     )?;
     let (w, h) = shown_size(&prepared.recipe, prepared.facts);
@@ -1589,6 +1597,7 @@ pub(crate) fn develop_whole(
             key: prepared.key,
             caller: CELL_RENDER,
             space: None,
+            probe: None,
         },
     )?;
     let (w, h) = shown_size(&prepared.recipe, prepared.facts);
@@ -3124,11 +3133,12 @@ pub(crate) fn develop_region(
     caller: &'static str,
 ) -> Result<Region, String> {
     develop_region_in(
-        app_handle, context, bases, path, area, zoom, margin, recipe, key, caller, None,
+        app_handle, context, bases, path, area, zoom, margin, recipe, key, caller, None, None,
     )
 }
 
-/// [`develop_region`] encoded in `space` (None: for the display).
+/// [`develop_region`] encoded in `space` (None: for the display), or the
+/// shader's `probe` instead of the developed colour.
 #[allow(clippy::too_many_arguments)]
 fn develop_region_in(
     app_handle: &tauri::AppHandle,
@@ -3142,6 +3152,7 @@ fn develop_region_in(
     key: u64,
     caller: &'static str,
     space: Option<rawtonic_engine::output_color_space::OutputColorSpace>,
+    probe: Option<u32>,
 ) -> Result<Region, String> {
     let start = Instant::now();
     // The texture covers the visible part and `margin` around it (and the
@@ -3271,6 +3282,7 @@ fn develop_region_in(
             key,
             caller,
             space,
+            probe,
         },
     )?;
     Ok(Region {
@@ -3303,7 +3315,8 @@ fn target_bases() -> &'static RegionBases {
 /// `path` centred on `center` (normalised to the shown photograph),
 /// developed as a zoomed region at 100 % (the whole photograph's pixels
 /// around it within the render's reach, as the export develops them) and
-/// encoded in `space`, as 0–255 values per pixel. The region's base is kept
+/// encoded in `space` (or the shader's `probe` there), as RGBA8 per pixel.
+/// The region's base is kept
 /// across calls, so the target's corrections and readouts after the first
 /// cut it in milliseconds; the first may wait for the full-resolution
 /// source.
@@ -3314,7 +3327,8 @@ pub(crate) fn develop_target_block(
     block: f32,
     recipe: serde_json::Value,
     space: rawtonic_engine::output_color_space::OutputColorSpace,
-) -> Result<Vec<[f64; 3]>, String> {
+    probe: Option<u32>,
+) -> Result<Vec<[u8; 4]>, String> {
     let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     let context = gpu_processing::get_or_init_gpu_context(&gpu, app_handle)?;
     let block = block.max(1.0).round();
@@ -3327,8 +3341,14 @@ pub(crate) fn develop_target_block(
         center.map(f32::to_bits).hash(&mut hash);
         block.to_bits().hash(&mut hash);
         space.shader_code().hash(&mut hash);
+        probe.hash(&mut hash);
         hash.finish() | 1
     };
+    // Only the photograph being edited keeps its base.
+    target_bases()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|kept, _| kept == path);
     let region = develop_region_in(
         app_handle,
         &context,
@@ -3341,6 +3361,7 @@ pub(crate) fn develop_target_block(
         key,
         CELL_RENDER,
         Some(space),
+        probe,
     )?;
     let [rx, ry, rw, rh] =
         region
@@ -3360,7 +3381,7 @@ pub(crate) fn develop_target_block(
 }
 
 /// The pixels of `rgba` (covering `region`, shown px) inside `wanted` (shown px).
-fn block_pixels(rgba: &image::RgbaImage, region: [f32; 4], wanted: [f32; 4]) -> Vec<[f64; 3]> {
+fn block_pixels(rgba: &image::RgbaImage, region: [f32; 4], wanted: [f32; 4]) -> Vec<[u8; 4]> {
     let (w, h) = rgba.dimensions();
     if w == 0 || h == 0 || region[2] <= 0.0 || region[3] <= 0.0 {
         return Vec::new();
@@ -3374,10 +3395,7 @@ fn block_pixels(rgba: &image::RgbaImage, region: [f32; 4], wanted: [f32; 4]) -> 
     let xs = span(wanted[0], wanted[2], region[0], sx, w);
     let ys = span(wanted[1], wanted[3], region[1], sy, h);
     ys.flat_map(|y| xs.clone().map(move |x| (x, y)))
-        .map(|(x, y)| {
-            let p = rgba.get_pixel(x, y);
-            [p[0], p[1], p[2]].map(f64::from)
-        })
+        .map(|(x, y)| rgba.get_pixel(x, y).0)
         .collect()
 }
 
@@ -3578,6 +3596,7 @@ fn develop_interim_region(
             key,
             caller: CELL_RENDER,
             space: None,
+            probe: None,
         },
     )?;
     Ok(Region {
@@ -4946,11 +4965,11 @@ mod tests {
         // A 4 × 2 region covering shown px 10..14 × 20..22, one px per shown px.
         let rgba = image::RgbaImage::from_fn(4, 2, |x, y| image::Rgba([x as u8, y as u8, 0, 255]));
         let px = block_pixels(&rgba, [10.0, 20.0, 4.0, 2.0], [11.0, 20.0, 2.0, 1.0]);
-        assert_eq!(px, vec![[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]);
+        assert_eq!(px, vec![[1, 0, 0, 255], [2, 0, 0, 255]]);
         // Clipped to the region; nothing outside it.
         assert_eq!(
             block_pixels(&rgba, [10.0, 20.0, 4.0, 2.0], [13.0, 21.0, 5.0, 5.0]),
-            vec![[3.0, 1.0, 0.0]]
+            vec![[3, 1, 0, 255]]
         );
         assert!(block_pixels(&rgba, [10.0, 20.0, 4.0, 2.0], [30.0, 30.0, 2.0, 2.0]).is_empty());
     }
