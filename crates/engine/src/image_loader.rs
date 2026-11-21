@@ -2116,9 +2116,9 @@ mod private_preview_tests {
                     .map(|i| (i.width(), i.height(), i.color(), i.as_bytes().to_vec()))
             };
             assert!(facts(&copied) == facts(&shared), "{name}");
-            count += 1;
+            count += usize::from(shared.is_some());
         }
-        assert!(count > 0, "no RAW fixtures found");
+        assert!(count > 0, "no RAW fixture with an embedded preview found");
     }
 
     /// Local camera fixtures only; never check private photographs into the repo.
