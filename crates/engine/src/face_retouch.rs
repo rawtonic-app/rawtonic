@@ -316,13 +316,22 @@ const NOT_PLACEMENT: [&str; 3] = ["faceRetouch", "aiPatches", "masks"];
 
 /// The geometry the faces of `frame` were found in: `adjustments` with the
 /// frame's geometry keys as `frame` lists them (a key it does not list is
-/// unset). `None` when `frame` is not one `frame_key` writes.
+/// unset). `None` when `frame` is not one `frame_key` writes: not a JSON
+/// object, or listing a key its version does not list. (Its numbers are
+/// not checked by writing them out again: parsing may round a written
+/// decimal by an ulp, which places nothing visibly elsewhere.)
 fn frame_geometry(frame: &str, adjustments: &Value) -> Option<Value> {
     let (version_2, listed) = match frame.strip_prefix(FRAME_VERSION_2) {
         Some(rest) => (true, rest),
         None => (false, frame),
     };
     let listed: serde_json::Map<String, Value> = serde_json::from_str(listed).ok()?;
+    if listed
+        .keys()
+        .any(|key| !frame_keys(version_2).any(|k| k == key))
+    {
+        return None;
+    }
     let mut geometry: serde_json::Map<String, Value> = adjustments
         .as_object()?
         .iter()
@@ -335,9 +344,7 @@ fn frame_geometry(frame: &str, adjustments: &Value) -> Option<Value> {
             None => geometry.remove(key),
         };
     }
-    let geometry = Value::Object(geometry);
-    // Every key of the frame is restored: the frame is that geometry's.
-    frame_matches(frame, &geometry).then_some(geometry)
+    Some(Value::Object(geometry))
 }
 
 /// The geometry that places `retouch`'s faces (their crops, blemishes,
@@ -1725,6 +1732,45 @@ mod tests {
             // Reduced previews too.
             let small = scaled_recipe(&changed, 0.5);
             assert!(is_active(&small), "{name}: preview");
+        }
+    }
+
+    #[test]
+    fn reduced_previews_place_faces_found_in_a_warped_frame() {
+        // Faces found with straightening, perspective and distortion whose
+        // values are decimals Rust writes with 17 digits (0.1 + 0.2 …),
+        // rendered on a half-size copy after the geometry changed: as on
+        // the unchanged geometry.
+        let (original, mut r) = retouched_skin();
+        r["rotation"] = json!(1.1 + 2.2);
+        r["transformVertical"] = json!(0.1 + 0.2);
+        r["transformDistortion"] = json!(0.7 + 0.1);
+        r["lensDistortionAmount"] = json!(33.0 + 0.3);
+        r["faceRetouch"]["frame"] = json!(frame_key(&r));
+        let small = image::imageops::resize(
+            &original,
+            original.width() / 2,
+            original.height() / 2,
+            image::imageops::FilterType::Triangle,
+        );
+        let mut expected = small.clone();
+        assert!(apply_face_retouch(&mut expected, &scaled_recipe(&r, 0.5)));
+        assert_ne!(expected, small);
+        for (name, change) in later_geometry() {
+            let mut changed = with_geometry(&r, &change);
+            // The values as a saved sidecar gives them back.
+            changed = serde_json::from_str(&changed.to_string()).unwrap();
+            let mut image = small.clone();
+            assert!(
+                apply_face_retouch(&mut image, &scaled_recipe(&changed, 0.5)),
+                "{name}"
+            );
+            let worst = image
+                .pixels()
+                .zip(expected.pixels())
+                .flat_map(|(p, q)| (0..3).map(move |c| (p[c] - q[c]).abs()))
+                .fold(0.0f32, f32::max);
+            assert!(worst < 1e-5, "{name}: largest difference {worst}");
         }
     }
 
