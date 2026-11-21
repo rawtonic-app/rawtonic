@@ -249,12 +249,13 @@ pub fn pending_detections_message(pending: &[PendingDetection]) -> String {
 /// Detection output is tied to one photograph. Keep selection intent and
 /// refinement settings when saving a preset or transferring its layers.
 /// Keep in sync with `DETECTION_RESULT_KEYS` in src/utils/settingsClipboard.ts.
-const DETECTION_RESULT_KEYS: [&str; 10] = [
+const DETECTION_RESULT_KEYS: [&str; 11] = [
     masks::MASK_DATA_BASE64.into_name(),
     masks::MASK_DATA_BASE64_LEGACY.into_name(),
     DETECT_PENDING,
     crate::recipe_frame::DETECT_AGAIN,
     crate::mask_generation::BITMAP_FRAME,
+    crate::mask_generation::BITMAP_GRID_OF,
     geometry::ROTATION.name(),
     geometry::FLIP_HORIZONTAL.name(),
     geometry::FLIP_VERTICAL.name(),
