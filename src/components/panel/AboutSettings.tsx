@@ -44,6 +44,12 @@ export const CREDITS: Credit[] = [
     license: 'SQLite: public domain; bindings: MIT; Rawtonic correction: AGPL-3.0-or-later'
   },
   {
+    name: 'cyrb53',
+    url: 'https://github.com/bryc/code/blob/master/jshash/experimental/cyrb53.js',
+    what: "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
+    license: 'Public domain'
+  },
+  {
     name: 'RapidRAW',
     url: 'https://github.com/CyberTimon/RapidRAW',
     what: "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",

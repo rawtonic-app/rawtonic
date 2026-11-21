@@ -2135,6 +2135,51 @@ mod tests {
         assert_eq!(fs::read(&sidecar).unwrap(), sidecar_before);
     }
 
+    /// A virtual copy in a write-protected folder: while the photograph is
+    /// there its recipe is read from its sidecar file (`read_editor_sidecar`),
+    /// so an edit the file did not get is not saved, whatever the library
+    /// holds: it fails and records no undo step; what export reads stays
+    /// the recipe before.
+    #[cfg(unix)]
+    #[test]
+    fn a_batch_edit_of_a_virtual_copy_the_folder_refuses_is_not_saved() {
+        use rawtonic_catalog::{Library, Mode};
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let _lib = Library::create(temp.path(), "Write-protected copy", Mode::Session).unwrap();
+        let capture = temp.path().join("Capture");
+        let source = capture.join("a.jpg");
+        fs::write(&source, b"synthetic original").unwrap();
+        let copy = format!("{}?vc=c0ffee", source.to_string_lossy());
+        let paths = vec![copy.clone()];
+        let edited = |exposure: f64| {
+            move |_: &str, _: &Path, sidecar: &Path| {
+                let mut metadata = crate::exif_processing::load_sidecar(sidecar);
+                metadata.adjustments = serde_json::json!({"exposure": exposure});
+                Ok(metadata)
+            }
+        };
+        let (_, edits) = edit_sidecars_recorded(&paths, None, edited(0.5));
+        assert!(
+            edits.failures.is_empty() && edits.unwritten.is_empty(),
+            "{edits:?}"
+        );
+
+        fs::set_permissions(&capture, fs::Permissions::from_mode(0o555)).unwrap();
+        let (changes, edits) = edit_sidecars_recorded(&paths, None, edited(1.5));
+        fs::set_permissions(&capture, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(edits.failures.len(), 1, "{edits:?}");
+        assert!(edits.unwritten.is_empty(), "{edits:?}");
+        assert!(changes.is_empty(), "no undo step for an edit not saved");
+        let (_, sidecar) = parse_virtual_path(&copy);
+        assert_eq!(
+            crate::exif_processing::load_sidecar(&sidecar).adjustments["exposure"],
+            0.5
+        );
+        assert_eq!(fs::read(&source).unwrap(), b"synthetic original");
+    }
+
     fn successful_targets(
         (values, failures): (Vec<CullingWrite>, Vec<(String, String)>),
     ) -> Vec<CullingWrite> {

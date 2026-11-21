@@ -329,10 +329,11 @@ pub(crate) fn file_replaced_since_open(source: &Path) -> Option<&'static str> {
     (now != recorded).then_some(FILE_REPLACED)
 }
 
-/// The error of an editor sidecar write the library committed but whose
-/// derived sidecar beside the photograph could not be written (a
-/// write-protected folder): the edit is saved and its undo holds; the file
-/// follows on the next save. Tell it from other errors with
+/// The error of an editor sidecar write of a library photograph (not a
+/// virtual copy) the library committed but whose derived sidecar beside
+/// the photograph could not be written (a write-protected folder): the
+/// library is what its recipe is read from (`read_editor_sidecar`), so the
+/// edit is saved and its undo holds; the file follows on the next save. Tell it from other errors with
 /// [`saved_in_library`].
 #[derive(Debug)]
 pub struct DerivedSidecarUnwritten(io::Error);
@@ -364,7 +365,8 @@ pub fn saved_in_library(error: &io::Error) -> Option<&io::Error> {
 
 /// Writes an editor sidecar: through the library that holds the photograph
 /// (committed first), then the sidecar beside it. An error after the
-/// library committed is a [`DerivedSidecarUnwritten`].
+/// library committed a photograph's own recipe is a
+/// [`DerivedSidecarUnwritten`].
 pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> {
     let _lock = WRITE_LOCK.lock().map_err(io_error)?;
     let path = path.as_ref();
@@ -398,15 +400,12 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             if !online {
                 return Ok(());
             }
-            let version = lib
-                .version_for(&asset.id, Some(&copy))
-                .map_err(io_error)
-                .map_err(derived_unwritten)?;
-            let bytes = with_library_snapshots(&lib, version.as_deref(), bytes, &state)
-                .map_err(derived_unwritten)?;
-            return rawtonic_fs::atomic_write(path, &*bytes)
-                .map_err(io_error)
-                .map_err(derived_unwritten);
+            // Not a `DerivedSidecarUnwritten`: while the photograph is there
+            // its copy is read from this file (`read_editor_sidecar`), so
+            // an edit the file did not get is not saved.
+            let version = lib.version_for(&asset.id, Some(&copy)).map_err(io_error)?;
+            let bytes = with_library_snapshots(&lib, version.as_deref(), bytes, &state)?;
+            return rawtonic_fs::atomic_write(path, &*bytes).map_err(io_error);
         }
         return rawtonic_fs::atomic_write(path, bytes).map_err(io_error);
     }

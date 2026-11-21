@@ -48,9 +48,26 @@ fn bitmap_versions(id: &str) -> String {
     format!("mask-bitmaps:{id}")
 }
 
-/// Marks `key` as the most recently used bitmap under `id`, dropping the
-/// oldest beyond [`BITMAPS_PER_COMPONENT`].
-fn touch_bitmap(cache: &mut HashMap<String, serde_json::Value>, id: &str, key: &str) {
+/// Who a recipe being hydrated comes from: what it carries is kept as the
+/// most recently used bitmap (the editor, which refers to its newest one
+/// later), or as the least (a queued export, which carries its bitmaps
+/// whole and never refers to them later): exports carrying other versions
+/// of a mask push out each other, never the one the editor refers to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sender {
+    Editor,
+    QueuedExport,
+}
+
+/// Marks `key` as the most recently used bitmap under `id` (as the least
+/// for a [`Sender::QueuedExport`]), dropping the oldest beyond
+/// [`BITMAPS_PER_COMPONENT`] other than `key`.
+fn touch_bitmap(
+    cache: &mut HashMap<String, serde_json::Value>,
+    id: &str,
+    key: &str,
+    sender: Sender,
+) {
     let versions_key = bitmap_versions(id);
     let mut versions: Vec<String> = cache
         .get(&versions_key)
@@ -63,9 +80,13 @@ fn touch_bitmap(cache: &mut HashMap<String, serde_json::Value>, id: &str, key: &
                 .collect()
         })
         .unwrap_or_default();
-    versions.push(key.to_string());
+    match sender {
+        Sender::Editor => versions.push(key.to_string()),
+        Sender::QueuedExport => versions.insert(0, key.to_string()),
+    }
     while versions.len() > BITMAPS_PER_COMPONENT {
-        let oldest = versions.remove(0);
+        let oldest = versions.iter().position(|k| k != key).unwrap_or(0);
+        let oldest = versions.remove(oldest);
         cache.remove(&bitmap_entry(id, &oldest));
     }
     cache.insert(versions_key, serde_json::json!(versions));
@@ -81,6 +102,15 @@ fn touch_bitmap(cache: &mut HashMap<String, serde_json::Value>, id: &str, key: &
 pub fn hydrate_sub_masks(
     sub_masks: &mut Vec<serde_json::Value>,
     cache: &mut HashMap<String, serde_json::Value>,
+) {
+    hydrate_sub_masks_from(sub_masks, cache, Sender::Editor);
+}
+
+/// [`hydrate_sub_masks`] for a recipe from `sender`.
+fn hydrate_sub_masks_from(
+    sub_masks: &mut Vec<serde_json::Value>,
+    cache: &mut HashMap<String, serde_json::Value>,
+    sender: Sender,
 ) {
     for sub_mask in sub_masks {
         let id = sub_mask
@@ -122,7 +152,9 @@ pub fn hydrate_sub_masks(
                     match cache.get(&bitmap_entry(&id, &content)).cloned() {
                         Some(bitmap) => {
                             *val = bitmap;
-                            touch_bitmap(cache, &id, &content);
+                            if sender == Sender::Editor {
+                                touch_bitmap(cache, &id, &content, sender);
+                            }
                         }
                         None => *val = serde_json::Value::Null,
                     }
@@ -133,7 +165,7 @@ pub fn hydrate_sub_masks(
                 } else {
                     let content = bitmap_key(text);
                     cache.insert(bitmap_entry(&id, &content), val.clone());
-                    touch_bitmap(cache, &id, &content);
+                    touch_bitmap(cache, &id, &content, sender);
                 }
             }
         }
@@ -145,6 +177,15 @@ pub fn hydrate_sub_masks(
 pub fn hydrate_adjustments_from_cache(
     cache: &mut HashMap<String, serde_json::Value>,
     adjustments: &mut serde_json::Value,
+) {
+    hydrate_adjustments_from(cache, adjustments, Sender::Editor);
+}
+
+/// [`hydrate_adjustments_from_cache`] for a recipe from `sender`.
+pub fn hydrate_adjustments_from(
+    cache: &mut HashMap<String, serde_json::Value>,
+    adjustments: &mut serde_json::Value,
+    sender: Sender,
 ) {
     if let Some(patches) = adjustments
         .get_mut("aiPatches")
@@ -175,7 +216,7 @@ pub fn hydrate_adjustments_from_cache(
                 .get_mut(masks::SUB_MASKS.name())
                 .and_then(|v| v.as_array_mut())
             {
-                hydrate_sub_masks(sub_masks, cache);
+                hydrate_sub_masks_from(sub_masks, cache, sender);
             }
         }
     }
@@ -189,7 +230,7 @@ pub fn hydrate_adjustments_from_cache(
                 .get_mut(masks::SUB_MASKS.name())
                 .and_then(|v| v.as_array_mut())
             {
-                hydrate_sub_masks(sub_masks, cache);
+                hydrate_sub_masks_from(sub_masks, cache, sender);
             }
         }
     }
@@ -515,6 +556,33 @@ mod hydration_tests {
         );
         // A reference naming no content (an older editor) takes no bitmap.
         assert_eq!(hydrated(&mut cache, "object", CACHED_BITMAP), json!(null));
+    }
+
+    #[test]
+    fn queued_exports_never_push_out_the_bitmap_the_idle_preview_refers_to() {
+        let mut cache = HashMap::new();
+        hydrated(&mut cache, "o", "data:shown");
+        // More queued exports of other versions than the cache keeps, while
+        // the preview sends nothing.
+        for prompt in 0..2 * BITMAPS_PER_COMPONENT {
+            let mut subs = vec![
+                json!({"id": "o", "parameters": {"maskDataBase64": format!("data:{prompt}")}}),
+            ];
+            hydrate_sub_masks_from(&mut subs, &mut cache, Sender::QueuedExport);
+            assert_eq!(
+                subs[0]["parameters"]["maskDataBase64"],
+                format!("data:{prompt}")
+            );
+        }
+        assert_eq!(
+            hydrated(&mut cache, "o", &refer("data:shown")),
+            "data:shown"
+        );
+        let held = cache
+            .keys()
+            .filter(|k| k.starts_with("mask-bitmap:o:"))
+            .count();
+        assert_eq!(held, BITMAPS_PER_COMPONENT);
     }
 
     #[test]

@@ -53,6 +53,10 @@ Tethered shooting talks to cameras through [libgphoto2](https://github.com/gphot
 
 `scripts/release/updater_manifest.py` verifies the in-app update signatures on the release machine with Ed25519 routines adapted from the Python reference code in RFC 8032, section 6 (S. Josefsson, I. Liusvaara), a Code Component under the IETF Trust's Revised BSD License (Trust Legal Provisions 4.e). It is not part of the app. Copyright (c) 2017 IETF Trust and the persons identified as authors of the code. All rights reserved. The license's conditions and disclaimer are kept in the file's header.
 
+## cyrb53 hash (mask bitmap keys)
+
+The editor and the native side name a mask bitmap's content with cyrb53, a 53-bit string hash by bryc (https://github.com/bryc/code/blob/master/jshash/experimental/cyrb53.js), released into the public domain: `bitmapKey` in `src/utils/bitmapIds.ts` follows it and `bitmap_key` in `crates/engine/src/adjustment_utils.rs` is a port of it to Rust.
+
 ## Data and assets
 **Windows time zone names.** The Windows-to-IANA mapping in `crates/runtime/src/windows_zones.rs` is the table from [Jiff 1.0.0](https://docs.rs/crate/jiff/1.0.0/source/src/tz/system/windows/windows_zones.rs) (Copyright 2015 Andrew Gallant, MIT, `licenses/Jiff-MIT.txt`), derived from Unicode CLDR (Copyright Unicode, Inc., Unicode-3.0, `licenses/spdx/Unicode-3.0.txt`). Only the source header was changed.
 
