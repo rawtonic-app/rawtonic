@@ -544,10 +544,13 @@ export async function applyColorTarget(
     );
   };
   // The measured correction; false when it was dropped on the way.
+  // The correction reads and writes the ranges of the layer it started on,
+  // whatever the panel shows meanwhile (another layer selected).
+  const own = recipeRanges(photo, layer);
   const correct = async () => {
     const fresh = (await rangeInputFor(photo, layer, range)) ?? pick.input;
     if (stale()) return false;
-    const current = io.ranges();
+    const current = own.ranges();
     if (!current.some((r) => r.id === rangeId)) return false;
     const recipes = new Map<ColorRange[], Adjustments>();
     let unmeasured: string | null = null;
@@ -560,17 +563,23 @@ export async function applyColorTarget(
     });
     if (stale() || !loop) return false;
     const solved = shiftsOf(loop.ranges.find((r) => r.id === rangeId)!);
-    const own = shiftsOf(current.find((r) => r.id === rangeId)!);
+    const first = shiftsOf(current.find((r) => r.id === rangeId)!);
     if (
-      solved.hueShift !== own.hueShift ||
-      solved.saturation !== own.saturation ||
-      solved.lightnessShift !== own.lightnessShift
+      solved.hueShift !== first.hueShift ||
+      solved.saturation !== first.saturation ||
+      solved.lightnessShift !== first.lightnessShift
     ) {
-      io.apply(current.map((x) => (x.id === rangeId ? { ...x, ...solved } : x)));
-      // Written already as its own step (the first measurement waited for
-      // the full-resolution source): the correction replaces it. Still
-      // pending, the edit above joined it.
-      amendHistoryStep(model, useEditorStore.getState().adjustments);
+      const corrected = current.map((x) => (x.id === rangeId ? { ...x, ...solved } : x));
+      // The first solve's step already written (the measurement came after
+      // the history's pause): the correction replaces it, one step. Still
+      // pending: the edit joins it.
+      if (
+        !amendHistoryStep(
+          model,
+          withRanges(model, layer, () => corrected)
+        )
+      )
+        own.apply(corrected);
     }
     const recipe = recipes.get(loop.ranges);
     if (loop.measured && recipe) remember(photo, layer, rangeId, recipe, loop.measured.lab);

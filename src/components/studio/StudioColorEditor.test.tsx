@@ -40,7 +40,16 @@ const interaction = vi.fn();
 const storeRanges = (ranges: ColorRange[], layerId?: string) =>
   useEditorStore.setState((s) => ({
     adjustments: layerId
-      ? ({ ...s.adjustments, masks: [{ id: layerId, adjustments: { colorRanges: ranges } }] } as never)
+      ? ({
+          ...s.adjustments,
+          masks: [
+            ...(s.adjustments.masks.some((m) => m.id === layerId)
+              ? s.adjustments.masks.map((m) =>
+                  m.id === layerId ? { ...m, adjustments: { ...m.adjustments, colorRanges: ranges } } : m
+                )
+              : [{ id: layerId, adjustments: { colorRanges: ranges } }])
+          ]
+        } as never)
       : { ...s.adjustments, colorRanges: ranges }
   }));
 
@@ -567,7 +576,8 @@ describe('target colour', () => {
       expect.objectContaining({ path: '/a.cr3', normalizedX: 0.3, normalizedY: 0.7 })
     );
     const lab = linearToLab(srgb8ToLinear([0xc8, 0x1e, 0x2d]));
-    const [moved] = lastRanges();
+    // The correction lands in the layer's ranges of the recipe.
+    const [moved] = (useEditorStore.getState().adjustments.masks[0].adjustments.colorRanges ?? []) as ColorRange[];
     // The model alone would leave the offset; the corrected sliders measure close.
     const measured = renderedLab([moved], input).map((v, k) => v + [2.5, -1.5, 1][k]) as Vec3;
     expect(deltaE00(lab, measured)).toBeLessThan(1);
@@ -581,7 +591,7 @@ describe('target colour', () => {
     // Return ends any interaction at once (the photo renders at full
     // quality); the model's solve comes first, the correction after it.
     expect(dragging).toEqual([]);
-    expect(changes.length).toBeGreaterThanOrEqual(2);
+    expect(changes).toHaveLength(1);
     cleanStore();
   });
 
@@ -678,6 +688,43 @@ describe('target colour', () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(changes).toHaveLength(1);
     expect(useEditorStore.getState().isSliderDragging).toBe(false);
+    cleanStore();
+  });
+
+  it('writes a correction to the layer it started on when another layer is selected meanwhile', async () => {
+    const range = red();
+    const other = { ...newColorRange(240, 0.1, 0.5), id: 'other' };
+    pickedRenderer(range, 1, [3, 0, 0], 'L1');
+    useEditorStore.setState((s) => ({
+      adjustments: {
+        ...s.adjustments,
+        masks: [
+          { id: 'L1', adjustments: { colorRanges: [range] } },
+          { id: 'L2', adjustments: { colorRanges: [other] } }
+        ]
+      } as never
+    }));
+    const render0 = vi.mocked(invoke).getMockImplementation()!;
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === Invokes.SampleColorRangeResult) await held;
+      return render0(command, args);
+    });
+    const { rerender } = render(<Harness initial={[range]} layerId="L1" store />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    await waitFor(() => expect(changes).toHaveLength(1));
+    // The panel turns to layer L2 while the result is measured.
+    rerender(<Harness initial={[other]} layerId="L2" store />);
+    release();
+    // The correction's measurement is recorded for the first layer's range.
+    await waitFor(() => expect(useEditorStore.getState().colorTargetMeasure?.key).toBe(`/a.cr3|L1|${range.id}`));
+    const masks = useEditorStore.getState().adjustments.masks as unknown as {
+      adjustments: { colorRanges: ColorRange[] };
+    }[];
+    expect(masks[1].adjustments.colorRanges).toEqual([other]);
+    expect(masks[0].adjustments.colorRanges.map((r) => r.id)).toEqual([range.id]);
     cleanStore();
   });
 

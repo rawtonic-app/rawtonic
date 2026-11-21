@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import {
   applyColorPick,
+  applyColorTarget,
   binned,
   eyedropperBlock,
+  geometryKeyOf,
   invalidatePendingColorPicks,
   pickColorRange,
   rangeInputFor,
@@ -25,8 +27,14 @@ import {
   rangeCentre,
   solveColorTarget
 } from './colorTarget';
-import { INITIAL_ADJUSTMENTS, MAX_COLOR_RANGES, type MaskContainer } from './adjustments';
-import { useEditorStore } from '../store/useEditorStore';
+import {
+  INITIAL_ADJUSTMENTS,
+  MAX_COLOR_RANGES,
+  newColorRange,
+  type ColorRange,
+  type MaskContainer
+} from './adjustments';
+import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -405,5 +413,57 @@ describe('the pick’s block at full resolution', () => {
         [11, 11]
       ).pixels
     ).toHaveLength(121);
+  });
+});
+
+describe('the measured correction and undo', () => {
+  it('is one undo step with the first solve, also when it comes after the history has written that step', async () => {
+    const range = { ...newColorRange(20, 0.15, 0.55), id: 'r' };
+    const before = { ...INITIAL_ADJUSTMENTS, masks: [layer], colorRanges: [range] };
+    useEditorStore.setState({ adjustments: before, colorRangeInputs: {} });
+    debouncedSetHistory.cancel();
+    useEditorStore.getState().resetHistory(before);
+    const centre = rangeCentre(range);
+    useEditorStore.setState({
+      colorRangeInputs: {
+        [`/a.cr3||r`]: {
+          point: [0.5, 0.5],
+          centre,
+          geometry: geometryKeyOf(before),
+          block: [0.49, 0.49, 0.02, 0.02],
+          input: { pixels: [centre], influence: [1] }
+        }
+      }
+    });
+    // The render lands 3 ΔE00 off the model, and its first answer comes
+    // only after the history's pause (a slow first measurement).
+    let first = true;
+    vi.mocked(invoke).mockImplementation(async (command: string, args?: unknown) => {
+      if (command === Invokes.SampleColorRangeInput) return { pixels: [oklabToLinear(centre)], influence: [1] };
+      if (command !== Invokes.SampleColorRangeResult) return null;
+      if (first) await new Promise((r) => setTimeout(r, 700));
+      first = false;
+      const ranges = ((args as { adjustments: { colorRanges: ColorRange[] } }).adjustments.colorRanges ?? []).filter(
+        (r) => r.id === 'r'
+      );
+      const lab = renderedLab(ranges, { pixels: [centre], influence: [1] });
+      return { pixels: [linearToSrgb8(labToLinear([lab[0] + 3, lab[1], lab[2]]))], unmeasured: null };
+    });
+    const target = linearToLab(srgb8ToLinear([200, 120, 90]));
+    await applyColorTarget('/a.cr3', null, 'r', target, null);
+    await new Promise((r) => setTimeout(r, 600));
+    const state = useEditorStore.getState();
+    const corrected = state.adjustments.colorRanges![0];
+    const model = solveColorTarget([range], 'r', target, { pixels: [centre], influence: [1] })!.shifts;
+    // The correction moved the sliders beyond the model's solve…
+    expect([corrected.hueShift, corrected.saturation, corrected.lightnessShift]).not.toEqual([
+      model.hueShift,
+      model.saturation,
+      model.lightnessShift
+    ]);
+    // …within one step: one Undo restores the recipe from before the target.
+    expect(state.history).toHaveLength(2);
+    state.undo();
+    expect(useEditorStore.getState().adjustments.colorRanges).toEqual([range]);
   });
 });
