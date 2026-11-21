@@ -29,7 +29,7 @@ describe('face retouch frame', () => {
     );
     expect(colourOnly).toContain('fringeVersion');
     const engine = [
-      ...rustList(faceRetouch, /for key in \[/),
+      ...rustList(faceRetouch, /fn frame_keys\(/),
       ...rustRecipeKeys(cacheUtils.match(/GEOMETRY_KEYS: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ?? '')
     ].filter((key) => !colourOnly.includes(key));
     expect([...FACE_FRAME_KEYS].sort()).toEqual(engine.sort());

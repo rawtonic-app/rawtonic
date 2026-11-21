@@ -38,7 +38,8 @@ const COLOUR_ONLY_KEYS: ReadonlySet<string> = new Set([
  * flips, straightening and the geometry keys of
  * crates/engine/src/cache_utils.rs (`GEOMETRY_KEYS`) that move pixels; the
  * same set as the engine's `face_retouch::frame_key`, so both agree when a
- * geometry change makes the stored faces stale. */
+ * geometry change leaves the stored faces in their own frame (the engine
+ * still places them there; the panel finds them again in the new one). */
 export const FACE_FRAME_KEYS = [
   ...ORIENTATION_KEYS,
   ...GEOMETRY_KEYS.filter((key) => !COLOUR_ONLY_KEYS.has(key))
