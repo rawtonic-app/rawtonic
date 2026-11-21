@@ -78,6 +78,8 @@ weights tensor by tensor.
 | `face_detection_yunet_2023mar.onnx` | People masks (faces) | YuNet 2023mar (Wu, Peng and Yu), OpenCV Zoo `models/face_detection_yunet` at commit f12e127 (Git LFS object), unchanged; `LICENSE` in that folder: MIT, © 2020 Shiqi Yu. Trained on WIDER FACE (residual risk under Training data). | MIT | In the pack since 2026-10-09 |
 | `face_mesh_v2.onnx` | People masks (eyes, brows, lips, teeth) | MediaPipe Face Mesh V2 (Google), the `face_landmarks_detector.tflite` of `face_landmarker.task` (float16, version 1, storage.googleapis.com/mediapipe-models), converted by `scripts/models/export_faces.py` (tf2onnx, checked against the TFLite interpreter, reproducible: same SHA-256 in two exports). Model card: "Licensed under Apache License, Version 2.0". | Apache-2.0 (Google) | In the pack since 2026-10-09 |
 | `selfie_multiclass_256.onnx` | People masks (hair, face and body skin, clothes, accessories) | MediaPipe multiclass selfie segmentation (Google; `selfie_multiclass_256x256.tflite`, float32, version 1), converted by `scripts/models/export_faces.py` (as above). Model card: "Licensed under Apache License, Version 2.0". | Apache-2.0 (Google) | In the pack since 2026-10-09 |
+| `easyportrait_fpn_1024.onnx` | Face retouch Eyes and Teeth (eye openings and teeth; Windows, Linux, and macOS without the Core ML files) | Rawtonic's conversion of EasyPortrait's FPN + ResNet-50 face parsing checkpoint `fpn-fp-1024.pth` (SberDevices; Alexander Kapitanov, Karina Kvanchiani, Elizaveta Petrova, Karen Efremyan, Alexander Sautin; github.com/hukenovs/easyportrait at 1b3d3e5, SHA-256 3543661a…ef40) by `scripts/models/export_easyportrait.py`. **Changed from the authors' release:** network re-implemented in plain PyTorch (mmsegmentation's ResNetV1c-50 + FPN + FPNHead, every key loads strictly), optimizer state removed, input normalisation, a mirror pass (logits averaged, left/right classes swapped) and the eye-class merge inside the graph (output: eye and teeth probabilities at 1024²), opset 17, weights stored as fp16 behind casts (fp32 compute), 57 MB. Against the fp32 PyTorch checkpoint on EYE2's 20 face crops: max \|Δp\| ≤ 0.008, ≤ 0.2 % of mask pixels change at the thresholds used. Backbone initialised by the authors from OpenMMLab's `resnet50_v1c` (Apache-2.0, ImageNet). | The authors' variant of CC BY-SA 4.0 ("a reworking of" CC BY-SA 4.0, "not a Creative Commons license", Russian law; attribution, changes marked, adaptations under a BY-SA-compatible licence, no NC or field-of-use limit; `licenses/models/easyportrait-LICENSE.txt`); Rawtonic's converted files are published under **CC BY-SA 4.0** (`licenses/models/easyportrait-CC-BY-SA-4.0.txt`; user decision 2026-11-21, EYE3 option (a)) | In `pack-2026-11-21` |
+| `easyportrait_coreml_*` (Core ML package: `Manifest.json`, `model.mlmodel`, `weight.bin`) | Face retouch Eyes and Teeth on macOS (fast path) | The same checkpoint and graph converted from PyTorch by `scripts/models/convert_easyportrait_coreml.py` (coremltools 9.0, ML program, fp16 compute, macOS 13, 57 MB). Against the fp32 checkpoint on the same 20 crops: max \|Δp\| ≤ 0.032, ≤ 0.9 % of mask pixels change; 0.052 s per face (both passes, CPU+GPU, M5 Pro) against ONNX Runtime CPU ≈ 1.2 s. Changed from the authors' release as the ONNX row. | CC BY-SA 4.0 (converted files; original licence as the ONNX row) | In `pack-2026-11-21` |
 | `lama_fp16.onnx` | Inpainting (inherited) | LaMa (Samsung, Apache-2.0 code); no license statement for the big-lama weights; trained on Places365 (research/education terms). | Unclear | Replaced by MI-GAN 2026-10-09; the evaluation path in `eval_inpaint.py` removed 2026-10-19 (no weight license; the numbers below stay as measured) |
 
 Subject masks: BiRefNet against the inherited U²-Net (the app's
@@ -594,6 +596,15 @@ segmentation models with the largest training sets, concretely:
   U²-Net under Subject masks is **not** held out for BiRefNet (it is for
   U²-Net, trained on DUTS-TR); it overstates BiRefNet's lead by an unknown
   amount. The RAW-sample comparison beside it is unaffected.
+- **EasyPortrait** (`easyportrait_*`, Eyes and Teeth). Trained by its
+  authors on the EasyPortrait dataset: selfies taken by crowd workers
+  (Toloka, ABC Elementary) who signed consent to publication, adults only
+  (arXiv 2304.13509). The weights' licence grants no personality or portrait
+  rights of the people pictured; no image of the dataset is redistributed,
+  only the trained weights. The backbone started from ImageNet-pretrained
+  weights (the usual ImageNet terms note). The parser is used only to place
+  the Eyes and Teeth masks; selection and measurements:
+  notes benchmark-results/eye3-2026-11-21 and eye4-2026-11-21.
 - **SAM 2.1** (`sam2.1_tiny_*.onnx`). SAM 2 paper (arXiv 2408.00714v2,
   whose results are the SAM 2.1 checkpoints): image encoder initialised
   from MAE-pretrained Hiera (ImageNet-1K), pre-trained on SA-1B, then

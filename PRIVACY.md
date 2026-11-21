@@ -82,6 +82,10 @@ Rawtonic otherwise goes online only when you ask it to:
   or came with a preset stays without its mask (opening its photo downloads
   nothing), and exporting that photo stops with a message to open the mask's
   settings.
+  The face retouch's Eyes and Teeth download their eye and teeth model
+  (57 MB) only when you click *Download eye and teeth model* under Eyes in
+  the Retouch panel (or apply a face retouch with Eyes or Teeth to other
+  selected photos); until then those sliders wait and nothing is fetched.
   Ticking Super Resolution in the Export dialog (or opening the dialog with a
   preset that has it) downloads its model if it is not installed yet, on
   Windows and Linux with GPU AI on also its 1.2 MB graphics-card version.
