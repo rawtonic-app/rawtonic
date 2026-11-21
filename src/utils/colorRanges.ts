@@ -543,13 +543,12 @@ export async function applyColorTarget(
       applied.layer !== layer
     );
   };
-  correcting += 1;
-  let measuredHere = false;
-  try {
+  // The measured correction; false when it was dropped on the way.
+  const correct = async () => {
     const fresh = (await rangeInputFor(photo, layer, range)) ?? pick.input;
-    if (stale()) return;
+    if (stale()) return false;
     const current = io.ranges();
-    if (!current.some((r) => r.id === rangeId)) return;
+    if (!current.some((r) => r.id === rangeId)) return false;
     const recipes = new Map<ColorRange[], Adjustments>();
     let unmeasured: string | null = null;
     const loop = await solveColorTargetMeasured(current, rangeId, lab, fresh, async (ranges) => {
@@ -559,15 +558,15 @@ export async function applyColorTarget(
       unmeasured = measured.unmeasured;
       return measured.lab;
     });
-    if (stale() || !loop) return;
-    const solved = loop.ranges.find((r) => r.id === rangeId)!;
-    const own = current.find((r) => r.id === rangeId)!;
+    if (stale() || !loop) return false;
+    const solved = shiftsOf(loop.ranges.find((r) => r.id === rangeId)!);
+    const own = shiftsOf(current.find((r) => r.id === rangeId)!);
     if (
-      shiftsOf(solved).hueShift !== own.hueShift ||
+      solved.hueShift !== own.hueShift ||
       solved.saturation !== own.saturation ||
       solved.lightnessShift !== own.lightnessShift
     ) {
-      io.apply(current.map((x) => (x.id === rangeId ? { ...x, ...shiftsOf(solved) } : x)));
+      io.apply(current.map((x) => (x.id === rangeId ? { ...x, ...solved } : x)));
       // Written already as its own step (the first measurement waited for
       // the full-resolution source): the correction replaces it. Still
       // pending, the edit above joined it.
@@ -577,13 +576,15 @@ export async function applyColorTarget(
     if (loop.measured && recipe) remember(photo, layer, rangeId, recipe, loop.measured.lab);
     // Not measurable: the readout says so for the recipe as it is now.
     else remember(photo, layer, rangeId, shownRecipe(photo), null, unmeasured);
-    measuredHere = true;
-  } finally {
+    return true;
+  };
+  correcting += 1;
+  const measured = await correct().finally(() => {
     correcting -= 1;
-  }
+  });
   // Dropped on the way (an edit meanwhile): the readout measures the recipe
   // as it is, as after any edit.
-  if (!measuredHere && !correcting) {
+  if (!measured && !correcting) {
     const now = io.ranges().find((r) => r.id === rangeId);
     if (now && useEditorStore.getState().selectedImage?.path === photo) void measureColorTarget(photo, layer, now);
   }
