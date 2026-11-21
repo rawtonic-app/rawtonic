@@ -145,6 +145,7 @@ interface OldAdjustments {
   lumaNoiseVersion?: number;
   renderVersion?: number;
   sourceFrameVersion?: number;
+  frameSize?: { width: number; height: number };
   developDefaults?: string[];
   developDefaultsSettings?: Record<string, unknown>;
   lutData?: string | null;

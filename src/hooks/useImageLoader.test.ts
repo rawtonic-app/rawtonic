@@ -292,7 +292,10 @@ it('preserves the unsaved recipe on reopen after a failed write and reports the 
   await resolve(Invokes.LoadImage, '/failed.dng', nativeResult);
   expect(useEditorStore.getState().selectedImage?.isReady).toBe(true);
   expect(useEditorStore.getState().adjustments.exposure).toBe(3.5);
-  expect(await waitForPendingMetadataSave('/failed.dng')).toBe(edited);
+  expect(await waitForPendingMetadataSave('/failed.dng')).toEqual({
+    ...edited,
+    frameSize: { width: 4000, height: 3000 }
+  });
   // Once persistence succeeds, subsequent metadata reads need no local overlay.
   debouncedSave('/failed.dng', edited);
   debouncedSave.flush();

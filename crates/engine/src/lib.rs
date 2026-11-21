@@ -51,6 +51,7 @@ pub mod pasted_versions;
 pub mod patch_fill;
 pub mod point_curve;
 pub mod proxy_codec;
+pub mod recipe_frame;
 pub mod recipe_versions;
 pub mod red_eye;
 pub mod region_curve;

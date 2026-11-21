@@ -540,7 +540,11 @@ it('saves the recipe of a slider still being dragged when quitting, never a half
     const flushing = flushRecipeSaves();
     await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
     expect(await flushing).toEqual([]);
-    expect(vi.mocked(invoke).mock.calls[0][1]).toEqual({ path: '/first.dng', adjustments: dragged });
+    // Stamped with the size of the photo it was edited on (utils/frameSize.ts).
+    expect(vi.mocked(invoke).mock.calls[0][1]).toEqual({
+      path: '/first.dng',
+      adjustments: { ...dragged, frameSize: { width: 4000, height: 3000 } }
+    });
     // The next photograph is still loading: its recipe is not written.
     vi.mocked(invoke).mockClear();
     select('/second.dng', false);

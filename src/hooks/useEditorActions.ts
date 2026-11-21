@@ -99,6 +99,7 @@ import {
 } from '../utils/appUndo';
 import { editUndoOrder, historyOrders, nextUndoOrder, setHistoryOrders } from '../utils/undoOrder';
 import { withSourceFrameOf } from '../utils/sourceFrame';
+import { withFrameSize } from '../utils/frameSize';
 import { errorCode } from '../shared/ipc/errors';
 import {
   allPhotoWritesSettled,
@@ -166,11 +167,14 @@ let switchingLibrary = false;
  * `unsavedRecipes`). */
 function saveEditorRecipe(
   path: string,
-  adjustmentsToSave: Adjustments,
+  edited: Adjustments,
   epoch: number,
   updateThumbnail: boolean
 ): Promise<Adjustments | undefined> {
   scheduledSave = null;
+  // With the size of the photo it was edited on (utils/frameSize.ts).
+  const selected = useEditorStore.getState().selectedImage;
+  const adjustmentsToSave = selected?.path === path ? withFrameSize(edited, selected.width, selected.height) : edited;
   if (epoch !== libraryEpoch || switchingLibrary) {
     // Made before or during a library switch: written now it would go to
     // the library opened since. (The app is inert during a switch,

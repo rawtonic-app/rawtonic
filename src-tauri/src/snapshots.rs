@@ -173,7 +173,15 @@ fn in_sidecar(sidecar: &Path, change: Option<Change>) -> Result<Vec<Snapshot>> {
 
 async fn run(path: String, change: Option<Change>) -> Result<Vec<Snapshot>, String> {
     crate::file_management::blocking(move || {
-        snapshots_after(&path, change).map_err(|e| format!("{e:#}"))
+        let mut list = snapshots_after(&path, change).map_err(|e| format!("{e:#}"))?;
+        // A camera TIFF's snapshots made on its embedded thumbnail, moved to
+        // the full frame as its recipe is (`recipe_frame`; as stored until
+        // they are saved again).
+        let (source, _) = parse_virtual_path(&path);
+        for snapshot in &mut list {
+            rawtonic_engine::recipe_frame::conform(&mut snapshot.adjustments, &source);
+        }
+        Ok(list)
     })
     .await?
 }

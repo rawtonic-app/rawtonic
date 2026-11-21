@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { debouncedSetHistory, panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { sharpenViewFor } from '../../utils/sharpenView';
+import { storedSliderValue } from '../../utils/aiDenoise';
 import { useUIStore } from '../../store/useUIStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
@@ -1061,7 +1062,7 @@ export default function StudioDevelop() {
   const changeOf = (key: string) => {
     let onChange = keyedChanges.current.get(key);
     if (!onChange) {
-      onChange = (value: number) => latestChange.current({ [key]: value });
+      onChange = (value: number) => latestChange.current({ [key]: storedSliderValue(key, value) });
       keyedChanges.current.set(key, onChange);
     }
     return onChange;

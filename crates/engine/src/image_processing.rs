@@ -4914,9 +4914,55 @@ pub struct PreparedAdjustments {
     /// same pixels of the whole photograph do. `None`: measured on the
     /// source (whole-photo renders, exports).
     pub color_noise_measurement: Option<Box<crate::color_noise::NoiseMeasurement>>,
+    /// Where the render's source lies in the photograph it is a region of
+    /// (the multi-view cells and the second window zoomed in): the render
+    /// then runs as a window of a render of the whole photograph, so that
+    /// every term that follows the photo's size (the short side's `scale`:
+    /// luminance noise reduction, sharpening, Clarity, blurs, Vignette,
+    /// grain, Glow …) and its position in it takes the whole photograph's.
+    /// `None`: the source is the whole photograph (exports, the Develop view).
+    pub photo_placement: Option<PhotoPlacement>,
+    /// Light flare's samples of the whole photograph a placed region
+    /// (`photo_placement`) is cut from, gathered once from the whole base
+    /// (`gpu_processing::whole_flare_samples`): its map then reads lights
+    /// beyond the region as the whole photograph's does. `None`: a placed
+    /// region gathers them from its own pixels, without light outside it.
+    pub flare_samples: Option<std::sync::Arc<FlareSamples>>,
     /// What a drag's display frame may approximate (G76/GRN3); never set
     /// for an export or a settled frame.
     pub drag_effects: DragEffects,
+}
+
+/// A render source's place in the photograph it is a region of
+/// (`PreparedAdjustments::photo_placement`): the photograph's size and the
+/// source's top left in it, in the source's pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PhotoPlacement {
+    pub photo_width: u32,
+    pub photo_height: u32,
+    pub x: u32,
+    pub y: u32,
+}
+
+/// Light flare's photo samples of a whole photograph
+/// (`PreparedAdjustments::flare_samples`): its size, and the half-float
+/// RGBA texels (as bits) the flare's threshold pass reads, row by row.
+#[derive(Clone, PartialEq, Eq)]
+pub struct FlareSamples {
+    pub photo_width: u32,
+    pub photo_height: u32,
+    pub side: u32,
+    pub texels: Vec<u16>,
+}
+
+impl std::fmt::Debug for FlareSamples {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "FlareSamples({}x{} photo, {} px side)",
+            self.photo_width, self.photo_height, self.side
+        )
+    }
 }
 
 /// Effects a drag's display frame computes at half resolution, once per
@@ -4959,6 +5005,8 @@ impl From<AllAdjustments> for PreparedAdjustments {
             curve_table: None,
             lut_file_stage: false,
             color_noise_measurement: None,
+            photo_placement: None,
+            flare_samples: None,
             drag_effects: DragEffects::default(),
         }
     }
@@ -6907,6 +6955,8 @@ fn get_all_adjustments_with_locals<'a>(
         curve_table,
         lut_file_stage: versions.lut.file_stage(),
         color_noise_measurement: None,
+        photo_placement: None,
+        flare_samples: None,
         drag_effects: DragEffects::default(),
         uniforms: Box::new(AllAdjustments {
             global,

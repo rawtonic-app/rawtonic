@@ -57,6 +57,11 @@ pub struct LoadedImage {
     /// dead-photosite test, `image_loader::load_base_image_from_bytes_for`);
     /// None for preview data.
     pub decode: Option<crate::image_loader::DecodeVariant>,
+    /// The AI Denoise its mosaic was developed with
+    /// (`image_loader::ai_denoise_settings`: amount, version and so model);
+    /// None without it, for a sensor the denoiser skips and for preview
+    /// data. With `decode` it says which recipes these pixels stand for.
+    pub ai_denoise: Option<crate::image_loader::AiDenoiseSettings>,
     /// The measures of the decode (`image_loader::DecodeMeasures`); None for
     /// preview data, drafts and other formats.
     pub measures: Option<crate::image_loader::DecodeMeasures>,

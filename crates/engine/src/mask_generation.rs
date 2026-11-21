@@ -322,9 +322,12 @@ struct ShapeFrame {
 impl ShapeFrame {
     /// The usable frame stored under `frame` in `value`.
     fn of(value: &Value) -> Option<Self> {
-        serde_json::from_value::<Self>(value.get(masks::FRAME.name())?.clone())
-            .ok()?
-            .usable()
+        Self::of_frame(value.get(masks::FRAME.name())?)
+    }
+
+    /// The usable frame `frame` (a `frame` entry itself).
+    fn of_frame(frame: &Value) -> Option<Self> {
+        serde_json::from_value::<Self>(frame.clone()).ok()?.usable()
     }
 
     /// Readable: a finite rotation, and a positive size or none.
@@ -501,6 +504,95 @@ pub fn keep_drawn_masks_on_photo(
         }
     }
     stamped
+}
+
+/// Every drawn shape and stroke of `adjustments` (masks and AI patches,
+/// see `keep_drawn_masks_on_photo`) with `visit(frame)`, where `frame` is
+/// its `frame` entry (`Value::Null` when it has none) to read or replace.
+fn for_each_drawn_frame(adjustments: &mut Value, mut visit: impl FnMut(&mut Value)) {
+    for key in [masks::MASKS.name(), "aiPatches"] {
+        let Some(list) = adjustments.get_mut(key).and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for sub in list
+            .iter_mut()
+            .filter_map(|container| {
+                container
+                    .get_mut(masks::SUB_MASKS.name())
+                    .and_then(Value::as_array_mut)
+            })
+            .flatten()
+        {
+            let kind = sub
+                .get(masks::TYPE.name())
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let (shape, strokes) = (
+                FRAMED_SHAPES.contains(&kind),
+                FRAMED_STROKES.contains(&kind),
+            );
+            let Some(parameters) = sub
+                .get_mut(masks::PARAMETERS.name())
+                .filter(|p| p.is_object())
+            else {
+                continue;
+            };
+            if shape {
+                let frame = parameters
+                    .as_object_mut()
+                    .map(|p| p.entry(masks::FRAME.name()).or_insert(Value::Null));
+                if let Some(frame) = frame {
+                    visit(frame);
+                }
+            } else if strokes
+                && let Some(lines) = parameters
+                    .get_mut(masks::LINES.name())
+                    .and_then(Value::as_array_mut)
+            {
+                for line in lines.iter_mut().filter_map(Value::as_object_mut) {
+                    visit(line.entry(masks::FRAME.name()).or_insert(Value::Null));
+                }
+            }
+        }
+    }
+}
+
+/// The photo sizes the drawn masks of `adjustments` record in their
+/// frames (`ShapeFrame`): the size of the photo each was drawn on.
+pub fn drawn_mask_sizes(adjustments: &Value) -> Vec<(f64, f64)> {
+    let mut copy = adjustments.clone();
+    let mut sizes = Vec::new();
+    for_each_drawn_frame(&mut copy, |frame| {
+        if let Some(size) = ShapeFrame::of_frame(frame).and_then(|f| f.size()) {
+            sizes.push(size);
+        }
+    });
+    sizes
+}
+
+/// Records that the drawn masks of `adjustments` that do not say on which
+/// photo size they were drawn were drawn on one of `size` (full
+/// resolution, before orientation): a frame without a size gets it, a
+/// shape or stroke without a frame the photo's frame now with it
+/// (`shape_frame`). On the photo's own size they are then placed
+/// proportionally (`ShapeFrame::map_to`). Returns whether any changed.
+pub fn record_drawn_mask_size(adjustments: &mut Value, size: (f64, f64)) -> bool {
+    let frame_now = shape_frame(adjustments, Some(size));
+    let mut changed = false;
+    for_each_drawn_frame(adjustments, |frame| {
+        if frame.is_null() {
+            *frame = frame_now.clone();
+            changed = true;
+        } else if frame.is_object()
+            && frame.get(masks::WIDTH.name()).is_none()
+            && frame.get(masks::HEIGHT.name()).is_none()
+        {
+            frame[masks::WIDTH.name()] = Value::from(size.0);
+            frame[masks::HEIGHT.name()] = Value::from(size.1);
+            changed = true;
+        }
+    });
+    changed
 }
 
 /// A stroke's `frame`: an unreadable one is left out (the stroke is drawn
@@ -3832,6 +3924,37 @@ fn decode_ai_bitmap(data_url: &str) -> Option<GrayImage> {
     Some(image::load_from_memory(&decoded_bytes).ok()?.to_luma8())
 }
 
+/// An AI component's key recording that its bitmap was made on a photo of
+/// another size (`{width, height}`, written by `recipe_frame::scale_geometry`
+/// when a camera TIFF's edit made on its embedded thumbnail moves to the
+/// full frame): it is then stretched over the photo (`ai_bitmap_at_photo_size`).
+pub const BITMAP_FRAME: &str = "bitmapFrame";
+
+/// An AI mask's stored bitmap at the photo's own `size` (full resolution,
+/// before orientation) when its component records that it was made on a
+/// photo of another size (`BITMAP_FRAME`) and that size is known: stretched
+/// over the whole photo, as `raster` masks are. Within 2 % the bitmap is
+/// the photo's own (reduced previews know the photo's size only to their
+/// own pixels). Other bitmaps are placed at their own size, as before.
+fn ai_bitmap_at_photo_size(
+    bitmap: GrayImage,
+    params_value: &Value,
+    size: Option<(f64, f64)>,
+) -> GrayImage {
+    let (Some((w, h)), true) = (size, params_value.get(BITMAP_FRAME).is_some()) else {
+        return bitmap;
+    };
+    let (bw, bh) = (f64::from(bitmap.width()), f64::from(bitmap.height()));
+    if (bw - w).abs() <= 0.02 * w && (bh - h).abs() <= 0.02 * h {
+        return bitmap;
+    }
+    let (w, h) = (w.round() as u32, h.round() as u32);
+    if w == 0 || h == 0 {
+        return bitmap;
+    }
+    image::imageops::resize(&bitmap, w, h, image::imageops::FilterType::Triangle)
+}
+
 /// An AI mask's stored bitmap (`maskDataBase64`, in the photo's own frame)
 /// in the frame `width` × `height` at `scale` with `crop_offset`, placed by
 /// the photo's current `geometry` (see `PhotoGeometry`).
@@ -3844,7 +3967,8 @@ fn ai_bitmap_in_frame(
     crop_offset: (f32, f32),
     geometry: &PhotoGeometry,
 ) -> Option<GrayImage> {
-    let full_mask = decode_ai_bitmap(data_url)?;
+    let full_mask =
+        ai_bitmap_at_photo_size(decode_ai_bitmap(data_url)?, params_value, geometry.size);
     let frame = geometry.frame;
     let tf = TransformParams {
         rotation: frame.rotation,
@@ -5223,6 +5347,34 @@ impl MaskBitmap {
                 .flat_map(|row| {
                     let start = row as usize * stride + x as usize;
                     wide[start..start + width as usize].iter().copied()
+                })
+                .collect()
+        });
+        Self { bytes, wide }
+    }
+
+    /// The mask grown by `left`, `top`, `right` and `bottom` pixels, each
+    /// new pixel the nearest edge pixel's.
+    pub fn extend_edges(&self, left: u32, top: u32, right: u32, bottom: u32) -> Self {
+        let (w, h) = self.bytes.dimensions();
+        let (nw, nh) = (w + left + right, h + top + bottom);
+        let source = |x: u32, y: u32| {
+            (
+                x.saturating_sub(left).min(w - 1),
+                y.saturating_sub(top).min(h - 1),
+            )
+        };
+        let bytes = GrayImage::from_fn(nw, nh, |x, y| {
+            let (sx, sy) = source(x, y);
+            *self.bytes.get_pixel(sx, sy)
+        });
+        let wide = self.wide.as_ref().map(|wide| {
+            (0..nh)
+                .flat_map(|y| {
+                    (0..nw).map(move |x| {
+                        let (sx, sy) = source(x, y);
+                        wide[sy as usize * w as usize + sx as usize]
+                    })
                 })
                 .collect()
         });
@@ -10581,5 +10733,31 @@ mod gather_tests {
         let narrow = MaskBitmap::from(image::GrayImage::from_raw(4, 2, (0..8).collect()).unwrap());
         assert!(narrow.gather(1, 1, &[6]).wide().is_none());
         assert_eq!(narrow.gather(1, 1, &[6]).as_raw()[0], 6);
+    }
+}
+
+#[cfg(test)]
+mod bitmap_frame_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Only a bitmap whose component records another photo size is
+    /// stretched; the others keep being placed at their own size.
+    #[test]
+    fn only_recorded_bitmaps_are_stretched() {
+        let bitmap = GrayImage::new(30, 20);
+        let size = Some((300.0, 200.0));
+        let plain = ai_bitmap_at_photo_size(bitmap.clone(), &json!({}), size);
+        assert_eq!(plain.dimensions(), (30, 20));
+        let recorded = json!({BITMAP_FRAME: {"width": 30, "height": 20}});
+        let stretched = ai_bitmap_at_photo_size(bitmap.clone(), &recorded, size);
+        assert_eq!(stretched.dimensions(), (300, 200));
+        // Within 2 % (a reduced preview's rounded size) it is the photo's own.
+        let near = ai_bitmap_at_photo_size(GrayImage::new(299, 200), &recorded, size);
+        assert_eq!(near.dimensions(), (299, 200));
+        assert_eq!(
+            ai_bitmap_at_photo_size(bitmap, &recorded, None).dimensions(),
+            (30, 20)
+        );
     }
 }

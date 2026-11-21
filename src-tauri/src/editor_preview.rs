@@ -1175,6 +1175,7 @@ pub(crate) fn preview_source(state: &AppState) -> Result<(LoadedImage, f32, (u32
                     image: proxy.image,
                     is_raw: proxy.is_raw,
                     decode: None,
+                    ai_denoise: None,
                     measures: proxy.measures,
                 },
                 scale,
@@ -2693,13 +2694,10 @@ pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
             _ => compute(),
         };
         if histogram_data.is_some() || waveform_data.is_some() {
+            // The scope images go by URL, not inside the event (scope_images).
             let _ = worker_app.emit(
                 "analytics-update",
-                serde_json::json!({
-                    "path": job.path,
-                    "histogram": histogram_data,
-                    "waveform": waveform_data,
-                }),
+                crate::scope_images::update(&job.path, histogram_data, waveform_data),
             );
         }
     });
@@ -4580,6 +4578,7 @@ mod split_view_tests {
             ))),
             is_raw: false,
             decode: None,
+            ai_denoise: None,
             measures: None,
         };
         let layer = json!({"id": "layer", "name": "Layer", "visible": true, "invert": false,
@@ -4853,6 +4852,7 @@ mod preview_memory_tests {
             image: Arc::new(DynamicImage::new_rgb32f(2400, 1200)),
             is_raw: false,
             decode: None,
+            ai_denoise: None,
             measures: None,
         });
         let develop = DevelopSession::default();
@@ -5136,6 +5136,7 @@ mod preview_memory_tests {
             image: Arc::new(DynamicImage::ImageRgb32F(image::Rgb32FImage::new(12, 8))),
             is_raw: true,
             decode: None,
+            ai_denoise: None,
             measures: None,
         };
         let result = compute_patched_and_warped(&loaded, &serde_json::json!({})).unwrap();

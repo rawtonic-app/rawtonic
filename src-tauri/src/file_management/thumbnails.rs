@@ -92,6 +92,10 @@ fn thumbnail_metadata(source: &Path, sidecar: &Path) -> Option<ImageMetadata> {
         &mut metadata.adjustments,
         source,
     );
+    // A camera TIFF's edit made on its embedded thumbnail, on the full
+    // frame as the editor and exports show it (`recipe_frame`); the moved
+    // recipe is also what the cache hash reads, so its old tile is replaced.
+    rawtonic_engine::recipe_frame::conform(&mut metadata.adjustments, source);
     Some(metadata)
 }
 
