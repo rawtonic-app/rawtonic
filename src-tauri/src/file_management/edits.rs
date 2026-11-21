@@ -789,11 +789,22 @@ fn pasted_into_with(
     let lens_changed = rawtonic_engine::lens_recipe::lens_profile_stamp(&previous)
         != rawtonic_engine::lens_recipe::lens_profile_stamp(&new_adjustments);
     if in_cloud && lens_changed {
-        let camera_data = new_adjustments
+        let mode = new_adjustments
             .get(lens::CORRECTION_MODE.name())
-            .and_then(Value::as_str)
-            == Some(rawtonic_engine::embedded_lens::CAMERA_MODE);
-        if exif.is_none() || camera_data {
+            .and_then(Value::as_str);
+        let named = |key: &str| {
+            new_adjustments
+                .get(key)
+                .and_then(Value::as_str)
+                .is_some_and(|name| !name.is_empty())
+        };
+        // Looked up (auto, or a named lens) needs the EXIF; the camera's own
+        // data needs the file; turning the correction off or manual with
+        // no lens only clears.
+        let camera_data = mode == Some(rawtonic_engine::embedded_lens::CAMERA_MODE);
+        let lookup =
+            mode == Some("auto") || (named(lens::MAKER.name()) && named(lens::MODEL.name()));
+        if camera_data || (lookup && exif.is_none()) {
             return Err(cloud_refusal(path, "the lens correction"));
         }
     }
@@ -3313,6 +3324,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn evicted_original_is_kept_open_for_a_lens_amount_a_saved_choice_and_a_batch_save() {
         let (_temp, paths) = session_with_photos(1);
@@ -3324,6 +3336,8 @@ mod tests {
         let mut saved = crate::exif_processing::load_sidecar(&sidecar);
         saved.adjustments = lens.clone();
         save_sidecar(&paths[0], &saved).unwrap();
+        // Opened before (its fingerprint is remembered), evicted since.
+        assert!(!crate::session_bridge::note_file_opened(&source));
         in_cloud(&paths[0]);
         // Unreadable: any open of the original would fail the batch.
         use std::os::unix::fs::PermissionsExt;
@@ -3337,6 +3351,12 @@ mod tests {
         assert!(failed.is_empty(), "{failed:?}");
         let after = crate::exif_processing::load_sidecar(&sidecar).adjustments;
         assert_eq!(after["lensDistortionAmount"], 50);
+        // Lens correction off (manual, no lens) only clears: no EXIF needed.
+        let off = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": null, "lensModel": null});
+        let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
+            pasted_metadata(path, source, sidecar, &off, None, None, None, None)
+        });
+        assert!(failed.is_empty(), "{failed:?}");
         assert_eq!(after[LENS_PROFILE_FOR], lens[LENS_PROFILE_FOR]);
     }
 

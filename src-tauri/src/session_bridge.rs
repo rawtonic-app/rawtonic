@@ -321,6 +321,10 @@ pub(crate) fn file_replaced_since_open(source: &Path) -> Option<&'static str> {
         .unwrap_or_else(|e| e.into_inner())
         .get(source)
         .cloned()?;
+    // An evicted original is not read to be compared (macOS would download it).
+    if crate::file_management::is_cloud_placeholder(source) {
+        return None;
+    }
     let now = rawtonic_catalog::fingerprint(source).ok()?;
     (now != recorded).then_some(FILE_REPLACED)
 }
