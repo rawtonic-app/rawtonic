@@ -170,8 +170,9 @@ pub trait SelectionDetector: Send + Sync {
     ) -> Result<String, String>;
 
     /// The masks of several landscape selections of `warped` (in the order
-    /// of `sets`), as `detect` gives each; an implementation runs the
-    /// network once for all of them.
+    /// of `sets`), as `detect` gives each, or each at its network's grid
+    /// (smaller than `warped`; recorded as `BITMAP_GRID_OF`); an
+    /// implementation runs the network once for all of them.
     fn detect_landscape(
         &self,
         sets: &[LandscapeParts],
@@ -323,7 +324,7 @@ pub fn detected_parameters(own: &Value, adjustments: &Value, data_url: String) -
         DETECT_PENDING,
         crate::recipe_frame::DETECT_AGAIN,
         crate::mask_generation::BITMAP_FRAME,
-        // The export's detections are at the photo's size.
+        // Set again by a Landscape detection (`detect_missing`).
         crate::mask_generation::BITMAP_GRID_OF,
     ] {
         parameters.remove(key);
@@ -420,6 +421,18 @@ pub fn detect_missing(
             }
         }
         let data = masks[&key].as_str().unwrap_or_default().to_string();
+        let mut parameters = detected_parameters(&sub[masks::PARAMETERS.name()], adjustments, data);
+        // A Landscape mask comes at its network's grid, as the editor stores
+        // it: it records the photo's size it covers (`BITMAP_GRID_OF`).
+        if selection == AutoSelection::Landscape
+            && let Some(dims) = parameters[masks::MASK_DATA_BASE64.name()]
+                .as_str()
+                .and_then(crate::mask_generation::ai_bitmap_dimensions)
+            && dims != (warped.width(), warped.height())
+        {
+            parameters[crate::mask_generation::BITMAP_GRID_OF] =
+                json!({"width": warped.width(), "height": warped.height()});
+        }
         detected.push(Detected {
             layer_id: adjustments[masks::MASKS.name()][l][masks::ID.name()]
                 .as_str()
@@ -430,7 +443,7 @@ pub fn detect_missing(
                 .unwrap_or_default()
                 .to_string(),
             selection,
-            parameters: detected_parameters(&sub[masks::PARAMETERS.name()], adjustments, data),
+            parameters,
         });
         placed.push((l, s));
     }
@@ -965,5 +978,67 @@ mod tests {
         assert_eq!(params(1, 0)["maskDataBase64"], "data:water");
         assert!(params(2, 0)["maskDataBase64"].is_null());
         assert!(params(2, 1)["maskDataBase64"].is_null());
+    }
+
+    /// Answers every Landscape set with a PNG of `size`.
+    struct GridLandscapes((u32, u32));
+
+    impl SelectionDetector for GridLandscapes {
+        fn detect(
+            &self,
+            _: AutoSelection,
+            _: &Value,
+            _: &DynamicImage,
+            _: bool,
+        ) -> Result<String, String> {
+            Err("one part at a time".into())
+        }
+        fn detect_landscape(
+            &self,
+            sets: &[LandscapeParts],
+            _: &DynamicImage,
+            _: bool,
+        ) -> Result<Vec<String>, String> {
+            let mut png = std::io::Cursor::new(Vec::new());
+            image::GrayImage::new(self.0.0, self.0.1)
+                .write_to(&mut png, image::ImageFormat::Png)
+                .unwrap();
+            let url = format!(
+                "data:image/png;base64,{}",
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, png.get_ref())
+            );
+            Ok(sets.iter().map(|_| url.clone()).collect())
+        }
+    }
+
+    /// An export's Landscape detection at the network's grid records the
+    /// photo's size it covers, as the editor's does; one at the photo's size
+    /// records none, and a size left from an earlier bitmap goes.
+    #[test]
+    fn landscape_grids_detected_at_export_record_the_photo_size() {
+        for (size, recorded) in [
+            ((3, 2), Some(json!({"width": 6, "height": 4}))),
+            ((6, 4), None),
+        ] {
+            let mut adjustments = json!({"masks": [{"id": "a", "name": "Land", "visible": true,
+                "subMasks": [{"id": "w", "type": "ai-landscape", "visible": true, "parameters": {
+                    "parts": ["water"], "maskDataBase64": null, "detectPending": true,
+                    "bitmapGridOf": {"width": 60, "height": 40}}}]}]});
+            detect_missing(
+                &mut adjustments,
+                &Arc::new(DynamicImage::new_rgb8(6, 4)),
+                false,
+                Some(&GridLandscapes(size)),
+                &mut || {},
+            )
+            .unwrap();
+            let parameters = &adjustments["masks"][0]["subMasks"][0]["parameters"];
+            assert!(parameters["maskDataBase64"].is_string());
+            assert_eq!(
+                parameters.get("bitmapGridOf").cloned(),
+                recorded,
+                "{size:?}"
+            );
+        }
     }
 }

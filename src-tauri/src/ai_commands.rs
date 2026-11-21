@@ -1381,8 +1381,7 @@ impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> 
         );
         sets.iter()
             .map(|parts| {
-                encode_to_base64_png(&rawtonic_segment::landscape_mask(
-                    (warped.width(), warped.height()),
+                encode_to_base64_png(&rawtonic_segment::landscape_mask_grid(
                     &probabilities,
                     parts,
                 ))

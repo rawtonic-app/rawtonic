@@ -626,8 +626,7 @@ impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
             .map(|set| {
                 let parts =
                     rawtonic_segment::landscape_parts(&set.keys()).map_err(|e| format!("{e:#}"))?;
-                rawtonic_segment::mask_data_url(&rawtonic_segment::landscape_mask(
-                    (warped.width(), warped.height()),
+                rawtonic_segment::mask_data_url(&rawtonic_segment::landscape_mask_grid(
                     &probabilities,
                     &parts,
                 ))

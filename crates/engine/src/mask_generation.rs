@@ -3989,6 +3989,17 @@ fn place_full_mask(
     final_mask
 }
 
+/// The size of an AI bitmap (`maskDataBase64`) without decoding its pixels.
+pub fn ai_bitmap_dimensions(data_url: &str) -> Option<(u32, u32)> {
+    let b64_data = data_url.split_once(',').map_or(data_url, |(_, data)| data);
+    let bytes = general_purpose::STANDARD.decode(b64_data).ok()?;
+    image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()
+}
+
 fn decode_ai_bitmap(data_url: &str) -> Option<GrayImage> {
     let b64_data = if let Some(idx) = data_url.find(',') {
         &data_url[idx + 1..]
