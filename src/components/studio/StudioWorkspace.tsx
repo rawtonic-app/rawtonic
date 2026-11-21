@@ -127,6 +127,7 @@ import { appCommandEnabled, registerAppCommands, runAppCommand } from '../../uti
 import ViewerInfoOverlay from './ViewerInfoOverlay';
 import GraphicsPreparingNotice from './GraphicsPreparingNotice';
 import NikonHighEfficiencyNotice from './NikonHighEfficiencyNotice';
+import LightroomHdrNotice from './LightroomHdrNotice';
 import { LoupeFaces } from './StudioEyes';
 import { useIdleCursor } from './useIdleCursor';
 import { followPhotoFullScreen } from '../../utils/photoFullScreen';
@@ -1024,6 +1025,9 @@ export default function StudioWorkspace(props: Props) {
       folderActions={props.folderActions}
       // Beside Develop (tools on the right) it only switches photographs.
       develop={develop}
+      // The Culling panel's Reject takes what the grid shows; in the loupe
+      // and full screen (one photo on screen) it is the grid's action only.
+      shown={libraryViewer ? null : files}
     />
   );
   const sessionBar = useSessionBar(useShallow((s) => ({ center: s.center, end: s.end, mark: s.mark })));
@@ -1560,6 +1564,7 @@ export default function StudioWorkspace(props: Props) {
                 </div>
               </div>
               <NikonHighEfficiencyNotice visible={selectedImage?.unsupportedNikonHighEfficiency} />
+              <LightroomHdrNotice />
               {viewer}
               {panels.bars && (
                 <div className="studio-viewer-footer">

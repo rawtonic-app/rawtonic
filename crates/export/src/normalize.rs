@@ -73,8 +73,12 @@ pub enum Bitmaps<'a> {
     Own,
     /// From the app's cache of the bitmaps the editor sent before, which
     /// also remembers the ones this recipe carries (locked for this step
-    /// only).
+    /// only): recipes the editor sends.
     Shared(&'a Mutex<HashMap<String, Value>>),
+    /// As `Shared` for a queued export, whose recipe may carry other
+    /// versions of the bitmaps the editor shows: kept as the least recently
+    /// used (`adjustment_utils::Sender::QueuedExport`).
+    Queued(&'a Mutex<HashMap<String, Value>>),
 }
 
 /// Which camera and lens defaults (steps 2–5) a caller applies.
@@ -133,6 +137,14 @@ pub fn normalize(
         Bitmaps::Shared(cache) => {
             let mut cache = cache.lock().unwrap();
             rawtonic_engine::adjustment_utils::hydrate_adjustments_from_cache(&mut cache, recipe);
+        }
+        Bitmaps::Queued(cache) => {
+            let mut cache = cache.lock().unwrap();
+            rawtonic_engine::adjustment_utils::hydrate_adjustments_from(
+                &mut cache,
+                recipe,
+                rawtonic_engine::adjustment_utils::Sender::QueuedExport,
+            );
         }
     }
     // A new recipe (none, or a Library Reset's) renders as the editor's
@@ -363,6 +375,36 @@ mod tests {
             Defaults::None,
         );
         assert_eq!(open, json!({}));
+    }
+
+    /// A queued export of a recomputed mask runs after Undo sent the older
+    /// bitmap: the export renders the bitmap it was queued with, and the
+    /// editor's next reference still gets the older one.
+    #[test]
+    fn a_queued_export_and_the_editor_each_render_their_own_bitmap() {
+        use rawtonic_engine::adjustment_utils::{CACHED_BITMAP, bitmap_key};
+        let cache = Mutex::new(HashMap::new());
+        let source = RecipeSource::open_in_editor();
+        let recipe = |bitmap: &str| json!({"masks": [{"subMasks": [{"id": "sky", "parameters": {"maskDataBase64": bitmap}}]}]});
+        let mut undone = recipe("data:thumb");
+        normalize(
+            &mut undone,
+            &source,
+            Bitmaps::Shared(&cache),
+            Defaults::None,
+        );
+        let mut export = recipe("data:full");
+        normalize(
+            &mut export,
+            &source,
+            Bitmaps::Queued(&cache),
+            Defaults::None,
+        );
+        assert_eq!(export, recipe("data:full"));
+        let reference = format!("{CACHED_BITMAP}:{}", bitmap_key("data:thumb"));
+        let mut later = recipe(&reference);
+        normalize(&mut later, &source, Bitmaps::Shared(&cache), Defaults::None);
+        assert_eq!(later, recipe("data:thumb"));
     }
 
     #[test]

@@ -64,8 +64,9 @@ function commands(): Map<string, { args: string; returns: string }> {
 /** Each converted command's arguments and result type, as they were while
  * it rejected with a `String` (main at d01b7add). */
 const CONVERTED: Record<string, { args: string; ok: string }> = {
+  // Eyes and Teeth' parser arguments added later (EYE4).
   analyze_face_retouch: {
-    args: `js_adjustments: serde_json::Value, download: Option<bool>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    args: `js_adjustments: serde_json::Value, path: Option<String>, download: Option<bool>, eyes_teeth: Option<bool>, download_eyes_teeth: Option<bool>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
     ok: `serde_json::Value`
   },
   apply_adjustments: {
@@ -96,6 +97,10 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
     args: `js_adjustments: serde_json::Value, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
     ok: `Vec<PersonSummary>`
   },
+  detect_landscape_parts: {
+    args: `js_adjustments: serde_json::Value, path: String, task_id: Option<String>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    ok: `Vec<(String, f32)>`
+  },
   edit_with_start: {
     args: `paths: Vec<String>, mut recipe: ExportRequest, program: String, app: AppHandle`,
     ok: `EditWithStart`
@@ -109,15 +114,19 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
     ok: `AiDepthMaskParameters`
   },
   generate_ai_foreground_mask: {
-    args: `js_adjustments: serde_json::Value, path: String, rotation: f32, flip_horizontal: bool, flip_vertical: bool, orientation_steps: u8, subject_version: Option<u32>, task_id: Option<String>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    args: `js_adjustments: serde_json::Value, path: String, rotation: f32, flip_horizontal: bool, flip_vertical: bool, orientation_steps: u8, subject_version: Option<u32>, task_id: Option<String>, download: Option<bool>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
     ok: `AiForegroundMaskParameters`
   },
+  generate_ai_landscape_mask: {
+    args: `js_adjustments: serde_json::Value, path: String, parts: Vec<String>, download: Option<bool>, rotation: f32, flip_horizontal: bool, flip_vertical: bool, orientation_steps: u8, task_id: Option<String>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    ok: `AiSkyMaskParameters`
+  },
   generate_ai_people_mask: {
-    args: `js_adjustments: serde_json::Value, parts: Vec<String>, person: Option<usize>, rotation: f32, flip_horizontal: bool, flip_vertical: bool, orientation_steps: u8, task_id: Option<String>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    args: `js_adjustments: serde_json::Value, parts: Vec<String>, person: Option<usize>, rotation: f32, flip_horizontal: bool, flip_vertical: bool, orientation_steps: u8, task_id: Option<String>, download: Option<bool>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
     ok: `AiPeopleMaskParameters`
   },
   generate_ai_sky_mask: {
-    args: `js_adjustments: serde_json::Value, path: String, rotation: f32, flip_horizontal: bool, flip_vertical: bool, orientation_steps: u8, task_id: Option<String>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    args: `js_adjustments: serde_json::Value, path: String, rotation: f32, flip_horizontal: bool, flip_vertical: bool, orientation_steps: u8, task_id: Option<String>, download: Option<bool>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
     ok: `AiSkyMaskParameters`
   },
   generate_ai_subject_mask: {
@@ -211,6 +220,14 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
   content_search_rank: {
     args: `directory: String, query: String, listed: Option<String>, app_handle: tauri::AppHandle`,
     ok: `ContentRanking`
+  },
+  cull_suggestions: {
+    args: `directory: String, paths: Vec<String>`,
+    ok: `HashMap<String, CullPhoto>`
+  },
+  cull_dismiss: {
+    args: `directory: String, paths: Vec<String>, criterion: String, dismissed: bool, app_handle: tauri::AppHandle`,
+    ok: `Vec<String>`
   }
 };
 

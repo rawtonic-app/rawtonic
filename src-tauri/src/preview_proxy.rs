@@ -131,6 +131,13 @@ const READ_VERSIONS: [u32; 3] = [1, 2, 3];
 /// 62: dithered linearization and curve lookups clamp instead of wrapping at
 /// the table ends (JPEG-to-DNG and ProRAW highlights, small NEF) (2026-11-20).
 pub const ENGINE_VERSION: u32 = 62;
+/// What a reduced copy (a Standard proxy, a thumbnail's source) keeps of the
+/// photograph's colours. 1: colours beyond sRGB (the working space's negative
+/// channels) survive the reduction, as the export develops them (2026-11-21;
+/// before, every reduction clamped them at 0 and the display differed).
+/// Proxies without it (made before) are renewed while the RAW is available and
+/// read as they are while it is not; the marker is no part of the key.
+pub const DISPLAY_COPY: u32 = 1;
 /// Rows per band of half floats (format 1; written by tests only).
 #[cfg(test)]
 const F16_ROWS_PER_BAND: u32 = 64;
@@ -206,9 +213,19 @@ struct Header {
     /// The RAW's EXIF as the editor shows it (capture details offline).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     exif: Option<HashMap<String, String>>,
+    /// `DISPLAY_COPY` when written; absent before 2026-11-21.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    display_copy: Option<u32>,
 }
 
 impl Header {
+    /// Whether this file is a reduced copy made before reductions kept colours
+    /// beyond sRGB. A copy of the whole decode was never reduced.
+    fn display_copy_is_stale(&self) -> bool {
+        self.display_copy != Some(DISPLAY_COPY)
+            && (self.width < self.full_width || self.height < self.full_height)
+    }
+
     /// Whether this file is in the current encoding. Others are still read,
     /// and replaced whenever the RAW is decoded.
     fn is_current_encoding(&self) -> bool {
@@ -230,6 +247,8 @@ pub struct Proxy {
     pub key: ProxyKey,
     /// The measures of the decode it was made from (its facts).
     pub measures: Option<DecodeMeasures>,
+    /// Reduced before reductions kept colours beyond sRGB (`DISPLAY_COPY`).
+    pub clamped: bool,
 }
 
 /// The measures a proxy's facts keep of the decode it was made from.
@@ -749,6 +768,7 @@ fn encode_with_sample(
         transfer: Some(transfer),
         facts: data.facts,
         exif: data.exif,
+        display_copy: Some(DISPLAY_COPY),
     })
     .expect("serializable header");
     let mut out =
@@ -838,6 +858,7 @@ fn decode_checked(bytes: &[u8], accept: impl FnOnce(&Header) -> bool) -> Option<
         full_width: header.full_width,
         full_height: header.full_height,
         measures: measures_of(header.facts.as_ref()),
+        clamped: header.display_copy_is_stale(),
         key: header.key,
     })
 }
@@ -1066,6 +1087,48 @@ pub fn prepare_offline(source: &Path) -> Option<HashMap<String, String>> {
     header.exif
 }
 
+/// The camera's crops (None: not cached) and the EXIF the previews kept.
+pub type CachedCamera = (
+    Option<Vec<Option<rawtonic_engine::camera_crop::CameraCrop>>>,
+    Option<HashMap<String, String>>,
+);
+
+/// What the previews of the RAW `source` cached of its camera (the camera's
+/// crops from their facts, the EXIF), read from the preview headers only:
+/// the original is not touched (a cloud file not downloaded is opened by no
+/// call here) and nothing is registered for rendering. The facts that record
+/// the crop (`camera_crop`, the newest of them) are used, not merely the
+/// first preview's.
+pub fn cached_camera(source: &Path) -> CachedCamera {
+    // Only previews of this very file: its size and modification time (a
+    // placeholder's metadata is there without a download) as they were when
+    // the preview was made, not those of an earlier file at the same path.
+    let Some(meta) = fs::metadata(source).ok() else {
+        return (None, None);
+    };
+    let modified_ns = meta
+        .modified()
+        .ok()
+        .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos());
+    let headers: Vec<Header> = [ProxyKind::Full, ProxyKind::Standard]
+        .into_iter()
+        .filter_map(|kind| read_header(&proxy_path_of(source, kind)?))
+        .filter(|header| {
+            header.key.file_size == meta.len() && Some(header.key.modified_ns) == modified_ns
+        })
+        .collect();
+    let path = source.to_string_lossy();
+    let crops = headers
+        .iter()
+        .filter_map(|header| header.facts.as_ref())
+        .filter(|facts| facts.camera_crop.is_some())
+        .max_by_key(|facts| facts.version)
+        .and_then(|facts| rawtonic_engine::camera_crop::crops_from_facts(facts, &path));
+    let exif = headers.into_iter().find_map(|header| header.exif);
+    (crops, exif)
+}
+
 /// The header of the proxy file at `path`, read without its image.
 fn read_header(path: &Path) -> Option<Header> {
     let mut file = fs::File::open(path).ok()?;
@@ -1094,8 +1157,23 @@ pub(crate) fn standard_header_is_current(source: &Path, settings: &AppSettings) 
 /// (made from the photograph as it is now, in the current encoding).
 pub fn stored_size(source: &Path, settings: &AppSettings) -> Option<u32> {
     let header = read_header(&proxy_path(source)?)?;
-    (header.is_current_encoding() && header_is_current(&header, source, settings))
-        .then_some(header.width.max(header.height))
+    // A copy reduced before reductions kept colours beyond sRGB is made again
+    // once the RAW can be decoded (a view or a build does); offline it is all
+    // there is (`read` serves it either way).
+    (header.is_current_encoding()
+        && header_is_current(&header, source, settings)
+        && !(header.display_copy_is_stale() && source_available(source)))
+    .then_some(header.width.max(header.height))
+}
+
+/// Whether the Standard proxy of `source` is a reduced copy that clamped
+/// colours beyond sRGB (`DISPLAY_COPY`): what a thumbnail developed from it
+/// shows is the old display, so its key keeps the old salt until the proxy is
+/// made again.
+pub(crate) fn standard_display_copy_is_stale(source: &Path) -> bool {
+    proxy_path(source)
+        .and_then(|path| read_header(&path))
+        .is_some_and(|header| header.display_copy_is_stale())
 }
 
 /// Whether a current 1:1 proxy of `source` is stored (in the current
@@ -1150,6 +1228,7 @@ pub fn write(
         full_height,
         key,
         measures,
+        clamped: false,
     })
 }
 
@@ -1607,8 +1686,37 @@ pub(crate) mod frame_fixture {
     }
 }
 
+/// Test helpers for other modules: a Standard proxy of a never-edited RAW,
+/// and one made before `DISPLAY_COPY`.
 #[cfg(test)]
-mod tests {
+pub(crate) fn write_for_test(source: &Path, image: &DynamicImage, size: u32) {
+    let variant = DecodeVariant {
+        multiscale: true,
+        dead_test: DeadTest::Adjacent,
+        frame: 0,
+        black: BlackLevels::UnbiasedBorder,
+        highlights: HighlightRebuild::Ratios,
+        warp_planes: WarpPlanes::Output,
+    };
+    write(source, image, size, &AppSettings::default(), variant, None).unwrap();
+}
+
+#[cfg(test)]
+pub(crate) fn clear_display_copy_marker_for_test(source: &Path) {
+    let path = proxy_path(source).unwrap();
+    let bytes = fs::read(&path).unwrap();
+    let (mut header, at) = parse_header(&bytes).unwrap();
+    header.display_copy = None;
+    let json = serde_json::to_vec(&header).unwrap();
+    let mut out = bytes[..8].to_vec();
+    out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+    out.extend_from_slice(&json);
+    out.extend_from_slice(&bytes[at..]);
+    fs::write(path, out).unwrap();
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
     use super::*;
 
     /// What a never-edited RAW's decode is made for.
@@ -1913,6 +2021,50 @@ mod tests {
         photo
     }
 
+    /// Test hook: the Standard preview of `source` caches the camera crop
+    /// `crop` (and no other facts).
+    pub(crate) fn cache_camera_crop(source: &Path, crop: Vec<u32>) {
+        let settings = AppSettings::default();
+        write(source, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+        rewrite_facts(source, ProxyKind::Standard, |facts| {
+            facts.camera_crop = Some(crop);
+            facts.frames = Some(vec![0; rawtonic_engine::source_frame::VERSION as usize + 1]);
+        });
+    }
+
+    #[test]
+    fn cached_camera_reads_the_headers_only_and_picks_the_facts_that_record_the_crop() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, NEW_EDIT, None).unwrap();
+        // An older 1:1 preview without the crop beside a rebuilt Standard one.
+        rewrite_facts(&photo, ProxyKind::Full, |facts| {
+            facts.version = 14;
+            facts.camera_crop = None;
+        });
+        rewrite_facts(&photo, ProxyKind::Standard, |facts| {
+            facts.camera_crop = Some(vec![0, 376, 4000, 2248]);
+        });
+        let (crops, _) = cached_camera(&photo);
+        let crop = crops.expect("the Standard preview records the crop");
+        assert!(
+            crop.iter()
+                .flatten()
+                .any(|c| c.y == 376 && c.height == 2248)
+        );
+        // Nothing was registered for rendering.
+        assert!(source_facts::registered(&photo.to_string_lossy()).is_none());
+        // The file at that path changed since (another shot synced there):
+        // its previews are not this file's.
+        fs::write(&photo, b"another shot, another size").unwrap();
+        assert!(cached_camera(&photo).0.is_none());
+        // No preview: not known.
+        let other = session_with_photo(&dir.path().join("x"), b"raw bytes");
+        assert!(cached_camera(&other).0.is_none());
+    }
+
     fn gradient(width: u32, height: u32) -> DynamicImage {
         DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(width, height, |x, y| {
             image::Rgb([x as f32 / width as f32, y as f32 / height as f32, 0.25])
@@ -2138,6 +2290,56 @@ mod tests {
         out.extend_from_slice(&json);
         out.extend_from_slice(&bytes[at..]);
         fs::write(path, out).unwrap();
+    }
+
+    /// Rewrites the header of `path` (a proxy written by this module).
+    fn rewrite_header(path: &Path, change: impl FnOnce(&mut Header)) {
+        let bytes = fs::read(path).unwrap();
+        let (mut header, at) = parse_header(&bytes).unwrap();
+        change(&mut header);
+        let json = serde_json::to_vec(&header).unwrap();
+        let mut out = bytes[..8].to_vec();
+        out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+        out.extend_from_slice(&json);
+        out.extend_from_slice(&bytes[at..]);
+        fs::write(path, out).unwrap();
+    }
+
+    #[test]
+    fn a_reduced_preview_that_clamped_colours_is_renewed_online_and_kept_offline() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+        assert_eq!(stored_size(&photo, &settings), Some(40));
+        assert!(!standard_display_copy_is_stale(&photo));
+        // Made before reductions kept colours beyond sRGB: no marker.
+        let path = proxy_path(&photo).unwrap();
+        rewrite_header(&path, |header| header.display_copy = None);
+        assert!(standard_display_copy_is_stale(&photo));
+        // Online it is still shown, and made again by the next view or build.
+        assert!(read(&photo, &settings).is_some());
+        assert_eq!(stored_size(&photo, &settings), None);
+        write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+        assert_eq!(stored_size(&photo, &settings), Some(40));
+        assert!(!standard_display_copy_is_stale(&photo));
+        // Offline (nothing to decode from) the old preview is all there is.
+        rewrite_header(&path, |header| header.display_copy = None);
+        fs::remove_file(&photo).unwrap();
+        assert!(read(&photo, &settings).is_some());
+        assert_eq!(stored_size(&photo, &settings), Some(40));
+    }
+
+    #[test]
+    fn a_preview_of_the_whole_decode_was_never_reduced() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 80, &settings, NEW_EDIT, None).unwrap();
+        rewrite_header(&proxy_path(&photo).unwrap(), |header| {
+            header.display_copy = None
+        });
+        assert_eq!(stored_size(&photo, &settings), Some(80));
     }
 
     #[test]

@@ -92,6 +92,27 @@ pub struct Amounts {
 }
 
 impl Settings {
+    /// Whether any Eyes or Teeth slider is off zero.
+    pub fn sets_eyes_teeth(&self) -> bool {
+        [
+            self.iris,
+            self.sclera,
+            self.iris_left,
+            self.iris_right,
+            self.sclera_left,
+            self.sclera_right,
+            self.teeth_brightness,
+            self.teeth_whiten,
+        ]
+        .iter()
+        .any(|v| v.is_some_and(|v| v != 0.0))
+    }
+
+    /// `sets_eyes_teeth` of settings as JSON (`false` for anything else).
+    pub fn uses_eyes_teeth(settings: &Value) -> bool {
+        Settings::deserialize(settings).is_ok_and(|s| s.sets_eyes_teeth())
+    }
+
     /// `self` (a face's own values) over `all` (the values for all faces).
     pub fn over(self, all: Settings) -> Settings {
         Settings {
@@ -199,6 +220,11 @@ pub struct RetouchFace {
     /// Inner lip outline of an open mouth, mask-frame pixels.
     #[serde(default)]
     pub mouth: Option<Vec<[f64; 2]>>,
+    /// The eye and teeth parser's teeth outlines (rawtonic-faces
+    /// `portrait`), present on faces it looked at (empty: no teeth found,
+    /// `mouth` stays); absent on faces found before it.
+    #[serde(default)]
+    pub parsed_teeth: Option<eye_teeth::Loops>,
     /// Blemishes (ids) the user keeps.
     #[serde(default)]
     pub kept: Vec<u32>,
@@ -439,6 +465,19 @@ pub fn scaled_recipe(adjustments: &Value, scale: f64) -> Value {
                 }
             }
         };
+        // The eye and teeth parser's outlines: lists of point lists.
+        let scale_loops = |item: &mut Value, key: &str| {
+            for p in item
+                .get_mut(key)
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_array_mut)
+                .flatten()
+            {
+                scale_point(p);
+            }
+        };
         for eye in face
             .get_mut("eyes")
             .and_then(Value::as_array_mut)
@@ -456,6 +495,9 @@ pub fn scaled_recipe(adjustments: &Value, scale: f64) -> Value {
             {
                 scale_point(p);
             }
+            for key in ["parsedEye", "parsedIris"] {
+                scale_loops(eye, key);
+            }
         }
         for p in face
             .get_mut("mouth")
@@ -465,6 +507,7 @@ pub fn scaled_recipe(adjustments: &Value, scale: f64) -> Value {
         {
             scale_point(p);
         }
+        scale_loops(face, "parsedTeeth");
         if let Some(blemishes) = face.get_mut("blemishes").and_then(Value::as_array_mut) {
             for b in blemishes {
                 for key in ["x", "y", "r"] {
@@ -1490,6 +1533,7 @@ pub fn apply_face_retouch(image: &mut Rgb32FImage, adjustments: &Value) -> bool 
                 image,
                 &face.eyes,
                 face.mouth.as_deref(),
+                face.parsed_teeth.as_deref(),
                 &eye_teeth::Placement {
                     adjustments,
                     frame,
@@ -1545,6 +1589,7 @@ mod tests {
             blemishes,
             eyes: vec![],
             mouth: None,
+            parsed_teeth: None,
             kept: vec![],
             added: vec![],
             settings,

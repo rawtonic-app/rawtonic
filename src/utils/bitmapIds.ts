@@ -40,32 +40,73 @@ export function withOwnBitmapIds(adjustments: Adjustments, shown?: Adjustments):
   };
 }
 
-/** Sent in place of a mask bitmap the native side already holds under the
- * component's id (`CACHED_BITMAP` in crates/engine/src/adjustment_utils.rs).
- * A null bitmap means the component has none and renders nothing. */
+/** The start of what is sent in place of a mask bitmap the native side
+ * already holds under the component's id: `cached:<key>`, the key naming
+ * the bitmap's content (`CACHED_BITMAP` in
+ * crates/engine/src/adjustment_utils.rs). Requests run independently (the
+ * preview, queued exports carrying another bitmap under the same id), so
+ * the reference names which bitmap it means. A null bitmap means the
+ * component has none and renders nothing. */
 export const CACHED_BITMAP = 'cached';
 const MASK_DATA_KEYS = ['maskDataBase64', 'mask_data_base64'] as const;
 
+/** The key of a bitmap's content, as the native side computes it
+ * (`bitmap_key`): cyrb53 (public domain, by bryc) over the string's UTF-16
+ * code units, in decimal. */
+export function bitmapKey(bitmap: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < bitmap.length; i++) {
+    const unit = bitmap.charCodeAt(i);
+    h1 = Math.imul(h1 ^ unit, 2654435761);
+    h2 = Math.imul(h2 ^ unit, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return String(4294967296 * (2097151 & h2) + (h1 >>> 0));
+}
+
+/** What is sent in place of `bitmap` once the native side holds it. */
+export const cachedBitmapRef = (bitmap: string): string => `${CACHED_BITMAP}:${bitmapKey(bitmap)}`;
+
+/** The bitmap last sent whole under each component id (by value; `sent`
+ * says which arrived), with its reference once computed. A bitmap that
+ * changed under its id since (an AI selection computed again, an undo or
+ * redo across it) goes whole again. */
+const lastSent = new Map<string, { bitmap: unknown; ref?: string }>();
+
 /** In `subMasks` (a copy about to be sent to the native side), refers to
- * each mask bitmap already `sent` under its component's id instead of
- * sending it again; returns the ids carrying their bitmap for the first time,
- * to be added to `sent` once the request went through. A component without a
+ * each mask bitmap already `sent` under its component's id by its content
+ * instead of sending it again, unless the bitmap changed under that id
+ * since it was sent; returns the ids carrying their bitmap whole, to be
+ * added to `sent` once the request went through. A component without a
  * bitmap (a People selection with its last part unticked) renders none and
  * is forgotten in `sent`: a bitmap computed under that id later goes out
  * whole instead of being referred to. */
 export function referToSentMaskBitmaps(subMasks: SubMask[] | undefined, sent: Set<string>): string[] {
   const newlySent: string[] = [];
   if (!Array.isArray(subMasks)) return newlySent;
+  if (lastSent.size > 2 * sent.size + 64) {
+    for (const id of lastSent.keys()) if (!sent.has(id)) lastSent.delete(id);
+  }
   for (const sub of subMasks) {
     const parameters = sub.parameters as Record<string, unknown> | undefined;
     if (!sub.id || !parameters) continue;
     const keys = MASK_DATA_KEYS.filter((key) => key in parameters);
     if (keys.length === 0) continue;
+    const bitmap = bitmapOf(sub);
+    const last = lastSent.get(sub.id);
     if (keys.every((key) => parameters[key] === null || parameters[key] === undefined)) {
       sent.delete(sub.id);
-    } else if (sent.has(sub.id)) {
-      for (const key of keys) if (parameters[key] != null) parameters[key] = CACHED_BITMAP;
+      lastSent.delete(sub.id);
+    } else if (typeof bitmap === 'string' && sent.has(sub.id) && (!last || last.bitmap === bitmap)) {
+      const ref = last?.ref ?? cachedBitmapRef(bitmap);
+      if (last) last.ref = ref;
+      for (const key of keys) if (parameters[key] != null) parameters[key] = ref;
     } else {
+      lastSent.set(sub.id, { bitmap });
       newlySent.push(sub.id);
     }
   }

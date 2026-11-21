@@ -1,0 +1,253 @@
+EasyPortrait face parsing weights (FPN + ResNet-50, fpn-fp-1024.pth)
+Copyright SberDevices; authors Alexander Kapitanov, Karina Kvanchiani,
+Elizaveta Petrova, Karen Efremyan, Alexander Sautin.
+Source: https://github.com/hukenovs/easyportrait (commit 1b3d3e5), weights from
+https://rndml-team-cv.obs.ru-moscow-1.hc.sbercloud.ru/datasets/easyportrait/experiments/models/fpn-fp-1024.pth
+(SHA-256 3543661ad51e08fe49c2f202fafc39d99d1a1c78e9de033c67b532ee5401ef40).
+
+The authors' repository states: "This work is licensed under a variant of
+Creative Commons Attribution-ShareAlike 4.0 International License" and refers
+to its license/en_us.pdf, whose text follows (extracted from the PDF).
+
+Rawtonic's converted files (easyportrait_fpn_1024.onnx, easyportrait_coreml_*)
+are an adaptation (Adapted Material) of these weights and are published under
+the Creative Commons Attribution-ShareAlike 4.0 International License
+(easyportrait-CC-BY-SA-4.0.txt), a BY-SA-compatible license as Section 3(b)
+of the text below allows. Changes by Rawtonic: the network re-implemented in
+plain PyTorch, the optimizer state removed, input normalisation, a mirror
+pass and the merging of the eye classes put into the graph, converted to ONNX
+(weights stored as fp16) and to a Core ML program (fp16)
+(scripts/models/export_easyportrait.py, convert_easyportrait_coreml.py).
+The authors do not endorse Rawtonic.
+
+-------------------------------------------------------------------------------
+
+Public license with attribution and conditions reserved1
+By exercising the Licensed Rights (as defined below), you accept and agree to be bound by the
+terms and conditions of this license ("Public License"). To the extent that the Public License may
+be considered a contract, you are granted the Licensed Rights as a consideration for your
+acceptance of the terms of such agreement. The Licensor grants you such rights subject to the
+benefits that the Licensor derives from providing access to the Licensed Material under these
+terms.
+Section 1 - Definitions.
+a. Adapted Material means material protected by Copyright and other Related Rights that is
+derived from or based on Licensed Material and that contains a translation, modified version,
+arrangement, transformed version or other reworking of Licensed Material in a way that requires
+permission from Licensor under Copyright and other Related Rights. For the purposes of this
+Public License, if the Licensed Material is a musical work, performance or phonogram,
+synchronization of such Licensed Material with a moving image always generates "Adapted
+Material".
+b. License to the Adapted Material means the license that you apply with respect to the
+Copyright and other Similar Rights to your contribution to the creation of the Adapted Material
+under the terms of this Public License.
+c. Copyright and other Related Rights (copyright and related rights) means copyrights and/or
+other similar rights closely related to copyrights, including, but not limited to, performance rights,
+broadcasting organization transmission rights, phonograms, and Sui Generis Rights in Databases,
+regardless of how the rights are labeled or classified. For purposes of this Public License, the
+rights set forth in Section 2(b)(1) and (2) are not the Copyright AND Other Similar Rights.
+d. Effective Technical Measures means measures which, in the absence of adequate authority,
+cannot be circumvented by legislation intended to fulfill obligations under Article 11 of the World
+Intellectual Property Organization (WIPO) Copyright Treaty adopted on December 20, 1996
+and/or other similar international agreements.
+e. Exceptions and Limitations means the free use of and/or any other exceptions to, or
+limitations on, Copyright AND Other Similar Rights that apply to your use of the Licensed
+Material.
+f. License Elements means the attributes of the license listed in the name of the Public License.
+Elements of the License are: with attribution and with conditions reserved.
+g. Licensed Material means a work of art or literature, a database or other material with respect
+to which the Licensor has applied the Public License.
+h. Licensed Rights means the rights granted to you under the terms of this Public License to the
+extent limited to all Copyrights AND Other Similar Rights that apply to your use of the Licensed
+Material and that Licensor may grant to you.
+
+1
+
+This license is not a Creative Commons license.
+The text of this license is a reworking of a Creative Commons Corporation (Attribution-ShareAlike 4.0) license,
+available at https://creativecommons.org/licenses/by-sa/4.0/legalcode under the terms of the CCO
+(https://creativecommons.org/publicdomain/zero/1.0/legalcode).
+
+1
+
+i. Licensor means the individual(s) or legal entity(ies) granting the rights under the terms of this
+Public License.
+j. Making available means making the material available to an unlimited number of persons by
+any means for which permission is required, including reproduction, public display, public
+performance, distribution, communication or importation, and making the material available to
+the public in such a manner that any person may access it from any place and at any time of his
+or her own choosing.
+k. Sui Generis rights to Databases (related database rights) means the rights of the database
+manufacturer, in accordance with the Civil Code of the Russian Federation.
+l. You means the person or entity exercising the Licensed Rights under this Public License. The
+terms "your," "Your," "you," "You" have a corresponding meaning.
+Section 2 - Scope of License.
+a. License Grants.
+1. Under the terms of this Public License, Licensor grants You a worldwide, royalty-free, nonsublicensable, non-exclusive, irrevocable license to exercise the Licensed Rights in the Licensed
+Material by:
+A.
+
+reproducing and making available the Licensed Material in whole or in part; and
+
+B.
+
+creation, reproduction and provision of the Adapted Material.
+
+2. Exclusions and limitations For the avoidance of doubt, if Exceptions and Limitations apply to
+your use of the Licensed Material, this Public License does not apply and you are not bound by
+its terms.
+3. License term. This Public License is valid for the term set forth in paragraph (a) of Section 6.
+4. Media and formats: permission to make technical changes. Licensor grants you the right to
+exercise the Licensed Rights using all known media and formats as well as media and formats to
+be created in future, and to make any necessary technical changes for this purpose. Licensor
+waives and/or agrees not to exercise any right or power to prohibit You from making technical
+changes necessary to exercise the Licensed Rights, including technical changes necessary to
+circumvent Effective Technical Measures. For the purposes of this Public License, changes
+authorized in Section 2(a)(4) do not constitute the creation of Adapted Material.
+5. Subsequent recipients.
+A. Offer from the Licensor - Licensed Material. Each recipient of the Licensed Material
+automatically receives an offer from Licensor to exercise the Licensed Rights under the terms of
+this Public License.
+B. Additional Offer from the Licensor - Adapted Material. Each recipient of the Adapted
+Material from you automatically receives an offer from Licensor to exercise the Licensed Rights
+in the Adapted Material in accordance with the terms of the Adapted Material License applicable
+to you.
+C. No restrictions on subsequent use. You may not offer or impose any additional or different
+terms or conditions or use Effective Technical Measures on Licensed Material if doing so would
+restrict the exercise of the Licensed Rights by any recipient of the Licensed Material.
+6. No approvals Nothing in this Public License shall constitute or be construed as authorization
+to state or imply that you, or your use of the Licensed Material, is in any way affiliated with,
+2
+
+financially endorsed by, or has any official status with, Licensor or other persons designated by
+Licensor for attribution as set forth in subparagraph (i)(A)(1) of Section 3(a).
+b. Other rights
+1. Personal non-property rights, such as the right to inviolability of the work, and rights of
+publicity and portrayal, privacy, or other similar personal rights, are not granted under this Public
+License. However, to the maximum extent possible, the Licensor waives or agrees not to exercise
+any such rights owned by Licensor to the extent necessary to permit You to exercise the Licensed
+Rights, but not otherwise.
+2. Patent rights and rights in trademarks and service marks are not granted under this Public
+License.
+3. To the extent possible, the Licensor waives any right to receive compensation from You for
+Your exercise of the Licensed Rights, whether directly or through any collective management
+organization or any voluntary, mandatory governmental or compulsory licensing system. In all
+other cases, the Licensor retains the right to receive such remuneration.
+Section 3 - License Terms.
+You may exercise the Licensed Rights only subject to the following conditions.
+a. Indication of authorship.
+1. If you submit the Licensed Material (including in modified form), you must:
+A. retain the following information, if provided by Licensor along with the Licensed Material:
+i.information about the creator(s) of the Licensed Material, and any other persons designated by
+Licensor as having the right to attribute, in any reasonable manner, at Licensor's request
+(including using a pseudonym, if any);
+ii.copyright notice;
+iii.notice of use of this Public License;
+iv.notice of disclaimer of warranties;
+v.Uniform Resource Identifier (URI) or a hyperlink to the Licensed Material, to the extent
+practicable;
+B. indicate if you have made changes to the Licensed Material, and retain an indication of any
+previous changes; and
+C. specify that the Licensed Material is provided under the terms of this Public License and
+provide the text, or a Uniform Resource Identifier (URI), or hyperlink to this Public License.
+2. You may comply with Section 3(a)(1) in any reasonable manner, depending on the medium,
+manner, and context in which you submit the Licensed Material. For example, it is considered
+reasonable to meet this condition by specifying a Uniform Resource Identifier (URI) or a hyperlink
+to a resource that contains the required information.
+3. Upon request by Licensor, you must, to the extent practicable, remove any of the information
+set forth in subparagraph (A)(1) of paragraph (a) of Section 3.
+b. Subject to conditions.
+3
+
+In addition to the terms in Section 3(a), if you submit Adapted Material that you create, the
+following terms also apply.
+1. The Adapted Material License that you apply must be a license with the same License
+Elements, this version or a later version, or a BY-SA-compatible license.
+2. You must include text, a Uniform Resource Identifier (URI) or a hyperlink to the Adapted
+Material License you are applying. You may comply with Section 3(a)(1) in any reasonable
+manner, depending on the medium, manner, and context in which you submit the Licensed
+Material.
+3. You may not offer or impose any additional or different terms or conditions, or apply any
+Effective Technical Measures to the Adapted Material, that restrict the exercise of the rights
+granted under the Adapted Material License that you apply.
+Section 4 - Sui Generis Rights to Databases.
+If the Licensed Rights include the Sui Generis Rights to the Databases that apply to your use of
+the Licensed Material:
+a. For the avoidance of doubt under Section 2(a)(1), you are granted rights to extract, reuse,
+reproduce, and make available all or a substantial portion of the contents of the database;
+b. if you incorporate all or substantially all of the Database Content into a database over which
+you have Database Content Rights, in which case the database over which you have Database
+Content Rights (but not portions of it) is Adapted Material, including for the purposes set forth
+in Section 3(b); and
+c. You must comply with the terms set forth in Section 3(a) if you submit all or substantially all
+of the content in the database.
+For the avoidance of doubt, this Section 4 supplements and does not supersede your obligations
+under this Public License if the Licensed Rights include other Copyrights AND Other Similar Rights.
+Section 5 - Disclaimer of Warranties and Limitation of Liability.
+a. Unless otherwise specifically agreed by Licensor, to the extent possible, Licensor offers
+Licensed Material on an "as is" basis and as such material exists, and makes no representations
+or warranties with respect to Licensed Material, express, implied, statutory or otherwise,
+including, without limitation, the warranties of title, merchantability, fitness for a particular
+purpose, non-infringement, absence of latent or other defects, accuracy, or the presence or
+absence of errors, whether known or unknown, or whether detectable or not. If the disclaimer
+of warranties is not authorized in whole or in part, the disclaimer may not apply to you.
+b. To the extent possible, the Licensor shall not be liable to You under any legal doctrine
+(including but not limited to negligence) for any direct, special, indirect, incidental,
+consequential or other damages, losses, costs, expenses or damages whatsoever resulting from
+the use of this Public License or the Licensed Material, even if the Licensor has been advised of
+the possibility of such costs, expenses or damages.
+c.
+The disclaimer of warranties and limitation of liability set forth above shall be construed
+so as to be consistent with the absolute disclaimer of warranties and disclaimer of any liability to
+the maximum extent permissible.
+4
+
+Section 6 - Term and Termination.
+a. This Public License is valid for the term of the Copyright AND Other Similar Rights granted
+under this Public License. If you fail to comply with any term of this Public License, your rights
+under this Public License automatically terminate.
+b. If your right to use the Licensed Material is terminated pursuant to paragraph (a) of Section
+6, it is considered reinstated:
+1. automatically at the time you correct the violation, if the violation is corrected within 30
+days of its discovery; or
+2.
+
+in case of an explicit decision by the Licensor to restore the right.
+
+For the avoidance of doubt, Section 6(b) does not affect any right of Licensor to seek remedies
+for violations of this Public License by you.
+c. To avoid ambiguity, the Licensor may also offer the Licensed Material under different
+licensing terms or stop distribution of the Licensed Material at any time; however, this does not
+terminate the Public License.
+d.
+
+Sections 1, 5, 6, 7 and 8 shall survive the termination of this Public License.
+
+Article 7 Miscellaneous
+a.
+The Licensor shall not be bound by any additional or different terms communicated by
+you without its express consent.
+b.
+Any additional arrangements or understandings concerning the Licensed Material that
+are not specified in this Public License are separate and independent from the terms of this Public
+License.
+Section 8 - Interpretation.
+a.
+For the avoidance of doubt, this Public License may not and shall not be construed to
+reduce, limit or impose conditions on any use of the Licensed Material that may be lawfully made
+without the permission granted hereunder.
+b.
+If any provision of this Public License is held to be unenforceable, it shall, to the extent
+possible, be automatically corrected to the minimum extent necessary to make such provision
+enforceable. If such a provision cannot be corrected, it must be deleted from the text of this
+Public License without prejudice to the validity of the remaining provisions of the license.
+c.
+No term or provision of this Public License shall be deemed waived, and no breach shall
+be deemed agreed to, unless the Licensor expressly agrees to such waiver or breach.
+d.
+No term or provision of this Public License is or shall be construed as a limitation or waiver
+of any of the privileges and immunities applicable to Licensor and/or to You, including a waiver
+of any legal process in any jurisdiction or subjurisdiction.
+
+5
+
+

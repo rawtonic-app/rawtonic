@@ -5,6 +5,7 @@
       "depth": "AI 마스크: 깊이",
       "foreground": "AI 마스크: 전경",
       "inpaint": "생성형 채우기",
+      "landscape": "AI 마스크: 풍경",
       "object": "AI 마스크: 개체",
       "other": "AI 작업",
       "people": "AI 마스크: 인물",
@@ -31,6 +32,7 @@
     },
     "copied": "복사됨",
     "copyDetails": "세부 정보 복사",
+    "cropMissing_other": "카메라 자르기를 사진 {{count}}장에 적용하지 못했습니다. 원본이 클라우드에 있습니다. 편집은 저장되었습니다. 원본을 내려받은 뒤 현상에서 자르기를 설정하세요.",
     "dismiss": "닫기: {{title}}",
     "dismissShort": "닫기",
     "download": {
@@ -483,7 +485,6 @@
       "confirmReset": "초기화 확인",
       "convertNegative": "네거티브 변환",
       "copyAdjustments": "조정값 복사",
-      "cullImage": "이미지 선별",
       "editImage": "이미지 편집",
       "exportImage": "이미지 내보내기",
       "frameImage": "이미지 프레임",
@@ -555,8 +556,6 @@
       "convertNegative_other": "네거티브 변환",
       "copyImage_one": "이미지 복사",
       "copyImage_other": "이미지 {{count}}개 복사",
-      "cullImage_one": "이미지 선별",
-      "cullImage_other": "이미지 선별",
       "deleteAssociated": "삭제 + 연결된 항목",
       "deleteImage_one": "이미지 삭제",
       "deleteImage_other": "이미지 {{count}}개 삭제",
@@ -869,6 +868,10 @@
       "exporting": "내보내는 중…",
       "savesTo": "외부 편집 — 저장 위치:"
     },
+    "frameMove": {
+      "action": "전체 이미지로 옮기기",
+      "undecided": "이 편집은 Rawtonic 0.1.0-alpha.17.1 이전에 이 TIFF 파일이 보여 주던 작은 미리 보기에서 만들어졌을 수 있습니다. 자르기와 스팟 보정 위치가 틀리면 전체 이미지로 옮기세요."
+    },
     "guided": {
       "cancel": "취소",
       "drawingActive": "그리기 활성화",
@@ -942,6 +945,7 @@
         "maskName_other": "마스크 {{count}}"
       },
       "rangeTitle": "범위 및 글로벌",
+      "recomputedFullFrame_other": "레이어 {{count}}개의 AI 마스크를 전체 해상도 이미지에 맞게 다시 계산했습니다. 실행 취소하면 이전 마스크로 돌아갑니다.",
       "resetMaskingTooltip": "마스킹 초기화",
       "settings": {
         "aiModelDownloading": "AI 모델 다운로드 중: ",
@@ -1038,6 +1042,7 @@
       "flow": "플로우",
       "foreground": "전경",
       "heal": "복구",
+      "landscape": "풍경",
       "linear": "선형",
       "liquify": "픽셀 유동화",
       "luminance": "휘도",
@@ -1119,38 +1124,6 @@
       "create": "만들기",
       "placeholder": "폴더 이름 입력...",
       "title": "새 폴더 만들기"
-    },
-    "culling": {
-      "actionDelete": "휴지통으로 이동",
-      "actionRateZero": "평점을 1점으로 설정",
-      "actionReject": "거부됨으로 표시 (빨간 레이블)",
-      "applyButton_one": "이미지 1개에 적용",
-      "applyButton_other": "이미지 {{count}}개에 적용",
-      "bestImage": "최고의 이미지",
-      "blurryImagesTab": "흐릿한 이미지",
-      "blurThreshold": "흐림 임계값",
-      "blurThresholdDesc": "선명도 점수가 이 값보다 낮은 이미지가 표시됩니다. 값이 높을수록 더 엄격합니다.",
-      "cancel": "취소",
-      "close": "닫기",
-      "cullingFailed": "선별 실패",
-      "cullingSuggestions": "선별 제안",
-      "done": "완료",
-      "duplicatesHeader": "중복 ({{count}})",
-      "duplicatesHeader_one": "중복 ({{count}})",
-      "duplicatesHeader_other": "중복 ({{count}})",
-      "filterBlurry": "흐릿한 이미지 필터링",
-      "groupHeader": "그룹 {{index}}",
-      "groupSimilar": "유사한 이미지 그룹화",
-      "noIssuesDesc": "모든 이미지가 고유하고 선명한 것으로 보입니다.",
-      "noIssuesFound": "문제를 찾을 수 없습니다!",
-      "score": "점수: {{score}}",
-      "sharpness": "선명도: {{sharpness}}",
-      "similarGroupsTab": "유사한 그룹",
-      "similarityThreshold": "유사도 임계값",
-      "similarityThresholdDesc": "값이 낮을수록 더 엄격합니다 (완전 중복). 높을수록 더 느슨합니다 (유사 중복). 24~32 값을 권장합니다.",
-      "startCulling": "선별 시작",
-      "starting": "시작 중...",
-      "title": "이미지 선별"
     },
     "merge": {
       "align": "사진 정렬",
@@ -1768,6 +1741,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "사진은 돌아왔지만 폴더 역할은 그대로입니다: {{error}}",
       "selectsUnavailable": "Selects 폴더 {{folder}}을(를) 사용할 수 없습니다(드라이브가 연결되어 있나요?). 아무것도 옮기지 않았습니다. 세션 폴더에서 다른 Selects 폴더를 선택하세요.",
       "title": "세션 폴더",
       "unavailable": "사용할 수 없음: 폴더가 없거나 드라이브가 연결되지 않았습니다.",
@@ -2172,7 +2146,7 @@
         "failed_other": "XMP 파일 {{count}}개를 쓸 수 없습니다: {{error}}",
         "offline_other": "사진 {{count}}장이 오프라인입니다. 드라이브를 다시 연결하면 XMP 파일이 업데이트됩니다.",
         "pending_other": "XMP 파일 {{count}}개를 다시 쓸 수 있습니다.",
-        "sharedName_other": "사진 {{count}}장이 다른 사진과 이름이 같아(RAW와 JPEG) 둘 다 같은 XMP 파일에 쓰게 됩니다."
+        "sharedName_other": "사진 {{count}}장이 다른 사진과 이름이 같아(CR3와 DNG 같은 두 RAW 파일) 둘 다 같은 XMP 파일에 쓰게 됩니다."
       },
       "resolved_other": "사진 {{count}}장의 XMP 충돌을 해결했습니다",
       "retry": "다시 시도",
@@ -2196,13 +2170,15 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "얼굴 리터치용 눈 영역과 치아(SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). 변경: ONNX와 Core ML로 변환, CC BY-SA 4.0으로 공개.",
         "Jiff / Unicode CLDR": "Windows 표준 시간대 이름과 IANA 식별자의 매핑.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -2734,7 +2710,7 @@
       "done_one": "스택 {{count}}개를 만들었습니다",
       "done_other": "스택 {{count}}개를 만들었습니다",
       "interval": "사진 사이 시간",
-      "intro": "이전 사진 후 이 시간 안에 촬영한 사진을 한 스택으로 묶습니다. 이미 스택에 있는 사진은 그대로 둡니다.",
+      "intro": "앞 사진 다음 이 시간 안에 찍은 사진은 같은 스택이 됩니다. “비슷해 보이는 사진만”을 켜면 같은 장면이어야 합니다. 이미 스택에 있는 사진은 그대로 둡니다.",
       "kind": {
         "bracket_one": "브라케팅 {{count}}개",
         "bracket_other": "브라케팅 {{count}}개",
@@ -2751,9 +2727,12 @@
       "reading": "세는 중…",
       "seconds_one": "{{count}}초",
       "seconds_other": "{{count}}초",
+      "similar": "비슷해 보이는 사진만",
+      "similarity": "최소 유사도",
       "single_one": "사진 {{count}}장은 그대로 남습니다",
       "single_other": "사진 {{count}}장은 그대로 남습니다",
       "title": "촬영 시간으로 자동 스택",
+      "unread_other": "아직 읽지 않은 사진 {{count}}장은 촬영 시간으로만 묶습니다",
       "useCameraData": "카메라의 연속 촬영 및 브라케팅 정보가 있으면 사용"
     },
     "badge": {
@@ -2924,7 +2903,6 @@
         "target": {
           "blueAria": "목표 파랑(sRGB 0–255)",
           "chromaAria": "목표 채도 C*(CIELAB D50)",
-          "distance": "목표까지 ΔE00 {{value}}.",
           "greenAria": "목표 초록(sRGB 0–255)",
           "grey": "이 범위는 너무 회색이라 색을 입힐 수 없습니다.",
           "heading": "목표 색상",
@@ -2939,14 +2917,20 @@
             "lightness": "명도(×0.6–1.4)",
             "saturation": "채도(0–200 %)"
           },
-          "outOfReach": "도달 불가: ΔE00 {{value}} 남음, {{limits}} 한계 도달.",
+          "measuredDistance": "목표에서 ΔE00 {{value}}, 선택한 지점에서 측정.",
+          "measuredOutOfReach": "도달 불가: ΔE00 {{value}} 남음, 선택한 지점에서 측정; {{limits}} 한계 도달.",
+          "measuredOutsideSrgb": "목표가 sRGB 밖에 있습니다: 선택한 지점의 sRGB 결과는 ΔE00 {{value}} 떨어져 있습니다(측정값).",
+          "measuredReached": "목표 도달: ΔE00 {{value}}, 선택한 지점에서 측정.",
+          "measuring": "선택한 지점에서 결과 측정 중…",
+          "notMeasured": "목표에서 예측된 ΔE00 {{value}}; AI 노이즈 제거가 켜져 있어 선택한 지점의 결과를 측정할 수 없습니다.",
           "outsideSrgb": "목표가 sRGB 밖에 있습니다. sRGB 내보내기는 색을 sRGB 안으로 매핑합니다.",
           "outsideWorkingGamut": "목표가 사진의 작업 색역(ProPhoto) 밖에 있습니다. 사진의 어떤 색도 그 색이 될 수 없으며, 범위는 최대한 가까이 갑니다.",
           "pickAria": "목표 색상 찍기",
           "pickedThrough": "목표에서 ΔE00 {{value}}로 예측되지만, 이 색은 범위 자체의 큰 변경을 거쳐 찍혔습니다. 사진에서 결과를 확인하거나 슬라이더를 0으로 두고 다시 찍으세요.",
           "pickTitle": "사진에서 목표 색상을 찍으면 이 범위가 그 색으로 이동합니다",
-          "reached": "목표 도달(ΔE00 {{value}}).",
-          "readoutTitle": "범위의 찍은 색에 대한 예측값(커브, 컬러 그레이딩 등 이후 도구 적용 전)",
+          "predicted": "범위 색상에 대해 예측된 ΔE00 {{value}}, 측정 안 됨: 측정하려면 사진에서 범위를 선택하세요.",
+          "predictedOutOfReach": "도달 불가로 예측: ΔE00 {{value}} 남음; {{limits}} 한계 도달(측정 안 됨: 측정하려면 사진에서 범위를 선택하세요).",
+          "readoutTitle": "모든 도구가 적용된 사진의 sRGB 렌더에서 선택한 지점의 스포이트 11 × 11 미리보기 픽셀로 측정; 사진에서 선택하지 않은 범위는 그 색상에 대해 예측",
           "redAria": "목표 빨강(sRGB 0–255)",
           "sampleAria": "목표 색상 샘플링",
           "sampleTitle": "이 사진에서 목표 색상을 찍어 여기나 다른 사진의 범위에 사용",
@@ -2954,6 +2938,7 @@
           "srgb": "sRGB",
           "swatchAria": "범위 결과 {{result}}, 목표 {{target}}",
           "uncovered": "레이어 마스크가 더 이상 선택한 지점을 덮지 않습니다. 범위 슬라이더는 그대로 유지됩니다.",
+          "unmeasured": "목표에서 예측된 ΔE00 {{value}}; 선택한 지점의 결과를 측정할 수 없었습니다.",
           "useSampled": "{{name}}의 목표 사용",
           "useSampledTitle": "이 범위를 {{name}}에서 찍은 색으로 이동"
         },
@@ -3092,6 +3077,33 @@
       "swapOrientation": "세로와 가로 전환",
       "turnOverlay": "오버레이 회전"
     },
+    "culling": {
+      "analyse": "실패 사진과 문서 찾기",
+      "analyseDownload": "실패 사진과 문서 찾기({{size}} 다운로드)",
+      "autoStack": "자동 스택…",
+      "badge": "제안: {{names}}",
+      "checkEyes": "눈 확인…",
+      "checkTitle": "거부는 체크한 제안에 적용됩니다",
+      "criteria": {
+        "document": "문서",
+        "eyesClosed": "눈 감음",
+        "misfire": "실패 사진"
+      },
+      "criteriaLabel": "제안",
+      "dismiss_other": "문제없음({{n}}장 선택)",
+      "dismissTitle": "선택한 사진의 체크한 제안을 다시 표시하지 않습니다",
+      "failed": "선별 제안을 저장하지 못했습니다: {{error}}",
+      "gridOnly": "거부는 격자에 표시된 사진에 적용됩니다. G를 누르면 격자가 표시됩니다.",
+      "needsModel": "실패 사진과 문서를 찾기 위해 검색 모델이 각 사진을 읽습니다.",
+      "reading": "사진 {{total}}장 중 {{scored}}장 읽음",
+      "reject_other": "제안된 사진 {{n}}장 거부",
+      "rejectTitle": "표시된 사진 중 체크한 제안을 한 번의 실행 취소 단계로 거부 표시합니다. 이동하거나 삭제하지 않습니다",
+      "showAgain_other": "제안 다시 보기({{n}}장 선택)",
+      "showOnly": "{{name}}만 보기({{n}})",
+      "suggestionOnly": "제안일 뿐입니다. 거부를 누르기 전에는 아무것도 거부되지 않으며 실행 취소로 되돌릴 수 있습니다.",
+      "title": "선별",
+      "unreadable_other": "사진 {{n}}장을 제안을 위해 읽지 못했습니다. 라이브러리를 열면 다시 시도합니다."
+    },
     "develop": {
       "auto": {
         "label": "자동",
@@ -3217,6 +3229,7 @@
           "brush": "브러시",
           "color": "색상",
           "depth": "심도",
+          "landscape": "풍경",
           "linear": "선형",
           "luminance": "휘도",
           "object": "개체",
@@ -3246,6 +3259,7 @@
           "brush": "새 브러시 레이어",
           "color": "새 레이어: 색상 범위",
           "depth": "새 레이어: 심도 범위",
+          "landscape": "새 풍경 레이어",
           "linear": "새 선형 그라디언트 레이어",
           "luminance": "새 레이어: 휘도 범위",
           "object": "새 레이어: 개체",
@@ -3533,13 +3547,13 @@
         "exporting": "내보내는 중 {{current}}/{{total}}"
       },
       "provenance": {
-        "about": "각 파일이 현상된 원본 사진, 편집 종류, 생성 모델이 만든 모든 영역을 기록하고 사용자의 인증서로 서명합니다. JPEG, PNG 및 TIFF. 아무것도 전송되지 않습니다.",
+        "about": "각 파일이 현상된 원본 사진, 편집 종류, 생성 모델이 만든 모든 영역을 기록하고 사용자의 인증서로 서명합니다. JPEG, PNG, TIFF, WebP 및 AVIF. 아무것도 전송되지 않습니다.",
         "add": "각 파일에 출처 매니페스트 서명",
         "author": "사진 제작자를 저자로 표시",
-        "blocked": "출처 정보(C2PA)가 {{recipes}}에 서명할 수 없습니다. 유효한 서명 인증서를 설정하고 JPEG, PNG 또는 TIFF로 내보내세요.",
+        "blocked": "출처 정보(C2PA)가 {{recipes}}에 서명할 수 없습니다. 유효한 서명 인증서를 설정하고 JPEG, PNG, TIFF, WebP 또는 AVIF로 내보내세요.",
         "certificateFilter": "PKCS#12 인증서",
         "expired": "이 인증서는 지금 유효하지 않습니다(유효 기간: {{until}}까지). 이 인증서로는 내보내기에 서명할 수 없습니다. 갱신된 인증서를 가져오거나 새로 만드세요.",
-        "formatUnsupported": "{{format}} 파일은 아직 출처 매니페스트를 담을 수 없습니다. JPEG, PNG 또는 TIFF를 선택하거나 옵션을 끄세요.",
+        "formatUnsupported": "{{format}} 파일은 아직 출처 매니페스트를 담을 수 없습니다. JPEG, PNG, TIFF, WebP 또는 AVIF를 선택하거나 옵션을 끄세요.",
         "generate": "이 컴퓨터에서 인증서 만들기",
         "import": "내 인증서 가져오기 (.p12)…",
         "importConfirm": "가져오기",
@@ -3784,9 +3798,11 @@
       },
       "downloadModels": "얼굴 모델 다운로드",
       "eyes": {
+        "downloadModel": "눈·치아 모델 다운로드",
         "find": "눈과 치아 찾기",
         "finding": "눈과 치아 찾는 중…",
         "missing": "눈과 치아 도구에는 이 도구가 생기기 전에 찾은 얼굴의 눈과 입이 필요합니다.",
+        "modelMissing": "눈과 치아에는 눈·치아 모델(57MB)이 필요합니다. GitHub의 Rawtonic 모델 팩에서 한 번 내려받으며 이 컴퓨터에서 실행됩니다.",
         "none": "이 얼굴에서 눈이나 벌린 입을 찾지 못했습니다.",
         "sideAria": "눈",
         "sideHint": {
@@ -3860,6 +3876,23 @@
       "shadowClippingLit": "그림자 경고, 뭉개짐",
       "shadowClippingTitle": "그림자 클리핑 경고(사진에서 파란색으로 표시; {{shortcut}}로 둘 다 전환)",
       "title": "히스토그램"
+    },
+    "landscape": {
+      "aria": "풍경 마스크",
+      "choose": "선택할 요소를 고르세요.",
+      "finding": "풍경 요소를 찾는 중…",
+      "noneFound": "이 사진에서 이 요소들을 찾지 못했습니다.",
+      "notFound": "(찾지 못함)",
+      "parts": {
+        "architecture": "건축물",
+        "artificialGround": "인공 지면",
+        "mountains": "산",
+        "naturalGround": "자연 지면",
+        "sky": "하늘",
+        "vegetation": "식물",
+        "water": "물"
+      },
+      "partsAria": "풍경 요소"
     },
     "layers": {
       "bandWidth": "띠 너비",
@@ -4349,6 +4382,11 @@
             "purple": "보라",
             "red": "빨강",
             "yellow": "노랑"
+          },
+          "suggestion": {
+            "document": "문서",
+            "eyesClosed": "눈 감음",
+            "misfire": "실패 사진"
           }
         },
         "combine": {
@@ -4386,6 +4424,8 @@
           "previousImport": "이전 가져오기에 포함",
           "rating": "별점",
           "sourceType": "디지털 출처 유형(파일 내)",
+          "stacked": "스택 안",
+          "suggestion": "선별 제안",
           "text": "검색 가능한 모든 텍스트"
         },
         "folderPlaceholder": "폴더 경로",
@@ -4584,6 +4624,7 @@
         "brush": "브러시",
         "color": "색상 범위",
         "depth": "심도 범위",
+        "landscape": "풍경",
         "linear": "선형",
         "luminance": "휘도 범위",
         "object": "개체",
@@ -5409,6 +5450,7 @@
         "moveToolsLeft": "현상 도구를 왼쪽으로 이동",
         "moveToolsRight": "현상 도구를 오른쪽으로 이동"
       },
+      "lightroomHdr": "Lightroom의 HDR 편집 — SDR로 표시되고 내보내집니다",
       "loupe": {
         "adjust": "현상",
         "adjustTitle": "현상에서 조정",

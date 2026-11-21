@@ -5,6 +5,7 @@
       "depth": "AI マスク: 深度",
       "foreground": "AI マスク: 前景",
       "inpaint": "生成塗りつぶし",
+      "landscape": "AIマスク：風景",
       "object": "AI マスク: オブジェクト",
       "other": "AI タスク",
       "people": "AI マスク: 人物",
@@ -31,6 +32,7 @@
     },
     "copied": "コピーしました",
     "copyDetails": "詳細をコピー",
+    "cropMissing_other": "カメラのトリミングを {{count}} 枚に適用できませんでした。オリジナルがクラウドにあります。編集は保存済みです。オリジナルをダウンロードして、現像でトリミングを設定してください。",
     "dismiss": "閉じる: {{title}}",
     "dismissShort": "閉じる",
     "download": {
@@ -483,7 +485,6 @@
       "confirmReset": "リセットを確認",
       "convertNegative": "ネガ反転",
       "copyAdjustments": "補正設定をコピー",
-      "cullImage": "画像を選別",
       "editImage": "画像を編集",
       "exportImage": "画像を書き出し",
       "frameImage": "画像にフレームを追加",
@@ -555,8 +556,6 @@
       "convertNegative_other": "ネガ反転",
       "copyImage_one": "画像をコピー",
       "copyImage_other": "{{count}} 枚の画像をコピー",
-      "cullImage_one": "画像を選別",
-      "cullImage_other": "画像を選別",
       "deleteAssociated": "削除 + 関連ファイル",
       "deleteImage_one": "画像を削除",
       "deleteImage_other": "{{count}} 枚の画像を削除",
@@ -869,6 +868,10 @@
       "exporting": "書き出し中…",
       "savesTo": "外部編集 — 保存先"
     },
+    "frameMove": {
+      "action": "フル画像に移動",
+      "undecided": "この編集は、Rawtonic 0.1.0-alpha.17.1 より前にこの TIFF ファイルで表示されていた小さなプレビュー上で行われた可能性があります。切り抜きやスポット修正の位置がずれている場合は、フル画像に移動してください。"
+    },
     "guided": {
       "cancel": "キャンセル",
       "drawingActive": "描画中",
@@ -942,6 +945,7 @@
         "maskName_other": "マスク {{count}}"
       },
       "rangeTitle": "範囲とグローバル",
+      "recomputedFullFrame_other": "{{count}} 個のレイヤーの AI マスクをフル解像度の画像で再計算しました。取り消すと以前のマスクに戻ります。",
       "resetMaskingTooltip": "マスク処理をリセット",
       "settings": {
         "aiModelDownloading": "AIモデルをダウンロード中: ",
@@ -1038,6 +1042,7 @@
       "flow": "流量",
       "foreground": "手前",
       "heal": "修復",
+      "landscape": "風景",
       "linear": "線形",
       "liquify": "ゆがみ",
       "luminance": "ルミナンス",
@@ -1119,38 +1124,6 @@
       "create": "作成",
       "placeholder": "フォルダ名を入力...",
       "title": "新規フォルダの作成"
-    },
-    "culling": {
-      "actionDelete": "ゴミ箱に移動",
-      "actionRateZero": "評価を星1に設定",
-      "actionReject": "除外としてマーク (赤ラベル)",
-      "applyButton_one": "1 枚の画像に適用",
-      "applyButton_other": "{{count}} 枚の画像に適用",
-      "bestImage": "ベスト画像",
-      "blurryImagesTab": "ぼやけた画像",
-      "blurThreshold": "ブレのしきい値",
-      "blurThresholdDesc": "この値以下のシャープネススコアを持つ画像にフラグを立てます。高いほど厳密になります。",
-      "cancel": "キャンセル",
-      "close": "閉じる",
-      "cullingFailed": "選別失敗",
-      "cullingSuggestions": "選別の提案",
-      "done": "完了",
-      "duplicatesHeader": "重複 ({{count}})",
-      "duplicatesHeader_one": "重複 ({{count}})",
-      "duplicatesHeader_other": "重複 ({{count}})",
-      "filterBlurry": "ぼやけた画像をフィルタリング",
-      "groupHeader": "グループ {{index}}",
-      "groupSimilar": "類似画像をグループ化",
-      "noIssuesDesc": "すべての画像が個性的で鮮明なようです。",
-      "noIssuesFound": "問題は見つかりませんでした！",
-      "score": "スコア: {{score}}",
-      "sharpness": "シャープネス: {{sharpness}}",
-      "similarGroupsTab": "類似グループ",
-      "similarityThreshold": "類似度のしきい値",
-      "similarityThresholdDesc": "低いほど厳密（完全な重複）になります。高いほど緩やか（類似画像）になります。24-32の値を推奨します。",
-      "startCulling": "選別を開始",
-      "starting": "開始中...",
-      "title": "画像を選別"
     },
     "merge": {
       "align": "写真を整列",
@@ -1768,6 +1741,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "写真は元に戻りましたが、フォルダの役割はそのままです: {{error}}",
       "selectsUnavailable": "Selects フォルダ {{folder}} を使用できません (ドライブは接続されていますか?)。何も移動していません。「セッションフォルダ」で別の Selects フォルダを選んでください。",
       "title": "セッションフォルダ",
       "unavailable": "使用できません: フォルダがないか、ドライブが接続されていません。",
@@ -2172,7 +2146,7 @@
         "failed_other": "{{count}} 件の XMP ファイルを書き込めませんでした: {{error}}",
         "offline_other": "{{count}} 枚の写真がオフラインです。ドライブを再接続すると XMP ファイルが更新されます。",
         "pending_other": "{{count}} 件の XMP ファイルを再度書き込めます。",
-        "sharedName_other": "{{count}} 枚の写真がほかの写真と同じ名前です (RAW と JPEG)。両方が同じ XMP ファイルに書き込むことになります。"
+        "sharedName_other": "{{count}} 枚の写真がほかの写真と同じ名前です (CR3 と DNG など 2 つの RAW ファイル)。両方が同じ XMP ファイルに書き込むことになります。"
       },
       "resolved_other": "{{count}} 枚の写真の XMP の競合を解決しました",
       "retry": "再試行",
@@ -2196,13 +2170,15 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "顔のレタッチ用の目の開口部と歯（SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin）。変更: ONNX と Core ML に変換し、CC BY-SA 4.0 で公開。",
         "Jiff / Unicode CLDR": "Windows のタイムゾーン名と IANA 識別子の対応表。",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -2734,7 +2710,7 @@
       "done_one": "{{count}} 個のスタックを作成しました",
       "done_other": "{{count}} 個のスタックを作成しました",
       "interval": "写真の間隔",
-      "intro": "前の写真からこの時間内に撮影された写真を同じスタックにまとめます。すでにスタックにある写真はそのままです。",
+      "intro": "前の写真からこの時間以内に撮った写真を同じスタックにします。「似ている写真だけ」をオンにすると同じ場面であることも条件になります。すでにスタックにある写真はそのままです。",
       "kind": {
         "bracket_one": "ブラケット {{count}} 組",
         "bracket_other": "ブラケット {{count}} 組",
@@ -2751,9 +2727,12 @@
       "reading": "計算中…",
       "seconds_one": "{{count}} 秒",
       "seconds_other": "{{count}} 秒",
+      "similar": "似ている写真だけ",
+      "similarity": "似ている度合い（最低）",
       "single_one": "{{count}} 枚は単独のまま",
       "single_other": "{{count}} 枚は単独のまま",
       "title": "撮影時間で自動スタック",
+      "unread_other": "まだ読み取っていない {{count}} 枚は撮影時刻だけでまとめます",
       "useCameraData": "カメラの連写・ブラケット情報があれば使用する"
     },
     "badge": {
@@ -2924,7 +2903,6 @@
         "target": {
           "blueAria": "ターゲットの青(sRGB 0–255)",
           "chromaAria": "ターゲットの彩度 C*(CIELAB D50)",
-          "distance": "ターゲットまで ΔE00 {{value}}。",
           "greenAria": "ターゲットの緑(sRGB 0–255)",
           "grey": "この範囲はグレーに近すぎて色を付けられません。",
           "heading": "ターゲット",
@@ -2939,14 +2917,20 @@
             "lightness": "明度(×0.6–1.4)",
             "saturation": "彩度(0–200 %)"
           },
-          "outOfReach": "到達不可:残り ΔE00 {{value}}。{{limits}} が上限です。",
+          "measuredDistance": "ターゲットから ΔE00 {{value}}（選択した点で測定）。",
+          "measuredOutOfReach": "到達不可：残り ΔE00 {{value}}（選択した点で測定）。{{limits}} が限界です。",
+          "measuredOutsideSrgb": "ターゲットは sRGB の外側です：選択した点の sRGB の結果は ΔE00 {{value}} 離れたままです（測定値）。",
+          "measuredReached": "ターゲットに到達：ΔE00 {{value}}（選択した点で測定）。",
+          "measuring": "選択した点で結果を測定中…",
+          "notMeasured": "ターゲットから予測 ΔE00 {{value}}。AI ノイズ除去がオンのため、選択した点の結果は測定できません。",
           "outsideSrgb": "ターゲットは sRGB の範囲外です。sRGB の書き出しでは色が sRGB 内にマッピングされます。",
           "outsideWorkingGamut": "ターゲットは写真の作業色域(ProPhoto)の外です。写真のどの色もその色にはなれないため、範囲はできるだけ近づけます。",
           "pickAria": "ターゲットカラーを取得",
           "pickedThrough": "予測はターゲットから ΔE00 {{value}} ですが、この色は範囲自体の大きな変更を通して取得されました。写真で結果を確認するか、スライダーを0にして取得し直してください。",
           "pickTitle": "写真でターゲットカラーを取得し、この範囲をその色へ移動",
-          "reached": "ターゲットに到達(ΔE00 {{value}})。",
-          "readoutTitle": "範囲の取得色に対する予測値(トーンカーブやカラーグレーディングなど後段のツールの前)",
+          "predicted": "範囲の色について予測 ΔE00 {{value}}、未測定：測定するには写真で範囲を選択してください。",
+          "predictedOutOfReach": "到達不可と予測：残り ΔE00 {{value}}。{{limits}} が限界です（未測定：測定するには写真で範囲を選択してください）。",
+          "readoutTitle": "すべてのツールを適用した写真の sRGB レンダリングで、選択した点のスポイトの 11 × 11 プレビューピクセルにわたって測定。写真で選択していない範囲はその色について予測",
           "redAria": "ターゲットの赤(sRGB 0–255)",
           "sampleAria": "ターゲットカラーを取得",
           "sampleTitle": "この写真でターゲットカラーを取得(この写真や別の写真の範囲用)",
@@ -2954,6 +2938,7 @@
           "srgb": "sRGB",
           "swatchAria": "範囲の結果 {{result}}、ターゲット {{target}}",
           "uncovered": "レイヤーのマスクが拾った位置を覆っていません。範囲のスライダーはそのままです。",
+          "unmeasured": "ターゲットから予測 ΔE00 {{value}}。選択した点の結果は測定できませんでした。",
           "useSampled": "{{name}} のターゲットを使用",
           "useSampledTitle": "この範囲を {{name}} で取得した色へ移動"
         },
@@ -3092,6 +3077,33 @@
       "swapOrientation": "縦位置と横位置を切り替え",
       "turnOverlay": "オーバーレイを回転"
     },
+    "culling": {
+      "analyse": "失敗写真と書類を探す",
+      "analyseDownload": "失敗写真と書類を探す（{{size}} をダウンロード）",
+      "autoStack": "自動スタック…",
+      "badge": "候補: {{names}}",
+      "checkEyes": "目をチェック…",
+      "checkTitle": "「除外」はチェックした候補に適用されます",
+      "criteria": {
+        "document": "書類",
+        "eyesClosed": "目を閉じている",
+        "misfire": "失敗写真"
+      },
+      "criteriaLabel": "候補",
+      "dismiss_other": "問題なし（{{n}} 枚選択中）",
+      "dismissTitle": "選択した写真のチェックした候補を今後表示しません",
+      "failed": "選別の候補を保存できませんでした: {{error}}",
+      "gridOnly": "「除外」はグリッドに表示されている写真に適用されます。G でグリッドを表示します。",
+      "needsModel": "失敗写真と書類を見つけるため、検索モデルが各写真を読み取ります。",
+      "reading": "{{total}} 枚中 {{scored}} 枚を読み取り済み",
+      "reject_other": "候補の写真 {{n}} 枚を除外",
+      "rejectTitle": "表示中の写真のうちチェックした候補を 1 回の取り消し単位で除外フラグにします。移動や削除はしません",
+      "showAgain_other": "候補を再表示（{{n}} 枚選択中）",
+      "showOnly": "{{name}} だけ表示（{{n}}）",
+      "suggestionOnly": "候補を示すだけです。「除外」をクリックするまで何も除外されず、取り消しで元に戻せます。",
+      "title": "選別",
+      "unreadable_other": "{{n}} 枚の写真を候補のために読み取れませんでした。ライブラリを開くと再試行します。"
+    },
     "develop": {
       "auto": {
         "label": "自動",
@@ -3217,6 +3229,7 @@
           "brush": "ブラシ",
           "color": "カラー",
           "depth": "深度",
+          "landscape": "風景",
           "linear": "線形",
           "luminance": "輝度",
           "object": "オブジェクト",
@@ -3246,6 +3259,7 @@
           "brush": "新規ブラシレイヤー",
           "color": "新規レイヤー: カラー範囲",
           "depth": "新規レイヤー: 深度範囲",
+          "landscape": "新しい風景レイヤー",
           "linear": "新規線形グラデーションレイヤー",
           "luminance": "新規レイヤー: 輝度範囲",
           "object": "新規レイヤー: オブジェクト",
@@ -3533,13 +3547,13 @@
         "exporting": "書き出し中 {{current}} / {{total}}"
       },
       "provenance": {
-        "about": "各ファイルの現像元の写真、編集の種類、生成モデルが作成したすべての領域を記録し、あなたの証明書で署名します。JPEG、PNG、TIFF。何も送信されません。",
+        "about": "各ファイルの現像元の写真、編集の種類、生成モデルが作成したすべての領域を記録し、あなたの証明書で署名します。JPEG、PNG、TIFF、WebP、AVIF。何も送信されません。",
         "add": "各ファイルに来歴マニフェストを署名して埋め込む",
         "author": "写真の作成者を著者として記載",
-        "blocked": "来歴情報 (C2PA) は {{recipes}} に署名できません。有効な署名証明書を設定し、JPEG、PNG、TIFF のいずれかで書き出してください。",
+        "blocked": "来歴情報 (C2PA) は {{recipes}} に署名できません。有効な署名証明書を設定し、JPEG、PNG、TIFF、WebP、AVIF のいずれかで書き出してください。",
         "certificateFilter": "PKCS#12 証明書",
         "expired": "この証明書は現在有効ではありません (有効期限: {{until}})。この証明書では書き出しに署名できません。更新した証明書を読み込むか、新しく作成してください。",
-        "formatUnsupported": "{{format}} ファイルにはまだ来歴マニフェストを埋め込めません。JPEG、PNG、TIFF のいずれかを選ぶか、このオプションをオフにしてください。",
+        "formatUnsupported": "{{format}} ファイルにはまだ来歴マニフェストを埋め込めません。JPEG、PNG、TIFF、WebP、AVIF のいずれかを選ぶか、このオプションをオフにしてください。",
         "generate": "このコンピューターで証明書を作成",
         "import": "自分の証明書を読み込む (.p12)…",
         "importConfirm": "読み込む",
@@ -3784,9 +3798,11 @@
       },
       "downloadModels": "顔モデルをダウンロード",
       "eyes": {
+        "downloadModel": "目と歯のモデルをダウンロード",
         "find": "目と歯を検出",
         "finding": "目と歯を検出中…",
         "missing": "「目」と「歯」には、これらのツールより前に検出された顔の目と口が必要です。",
+        "modelMissing": "目と歯には目と歯のモデル（57 MB）を使います。GitHub 上の Rawtonic のモデルパックから一度だけダウンロードされ、このコンピューター上で動作します。",
         "none": "この顔には目または開いた口が見つかりません。",
         "sideAria": "目",
         "sideHint": {
@@ -3860,6 +3876,23 @@
       "shadowClippingLit": "シャドウの警告、黒つぶれ",
       "shadowClippingTitle": "シャドウのクリッピング警告（写真では青。{{shortcut}} で両方を切り替え）",
       "title": "ヒストグラム"
+    },
+    "landscape": {
+      "aria": "風景マスク",
+      "choose": "選択する要素を選んでください。",
+      "finding": "風景の要素を検出中…",
+      "noneFound": "この写真ではいずれの要素も見つかりませんでした。",
+      "notFound": "（見つかりません）",
+      "parts": {
+        "architecture": "建築物",
+        "artificialGround": "人工の地面",
+        "mountains": "山",
+        "naturalGround": "自然の地面",
+        "sky": "空",
+        "vegetation": "植物",
+        "water": "水"
+      },
+      "partsAria": "風景の要素"
     },
     "layers": {
       "bandWidth": "帯の幅",
@@ -4349,6 +4382,11 @@
             "purple": "パープル",
             "red": "レッド",
             "yellow": "イエロー"
+          },
+          "suggestion": {
+            "document": "書類",
+            "eyesClosed": "目を閉じている",
+            "misfire": "失敗写真"
           }
         },
         "combine": {
@@ -4386,6 +4424,8 @@
           "previousImport": "前回の読み込みに含まれる",
           "rating": "レーティング",
           "sourceType": "デジタルソースの種類（ファイル内）",
+          "stacked": "スタック内",
+          "suggestion": "選別の候補",
           "text": "検索可能なすべてのテキスト"
         },
         "folderPlaceholder": "フォルダのパス",
@@ -4584,6 +4624,7 @@
         "brush": "ブラシ",
         "color": "カラー範囲",
         "depth": "深度範囲",
+        "landscape": "風景",
         "linear": "線形",
         "luminance": "輝度範囲",
         "object": "オブジェクト",
@@ -5409,6 +5450,7 @@
         "moveToolsLeft": "現像ツールを左へ移動",
         "moveToolsRight": "現像ツールを右へ移動"
       },
+      "lightroomHdr": "Lightroom の HDR 編集 — SDR として表示・書き出しされます",
       "loupe": {
         "adjust": "現像",
         "adjustTitle": "現像で調整",

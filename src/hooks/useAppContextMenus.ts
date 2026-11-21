@@ -55,6 +55,7 @@ import {
 import { notify } from '../activity/notify';
 import { reportUnresolvedXmp, resolveXmpConflicts } from '../components/session/SessionXmpStatus';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
+import { loadBuiltinPresets, presetName, useBuiltinPresets } from '../utils/builtinPresets';
 import { useTranslation } from 'react-i18next';
 import { changeLibraryAlbums } from '../components/studio/libraryAlbums';
 import { useContextMenu } from '../context/ContextMenuContext';
@@ -157,6 +158,8 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
   useEffect(() => {
     // The Library's Apply Preset menu needs the list before Develop opens.
     if (usePresetStore.getState().presets.length === 0) void loadPresetLibrary();
+    // Rawtonic's own styles and adaptive presets are applied from the same menu.
+    void loadBuiltinPresets();
   }, []);
 
   const {
@@ -253,13 +256,32 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         noteTool('presets');
       }
     });
-    const submenu = items.flatMap((item): Option[] =>
+    const own = items.flatMap((item): Option[] =>
       item.preset
         ? [entry(item.preset)]
         : item.folder && item.folder.children.length
           ? [{ label: item.folder.name ?? '', icon: Folder, submenu: item.folder.children.map(entry) }]
           : []
     );
+    // Built-in styles and adaptive presets (not tool presets), as Develop's
+    // list shows them, unless the user hides them: applied to a selection
+    // without opening a photo (an adaptive preset's masks are computed in
+    // the background).
+    const builtins = useBuiltinPresets
+      .getState()
+      .presets.filter((preset) => preset.presetType === 'style' || preset.presetType === 'adaptive');
+    const showBuiltins = useSettingsStore.getState().appSettings?.showBuiltinPresets !== false;
+    const submenu =
+      showBuiltins && builtins.length
+        ? [
+            ...own,
+            {
+              label: t('studio.presets.builtinFolder'),
+              icon: Folder,
+              submenu: builtins.map((preset) => entry({ ...preset, name: presetName(t, preset) }))
+            }
+          ]
+        : own;
     return {
       icon: Sparkles,
       label: t('editor.masks.actions.applyPreset'),
@@ -498,8 +520,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               onClick: () => {
                 setUI({ collageModalState: { isOpen: true, sourceImages: [selectedImage] } });
               }
-            },
-            { label: t('contextMenus.editor.cullImage'), icon: Users, disabled: true }
+            }
           ]
         },
         {
@@ -777,7 +798,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         ? (useLibraryStore.getState().sessionFolders.find((f) => f.role === 'selects')?.path ??
           joinPath(sessionDirectory, 'Selects'))
         : null;
-      const cullLabel = t('contextMenus.thumbnail.cullImage', { count: selectionCount });
       const collageLabel = t('contextMenus.thumbnail.collage', { count: selectionCount });
       const stitchLabel = t('contextMenus.editor.stitchPanorama');
       const conversionLabel = t('contextMenus.thumbnail.convertNegative', { count: selectionCount });
@@ -985,21 +1005,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               label: t('contextMenus.thumbnail.proofSheet'),
               onClick: () => showProofSheet(finalSelection),
               disabled: selectionCount === 0
-            },
-            {
-              label: cullLabel,
-              icon: Users,
-              onClick: () =>
-                setUI({
-                  cullingModalState: {
-                    isOpen: true,
-                    progress: null,
-                    suggestions: null,
-                    error: null,
-                    pathsToCull: finalSelection
-                  }
-                }),
-              disabled: selectionCount < 2
             }
           ]
         },

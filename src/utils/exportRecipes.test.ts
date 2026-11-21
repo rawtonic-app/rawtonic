@@ -364,6 +364,6 @@ it('saves provenance only when it is on, and sends it for every format', () => {
   expect('provenance' in exportSettingsFromDraft(draftFromPreset(edited)).settings).toBe(false);
   // A format that cannot carry it fails its export instead of leaving unsigned.
   expect(exportSettingsFromDraft({ ...on, format: 'webp' }).settings.provenance).toEqual({ includeAuthor: true });
-  expect(['jpg', 'JPEG', 'png', 'tif', 'tiff'].every(provenanceFormat)).toBe(true);
-  expect(['webp', 'avif', 'jxl', 'cube'].some(provenanceFormat)).toBe(false);
+  expect(['jpg', 'JPEG', 'png', 'tif', 'tiff', 'webp', 'AVIF'].every(provenanceFormat)).toBe(true);
+  expect(['jxl', 'cube'].some(provenanceFormat)).toBe(false);
 });

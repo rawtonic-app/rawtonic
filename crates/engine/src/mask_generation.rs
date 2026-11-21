@@ -177,10 +177,44 @@ impl PhotoGeometry {
 
     /// From the warp a mask was made in to the current one, when they differ.
     fn warp_change(&self, params: &Value, width: u32, height: u32) -> Option<WarpChange> {
+        self.warp_change_with(params, width, height, false)
+    }
+
+    /// `warp_change` for a bitmap stored on the grid (`BITMAP_GRID_OF`): the
+    /// recorded warp is read with the current render's way of computing a
+    /// warp (`keep_negative`, `f32_warp`, `gpu_warp`, which come from the
+    /// recipe's render version and which `mask_warp` does not record), so a
+    /// mask made in the current lens and transform correction is not mapped
+    /// through it again. Reading it without them made every AI mask on a
+    /// photo with a lens profile look made in another warp: a 40 MP Fuji's
+    /// mask took ~160 ms instead of a few to place (notes:
+    /// benchmark-results/lsm2-2026-11-21/REPORT.md). The other bitmaps keep
+    /// that comparison until a decision on their exports' bytes.
+    fn grid_warp_change(&self, params: &Value, width: u32, height: u32) -> Option<WarpChange> {
+        self.warp_change_with(params, width, height, true)
+    }
+
+    fn warp_change_with(
+        &self,
+        params: &Value,
+        width: u32,
+        height: u32,
+        current_engine: bool,
+    ) -> Option<WarpChange> {
         let now = self.warp.as_deref()?;
-        let then = warp_geometry(get_geometry_params_from_json(
+        let recorded = get_geometry_params_from_json(
             params.get(masks::WARP.name()).filter(|w| w.is_object())?,
-        ));
+        );
+        let then = warp_geometry(if current_engine {
+            GeometryParams {
+                keep_negative: now.keep_negative,
+                f32_warp: now.f32_warp,
+                gpu_warp: now.gpu_warp,
+                ..recorded
+            }
+        } else {
+            recorded
+        });
         (warp_key(&then) != self.warp_key).then(|| WarpChange {
             now: WarpPoints::new(now, width, height),
             then: WarpPoints::new(&then, width, height),
@@ -3834,7 +3868,48 @@ fn generate_ai_bitmap_from_full_mask(
     tf: &TransformParams,
     warp_change: Option<&WarpChange>,
 ) -> GrayImage {
-    let (full_mask_w, full_mask_h) = full_mask_image.dimensions();
+    place_full_mask(full_mask_image.dimensions(), tf, warp_change, |x, y| {
+        full_mask_image.get_pixel(x, y)[0]
+    })
+}
+
+/// `generate_ai_bitmap_from_full_mask` for a bitmap that is a coarser grid
+/// over the whole photo of `full` size (`BITMAP_GRID_OF`): each pixel of the
+/// full mask is read from the grid at its centre, interpolated linearly
+/// (what stretching the grid to the photo's size with a triangle filter
+/// gives), without making that full-size mask.
+fn generate_ai_bitmap_from_grid(
+    grid: &GrayImage,
+    full: (u32, u32),
+    tf: &TransformParams,
+    warp_change: Option<&WarpChange>,
+) -> GrayImage {
+    let (gw, gh) = grid.dimensions();
+    let (sx, sy) = (gw as f32 / full.0 as f32, gh as f32 / full.1 as f32);
+    let axis = |i: u32, s: f32, n: u32| {
+        let at = ((i as f32 + 0.5) * s - 0.5).clamp(0.0, (n - 1) as f32);
+        let lo = at.floor() as u32;
+        (lo, (lo + 1).min(n - 1), at - lo as f32)
+    };
+    place_full_mask(full, tf, warp_change, |x, y| {
+        let (x0, x1, fx) = axis(x, sx, gw);
+        let (y0, y1, fy) = axis(y, sy, gh);
+        let v = |x, y| f32::from(grid.get_pixel(x, y)[0]);
+        let top = v(x0, y0) + (v(x1, y0) - v(x0, y0)) * fx;
+        let bottom = v(x0, y1) + (v(x1, y1) - v(x0, y1)) * fx;
+        (top + (bottom - top) * fy).round() as u8
+    })
+}
+
+/// The frame `tf` of a full-resolution mask of `full_mask` size (the photo
+/// before its orientation and straightening) whose pixel at (x, y) is
+/// `sample(x, y)`, placed as the photo is.
+fn place_full_mask(
+    (full_mask_w, full_mask_h): (u32, u32),
+    tf: &TransformParams,
+    warp_change: Option<&WarpChange>,
+    sample: impl Fn(u32, u32) -> u8,
+) -> GrayImage {
     let mut final_mask = GrayImage::new(tf.width, tf.height);
 
     let angle_rad = tf.rotation.to_radians();
@@ -3906,13 +3981,23 @@ fn generate_ai_bitmap_from_full_mask(
                 && y_src >= 0.0
                 && y_src < full_mask_h as f32
             {
-                let pixel = full_mask_image.get_pixel(x_src as u32, y_src as u32);
-                final_mask.put_pixel(x_out, y_out, *pixel);
+                final_mask.put_pixel(x_out, y_out, Luma([sample(x_src as u32, y_src as u32)]));
             }
         }
     }
 
     final_mask
+}
+
+/// The size of an AI bitmap (`maskDataBase64`) without decoding its pixels.
+pub fn ai_bitmap_dimensions(data_url: &str) -> Option<(u32, u32)> {
+    let b64_data = data_url.split_once(',').map_or(data_url, |(_, data)| data);
+    let bytes = general_purpose::STANDARD.decode(b64_data).ok()?;
+    image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()
 }
 
 fn decode_ai_bitmap(data_url: &str) -> Option<GrayImage> {
@@ -3930,6 +4015,25 @@ fn decode_ai_bitmap(data_url: &str) -> Option<GrayImage> {
 /// when a camera TIFF's edit made on its embedded thumbnail moves to the
 /// full frame): it is then stretched over the photo (`ai_bitmap_at_photo_size`).
 pub const BITMAP_FRAME: &str = "bitmapFrame";
+
+/// An AI component's key recording that its bitmap is a coarser grid over
+/// the whole photo of this size (`{width, height}`: full resolution, before
+/// orientation), as the Landscape mask stores its network's grid
+/// (`rawtonic_segment::landscape_mask_grid`): placed by reading the grid at
+/// each full-resolution pixel (`generate_ai_bitmap_from_grid`). A bitmap
+/// whose component records `BITMAP_FRAME` too is stretched as that says.
+pub const BITMAP_GRID_OF: &str = "bitmapGridOf";
+
+fn bitmap_grid_of(params_value: &Value) -> Option<(u32, u32)> {
+    let of = params_value.get(BITMAP_GRID_OF)?;
+    let side = |k: &str| {
+        of.get(k)
+            .and_then(Value::as_u64)
+            .filter(|&v| v > 0 && v <= u64::from(u32::MAX))
+            .map(|v| v as u32)
+    };
+    Some((side("width")?, side("height")?))
+}
 
 /// An AI mask's stored bitmap at the photo's own `size` (full resolution,
 /// before orientation) when its component records that it was made on a
@@ -3959,7 +4063,7 @@ fn ai_bitmap_at_photo_size(
 /// An AI mask's stored bitmap (`maskDataBase64`, in the photo's own frame)
 /// in the frame `width` × `height` at `scale` with `crop_offset`, placed by
 /// the photo's current `geometry` (see `PhotoGeometry`).
-fn ai_bitmap_in_frame(
+pub(crate) fn ai_bitmap_in_frame(
     params_value: &Value,
     data_url: &str,
     width: u32,
@@ -3968,8 +4072,17 @@ fn ai_bitmap_in_frame(
     crop_offset: (f32, f32),
     geometry: &PhotoGeometry,
 ) -> Option<GrayImage> {
-    let full_mask =
-        ai_bitmap_at_photo_size(decode_ai_bitmap(data_url)?, params_value, geometry.size);
+    let bitmap = decode_ai_bitmap(data_url)?;
+    let grid_of = bitmap_grid_of(params_value).filter(|&(w, h)| {
+        params_value.get(BITMAP_FRAME).is_none()
+            && (w, h) != bitmap.dimensions()
+            && bitmap.width() > 0
+            && bitmap.height() > 0
+    });
+    let full_mask = match grid_of {
+        Some(_) => bitmap,
+        None => ai_bitmap_at_photo_size(bitmap, params_value, geometry.size),
+    };
     let frame = geometry.frame;
     let tf = TransformParams {
         rotation: frame.rotation,
@@ -3981,6 +4094,15 @@ fn ai_bitmap_in_frame(
         scale,
         crop_offset,
     };
+    if let Some((w, h)) = grid_of {
+        let change = geometry.grid_warp_change(params_value, w, h);
+        return Some(generate_ai_bitmap_from_grid(
+            &full_mask,
+            (w, h),
+            &tf,
+            change.as_ref(),
+        ));
+    }
     let change = geometry.warp_change(params_value, full_mask.width(), full_mask.height());
     Some(generate_ai_bitmap_from_full_mask(
         &full_mask,
@@ -5234,8 +5356,8 @@ fn generate_sub_mask_bitmap(
             crop_offset,
             geometry,
         ),
-        // A People mask is a stored bitmap like the sky's.
-        "ai-sky" | "ai-people" => generate_ai_sky_bitmap(
+        // People and landscape-part masks are stored bitmaps like the sky's.
+        "ai-sky" | "ai-landscape" | "ai-people" => generate_ai_sky_bitmap(
             &sub_mask.parameters,
             width,
             height,
@@ -10750,5 +10872,99 @@ mod bitmap_frame_tests {
             ai_bitmap_at_photo_size(bitmap, &recorded, None).dimensions(),
             (30, 20)
         );
+    }
+
+    fn data_url(mask: &GrayImage) -> String {
+        let mut png = std::io::Cursor::new(Vec::new());
+        mask.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        format!(
+            "data:image/png;base64,{}",
+            general_purpose::STANDARD.encode(png.get_ref())
+        )
+    }
+
+    fn place(
+        url: &str,
+        params: &Value,
+        frame: (u32, u32, f32),
+        geometry: &PhotoGeometry,
+    ) -> GrayImage {
+        ai_bitmap_in_frame(params, url, frame.0, frame.1, frame.2, (0.0, 0.0), geometry).unwrap()
+    }
+
+    /// A grid over the photo (`BITMAP_GRID_OF`, the Landscape mask's) is
+    /// placed as the full-size mask stretched from it with a triangle filter
+    /// (what the Landscape mask stored before) is, at the export's and a
+    /// preview's scale and turned, within rounding, without making that
+    /// full-size mask.
+    #[test]
+    fn grid_bitmaps_place_as_their_stretched_full_size_mask() {
+        let (gw, gh, w, h) = (64u32, 40u32, 640u32, 400u32);
+        let grid = GrayImage::from_fn(gw, gh, |x, y| {
+            Luma([((x * 7 + y * 3) % 50 * 5 + if (x / 9 + y / 7) % 2 == 0 { 0 } else { 5 }) as u8])
+        });
+        let full = image::imageops::resize(&grid, w, h, image::imageops::FilterType::Triangle);
+        let grid_params = json!({BITMAP_GRID_OF: {"width": w, "height": h}});
+        for (frame, orientation_steps) in [
+            ((w, h, 1.0), 0),
+            ((160, 100, 0.25), 0),
+            ((h, w, 1.0), 1),
+            ((100, 160, 0.25), 3),
+        ] {
+            let mut geometry = PhotoGeometry::default().with_decoded_size(w, h);
+            geometry.frame.orientation_steps = orientation_steps;
+            let from_grid = place(&data_url(&grid), &grid_params, frame, &geometry);
+            let from_full = place(&data_url(&full), &json!({}), frame, &geometry);
+            assert_eq!(from_grid.dimensions(), (frame.0, frame.1));
+            let worst = from_grid
+                .as_raw()
+                .iter()
+                .zip(from_full.as_raw())
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            assert!(worst <= 1, "{orientation_steps} {}: {worst}", frame.2);
+        }
+        let geometry = PhotoGeometry::default().with_decoded_size(w, h);
+        let frame = (w, h, 1.0);
+        // A bitmap at the recorded size is the photo's own; one whose
+        // component records another frame (`BITMAP_FRAME`) is stretched as
+        // that says.
+        assert_eq!(
+            place(&data_url(&full), &grid_params, frame, &geometry),
+            place(&data_url(&full), &json!({}), frame, &geometry)
+        );
+        let framed = json!({BITMAP_FRAME: {"width": gw, "height": gh}});
+        let mut both = framed.clone();
+        both[BITMAP_GRID_OF] = json!({"width": w, "height": h});
+        assert_eq!(
+            place(&data_url(&grid), &both, frame, &geometry),
+            place(&data_url(&grid), &framed, frame, &geometry)
+        );
+    }
+
+    /// A grid bitmap made in the photo's current lens profile correction
+    /// is not mapped through it again, though the recorded warp lacks the
+    /// render version's way of computing it; a changed correction still
+    /// moves it. (Other bitmaps keep their comparison, see `grid_warp_change`.)
+    #[test]
+    fn grid_bitmaps_made_in_the_current_lens_correction_are_not_remapped() {
+        let recipe = json!({
+            "renderVersion": crate::image_processing::RENDER_VERSION,
+            "lensCorrectionMode": "camera",
+            "lensDistortionEnabled": true,
+            "lensDistortionAmount": 100,
+            "lensDistortionParams": {"model": 3, "k1": 0, "k2": 0, "k3": 0,
+                "table": [1.10, 1.09, 1.07, 1.05, 1.03, 1.0],
+                "table_radii": [0.0, 0.3, 0.5, 0.7, 0.85, 1.0],
+                "zoom": 1.08, "exact_zoom": true},
+        });
+        let geometry = PhotoGeometry::from_adjustments(&recipe);
+        let made_now = json!({"warp": mask_warp(&recipe)});
+        assert!(geometry.grid_warp_change(&made_now, 600, 400).is_none());
+        let mut before = recipe.clone();
+        before["lensDistortionAmount"] = json!(50);
+        let made_before = json!({"warp": mask_warp(&before)});
+        assert!(geometry.grid_warp_change(&made_before, 600, 400).is_some());
     }
 }

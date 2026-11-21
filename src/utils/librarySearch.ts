@@ -35,7 +35,9 @@ export type Field =
   | 'duplicate'
   | 'ai'
   | 'sourceType'
-  | 'eyes';
+  | 'eyes'
+  | 'suggestion'
+  | 'stacked';
 
 export type Op =
   | 'contains'
@@ -177,10 +179,16 @@ export function eyesRules(eyes: FilterCriteria['eyes']): Rule[] {
   return [];
 }
 
-/** The Library's culling filters (rating, label, flag, eyes) as rules: what
- * the filter bar shows, for a smart album made from it. */
+/** The Culling panel's filter as a rule: photographs a criterion suggests
+ * and the photographer has not dismissed. */
+export function suggestionRules(suggestion: FilterCriteria['suggestion']): Rule[] {
+  return suggestion && suggestion !== 'all' ? [{ field: 'suggestion', op: 'is', value: suggestion }] : [];
+}
+
+/** The Library's culling filters (rating, label, flag, eyes, suggestions)
+ * as rules: what the filter bar shows, for a smart album made from it. */
 export function cullingRules(filter: FilterCriteria): Rule[] {
-  const rules: Rule[] = [...eyesRules(filter.eyes)];
+  const rules: Rule[] = [...eyesRules(filter.eyes), ...suggestionRules(filter.suggestion)];
   if (filter.rating === -1) rules.push({ field: 'rating', op: 'empty' });
   else if (filter.rating === 5) rules.push({ field: 'rating', op: 'is', value: 5 });
   else if (filter.rating > 0) rules.push({ field: 'rating', op: 'ge', value: filter.rating });
@@ -205,14 +213,15 @@ export function scopeRule(
   return { field: 'folder', op: viewMode === LibraryViewMode.Recursive ? 'contains' : 'is', value: folder };
 }
 
-/** The search box, the chosen values and the eye filter as one rule (null:
- * nothing to search). */
+/** The search box, the chosen values, the eye filter and the culling
+ * suggestion filter as one rule (null: nothing to search). */
 export function searchRule(
   text: string,
   selection: MetadataSelection | undefined,
-  eyes?: FilterCriteria['eyes']
+  eyes?: FilterCriteria['eyes'],
+  suggestion?: FilterCriteria['suggestion']
 ): Rule | null {
-  const rules = [...textRules(text), ...selectionRules(selection), ...eyesRules(eyes)];
+  const rules = [...textRules(text), ...selectionRules(selection), ...eyesRules(eyes), ...suggestionRules(suggestion)];
   return rules.length ? all(rules) : null;
 }
 

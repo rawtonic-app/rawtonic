@@ -9,7 +9,7 @@ import { INITIAL_ADJUSTMENTS, type Adjustments } from './adjustments';
 import { originalPreviewAdjustments } from './beforeAfter';
 import { beforeSnapshot, beforeSnapshotAdjustments, compareWithSnapshot } from './beforeSnapshot';
 import { Invokes } from '../components/ui/AppProperties';
-import { CACHED_BITMAP } from './bitmapIds';
+import { cachedBitmapRef } from './bitmapIds';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve(true)) }));
 
@@ -169,7 +169,7 @@ it('sends the snapshot bitmaps with the first split request only', async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   requestSplitBefore(1200);
   // The native side keeps it under the snapshot's own id.
-  expect(bitmap()).toBe(CACHED_BITMAP);
+  expect(bitmap()).toBe(cachedBitmapRef('old'));
   // The snapshot as compared keeps its bitmap for the next photograph load.
   expect(beforeSnapshotAdjustments()!.masks[0].subMasks[0].parameters.maskDataBase64).toBe('old');
 });

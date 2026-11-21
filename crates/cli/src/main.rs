@@ -398,6 +398,7 @@ fn with_face_retouch(
     mut recipe: serde_json::Value,
     settings: &serde_json::Value,
     models: &rawtonic_faces::FaceModels,
+    portrait: Option<&rawtonic_faces::portrait::PortraitModel>,
 ) -> Result<serde_json::Value> {
     let bytes = std::fs::read(source).with_context(|| format!("Read {source}"))?;
     let is_raw = rawtonic_engine::formats::is_raw_file(source);
@@ -437,8 +438,8 @@ fn with_face_retouch(
     );
     let image = rawtonic_faces::recipe::display_rgb8(&framed, is_raw);
     let analysis = rawtonic_faces::analyze(&image, models)?;
-    let faces =
-        rawtonic_faces::recipe::retouch_faces(&image, &analysis).map_err(anyhow::Error::msg)?;
+    let faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis, portrait)
+        .map_err(anyhow::Error::msg)?;
     eprintln!("{source}: {} face(s)", faces.len());
     recipe["faceRetouch"] = serde_json::json!({
         "settings": settings,
@@ -537,7 +538,7 @@ impl rawtonic_export::export_processing::Enlarger for SuperResolution {
     }
 }
 
-/// The Sky, Subject and People networks of the app's model folder, for
+/// The Sky, Subject, People and landscape networks of the app's model folder, for
 /// selections an export computes (`ai_selections::detect_missing`). Depth
 /// ranges are computed by the app only (its depth network is not in the
 /// CLI); a photo needing one fails, naming the layer.
@@ -601,9 +602,37 @@ impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
                     "depth ranges are computed by the app (export the photo from the app)".into(),
                 );
             }
+            AutoSelection::Landscape => {
+                let parts = sel::landscape_parts(parameters)
+                    .ok_or_else(|| "a Landscape selection without known parts".to_string())?;
+                return self
+                    .detect_landscape(&[parts], warped, linear)
+                    .map(|mut masks| masks.remove(0));
+            }
         }
         .map_err(|e| format!("{e:#}"))?;
         rawtonic_segment::mask_data_url(&mask)
+    }
+
+    fn detect_landscape(
+        &self,
+        sets: &[rawtonic_engine::ai_selections::LandscapeParts],
+        warped: &image::DynamicImage,
+        linear: bool,
+    ) -> Result<Vec<String>, String> {
+        let model = self.segment.landscape().map_err(|e| format!("{e:#}"))?;
+        let probabilities = rawtonic_segment::landscape_probabilities(warped, &model, linear, None)
+            .map_err(|e| format!("{e:#}"))?;
+        sets.iter()
+            .map(|set| {
+                let parts =
+                    rawtonic_segment::landscape_parts(&set.keys()).map_err(|e| format!("{e:#}"))?;
+                rawtonic_segment::mask_data_url(&rawtonic_segment::landscape_mask_grid(
+                    &probabilities,
+                    &parts,
+                ))
+            })
+            .collect()
     }
 }
 
@@ -1324,6 +1353,13 @@ fn export(args: ExportArgs) -> Result<()> {
                 serde_json::from_str(settings).context("--face-retouch: JSON expected")?;
             ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);
             let face_models = rawtonic_faces::FaceModels::load(&models_dir(models.clone())?)?;
+            // New Eyes and Teeth use the eye and teeth parser, as in the app.
+            let portrait = rawtonic_engine::face_retouch::Settings::uses_eyes_teeth(&settings)
+                .then(|| {
+                    rawtonic_faces::portrait::PortraitModel::from_dir(&models_dir(models.clone())?)
+                        .context("Eyes and Teeth")
+                })
+                .transpose()?;
             let recipes = jobs
                 .iter()
                 .zip(recipes)
@@ -1336,12 +1372,14 @@ fn export(args: ExportArgs) -> Result<()> {
                         recipe.unwrap_or_default(),
                         &settings,
                         &face_models,
+                        portrait.as_ref(),
                     )
                     .map(Some)
                 })
                 .collect::<Result<Vec<_>>>()?;
             // ONNX Runtime aborts when its environment is torn down at exit.
             std::mem::forget(face_models);
+            std::mem::forget(portrait);
             recipes
         }
         None => recipes,
@@ -1365,7 +1403,11 @@ fn export(args: ExportArgs) -> Result<()> {
         }
         None => exporter,
     };
-    let exporter = with_recipe_models(exporter, models, &recipes);
+    let sources: Vec<PathBuf> = jobs
+        .iter()
+        .map(|(photo, _)| rawtonic_export::sidecars::parse_virtual_path(photo).0)
+        .collect();
+    let exporter = with_recipe_models(exporter, models, &recipes, &sources);
     let inputs = render_inputs
         .as_ref()
         .map(|_| rawtonic_export::render_inputs::RenderInputs::new());
@@ -1529,7 +1571,11 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
     let exporter =
         rawtonic_export::file_export::FileExporter::new(&lensfun_folder(args.lensfun_db)?)
             .map_err(anyhow::Error::msg)?;
-    let exporter = with_recipe_models(exporter, args.models, &recipes);
+    let sources: Vec<PathBuf> = photos
+        .iter()
+        .map(|photo| parse_virtual_path(photo).0)
+        .collect();
+    let exporter = with_recipe_models(exporter, args.models, &recipes, &sources);
     let cells_dir = tempfile::tempdir()?;
     let total = photos.len();
     let mut cells = Vec::with_capacity(total);
@@ -1627,6 +1673,7 @@ fn with_recipe_models(
     mut exporter: rawtonic_export::file_export::FileExporter,
     models: Option<PathBuf>,
     recipes: &[Option<serde_json::Value>],
+    sources: &[PathBuf],
 ) -> rawtonic_export::file_export::FileExporter {
     let ai_models: std::collections::BTreeSet<usize> = recipes
         .iter()
@@ -1642,12 +1689,15 @@ fn with_recipe_models(
     }
     // Automatic selections a never-opened photo holds without their bitmap
     // are computed with the app's models, as the app's export does; without
-    // the models those photos fail.
-    if recipes
-        .iter()
-        .flatten()
-        .any(|r| !rawtonic_engine::ai_selections::undetected(r).is_empty())
-    {
+    // the models those photos fail. So are those of a camera TIFF's edit made
+    // on its thumbnail, once moved to the full frame (`recipe_frame`).
+    if recipes.iter().zip(sources).any(|(recipe, source)| {
+        recipe.as_ref().is_some_and(|recipe| {
+            let mut recipe = recipe.clone();
+            rawtonic_engine::recipe_frame::conform(&mut recipe, source);
+            !rawtonic_engine::ai_selections::undetected(&recipe).is_empty()
+        })
+    }) {
         match models_dir(models.clone()) {
             Ok(dir) => {
                 ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);

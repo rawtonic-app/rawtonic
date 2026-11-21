@@ -5,6 +5,7 @@
       "depth": "KI-Maske: Tiefe",
       "foreground": "KI-Maske: Vordergrund",
       "inpaint": "Generatives Füllen",
+      "landscape": "KI-Maske: Landschaft",
       "object": "KI-Maske: Objekt",
       "other": "KI-Aufgabe",
       "people": "KI-Maske: Personen",
@@ -34,6 +35,8 @@
     },
     "copied": "Kopiert",
     "copyDetails": "Details kopieren",
+    "cropMissing_one": "Kamera-Zuschnitt nicht auf {{count}} Foto angewendet: Das Original liegt in der Cloud. Die Bearbeitung ist gespeichert; lade das Original herunter und setze den Zuschnitt in Entwickeln.",
+    "cropMissing_other": "Kamera-Zuschnitt nicht auf {{count}} Fotos angewendet: Die Originale liegen in der Cloud. Die Bearbeitungen sind gespeichert; lade die Originale herunter und setze den Zuschnitt in Entwickeln.",
     "dismiss": "Ausblenden: {{title}}",
     "dismissShort": "Ausblenden",
     "download": {
@@ -496,7 +499,6 @@
       "confirmReset": "Zurücksetzen bestätigen",
       "convertNegative": "Negativ umwandeln",
       "copyAdjustments": "Anpassungen kopieren",
-      "cullImage": "Bild aussortieren",
       "editImage": "In Entwickeln öffnen",
       "exportImage": "Bild exportieren",
       "frameImage": "Bild rahmen",
@@ -568,8 +570,6 @@
       "convertNegative_other": "Negative umwandeln",
       "copyImage_one": "Bild kopieren",
       "copyImage_other": "{{count}} Bilder kopieren",
-      "cullImage_one": "Bild aussortieren",
-      "cullImage_other": "Bilder aussortieren",
       "deleteAssociated": "Löschen + Zugehörige",
       "deleteImage_one": "Bild löschen",
       "deleteImage_other": "{{count}} Bilder löschen",
@@ -882,6 +882,10 @@
       "exporting": "Exportieren…",
       "savesTo": "Externe Bearbeitung — speichert in"
     },
+    "frameMove": {
+      "action": "Auf volles Bild verschieben",
+      "undecided": "Diese Bearbeitung wurde vielleicht an der kleinen Vorschau gemacht, die Rawtonic vor 0.1.0-alpha.17.1 für diese TIFF-Datei zeigte. Sitzen Freistellung und Retuschepunkte falsch, verschiebe sie auf das volle Bild."
+    },
     "guided": {
       "cancel": "Abbrechen",
       "drawingActive": "Zeichnen aktiv",
@@ -955,6 +959,8 @@
         "maskName_other": "Maske {{count}}"
       },
       "rangeTitle": "Bereiche & Global",
+      "recomputedFullFrame_one": "KI-Masken auf {{count}} Ebene wurden für das Bild in voller Auflösung neu berechnet. Rückgängig holt die früheren zurück.",
+      "recomputedFullFrame_other": "KI-Masken auf {{count}} Ebenen wurden für das Bild in voller Auflösung neu berechnet. Rückgängig holt die früheren zurück.",
       "resetMaskingTooltip": "Maskierung zurücksetzen",
       "settings": {
         "aiModelDownloading": "KI-Modell wird heruntergeladen: ",
@@ -1051,6 +1057,7 @@
       "flow": "Fluss",
       "foreground": "Vordergrund",
       "heal": "Reparieren",
+      "landscape": "Landschaft",
       "linear": "Linear",
       "liquify": "Verflüssigen",
       "luminance": "Luminanz",
@@ -1132,38 +1139,6 @@
       "create": "Erstellen",
       "placeholder": "Ordnernamen eingeben...",
       "title": "Neuen Ordner erstellen"
-    },
-    "culling": {
-      "actionDelete": "In den Papierkorb verschieben",
-      "actionRateZero": "Bewertung auf 1 Stern setzen",
-      "actionReject": "Als abgelehnt markieren (Rote Markierung)",
-      "applyButton_one": "Auf 1 Bild anwenden",
-      "applyButton_other": "Auf {{count}} Bilder anwenden",
-      "bestImage": "Bestes Bild",
-      "blurryImagesTab": "Unscharfe Bilder",
-      "blurThreshold": "Unschärfe-Schwellenwert",
-      "blurThresholdDesc": "Bilder mit einem Schärfewert unter diesem Wert werden markiert. Höher ist strenger.",
-      "cancel": "Abbrechen",
-      "close": "Schließen",
-      "cullingFailed": "Aussortieren fehlgeschlagen",
-      "cullingSuggestions": "Vorschläge zum Aussortieren",
-      "done": "Fertig",
-      "duplicatesHeader": "Duplikate ({{count}})",
-      "duplicatesHeader_one": "Duplikate ({{count}})",
-      "duplicatesHeader_other": "Duplikate ({{count}})",
-      "filterBlurry": "Unscharfe Bilder filtern",
-      "groupHeader": "Gruppe {{index}}",
-      "groupSimilar": "Ähnliche Bilder gruppieren",
-      "noIssuesDesc": "Alle Bilder scheinen einzigartig und scharf zu sein.",
-      "noIssuesFound": "Keine Probleme gefunden!",
-      "score": "Punktzahl: {{score}}",
-      "sharpness": "Schärfe: {{sharpness}}",
-      "similarGroupsTab": "Ähnliche Gruppen",
-      "similarityThreshold": "Ähnlichkeits-Schwellenwert",
-      "similarityThresholdDesc": "Niedriger ist strenger (exakte Duplikate). Höher ist lockerer. 24-32 wird empfohlen.",
-      "startCulling": "Aussortieren starten",
-      "starting": "Wird gestartet...",
-      "title": "Bilder aussortieren"
     },
     "merge": {
       "align": "Fotos ausrichten",
@@ -1821,6 +1796,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "Die Fotos sind zurück, aber die Ordnerrolle bleibt, wo sie ist: {{error}}",
       "selectsUnavailable": "Der Selects-Ordner {{folder}} ist nicht verfügbar (ist sein Laufwerk angeschlossen?). Nichts wurde verschoben; wähle in „Session-Ordner“ einen anderen Selects-Ordner.",
       "title": "Session-Ordner",
       "unavailableUse": {
@@ -2262,8 +2238,8 @@
         "offline_other": "{{count}} Fotos sind offline. Ihre XMP-Dateien werden aktualisiert, sobald das Laufwerk wieder verbunden ist.",
         "pending_one": "{{count}} XMP-Datei kann erneut geschrieben werden.",
         "pending_other": "{{count}} XMP-Dateien können erneut geschrieben werden.",
-        "sharedName_one": "{{count}} Foto heißt genauso wie ein anderes (RAW und JPEG), daher würden beide dieselbe XMP-Datei schreiben.",
-        "sharedName_other": "{{count}} Fotos heißen genauso wie ein anderes (RAW und JPEG), daher würden beide dieselbe XMP-Datei schreiben."
+        "sharedName_one": "{{count}} Foto heißt genauso wie ein anderes (zwei RAW-Dateien, etwa CR3 und DNG), daher würden beide dieselbe XMP-Datei schreiben.",
+        "sharedName_other": "{{count}} Fotos heißen genauso wie ein anderes (zwei RAW-Dateien, etwa CR3 und DNG), daher würden beide dieselbe XMP-Datei schreiben."
       },
       "resolved_one": "XMP-Konflikt für {{count}} Foto gelöst",
       "resolved_other": "XMP-Konflikte für {{count}} Fotos gelöst",
@@ -2289,13 +2265,15 @@
         "2xBHI_small_compact_pretrain": "Super-Resolution beim Export (Philip Hofmann). Geändert: nach ONNX und Core ML umgewandelt, Mittel aus vier Drehungen jeder Kachel (in der CPU-Konvertierung nacheinander; in der GPU-Konvertierung fp16-Gewichte und -Berechnung).",
         "avif-parse": "Liest den AVIF-Container.",
         "BiRefNet": "Motiv- und Hintergrundmasken (Peng Zheng und andere).",
-        "ConvNeXt UperNet": "Himmelsmasken (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Himmels- und Landschaftsmasken (Meta, ADE20K).",
+        "cyrb53": "String-Hash von bryc, mit dem Editor und Renderer den Inhalt einer Masken-Bitmap benennen.",
         "darktable": "Referenzimplementierungen für Teile des übernommenen Editors.",
         "DAViD": "Oberflächennormalen von Personen für Relight (Microsoft).",
         "Dawn": "WebGPU für KI-Modelle unter Windows und Linux im WebGPU-Plugin von ONNX Runtime (Google).",
         "Depth Anything 3 Base": "Relative Szenengeometrie und Kameraschätzung für Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Tiefenmasken.",
         "DirectX Shader Compiler": "Unter Windows Microsofts Shader-Compiler (dxcompiler.dll, dxil.dll), mit dem das WebGPU-Plugin von ONNX Runtime die KI-Modelle auf der GPU ausführt (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Augenöffnungen und Zähne für die Gesichtsretusche (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Geändert: nach ONNX und Core ML umgewandelt, veröffentlicht unter CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Zuordnung von Windows-Zeitzonennamen zu IANA-Kennungen.",
         "jxl-oxide": "Öffnet JPEG-XL-Dateien (Wonwoo Choi), mit einer Rawtonic-Korrektur für leere Modular-Datenströme.",
         "Lensfun database": "Objektivprofile für die automatische Objektivkorrektur (nur Daten, kein Lensfun-Code).",
@@ -2827,7 +2805,7 @@
       "done_one": "{{count}} Stapel gebildet",
       "done_other": "{{count}} Stapel gebildet",
       "interval": "Zeit zwischen Fotos",
-      "intro": "Fotos, die höchstens so lange nach dem vorigen aufgenommen wurden, kommen in einen Stapel. Fotos in einem Stapel bleiben, wie sie sind.",
+      "intro": "Fotos, die höchstens so lange nach dem vorigen aufgenommen wurden, kommen in einen Stapel; mit „Nur Fotos, die sich ähneln“ müssen sie auch dieselbe Szene zeigen. Fotos in einem Stapel bleiben, wie sie sind.",
       "kind": {
         "bracket_one": "{{count}} Belichtungsreihe",
         "bracket_other": "{{count}} Belichtungsreihen",
@@ -2844,9 +2822,13 @@
       "reading": "Wird gezählt…",
       "seconds_one": "{{count}} Sekunde",
       "seconds_other": "{{count}} Sekunden",
+      "similar": "Nur Fotos, die sich ähneln",
+      "similarity": "Mindestens so ähnlich",
       "single_one": "{{count}} Foto bleibt einzeln",
       "single_other": "{{count}} Fotos bleiben einzeln",
       "title": "Automatisch nach Aufnahmezeit stapeln",
+      "unread_one": "{{count}} noch nicht gelesenes Foto wird nur nach Zeit gruppiert",
+      "unread_other": "{{count}} noch nicht gelesene Fotos werden nur nach Zeit gruppiert",
       "useCameraData": "Serien- und Belichtungsreihen-Daten der Kamera nutzen, wenn vorhanden"
     },
     "badge": {
@@ -3017,7 +2999,6 @@
         "target": {
           "blueAria": "Ziel Blau (sRGB 0–255)",
           "chromaAria": "Ziel-Buntheit C* (CIELAB D50)",
-          "distance": "ΔE00 {{value}} vom Ziel entfernt.",
           "greenAria": "Ziel Grün (sRGB 0–255)",
           "grey": "Dieser Bereich ist zu grau, um eine Farbe anzunehmen.",
           "heading": "Zielfarbe",
@@ -3032,14 +3013,20 @@
             "lightness": "Helligkeit (×0,6–1,4)",
             "saturation": "Sättigung (0–200 %)"
           },
-          "outOfReach": "Nicht erreichbar: ΔE00 {{value}} bleiben; {{limits}} am Anschlag.",
+          "measuredDistance": "ΔE00 {{value}} vom Ziel, gemessen am gewählten Punkt.",
+          "measuredOutOfReach": "Nicht erreichbar: ΔE00 {{value}} bleiben, gemessen am gewählten Punkt; {{limits}} am Anschlag.",
+          "measuredOutsideSrgb": "Das Ziel liegt außerhalb von sRGB: Das sRGB-Ergebnis am gewählten Punkt bleibt ΔE00 {{value}} davon entfernt (gemessen).",
+          "measuredReached": "Ziel erreicht: ΔE00 {{value}}, gemessen am gewählten Punkt.",
+          "measuring": "Ergebnis am gewählten Punkt wird gemessen …",
+          "notMeasured": "Vorhergesagt ΔE00 {{value}} vom Ziel; mit KI-Entrauschen lässt sich das Ergebnis am gewählten Punkt nicht messen.",
           "outsideSrgb": "Das Ziel liegt außerhalb von sRGB; ein sRGB-Export bildet die Farbe in sRGB ab.",
           "outsideWorkingGamut": "Das Ziel liegt außerhalb der Arbeitsfarben des Fotos (ProPhoto): Keine Farbe des Fotos kann es sein, der Bereich geht so nah heran, wie er kann.",
           "pickAria": "Zielfarbe aufnehmen",
           "pickedThrough": "Vorhergesagt ΔE00 {{value}} vom Ziel, aber diese Farbe wurde durch die starke Änderung des Bereichs selbst aufgenommen: Ergebnis im Foto prüfen oder mit Reglern auf 0 neu aufnehmen.",
           "pickTitle": "Zielfarbe im Foto aufnehmen; dieser Bereich wird darauf verschoben",
-          "reached": "Ziel erreicht (ΔE00 {{value}}).",
-          "readoutTitle": "Vorhersage für die aufgenommene Farbe des Bereichs, vor späteren Werkzeugen wie Kurven und Color Grading",
+          "predicted": "Vorhergesagt ΔE00 {{value}} vom Ziel für die Farbe des Bereichs, nicht gemessen: Nimm den Bereich im Foto auf, um das Ergebnis zu messen.",
+          "predictedOutOfReach": "Vorhergesagt nicht erreichbar: ΔE00 {{value}} bleiben; {{limits}} am Anschlag (nicht gemessen: Nimm den Bereich im Foto auf, um das Ergebnis zu messen).",
+          "readoutTitle": "Gemessen in der sRGB-Darstellung des Fotos mit allen Werkzeugen, über die 11 × 11 Vorschaupixel der Pipette am gewählten Punkt; ein nicht im Foto gewählter Bereich wird für seine Farbe vorhergesagt",
           "redAria": "Ziel Rot (sRGB 0–255)",
           "sampleAria": "Zielfarbe aufnehmen (merken)",
           "sampleTitle": "Zielfarbe in diesem Foto aufnehmen, für einen Bereich hier oder in einem anderen Foto",
@@ -3047,6 +3034,7 @@
           "srgb": "sRGB",
           "swatchAria": "Ergebnis des Bereichs {{result}}, Ziel {{target}}",
           "uncovered": "Die Maske der Ebene deckt die aufgenommene Stelle nicht mehr ab: Die Regler des Bereichs bleiben, wie sie sind.",
+          "unmeasured": "Vorhergesagt ΔE00 {{value}} vom Ziel; das Ergebnis am gewählten Punkt ließ sich nicht messen.",
           "useSampled": "Zielfarbe aus {{name}} verwenden",
           "useSampledTitle": "Diesen Bereich auf die in {{name}} aufgenommene Farbe verschieben"
         },
@@ -3186,6 +3174,37 @@
       "swapOrientation": "Hoch- und Querformat tauschen",
       "turnOverlay": "Überlagerung drehen"
     },
+    "culling": {
+      "analyse": "Fehlaufnahmen und Dokumente finden",
+      "analyseDownload": "Fehlaufnahmen und Dokumente finden ({{size}} laden)",
+      "autoStack": "Automatisch stapeln…",
+      "badge": "Vorgeschlagen: {{names}}",
+      "checkEyes": "Augen prüfen…",
+      "checkTitle": "Ablehnen nimmt die angehakten Vorschläge",
+      "criteria": {
+        "document": "Dokumente",
+        "eyesClosed": "Augen geschlossen",
+        "misfire": "Fehlaufnahmen"
+      },
+      "criteriaLabel": "Vorschläge",
+      "dismiss_one": "Kein Problem ({{n}} ausgewählt)",
+      "dismiss_other": "Kein Problem ({{n}} ausgewählt)",
+      "dismissTitle": "Die angehakten Vorschläge der ausgewählten Fotos werden nicht mehr gezeigt",
+      "failed": "Vorschläge nicht gespeichert: {{error}}",
+      "gridOnly": "Ablehnen wirkt auf die Fotos, die das Raster zeigt: G zeigt das Raster.",
+      "needsModel": "Für Fehlaufnahmen und Dokumente liest das Suchmodell jedes Foto.",
+      "reading": "{{scored}} von {{total}} Fotos gelesen",
+      "reject_one": "{{n}} vorgeschlagenes Foto ablehnen",
+      "reject_other": "{{n}} vorgeschlagene Fotos ablehnen",
+      "rejectTitle": "Markiert die angehakten Vorschläge unter den gezeigten Fotos als abgelehnt, in einem Widerrufschritt; nichts wird verschoben oder gelöscht",
+      "showAgain_one": "Vorschläge wieder zeigen ({{n}} ausgewählt)",
+      "showAgain_other": "Vorschläge wieder zeigen ({{n}} ausgewählt)",
+      "showOnly": "Nur {{name}} zeigen ({{n}})",
+      "suggestionOnly": "Nur Vorschläge: Nichts wird abgelehnt, bevor Sie auf Ablehnen klicken, und Widerrufen nimmt es zurück.",
+      "title": "Aussortieren",
+      "unreadable_one": "{{n}} Foto konnte für Vorschläge nicht gelesen werden; es wird beim Öffnen der Bibliothek erneut versucht.",
+      "unreadable_other": "{{n}} Fotos konnten für Vorschläge nicht gelesen werden; sie werden beim Öffnen der Bibliothek erneut versucht."
+    },
     "develop": {
       "auto": {
         "label": "Auto",
@@ -3311,6 +3330,7 @@
           "brush": "Pinsel",
           "color": "Farbe",
           "depth": "Tiefe",
+          "landscape": "Landschaft",
           "linear": "Linear",
           "luminance": "Luminanz",
           "object": "Objekt",
@@ -3340,6 +3360,7 @@
           "brush": "Neue Ebene: Pinsel",
           "color": "Neue Ebene: Farbbereich",
           "depth": "Neue Ebene: Tiefenbereich",
+          "landscape": "Neue Landschaftsebene",
           "linear": "Neue Ebene mit linearem Verlauf",
           "luminance": "Neue Ebene: Luminanzbereich",
           "object": "Neue Ebene: Objekt",
@@ -3629,13 +3650,13 @@
         "exporting": "Export {{current}} von {{total}}"
       },
       "provenance": {
-        "about": "Hält fest, aus welchem Foto jede Datei entwickelt wurde, welche Arten von Bearbeitungen es gab und jeden Bereich, den ein generatives Modell erzeugt hat – signiert mit Ihrem Zertifikat. JPEG, PNG und TIFF. Es wird nichts gesendet.",
+        "about": "Hält fest, aus welchem Foto jede Datei entwickelt wurde, welche Arten von Bearbeitungen es gab und jeden Bereich, den ein generatives Modell erzeugt hat – signiert mit Ihrem Zertifikat. JPEG, PNG, TIFF, WebP und AVIF. Es wird nichts gesendet.",
         "add": "Herkunftsnachweis in jede Datei signieren",
         "author": "Urheber des Fotos als Autor nennen",
-        "blocked": "Der Herkunftsnachweis (C2PA) kann {{recipes}} nicht signieren: Richten Sie ein gültiges Signaturzertifikat ein und exportieren Sie JPEG, PNG oder TIFF.",
+        "blocked": "Der Herkunftsnachweis (C2PA) kann {{recipes}} nicht signieren: Richten Sie ein gültiges Signaturzertifikat ein und exportieren Sie JPEG, PNG, TIFF, WebP oder AVIF.",
         "certificateFilter": "PKCS#12-Zertifikat",
         "expired": "Dieses Zertifikat ist derzeit nicht gültig (gültig bis {{until}}): Exporte können damit nicht signiert werden. Importieren Sie ein erneuertes Zertifikat oder erstellen Sie ein neues.",
-        "formatUnsupported": "{{format}}-Dateien können noch keinen Herkunftsnachweis tragen. Wählen Sie JPEG, PNG oder TIFF oder schalten Sie die Option aus.",
+        "formatUnsupported": "{{format}}-Dateien können noch keinen Herkunftsnachweis tragen. Wählen Sie JPEG, PNG, TIFF, WebP oder AVIF oder schalten Sie die Option aus.",
         "generate": "Zertifikat auf diesem Computer erstellen",
         "import": "Eigenes Zertifikat importieren (.p12)…",
         "importConfirm": "Importieren",
@@ -3886,9 +3907,11 @@
       },
       "downloadModels": "Gesichtsmodelle laden",
       "eyes": {
+        "downloadModel": "Augen- und Zahnmodell laden",
         "find": "Augen und Zähne finden",
         "finding": "Augen und Zähne werden gefunden…",
         "missing": "Augen und Zähne brauchen Augen und Mund dieser Gesichter; sie wurden gefunden, bevor es diese Werkzeuge gab.",
+        "modelMissing": "Augen und Zähne verwenden ein Augen- und Zahnmodell (57 MB). Es wird einmal aus Rawtonics Modellpaket auf GitHub geladen und läuft auf diesem Computer.",
         "none": "Auf diesem Gesicht wurden keine Augen und kein offener Mund gefunden.",
         "sideAria": "Auge",
         "sideHint": {
@@ -3963,6 +3986,23 @@
       "shadowClippingLit": "Schattenwarnung, abgesoffen",
       "shadowClippingTitle": "Schattenwarnung (blau im Foto; {{shortcut}} schaltet beide)",
       "title": "Histogramm"
+    },
+    "landscape": {
+      "aria": "Landschaftsmaske",
+      "choose": "Wähle die Teile, die ausgewählt werden sollen.",
+      "finding": "Teile der Landschaft werden gesucht…",
+      "noneFound": "Keiner dieser Teile wurde in diesem Foto gefunden.",
+      "notFound": "(nicht gefunden)",
+      "parts": {
+        "architecture": "Architektur",
+        "artificialGround": "Künstlicher Boden",
+        "mountains": "Berge",
+        "naturalGround": "Natürlicher Boden",
+        "sky": "Himmel",
+        "vegetation": "Vegetation",
+        "water": "Wasser"
+      },
+      "partsAria": "Teile der Landschaft"
     },
     "layers": {
       "bandWidth": "Bandbreite",
@@ -4469,6 +4509,11 @@
             "purple": "Lila",
             "red": "Rot",
             "yellow": "Gelb"
+          },
+          "suggestion": {
+            "document": "Dokument",
+            "eyesClosed": "Augen geschlossen",
+            "misfire": "Fehlaufnahme"
           }
         },
         "combine": {
@@ -4506,6 +4551,8 @@
           "previousImport": "Im letzten Import",
           "rating": "Bewertung",
           "sourceType": "Digitale Quelle (in der Datei)",
+          "stacked": "In einem Stapel",
+          "suggestion": "Aussortier-Vorschlag",
           "text": "Beliebiger durchsuchbarer Text"
         },
         "folderPlaceholder": "Ordnerpfad",
@@ -4707,6 +4754,7 @@
         "brush": "Pinsel",
         "color": "Farbbereich",
         "depth": "Tiefenbereich",
+        "landscape": "Landschaft",
         "linear": "Linear",
         "luminance": "Luminanzbereich",
         "object": "Objekt",
@@ -5547,6 +5595,7 @@
         "moveToolsLeft": "Entwickeln-Werkzeuge nach links verschieben",
         "moveToolsRight": "Entwickeln-Werkzeuge nach rechts verschieben"
       },
+      "lightroomHdr": "HDR-Bearbeitung aus Lightroom — wird als SDR angezeigt und exportiert",
       "loupe": {
         "adjust": "Entwickeln",
         "adjustTitle": "In Entwickeln bearbeiten",

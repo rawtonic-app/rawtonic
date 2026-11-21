@@ -16,10 +16,13 @@
 //!   (`DIGITAL_SOURCE_COMPOSITE_AI`),
 //! - the author (`cawg.metadata`, `dc:creator`), only when the recipe asks,
 //! - the hard binding: SHA-256 of the whole file except the manifest,
-//!   computed after every other byte of the file is written.
+//!   computed after every other byte of the file is written
+//!   (`c2pa.hash.data`; for AVIF `c2pa.hash.bmff.v3`, which also binds each
+//!   top-level box's position).
 //!
-//! JPEG (APP11 segments), PNG (a `caBX` chunk) and TIFF (tag 0xCD41) are
-//! written; other formats refuse the option ([`supports`]).
+//! JPEG (APP11 segments), PNG (a `caBX` chunk), TIFF (tag 0xCD41), WebP (a
+//! `C2PA` chunk) and AVIF (a C2PA `uuid` box before the media data) are written; other formats
+//! refuse the option ([`supports`]).
 
 pub mod cbor;
 mod der;
@@ -43,7 +46,30 @@ pub const TIFF_TAG: u16 = 0xCD41;
 
 /// Whether files of `extension` (lower case) can carry a manifest.
 pub fn supports(extension: &str) -> bool {
-    matches!(extension, "jpg" | "jpeg" | "png" | "tif" | "tiff")
+    matches!(
+        extension,
+        "jpg" | "jpeg" | "png" | "tif" | "tiff" | "webp" | "avif"
+    )
+}
+
+/// The extended type of the `uuid` box a BMFF file keeps its manifest store
+/// in (C2PA 2.x, "Embedding manifests into BMFF-based assets").
+const BMFF_UUID: [u8; 16] = [
+    0xd8, 0xfe, 0xc3, 0xd6, 0x1b, 0x0e, 0x48, 0x3c, 0x92, 0x97, 0x58, 0x28, 0x87, 0x7e, 0xc4, 0x81,
+];
+
+/// What the manifest's hard binding says.
+#[derive(Clone, Copy)]
+enum Binding<'b> {
+    /// `c2pa.hash.data`: SHA-256 of the file without the bytes `exclusion`
+    /// (start, length) that hold the manifest.
+    Data {
+        exclusion: (u64, u64),
+        hash: &'b [u8],
+    },
+    /// `c2pa.hash.bmff.v3`: SHA-256 of each top-level box's offset and bytes
+    /// but the manifest's `uuid` box and any `mfra`.
+    Bmff { hash: &'b [u8] },
 }
 
 /// One action of the manifest.
@@ -238,15 +264,9 @@ impl<'a> Manifest<'a> {
         }
     }
 
-    /// The manifest store for a file whose bytes `exclusion` (start, length)
-    /// hold the store, and whose other bytes hash to `data_hash`. Unsigned
-    /// (a zero signature of the right length) to find its size.
-    fn store(
-        &self,
-        exclusion: (u64, u64),
-        data_hash: &[u8],
-        signed: bool,
-    ) -> Result<Vec<u8>, String> {
+    /// The manifest store for a file `binding` describes. Unsigned (a zero
+    /// signature of the right length) to find its size.
+    fn store(&self, binding: Binding<'_>, signed: bool) -> Result<Vec<u8>, String> {
         let plan = self.plan;
         let mut assertions: Vec<(&str, Vec<u8>)> = Vec::new();
 
@@ -310,20 +330,50 @@ impl<'a> Manifest<'a> {
             assertions.push((label, jumbf::json_superbox(label, &json)));
         }
 
-        let hash_label = "c2pa.hash.data";
-        let binding = Cbor::map([
-            (
-                "exclusions",
-                Cbor::Array(vec![Cbor::map([
-                    ("start", int(exclusion.0)?),
-                    ("length", int(exclusion.1)?),
-                ])]),
+        let (hash_label, binding) = match binding {
+            Binding::Data { exclusion, hash } => (
+                "c2pa.hash.data",
+                Cbor::map([
+                    (
+                        "exclusions",
+                        Cbor::Array(vec![Cbor::map([
+                            ("start", int(exclusion.0)?),
+                            ("length", int(exclusion.1)?),
+                        ])]),
+                    ),
+                    ("name", Cbor::text("jumbf manifest")),
+                    ("alg", Cbor::text("sha256")),
+                    ("hash", Cbor::Bytes(hash.to_vec())),
+                    ("pad", Cbor::Bytes(Vec::new())),
+                ]),
             ),
-            ("name", Cbor::text("jumbf manifest")),
-            ("alg", Cbor::text("sha256")),
-            ("hash", Cbor::Bytes(data_hash.to_vec())),
-            ("pad", Cbor::Bytes(Vec::new())),
-        ]);
+            Binding::Bmff { hash } => (
+                "c2pa.hash.bmff.v3",
+                Cbor::map([
+                    (
+                        "exclusions",
+                        // The C2PA `uuid` box, and `/mfra`, which every
+                        // BMFF binding lists (C2PA 2.x, A.5.5).
+                        Cbor::Array(vec![
+                            Cbor::map([
+                                ("xpath", Cbor::text("/uuid")),
+                                (
+                                    "data",
+                                    Cbor::Array(vec![Cbor::map([
+                                        ("offset", Cbor::Int(8)),
+                                        ("value", Cbor::Bytes(BMFF_UUID.to_vec())),
+                                    ])]),
+                                ),
+                            ]),
+                            Cbor::map([("xpath", Cbor::text("/mfra"))]),
+                        ]),
+                    ),
+                    ("alg", Cbor::text("sha256")),
+                    ("hash", Cbor::Bytes(hash.to_vec())),
+                    ("name", Cbor::text("jumbf manifest")),
+                ]),
+            ),
+        };
         assertions.push((
             hash_label,
             jumbf::cbor_superbox(jumbf::CBOR, hash_label, &binding.encode()),
@@ -407,7 +457,11 @@ impl<'a> Manifest<'a> {
         let zeros = [0u8; 32];
         let mut excluded = 0;
         for _ in 0..8 {
-            let len = self.store((start, excluded), &zeros, false)?.len() as u64;
+            let binding = Binding::Data {
+                exclusion: (start, excluded),
+                hash: &zeros,
+            };
+            let len = self.store(binding, false)?.len() as u64;
             let next = on_disk(len);
             if next == excluded {
                 return Ok(excluded);
@@ -503,7 +557,11 @@ pub fn sign_jpeg(
     let excluded = manifest.sized(at as u64, app11_len)?;
     // The file without its manifest segments is the JPEG as it was.
     let data_hash = digest::digest(&digest::SHA256, jpeg);
-    let store = manifest.store((at as u64, excluded), data_hash.as_ref(), true)?;
+    let binding = Binding::Data {
+        exclusion: (at as u64, excluded),
+        hash: data_hash.as_ref(),
+    };
+    let store = manifest.store(binding, true)?;
     let segments = app11_segments(&store);
     if segments.len() as u64 != excluded {
         return Err("The signed manifest changed size.".to_string());
@@ -535,7 +593,11 @@ pub fn sign_png(
     // The chunk: length, type, the store, CRC.
     let excluded = manifest.sized(at as u64, |len| len + 12)?;
     let data_hash = digest::digest(&digest::SHA256, png);
-    let store = manifest.store((at as u64, excluded), data_hash.as_ref(), true)?;
+    let binding = Binding::Data {
+        exclusion: (at as u64, excluded),
+        hash: data_hash.as_ref(),
+    };
+    let store = manifest.store(binding, true)?;
     if store.len() as u64 + 12 != excluded {
         return Err("The signed manifest changed size.".to_string());
     }
@@ -553,14 +615,201 @@ pub fn sign_png(
     Ok(out)
 }
 
-/// Signs the manifest of `plan` into a complete TIFF in `file` (tag 0xCD41
-/// of a new IFD0 copy, the store last in the file); the file is read back
-/// once for its hash, not held in memory.
-pub fn sign_tiff<S: Read + Write + Seek>(
-    file: &mut S,
+/// A WebP (extended format, as the export writes it) with the manifest of
+/// `plan` signed by `identity`, in a `C2PA` chunk at the end of the RIFF
+/// (as c2pa-rs places it); the RIFF size counts it.
+pub fn sign_webp(
+    webp: &[u8],
     plan: &ManifestPlan,
     identity: &SigningIdentity,
-) -> Result<(), String> {
+) -> Result<Vec<u8>, String> {
+    if webp.len() < 20 || &webp[0..4] != b"RIFF" || &webp[8..12] != b"WEBP" {
+        return Err("Not a WebP file.".to_string());
+    }
+    let riff_len = u32::from_le_bytes(webp[4..8].try_into().expect("4 bytes")) as usize;
+    if riff_len + 8 != webp.len() || !webp.len().is_multiple_of(2) {
+        return Err("The WebP file's length does not match its RIFF header.".to_string());
+    }
+    if &webp[12..16] != b"VP8X" {
+        return Err("The WebP file is not in the extended format.".to_string());
+    }
+    let mut at = 12;
+    while at + 8 <= webp.len() {
+        if &webp[at..at + 4] == b"C2PA" {
+            return Err("The WebP file already holds a manifest.".to_string());
+        }
+        let size = u32::from_le_bytes(webp[at + 4..at + 8].try_into().expect("4 bytes")) as usize;
+        at += 8 + size + (size & 1);
+    }
+    let at = webp.len() as u64;
+    let manifest = Manifest::new(plan, identity);
+    // The chunk's header and the store; a pad byte after an odd store is
+    // outside the exclusion (c2pa-rs `RiffIO`), so it is hashed.
+    let excluded = manifest.sized(at, |len| len + 8)?;
+    let pad = (excluded % 2) as usize;
+    let riff = u32::try_from(riff_len as u64 + excluded + pad as u64)
+        .map_err(|_| "The WebP file is too large for a manifest.".to_string())?;
+    let mut bound = digest::Context::new(&digest::SHA256);
+    bound.update(&webp[..4]);
+    bound.update(&riff.to_le_bytes());
+    bound.update(&webp[8..]);
+    bound.update(&[0u8; 1][..pad]);
+    let data_hash = bound.finish();
+    let binding = Binding::Data {
+        exclusion: (at, excluded),
+        hash: data_hash.as_ref(),
+    };
+    let store = manifest.store(binding, true)?;
+    if store.len() as u64 + 8 != excluded {
+        return Err("The signed manifest changed size.".to_string());
+    }
+    let mut out = Vec::with_capacity(webp.len() + store.len() + 9);
+    out.extend_from_slice(&webp[..4]);
+    out.extend_from_slice(&riff.to_le_bytes());
+    out.extend_from_slice(&webp[8..]);
+    out.extend_from_slice(b"C2PA");
+    out.extend_from_slice(&(store.len() as u32).to_le_bytes());
+    out.extend_from_slice(&store);
+    out.extend_from_slice(&[0u8; 1][..pad]);
+    Ok(out)
+}
+
+/// The top-level boxes of a BMFF file: (offset, length).
+fn bmff_boxes(file: &[u8]) -> Result<Vec<(usize, usize)>, String> {
+    let mut boxes = Vec::new();
+    let mut at = 0;
+    while at < file.len() {
+        let header = file
+            .get(at..at + 8)
+            .ok_or("The file ends inside a box header.")?;
+        let len = match u32::from_be_bytes(header[..4].try_into().expect("4 bytes")) {
+            // To the end of the file: a box appended after it would be read
+            // as part of it.
+            0 => return Err("A box of the file runs to its end.".to_string()),
+            1 => {
+                let large = file
+                    .get(at + 8..at + 16)
+                    .ok_or("The file ends inside a box header.")?;
+                usize::try_from(u64::from_be_bytes(large.try_into().expect("8 bytes")))
+                    .map_err(|_| "A box is too large.".to_string())?
+            }
+            len => len as usize,
+        };
+        if len < 8 || file.len() - at < len {
+            return Err("A box of the file is truncated.".to_string());
+        }
+        boxes.push((at, len));
+        at += len;
+    }
+    Ok(boxes)
+}
+
+/// The C2PA `uuid` box holding `store`: size, `uuid`, the extended type,
+/// version and flags, the purpose `manifest` and the (absent) Merkle
+/// offset, then the store.
+fn bmff_manifest_box(store: &[u8]) -> Result<Vec<u8>, String> {
+    let purpose = b"manifest\0";
+    let len = u32::try_from(8 + 16 + 4 + purpose.len() + 8 + store.len())
+        .map_err(|_| "The manifest is too large.".to_string())?;
+    let mut out = Vec::with_capacity(len as usize);
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(b"uuid");
+    out.extend_from_slice(&BMFF_UUID);
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(purpose);
+    out.extend_from_slice(&0u64.to_be_bytes());
+    out.extend_from_slice(store);
+    Ok(out)
+}
+
+/// Whether the box `whole` is excluded from the BMFF binding: the C2PA
+/// `uuid` box and any `mfra` (C2PA 2.x, `c2pa.hash.bmff.v3`).
+fn bmff_excluded(whole: &[u8]) -> bool {
+    let kind = &whole[4..8];
+    kind == b"mfra" || (kind == b"uuid" && whole.get(8..24) == Some(&BMFF_UUID[..]))
+}
+
+/// SHA-256 of each top-level box of `file` but the excluded ones, each
+/// preceded by its offset (64-bit big-endian), as `c2pa.hash.bmff.v3`
+/// without Merkle trees hashes them.
+fn bmff_hash(file: &[u8]) -> Result<digest::Digest, String> {
+    let mut hash = digest::Context::new(&digest::SHA256);
+    for (at, len) in bmff_boxes(file)? {
+        let whole = &file[at..at + len];
+        if !bmff_excluded(whole) {
+            hash.update(&(at as u64).to_be_bytes());
+            hash.update(whole);
+        }
+    }
+    Ok(hash.finish())
+}
+
+/// An AVIF with the manifest of `plan` signed by `identity`, in a C2PA
+/// `uuid` box right before the first `mdat` (C2PA 2.x: an AVIF without
+/// `moov` has its manifest before its media data), the item locations moved
+/// with the media data ([`crate::avif_container::insert_before_media`]).
+/// Its binding (`c2pa.hash.bmff.v3`) hashes every other top-level box with
+/// its offset, in that final layout.
+pub fn sign_avif(
+    avif: &[u8],
+    plan: &ManifestPlan,
+    identity: &SigningIdentity,
+) -> Result<Vec<u8>, String> {
+    let boxes = bmff_boxes(avif)?;
+    if avif.get(4..8) != Some(b"ftyp") {
+        return Err("Not an AVIF file.".to_string());
+    }
+    for &(at, len) in &boxes {
+        let whole = &avif[at..at + len];
+        if bmff_excluded(whole) {
+            return Err("The AVIF file already holds a manifest.".to_string());
+        }
+        if &whole[4..8] == b"moov" {
+            return Err("AVIF image sequences cannot be signed.".to_string());
+        }
+    }
+    let manifest = Manifest::new(plan, identity);
+    // The store's size does not depend on the hash or the signature's
+    // bytes: lay the file out with an unsigned one, then sign it in place.
+    let unsigned = manifest.store(Binding::Bmff { hash: &[0; 32] }, false)?;
+    let mut file =
+        crate::avif_container::insert_before_media(avif, &bmff_manifest_box(&unsigned)?)?;
+    let hash = bmff_hash(&file)?;
+    let store = manifest.store(
+        Binding::Bmff {
+            hash: hash.as_ref(),
+        },
+        true,
+    )?;
+    let signed = bmff_manifest_box(&store)?;
+    let (at, len) = bmff_boxes(&file)?
+        .into_iter()
+        .find(|&(at, len)| bmff_excluded(&file[at..at + len]))
+        .ok_or("The manifest box was not placed.")?;
+    if signed.len() != len {
+        return Err("The signed manifest changed size.".to_string());
+    }
+    file[at..at + len].copy_from_slice(&signed);
+    Ok(file)
+}
+
+/// A TIFF's manifest with its place reserved ([`reserve_tiff`]), to be
+/// signed once the hash of every byte before it is known.
+pub struct TiffManifest<'a> {
+    manifest: Manifest<'a>,
+    at: u64,
+    len: u32,
+}
+
+/// Reserves the manifest of `plan` in a complete TIFF in `file`: tag 0xCD41
+/// of a new IFD0 copy, the store last in the file (zeros until
+/// [`TiffManifest::sign`]). Every other byte of the file is final then: the
+/// header points at the new IFD0.
+pub fn reserve_tiff<'a, S: Read + Write + Seek>(
+    file: &mut S,
+    plan: &'a ManifestPlan,
+    identity: &'a SigningIdentity,
+) -> Result<TiffManifest<'a>, String> {
     let manifest = Manifest::new(plan, identity);
     let mut sized = Ok(0);
     let (at, len) = crate::tiff_exif::append_reserved_tag(file, TIFF_TAG, |start| {
@@ -573,17 +822,47 @@ pub fn sign_tiff<S: Read + Write + Seek>(
     })
     .map_err(|e| format!("The provenance manifest could not be written: {e}"))?;
     sized?;
-    let data_hash = hash_prefix(file, at).map_err(|e| e.to_string())?;
-    let store = manifest.store((at, u64::from(len)), data_hash.as_ref(), true)?;
-    if store.len() as u64 != u64::from(len) {
-        return Err("The signed manifest changed size.".to_string());
+    Ok(TiffManifest { manifest, at, len })
+}
+
+impl TiffManifest<'_> {
+    /// Where the store starts: the bytes before it are the bound ones.
+    pub fn start(&self) -> u64 {
+        self.at
     }
-    let mut write = || -> std::io::Result<()> {
-        file.seek(SeekFrom::Start(at))?;
-        file.write_all(&store)?;
-        file.seek(SeekFrom::End(0)).map(drop)
-    };
-    write().map_err(|e| format!("The provenance manifest could not be written: {e}"))
+
+    /// Signs the store, `data_hash` being SHA-256 of the file's first
+    /// [`start`](Self::start) bytes, into its place.
+    pub fn sign<S: Write + Seek>(self, file: &mut S, data_hash: &[u8]) -> Result<(), String> {
+        let binding = Binding::Data {
+            exclusion: (self.at, u64::from(self.len)),
+            hash: data_hash,
+        };
+        let store = self.manifest.store(binding, true)?;
+        if store.len() as u64 != u64::from(self.len) {
+            return Err("The signed manifest changed size.".to_string());
+        }
+        let mut write = || -> std::io::Result<()> {
+            file.seek(SeekFrom::Start(self.at))?;
+            file.write_all(&store)?;
+            file.seek(SeekFrom::End(0)).map(drop)
+        };
+        write().map_err(|e| format!("The provenance manifest could not be written: {e}"))
+    }
+}
+
+/// Signs the manifest of `plan` into a complete TIFF in `file`
+/// ([`reserve_tiff`]); the file is read back once for its hash, not held in
+/// memory. A streamed export hashes while it writes instead
+/// (`crate::signed_tiff`).
+pub fn sign_tiff<S: Read + Write + Seek>(
+    file: &mut S,
+    plan: &ManifestPlan,
+    identity: &SigningIdentity,
+) -> Result<(), String> {
+    let manifest = reserve_tiff(file, plan, identity)?;
+    let data_hash = hash_prefix(file, manifest.start()).map_err(|e| e.to_string())?;
+    manifest.sign(file, data_hash.as_ref())
 }
 
 /// SHA-256 of the first `len` bytes of `file`.

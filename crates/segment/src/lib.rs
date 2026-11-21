@@ -20,8 +20,10 @@ use ort::value::Tensor;
 use rayon::prelude::*;
 
 mod focus;
+mod landscape;
 mod models;
 pub use focus::keep_subject_in_focus;
+pub use landscape::*;
 pub use models::{Models, file_has_sha256};
 
 // BiRefNet (Peng Zheng et al., MIT weights; the general checkpoint with a
@@ -412,16 +414,18 @@ pub fn run_sky_seg_model(
     Ok(full)
 }
 
-/// The network's sky probability (0 … 255) for the photo fitted into its
-/// `SKYSEG_INPUT_SIZE`² input, at the fitted size.
-pub fn sky_probability(
-    image: &DynamicImage,
-    sky_seg_session: &SkyModel,
-    linear: bool,
-    run_options: Option<&ort::session::RunOptions>,
-) -> Result<GrayImage> {
-    let start = std::time::Instant::now();
+/// The photo fitted (aspect kept) and centred into the UperNet input
+/// (`SKYSEG_INPUT_SIZE`², display sRGB, ImageNet-normalised, padding 0),
+/// shared by the sky and landscape models.
+pub struct FittedInput {
+    pub tensor: Array<f32, ndarray::Ix4>,
+    /// The photo's size inside the input.
+    pub size: (u32, u32),
+    /// Its top-left corner in the input.
+    pub paste: (usize, usize),
+}
 
+pub fn fitted_input(image: &DynamicImage, linear: bool) -> FittedInput {
     let resized_image = resize_fit_triangle(image, SKYSEG_INPUT_SIZE, SKYSEG_INPUT_SIZE);
     let (resized_w, resized_h) = resized_image.dimensions();
     let resized_rgb = display_rgb8(resized_image, linear);
@@ -459,6 +463,29 @@ pub fn sky_probability(
                 });
         }
     }
+    FittedInput {
+        tensor: input_tensor,
+        size: (resized_w, resized_h),
+        paste: (paste_x, paste_y),
+    }
+}
+
+/// The network's sky probability (0 … 255) for the photo fitted into its
+/// `SKYSEG_INPUT_SIZE`² input, at the fitted size.
+pub fn sky_probability(
+    image: &DynamicImage,
+    sky_seg_session: &SkyModel,
+    linear: bool,
+    run_options: Option<&ort::session::RunOptions>,
+) -> Result<GrayImage> {
+    let start = std::time::Instant::now();
+    let FittedInput {
+        tensor: input_tensor,
+        size: (resized_w, resized_h),
+        paste: (paste_x, paste_y),
+    } = fitted_input(image, linear);
+    let side = SKYSEG_INPUT_SIZE as usize;
+    let (rw, rh) = (resized_w as usize, resized_h as usize);
     let input_ms = start.elapsed().as_millis();
 
     let out_slice = sky_seg_session.probability(input_tensor, run_options)?;

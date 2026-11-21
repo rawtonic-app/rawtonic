@@ -412,6 +412,7 @@ pub(crate) fn inputs_from(
                     match kind {
                         ModelKind::Subject
                         | ModelKind::Sky
+                        | ModelKind::Landscape
                         | ModelKind::Depth
                         | ModelKind::Relight => {
                             let (mean, std) = ([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]);
@@ -424,7 +425,9 @@ pub(crate) fn inputs_from(
                         ModelKind::TagVision => {
                             planes.iter_mut().for_each(|v| *v = (*v - 0.5) / 0.5)
                         }
-                        ModelKind::FaceDetector => planes.iter_mut().for_each(|v| *v *= 255.0),
+                        ModelKind::FaceDetector | ModelKind::EyesTeeth => {
+                            planes.iter_mut().for_each(|v| *v *= 255.0)
+                        }
                         _ => {}
                     }
                     Input::F32(dims, planes)
@@ -497,7 +500,9 @@ pub(crate) fn compare(kind: ModelKind, cpu: &[Output], gpu: &[Output]) -> Vec<Ag
                 sum += d;
             }
             let threshold = match (kind, c.name.as_str()) {
-                (ModelKind::Subject, _) | (ModelKind::Sky, _) => Some(0.5),
+                (ModelKind::Subject, _) | (ModelKind::Sky, _) | (ModelKind::Landscape, _) => {
+                    Some(0.5)
+                }
                 (ModelKind::SamDecoder, "masks") => Some(0.0),
                 _ => None,
             };

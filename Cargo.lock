@@ -3007,19 +3007,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "image_hasher"
-version = "3.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd266c66b0a0e2d4c6db8e710663fc163a2d33595ce997b6fbda407c8759d344"
-dependencies = [
- "base64 0.22.1",
- "image",
- "rustdct",
- "serde",
- "transpose",
-]
-
-[[package]]
 name = "imageproc"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5730,8 +5717,6 @@ dependencies = [
  "half",
  "hex",
  "image",
- "image_hasher",
- "imageproc",
  "imgref",
  "jiff 1.0.0",
  "jxl-oxide",
@@ -6011,6 +5996,7 @@ dependencies = [
  "image",
  "ndarray",
  "ort",
+ "rawtonic-denoise",
  "rawtonic-fs",
  "rawtonic-onnx",
  "rayon",

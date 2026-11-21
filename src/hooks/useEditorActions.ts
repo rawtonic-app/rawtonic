@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
 import i18next from 'i18next';
 import { notify } from '../activity/notify';
-import { noteWriteError } from '../activity/bridges';
+import { noteCropMissing, noteWriteError } from '../activity/bridges';
 import { useEditorStore, debouncedSetHistory } from '../store/useEditorStore';
 export { debouncedSetHistory } from '../store/useEditorStore';
 import { isRawInLibrary, isRawPhoto, useLibraryStore } from '../store/useLibraryStore';
@@ -345,11 +345,20 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string, qu
   );
 }
 
-type RecipeBatch = { changes: RecipeSnapshot[]; failure?: { message: string; failed: string[] } };
+/** `unwritten`: the photographs saved in their library whose sidecar beside
+ * the photo could not be written (among `changes`: their undo step holds). */
+type RecipeBatch = {
+  changes: RecipeSnapshot[];
+  failure?: { message: string; failed: string[] };
+  unwritten?: string;
+  /** First edits written without the camera's crop (original in the cloud, nothing cached). */
+  cropMissing?: string[];
+};
 
 /** A batch recipe command that returns what it wrote (`RecipeBatch` in
- * edits.rs): tells the user what was not saved and resolves with those
- * photos and the recipe changes of the others (their undo step). */
+ * edits.rs): tells the user what was not saved (and which saved photos'
+ * sidecars could not be written) and resolves with those not saved and
+ * the recipe changes of the others (their undo step). */
 function recordedBatch(
   command: Promise<RecipeBatch>,
   paths: string[],
@@ -357,10 +366,15 @@ function recordedBatch(
   quiet = false
 ): Promise<{ failed: string[]; changes: RecipeSnapshot[] }> {
   return command.then(
-    ({ changes, failure }) => {
+    ({ changes, failure, unwritten, cropMissing }) => {
+      if (cropMissing?.length && !quiet) noteCropMissing(cropMissing);
       if (failure) {
         console.error(`Failed to ${what}:`, failure);
         if (!quiet) noteWriteError(`Failed to ${what}: ${failure.message}`);
+      }
+      if (unwritten) {
+        console.warn(`${what}:`, unwritten);
+        if (!quiet) notify.warning(unwritten);
       }
       return { failed: failure?.failed ?? [], changes };
     },
@@ -646,11 +660,8 @@ async function resolvePastedLens(path: string, pastedStep: Adjustments) {
 
 /** The settings a copy, sync or Previous takes from: the open photograph's
  * (its size known) or `path`'s saved recipe. */
-async function settingsSource(path?: string): Promise<(SettingsSource & { width?: number; height?: number }) | null> {
+async function settingsSource(from: string): Promise<(SettingsSource & { width?: number; height?: number }) | null> {
   const { selectedImage, adjustments } = useEditorStore.getState();
-  const { libraryActivePath, multiSelectedPaths } = useLibraryStore.getState();
-  const from = path || (selectedImage ? selectedImage.path : libraryActivePath || multiSelectedPaths[0]);
-  if (!from) return null;
   if (selectedImage?.isReady && from === selectedImage.path) {
     return {
       path: from,
@@ -941,12 +952,14 @@ async function writeRecipeValues(values: RecipeValues[], shown?: RecipeShown): P
   const result = await recipeWrite(
     paths,
     () =>
-      invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] } }>(Invokes.SetRecipeValues, {
-        changes: values
-      }),
+      invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] }; unwritten?: string }>(
+        Invokes.SetRecipeValues,
+        { changes: values }
+      ),
     { kind: 'recipeValues', failedOf: (written) => written.failure?.failed ?? [], step: shown?.order }
   );
   if (result.failure) notify.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
+  if (result.unwritten) notify.warning(result.unwritten);
   const written = result.before.map((before) => before.path);
   written.forEach((path) => unsavedRecipes.delete(path));
   for (const value of values) if (written.includes(value.path)) recipeWritten([value.path], Object.keys(value.values));
@@ -1768,17 +1781,25 @@ export function useEditorActions() {
   );
 
   /** Lightroom's Copy Settings: the picker (which tools, which layers; the
-   * choice is remembered) puts the chosen settings of the open photo (or of
-   * `pathOrEvent`, else the Library's active one) on the clipboard. `quick`
+   * choice is remembered) puts the chosen settings of the Library's active
+   * selection, the open Develop photo or an explicit path on the clipboard. `quick`
    * (Option-click): with the choice of last time, without the picker. */
   const handleCopyAdjustments = useCallback(
     async (pathOrEvent?: string | SyntheticEvent, { quick = false }: { quick?: boolean } = {}) => {
-      const pathOverride = typeof pathOrEvent === 'string' ? pathOrEvent : undefined;
-      const libraryPath =
-        useUIStore.getState().activeView === 'library'
-          ? useLibraryStore.getState().libraryActivePath || useLibraryStore.getState().multiSelectedPaths[0]
-          : undefined;
-      const source = await settingsSource(pathOverride ?? libraryPath);
+      let path = typeof pathOrEvent === 'string' ? pathOrEvent : undefined;
+      if (!path) {
+        if (useUIStore.getState().activeView === 'library') {
+          const { libraryActivePath, multiSelectedPaths } = useLibraryStore.getState();
+          path =
+            libraryActivePath && multiSelectedPaths.includes(libraryActivePath)
+              ? libraryActivePath
+              : multiSelectedPaths[0];
+        } else {
+          path = useEditorStore.getState().selectedImage?.path;
+        }
+      }
+      if (!path) return;
+      const source = await settingsSource(path);
       if (!source) return;
       const copy = (choice: SettingsChoice) => {
         rememberChoice(choice, source.path);

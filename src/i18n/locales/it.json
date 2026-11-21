@@ -5,6 +5,7 @@
       "depth": "Maschera IA: profondità",
       "foreground": "Maschera IA: primo piano",
       "inpaint": "Riempimento generativo",
+      "landscape": "Maschera IA: Paesaggio",
       "object": "Maschera IA: oggetto",
       "other": "Attività IA",
       "people": "Maschera IA: persone",
@@ -37,6 +38,9 @@
     },
     "copied": "Copiato",
     "copyDetails": "Copia dettagli",
+    "cropMissing_one": "Ritaglio della fotocamera non applicato a {{count}} foto: l'originale è nel cloud. La modifica è salvata; scarica l'originale e imposta il ritaglio in Sviluppo.",
+    "cropMissing_many": "Ritaglio della fotocamera non applicato a {{count}} foto: gli originali sono nel cloud. Le modifiche sono salvate; scarica gli originali e imposta il ritaglio in Sviluppo.",
+    "cropMissing_other": "Ritaglio della fotocamera non applicato a {{count}} foto: gli originali sono nel cloud. Le modifiche sono salvate; scarica gli originali e imposta il ritaglio in Sviluppo.",
     "dismiss": "Ignora: {{title}}",
     "dismissShort": "Ignora",
     "download": {
@@ -520,7 +524,6 @@
       "confirmReset": "Conferma Ripristino",
       "convertNegative": "Converti Negativo",
       "copyAdjustments": "Copia Regolazioni",
-      "cullImage": "Seleziona Immagine",
       "editImage": "Modifica Immagine",
       "exportImage": "Esporta Immagine",
       "frameImage": "Incornicia Immagine",
@@ -598,9 +601,6 @@
       "copyImage_one": "Copia Immagine",
       "copyImage_many": "Copia {{count}} Immagini",
       "copyImage_other": "Copia {{count}} Immagini",
-      "cullImage_one": "Seleziona Immagine",
-      "cullImage_many": "Seleziona Immagini",
-      "cullImage_other": "Seleziona Immagini",
       "deleteAssociated": "Elimina + Associate",
       "deleteImage_one": "Elimina Immagine",
       "deleteImage_many": "Elimina {{count}} Immagini",
@@ -930,6 +930,10 @@
       "exporting": "Esportazione…",
       "savesTo": "Modifica esterna — salva in"
     },
+    "frameMove": {
+      "action": "Sposta sull’immagine intera",
+      "undecided": "Questa modifica potrebbe essere stata fatta sulla piccola anteprima che questo file TIFF mostrava prima di Rawtonic 0.1.0-alpha.17.1. Se il ritaglio e i ritocchi puntuali sono fuori posto, spostali sull’immagine intera."
+    },
     "guided": {
       "cancel": "Annulla",
       "drawingActive": "Disegno attivo",
@@ -1004,6 +1008,9 @@
         "maskName_other": "Maschera {{count}}"
       },
       "rangeTitle": "Intervalli e Globale",
+      "recomputedFullFrame_one": "Le maschere IA di {{count}} livello sono state ricalcolate per l’immagine a piena risoluzione. Annulla ripristina le precedenti.",
+      "recomputedFullFrame_many": "Le maschere IA di {{count}} livelli sono state ricalcolate per l’immagine a piena risoluzione. Annulla ripristina le precedenti.",
+      "recomputedFullFrame_other": "Le maschere IA di {{count}} livelli sono state ricalcolate per l’immagine a piena risoluzione. Annulla ripristina le precedenti.",
       "resetMaskingTooltip": "Ripristina Mascheratura",
       "settings": {
         "aiModelDownloading": "Download Modello AI: ",
@@ -1100,6 +1107,7 @@
       "flow": "Flusso",
       "foreground": "Primo Piano",
       "heal": "Ripara",
+      "landscape": "Paesaggio",
       "linear": "Lineare",
       "liquify": "Fluidifica",
       "luminance": "Luminanza",
@@ -1181,40 +1189,6 @@
       "create": "Crea",
       "placeholder": "Inserisci nome cartella...",
       "title": "Crea Nuova Cartella"
-    },
-    "culling": {
-      "actionDelete": "Sposta nel Cestino",
-      "actionRateZero": "Imposta Valutazione a 1 Stella",
-      "actionReject": "Segna come Rifiutata (Etichetta Rossa)",
-      "applyButton_one": "Applica a 1 immagine",
-      "applyButton_many": "Applica a {{count}} immagini",
-      "applyButton_other": "Applica a {{count}} immagini",
-      "bestImage": "Migliore Immagine",
-      "blurryImagesTab": "Immagini Sfocate",
-      "blurThreshold": "Soglia Sfocatura",
-      "blurThresholdDesc": "Le immagini con un punteggio di nitidezza inferiore a questo valore vengono contrassegnate. Più alto è più severo.",
-      "cancel": "Annulla",
-      "close": "Chiudi",
-      "cullingFailed": "Selezione Fallita",
-      "cullingSuggestions": "Suggerimenti di Selezione",
-      "done": "Fatto",
-      "duplicatesHeader": "Duplicati ({{count}})",
-      "duplicatesHeader_one": "Duplicato ({{count}})",
-      "duplicatesHeader_many": "Duplicati ({{count}})",
-      "duplicatesHeader_other": "Duplicati ({{count}})",
-      "filterBlurry": "Filtra Immagini Sfocate",
-      "groupHeader": "Gruppo {{index}}",
-      "groupSimilar": "Raggruppa Immagini Simili",
-      "noIssuesDesc": "Tutte le immagini sembrano essere uniche e nitide.",
-      "noIssuesFound": "Nessun problema trovato!",
-      "score": "Punteggio: {{score}}",
-      "sharpness": "Nitidezza: {{sharpness}}",
-      "similarGroupsTab": "Gruppi Simili",
-      "similarityThreshold": "Soglia Somiglianza",
-      "similarityThresholdDesc": "Più basso è più severo (duplicati esatti). Più alto è più permissivo (quasi duplicati). Si raccomanda un valore di 24-32.",
-      "startCulling": "Avvia Selezione",
-      "starting": "Avvio in corso...",
-      "title": "Selezione Immagini"
     },
     "merge": {
       "align": "Allinea le foto",
@@ -1916,6 +1890,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "Le foto sono tornate, ma il ruolo della cartella resta dov’è: {{error}}",
       "selectsUnavailable": "La cartella Selects {{folder}} non è disponibile (il suo disco è collegato?). Non è stato spostato nulla; scegli un’altra cartella Selects in Cartelle della sessione.",
       "title": "Cartelle della sessione",
       "unavailable": "Non disponibile: la cartella manca o il suo disco non è collegato.",
@@ -2396,9 +2371,9 @@
         "pending_one": "{{count}} file XMP può essere riscritto.",
         "pending_many": "{{count}} file XMP possono essere riscritti.",
         "pending_other": "{{count}} file XMP possono essere riscritti.",
-        "sharedName_one": "{{count}} foto ha lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP.",
-        "sharedName_many": "{{count}} foto hanno lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP.",
-        "sharedName_other": "{{count}} foto hanno lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP."
+        "sharedName_one": "{{count}} foto ha lo stesso nome di un’altra (due file RAW, ad esempio CR3 e DNG), quindi entrambe scriverebbero lo stesso file XMP.",
+        "sharedName_many": "{{count}} foto hanno lo stesso nome di un’altra (due file RAW, ad esempio CR3 e DNG), quindi entrambe scriverebbero lo stesso file XMP.",
+        "sharedName_other": "{{count}} foto hanno lo stesso nome di un’altra (due file RAW, ad esempio CR3 e DNG), quindi entrambe scriverebbero lo stesso file XMP."
       },
       "resolved_one": "Conflitto XMP risolto per {{count}} foto",
       "resolved_many": "Conflitti XMP risolti per {{count}} foto",
@@ -2426,13 +2401,15 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Aperture degli occhi e denti per il ritocco del viso (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Modificato: convertito in ONNX e Core ML, pubblicato sotto CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Corrispondenza tra i nomi dei fusi orari di Windows e gli identificatori IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -2970,7 +2947,7 @@
       "done_many": "{{count}} pile create",
       "done_other": "{{count}} pile create",
       "interval": "Tempo tra le foto",
-      "intro": "Le foto scattate al massimo entro questo tempo dalla precedente formano una pila. Le foto già in una pila restano come sono.",
+      "intro": "Le foto scattate al massimo entro questo tempo dalla precedente formano una pila; con «Solo foto che si somigliano» devono anche mostrare la stessa scena. Le foto già in una pila restano come sono.",
       "kind": {
         "bracket_one": "{{count}} bracketing",
         "bracket_many": "{{count}} bracketing",
@@ -2993,10 +2970,15 @@
       "seconds_one": "{{count}} secondo",
       "seconds_many": "{{count}} secondi",
       "seconds_other": "{{count}} secondi",
+      "similar": "Solo foto che si somigliano",
+      "similarity": "Somiglianza minima",
       "single_one": "{{count}} foto resta singola",
       "single_many": "{{count}} foto restano singole",
       "single_other": "{{count}} foto restano singole",
       "title": "Raggruppa automaticamente per ora di scatto",
+      "unread_one": "{{count}} foto non ancora letta è raggruppata solo per ora",
+      "unread_many": "{{count}} foto non ancora lette sono raggruppate solo per ora",
+      "unread_other": "{{count}} foto non ancora lette sono raggruppate solo per ora",
       "useCameraData": "Usa i dati di raffica e bracketing della fotocamera se disponibili"
     },
     "badge": {
@@ -3171,7 +3153,6 @@
         "target": {
           "blueAria": "Blu obiettivo (sRGB 0–255)",
           "chromaAria": "Croma obiettivo C* (CIELAB D50)",
-          "distance": "A ΔE00 {{value}} dall'obiettivo.",
           "greenAria": "Verde obiettivo (sRGB 0–255)",
           "grey": "Questo intervallo è troppo grigio per prendere un colore.",
           "heading": "Obiettivo",
@@ -3186,14 +3167,20 @@
             "lightness": "luminosità (×0,6–1,4)",
             "saturation": "saturazione (0–200 %)"
           },
-          "outOfReach": "Fuori portata: restano ΔE00 {{value}}; {{limits}} al limite.",
+          "measuredDistance": "ΔE00 {{value}} dall'obiettivo, misurato nel punto scelto.",
+          "measuredOutOfReach": "Fuori portata: restano ΔE00 {{value}}, misurato nel punto scelto; {{limits}} al limite.",
+          "measuredOutsideSrgb": "L'obiettivo è fuori da sRGB: il risultato sRGB nel punto scelto resta a ΔE00 {{value}} (misurato).",
+          "measuredReached": "Obiettivo raggiunto: ΔE00 {{value}}, misurato nel punto scelto.",
+          "measuring": "Misurazione del risultato nel punto scelto…",
+          "notMeasured": "Previsto a ΔE00 {{value}} dall'obiettivo; con la riduzione rumore IA il risultato nel punto scelto non può essere misurato.",
           "outsideSrgb": "L'obiettivo è fuori da sRGB; un'esportazione sRGB riporta il colore dentro sRGB.",
           "outsideWorkingGamut": "L'obiettivo è oltre i colori di lavoro della foto (ProPhoto): nessun colore della foto può esserlo, l'intervallo si avvicina quanto può.",
           "pickAria": "Preleva il colore obiettivo",
           "pickedThrough": "Previsto a ΔE00 {{value}} dall'obiettivo, ma questo colore è stato prelevato attraverso la forte modifica dell'intervallo stesso: controlla il risultato nella foto o prelevalo di nuovo con i cursori a 0.",
           "pickTitle": "Preleva il colore obiettivo nella foto; questo intervallo vi si sposta",
-          "reached": "Obiettivo raggiunto (ΔE00 {{value}}).",
-          "readoutTitle": "Previsione per il colore prelevato dell'intervallo, prima degli strumenti successivi come curve e color grading",
+          "predicted": "Previsto a ΔE00 {{value}} dall'obiettivo per il colore dell'intervallo, non misurato: scegli l'intervallo nella foto per misurarlo.",
+          "predictedOutOfReach": "Previsto fuori portata: restano ΔE00 {{value}}; {{limits}} al limite (non misurato: scegli l'intervallo nella foto per misurarlo).",
+          "readoutTitle": "Misurato nel rendering sRGB della foto con tutti gli strumenti, sugli 11 × 11 pixel di anteprima del contagocce nel punto scelto; un intervallo non scelto nella foto è previsto per il suo colore",
           "redAria": "Rosso obiettivo (sRGB 0–255)",
           "sampleAria": "Preleva un colore obiettivo",
           "sampleTitle": "Preleva un colore obiettivo in questa foto, per un intervallo qui o in un'altra foto",
@@ -3201,6 +3188,7 @@
           "srgb": "sRGB",
           "swatchAria": "Risultato dell'intervallo {{result}}, obiettivo {{target}}",
           "uncovered": "La maschera del livello non copre più il punto prelevato: i cursori dell'intervallo restano come sono.",
+          "unmeasured": "Previsto a ΔE00 {{value}} dall'obiettivo; non è stato possibile misurare il risultato nel punto scelto.",
           "useSampled": "Usa l'obiettivo da {{name}}",
           "useSampledTitle": "Sposta questo intervallo sul colore prelevato in {{name}}"
         },
@@ -3341,6 +3329,41 @@
       "swapOrientation": "Scambia verticale e orizzontale",
       "turnOverlay": "Ruota la sovrapposizione"
     },
+    "culling": {
+      "analyse": "Trova scatti mancati e documenti",
+      "analyseDownload": "Trova scatti mancati e documenti (scarica {{size}})",
+      "autoStack": "Impila automaticamente…",
+      "badge": "Suggerito: {{names}}",
+      "checkEyes": "Controlla occhi…",
+      "checkTitle": "Rifiuta prende i suggerimenti spuntati",
+      "criteria": {
+        "document": "Documenti",
+        "eyesClosed": "Occhi chiusi",
+        "misfire": "Scatti mancati"
+      },
+      "criteriaLabel": "Suggerimenti",
+      "dismiss_one": "Non è un problema ({{n}} selezionata)",
+      "dismiss_many": "Non è un problema ({{n}} selezionate)",
+      "dismiss_other": "Non è un problema ({{n}} selezionate)",
+      "dismissTitle": "I suggerimenti spuntati delle foto selezionate non vengono più mostrati",
+      "failed": "Suggerimenti non salvati: {{error}}",
+      "gridOnly": "Rifiuta agisce sulle foto mostrate dalla griglia: G mostra la griglia.",
+      "needsModel": "Per trovare scatti mancati e documenti, il modello di ricerca legge ogni foto.",
+      "reading": "Lette {{scored}} di {{total}} foto",
+      "reject_one": "Rifiuta {{n}} foto suggerita",
+      "reject_many": "Rifiuta {{n}} foto suggerite",
+      "reject_other": "Rifiuta {{n}} foto suggerite",
+      "rejectTitle": "Segna come rifiutati i suggerimenti spuntati tra le foto mostrate, in un solo passo annullabile; nulla viene spostato o eliminato",
+      "showAgain_one": "Mostra di nuovo i suggerimenti ({{n}} selezionata)",
+      "showAgain_many": "Mostra di nuovo i suggerimenti ({{n}} selezionate)",
+      "showAgain_other": "Mostra di nuovo i suggerimenti ({{n}} selezionate)",
+      "showOnly": "Mostra solo {{name}} ({{n}})",
+      "suggestionOnly": "Solo suggerimenti: nulla viene rifiutato finché non fai clic su Rifiuta, e Annulla lo ripristina.",
+      "title": "Selezione",
+      "unreadable_one": "{{n}} foto non è stata letta per i suggerimenti; verrà riprovata all’apertura della libreria.",
+      "unreadable_many": "{{n}} foto non sono state lette per i suggerimenti; verranno riprovate all’apertura della libreria.",
+      "unreadable_other": "{{n}} foto non sono state lette per i suggerimenti; verranno riprovate all’apertura della libreria."
+    },
     "develop": {
       "auto": {
         "label": "Auto",
@@ -3466,6 +3489,7 @@
           "brush": "Pennello",
           "color": "Colore",
           "depth": "Profondità",
+          "landscape": "Paesaggio",
           "linear": "Lineare",
           "luminance": "Luminanza",
           "object": "Oggetto",
@@ -3495,6 +3519,7 @@
           "brush": "Nuovo livello pennello",
           "color": "Nuovo livello: Gamma colore",
           "depth": "Nuovo livello: Gamma profondità",
+          "landscape": "Nuovo livello paesaggio",
           "linear": "Nuovo livello gradiente lineare",
           "luminance": "Nuovo livello: Gamma luminanza",
           "object": "Nuovo livello: Oggetto",
@@ -3786,13 +3811,13 @@
         "exporting": "Esportazione {{current}} di {{total}}"
       },
       "provenance": {
-        "about": "Registra la foto da cui ogni file è stato sviluppato, i tipi di modifica e ogni area creata da un modello generativo, firmato con il tuo certificato. JPEG, PNG e TIFF. Non viene inviato nulla.",
+        "about": "Registra la foto da cui ogni file è stato sviluppato, i tipi di modifica e ogni area creata da un modello generativo, firmato con il tuo certificato. JPEG, PNG, TIFF, WebP e AVIF. Non viene inviato nulla.",
         "add": "Firma un manifesto di provenienza in ogni file",
         "author": "Indica il creatore della foto come autore",
-        "blocked": "La provenienza (C2PA) non può firmare {{recipes}}: imposta un certificato di firma valido ed esporta JPEG, PNG o TIFF.",
+        "blocked": "La provenienza (C2PA) non può firmare {{recipes}}: imposta un certificato di firma valido ed esporta JPEG, PNG, TIFF, WebP o AVIF.",
         "certificateFilter": "Certificato PKCS#12",
         "expired": "Questo certificato non è valido ora (valido fino al {{until}}): non è possibile firmare le esportazioni con esso. Importa un certificato rinnovato o creane uno nuovo.",
-        "formatUnsupported": "I file {{format}} non possono ancora contenere un manifesto di provenienza. Scegli JPEG, PNG o TIFF, oppure disattiva l'opzione.",
+        "formatUnsupported": "I file {{format}} non possono ancora contenere un manifesto di provenienza. Scegli JPEG, PNG, TIFF, WebP o AVIF, oppure disattiva l'opzione.",
         "generate": "Crea un certificato su questo computer",
         "import": "Importa il tuo certificato (.p12)…",
         "importConfirm": "Importa",
@@ -4049,9 +4074,11 @@
       },
       "downloadModels": "Scarica i modelli del viso",
       "eyes": {
+        "downloadModel": "Scarica il modello di occhi e denti",
         "find": "Trova occhi e denti",
         "finding": "Ricerca di occhi e denti…",
         "missing": "Occhi e Denti richiedono occhi e bocca di questi volti, trovati prima che esistessero questi strumenti.",
+        "modelMissing": "Occhi e Denti usano un modello di occhi e denti (57 MB). Viene scaricato una volta dal pacchetto di modelli di Rawtonic su GitHub e funziona su questo computer.",
         "none": "Nessun occhio né bocca aperta trovati in questo volto.",
         "sideAria": "Occhio",
         "sideHint": {
@@ -4127,6 +4154,23 @@
       "shadowClippingLit": "Avviso ombre, chiuse",
       "shadowClippingTitle": "Avviso di clipping delle ombre (blu nella foto; {{shortcut}} attiva o disattiva entrambi)",
       "title": "Istogramma"
+    },
+    "landscape": {
+      "aria": "Maschera paesaggio",
+      "choose": "Scegli le parti da selezionare.",
+      "finding": "Ricerca delle parti del paesaggio…",
+      "noneFound": "Nessuna di queste parti è stata trovata in questa foto.",
+      "notFound": "(non trovata)",
+      "parts": {
+        "architecture": "Architettura",
+        "artificialGround": "Terreno artificiale",
+        "mountains": "Montagne",
+        "naturalGround": "Terreno naturale",
+        "sky": "Cielo",
+        "vegetation": "Vegetazione",
+        "water": "Acqua"
+      },
+      "partsAria": "Parti del paesaggio"
     },
     "layers": {
       "bandWidth": "Larghezza banda",
@@ -4657,6 +4701,11 @@
             "purple": "Viola",
             "red": "Rosso",
             "yellow": "Giallo"
+          },
+          "suggestion": {
+            "document": "Documento",
+            "eyesClosed": "Occhi chiusi",
+            "misfire": "Scatto mancato"
           }
         },
         "combine": {
@@ -4694,6 +4743,8 @@
           "previousImport": "Nell’importazione precedente",
           "rating": "Valutazione",
           "sourceType": "Origine digitale (nel file)",
+          "stacked": "In una pila",
+          "suggestion": "Suggerimento di selezione",
           "text": "Qualsiasi testo ricercabile"
         },
         "folderPlaceholder": "Percorso della cartella",
@@ -4903,6 +4954,7 @@
         "brush": "Pennello",
         "color": "Gamma colore",
         "depth": "Gamma profondità",
+        "landscape": "Paesaggio",
         "linear": "Lineare",
         "luminance": "Gamma luminanza",
         "object": "Oggetto",
@@ -5761,6 +5813,7 @@
         "moveToolsLeft": "Sposta gli strumenti di Sviluppo a sinistra",
         "moveToolsRight": "Sposta gli strumenti di Sviluppo a destra"
       },
+      "lightroomHdr": "Modifica HDR di Lightroom — mostrata ed esportata come SDR",
       "loupe": {
         "adjust": "Sviluppo",
         "adjustTitle": "Regola in Sviluppo",

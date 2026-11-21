@@ -7,6 +7,7 @@ import {
   Image,
   Minus,
   Mountain,
+  MountainSnow,
   Pipette,
   Square,
   SquareDashedMousePointer,
@@ -24,7 +25,7 @@ import { erasesFromLayer, kindOf, type MaskKind } from '../../utils/maskKinds';
  * ranges. Captions are `studio.develop.layers.groups.<group>`. */
 export const MASK_KIND_GROUPS: { group: 'draw' | 'select' | 'range'; kinds: MaskKind[] }[] = [
   { group: 'draw', kinds: ['brush', 'linear', 'radial'] },
-  { group: 'select', kinds: ['subject', 'sky', 'background', 'object', 'people'] },
+  { group: 'select', kinds: ['subject', 'sky', 'background', 'object', 'people', 'landscape'] },
   { group: 'range', kinds: ['color', 'luminance', 'depth'] }
 ];
 
@@ -39,6 +40,7 @@ export const MASK_KIND_ICONS: Record<MaskKind, LucideIcon> = {
   background: Image,
   object: SquareDashedMousePointer,
   people: Users,
+  landscape: MountainSnow,
   color: Pipette,
   luminance: Sun,
   depth: Mountain

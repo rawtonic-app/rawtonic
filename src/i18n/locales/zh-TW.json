@@ -5,6 +5,7 @@
       "depth": "AI 遮罩：深度",
       "foreground": "AI 遮罩：前景",
       "inpaint": "生成式填色",
+      "landscape": "AI 遮色片：風景",
       "object": "AI 遮罩：物件",
       "other": "AI 工作",
       "people": "AI 遮罩：人物",
@@ -31,6 +32,7 @@
     },
     "copied": "已複製",
     "copyDetails": "複製詳細資訊",
+    "cropMissing_other": "相機裁切未套用到 {{count}} 張照片：原檔在雲端。編輯已儲存；請下載原檔後在「顯影」中設定裁切。",
     "dismiss": "關閉：{{title}}",
     "dismissShort": "關閉",
     "download": {
@@ -483,7 +485,6 @@
       "confirmReset": "確認重置",
       "convertNegative": "轉換負片",
       "copyAdjustments": "複製調整",
-      "cullImage": "篩選影像",
       "editImage": "編輯影像",
       "exportImage": "匯出影像",
       "frameImage": "裝裱影像",
@@ -555,8 +556,6 @@
       "convertNegative_other": "轉換負片",
       "copyImage_one": "複製影像",
       "copyImage_other": "複製 {{count}} 張影像",
-      "cullImage_one": "篩選影像",
-      "cullImage_other": "篩選影像",
       "deleteAssociated": "刪除 + 關聯檔案",
       "deleteImage_one": "刪除影像",
       "deleteImage_other": "刪除 {{count}} 張影像",
@@ -869,6 +868,10 @@
       "exporting": "正在匯出…",
       "savesTo": "外部編輯 — 儲存至"
     },
+    "frameMove": {
+      "action": "移到完整影像",
+      "undecided": "此編輯可能是在 Rawtonic 0.1.0-alpha.17.1 之前此 TIFF 檔案顯示的小預覽圖上完成的。如果裁切和污點修復位置不對，請將其移到完整影像上。"
+    },
     "guided": {
       "cancel": "取消",
       "drawingActive": "繪圖中",
@@ -942,6 +945,7 @@
         "maskName_other": "遮色片 {{count}}"
       },
       "rangeTitle": "範圍與全域",
+      "recomputedFullFrame_other": "已為全解析度影像重新計算 {{count}} 個圖層的 AI 遮罩。復原可恢復先前的遮罩。",
       "resetMaskingTooltip": "重置遮色片",
       "settings": {
         "aiModelDownloading": "AI 模型下載中：",
@@ -1038,6 +1042,7 @@
       "flow": "流線",
       "foreground": "前景",
       "heal": "修復",
+      "landscape": "風景",
       "linear": "線性",
       "liquify": "液化",
       "luminance": "亮度",
@@ -1119,38 +1124,6 @@
       "create": "建立",
       "placeholder": "輸入資料夾名稱...",
       "title": "建立新資料夾"
-    },
-    "culling": {
-      "actionDelete": "移至垃圾桶",
-      "actionRateZero": "將評分設為 1 星",
-      "actionReject": "標記為已拒絕（紅色標籤）",
-      "applyButton_one": "應用到 1 張影像",
-      "applyButton_other": "應用到 {{count}} 張影像",
-      "bestImage": "最佳影像",
-      "blurryImagesTab": "模糊影像",
-      "blurThreshold": "模糊臨界值",
-      "blurThresholdDesc": "銳度評分低於此值的影像將被標記。值越高越嚴格。",
-      "cancel": "取消",
-      "close": "關閉",
-      "cullingFailed": "篩選失敗",
-      "cullingSuggestions": "篩選建議",
-      "done": "完成",
-      "duplicatesHeader": "重複項（{{count}}）",
-      "duplicatesHeader_one": "重複項（{{count}}）",
-      "duplicatesHeader_other": "重複項（{{count}}）",
-      "filterBlurry": "過濾模糊影像",
-      "groupHeader": "第 {{index}} 組",
-      "groupSimilar": "分組相似影像",
-      "noIssuesDesc": "所有影像似乎都是唯一且清晰的。",
-      "noIssuesFound": "未發現問題！",
-      "score": "評分：{{score}}",
-      "sharpness": "銳度：{{sharpness}}",
-      "similarGroupsTab": "相似組",
-      "similarityThreshold": "相似度臨界值",
-      "similarityThresholdDesc": "值越低越嚴格（完全重複）。值越高越寬鬆（近似重複）。建議值 24-32。",
-      "startCulling": "開始篩選",
-      "starting": "啟動中...",
-      "title": "篩選影像"
     },
     "merge": {
       "align": "對齊相片",
@@ -1768,6 +1741,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "照片已移回，但資料夾角色保持不變：{{error}}",
       "selectsUnavailable": "Selects 資料夾 {{folder}} 無法使用（其磁碟是否已連接？）。未移動任何內容；請在「工作階段資料夾」中選擇其他 Selects 資料夾。",
       "title": "工作階段資料夾",
       "unavailable": "無法使用：資料夾不存在或其磁碟未連接。",
@@ -2172,7 +2146,7 @@
         "failed_other": "無法寫入 {{count}} 個 XMP 檔案：{{error}}",
         "offline_other": "{{count}} 張照片處於離線狀態。重新連接磁碟後會更新其 XMP 檔案。",
         "pending_other": "{{count}} 個 XMP 檔案可以重新寫入。",
-        "sharedName_other": "{{count}} 張照片與另一張同名（RAW 和 JPEG），兩者會寫入同一個 XMP 檔案。"
+        "sharedName_other": "{{count}} 張照片與另一張同名（兩個 RAW 檔案，例如 CR3 和 DNG），兩者會寫入同一個 XMP 檔案。"
       },
       "resolved_other": "已為 {{count}} 張照片解決 XMP 衝突",
       "retry": "重試",
@@ -2196,13 +2170,15 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "臉部修飾所用的眼睛輪廓與牙齒（SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin）。已修改：轉換為 ONNX 與 Core ML，以 CC BY-SA 4.0 發布。",
         "Jiff / Unicode CLDR": "Windows 時區名稱與 IANA 識別碼的對照表。",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -2734,7 +2710,7 @@
       "done_one": "已建立 {{count}} 個堆疊",
       "done_other": "已建立 {{count}} 個堆疊",
       "interval": "相片間隔",
-      "intro": "與上一張相隔不超過此時間拍攝的相片會放入同一堆疊。已在堆疊中的相片維持不變。",
+      "intro": "與上一張相隔不超過此時間拍攝的相片放入同一堆疊；勾選「只限看起來相似的相片」後，還須是同一場景。已在堆疊中的相片保持不變。",
       "kind": {
         "bracket_one": "{{count}} 組包圍曝光",
         "bracket_other": "{{count}} 組包圍曝光",
@@ -2751,9 +2727,12 @@
       "reading": "正在計算…",
       "seconds_one": "{{count}} 秒",
       "seconds_other": "{{count}} 秒",
+      "similar": "只限看起來相似的相片",
+      "similarity": "最低相似度",
       "single_one": "{{count}} 張相片維持單獨",
       "single_other": "{{count}} 張相片維持單獨",
       "title": "依拍攝時間自動堆疊",
+      "unread_other": "{{count}} 張尚未讀取的相片僅依時間分組",
       "useCameraData": "若有相機連拍與包圍曝光資料則使用"
     },
     "badge": {
@@ -2924,7 +2903,6 @@
         "target": {
           "blueAria": "目標藍(sRGB 0–255)",
           "chromaAria": "目標彩度 C*(CIELAB D50)",
-          "distance": "距目標 ΔE00 {{value}}。",
           "greenAria": "目標綠(sRGB 0–255)",
           "grey": "此範圍太接近灰色,無法著色。",
           "heading": "目標顏色",
@@ -2939,14 +2917,20 @@
             "lightness": "明度(×0.6–1.4)",
             "saturation": "飽和度(0–200 %)"
           },
-          "outOfReach": "無法達到:剩餘 ΔE00 {{value}};{{limits}} 已達極限。",
+          "measuredDistance": "距目標 ΔE00 {{value}}，在所選點測得。",
+          "measuredOutOfReach": "無法達到：還差 ΔE00 {{value}}，在所選點測得；{{limits}}已到極限。",
+          "measuredOutsideSrgb": "目標在 sRGB 之外：所選點的 sRGB 結果與其相差 ΔE00 {{value}}（測得）。",
+          "measuredReached": "已達到目標：ΔE00 {{value}}，在所選點測得。",
+          "measuring": "正在測量所選點的結果…",
+          "notMeasured": "預測距目標 ΔE00 {{value}}；開啟 AI 降噪時無法測量所選點的結果。",
           "outsideSrgb": "目標超出 sRGB;sRGB 輸出會將顏色映射到 sRGB 內。",
           "outsideWorkingGamut": "目標超出照片的工作色彩(ProPhoto):照片中沒有顏色能成為它,範圍會盡可能接近。",
           "pickAria": "擷取目標顏色",
           "pickedThrough": "預測距目標 ΔE00 {{value}},但此顏色是在範圍本身的大幅調整下擷取的:請在照片中檢查結果,或將滑桿歸零後重新擷取。",
           "pickTitle": "在照片中擷取目標顏色,此範圍會移到該顏色",
-          "reached": "已達到目標(ΔE00 {{value}})。",
-          "readoutTitle": "針對範圍擷取顏色的預測值,在曲線、調色等後續工具之前",
+          "predicted": "依範圍顏色預測距目標 ΔE00 {{value}}，未測量：在照片中選取該範圍即可測量。",
+          "predictedOutOfReach": "預測無法達到：還差 ΔE00 {{value}}；{{limits}}已到極限（未測量：在照片中選取該範圍即可測量）。",
+          "readoutTitle": "在套用所有工具的照片 sRGB 算繪中，於所選點滴管的 11 × 11 預覽像素上測得；未在照片中選取的範圍依其顏色預測",
           "redAria": "目標紅(sRGB 0–255)",
           "sampleAria": "擷取目標顏色",
           "sampleTitle": "在此照片中擷取目標顏色,用於此處或另一張照片的範圍",
@@ -2954,6 +2938,7 @@
           "srgb": "sRGB",
           "swatchAria": "範圍結果 {{result}},目標 {{target}}",
           "uncovered": "圖層的蒙版已不覆蓋取樣點:範圍的滑桿保持不變。",
+          "unmeasured": "預測距目標 ΔE00 {{value}}；無法測量所選點的結果。",
           "useSampled": "使用來自 {{name}} 的目標",
           "useSampledTitle": "將此範圍移到在 {{name}} 中擷取的顏色"
         },
@@ -3092,6 +3077,33 @@
       "swapOrientation": "切換直式與橫式",
       "turnOverlay": "旋轉疊加"
     },
+    "culling": {
+      "analyse": "找出誤拍和文件",
+      "analyseDownload": "找出誤拍和文件（下載 {{size}}）",
+      "autoStack": "自動堆疊…",
+      "badge": "建議：{{names}}",
+      "checkEyes": "檢查眼睛…",
+      "checkTitle": "「拒絕」作用於已勾選的建議",
+      "criteria": {
+        "document": "文件",
+        "eyesClosed": "閉眼",
+        "misfire": "誤拍"
+      },
+      "criteriaLabel": "建議",
+      "dismiss_other": "沒有問題（已選 {{n}} 張）",
+      "dismissTitle": "所選相片的已勾選建議不再顯示",
+      "failed": "篩選建議未儲存：{{error}}",
+      "gridOnly": "「拒絕」作用於格線中顯示的相片：按 G 顯示格線。",
+      "needsModel": "為找出誤拍和文件，搜尋模型會讀取每張相片。",
+      "reading": "已讀取 {{scored}}/{{total}} 張相片",
+      "reject_other": "拒絕 {{n}} 張建議的相片",
+      "rejectTitle": "將所顯示相片中已勾選的建議標為拒絕，可一步復原；不移動也不刪除任何檔案",
+      "showAgain_other": "重新顯示建議（已選 {{n}} 張）",
+      "showOnly": "只顯示{{name}}（{{n}}）",
+      "suggestionOnly": "僅為建議：按下「拒絕」之前不會拒絕任何相片，復原即可還原。",
+      "title": "篩選",
+      "unreadable_other": "有 {{n}} 張相片無法讀取以產生建議；開啟圖庫時會重試。"
+    },
     "develop": {
       "auto": {
         "label": "自動",
@@ -3217,6 +3229,7 @@
           "brush": "畫筆",
           "color": "顏色",
           "depth": "深度",
+          "landscape": "風景",
           "linear": "線性",
           "luminance": "亮度",
           "object": "物件",
@@ -3246,6 +3259,7 @@
           "brush": "新增筆刷圖層",
           "color": "新增圖層：顏色範圍",
           "depth": "新增圖層：深度範圍",
+          "landscape": "新增風景圖層",
           "linear": "新增線性漸層圖層",
           "luminance": "新增圖層：亮度範圍",
           "object": "新增圖層：物件",
@@ -3533,13 +3547,13 @@
         "exporting": "正在匯出 {{current}}/{{total}}"
       },
       "provenance": {
-        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG 與 TIFF。不會傳送任何內容。",
+        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG、TIFF、WebP 與 AVIF。不會傳送任何內容。",
         "add": "在每個檔案中簽署來源清單",
         "author": "將相片的創作者列為作者",
-        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG 或 TIFF。",
+        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG、TIFF、WebP 或 AVIF。",
         "certificateFilter": "PKCS#12 憑證",
         "expired": "此憑證目前無效（有效至 {{until}}）：無法用它為輸出簽署。請匯入更新的憑證或建立新的憑證。",
-        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG 或 TIFF，或關閉此選項。",
+        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG、TIFF、WebP 或 AVIF，或關閉此選項。",
         "generate": "在此電腦上建立憑證",
         "import": "匯入您的憑證 (.p12)…",
         "importConfirm": "匯入",
@@ -3784,9 +3798,11 @@
       },
       "downloadModels": "下載臉部模型",
       "eyes": {
+        "downloadModel": "下載眼睛與牙齒模型",
         "find": "尋找眼睛和牙齒",
         "finding": "正在尋找眼睛和牙齒…",
         "missing": "眼睛和牙齒需要這些臉孔的眼睛和嘴，這些臉孔是在這些工具出現之前找到的。",
+        "modelMissing": "眼睛和牙齒需要眼睛與牙齒模型（57 MB）。它會從 GitHub 上的 Rawtonic 模型包下載一次，並在這台電腦上執行。",
         "none": "在此臉孔上找不到眼睛或張開的嘴。",
         "sideAria": "眼睛",
         "sideHint": {
@@ -3860,6 +3876,23 @@
       "shadowClippingLit": "陰影警告，已壓暗",
       "shadowClippingTitle": "陰影剪裁警告（照片中顯示為藍色；{{shortcut}} 同時切換兩側）",
       "title": "色階分佈圖"
+    },
+    "landscape": {
+      "aria": "風景遮色片",
+      "choose": "選擇要選取的部分。",
+      "finding": "正在尋找風景的組成部分…",
+      "noneFound": "這張照片中未找到這些部分。",
+      "notFound": "（未找到）",
+      "parts": {
+        "architecture": "建築",
+        "artificialGround": "人工地面",
+        "mountains": "山脈",
+        "naturalGround": "自然地面",
+        "sky": "天空",
+        "vegetation": "植被",
+        "water": "水"
+      },
+      "partsAria": "風景的組成部分"
     },
     "layers": {
       "bandWidth": "條帶寬度",
@@ -4349,6 +4382,11 @@
             "purple": "紫色",
             "red": "紅色",
             "yellow": "黃色"
+          },
+          "suggestion": {
+            "document": "文件",
+            "eyesClosed": "閉眼",
+            "misfire": "誤拍"
           }
         },
         "combine": {
@@ -4386,6 +4424,8 @@
           "previousImport": "在上次匯入中",
           "rating": "星級",
           "sourceType": "數位來源類型（檔案中）",
+          "stacked": "在堆疊中",
+          "suggestion": "篩選建議",
           "text": "任何可搜尋的文字"
         },
         "folderPlaceholder": "資料夾路徑",
@@ -4584,6 +4624,7 @@
         "brush": "畫筆",
         "color": "顏色範圍",
         "depth": "深度範圍",
+        "landscape": "風景",
         "linear": "線性",
         "luminance": "亮度範圍",
         "object": "物件",
@@ -5409,6 +5450,7 @@
         "moveToolsLeft": "將顯影工具移到左側",
         "moveToolsRight": "將顯影工具移到右側"
       },
+      "lightroomHdr": "來自 Lightroom 的 HDR 編輯 — 以 SDR 顯示與匯出",
       "loupe": {
         "adjust": "顯影",
         "adjustTitle": "在顯影中調整",

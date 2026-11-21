@@ -5,6 +5,7 @@
       "depth": "Màscara IA: profunditat",
       "foreground": "Màscara IA: primer pla",
       "inpaint": "Emplenament generatiu",
+      "landscape": "Màscara IA: Paisatge",
       "object": "Màscara IA: objecte",
       "other": "Tasca d’IA",
       "people": "Màscara IA: persones",
@@ -37,6 +38,9 @@
     },
     "copied": "Copiat",
     "copyDetails": "Copia els detalls",
+    "cropMissing_one": "Retall de la càmera no aplicat a {{count}} foto: l'original és al núvol. L'edició s'ha desat; descarrega l'original i defineix el retall a Revelar.",
+    "cropMissing_many": "Retall de la càmera no aplicat a {{count}} fotos: els originals són al núvol. Les edicions s'han desat; descarrega els originals i defineix el retall a Revelar.",
+    "cropMissing_other": "Retall de la càmera no aplicat a {{count}} fotos: els originals són al núvol. Les edicions s'han desat; descarrega els originals i defineix el retall a Revelar.",
     "dismiss": "Descarta: {{title}}",
     "dismissShort": "Descarta",
     "download": {
@@ -520,7 +524,6 @@
       "confirmReset": "Confirmar restabliment",
       "convertNegative": "Convertir negatiu",
       "copyAdjustments": "Copiar ajustaments",
-      "cullImage": "Cribrar imatge",
       "editImage": "Editar imatge",
       "exportImage": "Exportar imatge",
       "frameImage": "Emmarcar imatge",
@@ -598,9 +601,6 @@
       "copyImage_one": "Copiar imatge",
       "copyImage_many": "Copiar {{count}} imatges",
       "copyImage_other": "Copiar {{count}} imatges",
-      "cullImage_one": "Cribrar imatge",
-      "cullImage_many": "Cribrar imatges",
-      "cullImage_other": "Cribrar imatges",
       "deleteAssociated": "Eliminar + Associades",
       "deleteImage_one": "Eliminar imatge",
       "deleteImage_many": "Eliminar {{count}} imatges",
@@ -930,6 +930,10 @@
       "exporting": "S'està exportant…",
       "savesTo": "Edició externa — es desa a"
     },
+    "frameMove": {
+      "action": "Mou a la imatge completa",
+      "undecided": "Potser aquesta edició es va fer sobre la petita previsualització que aquest fitxer TIFF mostrava abans de Rawtonic 0.1.0-alpha.17.1. Si el retall i els retocs puntuals estan mal col·locats, mou-los a la imatge completa."
+    },
     "guided": {
       "cancel": "Cancel·lar",
       "drawingActive": "Dibuix actiu",
@@ -1004,6 +1008,9 @@
         "maskName_other": "Màscara {{count}}"
       },
       "rangeTitle": "Rangs i global",
+      "recomputedFullFrame_one": "Les màscares d’IA de {{count}} capa s’han recalculat per a la imatge a resolució completa. Desfer recupera les anteriors.",
+      "recomputedFullFrame_many": "Les màscares d’IA de {{count}} capes s’han recalculat per a la imatge a resolució completa. Desfer recupera les anteriors.",
+      "recomputedFullFrame_other": "Les màscares d’IA de {{count}} capes s’han recalculat per a la imatge a resolució completa. Desfer recupera les anteriors.",
       "resetMaskingTooltip": "Restablir emmascarament",
       "settings": {
         "aiModelDownloading": "S'està baixant el model d'IA: ",
@@ -1100,6 +1107,7 @@
       "flow": "Flux",
       "foreground": "Primer pla",
       "heal": "Corregir",
+      "landscape": "Paisatge",
       "linear": "Lineal",
       "liquify": "Liquar",
       "luminance": "Luminància",
@@ -1181,40 +1189,6 @@
       "create": "Crear",
       "placeholder": "Introduïu el nom de la carpeta...",
       "title": "Crear nova carpeta"
-    },
-    "culling": {
-      "actionDelete": "Moure a la paperera",
-      "actionRateZero": "Establir puntuació a 1 estrella",
-      "actionReject": "Marcar com a rebutjada (Etiqueta vermella)",
-      "applyButton_one": "Aplicar a 1 imatge",
-      "applyButton_many": "Aplicar a {{count}} imatges",
-      "applyButton_other": "Aplicar a {{count}} imatges",
-      "bestImage": "Millor imatge",
-      "blurryImagesTab": "Imatges borroses",
-      "blurThreshold": "Llindar de desenfocament",
-      "blurThresholdDesc": "Les imatges amb una puntuació de nitidesa per sota d'aquest valor es marcaran. Un valor més alt és més estricte.",
-      "cancel": "Cancel·lar",
-      "close": "Tancar",
-      "cullingFailed": "El cribratge ha fallat",
-      "cullingSuggestions": "Suggeriments de cribratge",
-      "done": "Fet",
-      "duplicatesHeader": "Duplicats ({{count}})",
-      "duplicatesHeader_one": "Duplicats ({{count}})",
-      "duplicatesHeader_many": "Duplicats ({{count}})",
-      "duplicatesHeader_other": "Duplicats ({{count}})",
-      "filterBlurry": "Filtrar imatges borroses",
-      "groupHeader": "Grup {{index}}",
-      "groupSimilar": "Agrupar imatges similars",
-      "noIssuesDesc": "Toutes les imatges semblen ser úniques i nítides.",
-      "noIssuesFound": "No s'ha trobat cap problema!",
-      "score": "Puntuació: {{score}}",
-      "sharpness": "Nitidesa: {{sharpness}}",
-      "similarGroupsTab": "Grups similars",
-      "similarityThreshold": "Llindar de similitud",
-      "similarityThresholdDesc": "Més baix és més estricte (duplicats exactes). Més alt és més flexible (gairebé duplicats). Es recomana un valor de 24 a 32.",
-      "startCulling": "Iniciar cribratge",
-      "starting": "S'està iniciant...",
-      "title": "Cribrar imatges"
     },
     "merge": {
       "align": "Alinea les fotos",
@@ -1916,6 +1890,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "Les fotos han tornat, però el paper de la carpeta es queda on és: {{error}}",
       "selectsUnavailable": "La carpeta Selects {{folder}} no està disponible (el disc està connectat?). No s’ha mogut res; tria una altra carpeta Selects a Carpetes de la sessió.",
       "title": "Carpetes de la sessió",
       "unavailable": "No disponible: falta la carpeta o el seu disc no està connectat.",
@@ -2396,9 +2371,9 @@
         "pending_one": "{{count}} fitxer XMP es pot tornar a escriure.",
         "pending_many": "{{count}} fitxers XMP es poden tornar a escriure.",
         "pending_other": "{{count}} fitxers XMP es poden tornar a escriure.",
-        "sharedName_one": "{{count}} foto té el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP.",
-        "sharedName_many": "{{count}} fotos tenen el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP.",
-        "sharedName_other": "{{count}} fotos tenen el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP."
+        "sharedName_one": "{{count}} foto té el mateix nom que una altra (dos fitxers RAW, com ara CR3 i DNG), així que totes dues escriurien el mateix fitxer XMP.",
+        "sharedName_many": "{{count}} fotos tenen el mateix nom que una altra (dos fitxers RAW, com ara CR3 i DNG), així que totes dues escriurien el mateix fitxer XMP.",
+        "sharedName_other": "{{count}} fotos tenen el mateix nom que una altra (dos fitxers RAW, com ara CR3 i DNG), així que totes dues escriurien el mateix fitxer XMP."
       },
       "resolved_one": "Conflicte XMP resolt per a {{count}} foto",
       "resolved_many": "Conflictes XMP resolts per a {{count}} fotos",
@@ -2426,13 +2401,15 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Obertures dels ulls i dents per al retoc facial (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Modificat: convertit a ONNX i Core ML, publicat sota CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Correspondència entre els noms de zones horàries de Windows i els identificadors IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -2970,7 +2947,7 @@
       "done_many": "S’han creat {{count}} piles",
       "done_other": "S’han creat {{count}} piles",
       "interval": "Temps entre fotos",
-      "intro": "Les fotos fetes com a màxim aquest temps després de l’anterior comparteixen pila. Les fotos que ja són en una pila no canvien.",
+      "intro": "Les fotos fetes com a molt aquest temps després de l’anterior comparteixen pila; amb «Només fotos que s’assemblen» també han de mostrar la mateixa escena. Les fotos que ja són en una pila no canvien.",
       "kind": {
         "bracket_one": "{{count}} horquillat",
         "bracket_many": "{{count}} horquillats",
@@ -2993,10 +2970,15 @@
       "seconds_one": "{{count}} segon",
       "seconds_many": "{{count}} segons",
       "seconds_other": "{{count}} segons",
+      "similar": "Només fotos que s’assemblen",
+      "similarity": "Semblança mínima",
       "single_one": "{{count}} foto queda sola",
       "single_many": "{{count}} fotos queden soles",
       "single_other": "{{count}} fotos queden soles",
       "title": "Apila automàticament per hora de captura",
+      "unread_one": "{{count}} foto encara no llegida s’agrupa només per l’hora",
+      "unread_many": "{{count}} fotos encara no llegides s’agrupen només per l’hora",
+      "unread_other": "{{count}} fotos encara no llegides s’agrupen només per l’hora",
       "useCameraData": "Fes servir les dades de ràfega i horquillat de la càmera si n’hi ha"
     },
     "badge": {
@@ -3171,7 +3153,6 @@
         "target": {
           "blueAria": "Blau objectiu (sRGB 0–255)",
           "chromaAria": "Croma objectiu C* (CIELAB D50)",
-          "distance": "A ΔE00 {{value}} de l'objectiu.",
           "greenAria": "Verd objectiu (sRGB 0–255)",
           "grey": "Aquest interval és massa gris per prendre un color.",
           "heading": "Objectiu",
@@ -3186,14 +3167,20 @@
             "lightness": "lluminositat (×0,6–1,4)",
             "saturation": "saturació (0–200 %)"
           },
-          "outOfReach": "Fora d'abast: queden ΔE00 {{value}}; {{limits}} al límit.",
+          "measuredDistance": "ΔE00 {{value}} de l'objectiu, mesurat al punt triat.",
+          "measuredOutOfReach": "Fora d'abast: queden ΔE00 {{value}}, mesurat al punt triat; {{limits}} al límit.",
+          "measuredOutsideSrgb": "L'objectiu és fora de sRGB: el resultat sRGB al punt triat queda a ΔE00 {{value}} (mesurat).",
+          "measuredReached": "Objectiu assolit: ΔE00 {{value}}, mesurat al punt triat.",
+          "measuring": "S'està mesurant el resultat al punt triat…",
+          "notMeasured": "Previst a ΔE00 {{value}} de l'objectiu; amb la reducció de soroll IA no es pot mesurar el resultat al punt triat.",
           "outsideSrgb": "L'objectiu és fora de sRGB; una exportació sRGB porta el color dins de sRGB.",
           "outsideWorkingGamut": "L'objectiu és fora dels colors de treball de la foto (ProPhoto): cap color de la foto no hi pot arribar, l'interval s'hi acosta tant com pot.",
           "pickAria": "Agafar el color objectiu",
           "pickedThrough": "Previst a ΔE00 {{value}} de l'objectiu, però aquest color s'ha agafat a través del fort canvi del mateix interval: comprova el resultat a la foto o torna'l a agafar amb els controls a 0.",
           "pickTitle": "Agafa el color objectiu a la foto; aquest interval s'hi desplaça",
-          "reached": "Objectiu assolit (ΔE00 {{value}}).",
-          "readoutTitle": "Previsió per al color agafat de l'interval, abans d'eines posteriors com les corbes i la gradació de color",
+          "predicted": "Previst a ΔE00 {{value}} de l'objectiu per al color de l'interval, sense mesurar: tria l'interval a la foto per mesurar-ho.",
+          "predictedOutOfReach": "Previst fora d'abast: queden ΔE00 {{value}}; {{limits}} al límit (sense mesurar: tria l'interval a la foto per mesurar-ho).",
+          "readoutTitle": "Mesurat a la representació sRGB de la foto amb totes les eines, sobre els 11 × 11 píxels de previsualització del comptagotes al punt triat; un interval no triat a la foto es preveu per al seu color",
           "redAria": "Vermell objectiu (sRGB 0–255)",
           "sampleAria": "Agafar un color objectiu",
           "sampleTitle": "Agafa un color objectiu en aquesta foto, per a un interval aquí o en una altra foto",
@@ -3201,6 +3188,7 @@
           "srgb": "sRGB",
           "swatchAria": "Resultat de l'interval {{result}}, objectiu {{target}}",
           "uncovered": "La màscara de la capa ja no cobreix el punt triat: els controls de l'interval es queden com estan.",
+          "unmeasured": "Previst a ΔE00 {{value}} de l'objectiu; no s'ha pogut mesurar el resultat al punt triat.",
           "useSampled": "Fes servir l'objectiu de {{name}}",
           "useSampledTitle": "Desplaça aquest interval al color agafat a {{name}}"
         },
@@ -3341,6 +3329,41 @@
       "swapOrientation": "Canvia entre vertical i horitzontal",
       "turnOverlay": "Gira la superposició"
     },
+    "culling": {
+      "analyse": "Troba trets fallits i documents",
+      "analyseDownload": "Troba trets fallits i documents (baixa {{size}})",
+      "autoStack": "Apila automàticament…",
+      "badge": "Suggerit: {{names}}",
+      "checkEyes": "Comprova els ulls…",
+      "checkTitle": "Rebutja agafa els suggeriments marcats",
+      "criteria": {
+        "document": "Documents",
+        "eyesClosed": "Ulls tancats",
+        "misfire": "Trets fallits"
+      },
+      "criteriaLabel": "Suggeriments",
+      "dismiss_one": "No és cap problema ({{n}} seleccionada)",
+      "dismiss_many": "No és cap problema ({{n}} seleccionades)",
+      "dismiss_other": "No és cap problema ({{n}} seleccionades)",
+      "dismissTitle": "Els suggeriments marcats de les fotos seleccionades no es tornen a mostrar",
+      "failed": "Suggeriments de descart no desats: {{error}}",
+      "gridOnly": "Rebutja actua sobre les fotos que mostra la quadrícula: G mostra la quadrícula.",
+      "needsModel": "Per trobar trets fallits i documents, el model de cerca llegeix cada foto.",
+      "reading": "{{scored}} de {{total}} fotos llegides",
+      "reject_one": "Rebutja {{n}} foto suggerida",
+      "reject_many": "Rebutja {{n}} fotos suggerides",
+      "reject_other": "Rebutja {{n}} fotos suggerides",
+      "rejectTitle": "Marca com a rebutjats els suggeriments marcats entre les fotos mostrades, en un sol pas de desfer; no es mou ni s’esborra res",
+      "showAgain_one": "Torna a mostrar els suggeriments ({{n}} seleccionada)",
+      "showAgain_many": "Torna a mostrar els suggeriments ({{n}} seleccionades)",
+      "showAgain_other": "Torna a mostrar els suggeriments ({{n}} seleccionades)",
+      "showOnly": "Mostra només {{name}} ({{n}})",
+      "suggestionOnly": "Només suggeriments: no es rebutja res fins que feu clic a Rebutja, i Desfés ho reverteix.",
+      "title": "Descart",
+      "unreadable_one": "{{n}} foto no s’ha pogut llegir per als suggeriments; es tornarà a provar en obrir la biblioteca.",
+      "unreadable_many": "{{n}} fotos no s’han pogut llegir per als suggeriments; es tornaran a provar en obrir la biblioteca.",
+      "unreadable_other": "{{n}} fotos no s’han pogut llegir per als suggeriments; es tornaran a provar en obrir la biblioteca."
+    },
     "develop": {
       "auto": {
         "label": "Auto",
@@ -3466,6 +3489,7 @@
           "brush": "Pinzell",
           "color": "Color",
           "depth": "Profunditat",
+          "landscape": "Paisatge",
           "linear": "Lineal",
           "luminance": "Luminància",
           "object": "Objecte",
@@ -3495,6 +3519,7 @@
           "brush": "Nova capa de pinzell",
           "color": "Nova capa: Rang de color",
           "depth": "Nova capa: Rang de profunditat",
+          "landscape": "Nova capa de paisatge",
           "linear": "Nova capa de degradat lineal",
           "luminance": "Nova capa: Rang de luminància",
           "object": "Nova capa: Objecte",
@@ -3786,13 +3811,13 @@
         "exporting": "S'està exportant {{current}} de {{total}}"
       },
       "provenance": {
-        "about": "Registra la foto de la qual s'ha revelat cada fitxer, els tipus d'edició i cada zona creada per un model generatiu, signat amb el vostre certificat. JPEG, PNG i TIFF. No s'envia res.",
+        "about": "Registra la foto de la qual s'ha revelat cada fitxer, els tipus d'edició i cada zona creada per un model generatiu, signat amb el vostre certificat. JPEG, PNG, TIFF, WebP i AVIF. No s'envia res.",
         "add": "Signa un manifest de procedència a cada fitxer",
         "author": "Indica el creador de la foto com a autor",
-        "blocked": "La procedència (C2PA) no pot signar {{recipes}}: configureu un certificat de signatura vàlid i exporteu JPEG, PNG o TIFF.",
+        "blocked": "La procedència (C2PA) no pot signar {{recipes}}: configureu un certificat de signatura vàlid i exporteu JPEG, PNG, TIFF, WebP o AVIF.",
         "certificateFilter": "Certificat PKCS#12",
         "expired": "Aquest certificat no és vàlid ara (vàlid fins al {{until}}): no es poden signar exportacions amb ell. Importeu un certificat renovat o creeu-ne un de nou.",
-        "formatUnsupported": "Els fitxers {{format}} encara no poden portar un manifest de procedència. Trieu JPEG, PNG o TIFF, o desactiveu l'opció.",
+        "formatUnsupported": "Els fitxers {{format}} encara no poden portar un manifest de procedència. Trieu JPEG, PNG, TIFF, WebP o AVIF, o desactiveu l'opció.",
         "generate": "Crea un certificat en aquest ordinador",
         "import": "Importa el vostre certificat (.p12)…",
         "importConfirm": "Importa",
@@ -4049,9 +4074,11 @@
       },
       "downloadModels": "Baixa els models de cara",
       "eyes": {
+        "downloadModel": "Baixa el model d'ulls i dents",
         "find": "Troba ulls i dents",
         "finding": "S’estan trobant ulls i dents…",
         "missing": "Ulls i Dents necessiten els ulls i la boca d’aquestes cares, trobades abans que existissin aquestes eines.",
+        "modelMissing": "Ulls i Dents utilitzen un model d'ulls i dents (57 MB). Es baixa una vegada del paquet de models de Rawtonic a GitHub i s'executa en aquest ordinador.",
         "none": "No s’han trobat ulls ni boca oberta en aquesta cara.",
         "sideAria": "Ull",
         "sideHint": {
@@ -4127,6 +4154,23 @@
       "shadowClippingLit": "Avís d'ombres, retallades",
       "shadowClippingTitle": "Avís de retall d'ombres (blau a la foto; {{shortcut}} alterna tots dos)",
       "title": "Histograma"
+    },
+    "landscape": {
+      "aria": "Màscara de paisatge",
+      "choose": "Tria les parts que vols seleccionar.",
+      "finding": "S'estan cercant les parts del paisatge…",
+      "noneFound": "No s'ha trobat cap d'aquestes parts en aquesta foto.",
+      "notFound": "(no trobada)",
+      "parts": {
+        "architecture": "Arquitectura",
+        "artificialGround": "Sòl artificial",
+        "mountains": "Muntanyes",
+        "naturalGround": "Sòl natural",
+        "sky": "Cel",
+        "vegetation": "Vegetació",
+        "water": "Aigua"
+      },
+      "partsAria": "Parts del paisatge"
     },
     "layers": {
       "bandWidth": "Amplada de banda",
@@ -4657,6 +4701,11 @@
             "purple": "Púrpura",
             "red": "Vermell",
             "yellow": "Groc"
+          },
+          "suggestion": {
+            "document": "Document",
+            "eyesClosed": "Ulls tancats",
+            "misfire": "Tret fallit"
           }
         },
         "combine": {
@@ -4694,6 +4743,8 @@
           "previousImport": "A la importació anterior",
           "rating": "Valoració",
           "sourceType": "Origen digital (al fitxer)",
+          "stacked": "En una pila",
+          "suggestion": "Suggeriment de descart",
           "text": "Qualsevol text cercable"
         },
         "folderPlaceholder": "Camí de la carpeta",
@@ -4903,6 +4954,7 @@
         "brush": "Pinzell",
         "color": "Rang de color",
         "depth": "Rang de profunditat",
+        "landscape": "Paisatge",
         "linear": "Lineal",
         "luminance": "Rang de luminància",
         "object": "Objecte",
@@ -5761,6 +5813,7 @@
         "moveToolsLeft": "Mou les eines de Revelatge a l'esquerra",
         "moveToolsRight": "Mou les eines de Revelatge a la dreta"
       },
+      "lightroomHdr": "Edició HDR del Lightroom: es mostra i s'exporta com a SDR",
       "loupe": {
         "adjust": "Revelatge",
         "adjustTitle": "Ajusta a Revelatge",
