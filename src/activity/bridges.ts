@@ -611,3 +611,16 @@ export function startActivityBridges(): () => void {
     for (const listener of listeners) void listener.then((stop) => stop());
   };
 }
+
+/** First edits written without the camera's crop: their originals are in the
+ * cloud and nothing cached the crop (the edit is saved; the original is not
+ * downloaded for it). */
+export function noteCropMissing(paths: string[]) {
+  useActivityStore.getState().report('warning', {
+    id: `crop-missing:${Date.now()}`,
+    source: 'write',
+    title: i18n.t('activity.cropMissing', { count: paths.length }),
+    detail: paths.map(fileName).join('\n'),
+    paths
+  });
+}

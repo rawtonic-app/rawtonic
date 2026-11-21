@@ -35,6 +35,8 @@
     },
     "copied": "Copied",
     "copyDetails": "Copy details",
+    "cropMissing_one": "Camera crop not applied to {{count}} photo: its original is in the cloud. The edit is saved; download the original and set the crop in Develop.",
+    "cropMissing_other": "Camera crop not applied to {{count}} photos: their originals are in the cloud. The edits are saved; download the originals and set the crop in Develop.",
     "dismiss": "Dismiss: {{title}}",
     "dismissShort": "Dismiss",
     "download": {

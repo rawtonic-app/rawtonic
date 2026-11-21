@@ -522,6 +522,7 @@ pub async fn sync_dust_spots(
             batch: crate::file_management::RecipeBatch {
                 changes: Vec::new(),
                 failure: None,
+                crop_missing: Vec::new(),
             },
             skipped,
         });

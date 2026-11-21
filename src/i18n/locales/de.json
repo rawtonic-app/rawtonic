@@ -35,6 +35,8 @@
     },
     "copied": "Kopiert",
     "copyDetails": "Details kopieren",
+    "cropMissing_one": "Kamera-Zuschnitt nicht auf {{count}} Foto angewendet: Das Original liegt in der Cloud. Die Bearbeitung ist gespeichert; lade das Original herunter und setze den Zuschnitt in Entwickeln.",
+    "cropMissing_other": "Kamera-Zuschnitt nicht auf {{count}} Fotos angewendet: Die Originale liegen in der Cloud. Die Bearbeitungen sind gespeichert; lade die Originale herunter und setze den Zuschnitt in Entwickeln.",
     "dismiss": "Ausblenden: {{title}}",
     "dismissShort": "Ausblenden",
     "download": {

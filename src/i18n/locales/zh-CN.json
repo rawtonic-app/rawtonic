@@ -32,6 +32,7 @@
     },
     "copied": "已复制",
     "copyDetails": "复制详细信息",
+    "cropMissing_other": "相机裁剪未应用到 {{count}} 张照片：原件在云端。编辑已保存；请下载原件后在“显影”中设置裁剪。",
     "dismiss": "关闭：{{title}}",
     "dismissShort": "关闭",
     "download": {
