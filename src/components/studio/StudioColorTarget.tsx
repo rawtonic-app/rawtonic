@@ -115,6 +115,8 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
     }))
   );
   const layer = layerId ?? null;
+  const latestRanges = useRef(ranges);
+  latestRanges.current = ranges;
   const own =
     target?.appliedTo &&
     target.appliedTo.photo === photo &&
@@ -144,11 +146,14 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
     }
     // Picked in the photo: solve on the renderer's sample there, taken again
     // (one edit once it is back; nothing when the photo or range changed).
-    const asked = { ranges, id: active.id };
+    const id = active.id;
     void rangeInputFor(photo, layer, active).then((fresh) => {
       const state = useEditorStore.getState();
-      if (state.selectedImage?.path !== photo || state.colorTarget?.appliedTo?.rangeId !== asked.id) return;
-      apply(rangesWithTarget(asked.ranges, asked.id, lab, fresh));
+      const applied = state.colorTarget?.appliedTo;
+      if (state.selectedImage?.path !== photo || applied?.rangeId !== id || applied.layer !== layer) return;
+      // The ranges as they are now (another edit may have come meanwhile).
+      const current = latestRanges.current;
+      if (current.some((r) => r.id === id)) apply(rangesWithTarget(current, id, lab, fresh));
     });
     return true;
   };

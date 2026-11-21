@@ -1,5 +1,5 @@
 import '../../i18n';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,6 +8,9 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 import { newColorRange, type Adjustments, type ColorRange } from '../../utils/adjustments';
 import { useEditorStore } from '../../store/useEditorStore';
 import { srgbToOklch } from '../../utils/oklab';
+import { invoke } from '@tauri-apps/api/core';
+import { Invokes } from '../ui/AppProperties';
+import { deltaE00, linearToLab, oklabToLinear, rangeCentre, renderedLab, srgb8ToLinear } from '../../utils/colorTarget';
 import StudioColorEditor from './StudioColorEditor';
 import StudioColorRangeWheel, { chromaOf, radiusOf, rangeBand, wheelPoint } from './StudioColorRangeWheel';
 
@@ -468,6 +471,29 @@ describe('target colour', () => {
     expect(screen.getByRole('status').textContent).toMatch(
       /^Out of reach: ΔE00 [\d.]+ left; hue \(±50°\) at its limit\./
     );
+  });
+
+  it('solves a typed target on a range picked in the photo at the renderer’s sample there, sampled again', async () => {
+    const range = red();
+    const centre = rangeCentre(range);
+    // Picked on a feathered layer: half its strength at the pick.
+    const pick = { point: [0.3, 0.7] as [number, number], centre, input: { pixels: [centre], influence: [0.5] } };
+    useEditorStore.setState({ colorRangeInputs: { [`/a.cr3|L1|${range.id}`]: pick } });
+    vi.mocked(invoke).mockResolvedValue({ pixels: [oklabToLinear(centre)], influence: [0.5] });
+    render(<Harness initial={[range]} layerId="L1" />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    await waitFor(() => expect(changes).toHaveLength(1));
+    expect(invoke).toHaveBeenCalledWith(
+      Invokes.SampleColorRangeInput,
+      expect.objectContaining({ path: '/a.cr3', normalizedX: 0.3, normalizedY: 0.7, layer: 'L1' })
+    );
+    const [moved] = lastRanges();
+    const lab = linearToLab(srgb8ToLinear([0xc8, 0x1e, 0x2d]));
+    expect(deltaE00(lab, renderedLab([moved], { pixels: [centre], influence: [0.5] }))).toBeLessThan(1);
+    // The readout predicts at the layer's strength, not at full strength.
+    expect(screen.getByRole('status').textContent).toMatch(/^Target reached \(ΔE00 0\.\d\)\./);
+    useEditorStore.setState({ colorRangeInputs: {} });
   });
 
   it('flags a typed target outside sRGB', () => {
