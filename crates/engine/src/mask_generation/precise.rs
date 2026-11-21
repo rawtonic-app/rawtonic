@@ -12,8 +12,10 @@ const AI_GROW_FEATHER: [&str; 4] = ["ai-subject", "ai-foreground", "ai-sky", "ai
 
 /// Whether a version 2 layer's coverage at full opacity is finer than 8
 /// bits: a gradient, a sub-mask opacity, an AI mask's grow or feather, or
-/// Refine edge. Otherwise its mask is the 8-bit one (every step on bytes is
-/// then exact), which also keeps brush layers on the byte path while painting.
+/// Refine edge. Otherwise its mask is the 8-bit one, which also keeps brush
+/// layers on the byte path while painting: every step on bytes is exact
+/// before version 5; from version 5 each screen or product fold of two soft
+/// components is rounded to the nearest byte (`fold::FoldLaw::fold_bytes`).
 fn full_needs_wide(def: &MaskDefinition) -> bool {
     def.refine_radius().is_some()
         || def.sub_masks.iter().filter(|sub| sub.visible).any(|sub| {
@@ -85,8 +87,10 @@ pub(super) fn layer_mask(
     }
 }
 
-/// The layer's sub-masks combined as `eight_bit_mask` does (add = max,
-/// subtract, intersect = min, each with its invert and opacity), in 0–1.
+/// The layer's sub-masks combined as `eight_bit_mask` does, each with its
+/// invert and opacity, by the layer version's law (`fold::FoldLaw`: max /
+/// difference / min before version 5, screen / difference / product from
+/// it), in 0–1.
 fn combined_coverage(
     def: &MaskDefinition,
     width: u32,
