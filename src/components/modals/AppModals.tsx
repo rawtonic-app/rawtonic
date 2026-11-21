@@ -11,7 +11,6 @@ import RenameFolderModal from './RenameFolderModal';
 import RenameFileModal, { type PlannedFile } from './RenameFileModal';
 import ConfirmModal from './ConfirmModal';
 import LibrarySwitchShield from './LibrarySwitchShield';
-import CullingModal from './CullingModal';
 import CollageModal, { type CollageSpec } from './CollageModal';
 import { DuplicatesDialogHost } from '../studio/DuplicatesDialog';
 import { ProofSheetDialogHost } from '../studio/ProofSheetDialog';
@@ -41,7 +40,6 @@ export default function AppModals(props: AppModalsProps) {
     confirmModalState,
     mergeModalState,
     negativeModalState,
-    cullingModalState,
     collageModalState,
     setUI
   } = useUIStore(
@@ -54,7 +52,6 @@ export default function AppModals(props: AppModalsProps) {
       confirmModalState: state.confirmModalState,
       mergeModalState: state.mergeModalState,
       negativeModalState: state.negativeModalState,
-      cullingModalState: state.cullingModalState,
       collageModalState: state.collageModalState,
       setUI: state.setUI
     }))
@@ -124,34 +121,6 @@ export default function AppModals(props: AppModalsProps) {
       <LibrarySwitchShield />
       <DuplicatesDialogHost trash={props.executeDelete} />
       <ProofSheetDialogHost />
-      <CullingModal
-        isOpen={cullingModalState.isOpen}
-        onClose={() =>
-          setUI({
-            cullingModalState: { isOpen: false, progress: null, suggestions: null, error: null, pathsToCull: [] }
-          })
-        }
-        progress={cullingModalState.progress}
-        suggestions={cullingModalState.suggestions}
-        error={cullingModalState.error}
-        imagePaths={cullingModalState.pathsToCull}
-        thumbnails={thumbnails}
-        onApply={(action, paths) => {
-          if (action === 'reject') {
-            props.handleSetColorLabel('red', paths);
-          } else if (action === 'rate_zero') {
-            props.handleRate(1, paths);
-          } else if (action === 'delete') {
-            props.executeDelete(paths, { includeAssociated: false });
-          }
-          setUI({
-            cullingModalState: { isOpen: false, progress: null, suggestions: null, error: null, pathsToCull: [] }
-          });
-        }}
-        onError={(err) => {
-          setUI((state) => ({ cullingModalState: { ...state.cullingModalState, error: err, progress: null } }));
-        }}
-      />
       <CollageModal
         isOpen={collageModalState.isOpen}
         onClose={() => setUI({ collageModalState: { isOpen: false, sourceImages: [] } })}

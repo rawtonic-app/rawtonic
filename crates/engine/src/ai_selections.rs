@@ -1,11 +1,21 @@
-//! Sky and Subject selections an export computes for a photo that was never
-//! opened (a Lightroom or Capture One import, settings pasted or synced
-//! onto it): the recipe holds the selection but not its bitmap, which the
-//! editor computes when the photo opens. The export computes it the way the
-//! editor does — the same warped photo, the same network, the same
-//! parameters merged into the component — so a photo exports the same
-//! pixels whether it was opened first or not. The networks run behind
-//! `SelectionDetector` (the app's loaded models, the CLI's model folder).
+//! Sky, Subject, People and depth range selections computed for a photo
+//! that was never opened (a Lightroom or Capture One import, a preset,
+//! settings pasted or synced onto it, a capture given a preset): the recipe
+//! holds the selection but not its bitmap, which the editor computes when
+//! the photo opens. Every export computes it with the editor's inputs — the
+//! same warped photo, the same network, the same parameters merged into the
+//! component — and the app's selection queue (after a batch apply or a
+//! capture) computes it the same way, from a decode without AI Denoise. An
+//! export of a never-opened photo is byte-identical to the export of the
+//! recipe holding the masks it computed (`crates/export/tests/
+//! ai_selections_export.rs`); Develop and the queue are not compared there.
+//! The networks run behind `SelectionDetector` (the app's loaded models, the
+//! CLI's model folder). Object selections are not among them: they need the
+//! user to point at the object on each photo. People and depth range
+//! components are computed only when they wait for this photo's detection
+//! (`DETECT_PENDING`: a preset, paste, sync or capture); one saved without
+//! its bitmap otherwise (an edit left before its detection finished) exports
+//! as it always did, without it.
 
 use rawtonic_recipe::masks;
 use std::sync::Arc;
@@ -24,6 +34,11 @@ pub enum AutoSelection {
     Sky,
     /// `ai-foreground`: Select Subject.
     Subject,
+    /// `ai-people`: People parts (`parts`) of everyone or of `person`.
+    People,
+    /// `ai-depth`: a depth range; the bitmap is the photo's depth map, the
+    /// range (`minDepth` … `maxDepth`) applies when it renders.
+    Depth,
 }
 
 impl AutoSelection {
@@ -32,6 +47,8 @@ impl AutoSelection {
         match kind {
             "ai-sky" => Some(Self::Sky),
             "ai-foreground" => Some(Self::Subject),
+            "ai-people" => Some(Self::People),
+            "ai-depth" => Some(Self::Depth),
             _ => None,
         }
     }
@@ -40,7 +57,44 @@ impl AutoSelection {
         match self {
             Self::Sky => "Sky",
             Self::Subject => "Subject",
+            Self::People => "People",
+            Self::Depth => "depth range",
         }
+    }
+}
+
+/// The People parts a component selects (`parts`); none: nothing to
+/// detect (it renders nothing on any photograph, as in the editor).
+pub fn people_parts(parameters: &Value) -> Vec<String> {
+    parameters
+        .get(masks::PARTS.name())
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|p| p.as_str().map(str::to_string))
+        .collect()
+}
+
+/// The one person a People component selects (`person`, left to right),
+/// `None` for everyone.
+pub fn people_person(parameters: &Value) -> Option<usize> {
+    parameters
+        .get("person")
+        .and_then(Value::as_u64)
+        .map(|p| p.min(usize::MAX as u64) as usize)
+}
+
+/// What one network run computes for a component: components with the
+/// same key on one photo share it (two Sky layers, the same parts).
+fn run_key(selection: AutoSelection, parameters: &Value) -> String {
+    match selection {
+        AutoSelection::Sky | AutoSelection::Depth => selection.name().to_string(),
+        AutoSelection::Subject => format!("Subject {}", subject_version(parameters)),
+        AutoSelection::People => format!(
+            "People {:?} {:?}",
+            people_parts(parameters),
+            people_person(parameters)
+        ),
     }
 }
 
@@ -58,12 +112,14 @@ pub fn subject_version(parameters: &Value) -> u32 {
 pub trait SelectionDetector: Send + Sync {
     /// The mask of `selection` on `warped` (the photo with its lens and
     /// transform geometry, linear light when `linear`), as the PNG data URL
-    /// a recipe stores, at `warped`'s size. `version` is a Subject
-    /// component's `subjectVersion` (`subject_version`; 1 for Sky).
+    /// a recipe stores, at `warped`'s size. `parameters` are the
+    /// component's: a Subject's `subjectVersion` (`subject_version`), a
+    /// People selection's parts and person (`people_parts`,
+    /// `people_person`).
     fn detect(
         &self,
         selection: AutoSelection,
-        version: u32,
+        parameters: &Value,
         warped: &DynamicImage,
         linear: bool,
     ) -> Result<String, String>;
@@ -82,9 +138,11 @@ fn shown(value: &Value) -> bool {
     value.get(masks::VISIBLE.name()).and_then(Value::as_bool) != Some(false)
 }
 
-/// The shown Sky and Subject components of shown layers without their
-/// bitmap (`layer`, `component` indices): rendered as they are, their
-/// layers would apply nowhere.
+/// The shown Sky, Subject, People and depth range components of shown
+/// layers without their bitmap (`layer`, `component` indices): rendered as
+/// they are, their layers would apply nowhere. A People component without
+/// parts has nothing to detect; People and depth ranges count only while
+/// they wait for this photo's detection (`DETECT_PENDING`).
 pub fn undetected(adjustments: &Value) -> Vec<(usize, usize, AutoSelection)> {
     let mut found = Vec::new();
     let Some(layers) = adjustments
@@ -106,7 +164,13 @@ pub fn undetected(adjustments: &Value) -> Vec<(usize, usize, AutoSelection)> {
                 continue;
             };
             let parameters = sub.get(masks::PARAMETERS.name()).unwrap_or(&Value::Null);
-            if !has_bitmap(parameters) && !nothing_to_detect(parameters) {
+            let no_parts =
+                selection == AutoSelection::People && people_parts(parameters).is_empty();
+            // People and depth ranges only where they wait for this photo
+            // (see the module): older saved recipes export as before.
+            let waits = matches!(selection, AutoSelection::Sky | AutoSelection::Subject)
+                || parameters.get(DETECT_PENDING).and_then(Value::as_bool) == Some(true);
+            if waits && !has_bitmap(parameters) && !nothing_to_detect(parameters) && !no_parts {
                 found.push((l, s, selection));
             }
         }
@@ -167,7 +231,7 @@ pub fn detected_parameters(own: &Value, adjustments: &Value, data_url: String) -
     Value::Object(parameters)
 }
 
-/// Computes every shown Sky and Subject selection of `adjustments` that has
+/// Computes every shown automatic selection of `adjustments` that has
 /// no bitmap (`undetected`) on `source` (the export's decode, linear when
 /// `is_raw`) and puts it into its component; each selection runs once per
 /// photo. `started` is called once before the first network runs (the
@@ -201,14 +265,11 @@ pub fn detect_missing(
     let mut detected = Vec::new();
     for &(l, s, selection) in &wanted {
         let sub = &adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s];
-        let version = match selection {
-            AutoSelection::Subject => subject_version(&sub[masks::PARAMETERS.name()]),
-            AutoSelection::Sky => 1,
-        };
-        let key = format!("{} {version}", selection.name());
+        let parameters = &sub[masks::PARAMETERS.name()];
+        let key = run_key(selection, parameters);
         if !masks.contains_key(&key) {
             let data = detector
-                .detect(selection, version, &warped, is_raw)
+                .detect(selection, parameters, &warped, is_raw)
                 .map_err(|e| fail(&e))?;
             masks.insert(key.clone(), Value::String(data));
         }
@@ -239,8 +300,17 @@ pub fn detect_missing(
 /// geometry is still the one the selection was computed in. Returns
 /// whether anything changed.
 pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
-    let warp = mask_warp(stored);
-    let frame = |a: &Value| {
+    let frame = stored.clone();
+    keep_detected_in(stored, &frame, detected)
+}
+
+/// `keep_detected` with the photo's geometry read from `frame`: the stored
+/// recipe prepared as the detection's was (`normalize` for a render adds
+/// version keys and resolves the lens, which the stored recipe may not hold
+/// yet: a capture, a recipe never opened).
+pub fn keep_detected_in(stored: &mut Value, frame: &Value, detected: &[Detected]) -> bool {
+    let warp = mask_warp(frame);
+    let frame_of = |a: &Value| {
         [
             a[geometry::ROTATION.name()].as_f64().unwrap_or(0.0) as f32 as f64,
             a[geometry::FLIP_HORIZONTAL.name()]
@@ -250,7 +320,7 @@ pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
             a[geometry::ORIENTATION_STEPS.name()].as_u64().unwrap_or(0) as f64,
         ]
     };
-    let stored_frame = frame(stored);
+    let stored_frame = frame_of(frame);
     let mut changed = false;
     for found in detected {
         let p = &found.parameters;
@@ -286,7 +356,11 @@ pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
         };
         if sub[masks::TYPE.name()].as_str().and_then(AutoSelection::of) != Some(found.selection)
             || has_bitmap(&sub[masks::PARAMETERS.name()])
+            || run_key(found.selection, &sub[masks::PARAMETERS.name()])
+                != run_key(found.selection, p)
         {
+            // (Other parts, another person or Subject version since: the
+            // bitmap is not this component's any more.)
             continue;
         }
         // The component's own settings now (Grow, Feather changed since).
@@ -317,15 +391,20 @@ mod tests {
         fn detect(
             &self,
             s: AutoSelection,
-            version: u32,
+            parameters: &Value,
             warped: &DynamicImage,
             _: bool,
         ) -> Result<String, String> {
+            let version = match s {
+                AutoSelection::Subject => subject_version(parameters),
+                AutoSelection::People => people_parts(parameters).len() as u32,
+                _ => 1,
+            };
             self.0.lock().unwrap().push((s, version));
             Ok(format!(
                 "data:{}{}:{}x{}",
                 s.name(),
-                if version > 1 {
+                if s == AutoSelection::Subject && version > 1 {
                     format!(" v{version}")
                 } else {
                     String::new()
@@ -435,6 +514,52 @@ mod tests {
     }
 
     #[test]
+    fn people_and_depth_ranges_are_detected_with_their_own_settings() {
+        // An adaptive preset applied to a closed photo: People parts and a
+        // depth range wait for this photo's detection; a People selection
+        // without parts and an Object selection are left.
+        let mut adjustments = json!({"masks": [
+            {"id": "a", "name": "Skin", "visible": true, "subMasks": [
+                {"id": "p", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null, "detectPending": true, "parts": ["faceSkin", "bodySkin"], "person": null}},
+                {"id": "q", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null, "detectPending": true, "parts": ["faceSkin", "bodySkin"], "person": null}}]},
+            {"id": "b", "name": "None", "visible": true, "subMasks": [
+                {"id": "n", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null, "detectPending": true, "parts": []}},
+                {"id": "o", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null}},
+                // Saved without its bitmap, not waiting (left before its
+                // detection finished): exported without it, as before.
+                {"id": "s", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null, "parts": ["hair"]}},
+                {"id": "t", "type": "ai-depth", "visible": true, "parameters": {"maskDataBase64": null, "minDepth": 10}}]},
+            {"id": "c", "name": "Far", "visible": true, "subMasks": [
+                {"id": "d", "type": "ai-depth", "visible": true, "parameters": {"maskDataBase64": null, "detectPending": true, "minDepth": 60, "maxDepth": 100, "minFade": 10, "maxFade": 0, "feather": 5}}]}]});
+        let source = Arc::new(DynamicImage::new_rgb8(6, 4));
+        let detector = Fixed(Default::default());
+        let found = detect_missing(
+            &mut adjustments,
+            &source,
+            false,
+            Some(&detector),
+            &mut || {},
+        )
+        .unwrap();
+        assert_eq!(found.len(), 3);
+        assert_eq!(
+            *detector.0.lock().unwrap(),
+            [(AutoSelection::People, 2), (AutoSelection::Depth, 1)],
+            "one run per kind and parts"
+        );
+        let people = &adjustments["masks"][0]["subMasks"][1]["parameters"];
+        assert_eq!(people["maskDataBase64"], "data:People:6x4");
+        assert_eq!(people["parts"], json!(["faceSkin", "bodySkin"]));
+        assert!(people.get(DETECT_PENDING).is_none());
+        let depth = &adjustments["masks"][2]["subMasks"][0]["parameters"];
+        assert_eq!(depth["maskDataBase64"], "data:depth range:6x4");
+        assert_eq!(depth["minDepth"], 60);
+        assert_eq!(depth["feather"], 5);
+        assert!(undetected(&adjustments).is_empty());
+        assert!(crate::masks::pending_detections(&adjustments).is_empty());
+    }
+
+    #[test]
     fn without_a_model_the_layers_are_named_and_nothing_changes() {
         let mut adjustments = recipe();
         let before = adjustments.clone();
@@ -452,7 +577,7 @@ mod tests {
             fn detect(
                 &self,
                 _: AutoSelection,
-                _: u32,
+                _: &Value,
                 _: &DynamicImage,
                 _: bool,
             ) -> Result<String, String> {
@@ -463,6 +588,38 @@ mod tests {
             .unwrap_err();
         assert!(error.ends_with("the Sky model is not installed"), "{error}");
         assert_eq!(adjustments, before);
+    }
+
+    #[test]
+    fn a_detection_on_the_prepared_recipe_is_kept_in_the_stored_one() {
+        // A capture's stored recipe holds only the preset's layers; the
+        // detection ran on it prepared for a render (lens resolved), so the
+        // geometry is compared in that frame, and the stored recipe gets the
+        // bitmap with the frame it was computed in.
+        let stored = json!({"masks": [{"id": "a", "name": "Sky", "visible": true, "subMasks": [
+            {"id": "s", "type": "ai-sky", "visible": true, "parameters": {"maskDataBase64": null, "detectPending": true}}]}]});
+        let mut prepared = stored.clone();
+        prepared["lensDistortionAmount"] = json!(100.0);
+        prepared["lensDistortionParams"] = json!({"k1": 0.01});
+        let found = detect_missing(
+            &mut prepared,
+            &Arc::new(DynamicImage::new_rgb8(6, 4)),
+            false,
+            Some(&Fixed(Default::default())),
+            &mut || {},
+        )
+        .unwrap();
+        assert!(!keep_detected(&mut stored.clone(), &found), "another frame");
+        let mut kept = stored.clone();
+        assert!(keep_detected_in(&mut kept, &prepared, &found));
+        assert_eq!(
+            kept["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"],
+            "data:Sky:6x4"
+        );
+        assert!(
+            kept.get("lensDistortionParams").is_none(),
+            "only the masks change"
+        );
     }
 
     #[test]
@@ -497,6 +654,19 @@ mod tests {
         straightened["rotation"] = json!(2.0);
         assert!(!keep_detected(&mut straightened, &found));
         // Detected meanwhile (the photo was opened): left as it is.
+        // Another People request since (parts changed): not its bitmap.
+        let mut people = json!({"masks": [{"id": "a", "name": "Skin", "visible": true, "subMasks": [
+            {"id": "p", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null, "detectPending": true, "parts": ["faceSkin"]}}]}]});
+        let found_people = detect_missing(
+            &mut people.clone(),
+            &source,
+            false,
+            Some(&Fixed(Default::default())),
+            &mut || {},
+        )
+        .unwrap();
+        people["masks"][0]["subMasks"][0]["parameters"]["parts"] = json!(["hair"]);
+        assert!(!keep_detected(&mut people, &found_people));
         let mut opened = recipe();
         opened["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"] = json!("data:own");
         opened["masks"][1]["subMasks"][0]["parameters"]["maskDataBase64"] = json!("data:own");

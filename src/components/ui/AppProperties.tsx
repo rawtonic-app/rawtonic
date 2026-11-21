@@ -132,7 +132,6 @@ export enum Invokes {
   CopyFiles = 'copy_files',
   CreateFolder = 'create_folder',
   CreateVirtualCopy = 'create_virtual_copy',
-  CullImages = 'cull_images',
   DeleteFolder = 'delete_folder',
   DuplicateFile = 'duplicate_file',
   EstimateExportSizes = 'estimate_export_sizes',
@@ -140,6 +139,11 @@ export enum Invokes {
   ExportImages = 'export_images',
   ExportImagesBatch = 'export_images_batch',
   ExportNamingPreview = 'export_naming_preview',
+  ExportProvenancePreview = 'export_provenance_preview',
+  ProvenanceIdentity = 'provenance_identity',
+  GenerateProvenanceIdentity = 'generate_provenance_identity',
+  ImportProvenanceCertificate = 'import_provenance_certificate',
+  RemoveProvenanceIdentity = 'remove_provenance_identity',
   ExportQueueJobs = 'export_queue_jobs',
   ExportQueueResume = 'export_queue_resume',
   ExportQueueRemove = 'export_queue_remove',
@@ -158,6 +162,8 @@ export enum Invokes {
   StopContentIndex = 'stop_content_index',
   ContentSearchStatus = 'content_search_status',
   ContentSearchDownload = 'content_search_download',
+  CullSuggestions = 'cull_suggestions',
+  CullDismiss = 'cull_dismiss',
   ContentSearchRank = 'content_search_rank',
   StartEyeCheck = 'start_eye_check',
   StopEyeCheck = 'stop_eye_check',
@@ -693,6 +699,9 @@ export const EditedStatus = {
 
 export type EditedStatus = (typeof EditedStatus)[keyof typeof EditedStatus];
 
+/** A culling suggestion (`rawtonic_catalog::cull::CRITERIA`). */
+export type CullCriterion = 'misfire' | 'document' | 'eyesClosed';
+
 export interface FilterCriteria {
   colors: Array<string>;
   rating: number;
@@ -702,6 +711,9 @@ export interface FilterCriteria {
   /** Faces' eyes: closed (or partly, never counting uncertain ones) or
    * needing a check (`face_eyes`). */
   eyes?: 'all' | 'closed' | 'check';
+  /** A culling suggestion the photographer has not dismissed
+   * (`rawtonic_catalog::cull`): the Culling panel's filters. */
+  suggestion?: 'all' | CullCriterion;
   /** Values chosen in the Library's metadata lists (camera, lens, …); the
    * library's catalog finds the photographs that have them. */
   metadata?: MetadataSelection;
@@ -800,7 +812,10 @@ export interface Preset {
   name: string;
   includeMasks?: boolean;
   includeCropTransform?: boolean;
-  presetType?: 'tool' | 'style';
+  /** "tool": one tool's settings; "style": a whole look (default);
+   * "adaptive": a built-in of AI layers only, applied as a preset (its
+   * Amount scales its layers' settings; nothing to take back as a style). */
+  presetType?: 'tool' | 'style' | 'adaptive';
   /** A preset of one tool's menu: that tool's parameters, which "Update
    * with current settings" keeps to. */
   toolKeys?: string[];
@@ -840,6 +855,8 @@ export interface LoadImageResult {
   ai_denoise_version: number;
   /** Why the recipe's AI Denoise could not be applied. */
   ai_denoise_error?: string | null;
+  /** The source is that skipped sensor's rawler decode (`aiDenoiseStandIn`). */
+  ai_denoise_stand_in?: boolean;
   /** The RAW is offline; the photograph opened on its 1:1 or Standard preview. */
   offline?: OfflinePreview | null;
   /** The source was developed for the multi-scale colour noise filter (no
@@ -916,6 +933,14 @@ export interface SelectedImage {
   aiDenoiseFailed?: number;
   /** The `aiDenoiseVersion` that failed with it (missing: 1). */
   aiDenoiseFailedVersion?: number;
+  /** The pixels are a skipped sensor's rawler decode that stands in for the
+   * recipe's AI Denoise although Apple RAW 9 would develop it without
+   * (`ai_denoise_stand_in`): developed again when AI Denoise is off. */
+  aiDenoiseStandIn?: boolean;
+  /** Decode preferences (linear RAW mode, preprocessing, Apple RAW 9) changed
+   * since the source was developed: the revision (a count of the changes) to
+   * develop it again for (`decode-preferences-changed`); 0 or missing: none. */
+  decoderStale?: number;
   /** The decoded source was developed for the multi-scale colour noise
    * filter (`colorNoiseMultiscale` in src/utils/adjustments.ts); unknown for
    * preview data. */
@@ -1057,34 +1082,6 @@ export interface HistogramData {
   /** Which of red, green, blue reach code 0 / code 255. */
   shadowChannels?: [boolean, boolean, boolean];
   highlightChannels?: [boolean, boolean, boolean];
-}
-
-export interface CullingSettings {
-  similarityThreshold: number;
-  blurThreshold: number;
-  groupSimilar: boolean;
-  filterBlurry: boolean;
-}
-
-interface ImageAnalysisResult {
-  path: string;
-  qualityScore: number;
-  sharpnessMetric: number;
-  centerFocusMetric: number;
-  exposureMetric: number;
-  width: number;
-  height: number;
-}
-
-interface CullGroup {
-  representative: ImageAnalysisResult;
-  duplicates: ImageAnalysisResult[];
-}
-
-export interface CullingSuggestions {
-  similarGroups: CullGroup[];
-  blurryImages: ImageAnalysisResult[];
-  failedPaths: string[];
 }
 
 export type AlbumItem = Album | AlbumGroup;

@@ -11,6 +11,11 @@
       "sky": "AI 마스크: 하늘",
       "subject": "AI 마스크: 피사체"
     },
+    "aiSelections": {
+      "done": "닫힌 사진의 AI 선택 영역 계산 완료 ({{total}})",
+      "failed": "{{total}}장 중 {{failed}}장의 AI 선택 영역을 계산하지 못했습니다",
+      "running": "AI 선택 영역 계산 중: {{total}}장 중 {{done}}장"
+    },
     "batch": {
       "auto_other": "자동 보정: 사진 {{count}}장",
       "faceRetouch_other": "얼굴 보정: 사진 {{count}}장",
@@ -478,7 +483,6 @@
       "confirmReset": "초기화 확인",
       "convertNegative": "네거티브 변환",
       "copyAdjustments": "조정값 복사",
-      "cullImage": "이미지 선별",
       "editImage": "이미지 편집",
       "exportImage": "이미지 내보내기",
       "frameImage": "이미지 프레임",
@@ -550,8 +554,6 @@
       "convertNegative_other": "네거티브 변환",
       "copyImage_one": "이미지 복사",
       "copyImage_other": "이미지 {{count}}개 복사",
-      "cullImage_one": "이미지 선별",
-      "cullImage_other": "이미지 선별",
       "deleteAssociated": "삭제 + 연결된 항목",
       "deleteImage_one": "이미지 삭제",
       "deleteImage_other": "이미지 {{count}}개 삭제",
@@ -1114,38 +1116,6 @@
       "create": "만들기",
       "placeholder": "폴더 이름 입력...",
       "title": "새 폴더 만들기"
-    },
-    "culling": {
-      "actionDelete": "휴지통으로 이동",
-      "actionRateZero": "평점을 1점으로 설정",
-      "actionReject": "거부됨으로 표시 (빨간 레이블)",
-      "applyButton_one": "이미지 1개에 적용",
-      "applyButton_other": "이미지 {{count}}개에 적용",
-      "bestImage": "최고의 이미지",
-      "blurryImagesTab": "흐릿한 이미지",
-      "blurThreshold": "흐림 임계값",
-      "blurThresholdDesc": "선명도 점수가 이 값보다 낮은 이미지가 표시됩니다. 값이 높을수록 더 엄격합니다.",
-      "cancel": "취소",
-      "close": "닫기",
-      "cullingFailed": "선별 실패",
-      "cullingSuggestions": "선별 제안",
-      "done": "완료",
-      "duplicatesHeader": "중복 ({{count}})",
-      "duplicatesHeader_one": "중복 ({{count}})",
-      "duplicatesHeader_other": "중복 ({{count}})",
-      "filterBlurry": "흐릿한 이미지 필터링",
-      "groupHeader": "그룹 {{index}}",
-      "groupSimilar": "유사한 이미지 그룹화",
-      "noIssuesDesc": "모든 이미지가 고유하고 선명한 것으로 보입니다.",
-      "noIssuesFound": "문제를 찾을 수 없습니다!",
-      "score": "점수: {{score}}",
-      "sharpness": "선명도: {{sharpness}}",
-      "similarGroupsTab": "유사한 그룹",
-      "similarityThreshold": "유사도 임계값",
-      "similarityThresholdDesc": "값이 낮을수록 더 엄격합니다 (완전 중복). 높을수록 더 느슨합니다 (유사 중복). 24~32 값을 권장합니다.",
-      "startCulling": "선별 시작",
-      "starting": "시작 중...",
-      "title": "이미지 선별"
     },
     "merge": {
       "align": "사진 정렬",
@@ -2212,9 +2182,11 @@
         "NegPy": "Inspiration for the negative conversion.",
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
         "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
+        "p12-keystore / RustCrypto": "서명 인증서를 가져오는 PKCS#12 인증서 파일 열기.",
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "ring": "내보내기의 출처 정보(C2PA) 매니페스트 서명: ECDSA, RSA-PSS, Ed25519 서명, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
@@ -2222,6 +2194,7 @@
         "SQLite / rusqlite": "라이브러리 데이터베이스. Windows의 WAL 잠금 처리에 Rawtonic 수정 사항을 적용했습니다.",
         "Tauri bundler": "Windows용 NSIS 설치 프로그램 템플릿으로, 사용자별 설치와 모든 사용자용 설치가 함께 유지되도록 수정했습니다.",
         "Tauri updater plugin": "'업데이트 설치': 릴리스의 매니페스트와 패키지를 가져오고 서명을 확인한 뒤 macOS 앱을 바꿉니다.",
+        "x509-parser": "서명 인증서 읽기(서명자, 유효 기간, 허용 용도).",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -2726,7 +2699,7 @@
       "done_one": "스택 {{count}}개를 만들었습니다",
       "done_other": "스택 {{count}}개를 만들었습니다",
       "interval": "사진 사이 시간",
-      "intro": "이전 사진 후 이 시간 안에 촬영한 사진을 한 스택으로 묶습니다. 이미 스택에 있는 사진은 그대로 둡니다.",
+      "intro": "앞 사진 다음 이 시간 안에 찍은 사진은 같은 스택이 됩니다. “비슷해 보이는 사진만”을 켜면 같은 장면이어야 합니다. 이미 스택에 있는 사진은 그대로 둡니다.",
       "kind": {
         "bracket_one": "브라케팅 {{count}}개",
         "bracket_other": "브라케팅 {{count}}개",
@@ -2743,9 +2716,12 @@
       "reading": "세는 중…",
       "seconds_one": "{{count}}초",
       "seconds_other": "{{count}}초",
+      "similar": "비슷해 보이는 사진만",
+      "similarity": "최소 유사도",
       "single_one": "사진 {{count}}장은 그대로 남습니다",
       "single_other": "사진 {{count}}장은 그대로 남습니다",
       "title": "촬영 시간으로 자동 스택",
+      "unread_other": "아직 읽지 않은 사진 {{count}}장은 촬영 시간으로만 묶습니다",
       "useCameraData": "카메라의 연속 촬영 및 브라케팅 정보가 있으면 사용"
     },
     "badge": {
@@ -3084,6 +3060,33 @@
       "swapOrientation": "세로와 가로 전환",
       "turnOverlay": "오버레이 회전"
     },
+    "culling": {
+      "analyse": "실패 사진과 문서 찾기",
+      "analyseDownload": "실패 사진과 문서 찾기({{size}} 다운로드)",
+      "autoStack": "자동 스택…",
+      "badge": "제안: {{names}}",
+      "checkEyes": "눈 확인…",
+      "checkTitle": "거부는 체크한 제안에 적용됩니다",
+      "criteria": {
+        "document": "문서",
+        "eyesClosed": "눈 감음",
+        "misfire": "실패 사진"
+      },
+      "criteriaLabel": "제안",
+      "dismiss_other": "문제없음({{n}}장 선택)",
+      "dismissTitle": "선택한 사진의 체크한 제안을 다시 표시하지 않습니다",
+      "failed": "선별 제안을 저장하지 못했습니다: {{error}}",
+      "gridOnly": "거부는 격자에 표시된 사진에 적용됩니다. G를 누르면 격자가 표시됩니다.",
+      "needsModel": "실패 사진과 문서를 찾기 위해 검색 모델이 각 사진을 읽습니다.",
+      "reading": "사진 {{total}}장 중 {{scored}}장 읽음",
+      "reject_other": "제안된 사진 {{n}}장 거부",
+      "rejectTitle": "표시된 사진 중 체크한 제안을 한 번의 실행 취소 단계로 거부 표시합니다. 이동하거나 삭제하지 않습니다",
+      "showAgain_other": "제안 다시 보기({{n}}장 선택)",
+      "showOnly": "{{name}}만 보기({{n}})",
+      "suggestionOnly": "제안일 뿐입니다. 거부를 누르기 전에는 아무것도 거부되지 않으며 실행 취소로 되돌릴 수 있습니다.",
+      "title": "선별",
+      "unreadable_other": "사진 {{n}}장을 제안을 위해 읽지 못했습니다. 라이브러리를 열면 다시 시도합니다."
+    },
     "develop": {
       "auto": {
         "label": "자동",
@@ -3264,7 +3267,7 @@
         "expandAll": "모든 도구 펼치기",
         "moveDown": "아래로 이동",
         "moveUp": "위로 이동",
-        "oneOpen": "한 번에 도구 하나만 열기",
+        "oneOpen": "솔로 모드",
         "restoreOrder": "기본 순서 복원",
         "restoreOrderMenu": "기본 도구 순서 복원",
         "restoreOrderTitle": "도구를 원래 순서로 되돌립니다"
@@ -3395,9 +3398,9 @@
       },
       "toolGroup": {
         "isOn": "{{tool}} 켬",
+        "openOnlyHint": "Alt/Option 키를 누른 채 클릭하면 이 도구만 열립니다",
         "reset": "{{tool}} 재설정",
         "resetGroup": "그룹 재설정",
-        "resetHint": "이름을 Alt/Option 클릭하면 {{tool}} 재설정",
         "resetOrHold": "{{tool}} 재설정 (길게 누르거나 Alt/Option과 함께 누르기: 이 도구 없이 사진 보기)",
         "turnOff": "{{tool}} 끄기",
         "turnOn": "{{tool}} 켜기"
@@ -3524,6 +3527,49 @@
         "complete": "내보내기가 완료되었습니다.",
         "exporting": "내보내는 중 {{current}}/{{total}}"
       },
+      "provenance": {
+        "about": "각 파일이 현상된 원본 사진, 편집 종류, 생성 모델이 만든 모든 영역을 기록하고 사용자의 인증서로 서명합니다. JPEG, PNG 및 TIFF. 아무것도 전송되지 않습니다.",
+        "add": "각 파일에 출처 매니페스트 서명",
+        "author": "사진 제작자를 저자로 표시",
+        "blocked": "출처 정보(C2PA)가 {{recipes}}에 서명할 수 없습니다. 유효한 서명 인증서를 설정하고 JPEG, PNG 또는 TIFF로 내보내세요.",
+        "certificateFilter": "PKCS#12 인증서",
+        "expired": "이 인증서는 지금 유효하지 않습니다(유효 기간: {{until}}까지). 이 인증서로는 내보내기에 서명할 수 없습니다. 갱신된 인증서를 가져오거나 새로 만드세요.",
+        "formatUnsupported": "{{format}} 파일은 아직 출처 매니페스트를 담을 수 없습니다. JPEG, PNG 또는 TIFF를 선택하거나 옵션을 끄세요.",
+        "generate": "이 컴퓨터에서 인증서 만들기",
+        "import": "내 인증서 가져오기 (.p12)…",
+        "importConfirm": "가져오기",
+        "importTitle": "서명 인증서 선택",
+        "keyStored": "암호는 파일을 한 번 여는 데만 쓰이며 저장되지 않습니다. 개인 키는 Rawtonic 데이터 폴더에 복사되며 사용자 계정만 읽을 수 있습니다.",
+        "legend": "출처 정보 (C2PA)",
+        "none": "설정된 서명 인증서가 없습니다.",
+        "password": "인증서 암호",
+        "planSigned": "서명됨 (C2PA)",
+        "remove": "서명 인증서 제거",
+        "removeConfirm": "이 컴퓨터에서 인증서와 개인 키를 제거할까요? 다른 인증서를 설정할 때까지 이 옵션을 사용한 내보내기는 실패합니다. 가져온 인증서의 원본 파일은 변경되지 않습니다.",
+        "removeNo": "취소",
+        "removeYes": "제거",
+        "review": {
+          "actions": "편집",
+          "author": "저자",
+          "certificate": "인증서 (모든 파일에 포함, 받는 사람이 읽을 수 있음)",
+          "generated": "생성 모델이 만듦 ({{type}})",
+          "generator": "제작 도구",
+          "ingredient": "현상 원본",
+          "noAuthor": "표시 안 함",
+          "noSigner": "아직 인증서 없음",
+          "notIncluded": "사진에서 포함되지 않음",
+          "notIncludedList": "원본의 썸네일이나 픽셀, 조정 값, 위치, 계정, 타임스탬프 서비스.",
+          "signer": "서명자"
+        },
+        "reviewHint": "첫 번째 사진 기준으로 표시합니다. 각 사진에는 고유한 파일 이름과 편집이 기록됩니다.",
+        "reviewLegend": "매니페스트에 들어가는 내용",
+        "reviewLegendFor": "매니페스트에 들어가는 내용: {{recipe}}",
+        "signedImported": "“{{signer}}”(으)로 서명합니다. 인증서 발급자: {{issuer}}, 유효 기간: {{until}}까지.",
+        "signedLocal": "이 컴퓨터에서 만든 인증서로 “{{signer}}”(으)로 서명합니다.",
+        "signerName": "서명자 이름",
+        "signerPlaceholder": "이름 또는 스튜디오",
+        "unknownSigner": "이 컴퓨터에서 만든 인증서는 검증 도구에서 알 수 없는 서명자로 표시됩니다. 이를 보증하는 인증 기관이 없기 때문입니다. 인식되는 서명자를 원하면 본인의 인증서를 가져오세요."
+      },
       "queue": {
         "button": "대기열",
         "buttonActive_other": "대기열 ({{count}})",
@@ -3641,6 +3687,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "아무것도 내보내지 않았습니다: {{error}}",
         "queuedMany_other": "내보내기 {{count}}건을 대기열에 추가했습니다.",
         "queuedOne": "내보내기 대기열에 추가했습니다.",
         "unsavedEdits": "{{names}}의 편집 내용을 저장하지 못해 아무것도 내보내지 않았습니다. 저장된 후 다시 내보내세요."
@@ -4297,6 +4344,11 @@
             "purple": "보라",
             "red": "빨강",
             "yellow": "노랑"
+          },
+          "suggestion": {
+            "document": "문서",
+            "eyesClosed": "눈 감음",
+            "misfire": "실패 사진"
           }
         },
         "combine": {
@@ -4334,6 +4386,8 @@
           "previousImport": "이전 가져오기에 포함",
           "rating": "별점",
           "sourceType": "디지털 출처 유형(파일 내)",
+          "stacked": "스택 안",
+          "suggestion": "선별 제안",
           "text": "검색 가능한 모든 텍스트"
         },
         "folderPlaceholder": "폴더 경로",
@@ -4716,6 +4770,11 @@
       "appliesSaved": "저장할 때 포함한 설정을 적용합니다",
       "appliesToSelection_other": "클릭하면 선택한 사진 {{count}}장에 적용됩니다.",
       "builtin": {
+        "adaptive-background-darker": "배경: 더 어둡게",
+        "adaptive-eyes-brighter": "인물: 더 밝은 눈",
+        "adaptive-skin-smoother": "인물: 더 매끄러운 피부",
+        "adaptive-sky-deeper": "하늘: 더 깊게",
+        "adaptive-subject-lift": "피사체: 돋보이게",
         "bw-darker-skies": "흑백 더 어두운 하늘",
         "bw-high-contrast": "흑백 고대비",
         "bw-lighter-skin": "흑백 더 밝은 피부톤",

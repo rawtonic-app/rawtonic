@@ -317,6 +317,7 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
     if (unknown && selectionCount(filterCriteria.metadata) > 0) return false;
     // Only the catalog reads eyes: a file it does not hold has none.
     if (unknown && (filterCriteria.eyes ?? 'all') !== 'all') return false;
+    if (unknown && (filterCriteria.suggestion ?? 'all') !== 'all') return false;
     if (catalogMatches !== null && !unknown) {
       // A virtual copy is found as its photograph (its own keywords are
       // not in the catalog's index: an open gap, G37).

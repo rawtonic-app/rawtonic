@@ -70,6 +70,7 @@ import { useStackCommands } from './utils/stacks';
 import { useCatalogSearch } from './hooks/useCatalogSearch';
 import { useContentSearch } from './hooks/useContentSearch';
 import { useEyeCheck } from './hooks/useEyeCheck';
+import { useCullSuggestions } from './hooks/useCullSuggestions';
 import { useAppNavigation } from './hooks/useAppNavigation';
 import { useExternalEditSession } from './hooks/useExternalEditSession';
 import ExternalEditBar from './components/ui/ExternalEditBar';
@@ -239,6 +240,7 @@ function App() {
   useCatalogSearch();
   useContentSearch();
   useEyeCheck();
+  useCullSuggestions();
   useStackCommands();
   const { displayList: sortedImageList, flagCounts, stackMarks } = useSortedLibrary();
 

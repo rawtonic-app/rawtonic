@@ -22,6 +22,7 @@ const GPS_IFD_POINTER: u16 = 0x8825;
 const XMP_TAG: u16 = 700;
 const TYPE_BYTE: u16 = 1;
 const TYPE_LONG: u16 = 4;
+const TYPE_UNDEFINED: u16 = 7;
 
 struct Entry {
     field_type: u16,
@@ -140,57 +141,19 @@ pub fn append_exif_to<S: Read + Write + Seek>(
     metadata: &Metadata,
     xmp: Option<&[u8]>,
 ) -> Result<(), AppendError> {
-    let len = file.seek(SeekFrom::End(0)).map_err(AppendError::Io)?;
-    let base = usize::try_from(len).map_err(|_| "TIFF exceeds 4 GiB")?;
-    let header = read_at(file, 0, 8.min(base))?;
-    let order = match header.get(0..4) {
-        Some([0x49, 0x49, 0x2a, 0x00]) => ByteOrder(true),
-        Some([0x4d, 0x4d, 0x00, 0x2a]) => ByteOrder(false),
-        _ => return Err("not a classic TIFF".into()),
-    };
+    let Ifd0 {
+        len,
+        base,
+        order,
+        entries: mut ifd0,
+        entry_count,
+        next_ifd,
+    } = read_ifd0(file)?;
     let endian = if order.is_little() {
         Endian::Little
     } else {
         Endian::Big
     };
-
-    let ifd0_offset = order
-        .read_u32(&header, 4)
-        .ok_or("TIFF header is truncated")? as usize;
-    let count_bytes = read_at(file, ifd0_offset, 2.min(base.saturating_sub(ifd0_offset)))?;
-    let entry_count = order
-        .read_u16(&count_bytes, 0)
-        .ok_or("IFD0 is out of bounds")? as usize;
-    // IFD0's table relative to its offset: the count, the entries, the next pointer.
-    let table_len = 2 + entry_count * 12 + 4;
-    let table = read_at(
-        file,
-        ifd0_offset,
-        table_len.min(base.saturating_sub(ifd0_offset)),
-    )?;
-    let next_ifd = order
-        .read_u32(&table, 2 + entry_count * 12)
-        .ok_or("IFD0 is truncated")?;
-
-    let mut ifd0 = BTreeMap::new();
-    for i in 0..entry_count {
-        let at = 2 + i * 12;
-        let tag = order.read_u16(&table, at).ok_or("IFD0 is truncated")?;
-        let field_type = order.read_u16(&table, at + 2).ok_or("IFD0 is truncated")?;
-        let count = order.read_u32(&table, at + 4).ok_or("IFD0 is truncated")?;
-        let value: [u8; 4] = table
-            .get(at + 8..at + 12)
-            .and_then(|b| b.try_into().ok())
-            .ok_or("IFD0 is truncated")?;
-        ifd0.insert(
-            tag,
-            Entry {
-                field_type,
-                count,
-                value: EntryValue::Existing(value),
-            },
-        );
-    }
 
     let mut exif = BTreeMap::new();
     let mut gps = BTreeMap::new();
@@ -254,6 +217,128 @@ pub fn append_exif_to<S: Read + Write + Seek>(
         file.seek(SeekFrom::End(0)).map(drop)
     };
     write().map_err(AppendError::Io)
+}
+
+/// A classic TIFF's IFD0 as [`append_exif_to`] and [`append_reserved_tag`]
+/// read it.
+struct Ifd0 {
+    /// The file's length.
+    len: u64,
+    base: usize,
+    order: ByteOrder,
+    entries: BTreeMap<u16, Entry>,
+    entry_count: usize,
+    next_ifd: u32,
+}
+
+fn read_ifd0<S: Read + Seek>(file: &mut S) -> Result<Ifd0, AppendError> {
+    let len = file.seek(SeekFrom::End(0)).map_err(AppendError::Io)?;
+    let base = usize::try_from(len).map_err(|_| "TIFF exceeds 4 GiB")?;
+    let header = read_at(file, 0, 8.min(base))?;
+    let order = match header.get(0..4) {
+        Some([0x49, 0x49, 0x2a, 0x00]) => ByteOrder(true),
+        Some([0x4d, 0x4d, 0x00, 0x2a]) => ByteOrder(false),
+        _ => return Err("not a classic TIFF".into()),
+    };
+    let ifd0_offset = order
+        .read_u32(&header, 4)
+        .ok_or("TIFF header is truncated")? as usize;
+    let count_bytes = read_at(file, ifd0_offset, 2.min(base.saturating_sub(ifd0_offset)))?;
+    let entry_count = order
+        .read_u16(&count_bytes, 0)
+        .ok_or("IFD0 is out of bounds")? as usize;
+    // IFD0's table relative to its offset: the count, the entries, the next pointer.
+    let table_len = 2 + entry_count * 12 + 4;
+    let table = read_at(
+        file,
+        ifd0_offset,
+        table_len.min(base.saturating_sub(ifd0_offset)),
+    )?;
+    let next_ifd = order
+        .read_u32(&table, 2 + entry_count * 12)
+        .ok_or("IFD0 is truncated")?;
+
+    let mut entries = BTreeMap::new();
+    for i in 0..entry_count {
+        let at = 2 + i * 12;
+        let tag = order.read_u16(&table, at).ok_or("IFD0 is truncated")?;
+        let field_type = order.read_u16(&table, at + 2).ok_or("IFD0 is truncated")?;
+        let count = order.read_u32(&table, at + 4).ok_or("IFD0 is truncated")?;
+        let value: [u8; 4] = table
+            .get(at + 8..at + 12)
+            .and_then(|b| b.try_into().ok())
+            .ok_or("IFD0 is truncated")?;
+        entries.insert(
+            tag,
+            Entry {
+                field_type,
+                count,
+                value: EntryValue::Existing(value),
+            },
+        );
+    }
+    Ok(Ifd0 {
+        len,
+        base,
+        order,
+        entries,
+        entry_count,
+        next_ifd,
+    })
+}
+
+/// Appends a copy of IFD0 with `tag` (UNDEFINED) whose value is the last
+/// bytes of the file, and points the header at it, as [`append_exif_to`]
+/// does. `size(start)` gives the value's length for its offset `start`;
+/// the value is zeros, for the caller to fill. Returns its offset and
+/// length. A tag IFD0 has already is refused.
+pub fn append_reserved_tag<S: Read + Write + Seek>(
+    file: &mut S,
+    tag: u16,
+    size: impl FnOnce(u64) -> Result<u32, String>,
+) -> Result<(u64, u32), AppendError> {
+    let Ifd0 {
+        len,
+        base,
+        order,
+        mut entries,
+        next_ifd,
+        ..
+    } = read_ifd0(file)?;
+    if entries.contains_key(&tag) {
+        return Err(format!("IFD0 already has tag {tag:#06x}").into());
+    }
+    let ifd_offset = base + base % 2;
+    let table_len = 2 + (entries.len() + 1) * 12 + 4;
+    let start = (ifd_offset + table_len) as u64;
+    let value_len = size(start)?;
+    if value_len <= 4 {
+        // It would sit in the entry itself, not at `start`.
+        return Err("a reserved value takes more than four bytes".into());
+    }
+    entries.insert(
+        tag,
+        Entry {
+            field_type: TYPE_UNDEFINED,
+            count: value_len,
+            value: EntryValue::Data(vec![0; value_len as usize]),
+        },
+    );
+    let ifd_offset_u32 = u32::try_from(ifd_offset).map_err(|_| "TIFF exceeds 4 GiB")?;
+    let mut tail = vec![0; ifd_offset - base];
+    tail.extend_from_slice(&encode_ifd(&entries, next_ifd, ifd_offset_u32, order)?);
+    if u32::try_from(ifd_offset + tail.len()).is_err() {
+        return Err("TIFF exceeds 4 GiB".into());
+    }
+    let mut write = || -> io::Result<()> {
+        file.seek(SeekFrom::Start(len))?;
+        file.write_all(&tail)?;
+        file.seek(SeekFrom::Start(4))?;
+        file.write_all(&order.u32_bytes(ifd_offset_u32))?;
+        file.seek(SeekFrom::End(0)).map(drop)
+    };
+    write().map_err(AppendError::Io)?;
+    Ok((start, value_len))
 }
 
 /// Up to `len` bytes of `file` from `at` (fewer at its end).

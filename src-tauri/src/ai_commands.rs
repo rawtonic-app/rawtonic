@@ -1017,54 +1017,101 @@ async fn auto_mask(
     Ok(Some(data))
 }
 
-/// The Sky and Subject selections an export computes for a photo that was
-/// never opened (`ai_selections::detect_missing`), with the app's models as
-/// the editor runs them: an installed model only (an export downloads
-/// nothing; one that is not installed fails that photo, naming the way to
-/// get it), one run of each kind at a time, kept from an idle unload while
-/// it runs. Called from export workers, outside the async runtime.
+/// The automatic selections an export, a collage or the selection queue
+/// computes for a photo that was never opened (`ai_selections::
+/// detect_missing`), with the app's models as the editor runs them: an
+/// installed model only (nothing is downloaded; one that is not installed
+/// fails that photo, naming the way to get it), one run of each kind at a
+/// time, kept from an idle unload while it runs. Called from worker
+/// threads, outside the async runtime.
 pub(crate) struct ExportSelections<'a> {
     pub app_handle: &'a tauri::AppHandle,
+}
+
+/// The error of a model that is not installed for a selection.
+fn not_installed(what: &str) -> String {
+    format!(
+        "the {what} model is not installed (open the photo in Develop once to download it, then try again)"
+    )
 }
 
 impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> {
     fn detect(
         &self,
         selection: rawtonic_engine::ai_selections::AutoSelection,
-        version: u32,
+        parameters: &serde_json::Value,
         warped: &image::DynamicImage,
         linear: bool,
     ) -> Result<String, String> {
+        use rawtonic_engine::ai_selections::{self as sel, AutoSelection};
         let ai_state = self.app_handle.state::<AiState>();
-        use rawtonic_engine::ai_selections::AutoSelection;
+        ai_state.lifecycle.touch();
+        let _running = ai_state.lifecycle.run();
+        let started = std::time::Instant::now();
+        let logged = |data: String| {
+            log::info!(
+                "AI {} mask for a closed photo: {}x{} in {} ms",
+                selection.name(),
+                warped.width(),
+                warped.height(),
+                started.elapsed().as_millis()
+            );
+            Ok(data)
+        };
         let kind = match selection {
             AutoSelection::Sky => AutoMask::Sky,
             AutoSelection::Subject => AutoMask::Subject,
-        };
-        ai_state.lifecycle.touch();
-        let _running = ai_state.lifecycle.run();
-        let _run = kind.lock(&ai_state).blocking_lock();
-        let network = tauri::async_runtime::block_on(network(&ai_state, self.app_handle, kind, false))?
-            .ok_or_else(|| {
-                format!(
-                    "the {} model is not installed (open the photo in Develop once to download it, then export again)",
-                    selection.name()
+            AutoSelection::People => {
+                let models =
+                    tauri::async_runtime::block_on(crate::ai_faces::models(self.app_handle, false))
+                        .map_err(|e| {
+                            if e.message == crate::ai_faces::FACE_MODELS_MISSING {
+                                not_installed("face")
+                            } else {
+                                e.message
+                            }
+                        })?;
+                let mask = rawtonic_faces::recipe::people_selection(
+                    warped,
+                    linear,
+                    &models,
+                    &sel::people_parts(parameters),
+                    sel::people_person(parameters),
+                )?;
+                return encode_to_base64_png(&mask).and_then(logged);
+            }
+            AutoSelection::Depth => {
+                if !crate::ai_processing::depth_model_installed(self.app_handle) {
+                    return Err(not_installed("Depth"));
+                }
+                let model = tauri::async_runtime::block_on(
+                    crate::ai_processing::get_or_init_depth_model(self.app_handle, &ai_state),
                 )
-            })?;
-        let started = std::time::Instant::now();
+                .map_err(|e| e.to_string())?;
+                // As the editor stores it (`generate_ai_depth_mask`): the
+                // network's depth at the warped photo's size.
+                let depth =
+                    run_depth_anything_model(warped, &model, linear).map_err(|e| e.to_string())?;
+                let full = image::imageops::resize(
+                    &depth,
+                    warped.width(),
+                    warped.height(),
+                    image::imageops::FilterType::Triangle,
+                );
+                return encode_to_base64_png(&full).and_then(logged);
+            }
+        };
+        let _run = kind.lock(&ai_state).blocking_lock();
+        let network =
+            tauri::async_runtime::block_on(network(&ai_state, self.app_handle, kind, false))?
+                .ok_or_else(|| not_installed(selection.name()))?;
+        let version = sel::subject_version(parameters);
         let mask = match &network {
             Network::Subject(model) => subject_selection(warped, model, linear, None, version),
             Network::Sky(model) => run_sky_seg_model(warped, model, linear, None),
         }
         .map_err(|e| e.to_string())?;
-        log::info!(
-            "AI {} mask for an export: {}x{} in {} ms",
-            kind.name(),
-            warped.width(),
-            warped.height(),
-            started.elapsed().as_millis()
-        );
-        encode_to_base64_png(&mask)
+        encode_to_base64_png(&mask).and_then(logged)
     }
 }
 
@@ -1820,6 +1867,7 @@ mod tests {
                 is_raw: true,
                 decode: None,
                 ai_denoise: None,
+                decoder: None,
                 measures: None,
             };
         let pixels = || Arc::new(image::DynamicImage::new_rgb8(2, 1));

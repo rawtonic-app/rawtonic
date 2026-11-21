@@ -11,6 +11,11 @@
       "sky": "Maschera IA: cielo",
       "subject": "Maschera IA: soggetto"
     },
+    "aiSelections": {
+      "done": "Selezioni IA calcolate per le foto chiuse ({{total}})",
+      "failed": "Selezioni IA non calcolate per {{failed}} di {{total}} foto",
+      "running": "Calcolo delle selezioni IA: {{done}} di {{total}} foto"
+    },
     "batch": {
       "auto_one": "Regolazioni automatiche: {{count}} foto",
       "auto_many": "Regolazioni automatiche: {{count}} foto",
@@ -515,7 +520,6 @@
       "confirmReset": "Conferma Ripristino",
       "convertNegative": "Converti Negativo",
       "copyAdjustments": "Copia Regolazioni",
-      "cullImage": "Seleziona Immagine",
       "editImage": "Modifica Immagine",
       "exportImage": "Esporta Immagine",
       "frameImage": "Incornicia Immagine",
@@ -593,9 +597,6 @@
       "copyImage_one": "Copia Immagine",
       "copyImage_many": "Copia {{count}} Immagini",
       "copyImage_other": "Copia {{count}} Immagini",
-      "cullImage_one": "Seleziona Immagine",
-      "cullImage_many": "Seleziona Immagini",
-      "cullImage_other": "Seleziona Immagini",
       "deleteAssociated": "Elimina + Associate",
       "deleteImage_one": "Elimina Immagine",
       "deleteImage_many": "Elimina {{count}} Immagini",
@@ -1176,40 +1177,6 @@
       "create": "Crea",
       "placeholder": "Inserisci nome cartella...",
       "title": "Crea Nuova Cartella"
-    },
-    "culling": {
-      "actionDelete": "Sposta nel Cestino",
-      "actionRateZero": "Imposta Valutazione a 1 Stella",
-      "actionReject": "Segna come Rifiutata (Etichetta Rossa)",
-      "applyButton_one": "Applica a 1 immagine",
-      "applyButton_many": "Applica a {{count}} immagini",
-      "applyButton_other": "Applica a {{count}} immagini",
-      "bestImage": "Migliore Immagine",
-      "blurryImagesTab": "Immagini Sfocate",
-      "blurThreshold": "Soglia Sfocatura",
-      "blurThresholdDesc": "Le immagini con un punteggio di nitidezza inferiore a questo valore vengono contrassegnate. Più alto è più severo.",
-      "cancel": "Annulla",
-      "close": "Chiudi",
-      "cullingFailed": "Selezione Fallita",
-      "cullingSuggestions": "Suggerimenti di Selezione",
-      "done": "Fatto",
-      "duplicatesHeader": "Duplicati ({{count}})",
-      "duplicatesHeader_one": "Duplicato ({{count}})",
-      "duplicatesHeader_many": "Duplicati ({{count}})",
-      "duplicatesHeader_other": "Duplicati ({{count}})",
-      "filterBlurry": "Filtra Immagini Sfocate",
-      "groupHeader": "Gruppo {{index}}",
-      "groupSimilar": "Raggruppa Immagini Simili",
-      "noIssuesDesc": "Tutte le immagini sembrano essere uniche e nitide.",
-      "noIssuesFound": "Nessun problema trovato!",
-      "score": "Punteggio: {{score}}",
-      "sharpness": "Nitidezza: {{sharpness}}",
-      "similarGroupsTab": "Gruppi Simili",
-      "similarityThreshold": "Soglia Somiglianza",
-      "similarityThresholdDesc": "Più basso è più severo (duplicati esatti). Più alto è più permissivo (quasi duplicati). Si raccomanda un valore di 24-32.",
-      "startCulling": "Avvia Selezione",
-      "starting": "Avvio in corso...",
-      "title": "Selezione Immagini"
     },
     "merge": {
       "align": "Allinea le foto",
@@ -2442,9 +2409,11 @@
         "NegPy": "Inspiration for the negative conversion.",
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
         "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
+        "p12-keystore / RustCrypto": "Apertura del file di certificato PKCS#12 da cui si importa un certificato di firma.",
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "ring": "Firma dei manifesti di provenienza (C2PA) nelle esportazioni: firme ECDSA, RSA-PSS ed Ed25519, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
@@ -2452,6 +2421,7 @@
         "SQLite / rusqlite": "Database della libreria, con una correzione Rawtonic del blocco WAL su Windows.",
         "Tauri bundler": "Modello del programma di installazione NSIS per Windows, adattato per consentire la coesistenza di un’installazione individuale e di una per tutti gli utenti.",
         "Tauri updater plugin": "«Installa aggiornamento»: scarica il manifesto e il pacchetto della versione, ne verifica la firma e sostituisce l’app macOS.",
+        "x509-parser": "Lettura dei certificati di firma (firmatario, validità, usi consentiti).",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -2962,7 +2932,7 @@
       "done_many": "{{count}} pile create",
       "done_other": "{{count}} pile create",
       "interval": "Tempo tra le foto",
-      "intro": "Le foto scattate al massimo entro questo tempo dalla precedente formano una pila. Le foto già in una pila restano come sono.",
+      "intro": "Le foto scattate al massimo entro questo tempo dalla precedente formano una pila; con «Solo foto che si somigliano» devono anche mostrare la stessa scena. Le foto già in una pila restano come sono.",
       "kind": {
         "bracket_one": "{{count}} bracketing",
         "bracket_many": "{{count}} bracketing",
@@ -2985,10 +2955,15 @@
       "seconds_one": "{{count}} secondo",
       "seconds_many": "{{count}} secondi",
       "seconds_other": "{{count}} secondi",
+      "similar": "Solo foto che si somigliano",
+      "similarity": "Somiglianza minima",
       "single_one": "{{count}} foto resta singola",
       "single_many": "{{count}} foto restano singole",
       "single_other": "{{count}} foto restano singole",
       "title": "Raggruppa automaticamente per ora di scatto",
+      "unread_one": "{{count}} foto non ancora letta è raggruppata solo per ora",
+      "unread_many": "{{count}} foto non ancora lette sono raggruppate solo per ora",
+      "unread_other": "{{count}} foto non ancora lette sono raggruppate solo per ora",
       "useCameraData": "Usa i dati di raffica e bracketing della fotocamera se disponibili"
     },
     "badge": {
@@ -3333,6 +3308,41 @@
       "swapOrientation": "Scambia verticale e orizzontale",
       "turnOverlay": "Ruota la sovrapposizione"
     },
+    "culling": {
+      "analyse": "Trova scatti mancati e documenti",
+      "analyseDownload": "Trova scatti mancati e documenti (scarica {{size}})",
+      "autoStack": "Impila automaticamente…",
+      "badge": "Suggerito: {{names}}",
+      "checkEyes": "Controlla occhi…",
+      "checkTitle": "Rifiuta prende i suggerimenti spuntati",
+      "criteria": {
+        "document": "Documenti",
+        "eyesClosed": "Occhi chiusi",
+        "misfire": "Scatti mancati"
+      },
+      "criteriaLabel": "Suggerimenti",
+      "dismiss_one": "Non è un problema ({{n}} selezionata)",
+      "dismiss_many": "Non è un problema ({{n}} selezionate)",
+      "dismiss_other": "Non è un problema ({{n}} selezionate)",
+      "dismissTitle": "I suggerimenti spuntati delle foto selezionate non vengono più mostrati",
+      "failed": "Suggerimenti non salvati: {{error}}",
+      "gridOnly": "Rifiuta agisce sulle foto mostrate dalla griglia: G mostra la griglia.",
+      "needsModel": "Per trovare scatti mancati e documenti, il modello di ricerca legge ogni foto.",
+      "reading": "Lette {{scored}} di {{total}} foto",
+      "reject_one": "Rifiuta {{n}} foto suggerita",
+      "reject_many": "Rifiuta {{n}} foto suggerite",
+      "reject_other": "Rifiuta {{n}} foto suggerite",
+      "rejectTitle": "Segna come rifiutati i suggerimenti spuntati tra le foto mostrate, in un solo passo annullabile; nulla viene spostato o eliminato",
+      "showAgain_one": "Mostra di nuovo i suggerimenti ({{n}} selezionata)",
+      "showAgain_many": "Mostra di nuovo i suggerimenti ({{n}} selezionate)",
+      "showAgain_other": "Mostra di nuovo i suggerimenti ({{n}} selezionate)",
+      "showOnly": "Mostra solo {{name}} ({{n}})",
+      "suggestionOnly": "Solo suggerimenti: nulla viene rifiutato finché non fai clic su Rifiuta, e Annulla lo ripristina.",
+      "title": "Selezione",
+      "unreadable_one": "{{n}} foto non è stata letta per i suggerimenti; verrà riprovata all’apertura della libreria.",
+      "unreadable_many": "{{n}} foto non sono state lette per i suggerimenti; verranno riprovate all’apertura della libreria.",
+      "unreadable_other": "{{n}} foto non sono state lette per i suggerimenti; verranno riprovate all’apertura della libreria."
+    },
     "develop": {
       "auto": {
         "label": "Auto",
@@ -3513,7 +3523,7 @@
         "expandAll": "Espandi tutti gli strumenti",
         "moveDown": "Sposta giù",
         "moveUp": "Sposta su",
-        "oneOpen": "Uno strumento aperto alla volta",
+        "oneOpen": "Modalità Solo",
         "restoreOrder": "Ripristina l'ordine predefinito",
         "restoreOrderMenu": "Ripristina l'ordine predefinito degli strumenti",
         "restoreOrderTitle": "Riporta gli strumenti nell'ordine originale"
@@ -3644,9 +3654,9 @@
       },
       "toolGroup": {
         "isOn": "{{tool}} attivo",
+        "openOnlyHint": "Alt/Opzione-clic per aprire solo questo strumento",
         "reset": "Ripristina {{tool}}",
         "resetGroup": "Reimposta gruppo",
-        "resetHint": "Alt/Opzione-clic sul nome reimposta {{tool}}",
         "resetOrHold": "Reimposta {{tool}} (tieni premuto, o premi con Alt/Opzione: mostra la foto senza lo strumento)",
         "turnOff": "Disattiva {{tool}}",
         "turnOn": "Attiva {{tool}}"
@@ -3777,6 +3787,49 @@
         "complete": "Esportazione completata.",
         "exporting": "Esportazione {{current}} di {{total}}"
       },
+      "provenance": {
+        "about": "Registra la foto da cui ogni file è stato sviluppato, i tipi di modifica e ogni area creata da un modello generativo, firmato con il tuo certificato. JPEG, PNG e TIFF. Non viene inviato nulla.",
+        "add": "Firma un manifesto di provenienza in ogni file",
+        "author": "Indica il creatore della foto come autore",
+        "blocked": "La provenienza (C2PA) non può firmare {{recipes}}: imposta un certificato di firma valido ed esporta JPEG, PNG o TIFF.",
+        "certificateFilter": "Certificato PKCS#12",
+        "expired": "Questo certificato non è valido ora (valido fino al {{until}}): non è possibile firmare le esportazioni con esso. Importa un certificato rinnovato o creane uno nuovo.",
+        "formatUnsupported": "I file {{format}} non possono ancora contenere un manifesto di provenienza. Scegli JPEG, PNG o TIFF, oppure disattiva l'opzione.",
+        "generate": "Crea un certificato su questo computer",
+        "import": "Importa il tuo certificato (.p12)…",
+        "importConfirm": "Importa",
+        "importTitle": "Scegli il tuo certificato di firma",
+        "keyStored": "La password apre il file una volta e non viene conservata. La chiave privata viene copiata nella cartella dati di Rawtonic, leggibile solo dal tuo account utente.",
+        "legend": "Provenienza (C2PA)",
+        "none": "Nessun certificato di firma impostato.",
+        "password": "Password del certificato",
+        "planSigned": "firmato (C2PA)",
+        "remove": "Rimuovi certificato di firma",
+        "removeConfirm": "Rimuovere il certificato e la sua chiave privata da questo computer? Le esportazioni con questa opzione falliscono finché non ne imposti un altro. Il file di un certificato importato non viene toccato.",
+        "removeNo": "Annulla",
+        "removeYes": "Rimuovi",
+        "review": {
+          "actions": "Modifiche",
+          "author": "Autore",
+          "certificate": "Certificato (in ogni file, leggibile dai destinatari)",
+          "generated": "creato da un modello generativo ({{type}})",
+          "generator": "Creato con",
+          "ingredient": "Sviluppato da",
+          "noAuthor": "Non indicato",
+          "noSigner": "Ancora nessun certificato",
+          "notIncluded": "Non incluso dalla foto",
+          "notIncludedList": "Nessuna miniatura né pixel dell'originale, nessun valore di regolazione, nessuna posizione, nessun account, nessun servizio di marcatura temporale.",
+          "signer": "Firmato da"
+        },
+        "reviewHint": "Mostrato per la prima foto; ogni foto riceve il proprio nome file e le proprie modifiche.",
+        "reviewLegend": "Cosa contiene il manifesto",
+        "reviewLegendFor": "Cosa contiene il manifesto: {{recipe}}",
+        "signedImported": "Firmato come «{{signer}}»; certificato rilasciato da {{issuer}}, valido fino al {{until}}.",
+        "signedLocal": "Firmato come «{{signer}}» con un certificato creato su questo computer.",
+        "signerName": "Nome del firmatario",
+        "signerPlaceholder": "Il tuo nome o studio",
+        "unknownSigner": "I verificatori mostrano un certificato creato su questo computer come firmatario sconosciuto: nessuna autorità di certificazione lo garantisce. Importa il tuo certificato per un firmatario riconosciuto."
+      },
       "queue": {
         "button": "Coda",
         "buttonActive_one": "Coda ({{count}})",
@@ -3900,6 +3953,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "Non è stato esportato nulla: {{error}}",
         "queuedMany_one": "{{count}} esportazione aggiunta alla coda.",
         "queuedMany_many": "{{count}} esportazioni aggiunte alla coda.",
         "queuedMany_other": "{{count}} esportazioni aggiunte alla coda.",
@@ -4605,6 +4659,11 @@
             "purple": "Viola",
             "red": "Rosso",
             "yellow": "Giallo"
+          },
+          "suggestion": {
+            "document": "Documento",
+            "eyesClosed": "Occhi chiusi",
+            "misfire": "Scatto mancato"
           }
         },
         "combine": {
@@ -4642,6 +4701,8 @@
           "previousImport": "Nell’importazione precedente",
           "rating": "Valutazione",
           "sourceType": "Origine digitale (nel file)",
+          "stacked": "In una pila",
+          "suggestion": "Suggerimento di selezione",
           "text": "Qualsiasi testo ricercabile"
         },
         "folderPlaceholder": "Percorso della cartella",
@@ -5049,6 +5110,11 @@
       "appliesToSelection_many": "Un clic si applica a {{count}} foto selezionate.",
       "appliesToSelection_other": "Un clic si applica a {{count}} foto selezionate.",
       "builtin": {
+        "adaptive-background-darker": "Sfondo: più scuro",
+        "adaptive-eyes-brighter": "Ritratto: occhi più luminosi",
+        "adaptive-skin-smoother": "Ritratto: pelle più liscia",
+        "adaptive-sky-deeper": "Cielo: più profondo",
+        "adaptive-subject-lift": "Soggetto: risalto",
         "bw-darker-skies": "B&N cielo più scuro",
         "bw-high-contrast": "B&N alto contrasto",
         "bw-lighter-skin": "B&N pelle più chiara",

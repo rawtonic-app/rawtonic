@@ -990,6 +990,7 @@ pub fn cell_settings(
         subfolder: None,
         output_sharpening,
         super_resolution: false,
+        provenance: None,
     }
 }
 

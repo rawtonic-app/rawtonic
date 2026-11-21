@@ -459,7 +459,8 @@ export function usePresets(
       existingPreset.includeCropTransform ??
       GEOMETRY_KEYS.some((key) => existingPreset.adjustments?.[key] !== undefined) ??
       false;
-    const presetType = existingPreset.presetType || 'style';
+    // (Only built-ins are adaptive; they are never updated.)
+    const presetType = existingPreset.presetType === 'tool' ? 'tool' : 'style';
     const current = currentAdjustments();
 
     const presetAdjustments =

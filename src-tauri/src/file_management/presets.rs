@@ -144,7 +144,9 @@ pub struct BuiltinPreset {
     pub version: u32,
     /// English name; the interface shows its translation by `id`.
     pub name: String,
-    /// "tool": the settings of one tool; "style": a whole look.
+    /// "tool": the settings of one tool; "style": a whole look; "adaptive":
+    /// AI layers only, applied as a preset (no style record: its Amount
+    /// scales its layers, and its layers stay the photo's).
     pub preset_type: String,
     pub adjustments: Value,
 }
@@ -169,7 +171,7 @@ pub(crate) fn parse_builtin_presets(content: &str) -> Result<Vec<BuiltinPreset>,
         if !ids.insert(preset.id.as_str()) {
             return Err(format!("Built-in preset {} is listed twice", preset.id));
         }
-        if preset.preset_type != "tool" && preset.preset_type != "style" {
+        if !["tool", "style", "adaptive"].contains(&preset.preset_type.as_str()) {
             return Err(format!("Built-in preset {} has no known type", preset.id));
         }
         if !preset
@@ -540,6 +542,26 @@ mod tests {
         assert!(presets.iter().any(|p| p.preset_type == "style"));
         assert!(presets.iter().any(|p| p.preset_type == "tool"));
         assert!(presets.iter().all(|p| p.version >= 1));
+        // Adaptive presets are AI layers only, each computed on the photo
+        // it is applied to (`selection_queue`).
+        let adaptive: Vec<_> = presets
+            .iter()
+            .filter(|p| p.preset_type == "adaptive")
+            .collect();
+        assert_eq!(adaptive.len(), 5);
+        for preset in adaptive {
+            let keys: Vec<&String> = preset.adjustments.as_object().unwrap().keys().collect();
+            assert_eq!(keys, ["masks"], "{}", preset.id);
+            let mut applied = preset.adjustments.clone();
+            rawtonic_engine::masks::prepare_layers_for_photo(&mut applied["masks"], &mut || {
+                "new".into()
+            });
+            assert!(
+                crate::selection_queue::wants_detection(&applied),
+                "{}",
+                preset.id
+            );
+        }
     }
 
     #[test]

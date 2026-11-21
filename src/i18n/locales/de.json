@@ -11,6 +11,11 @@
       "sky": "KI-Maske: Himmel",
       "subject": "KI-Maske: Motiv"
     },
+    "aiSelections": {
+      "done": "KI-Auswahlen für geschlossene Fotos berechnet ({{total}})",
+      "failed": "KI-Auswahlen für {{failed}} von {{total}} Fotos nicht berechnet",
+      "running": "KI-Auswahlen werden berechnet: {{done}} von {{total}} Fotos"
+    },
     "batch": {
       "auto_one": "Auto-Korrekturen: {{count}} Foto",
       "auto_other": "Auto-Korrekturen: {{count}} Fotos",
@@ -491,7 +496,6 @@
       "confirmReset": "Zurücksetzen bestätigen",
       "convertNegative": "Negativ umwandeln",
       "copyAdjustments": "Anpassungen kopieren",
-      "cullImage": "Bild aussortieren",
       "editImage": "In Entwickeln öffnen",
       "exportImage": "Bild exportieren",
       "frameImage": "Bild rahmen",
@@ -563,8 +567,6 @@
       "convertNegative_other": "Negative umwandeln",
       "copyImage_one": "Bild kopieren",
       "copyImage_other": "{{count}} Bilder kopieren",
-      "cullImage_one": "Bild aussortieren",
-      "cullImage_other": "Bilder aussortieren",
       "deleteAssociated": "Löschen + Zugehörige",
       "deleteImage_one": "Bild löschen",
       "deleteImage_other": "{{count}} Bilder löschen",
@@ -1127,38 +1129,6 @@
       "create": "Erstellen",
       "placeholder": "Ordnernamen eingeben...",
       "title": "Neuen Ordner erstellen"
-    },
-    "culling": {
-      "actionDelete": "In den Papierkorb verschieben",
-      "actionRateZero": "Bewertung auf 1 Stern setzen",
-      "actionReject": "Als abgelehnt markieren (Rote Markierung)",
-      "applyButton_one": "Auf 1 Bild anwenden",
-      "applyButton_other": "Auf {{count}} Bilder anwenden",
-      "bestImage": "Bestes Bild",
-      "blurryImagesTab": "Unscharfe Bilder",
-      "blurThreshold": "Unschärfe-Schwellenwert",
-      "blurThresholdDesc": "Bilder mit einem Schärfewert unter diesem Wert werden markiert. Höher ist strenger.",
-      "cancel": "Abbrechen",
-      "close": "Schließen",
-      "cullingFailed": "Aussortieren fehlgeschlagen",
-      "cullingSuggestions": "Vorschläge zum Aussortieren",
-      "done": "Fertig",
-      "duplicatesHeader": "Duplikate ({{count}})",
-      "duplicatesHeader_one": "Duplikate ({{count}})",
-      "duplicatesHeader_other": "Duplikate ({{count}})",
-      "filterBlurry": "Unscharfe Bilder filtern",
-      "groupHeader": "Gruppe {{index}}",
-      "groupSimilar": "Ähnliche Bilder gruppieren",
-      "noIssuesDesc": "Alle Bilder scheinen einzigartig und scharf zu sein.",
-      "noIssuesFound": "Keine Probleme gefunden!",
-      "score": "Punktzahl: {{score}}",
-      "sharpness": "Schärfe: {{sharpness}}",
-      "similarGroupsTab": "Ähnliche Gruppen",
-      "similarityThreshold": "Ähnlichkeits-Schwellenwert",
-      "similarityThresholdDesc": "Niedriger ist strenger (exakte Duplikate). Höher ist lockerer. 24-32 wird empfohlen.",
-      "startCulling": "Aussortieren starten",
-      "starting": "Wird gestartet...",
-      "title": "Bilder aussortieren"
     },
     "merge": {
       "align": "Fotos ausrichten",
@@ -2305,9 +2275,11 @@
         "NegPy": "Inspiration für die Negativkonvertierung.",
         "Nonlocal MatchFilter": "KI-Entrauschen auf dem RAW-Mosaik.",
         "ONNX Runtime": "Führt KI-Modelle aus, unter Windows und Linux über das WebGPU-Plugin auch auf der GPU (Microsoft). Geändert: auf Macs mit Apple-Chip, unter Linux und Windows x64 von Rawtonic ohne Microsofts Telemetrie aus dem Quellcode gebaut.",
+        "p12-keystore / RustCrypto": "Öffnen der PKCS#12-Zertifikatsdatei, aus der ein Signaturzertifikat importiert wird.",
         "RapidRAW": "Der quelloffene RAW-Editor von Timon Käch, auf dem Rawtonics Editor aufbaut (Commit a82251f).",
         "rav1d": "Dekodiert AVIF-Dateien (die Rust-Portierung von dav1d).",
         "rawler": "RAW-Dekodierung (dnglab über RapidRAW-DngLab), mit Rawtonic-Patches; Sony ARW 6 aus LibRaw portiert.",
+        "ring": "Signieren der Herkunftsnachweise (C2PA) in Exporten: ECDSA-, RSA-PSS- und Ed25519-Signaturen, SHA-256.",
         "SAM 2": "Klick- und Rahmenmasken (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Bildkodierer und -dekodierer von Moebius (madebyollin, aus Stability AIs SDXL VAE).",
         "SigLIP 2": "Automatische Stichwörter (Google).",
@@ -2315,6 +2287,7 @@
         "SQLite / rusqlite": "Bibliotheksdatenbank mit einer Rawtonic-Korrektur für WAL-Sperren unter Windows.",
         "Tauri bundler": "Vorlage für den Windows-NSIS-Installer, angepasst für parallele Installationen für ein einzelnes Konto und für alle Benutzer.",
         "Tauri updater plugin": "„Update installieren“: lädt Manifest und Paket der Version, prüft die Signatur und ersetzt die macOS-App.",
+        "x509-parser": "Lesen von Signaturzertifikaten (Unterzeichner, Gültigkeit, erlaubte Verwendungen).",
         "YuNet": "Findet Gesichter für Personenmasken (Shiqi Yu und andere).",
         "zune-jpegxl": "Verlustfreier JPEG-XL-Export (Caleb Etemesi)."
       },
@@ -2819,7 +2792,7 @@
       "done_one": "{{count}} Stapel gebildet",
       "done_other": "{{count}} Stapel gebildet",
       "interval": "Zeit zwischen Fotos",
-      "intro": "Fotos, die höchstens so lange nach dem vorigen aufgenommen wurden, kommen in einen Stapel. Fotos in einem Stapel bleiben, wie sie sind.",
+      "intro": "Fotos, die höchstens so lange nach dem vorigen aufgenommen wurden, kommen in einen Stapel; mit „Nur Fotos, die sich ähneln“ müssen sie auch dieselbe Szene zeigen. Fotos in einem Stapel bleiben, wie sie sind.",
       "kind": {
         "bracket_one": "{{count}} Belichtungsreihe",
         "bracket_other": "{{count}} Belichtungsreihen",
@@ -2836,9 +2809,13 @@
       "reading": "Wird gezählt…",
       "seconds_one": "{{count}} Sekunde",
       "seconds_other": "{{count}} Sekunden",
+      "similar": "Nur Fotos, die sich ähneln",
+      "similarity": "Mindestens so ähnlich",
       "single_one": "{{count}} Foto bleibt einzeln",
       "single_other": "{{count}} Fotos bleiben einzeln",
       "title": "Automatisch nach Aufnahmezeit stapeln",
+      "unread_one": "{{count}} noch nicht gelesenes Foto wird nur nach Zeit gruppiert",
+      "unread_other": "{{count}} noch nicht gelesene Fotos werden nur nach Zeit gruppiert",
       "useCameraData": "Serien- und Belichtungsreihen-Daten der Kamera nutzen, wenn vorhanden"
     },
     "badge": {
@@ -3178,6 +3155,37 @@
       "swapOrientation": "Hoch- und Querformat tauschen",
       "turnOverlay": "Überlagerung drehen"
     },
+    "culling": {
+      "analyse": "Fehlaufnahmen und Dokumente finden",
+      "analyseDownload": "Fehlaufnahmen und Dokumente finden ({{size}} laden)",
+      "autoStack": "Automatisch stapeln…",
+      "badge": "Vorgeschlagen: {{names}}",
+      "checkEyes": "Augen prüfen…",
+      "checkTitle": "Ablehnen nimmt die angehakten Vorschläge",
+      "criteria": {
+        "document": "Dokumente",
+        "eyesClosed": "Augen geschlossen",
+        "misfire": "Fehlaufnahmen"
+      },
+      "criteriaLabel": "Vorschläge",
+      "dismiss_one": "Kein Problem ({{n}} ausgewählt)",
+      "dismiss_other": "Kein Problem ({{n}} ausgewählt)",
+      "dismissTitle": "Die angehakten Vorschläge der ausgewählten Fotos werden nicht mehr gezeigt",
+      "failed": "Vorschläge nicht gespeichert: {{error}}",
+      "gridOnly": "Ablehnen wirkt auf die Fotos, die das Raster zeigt: G zeigt das Raster.",
+      "needsModel": "Für Fehlaufnahmen und Dokumente liest das Suchmodell jedes Foto.",
+      "reading": "{{scored}} von {{total}} Fotos gelesen",
+      "reject_one": "{{n}} vorgeschlagenes Foto ablehnen",
+      "reject_other": "{{n}} vorgeschlagene Fotos ablehnen",
+      "rejectTitle": "Markiert die angehakten Vorschläge unter den gezeigten Fotos als abgelehnt, in einem Widerrufschritt; nichts wird verschoben oder gelöscht",
+      "showAgain_one": "Vorschläge wieder zeigen ({{n}} ausgewählt)",
+      "showAgain_other": "Vorschläge wieder zeigen ({{n}} ausgewählt)",
+      "showOnly": "Nur {{name}} zeigen ({{n}})",
+      "suggestionOnly": "Nur Vorschläge: Nichts wird abgelehnt, bevor Sie auf Ablehnen klicken, und Widerrufen nimmt es zurück.",
+      "title": "Aussortieren",
+      "unreadable_one": "{{n}} Foto konnte für Vorschläge nicht gelesen werden; es wird beim Öffnen der Bibliothek erneut versucht.",
+      "unreadable_other": "{{n}} Fotos konnten für Vorschläge nicht gelesen werden; sie werden beim Öffnen der Bibliothek erneut versucht."
+    },
     "develop": {
       "auto": {
         "label": "Auto",
@@ -3358,7 +3366,7 @@
         "expandAll": "Alle Werkzeuge aufklappen",
         "moveDown": "Nach unten",
         "moveUp": "Nach oben",
-        "oneOpen": "Nur ein Werkzeug geöffnet",
+        "oneOpen": "Solomodus",
         "restoreOrder": "Standardreihenfolge wiederherstellen",
         "restoreOrderMenu": "Standardreihenfolge der Werkzeuge wiederherstellen",
         "restoreOrderTitle": "Werkzeuge wieder in ihre ursprüngliche Reihenfolge bringen"
@@ -3489,9 +3497,9 @@
       },
       "toolGroup": {
         "isOn": "{{tool}} ein",
+        "openOnlyHint": "Alt/Wahltaste-Klick öffnet nur dieses Werkzeug",
         "reset": "{{tool}} zurücksetzen",
         "resetGroup": "Gruppe zurücksetzen",
-        "resetHint": "Alt/Wahltaste-Klick auf den Namen setzt {{tool}} zurück",
         "resetOrHold": "{{tool}} zurücksetzen (halten oder mit Alt/Wahltaste drücken: Foto ohne das Werkzeug zeigen)",
         "turnOff": "{{tool}} ausschalten",
         "turnOn": "{{tool}} einschalten"
@@ -3620,6 +3628,49 @@
         "complete": "Export abgeschlossen.",
         "exporting": "Export {{current}} von {{total}}"
       },
+      "provenance": {
+        "about": "Hält fest, aus welchem Foto jede Datei entwickelt wurde, welche Arten von Bearbeitungen es gab und jeden Bereich, den ein generatives Modell erzeugt hat – signiert mit Ihrem Zertifikat. JPEG, PNG und TIFF. Es wird nichts gesendet.",
+        "add": "Herkunftsnachweis in jede Datei signieren",
+        "author": "Urheber des Fotos als Autor nennen",
+        "blocked": "Der Herkunftsnachweis (C2PA) kann {{recipes}} nicht signieren: Richten Sie ein gültiges Signaturzertifikat ein und exportieren Sie JPEG, PNG oder TIFF.",
+        "certificateFilter": "PKCS#12-Zertifikat",
+        "expired": "Dieses Zertifikat ist derzeit nicht gültig (gültig bis {{until}}): Exporte können damit nicht signiert werden. Importieren Sie ein erneuertes Zertifikat oder erstellen Sie ein neues.",
+        "formatUnsupported": "{{format}}-Dateien können noch keinen Herkunftsnachweis tragen. Wählen Sie JPEG, PNG oder TIFF oder schalten Sie die Option aus.",
+        "generate": "Zertifikat auf diesem Computer erstellen",
+        "import": "Eigenes Zertifikat importieren (.p12)…",
+        "importConfirm": "Importieren",
+        "importTitle": "Signaturzertifikat wählen",
+        "keyStored": "Das Passwort öffnet die Datei einmal und wird nicht gespeichert. Der private Schlüssel wird in den Datenordner von Rawtonic kopiert, nur für Ihr Benutzerkonto lesbar.",
+        "legend": "Herkunftsnachweis (C2PA)",
+        "none": "Kein Signaturzertifikat eingerichtet.",
+        "password": "Zertifikatspasswort",
+        "planSigned": "signiert (C2PA)",
+        "remove": "Signaturzertifikat entfernen",
+        "removeConfirm": "Zertifikat und privaten Schlüssel von diesem Computer entfernen? Exporte mit dieser Option schlagen fehl, bis ein anderes eingerichtet ist. Die Datei eines importierten Zertifikats bleibt unberührt.",
+        "removeNo": "Abbrechen",
+        "removeYes": "Entfernen",
+        "review": {
+          "actions": "Bearbeitungen",
+          "author": "Autor",
+          "certificate": "Zertifikat (in jeder Datei, für Empfänger lesbar)",
+          "generated": "von einem generativen Modell erzeugt ({{type}})",
+          "generator": "Erstellt mit",
+          "ingredient": "Entwickelt aus",
+          "noAuthor": "Nicht genannt",
+          "noSigner": "Noch kein Zertifikat",
+          "notIncluded": "Nicht enthalten aus dem Foto",
+          "notIncludedList": "Kein Vorschaubild und keine Pixel des Originals, keine Reglerwerte, kein Ort, kein Konto, kein Zeitstempeldienst.",
+          "signer": "Signiert von"
+        },
+        "reviewHint": "Gezeigt für das erste Foto; jedes Foto erhält seinen eigenen Dateinamen und seine Bearbeitungen.",
+        "reviewLegend": "Was in den Nachweis kommt",
+        "reviewLegendFor": "Was in den Nachweis kommt: {{recipe}}",
+        "signedImported": "Signiert als „{{signer}}“; Zertifikat ausgestellt von {{issuer}}, gültig bis {{until}}.",
+        "signedLocal": "Signiert als „{{signer}}“ mit einem auf diesem Computer erstellten Zertifikat.",
+        "signerName": "Name des Unterzeichners",
+        "signerPlaceholder": "Ihr Name oder Studio",
+        "unknownSigner": "Prüfprogramme zeigen ein auf diesem Computer erstelltes Zertifikat als unbekannten Unterzeichner: Keine Zertifizierungsstelle bürgt dafür. Importieren Sie Ihr eigenes Zertifikat, damit sie den Unterzeichner erkennen."
+      },
       "queue": {
         "button": "Warteschlange",
         "buttonActive_one": "Warteschlange ({{count}})",
@@ -3740,6 +3791,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "Es wurde nichts exportiert: {{error}}",
         "queuedMany_one": "{{count}} Export zur Warteschlange hinzugefügt.",
         "queuedMany_other": "{{count}} Exporte zur Warteschlange hinzugefügt.",
         "queuedOne": "Zur Exportwarteschlange hinzugefügt.",
@@ -4417,6 +4469,11 @@
             "purple": "Lila",
             "red": "Rot",
             "yellow": "Gelb"
+          },
+          "suggestion": {
+            "document": "Dokument",
+            "eyesClosed": "Augen geschlossen",
+            "misfire": "Fehlaufnahme"
           }
         },
         "combine": {
@@ -4454,6 +4511,8 @@
           "previousImport": "Im letzten Import",
           "rating": "Bewertung",
           "sourceType": "Digitale Quelle (in der Datei)",
+          "stacked": "In einem Stapel",
+          "suggestion": "Aussortier-Vorschlag",
           "text": "Beliebiger durchsuchbarer Text"
         },
         "folderPlaceholder": "Ordnerpfad",
@@ -4846,6 +4905,11 @@
       "appliesToSelection_one": "Ein Klick wirkt auf {{count}} ausgewähltes Foto.",
       "appliesToSelection_other": "Ein Klick wirkt auf {{count}} ausgewählte Fotos.",
       "builtin": {
+        "adaptive-background-darker": "Hintergrund: dunkler",
+        "adaptive-eyes-brighter": "Porträt: hellere Augen",
+        "adaptive-skin-smoother": "Porträt: glattere Haut",
+        "adaptive-sky-deeper": "Himmel: tiefer",
+        "adaptive-subject-lift": "Motiv: anheben",
         "bw-darker-skies": "S/W dunklerer Himmel",
         "bw-high-contrast": "S/W hoher Kontrast",
         "bw-lighter-skin": "S/W hellere Hauttöne",

@@ -181,6 +181,26 @@ pub struct ExportSettings {
     /// before the resize, border and output sharpening ([`Enlarger`]).
     #[serde(default)]
     pub super_resolution: bool,
+    /// Sign a provenance manifest (C2PA) into the file with the user's
+    /// signing identity (`ExportOutput::provenance`); None (the default):
+    /// no manifest, the file as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<ProvenanceSettings>,
+}
+
+/// What an export's provenance manifest holds besides its fixed content
+/// (`crate::c2pa`).
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProvenanceSettings {
+    /// Name the photo's creator (its metadata) as the author.
+    #[serde(default)]
+    pub include_author: bool,
+    /// The fingerprint (SHA-256 of the signing certificate) of the identity
+    /// the export was queued with: a job never signs with another one
+    /// (`SigningIdentity::fingerprint`). None: the current identity (the CLI).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signer: Option<String>,
 }
 
 impl ExportSettings {
@@ -1208,6 +1228,13 @@ enum Encoded<'a> {
         color_space: OutputColorSpace,
         metadata: Option<crate::exif_processing::ExportMetadata>,
     },
+    /// A TIFF whose provenance manifest is signed in once the rest of the
+    /// file is written.
+    Signed {
+        tiff: Box<Encoded<'a>>,
+        plan: crate::c2pa::ManifestPlan,
+        identity: &'a crate::c2pa::SigningIdentity,
+    },
 }
 
 impl<'a> EncodedExport<'a> {
@@ -1255,6 +1282,16 @@ impl<'a> EncodedExport<'a> {
                 metadata.as_ref(),
                 render,
             ),
+            Encoded::Signed {
+                tiff,
+                plan,
+                identity,
+            } => {
+                EncodedExport(*tiff).write_to(file)?;
+                #[cfg(feature = "performance-profiling")]
+                let _stage = crate::performance::PerformanceStage::new("export_provenance");
+                crate::c2pa::sign_tiff(file, &plan, identity)
+            }
         }
     }
 
@@ -1286,6 +1323,9 @@ pub struct ExportOutput<'a> {
     pub enlarger: Option<&'a dyn Enlarger>,
     /// Writes the encoded bytes for `path` with the given lower-case extension.
     pub write: &'a WriteExport,
+    /// The identity provenance manifests are signed with, when the user set
+    /// one up; an export asking for a manifest fails without it.
+    pub provenance: Option<&'a crate::c2pa::SigningIdentity>,
 }
 
 /// The source pixels of one export: refuses a RAW shown only through its
@@ -1308,7 +1348,7 @@ pub fn prepare_export_source(
             rawtonic_engine::masks::pending_detections_message(&pending)
         ));
     }
-    // Sky and Subject selections are computed before (`ai_selections::
+    // Automatic selections are computed before (`ai_selections::
     // detect_missing`); one still without its bitmap is never left out.
     let undetected = rawtonic_engine::ai_selections::undetected(js_adjustments);
     if !undetected.is_empty() {
@@ -1547,7 +1587,7 @@ fn streamed_export<'a>(
     size: (u32, u32),
     js_adjustments: &Value,
     export_settings: &ExportSettings,
-    output: &ExportOutput,
+    output: &ExportOutput<'a>,
     cancelled: &'a dyn Fn() -> Result<(), String>,
     render: impl FnOnce(RowStream<'_>) -> Result<(), String> + 'a,
 ) -> Result<EncodedExport<'a>, String> {
@@ -1561,7 +1601,7 @@ fn streamed_export<'a>(
         output,
         size,
     );
-    Ok(EncodedExport::streamed_tiff(
+    let encoded = EncodedExport::streamed_tiff(
         size,
         Box::new(move |stream| {
             render(stream)?;
@@ -1570,7 +1610,17 @@ fn streamed_export<'a>(
         export_settings.tiff_bit_depth,
         export_settings.color_space,
         metadata,
-    ))
+    );
+    // The file is its render unchanged ([`render_is_file`]).
+    with_provenance(
+        encoded,
+        &output_extension(output),
+        source_path_str,
+        js_adjustments,
+        export_settings,
+        output,
+        crate::c2pa::OutputChanges::default(),
+    )
 }
 
 /// [`render_prepared_and_save`] of a file that streams its render
@@ -1646,6 +1696,7 @@ pub fn save_rendered_export(
 ) -> Result<(), String> {
     #[cfg(feature = "performance-profiling")]
     let geometry_stage = crate::performance::PerformanceStage::new("export_geometry");
+    let rendered_size = processed.dimensions();
     let final_image =
         finish_rendered_export(processed, export_settings, output.enlarger, cancelled)
             .map(|(image, _)| image)?;
@@ -1653,13 +1704,154 @@ pub fn save_rendered_export(
     drop(geometry_stage);
     cancelled()?;
     let generated = export_marks_generated(js_adjustments, export_settings);
-    save_export_image(
-        final_image,
+    let changes = crate::c2pa::OutputChanges {
+        resized: final_image.dimensions() != rendered_size,
+        framed_or_watermarked: export_settings.border.is_some()
+            || export_settings.pad.is_some()
+            || export_settings.watermark.is_some(),
+    };
+    let extension = output_extension(output);
+    let metadata = export_file_metadata(
         source_path_str,
+        &extension,
         export_settings,
         generated,
         output,
+        final_image.dimensions(),
+    );
+    let encoded = encode_export(final_image, &extension, export_settings, metadata)?;
+    let encoded = with_provenance(
+        encoded,
+        &extension,
+        source_path_str,
+        js_adjustments,
+        export_settings,
+        output,
+        changes,
+    )?;
+    #[cfg(feature = "performance-profiling")]
+    let _write_stage = crate::performance::PerformanceStage::new("export_write");
+    (output.write)(output.path, &extension, encoded)
+}
+
+/// Why an export asking for a provenance manifest cannot sign it.
+pub const PROVENANCE_NEEDS_IDENTITY: &str = "Provenance (C2PA) is on in this export recipe, but no signing certificate is set up: generate one or import yours in the Export panel's Provenance section, or turn the option off.";
+
+/// The error for a format that cannot carry a manifest (`c2pa::supports`;
+/// `extension` lower case).
+pub fn provenance_format_error(extension: &str) -> Option<String> {
+    (!crate::c2pa::supports(extension)).then(|| {
+        format!(
+            "Provenance (C2PA) cannot be written to {} files yet; export JPEG, PNG or TIFF, or turn the option off.",
+            extension.to_uppercase()
+        )
+    })
+}
+
+/// The manifest an export of `source_path_str` gets (its recipe's
+/// `provenance`): the actions of the adjustments its main file renders
+/// ([`main_export_adjustments`]: mask layers that go to their own files are
+/// not in it), and the author when asked: the creator its metadata embeds
+/// ([`crate::exif_processing::export_rights`]).
+pub fn provenance_plan(
+    source_path_str: &str,
+    js_adjustments: &Value,
+    export_settings: &ExportSettings,
+    exif_sidecar: &dyn Fn() -> Option<ExifMap>,
+    catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
+    changes: crate::c2pa::OutputChanges,
+) -> crate::c2pa::ManifestPlan {
+    let author = export_settings
+        .provenance
+        .as_ref()
+        .filter(|p| p.include_author)
+        .map(|_| {
+            crate::exif_processing::export_rights(source_path_str, exif_sidecar, catalog).creator
+        });
+    crate::c2pa::plan_for(
+        source_path_str,
+        &main_export_adjustments(js_adjustments, export_settings),
+        changes,
+        author.as_deref(),
     )
+}
+
+/// The identity `output` signs a file of `extension` with, when the export
+/// asks for a manifest: Err when it cannot be signed (no identity, an expired
+/// certificate, another identity than the job was queued with, a format
+/// without manifests). Ok(None) when no manifest is asked for.
+pub fn provenance_signer<'a>(
+    export_settings: &ExportSettings,
+    output: &ExportOutput<'a>,
+    extension: &str,
+) -> Result<Option<&'a crate::c2pa::SigningIdentity>, String> {
+    let Some(provenance) = &export_settings.provenance else {
+        return Ok(None);
+    };
+    let identity = output
+        .provenance
+        .ok_or_else(|| PROVENANCE_NEEDS_IDENTITY.to_string())?;
+    if let Some(error) = provenance_format_error(extension) {
+        return Err(error);
+    }
+    if let Some(signer) = &provenance.signer
+        && *signer != identity.fingerprint()
+    {
+        return Err(PROVENANCE_SIGNER_CHANGED.to_string());
+    }
+    identity.check_usable()?;
+    Ok(Some(identity))
+}
+
+/// Why a queued export no longer signs: its signing certificate was replaced
+/// or removed after it was queued.
+pub const PROVENANCE_SIGNER_CHANGED: &str = "The signing certificate was replaced after this export was queued, so it is not signed with another one: export again to sign with the current certificate.";
+
+/// `encoded` with the provenance manifest its recipe asks for, signed in
+/// after every other byte of the file (EXIF, XMP, ICC are written by then):
+/// a JPEG now, a TIFF once it is written ([`EncodedExport::write_to`]).
+/// Unchanged when the recipe asks for none.
+fn with_provenance<'a>(
+    encoded: EncodedExport<'a>,
+    extension: &str,
+    source_path_str: &str,
+    js_adjustments: &Value,
+    export_settings: &ExportSettings,
+    output: &ExportOutput<'a>,
+    changes: crate::c2pa::OutputChanges,
+) -> Result<EncodedExport<'a>, String> {
+    let Some(identity) = provenance_signer(export_settings, output, extension)? else {
+        return Ok(encoded);
+    };
+    let plan = provenance_plan(
+        source_path_str,
+        js_adjustments,
+        export_settings,
+        output.exif_sidecar,
+        output.catalog,
+        changes,
+    );
+    Ok(EncodedExport(match encoded.0 {
+        Encoded::Bytes(bytes) if is_tiff(extension) => {
+            let mut file = Cursor::new(bytes);
+            crate::c2pa::sign_tiff(&mut file, &plan, identity)?;
+            Encoded::Bytes(file.into_inner())
+        }
+        Encoded::Bytes(bytes) => {
+            #[cfg(feature = "performance-profiling")]
+            let _stage = crate::performance::PerformanceStage::new("export_provenance");
+            Encoded::Bytes(if extension == "png" {
+                crate::c2pa::sign_png(&bytes, &plan, identity)?
+            } else {
+                crate::c2pa::sign_jpeg(&bytes, &plan, identity)?
+            })
+        }
+        tiff => Encoded::Signed {
+            tiff: Box::new(tiff),
+            plan,
+            identity,
+        },
+    }))
 }
 
 /// Full-resolution pixels an export renders from. Rendering takes ownership,
@@ -2371,6 +2563,26 @@ pub fn save_group_rendering(
     let render_all = || render_prepared_exports(prepared, env, debug_tag, outputs, &mut []);
     if own >= outputs.len() || !streams_into_file(prepared, export_settings, output) {
         return render_all().map(|images| images.into_iter().map(GroupRender::Image).collect());
+    }
+    // A file that cannot be signed fails on its own, before anything is
+    // rendered for it; the others still render.
+    if let Err(error) = provenance_signer(export_settings, output, &output_extension(output)) {
+        let others: Vec<_> = outputs
+            .iter()
+            .enumerate()
+            .filter(|&(index, _)| index != own)
+            .map(|(_, output)| *output)
+            .collect();
+        let mut renders: Vec<GroupRender> = if others.is_empty() {
+            Vec::new()
+        } else {
+            render_prepared_exports(prepared, env, debug_tag, &others, &mut [])?
+                .into_iter()
+                .map(GroupRender::Image)
+                .collect()
+        };
+        renders.insert(own, GroupRender::Failed(error));
+        return Ok(renders);
     }
     let mut rendered = None;
     let encoded = streamed_export(
@@ -4204,6 +4416,7 @@ mod encoding_input_tests {
                 catalog: &catalog,
                 write: &write,
                 enlarger: None,
+                provenance: None,
             };
             save_export_image(
                 DynamicImage::new_rgb8(4, 4),
@@ -4259,6 +4472,7 @@ mod encoding_input_tests {
             catalog: &|| None,
             write: &write,
             enlarger: None,
+            provenance: None,
         };
         save_export_image(
             DynamicImage::new_rgb8(4, 4),

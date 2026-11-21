@@ -765,8 +765,9 @@ pub async fn enqueue(app: &AppHandle, request: ExportRequest) -> Result<String, 
 /// export depends on no library being open.
 pub async fn enqueue_all(
     app: &AppHandle,
-    requests: Vec<ExportRequest>,
+    mut requests: Vec<ExportRequest>,
 ) -> Result<Vec<String>, String> {
+    crate::provenance::pin_signers(app, &mut requests)?;
     let exports_app = app.clone();
     let ids = tauri::async_runtime::spawn_blocking(move || {
         queue_pinned(&exports_app.state::<ExportState>().queue, requests)

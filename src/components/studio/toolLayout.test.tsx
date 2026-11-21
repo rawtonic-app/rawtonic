@@ -94,10 +94,12 @@ describe('one tool open at a time', () => {
   };
 
   it('is a column setting in the header menu: opening a tool then closes the others', () => {
-    render(<Column />);
+    const view = render(<Column />);
     fireEvent.contextMenu(screen.getByText('Alpha'));
-    fireEvent.click(screen.getByText('One Tool Open at a Time'));
+    fireEvent.click(screen.getByText('Solo Mode'));
     expect(useSettingsStore.getState().appSettings?.toolLayout?.solo).toEqual({ 'develop:all': true });
+    view.unmount();
+    render(<Column />);
     toggle('Beta', true);
     expect([isOpen('Alpha'), isOpen('Beta'), isOpen('Gamma')]).toEqual([false, true, false]);
     // Closing the open tool leaves all closed.
@@ -105,7 +107,7 @@ describe('one tool open at a time', () => {
     expect([isOpen('Alpha'), isOpen('Beta'), isOpen('Gamma')]).toEqual([false, false, false]);
     // A second choice turns it off (the closing menu may still be mounted).
     fireEvent.contextMenu(screen.getByText('Alpha'));
-    fireEvent.click(screen.getAllByText('One Tool Open at a Time').at(-1)!);
+    fireEvent.click(screen.getAllByText('Solo Mode').at(-1)!);
     expect(useSettingsStore.getState().appSettings?.toolLayout?.solo).toEqual({ 'develop:all': false });
     toggle('Alpha', true);
     toggle('Gamma', true);
@@ -143,6 +145,25 @@ describe('one tool open at a time', () => {
     fireEvent.click(screen.getByText('Beta'), { altKey: true });
     expect([isOpen('Alpha'), isOpen('Beta'), isOpen('Gamma')]).toEqual([false, true, false]);
     expect(useSettingsStore.getState().appSettings?.toolLayout?.solo).toBeUndefined();
+  });
+
+  it('opens just the focused group with Alt+Enter and reaches both bulk actions by keyboard', () => {
+    render(<Column />);
+    const summary = screen.getByText('Beta').closest('summary')!;
+    summary.focus();
+    fireEvent.keyDown(summary, { key: 'Enter', altKey: true });
+    expect([isOpen('Alpha'), isOpen('Beta'), isOpen('Gamma')]).toEqual([false, true, false]);
+    fireEvent.keyDown(summary, { key: 'F10', shiftKey: true });
+    expect(document.activeElement?.textContent).toBe('Move Up');
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+    expect(document.activeElement?.textContent).toBe('Expand All Tools');
+    fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
+    expect([isOpen('Alpha'), isOpen('Beta'), isOpen('Gamma')]).toEqual([true, true, true]);
+    expect(document.activeElement).toBe(summary);
+    fireEvent.keyDown(summary, { key: 'ContextMenu' });
+    fireEvent.click(screen.getAllByRole('menuitem', { name: 'Collapse All Tools' }).at(-1)!);
+    expect([isOpen('Alpha'), isOpen('Beta'), isOpen('Gamma')]).toEqual([false, false, false]);
   });
 });
 

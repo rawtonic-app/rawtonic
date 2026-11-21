@@ -288,6 +288,51 @@ function syncBatch(batch: PhotoBatch, finished: boolean) {
 
 /** Find Duplicates' pass over a library (`utils/duplicates`): progress
  * with Stop while it reads, then what it read, with Review. */
+/** `selection_queue::PROGRESS_EVENT`: AI selections of photos given layers
+ * with them while closed (a preset applied in the Library, a capture). */
+export const AI_SELECTIONS_PROGRESS = 'ai-selections-progress';
+
+/** Mirrors `selection_queue::Progress`. */
+export interface AiSelectionsProgress {
+  total: number;
+  done: number;
+  current: string | null;
+  failed: { path: string; message: string }[];
+  finished: boolean;
+}
+
+const AI_SELECTIONS = 'ai:selections';
+
+/** The queue's progress as a running entry; when it is empty, the photos
+ * whose selections were not computed are reported by name and reason
+ * (never left out silently), else the entry goes under Done. */
+export function syncAiSelections({ total, done, failed, finished }: AiSelectionsProgress) {
+  const activity = useActivityStore.getState();
+  if (!finished) {
+    const fields = {
+      source: 'ai' as const,
+      title: i18n.t('activity.aiSelections.running', { done, total }),
+      progress: { done, total }
+    };
+    if (activity.entries.some((entry) => entry.id === AI_SELECTIONS && entry.status === 'running'))
+      activity.update(AI_SELECTIONS, fields);
+    else activity.start({ id: AI_SELECTIONS, ...fields });
+    return;
+  }
+  if (failed.length === 0) {
+    activity.finish(AI_SELECTIONS, { title: i18n.t('activity.aiSelections.done', { total }) });
+    return;
+  }
+  activity.finish(AI_SELECTIONS);
+  activity.report('warning', {
+    id: `${AI_SELECTIONS}:failed:${Date.now()}`,
+    source: 'ai',
+    title: i18n.t('activity.aiSelections.failed', { failed: failed.length, total }),
+    detail: failed.map((failure) => `${fileName(failure.path)}: ${failure.message}`).join('\n'),
+    paths: failed.map((failure) => failure.path)
+  });
+}
+
 export function syncDuplicatesProgress({ run, done, total }: DuplicatesProgress) {
   const activity = useActivityStore.getState();
   const id = `duplicates:${run}`;
@@ -484,6 +529,7 @@ export function startActivityBridges(): () => void {
     }),
     listenSafely('ai-model-download-finish', () => useActivityStore.getState().finish('download:ai-model')),
     listenSafely<DuplicatesProgress>(DUPLICATES_PROGRESS, syncDuplicatesProgress),
+    listenSafely<AiSelectionsProgress>(AI_SELECTIONS_PROGRESS, syncAiSelections),
     listenSafely<LeftoversReport>('leftovers-removed', syncLeftovers),
     listenSafely<SkippedDuplicates>('library-duplicates-skipped', syncSkippedDuplicates),
     listenSafely<MergedDuplicates>('library-duplicates-merged', syncMergedDuplicates),

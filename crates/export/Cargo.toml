@@ -62,11 +62,20 @@ miniz_oxide = "0.8.9"
 # 0.14 shares read-fonts 0.45 with skrifa 0.48 (0.15 would add a second copy).
 harfrust = "=0.14.0"
 unicode-bidi = "0.3.18"
+# Provenance (C2PA) manifests: signing (ring, already used by rustls), the
+# user's PKCS#12 certificate (incl. legacy 3DES/RC2 files as macOS exports
+# them) and reading certificates.
+ring = "0.17.14"
+p12-keystore = "0.4.1"
+x509-parser = "0.18.1"
+base64 = { workspace = true }
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 turbojpeg = { workspace = true, features = ["cmake", "require-simd"] }
 
 [dev-dependencies]
+ciborium = "0.2.2"
+rawtonic-faces = { path = "../faces", version = "0.1.0" }
 rawtonic-segment = { path = "../segment", version = "0.1.0" }
 rawtonic-engine = { path = "../engine", version = "0.1.0", features = ["test-support"] }
 tempfile = { workspace = true }

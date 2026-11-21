@@ -41,8 +41,8 @@ fn preprocess_siglip_image(image: &DynamicImage) -> Array<f32, ndarray::Dim<[usi
 }
 
 /// SigLIP 2's learned calibration: score = sigmoid(scale * cosine + bias).
-const SIGLIP_LOGIT_SCALE: f32 = 112.668_9;
-const SIGLIP_LOGIT_BIAS: f32 = -16.771_725;
+pub(crate) const SIGLIP_LOGIT_SCALE: f32 = 112.668_9;
+pub(crate) const SIGLIP_LOGIT_BIAS: f32 = -16.771_725;
 /// A tag is kept when its score reaches this share of the best tag's.
 const RELATIVE_TAG_SCORE: f32 = 0.1;
 const MIN_TAG_SCORE: f32 = 0.0005;

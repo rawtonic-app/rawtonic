@@ -175,3 +175,14 @@ it('names an unavailable default Output folder with native Windows separators', 
   expect(await runExportJobs([{ recipe: null, draft, settings, outputFormat }], ['C:\\Shoots\\A\\a.NEF'])).toBe(0);
   expect(useProcessStore.getState().exportState.errorMessage).toContain('C:\\Shoots\\A\\Output');
 });
+
+it('says where the command ran when the queue refuses an export (the File menu, panel closed)', async () => {
+  vi.mocked(invoke).mockRejectedValueOnce(
+    'Signed · JPG: Provenance (C2PA) is on in this export recipe, but no signing certificate is set up.'
+  );
+  const draft = { ...DEFAULT_RECIPE_DRAFT, where: 'original' as const, provenance: true };
+  const { settings, outputFormat } = exportSettingsFromDraft(draft);
+  expect(await runExportJobs([{ recipe: null, draft, settings, outputFormat }], ['/p/a.NEF'])).toBe(0);
+  expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Signed · JPG: Provenance (C2PA)'));
+  expect(useProcessStore.getState().exportState.status).toBe(Status.Error);
+});

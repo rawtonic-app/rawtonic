@@ -135,7 +135,7 @@ export function presetDefaultSettings(preset: Preset, isRaw = true): Record<stri
   const own = Object.fromEntries(
     Object.entries(preset.adjustments ?? {}).filter(([key]) => isDefaultKey(key))
   ) as Partial<Adjustments>;
-  const style = preset.presetType !== 'tool';
+  const style = preset.presetType !== 'tool' && preset.presetType !== 'adaptive';
   const values = expressPastedSettings(presetValues(own), {
     recipe: base,
     isRaw,
