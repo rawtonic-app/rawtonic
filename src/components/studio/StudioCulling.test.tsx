@@ -188,6 +188,6 @@ it('tags a tile with its misfire or document suggestion, not closed eyes', () =>
       <PhotoCullBadge path="/job/c.arw" />
     </>
   );
-  expect(screen.getByRole('img', { name: 'Suggested: Misfires · Documents' })).toBeTruthy();
+  expect(screen.getByRole('img', { name: 'Suggested: Misfire · Document' })).toBeTruthy();
   expect(container.querySelectorAll('.studio-cull-badge')).toHaveLength(1);
 });

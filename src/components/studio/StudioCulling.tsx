@@ -69,7 +69,14 @@ export function PhotoCullBadge({ path, compact }: { path: string; compact?: bool
   const suggested = useCullStore((s) => s.photos[path]?.suggested);
   const shown = suggested?.filter((c) => c !== 'eyesClosed') ?? [];
   if (!shown.length) return null;
-  const names = shown.map((c) => criterionLabel(t, c)).join(' · ');
+  // One photograph's tag names the suggestion in the singular.
+  const names = shown
+    .map((c) =>
+      c === 'misfire'
+        ? t('studio.library.smartAlbums.choices.suggestion.misfire')
+        : t('studio.library.smartAlbums.choices.suggestion.document')
+    )
+    .join(' · ');
   const Icon = ICONS[shown[0]];
   return (
     <span
