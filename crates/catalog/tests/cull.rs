@@ -121,7 +121,8 @@ fn an_older_library_takes_the_tables_and_reads_its_photographs_for_scores() {
 fn read(lib: &Library, id: &str, set: &PromptSet, values: &[f32]) {
     embed(lib, id, values);
     let fingerprint = lib.asset(id).unwrap().fingerprint;
-    lib.record_cull(id, MODEL, set, &fingerprint, values).unwrap();
+    lib.record_cull(id, MODEL, set, &fingerprint, values)
+        .unwrap();
 }
 
 #[test]
@@ -180,8 +181,14 @@ fn scores_are_made_from_each_reading_once_per_file_model_and_prompt_set() {
     // A bad prompt set or embedding is refused, nothing written.
     let mut bad = prompts("p3");
     bad.document = vec![vec![1.0; 3]];
-    assert!(lib.record_cull(&ids[2], MODEL, &bad, &fp, &axis(9)).is_err());
-    assert!(lib.record_cull(&ids[2], MODEL, &p1, &fp, &[0.5; 3]).is_err());
+    assert!(
+        lib.record_cull(&ids[2], MODEL, &bad, &fp, &axis(9))
+            .is_err()
+    );
+    assert!(
+        lib.record_cull(&ids[2], MODEL, &p1, &fp, &[0.5; 3])
+            .is_err()
+    );
 }
 
 #[test]
@@ -392,7 +399,12 @@ fn dump_auto_stack_plan() {
         return;
     };
     let lib = Library::open(Path::new(&dir)).unwrap();
-    let ids: Vec<String> = lib.assets(None).unwrap().into_iter().map(|a| a.id).collect();
+    let ids: Vec<String> = lib
+        .assets(None)
+        .unwrap()
+        .into_iter()
+        .map(|a| a.id)
+        .collect();
     let options = AutoStackOptions {
         interval_secs: 2,
         // `CUL2_CAMERA=0`: without the camera's burst and bracket data.

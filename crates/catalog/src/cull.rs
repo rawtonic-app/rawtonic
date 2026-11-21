@@ -241,7 +241,13 @@ impl Library {
              ON CONFLICT(asset_id) DO UPDATE SET model=excluded.model,
              fingerprint=excluded.fingerprint,misfire=excluded.misfire,
              document=excluded.document",
-            params![id, score_model(model, &set.id), fingerprint, misfire, document],
+            params![
+                id,
+                score_model(model, &set.id),
+                fingerprint,
+                misfire,
+                document
+            ],
         )?;
         Ok(())
     }

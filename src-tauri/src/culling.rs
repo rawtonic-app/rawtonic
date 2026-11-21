@@ -77,14 +77,13 @@ fn as_set(stored: StoredPrompts) -> PromptSet {
 fn read_stored(models: &Path, id: &str) -> Option<PromptSet> {
     let bytes = std::fs::read(stored_path(models, id)).ok()?;
     let stored: StoredPrompts = serde_json::from_slice(&bytes).ok()?;
-    let whole = stored.id == id
-        && stored.misfire.len() == MISFIRE_PROMPTS.len()
-        && stored.document.len() == DOCUMENT_PROMPTS.len()
-        && stored
-            .misfire
-            .iter()
-            .chain(&stored.document)
-            .all(|p| p.len() == rawtonic_catalog::content::DIM && p.iter().all(|v| v.is_finite()));
+    let whole =
+        stored.id == id
+            && stored.misfire.len() == MISFIRE_PROMPTS.len()
+            && stored.document.len() == DOCUMENT_PROMPTS.len()
+            && stored.misfire.iter().chain(&stored.document).all(|p| {
+                p.len() == rawtonic_catalog::content::DIM && p.iter().all(|v| v.is_finite())
+            });
     whole.then(|| as_set(stored))
 }
 
@@ -99,7 +98,12 @@ fn rows(flat: &[f32], count: usize) -> anyhow::Result<Vec<Vec<f32>>> {
     Ok(flat
         .chunks(dim)
         .map(|row| {
-            let norm = row.iter().map(|v| v * v).sum::<f32>().sqrt().max(f32::MIN_POSITIVE);
+            let norm = row
+                .iter()
+                .map(|v| v * v)
+                .sum::<f32>()
+                .sqrt()
+                .max(f32::MIN_POSITIVE);
             row.iter().map(|v| v / norm).collect()
         })
         .collect())
@@ -140,10 +144,9 @@ pub fn prompt_set(app: &tauri::AppHandle) -> anyhow::Result<Option<Arc<PromptSet
                 misfire,
                 document,
             };
-            if let Err(e) = rawtonic_fs::atomic_write(
-                &stored_path(&models, &id),
-                serde_json::to_vec(&stored)?,
-            ) {
+            if let Err(e) =
+                rawtonic_fs::atomic_write(&stored_path(&models, &id), serde_json::to_vec(&stored)?)
+            {
                 log::warn!("Culling prompts not kept: {e:#}");
             }
             as_set(stored)
@@ -157,7 +160,10 @@ pub fn prompt_set(app: &tauri::AppHandle) -> anyhow::Result<Option<Arc<PromptSet
 /// The prompt set when it is in memory already (never loads anything).
 pub fn cached_prompt_set() -> Option<Arc<PromptSet>> {
     let id = prompt_set_id();
-    lock_recover(&PROMPTS).as_ref().filter(|s| s.id == id).cloned()
+    lock_recover(&PROMPTS)
+        .as_ref()
+        .filter(|s| s.id == id)
+        .cloned()
 }
 
 /// Announces new scores or dismissals in the library at `directory`.

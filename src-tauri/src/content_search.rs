@@ -48,7 +48,8 @@ pub const MODEL_ID: &str = SIGLIP_VISION_SHA256;
 /// SigLIP 2's text encoder saved as ONNX external data
 /// (scripts/models/external_data.py; same weights as `siglip2_text.onnx`).
 const TEXT_FILENAME: &str = "siglip2_text_ext.onnx";
-pub(crate) const TEXT_SHA256: &str = "8850287083d7a450ec8112162ccc82c0c830432aee4f7814bcc090de65218dba";
+pub(crate) const TEXT_SHA256: &str =
+    "8850287083d7a450ec8112162ccc82c0c830432aee4f7814bcc090de65218dba";
 const TEXT_DATA_FILENAME: &str = "siglip2_text_ext.onnx.data";
 const TEXT_DATA_SHA256: &str = "d7721a55cb0242769a6d4b1031ef14c48df21609757a63b856cb00c21e502348";
 
@@ -197,9 +198,9 @@ fn run_pass(
             None => lib.content_backlog(MODEL_ID, asked)?,
         }
         .into_iter()
-            .filter(|w| !skipped.contains(&w.id))
-            .take(PASS_BATCH)
-            .collect();
+        .filter(|w| !skipped.contains(&w.id))
+        .take(PASS_BATCH)
+        .collect();
         if work.is_empty() {
             break;
         }

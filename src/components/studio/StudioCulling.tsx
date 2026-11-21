@@ -248,7 +248,10 @@ export function StudioCulling() {
             )}
             {selectedDismissed.length > 0 && (
               <button type="button" disabled={busy} onClick={() => void dismiss(selectedDismissed, false)}>
-                {t('studio.culling.showAgain', { count: selectedDismissed.length, n: number(selectedDismissed.length) })}
+                {t('studio.culling.showAgain', {
+                  count: selectedDismissed.length,
+                  n: number(selectedDismissed.length)
+                })}
               </button>
             )}
           </div>

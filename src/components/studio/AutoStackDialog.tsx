@@ -215,9 +215,7 @@ function AutoStackDialog({ paths }: { paths: string[] }) {
                   {kinds.map(([kind, n]) => t(`stacks.auto.kind.${kind}`, { count: n })).join(' · ')}
                 </p>
               )}
-              {shown.unread > 0 && (
-                <p className="studio-help">{t('stacks.auto.unread', { count: shown.unread })}</p>
-              )}
+              {shown.unread > 0 && <p className="studio-help">{t('stacks.auto.unread', { count: shown.unread })}</p>}
               {shown.considered < paths.length && (
                 <p className="studio-help">{t('stacks.auto.leftOut', { count: paths.length - shown.considered })}</p>
               )}

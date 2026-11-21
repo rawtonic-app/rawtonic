@@ -221,12 +221,7 @@ export function searchRule(
   eyes?: FilterCriteria['eyes'],
   suggestion?: FilterCriteria['suggestion']
 ): Rule | null {
-  const rules = [
-    ...textRules(text),
-    ...selectionRules(selection),
-    ...eyesRules(eyes),
-    ...suggestionRules(suggestion)
-  ];
+  const rules = [...textRules(text), ...selectionRules(selection), ...eyesRules(eyes), ...suggestionRules(suggestion)];
   return rules.length ? all(rules) : null;
 }
 
