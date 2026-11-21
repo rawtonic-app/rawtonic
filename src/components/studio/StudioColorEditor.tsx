@@ -11,7 +11,8 @@ import {
   invalidatePendingColorPicks,
   isTargetPick,
   skinRangeOf,
-  TARGET_PICK
+  TARGET_PICK,
+  targetPickFor
 } from '../../utils/colorRanges';
 import { oklchCss } from '../../utils/oklab';
 import AdjustmentControl from './AdjustmentControl';
@@ -91,6 +92,8 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
       colorRanges: ranges.map((r) => (r.id === active.id ? { ...r, ...patch } : r))
     });
   const limit = MAX_COLOR_RANGES;
+  const rangePickArmed =
+    !!pickerTarget && pickerTarget !== 'new' && pickerTarget !== 'skin' && pickerTarget !== TARGET_PICK;
   const hue = t('adjustments.color.hue');
   const saturation = t('adjustments.color.saturation');
   const lightness = t('studio.color.editor.lightness');
@@ -302,7 +305,16 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
               style={{
                 background: `linear-gradient(90deg, ${rangeSwatch(range)} 50%, ${rangeSwatch(range, true)} 50%)`
               }}
-              onClick={() => setEditor({ activeColorRangeId: range.id })}
+              onClick={() =>
+                setEditor({
+                  activeColorRangeId: range.id,
+                  // A pick armed for another range (picking it again or its
+                  // target) would edit a range no longer shown: end it.
+                  ...(rangePickArmed && pickerTarget !== targetPickFor(range.id) && pickerTarget !== range.id
+                    ? { colorPickerTarget: null, colorPickerLayer: null }
+                    : {})
+                })
+              }
             />
           ))}
           <button

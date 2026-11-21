@@ -476,6 +476,55 @@ describe('target colour', () => {
     expect(screen.getByRole('status').textContent).toContain('The target is outside sRGB.');
   });
 
+  it('Escape restores the field without applying; Return applies and leaves the field', () => {
+    render(<Harness initial={[red()]} />);
+    openTool();
+    const field = screen.getByRole('textbox', { name: 'Target color as sRGB hex' }) as HTMLInputElement;
+    const shown = field.value;
+    field.focus();
+    fireEvent.change(field, { target: { value: '#c81e2d' } });
+    fireEvent.keyDown(field, { key: 'Escape' });
+    expect(changes).toHaveLength(0);
+    expect(field.value).toBe(shown);
+    expect(document.activeElement).not.toBe(field);
+    field.focus();
+    fireEvent.change(field, { target: { value: '#c81e2d' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(changes).toHaveLength(1);
+    expect(document.activeElement).not.toBe(field);
+  });
+
+  it('selecting another range ends a pick armed for the first', () => {
+    const a = red();
+    const b = newColorRange(240, 0.1, 0.5);
+    render(<Harness initial={[a, b]} />);
+    openTool();
+    fireEvent.click(screen.getByRole('button', { name: 'Pick the target color' }));
+    expect(useEditorStore.getState().colorPickerTarget).toBe(`target:${a.id}`);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Color range \d+°$/ })[1]);
+    expect(useEditorStore.getState().activeColorRangeId).toBe(b.id);
+    expect(useEditorStore.getState().colorPickerTarget).toBeNull();
+    // A pick that adds a range stays armed.
+    fireEvent.click(screen.getByRole('button', { name: 'Pick a color range' }));
+    fireEvent.click(screen.getAllByRole('button', { name: /^Color range \d+°$/ })[0]);
+    expect(useEditorStore.getState().colorPickerTarget).toBe('new');
+  });
+
+  it('says that a layer range is predicted at full layer strength', () => {
+    render(
+      <StudioColorEditor
+        values={{ colorRanges: [red()] }}
+        layerId="L1"
+        disabled={false}
+        onInteraction={interaction}
+        change={(patch) => changes.push(patch)}
+      />
+    );
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    expect(screen.getByRole('status').textContent).toContain('Predicted at full layer strength');
+  });
+
   it('arms the target pickers', () => {
     const range = red();
     render(<Harness initial={[range]} />);

@@ -3169,6 +3169,7 @@
           "heading": "Obiettivo",
           "hexAria": "Colore obiettivo in esadecimale sRGB",
           "hueAria": "Tinta obiettivo h° (CIELAB D50)",
+          "layerStrength": "Previsione con il livello a piena intensità; dove la maschera sfuma, il colore cambia meno.",
           "lch": "L*C*h°",
           "lightnessAria": "Luminosità obiettivo L* (CIELAB D50)",
           "limit": {

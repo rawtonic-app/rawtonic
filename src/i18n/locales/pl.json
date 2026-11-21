@@ -3322,6 +3322,7 @@
           "heading": "Kolor docelowy",
           "hexAria": "Kolor docelowy jako hex sRGB",
           "hueAria": "Odcień docelowy h° (CIELAB D50)",
+          "layerStrength": "Prognoza przy pełnej sile warstwy; tam, gdzie maska jest wtapiana, kolor zmienia się mniej.",
           "lch": "L*C*h°",
           "lightnessAria": "Jasność docelowa L* (CIELAB D50)",
           "limit": {

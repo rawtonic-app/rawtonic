@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newColorRange, type ColorRange } from './adjustments';
 import {
   applyColorRanges,
+  colorBeforeRanges,
   deltaE00,
   hexOf,
   labToLch,
@@ -106,6 +107,31 @@ describe('solveColorTarget', () => {
     const bright = solveColorTarget([dark], dark.id, labOfSrgb([230, 120, 100]))!;
     expect(bright.limited.lightness).toBe(true);
     expect(bright.shifts.lightnessShift).toBe(100);
+  });
+
+  it('reaches with the other sliders a target one slider cannot reach alone', () => {
+    // Hue needs more than +50°; saturation and lightness make up for it
+    // within sRGB (review TGT1 round 1).
+    const range = rangeAt([190, 100, 120]);
+    const solve = solveColorTarget([range], range.id, labOfSrgb([255, 150, 0]))!;
+    expect(solve.limited.hue).toBe(true);
+    expect(solve.shifts.hueShift).toBe(100);
+    expect(solve.deltaE).toBeLessThan(1);
+    const rendered = applyColorRanges([{ ...range, ...solve.shifts }], rangeCentre(range));
+    rendered.forEach((v, i) => expect(v).toBeCloseTo(solve.result[i], 9));
+  });
+
+  it('recovers the colour before the ranges from a sample of the finished photo', () => {
+    const range = rangeAt([190, 100, 120], { hueShift: 100, saturation: 30, lightnessShift: -20 });
+    const other = rangeAt([200, 90, 100], { hueShift: -40 });
+    const before = rangeCentre(range);
+    const shown = applyColorRanges([range, other], before);
+    // From the range's old colour (a pick again) …
+    colorBeforeRanges([range, other], shown, [before]).forEach((v, i) => expect(v).toBeCloseTo(before[i], 6));
+    // … and a colour no range touches is its own colour before.
+    const untouched = linearToOklab(srgb8ToLinear([40, 160, 60]));
+    expect(colorBeforeRanges([range, other], untouched)).toEqual(untouched);
+    expect(colorBeforeRanges([], shown)).toEqual(shown);
   });
 
   it('flags targets outside sRGB', () => {

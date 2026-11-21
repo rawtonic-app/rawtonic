@@ -3015,6 +3015,7 @@
           "heading": "Zielfarbe",
           "hexAria": "Zielfarbe als sRGB-Hex",
           "hueAria": "Ziel-Farbton h° (CIELAB D50)",
+          "layerStrength": "Vorhersage bei voller Ebenenstärke; wo die Maske weich ausläuft, ändert sich die Farbe weniger.",
           "lch": "L*C*h°",
           "lightnessAria": "Ziel-Helligkeit L* (CIELAB D50)",
           "limit": {

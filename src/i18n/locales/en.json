@@ -3015,6 +3015,7 @@
           "heading": "Target",
           "hexAria": "Target color as sRGB hex",
           "hueAria": "Target hue h° (CIELAB D50)",
+          "layerStrength": "Predicted at full layer strength; where the mask is feathered the color moves less.",
           "lch": "L*C*h°",
           "lightnessAria": "Target lightness L* (CIELAB D50)",
           "limit": {

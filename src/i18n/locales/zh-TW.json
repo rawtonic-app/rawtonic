@@ -2922,6 +2922,7 @@
           "heading": "目標顏色",
           "hexAria": "目標顏色(sRGB 十六進位)",
           "hueAria": "目標色相 h°(CIELAB D50)",
+          "layerStrength": "以圖層全強度預測;遮罩羽化處顏色變化較小。",
           "lch": "L*C*h°",
           "lightnessAria": "目標明度 L*(CIELAB D50)",
           "limit": {

@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { applyColorPick, invalidatePendingColorPicks, pickColorRange, TARGET_PICK, targetPickFor } from './colorRanges';
-import { labToLinear, linearToSrgb8, solveColorTarget } from './colorTarget';
+import {
+  applyColorRanges,
+  labToLinear,
+  linearToSrgb8,
+  oklabToLinear,
+  rangeCentre,
+  solveColorTarget
+} from './colorTarget';
 import { INITIAL_ADJUSTMENTS, MAX_COLOR_RANGES, type MaskContainer } from './adjustments';
 import { useEditorStore } from '../store/useEditorStore';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
@@ -157,6 +164,24 @@ describe('target colour picks', () => {
       appliedTo: { photo: '/a.cr3', layer: null, rangeId: before.id }
     });
     expect(state.colorPickerTarget).toBeNull();
+  });
+
+  it('a range picked again on its own shifted colour keeps selecting the colour before the shift', async () => {
+    vi.mocked(invoke).mockResolvedValue([190, 100, 120]);
+    await redRange();
+    const picked = useEditorStore.getState().adjustments.colorRanges![0];
+    const shifted = { ...picked, hueShift: 100 };
+    useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, colorRanges: [shifted] } });
+    // The photo now shows the shifted colour there.
+    const shown = linearToSrgb8(oklabToLinear(applyColorRanges([shifted], rangeCentre(picked))));
+    vi.mocked(invoke).mockResolvedValue(shown);
+    useEditorStore.setState({ colorPickerTarget: picked.id });
+    await pickColorRange('/a.cr3', picked.id, 0.5, 0.5);
+    const [again] = useEditorStore.getState().adjustments.colorRanges!;
+    expect(again.hue).toBeCloseTo(picked.hue, 4);
+    expect(again.chroma).toBeCloseTo(picked.chroma, 6);
+    expect(again.lightness).toBeCloseTo(picked.lightness, 6);
+    expect(again.hueShift).toBe(100);
   });
 
   it('only keeps a target sampled without a range (for another photo)', async () => {

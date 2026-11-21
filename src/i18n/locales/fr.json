@@ -3169,6 +3169,7 @@
           "heading": "Cible",
           "hexAria": "Couleur cible en hexadécimal sRVB",
           "hueAria": "Teinte cible h° (CIELAB D50)",
+          "layerStrength": "Prévision à pleine intensité du calque ; là où le masque est progressif, la couleur change moins.",
           "lch": "L*C*h°",
           "lightnessAria": "Luminosité cible L* (CIELAB D50)",
           "limit": {

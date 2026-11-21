@@ -1,5 +1,5 @@
 import { Pipette } from 'lucide-react';
-import { useState, type KeyboardEvent } from 'react';
+import { useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -33,7 +33,8 @@ const cssOf = (lab: Vec3) => {
 };
 const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
-/** A field that edits on Return or when left; Escape restores it. */
+/** A field that edits on Return or when left; Escape restores it. Return
+ * and Escape leave the field, so the app's shortcuts (Undo) work again. */
 function Field({
   value,
   label,
@@ -49,8 +50,16 @@ function Field({
   commit(text: string): boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
-  const finish = (text: string | null) => {
-    setDraft(null);
+  // The text being edited, read when the field is left: a blur that follows
+  // a key in the same event sees it before React re-renders.
+  const editing = useRef<string | null>(null);
+  const edit = (text: string | null) => {
+    editing.current = text;
+    setDraft(text);
+  };
+  const finish = () => {
+    const text = editing.current;
+    edit(null);
     if (text !== null && text.trim() !== value) commit(text);
   };
   return (
@@ -62,13 +71,14 @@ function Field({
       spellCheck={false}
       disabled={disabled}
       value={draft ?? value}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => finish(draft)}
+      onChange={(e) => edit(e.target.value)}
+      onBlur={finish}
       onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter') {
-          finish(draft);
+          finish();
+          e.currentTarget.blur();
         } else if (e.key === 'Escape') {
-          setDraft(null);
+          edit(null);
           e.currentTarget.blur();
         }
       }}
@@ -168,8 +178,8 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
     : [];
   const grey = !!solve && !solve.movable;
   // A colour picked at the edge of sRGB was clipped by the display: the
-  // photo's own colour lies beyond it and may move differently (notes:
-  // benchmark-results/tgt1-2026-11-21).
+  // photo's own colour lies beyond it and may move differently
+  // (docs/benchmark-results/tgt1-target-colour-2026-11-21).
   const sourceClipped = linearToSrgb8(oklabToLinear(centre)).some((v) => v <= 1 || v >= 254);
   // A sampled target not on this range yet (from another photo, or sampled
   // here without a range).
@@ -256,6 +266,7 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
                 ? t('studio.color.editor.target.outOfReach', { value: deltaE.toFixed(1), limits: limits.join(', ') })
                 : t('studio.color.editor.target.distance', { value: deltaE.toFixed(1) })}
           {!insideSrgb(shownLinear) && <> {t('studio.color.editor.target.outsideSrgb')}</>}
+          {layerId && !grey && <> {t('studio.color.editor.target.layerStrength')}</>}
           {sourceClipped && !grey && <> {t('studio.color.editor.target.sourceClipped')}</>}
         </p>
       )}

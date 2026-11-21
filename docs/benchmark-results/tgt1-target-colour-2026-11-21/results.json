@@ -1,0 +1,1562 @@
+[
+  {
+    "pick": "skin-face",
+    "kind": "skin",
+    "file": "c0108.cr3",
+    "target": "h+12 C×1.15",
+    "source": "#8a6152",
+    "targetHex": "#896249",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 26,
+      "saturation": 9,
+      "lightnessShift": 0
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.14,
+    "measuredDE": 0.15,
+    "predVsMeasured": 0.01,
+    "sourceToTargetDE": 4.46,
+    "got": "#896249",
+    "renderMs": 1736,
+    "loop": [0.15, 0.15, 0.15]
+  },
+  {
+    "pick": "skin-face",
+    "kind": "skin",
+    "file": "c0108.cr3",
+    "target": "h−20 C×0.8 L−6",
+    "source": "#8a6152",
+    "targetHex": "#785251",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -39,
+      "saturation": -13,
+      "lightnessShift": -24
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.07,
+    "measuredDE": 0.07,
+    "predVsMeasured": 0.02,
+    "sourceToTargetDE": 8,
+    "got": "#775251",
+    "renderMs": 1749,
+    "loop": [0.07, 0.07, 0.07]
+  },
+  {
+    "pick": "skin-face",
+    "kind": "skin",
+    "file": "c0108.cr3",
+    "target": "h+5 C×1.3 L+5",
+    "source": "#8a6152",
+    "targetHex": "#9d6b54",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 11,
+      "saturation": 26,
+      "lightnessShift": 20
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.14,
+    "measuredDE": 0.15,
+    "predVsMeasured": 0.01,
+    "sourceToTargetDE": 6.06,
+    "got": "#9d6b54",
+    "renderMs": 1767,
+    "loop": [0.15, 0.16, 0.14]
+  },
+  {
+    "pick": "skin-face",
+    "kind": "skin",
+    "file": "c0108.cr3",
+    "target": "h+80 (out of reach)",
+    "source": "#8a6152",
+    "targetHex": "#5e704c",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": 2,
+      "lightnessShift": -4
+    },
+    "limited": {
+      "hue": true,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 13.54,
+    "measuredDE": 13.57,
+    "predVsMeasured": 0.04,
+    "sourceToTargetDE": 28.55,
+    "got": "#806201",
+    "renderMs": 1764,
+    "loop": [13.57, 15.69, 20.19]
+  },
+  {
+    "pick": "skin-face",
+    "kind": "skin",
+    "file": "c0108.cr3",
+    "target": "hex #E3A98C",
+    "source": "#8a6152",
+    "targetHex": "#e3a98c",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 15,
+      "saturation": 37,
+      "lightnessShift": 100
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": true
+    },
+    "predictedDE": 3.42,
+    "measuredDE": 3.46,
+    "predVsMeasured": 0.04,
+    "sourceToTargetDE": 26.13,
+    "got": "#d69d80",
+    "renderMs": 2025,
+    "loop": [3.46, 3.46, 3.45]
+  },
+  {
+    "pick": "red-sash",
+    "kind": "product",
+    "file": "c0108.cr3",
+    "target": "h+12 C×1.15",
+    "source": "#ae0a41",
+    "targetHex": "#b40027",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": 18,
+      "saturation": 4,
+      "lightnessShift": 0
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.55,
+    "measuredDE": 1.5,
+    "predVsMeasured": 1.27,
+    "sourceToTargetDE": 7.69,
+    "got": "#b10029",
+    "renderMs": 4225,
+    "loop": [1.5, 0.63, 0.62]
+  },
+  {
+    "pick": "red-sash",
+    "kind": "product",
+    "file": "c0108.cr3",
+    "target": "h−20 C×0.8 L−6",
+    "source": "#ae0a41",
+    "targetHex": "#8c1752",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -32,
+      "saturation": -16,
+      "lightnessShift": -27
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.06,
+    "measuredDE": 0.53,
+    "predVsMeasured": 0.58,
+    "sourceToTargetDE": 11.4,
+    "got": "#8d1652",
+    "renderMs": 1875,
+    "loop": [0.53, 0.09, 0.13]
+  },
+  {
+    "pick": "red-sash",
+    "kind": "product",
+    "file": "c0108.cr3",
+    "target": "h+5 C×1.3 L+5",
+    "source": "#ae0a41",
+    "targetHex": "#d2003b",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": 7,
+      "saturation": 15,
+      "lightnessShift": 24
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 1.98,
+    "measuredDE": 2.27,
+    "predVsMeasured": 1.05,
+    "sourceToTargetDE": 6.96,
+    "got": "#ca023f",
+    "renderMs": 1799,
+    "loop": [2.27, 2.01, 2.03]
+  },
+  {
+    "pick": "red-sash",
+    "kind": "product",
+    "file": "c0108.cr3",
+    "target": "h+80 (out of reach)",
+    "source": "#ae0a41",
+    "targetHex": "#5f5b00",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": -58,
+      "lightnessShift": -10
+    },
+    "limited": {
+      "hue": true,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 20.55,
+    "measuredDE": 20.47,
+    "predVsMeasured": 0.6,
+    "sourceToTargetDE": 51.04,
+    "got": "#8a0000",
+    "renderMs": 1805,
+    "loop": [20.47, 22.83, 39.68]
+  },
+  {
+    "pick": "red-sash",
+    "kind": "product",
+    "file": "c0108.cr3",
+    "target": "hex #C8102E",
+    "source": "#ae0a41",
+    "targetHex": "#c8102e",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 20,
+      "saturation": 10,
+      "lightnessShift": 25
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.22,
+    "measuredDE": 0.66,
+    "predVsMeasured": 0.88,
+    "sourceToTargetDE": 10.13,
+    "got": "#c80f2e",
+    "renderMs": 1790,
+    "loop": [0.66, 0.29, 0.14]
+  },
+  {
+    "pick": "red-can",
+    "kind": "product",
+    "file": "c0398.nef",
+    "target": "h+12 C×1.15",
+    "source": "#ea6370",
+    "targetHex": "#ef6055",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 21,
+      "saturation": 7,
+      "lightnessShift": 0
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.15,
+    "measuredDE": 1.81,
+    "predVsMeasured": 1.74,
+    "sourceToTargetDE": 7.59,
+    "got": "#ef6056",
+    "renderMs": 1441,
+    "loop": [1.81, 0.26, 0.27]
+  },
+  {
+    "pick": "red-can",
+    "kind": "product",
+    "file": "c0398.nef",
+    "target": "h−20 C×0.8 L−6",
+    "source": "#ea6370",
+    "targetHex": "#c85d82",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -34,
+      "saturation": -16,
+      "lightnessShift": -19
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.17,
+    "measuredDE": 1.45,
+    "predVsMeasured": 1.49,
+    "sourceToTargetDE": 11.56,
+    "got": "#c85e82",
+    "renderMs": 1402,
+    "loop": [1.45, 0.3, 0.21]
+  },
+  {
+    "pick": "red-can",
+    "kind": "product",
+    "file": "c0398.nef",
+    "target": "h+5 C×1.3 L+5",
+    "source": "#ea6370",
+    "targetHex": "#ff5e68",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": 10,
+      "saturation": 17,
+      "lightnessShift": 15
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 2.3,
+    "measuredDE": 3.64,
+    "predVsMeasured": 1.63,
+    "sourceToTargetDE": 6.79,
+    "got": "#f66769",
+    "renderMs": 1698,
+    "loop": [3.64, 3.01, 3.74]
+  },
+  {
+    "pick": "red-can",
+    "kind": "product",
+    "file": "c0398.nef",
+    "target": "h+80 (out of reach)",
+    "source": "#ea6370",
+    "targetHex": "#93951e",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": -20,
+      "lightnessShift": -9
+    },
+    "limited": {
+      "hue": true,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 22.48,
+    "measuredDE": 20.86,
+    "predVsMeasured": 1.72,
+    "sourceToTargetDE": 48.56,
+    "got": "#93918f",
+    "renderMs": 1423,
+    "loop": [20.86, 25.02, 24.47]
+  },
+  {
+    "pick": "red-can",
+    "kind": "product",
+    "file": "c0398.nef",
+    "target": "hex #E4002B",
+    "source": "#ea6370",
+    "targetHex": "#e4002b",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 14,
+      "saturation": 40,
+      "lightnessShift": -34
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.14,
+    "measuredDE": 2.42,
+    "predVsMeasured": 2.41,
+    "sourceToTargetDE": 14.82,
+    "got": "#df1a2e",
+    "renderMs": 1412,
+    "loop": [2.42, 1.19, 0.89]
+  },
+  {
+    "pick": "terracotta",
+    "kind": "product",
+    "file": "c0398.nef",
+    "target": "h+12 C×1.15",
+    "source": "#d79f80",
+    "targetHex": "#d4a272",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 28,
+      "saturation": 9,
+      "lightnessShift": -1
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.13,
+    "measuredDE": 1.34,
+    "predVsMeasured": 1.32,
+    "sourceToTargetDE": 5.7,
+    "got": "#d4a272",
+    "renderMs": 1426,
+    "loop": [1.34, 0.22, 0.08]
+  },
+  {
+    "pick": "terracotta",
+    "kind": "product",
+    "file": "c0398.nef",
+    "target": "h−20 C×0.8 L−6",
+    "source": "#d79f80",
+    "targetHex": "#c68e85",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -42,
+      "saturation": -13,
+      "lightnessShift": -17
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.11,
+    "measuredDE": 1.13,
+    "predVsMeasured": 1.16,
+    "sourceToTargetDE": 9.34,
+    "got": "#c58e85",
+    "renderMs": 1417,
+    "loop": [1.13, 0.18, 0.17]
+  },
+  {
+    "pick": "terracotta",
+    "kind": "product",
+    "file": "c0398.nef",
+    "target": "h+5 C×1.3 L+5",
+    "source": "#d79f80",
+    "targetHex": "#edab7c",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 12,
+      "saturation": 25,
+      "lightnessShift": 14
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.15,
+    "measuredDE": 1.52,
+    "predVsMeasured": 1.41,
+    "sourceToTargetDE": 5.66,
+    "got": "#eeac7d",
+    "renderMs": 1442,
+    "loop": [1.52, 0.02, 0.22]
+  },
+  {
+    "pick": "terracotta",
+    "kind": "product",
+    "file": "c0398.nef",
+    "target": "h+80 (out of reach)",
+    "source": "#d79f80",
+    "targetHex": "#90b782",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": 8,
+      "lightnessShift": -4
+    },
+    "limited": {
+      "hue": true,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 14.92,
+    "measuredDE": 13.84,
+    "predVsMeasured": 1.32,
+    "sourceToTargetDE": 31.95,
+    "got": "#b5a41b",
+    "renderMs": 1360,
+    "loop": [13.84, 16.64, 21.39]
+  },
+  {
+    "pick": "terracotta",
+    "kind": "product",
+    "file": "c0398.nef",
+    "target": "hex #C0603A",
+    "source": "#d79f80",
+    "targetHex": "#c0603a",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -18,
+      "saturation": 69,
+      "lightnessShift": -51
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.09,
+    "measuredDE": 1.63,
+    "predVsMeasured": 1.69,
+    "sourceToTargetDE": 18.01,
+    "got": "#c1613a",
+    "renderMs": 1355,
+    "loop": [1.63, 0.16, 0.31]
+  },
+  {
+    "pick": "orange-robot",
+    "kind": "product",
+    "file": "c1182.arw",
+    "target": "h+12 C×1.15",
+    "source": "#ffa483",
+    "targetHex": "#fca76d",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 27,
+      "saturation": 7,
+      "lightnessShift": -1
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.12,
+    "measuredDE": 9.51,
+    "predVsMeasured": 9.44,
+    "sourceToTargetDE": 7.18,
+    "got": "#ffa64d",
+    "renderMs": 983,
+    "loop": [9.51, 11, 6.29]
+  },
+  {
+    "pick": "orange-robot",
+    "kind": "product",
+    "file": "c1182.arw",
+    "target": "h−20 C×0.8 L−6",
+    "source": "#ffa483",
+    "targetHex": "#e99492",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -39,
+      "saturation": -12,
+      "lightnessShift": -16
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.13,
+    "measuredDE": 3.9,
+    "predVsMeasured": 3.97,
+    "sourceToTargetDE": 11.03,
+    "got": "#e39695",
+    "renderMs": 998,
+    "loop": [3.9, 3.52, 1.5]
+  },
+  {
+    "pick": "orange-robot",
+    "kind": "product",
+    "file": "c1182.arw",
+    "target": "h+5 C×1.3 L+5",
+    "source": "#ffa483",
+    "targetHex": "#ffac78",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": 8,
+      "saturation": 17,
+      "lightnessShift": 6
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 4.49,
+    "measuredDE": 10.26,
+    "predVsMeasured": 8.88,
+    "sourceToTargetDE": 6.12,
+    "got": "#ffab6a",
+    "renderMs": 991,
+    "loop": [10.26, 4.82, 6.94]
+  },
+  {
+    "pick": "orange-robot",
+    "kind": "product",
+    "file": "c1182.arw",
+    "target": "h+80 (out of reach)",
+    "source": "#ffa483",
+    "targetHex": "#9dc875",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": 3,
+      "lightnessShift": -6
+    },
+    "limited": {
+      "hue": true,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 20.72,
+    "measuredDE": 26.99,
+    "predVsMeasured": 9.49,
+    "sourceToTargetDE": 41.51,
+    "got": "#ffef00",
+    "renderMs": 1078,
+    "loop": [26.99, 23.16, 23.38]
+  },
+  {
+    "pick": "orange-robot",
+    "kind": "product",
+    "file": "c1182.arw",
+    "target": "hex #FF6A13",
+    "source": "#ffa483",
+    "targetHex": "#ff6a13",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 6,
+      "saturation": 71,
+      "lightnessShift": -31
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.04,
+    "measuredDE": 8.78,
+    "predVsMeasured": 8.8,
+    "sourceToTargetDE": 15.21,
+    "got": "#ff5500",
+    "renderMs": 1122,
+    "loop": [8.78, 8.42, 3.98]
+  },
+  {
+    "pick": "blue-robot",
+    "kind": "product",
+    "file": "c1182.arw",
+    "target": "h+12 C×1.15",
+    "source": "#004ea4",
+    "targetHex": "#3646ac",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 29,
+      "saturation": 6,
+      "lightnessShift": 4
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.05,
+    "measuredDE": 12.65,
+    "predVsMeasured": 12.67,
+    "sourceToTargetDE": 7.29,
+    "got": "#2b18ce",
+    "renderMs": 1141,
+    "loop": [12.65, 22.98, 10.98]
+  },
+  {
+    "pick": "blue-robot",
+    "kind": "product",
+    "file": "c1182.arw",
+    "target": "h−20 C×0.8 L−6",
+    "source": "#004ea4",
+    "targetHex": "#004782",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": -48,
+      "saturation": -25,
+      "lightnessShift": -33
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 4.36,
+    "measuredDE": 9.51,
+    "predVsMeasured": 6.62,
+    "sourceToTargetDE": 9.35,
+    "got": "#00477c",
+    "renderMs": 1075,
+    "loop": [9.51, 4.46, 5.48]
+  },
+  {
+    "pick": "blue-robot",
+    "kind": "product",
+    "file": "c1182.arw",
+    "target": "h+5 C×1.3 L+5",
+    "source": "#004ea4",
+    "targetHex": "#0057cb",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": 5,
+      "saturation": 25,
+      "lightnessShift": 28
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.19,
+    "measuredDE": 16.72,
+    "predVsMeasured": 16.69,
+    "sourceToTargetDE": 4.77,
+    "got": "#0050ca",
+    "renderMs": 1038,
+    "loop": [16.72, 20.35, 2.47]
+  },
+  {
+    "pick": "blue-robot",
+    "kind": "product",
+    "file": "c1182.arw",
+    "target": "h+80 (out of reach)",
+    "source": "#004ea4",
+    "targetHex": "#951554",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": 9,
+      "lightnessShift": 4
+    },
+    "limited": {
+      "hue": true,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 21.35,
+    "measuredDE": 25.77,
+    "predVsMeasured": 9.56,
+    "sourceToTargetDE": 39.3,
+    "got": "#4f4f50",
+    "renderMs": 1052,
+    "loop": [25.77, 25.29, 25.23]
+  },
+  {
+    "pick": "blue-robot",
+    "kind": "product",
+    "file": "c1182.arw",
+    "target": "hex #0057B8",
+    "source": "#004ea4",
+    "targetHex": "#0057b8",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 1,
+      "saturation": 10,
+      "lightnessShift": 20
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.1,
+    "measuredDE": 12.11,
+    "predVsMeasured": 12.04,
+    "sourceToTargetDE": 3.46,
+    "got": "#004dc7",
+    "renderMs": 1056,
+    "loop": [12.11, 21.24, 4.06]
+  },
+  {
+    "pick": "teal-bead",
+    "kind": "product",
+    "file": "c0402.nef",
+    "target": "h+12 C×1.15",
+    "source": "#00212a",
+    "targetHex": "#00212f",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": 18,
+      "saturation": 12,
+      "lightnessShift": 4
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.54,
+    "measuredDE": 2.94,
+    "predVsMeasured": 2.89,
+    "sourceToTargetDE": 2.72,
+    "got": "#002230",
+    "renderMs": 991,
+    "loop": [2.94, 1.07, 0.73]
+  },
+  {
+    "pick": "teal-bead",
+    "kind": "product",
+    "file": "c0402.nef",
+    "target": "h−20 C×0.8 L−6",
+    "source": "#00212a",
+    "targetHex": "#001617",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": -41,
+      "saturation": -18,
+      "lightnessShift": -35
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 1.7,
+    "measuredDE": 1.74,
+    "predVsMeasured": 0.36,
+    "sourceToTargetDE": 5.29,
+    "got": "#001111",
+    "renderMs": 956,
+    "loop": [1.74, 5.06, 5.06]
+  },
+  {
+    "pick": "teal-bead",
+    "kind": "product",
+    "file": "c0402.nef",
+    "target": "h+5 C×1.3 L+5",
+    "source": "#00212a",
+    "targetHex": "#002c3a",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": 7,
+      "saturation": 26,
+      "lightnessShift": 50
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.61,
+    "measuredDE": 2.72,
+    "predVsMeasured": 2.65,
+    "sourceToTargetDE": 4.16,
+    "got": "#002d3b",
+    "renderMs": 946,
+    "loop": [2.72, 0.97, 0.74]
+  },
+  {
+    "pick": "teal-bead",
+    "kind": "product",
+    "file": "c0402.nef",
+    "target": "h+80 (out of reach)",
+    "source": "#00212a",
+    "targetHex": "#221a2c",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": -12,
+      "lightnessShift": 7
+    },
+    "limited": {
+      "hue": true,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 8.01,
+    "measuredDE": 8.11,
+    "predVsMeasured": 2.82,
+    "sourceToTargetDE": 20.59,
+    "got": "#111b3e",
+    "renderMs": 945,
+    "loop": [8.11, 8.38, 9.55]
+  },
+  {
+    "pick": "teal-bead",
+    "kind": "product",
+    "file": "c0402.nef",
+    "target": "hex #007C80",
+    "source": "#00212a",
+    "targetHex": "#007c80",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -49,
+      "saturation": 100,
+      "lightnessShift": 100
+    },
+    "limited": {
+      "hue": false,
+      "saturation": true,
+      "lightness": true
+    },
+    "predictedDE": 20.05,
+    "measuredDE": 19.73,
+    "predVsMeasured": 0.59,
+    "sourceToTargetDE": 29.7,
+    "got": "#004040",
+    "renderMs": 946,
+    "loop": [19.73, 19.73, 19.72]
+  },
+  {
+    "pick": "sky-hills",
+    "kind": "sky",
+    "file": "c0428.nef",
+    "target": "h+12 C×1.15",
+    "source": "#84a9c6",
+    "targetHex": "#87a7cd",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 23,
+      "saturation": 13,
+      "lightnessShift": 1
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.11,
+    "measuredDE": 0.07,
+    "predVsMeasured": 0.07,
+    "sourceToTargetDE": 3.73,
+    "got": "#87a8ce",
+    "renderMs": 593,
+    "loop": [0.07, 0.26, 0.07]
+  },
+  {
+    "pick": "sky-hills",
+    "kind": "sky",
+    "file": "c0428.nef",
+    "target": "h−20 C×0.8 L−6",
+    "source": "#84a9c6",
+    "targetHex": "#749aa9",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -38,
+      "saturation": -18,
+      "lightnessShift": -19
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.11,
+    "measuredDE": 0.18,
+    "predVsMeasured": 0.07,
+    "sourceToTargetDE": 7.31,
+    "got": "#739aa8",
+    "renderMs": 580,
+    "loop": [0.18, 0.17, 0.18]
+  },
+  {
+    "pick": "sky-hills",
+    "kind": "sky",
+    "file": "c0428.nef",
+    "target": "h+5 C×1.3 L+5",
+    "source": "#84a9c6",
+    "targetHex": "#89b7df",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 8,
+      "saturation": 30,
+      "lightnessShift": 15
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.1,
+    "measuredDE": 0.15,
+    "predVsMeasured": 0.07,
+    "sourceToTargetDE": 4.92,
+    "got": "#89b7df",
+    "renderMs": 593,
+    "loop": [0.15, 0.14, 0.15]
+  },
+  {
+    "pick": "sky-hills",
+    "kind": "sky",
+    "file": "c0428.nef",
+    "target": "h+80 (out of reach)",
+    "source": "#84a9c6",
+    "targetHex": "#bc99b8",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": 2,
+      "lightnessShift": 3
+    },
+    "limited": {
+      "hue": true,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 10.95,
+    "measuredDE": 10.97,
+    "predVsMeasured": 0.08,
+    "sourceToTargetDE": 28.58,
+    "got": "#a79be0",
+    "renderMs": 574,
+    "loop": [10.97, 12.33, 14.37]
+  },
+  {
+    "pick": "sky-hills",
+    "kind": "sky",
+    "file": "c0428.nef",
+    "target": "hex #6CA0DC",
+    "source": "#84a9c6",
+    "targetHex": "#6ca0dc",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 23,
+      "saturation": 80,
+      "lightnessShift": -8
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.11,
+    "measuredDE": 0.05,
+    "predVsMeasured": 0.08,
+    "sourceToTargetDE": 7.18,
+    "got": "#6ca0dc",
+    "renderMs": 563,
+    "loop": [0.05, 0.23, 0.06]
+  },
+  {
+    "pick": "sky-trees",
+    "kind": "sky",
+    "file": "c0519.nef",
+    "target": "h+12 C×1.15",
+    "source": "#b2cdf9",
+    "targetHex": "#bbcaff",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": 26,
+      "saturation": 19,
+      "lightnessShift": 1
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.23,
+    "measuredDE": 0.22,
+    "predVsMeasured": 0.02,
+    "sourceToTargetDE": 3.91,
+    "got": "#bac9ff",
+    "renderMs": 2354,
+    "loop": [0.22, 0.21, 0.28]
+  },
+  {
+    "pick": "sky-trees",
+    "kind": "sky",
+    "file": "c0519.nef",
+    "target": "h−20 C×0.8 L−6",
+    "source": "#b2cdf9",
+    "targetHex": "#99c0db",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -40,
+      "saturation": -18,
+      "lightnessShift": -16
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.1,
+    "measuredDE": 0.07,
+    "predVsMeasured": 0.02,
+    "sourceToTargetDE": 7.5,
+    "got": "#99bfda",
+    "renderMs": 2344,
+    "loop": [0.07, 0.15, 0.24]
+  },
+  {
+    "pick": "sky-trees",
+    "kind": "sky",
+    "file": "c0519.nef",
+    "target": "h+5 C×1.3 L+5",
+    "source": "#b2cdf9",
+    "targetHex": "#bcdaff",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": 9,
+      "saturation": 26,
+      "lightnessShift": 7
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 3.1,
+    "measuredDE": 3.29,
+    "predVsMeasured": 1.04,
+    "sourceToTargetDE": 4.07,
+    "got": "#c5d4ff",
+    "renderMs": 2361,
+    "loop": [3.29, 3.7, 5.4]
+  },
+  {
+    "pick": "sky-trees",
+    "kind": "sky",
+    "file": "c0519.nef",
+    "target": "h+80 (out of reach)",
+    "source": "#b2cdf9",
+    "targetHex": "#f3bad8",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": 9,
+      "lightnessShift": 2
+    },
+    "limited": {
+      "hue": true,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 11.06,
+    "measuredDE": 11.07,
+    "predVsMeasured": 0.03,
+    "sourceToTargetDE": 28.47,
+    "got": "#cca2ed",
+    "renderMs": 2356,
+    "loop": [11.07, 8.19, 15.28]
+  },
+  {
+    "pick": "sky-trees",
+    "kind": "sky",
+    "file": "c0519.nef",
+    "target": "hex #87CEEB",
+    "source": "#b2cdf9",
+    "targetHex": "#87ceeb",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -68,
+      "saturation": 18,
+      "lightnessShift": -8
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.14,
+    "measuredDE": 0.12,
+    "predVsMeasured": 0.02,
+    "sourceToTargetDE": 11.37,
+    "got": "#88ceeb",
+    "renderMs": 4460,
+    "loop": [0.12, 0.17, 0.12]
+  },
+  {
+    "pick": "sky-ferry",
+    "kind": "sky",
+    "file": "c0320.raf",
+    "target": "h+12 C×1.15",
+    "source": "#6293b7",
+    "targetHex": "#6791c0",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 22,
+      "saturation": 13,
+      "lightnessShift": 1
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.03,
+    "measuredDE": 0.03,
+    "predVsMeasured": 0,
+    "sourceToTargetDE": 3.76,
+    "got": "#6791c0",
+    "renderMs": 3273,
+    "loop": [0.03, 0.03, 0.03]
+  },
+  {
+    "pick": "sky-ferry",
+    "kind": "sky",
+    "file": "c0320.raf",
+    "target": "h−20 C×0.8 L−6",
+    "source": "#6293b7",
+    "targetHex": "#538597",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -36,
+      "saturation": -19,
+      "lightnessShift": -21
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.06,
+    "measuredDE": 0.06,
+    "predVsMeasured": 0,
+    "sourceToTargetDE": 8.21,
+    "got": "#538597",
+    "renderMs": 3239,
+    "loop": [0.06, 0.09, 0.06]
+  },
+  {
+    "pick": "sky-ferry",
+    "kind": "sky",
+    "file": "c0320.raf",
+    "target": "h+5 C×1.3 L+5",
+    "source": "#6293b7",
+    "targetHex": "#63a1d3",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 7,
+      "saturation": 31,
+      "lightnessShift": 17
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.08,
+    "measuredDE": 0.08,
+    "predVsMeasured": 0,
+    "sourceToTargetDE": 5.37,
+    "got": "#64a2d4",
+    "renderMs": 1263,
+    "loop": [0.08, 0.18, 0.21]
+  },
+  {
+    "pick": "sky-ferry",
+    "kind": "sky",
+    "file": "c0320.raf",
+    "target": "h+80 (out of reach)",
+    "source": "#6293b7",
+    "targetHex": "#aa7fa6",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": 0,
+      "lightnessShift": 4
+    },
+    "limited": {
+      "hue": true,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 12.72,
+    "measuredDE": 12.71,
+    "predVsMeasured": 0,
+    "sourceToTargetDE": 31.74,
+    "got": "#9181d6",
+    "renderMs": 1269,
+    "loop": [12.71, 14.43, 16.34]
+  },
+  {
+    "pick": "sky-ferry",
+    "kind": "sky",
+    "file": "c0320.raf",
+    "target": "hex #3D85C6",
+    "source": "#6293b7",
+    "targetHex": "#3d85c6",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 15,
+      "saturation": 64,
+      "lightnessShift": -16
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.13,
+    "measuredDE": 0.13,
+    "predVsMeasured": 0,
+    "sourceToTargetDE": 7.58,
+    "got": "#3d85c6",
+    "renderMs": 1302,
+    "loop": [0.13, 0.26, 0.13]
+  },
+  {
+    "pick": "sky-city",
+    "kind": "sky",
+    "file": "c0326.rwl",
+    "target": "h+12 C×1.15",
+    "source": "#5284b1",
+    "targetHex": "#5b81bb",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 22,
+      "saturation": 12,
+      "lightnessShift": 1
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.11,
+    "measuredDE": 0.09,
+    "predVsMeasured": 0.02,
+    "sourceToTargetDE": 3.79,
+    "got": "#5c81bc",
+    "renderMs": 1282,
+    "loop": [0.09, 0.13, 0.24]
+  },
+  {
+    "pick": "sky-city",
+    "kind": "sky",
+    "file": "c0326.rwl",
+    "target": "h−20 C×0.8 L−6",
+    "source": "#5284b1",
+    "targetHex": "#3e7791",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -36,
+      "saturation": -18,
+      "lightnessShift": -23
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.1,
+    "measuredDE": 0.11,
+    "predVsMeasured": 0.02,
+    "sourceToTargetDE": 8.7,
+    "got": "#3d7691",
+    "renderMs": 1278,
+    "loop": [0.11, 0.14, 0.22]
+  },
+  {
+    "pick": "sky-city",
+    "kind": "sky",
+    "file": "c0326.rwl",
+    "target": "h+5 C×1.3 L+5",
+    "source": "#5284b1",
+    "targetHex": "#5490d0",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 6,
+      "saturation": 30,
+      "lightnessShift": 19
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.09,
+    "measuredDE": 0.1,
+    "predVsMeasured": 0.02,
+    "sourceToTargetDE": 5.47,
+    "got": "#5491d0",
+    "renderMs": 1406,
+    "loop": [0.1, 0.11, 0.1]
+  },
+  {
+    "pick": "sky-city",
+    "kind": "sky",
+    "file": "c0326.rwl",
+    "target": "h+80 (out of reach)",
+    "source": "#5284b1",
+    "targetHex": "#a66c94",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": 3,
+      "lightnessShift": 4
+    },
+    "limited": {
+      "hue": true,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 13.98,
+    "measuredDE": 13.98,
+    "predVsMeasured": 0.02,
+    "sourceToTargetDE": 34.18,
+    "got": "#8d6ccc",
+    "renderMs": 6927,
+    "loop": [13.98, 15.61, 17.15]
+  },
+  {
+    "pick": "sky-city",
+    "kind": "sky",
+    "file": "c0326.rwl",
+    "target": "hex #4A90D9",
+    "source": "#5284b1",
+    "targetHex": "#4a90d9",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 7,
+      "saturation": 48,
+      "lightnessShift": 19
+    },
+    "limited": {
+      "hue": false,
+      "saturation": false,
+      "lightness": false
+    },
+    "predictedDE": 0.07,
+    "measuredDE": 0.09,
+    "predVsMeasured": 0.02,
+    "sourceToTargetDE": 6.1,
+    "got": "#4a90d9",
+    "renderMs": 1323,
+    "loop": [0.09, 0.17, 0.09]
+  },
+  {
+    "pick": "sky-venice",
+    "kind": "sky",
+    "file": "c1015.rw2",
+    "target": "h+12 C×1.15",
+    "source": "#f5fafb",
+    "targetHex": "#f5fafc",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": 100,
+      "lightnessShift": 1
+    },
+    "limited": {
+      "hue": true,
+      "saturation": true,
+      "lightness": false
+    },
+    "predictedDE": 0.42,
+    "measuredDE": 0.41,
+    "predVsMeasured": 0.01,
+    "sourceToTargetDE": 0.5,
+    "got": "#f5fafb",
+    "renderMs": 1564,
+    "loop": [0.41, 0.41, 0.41]
+  },
+  {
+    "pick": "sky-venice",
+    "kind": "sky",
+    "file": "c1015.rw2",
+    "target": "h−20 C×0.8 L−6",
+    "source": "#f5fafb",
+    "targetHex": "#e4e8e8",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": -100,
+      "saturation": -100,
+      "lightnessShift": -100
+    },
+    "limited": {
+      "hue": true,
+      "saturation": true,
+      "lightness": true
+    },
+    "predictedDE": 2.62,
+    "measuredDE": 2.61,
+    "predVsMeasured": 0.02,
+    "sourceToTargetDE": 3.66,
+    "got": "#f0f4f5",
+    "renderMs": 1689,
+    "loop": [2.61, 2.61, 2.61]
+  },
+  {
+    "pick": "sky-venice",
+    "kind": "sky",
+    "file": "c1015.rw2",
+    "target": "h+5 C×1.3 L+5",
+    "source": "#f5fafb",
+    "targetHex": "#ffffff",
+    "targetInSrgb": false,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": 100,
+      "lightnessShift": 100
+    },
+    "limited": {
+      "hue": true,
+      "saturation": true,
+      "lightness": true
+    },
+    "predictedDE": 2.07,
+    "measuredDE": 2.12,
+    "predVsMeasured": 0.34,
+    "sourceToTargetDE": 2.92,
+    "got": "#faffff",
+    "renderMs": 1575,
+    "loop": [2.12, 2.12, 2.12]
+  },
+  {
+    "pick": "sky-venice",
+    "kind": "sky",
+    "file": "c1015.rw2",
+    "target": "h+80 (out of reach)",
+    "source": "#f5fafb",
+    "targetHex": "#f9f8fc",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": -100,
+      "lightnessShift": 5
+    },
+    "limited": {
+      "hue": true,
+      "saturation": true,
+      "lightness": false
+    },
+    "predictedDE": 3.41,
+    "measuredDE": 3.4,
+    "predVsMeasured": 0.01,
+    "sourceToTargetDE": 3.54,
+    "got": "#f4f9fb",
+    "renderMs": 1717,
+    "loop": [3.4, 3.55, 3.55]
+  },
+  {
+    "pick": "sky-venice",
+    "kind": "sky",
+    "file": "c1015.rw2",
+    "target": "hex #A7C7E7",
+    "source": "#f5fafb",
+    "targetHex": "#a7c7e7",
+    "targetInSrgb": true,
+    "shifts": {
+      "hueShift": 100,
+      "saturation": 100,
+      "lightnessShift": -100
+    },
+    "limited": {
+      "hue": true,
+      "saturation": true,
+      "lightness": true
+    },
+    "predictedDE": 16.92,
+    "measuredDE": 16.91,
+    "predVsMeasured": 0.02,
+    "sourceToTargetDE": 17.69,
+    "got": "#eff4f6",
+    "renderMs": 1626,
+    "loop": [16.91, 16.91, 16.91]
+  }
+]

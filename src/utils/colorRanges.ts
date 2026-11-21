@@ -4,7 +4,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
 import { MAX_COLOR_RANGES, newColorRange, type Adjustments, type ColorRange } from './adjustments';
 import { srgbToOklch } from './oklab';
-import { linearToLab, solveColorTarget, srgb8ToLinear, type Vec3 } from './colorTarget';
+import { colorBeforeRanges, linearToLab, rangeCentre, solveColorTarget, srgb8ToLinear, type Vec3 } from './colorTarget';
 
 /** The picker target that samples a target colour; `targetPickFor(id)` also
  * moves range `id` onto it. */
@@ -118,10 +118,20 @@ export async function pickColorRange(path: string, target: string, x: number, y:
       updateAdjustments((prev: Adjustments) => withRanges(prev, layer, (r) => rangesWithTarget(r, rangeId, lab)));
     return true;
   }
-  const { hue, chroma, lightness } = srgbToOklch(rgb);
+  const shown = srgbToOklch(rgb);
   let activeId: string | null = target;
   const next = (ranges: ColorRange[], limit: number) => {
-    const picked = applyColorPick(ranges, target, limit, hue, chroma, lightness);
+    // The sample shows the ranges' work (a range picked again after its own
+    // shift, or a colour another range moves): select by the colour before.
+    const h = (shown.hue * Math.PI) / 180;
+    const again = target === 'skin' ? skinRangeOf(ranges) : ranges.find((r) => r.id === target);
+    const [lightness, a, b] = colorBeforeRanges(
+      ranges,
+      [shown.lightness, shown.chroma * Math.cos(h), shown.chroma * Math.sin(h)],
+      again ? [rangeCentre(again)] : []
+    );
+    const hue = ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
+    const picked = applyColorPick(ranges, target, limit, hue, Math.hypot(a, b), lightness);
     activeId = picked.id;
     return picked.ranges;
   };

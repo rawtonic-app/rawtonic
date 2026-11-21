@@ -2922,6 +2922,7 @@
           "heading": "목표 색상",
           "hexAria": "목표 색상(sRGB 16진수)",
           "hueAria": "목표 색조 h°(CIELAB D50)",
+          "layerStrength": "레이어 강도 100% 기준 예측값입니다. 마스크가 페더 처리된 곳에서는 색이 덜 바뀝니다.",
           "lch": "L*C*h°",
           "lightnessAria": "목표 명도 L*(CIELAB D50)",
           "limit": {

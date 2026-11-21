@@ -293,6 +293,52 @@ export function applyColorRanges(ranges: ColorRange[], lab: Vec3): Vec3 {
   return finish(L, chroma, hue, accumulate(ranges.map(pack), L, chroma, hue));
 }
 
+/** Newton's method for `applyColorRanges(ranges, c) = shown` from `start`;
+ * null when it does not settle. */
+function rangesInverse(ranges: ColorRange[], shown: Vec3, start: Vec3): Vec3 | null {
+  let c: Vec3 = [...start];
+  const h = 1e-5;
+  for (let i = 0; i < 40; i += 1) {
+    const out = applyColorRanges(ranges, c);
+    const r = [shown[0] - out[0], shown[1] - out[1], shown[2] - out[2]];
+    if (Math.hypot(r[0], r[1], r[2]) < 1e-7) return c;
+    const J = [0, 1, 2].map((k) => {
+      const d = [...c] as Vec3;
+      d[k] += h;
+      const o = applyColorRanges(ranges, d);
+      return [(o[0] - out[0]) / h, (o[1] - out[1]) / h, (o[2] - out[2]) / h];
+    }); // J[k] = column k
+    const det3 = (a: number[], b: number[], cc: number[]) =>
+      a[0] * (b[1] * cc[2] - b[2] * cc[1]) - b[0] * (a[1] * cc[2] - a[2] * cc[1]) + cc[0] * (a[1] * b[2] - a[2] * b[1]);
+    const det = det3(J[0], J[1], J[2]);
+    if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return null;
+    let step = [det3(r, J[1], J[2]) / det, det3(J[0], r, J[2]) / det, det3(J[0], J[1], r) / det];
+    // Small steps: the ranges' soft edges bend the map.
+    const size = Math.hypot(step[0], step[1], step[2]);
+    if (size > 0.05) step = step.map((v) => (v * 0.05) / size);
+    c = [c[0] + step[0], c[1] + step[1], c[2] + step[2]];
+  }
+  return null;
+}
+
+/**
+ * The colour that `applyColorRanges(ranges, ·)` turns into `shown` (Oklab):
+ * what a colour sampled in the finished photo was before the ranges, so a
+ * range picked (or picked again) on colours the ranges already move selects
+ * them by their own colour, as the renderer does. Several colours can end
+ * as `shown` (a colour no range touches, or one a range moved there): the
+ * `hints` are tried first (a range picked again: its old colour), then
+ * `shown` itself; `shown` when none settles.
+ */
+export function colorBeforeRanges(ranges: ColorRange[], shown: Vec3, hints: Vec3[] = []): Vec3 {
+  if (!ranges.length) return shown;
+  for (const start of [...hints, shown]) {
+    const before = rangesInverse(ranges, shown, start);
+    if (before) return before;
+  }
+  return shown;
+}
+
 /** Oklab of a range's sampled colour. */
 export const rangeCentre = (range: ColorRange): Vec3 => {
   const h = (range.hue * Math.PI) / 180;
@@ -369,15 +415,50 @@ export function solveColorTarget(ranges: ColorRange[], id: string, targetLab: Ve
   } else {
     limited.hue = limited.saturation = limited.lightness = true;
   }
-  const shifts = { hueShift: hueSteps, saturation: satSteps, lightnessShift: lightSteps };
-  const solved = ranges.map((r, i) => (i === index ? { ...r, ...shifts } : r));
-  const result = applyColorRanges(solved, rangeCentre(ranges[index]));
-  const resultLab = linearToLab(oklabToLinear(result).map((v) => clamp(v, 0, 1)) as Vec3);
+  const centre = rangeCentre(ranges[index]);
+  const evaluate = (steps: Vec3) => {
+    const solved = ranges.map((r, i) =>
+      i === index ? { ...r, hueShift: steps[0], saturation: steps[1], lightnessShift: steps[2] } : r
+    );
+    const result = applyColorRanges(solved, centre);
+    const resultLab = linearToLab(oklabToLinear(result).map((v) => clamp(v, 0, 1)) as Vec3);
+    return { result, resultLab, deltaE: deltaE00(targetLab, resultLab) };
+  };
+  // The closed form matches hue, chroma and lightness each on its own. When
+  // its result or the target lies outside sRGB, the colour shown is the
+  // clipped one, and the nearest of those needs the sliders together: a
+  // pattern search over whole slider steps from there (a few hundred
+  // evaluations of the model at most). Sliders at their limit stay there,
+  // so an out-of-reach target goes as far as it can in its own direction,
+  // and inside sRGB the others keep matching their own part.
+  let best: Vec3 = [hueSteps, satSteps, lightSteps];
+  let bestFit = evaluate(best);
+  const free = [!limited.hue, !limited.saturation, !limited.lightness].flatMap((open, k) => (open ? [k] : []));
+  if (w > 1e-6 && (targetOutsideSrgb || !insideSrgb(oklabToLinear(bestFit.result)))) {
+    for (const step of [32, 16, 8, 4, 2, 1]) {
+      for (let improved = true, rounds = 0; improved && rounds < 25; rounds += 1) {
+        improved = false;
+        for (const k of free) {
+          for (const sign of [-1, 1]) {
+            const next = [...best] as Vec3;
+            next[k] = clamp(next[k] + sign * step, -SHIFT_LIMIT, SHIFT_LIMIT);
+            if (next[k] === best[k]) continue;
+            const fit = evaluate(next);
+            if (fit.deltaE < bestFit.deltaE - 1e-9) {
+              best = next;
+              bestFit = fit;
+              improved = true;
+            }
+          }
+        }
+      }
+    }
+  }
   return {
-    shifts,
-    result,
-    resultLab,
-    deltaE: deltaE00(targetLab, resultLab),
+    shifts: { hueShift: best[0], saturation: best[1], lightnessShift: best[2] },
+    result: bestFit.result,
+    resultLab: bestFit.resultLab,
+    deltaE: bestFit.deltaE,
     limited,
     targetOutsideSrgb,
     movable: w > 1e-6

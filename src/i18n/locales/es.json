@@ -3169,6 +3169,7 @@
           "heading": "Objetivo",
           "hexAria": "Color objetivo en hexadecimal sRGB",
           "hueAria": "Tono objetivo h° (CIELAB D50)",
+          "layerStrength": "Previsión con la capa a plena intensidad; donde la máscara se difumina, el color cambia menos.",
           "lch": "L*C*h°",
           "lightnessAria": "Luminosidad objetivo L* (CIELAB D50)",
           "limit": {

@@ -2922,6 +2922,7 @@
           "heading": "ターゲット",
           "hexAria": "ターゲットカラー(sRGB 16進)",
           "hueAria": "ターゲットの色相 h°(CIELAB D50)",
+          "layerStrength": "レイヤーの強さ100%での予測値です。マスクがぼかされた部分では色の変化が小さくなります。",
           "lch": "L*C*h°",
           "lightnessAria": "ターゲットの明度 L*(CIELAB D50)",
           "limit": {

@@ -2922,6 +2922,7 @@
           "heading": "目标颜色",
           "hexAria": "目标颜色(sRGB 十六进制)",
           "hueAria": "目标色相 h°(CIELAB D50)",
+          "layerStrength": "按图层全强度预测;蒙版羽化处颜色变化较小。",
           "lch": "L*C*h°",
           "lightnessAria": "目标明度 L*(CIELAB D50)",
           "limit": {
