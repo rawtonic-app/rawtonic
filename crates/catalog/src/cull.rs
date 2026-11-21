@@ -210,6 +210,17 @@ impl Library {
         Ok(usize::try_from(n)?)
     }
 
+    /// Forgets the scores not made from `model`'s embeddings with prompt
+    /// set `set` (an older set or reading of the photographs): they suggest
+    /// nothing from now on, and the photographs are read again for `set`
+    /// (`cull_backlog`). Dismissals stay. Returns how many were forgotten.
+    pub fn forget_other_cull_scores(&self, model: &str, set: &str) -> Result<usize, CatalogError> {
+        Ok(self.conn.execute(
+            "DELETE FROM cull_scores WHERE model<>?1",
+            params![score_model(model, set)],
+        )?)
+    }
+
     /// Whether asset `id` has current scores of `model` and `set` (or a
     /// current failure to read it for them or for its embedding).
     pub fn has_cull(&self, id: &str, model: &str, set: &str) -> Result<bool, CatalogError> {

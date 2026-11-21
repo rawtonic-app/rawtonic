@@ -193,6 +193,10 @@ pub async fn cull_suggestions(
     paths: Vec<String>,
 ) -> Result<HashMap<String, CullPhoto>, CommandError> {
     with_library(directory, false, move |lib| {
+        // Scores of an older prompt set or reading suggest nothing; the
+        // content pass reads those photographs again.
+        lib.forget_other_cull_scores(crate::content_search::MODEL_ID, &prompt_set_id())
+            .map_err(|e| e.to_string())?;
         let ids: Vec<(String, String)> = paths
             .into_iter()
             .filter_map(|path| asset_id(lib, &path).map(|id| (path, id)))
