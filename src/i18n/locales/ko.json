@@ -5,6 +5,7 @@
       "depth": "AI 마스크: 깊이",
       "foreground": "AI 마스크: 전경",
       "inpaint": "생성형 채우기",
+      "landscape": "AI 마스크: 풍경",
       "object": "AI 마스크: 개체",
       "other": "AI 작업",
       "people": "AI 마스크: 인물",
@@ -1033,6 +1034,7 @@
       "flow": "플로우",
       "foreground": "전경",
       "heal": "복구",
+      "landscape": "풍경",
       "linear": "선형",
       "liquify": "픽셀 유동화",
       "luminance": "휘도",
@@ -3209,6 +3211,7 @@
           "brush": "브러시",
           "color": "색상",
           "depth": "심도",
+          "landscape": "풍경",
           "linear": "선형",
           "luminance": "휘도",
           "object": "개체",
@@ -3238,6 +3241,7 @@
           "brush": "새 브러시 레이어",
           "color": "새 레이어: 색상 범위",
           "depth": "새 레이어: 심도 범위",
+          "landscape": "새 풍경 레이어",
           "linear": "새 선형 그라디언트 레이어",
           "luminance": "새 레이어: 휘도 범위",
           "object": "새 레이어: 개체",
@@ -3808,6 +3812,22 @@
       "shadowClippingLit": "그림자 경고, 뭉개짐",
       "shadowClippingTitle": "그림자 클리핑 경고(사진에서 파란색으로 표시; {{shortcut}}로 둘 다 전환)",
       "title": "히스토그램"
+    },
+    "landscape": {
+      "aria": "풍경 마스크",
+      "choose": "선택할 요소를 고르세요.",
+      "finding": "풍경 요소를 찾는 중…",
+      "noneFound": "이 사진에서 이 요소들을 찾지 못했습니다.",
+      "notFound": "(찾지 못함)",
+      "parts": {
+        "architecture": "건축물",
+        "artificialGround": "인공 지면",
+        "mountains": "산",
+        "naturalGround": "자연 지면",
+        "vegetation": "식물",
+        "water": "물"
+      },
+      "partsAria": "풍경 요소"
     },
     "layers": {
       "bandWidth": "띠 너비",
@@ -4532,6 +4552,7 @@
         "brush": "브러시",
         "color": "색상 범위",
         "depth": "심도 범위",
+        "landscape": "풍경",
         "linear": "선형",
         "luminance": "휘도 범위",
         "object": "개체",

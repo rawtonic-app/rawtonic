@@ -5,6 +5,7 @@
       "depth": "Màscara IA: profunditat",
       "foreground": "Màscara IA: primer pla",
       "inpaint": "Emplenament generatiu",
+      "landscape": "Màscara IA: Paisatge",
       "object": "Màscara IA: objecte",
       "other": "Tasca d’IA",
       "people": "Màscara IA: persones",
@@ -1095,6 +1096,7 @@
       "flow": "Flux",
       "foreground": "Primer pla",
       "heal": "Corregir",
+      "landscape": "Paisatge",
       "linear": "Lineal",
       "liquify": "Liquar",
       "luminance": "Luminància",
@@ -3458,6 +3460,7 @@
           "brush": "Pinzell",
           "color": "Color",
           "depth": "Profunditat",
+          "landscape": "Paisatge",
           "linear": "Lineal",
           "luminance": "Luminància",
           "object": "Objecte",
@@ -3487,6 +3490,7 @@
           "brush": "Nova capa de pinzell",
           "color": "Nova capa: Rang de color",
           "depth": "Nova capa: Rang de profunditat",
+          "landscape": "Nova capa de paisatge",
           "linear": "Nova capa de degradat lineal",
           "luminance": "Nova capa: Rang de luminància",
           "object": "Nova capa: Objecte",
@@ -4075,6 +4079,22 @@
       "shadowClippingLit": "Avís d'ombres, retallades",
       "shadowClippingTitle": "Avís de retall d'ombres (blau a la foto; {{shortcut}} alterna tots dos)",
       "title": "Histograma"
+    },
+    "landscape": {
+      "aria": "Màscara de paisatge",
+      "choose": "Tria les parts que vols seleccionar.",
+      "finding": "S'estan cercant les parts del paisatge…",
+      "noneFound": "No s'ha trobat cap d'aquestes parts en aquesta foto.",
+      "notFound": "(no trobada)",
+      "parts": {
+        "architecture": "Arquitectura",
+        "artificialGround": "Sòl artificial",
+        "mountains": "Muntanyes",
+        "naturalGround": "Sòl natural",
+        "vegetation": "Vegetació",
+        "water": "Aigua"
+      },
+      "partsAria": "Parts del paisatge"
     },
     "layers": {
       "bandWidth": "Amplada de banda",
@@ -4851,6 +4871,7 @@
         "brush": "Pinzell",
         "color": "Rang de color",
         "depth": "Rang de profunditat",
+        "landscape": "Paisatge",
         "linear": "Lineal",
         "luminance": "Rang de luminància",
         "object": "Objecte",

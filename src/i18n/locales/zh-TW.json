@@ -5,6 +5,7 @@
       "depth": "AI 遮罩：深度",
       "foreground": "AI 遮罩：前景",
       "inpaint": "生成式填色",
+      "landscape": "AI 遮色片：風景",
       "object": "AI 遮罩：物件",
       "other": "AI 工作",
       "people": "AI 遮罩：人物",
@@ -1033,6 +1034,7 @@
       "flow": "流線",
       "foreground": "前景",
       "heal": "修復",
+      "landscape": "風景",
       "linear": "線性",
       "liquify": "液化",
       "luminance": "亮度",
@@ -3209,6 +3211,7 @@
           "brush": "畫筆",
           "color": "顏色",
           "depth": "深度",
+          "landscape": "風景",
           "linear": "線性",
           "luminance": "亮度",
           "object": "物件",
@@ -3238,6 +3241,7 @@
           "brush": "新增筆刷圖層",
           "color": "新增圖層：顏色範圍",
           "depth": "新增圖層：深度範圍",
+          "landscape": "新增風景圖層",
           "linear": "新增線性漸層圖層",
           "luminance": "新增圖層：亮度範圍",
           "object": "新增圖層：物件",
@@ -3808,6 +3812,22 @@
       "shadowClippingLit": "陰影警告，已壓暗",
       "shadowClippingTitle": "陰影剪裁警告（照片中顯示為藍色；{{shortcut}} 同時切換兩側）",
       "title": "色階分佈圖"
+    },
+    "landscape": {
+      "aria": "風景遮色片",
+      "choose": "選擇要選取的部分。",
+      "finding": "正在尋找風景的組成部分…",
+      "noneFound": "這張照片中未找到這些部分。",
+      "notFound": "（未找到）",
+      "parts": {
+        "architecture": "建築",
+        "artificialGround": "人工地面",
+        "mountains": "山脈",
+        "naturalGround": "自然地面",
+        "vegetation": "植被",
+        "water": "水"
+      },
+      "partsAria": "風景的組成部分"
     },
     "layers": {
       "bandWidth": "條帶寬度",
@@ -4532,6 +4552,7 @@
         "brush": "畫筆",
         "color": "顏色範圍",
         "depth": "深度範圍",
+        "landscape": "風景",
         "linear": "線性",
         "luminance": "亮度範圍",
         "object": "物件",

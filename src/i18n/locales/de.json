@@ -5,6 +5,7 @@
       "depth": "KI-Maske: Tiefe",
       "foreground": "KI-Maske: Vordergrund",
       "inpaint": "Generatives Füllen",
+      "landscape": "KI-Maske: Landschaft",
       "object": "KI-Maske: Objekt",
       "other": "KI-Aufgabe",
       "people": "KI-Maske: Personen",
@@ -1046,6 +1047,7 @@
       "flow": "Fluss",
       "foreground": "Vordergrund",
       "heal": "Reparieren",
+      "landscape": "Landschaft",
       "linear": "Linear",
       "liquify": "Verflüssigen",
       "luminance": "Luminanz",
@@ -3303,6 +3305,7 @@
           "brush": "Pinsel",
           "color": "Farbe",
           "depth": "Tiefe",
+          "landscape": "Landschaft",
           "linear": "Linear",
           "luminance": "Luminanz",
           "object": "Objekt",
@@ -3332,6 +3335,7 @@
           "brush": "Neue Ebene: Pinsel",
           "color": "Neue Ebene: Farbbereich",
           "depth": "Neue Ebene: Tiefenbereich",
+          "landscape": "Neue Landschaftsebene",
           "linear": "Neue Ebene mit linearem Verlauf",
           "luminance": "Neue Ebene: Luminanzbereich",
           "object": "Neue Ebene: Objekt",
@@ -3911,6 +3915,22 @@
       "shadowClippingLit": "Schattenwarnung, abgesoffen",
       "shadowClippingTitle": "Schattenwarnung (blau im Foto; {{shortcut}} schaltet beide)",
       "title": "Histogramm"
+    },
+    "landscape": {
+      "aria": "Landschaftsmaske",
+      "choose": "Wähle die Teile, die ausgewählt werden sollen.",
+      "finding": "Teile der Landschaft werden gesucht…",
+      "noneFound": "Keiner dieser Teile wurde in diesem Foto gefunden.",
+      "notFound": "(nicht gefunden)",
+      "parts": {
+        "architecture": "Architektur",
+        "artificialGround": "Künstlicher Boden",
+        "mountains": "Berge",
+        "naturalGround": "Natürlicher Boden",
+        "vegetation": "Vegetation",
+        "water": "Wasser"
+      },
+      "partsAria": "Teile der Landschaft"
     },
     "layers": {
       "bandWidth": "Bandbreite",
@@ -4655,6 +4675,7 @@
         "brush": "Pinsel",
         "color": "Farbbereich",
         "depth": "Tiefenbereich",
+        "landscape": "Landschaft",
         "linear": "Linear",
         "luminance": "Luminanzbereich",
         "object": "Objekt",

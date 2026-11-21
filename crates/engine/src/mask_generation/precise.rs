@@ -8,7 +8,13 @@ use rawtonic_recipe::masks;
 
 /// AI mask types whose grow and feather version 2 applies itself; a depth
 /// range keeps its own blur and the 8-bit steps.
-const AI_GROW_FEATHER: [&str; 4] = ["ai-subject", "ai-foreground", "ai-sky", "ai-people"];
+const AI_GROW_FEATHER: [&str; 5] = [
+    "ai-subject",
+    "ai-foreground",
+    "ai-sky",
+    "ai-landscape",
+    "ai-people",
+];
 
 /// Whether a version 2 layer's coverage at full opacity is finer than 8
 /// bits: a gradient, a sub-mask opacity, an AI mask's grow or feather, or

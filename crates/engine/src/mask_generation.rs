@@ -5234,8 +5234,8 @@ fn generate_sub_mask_bitmap(
             crop_offset,
             geometry,
         ),
-        // A People mask is a stored bitmap like the sky's.
-        "ai-sky" | "ai-people" => generate_ai_sky_bitmap(
+        // People and landscape-part masks are stored bitmaps like the sky's.
+        "ai-sky" | "ai-landscape" | "ai-people" => generate_ai_sky_bitmap(
             &sub_mask.parameters,
             width,
             height,

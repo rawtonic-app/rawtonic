@@ -529,7 +529,7 @@ impl rawtonic_export::export_processing::Enlarger for SuperResolution {
     }
 }
 
-/// The Sky and Subject networks of the app's model folder, for selections
+/// The Sky, Subject and landscape networks of the app's model folder, for selections
 /// an export computes (`ai_selections::detect_missing`).
 struct SelectionModels(rawtonic_segment::Models);
 
@@ -549,9 +549,36 @@ impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
             AutoSelection::Subject => self.0.subject().and_then(|model| {
                 rawtonic_segment::subject_selection(warped, &model, linear, None, version)
             }),
+            AutoSelection::Landscape(parts) => {
+                return self
+                    .detect_landscape(&[parts], warped, linear)
+                    .map(|mut masks| masks.remove(0));
+            }
         }
         .map_err(|e| format!("{e:#}"))?;
         rawtonic_segment::mask_data_url(&mask)
+    }
+
+    fn detect_landscape(
+        &self,
+        sets: &[rawtonic_engine::ai_selections::LandscapeParts],
+        warped: &image::DynamicImage,
+        linear: bool,
+    ) -> Result<Vec<String>, String> {
+        let model = self.0.landscape().map_err(|e| format!("{e:#}"))?;
+        let probabilities = rawtonic_segment::landscape_probabilities(warped, &model, linear, None)
+            .map_err(|e| format!("{e:#}"))?;
+        sets.iter()
+            .map(|set| {
+                let parts =
+                    rawtonic_segment::landscape_parts(&set.keys()).map_err(|e| format!("{e:#}"))?;
+                rawtonic_segment::mask_data_url(&rawtonic_segment::landscape_mask(
+                    (warped.width(), warped.height()),
+                    &probabilities,
+                    &parts,
+                ))
+            })
+            .collect()
     }
 }
 

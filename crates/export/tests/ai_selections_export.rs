@@ -41,6 +41,10 @@ impl SelectionDetector for Models {
             AutoSelection::Subject => self.0.subject().and_then(|m| {
                 rawtonic_segment::subject_selection(warped, &m, linear, None, version)
             }),
+            AutoSelection::Landscape(parts) => self.0.landscape().and_then(|m| {
+                let parts = rawtonic_segment::landscape_parts(&parts.keys())?;
+                rawtonic_segment::run_landscape_model(warped, &m, &parts, linear, None)
+            }),
         }
         .map_err(|e| format!("{e:#}"))?;
         rawtonic_segment::mask_data_url(&mask)

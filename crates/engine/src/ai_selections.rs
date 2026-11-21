@@ -1,4 +1,4 @@
-//! Sky and Subject selections an export computes for a photo that was never
+//! Sky, Subject and landscape-part selections an export computes for a photo that was never
 //! opened (a Lightroom or Capture One import, settings pasted or synced
 //! onto it): the recipe holds the selection but not its bitmap, which the
 //! editor computes when the photo opens. The export computes it the way the
@@ -24,14 +24,51 @@ pub enum AutoSelection {
     Sky,
     /// `ai-foreground`: Select Subject.
     Subject,
+    /// `ai-landscape`: parts of the landscape.
+    Landscape(LandscapeParts),
+}
+
+/// A set of `masks::LANDSCAPE_PARTS` (bit `i`: the `i`-th part).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct LandscapeParts(pub u8);
+
+impl LandscapeParts {
+    /// The set a component's `parts` name; `None` when one is not a known
+    /// part (made by a newer version) or none is named.
+    pub fn of(parts: &Value) -> Option<Self> {
+        let mut bits = 0u8;
+        for part in parts.as_array()? {
+            let i = masks::LANDSCAPE_PARTS
+                .iter()
+                .position(|&known| Some(known) == part.as_str())?;
+            bits |= 1 << i;
+        }
+        (bits != 0).then_some(Self(bits))
+    }
+
+    /// The parts' keys, in the model's order.
+    pub fn keys(self) -> Vec<&'static str> {
+        masks::LANDSCAPE_PARTS
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| self.0 & (1 << i) != 0)
+            .map(|(_, &key)| key)
+            .collect()
+    }
 }
 
 impl AutoSelection {
-    /// The selection a component type is, if a network makes it alone.
-    pub fn of(kind: &str) -> Option<Self> {
-        match kind {
+    /// The selection a component (`type` and `parameters`) is, if a network
+    /// makes it alone. A landscape component without known parts is none.
+    pub fn of(component: &Value) -> Option<Self> {
+        match component.get(masks::TYPE.name()).and_then(Value::as_str)? {
             "ai-sky" => Some(Self::Sky),
             "ai-foreground" => Some(Self::Subject),
+            "ai-landscape" => component
+                .get(masks::PARAMETERS.name())
+                .and_then(|p| p.get(masks::PARTS.name()))
+                .and_then(LandscapeParts::of)
+                .map(Self::Landscape),
             _ => None,
         }
     }
@@ -40,6 +77,7 @@ impl AutoSelection {
         match self {
             Self::Sky => "Sky",
             Self::Subject => "Subject",
+            Self::Landscape(_) => "Landscape",
         }
     }
 }
@@ -67,6 +105,20 @@ pub trait SelectionDetector: Send + Sync {
         warped: &DynamicImage,
         linear: bool,
     ) -> Result<String, String>;
+
+    /// The masks of several landscape selections of `warped` (in the order
+    /// of `sets`), as `detect` gives each; an implementation runs the
+    /// network once for all of them.
+    fn detect_landscape(
+        &self,
+        sets: &[LandscapeParts],
+        warped: &DynamicImage,
+        linear: bool,
+    ) -> Result<Vec<String>, String> {
+        sets.iter()
+            .map(|&parts| self.detect(AutoSelection::Landscape(parts), 1, warped, linear))
+            .collect()
+    }
 }
 
 /// One component an export detected: where it is and its parameters now.
@@ -98,11 +150,7 @@ pub fn undetected(adjustments: &Value) -> Vec<(usize, usize, AutoSelection)> {
             continue;
         };
         for (s, sub) in subs.iter().enumerate().filter(|(_, s)| shown(s)) {
-            let Some(selection) = sub
-                .get(masks::TYPE.name())
-                .and_then(Value::as_str)
-                .and_then(AutoSelection::of)
-            else {
+            let Some(selection) = AutoSelection::of(sub) else {
                 continue;
             };
             let parameters = sub.get(masks::PARAMETERS.name()).unwrap_or(&Value::Null);
@@ -198,14 +246,37 @@ pub fn detect_missing(
     let geometry = mask_warp(adjustments);
     let warped = prepare_shared_warped_mask_image(source, is_raw, &geometry)?;
     let mut masks: Map<String, Value> = Map::new();
+    // The landscape selections wanted, from one run of their network.
+    let mut sets: Vec<LandscapeParts> = Vec::new();
+    for &(_, _, selection) in &wanted {
+        if let AutoSelection::Landscape(parts) = selection
+            && !sets.contains(&parts)
+        {
+            sets.push(parts);
+        }
+    }
+    if !sets.is_empty() {
+        let found = detector
+            .detect_landscape(&sets, &warped, is_raw)
+            .map_err(|e| fail(&e))?;
+        if found.len() != sets.len() {
+            return Err(fail("the landscape model returned too few masks"));
+        }
+        for (parts, data) in sets.iter().zip(found) {
+            masks.insert(format!("Landscape {} 1", parts.0), Value::String(data));
+        }
+    }
     let mut detected = Vec::new();
     for &(l, s, selection) in &wanted {
         let sub = &adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s];
         let version = match selection {
             AutoSelection::Subject => subject_version(&sub[masks::PARAMETERS.name()]),
-            AutoSelection::Sky => 1,
+            AutoSelection::Sky | AutoSelection::Landscape(_) => 1,
         };
-        let key = format!("{} {version}", selection.name());
+        let key = match selection {
+            AutoSelection::Landscape(parts) => format!("Landscape {} {version}", parts.0),
+            _ => format!("{} {version}", selection.name()),
+        };
         if !masks.contains_key(&key) {
             let data = detector
                 .detect(selection, version, &warped, is_raw)
@@ -284,7 +355,7 @@ pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
         else {
             continue;
         };
-        if sub[masks::TYPE.name()].as_str().and_then(AutoSelection::of) != Some(found.selection)
+        if AutoSelection::of(sub) != Some(found.selection)
             || has_bitmap(&sub[masks::PARAMETERS.name()])
         {
             continue;
@@ -502,5 +573,71 @@ mod tests {
         opened["masks"][1]["subMasks"][0]["parameters"]["maskDataBase64"] = json!("data:own");
         opened["masks"][1]["subMasks"][1]["parameters"]["maskDataBase64"] = json!("data:own");
         assert!(!keep_detected(&mut opened, &found));
+    }
+
+    struct Landscapes(std::sync::Mutex<Vec<Vec<Vec<&'static str>>>>);
+    impl SelectionDetector for Landscapes {
+        fn detect(&self, _: AutoSelection, _: u32, _: &DynamicImage, _: bool) -> Result<String, String> {
+            Err("one part at a time".into())
+        }
+        fn detect_landscape(
+            &self,
+            sets: &[LandscapeParts],
+            _: &DynamicImage,
+            _: bool,
+        ) -> Result<Vec<String>, String> {
+            let sets: Vec<Vec<&'static str>> = sets.iter().map(|s| s.keys()).collect();
+            let found = sets.iter().map(|keys| format!("data:{}", keys.join("+"))).collect();
+            self.0.lock().unwrap().push(sets);
+            Ok(found)
+        }
+    }
+
+    #[test]
+    fn landscape_parts_of_a_photo_come_from_one_run() {
+        let part = |id: &str, parts: Value| {
+            json!({"id": id, "type": "ai-landscape", "visible": true,
+                "parameters": {"parts": parts, "maskDataBase64": null, "detectPending": true, "grow": 5}})
+        };
+        let mut adjustments = json!({"masks": [
+            {"id": "a", "name": "Land", "visible": true, "subMasks": [
+                part("w", json!(["water"])), part("m", json!(["architecture", "mountains"]))]},
+            {"id": "b", "name": "Water again", "visible": true, "subMasks": [part("x", json!(["water"]))]},
+            // A part this version does not know, or none, is not a selection.
+            {"id": "c", "name": "Unknown", "visible": true, "subMasks": [
+                part("y", json!(["water", "lava"])), part("z", json!([]))]}]});
+        let water = LandscapeParts(0b10);
+        let mountains_architecture = LandscapeParts(0b10_0001);
+        assert_eq!(
+            undetected(&adjustments).iter().map(|w| w.2).collect::<Vec<_>>(),
+            [
+                AutoSelection::Landscape(water),
+                AutoSelection::Landscape(mountains_architecture),
+                AutoSelection::Landscape(water)
+            ]
+        );
+        let detector = Landscapes(Default::default());
+        let found = detect_missing(
+            &mut adjustments,
+            &Arc::new(DynamicImage::new_rgb8(6, 4)),
+            false,
+            Some(&detector),
+            &mut || {},
+        )
+        .unwrap();
+        assert_eq!(
+            *detector.0.lock().unwrap(),
+            [vec![vec!["water"], vec!["mountains", "architecture"]]]
+        );
+        assert_eq!(found.len(), 3);
+        let params = |l: usize, s: usize| adjustments["masks"][l]["subMasks"][s]["parameters"].clone();
+        assert_eq!(params(0, 0)["maskDataBase64"], "data:water");
+        assert_eq!(params(0, 0)["parts"], json!(["water"]));
+        assert_eq!(params(0, 0)["grow"], 5);
+        assert!(params(0, 0).get("detectPending").is_none());
+        assert_eq!(params(0, 1)["maskDataBase64"], "data:mountains+architecture");
+        assert_eq!(params(1, 0)["maskDataBase64"], "data:water");
+        assert!(params(2, 0)["maskDataBase64"].is_null());
+        assert!(params(2, 1)["maskDataBase64"].is_null());
     }
 }

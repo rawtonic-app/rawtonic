@@ -85,6 +85,16 @@ pub const MAX_FADE: Key<f64> = Key::new("maxFade", 0.0, 1);
 pub const GROW: Key<f64> = Key::new("grow", 0.0, 1);
 pub const PARTS: Key<Value> = Key::new("parts", Value::Null, 1);
 pub const PERSON: Key<f64> = Key::new("person", 0.0, 1);
+/// The parts an `ai-landscape` component (in its `parts`) may select, in
+/// the landscape model's output order (`rawtonic_segment::LandscapePart::key`).
+pub const LANDSCAPE_PARTS: [&str; 6] = [
+    "mountains",
+    "water",
+    "vegetation",
+    "naturalGround",
+    "artificialGround",
+    "architecture",
+];
 pub const MASK_DATA_BASE64: Key<String> = Key::new("maskDataBase64", String::new(), 1);
 pub const MASK_DATA_BASE64_LEGACY: Key<String> = Key::new("mask_data_base64", String::new(), 1);
 pub const WARP: Key<Value> = Key::new("warp", Value::Null, 1);

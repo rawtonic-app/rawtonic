@@ -5,6 +5,7 @@
       "depth": "AI 蒙版：深度",
       "foreground": "AI 蒙版：前景",
       "inpaint": "生成式填充",
+      "landscape": "AI 蒙版：风景",
       "object": "AI 蒙版：对象",
       "other": "AI 任务",
       "people": "AI 蒙版：人物",
@@ -1033,6 +1034,7 @@
       "flow": "流线",
       "foreground": "前景",
       "heal": "修复",
+      "landscape": "风景",
       "linear": "线性",
       "liquify": "液化",
       "luminance": "亮度",
@@ -3209,6 +3211,7 @@
           "brush": "画笔",
           "color": "颜色",
           "depth": "深度",
+          "landscape": "风景",
           "linear": "线性",
           "luminance": "亮度",
           "object": "对象",
@@ -3238,6 +3241,7 @@
           "brush": "新建画笔图层",
           "color": "新建图层：颜色范围",
           "depth": "新建图层：深度范围",
+          "landscape": "新建风景图层",
           "linear": "新建线性渐变图层",
           "luminance": "新建图层：亮度范围",
           "object": "新建图层：对象",
@@ -3808,6 +3812,22 @@
       "shadowClippingLit": "阴影警告，已压暗",
       "shadowClippingTitle": "阴影剪切警告（照片中显示为蓝色；{{shortcut}} 同时切换两侧）",
       "title": "直方图"
+    },
+    "landscape": {
+      "aria": "风景蒙版",
+      "choose": "选择要选取的部分。",
+      "finding": "正在查找风景的组成部分…",
+      "noneFound": "这张照片中未找到这些部分。",
+      "notFound": "（未找到）",
+      "parts": {
+        "architecture": "建筑",
+        "artificialGround": "人工地面",
+        "mountains": "山脉",
+        "naturalGround": "自然地面",
+        "vegetation": "植被",
+        "water": "水"
+      },
+      "partsAria": "风景的组成部分"
     },
     "layers": {
       "bandWidth": "条带宽度",
@@ -4532,6 +4552,7 @@
         "brush": "画笔",
         "color": "颜色范围",
         "depth": "深度范围",
+        "landscape": "风景",
         "linear": "线性",
         "luminance": "亮度范围",
         "object": "对象",

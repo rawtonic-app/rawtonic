@@ -5,6 +5,7 @@
       "depth": "Maska AI: głębia",
       "foreground": "Maska AI: pierwszy plan",
       "inpaint": "Wypełnienie generatywne",
+      "landscape": "Maska AI: Krajobraz",
       "object": "Maska AI: obiekt",
       "other": "Zadanie AI",
       "people": "Maska AI: osoby",
@@ -1144,6 +1145,7 @@
       "flow": "Przepływ",
       "foreground": "Pierwszy plan",
       "heal": "Naprawianie",
+      "landscape": "Krajobraz",
       "linear": "Liniowy",
       "liquify": "Skraplanie",
       "luminance": "Luminancja",
@@ -3612,6 +3614,7 @@
           "brush": "Pędzel",
           "color": "Kolor",
           "depth": "Głębia",
+          "landscape": "Krajobraz",
           "linear": "Liniowy",
           "luminance": "Luminancja",
           "object": "Obiekt",
@@ -3641,6 +3644,7 @@
           "brush": "Nowa warstwa: Pędzel",
           "color": "Nowa warstwa: Zakres koloru",
           "depth": "Nowa warstwa: Zakres głębi",
+          "landscape": "Nowa warstwa krajobrazu",
           "linear": "Nowa warstwa gradientu liniowego",
           "luminance": "Nowa warstwa: Zakres luminancji",
           "object": "Nowa warstwa: Obiekt",
@@ -4238,6 +4242,22 @@
       "shadowClippingLit": "Ostrzeżenie o cieniach, zadarte",
       "shadowClippingTitle": "Ostrzeżenie o obciętych cieniach (niebieski na zdjęciu; {{shortcut}} przełącza oba)",
       "title": "Histogram"
+    },
+    "landscape": {
+      "aria": "Maska krajobrazu",
+      "choose": "Wybierz części do zaznaczenia.",
+      "finding": "Wyszukiwanie części krajobrazu…",
+      "noneFound": "Na tym zdjęciu nie znaleziono żadnej z tych części.",
+      "notFound": "(nie znaleziono)",
+      "parts": {
+        "architecture": "Architektura",
+        "artificialGround": "Podłoże sztuczne",
+        "mountains": "Góry",
+        "naturalGround": "Podłoże naturalne",
+        "vegetation": "Roślinność",
+        "water": "Woda"
+      },
+      "partsAria": "Części krajobrazu"
     },
     "layers": {
       "bandWidth": "Szerokość pasa",
@@ -5046,6 +5066,7 @@
         "brush": "Pędzel",
         "color": "Zakres koloru",
         "depth": "Zakres głębi",
+        "landscape": "Krajobraz",
         "linear": "Liniowy",
         "luminance": "Zakres luminancji",
         "object": "Obiekt",

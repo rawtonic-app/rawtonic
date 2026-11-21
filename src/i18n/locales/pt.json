@@ -5,6 +5,7 @@
       "depth": "Máscara IA: profundidade",
       "foreground": "Máscara IA: primeiro plano",
       "inpaint": "Preenchimento generativo",
+      "landscape": "Máscara IA: Paisagem",
       "object": "Máscara IA: objeto",
       "other": "Tarefa de IA",
       "people": "Máscara IA: pessoas",
@@ -1095,6 +1096,7 @@
       "flow": "Fluxo",
       "foreground": "Primeiro Plano",
       "heal": "Restaurar",
+      "landscape": "Paisagem",
       "linear": "Linear",
       "liquify": "Dissolver",
       "luminance": "Luminância",
@@ -3458,6 +3460,7 @@
           "brush": "Pincel",
           "color": "Cor",
           "depth": "Profundidade",
+          "landscape": "Paisagem",
           "linear": "Linear",
           "luminance": "Luminância",
           "object": "Objeto",
@@ -3487,6 +3490,7 @@
           "brush": "Nova camada de pincel",
           "color": "Nova camada: Faixa de cor",
           "depth": "Nova camada: Faixa de profundidade",
+          "landscape": "Nova camada de paisagem",
           "linear": "Nova camada de gradiente linear",
           "luminance": "Nova camada: Faixa de luminância",
           "object": "Nova camada: Objeto",
@@ -4075,6 +4079,22 @@
       "shadowClippingLit": "Aviso de sombras, esmagadas",
       "shadowClippingTitle": "Aviso de recorte de sombras (azul na foto; {{shortcut}} alterna ambos)",
       "title": "Histograma"
+    },
+    "landscape": {
+      "aria": "Máscara de paisagem",
+      "choose": "Escolha as partes a selecionar.",
+      "finding": "A procurar as partes da paisagem…",
+      "noneFound": "Nenhuma destas partes foi encontrada nesta foto.",
+      "notFound": "(não encontrada)",
+      "parts": {
+        "architecture": "Arquitetura",
+        "artificialGround": "Solo artificial",
+        "mountains": "Montanhas",
+        "naturalGround": "Solo natural",
+        "vegetation": "Vegetação",
+        "water": "Água"
+      },
+      "partsAria": "Partes da paisagem"
     },
     "layers": {
       "bandWidth": "Largura da faixa",
@@ -4851,6 +4871,7 @@
         "brush": "Pincel",
         "color": "Faixa de cor",
         "depth": "Faixa de profundidade",
+        "landscape": "Paisagem",
         "linear": "Linear",
         "luminance": "Faixa de luminância",
         "object": "Objeto",

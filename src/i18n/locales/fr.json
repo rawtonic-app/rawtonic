@@ -5,6 +5,7 @@
       "depth": "Masque IA : profondeur",
       "foreground": "Masque IA : premier plan",
       "inpaint": "Remplissage génératif",
+      "landscape": "Masque IA : Paysage",
       "object": "Masque IA : objet",
       "other": "Tâche IA",
       "people": "Masque IA : personnes",
@@ -1095,6 +1096,7 @@
       "flow": "Flux",
       "foreground": "Premier plan",
       "heal": "Corriger",
+      "landscape": "Paysage",
       "linear": "Linéaire",
       "liquify": "Fluidité",
       "luminance": "Luminance",
@@ -3458,6 +3460,7 @@
           "brush": "Pinceau",
           "color": "Couleur",
           "depth": "Profondeur",
+          "landscape": "Paysage",
           "linear": "Linéaire",
           "luminance": "Luminance",
           "object": "Objet",
@@ -3487,6 +3490,7 @@
           "brush": "Nouveau calque de pinceau",
           "color": "Nouveau calque : Plage de couleur",
           "depth": "Nouveau calque : Plage de profondeur",
+          "landscape": "Nouveau calque de paysage",
           "linear": "Nouveau calque de dégradé linéaire",
           "luminance": "Nouveau calque : Plage de luminance",
           "object": "Nouveau calque : Objet",
@@ -4075,6 +4079,22 @@
       "shadowClippingLit": "Alerte ombres, écrêtées",
       "shadowClippingTitle": "Alerte d'écrêtage des ombres (bleu sur la photo ; {{shortcut}} bascule les deux)",
       "title": "Histogramme"
+    },
+    "landscape": {
+      "aria": "Masque de paysage",
+      "choose": "Choisissez les éléments à sélectionner.",
+      "finding": "Recherche des éléments du paysage…",
+      "noneFound": "Aucun de ces éléments n'a été trouvé dans cette photo.",
+      "notFound": "(non trouvé)",
+      "parts": {
+        "architecture": "Architecture",
+        "artificialGround": "Sol artificiel",
+        "mountains": "Montagnes",
+        "naturalGround": "Sol naturel",
+        "vegetation": "Végétation",
+        "water": "Eau"
+      },
+      "partsAria": "Éléments du paysage"
     },
     "layers": {
       "bandWidth": "Largeur de bande",
@@ -4851,6 +4871,7 @@
         "brush": "Pinceau",
         "color": "Plage de couleur",
         "depth": "Plage de profondeur",
+        "landscape": "Paysage",
         "linear": "Linéaire",
         "luminance": "Plage de luminance",
         "object": "Objet",

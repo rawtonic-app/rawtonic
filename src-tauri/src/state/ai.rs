@@ -91,6 +91,8 @@ pub struct AiState {
     /// Serialises loading the sky model, apart from `init_lock`: a Sky click
     /// does not wait for BiRefNet's Core ML load (1-3 s) or SAM's.
     pub sky_init_lock: TokioMutex<()>,
+    /// The same for the landscape-parts model.
+    pub landscape_init_lock: TokioMutex<()>,
     /// Serialises loading Moebius, apart from `init_lock`: its first use
     /// downloads about 620 MB, which must not hold up the masking models.
     pub moebius_init_lock: TokioMutex<()>,
@@ -104,6 +106,8 @@ pub struct AiState {
     pub subject_lock: TokioMutex<()>,
     /// The same for Sky.
     pub sky_lock: TokioMutex<()>,
+    /// The same for the landscape parts (one run serves every part).
+    pub landscape_lock: TokioMutex<()>,
     /// A warm-up loaded ONNX Runtime instead of Core ML in this launch.
     pub warm_up_fell_back: AtomicBool,
     /// Use, running computations and unloads of the masking models.
@@ -128,10 +132,12 @@ impl Default for AiState {
             models: Mutex::new(None),
             init_lock: TokioMutex::new(()),
             sky_init_lock: TokioMutex::new(()),
+            landscape_init_lock: TokioMutex::new(()),
             moebius_init_lock: TokioMutex::new(()),
             sam_encode_lock: TokioMutex::new(()),
             subject_lock: TokioMutex::new(()),
             sky_lock: TokioMutex::new(()),
+            landscape_lock: TokioMutex::new(()),
             warm_up_fell_back: AtomicBool::new(false),
             lifecycle: Arc::new(crate::ai_lifecycle::Lifecycle::new()),
             denoisers: Mutex::new([None, None]),

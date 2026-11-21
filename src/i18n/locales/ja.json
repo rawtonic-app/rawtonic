@@ -5,6 +5,7 @@
       "depth": "AI マスク: 深度",
       "foreground": "AI マスク: 前景",
       "inpaint": "生成塗りつぶし",
+      "landscape": "AIマスク：風景",
       "object": "AI マスク: オブジェクト",
       "other": "AI タスク",
       "people": "AI マスク: 人物",
@@ -1033,6 +1034,7 @@
       "flow": "流量",
       "foreground": "手前",
       "heal": "修復",
+      "landscape": "風景",
       "linear": "線形",
       "liquify": "ゆがみ",
       "luminance": "ルミナンス",
@@ -3209,6 +3211,7 @@
           "brush": "ブラシ",
           "color": "カラー",
           "depth": "深度",
+          "landscape": "風景",
           "linear": "線形",
           "luminance": "輝度",
           "object": "オブジェクト",
@@ -3238,6 +3241,7 @@
           "brush": "新規ブラシレイヤー",
           "color": "新規レイヤー: カラー範囲",
           "depth": "新規レイヤー: 深度範囲",
+          "landscape": "新しい風景レイヤー",
           "linear": "新規線形グラデーションレイヤー",
           "luminance": "新規レイヤー: 輝度範囲",
           "object": "新規レイヤー: オブジェクト",
@@ -3808,6 +3812,22 @@
       "shadowClippingLit": "シャドウの警告、黒つぶれ",
       "shadowClippingTitle": "シャドウのクリッピング警告（写真では青。{{shortcut}} で両方を切り替え）",
       "title": "ヒストグラム"
+    },
+    "landscape": {
+      "aria": "風景マスク",
+      "choose": "選択する要素を選んでください。",
+      "finding": "風景の要素を検出中…",
+      "noneFound": "この写真ではいずれの要素も見つかりませんでした。",
+      "notFound": "（見つかりません）",
+      "parts": {
+        "architecture": "建築物",
+        "artificialGround": "人工の地面",
+        "mountains": "山",
+        "naturalGround": "自然の地面",
+        "vegetation": "植物",
+        "water": "水"
+      },
+      "partsAria": "風景の要素"
     },
     "layers": {
       "bandWidth": "帯の幅",
@@ -4532,6 +4552,7 @@
         "brush": "ブラシ",
         "color": "カラー範囲",
         "depth": "深度範囲",
+        "landscape": "風景",
         "linear": "線形",
         "luminance": "輝度範囲",
         "object": "オブジェクト",

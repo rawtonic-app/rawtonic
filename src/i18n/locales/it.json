@@ -5,6 +5,7 @@
       "depth": "Maschera IA: profondità",
       "foreground": "Maschera IA: primo piano",
       "inpaint": "Riempimento generativo",
+      "landscape": "Maschera IA: Paesaggio",
       "object": "Maschera IA: oggetto",
       "other": "Attività IA",
       "people": "Maschera IA: persone",
@@ -1095,6 +1096,7 @@
       "flow": "Flusso",
       "foreground": "Primo Piano",
       "heal": "Ripara",
+      "landscape": "Paesaggio",
       "linear": "Lineare",
       "liquify": "Fluidifica",
       "luminance": "Luminanza",
@@ -3458,6 +3460,7 @@
           "brush": "Pennello",
           "color": "Colore",
           "depth": "Profondità",
+          "landscape": "Paesaggio",
           "linear": "Lineare",
           "luminance": "Luminanza",
           "object": "Oggetto",
@@ -3487,6 +3490,7 @@
           "brush": "Nuovo livello pennello",
           "color": "Nuovo livello: Gamma colore",
           "depth": "Nuovo livello: Gamma profondità",
+          "landscape": "Nuovo livello paesaggio",
           "linear": "Nuovo livello gradiente lineare",
           "luminance": "Nuovo livello: Gamma luminanza",
           "object": "Nuovo livello: Oggetto",
@@ -4075,6 +4079,22 @@
       "shadowClippingLit": "Avviso ombre, chiuse",
       "shadowClippingTitle": "Avviso di clipping delle ombre (blu nella foto; {{shortcut}} attiva o disattiva entrambi)",
       "title": "Istogramma"
+    },
+    "landscape": {
+      "aria": "Maschera paesaggio",
+      "choose": "Scegli le parti da selezionare.",
+      "finding": "Ricerca delle parti del paesaggio…",
+      "noneFound": "Nessuna di queste parti è stata trovata in questa foto.",
+      "notFound": "(non trovata)",
+      "parts": {
+        "architecture": "Architettura",
+        "artificialGround": "Terreno artificiale",
+        "mountains": "Montagne",
+        "naturalGround": "Terreno naturale",
+        "vegetation": "Vegetazione",
+        "water": "Acqua"
+      },
+      "partsAria": "Parti del paesaggio"
     },
     "layers": {
       "bandWidth": "Larghezza banda",
@@ -4851,6 +4871,7 @@
         "brush": "Pennello",
         "color": "Gamma colore",
         "depth": "Gamma profondità",
+        "landscape": "Paesaggio",
         "linear": "Lineare",
         "luminance": "Gamma luminanza",
         "object": "Oggetto",

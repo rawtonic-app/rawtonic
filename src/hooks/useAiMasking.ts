@@ -606,6 +606,42 @@ export function useAiMasking() {
     }
   };
 
+  /** A Landscape mask of its stored parts (`generate_ai_landscape_mask`). */
+  const handleGenerateAiLandscapeMask = async (subMaskId: string, parts: string[]): Promise<boolean> => {
+    const { selectedImage, adjustments } = useEditorStore.getState();
+    if (!selectedImage?.path) return false;
+    registerAiTask(subMaskId, 'landscape');
+    noteMaskingToolsUsed();
+
+    try {
+      const newParameters = await invoke<Record<string, unknown>>(Invokes.GenerateAiLandscapeMask, {
+        jsAdjustments: getTransformAdjustments(adjustments),
+        path: selectedImage.path,
+        parts,
+        flipHorizontal: adjustments.flipHorizontal,
+        flipVertical: adjustments.flipVertical,
+        orientationSteps: adjustments.orientationSteps,
+        rotation: adjustments.rotation,
+        taskId: subMaskId
+      });
+      // The parts may have changed meanwhile: keep the newer request's
+      // choice, which computes again.
+      const current = useEditorStore
+        .getState()
+        .adjustments.masks?.flatMap((m: MaskContainer) => m.subMasks)
+        .find((sm: SubMask) => sm.id === subMaskId);
+      const now = (current?.parameters as { parts?: string[] } | undefined)?.parts;
+      if (now && JSON.stringify(now) !== JSON.stringify(parts)) return true;
+      return !applyAiResult(selectedImage.path, subMaskId, newParameters);
+    } catch (error) {
+      if (isPhotoChanged(error)) return true;
+      toastAiError(error, `Landscape mask failed: ${errorMessage(error)}`);
+      return false;
+    } finally {
+      unregisterAiTask(subMaskId);
+    }
+  };
+
   // Imported Lightroom masks: automatic AI masks without data (Select Sky,
   // Select Subject) are computed for the open photo, once each; geometry
   // kept in normalised raw coordinates (gradients, brushes, colour ranges)
@@ -724,6 +760,24 @@ export function useAiMasking() {
         // (a failure is not retried until the photo opens again).
         void handleGenerateAiPeopleMask(sub.id, parts, p.person ?? null).then((ok) => {
           if (ok) requestedAutoMasks.current.delete(key);
+        });
+        continue;
+      }
+      // A Landscape mask computes again whenever its parts change.
+      if (sub.type === 'ai-landscape') {
+        const p = (sub.parameters ?? {}) as { parts?: string[]; maskDataBase64?: string | null };
+        const parts = p.parts ?? [];
+        const key = `${selectedImage?.path}:${sub.id}:${JSON.stringify(parts)}`;
+        if (p.maskDataBase64 || parts.length === 0 || requestedAutoMasks.current.has(key)) continue;
+        requestedAutoMasks.current.add(key);
+        const asked = selectedImage?.path;
+        void handleGenerateAiLandscapeMask(sub.id, parts).then((dropped) => {
+          // Computed, superseded or dropped for a photo change: asked again
+          // when its data is cleared again; a failure stays asked until the
+          // photo opens again.
+          if (dropped || componentHasData(sub.id)) requestedAutoMasks.current.delete(key);
+          const now = useEditorStore.getState().selectedImage;
+          if (dropped && now?.path === asked && now?.isReady) setAskAgain((n) => n + 1);
         });
         continue;
       }

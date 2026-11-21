@@ -10,7 +10,7 @@ use tauri::Manager;
 
 use crate::ai_processing::{
     AI_MASKS_KEPT, AiDepthMaskParameters, AiForegroundMaskParameters, AiSkyMaskParameters,
-    AiSubjectMaskParameters, CachedDepthMap, CachedMask, ImageEmbeddings, SamModels, SamPrompt,
+    AiSubjectMaskParameters, CachedDepthMap, CachedLandscape, CachedMask, ImageEmbeddings, SamModels, SamPrompt,
     generate_image_embeddings, get_or_init_depth_model, get_or_init_sam_models,
     get_or_init_sky_model, get_or_init_subject_model, mask_model_installed,
     run_depth_anything_model, run_sam_decoder, run_sam_decoder_prompts, run_sky_seg_model,
@@ -158,6 +158,196 @@ pub async fn generate_ai_sky_mask(
         orientation_steps: Some(orientation_steps),
         warp: Some(crate::mask_generation::mask_warp(&js_adjustments)),
     })
+}
+
+/// Parts of the landscape (`parts`: `rawtonic_segment::LandscapePart` keys)
+/// of the open photo with the caller's geometry, as one mask. Every part of
+/// a photo comes from one run of the landscape model, kept per photo and
+/// geometry (`AiModels::landscape_runs`): other parts answer without the
+/// network.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn generate_ai_landscape_mask(
+    js_adjustments: serde_json::Value,
+    path: String,
+    parts: Vec<String>,
+    rotation: f32,
+    flip_horizontal: bool,
+    flip_vertical: bool,
+    orientation_steps: u8,
+    task_id: Option<String>,
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<AiSkyMaskParameters, CommandError> {
+    let parts = rawtonic_segment::landscape_parts(&parts).map_err(|e| e.to_string())?;
+    let ai_state = app_handle.state::<AiState>();
+    let _guard = task_id
+        .as_ref()
+        .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
+    let cancel = _guard.as_ref().map(|g| &g.token);
+    let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
+    if cancelled() {
+        return Err(task_cancelled());
+    }
+    ai_state.lifecycle.touch();
+    let started = std::time::Instant::now();
+    let run = landscape_run(&state, &ai_state, &app_handle, &js_adjustments, &path, cancel).await?;
+    if cancelled() {
+        return Err(task_cancelled());
+    }
+    let data = tokio::task::spawn_blocking(move || {
+        let mask = rawtonic_segment::landscape_mask(run.size, &run.probabilities, &parts);
+        encode_to_base64_png(&mask)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    log::info!(
+        "AI landscape mask: answered after {} ms",
+        started.elapsed().as_millis()
+    );
+    Ok(AiSkyMaskParameters {
+        mask_data_base64: Some(data),
+        rotation: Some(rotation),
+        flip_horizontal: Some(flip_horizontal),
+        flip_vertical: Some(flip_vertical),
+        orientation_steps: Some(orientation_steps),
+        warp: Some(crate::mask_generation::mask_warp(&js_adjustments)),
+    })
+}
+
+/// The share of the open photo (0 … 1) each landscape part covers, by part
+/// key, so the editor offers the parts the photo has (as Lightroom lists
+/// only the parts it found). Runs the landscape model (downloading it on
+/// first use) or answers from its cached run.
+#[tauri::command]
+pub async fn detect_landscape_parts(
+    js_adjustments: serde_json::Value,
+    path: String,
+    task_id: Option<String>,
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<Vec<(String, f32)>, CommandError> {
+    let ai_state = app_handle.state::<AiState>();
+    let _guard = task_id
+        .as_ref()
+        .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
+    let cancel = _guard.as_ref().map(|g| &g.token);
+    ai_state.lifecycle.touch();
+    let run = landscape_run(&state, &ai_state, &app_handle, &js_adjustments, &path, cancel).await?;
+    Ok(rawtonic_segment::LandscapePart::ALL
+        .into_iter()
+        .zip(rawtonic_segment::landscape_shares(&run.probabilities))
+        .map(|(part, share)| (part.key().to_string(), share))
+        .collect())
+}
+
+/// The landscape model's run on the open photo (`asked`) with the caller's
+/// geometry: cached, else computed (downloading the model on first use) and
+/// cached. Cancelling `cancel` stops a run of ONNX Runtime at once.
+async fn landscape_run(
+    state: &tauri::State<'_, AppState>,
+    ai_state: &AiState,
+    app_handle: &tauri::AppHandle,
+    js_adjustments: &serde_json::Value,
+    asked: &str,
+    cancel: Option<&Arc<AiTaskToken>>,
+) -> Result<CachedLandscape, CommandError> {
+    let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
+    let _running = ai_state.lifecycle.run();
+    let mut _run = ai_state.landscape_lock.lock().await;
+    let loaded = crate::image_loader::original_image(&state.source).await?;
+    ensure_photo(&loaded.path, asked)?;
+    let key = geometry_key(&loaded, js_adjustments);
+    let cached = |ai_state: &AiState| {
+        lock_recover(&ai_state.models)
+            .as_ref()
+            .and_then(|ai| ai.landscape_runs.iter().find(|r| r.key == key).cloned())
+    };
+    if let Some(run) = cached(ai_state) {
+        return Ok(run);
+    }
+    if cancelled() {
+        return Err(task_cancelled());
+    }
+    // As `auto_mask`: not beside an idle shader compile or an export where
+    // they take turns, waited for without this kind's lock.
+    let _turn = if rawtonic_gpu::memory_turns::takes_turns() {
+        drop(_run);
+        let turn = crate::ai_lifecycle::turn(true).await;
+        _run = ai_state.landscape_lock.lock().await;
+        if let Some(run) = cached(ai_state) {
+            return Ok(run);
+        }
+        if cancelled() {
+            return Err(task_cancelled());
+        }
+        Some(turn)
+    } else {
+        None
+    };
+    let warp = async {
+        crate::editor_preview::cached_full_warped_image(
+            app_handle,
+            loaded.image.clone(),
+            loaded.is_raw,
+            js_adjustments.clone(),
+        )
+        .await
+    };
+    let (model, warped) = tokio::join!(
+        crate::ai_processing::get_or_init_landscape_model(app_handle, ai_state, true),
+        warp
+    );
+    let model = model
+        .map_err(CommandError::from)?
+        .ok_or_else(|| "The landscape model is not available".to_string())?;
+    let warped = warped?;
+    if cancelled() {
+        return Err(task_cancelled());
+    }
+    let options = Arc::new(ort::session::RunOptions::new().map_err(|e| e.to_string())?);
+    let watcher = cancel.map(|token| {
+        let (token, options) = (token.clone(), options.clone());
+        tokio::spawn(async move {
+            token.wait_for_cancel().await;
+            let _ = options.terminate();
+        })
+    });
+    let size = (warped.width(), warped.height());
+    let is_raw = loaded.is_raw;
+    let start = std::time::Instant::now();
+    let result = tokio::task::spawn_blocking(move || {
+        rawtonic_segment::landscape_probabilities(warped.as_ref(), &model, is_raw, Some(&options))
+            .map_err(|e| e.to_string())
+    })
+    .await;
+    if let Some(watcher) = watcher {
+        watcher.abort();
+    }
+    if cancelled() {
+        return Err(task_cancelled());
+    }
+    let probabilities = result.map_err(|e| e.to_string())??;
+    log::info!(
+        "AI landscape: {} {}x{} (raw {is_raw}) in {} ms",
+        loaded.path,
+        size.0,
+        size.1,
+        start.elapsed().as_millis()
+    );
+    let run = CachedLandscape {
+        key,
+        size,
+        probabilities: Arc::new(probabilities),
+    };
+    let mut ai = lock_recover(&ai_state.models);
+    let runs = &mut ai.get_or_insert_with(Default::default).landscape_runs;
+    runs.retain(|r| r.key != run.key);
+    if runs.len() >= AI_MASKS_KEPT {
+        runs.remove(0);
+    }
+    runs.push(run.clone());
+    Ok(run)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1040,6 +1230,11 @@ impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> 
         let kind = match selection {
             AutoSelection::Sky => AutoMask::Sky,
             AutoSelection::Subject => AutoMask::Subject,
+            AutoSelection::Landscape(parts) => {
+                return self
+                    .detect_landscape(&[parts], warped, linear)
+                    .map(|mut masks| masks.remove(0));
+            }
         };
         ai_state.lifecycle.touch();
         let _running = ai_state.lifecycle.run();
@@ -1065,6 +1260,48 @@ impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> 
             started.elapsed().as_millis()
         );
         encode_to_base64_png(&mask)
+    }
+
+    fn detect_landscape(
+        &self,
+        sets: &[rawtonic_engine::ai_selections::LandscapeParts],
+        warped: &image::DynamicImage,
+        linear: bool,
+    ) -> Result<Vec<String>, String> {
+        let ai_state = self.app_handle.state::<AiState>();
+        let sets = sets
+            .iter()
+            .map(|set| rawtonic_segment::landscape_parts(&set.keys()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        ai_state.lifecycle.touch();
+        let _running = ai_state.lifecycle.run();
+        let _run = ai_state.landscape_lock.blocking_lock();
+        let model = tauri::async_runtime::block_on(
+            crate::ai_processing::get_or_init_landscape_model(self.app_handle, &ai_state, false),
+        )
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| {
+            "the Landscape model is not installed (open the photo in Develop once to download it, then export again)".to_string()
+        })?;
+        let started = std::time::Instant::now();
+        let probabilities = rawtonic_segment::landscape_probabilities(warped, &model, linear, None)
+            .map_err(|e| e.to_string())?;
+        log::info!(
+            "AI landscape for an export: {}x{} in {} ms",
+            warped.width(),
+            warped.height(),
+            started.elapsed().as_millis()
+        );
+        sets.iter()
+            .map(|parts| {
+                encode_to_base64_png(&rawtonic_segment::landscape_mask(
+                    (warped.width(), warped.height()),
+                    &probabilities,
+                    parts,
+                ))
+            })
+            .collect()
     }
 }
 
