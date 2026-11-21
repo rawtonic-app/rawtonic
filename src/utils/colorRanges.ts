@@ -4,13 +4,18 @@ import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
 import { MAX_COLOR_RANGES, newColorRange, type Adjustments, type ColorRange } from './adjustments';
 import { srgbToOklch } from './oklab';
+import { GEOMETRY_KEYS, ORIENTATION_KEYS } from './geometryKeys';
 import {
   colorBeforeRanges,
   inverseGain,
   linearToLab,
+  linearToOklab,
+  meanOklab,
   rangeCentre,
   solveColorTarget,
   srgb8ToLinear,
+  type ColorRangePick,
+  type RangeInput,
   type Vec3
 } from './colorTarget';
 
@@ -34,8 +39,8 @@ export const isTargetPick = (target: string | null) =>
  * so that its sampled colour lands on `lab` (CIELAB D50) — one edit, the
  * other ranges and the range's shape untouched. Unchanged when `id` is gone.
  */
-export function rangesWithTarget(ranges: ColorRange[], id: string, lab: Vec3): ColorRange[] {
-  const solve = solveColorTarget(ranges, id, lab);
+export function rangesWithTarget(ranges: ColorRange[], id: string, lab: Vec3, input?: RangeInput | null): ColorRange[] {
+  const solve = solveColorTarget(ranges, id, lab, input);
   if (!solve) return ranges;
   return ranges.map((range) => (range.id === id ? { ...range, ...solve.shifts } : range));
 }
@@ -57,6 +62,10 @@ function withRanges(
       }
     : { ...prev, colorRanges: next(colorRangesOf(prev)) };
 }
+
+/** The ranges of the photo (`layer` null) or of a mask layer of a recipe. */
+export const colorRangesOfLayer = (adjustments: Adjustments, layer: string | null): ColorRange[] =>
+  layer ? colorRangesOf(adjustments.masks.find((m) => m.id === layer)?.adjustments ?? {}) : colorRangesOf(adjustments);
 
 /** Colour ranges of a recipe, or none. */
 export const colorRangesOf = (adjustments: Partial<Adjustments>): ColorRange[] =>
@@ -92,6 +101,82 @@ export function applyColorPick(
   };
 }
 
+/**
+ * The renderer's sample of what the colour editor of the photo (`layer`
+ * null) or of a mask layer receives around a normalised point
+ * (`sample_color_range_input`), rendered from `adjustments`; null when the
+ * renderer could not probe (no display variant or preview base yet).
+ */
+export async function sampleRangeInput(
+  path: string,
+  x: number,
+  y: number,
+  layer: string | null,
+  adjustments: Adjustments
+): Promise<RangeInput | null> {
+  const sample = await invoke<{ pixels: Vec3[]; influence: number[] } | null>(Invokes.SampleColorRangeInput, {
+    path,
+    normalizedX: x,
+    normalizedY: y,
+    adjustments,
+    layer
+  }).catch(() => null);
+  if (!sample?.pixels?.length || sample.influence?.length !== sample.pixels.length) return null;
+  return { pixels: sample.pixels.map((p) => linearToOklab(p)), influence: sample.influence };
+}
+
+const sameColour = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6;
+
+/** The pick behind range `range` of `photo`/`layer`, while the range still has the colour that pick set. */
+export function rangePickOf(photo: string, layer: string | null, range: ColorRange): ColorRangePick | null {
+  const state = useEditorStore.getState();
+  const pick = state.colorRangeInputs[rangePickKey(photo, layer, range.id)];
+  // The point is normalised to the photo as it was framed then: a crop,
+  // rotation, flip or warp since moves it onto other pixels.
+  return pick && sameColour(pick.centre, rangeCentre(range)) && pick.geometry === geometryKeyOf(state.adjustments)
+    ? pick
+    : null;
+}
+
+/** The recipe values that decide where a normalised preview point lies on the photograph. */
+export function geometryKeyOf(adjustments: Adjustments): string {
+  const values = adjustments as unknown as Record<string, unknown>;
+  return JSON.stringify(
+    [...GEOMETRY_KEYS, ...ORIENTATION_KEYS, 'crop', 'aspectRatio'].map((key) => values[key] ?? null)
+  );
+}
+
+/**
+ * The renderer's sample at range `range`'s pick, taken again now (earlier
+ * tools or the mask may have changed since; the store keeps it), or null
+ * for a range not picked in the photo (moved on the wheel since) and when
+ * the renderer has no sample there now (the pick keeps its point, without
+ * a sample, until one comes).
+ */
+export async function rangeInputFor(
+  photo: string,
+  layer: string | null,
+  range: ColorRange
+): Promise<RangeInput | null> {
+  const pick = rangePickOf(photo, layer, range);
+  if (!pick) return null;
+  const input = await sampleRangeInput(
+    photo,
+    pick.point[0],
+    pick.point[1],
+    layer,
+    useEditorStore.getState().adjustments
+  );
+  const state = useEditorStore.getState();
+  const key = rangePickKey(photo, layer, range.id);
+  if (state.colorRangeInputs[key] !== pick) return input;
+  // No sample now (a hidden layer, a layer without a mask, no preview): the
+  // old one no longer stands for the photo, but the point stays, so the
+  // next sample (the layer shown again) picks it up.
+  state.setEditor({ colorRangeInputs: { ...state.colorRangeInputs, [key]: { ...pick, input } } });
+  return input;
+}
+
 /** Bumped whenever a pick ends without a photo sample (on the range wheel):
  * samples still on their way then belong to a finished pick. */
 let pickGeneration = 0;
@@ -113,25 +198,77 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   // A picker started on a layer edits that layer's ranges.
   const layer = asked.colorPickerLayer;
   const generation = pickGeneration;
-  const rgb = await invoke<[number, number, number] | null>(Invokes.SamplePreviewColor, {
-    path,
-    normalizedX: x,
-    normalizedY: y
-  });
-  const state = useEditorStore.getState();
-  if (!rgb || state.selectedImage?.path !== path) return false;
-  if (generation !== pickGeneration || state.colorPickerTarget !== armed || state.colorPickerLayer !== layer)
-    return false;
-  if (isTargetPick(target)) {
+  const targetPick = isTargetPick(target);
+  // A range pick reads the colour entering the colour editor (unclipped,
+  // before the ranges' own change); the shown colour is the fallback and
+  // a target pick's colour.
+  const [rgb, input] = await Promise.all([
+    invoke<[number, number, number] | null>(Invokes.SamplePreviewColor, {
+      path,
+      normalizedX: x,
+      normalizedY: y
+    }),
+    targetPick ? Promise.resolve(null) : sampleRangeInput(path, x, y, layer, asked.adjustments)
+  ]);
+  const stillArmed = () => {
+    const state = useEditorStore.getState();
+    return (
+      state.selectedImage?.path === path &&
+      generation === pickGeneration &&
+      state.colorPickerTarget === armed &&
+      state.colorPickerLayer === layer
+    );
+  };
+  if (!rgb || !stillArmed()) return false;
+  if (targetPick) {
     const lab = linearToLab(srgb8ToLinear(rgb));
     const rangeId = target === TARGET_PICK ? null : target.slice(TARGET_PICK.length + 1);
+    const range = rangeId
+      ? colorRangesOfLayer(useEditorStore.getState().adjustments, layer).find((r) => r.id === rangeId)
+      : undefined;
+    const rangeInput = range ? await rangeInputFor(path, layer, range) : null;
+    if (!stillArmed()) return false;
     useEditorStore.getState().setEditor({
       colorTarget: { lab, sampledIn: path, appliedTo: rangeId ? { photo: path, layer, rangeId } : null },
       colorPickerTarget: null,
       colorPickerLayer: null
     });
     if (rangeId)
-      updateAdjustments((prev: Adjustments) => withRanges(prev, layer, (r) => rangesWithTarget(r, rangeId, lab)));
+      updateAdjustments((prev: Adjustments) =>
+        withRanges(prev, layer, (r) => rangesWithTarget(r, rangeId, lab, rangeInput))
+      );
+    return true;
+  }
+  if (input) {
+    // The renderer's colour at the pick: the range's colour as it is, no
+    // undoing of the ranges from the shown colour.
+    const [lightness, a, b] = meanOklab(input.pixels);
+    const hue = ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
+    const chroma = Math.hypot(a, b);
+    let activeId: string | null = null;
+    updateAdjustments((prev: Adjustments) =>
+      withRanges(prev, layer, (ranges) => {
+        const picked = applyColorPick(ranges, target, MAX_COLOR_RANGES, hue, chroma, lightness);
+        activeId = picked.id;
+        return picked.ranges;
+      })
+    );
+    const after = useEditorStore.getState();
+    const key = activeId ? rangePickKey(path, layer, activeId) : null;
+    const picked = activeId ? colorRangesOfLayer(after.adjustments, layer).find((r) => r.id === activeId) : undefined;
+    after.setEditor({
+      colorPickerTarget: null,
+      colorPickerLayer: null,
+      activeColorRangeId: activeId,
+      colorPicksThroughRanges: after.colorPicksThroughRanges.filter((k) => k !== key),
+      colorRangeInputs:
+        key && picked
+          ? {
+              ...after.colorRangeInputs,
+              [key]: { point: [x, y], centre: rangeCentre(picked), geometry: geometryKeyOf(asked.adjustments), input }
+            }
+          : after.colorRangeInputs
+    });
     return true;
   }
   const shown = srgbToOklch(rgb);

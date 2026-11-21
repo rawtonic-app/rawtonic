@@ -1,9 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { applyColorPick, invalidatePendingColorPicks, pickColorRange, TARGET_PICK, targetPickFor } from './colorRanges';
+import {
+  applyColorPick,
+  invalidatePendingColorPicks,
+  pickColorRange,
+  rangeInputFor,
+  rangePickOf,
+  TARGET_PICK,
+  targetPickFor
+} from './colorRanges';
 import {
   applyColorRanges,
+  deltaE00,
   labToLinear,
+  linearToLab,
+  linearToOklab,
+  meanOklab,
+  renderedLab,
+  srgb8ToLinear,
   linearToSrgb8,
   oklabToLinear,
   rangeCentre,
@@ -35,7 +49,8 @@ beforeEach(() => {
     colorPickerLayer: null,
     activeColorRangeId: null,
     colorTarget: null,
-    colorPicksThroughRanges: []
+    colorPicksThroughRanges: [],
+    colorRangeInputs: {}
   });
   vi.mocked(invoke).mockReset();
 });
@@ -229,5 +244,109 @@ describe('target colour picks', () => {
     expect(moved.hueShift).toBeGreaterThan(0);
     expect(state.adjustments.colorRanges ?? []).toHaveLength(0);
     expect(state.colorTarget!.appliedTo).toEqual({ photo: '/a.cr3', layer: 'L1', rangeId: id });
+  });
+});
+
+describe('the renderer probe at a pick', () => {
+  // The colour entering the colour editor: a blue beyond sRGB the display clips.
+  const entering: [number, number, number][] = [
+    [-0.05, 0.05, 0.6],
+    [-0.04, 0.06, 0.58]
+  ];
+  const probeWith = (influence: number, shown: [number, number, number] = [0, 40, 255]) =>
+    vi
+      .mocked(invoke)
+      .mockImplementation(async (command: string) =>
+        command === Invokes.SampleColorRangeInput
+          ? { pixels: entering, influence: entering.map(() => influence) }
+          : shown
+      );
+
+  it('sets the range to the unclipped colour entering the colour editor, also through a strong change', async () => {
+    probeWith(1);
+    expect(await pickColorRange('/a.cr3', 'new', 0.4, 0.6)).toBe(true);
+    expect(invoke).toHaveBeenCalledWith(Invokes.SampleColorRangeInput, {
+      path: '/a.cr3',
+      normalizedX: 0.4,
+      normalizedY: 0.6,
+      adjustments: expect.anything(),
+      layer: null
+    });
+    const picked = useEditorStore.getState().adjustments.colorRanges![0];
+    const want = meanOklab(entering.map((p) => linearToOklab(p)));
+    expect(picked.lightness).toBeCloseTo(want[0], 9);
+    expect(picked.chroma).toBeCloseTo(Math.hypot(want[1], want[2]), 9);
+    // Picked again through Saturation −90: the probe is before the ranges,
+    // so the range keeps its colour exactly and nothing is uncertain.
+    const drained = { ...picked, saturation: -90 };
+    useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, colorRanges: [drained] } });
+    probeWith(1, [90, 90, 100]);
+    useEditorStore.setState({ colorPickerTarget: picked.id });
+    await pickColorRange('/a.cr3', picked.id, 0.4, 0.6);
+    const state = useEditorStore.getState();
+    const [again] = state.adjustments.colorRanges!;
+    expect([again.hue, again.chroma, again.lightness]).toEqual([picked.hue, picked.chroma, picked.lightness]);
+    expect(again.saturation).toBe(-90);
+    expect(state.colorPicksThroughRanges).toEqual([]);
+    expect(state.colorRangeInputs[`/a.cr3||${picked.id}`].point).toEqual([0.4, 0.6]);
+  });
+
+  it('forgets the pick when the photo is cropped, rotated or flipped (its point lies on other pixels)', async () => {
+    probeWith(1);
+    await pickColorRange('/a.cr3', 'new', 0.4, 0.6);
+    const state = useEditorStore.getState();
+    const range = state.adjustments.colorRanges![0];
+    expect(rangePickOf('/a.cr3', null, range)).not.toBeNull();
+    useEditorStore.setState({ adjustments: { ...state.adjustments, flipHorizontal: true } });
+    expect(rangePickOf('/a.cr3', null, range)).toBeNull();
+    useEditorStore.setState({
+      adjustments: { ...state.adjustments, crop: { x: 10, y: 10, width: 50, height: 50, unit: '%' } as never }
+    });
+    expect(rangePickOf('/a.cr3', null, range)).toBeNull();
+    useEditorStore.setState({ adjustments: state.adjustments });
+    expect(rangePickOf('/a.cr3', null, range)).not.toBeNull();
+  });
+
+  it('drops the sample but keeps the point while the renderer has none there (a hidden layer)', async () => {
+    probeWith(0.5);
+    useEditorStore.setState({ colorPickerTarget: 'new', colorPickerLayer: 'L1' });
+    await pickColorRange('/a.cr3', 'new', 0.4, 0.6);
+    const range = useEditorStore.getState().adjustments.masks[0].adjustments.colorRanges![0];
+    expect(rangePickOf('/a.cr3', 'L1', range)!.input).not.toBeNull();
+    // Hidden: no sample, the point stays.
+    vi.mocked(invoke).mockResolvedValue(null);
+    expect(await rangeInputFor('/a.cr3', 'L1', range)).toBeNull();
+    expect(rangePickOf('/a.cr3', 'L1', range)).toMatchObject({ point: [0.4, 0.6], input: null });
+    // Shown again: the next sample at the same point.
+    probeWith(0.25);
+    expect((await rangeInputFor('/a.cr3', 'L1', range))!.influence[0]).toBe(0.25);
+    expect(invoke).toHaveBeenLastCalledWith(
+      Invokes.SampleColorRangeInput,
+      expect.objectContaining({ normalizedX: 0.4, normalizedY: 0.6, layer: 'L1' })
+    );
+    expect(rangePickOf('/a.cr3', 'L1', range)!.input!.influence[0]).toBe(0.25);
+  });
+
+  it('solves a target on a feathered layer at the mask influence of the pick', async () => {
+    probeWith(0.5);
+    useEditorStore.setState({ colorPickerTarget: 'new', colorPickerLayer: 'L1' });
+    await pickColorRange('/a.cr3', 'new', 0.4, 0.6);
+    const ranges = useEditorStore.getState().adjustments.masks[0].adjustments.colorRanges!;
+    const range = ranges[0];
+    // The target picked elsewhere: a slightly turned blue.
+    const target: [number, number, number] = [40, 30, 230];
+    probeWith(0.5, target);
+    useEditorStore.setState({ colorPickerTarget: targetPickFor(range.id), colorPickerLayer: 'L1' });
+    await pickColorRange('/a.cr3', targetPickFor(range.id), 0.1, 0.1);
+    // The range's pick point was sampled again for the influence.
+    expect(invoke).toHaveBeenCalledWith(
+      Invokes.SampleColorRangeInput,
+      expect.objectContaining({ normalizedX: 0.4, layer: 'L1' })
+    );
+    const [solved] = useEditorStore.getState().adjustments.masks[0].adjustments.colorRanges!;
+    const input = { pixels: entering.map((p) => linearToOklab(p)), influence: [0.5, 0.5] };
+    const lab = linearToLab(srgb8ToLinear(target));
+    expect(deltaE00(lab, renderedLab([solved], input))).toBeLessThan(1);
+    expect(deltaE00(lab, renderedLab([solved], { ...input, influence: [1, 1] }))).toBeGreaterThan(1);
   });
 });

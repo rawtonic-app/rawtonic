@@ -3025,7 +3025,8 @@
             "saturation": "Sättigung (0–200 %)"
           },
           "outOfReach": "Nicht erreichbar: ΔE00 {{value}} bleiben; {{limits}} am Anschlag.",
-          "outsideSrgb": "Das Ziel liegt außerhalb von sRGB.",
+          "outsideSrgb": "Das Ziel liegt außerhalb von sRGB; ein sRGB-Export bildet die Farbe in sRGB ab.",
+          "outsideWorkingGamut": "Das Ziel liegt außerhalb der Arbeitsfarben des Fotos (ProPhoto): Keine Farbe des Fotos kann es sein, der Bereich geht so nah heran, wie er kann.",
           "pickAria": "Zielfarbe aufnehmen",
           "pickedThrough": "Vorhergesagt ΔE00 {{value}} vom Ziel, aber diese Farbe wurde durch die starke Änderung des Bereichs selbst aufgenommen: Ergebnis im Foto prüfen oder mit Reglern auf 0 neu aufnehmen.",
           "pickTitle": "Zielfarbe im Foto aufnehmen; dieser Bereich wird darauf verschoben",
@@ -3037,6 +3038,7 @@
           "sourceClipped": "Die aufgenommene Farbe liegt am Rand von sRGB: Ergebnis im Foto prüfen.",
           "srgb": "sRGB",
           "swatchAria": "Ergebnis des Bereichs {{result}}, Ziel {{target}}",
+          "uncovered": "Die Maske der Ebene deckt die aufgenommene Stelle nicht mehr ab: Die Regler des Bereichs bleiben, wie sie sind.",
           "useSampled": "Zielfarbe aus {{name}} verwenden",
           "useSampledTitle": "Diesen Bereich auf die in {{name}} aufgenommene Farbe verschieben"
         },

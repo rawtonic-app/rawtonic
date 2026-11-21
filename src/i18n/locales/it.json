@@ -3179,7 +3179,8 @@
             "saturation": "saturazione (0–200 %)"
           },
           "outOfReach": "Fuori portata: restano ΔE00 {{value}}; {{limits}} al limite.",
-          "outsideSrgb": "L'obiettivo è fuori da sRGB.",
+          "outsideSrgb": "L'obiettivo è fuori da sRGB; un'esportazione sRGB riporta il colore dentro sRGB.",
+          "outsideWorkingGamut": "L'obiettivo è oltre i colori di lavoro della foto (ProPhoto): nessun colore della foto può esserlo, l'intervallo si avvicina quanto può.",
           "pickAria": "Preleva il colore obiettivo",
           "pickedThrough": "Previsto a ΔE00 {{value}} dall'obiettivo, ma questo colore è stato prelevato attraverso la forte modifica dell'intervallo stesso: controlla il risultato nella foto o prelevalo di nuovo con i cursori a 0.",
           "pickTitle": "Preleva il colore obiettivo nella foto; questo intervallo vi si sposta",
@@ -3191,6 +3192,7 @@
           "sourceClipped": "Il colore prelevato è al limite di sRGB: controlla il risultato nella foto.",
           "srgb": "sRGB",
           "swatchAria": "Risultato dell'intervallo {{result}}, obiettivo {{target}}",
+          "uncovered": "La maschera del livello non copre più il punto prelevato: i cursori dell'intervallo restano come sono.",
           "useSampled": "Usa l'obiettivo da {{name}}",
           "useSampledTitle": "Sposta questo intervallo sul colore prelevato in {{name}}"
         },

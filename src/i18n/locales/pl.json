@@ -3332,7 +3332,8 @@
             "saturation": "nasycenie (0–200 %)"
           },
           "outOfReach": "Poza zasięgiem: zostaje ΔE00 {{value}}; {{limits}} na granicy.",
-          "outsideSrgb": "Cel leży poza sRGB.",
+          "outsideSrgb": "Cel leży poza sRGB; eksport sRGB odwzorowuje kolor w sRGB.",
+          "outsideWorkingGamut": "Cel leży poza kolorami roboczymi zdjęcia (ProPhoto): żaden kolor zdjęcia nie może nim być, zakres zbliża się tak, jak może.",
           "pickAria": "Pobierz kolor docelowy",
           "pickedThrough": "Prognoza: ΔE00 {{value}} od celu, ale ten kolor pobrano przez silną zmianę samego zakresu: sprawdź wynik na zdjęciu albo pobierz go ponownie z suwakami na 0.",
           "pickTitle": "Pobierz kolor docelowy ze zdjęcia; ten zakres zostanie na niego przesunięty",
@@ -3344,6 +3345,7 @@
           "sourceClipped": "Pobrany kolor jest na granicy sRGB: sprawdź wynik na zdjęciu.",
           "srgb": "sRGB",
           "swatchAria": "Wynik zakresu {{result}}, cel {{target}}",
+          "uncovered": "Maska warstwy nie obejmuje już pobranego punktu: suwaki zakresu pozostają bez zmian.",
           "useSampled": "Użyj celu z {{name}}",
           "useSampledTitle": "Przesuń ten zakres na kolor pobrany z {{name}}"
         },

@@ -1,13 +1,12 @@
 import { Pipette } from 'lucide-react';
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useEditorStore } from '../../store/useEditorStore';
 import type { ColorRange } from '../../utils/adjustments';
-import { rangePickKey, rangesWithTarget, targetPickFor } from '../../utils/colorRanges';
+import { rangeInputFor, rangePickKey, rangePickOf, rangesWithTarget, targetPickFor } from '../../utils/colorRanges';
 import {
-  applyColorRanges,
-  deltaE00,
+  centreInput,
   hexOf,
   insideSrgb,
   labToLch,
@@ -18,7 +17,8 @@ import {
   oklabToLinear,
   parseHex,
   rangeCentre,
-  solveColorTarget,
+  renderedLab,
+  targetStatus,
   srgb8ToLinear,
   TARGET_REACHED,
   type Vec3
@@ -106,12 +106,21 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
     useShallow((s) => ({
       target: s.colorTarget,
       through: s.colorPicksThroughRanges,
+      // Re-renders when the renderer's sample at a pick arrives.
+      inputs: s.colorRangeInputs,
       photo: s.selectedImage?.path ?? null,
       pickerTarget: s.colorPickerTarget,
       setEditor: s.setEditor
     }))
   );
+  const adjustments = useEditorStore((s) => s.adjustments);
   const layer = layerId ?? null;
+  const latestRanges = useRef(ranges);
+  latestRanges.current = ranges;
+  const latestActive = useRef(active);
+  latestActive.current = active;
+  // The latest target request: an older one's sample arriving later is dropped.
+  const request = useRef(0);
   const own =
     target?.appliedTo &&
     target.appliedTo.photo === photo &&
@@ -120,8 +129,28 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
       ? target
       : null;
   const centre = rangeCentre(active);
-  // The range's colour as the renderer leaves it (the sliders as they are).
-  const resultLab = linearToLab(clip01(oklabToLinear(applyColorRanges(ranges, centre))));
+  // The renderer's sample at the range's pick (the colour entering the
+  // colour editor and the layer's mask influence), else the range's colour
+  // at full strength.
+  const pick = photo ? rangePickOf(photo, layer, active) : null;
+  const pickInput = pick?.input ?? null;
+  const input = useMemo(
+    () => pickInput ?? centreInput(active),
+    // The range's sampled colour, not its shifts, makes the stand-in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pickInput, active.hue, active.chroma, active.lightness]
+  );
+  // Edits before the colour editor or of the layer's mask change what it
+  // receives at the pick: sample it again once they settle, so the readout
+  // follows them.
+  const followed = !!own && !!pick;
+  useEffect(() => {
+    if (!photo || !followed) return;
+    const timer = setTimeout(() => void rangeInputFor(photo, layer, latestActive.current), 250);
+    return () => clearTimeout(timer);
+  }, [adjustments, photo, layer, active.id, followed]);
+  // The colour at the pick as the renderer leaves it (the sliders as they are).
+  const resultLab = renderedLab(ranges, input);
   const shown = own ? own.lab : resultLab;
   const shownLinear = labToLinear(shown);
   const rgb = linearToSrgb8(shownLinear);
@@ -130,7 +159,23 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
   const setTarget = (lab: Vec3, sampledIn: string | null = null) => {
     if (!photo || !lab.every(Number.isFinite)) return false;
     setEditor({ colorTarget: { lab, sampledIn, appliedTo: { photo, layer, rangeId: active.id } } });
-    apply(rangesWithTarget(ranges, active.id, lab));
+    const mine = ++request.current;
+    if (!rangePickOf(photo, layer, active)) {
+      apply(rangesWithTarget(ranges, active.id, lab));
+      return true;
+    }
+    // Picked in the photo: solve on the renderer's sample there, taken again
+    // (one edit once it is back; nothing when the photo or range changed).
+    const id = active.id;
+    void rangeInputFor(photo, layer, active).then((fresh) => {
+      const state = useEditorStore.getState();
+      const applied = state.colorTarget?.appliedTo;
+      if (mine !== request.current) return;
+      if (state.selectedImage?.path !== photo || applied?.rangeId !== id || applied.layer !== layer) return;
+      // The ranges as they are now (another edit may have come meanwhile).
+      const current = latestRanges.current;
+      if (current.some((r) => r.id === id)) apply(rangesWithTarget(current, id, lab, fresh));
+    });
     return true;
   };
   const number = (text: string) => {
@@ -168,8 +213,10 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
     />
   );
 
-  const solve = own ? solveColorTarget(ranges, active.id, own.lab) : null;
-  const deltaE = own ? deltaE00(own.lab, resultLab) : 0;
+  // The readout's status of the sliders as they are (no search: it follows
+  // every slider move).
+  const solve = own ? targetStatus(ranges, active.id, own.lab, input) : null;
+  const deltaE = solve?.deltaE ?? 0;
   const limits = solve
     ? (['hue', 'saturation', 'lightness'] as const)
         .filter((k) => solve.limited[k])
@@ -183,7 +230,10 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
   // A colour picked at the edge of sRGB was clipped by the display: the
   // photo's own colour lies beyond it and may move differently
   // (docs/benchmark-results/tgt1-target-colour-2026-11-21).
-  const sourceClipped = linearToSrgb8(oklabToLinear(centre)).some((v) => v <= 1 || v >= 254);
+  // With the renderer's sample the colour is the photo's own.
+  const sourceClipped = !pickInput && linearToSrgb8(oklabToLinear(centre)).some((v) => v <= 1 || v >= 254);
+  // A layer's prediction is at full strength without the mask influence at the pick.
+  const fullStrength = !!layerId && !pickInput;
   // A sampled target not on this range yet (from another photo, or sampled
   // here without a range).
   const sampled = target?.sampledIn && !own ? target : null;
@@ -261,19 +311,25 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
           role="status"
           title={t('studio.color.editor.target.readoutTitle')}
         >
-          {grey
-            ? t('studio.color.editor.target.grey')
-            : pickedThrough
-              ? t('studio.color.editor.target.pickedThrough', { value })
-              : deltaE <= TARGET_REACHED
-                ? layerId
-                  ? t('studio.color.editor.target.layerPredicted', { value })
-                  : t('studio.color.editor.target.reached', { value })
-                : limits.length
-                  ? t('studio.color.editor.target.outOfReach', { value, limits: limits.join(', ') })
-                  : t('studio.color.editor.target.distance', { value })}
-          {!insideSrgb(shownLinear) && <> {t('studio.color.editor.target.outsideSrgb')}</>}
-          {layerId && !grey && !(deltaE <= TARGET_REACHED && !pickedThrough) && (
+          {solve?.uncovered
+            ? t('studio.color.editor.target.uncovered')
+            : grey
+              ? t('studio.color.editor.target.grey')
+              : pickedThrough
+                ? t('studio.color.editor.target.pickedThrough', { value })
+                : deltaE <= TARGET_REACHED
+                  ? fullStrength
+                    ? t('studio.color.editor.target.layerPredicted', { value })
+                    : t('studio.color.editor.target.reached', { value })
+                  : limits.length
+                    ? t('studio.color.editor.target.outOfReach', { value, limits: limits.join(', ') })
+                    : t('studio.color.editor.target.distance', { value })}
+          {solve?.targetOutsideWorkingGamut ? (
+            <> {t('studio.color.editor.target.outsideWorkingGamut')}</>
+          ) : (
+            !insideSrgb(shownLinear) && <> {t('studio.color.editor.target.outsideSrgb')}</>
+          )}
+          {fullStrength && !grey && !(deltaE <= TARGET_REACHED && !pickedThrough) && (
             <> {t('studio.color.editor.target.layerStrength')}</>
           )}
           {sourceClipped && !grey && <> {t('studio.color.editor.target.sourceClipped')}</>}

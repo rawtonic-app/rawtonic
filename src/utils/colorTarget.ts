@@ -25,6 +25,7 @@ export interface ColorTarget {
 
 // --- sRGB, Oklab, CIELAB (D50) ------------------------------------------
 
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const decode = (v: number) => {
   const c = Math.abs(v);
   const lin = c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
@@ -115,6 +116,34 @@ export const lchToLab = ([L, C, h]: Vec3): Vec3 => [
 /** Whether a linear colour lies inside the sRGB cube (with rounding slack). */
 export const insideSrgb = (lin: Vec3) => lin.every((v) => v >= -1e-4 && v <= 1 + 1e-4);
 
+// Linear sRGB ↔ linear ProPhoto, the shader's matrices: the renderer's
+// working gamut is the ProPhoto unit cube (`gamut_unit`).
+const SRGB_TO_PROPHOTO = [
+  [0.5293458, 0.3300728, 0.1405812],
+  [0.0983744, 0.8734611, 0.0281647],
+  [0.0168832, 0.1176725, 0.8654443]
+];
+const PROPHOTO_TO_SRGB = [
+  [2.0340763, -0.7273343, -0.3067417],
+  [-0.2288135, 1.2317302, -0.0029169],
+  [-0.0085698, -0.1532866, 1.1618565]
+];
+export const linearToProphoto = (lin: Vec3) => mul(SRGB_TO_PROPHOTO, lin);
+export const prophotoToLinear = (pro: Vec3) => mul(PROPHOTO_TO_SRGB, pro);
+
+/** Whether a linear sRGB colour lies inside the working gamut (with rounding slack). */
+export const insideWorkingGamut = (lin: Vec3) => linearToProphoto(lin).every((v) => v >= -1e-4 && v <= 1 + 1e-4);
+
+/** The shader's `gamut_unit`: a linear sRGB colour clipped to the ProPhoto unit cube. */
+export function gamutUnit(lin: Vec3): Vec3 {
+  if (lin.every((v) => v >= 0 && v <= 1)) return lin;
+  return prophotoToLinear(linearToProphoto(lin).map((v) => clamp(v, 0, 1)) as Vec3);
+}
+
+/** The shader's display values (`encode_signed`) of linear sRGB, and back. */
+const encodeSigned = (lin: Vec3): Vec3 => lin.map(encode) as Vec3;
+const decodeSigned = (d: Vec3): Vec3 => d.map(decode) as Vec3;
+
 /** "#rrggbb" of an sRGB colour (clipped and rounded). */
 export function hexOf(rgb: Vec3) {
   return `#${rgb
@@ -183,7 +212,6 @@ export function deltaE00(lab1: Vec3, lab2: Vec3): number {
 
 // --- The shader's colour ranges -------------------------------------------
 
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const smoothstep = (e0: number, e1: number, x: number) => {
   const t = clamp((x - e0) / (e1 - e0), 0, 1);
   return t * t * (3 - 2 * t);
@@ -291,8 +319,12 @@ function finish(L: number, chroma: number, hue: number, s: Sums): Vec3 {
 
 /** `apply_color_ranges` on an Oklab colour (the ranges the renderer reads). */
 export function applyColorRanges(ranges: ColorRange[], lab: Vec3): Vec3 {
+  return applyPacked(ranges.map(pack), lab);
+}
+
+function applyPacked(packed: Packed[], lab: Vec3): Vec3 {
   const { L, chroma, hue } = toLch(lab);
-  return finish(L, chroma, hue, accumulate(ranges.map(pack), L, chroma, hue));
+  return finish(L, chroma, hue, accumulate(packed, L, chroma, hue));
 }
 
 /** Newton's method for `applyColorRanges(ranges, c) = shown` from `start`;
@@ -379,56 +411,171 @@ export const rangeCentre = (range: ColorRange): Vec3 => {
   return [range.lightness, range.chroma * Math.cos(h), range.chroma * Math.sin(h)];
 };
 
+/**
+ * What the renderer's probe saw at a pick (`sample_color_range_input`): the
+ * colour entering the edited ranges in each preview pixel around the point
+ * (Oklab of the unclipped working colour: before the photo's ranges, or for
+ * a mask layer after the photo's ranges and the layers below it) and the
+ * layer's mask influence there (1 for the photo's own ranges).
+ */
+export interface RangeInput {
+  pixels: Vec3[];
+  influence: number[];
+}
+
+/** A range picked in the photo: the normalised point, the range's colour
+ * the pick set (Oklab) and the renderer's sample there. */
+export interface ColorRangePick {
+  point: [number, number];
+  centre: Vec3;
+  /** The framing the point belongs to (utils/colorRanges `geometryKeyOf`). */
+  geometry: string;
+  /** Null while the renderer has no sample there (a hidden layer). */
+  input: RangeInput | null;
+}
+
+/** The input a range stands for without a probe: its sampled colour at full strength. */
+export const centreInput = (range: ColorRange): RangeInput => ({ pixels: [rangeCentre(range)], influence: [1] });
+
+/** The pickers' mean of Oklab colours: display values averaged, then converted. */
+export function meanOklab(pixels: Vec3[]): Vec3 {
+  const sum: Vec3 = [0, 0, 0];
+  for (const c of pixels) {
+    const d = encodeSigned(gamutUnit(oklabToLinear(c)));
+    for (let k = 0; k < 3; k += 1) sum[k] += d[k] / pixels.length;
+  }
+  return linearToOklab(gamutUnit(decodeSigned(sum)));
+}
+
+const meanOf = (values: number[]) => values.reduce((a, b) => a + b, 0) / Math.max(values.length, 1);
+
+/** CIELAB D50 of what the renderer shows at the pick with `packed` ranges. */
+function renderedPacked(packed: Packed[], input: RangeInput): Vec3 {
+  const sum: Vec3 = [0, 0, 0];
+  const n = input.pixels.length;
+  input.pixels.forEach((c, i) => {
+    const m = input.influence[i] ?? 1;
+    // Shader `main`: the ranges' result in display values (`linear_to_display`),
+    // a layer's mixed in by its mask influence (none below 0.001).
+    const before = encodeSigned(gamutUnit(oklabToLinear(c)));
+    const after = packed.length ? encodeSigned(gamutUnit(oklabToLinear(applyPacked(packed, c)))) : before;
+    const mix = m >= 1 ? 1 : m > 0.001 ? m : 0;
+    for (let k = 0; k < 3; k += 1) sum[k] += (before[k] + (after[k] - before[k]) * mix) / n;
+  });
+  return linearToLab(gamutUnit(decodeSigned(sum)));
+}
+
+/**
+ * CIELAB D50 of the colour the renderer leaves at the pick: each pixel of
+ * `input` through `ranges` (its layer's mix by the mask influence), in the
+ * working gamut (an output space maps it into its own), averaged as the
+ * pickers average. Tools after the colour editor are not included.
+ */
+export const renderedLab = (ranges: ColorRange[], input: RangeInput): Vec3 => renderedPacked(ranges.map(pack), input);
+
 export interface TargetSolve {
   /** The range's new shifts (whole slider steps). */
   shifts: Pick<ColorRange, 'hueShift' | 'saturation' | 'lightnessShift'>;
-  /** The range centre's colour after the solve (Oklab, before clipping to sRGB). */
-  result: Vec3;
-  /** CIELAB D50 of the result clipped to sRGB, and its ΔE00 to the target. */
+  /** CIELAB D50 of the colour at the pick after the solve (`renderedLab`), and its ΔE00 to the target. */
   resultLab: Vec3;
   deltaE: number;
   /** Which shifts hit their limit before reaching the target. */
   limited: { hue: boolean; saturation: boolean; lightness: boolean };
-  /** The target lies outside sRGB (it is shown and reached clipped). */
+  /** The target lies outside sRGB (an sRGB output maps it into sRGB). */
   targetOutsideSrgb: boolean;
-  /** False for a range too grey for its own selection (nothing moves). */
+  /** The target lies beyond the working gamut (the ProPhoto cube): no colour of the photo is it. */
+  targetOutsideWorkingGamut: boolean;
+  /** False when the range's sliders cannot reach the pick (its shifts are
+   * then kept as they are): a range too grey for its own selection, or a
+   * layer whose mask does not cover the pick (`uncovered`). */
   movable: boolean;
+  uncovered: boolean;
 }
 
 /**
- * The hue, saturation and lightness shifts of range `id` that move its
- * sampled colour onto `targetLab` (CIELAB D50) with the other ranges as
- * they are. Shifts beyond the sliders' limits are clamped and reported.
+ * The readout's status of range `id` against `targetLab` with its shifts as
+ * they are, without a search (the readout follows every slider move): the
+ * distance, which sliders sit at their end while the target is missed,
+ * whether the sliders reach the pick at all, and the target's gamut.
  */
-export function solveColorTarget(ranges: ColorRange[], id: string, targetLab: Vec3): TargetSolve | null {
-  // Only the ranges the renderer reads count (it takes the first eight).
+export function targetStatus(
+  ranges: ColorRange[],
+  id: string,
+  targetLab: Vec3,
+  input?: RangeInput | null
+): Omit<TargetSolve, 'shifts'> | null {
   const index = ranges.findIndex((r) => r.id === id);
   if (index < 0) return null;
+  const at = input?.pixels.length ? input : centreInput(ranges[index]);
+  const range = ranges[index];
+  const { L, chroma, hue } = toLch(meanOklab(at.pixels));
+  const ownWeight = weight(pack(range), L, chroma, hue);
+  const strength = clamp(meanOf(at.influence), 0, 1);
+  const movable = ownWeight * strength > 1e-6;
+  const resultLab = renderedLab(ranges, at);
+  const deltaE = deltaE00(targetLab, resultLab);
+  const missed = deltaE > TARGET_REACHED;
+  const end = (v: number | undefined) => missed && (!movable || Math.abs(num(v, 0)) >= SHIFT_LIMIT);
+  const targetLinear = labToLinear(targetLab);
+  return {
+    resultLab,
+    deltaE,
+    limited: { hue: end(range.hueShift), saturation: end(range.saturation), lightness: end(range.lightnessShift) },
+    targetOutsideSrgb: !insideSrgb(targetLinear),
+    targetOutsideWorkingGamut: !insideWorkingGamut(targetLinear),
+    movable,
+    uncovered: !movable && ownWeight > 1e-6
+  };
+}
+
+/**
+ * The hue, saturation and lightness shifts of range `id` that move the
+ * colour at its pick onto `targetLab` (CIELAB D50) with the other ranges as
+ * they are. `input` is the renderer's probe at the pick (`RangeInput`);
+ * without it the range's sampled colour stands for the pick at full
+ * strength. Shifts beyond the sliders' limits are clamped and reported.
+ */
+export function solveColorTarget(
+  ranges: ColorRange[],
+  id: string,
+  targetLab: Vec3,
+  input?: RangeInput | null
+): TargetSolve | null {
+  const index = ranges.findIndex((r) => r.id === id);
+  if (index < 0) return null;
+  const at = input?.pixels.length ? input : centreInput(ranges[index]);
   const packed = ranges.map(pack);
   const own = packed[index];
-  const L0 = own.lightness;
-  const c0 = own.chroma;
-  const h0 = own.hue;
+  // The closed form at the pick's mean colour and mean influence.
+  const { L: L0, chroma: c0, hue: h0 } = toLch(meanOklab(at.pixels));
+  const strength = clamp(meanOf(at.influence), 0, 1);
   const others = accumulate(packed, L0, c0, h0, index);
-  const w = weight(own, L0, c0, h0);
+  const ownWeight = weight(own, L0, c0, h0);
+  // The range's own uniformity pulls toward its centre whatever its shifts.
+  const fixed = {
+    dh: others.dh + ownWeight * own.uh * wrap180(own.hue - h0),
+    dc: others.dc + ownWeight * own.us * (own.chroma - c0),
+    dl: others.dl + ownWeight * own.ul * (own.lightness - L0)
+  };
+  const w = ownWeight * strength;
   const targetLinear = labToLinear(targetLab);
   const targetOutsideSrgb = !insideSrgb(targetLinear);
-  const target = toLch(linearToOklab(targetLinear));
+  const target = toLch(linearToOklab(gamutUnit(targetLinear)));
 
   const steps = (value: number) => clamp(Math.round(value), -SHIFT_LIMIT, SHIFT_LIMIT);
   const limitedBy = (value: number) => Math.abs(value) > SHIFT_LIMIT + 0.5;
 
-  // The range's own uniformity pulls nothing at its centre, so its shifts
-  // act alone: hue + w·dh, chroma · (1 + w·sat), L + w·dl·2L.
+  // A layer's mix scales what the ranges move (exactly so for small moves):
+  // hue + m·(fixed + w·dh), chroma · (1 + w·sat), L + m·(fixed + w·dl·2L).
   let hueSteps = 0;
   let satSteps = 0;
   let lightSteps = 0;
   const limited = { hue: false, saturation: false, lightness: false };
   if (w > 1e-6) {
-    const base = Math.max(c0 + others.dc, 0) * others.scale;
+    const base = Math.max(c0 + strength * fixed.dc, 0) * (1 + strength * (others.scale - 1));
     // A grey target has no hue: keep the hue, take the chroma away.
     if (target.chroma > 0.004) {
-      const hue = wrap180(target.hue - h0 - others.dh) / (w * HUE_PER_STEP);
+      const hue = wrap180(target.hue - h0 - strength * fixed.dh) / (w * HUE_PER_STEP);
       hueSteps = steps(hue);
       limited.hue = limitedBy(hue);
     }
@@ -440,7 +587,7 @@ export function solveColorTarget(ranges: ColorRange[], id: string, targetLab: Ve
       limited.saturation = target.chroma > 0.004;
     }
     if (L0 > 1e-6) {
-      const light = (target.L - L0 - others.dl) / (w * 2 * L0 * LIGHTNESS_PER_STEP);
+      const light = (target.L - L0 - strength * fixed.dl) / (w * 2 * L0 * LIGHTNESS_PER_STEP);
       lightSteps = steps(light);
       limited.lightness = limitedBy(light);
     } else {
@@ -449,89 +596,124 @@ export function solveColorTarget(ranges: ColorRange[], id: string, targetLab: Ve
   } else {
     limited.hue = limited.saturation = limited.lightness = true;
   }
-  const centre = rangeCentre(ranges[index]);
-  const evaluate = (steps: Vec3) => {
-    const solved = ranges.map((r, i) =>
-      i === index ? { ...r, hueShift: steps[0], saturation: steps[1], lightnessShift: steps[2] } : r
+  const withShifts = (s: Vec3) =>
+    packed.map((p, i) =>
+      i === index ? pack({ ...ranges[index], hueShift: s[0], saturation: s[1], lightnessShift: s[2] }) : p
     );
-    const result = applyColorRanges(solved, centre);
-    const resultLab = linearToLab(oklabToLinear(result).map((v) => clamp(v, 0, 1)) as Vec3);
-    return { result, resultLab, deltaE: deltaE00(targetLab, resultLab) };
+  const fitOf = (s: Vec3, over: RangeInput = at) => {
+    const resultLab = renderedPacked(withShifts(s), over);
+    return { resultLab, deltaE: deltaE00(targetLab, resultLab) };
   };
-  // The closed form matches hue, chroma and lightness each on its own. When
-  // its result or the target lies outside sRGB (the colour shown is then the
-  // clipped one), or a slider runs out, the nearest colour needs the sliders
-  // together: a coarse grid and a pattern search over whole slider steps
-  // (a few thousand evaluations of the model at most); sliders at their
-  // limit stay there. Inside sRGB a pinned target takes the search's result only when
-  // it reaches the target; otherwise the target goes as far as it can in its
-  // own direction and the other sliders keep matching their own part (no
-  // colour drained just to shave the distance).
+  const targetOutsideWorkingGamut = !insideWorkingGamut(targetLinear);
+  const current: Vec3 = [
+    num(ranges[index].hueShift, 0),
+    num(ranges[index].saturation, 0),
+    num(ranges[index].lightnessShift, 0)
+  ];
+  if (w <= 1e-6) {
+    // Nothing the range's sliders do reaches the pick (a grey range, or a
+    // layer whose mask no longer covers the point): its shifts stay.
+    const fit = fitOf(current);
+    return {
+      shifts: { hueShift: current[0], saturation: current[1], lightnessShift: current[2] },
+      resultLab: fit.resultLab,
+      deltaE: fit.deltaE,
+      limited: { hue: true, saturation: true, lightness: true },
+      targetOutsideSrgb,
+      targetOutsideWorkingGamut,
+      movable: false,
+      uncovered: ownWeight > 1e-6
+    };
+  }
+  // Up to nine of the pixels with their influence: the coarse grid's stand-in
+  // for the full model when it ranks starts and takes the first large steps
+  // (a patch across an edge keeps both colours).
+  const every = Math.max(1, Math.ceil(at.pixels.length / 9));
+  const coarse: RangeInput = {
+    pixels: at.pixels.filter((_, i) => i % every === 0),
+    influence: at.influence.filter((_, i) => i % every === 0)
+  };
+  // The closed form matches hue, chroma and lightness each on its own at
+  // the mean colour; the pixels around the pick, a layer's mix and the
+  // working gamut's edge bend that, so a local search over whole slider
+  // steps finishes it on the full model. When that does not reach the
+  // target, the sliders together may (a patch across two colours, a target
+  // at the gamut's edge, one slider beyond its reach): a coarse grid over all
+  // three, then the local search from its best starts. A target inside the
+  // working gamut takes that search's result only when it reaches the
+  // target; otherwise the target goes as far as it can in its own direction
+  // and the other sliders keep matching their own part (no colour drained
+  // just to shave the distance).
   let best: Vec3 = [hueSteps, satSteps, lightSteps];
-  let bestFit = evaluate(best);
-  const free = [!limited.hue, !limited.saturation, !limited.lightness].flatMap((open, k) => (open ? [k] : []));
-  const closed = { best, bestFit };
-  const outside = targetOutsideSrgb || !insideSrgb(oklabToLinear(bestFit.result));
-  const pinned = limited.hue || limited.saturation || limited.lightness;
-  if (w > 1e-6 && (outside || pinned)) {
-    // Local search over whole steps from a start, one slider at a time.
-    const descend = (start: Vec3) => {
-      let at = start;
-      let fit = evaluate(at);
-      for (const step of [16, 8, 4, 2, 1]) {
-        for (let improved = true, rounds = 0; improved && rounds < 25; rounds += 1) {
-          improved = false;
-          for (const k of free) {
-            for (const sign of [-1, 1]) {
-              const next = [...at] as Vec3;
-              next[k] = clamp(next[k] + sign * step, -SHIFT_LIMIT, SHIFT_LIMIT);
-              if (next[k] === at[k]) continue;
-              const nextFit = evaluate(next);
-              if (nextFit.deltaE < fit.deltaE - 1e-9) {
-                at = next;
-                fit = nextFit;
-                improved = true;
-              }
+  let bestFit = fitOf(best);
+  const all = [0, 1, 2];
+  const descend = (start: Vec3, sizes: number[], over: RangeInput = at, free = all) => {
+    let point = start;
+    let fit = fitOf(point, over);
+    for (const step of sizes) {
+      for (let improved = true, rounds = 0; improved && rounds < 25; rounds += 1) {
+        improved = false;
+        for (const k of free) {
+          for (const sign of [-1, 1]) {
+            const next = [...point] as Vec3;
+            next[k] = clamp(next[k] + sign * step, -SHIFT_LIMIT, SHIFT_LIMIT);
+            if (next[k] === point[k]) continue;
+            const nextFit = fitOf(next, over);
+            if (nextFit.deltaE < fit.deltaE - 1e-9) {
+              point = next;
+              fit = nextFit;
+              improved = true;
             }
           }
         }
       }
-      return { at, fit };
-    };
-    // The nearest shown colour can lie where several sliders cross the sRGB
-    // boundary together: a coarse grid over the free sliders (steps of 20,
-    // at most 1331 evaluations) picks the starts, then the local search.
-    const grid = [-100, -80, -60, -40, -20, 0, 20, 40, 60, 80, 100];
-    const starts: { at: Vec3; deltaE: number }[] = [];
-    const visit = (k: number, at: Vec3) => {
-      if (k === free.length) {
-        starts.push({ at, deltaE: evaluate(at).deltaE });
-        return;
-      }
-      for (const v of grid) {
-        const next = [...at] as Vec3;
-        next[free[k]] = v;
-        visit(k + 1, next);
-      }
-    };
-    visit(0, best);
-    starts.sort((a, b) => a.deltaE - b.deltaE);
-    for (const start of [best, ...starts.slice(0, 3).map((s) => s.at)]) {
-      const found = descend(start);
-      if (found.fit.deltaE < bestFit.deltaE - 1e-9) {
-        best = found.at;
-        bestFit = found.fit;
-      }
     }
+    return { point, fit: over === at ? fit : fitOf(point) };
+  };
+  if (bestFit.deltaE > 0.05) {
+    // Sliders the closed form ran out stay at their limit here.
+    const open = all.filter((k) => ![limited.hue, limited.saturation, limited.lightness][k]);
+    const found = descend(best, [4, 2, 1], at, open);
+    if (found.fit.deltaE < bestFit.deltaE - 1e-9) ({ point: best, fit: bestFit } = found);
+  }
+  const closed = { best, bestFit };
+  if (bestFit.deltaE > TARGET_REACHED) {
+    // Steps of 20 over the three sliders: 1331 evaluations of the stand-in.
+    const grid = [-100, -80, -60, -40, -20, 0, 20, 40, 60, 80, 100];
+    const starts: { point: Vec3; deltaE: number }[] = [];
+    for (const a of grid)
+      for (const b of grid)
+        for (const c of grid) starts.push({ point: [a, b, c], deltaE: fitOf([a, b, c], coarse).deltaE });
+    starts.sort((x, y) => x.deltaE - y.deltaE);
+    // From each start two ways down (the coarse sample's large steps, then
+    // every pixel; every pixel throughout): they settle in different
+    // valleys of a patch across an edge, and the better one counts.
+    for (const start of starts.slice(0, 3)) {
+      const rough = descend(start.point, [16, 8, 4], coarse);
+      for (const found of [descend(rough.point, [2, 1]), descend(start.point, [16, 8, 4, 2, 1])])
+        if (found.fit.deltaE < bestFit.deltaE - 1e-9) ({ point: best, fit: bestFit } = found);
+    }
+    const outside = targetOutsideWorkingGamut || !insideWorkingGamut(labToLinear(closed.bestFit.resultLab));
     if (!outside && bestFit.deltaE > TARGET_REACHED) ({ best, bestFit } = closed);
   }
+  // A slider counts as run out only where the target stays out of reach.
+  const missed = bestFit.deltaE > TARGET_REACHED;
+  // The closed form's own limits, or, when the joint search gave the
+  // result, the sliders it left at their end.
+  const searched = best !== closed.best;
+  const atLimit = (k: number) => Math.abs(best[k]) >= SHIFT_LIMIT;
   return {
     shifts: { hueShift: best[0], saturation: best[1], lightnessShift: best[2] },
-    result: bestFit.result,
     resultLab: bestFit.resultLab,
     deltaE: bestFit.deltaE,
-    limited,
+    limited: {
+      hue: missed && (searched ? atLimit(0) : limited.hue),
+      saturation: missed && (searched ? atLimit(1) : limited.saturation),
+      lightness: missed && (searched ? atLimit(2) : limited.lightness)
+    },
     targetOutsideSrgb,
-    movable: w > 1e-6
+    targetOutsideWorkingGamut,
+    movable: true,
+    uncovered: false
   };
 }

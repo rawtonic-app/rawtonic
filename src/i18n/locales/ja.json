@@ -2932,7 +2932,8 @@
             "saturation": "彩度(0–200 %)"
           },
           "outOfReach": "到達不可:残り ΔE00 {{value}}。{{limits}} が上限です。",
-          "outsideSrgb": "ターゲットは sRGB の範囲外です。",
+          "outsideSrgb": "ターゲットは sRGB の範囲外です。sRGB の書き出しでは色が sRGB 内にマッピングされます。",
+          "outsideWorkingGamut": "ターゲットは写真の作業色域(ProPhoto)の外です。写真のどの色もその色にはなれないため、範囲はできるだけ近づけます。",
           "pickAria": "ターゲットカラーを取得",
           "pickedThrough": "予測はターゲットから ΔE00 {{value}} ですが、この色は範囲自体の大きな変更を通して取得されました。写真で結果を確認するか、スライダーを0にして取得し直してください。",
           "pickTitle": "写真でターゲットカラーを取得し、この範囲をその色へ移動",
@@ -2944,6 +2945,7 @@
           "sourceClipped": "取得した色は sRGB の境界にあります。写真で結果を確認してください。",
           "srgb": "sRGB",
           "swatchAria": "範囲の結果 {{result}}、ターゲット {{target}}",
+          "uncovered": "レイヤーのマスクが拾った位置を覆っていません。範囲のスライダーはそのままです。",
           "useSampled": "{{name}} のターゲットを使用",
           "useSampledTitle": "この範囲を {{name}} で取得した色へ移動"
         },
