@@ -1746,6 +1746,8 @@ mod tests {
         r["transformVertical"] = json!(0.1 + 0.2);
         r["transformDistortion"] = json!(0.7 + 0.1);
         r["lensDistortionAmount"] = json!(33.0 + 0.3);
+        r["lensDistortionParams"] =
+            json!({"k1": -(0.1 + 0.2) / 3.0, "k2": 0.02 + 0.001, "k3": 0.0, "model": 0});
         r["faceRetouch"]["frame"] = json!(frame_key(&r));
         let small = image::imageops::resize(
             &original,
@@ -1772,6 +1774,22 @@ mod tests {
                 .fold(0.0f32, f32::max);
             assert!(worst < 1e-5, "{name}: largest difference {worst}");
         }
+        // The stored lens profile places them: without it they land elsewhere.
+        let mut without_lens = r.clone();
+        without_lens
+            .as_object_mut()
+            .unwrap()
+            .remove("lensDistortionParams");
+        let mut other = with_geometry(&without_lens, &json!({"flipHorizontal": true}));
+        other["faceRetouch"]["frame"] = json!(frame_key(&without_lens));
+        let mut image = small.clone();
+        apply_face_retouch(&mut image, &scaled_recipe(&other, 0.5));
+        let worst = image
+            .pixels()
+            .zip(expected.pixels())
+            .flat_map(|(p, q)| (0..3).map(move |c| (p[c] - q[c]).abs()))
+            .fold(0.0f32, f32::max);
+        assert!(worst > 1e-3, "the lens profile moved nothing ({worst})");
     }
 
     #[test]
