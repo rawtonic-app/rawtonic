@@ -2187,6 +2187,55 @@ mod tests {
         assert_eq!(fs::read(&source).unwrap(), b"synthetic original");
     }
 
+    /// A virtual copy in a folder that takes writes but cannot be read (so
+    /// it cannot be synced after the replace): the sidecar holds the edit,
+    /// which export reads, so it is saved, with its undo step, and the
+    /// library keeps the same recipe for a relink.
+    #[cfg(unix)]
+    #[test]
+    fn a_virtual_copy_written_into_a_folder_that_cannot_be_read_is_saved() {
+        use rawtonic_catalog::{Library, Mode};
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Unreadable folder", Mode::Session).unwrap();
+        let capture = temp.path().join("Capture");
+        let source = capture.join("a.jpg");
+        fs::write(&source, b"synthetic original").unwrap();
+        let copy = format!("{}?vc=c0ffee", source.to_string_lossy());
+        let paths = vec![copy.clone()];
+        let edited = |exposure: f64| {
+            move |_: &str, _: &Path, sidecar: &Path| {
+                let mut metadata = crate::exif_processing::load_sidecar(sidecar);
+                metadata.adjustments = serde_json::json!({"exposure": exposure});
+                Ok(metadata)
+            }
+        };
+        let (_, edits) = edit_sidecars_recorded(&paths, None, edited(0.5));
+        assert!(
+            edits.failures.is_empty() && edits.unwritten.is_empty(),
+            "{edits:?}"
+        );
+
+        fs::set_permissions(&capture, fs::Permissions::from_mode(0o300)).unwrap();
+        let (changes, edits) = edit_sidecars_recorded(&paths, None, edited(1.5));
+        fs::set_permissions(&capture, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (_, sidecar) = parse_virtual_path(&copy);
+        let asset = lib.asset_at(&source).unwrap().unwrap();
+        let file = crate::exif_processing::load_sidecar(&sidecar).adjustments["exposure"].clone();
+        let library =
+            lib.copy_state(&asset.id, "c0ffee").unwrap().unwrap()["adjustments"]["exposure"]
+                .clone();
+        assert_eq!(
+            file, library,
+            "the file and the library hold the same recipe"
+        );
+        assert!(edits.failures.is_empty(), "{edits:?}");
+        assert_eq!(file, 1.5);
+        assert_eq!(changes.len(), 1, "its undo step");
+        assert_eq!(fs::read(&source).unwrap(), b"synthetic original");
+    }
+
     fn successful_targets(
         (values, failures): (Vec<CullingWrite>, Vec<(String, String)>),
     ) -> Vec<CullingWrite> {

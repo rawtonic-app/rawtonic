@@ -409,11 +409,28 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             // its copy is read from this file (`read_editor_sidecar`), so
             // an edit the file did not get is not saved, and the library
             // goes back to what it held (a relink writes that out).
-            let written = lib
+            let derived = lib
                 .version_for(&asset.id, Some(&copy))
                 .map_err(io_error)
-                .and_then(|version| with_library_snapshots(&lib, version.as_deref(), bytes, &state))
-                .and_then(|bytes| rawtonic_fs::atomic_write(path, &*bytes).map_err(io_error));
+                .and_then(|version| {
+                    with_library_snapshots(&lib, version.as_deref(), bytes, &state)
+                        .map(std::borrow::Cow::into_owned)
+                });
+            let written = derived.and_then(|derived| {
+                rawtonic_fs::atomic_write(path, &derived)
+                    .map_err(io_error)
+                    .or_else(|e| {
+                        // Replaced, but the folder could not be synced after
+                        // it (a folder that cannot be read): the file holds
+                        // the edit, so it is saved; the library keeps it.
+                        if std::fs::read(path).is_ok_and(|now| now == derived) {
+                            log::warn!("{} written, its folder not synced: {e}", path.display());
+                            Ok(())
+                        } else {
+                            Err(e)
+                        }
+                    })
+            });
             if written.is_err() {
                 let restored = match &previous {
                     Some(previous) => {
