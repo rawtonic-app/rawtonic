@@ -151,6 +151,7 @@ async fn analysis(
     ai_state: &AiState,
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
+    download: bool,
 ) -> Result<(Arc<RgbImage>, Arc<FaceAnalysis>), CommandError> {
     // Keyed by the photo actually loaded, taken before the models load: a
     // photo switch meanwhile cannot file one photo's faces under another.
@@ -161,7 +162,7 @@ async fn analysis(
     {
         return Ok((c.image.clone(), c.analysis.clone()));
     }
-    let models = models(app_handle, true).await?;
+    let models = models(app_handle, download).await?;
     let is_raw = loaded.is_raw;
     let (app, adjustments) = (app_handle.clone(), js_adjustments.clone());
     let (image, analysis) = tokio::task::spawn_blocking(move || {
@@ -201,7 +202,7 @@ pub async fn detect_people(
     let ai_state = app_handle.state::<AiState>();
     ai_state.lifecycle.touch();
     let _running = ai_state.lifecycle.run();
-    let (image, analysis) = analysis(&state, &ai_state, &app_handle, &js_adjustments).await?;
+    let (image, analysis) = analysis(&state, &ai_state, &app_handle, &js_adjustments, true).await?;
     tokio::task::spawn_blocking(move || {
         let (w, h) = (analysis.width as f32, analysis.height as f32);
         analysis
@@ -241,6 +242,7 @@ pub async fn generate_ai_people_mask(
     flip_vertical: bool,
     orientation_steps: u8,
     task_id: Option<String>,
+    download: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AiPeopleMaskParameters, CommandError> {
@@ -255,7 +257,14 @@ pub async fn generate_ai_people_mask(
     if selected.is_empty() {
         return Err("No person parts selected".into());
     }
-    let (image, analysis) = analysis(&state, &ai_state, &app_handle, &js_adjustments).await?;
+    let (image, analysis) = analysis(
+        &state,
+        &ai_state,
+        &app_handle,
+        &js_adjustments,
+        download.unwrap_or(true),
+    )
+    .await?;
     if cancelled() {
         return Err(crate::ai_commands::task_cancelled());
     }

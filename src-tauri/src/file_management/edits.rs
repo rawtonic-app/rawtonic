@@ -261,17 +261,16 @@ fn edit_sidecars(
         .filter_map(|path| {
             let _turn = sidecar_field_edit();
             let (source_path, sidecar_path) = parse_virtual_path(path);
-            let saved = conform_frame(path, &source_path, &sidecar_path).and_then(|original| {
-                let saved = edit(path, &source_path, &sidecar_path)
-                    .and_then(|metadata| save_sidecar(path, &metadata).map(|()| metadata));
-                // A refused edit leaves the sidecar as it was.
-                if saved.is_err()
-                    && let Some(original) = original
-                {
-                    let _ = save_sidecar(path, &original);
+            let edited = match conformed_frame(&source_path, &sidecar_path) {
+                Some(metadata) => {
+                    crate::exif_processing::reading_conformed(&sidecar_path, metadata, || {
+                        edit(path, &source_path, &sidecar_path)
+                    })
                 }
-                saved
-            });
+                None => edit(path, &source_path, &sidecar_path),
+            };
+            let saved =
+                edited.and_then(|metadata| save_sidecar(path, &metadata).map(|()| metadata));
             match saved {
                 Ok(metadata) => {
                     if let Some(create_if_missing) = xmp {
@@ -285,27 +284,17 @@ fn edit_sidecars(
         .collect()
 }
 
-/// A camera TIFF's edit made on its embedded thumbnail is moved to the full
-/// frame (`recipe_frame::conform`) and written before a batch edit changes
-/// it: settings pasted from a RAW (its processing versions) would otherwise
-/// make it read as made on the full frame, and the move is the user's next
-/// save anyway. Returns the sidecar as it was when it wrote one, for the
-/// caller to put back if the edit is refused. Other files are not read.
-fn conform_frame(
-    path: &str,
-    source_path: &Path,
-    sidecar_path: &Path,
-) -> Result<Option<ImageMetadata>, String> {
-    if rawtonic_engine::recipe_frame::tiff_frames(source_path).is_none() {
-        return Ok(None);
-    }
-    let original = crate::exif_processing::load_sidecar(sidecar_path);
-    let mut metadata = original.clone();
-    if !rawtonic_engine::recipe_frame::conform(&mut metadata.adjustments, source_path) {
-        return Ok(None);
-    }
-    save_sidecar(path, &metadata)?;
-    Ok(Some(original))
+/// A camera TIFF's edit made on its embedded thumbnail, moved to the full
+/// frame (`recipe_frame::conform`), for a batch edit to change: settings
+/// pasted from a RAW (its processing versions) would otherwise make it read
+/// as made on the full frame. The edit reads it in memory and writes it once
+/// (`exif_processing::reading_conformed`); a refused edit writes nothing.
+/// None for other recipes; other files are not read.
+fn conformed_frame(source_path: &Path, sidecar_path: &Path) -> Option<ImageMetadata> {
+    rawtonic_engine::recipe_frame::tiff_frames(source_path)?;
+    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+    rawtonic_engine::recipe_frame::conform(&mut metadata.adjustments, source_path)
+        .then_some(metadata)
 }
 
 /// Runs the blocking `work` (which writes the recipes of `paths` and returns
@@ -3055,9 +3044,9 @@ mod tests {
     }
 
     /// A camera TIFF's edit made on its thumbnail is moved to the full frame
-    /// before a batch edit changes it: Processing Versions pasted from a RAW
+    /// when a batch edit changes it: Processing Versions pasted from a RAW
     /// would otherwise make it read as made on the full frame (TIFR2 open
-    /// case 2).
+    /// case 2). A refused edit writes nothing.
     #[test]
     fn a_batch_edit_moves_a_thumbnail_edit_first() {
         use rawtonic_engine::recipe_frame;

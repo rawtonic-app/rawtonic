@@ -37,6 +37,17 @@ export function useUndecidedFrame() {
         const sent = useEditorStore.getState();
         if (sent.selectedImage?.path !== path) return;
         const result = await moved(sent.adjustments);
+        // A slider's draft commits on release: compared after it.
+        if (useEditorStore.getState().isSliderDragging) {
+          await new Promise<void>((resolve) => {
+            const unsubscribe = useEditorStore.subscribe((state) => {
+              if (state.isSliderDragging && state.selectedImage?.path === path) return;
+              unsubscribe();
+              resolve();
+            });
+          });
+          debouncedSetHistory.flush();
+        }
         const now = useEditorStore.getState();
         if (!result || now.selectedImage?.path !== path) return;
         if (now.adjustments !== sent.adjustments) continue;

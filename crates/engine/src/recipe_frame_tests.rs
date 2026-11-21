@@ -300,10 +300,10 @@ fn some_recipes_cannot_tell_their_frame() {
     assert_eq!(made_on(&beyond, FRAMES), Made::Full);
 }
 
-/// A migrated Sky, Subject, People or depth range selection waits to be
-/// computed again on the full frame (`DETECT_AGAIN`), keeping its
-/// stretched bitmap until then; an Object selection and a People selection
-/// of one person keep their bitmap.
+/// A migrated Sky, Subject or People selection waits to be computed again
+/// on the full frame (`DETECT_AGAIN`), keeping its stretched bitmap until
+/// then; an Object selection, a depth range and a People selection of one
+/// person keep their bitmap.
 #[test]
 fn semantic_ai_selections_are_detected_again() {
     let mut recipe = json!({"masks": [{"subMasks": [
@@ -322,7 +322,7 @@ fn semantic_ai_selections_are_detected_again() {
         .iter()
         .map(|s| s["parameters"].get(DETECT_AGAIN) == Some(&json!(true)))
         .collect();
-    assert_eq!(again, [true, true, true, false, true, false, false, false]);
+    assert_eq!(again, [true, true, true, false, false, false, false, false]);
     // Refinements and the stand-in bitmap stay.
     assert_eq!(subs[0]["parameters"]["grow"], json!(5));
     assert_eq!(subs[0]["parameters"]["maskDataBase64"], json!("data:x"));

@@ -457,17 +457,19 @@ describe('automatic AI masks from imported presets', () => {
     const { rerender } = renderHook(() => useAiMasking());
     await waitFor(() => expect(pending).toHaveLength(2));
     expect(generated()).toEqual(['generate_ai_sky_mask', 'generate_ai_foreground_mask']);
+    // Never a download: only installed models are asked.
     expect(invoke.mock.calls.find((c) => c[0] === 'generate_ai_foreground_mask')?.[1]).toMatchObject({
-      subjectVersion: 2
+      subjectVersion: 2,
+      download: false
     });
     // Nothing changes until every selection is back.
     await act(async () => pending[0]({ maskDataBase64: 'data:sky' }));
     expect(useEditorStore.getState().history).toHaveLength(1);
     await act(async () => pending[1]({ maskDataBase64: 'data:subject' }));
     await waitFor(() => expect(useEditorStore.getState().history).toHaveLength(2));
-    // Under new ids: the native side keeps bitmaps by component id.
+    // Under their ids (the preview sends a bitmap changed under its id again).
     const subs = () => useEditorStore.getState().adjustments.masks.map((m) => m.subMasks[0]);
-    expect(subs()[0].id).not.toBe('sub-ai-sky');
+    expect(subs()[0].id).toBe('sub-ai-sky');
     expect(subs()[0].parameters).toEqual({ maskDataBase64: 'data:sky', grow: 7 });
     expect(subs()[1].parameters).toEqual({ maskDataBase64: 'data:subject', subjectVersion: 2 });
     expect(subOf('sub-ai-subject')?.parameters.maskDataBase64).toBe('data:thumb');

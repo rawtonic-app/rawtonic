@@ -353,14 +353,12 @@ interface AiDepthMaskSettings {
 const AGAIN_COMMANDS: Record<MigratedKind, Invokes> = {
   'ai-sky': Invokes.GenerateAiSkyMask,
   'ai-foreground': Invokes.GenerateAiForegroundMask,
-  'ai-people': Invokes.GenerateAiPeopleMask,
-  'ai-depth': Invokes.GenerateAiDepthMask
+  'ai-people': Invokes.GenerateAiPeopleMask
 };
-const AGAIN_TASKS: Record<MigratedKind, 'sky' | 'foreground' | 'people' | 'depth'> = {
+const AGAIN_TASKS: Record<MigratedKind, 'sky' | 'foreground' | 'people'> = {
   'ai-sky': 'sky',
   'ai-foreground': 'foreground',
-  'ai-people': 'people',
-  'ai-depth': 'depth'
+  'ai-people': 'people'
 };
 
 /** A migrated selection's own arguments, as its handler asks them. */
@@ -372,14 +370,6 @@ function againArguments(kind: MigratedKind, p: Record<string, unknown>): Record<
       return {
         parts: (p.parts as string[] | undefined) ?? [],
         person: (p.person as number | null | undefined) ?? null
-      };
-    case 'ai-depth':
-      return {
-        minDepth: (p.minDepth as number | undefined) ?? 20,
-        maxDepth: (p.maxDepth as number | undefined) ?? 100,
-        minFade: (p.minFade as number | undefined) ?? 15,
-        maxFade: (p.maxFade as number | undefined) ?? 15,
-        feather: (p.feather as number | undefined) ?? 10
       };
     default:
       return {};
@@ -995,9 +985,16 @@ export function useAiMasking() {
         const result = await invoke<Record<string, unknown>>(AGAIN_COMMANDS[kind], {
           ...geometry,
           ...againArguments(kind, asked),
-          taskId: sub.id
+          taskId: sub.id,
+          download: false
         });
         return [sub.id, { asked, result }] as const;
+      } catch (error) {
+        if (isPhotoChanged(error)) throw error;
+        // Not computed here (its model does not load): the stretched bitmap
+        // stays, asked again when the photo opens again.
+        console.warn(`Migrated ${sub.type} selection not computed again:`, errorMessage(error));
+        return null;
       } finally {
         unregisterAiTask(sub.id);
       }
@@ -1010,8 +1007,9 @@ export function useAiMasking() {
         const runnable = waiting.filter(({ sub }) => installed?.includes(sub.type));
         return runnable.length ? Promise.all(runnable.map(ask)) : null;
       })
-      .then(async (found) => {
-        if (!found) return;
+      .then(async (answers) => {
+        const found = (answers ?? []).filter((answer) => answer !== null);
+        if (!found.length) return;
         const results = new Map(found);
         if (useEditorStore.getState().isSliderDragging) {
           await new Promise<void>((resolve) => {
@@ -1040,7 +1038,7 @@ export function useAiMasking() {
               }
         );
         setAdjustments((prev: Adjustments) => {
-          const next = withDetectedAgain(prev, results, DEPTH_LIMITS);
+          const next = withDetectedAgain(prev, results);
           layers = next.layers;
           return settleMigrated(next.adjustments, ids);
         });
@@ -1048,12 +1046,9 @@ export function useAiMasking() {
         if (layers > 0) notify.info(i18n.t('editor.masks.recomputedFullFrame', { count: layers }));
       })
       .catch((error) => {
-        if (isPhotoChanged(error)) {
-          requestedAgain.current.delete(key);
-          return;
-        }
         // The stretched bitmaps stay; asked again when the photo opens again.
-        toastAiError(error, `AI Mask Failed: ${errorMessage(error)}`);
+        if (isPhotoChanged(error)) requestedAgain.current.delete(key);
+        else console.warn('Migrated selections not computed again:', errorMessage(error));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedImageReady, masksKey]);

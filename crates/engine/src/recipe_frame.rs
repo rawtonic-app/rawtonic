@@ -508,7 +508,7 @@ pub fn scale_geometry(adjustments: &mut Value, from: (u32, u32), to: (u32, u32))
             // (One person of several, by their order from the left: the full
             // frame may find another face first, so it keeps its bitmap.)
             if layer
-                && crate::ai_selections::AutoSelection::of(kind).is_some()
+                && matches!(kind, "ai-sky" | "ai-foreground" | "ai-people")
                 && !crate::masks::nothing_to_detect(parameters)
                 && crate::ai_selections::people_person(parameters).is_none()
             {
@@ -519,14 +519,16 @@ pub fn scale_geometry(adjustments: &mut Value, from: (u32, u32), to: (u32, u32))
 }
 
 /// The parameter that marks an AI selection migrated from a camera TIFF's
-/// thumbnail ([`scale_geometry`]): Sky, Subject, People and depth range
-/// selections express what to select, so they are computed again on the
+/// thumbnail ([`scale_geometry`]): Sky, Subject and People selections
+/// express what to select, so they are computed again on the
 /// full frame — by the editor when the photo opens (one History step, the
 /// stretched thumbnail bitmap one undo back) and by exports
 /// (`ai_selections::undetected`) — keeping their refinements (Grow,
 /// Feather, Invert; brush strokes are components of their own). Object
 /// selections keep their stretched bitmap: their prompts were made on the
-/// thumbnail, and an export cannot point at an object; so do People
+/// thumbnail, and an export cannot point at an object; so do depth ranges
+/// (a smooth depth map; the CLI computes none, so its exports and the
+/// app's would differ) and People
 /// selections of one person (`person`, counted from the left: the full frame
 /// may find another face before them). Where the selection cannot be
 /// computed (no model installed: nothing is downloaded for it) the stretched
