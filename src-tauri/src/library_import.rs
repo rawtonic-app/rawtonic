@@ -321,6 +321,7 @@ fn import_warnings(photo: &Photo) -> Vec<String> {
                 crate::preset_converter::legacy_process_warning(xmp),
                 crate::preset_converter::tone_curve_warning(xmp),
                 crate::preset_converter::point_color_overflow_warning(xmp),
+                crate::preset_converter::lightroom_subtract_warning(xmp).map(str::to_string),
             ]
             .into_iter()
             .flatten()
