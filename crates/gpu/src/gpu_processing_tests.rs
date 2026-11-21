@@ -26789,18 +26789,24 @@ fn drag_terms_in_4x4_blocks_stay_close_and_masked_edges_keep_2x2() {
         .unwrap()
     };
     // Mean absolute difference and its 99.9th percentile (codes, RGB).
-    let compare = |a: &[u8], b: &[u8]| {
+    // Over the whole frame, or (`strip`) only in columns 786..818, across
+    // the mask edge at 802.
+    let compare_in = |a: &[u8], b: &[u8], strip: bool| {
         let mut abs: Vec<u8> = a
             .iter()
             .zip(b)
             .enumerate()
-            .filter(|(i, _)| i % 4 < 3)
+            .filter(|(i, _)| {
+                let x = (i / 4) as u32 % width;
+                i % 4 < 3 && (!strip || (786..818).contains(&x))
+            })
             .map(|(_, (a, b))| a.abs_diff(*b))
             .collect();
         let mean = abs.iter().map(|&d| f64::from(d)).sum::<f64>() / abs.len() as f64;
         abs.sort_unstable();
         (mean, abs[abs.len() * 999 / 1000])
     };
+    let compare = |a: &[u8], b: &[u8]| compare_in(a, b, false);
     let effects = json!({"exposure":0.3,"contrast":20,"shadows":25,"toneVersion":18,
         "glowAmount":60,"halationAmount":60});
     // A hard vertical edge between the two 2 x 2 halves of a 4 x 4 block
@@ -26823,12 +26829,15 @@ fn drag_terms_in_4x4_blocks_stay_close_and_masked_edges_keep_2x2() {
         drag.drag_effects.half_terms = true;
         // 2 x 2, 4 x 4, and the frame's own choice.
         let mut by_shift = Vec::new();
+        let mut strips = Vec::new();
         for forced in [Some(1), Some(2), None] {
             effect_passes::FORCED_TERMS_SHIFT.with(|shift| shift.set(forced));
             // A settled frame first: the forced shift is not part of the
             // render state, so a repeated drag frame would be reused.
             render(&settled, masks);
-            by_shift.push(compare(&exact, &render(&drag, masks)));
+            let frame = render(&drag, masks);
+            by_shift.push(compare(&exact, &frame));
+            strips.push(compare_in(&exact, &frame, true));
         }
         effect_passes::FORCED_TERMS_SHIFT.with(|shift| shift.set(None));
         assert!(
@@ -26839,11 +26848,13 @@ fn drag_terms_in_4x4_blocks_stay_close_and_masked_edges_keep_2x2() {
             "{}",
             json!({"probe":"drag_terms_blocks","edit":name,"width":width,
                 "mean_abs_codes":{"2x2":by_shift[0].0,"4x4":by_shift[1].0,"chosen":by_shift[2].0},
-                "p999_abs_codes":{"2x2":by_shift[0].1,"4x4":by_shift[1].1,"chosen":by_shift[2].1}})
+                "p999_abs_codes":{"2x2":by_shift[0].1,"4x4":by_shift[1].1,"chosen":by_shift[2].1},
+                "edge_strip_mean_abs_codes":{"2x2":strips[0].0,"4x4":strips[1].0},
+                "edge_strip_p999_abs_codes":{"2x2":strips[0].1,"4x4":strips[1].1}})
         );
-        results.push(by_shift);
+        results.push((by_shift, strips));
     }
-    let [held_out, mask_edge] = &results[..] else {
+    let [(held_out, _), (mask_edge, edge_strip)] = &results[..] else {
         unreachable!()
     };
     // The held-out scene takes 4 x 4. Thin bars brighter than white are the
@@ -26859,12 +26870,17 @@ fn drag_terms_in_4x4_blocks_stay_close_and_masked_edges_keep_2x2() {
         held_out[0],
         held_out[1]
     );
-    // The masked edge keeps 2 x 2, which is closer there than 4 x 4.
+    // The masked edge keeps 2 x 2, which is closer there than 4 x 4, in the
+    // strip across the edge and over the frame.
     assert_eq!(mask_edge[2], mask_edge[0]);
     assert!(
-        mask_edge[0].0 < 0.5 && mask_edge[0].1 < mask_edge[1].1,
-        "mask edge: 2 x 2 {:?}, 4 x 4 {:?}",
+        mask_edge[0].0 < 0.5
+            && mask_edge[0].1 < mask_edge[1].1
+            && edge_strip[0].1 < edge_strip[1].1,
+        "mask edge: 2 x 2 {:?} (strip {:?}), 4 x 4 {:?} (strip {:?})",
         mask_edge[0],
-        mask_edge[1]
+        edge_strip[0],
+        mask_edge[1],
+        edge_strip[1]
     );
 }
