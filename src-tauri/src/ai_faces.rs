@@ -543,9 +543,9 @@ pub async fn apply_face_retouch_to_paths(
 /// the source photo, and the target's own are kept only where they sit in
 /// its current geometry. Strokes painted in an earlier geometry cannot be
 /// carried here (the faces are found again in the current one), so the
-/// photo is not written rather than losing them. (Its Retouch tab follows
-/// them through flips, turns and straightening, not lens or perspective
-/// changes: after those the user paints them again.)
+/// photo is not written rather than losing them. (The Retouch tab
+/// follows them through flips, turns and straightening only, so the user
+/// clears and paints them again rather than carrying a misplaced stroke.)
 fn own_protection(recipe: &serde_json::Value) -> Result<Option<serde_json::Value>, String> {
     let Some(retouch) = recipe.get("faceRetouch") else {
         return Ok(None);
@@ -565,8 +565,8 @@ fn own_protection(recipe: &serde_json::Value) -> Result<Option<serde_json::Value
     } else {
         Err(
             "its protection strokes were painted before its geometry changed; \
-             open its Retouch tab (it follows them through flips, turns and straightening) \
-             or paint them again, then apply again"
+             clear them in its Retouch tab (Clear under the protection brush) and \
+             paint them again if needed, then apply again"
                 .to_string(),
         )
     }

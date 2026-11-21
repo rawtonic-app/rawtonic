@@ -245,15 +245,15 @@ fn thumbnail_hash_with(
         // camera JPEG), so a new proxy makes a new thumbnail.
         if crate::preview_proxy::proxy_path(&source_path).is_some_and(|p| p.is_file()) {
             hasher.update(b"\0developed-from-proxy-v1");
-            // Tiles of a face retouch drawn on the reduced proxy placed it
-            // with full-size positions until 2026-11-21.
-            if face_retouch_refresh
-                && adjustments
-                    .as_ref()
-                    .is_some_and(rawtonic_engine::face_retouch::is_active)
-            {
-                hasher.update(b"\0face-retouch-on-proxy-v1\0");
-            }
+        }
+        // A face retouch drawn on a reduced base (a preview proxy or a fast
+        // decode) was placed with full-size positions until 2026-11-21.
+        if face_retouch_refresh
+            && adjustments
+                .as_ref()
+                .is_some_and(rawtonic_engine::face_retouch::is_active)
+        {
+            hasher.update(b"\0face-retouch-on-reduced-base-v1\0");
         }
         // A never-edited RAW renders with the defaults of its time
         // (`embedded_lens::apply_default`: lens profile, render version).
@@ -1426,18 +1426,16 @@ fn keep_tile_of_unavailable_original(
     directory: &Path,
     source: &Path,
     new: String,
-    old: Option<String>,
+    old: impl FnOnce() -> Option<String>,
 ) -> String {
-    match old {
-        Some(old)
-            if old != new
-                && !source.exists()
-                && !crate::preview_proxy::proxy_path(source).is_some_and(|p| p.is_file())
-                && !thumbnail_files_exist(directory, &new)
-                && thumbnail_files_exist(directory, &old) =>
-        {
-            old
-        }
+    if source.exists()
+        || crate::preview_proxy::proxy_path(source).is_some_and(|p| p.is_file())
+        || thumbnail_files_exist(directory, &new)
+    {
+        return new;
+    }
+    match old() {
+        Some(old) if old != new && thumbnail_files_exist(directory, &old) => old,
         _ => new,
     }
 }
@@ -1536,12 +1534,10 @@ impl ThumbnailCacheEntry {
         };
 
         let cache_hash = compute_thumbnail_cache_hash(path_str, &adjustments_bytes)?;
-        let cache_hash = keep_tile_of_unavailable_original(
-            thumb_cache_dir,
-            &source_path,
-            cache_hash,
-            thumbnail_hash_before_face_retouch_refresh(path_str, &adjustments_bytes),
-        );
+        let cache_hash =
+            keep_tile_of_unavailable_original(thumb_cache_dir, &source_path, cache_hash, || {
+                thumbnail_hash_before_face_retouch_refresh(path_str, &adjustments_bytes)
+            });
         let embedded_hash = embedded_thumbnail_hash(path_str);
         let selected = preferred_thumbnail_hash(
             thumb_cache_dir,
@@ -3302,7 +3298,7 @@ mod face_retouch_thumbnail_tests {
     }
 
     #[test]
-    fn retouched_raw_tiles_built_from_a_proxy_are_made_again() {
+    fn retouched_raw_tiles_on_a_reduced_base_are_made_again() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(
             temp.path().join("session.json"),
@@ -3317,8 +3313,8 @@ mod face_retouch_thumbnail_tests {
         recipe["lensCorrectionMode"] = json!("manual");
         recipe["faceRetouch"]["frame"] = json!(rawtonic_engine::face_retouch::frame_key(&recipe));
         let bytes = serde_json::to_vec(&recipe).unwrap();
-        // Without a proxy the tile is developed at full size: unchanged.
-        assert_eq!(
+        // A fast decode is a reduced base too: the tile is made again.
+        assert_ne!(
             compute_thumbnail_cache_hash(path, &bytes),
             thumbnail_hash_before_face_retouch_refresh(path, &bytes)
         );
@@ -3352,7 +3348,7 @@ mod face_retouch_thumbnail_tests {
         let present = temp.path().join("photo.jpg");
         std::fs::write(&present, b"photo").unwrap();
         let key = |source: &Path| {
-            keep_tile_of_unavailable_original(&cache, source, new.clone(), Some(old.clone()))
+            keep_tile_of_unavailable_original(&cache, source, new.clone(), || Some(old.clone()))
         };
         assert_eq!(key(&gone), new, "no old tile: nothing to keep");
         put(&old);
