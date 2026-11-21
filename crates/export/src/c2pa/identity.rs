@@ -204,7 +204,12 @@ impl SigningIdentity {
         let (_, cert) = X509Certificate::from_der(&self.chain[0])
             .map_err(|e| format!("The signing certificate cannot be read: {e}"))?;
         if cert.validity().is_valid() {
-            return Ok(());
+            // Everything an import checks, also for an identity saved before
+            // a check was added: it stays listed (and removable) but signs
+            // nothing its certificate's verifiers would reject.
+            return check_signing_certificate(&self.chain, &self.key).map_err(|e| {
+                format!("{e} Import another certificate or make a new one in the Export panel's Provenance section.")
+            });
         }
         let at = |t: x509_parser::time::ASN1Time| {
             jiff::Timestamp::from_second(t.timestamp())
@@ -456,8 +461,11 @@ fn pss_parameters(params: &x509_parser::asn1_rs::Any<'_>) -> Option<Pss> {
             return None;
         };
         // A non-negative salt length (its sign bit clear; a leading zero
-        // byte keeps it clear for 128 and more) that fits 64 bits.
-        if value.first().is_none_or(|first| first & 0x80 != 0) {
+        // byte keeps it clear for 128 and more, and is there only then: DER
+        // is the shortest encoding) that fits 64 bits.
+        if value.first().is_none_or(|first| first & 0x80 != 0)
+            || matches!(value, [0, next, ..] if next & 0x80 == 0)
+        {
             return None;
         }
         let value = match value {
@@ -611,9 +619,6 @@ pub fn load(dir: &Path) -> Result<Option<SigningIdentity>, String> {
     if cert.public_key().subject_public_key.data.as_ref() != public_key(&key) {
         return Err("The signing identity's key does not belong to its certificate.".to_string());
     }
-    // An identity saved before a check was added gets it too: what the
-    // manifests are signed with must be what its certificate allows.
-    check_public_key_algorithm(&cert, &key)?;
     Ok(Some(SigningIdentity {
         key,
         chain,
@@ -1121,49 +1126,73 @@ mod tests {
         assert!(error.contains("does not belong"), "{error}");
     }
 
-    /// A record saved before the public-key check (here its certificate
-    /// names the P-256 key on another curve) is refused when it is loaded,
-    /// so it never signs.
+    /// A record saved before a check was added (here its certificate names
+    /// the P-256 key on another curve, or carries parameters with an Ed25519
+    /// signature algorithm) still loads and is listed, so it can be seen
+    /// and removed, but cannot sign.
     #[test]
-    fn a_saved_identity_its_certificate_does_not_allow_is_refused_on_load() {
+    fn a_saved_identity_its_certificate_does_not_allow_cannot_sign() {
         let rng = SystemRandom::new();
         let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
         let pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
         let key = EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref(), &rng).unwrap();
         let now = jiff::Timestamp::now();
         let day = jiff::SignedDuration::from_hours(24);
+        let point = key.public_key().as_ref();
+        let ecdsa = der::seq(&[der::oid("1.2.840.10045.4.3.2")]);
+        let signing = vec![
+            extension("2.5.29.19", true, &der::seq(&[])),
+            extension("2.5.29.15", true, &der::tlv(0x03, &[0x07, 0x80])),
+            extension("2.5.29.37", false, &der::seq(&[der::oid(DOCUMENT_SIGNING)])),
+            extension("2.5.29.35", false, &der::seq(&[der::tlv(0x80, &[1; 20])])),
+        ];
         let on_p384 = der::seq(&[
             der::seq(&[der::oid(EC_PUBLIC_KEY), der::oid("1.3.132.0.34")]),
-            der::bit_string(key.public_key().as_ref()),
+            der::bit_string(point),
         ]);
-        let cert = certificate_named(
-            &rng,
-            &key,
-            &der::seq(&[der::oid("1.2.840.10045.4.3.2")]),
-            (&name("Old"), &name("Old")),
-            &on_p384,
-            (now - day, now + day),
-            &[],
-        )
-        .unwrap();
+        let cases = [
+            ("public key", ecdsa.clone(), on_p384),
+            (
+                "Ed25519",
+                der::seq(&[der::oid(ED25519), vec![0x05, 0x00]]),
+                p256_public_key_info(point),
+            ),
+        ];
+        for (problem, algorithm, info) in cases {
+            let cert = certificate_named(
+                &rng,
+                &key,
+                &algorithm,
+                (&name("A Studio CA"), &name("Old")),
+                &info,
+                (now - day, now + day),
+                &signing,
+            )
+            .unwrap();
+            let dir = tempfile::tempdir().unwrap();
+            let record = Record {
+                kind: IdentityKind::Imported,
+                key: {
+                    use base64::Engine;
+                    base64::engine::general_purpose::STANDARD.encode(pkcs8.as_ref())
+                },
+                chain: pem(&[cert]),
+            };
+            std::fs::write(
+                dir.path().join(IDENTITY_FILE),
+                serde_json::to_vec(&record).unwrap(),
+            )
+            .unwrap();
+            let identity = load(dir.path()).unwrap().expect("listed");
+            assert_eq!(identity.info().unwrap().signer, "Old");
+            let error = identity.check_usable().unwrap_err();
+            assert!(error.contains(problem), "{problem}: {error}");
+            assert!(remove(dir.path()).unwrap());
+        }
+        // A generated identity signs.
         let dir = tempfile::tempdir().unwrap();
-        let record = Record {
-            kind: IdentityKind::Imported,
-            key: {
-                use base64::Engine;
-                base64::engine::general_purpose::STANDARD.encode(pkcs8.as_ref())
-            },
-            chain: pem(&[cert]),
-        };
-        std::fs::write(
-            dir.path().join(IDENTITY_FILE),
-            serde_json::to_vec(&record).unwrap(),
-        )
-        .unwrap();
-        let Err(error) = load(dir.path()) else {
-            panic!("loaded");
-        };
-        assert!(error.contains("public key"), "{error}");
+        generate(dir.path(), "New").unwrap();
+        load(dir.path()).unwrap().unwrap().check_usable().unwrap();
     }
 
     #[test]
@@ -1570,7 +1599,7 @@ mod tests {
         for (params, ok) in [
             (pss(SHA256, Some(&[32])), true),
             (pss(SHA256, None), true),
-            (pss(SHA256, Some(&[0, 0x20])), true),
+            (pss(SHA256, Some(&[0, 0x20])), false),
             (pss(SHA256, Some(&[0, 0xde])), false),
             (pss(SHA256, Some(&[0xde])), false),
             (pss(SHA256, Some(&[33])), false),
