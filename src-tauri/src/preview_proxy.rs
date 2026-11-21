@@ -1066,6 +1066,33 @@ pub fn prepare_offline(source: &Path) -> Option<HashMap<String, String>> {
     header.exif
 }
 
+/// What the previews of the RAW `source` cached of its camera (the camera's
+/// crops from their facts, the EXIF), read from the preview headers only:
+/// the original is not touched (a cloud file not downloaded is opened by no
+/// call here) and nothing is registered for rendering. The facts that record
+/// the crop (`camera_crop`, the newest of them) are used, not merely the
+/// first preview's.
+pub fn cached_camera(
+    source: &Path,
+) -> (
+    Option<Vec<Option<rawtonic_engine::camera_crop::CameraCrop>>>,
+    Option<HashMap<String, String>>,
+) {
+    let headers: Vec<Header> = [ProxyKind::Full, ProxyKind::Standard]
+        .into_iter()
+        .filter_map(|kind| read_header(&proxy_path_of(source, kind)?))
+        .collect();
+    let path = source.to_string_lossy();
+    let crops = headers
+        .iter()
+        .filter_map(|header| header.facts.as_ref())
+        .filter(|facts| facts.camera_crop.is_some())
+        .max_by_key(|facts| facts.version)
+        .and_then(|facts| rawtonic_engine::camera_crop::crops_from_facts(facts, &path));
+    let exif = headers.into_iter().find_map(|header| header.exif);
+    (crops, exif)
+}
+
 /// The header of the proxy file at `path`, read without its image.
 fn read_header(path: &Path) -> Option<Header> {
     let mut file = fs::File::open(path).ok()?;
@@ -1608,7 +1635,7 @@ pub(crate) mod frame_fixture {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// What a never-edited RAW's decode is made for.
@@ -1911,6 +1938,46 @@ mod tests {
         let photo = session.join("Capture").join("A.NEF");
         fs::write(&photo, content).unwrap();
         photo
+    }
+
+    /// Test hook: the Standard preview of `source` caches the camera crop
+    /// `crop` (and no other facts).
+    pub(crate) fn cache_camera_crop(source: &Path, crop: Vec<u32>) {
+        let settings = AppSettings::default();
+        write(source, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+        rewrite_facts(source, ProxyKind::Standard, |facts| {
+            facts.camera_crop = Some(crop);
+            facts.frames = Some(vec![0; rawtonic_engine::source_frame::VERSION as usize + 1]);
+        });
+    }
+
+    #[test]
+    fn cached_camera_reads_the_headers_only_and_picks_the_facts_that_record_the_crop() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, NEW_EDIT, None).unwrap();
+        // An older 1:1 preview without the crop beside a rebuilt Standard one.
+        rewrite_facts(&photo, ProxyKind::Full, |facts| {
+            facts.version = 14;
+            facts.camera_crop = None;
+        });
+        rewrite_facts(&photo, ProxyKind::Standard, |facts| {
+            facts.camera_crop = Some(vec![0, 376, 4000, 2248]);
+        });
+        let (crops, _) = cached_camera(&photo);
+        let crop = crops.expect("the Standard preview records the crop");
+        assert!(
+            crop.iter()
+                .flatten()
+                .any(|c| c.y == 376 && c.height == 2248)
+        );
+        // Nothing was registered for rendering.
+        assert!(source_facts::registered(&photo.to_string_lossy()).is_none());
+        // No preview: not known.
+        let other = session_with_photo(&dir.path().join("x"), b"raw bytes");
+        assert!(cached_camera(&other).0.is_none());
     }
 
     fn gradient(width: u32, height: u32) -> DynamicImage {

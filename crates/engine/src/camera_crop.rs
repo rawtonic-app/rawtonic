@@ -134,49 +134,42 @@ pub fn apply_default(adjustments: &mut Value, source: &std::path::Path) {
     }
 }
 
-/// Whether the cached facts of the offline photograph at `path` (registered
-/// from its previews, `source_facts::register`) say what its camera crop is
-/// (possibly none). False: nothing cached, or previews from before 15.
-pub fn cached_crop_known(path: &str) -> bool {
-    crate::source_facts::registered(path).is_some_and(|facts| facts.camera_crop.is_some())
+/// The camera's crops (`crops`) the cached `facts` of the photograph at
+/// `path` (kept with its previews, `source_facts`) tell, None when they do
+/// not say (previews from before facts version 15). Never reads the file.
+pub fn crops_from_facts(
+    facts: &crate::source_facts::SourceFacts,
+    path: &str,
+) -> Option<Vec<Option<CameraCrop>>> {
+    facts
+        .camera_crop
+        .as_ref()
+        .map(|_| offline(facts, &crate::source_frame::extension_of(path)))
 }
 
 /// `apply_default` for an original that must not be read (a cloud file not
-/// downloaded: opening it downloads it): the camera's crop from the cached
-/// facts (`cached_crop_known`), the user's develop defaults for `camera`
-/// (from cached EXIF). Without a cached crop the edit starts with the
-/// versions only; returns whether the crop was known, so that the caller can
-/// tell the photographer the crop is missing.
+/// downloaded: opening it downloads it): the camera's crop from `crops`
+/// (`crops_from_facts`; None: not cached), the user's develop defaults for
+/// `camera` (from cached EXIF). Without a cached crop the edit starts with
+/// the versions only; returns whether the crop was known, so that the
+/// caller can tell the photographer it is missing.
 pub fn apply_default_cached(
     adjustments: &mut Value,
     source: &std::path::Path,
+    crops: Option<Vec<Option<CameraCrop>>>,
     camera: Option<crate::develop_defaults::CameraIdentity>,
 ) -> bool {
     if !crate::image_processing::is_new_recipe(adjustments) {
         return true;
     }
-    let path = source.to_string_lossy();
-    let known = cached_crop_known(&path);
-    let crops = if known {
-        crops_cached(&path)
-    } else {
-        Vec::new()
-    };
+    let known = crops.is_some();
     let follows = crate::develop_defaults::follows_defaults(adjustments);
     let is_raw = crate::formats::is_raw_file(source);
-    start_new_edit(adjustments, &crops, is_raw);
+    start_new_edit(adjustments, &crops.unwrap_or_default(), is_raw);
     if follows {
         crate::develop_defaults::apply_current(adjustments, is_raw, || camera);
     }
     known || !is_raw
-}
-
-/// `crops` from the cached facts only (never the file).
-fn crops_cached(path: &str) -> Vec<Option<CameraCrop>> {
-    match crate::source_facts::registered(path) {
-        Some(facts) => offline(&facts, &crate::source_frame::extension_of(path)),
-        None => Vec::new(),
-    }
 }
 
 /// Starts a new edit from already-read RAW bytes, without reopening its path.

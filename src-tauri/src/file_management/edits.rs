@@ -361,7 +361,7 @@ fn missing_camera_crops(changes: &[RecipeChange]) -> Vec<String> {
             let (source, _) = parse_virtual_path(&change.path);
             rawtonic_engine::formats::is_raw_file(&source)
                 && crate::file_management::is_cloud_placeholder(&source)
-                && !rawtonic_engine::camera_crop::cached_crop_known(&source.to_string_lossy())
+                && crate::preview_proxy::cached_camera(&source).0.is_none()
         })
         .map(|change| change.path.clone())
         .collect()
@@ -605,11 +605,10 @@ fn pasted_metadata(
     let in_cloud = crate::file_management::is_cloud_placeholder(source_path);
     if in_cloud {
         cloud_gate(path, source_path, adjustments, size)?;
-        // What its previews cached of the camera's data (offline rendering's
-        // facts), and the EXIF they kept when the catalog has none.
-        let cached = crate::preview_proxy::prepare_offline(source_path);
+        // The EXIF the previews kept when the catalog has none (their
+        // headers only; the original is not opened).
         if existing_metadata.exif.is_none() {
-            existing_metadata.exif = cached;
+            existing_metadata.exif = crate::preview_proxy::cached_camera(source_path).1;
         }
     }
     existing_metadata.adjustments = pasted_into_with(
@@ -727,6 +726,7 @@ fn pasted_into_with(
         rawtonic_engine::camera_crop::apply_default_cached(
             &mut new_adjustments,
             source_path,
+            crate::preview_proxy::cached_camera(source_path).0,
             exif.as_ref()
                 .and_then(rawtonic_engine::develop_defaults::camera_of_exif_map),
         );
@@ -3454,15 +3454,7 @@ mod tests {
         save_sidecar(&paths[0], &ImageMetadata::default()).unwrap();
         in_cloud(&paths[0]);
         // What its previews cached: the camera's 16:9 crop.
-        rawtonic_engine::source_facts::register(
-            &source.to_string_lossy(),
-            rawtonic_engine::source_facts::SourceFacts {
-                version: rawtonic_engine::source_facts::VERSION,
-                frames: Some(vec![0; rawtonic_engine::source_frame::VERSION as usize + 1]),
-                camera_crop: Some(vec![0, 376, 4000, 2248]),
-                ..Default::default()
-            },
-        );
+        crate::preview_proxy::tests::cache_camera_crop(&source, vec![0, 376, 4000, 2248]);
         // Unreadable: any open of the original fails the edit.
         fs::set_permissions(&source, fs::Permissions::from_mode(0o000)).unwrap();
         let result = pasted_metadata(

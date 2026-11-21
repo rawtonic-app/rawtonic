@@ -345,6 +345,17 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string, qu
   );
 }
 
+/** Queues the AI selections the saved recipe of `path` waits for (the
+ * editor's own write goes first; `selection_queue`). */
+function queueOpenSelections(path: string) {
+  setTimeout(() => {
+    debouncedSave.flush();
+    void (photoWritesSettled(path) ?? Promise.resolve())
+      .then(() => invoke(Invokes.QueueSelections, { paths: [path] }))
+      .catch((error) => console.error('Queuing the AI selections failed:', error));
+  }, 100);
+}
+
 type RecipeBatch = {
   changes: RecipeSnapshot[];
   failure?: { message: string; failed: string[] };
@@ -1699,6 +1710,10 @@ export function useEditorActions() {
         // batch's undo step (not a later step of its own).
         debouncedSetHistory.flush();
       }
+      // In the Library the open photograph is only the active one: nothing
+      // there computes its new AI selections, so the background queue does
+      // after its save (the others' are queued by the batch).
+      if (open && presetWithAiMasks && useUIStore.getState().activeView !== 'editor') queueOpenSelections(open.path);
       const others = pastedOntoOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
       if (others.length === 0) return Promise.resolve([] as string[]);
       const openOrder = open && currentEditOrder() !== orderBefore ? currentEditOrder() : undefined;
