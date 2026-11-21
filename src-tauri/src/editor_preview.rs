@@ -1175,6 +1175,7 @@ pub(crate) fn preview_source(state: &AppState) -> Result<(LoadedImage, f32, (u32
                     image: proxy.image,
                     is_raw: proxy.is_raw,
                     decode: None,
+                    ai_denoise: None,
                     measures: proxy.measures,
                 },
                 scale,
@@ -4577,6 +4578,7 @@ mod split_view_tests {
             ))),
             is_raw: false,
             decode: None,
+            ai_denoise: None,
             measures: None,
         };
         let layer = json!({"id": "layer", "name": "Layer", "visible": true, "invert": false,
@@ -4850,6 +4852,7 @@ mod preview_memory_tests {
             image: Arc::new(DynamicImage::new_rgb32f(2400, 1200)),
             is_raw: false,
             decode: None,
+            ai_denoise: None,
             measures: None,
         });
         let develop = DevelopSession::default();
@@ -5133,6 +5136,7 @@ mod preview_memory_tests {
             image: Arc::new(DynamicImage::ImageRgb32F(image::Rgb32FImage::new(12, 8))),
             is_raw: true,
             decode: None,
+            ai_denoise: None,
             measures: None,
         };
         let result = compute_patched_and_warped(&loaded, &serde_json::json!({})).unwrap();

@@ -831,6 +831,7 @@ pub async fn apply_ai_denoise(
     let recipe =
         serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": version.unwrap_or(1) });
     let denoise = crate::ai_denoise::option_for(&app_handle, &recipe).await?;
+    let applied_ai = ai_denoise_settings(&recipe).filter(|_| denoise.is_some());
     let applied = if denoise.is_some() {
         amount.clamp(0.0, 100.0)
     } else {
@@ -921,6 +922,7 @@ pub async fn apply_ai_denoise(
             image,
             is_raw: true,
             decode: Some(variant),
+            ai_denoise: applied_ai,
             measures,
         },
     )
@@ -1133,10 +1135,10 @@ pub async fn load_image(
     } else {
         0.0
     };
-    let ai_denoise_version =
-        rawtonic_engine::image_loader::ai_denoise_settings(&metadata.adjustments)
-            .filter(|_| denoise.is_some())
-            .map_or(1, |ai| ai.version);
+    // The AI Denoise the photograph is developed with.
+    let mut applied_ai = rawtonic_engine::image_loader::ai_denoise_settings(&metadata.adjustments)
+        .filter(|_| denoise.is_some());
+    let ai_denoise_version = applied_ai.map_or(1, |ai| ai.version);
     // The opened recipe decides the decode-time chroma clean-up, the
     // dead-photosite test and the frame (a virtual copy's own recipe).
     let variant = decode_variant(&metadata.adjustments, &source_path_str);
@@ -1306,6 +1308,7 @@ pub async fn load_image(
         if denoise.as_ref().is_some_and(|d| !d.was_applied()) {
             ai_denoise = 0.0;
             ai_denoise_error = Some(NOT_BAYER.to_string());
+            applied_ai = None;
             cache_key = decoded_cache_key(&source_path_str, None, variant);
         }
 
@@ -1352,6 +1355,7 @@ pub async fn load_image(
             image: pristine_arc,
             is_raw,
             decode: Some(variant),
+            ai_denoise: applied_ai,
             measures,
         },
     )?;
@@ -1530,6 +1534,7 @@ pub(crate) fn open_kept_decode(
         image,
         is_raw: true,
         decode: Some(variant),
+        ai_denoise: None,
         measures,
     });
     drop(original);
@@ -1656,6 +1661,7 @@ async fn open_offline(
                 image: Arc::new(full.image),
                 is_raw: true,
                 decode: None,
+                ai_denoise: None,
                 measures: full.measures,
             },
         )
@@ -1762,6 +1768,7 @@ mod activation_tests {
             image: Arc::new(DynamicImage::new_rgb8(2, 1)),
             is_raw: true,
             decode: None,
+            ai_denoise: None,
             measures: None,
         };
         // Marked offline, its 1:1 preview not published yet.
@@ -1791,6 +1798,7 @@ mod activation_tests {
             image: Arc::new(DynamicImage::new_rgb8(2, 1)),
             is_raw: true,
             decode: None,
+            ai_denoise: None,
             measures: None,
         };
         publish_loaded_image(
@@ -1822,6 +1830,7 @@ mod activation_tests {
             image: Arc::new(DynamicImage::new_rgb8(2, 1)),
             is_raw: true,
             decode: None,
+            ai_denoise: None,
             measures: None,
         };
         publish_loaded_image(&original, &signal, &generation, 1, loaded("first.raf")).unwrap();
@@ -1850,6 +1859,7 @@ mod activation_tests {
             image: Arc::new(DynamicImage::new_rgb8(2, 1)),
             is_raw: true,
             decode: None,
+            ai_denoise: None,
             measures: None,
         };
         let publish = |generation: &AtomicUsize, expected: usize, path: &str| {
@@ -2232,6 +2242,7 @@ mod develop_cache_scenarios {
                 image,
                 is_raw: true,
                 decode: Some(DecodeVariant::default()),
+                ai_denoise: None,
                 measures: None,
             });
             self.preview(1);
