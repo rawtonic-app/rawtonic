@@ -192,6 +192,17 @@ pub fn detects_again(parameters: &Value) -> bool {
         == Some(true)
 }
 
+/// Whether `undetected` lists a component with nothing to render without
+/// its selection: every one but a migrated bitmap that renders as it is
+/// where its selection cannot be computed (`detects_again`).
+pub fn missing_without_stand_ins(adjustments: &Value) -> bool {
+    undetected(adjustments).iter().any(|&(l, s, _)| {
+        let parameters = &adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s]
+            [masks::PARAMETERS.name()];
+        !(detects_again(parameters) && has_bitmap(parameters))
+    })
+}
+
 /// What the export says about an undetected selection: its layer's name.
 pub fn undetected_message(adjustments: &Value, layer: usize, selection: AutoSelection) -> String {
     let name = adjustments[masks::MASKS.name()][layer][masks::NAME.name()]
