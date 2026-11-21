@@ -466,7 +466,10 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   );
   const key = `${path}\n${geometry}`;
 
-  const [download, setDownload] = useState(0);
+  // The face models' download: for the photo and geometry it was clicked
+  // on, taken when the request goes out (PRIVACY.md).
+  const [download, setDownload] = useState<string | null>(null);
+  const downloadFaces = download === key;
   // Faces stored before Eyes and Teeth have no eyes or mouth. Their Eyes
   // and Teeth wait until the user asks to find them (the face models run
   // again, no download); the eyes and mouth are then stored with the faces
@@ -487,7 +490,8 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
     let live = true;
     const reparse = storedParsed && !current;
     if (reparse && downloadNow) setEyesDownload(null);
-    (reparse ? analyseEyesTeeth(path, geometry, downloadNow, download > 0) : analyse(path, geometry, download > 0))
+    if (downloadFaces) setDownload(null);
+    (reparse ? analyseEyesTeeth(path, geometry, downloadNow, downloadFaces) : analyse(path, geometry, downloadFaces))
       .then((analysis) => {
         if (!live) return;
         if (reparse && analysis.eyesTeethMissing) {
@@ -521,19 +525,21 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       })
       .catch((error) => {
         if (!live) return;
-        // A failed search for eyes and teeth can be asked again.
+        // A failed search for eyes and teeth can be asked again, a failed
+        // parser download too.
         setEyesAsked(null);
         setFound({
           key: `${path}\n${geometry}`,
           error: aiErrorMessage(error),
-          modelsMissing: errorCode(error) === 'models_missing'
+          modelsMissing: errorCode(error) === 'models_missing',
+          ...(reparse && errorCode(error) !== 'models_missing' && { eyesTeethMissing: true })
         });
       });
     return () => {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, ready, geometry, Boolean(current), findEyes, download, storedParsed, downloadNow]);
+  }, [path, ready, geometry, Boolean(current), findEyes, downloadFaces, storedParsed, downloadNow]);
 
   const analysis = found?.key === key ? found.analysis : undefined;
   // New Eyes and Teeth use the eye and teeth parser: a retouch it has not
@@ -661,7 +667,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
             className="studio-text-button"
             onClick={() => {
               setFound(null);
-              setDownload((n) => n + 1);
+              setDownload(key);
             }}
           >
             {t('studio.faceRetouch.downloadModels')}
