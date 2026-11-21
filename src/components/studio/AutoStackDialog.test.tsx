@@ -29,7 +29,9 @@ beforeEach(() => {
   useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
   useLibraryStore.setState({ sessionDirectory: '/job' });
   vi.mocked(invoke).mockImplementation(async (command, args) => {
-    const { options } = (args ?? {}) as { options?: { intervalSecs: number; useCameraData: boolean } };
+    const { options } = (args ?? {}) as {
+      options?: { intervalSecs: number; useCameraData: boolean; similarity: number | null };
+    };
     if (command === 'stacks_auto_plan') {
       // A wider interval joins all four; camera data makes a bracket.
       const wide = options!.intervalSecs >= 120;
@@ -39,7 +41,8 @@ beforeEach(() => {
           ? [{ kind: 'time', assets: ['1', '2', '3', '4'] }]
           : [{ kind: options!.useCameraData ? 'bracket' : 'time', assets: ['1', '2'] }],
         photos: wide ? 4 : 2,
-        considered: 3
+        considered: 3,
+        unread: options!.similarity === null ? 0 : 1
       };
     }
     if (command === 'stacks_auto_apply') return { library: '/job', change: { before: [], after: [{ id: 'x' }] } };
@@ -60,17 +63,18 @@ it('previews the stacks as the interval moves and makes them as one undo step', 
   expect(screen.getByText('1 photo without a capture time or already in a stack is left out')).toBeTruthy();
   expect(invoke).toHaveBeenCalledWith('stacks_auto_plan', {
     paths,
-    options: { intervalSecs: 60, useCameraData: true }
+    options: { intervalSecs: 2, useCameraData: true, similarity: 0.78 }
   });
+  expect(screen.getByText('1 photo not read yet is grouped by time alone')).toBeTruthy();
 
-  const slider = screen.getByRole('slider');
+  const slider = screen.getByRole('slider', { name: /time/i });
   fireEvent.change(slider, { target: { value: String(INTERVALS.indexOf(300)) } });
   await screen.findByText('1 stack from 4 photos');
-  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('checkbox', { name: /camera/i }));
   await waitFor(() =>
     expect(invoke).toHaveBeenCalledWith('stacks_auto_plan', {
       paths,
-      options: { intervalSecs: 300, useCameraData: false }
+      options: { intervalSecs: 300, useCameraData: false, similarity: 0.78 }
     })
   );
 
@@ -86,9 +90,45 @@ it('previews the stacks as the interval moves and makes them as one undo step', 
   await waitFor(() =>
     expect(invoke).toHaveBeenLastCalledWith('stacks_auto_plan', {
       paths,
-      options: { intervalSecs: 300, useCameraData: true }
+      options: { intervalSecs: 300, useCameraData: true, similarity: 0.78 }
     })
   );
+});
+
+it('compares the look of consecutive photos unless turned off, and remembers it', async () => {
+  useAutoStackDialog.getState().open(paths);
+  render(<AutoStackDialogHost />);
+  await screen.findByText('1 stack from 2 photos');
+  const look = screen.getByRole('slider', { name: /alike/i });
+  fireEvent.change(look, { target: { value: '0.9' } });
+  await waitFor(() =>
+    expect(invoke).toHaveBeenLastCalledWith('stacks_auto_plan', {
+      paths,
+      options: { intervalSecs: 2, useCameraData: true, similarity: 0.9 }
+    })
+  );
+  fireEvent.click(screen.getByRole('checkbox', { name: /look alike/i }));
+  await waitFor(() =>
+    expect(invoke).toHaveBeenLastCalledWith('stacks_auto_plan', {
+      paths,
+      options: { intervalSecs: 2, useCameraData: true, similarity: null }
+    })
+  );
+  expect(screen.queryByRole('slider', { name: /alike/i })).toBeNull();
+  expect(screen.queryByText(/not read yet/)).toBeNull();
+  // Back on at the likeness last chosen.
+  fireEvent.click(screen.getByRole('checkbox', { name: /look alike/i }));
+  await waitFor(() =>
+    expect(invoke).toHaveBeenLastCalledWith('stacks_auto_plan', {
+      paths,
+      options: { intervalSecs: 2, useCameraData: true, similarity: 0.9 }
+    })
+  );
+  fireEvent.click(screen.getByRole('checkbox', { name: /look alike/i }));
+  await screen.findByText('1 stack from 2 photos');
+  fireEvent.click(screen.getByRole('button', { name: 'Make 1 stack' }));
+  await waitFor(() => expect(useAutoStackDialog.getState().paths).toBeNull());
+  expect(localStorage.getItem('rawtonic.autoStack.similarity')).toBe('off');
 });
 
 it('names intervals from a second to an hour', () => {

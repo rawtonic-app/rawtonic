@@ -515,7 +515,6 @@
       "confirmReset": "Conferma Ripristino",
       "convertNegative": "Converti Negativo",
       "copyAdjustments": "Copia Regolazioni",
-      "cullImage": "Seleziona Immagine",
       "editImage": "Modifica Immagine",
       "exportImage": "Esporta Immagine",
       "frameImage": "Incornicia Immagine",
@@ -593,9 +592,6 @@
       "copyImage_one": "Copia Immagine",
       "copyImage_many": "Copia {{count}} Immagini",
       "copyImage_other": "Copia {{count}} Immagini",
-      "cullImage_one": "Seleziona Immagine",
-      "cullImage_many": "Seleziona Immagini",
-      "cullImage_other": "Seleziona Immagini",
       "deleteAssociated": "Elimina + Associate",
       "deleteImage_one": "Elimina Immagine",
       "deleteImage_many": "Elimina {{count}} Immagini",
@@ -1176,40 +1172,6 @@
       "create": "Crea",
       "placeholder": "Inserisci nome cartella...",
       "title": "Crea Nuova Cartella"
-    },
-    "culling": {
-      "actionDelete": "Sposta nel Cestino",
-      "actionRateZero": "Imposta Valutazione a 1 Stella",
-      "actionReject": "Segna come Rifiutata (Etichetta Rossa)",
-      "applyButton_one": "Applica a 1 immagine",
-      "applyButton_many": "Applica a {{count}} immagini",
-      "applyButton_other": "Applica a {{count}} immagini",
-      "bestImage": "Migliore Immagine",
-      "blurryImagesTab": "Immagini Sfocate",
-      "blurThreshold": "Soglia Sfocatura",
-      "blurThresholdDesc": "Le immagini con un punteggio di nitidezza inferiore a questo valore vengono contrassegnate. Più alto è più severo.",
-      "cancel": "Annulla",
-      "close": "Chiudi",
-      "cullingFailed": "Selezione Fallita",
-      "cullingSuggestions": "Suggerimenti di Selezione",
-      "done": "Fatto",
-      "duplicatesHeader": "Duplicati ({{count}})",
-      "duplicatesHeader_one": "Duplicato ({{count}})",
-      "duplicatesHeader_many": "Duplicati ({{count}})",
-      "duplicatesHeader_other": "Duplicati ({{count}})",
-      "filterBlurry": "Filtra Immagini Sfocate",
-      "groupHeader": "Gruppo {{index}}",
-      "groupSimilar": "Raggruppa Immagini Simili",
-      "noIssuesDesc": "Tutte le immagini sembrano essere uniche e nitide.",
-      "noIssuesFound": "Nessun problema trovato!",
-      "score": "Punteggio: {{score}}",
-      "sharpness": "Nitidezza: {{sharpness}}",
-      "similarGroupsTab": "Gruppi Simili",
-      "similarityThreshold": "Soglia Somiglianza",
-      "similarityThresholdDesc": "Più basso è più severo (duplicati esatti). Più alto è più permissivo (quasi duplicati). Si raccomanda un valore di 24-32.",
-      "startCulling": "Avvia Selezione",
-      "starting": "Avvio in corso...",
-      "title": "Selezione Immagini"
     },
     "merge": {
       "align": "Allinea le foto",
@@ -2962,7 +2924,7 @@
       "done_many": "{{count}} pile create",
       "done_other": "{{count}} pile create",
       "interval": "Tempo tra le foto",
-      "intro": "Le foto scattate al massimo entro questo tempo dalla precedente formano una pila. Le foto già in una pila restano come sono.",
+      "intro": "Le foto scattate al massimo entro questo tempo dalla precedente formano una pila; con «Solo foto che si somigliano» devono anche mostrare la stessa scena. Le foto già in una pila restano come sono.",
       "kind": {
         "bracket_one": "{{count}} bracketing",
         "bracket_many": "{{count}} bracketing",
@@ -2985,10 +2947,15 @@
       "seconds_one": "{{count}} secondo",
       "seconds_many": "{{count}} secondi",
       "seconds_other": "{{count}} secondi",
+      "similar": "Solo foto che si somigliano",
+      "similarity": "Somiglianza minima",
       "single_one": "{{count}} foto resta singola",
       "single_many": "{{count}} foto restano singole",
       "single_other": "{{count}} foto restano singole",
       "title": "Raggruppa automaticamente per ora di scatto",
+      "unread_one": "{{count}} foto non ancora letta è raggruppata solo per ora",
+      "unread_many": "{{count}} foto non ancora lette sono raggruppate solo per ora",
+      "unread_other": "{{count}} foto non ancora lette sono raggruppate solo per ora",
       "useCameraData": "Usa i dati di raffica e bracketing della fotocamera se disponibili"
     },
     "badge": {
@@ -3332,6 +3299,37 @@
       "straightenToolTitle": "Traccia una linea lungo un bordo che deve essere orizzontale o verticale",
       "swapOrientation": "Scambia verticale e orizzontale",
       "turnOverlay": "Ruota la sovrapposizione"
+    },
+    "culling": {
+      "analyse": "Trova scatti mancati e documenti",
+      "analyseDownload": "Trova scatti mancati e documenti (scarica {{size}})",
+      "autoStack": "Impila automaticamente…",
+      "badge": "Suggerito: {{names}}",
+      "checkEyes": "Controlla occhi…",
+      "checkTitle": "Rifiuta prende i suggerimenti spuntati",
+      "criteria": {
+        "document": "Documenti",
+        "eyesClosed": "Occhi chiusi",
+        "misfire": "Scatti mancati"
+      },
+      "criteriaLabel": "Suggerimenti",
+      "dismiss_one": "Non è un problema ({{n}} selezionata)",
+      "dismiss_many": "Non è un problema ({{n}} selezionate)",
+      "dismiss_other": "Non è un problema ({{n}} selezionate)",
+      "dismissTitle": "I suggerimenti spuntati delle foto selezionate non vengono più mostrati",
+      "failed": "Suggerimenti non salvati: {{error}}",
+      "needsModel": "Per trovare scatti mancati e documenti, il modello di ricerca legge ogni foto.",
+      "reading": "Lette {{scored}} di {{total}} foto",
+      "reject_one": "Rifiuta {{n}} foto suggerita",
+      "reject_many": "Rifiuta {{n}} foto suggerite",
+      "reject_other": "Rifiuta {{n}} foto suggerite",
+      "rejectTitle": "Segna i suggerimenti spuntati come rifiutati in un solo passo annullabile; nulla viene spostato o eliminato",
+      "showAgain_one": "Mostra di nuovo i suggerimenti ({{n}} selezionata)",
+      "showAgain_many": "Mostra di nuovo i suggerimenti ({{n}} selezionate)",
+      "showAgain_other": "Mostra di nuovo i suggerimenti ({{n}} selezionate)",
+      "showOnly": "Mostra solo {{name}} ({{n}})",
+      "suggestionOnly": "Solo suggerimenti: nulla viene rifiutato finché non fai clic su Rifiuta, e Annulla lo ripristina.",
+      "title": "Selezione"
     },
     "develop": {
       "auto": {
@@ -4605,6 +4603,11 @@
             "purple": "Viola",
             "red": "Rosso",
             "yellow": "Giallo"
+          },
+          "suggestion": {
+            "document": "Documento",
+            "eyesClosed": "Occhi chiusi",
+            "misfire": "Scatto mancato"
           }
         },
         "combine": {
@@ -4642,6 +4645,8 @@
           "previousImport": "Nell’importazione precedente",
           "rating": "Valutazione",
           "sourceType": "Origine digitale (nel file)",
+          "stacked": "In una pila",
+          "suggestion": "Suggerimento di selezione",
           "text": "Qualsiasi testo ricercabile"
         },
         "folderPlaceholder": "Percorso della cartella",

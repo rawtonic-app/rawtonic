@@ -157,6 +157,8 @@ export enum Invokes {
   StopContentIndex = 'stop_content_index',
   ContentSearchStatus = 'content_search_status',
   ContentSearchDownload = 'content_search_download',
+  CullSuggestions = 'cull_suggestions',
+  CullDismiss = 'cull_dismiss',
   ContentSearchRank = 'content_search_rank',
   StartEyeCheck = 'start_eye_check',
   StopEyeCheck = 'stop_eye_check',

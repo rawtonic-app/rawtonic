@@ -53,6 +53,7 @@ import { ToolColumn } from './toolLayout';
 import { StudioExif, StudioKeywords, StudioMetadataTool } from './StudioMetadata';
 import { StudioKeywordList } from './StudioKeywordList';
 import StudioAlbums, { type SelectAlbum } from './StudioAlbums';
+import { StudioCulling } from './StudioCulling';
 import {
   DEFAULT_FOLDER_TREE_SORT,
   filterFolderTree,
@@ -815,6 +816,7 @@ export default function StudioNavigation({
         </div>
         {image && <div className="studio-nav-caption">{sourceFileName(image.path)}</div>}
       </ToolGroup>
+      {!develop && <StudioCulling key="culling" />}
       <StudioFolders key="folders" onNavigate={onNavigate} actions={folderActions} />
       {onSelectAlbum && <StudioAlbums key="albums" onSelectAlbum={onSelectAlbum} />}
       {!develop && <StudioKeywords key="keywords" />}

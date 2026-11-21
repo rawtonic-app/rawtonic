@@ -478,7 +478,6 @@
       "confirmReset": "リセットを確認",
       "convertNegative": "ネガ反転",
       "copyAdjustments": "補正設定をコピー",
-      "cullImage": "画像を選別",
       "editImage": "画像を編集",
       "exportImage": "画像を書き出し",
       "frameImage": "画像にフレームを追加",
@@ -550,8 +549,6 @@
       "convertNegative_other": "ネガ反転",
       "copyImage_one": "画像をコピー",
       "copyImage_other": "{{count}} 枚の画像をコピー",
-      "cullImage_one": "画像を選別",
-      "cullImage_other": "画像を選別",
       "deleteAssociated": "削除 + 関連ファイル",
       "deleteImage_one": "画像を削除",
       "deleteImage_other": "{{count}} 枚の画像を削除",
@@ -1114,38 +1111,6 @@
       "create": "作成",
       "placeholder": "フォルダ名を入力...",
       "title": "新規フォルダの作成"
-    },
-    "culling": {
-      "actionDelete": "ゴミ箱に移動",
-      "actionRateZero": "評価を星1に設定",
-      "actionReject": "除外としてマーク (赤ラベル)",
-      "applyButton_one": "1 枚の画像に適用",
-      "applyButton_other": "{{count}} 枚の画像に適用",
-      "bestImage": "ベスト画像",
-      "blurryImagesTab": "ぼやけた画像",
-      "blurThreshold": "ブレのしきい値",
-      "blurThresholdDesc": "この値以下のシャープネススコアを持つ画像にフラグを立てます。高いほど厳密になります。",
-      "cancel": "キャンセル",
-      "close": "閉じる",
-      "cullingFailed": "選別失敗",
-      "cullingSuggestions": "選別の提案",
-      "done": "完了",
-      "duplicatesHeader": "重複 ({{count}})",
-      "duplicatesHeader_one": "重複 ({{count}})",
-      "duplicatesHeader_other": "重複 ({{count}})",
-      "filterBlurry": "ぼやけた画像をフィルタリング",
-      "groupHeader": "グループ {{index}}",
-      "groupSimilar": "類似画像をグループ化",
-      "noIssuesDesc": "すべての画像が個性的で鮮明なようです。",
-      "noIssuesFound": "問題は見つかりませんでした！",
-      "score": "スコア: {{score}}",
-      "sharpness": "シャープネス: {{sharpness}}",
-      "similarGroupsTab": "類似グループ",
-      "similarityThreshold": "類似度のしきい値",
-      "similarityThresholdDesc": "低いほど厳密（完全な重複）になります。高いほど緩やか（類似画像）になります。24-32の値を推奨します。",
-      "startCulling": "選別を開始",
-      "starting": "開始中...",
-      "title": "画像を選別"
     },
     "merge": {
       "align": "写真を整列",
@@ -2726,7 +2691,7 @@
       "done_one": "{{count}} 個のスタックを作成しました",
       "done_other": "{{count}} 個のスタックを作成しました",
       "interval": "写真の間隔",
-      "intro": "前の写真からこの時間内に撮影された写真を同じスタックにまとめます。すでにスタックにある写真はそのままです。",
+      "intro": "前の写真からこの時間以内に撮った写真を同じスタックにします。「似ている写真だけ」をオンにすると同じ場面であることも条件になります。すでにスタックにある写真はそのままです。",
       "kind": {
         "bracket_one": "ブラケット {{count}} 組",
         "bracket_other": "ブラケット {{count}} 組",
@@ -2743,9 +2708,12 @@
       "reading": "計算中…",
       "seconds_one": "{{count}} 秒",
       "seconds_other": "{{count}} 秒",
+      "similar": "似ている写真だけ",
+      "similarity": "似ている度合い（最低）",
       "single_one": "{{count}} 枚は単独のまま",
       "single_other": "{{count}} 枚は単独のまま",
       "title": "撮影時間で自動スタック",
+      "unread_other": "まだ読み取っていない {{count}} 枚は撮影時刻だけでまとめます",
       "useCameraData": "カメラの連写・ブラケット情報があれば使用する"
     },
     "badge": {
@@ -3083,6 +3051,31 @@
       "straightenToolTitle": "水平または垂直にしたい縁に沿って線を引きます",
       "swapOrientation": "縦位置と横位置を切り替え",
       "turnOverlay": "オーバーレイを回転"
+    },
+    "culling": {
+      "analyse": "失敗写真と書類を探す",
+      "analyseDownload": "失敗写真と書類を探す（{{size}} をダウンロード）",
+      "autoStack": "自動スタック…",
+      "badge": "候補: {{names}}",
+      "checkEyes": "目をチェック…",
+      "checkTitle": "「除外」はチェックした候補に適用されます",
+      "criteria": {
+        "document": "書類",
+        "eyesClosed": "目を閉じている",
+        "misfire": "失敗写真"
+      },
+      "criteriaLabel": "候補",
+      "dismiss_other": "問題なし（{{n}} 枚選択中）",
+      "dismissTitle": "選択した写真のチェックした候補を今後表示しません",
+      "failed": "選別の候補を保存できませんでした: {{error}}",
+      "needsModel": "失敗写真と書類を見つけるため、検索モデルが各写真を読み取ります。",
+      "reading": "{{total}} 枚中 {{scored}} 枚を読み取り済み",
+      "reject_other": "候補の写真 {{n}} 枚を除外",
+      "rejectTitle": "チェックした候補を 1 回の取り消し単位で除外フラグにします。移動や削除はしません",
+      "showAgain_other": "候補を再表示（{{n}} 枚選択中）",
+      "showOnly": "{{name}} だけ表示（{{n}}）",
+      "suggestionOnly": "候補を示すだけです。「除外」をクリックするまで何も除外されず、取り消しで元に戻せます。",
+      "title": "選別"
     },
     "develop": {
       "auto": {
@@ -4297,6 +4290,11 @@
             "purple": "パープル",
             "red": "レッド",
             "yellow": "イエロー"
+          },
+          "suggestion": {
+            "document": "書類",
+            "eyesClosed": "目を閉じている",
+            "misfire": "失敗写真"
           }
         },
         "combine": {
@@ -4334,6 +4332,8 @@
           "previousImport": "前回の読み込みに含まれる",
           "rating": "レーティング",
           "sourceType": "デジタルソースの種類（ファイル内）",
+          "stacked": "スタック内",
+          "suggestion": "選別の候補",
           "text": "検索可能なすべてのテキスト"
         },
         "folderPlaceholder": "フォルダのパス",

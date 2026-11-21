@@ -478,7 +478,6 @@
       "confirmReset": "確認重置",
       "convertNegative": "轉換負片",
       "copyAdjustments": "複製調整",
-      "cullImage": "篩選影像",
       "editImage": "編輯影像",
       "exportImage": "匯出影像",
       "frameImage": "裝裱影像",
@@ -550,8 +549,6 @@
       "convertNegative_other": "轉換負片",
       "copyImage_one": "複製影像",
       "copyImage_other": "複製 {{count}} 張影像",
-      "cullImage_one": "篩選影像",
-      "cullImage_other": "篩選影像",
       "deleteAssociated": "刪除 + 關聯檔案",
       "deleteImage_one": "刪除影像",
       "deleteImage_other": "刪除 {{count}} 張影像",
@@ -1114,38 +1111,6 @@
       "create": "建立",
       "placeholder": "輸入資料夾名稱...",
       "title": "建立新資料夾"
-    },
-    "culling": {
-      "actionDelete": "移至垃圾桶",
-      "actionRateZero": "將評分設為 1 星",
-      "actionReject": "標記為已拒絕（紅色標籤）",
-      "applyButton_one": "應用到 1 張影像",
-      "applyButton_other": "應用到 {{count}} 張影像",
-      "bestImage": "最佳影像",
-      "blurryImagesTab": "模糊影像",
-      "blurThreshold": "模糊臨界值",
-      "blurThresholdDesc": "銳度評分低於此值的影像將被標記。值越高越嚴格。",
-      "cancel": "取消",
-      "close": "關閉",
-      "cullingFailed": "篩選失敗",
-      "cullingSuggestions": "篩選建議",
-      "done": "完成",
-      "duplicatesHeader": "重複項（{{count}}）",
-      "duplicatesHeader_one": "重複項（{{count}}）",
-      "duplicatesHeader_other": "重複項（{{count}}）",
-      "filterBlurry": "過濾模糊影像",
-      "groupHeader": "第 {{index}} 組",
-      "groupSimilar": "分組相似影像",
-      "noIssuesDesc": "所有影像似乎都是唯一且清晰的。",
-      "noIssuesFound": "未發現問題！",
-      "score": "評分：{{score}}",
-      "sharpness": "銳度：{{sharpness}}",
-      "similarGroupsTab": "相似組",
-      "similarityThreshold": "相似度臨界值",
-      "similarityThresholdDesc": "值越低越嚴格（完全重複）。值越高越寬鬆（近似重複）。建議值 24-32。",
-      "startCulling": "開始篩選",
-      "starting": "啟動中...",
-      "title": "篩選影像"
     },
     "merge": {
       "align": "對齊相片",
@@ -2726,7 +2691,7 @@
       "done_one": "已建立 {{count}} 個堆疊",
       "done_other": "已建立 {{count}} 個堆疊",
       "interval": "相片間隔",
-      "intro": "與上一張相隔不超過此時間拍攝的相片會放入同一堆疊。已在堆疊中的相片維持不變。",
+      "intro": "與上一張相隔不超過此時間拍攝的相片放入同一堆疊；勾選「只限看起來相似的相片」後，還須是同一場景。已在堆疊中的相片保持不變。",
       "kind": {
         "bracket_one": "{{count}} 組包圍曝光",
         "bracket_other": "{{count}} 組包圍曝光",
@@ -2743,9 +2708,12 @@
       "reading": "正在計算…",
       "seconds_one": "{{count}} 秒",
       "seconds_other": "{{count}} 秒",
+      "similar": "只限看起來相似的相片",
+      "similarity": "最低相似度",
       "single_one": "{{count}} 張相片維持單獨",
       "single_other": "{{count}} 張相片維持單獨",
       "title": "依拍攝時間自動堆疊",
+      "unread_other": "{{count}} 張尚未讀取的相片僅依時間分組",
       "useCameraData": "若有相機連拍與包圍曝光資料則使用"
     },
     "badge": {
@@ -3083,6 +3051,31 @@
       "straightenToolTitle": "沿應水平或垂直的邊緣畫一條線",
       "swapOrientation": "切換直式與橫式",
       "turnOverlay": "旋轉疊加"
+    },
+    "culling": {
+      "analyse": "找出誤拍和文件",
+      "analyseDownload": "找出誤拍和文件（下載 {{size}}）",
+      "autoStack": "自動堆疊…",
+      "badge": "建議：{{names}}",
+      "checkEyes": "檢查眼睛…",
+      "checkTitle": "「拒絕」作用於已勾選的建議",
+      "criteria": {
+        "document": "文件",
+        "eyesClosed": "閉眼",
+        "misfire": "誤拍"
+      },
+      "criteriaLabel": "建議",
+      "dismiss_other": "沒有問題（已選 {{n}} 張）",
+      "dismissTitle": "所選相片的已勾選建議不再顯示",
+      "failed": "篩選建議未儲存：{{error}}",
+      "needsModel": "為找出誤拍和文件，搜尋模型會讀取每張相片。",
+      "reading": "已讀取 {{scored}}/{{total}} 張相片",
+      "reject_other": "拒絕 {{n}} 張建議的相片",
+      "rejectTitle": "將已勾選的建議標為拒絕，可一步復原；不移動也不刪除任何檔案",
+      "showAgain_other": "重新顯示建議（已選 {{n}} 張）",
+      "showOnly": "只顯示{{name}}（{{n}}）",
+      "suggestionOnly": "僅為建議：按下「拒絕」之前不會拒絕任何相片，復原即可還原。",
+      "title": "篩選"
     },
     "develop": {
       "auto": {
@@ -4297,6 +4290,11 @@
             "purple": "紫色",
             "red": "紅色",
             "yellow": "黃色"
+          },
+          "suggestion": {
+            "document": "文件",
+            "eyesClosed": "閉眼",
+            "misfire": "誤拍"
           }
         },
         "combine": {
@@ -4334,6 +4332,8 @@
           "previousImport": "在上次匯入中",
           "rating": "星級",
           "sourceType": "數位來源類型（檔案中）",
+          "stacked": "在堆疊中",
+          "suggestion": "篩選建議",
           "text": "任何可搜尋的文字"
         },
         "folderPlaceholder": "資料夾路徑",

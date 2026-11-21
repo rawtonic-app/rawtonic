@@ -515,7 +515,6 @@
       "confirmReset": "Confirmar restablecimiento",
       "convertNegative": "Convertir negativo",
       "copyAdjustments": "Copiar ajustes",
-      "cullImage": "Cribar imagen",
       "editImage": "Editar imagen",
       "exportImage": "Exportar imagen",
       "frameImage": "Enmarcar imagen",
@@ -593,9 +592,6 @@
       "copyImage_one": "Copiar imagen",
       "copyImage_many": "Copiar {{count}} imágenes",
       "copyImage_other": "Copiar {{count}} imágenes",
-      "cullImage_one": "Cribar imagen",
-      "cullImage_many": "Cribar imágenes",
-      "cullImage_other": "Cribar imágenes",
       "deleteAssociated": "Eliminar + Asociadas",
       "deleteImage_one": "Eliminar imagen",
       "deleteImage_many": "Eliminar {{count}} imágenes",
@@ -1176,40 +1172,6 @@
       "create": "Crear",
       "placeholder": "Introduce el nombre de la carpeta...",
       "title": "Crear nueva carpeta"
-    },
-    "culling": {
-      "actionDelete": "Mover a la papelera",
-      "actionRateZero": "Establecer puntuación a 1 estrella",
-      "actionReject": "Marcar como rechazada (Etiqueta roja)",
-      "applyButton_one": "Aplicar a 1 imagen",
-      "applyButton_many": "Aplicar a {{count}} imágenes",
-      "applyButton_other": "Aplicar a {{count}} imágenes",
-      "bestImage": "Mejor imagen",
-      "blurryImagesTab": "Imágenes borrosas",
-      "blurThreshold": "Umbral de desenfoque",
-      "blurThresholdDesc": "Se marcarán las imágenes con una puntuación de nitidez por debajo de este valor. Un valor más alto es más estricto.",
-      "cancel": "Cancelar",
-      "close": "Cerrar",
-      "cullingFailed": "Cribado fallido",
-      "cullingSuggestions": "Sugerencias de cribado",
-      "done": "Hecho",
-      "duplicatesHeader": "Duplicados ({{count}})",
-      "duplicatesHeader_one": "Duplicados ({{count}})",
-      "duplicatesHeader_many": "Duplicados ({{count}})",
-      "duplicatesHeader_other": "Duplicados ({{count}})",
-      "filterBlurry": "Filtrar imágenes borrosas",
-      "groupHeader": "Grupo {{index}}",
-      "groupSimilar": "Agrupar imágenes similares",
-      "noIssuesDesc": "Todas las imágenes parecen ser únicas y nítidas.",
-      "noIssuesFound": "¡No se encontraron problemas!",
-      "score": "Puntuación: {{score}}",
-      "sharpness": "Nitidez: {{sharpness}}",
-      "similarGroupsTab": "Grupos similares",
-      "similarityThreshold": "Umbral de similitud",
-      "similarityThresholdDesc": "Más bajo es más estricto (duplicados exactos). Más alto es más flexible (casi duplicados). Se recomienda un valor de 24-32.",
-      "startCulling": "Iniciar cribado",
-      "starting": "Iniciando...",
-      "title": "Cribar imágenes"
     },
     "merge": {
       "align": "Alinear fotos",
@@ -2962,7 +2924,7 @@
       "done_many": "{{count}} pilas creadas",
       "done_other": "{{count}} pilas creadas",
       "interval": "Tiempo entre fotos",
-      "intro": "Las fotos tomadas como mucho este tiempo después de la anterior comparten pila. Las fotos que ya están en una pila no cambian.",
+      "intro": "Las fotos tomadas como mucho este tiempo después de la anterior comparten pila; con «Solo fotos que se parecen» también deben mostrar la misma escena. Las fotos que ya están en una pila no cambian.",
       "kind": {
         "bracket_one": "{{count}} horquillado",
         "bracket_many": "{{count}} horquillados",
@@ -2985,10 +2947,15 @@
       "seconds_one": "{{count}} segundo",
       "seconds_many": "{{count}} segundos",
       "seconds_other": "{{count}} segundos",
+      "similar": "Solo fotos que se parecen",
+      "similarity": "Parecido mínimo",
       "single_one": "{{count}} foto queda sola",
       "single_many": "{{count}} fotos quedan solas",
       "single_other": "{{count}} fotos quedan solas",
       "title": "Apilar automáticamente por hora de captura",
+      "unread_one": "{{count}} foto aún sin leer se agrupa solo por hora",
+      "unread_many": "{{count}} fotos aún sin leer se agrupan solo por hora",
+      "unread_other": "{{count}} fotos aún sin leer se agrupan solo por hora",
       "useCameraData": "Usar los datos de ráfaga y horquillado de la cámara cuando existan"
     },
     "badge": {
@@ -3332,6 +3299,37 @@
       "straightenToolTitle": "Dibuja una línea a lo largo de un borde que deba quedar horizontal o vertical",
       "swapOrientation": "Cambiar entre vertical y horizontal",
       "turnOverlay": "Girar la superposición"
+    },
+    "culling": {
+      "analyse": "Buscar disparos fallidos y documentos",
+      "analyseDownload": "Buscar disparos fallidos y documentos (descargar {{size}})",
+      "autoStack": "Apilar automáticamente…",
+      "badge": "Sugerido: {{names}}",
+      "checkEyes": "Comprobar ojos…",
+      "checkTitle": "Rechazar toma las sugerencias marcadas",
+      "criteria": {
+        "document": "Documentos",
+        "eyesClosed": "Ojos cerrados",
+        "misfire": "Disparos fallidos"
+      },
+      "criteriaLabel": "Sugerencias",
+      "dismiss_one": "No es un problema ({{n}} seleccionada)",
+      "dismiss_many": "No es un problema ({{n}} seleccionadas)",
+      "dismiss_other": "No es un problema ({{n}} seleccionadas)",
+      "dismissTitle": "Las sugerencias marcadas de las fotos seleccionadas no se vuelven a mostrar",
+      "failed": "Sugerencias de descarte no guardadas: {{error}}",
+      "needsModel": "Para encontrar disparos fallidos y documentos, el modelo de búsqueda lee cada foto.",
+      "reading": "{{scored}} de {{total}} fotos leídas",
+      "reject_one": "Rechazar {{n}} foto sugerida",
+      "reject_many": "Rechazar {{n}} fotos sugeridas",
+      "reject_other": "Rechazar {{n}} fotos sugeridas",
+      "rejectTitle": "Marca las sugerencias marcadas como rechazadas en un solo paso de deshacer; nada se mueve ni se borra",
+      "showAgain_one": "Volver a mostrar sugerencias ({{n}} seleccionada)",
+      "showAgain_many": "Volver a mostrar sugerencias ({{n}} seleccionadas)",
+      "showAgain_other": "Volver a mostrar sugerencias ({{n}} seleccionadas)",
+      "showOnly": "Mostrar solo {{name}} ({{n}})",
+      "suggestionOnly": "Solo sugerencias: nada se rechaza hasta que pulse Rechazar, y Deshacer lo revierte.",
+      "title": "Descarte"
     },
     "develop": {
       "auto": {
@@ -4605,6 +4603,11 @@
             "purple": "Púrpura",
             "red": "Rojo",
             "yellow": "Amarillo"
+          },
+          "suggestion": {
+            "document": "Documento",
+            "eyesClosed": "Ojos cerrados",
+            "misfire": "Disparo fallido"
           }
         },
         "combine": {
@@ -4642,6 +4645,8 @@
           "previousImport": "En la importación anterior",
           "rating": "Valoración",
           "sourceType": "Origen digital (en el archivo)",
+          "stacked": "En una pila",
+          "suggestion": "Sugerencia de descarte",
           "text": "Cualquier texto buscable"
         },
         "folderPlaceholder": "Ruta de la carpeta",
