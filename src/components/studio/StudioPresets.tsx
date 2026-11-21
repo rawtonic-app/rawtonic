@@ -236,6 +236,8 @@ export default function StudioPresets() {
     /** What the preset's versions were decided on when it was applied (`openPasteTarget`). */
     target: { recipe: Partial<Adjustments>; isNew: boolean };
     value: number;
+    /** The preset's layers Amount 0 hid (`amountLayers`): shown again above 0. */
+    hidden?: Set<string>;
   } | null>(null);
   const { showContextMenu } = useContextMenu();
   const [query, setQuery] = useState('');
@@ -346,7 +348,7 @@ export default function StudioPresets() {
   };
   const changeAmount = (value: number) => {
     if (!amount || amount.path !== selectedImage?.path) return;
-    setAmount({ ...amount, value });
+    let hidden = amount.hidden;
     const values = expressPastedSettings(presetValues(amount.preset.adjustments), {
       ...amount.target,
       isRaw: Boolean(selectedImage?.isRaw),
@@ -358,14 +360,14 @@ export default function StudioPresets() {
     // layers stay as they are now (edits made since the preset included).
     const presetLayers = values.masks;
     delete values.masks;
+    const layers = presetLayers
+      ? amountLayers(currentAdjustments().masks, presetLayers, value / 100, amount.hidden)
+      : null;
+    if (layers) hidden = layers.hidden;
+    setAmount({ ...amount, value, hidden });
     const blended = blendPreset(amount.base, values as unknown as Record<string, unknown>, value / 100);
     setAdjustments(
-      (current) =>
-        ({
-          ...current,
-          ...blended,
-          ...(presetLayers ? { masks: amountLayers(current.masks, presetLayers, value / 100) } : {})
-        }) as typeof current
+      (current) => ({ ...current, ...blended, ...(layers ? { masks: layers.layers } : {}) }) as typeof current
     );
   };
   const exportPreset = async (preset: Preset) => {

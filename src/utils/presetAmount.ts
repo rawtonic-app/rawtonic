@@ -44,14 +44,18 @@ export function blendPreset(
 /** The photo's layers (`current`) with a preset's layers (`preset`, by id,
  * as applying it joined them) at `amount` (0 … 1): each one's settings
  * blended from neutral to the preset's, as Lightroom's Amount scales an
- * adaptive preset's masks; at 0 hidden (nothing to render or detect for
- * it), shown again above. Its detection and the photo's other layers stay. */
+ * adaptive preset's masks. At 0 a shown one is hidden (nothing to render or
+ * detect for it) and named in `hidden`; above 0 only those it hid are shown
+ * again (a layer the photographer hid stays hidden). Its detection and the
+ * photo's other layers stay. */
 export function amountLayers(
   current: MaskContainer[] | undefined,
   preset: MaskContainer[],
-  amount: number
-): MaskContainer[] {
-  return (current ?? []).map((layer) => {
+  amount: number,
+  hiddenBefore: ReadonlySet<string> = new Set()
+): { layers: MaskContainer[]; hidden: Set<string> } {
+  const hidden = new Set<string>();
+  const layers = (current ?? []).map((layer) => {
     const own = preset.find((p) => p.id === layer.id);
     if (!own) return layer;
     const scaled = blendPreset(
@@ -59,10 +63,12 @@ export function amountLayers(
       (own.adjustments ?? {}) as unknown as Record<string, unknown>,
       amount
     );
-    return {
-      ...layer,
-      visible: amount > 0,
-      adjustments: { ...layer.adjustments, ...scaled } as MaskContainer['adjustments']
-    };
+    let visible = layer.visible;
+    if (amount <= 0 && (visible || hiddenBefore.has(layer.id))) {
+      visible = false;
+      hidden.add(layer.id);
+    } else if (amount > 0 && hiddenBefore.has(layer.id)) visible = true;
+    return { ...layer, visible, adjustments: { ...layer.adjustments, ...scaled } as MaskContainer['adjustments'] };
   });
+  return { layers, hidden };
 }

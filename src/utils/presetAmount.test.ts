@@ -105,7 +105,7 @@ it('scales an adaptive preset’s layers from neutral and keeps the photo’s ot
   ];
   // As shown now: the preset's layer with its detection.
   const current = [own, layer('sky', { exposure: -0.4, saturation: 20 }, 'data:sky'), later];
-  const half = amountLayers(current, preset, 0.5);
+  const { layers: half } = amountLayers(current, preset, 0.5);
   expect(half.map((l) => l.id)).toEqual(['brush', 'sky', 'later']);
   expect(half[0]).toBe(own);
   expect(half[2]).toBe(later);
@@ -114,6 +114,13 @@ it('scales an adaptive preset’s layers from neutral and keeps the photo’s ot
   expect(half[1].visible).toBe(true);
   // At 0: hidden, so no export waits for its detection; shown again above.
   const none = amountLayers(current, preset, 0);
-  expect(none[1]).toMatchObject({ visible: false, adjustments: { exposure: 0, saturation: 0 } });
-  expect(amountLayers(none, preset, 0.2)[1].visible).toBe(true);
+  expect(none.layers[1]).toMatchObject({ visible: false, adjustments: { exposure: 0, saturation: 0 } });
+  expect([...none.hidden]).toEqual(['sky']);
+  expect(amountLayers(none.layers, preset, 0.2, none.hidden).layers[1].visible).toBe(true);
+  // A layer the photographer hid stays hidden at any Amount.
+  const hiddenByUser = current.map((l) => (l.id === 'sky' ? { ...l, visible: false } : l));
+  expect(amountLayers(hiddenByUser, preset, 0.5).layers[1].visible).toBe(false);
+  const zero = amountLayers(hiddenByUser, preset, 0);
+  expect(zero.hidden.size).toBe(0);
+  expect(amountLayers(zero.layers, preset, 0.5, zero.hidden).layers[1].visible).toBe(false);
 });

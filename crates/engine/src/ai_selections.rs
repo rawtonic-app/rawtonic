@@ -356,7 +356,11 @@ pub fn keep_detected_in(stored: &mut Value, frame: &Value, detected: &[Detected]
         };
         if sub[masks::TYPE.name()].as_str().and_then(AutoSelection::of) != Some(found.selection)
             || has_bitmap(&sub[masks::PARAMETERS.name()])
+            || run_key(found.selection, &sub[masks::PARAMETERS.name()])
+                != run_key(found.selection, p)
         {
+            // (Other parts, another person or Subject version since: the
+            // bitmap is not this component's any more.)
             continue;
         }
         // The component's own settings now (Grow, Feather changed since).
@@ -650,6 +654,19 @@ mod tests {
         straightened["rotation"] = json!(2.0);
         assert!(!keep_detected(&mut straightened, &found));
         // Detected meanwhile (the photo was opened): left as it is.
+        // Another People request since (parts changed): not its bitmap.
+        let mut people = json!({"masks": [{"id": "a", "name": "Skin", "visible": true, "subMasks": [
+            {"id": "p", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null, "detectPending": true, "parts": ["faceSkin"]}}]}]});
+        let found_people = detect_missing(
+            &mut people.clone(),
+            &source,
+            false,
+            Some(&Fixed(Default::default())),
+            &mut || {},
+        )
+        .unwrap();
+        people["masks"][0]["subMasks"][0]["parameters"]["parts"] = json!(["hair"]);
+        assert!(!keep_detected(&mut people, &found_people));
         let mut opened = recipe();
         opened["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"] = json!("data:own");
         opened["masks"][1]["subMasks"][0]["parameters"]["maskDataBase64"] = json!("data:own");
