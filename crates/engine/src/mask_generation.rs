@@ -177,10 +177,44 @@ impl PhotoGeometry {
 
     /// From the warp a mask was made in to the current one, when they differ.
     fn warp_change(&self, params: &Value, width: u32, height: u32) -> Option<WarpChange> {
+        self.warp_change_with(params, width, height, false)
+    }
+
+    /// `warp_change` for a bitmap stored on the grid (`BITMAP_GRID_OF`): the
+    /// recorded warp is read with the current render's way of computing a
+    /// warp (`keep_negative`, `f32_warp`, `gpu_warp`, which come from the
+    /// recipe's render version and which `mask_warp` does not record), so a
+    /// mask made in the current lens and transform correction is not mapped
+    /// through it again. Reading it without them made every AI mask on a
+    /// photo with a lens profile look made in another warp: a 40 MP Fuji's
+    /// mask took ~160 ms instead of a few to place (notes:
+    /// benchmark-results/lsm2-2026-11-21/REPORT.md). The other bitmaps keep
+    /// that comparison until a decision on their exports' bytes.
+    fn grid_warp_change(&self, params: &Value, width: u32, height: u32) -> Option<WarpChange> {
+        self.warp_change_with(params, width, height, true)
+    }
+
+    fn warp_change_with(
+        &self,
+        params: &Value,
+        width: u32,
+        height: u32,
+        current_engine: bool,
+    ) -> Option<WarpChange> {
         let now = self.warp.as_deref()?;
-        let then = warp_geometry(get_geometry_params_from_json(
+        let recorded = get_geometry_params_from_json(
             params.get(masks::WARP.name()).filter(|w| w.is_object())?,
-        ));
+        );
+        let then = warp_geometry(if current_engine {
+            GeometryParams {
+                keep_negative: now.keep_negative,
+                f32_warp: now.f32_warp,
+                gpu_warp: now.gpu_warp,
+                ..recorded
+            }
+        } else {
+            recorded
+        });
         (warp_key(&then) != self.warp_key).then(|| WarpChange {
             now: WarpPoints::new(now, width, height),
             then: WarpPoints::new(&then, width, height),
@@ -4050,7 +4084,7 @@ fn ai_bitmap_in_frame(
         crop_offset,
     };
     if let Some((w, h)) = grid_of {
-        let change = geometry.warp_change(params_value, w, h);
+        let change = geometry.grid_warp_change(params_value, w, h);
         return Some(generate_ai_bitmap_from_grid(
             &full_mask,
             (w, h),
@@ -10896,5 +10930,30 @@ mod bitmap_frame_tests {
             place(&data_url(&grid), &both, frame, &geometry),
             place(&data_url(&grid), &framed, frame, &geometry)
         );
+    }
+
+    /// A grid bitmap made in the photo's current lens profile correction
+    /// is not mapped through it again, though the recorded warp lacks the
+    /// render version's way of computing it; a changed correction still
+    /// moves it. (Other bitmaps keep their comparison, see `grid_warp_change`.)
+    #[test]
+    fn grid_bitmaps_made_in_the_current_lens_correction_are_not_remapped() {
+        let recipe = json!({
+            "renderVersion": crate::image_processing::RENDER_VERSION,
+            "lensCorrectionMode": "camera",
+            "lensDistortionEnabled": true,
+            "lensDistortionAmount": 100,
+            "lensDistortionParams": {"model": 3, "k1": 0, "k2": 0, "k3": 0,
+                "table": [1.10, 1.09, 1.07, 1.05, 1.03, 1.0],
+                "table_radii": [0.0, 0.3, 0.5, 0.7, 0.85, 1.0],
+                "zoom": 1.08, "exact_zoom": true},
+        });
+        let geometry = PhotoGeometry::from_adjustments(&recipe);
+        let made_now = json!({"warp": mask_warp(&recipe)});
+        assert!(geometry.grid_warp_change(&made_now, 600, 400).is_none());
+        let mut before = recipe.clone();
+        before["lensDistortionAmount"] = json!(50);
+        let made_before = json!({"warp": mask_warp(&before)});
+        assert!(geometry.grid_warp_change(&made_before, 600, 400).is_some());
     }
 }
