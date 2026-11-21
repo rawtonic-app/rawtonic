@@ -195,17 +195,19 @@ const EFFECT_TERMS_DECLARATIONS: &str = "override EFFECT_TERMS: bool = false;\n\
      // A drag's frame (detail_cache.z, G76/GRN3, GRN4): the terms once per\n\
      // block of 2 x 2 or 4 x 4 pixels of the photo (z is the shift; blocks of\n\
      // absolute coordinates), stored and read at the block's index in the tile.\n\
-     // The grain field pass and the finish pass that reads it (`FILM_GRAIN_EDITS`).\n\
+     // The grain field pass and the finish pass that reads it (`FILM_GRAIN_EDITS`),\n\
+     // over blocks of 2 x 2 or 4 x 4 pixels (detail_cache.w is the shift,\n\
+     // G76/GRN6).\n\
      override GRAIN_FIELD_PASS: bool = false;\n\
      override GRAIN_FROM_FIELD: bool = false;\n\
      @group(0) @binding(40) var grain_field_out: texture_storage_2d<rgba32float, write>;\n\
      @group(0) @binding(41) var grain_field: texture_2d<f32>;\n\
      fn tile_offset() -> vec2<u32> {\n    \
      return vec2<u32>(adjustments.tile_offset_x, adjustments.tile_offset_y);\n}\n\
-     // The 2 x 2 block (of absolute coordinates) of tile pixel `p`, at its\n\
-     // index in the tile.\n\
+     // The grain field's block (of absolute coordinates) of tile pixel `p`,\n\
+     // at its index in the tile.\n\
      fn block_index(p: vec2<u32>) -> vec2<u32> {\n    \
-     return block_index_of(p, 1u);\n}\n\
+     return block_index_of(p, adjustments.detail_cache.w);\n}\n\
      // The same for blocks of `1 << shift` pixels.\n\
      fn block_index_of(p: vec2<u32>, shift: u32) -> vec2<u32> {\n    \
      return ((p + tile_offset()) >> vec2<u32>(shift)) - (tile_offset() >> vec2<u32>(shift));\n}\n\
@@ -218,13 +220,14 @@ const EFFECT_TERMS_DECLARATIONS: &str = "override EFFECT_TERMS: bool = false;\n\
      // in the tile, at its first pixel in the tile.\n\
      fn terms_pixel(p: vec2<u32>) -> vec3<u32> {\n    \
      if (!((EFFECT_TERMS_PASS && terms_half()) || GRAIN_FIELD_PASS)) { return vec3<u32>(p, 0u); }\n    \
-     // The grain field's blocks are 2 x 2.\n    \
-     let shift = select(adjustments.detail_cache.z, 1u, GRAIN_FIELD_PASS);\n    \
+     let shift = select(adjustments.detail_cache.z, adjustments.detail_cache.w, GRAIN_FIELD_PASS);\n    \
      let first = (p + (tile_offset() >> vec2<u32>(shift))) << vec2<u32>(shift);\n    \
      // A 4 x 4 block's terms at its pixel (1, 1), the nearest to its centre\n    \
      // (G76/GRN4; from the first pixel the drag frame's mean shift doubled),\n    \
-     // within the photo. The terms read no pixel the main pass renders.\n    \
-     let at = min(first + vec2<u32>(select(0u, 1u, shift > 1u)), vec2<u32>(input_dims()) - vec2<u32>(1u));\n    \
+     // within the photo. The terms read no pixel the main pass renders. The\n    \
+     // grain field reads the stored colour of the block's first pixel, which\n    \
+     // the main pass renders in every region (`with_block_starts`).\n    \
+     let at = min(first + vec2<u32>(select(0u, 1u, shift > 1u && !GRAIN_FIELD_PASS)), vec2<u32>(input_dims()) - vec2<u32>(1u));\n    \
      return vec3<u32>(max(at, tile_offset()) - tile_offset(), 0u);\n}\n";
 
 /// shader.wgsl's text (after `with_effects_apart`) and what the display
@@ -340,7 +343,7 @@ const FINISH_MAIN_END: &str = "    if (FINISH_APART && adjustments.detail_cache.
 const FINISH_PASS_AT: &str = "    let original_alpha = load_input(vec2<i32>(absolute_coord)).a;\n";
 const FINISH_PASS: &str = "    if (GRAIN_FIELD_PASS) {\n        \
      let stored = textureLoad(deferred_texture, vec2<i32>(id.xy), 0);\n        \
-     let grain = apply_film_grain(stored.rgb, absolute_coord >> vec2<u32>(1u));\n        \
+     let grain = apply_film_grain(stored.rgb, absolute_coord >> vec2<u32>(adjustments.detail_cache.w));\n        \
      textureStore(grain_field_out, block_index(id.xy), vec4<f32>(grain, 0.0));\n    \
      } else if (FINISH_PASS) {\n        \
      let stored = textureLoad(deferred_texture, vec2<i32>(id.xy), 0);\n        \
@@ -353,16 +356,17 @@ const MAIN_START: &str = "@compute @workgroup_size(8, 8, 1)\nfn main(";
 
 /// Film grain of a drag's frame (G76/GRN3): shader.wgsl's text in
 /// `apply_film_grain` and what the display source writes instead. With
-/// `GRAIN_FIELD_PASS` the function returns the grain of a 2 x 2 block at
-/// the block's coordinates, twice the texels per pixel (the grain field
-/// rendered at half resolution); with `GRAIN_FROM_FIELD` it applies the
+/// `GRAIN_FIELD_PASS` the function returns the grain of a 2 x 2 or 4 x 4
+/// block (`detail_cache.w`, G76/GRN6) at the block's coordinates, twice or
+/// four times the texels per pixel (the grain field rendered at half or a
+/// quarter of the resolution); with `GRAIN_FROM_FIELD` it applies the
 /// block's grain (`grain_field`) to the pixel's own colour. Without either
 /// constant it computes what it did.
 const FILM_GRAIN_EDITS: [(&str, &str); 3] = [
     (
         "    let s_q = cells * (FILM_TEXELS_PER_CELL >> 12u) + ((cells * (FILM_TEXELS_PER_CELL & 4095u)) >> 12u);\n",
         "    var s_q = cells * (FILM_TEXELS_PER_CELL >> 12u) + ((cells * (FILM_TEXELS_PER_CELL & 4095u)) >> 12u);\n    \
-         if (GRAIN_FIELD_PASS) {\n        s_q = s_q * 2u;\n    }\n",
+         if (GRAIN_FIELD_PASS) {\n        s_q = s_q << adjustments.detail_cache.w;\n    }\n",
     ),
     (
         "    var grain: vec3<f32>;\n    if (rho >= 1.0) {\n        // One neutral layer at the luminance's density.\n",
