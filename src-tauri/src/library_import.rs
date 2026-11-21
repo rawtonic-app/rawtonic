@@ -102,6 +102,11 @@ pub struct ImportReport {
     /// Albums with a virtual copy among their members: a Rawtonic album
     /// holds photographs, so it holds the copy's photograph.
     pub copies_in_albums: Vec<String>,
+    /// Smart albums imported on camera, lens, ISO or capture date: the
+    /// catalog fills them as the background pass reads the files, and
+    /// camera and lens words are matched in the name the file states, not
+    /// as Lightroom does, so they can differ from Lightroom's.
+    pub smart_albums_by_facts: Vec<String>,
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -161,14 +166,26 @@ pub fn smart_rule(rules: &SmartRules) -> Option<Rule> {
     Some(Rule::Group { combine, rules })
 }
 
-/// Whether a smart collection's rules look at a camera or lens name: the
-/// catalog finds a word anywhere in the name the file states, Lightroom
-/// whole words in the name from its own tables, so the members can differ.
-fn smart_rule_names_text(rules: &SmartRules) -> bool {
-    rules.rules.iter().any(|rule| match rule {
-        SmartRule::Group(group) => smart_rule_names_text(group),
-        SmartRule::Condition { criteria, .. } => matches!(criteria.as_str(), "camera" | "lens"),
-    })
+/// What a smart collection's rules depend on that the catalog reads from
+/// the files after the import: `Some(note)` for camera, lens, ISO or
+/// capture date. The catalog finds camera and lens words anywhere in the
+/// name the file states, Lightroom whole words in names from its own
+/// tables, so those members can differ.
+fn smart_rule_facts_note(rules: &SmartRules) -> Option<&'static str> {
+    const TEXT: &str = "filled as the files' capture data is read; camera and lens words match anywhere in the name the file states, Lightroom matches whole words in names from its own tables, so the members can differ";
+    const FACTS: &str = "filled as the files' capture data is read";
+    rules
+        .rules
+        .iter()
+        .filter_map(|rule| match rule {
+            SmartRule::Group(group) => smart_rule_facts_note(group),
+            SmartRule::Condition { criteria, .. } => match criteria.as_str() {
+                "camera" | "lens" => Some(TEXT),
+                "isoSpeedRating" | "captureTime" => Some(FACTS),
+                _ => None,
+            },
+        })
+        .max_by_key(|note| note.len())
 }
 
 /// What stops a smart collection's rules from translating: the first
@@ -554,12 +571,12 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                 },
                 None => None,
             };
-            if smart.is_some() && album.smart.as_ref().is_some_and(smart_rule_names_text) {
-                report.warnings.push(format!(
-                    "{}: camera and lens words are looked for anywhere in the name the file states; \
-                     Lightroom matches whole words in names from its own tables, so the members can differ",
-                    album.name
-                ));
+            if smart.is_some()
+                && let Some(note) = album.smart.as_ref().and_then(smart_rule_facts_note)
+            {
+                report
+                    .smart_albums_by_facts
+                    .push(format!("{}: {note}", album.name));
             }
             let kind = if album.is_group {
                 GROUP
@@ -2682,11 +2699,12 @@ mod tests {
             ..source
         };
         let report = import_into(&catalog, &source).unwrap();
-        // A lens or camera name is matched by text, not as Lightroom does:
-        // said in the report, for that album only.
-        assert_eq!(report.warnings.len(), 1, "{report:?}");
+        // Camera and lens albums are named in the report (filled later,
+        // matched by text), the file-name album is not.
+        assert!(report.warnings.is_empty(), "{report:?}");
+        assert_eq!(report.smart_albums_by_facts.len(), 1, "{report:?}");
         assert!(
-            report.warnings[0].starts_with("lens TAMRON: "),
+            report.smart_albums_by_facts[0].starts_with("lens TAMRON: filled as"),
             "{report:?}"
         );
         for (name, model, lens, iso) in rows {

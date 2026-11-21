@@ -2134,6 +2134,7 @@
       "importCopies_one": "{{count}} virtuelle Kopie importiert",
       "importCopies_other": "{{count}} virtuelle Kopien importiert",
       "importCopiesInAlbums": "Alben enthalten Fotos, keine virtuellen Kopien – diese Kopien wurden als ihre Fotos hinzugefügt: {{n}}.",
+      "importSmartAlbumsByFacts": "Smart-Alben nach Kamera, Objektiv, ISO oder Aufnahmedatum füllen sich, während die Aufnahmedaten der Dateien gelesen werden; Kamera- und Objektivwörter können andere Fotos finden als in Lightroom: {{n}}.",
       "importCopiesSkipped_one": "{{count}} virtuelle Kopie nicht importiert",
       "importCopiesSkipped_other": "{{count}} virtuelle Kopien nicht importiert",
       "importCropsClipped_one": "{{count}} Freistellung ragte über das Bildfeld der Kamera hinaus und wurde darauf beschnitten",

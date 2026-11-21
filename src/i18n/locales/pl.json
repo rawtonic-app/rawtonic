@@ -2359,6 +2359,7 @@
       "importCopies_many": "{{count}} kopii wirtualnych zaimportowanych",
       "importCopies_other": "{{count}} kopii wirtualnej zaimportowanej",
       "importCopiesInAlbums": "Albumy zawierają zdjęcia, nie kopie wirtualne — te kopie dodano jako ich zdjęcia: {{n}}.",
+      "importSmartAlbumsByFacts": "Albumy inteligentne według aparatu, obiektywu, ISO lub daty wykonania zapełniają się w miarę odczytu danych zdjęć z plików; słowa aparatu i obiektywu mogą pasować do innych zdjęć niż w Lightroomie: {{n}}.",
       "importCopiesSkipped_one": "{{count}} kopia wirtualna niezaimportowana",
       "importCopiesSkipped_few": "{{count}} kopie wirtualne niezaimportowane",
       "importCopiesSkipped_many": "{{count}} kopii wirtualnych niezaimportowanych",

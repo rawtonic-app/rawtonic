@@ -2134,6 +2134,7 @@
       "importCopies_one": "{{count}} virtual copy imported",
       "importCopies_other": "{{count}} virtual copies imported",
       "importCopiesInAlbums": "Albums hold photographs, not virtual copies — these copies were added as their photographs: {{n}}.",
+      "importSmartAlbumsByFacts": "Smart albums by camera, lens, ISO or capture date fill as the files' capture data is read, and camera and lens words can match other photos than in Lightroom: {{n}}.",
       "importCopiesSkipped_one": "{{count}} virtual copy not imported",
       "importCopiesSkipped_other": "{{count}} virtual copies not imported",
       "importCropsClipped_one": "{{count}} crop reached beyond the camera's frame and was trimmed to it",

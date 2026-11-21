@@ -835,6 +835,7 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
               albums: 2,
               smartAlbumsSkipped: ['Camera: no counterpart for “camera” (words)'],
               copiesInAlbums: ['Italy: A.NEF (Copy 1)'],
+              smartAlbumsByFacts: ['Tamron: filled as the files’ capture data is read'],
               errors: [],
               warnings
             }
@@ -875,6 +876,10 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
   expect(toast.warning).toHaveBeenCalledWith(
     'Albums hold photographs, not virtual copies — these copies were added as their photographs: 1.',
     { detail: 'Italy: A.NEF (Copy 1)', autoClose: false }
+  );
+  expect(toast.warning).toHaveBeenCalledWith(
+    expect.stringContaining('Smart albums by camera, lens, ISO or capture date fill as the files'),
+    { detail: 'Tamron: filled as the files’ capture data is read', autoClose: false }
   );
   expect(toast.success).toHaveBeenCalledWith(
     expect.stringContaining('12 photos imported (5 with edits, 2 albums)'),

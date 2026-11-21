@@ -2062,6 +2062,7 @@
       "importAiMasksOnOpen_other": "사진 {{count}}개의 AI 마스크는 현상에서 열거나 내보낼 때 계산됩니다",
       "importCopies_other": "가상 복사본 {{count}}개를 가져옴",
       "importCopiesInAlbums": "앨범에는 가상 복사본이 아니라 사진이 들어갑니다. 이 복사본은 해당 사진으로 추가되었습니다: {{n}}.",
+      "importSmartAlbumsByFacts": "카메라, 렌즈, ISO, 촬영 날짜 스마트 앨범은 파일의 촬영 데이터를 읽는 동안 채워지며, 카메라와 렌즈 단어는 Lightroom과 다른 사진에 일치할 수 있습니다: {{n}}.",
       "importCopiesSkipped_other": "가상 복사본 {{count}}개는 가져오지 않음",
       "importCropsClipped_other": "자르기 {{count}}개가 카메라 프레임을 벗어나 프레임에 맞게 잘림",
       "imported_other": "사진 {{count}}장을 가져왔습니다(조정됨 {{withSettings}}장, 앨범 {{albums}}개)",
