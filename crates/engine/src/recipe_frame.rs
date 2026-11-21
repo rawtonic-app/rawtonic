@@ -370,9 +370,22 @@ pub fn scale_geometry(adjustments: &mut Value, from: (u32, u32), to: (u32, u32))
         adjustments,
         (f64::from(from.0), f64::from(from.1)),
     );
+    let recipe_steps = steps(adjustments);
+    let own = (
+        f64::from(to.0) / f64::from(from.0),
+        f64::from(to.1) / f64::from(from.1),
+    );
     for_each_ai_component(adjustments, |parameters| {
         // An Object selection's box and prompts, in pixels of the photo as
-        // shown, as the spots.
+        // shown when it was made: turned by the component's own orientation
+        // steps (the recipe's when it records none).
+        let turned = parameters
+            .get(geometry::ORIENTATION_STEPS.name())
+            .and_then(Value::as_i64)
+            .unwrap_or(recipe_steps)
+            .rem_euclid(2)
+            == 1;
+        let (sx, sy) = if turned { (own.1, own.0) } else { own };
         for (key, scale) in [("startX", sx), ("startY", sy), ("endX", sx), ("endY", sy)] {
             if let Some(v) = parameters[key].as_f64() {
                 parameters[key] = json!(v * scale);

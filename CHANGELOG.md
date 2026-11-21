@@ -45,9 +45,9 @@
 
 - **Camera RAW TIFF edits from before 0.1.0-alpha.17.1 keep their crop, spots and AI masks on the photograph.** Raw `.tif` files of Phase One backs, Kodak DCS and Canon EOS-1D/1Ds bodies were developed from their small embedded thumbnail until 0.1.0-alpha.17.1, so their edits were made on it. Since then they develop at full resolution, and crops, spot removals and AI masks stayed at their thumbnail pixels: a crop became a corner of a few hundred pixels, and spots and masks sat near the top-left corner. These edits now open and export moved to the full frame. The sidecar is only rewritten when you save a change.
   - Measured with the CLI on five CC0 raw.pixls.us samples (Canon EOS-1D, Kodak DCS560C, Phase One P30, H 25 and IQ140) against the same edit made on the full frame:
-    - Crop, crop with a 90° turn, and Straighten with crop export identical to it.
+    - Crop, crop with a 90° turn, and Straighten with crop export at the same size, with a mean luminance difference of 0.00 codes at the best shift of 0 px.
     - Spot removals land within 0.1 px (overlap 0.991–1.0).
-    - AI Subject, Sky and depth masks are stretched over the photograph and land as precisely as the thumbnail's own pixels allow: 1.5–21 px on frames 9–31 times larger, as drawn masks already did.
+    - AI masks are stretched over the photograph. A synthetic Subject selection lands 1.5–21 px off, with overlap 0.94–0.996, on frames 9–31 times larger; the thumbnail-sized bitmap holds no finer detail. Sky and depth masks use the same placement but were not measured separately.
   - Brush, Linear and Radial masks, which record the size they were drawn on, and edits of all other files render exactly as before.
   - Rawtonic now saves the photo size each edit was made on with it.
   - Snapshots, Object selection prompts and Library thumbnails move with the edit.

@@ -229,3 +229,20 @@ fn ai_prompts_and_bitmaps_move_with_the_photo() {
         json!({"width": 288, "height": 192})
     );
 }
+
+/// An Object selection made on the photo turned a quarter keeps its prompts
+/// in that turned frame, also when the photo was turned back since.
+#[test]
+fn ai_prompts_scale_in_their_own_orientation() {
+    let (sx, sy) = (2496.0 / 288.0, 1662.0 / 192.0);
+    let mut recipe = json!({"orientationSteps": 0, "masks": [{"subMasks": [{"type": "ai-subject", "parameters": {
+        "orientationSteps": 1, "startX": 10.0, "startY": 140.0, "endX": 20.0, "endY": 150.0,
+        "prompts": [{"type": "point", "x": 50.0, "y": 140.0}]
+    }}]}]});
+    scale_geometry(&mut recipe, FRAMES.thumbnail, FRAMES.full);
+    let p = &recipe["masks"][0]["subMasks"][0]["parameters"];
+    // Turned: x runs along the photo's height, y along its width.
+    close(&p["startX"], 10.0 * sy);
+    close(&p["startY"], 140.0 * sx);
+    close(&p["prompts"][0]["y"], 140.0 * sx);
+}
