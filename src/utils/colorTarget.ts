@@ -757,7 +757,8 @@ export interface MeasuredSolve {
 /** Corrections after the model's solve (each one renderer probe). */
 export const MAX_CORRECTIONS = 3;
 /** No further correction starts once this much time has passed since the
- * first probe was asked for (the typed target's latency budget). */
+ * first measurement came back (the corrections' share of a typed target's
+ * latency; the first measurement may wait for the full-resolution source). */
 export const CORRECTION_BUDGET_MS = 120;
 /** Below this measured distance no correction is tried. */
 const GOOD_ENOUGH = 0.2;
@@ -785,7 +786,7 @@ export async function solveColorTargetMeasured(
   if (!first) return null;
   const withShifts = (shifts: TargetSolve['shifts']) => ranges.map((r) => (r.id === id ? { ...r, ...shifts } : r));
   let best: MeasuredSolve = { ranges: withShifts(first.shifts), measured: null, corrections: 0 };
-  const started = now();
+  let started: number | null = null;
   const tried = new Set<string>();
   let aim = targetLab;
   let solve = first;
@@ -801,6 +802,7 @@ export async function solveColorTargetMeasured(
     const deltaE = deltaE00(targetLab, lab);
     if (best.measured && deltaE >= best.measured.deltaE - 0.01) break;
     best = { ranges: next, measured: { lab, deltaE }, corrections: step };
+    started ??= now();
     if (deltaE <= GOOD_ENOUGH || now() - started > budgetMs) break;
     // Aim past the target by what the render missed it by.
     aim = aim.map((v, k) => v + (targetLab[k] - lab[k])) as Vec3;

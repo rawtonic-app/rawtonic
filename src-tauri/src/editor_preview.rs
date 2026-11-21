@@ -1446,12 +1446,15 @@ pub async fn sample_color_range_input(
 }
 
 /// The target colour's measurement: the pixels of `adjustments` (the recipe
-/// as it would be applied, without view states) around a point of the shown
-/// preview, rendered in sRGB with every tool, mask layer and the output's
-/// mapping into sRGB, as display values 0–255 per pixel of the picker's
-/// block (`preview_sample_roi`, the block the range was sampled from). The
-/// target solve corrects its sliders on it and its readout states it. None
-/// while no preview base of the recipe's geometry is cached.
+/// as it would be applied, without view states) in the picker's block around
+/// a point of the shown photograph, developed at full resolution as the
+/// export develops them (`multi_view::develop_target_block`: a zoomed
+/// region at 100 % with the render's reach) and encoded in sRGB, with every
+/// tool and mask layer: display values 0–255 per pixel. The block covers
+/// what the picker's 11 × 11 preview pixels cover (`preview_sample_roi` on
+/// the cached preview base). The target solve corrects its sliders on it
+/// and its readout states it. None while no preview base is cached or the
+/// photograph is not the loaded one.
 #[tauri::command]
 pub async fn sample_color_range_result(
     path: String,
@@ -1461,27 +1464,39 @@ pub async fn sample_color_range_result(
     app_handle: tauri::AppHandle,
 ) -> Result<Option<Vec<[f64; 3]>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let image = render_probe(
+        let state = app_handle.state::<AppState>();
+        let develop = app_handle.state::<DevelopSession>();
+        let mut recipe = adjustments;
+        normalize_editor_recipe(&develop, &mut recipe);
+        let (loaded_image, _, (full_w, full_h)) = preview_source(&state)?;
+        if loaded_image.path != path {
+            return Ok(None);
+        }
+        let Some(base_width) = develop
+            .cached_preview
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .filter(|c| c.source.ptr_eq(&Arc::downgrade(&loaded_image.image)))
+            .map(|c| c.image.width())
+        else {
+            return Ok(None);
+        };
+        let (shown_w, _) = crate::multi_view::shown_size_of(&recipe, full_w, full_h);
+        // `preview_sample_roi`'s 11 × 11 preview pixels, in full-resolution px.
+        let block = 11.0 * shown_w / base_width.max(1) as f32;
+        crate::multi_view::develop_target_block(
             &app_handle,
             &path,
-            adjustments,
-            ProbeArea::Point(normalized_x, normalized_y),
-            ProbeOutput::Space(rawtonic_engine::output_color_space::OutputColorSpace::Srgb),
-            "sample_color_range_result",
-        )?;
-        Ok(image.map(|image| display_pixels(image.to_rgba8().as_raw())))
+            [normalized_x as f32, normalized_y as f32],
+            block,
+            recipe,
+            rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
+        )
+        .map(Some)
     })
     .await
     .map_err(|error| format!("Colour editor result sampling task failed: {error}"))?
-}
-
-/// The colour channels of RGBA8 pixels (0–255).
-fn display_pixels(rgba: &[u8]) -> Vec<[f64; 3]> {
-    rgba.as_chunks::<4>()
-        .0
-        .iter()
-        .map(|p| [p[0], p[1], p[2]].map(f64::from))
-        .collect()
 }
 
 /// The colour editor probe's two renders as colours and influences (shader
@@ -5864,16 +5879,6 @@ mod color_range_input_tests {
         assert!(color_range_input(plain.as_flattened(), low.as_flattened()).is_none());
         assert!(color_range_input(high[..1].as_flattened(), low.as_flattened()).is_none());
         assert!(color_range_input(&[], &[]).is_none());
-    }
-
-    #[test]
-    fn result_probe_keeps_each_pixels_display_values() {
-        let rgba = [161u8, 105, 105, 255, 0, 87, 184, 255];
-        assert_eq!(
-            display_pixels(&rgba),
-            vec![[161.0, 105.0, 105.0], [0.0, 87.0, 184.0]]
-        );
-        assert!(display_pixels(&[]).is_empty());
     }
 }
 

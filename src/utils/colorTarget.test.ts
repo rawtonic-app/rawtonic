@@ -337,7 +337,7 @@ describe('closed loop on the measured result', () => {
     expect(loop.measured!.deltaE).toBeCloseTo(deltaE00(target, (await render(loop.ranges))!), 6);
   });
 
-  it('is bounded: at most the model solve and MAX_CORRECTIONS probes, fewer once the time budget is used', async () => {
+  it('is bounded: at most the model solve and MAX_CORRECTIONS probes, fewer once the corrections’ time budget is used', async () => {
     const calls: ColorRange[][] = [];
     // A render that never comes near: each correction gets a little closer.
     let n = 0;
@@ -363,8 +363,10 @@ describe('closed loop on the measured result', () => {
       },
       { now: () => clock }
     );
-    // The second probe ends past the 120 ms budget: no third.
-    expect(calls.length).toBe(2);
+    // The budget runs from the first measurement (100 ms: the source may
+    // have had to load): the second probe ends within 120 ms of it, the
+    // third past it, so no fourth.
+    expect(calls.length).toBe(3);
   });
 
   it('keeps the best measured sliders when a correction measures worse', async () => {
