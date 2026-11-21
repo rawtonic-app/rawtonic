@@ -27685,7 +27685,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         .map_async(wgpu::MapMode::Read, |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     let bytes = buffer.slice(..).get_mapped_range().unwrap();
-    bytes.chunks_exact(4).map(|texel| texel[0]).collect()
+    bytes.iter().step_by(4).copied().collect()
 }
 
 /// How many codes beyond the nearest the device's 8-bit storage write may
