@@ -11536,7 +11536,7 @@ impl GpuProcessor {
         // Its blocks: 4 x 4 pixels in a large frame (G76/GRN4), as a shift
         // (0: per pixel).
         let terms_shift = if half_terms {
-            effect_passes::terms_block_shift(width, height)
+            effect_passes::terms_block_shift(width, height, adjustments)
         } else {
             0
         };

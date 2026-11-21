@@ -53,6 +53,14 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: the terms' block shift of drag frames rendered on this thread,
+    /// whatever the frame (`terms_block_shift`).
+    pub(super) static FORCED_TERMS_SHIFT: std::cell::Cell<Option<u32>> =
+        const { std::cell::Cell::new(None) };
+}
+
 /// Whether processors made now render display variants with effect
 /// passes: always, but for tests that compare.
 pub(super) fn here() -> bool {
@@ -237,16 +245,41 @@ pub(super) fn terms_constants(features: usize, layer_sums: bool) -> Vec<(&'stati
 }
 
 /// The size of a drag's term blocks (G76/GRN4), as a shift: 4 x 4 pixels
-/// (2) when the frame's short side is at least 1080 pixels, else 2 x 2 (1).
-/// The effects' blurs scale with the frame (`scale`, short side / 1080):
-/// halation's, the smaller, has a sigma of 4 px at scale 1 (radius 8,
-/// blur.wgsl's sigma = radius / 2), so from there a 4 x 4 block is no
-/// coarser than its sigma, as a 2 x 2 block is at half that size. On a
-/// Radeon 680M the terms pass is mostly arithmetic and scales with the
-/// blocks: 2 x 2 left 1.56 ms of glow's 2.12 ms at 2048 x 1366 (notes:
+/// (2) when the frame's short side is at least 1080 pixels and no mask
+/// layer changes what a term depends on, else 2 x 2 (1).
+///
+/// A term is the blurred photo through the pixel's Exposure, Brightness
+/// and Whites, used where its Glow or Halation amount is above zero. The
+/// blurs scale with the frame (`scale`, short side / 1080): halation's, the
+/// smaller, has a sigma of 4 px at scale 1 (radius 8, blur.wgsl's sigma =
+/// radius / 2), so from there a 4 x 4 block is no coarser than its sigma,
+/// as a 2 x 2 block is at half that size. A mask layer with one of those
+/// five sliders can change them from one pixel to the next (a hard mask
+/// edge); such frames keep GRN3's 2 x 2 blocks. On a Radeon 680M the terms
+/// pass is mostly arithmetic and scales with the blocks: 2 x 2 left
+/// 1.56 ms of glow's 2.12 ms at 2048 x 1366 (notes:
 /// benchmark-results/grn4-2026-11-21).
-pub(super) fn terms_block_shift(width: u32, height: u32) -> u32 {
-    if width.min(height) >= 1080 { 2 } else { 1 }
+pub(super) fn terms_block_shift(width: u32, height: u32, adjustments: &AllAdjustments) -> u32 {
+    #[cfg(test)]
+    if let Some(shift) = FORCED_TERMS_SHIFT.with(std::cell::Cell::get) {
+        return shift;
+    }
+    let local_inputs = adjustments
+        .mask_adjustments
+        .iter()
+        .take(adjustments.mask_count as usize)
+        .any(|m| {
+            m.exposure != 0.0
+                || m.brightness != 0.0
+                || m.whites != 0.0
+                || m.glow_amount != 0.0
+                || m.halation_amount != 0.0
+        });
+    if width.min(height) >= 1080 && !local_inputs {
+        2
+    } else {
+        1
+    }
 }
 
 /// A drag's pass over blocks (G76/GRN3, GRN4): the tile-local `regions`
@@ -801,8 +834,27 @@ mod tests {
         assert_eq!(with_block_starts([2, 1, 5, 2], [0, 0], 1), [2, 0, 5, 3]);
         // 4 x 4: absolute 11's block starts at absolute 8, tile pixel 1.
         assert_eq!(with_block_starts([4, 6, 5, 2], [7, 0], 2), [1, 4, 8, 4]);
-        assert_eq!(terms_block_shift(2048, 1366), 2);
-        assert_eq!(terms_block_shift(1608, 1072), 1);
+        let mut adjustments = AllAdjustments::default();
+        assert_eq!(terms_block_shift(2048, 1366, &adjustments), 2);
+        assert_eq!(terms_block_shift(1608, 1072, &adjustments), 1);
+        // A mask layer that changes a term's inputs keeps 2 x 2; one with
+        // other sliders, or beyond the layer count, does not.
+        adjustments.mask_count = 1;
+        adjustments.mask_adjustments[0].saturation = 20.0;
+        adjustments.mask_adjustments[1].exposure = 1.0;
+        assert_eq!(terms_block_shift(2048, 1366, &adjustments), 2);
+        let sliders: [fn(&mut crate::image_processing::MaskAdjustments); 5] = [
+            |m| m.exposure = -0.5,
+            |m| m.brightness = 10.0,
+            |m| m.whites = -20.0,
+            |m| m.glow_amount = 30.0,
+            |m| m.halation_amount = 30.0,
+        ];
+        for set in sliders {
+            let mut local = adjustments;
+            set(&mut local.mask_adjustments[0]);
+            assert_eq!(terms_block_shift(2048, 1366, &local), 1);
+        }
     }
 
     #[test]
