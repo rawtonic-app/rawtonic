@@ -2390,6 +2390,7 @@
       "importNotFound_few": "не найдено: {{count}}",
       "importNotFound_many": "не найдено: {{count}}",
       "importNotFound_other": "не найдено: {{count}}",
+      "importSmartAlbumsByFacts": "Умные альбомы по камере, объективу, ISO или дате съёмки заполняются по мере чтения данных съёмки из файлов; слова камеры и объектива могут находить другие фотографии, чем в Lightroom: {{n}}.",
       "importSmartAlbumsSkipped": "Умные коллекции пропущены, так как у правила нет аналога: {{n}}.",
       "importStacks_one": "{{count}} стопка импортирована",
       "importStacks_few": "{{count}} стопки импортированы",

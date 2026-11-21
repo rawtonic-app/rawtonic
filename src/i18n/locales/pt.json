@@ -2274,6 +2274,7 @@
       "importNotFound_one": "{{count}} não encontrada",
       "importNotFound_many": "{{count}} não encontradas",
       "importNotFound_other": "{{count}} não encontradas",
+      "importSmartAlbumsByFacts": "Os álbuns inteligentes por câmara, objetiva, ISO ou data de captura são preenchidos à medida que os dados de captura dos ficheiros são lidos; as palavras de câmara e objetiva podem corresponder a outras fotos do que no Lightroom: {{n}}.",
       "importSmartAlbumsSkipped": "Coleções inteligentes omitidas porque uma regra não tem equivalente: {{n}}.",
       "importStacks_one": "{{count}} pilha importada",
       "importStacks_many": "{{count}} pilhas importadas",

@@ -2157,6 +2157,7 @@
       "imported_other": "{{count}} Fotos importiert ({{withSettings}} mit Bearbeitungen, Alben: {{albums}})",
       "importNotFound_one": "{{count}} nicht gefunden",
       "importNotFound_other": "{{count}} nicht gefunden",
+      "importSmartAlbumsByFacts": "Smart-Alben nach Kamera, Objektiv, ISO oder Aufnahmedatum füllen sich, während die Aufnahmedaten der Dateien gelesen werden; Kamera- und Objektivwörter können andere Fotos finden als in Lightroom: {{n}}.",
       "importSmartAlbumsSkipped": "Smart-Sammlungen ausgelassen, weil eine Regel keine Entsprechung hat: {{n}}.",
       "importStacks_one": "{{count}} Stapel importiert",
       "importStacks_other": "{{count}} Stapel importiert",

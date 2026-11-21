@@ -2274,6 +2274,7 @@
       "importNotFound_one": "{{count}} introuvable",
       "importNotFound_many": "{{count}} introuvables",
       "importNotFound_other": "{{count}} introuvables",
+      "importSmartAlbumsByFacts": "Les albums intelligents par appareil, objectif, ISO ou date de prise de vue se remplissent à mesure que les données de prise de vue des fichiers sont lues ; les mots d’appareil et d’objectif peuvent trouver d’autres photos que dans Lightroom : {{n}}.",
       "importSmartAlbumsSkipped": "Collections intelligentes ignorées car une règle n’a pas d’équivalent : {{n}}.",
       "importStacks_one": "{{count}} pile importée",
       "importStacks_many": "{{count}} piles importées",
