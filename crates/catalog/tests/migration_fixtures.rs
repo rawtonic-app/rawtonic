@@ -857,7 +857,7 @@ fn fill(conn: &Connection, version: usize) {
         &[
             ("asset_id", t(&asset_id(3))),
             ("model", t("d6e4f91fd3779a52/prompts-1")),
-            ("fingerprint", t("xxh3:0000000000005cf3")),
+            ("fingerprint", t(&format!("xxh3:{:016x}", 3 * 7919))),
             ("misfire", r(0.25)),
             ("document", r(0.001)),
         ],
