@@ -3927,6 +3927,7 @@
         "artificialGround": "Künstlicher Boden",
         "mountains": "Berge",
         "naturalGround": "Natürlicher Boden",
+        "sky": "Himmel",
         "vegetation": "Vegetation",
         "water": "Wasser"
       },

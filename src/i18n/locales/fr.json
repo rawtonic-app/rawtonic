@@ -4091,6 +4091,7 @@
         "artificialGround": "Sol artificiel",
         "mountains": "Montagnes",
         "naturalGround": "Sol naturel",
+        "sky": "Ciel",
         "vegetation": "Végétation",
         "water": "Eau"
       },

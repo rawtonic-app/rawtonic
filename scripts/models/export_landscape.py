@@ -2,16 +2,17 @@
 """Export UperNet + ConvNeXt-T (ADE20K, MIT) as Rawtonic's landscape-parts model.
 
 The same checkpoint as the sky model (`export_sky.py`: openmmlab/upernet-
-convnext-tiny, revision 876ffc5, MIT), with a different head: instead of
-the sky channel, six parts of a landscape, each the network's probability
-that a pixel belongs to any of the ADE20K classes of that part
-(`PARTS`). The sky model's file is not touched.
+convnext-tiny, revision 876ffc5, MIT), with a different head: seven parts of
+a landscape, each the network's probability that a pixel belongs to any
+of the ADE20K classes of that part (`PARTS`); the last is the sky, which
+the app's edge fitting uses to cut the other parts off the sky. The sky
+model's file is not touched.
 
 Writes OUT_DIR/landscape_upernet_convnext_t.onnx (opset 17, fixed size):
 - input  pixel_values float32 [1, 3, 512, 512]: as the sky model (sRGB
   8-bit / 255, ImageNet normalised, the photo letterboxed into 512 x 512,
   padding 0 after normalisation);
-- output parts float32 [1, 6, 512, 512]: per part (order of `PARTS`) the sum
+- output parts float32 [1, 7, 512, 512]: per part (order of `PARTS`) the sum
   of the softmax over the 150 classes of the part's classes, in 0..1. Like
   the sky model, the part's logit margin (logsumexp of its classes minus
   logsumexp of all other classes) is computed at the decoder's 1/4
@@ -48,6 +49,8 @@ PARTS = [
     ("architecture", ["building", "house", "skyscraper", "tower", "bridge", "hovel", "wall",
                       "column", "windowpane", "door", "awning", "grandstand", "booth",
                       "stairway", "stairs", "fence", "railing"]),
+    # As the sky model's channel (export_sky.py).
+    ("sky", ["sky"]),
 ]
 
 

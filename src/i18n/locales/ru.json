@@ -4254,6 +4254,7 @@
         "artificialGround": "Искусственная поверхность",
         "mountains": "Горы",
         "naturalGround": "Естественная поверхность",
+        "sky": "Небо",
         "vegetation": "Растительность",
         "water": "Вода"
       },

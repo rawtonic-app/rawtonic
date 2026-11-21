@@ -100,7 +100,7 @@ export const CREDITS: Credit[] = [
   {
     name: 'ConvNeXt UperNet',
     url: 'https://github.com/facebookresearch/ConvNeXt',
-    what: 'Sky masks (Meta, ADE20K).',
+    what: 'Sky and Landscape masks (Meta, ADE20K).',
     license: 'MIT'
   },
   {

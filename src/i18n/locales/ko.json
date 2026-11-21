@@ -3824,6 +3824,7 @@
         "artificialGround": "인공 지면",
         "mountains": "산",
         "naturalGround": "자연 지면",
+        "sky": "하늘",
         "vegetation": "식물",
         "water": "물"
       },

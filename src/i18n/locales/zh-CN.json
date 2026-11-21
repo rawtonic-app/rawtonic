@@ -3824,6 +3824,7 @@
         "artificialGround": "人工地面",
         "mountains": "山脉",
         "naturalGround": "自然地面",
+        "sky": "天空",
         "vegetation": "植被",
         "water": "水"
       },

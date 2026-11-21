@@ -3824,6 +3824,7 @@
         "artificialGround": "人工の地面",
         "mountains": "山",
         "naturalGround": "自然の地面",
+        "sky": "空",
         "vegetation": "植物",
         "water": "水"
       },

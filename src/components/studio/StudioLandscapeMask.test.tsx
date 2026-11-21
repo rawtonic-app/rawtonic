@@ -9,6 +9,7 @@ import { createComponents, kindOf, type LandscapePart } from '../../utils/maskKi
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(async () => [
+    ['sky', 0.4],
     ['mountains', 0.3],
     ['water', 0.2],
     ['vegetation', 0.001],

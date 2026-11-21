@@ -56,6 +56,7 @@ export type PeoplePart = (typeof PEOPLE_PARTS)[number]['part'];
 /** Parts of a Landscape mask (`rawtonic_segment::LandscapePart` keys), in
  * the order of Lightroom's Landscape mask. */
 export const LANDSCAPE_PARTS = [
+  'sky',
   'mountains',
   'water',
   'naturalGround',
