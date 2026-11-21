@@ -102,6 +102,33 @@ it('applies a preset to the selection from the Library', async () => {
   );
 });
 
+it('lists the built-in styles and adaptive presets and applies an adaptive one without a style', async () => {
+  const { usePresetStore } = await import('./usePresets');
+  const { useBuiltinPresets } = await import('../utils/builtinPresets');
+  const { invoke } = await import('@tauri-apps/api/core');
+  usePresetStore.setState({ presets: [], isLoading: false });
+  useBuiltinPresets.setState({
+    presets: [
+      { id: 'adaptive-sky-deeper', name: 'Sky: deeper', presetType: 'adaptive', builtin: true, adjustments: { masks: [] } },
+      { id: 'bw', name: 'B&W', presetType: 'style', builtin: true, adjustments: { saturation: -100 } },
+      { id: 'tone', name: 'Tone', presetType: 'tool', builtin: true, adjustments: { exposure: 1 } }
+    ] as never
+  });
+  const options = openMenu('/s/Capture/DSCF0147.RAF');
+  const menu = find(options, 'editor.masks.actions.applyPreset')!;
+  expect(menu.disabled).toBeFalsy();
+  const folder = menu.submenu!.find((o) => o.label === 'studio.presets.builtinFolder')!;
+  expect(folder.submenu!.map((o) => o.label)).toEqual(['Sky: deeper', 'B&W']);
+  folder.submenu![0].onClick!();
+  await vi.waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith('apply_adjustments_to_paths', {
+      paths: ['/s/Capture/DSCF0147.RAF'],
+      adjustments: expect.objectContaining({ masks: [] }),
+      style: undefined
+    })
+  );
+});
+
 it('leaves the next photograph alone when auto adjustments finish after a switch', async () => {
   const { invoke } = await import('@tauri-apps/api/core');
   let finishAuto!: () => void;
