@@ -32,8 +32,9 @@ async fn model(
     if let Some(model) = refreshed(
         &ai_state.super_resolution,
         &REFRESH,
-        download,
-        async || download && fetch_gpu_graph(app_handle, &models_dir).await,
+        async || {
+            download && shared_attempt(&GPU_FETCH, async || fetch_gpu_graph(app_handle, &models_dir).await).await
+        },
         async |current: Arc<Model>| {
             Ok(tokio::task::spawn_blocking(move || current.gpu_graph_ready()).await?)
         },
@@ -90,7 +91,10 @@ async fn model(
             "Super Resolution Model",
         )
         .await?;
-        fetch_gpu_graph(app_handle, &models_dir).await;
+        shared_attempt(&GPU_FETCH, async || {
+            fetch_gpu_graph(app_handle, &models_dir).await
+        })
+        .await;
     }
     let mut model = tokio::task::spawn_blocking(move || Model::onnx(&path)).await??;
     if download
@@ -139,23 +143,25 @@ async fn model(
     Ok(Some(slot.insert(Arc::new(model)).clone()))
 }
 
-/// One refresh of the loaded model at a time (`refreshed`), apart from the
-/// model's own lock so exports never wait for it.
+/// Reloads of the loaded model take turns (`refreshed`), apart from the
+/// model's own lock; nobody holds it during a download.
 static REFRESH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// The fp16 graph's download, shared by calls that overlap (`shared_attempt`).
+static GPU_FETCH: Attempts = Attempts::new();
+
 /// The loaded model (`None`: nothing loaded yet), replaced by `reload`'s
-/// when `fetch` (the optional fp16 download) installed a graph now or
-/// `ready` finds one that passed its GPU check since. `slot`'s lock is not
-/// held while `fetch` and `reload` run, so export workers keep running on
-/// the loaded model during a slow download; a failed reload keeps it.
-/// Refreshes take turns through `refresh`: a call that `wait`s (the Export
-/// dialog) runs after the one in progress, on the model it left; one that
-/// does not (an export worker) keeps the loaded model meanwhile, so
-/// workers never build a second session of the same graph.
+/// when `fetch` (the optional fp16 download; `false` for export workers)
+/// installed a graph now or `ready` finds one that passed its GPU check
+/// since. No lock is held while `fetch` runs, so export workers keep
+/// running on the loaded model during a slow download. The check and the
+/// reload take turns through `turns`: a call that finds the model replaced
+/// while it waited takes the replacement, so the workers of one batch,
+/// which reach Super Resolution independently, all run the graph the first
+/// of them loaded. A failed reload keeps the loaded model.
 async fn refreshed<M>(
     slot: &tokio::sync::Mutex<Option<Arc<M>>>,
-    refresh: &tokio::sync::Mutex<()>,
-    wait: bool,
+    turns: &tokio::sync::Mutex<()>,
     fetch: impl AsyncFnOnce() -> bool,
     ready: impl AsyncFnOnce(Arc<M>) -> anyhow::Result<bool>,
     reload: impl AsyncFnOnce() -> anyhow::Result<M>,
@@ -163,19 +169,12 @@ async fn refreshed<M>(
     let Some(loaded) = slot.lock().await.clone() else {
         return Ok(None);
     };
-    let _turn = if wait {
-        refresh.lock().await
-    } else {
-        match refresh.try_lock() {
-            Ok(turn) => turn,
-            Err(_) => return Ok(Some(loaded)),
-        }
-    };
-    // The refresh this one waited for may have replaced it.
+    let fetched = fetch().await;
+    let _turn = turns.lock().await;
     let Some(current) = slot.lock().await.clone() else {
         return Ok(None);
     };
-    if !fetch().await && !ready(current.clone()).await? {
+    if !Arc::ptr_eq(&current, &loaded) || (!fetched && !ready(current.clone()).await?) {
         return Ok(Some(current));
     }
     let reloaded = match reload().await {
@@ -186,6 +185,38 @@ async fn refreshed<M>(
         }
     };
     Ok(Some(slot.lock().await.insert(reloaded).clone()))
+}
+
+/// Attempts of one optional download, one at a time; `done` counts the
+/// finished ones and `last` holds the latest result.
+struct Attempts {
+    done: std::sync::atomic::AtomicU64,
+    last: tokio::sync::Mutex<bool>,
+}
+
+impl Attempts {
+    const fn new() -> Self {
+        Self {
+            done: std::sync::atomic::AtomicU64::new(0),
+            last: tokio::sync::Mutex::const_new(false),
+        }
+    }
+}
+
+/// `attempt`'s result; a call that overlaps an attempt in progress (Export
+/// closed and opened again during a slow download) takes that attempt's
+/// result instead of waiting through another one, and a call after it
+/// has finished tries again.
+async fn shared_attempt(attempts: &Attempts, attempt: impl AsyncFnOnce() -> bool) -> bool {
+    use std::sync::atomic::Ordering;
+    let before = attempts.done.load(Ordering::SeqCst);
+    let mut last = attempts.last.lock().await;
+    if attempts.done.load(Ordering::SeqCst) != before {
+        return *last;
+    }
+    *last = attempt().await;
+    attempts.done.fetch_add(1, Ordering::SeqCst);
+    *last
 }
 
 /// Downloads the fp16 graph for GPU providers (1.2 MB) when ONNX Runtime's
@@ -269,21 +300,22 @@ impl rawtonic_export::export_processing::Enlarger for ExportEnlarger<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::sync::oneshot;
 
     /// A slow retry of the optional fp16 download (Export opened again
-    /// while a batch runs) must not hold the model's lock: export workers
-    /// take the loaded model meanwhile, and the reloaded one replaces it
-    /// afterwards.
+    /// while a batch runs) must not hold the model's lock or the reload
+    /// turns: export workers take the loaded model meanwhile, and the
+    /// reloaded one replaces it afterwards.
     #[tokio::test]
     async fn retry_of_the_fp16_download_leaves_the_loaded_model_to_exports() {
         let slot = tokio::sync::Mutex::new(Some(Arc::new(32u32)));
         let turns = tokio::sync::Mutex::new(());
-        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
-        let (finish_tx, finish_rx) = tokio::sync::oneshot::channel::<()>();
+        let (started_tx, started_rx) = oneshot::channel();
+        let (finish_tx, finish_rx) = oneshot::channel::<()>();
         let refresh = refreshed(
             &slot,
             &turns,
-            true,
             async || {
                 started_tx.send(()).unwrap();
                 finish_rx.await.unwrap();
@@ -294,12 +326,21 @@ mod tests {
         );
         let export = async {
             started_rx.await.unwrap();
-            let during = tokio::time::timeout(std::time::Duration::from_secs(5), slot.lock())
-                .await
-                .expect("an export waits for the download")
-                .clone();
+            let worker = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                refreshed(
+                    &slot,
+                    &turns,
+                    async || false,
+                    async |_| Ok(false),
+                    async || panic!("nothing to reload"),
+                ),
+            )
+            .await
+            .expect("an export worker waits for the download")
+            .unwrap();
             finish_tx.send(()).unwrap();
-            during
+            worker
         };
         let (refreshed, during) = tokio::join!(refresh, export);
         assert_eq!(during.as_deref(), Some(&32));
@@ -314,7 +355,6 @@ mod tests {
         let kept = refreshed(
             &slot,
             &turns,
-            true,
             async || false,
             async |_| Ok(false),
             async || panic!("nothing to reload"),
@@ -323,7 +363,6 @@ mod tests {
         let kept = refreshed(
             &slot,
             &turns,
-            true,
             async || true,
             async |_| Ok(false),
             async || anyhow::bail!("graph unreadable"),
@@ -333,72 +372,95 @@ mod tests {
         let none = refreshed(
             &empty,
             &turns,
-            true,
-            async || panic!("not loaded"),
+            async || false,
             async |_| Ok(true),
             async || Ok(1),
         );
         assert!(none.await.unwrap().is_none());
     }
 
-    /// Export opened twice during a slow retry: the second call waits for
-    /// the first one's download and reload and finds nothing left to do;
-    /// an export worker meanwhile keeps the loaded model without a check
-    /// or a session of its own.
+    /// Two export workers reach Super Resolution while the first one
+    /// reloads the model for the fp16 graph (its check passed while Export
+    /// was open): the second waits for that reload and runs the same
+    /// graph, so one batch never mixes graphs.
     #[tokio::test]
-    async fn overlapping_refreshes_share_one_download_and_one_reload() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
+    async fn workers_of_one_batch_run_the_graph_the_first_one_loaded() {
         let slot = tokio::sync::Mutex::new(Some(Arc::new(32u32)));
         let turns = tokio::sync::Mutex::new(());
-        let (fetches, reloads) = (AtomicUsize::new(0), AtomicUsize::new(0));
-        let installed = std::sync::atomic::AtomicBool::new(false);
-        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
-        let (finish_tx, finish_rx) = tokio::sync::oneshot::channel::<()>();
-        let dialog = |started: Option<tokio::sync::oneshot::Sender<()>>,
-                      finish: Option<tokio::sync::oneshot::Receiver<()>>| {
-            let (fetches, reloads, installed) = (&fetches, &reloads, &installed);
-            refreshed(
-                &slot,
-                &turns,
-                true,
-                async move || {
-                    fetches.fetch_add(1, Ordering::SeqCst);
-                    if let (Some(started), Some(finish)) = (started, finish) {
-                        started.send(()).unwrap();
-                        finish.await.unwrap();
-                    }
-                    // Downloaded now, or already installed.
-                    !installed.swap(true, Ordering::SeqCst)
-                },
-                async |_| Ok(false),
-                async move || {
-                    reloads.fetch_add(1, Ordering::SeqCst);
-                    Ok(16u32)
-                },
-            )
-        };
-        let first = dialog(Some(started_tx), Some(finish_rx));
-        let second = dialog(None, None);
-        let worker_and_release = async {
+        let reloads = AtomicUsize::new(0);
+        let (started_tx, started_rx) = oneshot::channel();
+        let (finish_tx, finish_rx) = oneshot::channel::<()>();
+        let first = refreshed(
+            &slot,
+            &turns,
+            async || false,
+            async |_| Ok(true),
+            async || {
+                reloads.fetch_add(1, Ordering::SeqCst);
+                started_tx.send(()).unwrap();
+                finish_rx.await.unwrap();
+                Ok(16u32)
+            },
+        );
+        let second = async {
             started_rx.await.unwrap();
-            let worker = refreshed(
+            let second = refreshed(
                 &slot,
                 &turns,
-                false,
-                async || panic!("workers do not download"),
-                async |_| panic!("no check while a refresh runs"),
-                async || panic!("no second session"),
-            )
-            .await
-            .unwrap();
-            finish_tx.send(()).unwrap();
-            worker
+                async || false,
+                async |_| Ok(true),
+                async || {
+                    reloads.fetch_add(1, Ordering::SeqCst);
+                    Ok(99u32)
+                },
+            );
+            let releaser = async {
+                tokio::task::yield_now().await;
+                finish_tx.send(()).unwrap();
+            };
+            tokio::join!(second, releaser).0
         };
-        let (first, second, worker) = tokio::join!(first, second, worker_and_release);
-        assert_eq!(worker.as_deref(), Some(&32));
+        let (first, second) = tokio::join!(first, second);
         assert_eq!(first.unwrap().as_deref(), Some(&16));
         assert_eq!(second.unwrap().as_deref(), Some(&16));
         assert_eq!(reloads.load(Ordering::SeqCst), 1);
-        assert_eq!(fetches.load(Ordering::SeqCst), 2);
+    }
+
+    /// Export opened again while a slow download fails: the second call
+    /// takes the first one's result instead of a second slow attempt; a
+    /// later, separate call tries again.
+    #[tokio::test]
+    async fn an_overlapping_call_shares_the_attempt_in_progress() {
+        let attempts = Attempts::new();
+        let tries = AtomicUsize::new(0);
+        let (started_tx, started_rx) = oneshot::channel();
+        let (finish_tx, finish_rx) = oneshot::channel::<()>();
+        let first = shared_attempt(&attempts, async || {
+            tries.fetch_add(1, Ordering::SeqCst);
+            started_tx.send(()).unwrap();
+            finish_rx.await.unwrap();
+            false
+        });
+        let second = async {
+            started_rx.await.unwrap();
+            let second = shared_attempt(&attempts, async || {
+                tries.fetch_add(1, Ordering::SeqCst);
+                true
+            });
+            let releaser = async {
+                tokio::task::yield_now().await;
+                finish_tx.send(()).unwrap();
+            };
+            tokio::join!(second, releaser).0
+        };
+        let (first, second) = tokio::join!(first, second);
+        assert_eq!((first, second), (false, false));
+        assert_eq!(tries.load(Ordering::SeqCst), 1);
+        let later = shared_attempt(&attempts, async || {
+            tries.fetch_add(1, Ordering::SeqCst);
+            true
+        });
+        assert!(later.await);
+        assert_eq!(tries.load(Ordering::SeqCst), 2);
     }
 }
