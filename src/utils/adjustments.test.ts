@@ -380,6 +380,11 @@ describe('RAW detail defaults', () => {
     // Without AI Denoise the version does not change the render: the current one.
     const unused = { ...INITIAL_ADJUSTMENTS, aiDenoise: 0 } as Adjustments;
     expect(normalizeLoadedAdjustments(unused, true).aiDenoiseVersion).toBe(AI_DENOISE_VERSION);
+    // Also when it was saved with an earlier version: turning AI Denoise on
+    // later starts at the current slider mapping.
+    expect(normalizeLoadedAdjustments({ ...unused, aiDenoiseVersion: 4 }, true).aiDenoiseVersion).toBe(
+      AI_DENOISE_VERSION
+    );
     // With it, a recipe without the key stays on version 1 (missing key).
     const used = { ...INITIAL_ADJUSTMENTS, aiDenoise: 60 } as Adjustments;
     expect(normalizeLoadedAdjustments(used, true).aiDenoiseVersion).toBeUndefined();

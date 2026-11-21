@@ -25,6 +25,7 @@ import {
   withVibranceVersion,
   withGrainVersion,
   withLumaNoiseVersion,
+  withAiDenoiseVersion,
   withSharpenVersion,
   withPortableWhites,
   type Adjustments
@@ -306,7 +307,10 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
                   withLumaNoiseVersion(
                     withWhiteBalanceVersions(
                       withSharpenVersion(
-                        withPortableWhites(changes, from.adjustments, isRawPhoto(from.path)),
+                        withAiDenoiseVersion(
+                          withPortableWhites(changes, from.adjustments, isRawPhoto(from.path)),
+                          from.adjustments
+                        ),
                         from.adjustments
                       ),
                       from.adjustments

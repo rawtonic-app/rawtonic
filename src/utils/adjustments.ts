@@ -1696,8 +1696,8 @@ export const cameraPlaneWarp = (adjustments: Pick<Partial<Adjustments>, 'renderV
   (adjustments.renderVersion ?? 1) >= CAMERA_PLANE_WARP_RENDER_VERSION;
 
 /** The AI Denoise version new edits start with (`aiDenoiseVersion`; notes:
- * benchmark-results/ai-denoise-mac-2026-10-18). */
-export const AI_DENOISE_VERSION = 4;
+ * benchmark-results/ai-denoise-mac-2026-10-18, dnz1-2026-11-19). */
+export const AI_DENOISE_VERSION = 5;
 
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;
@@ -2294,14 +2294,15 @@ export const withGrainVersion = <T extends Partial<Adjustments>>(
   return versioned;
 };
 
-/** The AI Denoise version of a saved recipe: its own; else the current one
- * when it does not use AI Denoise (the key only matters above 0), the
- * earlier one otherwise (missing key). */
+/** The AI Denoise version of a saved recipe: the current one when it does
+ * not use AI Denoise (the key only matters above 0, so turning AI Denoise
+ * on later starts at today's strength), else its own, else the earliest
+ * (missing key). */
 const loadedAiDenoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): number | undefined => {
-  if (loaded.aiDenoiseVersion !== undefined && loaded.aiDenoiseVersion !== null) {
-    return loaded.aiDenoiseVersion;
+  if (isRaw && (loaded.aiDenoise ?? 0) <= 0) {
+    return AI_DENOISE_VERSION;
   }
-  return isRaw && (loaded.aiDenoise ?? 0) <= 0 ? AI_DENOISE_VERSION : undefined;
+  return loaded.aiDenoiseVersion ?? undefined;
 };
 
 /** The tone-slider response of a saved recipe: its own; else the current

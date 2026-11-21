@@ -297,6 +297,18 @@ describe('Edit all selected', () => {
     expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 0.5 } }]);
   });
 
+  it("sends the primary's AI Denoise version with an AI Denoise edit", async () => {
+    useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, aiDenoiseVersion: 5 } as Adjustments }));
+    renderHook(() => useEditAllSelected(true, selection));
+    edit({ aiDenoise: 50 });
+    await act(async () => {
+      vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+    });
+    expect(pasted()).toEqual([
+      { paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { aiDenoise: 50, aiDenoiseVersion: 5 } }
+    ]);
+  });
+
   it("sends the primary's sharpening response with sharpening edits, and response 1 for an undo to none", async () => {
     useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, sharpenVersion: 2 } as Adjustments }));
     renderHook(() => useEditAllSelected(true, selection));
