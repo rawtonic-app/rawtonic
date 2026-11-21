@@ -57,6 +57,37 @@ fn handed(path: &str) -> Option<Vec<rawtonic_engine::ai_selections::Detected>> {
         .map(|(_, detected)| detected.clone())
 }
 
+/// The computed selections a saved recipe holds (shown or not), as the
+/// queue would hand them: each component of an automatic kind with its own
+/// bitmap (not a camera TIFF's migrated stand-in).
+fn saved_selections(adjustments: &Value) -> Vec<rawtonic_engine::ai_selections::Detected> {
+    use rawtonic_engine::ai_selections::{AutoSelection, Detected, detects_again};
+    let mut found = Vec::new();
+    for layer in adjustments["masks"].as_array().into_iter().flatten() {
+        let Some(layer_id) = layer["id"].as_str() else {
+            continue;
+        };
+        for sub in layer["subMasks"].as_array().into_iter().flatten() {
+            let parameters = &sub["parameters"];
+            let (Some(id), Some(selection)) = (
+                sub["id"].as_str(),
+                sub["type"].as_str().and_then(AutoSelection::of),
+            ) else {
+                continue;
+            };
+            if rawtonic_engine::masks::has_bitmap(parameters) && !detects_again(parameters) {
+                found.push(Detected {
+                    layer_id: layer_id.to_string(),
+                    component_id: id.to_string(),
+                    selection,
+                    parameters: parameters.clone(),
+                });
+            }
+        }
+    }
+    found
+}
+
 /// The components `adopted` filled that `recipe` left waiting: component id
 /// → its parameters with the selection.
 fn filled_components(recipe: &Value, adopted: &Value) -> serde_json::Map<String, Value> {
@@ -81,8 +112,9 @@ fn filled_components(recipe: &Value, adopted: &Value) -> serde_json::Map<String,
 /// keeps them in the saved recipe (`ai_selections::keep_detected_in`):
 /// only into components still waiting (same layer and component id and
 /// type, no bitmap, the same parts or version) in the geometry they were
-/// computed in. Everything else of a recipe stays as it is. None for a
-/// recipe that takes nothing.
+/// computed in, and not into a recipe with AI Denoise (`denoise_gate`).
+/// Everything else of a recipe stays as it is. None for a recipe that
+/// takes nothing.
 pub fn adopt_into(
     recipes: Vec<Value>,
     detected: &[rawtonic_engine::ai_selections::Detected],
@@ -91,6 +123,8 @@ pub fn adopt_into(
     recipes
         .into_iter()
         .map(|mut recipe| {
+            // Given AI Denoise: takes no selection made without it.
+            denoise_gate(&recipe).ok()?;
             let frame = frame_of(&recipe);
             rawtonic_engine::ai_selections::keep_detected_in(&mut recipe, &frame, detected)
                 .then_some(recipe)
@@ -108,10 +142,12 @@ pub async fn adopt_selections(
     recipes: Vec<Value>,
 ) -> Result<Vec<Option<serde_json::Map<String, Value>>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let Some(detected) = handed(&path) else {
-            return recipes.iter().map(|_| None).collect();
-        };
-        let (source_path, _) = rawtonic_export::sidecars::parse_virtual_path(&path);
+        let (source_path, sidecar_path) = rawtonic_export::sidecars::parse_virtual_path(&path);
+        // Handed by the queue, or (handed to others since) as kept in the
+        // saved recipe.
+        let detected = handed(&path).unwrap_or_else(|| {
+            saved_selections(&crate::exif_processing::load_sidecar(&sidecar_path).adjustments)
+        });
         let adopted = adopt_into(recipes.clone(), &detected, |recipe| {
             crate::export_processing::detection_frame(recipe, &source_path)
         });
@@ -386,7 +422,11 @@ fn detect_photo(app: &AppHandle, path: &str) -> Result<(), String> {
         Some(&crate::ai_commands::ExportSelections { app_handle: app }),
         &mut || {},
     )?;
-    let kept = crate::export_processing::keep_detected_selections(path, &detected);
+    // Into the recipe as it is now: one given AI Denoise meanwhile is left
+    // to its export (`denoise_gate`).
+    let kept = crate::export_processing::keep_detected_selections_where(path, &detected, |now| {
+        denoise_gate(now).is_ok()
+    });
     // Also for a photo changed meanwhile: its editor, if it has it open,
     // takes what still fits the recipe it holds.
     if !detected.is_empty() {
@@ -525,8 +565,11 @@ mod tests {
         let mut filled = saved.clone();
         filled["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"] = json!("data:own");
         let plain = json!({"exposure": 0.3});
+        // AI Denoise switched on while the queue computed.
+        let mut denoised = edited.clone();
+        denoised["aiDenoise"] = json!(60);
         let adopted = adopt_into(
-            vec![edited.clone(), turned, filled, plain],
+            vec![edited.clone(), turned, filled, plain, denoised],
             &found,
             |recipe| recipe.clone(),
         );
@@ -543,7 +586,32 @@ mod tests {
         back["masks"][0]["subMasks"][0]["parameters"] =
             edited["masks"][0]["subMasks"][0]["parameters"].clone();
         assert_eq!(back, edited);
-        assert_eq!(adopted[1..], [None, None, None]);
+        assert_eq!(adopted[1..], [None, None, None, None]);
+    }
+
+    /// Handed to other photos since: the editor finds them in the saved
+    /// recipe the queue kept them in; a recipe given AI Denoise takes none.
+    #[test]
+    fn the_saved_recipe_stands_in_for_an_evicted_hand_off() {
+        let saved = json!({"masks": [{"id": "sky-layer", "visible": true, "subMasks": [
+            {"id": "sky-1", "type": "ai-sky", "visible": true,
+             "parameters": {"maskDataBase64": "data:sky", "rotation": 0.0, "flipHorizontal": false,
+                "flipVertical": false, "orientationSteps": 0,
+                "warp": rawtonic_engine::mask_generation::mask_warp(&json!({}))}},
+            {"id": "stand-in", "type": "ai-sky", "visible": true,
+             "parameters": {"maskDataBase64": "data:thumb", "detectAgain": true}},
+            {"id": "drawn", "type": "brush", "visible": true, "parameters": {}}]}]});
+        let found = saved_selections(&saved);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].component_id, "sky-1");
+        let waiting = json!({"masks": [{"id": "sky-layer", "visible": true, "subMasks": [
+            {"id": "sky-1", "type": "ai-sky", "visible": true,
+             "parameters": {"maskDataBase64": null, "detectPending": true}}]}]});
+        let adopted = adopt_into(vec![waiting], &found, |recipe| recipe.clone());
+        assert_eq!(
+            adopted[0].as_ref().unwrap()["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"],
+            "data:sky"
+        );
     }
 
     /// The newest selections per photo are handed, for a few photos.

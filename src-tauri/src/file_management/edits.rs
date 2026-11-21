@@ -3846,6 +3846,54 @@ mod tests {
         );
     }
 
+    /// A recipe given AI Denoise while the queue computed its selection on
+    /// the decode without it takes none (its export detects on the denoised
+    /// decode); the check reads the recipe as it is at the write.
+    #[test]
+    fn queued_selections_are_not_kept_in_a_recipe_given_ai_denoise_meanwhile() {
+        use rawtonic_engine::ai_selections::{AutoSelection, Detected, detected_parameters};
+        let (_temp, paths) = session_with_photos(1);
+        let (source, sidecar) = parse_virtual_path(&paths[0]);
+        let recipe = serde_json::json!({"aiDenoise": 60, "masks": [{"id": "l", "visible": true,
+            "subMasks": [{"id": "s", "type": "ai-sky", "visible": true,
+                "parameters": {"maskDataBase64": null, "detectPending": true}}]}]});
+        save_sidecar(
+            &paths[0],
+            &ImageMetadata {
+                adjustments: recipe.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let frame = crate::export_processing::detection_frame(&recipe, &source);
+        let found = vec![Detected {
+            layer_id: "l".into(),
+            component_id: "s".into(),
+            selection: AutoSelection::Sky,
+            parameters: detected_parameters(
+                &recipe["masks"][0]["subMasks"][0]["parameters"],
+                &frame,
+                "data:sky".into(),
+            ),
+        }];
+        let undenoised = |now: &serde_json::Value| {
+            rawtonic_engine::image_loader::ai_denoise_settings(now).is_none()
+        };
+        assert!(
+            !crate::export_processing::keep_detected_selections_where(
+                &paths[0], &found, undenoised
+            )
+            .unwrap()
+        );
+        let stored = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert!(stored["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"].is_null());
+        // Without AI Denoise it is kept.
+        assert!(
+            crate::export_processing::keep_detected_selections_where(&paths[0], &found, |_| true)
+                .unwrap()
+        );
+    }
+
     /// A RAF whose previews were made before a RAF's aspect ratio was read
     /// cached an empty crop: not an answer, so its first edit is reported.
     #[test]

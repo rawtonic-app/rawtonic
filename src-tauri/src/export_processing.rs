@@ -1658,12 +1658,26 @@ pub(crate) fn keep_detected_selections(
     path: &str,
     detected: &[rawtonic_engine::ai_selections::Detected],
 ) -> Result<bool, String> {
+    keep_detected_selections_where(path, detected, |_| true)
+}
+
+/// `keep_detected_selections` into a stored recipe that `accepts` (read
+/// in the same turn as the write: a recipe changed since the detection
+/// began, e.g. given AI Denoise, is checked as it is now).
+pub(crate) fn keep_detected_selections_where(
+    path: &str,
+    detected: &[rawtonic_engine::ai_selections::Detected],
+    accepts: impl Fn(&Value) -> bool,
+) -> Result<bool, String> {
     if detected.is_empty() {
         return Ok(false);
     }
     let (source_path, sidecar_path) = parse_virtual_path(path);
     let _turn = crate::file_management::sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
+    if !accepts(&metadata.adjustments) {
+        return Ok(false);
+    }
     // An edit still to be moved from a camera TIFF's thumbnail to its full
     // frame (`recipe_frame::conform`, done when the user saves): a bitmap of
     // the full frame in it would read as made on the full frame, so nothing
