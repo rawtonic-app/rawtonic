@@ -9496,36 +9496,44 @@ mod geometry_follow_tests {
             // the new one.
             let made = warped_luma(&sensor, &then);
             let expected = warped_luma(&sensor, &now);
-            let def = ai_layer("ai-sky", &made, json!({"warp": mask_warp(&then)}));
-            let shown = render(&def, &now, (w, h), (0.0, 0.0));
             let legacy = render(
                 &ai_layer("ai-sky", &made, json!({})),
                 &now,
                 (w, h),
                 (0.0, 0.0),
             );
-            // Inside the frame both warps cover, away from the edges.
-            let (mut moved, mut stayed, mut n) = (0.0, 0.0, 0.0);
-            for y in 30..h - 30 {
-                for x in 40..w - 40 {
-                    let e = expected.get_pixel(x, y)[0] as f64;
-                    let a = shown.get_pixel(x, y)[0] as f64;
-                    let b = legacy.get_pixel(x, y)[0] as f64;
-                    if e == 0.0 || a == 0.0 || b == 0.0 {
-                        continue;
+            // Saved layers and new ones (`maskVersion` 6, which compares the
+            // warps by geometry only) move it alike.
+            for version in [None, Some(crate::recipe_versions::mask::WARP_BY_GEOMETRY)] {
+                let mut def = ai_layer("ai-sky", &made, json!({"warp": mask_warp(&then)}));
+                def.mask_version = version;
+                let shown = render(&def, &now, (w, h), (0.0, 0.0));
+                // Inside the frame both warps cover, away from the edges.
+                let (mut moved, mut stayed, mut n) = (0.0, 0.0, 0.0);
+                for y in 30..h - 30 {
+                    for x in 40..w - 40 {
+                        let e = expected.get_pixel(x, y)[0] as f64;
+                        let a = shown.get_pixel(x, y)[0] as f64;
+                        let b = legacy.get_pixel(x, y)[0] as f64;
+                        if e == 0.0 || a == 0.0 || b == 0.0 {
+                            continue;
+                        }
+                        moved += (a - e).abs();
+                        stayed += (b - e).abs();
+                        n += 1.0;
                     }
-                    moved += (a - e).abs();
-                    stayed += (b - e).abs();
-                    n += 1.0;
                 }
+                let (moved, stayed) = (moved / n, stayed / n);
+                assert!(n > 10_000.0, "{now} {version:?}: {n} pixels compared");
+                assert!(
+                    moved < 1.5,
+                    "{now} {version:?}: mean error {moved:.2} after the move"
+                );
+                assert!(
+                    stayed > 3.0 * moved,
+                    "{now}: {stayed:.2} without the move vs {moved:.2}"
+                );
             }
-            let (moved, stayed) = (moved / n, stayed / n);
-            assert!(n > 10_000.0, "{now}: {n} pixels compared");
-            assert!(moved < 1.5, "{now}: mean error {moved:.2} after the move");
-            assert!(
-                stayed > 3.0 * moved,
-                "{now}: {stayed:.2} without the move vs {moved:.2}"
-            );
         }
         // The same warp: the mask as stored, bit for bit.
         let made = warped_luma(&sensor, &then);
