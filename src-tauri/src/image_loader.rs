@@ -8,7 +8,7 @@ use crate::exif_processing;
 use crate::file_management::{parse_virtual_path, read_file_mapped};
 use crate::formats::is_raw_file;
 use crate::image_processing::ImageMetadata;
-use crate::ipc::CommandError;
+use crate::ipc::{CommandError, ErrorCode};
 use crate::state::develop::{DevelopSession, Scope};
 use crate::state::lock::lock_recover;
 use crate::state::merge::MergeState;
@@ -958,12 +958,14 @@ pub async fn apply_ai_denoise(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get_measured(&key);
-    let (image, measures) = match cached {
-        Some((image, _, measures)) => (image, measures),
+    // A sensor the denoiser skipped (never cached, `settle_decode`).
+    let stands_in = skipped_stands_in(&settings);
+    let (image, measures, skipped) = match cached {
+        Some((image, _, measures)) => (image, measures, false),
         None => {
             let cancel_token = Some(rawtonic_runtime::CancelToken::new(tracker, my_generation));
             let decode_source = source.clone();
-            let ((image, measures), exif) = tokio::task::spawn_blocking(move || {
+            let ((image, measures), exif, skipped) = tokio::task::spawn_blocking(move || {
                 let bytes = fs::read(&decode_source).map_err(|e| e.to_string())?;
                 let image = load_base_image_measured_for(
                     &bytes,
@@ -976,11 +978,14 @@ pub async fn apply_ai_denoise(
                     Some(variant),
                 )
                 .map_err(|e| e.to_string())?;
-                if denoise.as_ref().is_some_and(|d| !d.was_applied()) {
+                let skipped = denoise.as_ref().is_some_and(|d| !d.was_applied());
+                // Without Apple RAW 9 rawler's pixels are the plain decode
+                // already open.
+                if skipped && !stands_in {
                     return Err(NOT_BAYER.to_string());
                 }
                 let exif = exif_processing::read_exif_data(&decode_source, &bytes);
-                Ok::<_, String>((image, exif))
+                Ok::<_, String>((image, exif, skipped))
             })
             .await
             .map_err(|e| e.to_string())?
@@ -991,12 +996,14 @@ pub async fn apply_ai_denoise(
                 )
             })?;
             let image = Arc::new(image);
-            develop
-                .decoded_image_cache
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(key, image.clone(), exif, measures);
-            (image, measures)
+            if !skipped {
+                develop
+                    .decoded_image_cache
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(key, image.clone(), exif, measures);
+            }
+            (image, measures, skipped)
         }
     };
     if *state
@@ -1037,6 +1044,11 @@ pub async fn apply_ai_denoise(
     )
     .map_err(|_| publish_cancelled())?;
     clear_derived_caches(&develop, &merges);
+    if skipped {
+        // Published as the load does (its pixels stand in for the recipe's
+        // AI Denoise); the editor is told, and marks the amount failed.
+        return Err(CommandError::new(ErrorCode::Unsupported, NOT_BAYER));
+    }
     Ok(applied)
 }
 

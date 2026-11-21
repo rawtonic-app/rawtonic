@@ -923,8 +923,9 @@ export interface SelectedImage {
    * (`ai_denoise_stand_in`): developed again when AI Denoise is off. */
   aiDenoiseStandIn?: boolean;
   /** Decode preferences (linear RAW mode, preprocessing, Apple RAW 9) changed
-   * since the source was developed: developed again (`decode-preferences-changed`). */
-  decoderStale?: boolean;
+   * since the source was developed: the revision (a count of the changes) to
+   * develop it again for (`decode-preferences-changed`); 0 or missing: none. */
+  decoderStale?: number;
   /** The decoded source was developed for the multi-scale colour noise
    * filter (`colorNoiseMultiscale` in src/utils/adjustments.ts); unknown for
    * preview data. */

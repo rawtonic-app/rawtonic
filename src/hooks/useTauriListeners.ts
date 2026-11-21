@@ -680,7 +680,9 @@ export function useTauriListeners({
         useEditorStore
           .getState()
           .setEditor((state) =>
-            state.selectedImage?.isRaw ? { selectedImage: { ...state.selectedImage, decoderStale: true } } : {}
+            state.selectedImage?.isRaw
+              ? { selectedImage: { ...state.selectedImage, decoderStale: (state.selectedImage.decoderStale ?? 0) + 1 } }
+              : {}
           );
       }),
       listen<string>('export-denoising', (event) => {

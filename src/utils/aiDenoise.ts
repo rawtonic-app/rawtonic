@@ -21,7 +21,7 @@ export function aiDenoiseAmount(
 }
 
 /** Whether two AI Denoise amounts are one: the backend reports its f32. */
-export const sameAiDenoiseAmount = (a: number, b: number): boolean => Math.abs(a - b) < 0.001;
+export const sameAiDenoiseAmount = (a: number, b: number): boolean => Math.abs(a - b) < 0.0001;
 
 /** The amount `aiDenoiseAmount` returns is the stored one, as every export
  * reads it: an old recipe's fraction (50.4) develops at 50.4, not 50. */

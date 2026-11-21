@@ -674,6 +674,9 @@ export function useImageProcessing(
   const developBorderBlack = sourceDevelop?.borderBlack;
   const developHighlightRatios = sourceDevelop?.highlightRatios;
   const developCameraPlaneWarp = sourceDevelop?.cameraPlaneWarp;
+  // The preferences' revision a develop is for: a change while it runs asks
+  // for another one (`decode-preferences-changed`).
+  const staleRevision = selectedImage?.decoderStale ?? 0;
   // The newest develop request: it alone clears the busy note, on every way
   // it ends (done, failed, cancelled, photograph switched).
   const sourceDevelopRequestRef = useRef(0);
@@ -689,6 +692,7 @@ export function useImageProcessing(
     const highlightRatios = developHighlightRatios;
     const cameraPlaneWarp = developCameraPlaneWarp;
     const current = useEditorStore.getState().selectedImage;
+    const revision = current?.decoderStale ?? 0;
     const changesAiDenoise =
       !sameAiDenoiseAmount(amount, current?.aiDenoise ?? 0) ||
       (amount === 0 && current?.aiDenoiseStandIn === true) ||
@@ -730,7 +734,7 @@ export function useImageProcessing(
             aiDenoiseStandIn: false,
             // This source settles the stale preferences and the amount that
             // failed before (undo to it develops again).
-            decoderStale: false,
+            decoderStale: (editor.selectedImage.decoderStale ?? 0) === revision ? 0 : editor.selectedImage.decoderStale,
             ...(changesAiDenoise ? { aiDenoiseFailed: undefined, aiDenoiseFailedVersion: undefined } : {}),
             ...(multiscale === undefined ? {} : { colorNoiseMultiscale: multiscale }),
             ...(deadPixelAdjacent === undefined ? {} : { deadPixelAdjacent }),
@@ -762,7 +766,11 @@ export function useImageProcessing(
                 selectedImage: {
                   ...editor.selectedImage,
                   // Not retried either way (a stale decode stays as it is).
-                  decoderStale: false,
+                  decoderStale:
+                    (editor.selectedImage.decoderStale ?? 0) === revision ? 0 : editor.selectedImage.decoderStale,
+                  // The backend published a sensor AI Denoise skips as its
+                  // rawler decode, standing in for the amount.
+                  ...(errorCode(err) === 'unsupported' ? { aiDenoiseStandIn: true } : {}),
                   ...(changesAiDenoise ? { aiDenoiseFailed: amount, aiDenoiseFailedVersion: version ?? 1 } : {}),
                   ...(!changesAiDenoise && changesFilter ? { colorNoiseMultiscaleFailed: multiscale } : {}),
                   ...(!changesAiDenoise && changesDeadTest ? { deadPixelAdjacentFailed: deadPixelAdjacent } : {}),
@@ -786,6 +794,7 @@ export function useImageProcessing(
     developBorderBlack,
     developHighlightRatios,
     developCameraPlaneWarp,
+    staleRevision,
     setEditor,
     previewQueue,
     currentResRef

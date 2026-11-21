@@ -367,14 +367,12 @@ describe('a sensor AI Denoise skipped, with Apple RAW 9 on', () => {
 });
 
 describe('decode preferences changed since the source was developed', () => {
-  const stale = { ...decoded, aiDenoise: 40, aiDenoiseVersion: 4, decoderStale: true };
+  const stale = { ...decoded, aiDenoise: 40, aiDenoiseVersion: 4, decoderStale: 1 };
 
   it('develops the source again at the recipe amount, once', () => {
     expect(aiDenoiseToApply(stale, { aiDenoise: 40, aiDenoiseVersion: 4 }, false)).toBe(40);
     expect(aiDenoiseToApply(stale, { aiDenoise: 0 }, false)).toBe(0);
-    expect(
-      aiDenoiseToApply({ ...stale, decoderStale: false }, { aiDenoise: 40, aiDenoiseVersion: 4 }, false)
-    ).toBeNull();
+    expect(aiDenoiseToApply({ ...stale, decoderStale: 0 }, { aiDenoise: 40, aiDenoiseVersion: 4 }, false)).toBeNull();
     expect(sourceDevelopToApply(stale, { aiDenoise: 40, aiDenoiseVersion: 4 }, false)).toMatchObject({ aiDenoise: 40 });
   });
 

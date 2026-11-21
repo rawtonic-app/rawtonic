@@ -356,19 +356,19 @@ export default memo(function AdjustmentControl({
       canceled.current = false;
       pending.current = value;
       setLocal(value);
-      setText(String(value));
+      setText(shown(value));
       active.current = false;
       return;
     }
     // A field left as it was sends nothing: a stored value outside the
     // slider's range (an older, wider range) must not be clamped by a focus.
-    if (text === shownValue(pending.current, step)) {
+    if (text === shown(pending.current)) {
       // untouched
     } else if (text.trim() && Number.isFinite(Number(text))) update(Number(text));
     else {
       pending.current = value;
       setLocal(value);
-      setText(String(value));
+      setText(shown(value));
     }
     end();
   };
