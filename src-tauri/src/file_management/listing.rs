@@ -382,7 +382,7 @@ pub async fn read_exif_for_paths(
             } else if is_cloud_placeholder(&source_path) {
                 HashMap::new()
             } else if let Ok(mmap) = read_file_mapped(&source_path) {
-                crate::exif_processing::read_exif_data(&source_path_str, &mmap)
+                crate::exif_processing::read_exif_data_mapped(&source_path_str, mmap)
             } else if let Ok(bytes) = fs::read(&source_path) {
                 crate::exif_processing::read_exif_data(&source_path_str, &bytes)
             } else {

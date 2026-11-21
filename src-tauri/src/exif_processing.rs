@@ -44,7 +44,7 @@ pub fn load_sidecar_with_exif(sidecar_path: &Path, source_path: &Path) -> ImageM
             let source_path_str = source_path.to_string_lossy();
             let extracted_exif =
                 if let Ok(mmap) = crate::file_management::read_file_mapped(source_path) {
-                    read_exif_data(&source_path_str, &mmap)
+                    read_exif_data_mapped(&source_path_str, mmap)
                 } else if let Ok(bytes) = std::fs::read(source_path) {
                     read_exif_data(&source_path_str, &bytes)
                 } else {
@@ -107,13 +107,32 @@ pub fn get_creation_date_from_path(path: &Path) -> Timestamp {
 }
 
 pub fn read_exif_data(path: &str, file_bytes: &[u8]) -> HashMap<String, String> {
+    cached_exif_data(path, || read_exif_data_from_bytes(path, file_bytes))
+}
+
+/// `read_exif_data` of a mapped file, read in place
+/// (`read_exif_data_from_shared`): a cold RAW is read only where its
+/// metadata lies, not in full.
+pub fn read_exif_data_mapped(path: &str, file: memmap2::Mmap) -> HashMap<String, String> {
+    cached_exif_data(path, || {
+        rawtonic_export::exif_processing::read_exif_data_from_shared(
+            path,
+            std::sync::Arc::new(file),
+        )
+    })
+}
+
+fn cached_exif_data(
+    path: &str,
+    read: impl FnOnce() -> HashMap<String, String>,
+) -> HashMap<String, String> {
     let source_path = Path::new(path);
 
     if let Some(cached_exif) = read_rrexif_sidecar(source_path) {
         return cached_exif;
     }
 
-    let exif_map = read_exif_data_from_bytes(path, file_bytes);
+    let exif_map = read();
     if !exif_map.is_empty() {
         let primary = get_primary_sidecar_path(source_path);
         if primary.exists() {
