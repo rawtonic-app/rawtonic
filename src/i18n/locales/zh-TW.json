@@ -12,6 +12,11 @@
       "sky": "AI 遮罩：天空",
       "subject": "AI 遮罩：主體"
     },
+    "aiSelections": {
+      "done": "已為未開啟的照片計算 AI 選取範圍（{{total}}）",
+      "failed": "{{failed}} / {{total}} 張照片的 AI 選取範圍未計算",
+      "running": "正在計算 AI 選取範圍：{{done}} / {{total}} 張照片"
+    },
     "batch": {
       "auto_other": "自動調整：{{count}} 張照片",
       "faceRetouch_other": "臉部修飾：{{count}} 張照片",
@@ -479,7 +484,6 @@
       "confirmReset": "確認重置",
       "convertNegative": "轉換負片",
       "copyAdjustments": "複製調整",
-      "cullImage": "篩選影像",
       "editImage": "編輯影像",
       "exportImage": "匯出影像",
       "frameImage": "裝裱影像",
@@ -551,8 +555,6 @@
       "convertNegative_other": "轉換負片",
       "copyImage_one": "複製影像",
       "copyImage_other": "複製 {{count}} 張影像",
-      "cullImage_one": "篩選影像",
-      "cullImage_other": "篩選影像",
       "deleteAssociated": "刪除 + 關聯檔案",
       "deleteImage_one": "刪除影像",
       "deleteImage_other": "刪除 {{count}} 張影像",
@@ -865,6 +867,10 @@
       "exporting": "正在匯出…",
       "savesTo": "外部編輯 — 儲存至"
     },
+    "frameMove": {
+      "action": "移到完整影像",
+      "undecided": "此編輯可能是在 Rawtonic 0.1.0-alpha.17.1 之前此 TIFF 檔案顯示的小預覽圖上完成的。如果裁切和污點修復位置不對，請將其移到完整影像上。"
+    },
     "guided": {
       "cancel": "取消",
       "drawingActive": "繪圖中",
@@ -938,6 +944,7 @@
         "maskName_other": "遮色片 {{count}}"
       },
       "rangeTitle": "範圍與全域",
+      "recomputedFullFrame_other": "已為全解析度影像重新計算 {{count}} 個圖層的 AI 遮罩。復原可恢復先前的遮罩。",
       "resetMaskingTooltip": "重置遮色片",
       "settings": {
         "aiModelDownloading": "AI 模型下載中：",
@@ -1116,38 +1123,6 @@
       "create": "建立",
       "placeholder": "輸入資料夾名稱...",
       "title": "建立新資料夾"
-    },
-    "culling": {
-      "actionDelete": "移至垃圾桶",
-      "actionRateZero": "將評分設為 1 星",
-      "actionReject": "標記為已拒絕（紅色標籤）",
-      "applyButton_one": "應用到 1 張影像",
-      "applyButton_other": "應用到 {{count}} 張影像",
-      "bestImage": "最佳影像",
-      "blurryImagesTab": "模糊影像",
-      "blurThreshold": "模糊臨界值",
-      "blurThresholdDesc": "銳度評分低於此值的影像將被標記。值越高越嚴格。",
-      "cancel": "取消",
-      "close": "關閉",
-      "cullingFailed": "篩選失敗",
-      "cullingSuggestions": "篩選建議",
-      "done": "完成",
-      "duplicatesHeader": "重複項（{{count}}）",
-      "duplicatesHeader_one": "重複項（{{count}}）",
-      "duplicatesHeader_other": "重複項（{{count}}）",
-      "filterBlurry": "過濾模糊影像",
-      "groupHeader": "第 {{index}} 組",
-      "groupSimilar": "分組相似影像",
-      "noIssuesDesc": "所有影像似乎都是唯一且清晰的。",
-      "noIssuesFound": "未發現問題！",
-      "score": "評分：{{score}}",
-      "sharpness": "銳度：{{sharpness}}",
-      "similarGroupsTab": "相似組",
-      "similarityThreshold": "相似度臨界值",
-      "similarityThresholdDesc": "值越低越嚴格（完全重複）。值越高越寬鬆（近似重複）。建議值 24-32。",
-      "startCulling": "開始篩選",
-      "starting": "啟動中...",
-      "title": "篩選影像"
     },
     "merge": {
       "align": "對齊相片",
@@ -2214,9 +2189,11 @@
         "NegPy": "Inspiration for the negative conversion.",
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
         "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
+        "p12-keystore / RustCrypto": "開啟匯入簽署憑證所用的 PKCS#12 憑證檔案。",
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "ring": "為輸出檔案的來源證明 (C2PA) 清單簽署：ECDSA、RSA-PSS 與 Ed25519 簽章，SHA-256。",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
@@ -2224,6 +2201,7 @@
         "SQLite / rusqlite": "圖庫資料庫，包含 Rawtonic 對 Windows WAL 鎖定的修正。",
         "Tauri bundler": "Windows NSIS 安裝程式範本，經過調整，支援僅為目前使用者安裝的版本與為所有使用者安裝的版本並存。",
         "Tauri updater plugin": "「安裝更新」：取得版本的清單與套件，檢查其簽章並取代 macOS App。",
+        "x509-parser": "讀取簽署憑證（簽署者、有效期、允許的用途）。",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -2728,7 +2706,7 @@
       "done_one": "已建立 {{count}} 個堆疊",
       "done_other": "已建立 {{count}} 個堆疊",
       "interval": "相片間隔",
-      "intro": "與上一張相隔不超過此時間拍攝的相片會放入同一堆疊。已在堆疊中的相片維持不變。",
+      "intro": "與上一張相隔不超過此時間拍攝的相片放入同一堆疊；勾選「只限看起來相似的相片」後，還須是同一場景。已在堆疊中的相片保持不變。",
       "kind": {
         "bracket_one": "{{count}} 組包圍曝光",
         "bracket_other": "{{count}} 組包圍曝光",
@@ -2745,9 +2723,12 @@
       "reading": "正在計算…",
       "seconds_one": "{{count}} 秒",
       "seconds_other": "{{count}} 秒",
+      "similar": "只限看起來相似的相片",
+      "similarity": "最低相似度",
       "single_one": "{{count}} 張相片維持單獨",
       "single_other": "{{count}} 張相片維持單獨",
       "title": "依拍攝時間自動堆疊",
+      "unread_other": "{{count}} 張尚未讀取的相片僅依時間分組",
       "useCameraData": "若有相機連拍與包圍曝光資料則使用"
     },
     "badge": {
@@ -3086,6 +3067,33 @@
       "swapOrientation": "切換直式與橫式",
       "turnOverlay": "旋轉疊加"
     },
+    "culling": {
+      "analyse": "找出誤拍和文件",
+      "analyseDownload": "找出誤拍和文件（下載 {{size}}）",
+      "autoStack": "自動堆疊…",
+      "badge": "建議：{{names}}",
+      "checkEyes": "檢查眼睛…",
+      "checkTitle": "「拒絕」作用於已勾選的建議",
+      "criteria": {
+        "document": "文件",
+        "eyesClosed": "閉眼",
+        "misfire": "誤拍"
+      },
+      "criteriaLabel": "建議",
+      "dismiss_other": "沒有問題（已選 {{n}} 張）",
+      "dismissTitle": "所選相片的已勾選建議不再顯示",
+      "failed": "篩選建議未儲存：{{error}}",
+      "gridOnly": "「拒絕」作用於格線中顯示的相片：按 G 顯示格線。",
+      "needsModel": "為找出誤拍和文件，搜尋模型會讀取每張相片。",
+      "reading": "已讀取 {{scored}}/{{total}} 張相片",
+      "reject_other": "拒絕 {{n}} 張建議的相片",
+      "rejectTitle": "將所顯示相片中已勾選的建議標為拒絕，可一步復原；不移動也不刪除任何檔案",
+      "showAgain_other": "重新顯示建議（已選 {{n}} 張）",
+      "showOnly": "只顯示{{name}}（{{n}}）",
+      "suggestionOnly": "僅為建議：按下「拒絕」之前不會拒絕任何相片，復原即可還原。",
+      "title": "篩選",
+      "unreadable_other": "有 {{n}} 張相片無法讀取以產生建議；開啟圖庫時會重試。"
+    },
     "develop": {
       "auto": {
         "label": "自動",
@@ -3268,7 +3276,7 @@
         "expandAll": "展開所有工具",
         "moveDown": "下移",
         "moveUp": "上移",
-        "oneOpen": "一次只開啟一個工具",
+        "oneOpen": "獨顯模式",
         "restoreOrder": "還原預設順序",
         "restoreOrderMenu": "還原預設工具順序",
         "restoreOrderTitle": "將工具恢復為原始順序"
@@ -3399,9 +3407,9 @@
       },
       "toolGroup": {
         "isOn": "{{tool}} 開啟",
+        "openOnlyHint": "按住 Alt/Option 點按可僅展開此工具",
         "reset": "重設{{tool}}",
         "resetGroup": "重設群組",
-        "resetHint": "按住 Alt/Option 點按名稱可重設{{tool}}",
         "resetOrHold": "重設{{tool}}（按住，或按住 Alt/Option 鍵按下：顯示不含此工具的照片）",
         "turnOff": "關閉{{tool}}",
         "turnOn": "開啟{{tool}}"
@@ -3528,6 +3536,49 @@
         "complete": "匯出完成。",
         "exporting": "正在匯出 {{current}}/{{total}}"
       },
+      "provenance": {
+        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG 與 TIFF。不會傳送任何內容。",
+        "add": "在每個檔案中簽署來源清單",
+        "author": "將相片的創作者列為作者",
+        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG 或 TIFF。",
+        "certificateFilter": "PKCS#12 憑證",
+        "expired": "此憑證目前無效（有效至 {{until}}）：無法用它為輸出簽署。請匯入更新的憑證或建立新的憑證。",
+        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG 或 TIFF，或關閉此選項。",
+        "generate": "在此電腦上建立憑證",
+        "import": "匯入您的憑證 (.p12)…",
+        "importConfirm": "匯入",
+        "importTitle": "選擇您的簽署憑證",
+        "keyStored": "密碼只用來開啟檔案一次，不會儲存。私密金鑰會複製到 Rawtonic 的資料檔案夾，僅您的使用者帳戶可讀取。",
+        "legend": "來源證明 (C2PA)",
+        "none": "尚未設定簽署憑證。",
+        "password": "憑證密碼",
+        "planSigned": "已簽署 (C2PA)",
+        "remove": "移除簽署憑證",
+        "removeConfirm": "要從此電腦移除憑證及其私密金鑰嗎？在設定其他憑證之前，使用此選項的輸出都會失敗。已匯入憑證的原始檔案不會被更動。",
+        "removeNo": "取消",
+        "removeYes": "移除",
+        "review": {
+          "actions": "編輯",
+          "author": "作者",
+          "certificate": "憑證（包含在每個檔案中，收件者可讀取）",
+          "generated": "由生成模型建立 ({{type}})",
+          "generator": "製作軟體",
+          "ingredient": "沖洗自",
+          "noAuthor": "未列名",
+          "noSigner": "尚無憑證",
+          "notIncluded": "不包含相片中的",
+          "notIncludedList": "原圖的縮圖或像素、調整數值、位置、帳戶、時間戳記服務。",
+          "signer": "簽署者"
+        },
+        "reviewHint": "以第一張相片顯示；每張相片會記錄各自的檔名與編輯。",
+        "reviewLegend": "清單包含的內容",
+        "reviewLegendFor": "清單包含的內容：{{recipe}}",
+        "signedImported": "以「{{signer}}」的身分簽署；憑證由 {{issuer}} 簽發，有效至 {{until}}。",
+        "signedLocal": "以「{{signer}}」的身分，用在此電腦上建立的憑證簽署。",
+        "signerName": "簽署者名稱",
+        "signerPlaceholder": "您的姓名或工作室",
+        "unknownSigner": "驗證工具會將在此電腦上建立的憑證顯示為不明簽署者：沒有憑證授權單位為其擔保。匯入您自己的憑證即可讓簽署者被辨識。"
+      },
       "queue": {
         "button": "佇列",
         "buttonActive_other": "佇列 ({{count}})",
@@ -3645,6 +3696,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "未輸出任何內容：{{error}}",
         "queuedMany_other": "已將 {{count}} 個匯出加入佇列。",
         "queuedOne": "已加入匯出佇列。",
         "unsavedEdits": "無法儲存 {{names}} 的編輯，因此未匯出任何內容。儲存後請重新匯出。"
@@ -4318,6 +4370,11 @@
             "purple": "紫色",
             "red": "紅色",
             "yellow": "黃色"
+          },
+          "suggestion": {
+            "document": "文件",
+            "eyesClosed": "閉眼",
+            "misfire": "誤拍"
           }
         },
         "combine": {
@@ -4355,6 +4412,8 @@
           "previousImport": "在上次匯入中",
           "rating": "星級",
           "sourceType": "數位來源類型（檔案中）",
+          "stacked": "在堆疊中",
+          "suggestion": "篩選建議",
           "text": "任何可搜尋的文字"
         },
         "folderPlaceholder": "資料夾路徑",
@@ -4738,6 +4797,11 @@
       "appliesSaved": "套用儲存時包含的設定",
       "appliesToSelection_other": "按一下將套用至 {{count}} 張所選照片。",
       "builtin": {
+        "adaptive-background-darker": "背景：更暗",
+        "adaptive-eyes-brighter": "人像：更亮的眼睛",
+        "adaptive-skin-smoother": "人像：更平滑的皮膚",
+        "adaptive-sky-deeper": "天空：更深",
+        "adaptive-subject-lift": "主體：提亮",
         "bw-darker-skies": "黑白 更暗的天空",
         "bw-high-contrast": "黑白 高對比",
         "bw-lighter-skin": "黑白 更亮的膚色",

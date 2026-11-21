@@ -1460,16 +1460,15 @@ impl ExportMetadata {
     }
 }
 
-/// A fresh rights-only packet. Do not copy source EXIF or source XMP: these
-/// may carry camera identifiers and locations. Catalog rights avoid any source
-/// read; otherwise inspect just Artist/Copyright in the cached map or source.
-fn stripped_export_metadata(
+/// The photo's metadata with the creator and copyright its exports write
+/// when metadata is stripped (and its provenance manifest's author): the
+/// catalog's, else the source's EXIF Artist and Copyright (the cached map,
+/// else the file itself).
+pub fn export_rights(
     source: &str,
-    generated: bool,
-    keep_creator_contact: bool,
     exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
     catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
-) -> Option<ExportMetadata> {
+) -> rawtonic_metadata::Metadata {
     let mut kept = catalog().unwrap_or_default();
     if kept.creator.trim().is_empty() || kept.copyright.trim().is_empty() {
         let (artist, copyright) = if let Some(map) = exif_sidecar() {
@@ -1524,6 +1523,20 @@ fn stripped_export_metadata(
             kept.copyright = copyright;
         }
     }
+    kept
+}
+
+/// A fresh rights-only packet. Do not copy source EXIF or source XMP: these
+/// may carry camera identifiers and locations. Catalog rights avoid any source
+/// read; otherwise inspect just Artist/Copyright in the cached map or source.
+fn stripped_export_metadata(
+    source: &str,
+    generated: bool,
+    keep_creator_contact: bool,
+    exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
+    catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
+) -> Option<ExportMetadata> {
+    let mut kept = export_rights(source, exif_sidecar, catalog);
     kept = rawtonic_metadata::Metadata {
         creator: kept.creator,
         copyright: kept.copyright,

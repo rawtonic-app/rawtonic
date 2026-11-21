@@ -29,7 +29,7 @@ import {
   noteBrowserPreview
 } from './usePerformanceDiagnostics';
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
-import { sourceDevelopToApply } from '../utils/aiDenoise';
+import { sameAiDenoiseAmount, sourceDevelopToApply } from '../utils/aiDenoise';
 import { beforeAdjustments, beforeSnapshot } from '../utils/beforeSnapshot';
 import { toastAiError } from '../utils/aiErrors';
 import { errorCode, errorMessage } from '../shared/ipc/errors';
@@ -674,6 +674,9 @@ export function useImageProcessing(
   const developBorderBlack = sourceDevelop?.borderBlack;
   const developHighlightRatios = sourceDevelop?.highlightRatios;
   const developCameraPlaneWarp = sourceDevelop?.cameraPlaneWarp;
+  // The preferences' revision a develop is for: a change while it runs asks
+  // for another one (`decode-preferences-changed`).
+  const staleRevision = selectedImage?.decoderStale ?? 0;
   // The newest develop request: it alone clears the busy note, on every way
   // it ends (done, failed, cancelled, photograph switched).
   const sourceDevelopRequestRef = useRef(0);
@@ -689,8 +692,10 @@ export function useImageProcessing(
     const highlightRatios = developHighlightRatios;
     const cameraPlaneWarp = developCameraPlaneWarp;
     const current = useEditorStore.getState().selectedImage;
+    const revision = current?.decoderStale ?? 0;
     const changesAiDenoise =
-      amount !== Math.round(current?.aiDenoise ?? 0) ||
+      !sameAiDenoiseAmount(amount, current?.aiDenoise ?? 0) ||
+      (amount === 0 && current?.aiDenoiseStandIn === true) ||
       (amount > 0 && (version ?? 1) !== (current?.aiDenoiseVersion ?? 1));
     const changesFilter = multiscale !== current?.colorNoiseMultiscale;
     const changesDeadTest = deadPixelAdjacent !== current?.deadPixelAdjacent;
@@ -724,8 +729,13 @@ export function useImageProcessing(
         editor.setEditor({
           selectedImage: {
             ...editor.selectedImage,
-            aiDenoise: Math.round(applied),
+            aiDenoise: applied,
             aiDenoiseVersion: applied > 0 ? (version ?? 1) : 1,
+            aiDenoiseStandIn: false,
+            // This source settles the stale preferences and the amount that
+            // failed before (undo to it develops again).
+            decoderStale: (editor.selectedImage.decoderStale ?? 0) === revision ? 0 : editor.selectedImage.decoderStale,
+            ...(changesAiDenoise ? { aiDenoiseFailed: undefined, aiDenoiseFailedVersion: undefined } : {}),
             ...(multiscale === undefined ? {} : { colorNoiseMultiscale: multiscale }),
             ...(deadPixelAdjacent === undefined ? {} : { deadPixelAdjacent }),
             ...(unbiasedBlack === undefined ? {} : { unbiasedBlack }),
@@ -749,12 +759,21 @@ export function useImageProcessing(
         settleBusy();
         // A newer request or another photograph replaced this one.
         if (errorCode(err) === 'cancelled') return;
+        const published = errorCode(err) === 'unsupported';
         editor.setEditor({
           ...(editor.selectedImage?.path === path
             ? {
                 // Not retried: the source stays as it is.
                 selectedImage: {
                   ...editor.selectedImage,
+                  // Not retried either way (a stale decode stays as it is).
+                  decoderStale:
+                    (editor.selectedImage.decoderStale ?? 0) === revision ? 0 : editor.selectedImage.decoderStale,
+                  // The backend published a sensor AI Denoise skips as its
+                  // rawler decode, standing in for the amount.
+                  ...(published && useSettingsStore.getState().appSettings?.useAppleRaw9
+                    ? { aiDenoiseStandIn: true }
+                    : {}),
                   ...(changesAiDenoise ? { aiDenoiseFailed: amount, aiDenoiseFailedVersion: version ?? 1 } : {}),
                   ...(!changesAiDenoise && changesFilter ? { colorNoiseMultiscaleFailed: multiscale } : {}),
                   ...(!changesAiDenoise && changesDeadTest ? { deadPixelAdjacentFailed: deadPixelAdjacent } : {}),
@@ -766,6 +785,16 @@ export function useImageProcessing(
               }
             : {})
         });
+        // The skipped sensor's decode is the source now: shown.
+        const targetRes = currentResRef.current;
+        if (published && targetRes && editor.selectedImage?.path === path) {
+          previewQueue.submit({
+            path,
+            adjustments: editor.previewOverride ?? editor.adjustments,
+            dragging: false,
+            targetRes
+          });
+        }
         if (changesAiDenoise) toastAiError(err, `AI Denoise failed: ${errorMessage(err)}`);
         else console.error('Developing the source again failed:', err);
       });
@@ -778,6 +807,7 @@ export function useImageProcessing(
     developBorderBlack,
     developHighlightRatios,
     developCameraPlaneWarp,
+    staleRevision,
     setEditor,
     previewQueue,
     currentResRef

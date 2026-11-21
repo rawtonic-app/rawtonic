@@ -14,6 +14,7 @@ import {
   SETTINGS_GROUPS,
   chosenSettings,
   detectionPending,
+  joinedLayers,
   newEditResponses,
   pasteInto,
   presetToSave,
@@ -220,5 +221,36 @@ describe('Copy/Sync of grain', () => {
     expect(fresh.grainVersion).toBe(GRAIN_VERSION);
     const old = { ...INITIAL_ADJUSTMENTS, grainAmount: 10, grainVersion: 1 } as Adjustments;
     expect(pasteInto(old, applied, { samePhoto: false, replaceLayers: false })!.grainVersion).toBe(1);
+  });
+});
+
+describe('joinedLayers', () => {
+  const layer = (id: string, type: string): MaskContainer =>
+    ({
+      ...INITIAL_MASK_CONTAINER,
+      id,
+      name: id,
+      subMasks: [
+        {
+          id: `${id}-c`,
+          type,
+          visible: true,
+          invert: false,
+          opacity: 100,
+          mode: 'additive',
+          parameters: { maskDataBase64: 'data:own' }
+        }
+      ]
+    }) as unknown as MaskContainer;
+
+  it('joins a preset’s layers to the photo’s own; applied again, its layer is replaced, not doubled', () => {
+    const own = [layer('brush', 'brush')];
+    const once = joinedLayers(own, [layer('preset-sky', 'ai-sky')]);
+    expect(once.map((l) => l.id)).toEqual(['brush', 'preset-sky']);
+    expect(once[0]).toBe(own[0]);
+    // The preset's AI selection waits for this photo's detection.
+    expect(once[1].subMasks[0].parameters).toMatchObject({ maskDataBase64: null, detectPending: true });
+    const twice = joinedLayers(once, [layer('preset-sky', 'ai-sky')]);
+    expect(twice.map((l) => l.id)).toEqual(['brush', 'preset-sky']);
   });
 });

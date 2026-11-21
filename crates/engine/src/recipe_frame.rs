@@ -68,6 +68,10 @@ pub struct TiffFrames {
 /// orientation 6 from the IIQ data) and its thumbnail upright (1), and both
 /// develop 4:3 landscape. Read once per size and modification time.
 pub fn tiff_frames(path: &Path) -> Option<TiffFrames> {
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(frames) = pretended(path) {
+        return Some(frames);
+    }
     let extension = path.extension()?.to_str()?;
     if !crate::formats::is_tiff_extension(extension) || !crate::formats::is_raw_file(path) {
         return None;
@@ -92,6 +96,28 @@ pub fn tiff_frames(path: &Path) -> Option<TiffFrames> {
         .unwrap_or_else(|e| e.into_inner())
         .insert(path.to_path_buf(), (stamp.0, stamp.1, found));
     found
+}
+
+#[cfg(any(test, feature = "test-support"))]
+static PRETENDED: Mutex<Vec<(PathBuf, TiffFrames)>> = Mutex::new(Vec::new());
+
+#[cfg(any(test, feature = "test-support"))]
+fn pretended(path: &Path) -> Option<TiffFrames> {
+    PRETENDED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(p, _)| p == path)
+        .map(|(_, frames)| *frames)
+}
+
+/// Tests of other crates: `path` reads as a camera TIFF of `frames`.
+#[cfg(any(test, feature = "test-support"))]
+pub fn pretend_frames(path: &Path, frames: TiffFrames) {
+    PRETENDED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((path.to_path_buf(), frames));
 }
 
 fn read_tiff_frames(path: &Path) -> Option<TiffFrames> {
@@ -143,79 +169,141 @@ fn raster_frame(path: &Path) -> Option<(u32, u32)> {
 /// photo's frame now when it was made on another one: a camera TIFF's edit
 /// from before 0.1.0-alpha.17.1 (see the module), scaled from the
 /// thumbnail and stamped with the full frame. Returns whether it changed.
-/// New recipes and stamped ones are left alone.
+/// New recipes and stamped ones are left alone, and so are recipes that
+/// cannot tell their frame ([`Made::Unknown`]; [`undecided`]).
 pub fn conform(adjustments: &mut Value, path: &Path) -> bool {
+    match unstamped_frames(adjustments, path) {
+        Some(frames) if made_on(adjustments, frames) == Made::Thumbnail => {
+            migrate(adjustments, frames);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Whether the recipe of the camera TIFF at `path` cannot tell whether it
+/// was made on the thumbnail or the full frame ([`Made::Unknown`]): it is
+/// left as it is, and the editor offers to move it ([`move_to_full_frame`]).
+pub fn undecided(adjustments: &Value, path: &Path) -> bool {
+    unstamped_frames(adjustments, path)
+        .is_some_and(|frames| made_on(adjustments, frames) == Made::Unknown)
+}
+
+/// Moves an undecided recipe ([`undecided`]) to the full frame, as
+/// [`conform`] moves a thumbnail edit: the user's choice. Returns whether
+/// it changed.
+pub fn move_to_full_frame(adjustments: &mut Value, path: &Path) -> bool {
+    match unstamped_frames(adjustments, path) {
+        Some(frames) if made_on(adjustments, frames) == Made::Unknown => {
+            migrate(adjustments, frames);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// The camera TIFF frames of `path` when `adjustments` is a saved recipe
+/// without a stamp (the ones that may need moving).
+fn unstamped_frames(adjustments: &Value, path: &Path) -> Option<TiffFrames> {
     if !adjustments.is_object()
         || stamped(adjustments).is_some()
         || crate::image_processing::is_new_recipe(adjustments)
     {
-        return false;
+        return None;
     }
-    let Some(frames) = tiff_frames(path) else {
-        return false;
-    };
-    if !made_on_thumbnail(adjustments, frames) {
-        return false;
-    }
+    tiff_frames(path)
+}
+
+fn migrate(adjustments: &mut Value, frames: TiffFrames) {
     scale_geometry(adjustments, frames.thumbnail, frames.full);
     stamp(adjustments, frames.full.0, frames.full.1);
-    true
+}
+
+/// On which frame of a camera TIFF a recipe without a stamp was made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Made {
+    Thumbnail,
+    Full,
+    /// Nothing tells: the RAW passes' versions with only a crop or spots
+    /// within the thumbnail's corner (see [`made_on`]).
+    Unknown,
 }
 
 /// Whether `adjustments`, without a stamp, was made on the camera TIFF's
-/// thumbnail rather than its full frame. Since PR #916 these files open as
-/// RAWs, and every edit begun on a RAW carries the RAW passes' versions
-/// (`fringeVersion` since 2026-10-16, `autoCaVersion`; `initialAdjustmentsFor`,
-/// `image_processing::start_new_edit`), which an ordinary TIFF's edit never
-/// gets: with either it was begun on the full frame. So does a drawn mask's
-/// frame or an AI bitmap of the full frame's size, and geometry outside the
-/// thumbnail (a crop, a spot: more than a pixel beyond it, an edit of the
-/// full frame made since). Otherwise thumbnail: begun as an ordinary
-/// TIFF's edit, with everything within the thumbnail, as all edits from
-/// before 0.1.0-alpha.17.1 are.
+/// thumbnail rather than its full frame ([`made_on`]).
 pub fn made_on_thumbnail(adjustments: &Value, frames: TiffFrames) -> bool {
-    if [
+    made_on(adjustments, frames) == Made::Thumbnail
+}
+
+/// On which frame `adjustments`, without a stamp, was made, from what in
+/// it only one frame can have made:
+/// - the full frame: a drawn mask's frame or an AI bitmap of the full
+///   frame's size, or a crop or spot more than a pixel beyond the thumbnail
+///   (an edit of the full frame made since PR #916);
+/// - the thumbnail: a drawn mask's frame or an AI bitmap of the
+///   thumbnail's size, or a crop of exactly the whole thumbnail;
+/// - otherwise the RAW passes' versions (`fringeVersion` since 2026-10-16,
+///   `autoCaVersion`), which every edit begun on a RAW carries and an
+///   ordinary TIFF's edit never gets, tell the full frame, unless a crop or
+///   spots are there to place: Processing Versions pasted from a RAW onto a
+///   thumbnail edit add them too, so the two look alike ([`Made::Unknown`];
+///   a cloned dust speck in the corner of an edit begun on the RAW, or a
+///   thumbnail edit given the versions);
+/// - without them the thumbnail: begun as an ordinary TIFF's edit, with
+///   everything within the thumbnail, as all edits from before
+///   0.1.0-alpha.17.1 are. (A thumbnail edit that got a full-frame spot
+///   within the thumbnail's corner in alpha.17.1 or .18 is indistinguishable
+///   from one; it is moved as one.)
+///
+/// Full-frame evidence wins over thumbnail evidence: an edit with both was
+/// changed on the full frame and is left as the user last saw it.
+pub fn made_on(adjustments: &Value, frames: TiffFrames) -> Made {
+    let near = |a: (f64, f64), b: (u32, u32)| {
+        (a.0 - f64::from(b.0)).abs() <= 1.0 && (a.1 - f64::from(b.1)).abs() <= 1.0
+    };
+    let mut sizes = crate::mask_generation::drawn_mask_sizes(adjustments);
+    sizes.extend(
+        ai_bitmap_sizes(adjustments)
+            .into_iter()
+            .map(|(w, h)| (f64::from(w), f64::from(h))),
+    );
+    let (tw, th) = shown(adjustments, frames.thumbnail);
+    let inside = |x: f64, y: f64| x <= tw + 1.0 && y <= th + 1.0;
+    let crop = adjustments
+        .get(geometry::CROP.name())
+        .and_then(|c| serde_json::from_value::<geometry::Crop>(c.clone()).ok());
+    let beyond = crop
+        .as_ref()
+        .is_some_and(|c| !inside(c.x + c.width, c.y + c.height))
+        || spot_items(adjustments).any(|spot| {
+            [("x", "y"), ("sourceX", "sourceY")].iter().any(|(x, y)| {
+                matches!((spot[*x].as_f64(), spot[*y].as_f64()), (Some(x), Some(y)) if !inside(x, y))
+            })
+        });
+    if beyond || sizes.iter().any(|&s| near(s, frames.full)) {
+        return Made::Full;
+    }
+    let whole_thumbnail = crop.as_ref().is_some_and(|c| {
+        c.x.abs() <= 1.0
+            && c.y.abs() <= 1.0
+            && (c.width - tw).abs() <= 1.0
+            && (c.height - th).abs() <= 1.0
+    });
+    if whole_thumbnail || sizes.iter().any(|&s| near(s, frames.thumbnail)) {
+        return Made::Thumbnail;
+    }
+    let raw_versions = [
         crate::edge_fringe::VERSION_KEY,
         crate::lateral_ca::VERSION_KEY,
     ]
     .iter()
-    .any(|key| adjustments.get(*key).is_some_and(|v| !v.is_null()))
-    {
-        return false;
+    .any(|key| adjustments.get(*key).is_some_and(|v| !v.is_null()));
+    if !raw_versions {
+        return Made::Thumbnail;
     }
-    let near = |a: (f64, f64), b: (u32, u32)| {
-        (a.0 - f64::from(b.0)).abs() <= 1.0 && (a.1 - f64::from(b.1)).abs() <= 1.0
-    };
-    let sizes = crate::mask_generation::drawn_mask_sizes(adjustments);
-    if sizes.iter().any(|&s| near(s, frames.full)) {
-        return false;
-    }
-    let bitmaps = ai_bitmap_sizes(adjustments);
-    if bitmaps
-        .iter()
-        .any(|&(w, h)| near((f64::from(w), f64::from(h)), frames.full))
-    {
-        return false;
-    }
-    let (tw, th) = shown(adjustments, frames.thumbnail);
-    let inside = |x: f64, y: f64| x <= tw + 1.0 && y <= th + 1.0;
-    if let Some(crop) = adjustments
-        .get(geometry::CROP.name())
-        .and_then(|c| serde_json::from_value::<geometry::Crop>(c.clone()).ok())
-        && !inside(crop.x + crop.width, crop.y + crop.height)
-    {
-        return false;
-    }
-    for spot in spot_items(adjustments) {
-        for (x, y) in [("x", "y"), ("sourceX", "sourceY")] {
-            if let (Some(x), Some(y)) = (spot[x].as_f64(), spot[y].as_f64())
-                && !inside(x, y)
-            {
-                return false;
-            }
-        }
-    }
-    true
+    let placed = crop.is_some_and(|c| c.width > 0.0 && c.height > 0.0)
+        || spot_items(adjustments).next().is_some();
+    if placed { Made::Unknown } else { Made::Full }
 }
 
 /// `size` (the photo's own) as the photo is shown: turned by the recipe's
@@ -375,7 +463,7 @@ pub fn scale_geometry(adjustments: &mut Value, from: (u32, u32), to: (u32, u32))
         f64::from(to.0) / f64::from(from.0),
         f64::from(to.1) / f64::from(from.1),
     );
-    for_each_ai_component(adjustments, |parameters| {
+    for_each_ai_component(adjustments, |layer, kind, parameters| {
         // An Object selection's box and prompts, in pixels of the photo as
         // shown when it was made: turned by the component's own orientation
         // steps (the recipe's when it records none).
@@ -407,20 +495,49 @@ pub fn scale_geometry(adjustments: &mut Value, from: (u32, u32), to: (u32, u32))
                 }
             }
         }
-        // The bitmap is stretched over the photo when rendered.
+        // The bitmap is stretched over the photo when rendered; a selection
+        // a network makes on its own is computed again on the full frame
+        // (the stretched one stands in until then).
         if parameters
             .get("maskDataBase64")
             .is_some_and(Value::is_string)
         {
             parameters[crate::mask_generation::BITMAP_FRAME] =
                 json!({"width": from.0, "height": from.1});
+            // (A mask layer's: an AI patch keeps the area it was filled in.)
+            // (One person of several, by their order from the left: the full
+            // frame may find another face first, so it keeps its bitmap.)
+            if layer
+                && matches!(kind, "ai-sky" | "ai-foreground" | "ai-people")
+                && !crate::masks::nothing_to_detect(parameters)
+                && crate::ai_selections::people_person(parameters).is_none()
+            {
+                parameters[DETECT_AGAIN] = json!(true);
+            }
         }
     });
 }
 
-/// `visit(parameters)` for every AI component (`ai-*`) of `adjustments`'
-/// masks and AI patches.
-fn for_each_ai_component(adjustments: &mut Value, mut visit: impl FnMut(&mut Value)) {
+/// The parameter that marks an AI selection migrated from a camera TIFF's
+/// thumbnail ([`scale_geometry`]): Sky, Subject and People selections
+/// express what to select, so they are computed again on the
+/// full frame — by the editor when the photo opens (one History step, the
+/// stretched thumbnail bitmap one undo back) and by exports
+/// (`ai_selections::undetected`) — keeping their refinements (Grow,
+/// Feather, Invert; brush strokes are components of their own). Object
+/// selections keep their stretched bitmap: their prompts were made on the
+/// thumbnail, and an export cannot point at an object; so do depth ranges
+/// (a smooth depth map; the CLI computes none, so its exports and the
+/// app's would differ) and People
+/// selections of one person (`person`, counted from the left: the full frame
+/// may find another face before them). Where the selection cannot be
+/// computed (no model installed: nothing is downloaded for it) the stretched
+/// bitmap stays.
+pub const DETECT_AGAIN: &str = "detectAgain";
+
+/// `visit(in a mask layer, type, parameters)` for every AI component
+/// (`ai-*`) of `adjustments`' masks and AI patches.
+fn for_each_ai_component(adjustments: &mut Value, mut visit: impl FnMut(bool, &str, &mut Value)) {
     for key in [rawtonic_recipe::masks::MASKS.name(), "aiPatches"] {
         let Some(list) = adjustments.get_mut(key).and_then(Value::as_array_mut) else {
             continue;
@@ -433,16 +550,21 @@ fn for_each_ai_component(adjustments: &mut Value, mut visit: impl FnMut(&mut Val
             })
             .flatten()
         {
-            let is_ai = sub
+            let kind = sub
                 .get(rawtonic_recipe::masks::TYPE.name())
                 .and_then(Value::as_str)
-                .is_some_and(|t| t.starts_with("ai-"));
-            if let (true, Some(parameters)) = (
-                is_ai,
+                .filter(|t| t.starts_with("ai-"))
+                .map(str::to_string);
+            if let (Some(kind), Some(parameters)) = (
+                kind,
                 sub.get_mut(rawtonic_recipe::masks::PARAMETERS.name())
                     .filter(|p| p.is_object()),
             ) {
-                visit(parameters);
+                visit(
+                    key == rawtonic_recipe::masks::MASKS.name(),
+                    &kind,
+                    parameters,
+                );
             }
         }
     }

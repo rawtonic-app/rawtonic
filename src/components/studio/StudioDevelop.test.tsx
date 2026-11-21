@@ -1532,7 +1532,7 @@ describe('what the tools act on (tool tabs vs. the selected layer)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit Background' }));
     expect(useEditorStore.getState().activeMaskContainerId).toBeNull();
     expect(useUIStore.getState().activePanel).toBe(Panel.Adjustments);
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('status').textContent).toBe('Editing: Background');
   });
 
   it('says where photo-only tools are and leaves the layer for Crop', () => {
@@ -1543,6 +1543,17 @@ describe('what the tools act on (tool tabs vs. the selected layer)', () => {
     tab('Crop, geometry & lens');
     expect(useEditorStore.getState().activeMaskContainerId).toBeNull();
     expect(useUIStore.getState().activePanel).toBe(Panel.Crop);
+  });
+
+  it('labels the adjustment target above the tools in Adjust and Layers', () => {
+    withSky();
+    mount();
+    const readout = screen.getByText('Editing: Sky');
+    expect(readout.closest('.studio-tools-scroll')).toBeNull();
+    openLayersTab();
+    expect(screen.getByText('Editing: Sky')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Background' }));
+    expect(screen.getByText('Editing: Background')).toBeTruthy();
   });
 
   it('keeps the Adjust tab short while the photo has no layers', () => {
@@ -1800,7 +1811,7 @@ describe('Subject starts when the masking tools are reached for', () => {
   });
 });
 
-describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
+describe('Group reset', () => {
   const setEdit = (patch: Record<string, unknown>) =>
     act(() => {
       useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, ...patch } }));
@@ -1818,14 +1829,14 @@ describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
     openGroups();
   };
 
-  it('Alt-click on Presence resets its sliders only, as one undo step named "Reset Presence"', async () => {
+  it('the Presence reset button resets its sliders only, as one undo step named "Reset Presence"', async () => {
     const { historyStepName } = await import('./historyLabels');
     const { default: i18n } = await import('i18next');
     setEdit({ clarity: 30, dehaze: -20, vibrance: 40, saturation: -10, exposure: 0.7, contrast: 25 });
     mount();
     openGroups();
     const stepsBefore = useEditorStore.getState().history.length;
-    fireEvent.click(screen.getByText('Presence', { selector: '.studio-tool-name' }), { altKey: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Presence' }));
     const now = adjustments();
     expect([now.clarity, now.dehaze, now.vibrance, now.saturation]).toEqual([0, 0, 0, 0]);
     // No other group is touched.
@@ -1836,18 +1847,18 @@ describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
     expect([adjustments().clarity, adjustments().vibrance, adjustments().exposure]).toEqual([30, 40, 0.7]);
   });
 
-  it('a plain click or Alt-click outside the name does not reset', () => {
+  it('a plain click or Alt-click on the group name does not reset', () => {
     setEdit({ clarity: 30 });
     mount();
     openGroups();
     fireEvent.click(screen.getByText('Presence', { selector: '.studio-tool-name' }));
-    fireEvent.click(screen.getByText('Presence', { selector: '.studio-tool-name' }).closest('summary')!, {
+    fireEvent.click(screen.getByText('Presence', { selector: '.studio-tool-name' }), {
       altKey: true
     });
     expect(adjustments().clarity).toBe(30);
   });
 
-  it('offers "Reset group" in the group context menu and shows the modifier hint in the title tooltip', () => {
+  it('offers "Reset group" in the group context menu and shows the Solo hint on the group name', () => {
     setEdit({ shadows: 40, whites: -15, clarity: 30 });
     render(
       <ContextMenuProvider>
@@ -1856,7 +1867,7 @@ describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
     );
     openGroups();
     const name = screen.getByText('Exposure', { selector: '.studio-tool-name' });
-    expect(name.getAttribute('title')).toBe('Alt/Option-click the name to reset Exposure');
+    expect(name.getAttribute('title')).toBe('Alt/Option-click to open only this tool');
     fireEvent.contextMenu(name);
     fireEvent.click(screen.getByText('Reset group'));
     expect([adjustments().shadows, adjustments().whites]).toEqual([0, 0]);
@@ -1867,8 +1878,8 @@ describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
     setEdit({ temperature: 35, tint: -12, temperatureVersion: 1, tintVersion: 1 });
     mount();
     openGroups();
-    const name = () => screen.getByText('White balance', { selector: '.studio-tool-name' });
-    fireEvent.click(name(), { altKey: true });
+    const reset = () => screen.getByRole('button', { name: 'Reset White balance' });
+    fireEvent.click(reset());
     expect([adjustments().temperature, adjustments().tint]).toEqual([0, 0]);
     expect(adjustments().temperatureVersion).toBe(initialAdjustmentsFor(true).temperatureVersion);
     expect(adjustments().tintVersion).toBe(initialAdjustmentsFor(true).tintVersion);
@@ -1876,7 +1887,7 @@ describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
     // A layer uses Temperature: the photo's response (version key) must stay.
     const layer = { ...structuredClone(INITIAL_MASK_CONTAINER), id: 'l1', adjustments: { temperature: 20 } };
     setEdit({ temperature: 35, tint: -12, temperatureVersion: 1, tintVersion: 1, masks: [layer] });
-    fireEvent.click(name(), { altKey: true });
+    fireEvent.click(reset());
     expect([adjustments().temperature, adjustments().tint]).toEqual([0, 0]);
     expect(adjustments().temperatureVersion).toBe(1);
     expect(adjustments().tintVersion).toBe(initialAdjustmentsFor(true).tintVersion);
@@ -1889,7 +1900,7 @@ describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
     setEdit({ hsl, vibrance: 33 });
     mount();
     inColor();
-    fireEvent.click(screen.getByText('Color mixer', { selector: '.studio-tool-name' }), { altKey: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Color mixer' }));
     expect(adjustments().hsl).toEqual(INITIAL_ADJUSTMENTS.hsl);
     expect(Object.keys(adjustments().hsl)).toHaveLength(8);
     expect(adjustments().vibrance).toBe(33);
@@ -1904,7 +1915,7 @@ describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
     setEdit({ blackAndWhite: true, grayMixer: gray, hsl });
     mount();
     inColor();
-    fireEvent.click(screen.getByText('Black & white', { selector: '.studio-tool-name' }), { altKey: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Black & white' }));
     expect(adjustments().grayMixer).toEqual(INITIAL_ADJUSTMENTS.grayMixer);
     expect(adjustments().hsl.reds.hue).toBe(9);
   });
@@ -1918,7 +1929,7 @@ describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
     openGroups();
     edit('Brightness', -0.25);
     expect(adjustments().masks[0].adjustments.brightness).toBe(-0.25);
-    fireEvent.click(screen.getByText('Exposure', { selector: '.studio-tool-name' }), { altKey: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Exposure' }));
     expect(adjustments().masks[0].adjustments.brightness).toBe(0);
     expect(historyStepName(step(), i18n.t.bind(i18n))).toBe('Reset Exposure');
   });
@@ -1928,11 +1939,11 @@ describe('Group reset (Lightroom: Alt/Option-click on a group title)', () => {
     const { default: i18n } = await import('i18next');
     mount();
     openGroups();
-    const presence = () => screen.getByText('Presence', { selector: '.studio-tool-name' });
+    const presence = () => screen.getByRole('button', { name: 'Reset Presence' });
     // The first reset takes the new edit's version keys; the second finds nothing to change.
-    fireEvent.click(presence(), { altKey: true });
+    fireEvent.click(presence());
     const first = step();
-    fireEvent.click(presence(), { altKey: true });
+    fireEvent.click(presence());
     expect(step()).not.toBe(first);
     expect(historyStepName(step(), i18n.t.bind(i18n))).toBeNull();
   });

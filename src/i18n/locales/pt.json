@@ -12,6 +12,11 @@
       "sky": "Máscara IA: céu",
       "subject": "Máscara IA: motivo"
     },
+    "aiSelections": {
+      "done": "Seleções com IA calculadas para fotos fechadas ({{total}})",
+      "failed": "Seleções com IA não calculadas para {{failed}} de {{total}} fotos",
+      "running": "Calculando seleções com IA: {{done}} de {{total}} fotos"
+    },
     "batch": {
       "auto_one": "Ajustes automáticos: {{count}} foto",
       "auto_many": "Ajustes automáticos: {{count}} fotos",
@@ -516,7 +521,6 @@
       "confirmReset": "Confirmar Redefinição",
       "convertNegative": "Converter Negativo",
       "copyAdjustments": "Copiar Ajustes",
-      "cullImage": "Selecionar Imagem",
       "editImage": "Editar Imagem",
       "exportImage": "Exportar Imagem",
       "frameImage": "Emoldurar Imagem",
@@ -594,9 +598,6 @@
       "copyImage_one": "Copiar Imagem",
       "copyImage_many": "Copiar {{count}} Imagens",
       "copyImage_other": "Copiar {{count}} Imagens",
-      "cullImage_one": "Selecionar Imagem",
-      "cullImage_many": "Selecionar Imagens",
-      "cullImage_other": "Selecionar Imagens",
       "deleteAssociated": "Excluir + Associados",
       "deleteImage_one": "Excluir Imagem",
       "deleteImage_many": "Excluir {{count}} Imagens",
@@ -926,6 +927,10 @@
       "exporting": "Exportando…",
       "savesTo": "Edição externa — salva em"
     },
+    "frameMove": {
+      "action": "Mover para a imagem completa",
+      "undecided": "Esta edição pode ter sido feita na pequena pré-visualização que este ficheiro TIFF mostrava antes do Rawtonic 0.1.0-alpha.17.1. Se o recorte e os retoques pontuais estiverem fora do lugar, mova-os para a imagem completa."
+    },
     "guided": {
       "cancel": "Cancelar",
       "drawingActive": "Desenho ativo",
@@ -1000,6 +1005,9 @@
         "maskName_other": "Máscara {{count}}"
       },
       "rangeTitle": "Intervalos e Global",
+      "recomputedFullFrame_one": "As máscaras de IA de {{count}} camada foram recalculadas para a imagem em resolução total. Desfazer recupera as anteriores.",
+      "recomputedFullFrame_many": "As máscaras de IA de {{count}} camadas foram recalculadas para a imagem em resolução total. Desfazer recupera as anteriores.",
+      "recomputedFullFrame_other": "As máscaras de IA de {{count}} camadas foram recalculadas para a imagem em resolução total. Desfazer recupera as anteriores.",
       "resetMaskingTooltip": "Redefinir Mascaramento",
       "settings": {
         "aiModelDownloading": "Baixando Modelo de IA: ",
@@ -1178,40 +1186,6 @@
       "create": "Criar",
       "placeholder": "Digite o nome da pasta...",
       "title": "Criar Nova Pasta"
-    },
-    "culling": {
-      "actionDelete": "Mover para a Lixeira",
-      "actionRateZero": "Definir Avaliação para 1 Estrela",
-      "actionReject": "Marcar como Rejeitado (Rótulo Vermelho)",
-      "applyButton_one": "Aplicar a 1 imagem",
-      "applyButton_many": "Aplicar a {{count}} imagens",
-      "applyButton_other": "Aplicar a {{count}} imagens",
-      "bestImage": "Melhor Imagem",
-      "blurryImagesTab": "Imagens Desfocadas",
-      "blurThreshold": "Limiar de Desfoque",
-      "blurThresholdDesc": "Imagens com pontuação de nitidez abaixo deste valor são sinalizadas. Maior é mais rigoroso.",
-      "cancel": "Cancelar",
-      "close": "Fechar",
-      "cullingFailed": "Falha na Seleção",
-      "cullingSuggestions": "Sugestões de Seleção",
-      "done": "Concluído",
-      "duplicatesHeader": "Duplicadas ({{count}})",
-      "duplicatesHeader_one": "Duplicadas ({{count}})",
-      "duplicatesHeader_many": "Duplicadas ({{count}})",
-      "duplicatesHeader_other": "Duplicadas ({{count}})",
-      "filterBlurry": "Filtrar Imagens Desfocadas",
-      "groupHeader": "Grupo {{index}}",
-      "groupSimilar": "Agrupar Imagens Semelhantes",
-      "noIssuesDesc": "Todas as imagens parecem ser únicas e nítidas.",
-      "noIssuesFound": "Nenhum problema encontrado!",
-      "score": "Pontuação: {{score}}",
-      "sharpness": "Nitidez: {{sharpness}}",
-      "similarGroupsTab": "Grupos Semelhantes",
-      "similarityThreshold": "Limiar de Semelhança",
-      "similarityThresholdDesc": "Menor é mais rigoroso (duplicatas exatas). Maior é mais flexível (quase duplicatas). Um valor de 24-32 é recomendado.",
-      "startCulling": "Iniciar Seleção",
-      "starting": "Iniciando...",
-      "title": "Selecionar Imagens"
     },
     "merge": {
       "align": "Alinhar fotos",
@@ -2444,9 +2418,11 @@
         "NegPy": "Inspiration for the negative conversion.",
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
         "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
+        "p12-keystore / RustCrypto": "Abertura do ficheiro de certificado PKCS#12 de onde se importa um certificado de assinatura.",
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "ring": "Assinatura dos manifestos de proveniência (C2PA) nas exportações: assinaturas ECDSA, RSA-PSS e Ed25519, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
@@ -2454,6 +2430,7 @@
         "SQLite / rusqlite": "Base de dados da biblioteca, com uma correção Rawtonic do bloqueio WAL no Windows.",
         "Tauri bundler": "Modelo do instalador NSIS para Windows, adaptado para permitir que uma instalação individual coexista com uma instalação para todos os utilizadores.",
         "Tauri updater plugin": "«Instalar atualização»: obtém o manifesto e o pacote da versão, verifica a assinatura e substitui a app macOS.",
+        "x509-parser": "Leitura de certificados de assinatura (signatário, validade, usos permitidos).",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -2964,7 +2941,7 @@
       "done_many": "{{count}} pilhas criadas",
       "done_other": "{{count}} pilhas criadas",
       "interval": "Tempo entre fotos",
-      "intro": "Fotos tiradas no máximo este tempo após a anterior ficam na mesma pilha. Fotos que já estão numa pilha ficam como estão.",
+      "intro": "Fotos tiradas no máximo este tempo após a anterior ficam na mesma pilha; com «Só fotos parecidas» também têm de mostrar a mesma cena. Fotos já numa pilha ficam como estão.",
       "kind": {
         "bracket_one": "{{count}} bracketing",
         "bracket_many": "{{count}} bracketings",
@@ -2987,10 +2964,15 @@
       "seconds_one": "{{count}} segundo",
       "seconds_many": "{{count}} segundos",
       "seconds_other": "{{count}} segundos",
+      "similar": "Só fotos parecidas",
+      "similarity": "Semelhança mínima",
       "single_one": "{{count}} foto fica sozinha",
       "single_many": "{{count}} fotos ficam sozinhas",
       "single_other": "{{count}} fotos ficam sozinhas",
       "title": "Empilhar automaticamente por hora de captura",
+      "unread_one": "{{count}} foto ainda não lida é agrupada só pela hora",
+      "unread_many": "{{count}} fotos ainda não lidas são agrupadas só pela hora",
+      "unread_other": "{{count}} fotos ainda não lidas são agrupadas só pela hora",
       "useCameraData": "Usar dados de sequência e bracketing da câmara quando existirem"
     },
     "badge": {
@@ -3335,6 +3317,41 @@
       "swapOrientation": "Alternar retrato e paisagem",
       "turnOverlay": "Girar a sobreposição"
     },
+    "culling": {
+      "analyse": "Encontrar disparos falhados e documentos",
+      "analyseDownload": "Encontrar disparos falhados e documentos (transferir {{size}})",
+      "autoStack": "Empilhar automaticamente…",
+      "badge": "Sugerido: {{names}}",
+      "checkEyes": "Verificar olhos…",
+      "checkTitle": "Rejeitar usa as sugestões assinaladas",
+      "criteria": {
+        "document": "Documentos",
+        "eyesClosed": "Olhos fechados",
+        "misfire": "Disparos falhados"
+      },
+      "criteriaLabel": "Sugestões",
+      "dismiss_one": "Não é problema ({{n}} selecionada)",
+      "dismiss_many": "Não é problema ({{n}} selecionadas)",
+      "dismiss_other": "Não é problema ({{n}} selecionadas)",
+      "dismissTitle": "As sugestões assinaladas das fotos selecionadas deixam de ser mostradas",
+      "failed": "Sugestões de triagem não guardadas: {{error}}",
+      "gridOnly": "Rejeitar atua nas fotos que a grelha mostra: G mostra a grelha.",
+      "needsModel": "Para encontrar disparos falhados e documentos, o modelo de pesquisa lê cada foto.",
+      "reading": "{{scored}} de {{total}} fotos lidas",
+      "reject_one": "Rejeitar {{n}} foto sugerida",
+      "reject_many": "Rejeitar {{n}} fotos sugeridas",
+      "reject_other": "Rejeitar {{n}} fotos sugeridas",
+      "rejectTitle": "Marca como rejeitadas as sugestões assinaladas entre as fotos mostradas, num só passo de desfazer; nada é movido nem apagado",
+      "showAgain_one": "Mostrar sugestões de novo ({{n}} selecionada)",
+      "showAgain_many": "Mostrar sugestões de novo ({{n}} selecionadas)",
+      "showAgain_other": "Mostrar sugestões de novo ({{n}} selecionadas)",
+      "showOnly": "Mostrar só {{name}} ({{n}})",
+      "suggestionOnly": "Só sugestões: nada é rejeitado até clicar em Rejeitar, e Desfazer reverte.",
+      "title": "Triagem",
+      "unreadable_one": "{{n}} foto não pôde ser lida para as sugestões; será tentada de novo ao abrir a biblioteca.",
+      "unreadable_many": "{{n}} fotos não puderam ser lidas para as sugestões; serão tentadas de novo ao abrir a biblioteca.",
+      "unreadable_other": "{{n}} fotos não puderam ser lidas para as sugestões; serão tentadas de novo ao abrir a biblioteca."
+    },
     "develop": {
       "auto": {
         "label": "Auto",
@@ -3517,7 +3534,7 @@
         "expandAll": "Expandir todas as ferramentas",
         "moveDown": "Mover para baixo",
         "moveUp": "Mover para cima",
-        "oneOpen": "Uma ferramenta aberta de cada vez",
+        "oneOpen": "Modo Solo",
         "restoreOrder": "Restaurar ordem padrão",
         "restoreOrderMenu": "Restaurar a ordem padrão das ferramentas",
         "restoreOrderTitle": "Colocar as ferramentas de volta na ordem original"
@@ -3648,9 +3665,9 @@
       },
       "toolGroup": {
         "isOn": "{{tool}} ativado",
+        "openOnlyHint": "Alt/Option-clique para abrir apenas esta ferramenta",
         "reset": "Redefinir {{tool}}",
         "resetGroup": "Repor grupo",
-        "resetHint": "Alt/Option-clique no nome repõe {{tool}}",
         "resetOrHold": "Repor {{tool}} (manter premido, ou premir com Alt/Opção: mostrar a foto sem a ferramenta)",
         "turnOff": "Desativar {{tool}}",
         "turnOn": "Ativar {{tool}}"
@@ -3781,6 +3798,49 @@
         "complete": "Exportação concluída.",
         "exporting": "Exportando {{current}} de {{total}}"
       },
+      "provenance": {
+        "about": "Regista a fotografia a partir da qual cada ficheiro foi revelado, os tipos de edição e cada área criada por um modelo generativo, assinado com o seu certificado. JPEG, PNG e TIFF. Nada é enviado.",
+        "add": "Assinar um manifesto de proveniência em cada ficheiro",
+        "author": "Indicar o criador da fotografia como autor",
+        "blocked": "A proveniência (C2PA) não pode assinar {{recipes}}: configure um certificado de assinatura válido e exporte JPEG, PNG ou TIFF.",
+        "certificateFilter": "Certificado PKCS#12",
+        "expired": "Este certificado não é válido agora (válido até {{until}}): não é possível assinar exportações com ele. Importe um certificado renovado ou crie um novo.",
+        "formatUnsupported": "Os ficheiros {{format}} ainda não podem conter um manifesto de proveniência. Escolha JPEG, PNG ou TIFF, ou desative a opção.",
+        "generate": "Criar um certificado neste computador",
+        "import": "Importar o seu certificado (.p12)…",
+        "importConfirm": "Importar",
+        "importTitle": "Escolha o seu certificado de assinatura",
+        "keyStored": "A palavra-passe abre o ficheiro uma vez e não é guardada. A chave privada é copiada para a pasta de dados do Rawtonic, legível apenas pela sua conta de utilizador.",
+        "legend": "Proveniência (C2PA)",
+        "none": "Nenhum certificado de assinatura configurado.",
+        "password": "Palavra-passe do certificado",
+        "planSigned": "assinado (C2PA)",
+        "remove": "Remover certificado de assinatura",
+        "removeConfirm": "Remover o certificado e a sua chave privada deste computador? As exportações com esta opção falham até configurar outro. O ficheiro de um certificado importado não é alterado.",
+        "removeNo": "Cancelar",
+        "removeYes": "Remover",
+        "review": {
+          "actions": "Edições",
+          "author": "Autor",
+          "certificate": "Certificado (em cada ficheiro, legível pelos destinatários)",
+          "generated": "criado por um modelo generativo ({{type}})",
+          "generator": "Criado com",
+          "ingredient": "Revelado de",
+          "noAuthor": "Não indicado",
+          "noSigner": "Ainda sem certificado",
+          "notIncluded": "Não incluído da fotografia",
+          "notIncludedList": "Sem miniatura nem píxeis do original, sem valores de ajuste, sem localização, sem conta, sem serviço de carimbo temporal.",
+          "signer": "Assinado por"
+        },
+        "reviewHint": "Mostrado para a primeira fotografia; cada fotografia recebe o seu próprio nome de ficheiro e edições.",
+        "reviewLegend": "O que entra no manifesto",
+        "reviewLegendFor": "O que entra no manifesto: {{recipe}}",
+        "signedImported": "Assinado como «{{signer}}»; certificado emitido por {{issuer}}, válido até {{until}}.",
+        "signedLocal": "Assinado como «{{signer}}» com um certificado criado neste computador.",
+        "signerName": "Nome do signatário",
+        "signerPlaceholder": "O seu nome ou estúdio",
+        "unknownSigner": "Os verificadores mostram um certificado criado neste computador como signatário desconhecido: nenhuma autoridade de certificação o garante. Importe o seu próprio certificado para um signatário reconhecido."
+      },
       "queue": {
         "button": "Fila",
         "buttonActive_one": "Fila ({{count}})",
@@ -3904,6 +3964,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "Nada foi exportado: {{error}}",
         "queuedMany_one": "{{count}} exportação adicionada à fila.",
         "queuedMany_many": "{{count}} exportações adicionadas à fila.",
         "queuedMany_other": "{{count}} exportações adicionadas à fila.",
@@ -4626,6 +4687,11 @@
             "purple": "Roxo",
             "red": "Vermelho",
             "yellow": "Amarelo"
+          },
+          "suggestion": {
+            "document": "Documento",
+            "eyesClosed": "Olhos fechados",
+            "misfire": "Disparo falhado"
           }
         },
         "combine": {
@@ -4663,6 +4729,8 @@
           "previousImport": "Na importação anterior",
           "rating": "Classificação",
           "sourceType": "Origem digital (no arquivo)",
+          "stacked": "Numa pilha",
+          "suggestion": "Sugestão de triagem",
           "text": "Qualquer texto pesquisável"
         },
         "folderPlaceholder": "Caminho da pasta",
@@ -5071,6 +5139,11 @@
       "appliesToSelection_many": "Um clique se aplica a {{count}} fotos selecionadas.",
       "appliesToSelection_other": "Um clique se aplica a {{count}} fotos selecionadas.",
       "builtin": {
+        "adaptive-background-darker": "Fundo: mais escuro",
+        "adaptive-eyes-brighter": "Retrato: olhos mais claros",
+        "adaptive-skin-smoother": "Retrato: pele mais suave",
+        "adaptive-sky-deeper": "Céu: mais profundo",
+        "adaptive-subject-lift": "Motivo: realçar",
         "bw-darker-skies": "P&B céu mais escuro",
         "bw-high-contrast": "P&B alto contraste",
         "bw-lighter-skin": "P&B pele mais clara",

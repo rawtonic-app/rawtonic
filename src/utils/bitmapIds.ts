@@ -40,51 +40,45 @@ export function withOwnBitmapIds(adjustments: Adjustments, shown?: Adjustments):
   };
 }
 
-/** Forgets in `sent` each mask component of `after` whose bitmap differs
- * from `before`'s, or that `before` lacks (a deleted layer brought back):
- * the native side may hold another bitmap under its id (a People or
- * Landscape selection whose parts changed keeps its id), so referring to it
- * could show that one. The next request sends the bitmap whole. */
-export function forgetChangedMaskBitmaps(
-  before: Adjustments | undefined,
-  after: Adjustments | undefined,
-  sent: Set<string>
-): void {
-  const old = new Map<string, unknown>();
-  before?.masks?.forEach((mask: MaskContainer) => mask.subMasks?.forEach((sub) => old.set(sub.id, bitmapOf(sub))));
-  after?.masks?.forEach((mask: MaskContainer) =>
-    mask.subMasks?.forEach((sub) => {
-      if (!old.has(sub.id) || old.get(sub.id) !== bitmapOf(sub)) sent.delete(sub.id);
-    })
-  );
-}
-
 /** Sent in place of a mask bitmap the native side already holds under the
  * component's id (`CACHED_BITMAP` in crates/engine/src/adjustment_utils.rs).
  * A null bitmap means the component has none and renders nothing. */
 export const CACHED_BITMAP = 'cached';
 const MASK_DATA_KEYS = ['maskDataBase64', 'mask_data_base64'] as const;
 
+/** The bitmap last sent whole under each component id (by value; `sent`
+ * says which arrived). A bitmap that changed under its id since (an AI
+ * selection computed again, an undo or redo across it) goes whole again:
+ * the native side would otherwise show the one it holds under the id. */
+const lastSent = new Map<string, unknown>();
+
 /** In `subMasks` (a copy about to be sent to the native side), refers to
  * each mask bitmap already `sent` under its component's id instead of
- * sending it again; returns the ids carrying their bitmap for the first time,
- * to be added to `sent` once the request went through. A component without a
- * bitmap (a People selection with its last part unticked) renders none and
- * is forgotten in `sent`: a bitmap computed under that id later goes out
- * whole instead of being referred to. */
+ * sending it again, unless the bitmap changed under that id since it was
+ * sent; returns the ids carrying their bitmap whole, to be added to `sent`
+ * once the request went through. A component without a bitmap (a People
+ * selection with its last part unticked) renders none and is forgotten in
+ * `sent`: a bitmap computed under that id later goes out whole instead of
+ * being referred to. */
 export function referToSentMaskBitmaps(subMasks: SubMask[] | undefined, sent: Set<string>): string[] {
   const newlySent: string[] = [];
   if (!Array.isArray(subMasks)) return newlySent;
+  if (lastSent.size > 2 * sent.size + 64) {
+    for (const id of lastSent.keys()) if (!sent.has(id)) lastSent.delete(id);
+  }
   for (const sub of subMasks) {
     const parameters = sub.parameters as Record<string, unknown> | undefined;
     if (!sub.id || !parameters) continue;
     const keys = MASK_DATA_KEYS.filter((key) => key in parameters);
     if (keys.length === 0) continue;
+    const bitmap = bitmapOf(sub);
     if (keys.every((key) => parameters[key] === null || parameters[key] === undefined)) {
       sent.delete(sub.id);
-    } else if (sent.has(sub.id)) {
+      lastSent.delete(sub.id);
+    } else if (sent.has(sub.id) && (!lastSent.has(sub.id) || lastSent.get(sub.id) === bitmap)) {
       for (const key of keys) if (parameters[key] != null) parameters[key] = CACHED_BITMAP;
     } else {
+      lastSent.set(sub.id, bitmap);
       newlySent.push(sub.id);
     }
   }

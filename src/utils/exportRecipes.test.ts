@@ -5,6 +5,7 @@ import {
   exportSettingsFromDraft,
   exportSettingsFromPreset,
   presetFromDraft,
+  provenanceFormat,
   savedRecipes,
   subfolderName,
   subfolderProblem,
@@ -339,4 +340,30 @@ it('Super Resolution travels from the form through a saved recipe into the expor
   expect(exportSettingsFromDraft(draft).settings.superResolution).toBe(true);
   // A recipe saved before the option exports at the photo's own size.
   expect(draftFromPreset({ ...preset, superResolution: undefined }).superResolution).toBe(false);
+});
+
+it('saves provenance only when it is on, and sends it for every format', () => {
+  const off = presetFromDraft(DEFAULT_RECIPE_DRAFT, 'r1', 'Plain');
+  expect(off.provenance).toBeUndefined();
+  expect(off.provenanceAuthor).toBeUndefined();
+  expect(JSON.parse(JSON.stringify(off))).not.toHaveProperty('provenance');
+  expect('provenance' in exportSettingsFromDraft(DEFAULT_RECIPE_DRAFT).settings).toBe(false);
+  expect(draftFromPreset(off).provenance).toBe(false);
+
+  const on = { ...DEFAULT_RECIPE_DRAFT, provenance: true, provenanceAuthor: true };
+  const saved = presetFromDraft(on, 'r2', 'Signed');
+  expect(saved.provenance).toBe(true);
+  expect(saved.provenanceAuthor).toBe(true);
+  expect(draftFromPreset(saved)).toMatchObject({ provenance: true, provenanceAuthor: true });
+  expect(exportSettingsFromDraft(on).settings.provenance).toEqual({ includeAuthor: true });
+  // Editing a signed recipe and turning the option off removes it, author included.
+  const edited = presetFromDraft({ ...draftFromPreset(saved), provenance: false }, 'r2', 'Signed', saved);
+  expect(edited.provenance).toBeUndefined();
+  expect(edited.provenanceAuthor).toBeUndefined();
+  expect(draftFromPreset(edited)).toMatchObject({ provenance: false, provenanceAuthor: false });
+  expect('provenance' in exportSettingsFromDraft(draftFromPreset(edited)).settings).toBe(false);
+  // A format that cannot carry it fails its export instead of leaving unsigned.
+  expect(exportSettingsFromDraft({ ...on, format: 'webp' }).settings.provenance).toEqual({ includeAuthor: true });
+  expect(['jpg', 'JPEG', 'png', 'tif', 'tiff'].every(provenanceFormat)).toBe(true);
+  expect(['webp', 'avif', 'jxl', 'cube'].some(provenanceFormat)).toBe(false);
 });

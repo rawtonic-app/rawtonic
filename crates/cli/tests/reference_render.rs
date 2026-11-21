@@ -42,6 +42,7 @@ fn settings() -> ExportSettings {
         subfolder: None,
         output_sharpening: None,
         super_resolution: false,
+        provenance: None,
     }
 }
 

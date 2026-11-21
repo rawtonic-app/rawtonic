@@ -506,7 +506,16 @@ describe("the panel beside Develop's tools", () => {
 
   it('shows the Library its full column', () => {
     renderAs(false);
-    expect(tools()).toEqual(['Navigator', 'Folders', 'Albums', 'Keywords', 'Keyword List', 'Metadata', 'EXIF']);
+    expect(tools()).toEqual([
+      'Navigator',
+      'Culling',
+      'Folders',
+      'Albums',
+      'Keywords',
+      'Keyword List',
+      'Metadata',
+      'EXIF'
+    ]);
     expect(screen.queryByRole('heading', { name: 'Browse' })).toBeNull();
   });
 

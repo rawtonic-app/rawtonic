@@ -862,6 +862,13 @@ pub async fn get_or_init_landscape_model(
     Ok(Some(model))
 }
 
+/// Whether Depth Anything V2 is installed (verified): exports and the
+/// selection queue download nothing.
+pub fn depth_model_installed(app_handle: &tauri::AppHandle) -> bool {
+    get_models_dir(app_handle)
+        .is_ok_and(|dir| verify_sha256(&dir.join(DEPTH_FILENAME), DEPTH_SHA256).unwrap_or(false))
+}
+
 /// Depth Anything V2 for depth masks, downloaded and loaded on first use.
 pub async fn get_or_init_depth_model(
     app_handle: &tauri::AppHandle,

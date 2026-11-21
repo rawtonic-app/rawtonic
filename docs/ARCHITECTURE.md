@@ -159,6 +159,16 @@ New Rust workspace crates isolate data and file safety.
   exports, batch writes and auto tags, which hand it their embeddings; the text encoder as ONNX external data loaded on
   the first query and dropped after 5 min idle; never downloading by itself), UI `src/components/studio/StudioSearchBox.tsx`
   and `src/hooks/useContentSearch.ts` (the view's order: `useSortedLibrary`).
+- `cull`: assisted culling (G35, schema 30: `cull_scores` — misfire and document scores per photograph from its content
+  embedding and the frozen prompts' text embeddings, keyed by embedding model + prompt set and the file's fingerprint —
+  and `cull_dismissed`, the photographer's "not a problem" per criterion), `score_cull`, `cull_photos`,
+  `set_cull_dismissed`, the frozen prompts and thresholds (CUL1 tuning half, notes
+  `benchmark-results/cul1-2026-11-21/`) and the search fields `Suggestion` (`misfire`, `document`, `eyesClosed`) and
+  `Stacked`; never flags anything (accepting is the reject flag). App glue `src-tauri/src/culling.rs` (scores made in the
+  content pass after each batch, prompt embeddings made once with the text encoder and kept in the models folder;
+  `cull_suggestions`, `cull_dismiss`), UI `src/components/studio/StudioCulling.tsx` (the Library's Culling panel and the
+  tile tags) and `src/store/useCullStore.ts`. Auto-Stack's look-alike rule (`stacks::AutoStackOptions::similarity`)
+  compares the same embeddings of consecutive photographs.
 - `duplicates` + `image_hash`: Find Duplicates stage 1 — a hash of each photograph's image data as its file stores it
   (TIFF-based RAWs: the IFD with the most strip/tile bytes; RAF: the CFA section; ISO media/CR3: the largest track's
   samples; JPEG: all but APPn/COM segments; PNG: IHDR/PLTE/tRNS/IDAT; else the whole file, marked `file`), recorded in
@@ -610,6 +620,16 @@ naming), `output::write_new_output`, `file_export::FileExporter`, `workers` (how
 once and the thread pool each runs in, for the app's queue and `rawtonic export` alike), and `normalize::normalize`, the one entry that makes a
 stored or editor recipe renderable: bitmaps, offline lens, new-edit crop and versions, camera lens defaults, Lightroom
 orientation, in that order; every render caller in the app and the CLI calls it once).
+
+`export::c2pa`: provenance manifests (C2PA 2.x) for exports whose settings ask for them (`ExportSettings::provenance`,
+off by default): its own CBOR/JUMBF/COSE_Sign1 writer on `ring` (no c2pa-rs: its RSA and chrono dependencies fail the
+advisory gates), JPEG APP11, PNG `caBX` and TIFF tag 0xCD41 (`tiff_exif::append_reserved_tag`), signed after every other write of
+the file (`with_provenance` in `export_processing`; a streamed TIFF once it is written); `identity` keeps the signing key
+and certificate in a folder the app gives (`src-tauri/src/provenance.rs`: the app data folder's `provenance/`, and the
+Export panel's commands). `ExportOutput::provenance` carries the loaded identity (`FileExporter::with_provenance`, the CLI's
+`--provenance-identity`); the app checks and pins it when a job is queued (`provenance::pin_signers` from
+`export_queue::enqueue_all`; the panel sends the fingerprint it showed). A group member that cannot be signed fails
+alone before the group renders (`save_group_rendering`).
 
 
 #### Layering check and colour pipeline

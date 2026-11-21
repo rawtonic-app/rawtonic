@@ -14,7 +14,6 @@ import { DEFAULT_SPLIT_POSITION, type SplitOrientation } from '../utils/beforeAf
 import { historyOrders, setHistoryOrders, inheritHistoryOrders, newEditOrder } from '../utils/undoOrder';
 import { noteEdit } from '../components/contribute/usageStats';
 import { COMMIT_INTERVAL_MS } from '../utils/sliderDraft';
-import { forgetChangedMaskBitmaps } from '../utils/bitmapIds';
 
 export interface InteractivePatch {
   url: string;
@@ -443,7 +442,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => {
       if (state.historyIndex > 0) {
         const newIndex = state.historyIndex - 1;
-        forgetChangedMaskBitmaps(state.adjustments, state.history[newIndex], state.patchesSentToBackend);
         return { historyIndex: newIndex, adjustments: state.history[newIndex] };
       }
       return state;
@@ -456,7 +454,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => {
       if (state.historyIndex < state.history.length - 1) {
         const newIndex = state.historyIndex + 1;
-        forgetChangedMaskBitmaps(state.adjustments, state.history[newIndex], state.patchesSentToBackend);
         return { historyIndex: newIndex, adjustments: state.history[newIndex] };
       }
       return state;
@@ -480,7 +477,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (!target) return;
     debouncedSetHistory.flush();
     set((state) => {
-      forgetChangedMaskBitmaps(state.adjustments, target, state.patchesSentToBackend);
       const currentIndex = state.history.indexOf(target);
       if (currentIndex >= 0) {
         return { historyIndex: currentIndex, adjustments: target };

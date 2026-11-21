@@ -167,6 +167,8 @@ export function ToolGroup({
       : onReset;
   const resetNamed = resetToDefaults ? () => resetGroup(resetToDefaults, name) : undefined;
   const hold = useToolBeforeHold(name, before ? onReset : undefined, resetNamed);
+  const showMenu = (e: React.MouseEvent | React.KeyboardEvent) =>
+    menu?.(e, resetNamed, copy ? toolDefaultItems(name, copy) : undefined);
   return (
     <details
       className={`studio-tool-group ${toggle && !toggle.enabled ? 'is-off' : ''}`}
@@ -181,17 +183,18 @@ export function ToolGroup({
       }}
     >
       <summary
-        onContextMenu={(e) => menu?.(e, resetNamed, copy ? toolDefaultItems(name, copy) : undefined)}
-        onClick={(e) => {
-          if (!e.altKey) return;
-          // Option-click on the name resets the group (Lightroom's group
-          // titles); on the rest of the header it opens this tool alone.
-          if (resetNamed && (e.target as Element).closest('.studio-tool-name')) {
+        aria-keyshortcuts={openOnly ? 'Alt+Enter Shift+F10' : undefined}
+        onContextMenu={showMenu}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) showMenu(e);
+          if (e.altKey && (e.key === 'Enter' || e.key === ' ') && openOnly) {
             e.preventDefault();
-            resetNamed();
-            return;
+            openOnly(title);
           }
-          if (!openOnly) return;
+        }}
+        onClick={(e) => {
+          if (!e.altKey || !openOnly || e.defaultPrevented || (e.target as Element).closest('button')) return;
           e.preventDefault();
           openOnly(title);
         }}
@@ -220,10 +223,7 @@ export function ToolGroup({
           <GripVertical className="studio-tool-grip" size={11} aria-hidden />
         )}
         <ChevronDown size={12} />
-        <span
-          className="studio-tool-name"
-          title={onReset ? t('studio.develop.toolGroup.resetHint', { tool: name }) : undefined}
-        >
+        <span className="studio-tool-name" title={openOnly ? t('studio.develop.toolGroup.openOnlyHint') : undefined}>
           {name}
         </span>
         {copy && PRESET_TOOLS.has(title) && <StudioToolPresets tool={title} label={name} params={copy} />}
@@ -303,6 +303,8 @@ const selectHistogram = (s: ReturnType<typeof useEditorStore.getState>) => s.his
 
 const RGB_CHANNELS = ['red', 'green', 'blue'] as const;
 
+const histogramChannel = (channel: string) => RGB_CHANNELS.find((c) => c === channel) ?? 'luma';
+
 /** A filled outline of `values` in the 255 × 240 plot, square-root scale
  * against `max`. */
 function histogramOutline(values: number[], max: number): string {
@@ -322,8 +324,7 @@ export function curveHistogramPaths(
   channel: string
 ): { fill: string | null; lines: (string | null)[] } {
   const data = histogram as Record<string, unknown> | null;
-  const single = channel === 'red' || channel === 'green' || channel === 'blue';
-  const fill = data ? displayHistogramBins(data, single ? (channel as 'red' | 'green' | 'blue') : 'luma') : [];
+  const fill = data ? displayHistogramBins(data, histogramChannel(channel)) : [];
   const lines = data && channel === 'luma' ? RGB_CHANNELS.map((c) => displayHistogramBins(data, c)) : [];
   // The scopes' scale as it comes (bins up to 1), as the histogram draws it.
   const max = Math.max(1, ...fill, ...lines.flat());
@@ -368,6 +369,27 @@ const CurveHistogram = memo(function CurveHistogram({ channel }: { channel: stri
   );
 });
 
+function CurveHoverReadout({ channel, input, output }: { channel: CurveChannel; input: number; output: number }) {
+  const { t, i18n } = useTranslation();
+  const level = useEditorStore((s) => {
+    const bins = displayHistogramBins(s.histogram, histogramChannel(channel));
+    return bins[Math.round((input * (bins.length - 1)) / 255)];
+  });
+  return (
+    <>
+      <span title={`${t('studio.develop.curve.input')} → ${t('studio.develop.curve.output')}`}>
+        {input} → {output}
+      </span>
+      {level !== undefined && (
+        <span>
+          {t('studio.histogram.title')}{' '}
+          {new Intl.NumberFormat(i18n.resolvedLanguage, { style: 'percent', maximumFractionDigits: 1 }).format(level)}
+        </span>
+      )}
+    </>
+  );
+}
+
 export function PointCurve({
   curves,
   region,
@@ -400,6 +422,7 @@ export function PointCurve({
     useEditorStore.getState().setEditor({ curveChannel, tatCurveMarker: null });
   const marker = useEditorStore((s) => (targeted && s.tatTarget === 'curve' ? s.tatCurveMarker : null));
   const [selected, setSelected] = useState<number | null>(null);
+  const [hoverInput, setHoverInput] = useState<number | null>(null);
   const [nudgeAnnouncement, setNudgeAnnouncement] = useState('');
   // A drag draws its points as they move, like a slider its knob; the
   // store gets them at the slider cadence and commits every
@@ -477,6 +500,7 @@ export function PointCurve({
     [rendered]
   );
   const splits = channel === 'luma' && region && onRegionChange ? region : null;
+  const hoverOutput = hoverInput === null ? null : Math.round(pointCurveValue(rendered, hoverInput));
   const setSplit = (key: SplitKey, value: number) => {
     if (!region || !onRegionChange) return;
     const [min, max] = SPLIT_RANGES[key];
@@ -567,9 +591,11 @@ export function PointCurve({
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerMove={(e) => {
-          if (disabled || !dragging.current || !e.buttons || selected === null) return;
           const p = position(e);
           if (!p) return;
+          const overSplit = (e.target as Element).closest?.('.curve-split, .curve-split-track');
+          setHoverInput(overSplit || e.buttons ? null : Math.round(p.x));
+          if (disabled || !dragging.current || !e.buttons || selected === null) return;
           const points = latest.current;
           const next = points.map((q, i) =>
             i === selected
@@ -588,11 +614,15 @@ export function PointCurve({
           setDragged(next);
           send.push(next);
         }}
+        onPointerLeave={() => setHoverInput(null)}
         onPointerUp={(e) => {
           if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
           end();
         }}
-        onPointerCancel={end}
+        onPointerCancel={() => {
+          setHoverInput(null);
+          end();
+        }}
         onLostPointerCapture={end}
       >
         <CurveHistogram channel={channel} />
@@ -605,6 +635,12 @@ export function PointCurve({
         <line x1="0" y1="255" x2="255" y2="0" className="curve-reference" />
         {channel === 'luma' && region && <RegionCurveLine region={region} />}
         <polyline points={drawn} fill="none" className={`curve-line curve-${channel}`} />
+        {hoverInput !== null && hoverOutput !== null && (
+          <g className="curve-hover-line" aria-hidden>
+            <line x1={hoverInput} x2={hoverInput} y1="0" y2="255" />
+            <line x1="0" x2="255" y1={255 - hoverOutput} y2={255 - hoverOutput} />
+          </g>
+        )}
         {marker !== null && (
           <g className="curve-target" data-testid="curve-target-marker">
             <line x1={marker} x2={marker} y1="0" y2="255" />
@@ -796,6 +832,11 @@ export function PointCurve({
           />
         ))}
       </svg>
+      <div className="curve-hover-values">
+        {hoverInput !== null && hoverOutput !== null && (
+          <CurveHoverReadout channel={channel} input={hoverInput} output={hoverOutput} />
+        )}
+      </div>
       {splits && splitEdit && (
         <label className="curve-split-entry">
           {t(SPLIT_LABELS[splitEdit])}
@@ -1109,6 +1150,7 @@ export default function StudioDevelop() {
       key={key}
       label={label}
       value={(values[key] ?? defaults[key] ?? 0) as number}
+      wholeSteps={key === 'aiDenoise'}
       min={min}
       max={max}
       step={step}
@@ -1187,7 +1229,7 @@ export default function StudioDevelop() {
     setEditor({ isWbPickerActive: false });
   };
   const editBackground = () => {
-    setEditor({ activeMaskContainerId: null, activeMaskId: null });
+    setEditor({ activeMaskContainerId: null, activeMaskId: null, focusedMaskComponentId: null, layerSolo: null });
     useUIStore.getState().setPanel(Panel.Adjustments);
   };
   const inTab = (...names: string[]) => names.includes(tab);
@@ -1316,6 +1358,19 @@ export default function StudioDevelop() {
           );
         })}
       </nav>
+      {selectedImage && (layer || adjustments.masks.length > 0 || tab === 'layers') && (
+        <div className="studio-target">
+          <Layers size={13} aria-hidden />
+          <span role="status" title={layer?.name}>
+            {t('studio.develop.target.layer', { name: layer?.name ?? t('studio.layers.select.background') })}
+          </span>
+          {layer && (
+            <button type="button" onClick={editBackground}>
+              {t('studio.develop.target.background')}
+            </button>
+          )}
+        </div>
+      )}
       <div className="studio-tools-scroll" inert={Boolean(selectedImage && !selectedImage.isReady)}>
         {selectedImage && !layer && inTab('all', 'detail') && (
           <div className="studio-effects-master">
@@ -1375,15 +1430,6 @@ export default function StudioDevelop() {
                 </button>
               </div>
             ))}
-        {layer && tab !== 'all' && tab !== 'layers' && (
-          <div className="studio-target" role="status">
-            <Layers size={13} aria-hidden />
-            <span>{t('studio.develop.target.layer', { name: layer.name })}</span>
-            <button type="button" onClick={editBackground}>
-              {t('studio.develop.target.background')}
-            </button>
-          </div>
-        )}
         {layer && tab === 'retouch' && <p className="studio-help">{t('studio.develop.target.photoOnly')}</p>}
         <ToolColumn key={tab} scope={`develop:${tab}`}>
           {(tab === 'layers' || tab === 'all') && (

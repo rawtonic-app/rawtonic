@@ -96,6 +96,7 @@ export function listingFiltered(
     (filter.rawStatus ?? RawStatus.All) !== RawStatus.All ||
     (filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All ||
     (filter.eyes ?? 'all') !== 'all' ||
+    (filter.suggestion ?? 'all') !== 'all' ||
     selectionCount(filter.metadata) > 0
   );
 }

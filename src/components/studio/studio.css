@@ -655,9 +655,10 @@
   height: 100%;
   padding-bottom: 10px;
 }
-/* The layer the tools act on, in tabs without the layer list. */
+/* The layer the tools act on, above the scrolling tools. */
 .studio-target {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
@@ -1172,12 +1173,21 @@
 .curve-histogram-line[data-channel='blue'] {
   stroke: #789fc7;
 }
-/* Crosshair through the point being dragged. */
-.curve-crosshair {
+/* Crosshair through the point being dragged or the hovered curve input. */
+.curve-crosshair,
+.curve-hover-line {
   pointer-events: none;
   stroke: var(--studio-shade-text, #c9ccd0);
   stroke-width: 0.6;
   stroke-dasharray: 2 2;
+}
+.curve-hover-values {
+  display: flex;
+  justify-content: space-between;
+  min-height: 1.5em;
+  color: var(--studio-shade-muted, #aeb1b6);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 /* Region split handles in a strip under the plot (D4): the number shows on
    hover, focus and while dragging. */
@@ -3513,6 +3523,17 @@
 .picker-loupe-values > span > span {
   color: var(--studio-shade-muted, #b2b5ba);
 }
+.picker-loupe-balance {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 0 6px;
+  height: 40px;
+  border-top: 1px solid var(--studio-line);
+}
+.picker-loupe-balance > span:nth-child(even) {
+  text-align: right;
+}
 /* The viewer bar's pointer readout: fixed-width values so nothing shifts. */
 .studio-pointer-readout {
   display: inline-flex;
@@ -5394,6 +5415,44 @@ body.is-dragging.is-drop-refused * {
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
+}
+/* Provenance (C2PA): the signing identity and the manifest review. */
+.studio-provenance-identity {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+.studio-provenance-identity > p {
+  margin: 0;
+  font-size: 12px;
+}
+.studio-provenance-review {
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--studio-shade-hover, #4b4e53);
+  border-radius: 4px;
+  font-size: 11px;
+}
+.studio-provenance-review h5 {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+.studio-provenance-review dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 10px;
+  margin: 8px 0 0;
+}
+.studio-provenance-review dt {
+  color: var(--studio-shade-muted, #b8bec6);
+}
+.studio-provenance-review dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.studio-provenance-review ol {
+  margin: 0;
+  padding-left: 16px;
 }
 .studio-export-recipe-hint {
   font-size: 11px;
@@ -7921,4 +7980,87 @@ html.window-outlined body::after {
 .app-notice-progress::-webkit-progress-value {
   border-radius: 2px;
   background: #a9bdcc;
+}
+
+/* Assisted culling (StudioCulling): the panel and the grid tile's tag. */
+.studio-culling {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11px;
+}
+.studio-culling-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.studio-culling-criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.studio-culling-criterion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+}
+.studio-culling-criterion label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.studio-culling-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 44px;
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+.studio-culling-count[aria-pressed='true'] {
+  color: var(--studio-accent);
+  box-shadow: inset 0 0 0 1px var(--studio-accent);
+}
+.studio-culling-selection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.studio-culling-stack {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+}
+.studio-cull-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+  min-height: 16px;
+  border-radius: 2px;
+  font-size: 9px;
+  background: #2a2419e6;
+  color: var(--studio-shade-warning, #e6c47e);
+}
+.studio-photo-image .studio-cull-badge {
+  position: absolute;
+  left: 3px;
+  bottom: 20px;
+  max-width: calc(100% - 6px);
+  overflow: hidden;
+  white-space: nowrap;
+}
+@media (forced-colors: active) {
+  .studio-cull-badge {
+    border: 1px solid CanvasText;
+  }
 }

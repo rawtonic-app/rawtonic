@@ -1,9 +1,11 @@
-//! A never-opened photo whose recipe holds Sky and Subject selections
-//! without their bitmap (a Lightroom import) exports with the selections
-//! computed, byte-identical to the export of the recipe that holds them (a
-//! photo opened in Develop, or exported before: the app keeps the result);
+//! A never-opened photo whose recipe holds Sky, Subject and People
+//! selections without their bitmap (a Lightroom import, an adaptive preset
+//! applied in the Library) exports with the selections
+//! computed, byte-identical to the export of the recipe that holds the
+//! masks this export path computed (as the app keeps them after an export;
+//! Develop's and the selection queue's masks are not compared here);
 //! without the models the export fails and writes nothing. Opt-in, as it
-//! needs a RAW, a GPU and the app's Sky and Subject models:
+//! needs a RAW, a GPU and the app's Sky, Subject and face models:
 //!
 //! RAWTONIC_RAW=/path/photo.ORF RAWTONIC_MODELS=~/Library/Application\ Support/cc.rawtonic.qa/models \
 //!   cargo test -p rawtonic-export --release --test ai_selections_export -- --ignored
@@ -23,28 +25,64 @@ use rawtonic_export::export_processing::ExportSettings;
 use rawtonic_export::file_export::{FileExport, FileExporter};
 use serde_json::{Value, json};
 
-struct Models(rawtonic_segment::Models);
+struct Models {
+    segment: rawtonic_segment::Models,
+    faces: Option<rawtonic_faces::FaceModels>,
+}
+
+impl Models {
+    fn new(dir: &Path) -> Self {
+        Self {
+            segment: rawtonic_segment::Models::new(dir),
+            faces: rawtonic_faces::FaceModels::load(dir).ok(),
+        }
+    }
+}
 
 impl SelectionDetector for Models {
     fn detect(
         &self,
         selection: AutoSelection,
-        version: u32,
+        parameters: &Value,
         warped: &image::DynamicImage,
         linear: bool,
     ) -> Result<String, String> {
+        use rawtonic_engine::ai_selections as sel;
         let mask = match selection {
             AutoSelection::Sky => self
-                .0
+                .segment
                 .sky()
                 .and_then(|m| rawtonic_segment::run_sky_seg_model(warped, &m, linear, None)),
-            AutoSelection::Subject => self.0.subject().and_then(|m| {
-                rawtonic_segment::subject_selection(warped, &m, linear, None, version)
+            AutoSelection::Subject => self.segment.subject().and_then(|m| {
+                rawtonic_segment::subject_selection(
+                    warped,
+                    &m,
+                    linear,
+                    None,
+                    sel::subject_version(parameters),
+                )
             }),
-            AutoSelection::Landscape(parts) => self.0.landscape().and_then(|m| {
-                let parts = rawtonic_segment::landscape_parts(&parts.keys())?;
+            AutoSelection::People => {
+                let faces = self
+                    .faces
+                    .as_ref()
+                    .ok_or("the face models are not installed")?;
+                let mask = rawtonic_faces::recipe::people_selection(
+                    warped,
+                    linear,
+                    faces,
+                    &sel::people_parts(parameters),
+                    sel::people_person(parameters),
+                )?;
+                return rawtonic_segment::mask_data_url(&mask);
+            }
+            AutoSelection::Landscape => self.segment.landscape().and_then(|m| {
+                let set = sel::landscape_parts(parameters)
+                    .ok_or_else(|| anyhow::anyhow!("no known landscape parts"))?;
+                let parts = rawtonic_segment::landscape_parts(&set.keys())?;
                 rawtonic_segment::run_landscape_model(warped, &m, &parts, linear, None)
             }),
+            other => return Err(format!("{} is not tested here", other.name())),
         }
         .map_err(|e| format!("{e:#}"))?;
         rawtonic_segment::mask_data_url(&mask)
@@ -60,7 +98,11 @@ fn imported() -> Value {
                        "parameters": {"maskDataBase64": null, "grow": 0, "feather": 0}}]},
         {"id": "subject", "name": "Subject", "visible": true, "opacity": 100.0, "invert": false, "adjustments": {"exposure": 1.0},
          "subMasks": [{"id": "f", "type": "ai-foreground", "visible": true, "opacity": 100.0, "invert": false, "mode": "additive",
-                       "parameters": {"maskDataBase64": null, "grow": 0, "feather": 0, "subjectVersion": 2}}]}]})
+                       "parameters": {"maskDataBase64": null, "grow": 0, "feather": 0, "subjectVersion": 2}}]},
+        {"id": "skin", "name": "Skin", "visible": true, "opacity": 100.0, "invert": false, "adjustments": {"clarity": -20},
+         "subMasks": [{"id": "p", "type": "ai-people", "visible": true, "opacity": 100.0, "invert": false, "mode": "additive",
+                       "parameters": {"maskDataBase64": null, "detectPending": true, "grow": 0, "feather": 0,
+                                      "parts": ["faceSkin", "bodySkin"], "person": null}}]}]})
 }
 
 fn settings() -> ExportSettings {
@@ -124,13 +166,13 @@ fn never_opened_as_kept() {
     assert!(!dir.path().join("bare.tif").exists());
     let missing = FileExporter::new(&lensfun)
         .unwrap()
-        .with_selection_detector(Arc::new(Models(rawtonic_segment::Models::new(dir.path()))));
+        .with_selection_detector(Arc::new(Models::new(dir.path())));
     let error = export(&missing, &source, &dir.path().join("missing.tif"), &recipe).unwrap_err();
     assert!(error.contains("is not installed"), "{error}");
     assert!(!dir.path().join("missing.tif").exists());
 
     // With them: the selections are computed at export.
-    let detector = Arc::new(Models(rawtonic_segment::Models::new(&models)));
+    let detector = Arc::new(Models::new(&models));
     let exporter = FileExporter::new(&lensfun)
         .unwrap()
         .with_selection_detector(detector.clone());
@@ -152,7 +194,7 @@ fn never_opened_as_kept() {
         &mut || {},
     )
     .unwrap();
-    assert_eq!(detected.len(), 2);
+    assert_eq!(detected.len(), 3);
     assert!(undetected(&kept).is_empty());
     for layer in kept["masks"].as_array().unwrap() {
         let data = layer["subMasks"][0]["parameters"]["maskDataBase64"]

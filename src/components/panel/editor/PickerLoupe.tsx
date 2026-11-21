@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { performanceDiagnosticsEnabled, reportPerformance } from '../../../hooks/usePerformanceDiagnostics';
+import type { WhiteBalancePick } from '../../../utils/whiteBalance';
 import {
   PATCH_SIZE,
   createImagePatchFetch,
@@ -33,7 +34,8 @@ export function usePointerSampling(
   enabled: boolean,
   browserPreview: string | null = null,
   /** The Linux region frame over `browserPreview` (100 % and closer). */
-  browserRegion: SampleRegion | null = null
+  browserRegion: SampleRegion | null = null,
+  estimateBalance?: (x: number, y: number, browserMean?: PreviewPatch['mean']) => Promise<WhiteBalancePick | null>
 ) {
   const previewRef = useRef(browserPreview);
   previewRef.current = browserPreview;
@@ -41,6 +43,9 @@ export function usePointerSampling(
   regionRef.current = browserRegion;
   const askRef = useRef<(() => void) | null>(null);
   const browser = browserPreview !== null;
+  const withBalance = Boolean(estimateBalance);
+  const estimateRef = useRef(estimateBalance);
+  estimateRef.current = estimateBalance;
   useEffect(() => {
     const root = rootRef.current;
     const setSample = usePointerSampleStore.getState().set;
@@ -72,6 +77,13 @@ export function usePointerSampling(
             () => previewRef.current,
             () => regionRef.current
           )
+        : undefined,
+      undefined,
+      withBalance
+        ? async (x, y, patch) => {
+            const mean = browser ? ((await patch)?.mean ?? null) : undefined;
+            return (await estimateRef.current?.(x, y, mean)) ?? null;
+          }
         : undefined
     );
     const stop = () => {
@@ -132,7 +144,7 @@ export function usePointerSampling(
       sampler.cancel();
       setSample(null);
     };
-  }, [rootRef, imageRef, path, enabled, browser]);
+  }, [rootRef, imageRef, path, enabled, browser, withBalance]);
   // A new browser-rendered preview under a resting pointer.
   useEffect(() => {
     if (browserPreview) askRef.current?.();
@@ -177,8 +189,16 @@ function drawPatch(canvas: HTMLCanvasElement, patch: PreviewPatch | null) {
  * pointer, never over the sampled pixel, inside the viewer (`.studio-viewer`
  * around `anchorRef`); hidden off the photograph. Portalled to the body: the
  * canvas around the photograph is scaled with the zoom. */
-export function PickerLoupe({ unit, anchorRef }: { unit: ReadoutUnit; anchorRef: RefObject<HTMLElement | null> }) {
-  const { t } = useTranslation();
+export function PickerLoupe({
+  unit,
+  anchorRef,
+  whiteBalance = false
+}: {
+  unit: ReadoutUnit;
+  anchorRef: RefObject<HTMLElement | null>;
+  whiteBalance?: boolean;
+}) {
+  const { t, i18n } = useTranslation();
   const sample = usePointerSampleStore((s) => s.sample);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const patch = sample?.patch ?? null;
@@ -196,11 +216,14 @@ export function PickerLoupe({ unit, anchorRef }: { unit: ReadoutUnit; anchorRef:
   };
   const place = loupePlacement(
     { x: sample.clientX - box.left, y: sample.clientY - box.top },
-    { width: LOUPE_WIDTH, height: LOUPE_HEIGHT },
+    { width: LOUPE_WIDTH, height: LOUPE_HEIGHT + (whiteBalance ? 40 : 0) },
     { width: box.width, height: box.height }
   );
   const color = patch && readoutColor(patch);
   const values = color ? readoutValues(color, unit) : ['–', '–', '–'];
+  const balance = sample.balance;
+  const kelvin = balance && 'wbTemperature' in balance;
+  const format = new Intl.NumberFormat(i18n.resolvedLanguage, { maximumFractionDigits: 0 });
   return createPortal(
     <div
       className="picker-loupe"
@@ -217,6 +240,17 @@ export function PickerLoupe({ unit, anchorRef }: { unit: ReadoutUnit; anchorRef:
         ))}
         {unit === 'percent' && <span>%</span>}
       </div>
+      {whiteBalance && (
+        <div className="picker-loupe-balance">
+          <span>{t('studio.whiteBalance.temp')}</span>
+          <span>
+            {balance ? format.format(kelvin ? balance.wbTemperature : balance.temperature) : '–'}
+            {kelvin && ' K'}
+          </span>
+          <span>{t('studio.whiteBalance.tint')}</span>
+          <span>{balance ? format.format(kelvin ? balance.wbTint : balance.tint) : '–'}</span>
+        </div>
+      )}
     </div>,
     document.body
   );

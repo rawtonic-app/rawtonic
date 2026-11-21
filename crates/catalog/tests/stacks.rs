@@ -254,6 +254,7 @@ fn auto_stack_groups_brackets_bursts_and_time_and_never_restacks() {
     let options = AutoStackOptions {
         interval_secs: 30,
         use_camera_data: true,
+        similarity: None,
     };
     let plan = lib.auto_stack_plan(&ids, options).unwrap();
     let kinds: Vec<_> = plan
@@ -295,6 +296,7 @@ fn auto_stack_groups_brackets_bursts_and_time_and_never_restacks() {
             AutoStackOptions {
                 interval_secs: 3600,
                 use_camera_data: false,
+                similarity: None,
             },
         )
         .unwrap();
@@ -424,6 +426,7 @@ fn auto_stack_on_ten_thousand_rows() {
     let options = AutoStackOptions {
         interval_secs: 5,
         use_camera_data: true,
+        similarity: None,
     };
     let mut plans = Vec::new();
     for _ in 0..5 {

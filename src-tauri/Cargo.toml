@@ -73,9 +73,6 @@ rawler = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 uuid = { workspace = true, features = ["v4", "serde"] }
 walkdir = { workspace = true }
-# No `text` feature: its font parser (ttf-parser) is unmaintained and unused;
-# `image` keeps its default features through the direct dependency above.
-imageproc = { workspace = true, features = ["rayon", "fft"] }
 ort = { workspace = true, features = ["std", "ndarray", "load-dynamic", "api-22"] }
 ndarray = { workspace = true }
 tauri-plugin-process = "2.4.0"
@@ -92,7 +89,6 @@ sha2 = { workspace = true }
 tauri-plugin-shell = "2.6.0"
 tempfile = { workspace = true }
 mimalloc = { workspace = true }
-image_hasher = "3.1.1"
 regex = { workspace = true }
 memmap2 = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
