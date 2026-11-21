@@ -134,7 +134,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
         let normalized = rawtonic_export::normalize::normalize(
             &mut adjustments,
             &rawtonic_export::normalize::RecipeSource::file(&source_path),
-            rawtonic_export::normalize::Bitmaps::Shared(&develop.patch_cache),
+            rawtonic_export::normalize::Bitmaps::Queued(&develop.patch_cache),
             rawtonic_export::normalize::Defaults::Render,
         );
         let versions = normalized.file_versions();

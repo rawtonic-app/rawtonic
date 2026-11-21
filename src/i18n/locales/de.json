@@ -2263,6 +2263,7 @@
         "avif-parse": "Liest den AVIF-Container.",
         "BiRefNet": "Motiv- und Hintergrundmasken (Peng Zheng und andere).",
         "ConvNeXt UperNet": "Himmels- und Landschaftsmasken (Meta, ADE20K).",
+        "cyrb53": "String-Hash von bryc, mit dem Editor und Renderer den Inhalt einer Masken-Bitmap benennen.",
         "darktable": "Referenzimplementierungen für Teile des übernommenen Editors.",
         "DAViD": "Oberflächennormalen von Personen für Relight (Microsoft).",
         "Dawn": "WebGPU für KI-Modelle unter Windows und Linux im WebGPU-Plugin von ONNX Runtime (Google).",

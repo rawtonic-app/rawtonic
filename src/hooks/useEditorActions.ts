@@ -345,11 +345,14 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string, qu
   );
 }
 
-type RecipeBatch = { changes: RecipeSnapshot[]; failure?: { message: string; failed: string[] } };
+/** `unwritten`: the photographs saved in their library whose sidecar beside
+ * the photo could not be written (among `changes`: their undo step holds). */
+type RecipeBatch = { changes: RecipeSnapshot[]; failure?: { message: string; failed: string[] }; unwritten?: string };
 
 /** A batch recipe command that returns what it wrote (`RecipeBatch` in
- * edits.rs): tells the user what was not saved and resolves with those
- * photos and the recipe changes of the others (their undo step). */
+ * edits.rs): tells the user what was not saved (and which saved photos'
+ * sidecars could not be written) and resolves with those not saved and
+ * the recipe changes of the others (their undo step). */
 function recordedBatch(
   command: Promise<RecipeBatch>,
   paths: string[],
@@ -357,10 +360,14 @@ function recordedBatch(
   quiet = false
 ): Promise<{ failed: string[]; changes: RecipeSnapshot[] }> {
   return command.then(
-    ({ changes, failure }) => {
+    ({ changes, failure, unwritten }) => {
       if (failure) {
         console.error(`Failed to ${what}:`, failure);
         if (!quiet) noteWriteError(`Failed to ${what}: ${failure.message}`);
+      }
+      if (unwritten) {
+        console.warn(`${what}:`, unwritten);
+        if (!quiet) notify.warning(unwritten);
       }
       return { failed: failure?.failed ?? [], changes };
     },
@@ -941,12 +948,14 @@ async function writeRecipeValues(values: RecipeValues[], shown?: RecipeShown): P
   const result = await recipeWrite(
     paths,
     () =>
-      invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] } }>(Invokes.SetRecipeValues, {
-        changes: values
-      }),
+      invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] }; unwritten?: string }>(
+        Invokes.SetRecipeValues,
+        { changes: values }
+      ),
     { kind: 'recipeValues', failedOf: (written) => written.failure?.failed ?? [], step: shown?.order }
   );
   if (result.failure) notify.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
+  if (result.unwritten) notify.warning(result.unwritten);
   const written = result.before.map((before) => before.path);
   written.forEach((path) => unsavedRecipes.delete(path));
   for (const value of values) if (written.includes(value.path)) recipeWritten([value.path], Object.keys(value.values));
