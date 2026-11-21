@@ -149,7 +149,8 @@ export function geometryKeyOf(adjustments: Adjustments): string {
 /**
  * The renderer's sample at range `range`'s pick, taken again now (earlier
  * tools or the mask may have changed since; the store keeps it), or null
- * for a range not picked in the photo (moved on the wheel since).
+ * for a range not picked in the photo (moved on the wheel since) and when
+ * the renderer has no sample there now (the pick is then forgotten).
  */
 export async function rangeInputFor(
   photo: string,
@@ -165,11 +166,18 @@ export async function rangeInputFor(
     layer,
     useEditorStore.getState().adjustments
   );
-  if (!input) return pick.input;
   const state = useEditorStore.getState();
   const key = rangePickKey(photo, layer, range.id);
-  if (state.colorRangeInputs[key] === pick)
-    state.setEditor({ colorRangeInputs: { ...state.colorRangeInputs, [key]: { ...pick, input } } });
+  if (state.colorRangeInputs[key] !== pick) return input;
+  if (!input) {
+    // No sample now (a hidden layer, a layer without a mask, no preview):
+    // the old one no longer stands for the photo.
+    const rest = { ...state.colorRangeInputs };
+    delete rest[key];
+    state.setEditor({ colorRangeInputs: rest });
+    return null;
+  }
+  state.setEditor({ colorRangeInputs: { ...state.colorRangeInputs, [key]: { ...pick, input } } });
   return input;
 }
 

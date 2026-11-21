@@ -4,6 +4,7 @@ import {
   applyColorPick,
   invalidatePendingColorPicks,
   pickColorRange,
+  rangeInputFor,
   rangePickOf,
   TARGET_PICK,
   targetPickFor
@@ -304,6 +305,17 @@ describe('the renderer probe at a pick', () => {
     expect(rangePickOf('/a.cr3', null, range)).toBeNull();
     useEditorStore.setState({ adjustments: state.adjustments });
     expect(rangePickOf('/a.cr3', null, range)).not.toBeNull();
+  });
+
+  it('forgets the pick when the renderer has no sample there any more (a hidden layer)', async () => {
+    probeWith(0.5);
+    useEditorStore.setState({ colorPickerTarget: 'new', colorPickerLayer: 'L1' });
+    await pickColorRange('/a.cr3', 'new', 0.4, 0.6);
+    const range = useEditorStore.getState().adjustments.masks[0].adjustments.colorRanges![0];
+    expect(rangePickOf('/a.cr3', 'L1', range)).not.toBeNull();
+    vi.mocked(invoke).mockResolvedValue(null);
+    expect(await rangeInputFor('/a.cr3', 'L1', range)).toBeNull();
+    expect(rangePickOf('/a.cr3', 'L1', range)).toBeNull();
   });
 
   it('solves a target on a feathered layer at the mask influence of the pick', async () => {

@@ -1,5 +1,5 @@
 import { Pipette } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -134,7 +134,13 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
   // colour editor and the layer's mask influence), else the range's colour
   // at full strength.
   const pick = photo ? rangePickOf(photo, layer, active) : null;
-  const input = pick?.input ?? centreInput(active);
+  const pickInput = pick?.input ?? null;
+  const input = useMemo(
+    () => pickInput ?? centreInput(active),
+    // The range's sampled colour, not its shifts, makes the stand-in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pickInput, active.hue, active.chroma, active.lightness]
+  );
   // Edits before the colour editor or of the layer's mask change what it
   // receives at the pick: sample it again once they settle, so the readout
   // follows them.
@@ -208,7 +214,12 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
     />
   );
 
-  const solve = own ? solveColorTarget(ranges, active.id, own.lab, input) : null;
+  // The search runs again only when its inputs change, not on every render.
+  const ownLab = own?.lab ?? null;
+  const solve = useMemo(
+    () => (ownLab ? solveColorTarget(ranges, active.id, ownLab, input) : null),
+    [ranges, active.id, ownLab, input]
+  );
   const deltaE = own ? deltaE00(own.lab, resultLab) : 0;
   const limits = solve
     ? (['hue', 'saturation', 'lightness'] as const)

@@ -589,7 +589,8 @@ export function solveColorTarget(
     };
   }
   // Up to nine of the pixels with their influence: the coarse grid's stand-in
-  // for the full model (a patch across an edge keeps both colours).
+  // for the full model when it ranks starts (a patch across an edge keeps
+  // both colours); the search from each start runs on every pixel.
   const every = Math.max(1, Math.ceil(at.pixels.length / 9));
   const coarse: RangeInput = {
     pixels: at.pixels.filter((_, i) => i % every === 0),
@@ -648,8 +649,7 @@ export function solveColorTarget(
         for (const c of grid) starts.push({ point: [a, b, c], deltaE: fitOf([a, b, c], coarse).deltaE });
     starts.sort((x, y) => x.deltaE - y.deltaE);
     for (const start of starts.slice(0, 3)) {
-      const rough = descend(start.point, [16, 8, 4], coarse);
-      const found = descend(rough.point, [2, 1]);
+      const found = descend(start.point, [16, 8, 4, 2, 1]);
       if (found.fit.deltaE < bestFit.deltaE - 1e-9) ({ point: best, fit: bestFit } = found);
     }
     const outside = targetOutsideWorkingGamut || !insideWorkingGamut(labToLinear(closed.bestFit.resultLab));
@@ -657,17 +657,18 @@ export function solveColorTarget(
   }
   // A slider counts as run out only where the target stays out of reach.
   const missed = bestFit.deltaE > TARGET_REACHED;
-  // The closed form's own limits, or a slider the joint search left at its end.
+  // The closed form's own limits, or, when the joint search gave the
+  // result, the sliders it left at their end.
   const searched = best !== closed.best;
-  const atLimit = (k: number) => searched && Math.abs(best[k]) >= SHIFT_LIMIT;
+  const atLimit = (k: number) => Math.abs(best[k]) >= SHIFT_LIMIT;
   return {
     shifts: { hueShift: best[0], saturation: best[1], lightnessShift: best[2] },
     resultLab: bestFit.resultLab,
     deltaE: bestFit.deltaE,
     limited: {
-      hue: missed && (limited.hue || atLimit(0)),
-      saturation: missed && (limited.saturation || atLimit(1)),
-      lightness: missed && (limited.lightness || atLimit(2))
+      hue: missed && (searched ? atLimit(0) : limited.hue),
+      saturation: missed && (searched ? atLimit(1) : limited.saturation),
+      lightness: missed && (searched ? atLimit(2) : limited.lightness)
     },
     targetOutsideSrgb,
     targetOutsideWorkingGamut,

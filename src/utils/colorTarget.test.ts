@@ -228,25 +228,46 @@ describe('solveColorTarget', () => {
   });
 
   it('reaches a target on a patch across two colours under a feathered mask with the sliders together', () => {
-    // Review TGT2 round 1: an 11 × 11 red/green patch under a linear mask
-    // ramp; the mean-pixel closed form pins Hue while the patch is reachable.
-    const red = linearToOklab(srgb8ToLinear([190, 40, 35]));
-    const green = linearToOklab(srgb8ToLinear([60, 150, 50]));
+    // Review TGT2 rounds 1–2: an 11 × 11 blue/green product edge under a
+    // diagonal mask ramp, range picked across it with a 45° hue range.
+    const blue = linearToOklab(srgb8ToLinear([0x32, 0x41, 0x9d]));
+    const green = linearToOklab(srgb8ToLinear([0x61, 0xc6, 0x43]));
     const pixels: Vec3[] = [];
     const influence: number[] = [];
     for (let y = 0; y < 11; y += 1)
       for (let x = 0; x < 11; x += 1) {
-        pixels.push(x < 6 ? red : green);
-        influence.push(0.2 + (0.8 * y) / 10);
+        pixels.push(x < 5 ? blue : green);
+        influence.push(0.1 + (0.8 * (x + y)) / 20);
       }
     const input = { pixels, influence };
     const [L, a, b] = meanOklab(pixels);
-    const range = newColorRange(((Math.atan2(b, a) * 180) / Math.PI + 360) % 360, Math.hypot(a, b), L);
-    // A target the full model reaches: the patch's colour with known shifts.
-    const target = renderedLab([{ ...range, hueShift: -45, saturation: -50, lightnessShift: 30 }], input);
+    const range = {
+      ...newColorRange(((Math.atan2(b, a) * 180) / Math.PI + 360) % 360, Math.hypot(a, b), L),
+      hueRange: 45
+    };
+    // A target the patch reaches only with clearly changed sliders.
+    const target = renderedLab([{ ...range, hueShift: -60, saturation: 30, lightnessShift: 10 }], input);
+    expect(deltaE00(target, renderedLab([range], input))).toBeGreaterThan(5);
     const solve = solveColorTarget([range], range.id, target, input)!;
     expect(solve.deltaE).toBeLessThan(1);
     expect(solve.limited).toEqual({ hue: false, saturation: false, lightness: false });
+    // #6E8433 lies just beyond this patch's reach: the solve lands on the
+    // nearest the sliders give (a brute-force scan's best is ΔE00 1.83).
+    const olive = solveColorTarget([range], range.id, labOfSrgb([0x6e, 0x84, 0x33]), input)!;
+    expect(olive.deltaE).toBeLessThan(1.85);
+  });
+
+  it('labels as at their limit only the sliders the result leaves there', () => {
+    // Review TGT2 round 2: a light sky blue to a far more saturated violet.
+    const sky = rangeAt([0x91, 0xb9, 0xde]);
+    const solve = solveColorTarget([sky], sky.id, lchToLab([73.2, 100, 295]))!;
+    const ends = {
+      hue: solve.shifts.hueShift,
+      saturation: solve.shifts.saturation,
+      lightness: solve.shifts.lightnessShift
+    };
+    for (const [k, v] of Object.entries(ends))
+      if (solve.limited[k as keyof typeof solve.limited]) expect(Math.abs(v)).toBe(100);
   });
 
   it('keeps the shifts and says so when the layer’s mask no longer covers the pick', () => {
