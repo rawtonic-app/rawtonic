@@ -773,10 +773,11 @@ mod tests {
 
     #[test]
     fn every_downloaded_file_has_its_size_for_the_progress() {
-        let files = MODEL_FILES
-            .iter()
-            .map(|&(file, _)| file)
-            .chain(rawtonic_faces::portrait::CORE_ML_FILES.iter().map(|&(file, _, _)| file));
+        let files = MODEL_FILES.iter().map(|&(file, _)| file).chain(
+            rawtonic_faces::portrait::CORE_ML_FILES
+                .iter()
+                .map(|&(file, _, _)| file),
+        );
         for file in files {
             assert!(FILE_BYTES.iter().any(|(name, _)| *name == file), "{file}");
         }
