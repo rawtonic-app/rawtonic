@@ -2093,6 +2093,34 @@ mod private_preview_tests {
         assert_eq!(mask_pixels(&render).as_raw(), &[255, 255]);
     }
 
+    /// The Library's in-place read of a RAW (a shared buffer, rawler reading
+    /// the decoder's preview without copying the file: CR3, Panasonic RW2)
+    /// gives the preview a copied file gives, on every local camera fixture.
+    #[test]
+    #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory"]
+    fn private_raw_previews_from_a_shared_buffer() {
+        let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
+        let mut count = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.to_string_lossy().to_string();
+            if !crate::formats::is_raw_file(&name) {
+                continue;
+            }
+            let bytes = std::fs::read(&path).unwrap();
+            let copied = safe_embedded_preview_fallback(&bytes, &name);
+            let shared = safe_embedded_preview_fallback_shared(Arc::new(bytes), &name);
+            let facts = |image: &Option<DynamicImage>| {
+                image
+                    .as_ref()
+                    .map(|i| (i.width(), i.height(), i.color(), i.as_bytes().to_vec()))
+            };
+            assert!(facts(&copied) == facts(&shared), "{name}");
+            count += 1;
+        }
+        assert!(count > 0, "no RAW fixtures found");
+    }
+
     /// Local camera fixtures only; never check private photographs into the repo.
     #[test]
     #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory"]
@@ -2109,13 +2137,6 @@ mod private_preview_tests {
             let preview = safe_embedded_preview_fallback(&bytes, &path.to_string_lossy())
                 .expect("camera must expose a browser preview without RAW development");
             assert!(preview.width().max(preview.height()) >= 480);
-            // The Library's in-place read of the file gives the same preview.
-            let shared = safe_embedded_preview_fallback_shared(
-                Arc::new(bytes.clone()),
-                &path.to_string_lossy(),
-            )
-            .unwrap();
-            assert_eq!(shared.as_bytes(), preview.as_bytes());
             let priority = priority_embedded_jpeg(&bytes)
                 .expect("camera must expose a priority JPEG without RAW development");
             let source = rawler::rawsource::RawSource::new(&path).unwrap();

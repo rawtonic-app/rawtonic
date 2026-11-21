@@ -273,7 +273,8 @@ pub fn camera_of(path: &Path) -> Option<CameraIdentity> {
         return camera.clone();
     }
     let camera = if crate::formats::is_raw_file(path) {
-        rawler::rawsource::RawSource::new(path)
+        // Mapped without read-ahead: only the tags are read.
+        rawler::rawsource::RawSource::new_lazy(path)
             .ok()
             .and_then(|source| camera_of_raw(&source))
     } else {
