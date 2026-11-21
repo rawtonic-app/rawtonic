@@ -1654,17 +1654,11 @@ fn plan_output_path(
 /// the same mask. Only components still as the export found them, in the
 /// same geometry, take it. Returns whether the recipe changed. The photo open in Develop is left
 /// to the editor, which computes and saves its own.
+///
+/// Only into a stored recipe that `accepts` (read in the same turn as the
+/// write: a recipe changed since the detection began, e.g. given AI Denoise,
+/// is checked as it is now).
 pub(crate) fn keep_detected_selections(
-    path: &str,
-    detected: &[rawtonic_engine::ai_selections::Detected],
-) -> Result<bool, String> {
-    keep_detected_selections_where(path, detected, |_| true)
-}
-
-/// `keep_detected_selections` into a stored recipe that `accepts` (read
-/// in the same turn as the write: a recipe changed since the detection
-/// began, e.g. given AI Denoise, is checked as it is now).
-pub(crate) fn keep_detected_selections_where(
     path: &str,
     detected: &[rawtonic_engine::ai_selections::Detected],
     accepts: impl Fn(&Value) -> bool,
@@ -2023,7 +2017,15 @@ fn export_photo(
         )
         .map_err(|e| format!("{source_path_str}: not exported, {e}"))?;
         ensure_export_not_cancelled(cancellation_token)?;
-        if !is_current_edit && let Err(e) = keep_detected_selections(image_path_str, &detected) {
+        // Only into a recipe still developed with the AI Denoise the
+        // selections were computed on (one pasted onto it while this export
+        // waited detects again on its own decode).
+        let detected_with = rawtonic_engine::image_loader::ai_denoise_settings(&js_adjustments);
+        if !is_current_edit
+            && let Err(e) = keep_detected_selections(image_path_str, &detected, |now| {
+                rawtonic_engine::image_loader::ai_denoise_settings(now) == detected_with
+            })
+        {
             // The export stands; its next export computes them again.
             log::warn!("Export: keeping the AI selections of {image_path_str} failed: {e}");
         }

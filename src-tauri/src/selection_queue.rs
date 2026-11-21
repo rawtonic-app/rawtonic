@@ -144,9 +144,15 @@ pub async fn adopt_selections(
     tauri::async_runtime::spawn_blocking(move || {
         let (source_path, sidecar_path) = rawtonic_export::sidecars::parse_virtual_path(&path);
         // Handed by the queue, or (handed to others since) as kept in the
-        // saved recipe.
+        // saved recipe (not one with AI Denoise: its bitmaps may be made on
+        // the denoised decode, which a recipe here has not).
         let detected = handed(&path).unwrap_or_else(|| {
-            saved_selections(&crate::exif_processing::load_sidecar(&sidecar_path).adjustments)
+            let saved = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
+            if denoise_gate(&saved).is_ok() {
+                saved_selections(&saved)
+            } else {
+                Vec::new()
+            }
         });
         let adopted = adopt_into(recipes.clone(), &detected, |recipe| {
             crate::export_processing::detection_frame(recipe, &source_path)
@@ -424,7 +430,7 @@ fn detect_photo(app: &AppHandle, path: &str) -> Result<(), String> {
     )?;
     // Into the recipe as it is now: one given AI Denoise meanwhile is left
     // to its export (`denoise_gate`).
-    let kept = crate::export_processing::keep_detected_selections_where(path, &detected, |now| {
+    let kept = crate::export_processing::keep_detected_selections(path, &detected, |now| {
         denoise_gate(now).is_ok()
     });
     // Also for a photo changed meanwhile: its editor, if it has it open,

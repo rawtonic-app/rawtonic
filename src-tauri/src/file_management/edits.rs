@@ -3880,16 +3880,14 @@ mod tests {
             rawtonic_engine::image_loader::ai_denoise_settings(now).is_none()
         };
         assert!(
-            !crate::export_processing::keep_detected_selections_where(
-                &paths[0], &found, undenoised
-            )
-            .unwrap()
+            !crate::export_processing::keep_detected_selections(&paths[0], &found, undenoised)
+                .unwrap()
         );
         let stored = crate::exif_processing::load_sidecar(&sidecar).adjustments;
         assert!(stored["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"].is_null());
         // Without AI Denoise it is kept.
         assert!(
-            crate::export_processing::keep_detected_selections_where(&paths[0], &found, |_| true)
+            crate::export_processing::keep_detected_selections(&paths[0], &found, |_| true)
                 .unwrap()
         );
     }
