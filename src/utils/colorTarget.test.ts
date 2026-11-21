@@ -137,10 +137,19 @@ describe('solveColorTarget', () => {
     expect(far.shifts.saturation).toBeGreaterThan(-60);
   });
 
+  it('finds a reachable target where two free sliders cross the sRGB boundary together', () => {
+    // Review TGT1 round 3: green → #00ECFA.
+    const green = rangeAt([33, 225, 55]);
+    const solve = solveColorTarget([green], green.id, labOfSrgb([0, 236, 250]))!;
+    expect(solve.shifts.hueShift).toBe(100);
+    expect(solve.deltaE).toBeLessThan(1);
+  });
+
   it('measures how much a sample error grows when the ranges are undone', () => {
     const range = rangeAt([180, 85, 55]);
     expect(inverseGain([range], rangeCentre(range))).toBeCloseTo(1, 1);
     expect(inverseGain([{ ...range, hueShift: 100 }], rangeCentre(range))).toBeLessThan(1.5);
+    expect(inverseGain([{ ...range, saturation: -50 }], rangeCentre(range))).toBeGreaterThan(1.5);
     expect(inverseGain([{ ...range, saturation: -90 }], rangeCentre(range))).toBeGreaterThan(3);
   });
 

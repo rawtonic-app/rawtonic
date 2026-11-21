@@ -14,8 +14,10 @@ import {
   type Vec3
 } from './colorTarget';
 
-/** Error gain above which a colour picked through the ranges is uncertain. */
-const UNCERTAIN_GAIN = 3;
+/** Error gain above which a colour picked through the ranges is uncertain:
+ * a turn or a lift keeps it near 1; taking chroma away raises it (−50 % ≈
+ * 2), and near grey several colours end the same (review TGT1 round 3). */
+const UNCERTAIN_GAIN = 1.5;
 
 /** The key of a range in `colorPicksThroughRanges`. */
 export const rangePickKey = (photo: string, layer: string | null, id: string) => `${photo}|${layer ?? ''}|${id}`;

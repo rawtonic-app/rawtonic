@@ -461,9 +461,9 @@ export function solveColorTarget(ranges: ColorRange[], id: string, targetLab: Ve
   // The closed form matches hue, chroma and lightness each on its own. When
   // its result or the target lies outside sRGB (the colour shown is then the
   // clipped one), or a slider runs out, the nearest colour needs the sliders
-  // together: a pattern search over whole slider steps from there (a few
-  // hundred evaluations of the model at most); sliders at their limit stay
-  // there. Inside sRGB a pinned target takes the search's result only when
+  // together: a coarse grid and a pattern search over whole slider steps
+  // (a few thousand evaluations of the model at most); sliders at their
+  // limit stay there. Inside sRGB a pinned target takes the search's result only when
   // it reaches the target; otherwise the target goes as far as it can in its
   // own direction and the other sliders keep matching their own part (no
   // colour drained just to shave the distance).
@@ -474,22 +474,53 @@ export function solveColorTarget(ranges: ColorRange[], id: string, targetLab: Ve
   const outside = targetOutsideSrgb || !insideSrgb(oklabToLinear(bestFit.result));
   const pinned = limited.hue || limited.saturation || limited.lightness;
   if (w > 1e-6 && (outside || pinned)) {
-    for (const step of [32, 16, 8, 4, 2, 1]) {
-      for (let improved = true, rounds = 0; improved && rounds < 25; rounds += 1) {
-        improved = false;
-        for (const k of free) {
-          for (const sign of [-1, 1]) {
-            const next = [...best] as Vec3;
-            next[k] = clamp(next[k] + sign * step, -SHIFT_LIMIT, SHIFT_LIMIT);
-            if (next[k] === best[k]) continue;
-            const fit = evaluate(next);
-            if (fit.deltaE < bestFit.deltaE - 1e-9) {
-              best = next;
-              bestFit = fit;
-              improved = true;
+    // Local search over whole steps from a start, one slider at a time.
+    const descend = (start: Vec3) => {
+      let at = start;
+      let fit = evaluate(at);
+      for (const step of [16, 8, 4, 2, 1]) {
+        for (let improved = true, rounds = 0; improved && rounds < 25; rounds += 1) {
+          improved = false;
+          for (const k of free) {
+            for (const sign of [-1, 1]) {
+              const next = [...at] as Vec3;
+              next[k] = clamp(next[k] + sign * step, -SHIFT_LIMIT, SHIFT_LIMIT);
+              if (next[k] === at[k]) continue;
+              const nextFit = evaluate(next);
+              if (nextFit.deltaE < fit.deltaE - 1e-9) {
+                at = next;
+                fit = nextFit;
+                improved = true;
+              }
             }
           }
         }
+      }
+      return { at, fit };
+    };
+    // The nearest shown colour can lie where several sliders cross the sRGB
+    // boundary together: a coarse grid over the free sliders (steps of 20,
+    // at most 1331 evaluations) picks the starts, then the local search.
+    const grid = [-100, -80, -60, -40, -20, 0, 20, 40, 60, 80, 100];
+    const starts: { at: Vec3; deltaE: number }[] = [];
+    const visit = (k: number, at: Vec3) => {
+      if (k === free.length) {
+        starts.push({ at, deltaE: evaluate(at).deltaE });
+        return;
+      }
+      for (const v of grid) {
+        const next = [...at] as Vec3;
+        next[free[k]] = v;
+        visit(k + 1, next);
+      }
+    };
+    visit(0, best);
+    starts.sort((a, b) => a.deltaE - b.deltaE);
+    for (const start of [best, ...starts.slice(0, 3).map((s) => s.at)]) {
+      const found = descend(start);
+      if (found.fit.deltaE < bestFit.deltaE - 1e-9) {
+        best = found.at;
+        bestFit = found.fit;
       }
     }
     if (!outside && bestFit.deltaE > TARGET_REACHED) ({ best, bestFit } = closed);
