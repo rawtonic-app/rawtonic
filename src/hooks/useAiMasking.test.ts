@@ -14,7 +14,7 @@ const { invoke, listen, listeners } = vi.hoisted(() => {
 });
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen }));
-const { toast } = vi.hoisted(() => ({ toast: { error: vi.fn() } }));
+const { toast } = vi.hoisted(() => ({ toast: { error: vi.fn(), info: vi.fn() } }));
 vi.mock('../activity/notify', () => ({ notify: toast }));
 
 import '../i18n';
@@ -429,6 +429,50 @@ describe('automatic AI masks from imported presets', () => {
     act(() => useEditorStore.getState().undo());
     expect(promptsOf(useEditorStore.getState().adjustments)).toEqual([a]);
     expect(subOf('sub-ai-subject')?.parameters.maskDataBase64).toBe('data:image/png;base64,AAAA');
+  });
+
+  it('computes migrated thumbnail selections again on the full frame as one undo step', async () => {
+    const pending = deferredMasks();
+    const stand_in = { maskDataBase64: 'data:thumb', bitmapFrame: { width: 288, height: 192 }, detectAgain: true };
+    const initial = {
+      ...structuredClone(INITIAL_ADJUSTMENTS),
+      masks: [
+        layer('ai-sky', { ...stand_in, grow: 7 }),
+        layer('ai-foreground', { ...stand_in, subjectVersion: 2 }),
+        layer('ai-subject', { maskDataBase64: 'data:thumb', bitmapFrame: { width: 288, height: 192 } })
+      ] as never
+    };
+    useEditorStore.setState({
+      selectedImage: { path: '/s/a.tif', isReady: true, isRaw: true } as never,
+      adjustments: initial,
+      history: [initial],
+      historyIndex: 0
+    });
+    const generated = () => invoke.mock.calls.map((c) => c[0]).filter((c) => String(c).startsWith('generate_'));
+    const { rerender } = renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(2));
+    expect(generated()).toEqual(['generate_ai_sky_mask', 'generate_ai_foreground_mask']);
+    expect(invoke.mock.calls.find((c) => c[0] === 'generate_ai_foreground_mask')?.[1]).toMatchObject({
+      subjectVersion: 2
+    });
+    // Nothing changes until every selection is back.
+    await act(async () => pending[0]({ maskDataBase64: 'data:sky' }));
+    expect(useEditorStore.getState().history).toHaveLength(1);
+    await act(async () => pending[1]({ maskDataBase64: 'data:subject' }));
+    await waitFor(() => expect(useEditorStore.getState().history).toHaveLength(2));
+    expect(subOf('sub-ai-sky')?.parameters).toEqual({ maskDataBase64: 'data:sky', grow: 7 });
+    expect(subOf('sub-ai-foreground')?.parameters).toEqual({ maskDataBase64: 'data:subject', subjectVersion: 2 });
+    expect(subOf('sub-ai-subject')?.parameters.maskDataBase64).toBe('data:thumb');
+    expect(toast.info).toHaveBeenCalledWith(expect.stringContaining('2 layers'));
+    // One undo: the stretched thumbnail bitmaps, no longer waiting.
+    act(() => useEditorStore.getState().undo());
+    expect(subOf('sub-ai-sky')?.parameters).toEqual({
+      maskDataBase64: 'data:thumb',
+      bitmapFrame: { width: 288, height: 192 },
+      grow: 7
+    });
+    rerender();
+    expect(generated()).toHaveLength(2);
   });
 
   it('applies an Object answer after a slider draft commits, as its own undo step', async () => {

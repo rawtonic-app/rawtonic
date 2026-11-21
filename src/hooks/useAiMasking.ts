@@ -968,6 +968,8 @@ export function useAiMasking() {
   // the full frame when the photo is ready: all of them, then one History
   // step, so one undo brings back the stretched thumbnail bitmaps.
   const requestedAgain = useRef(new Set<string>());
+  // A failure is asked again when a photo opens again.
+  useEffect(() => requestedAgain.current.clear(), [selectedImagePathKey]);
   useEffect(() => {
     if (!selectedImageReady) return;
     const { selectedImage, adjustments } = useEditorStore.getState();
