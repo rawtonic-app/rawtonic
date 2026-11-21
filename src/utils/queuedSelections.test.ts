@@ -5,6 +5,8 @@ import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from './adjustments';
 import { adoptQueuedSelections } from './queuedSelections';
+import { historyFor } from './photoHistory';
+import { historyOrders } from './undoOrder';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
@@ -113,6 +115,46 @@ describe('the open photo takes the selections the queue computed', () => {
     await act(async () => {
       useEditorStore.setState({ isSliderDragging: false });
       await adopting;
+    });
+    expect(skyOf(useEditorStore.getState().adjustments).maskDataBase64).toBe(SKY);
+  });
+
+  it('fills the History kept for a photo left while the queue ran; reopening adds no step', async () => {
+    answerWithSky();
+    const before = { ...INITIAL_ADJUSTMENTS, exposure: 0 } as Adjustments;
+    const preset = withSky(before, pending);
+    open(preset, [before, preset]);
+    const orders = historyOrders([before, preset]);
+    // Another photo opens: this one's History is kept.
+    useEditorStore.setState({
+      selectedImage: { path: '/library/next.nef', isReady: true, isRaw: true, width: 1, height: 1, exif: {} },
+      adjustments: before,
+      history: [before],
+      historyIndex: 0
+    } as never);
+    await act(async () => {
+      expect(await adoptQueuedSelections(PATH)).toBe(true);
+    });
+    // Opened again: its saved recipe (the queue's) is the kept entry, the
+    // preset's step with its undo order, not a step of its own.
+    const saved = withSky(before, { ...pending, ...computed, detectPending: undefined });
+    const reopened = historyFor(PATH, saved);
+    expect(reopened.history).toHaveLength(2);
+    expect(reopened.historyIndex).toBe(1);
+    expect(historyOrders(reopened.history)).toEqual(orders);
+  });
+
+  it('takes them once a photo still loading is ready', async () => {
+    answerWithSky();
+    open(withSky({ ...INITIAL_ADJUSTMENTS } as Adjustments, pending));
+    const loading = useEditorStore.getState().selectedImage!;
+    useEditorStore.setState({ selectedImage: { ...loading, isReady: false } });
+    const adopting = adoptQueuedSelections(PATH);
+    await act(async () => {});
+    expect(invoke).not.toHaveBeenCalled();
+    await act(async () => {
+      useEditorStore.setState({ selectedImage: { ...loading, isReady: true } });
+      expect(await adopting).toBe(true);
     });
     expect(skyOf(useEditorStore.getState().adjustments).maskDataBase64).toBe(SKY);
   });

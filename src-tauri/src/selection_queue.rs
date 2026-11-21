@@ -310,6 +310,21 @@ fn run(app: &AppHandle) {
     }
 }
 
+/// A photo developed with AI Denoise is left to its export and to Develop,
+/// which compute its selections on the denoised decode: the queue's decode
+/// has no AI Denoise (a minute per photo without a GPU, its model perhaps
+/// not loaded), and that a selection made on it equals one made on the
+/// denoised decode is not measured (G28). Reported, never taken for done.
+fn denoise_gate(recipe: &Value) -> Result<(), String> {
+    if rawtonic_engine::image_loader::ai_denoise_settings(recipe).is_some() {
+        return Err(
+            "AI Denoise is on; its selections are computed on the denoised photo when it is opened or exported"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 /// Computes and keeps the missing selections of one photo; `Ok` also when
 /// it has none (left by an edit, or computed when it was opened).
 fn detect_photo(app: &AppHandle, path: &str) -> Result<(), String> {
@@ -319,6 +334,7 @@ fn detect_photo(app: &AppHandle, path: &str) -> Result<(), String> {
     if !wants_detection(&recipe) {
         return Ok(());
     }
+    denoise_gate(&recipe)?;
     // An original that is not here is never fetched for a preset (a cloud
     // download, a drive to connect): reported, computed when the photo is
     // opened or exported.
@@ -351,10 +367,8 @@ fn detect_photo(app: &AppHandle, path: &str) -> Result<(), String> {
     let is_raw = rawtonic_engine::formats::is_raw_file(&source);
     let bytes =
         std::fs::read(&source_path).map_err(|e| format!("the photo's file cannot be read: {e}"))?;
-    // The decode without AI Denoise (a minute per photo without a GPU, and
-    // its model may not be loaded). The networks see the photo at their own
-    // small input size; that this matches a detection on the denoised
-    // decode (as the export's) is not measured (G28).
+    // The decode without AI Denoise, which no recipe here has
+    // (`denoise_gate`); a stale key renders nothing.
     let mut decode = recipe.clone();
     if let Some(map) = decode.as_object_mut() {
         map.remove("aiDenoise");
@@ -465,6 +479,21 @@ mod tests {
             json!({"maskDataBase64": null, "detectPending": true})
         )));
         assert!(!wants_detection(&json!({"exposure": 1.0})));
+    }
+
+    /// A photo with AI Denoise waits for its export or Develop, which
+    /// detect on the denoised decode.
+    #[test]
+    fn photos_with_ai_denoise_are_left_to_their_export() {
+        assert!(denoise_gate(&json!({"exposure": 1})).is_ok());
+        assert!(denoise_gate(&json!({"aiDenoise": 0})).is_ok());
+        let error = denoise_gate(&json!({"aiDenoise": 60})).unwrap_err();
+        assert!(error.contains("AI Denoise"), "{error}");
+        // Switched off with its section: rendered without it.
+        assert!(
+            denoise_gate(&json!({"aiDenoise": 60, "sectionVisibility": {"noiseReduction": false}}))
+                .is_ok()
+        );
     }
 
     /// The open photo's editor takes the queue's selections into the recipe

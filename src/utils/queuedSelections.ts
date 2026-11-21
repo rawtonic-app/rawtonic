@@ -11,6 +11,7 @@ import { Invokes } from '../components/ui/AppProperties';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import type { Adjustments, MaskContainer, SubMask } from './adjustments';
 import { DETECTED_TYPES } from './settingsClipboard';
+import { keptHistory, replaceKeptHistory } from './photoHistory';
 
 /** Event of the queue with the path of a photo it computed. */
 export const AI_SELECTIONS_DETECTED = 'ai-selections-detected';
@@ -74,6 +75,38 @@ function sliderReleased(path: string): Promise<void> {
   });
 }
 
+/** Resolves once the photograph `path` is ready or no longer open. */
+function loaded(path: string): Promise<void> {
+  const ready = (state: ReturnType<typeof useEditorStore.getState>) =>
+    state.selectedImage?.path !== path || state.selectedImage.isReady;
+  if (ready(useEditorStore.getState())) return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsubscribe = useEditorStore.subscribe((state) => {
+      if (!ready(state)) return;
+      unsubscribe();
+      resolve();
+    });
+  });
+}
+
+/** The components of `recipes` the backend fills with the selections the
+ * queue computed for `path` (`adopt_selections`), each recipe by itself;
+ * those without one waiting are not sent. */
+async function matched(path: string, recipes: readonly Adjustments[]): Promise<Map<Adjustments, Adjustments> | null> {
+  // Each recipe once (the shown one is also its History entry).
+  const asked = [...new Set(recipes)].filter(hasWaiting);
+  if (asked.length === 0) return null;
+  const answers = await invoke<(Filled | null)[]>(Invokes.AdoptSelections, {
+    path,
+    recipes: asked.map(withoutBitmaps)
+  });
+  if (!answers.some(Boolean)) return null;
+  for (const filled of answers) {
+    for (const id of Object.keys(filled ?? {})) useEditorStore.getState().patchesSentToBackend.delete(id);
+  }
+  return new Map(asked.map((recipe, i) => [recipe, fill(recipe, answers[i])]));
+}
+
 /** Asked again when the recipe changed while the backend matched it. */
 const ATTEMPTS = 5;
 
@@ -82,31 +115,37 @@ const ATTEMPTS = 5;
  * components still waiting for them (same layer and component, no bitmap,
  * the same geometry; the backend's rule). Edits made meanwhile stay; no
  * History step of its own (the selection belongs to the step that asked
- * for it). The changed recipe is saved as any edit. */
+ * for it). The changed recipe is saved as any edit. A photograph left
+ * meanwhile takes them into the History it keeps (photoHistory.ts), so that
+ * opening it again finds its saved recipe as its History left it; one
+ * still loading takes them once it is ready. */
 export async function adoptQueuedSelections(path: string): Promise<boolean> {
   for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
+    await loaded(path);
     await sliderReleased(path);
     debouncedSetHistory.flush();
     const { selectedImage, adjustments, history } = useEditorStore.getState();
-    // Loading reads the saved recipe, which holds them (written before the event).
-    if (selectedImage?.path !== path || !selectedImage.isReady) return false;
-    // Each recipe once (the shown one is also its History entry).
-    const asked = [...new Set([adjustments, ...history])].filter(hasWaiting);
-    if (asked.length === 0) return false;
-    const answers = await invoke<(Filled | null)[]>(Invokes.AdoptSelections, {
-      path,
-      recipes: asked.map(withoutBitmaps)
-    });
-    if (!answers.some(Boolean)) return false;
-    const now = useEditorStore.getState();
-    if (now.selectedImage?.path !== path) return false;
-    // Changed while it was matched (an edit, an undo): matched again.
-    if (now.adjustments !== adjustments || now.history !== history || now.isSliderDragging) continue;
-    for (const filled of answers) {
-      for (const id of Object.keys(filled ?? {})) now.patchesSentToBackend.delete(id);
+    if (selectedImage?.path !== path) {
+      const was = keptHistory(path);
+      if (!was) return false;
+      const filled = await matched(path, was);
+      if (!filled) return false;
+      if (replaceKeptHistory(path, was, was.map((recipe) => filled.get(recipe) ?? recipe))) return true;
+      continue;
     }
-    const filledOf = new Map(asked.map((recipe, i) => [recipe, fill(recipe, answers[i])]));
-    const adopted = (recipe: Adjustments) => filledOf.get(recipe) ?? recipe;
+    if (!selectedImage.isReady) continue;
+    const filled = await matched(path, [adjustments, ...history]);
+    if (!filled) return false;
+    const now = useEditorStore.getState();
+    // Changed while it was matched (an edit, an undo, another photo): matched again.
+    if (
+      now.selectedImage?.path !== path ||
+      now.adjustments !== adjustments ||
+      now.history !== history ||
+      now.isSliderDragging
+    )
+      continue;
+    const adopted = (recipe: Adjustments) => filled.get(recipe) ?? recipe;
     now.setEditor({ adjustments: adopted(adjustments), history: history.map(adopted) });
     return true;
   }
