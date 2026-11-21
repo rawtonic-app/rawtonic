@@ -20,6 +20,20 @@ use xmp_input::parse_packet;
 pub use xmp_input::{check_xmp_input, read_xmp_bytes, read_xmp_text};
 
 pub const XMP: &str = "http://ns.adobe.com/xap/1.0/";
+/// Camera Raw settings (`crs:`), the develop settings Lightroom writes.
+pub const CRS: &str = "http://ns.adobe.com/camera-raw-settings/1.0/";
+/// The key of a recipe's `adjustments` that holds the Lightroom HDR edit
+/// settings (`crs:HDR…`/`crs:SDR…`, name → value) an import kept. Rawtonic
+/// renders SDR only; the sidecar writer writes them back as `crs:` attributes.
+pub const LIGHTROOM_HDR_KEY: &str = "lightroomHdr";
+
+/// Whether a `crs:` setting belongs to Lightroom's HDR edit (HDR mode, its
+/// headroom and the SDR rendition's sliders).
+pub fn is_lightroom_hdr_name(name: &str) -> bool {
+    (name.starts_with("HDR") || name.starts_with("SDR"))
+        && name.len() > 3
+        && name.bytes().all(|b| b.is_ascii_alphanumeric())
+}
 pub const DC: &str = "http://purl.org/dc/elements/1.1/";
 pub const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 pub const LR: &str = "http://ns.adobe.com/lightroom/1.0/";
@@ -1257,10 +1271,37 @@ fn merge_packet(
         ));
     }
     out.push_str("</rdf:Description>\n");
+    out.push_str(&lightroom_hdr_description(root, recipe));
     out.push_str(&base[close..]);
     // Refuse to persist if our preservation logic produced malformed XML.
     read_xmp(&out)?;
     Ok(out)
+}
+
+/// The Lightroom HDR settings the recipe carries (`LIGHTROOM_HDR_KEY`) as a
+/// `crs:` description of their own, for those the sidecar does not hold
+/// already (a setting in the packet is Lightroom's and stays as it is).
+fn lightroom_hdr_description(root: roxmltree::Node, recipe: Option<&serde_json::Value>) -> String {
+    let Some(settings) = recipe
+        .and_then(|r| r.pointer(&format!("/adjustments/{LIGHTROOM_HDR_KEY}")))
+        .and_then(serde_json::Value::as_object)
+    else {
+        return String::new();
+    };
+    let mut attributes = String::new();
+    for (name, value) in settings {
+        if !is_lightroom_hdr_name(name) || property(root, CRS, name).is_some() {
+            continue;
+        }
+        let Some(value) = value.as_str() else {
+            continue;
+        };
+        attributes.push_str(&format!(" crs:{name}=\"{}\"", escape(value)));
+    }
+    if attributes.is_empty() {
+        return String::new();
+    }
+    format!("<rdf:Description rdf:about=\"\" xmlns:crs=\"{CRS}\"{attributes}/>\n")
 }
 
 /// The XMP packet embedded in exported images: the descriptive metadata a
@@ -1878,6 +1919,98 @@ mod tests {
             meta
         );
     }
+    const HDR_KEYS: [(&str, &str); 9] = [
+        ("HDREditMode", "1"),
+        ("HDRMaxValue", "4.000000"),
+        ("SDRBrightness", "+12"),
+        ("SDRContrast", "-5"),
+        ("SDRClarity", "0"),
+        ("SDRHighlights", "-30"),
+        ("SDRShadows", "+20"),
+        ("SDRWhites", "0"),
+        ("SDRBlend", "0.5"),
+    ];
+
+    fn hdr_sidecar() -> String {
+        let attrs: String = HDR_KEYS
+            .iter()
+            .map(|(k, v)| format!(" crs:{k}=\"{v}\""))
+            .collect();
+        format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="{CRS}" crs:Exposure2012="1.25"{attrs}/></rdf:RDF></x:xmpmeta>"#
+        )
+    }
+
+    fn hdr_values(packet: &str) -> Vec<Option<String>> {
+        let doc = roxmltree::Document::parse(packet).unwrap();
+        let root = doc.root_element();
+        HDR_KEYS
+            .iter()
+            .map(|(k, _)| property(root, CRS, k))
+            .collect()
+    }
+
+    #[test]
+    fn lightroom_hdr_keys_survive_an_edit_and_a_second_write() {
+        let source = hdr_sidecar();
+        let expected: Vec<Option<String>> =
+            HDR_KEYS.iter().map(|(_, v)| Some(v.to_string())).collect();
+        let recipe = serde_json::json!({"adjustments": {"exposure": 0.75}});
+        let meta = Metadata {
+            rating: 3,
+            ..Default::default()
+        };
+        let written = merge_xmp(Some(&source), &meta, Some(&recipe)).unwrap();
+        assert_eq!(hdr_values(&written), expected);
+        for (k, v) in HDR_KEYS {
+            assert!(written.contains(&format!("crs:{k}=\"{v}\"")), "{k}");
+        }
+        let again = merge_xmp(Some(&written), &meta, Some(&recipe)).unwrap();
+        assert_eq!(again, written);
+    }
+
+    #[test]
+    fn lightroom_hdr_keys_of_the_recipe_are_written_to_a_sidecar_without_them() {
+        let settings: serde_json::Map<String, serde_json::Value> = HDR_KEYS
+            .iter()
+            .map(|(k, v)| (k.to_string(), serde_json::json!(v)))
+            .collect();
+        let recipe =
+            serde_json::json!({"adjustments": {"exposure": 0.5, LIGHTROOM_HDR_KEY: settings}});
+        let meta = Metadata::default();
+        let written = merge_xmp(None, &meta, Some(&recipe)).unwrap();
+        let expected: Vec<Option<String>> =
+            HDR_KEYS.iter().map(|(_, v)| Some(v.to_string())).collect();
+        assert_eq!(hdr_values(&written), expected);
+        // Read back: our recipe still carries them, a rewrite adds no copy.
+        assert_eq!(read_xmp(&written).unwrap().1, Some(recipe.clone()));
+        // The description is then the sidecar's (foreign) one: a rewrite
+        // adds no copy, and from the second write on nothing moves.
+        let again = merge_xmp(Some(&written), &meta, Some(&recipe)).unwrap();
+        assert_eq!(hdr_values(&again), expected);
+        assert_eq!(again.matches("crs:HDREditMode").count(), 1);
+        assert_eq!(
+            merge_xmp(Some(&again), &meta, Some(&recipe)).unwrap(),
+            again
+        );
+        // A setting the sidecar holds (Lightroom's own) is not overridden.
+        let held = hdr_sidecar().replace("crs:HDRMaxValue=\"4.000000\"", "crs:HDRMaxValue=\"2\"");
+        let merged = merge_xmp(Some(&held), &meta, Some(&recipe)).unwrap();
+        assert_eq!(merged.matches("crs:HDRMaxValue").count(), 1);
+        assert!(merged.contains("crs:HDRMaxValue=\"2\""));
+    }
+
+    #[test]
+    fn recipes_without_hdr_keys_write_the_sidecar_as_before() {
+        let recipe = serde_json::json!({"adjustments": {"exposure": 0.5}});
+        let written = merge_xmp(None, &Metadata::default(), Some(&recipe)).unwrap();
+        assert!(!written.contains("crs:") && !written.contains("camera-raw-settings"));
+        // Not-hdr names are never written as crs properties.
+        let bad = serde_json::json!({"adjustments": {LIGHTROOM_HDR_KEY: {"Exposure2012": "9", "HDR": "1", "HDRx y": "1"}}});
+        let written = merge_xmp(None, &Metadata::default(), Some(&bad)).unwrap();
+        assert!(!written.contains("crs:"));
+    }
+
     #[test]
     fn sidecars_written_as_re_touch_are_read_and_rewritten_as_rawtonic() {
         // As the app wrote sidecars before the rename, with a foreign property.

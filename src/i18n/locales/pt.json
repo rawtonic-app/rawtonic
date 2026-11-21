@@ -5704,6 +5704,7 @@
         "moveToolsLeft": "Mover as ferramentas de Revelação para a esquerda",
         "moveToolsRight": "Mover as ferramentas de Revelação para a direita"
       },
+      "lightroomHdr": "Edição HDR do Lightroom — exibida e exportada como SDR",
       "loupe": {
         "adjust": "Revelação",
         "adjustTitle": "Ajustar em Revelação",

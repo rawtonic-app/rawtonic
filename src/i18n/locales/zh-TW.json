@@ -5352,6 +5352,7 @@
         "moveToolsLeft": "將顯影工具移到左側",
         "moveToolsRight": "將顯影工具移到右側"
       },
+      "lightroomHdr": "來自 Lightroom 的 HDR 編輯 — 以 SDR 顯示與匯出",
       "loupe": {
         "adjust": "顯影",
         "adjustTitle": "在顯影中調整",

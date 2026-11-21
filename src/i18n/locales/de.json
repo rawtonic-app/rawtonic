@@ -5490,6 +5490,7 @@
         "moveToolsLeft": "Entwickeln-Werkzeuge nach links verschieben",
         "moveToolsRight": "Entwickeln-Werkzeuge nach rechts verschieben"
       },
+      "lightroomHdr": "HDR-Bearbeitung aus Lightroom — wird als SDR angezeigt und exportiert",
       "loupe": {
         "adjust": "Entwickeln",
         "adjustTitle": "In Entwickeln bearbeiten",

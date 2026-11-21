@@ -5704,6 +5704,7 @@
         "moveToolsLeft": "Placer les outils de Développement à gauche",
         "moveToolsRight": "Placer les outils de Développement à droite"
       },
+      "lightroomHdr": "Retouche HDR de Lightroom — affichée et exportée en SDR",
       "loupe": {
         "adjust": "Développement",
         "adjustTitle": "Ajuster dans Développement",
