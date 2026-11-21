@@ -141,10 +141,18 @@ pub fn crops_from_facts(
     facts: &crate::source_facts::SourceFacts,
     path: &str,
 ) -> Option<Vec<Option<CameraCrop>>> {
+    let extension = crate::source_frame::extension_of(path);
+    // Facts from before a RAF's aspect ratio was read (version 23) kept an
+    // empty crop for every RAF: not an answer.
+    if extension.eq_ignore_ascii_case("raf")
+        && facts.version < crate::source_facts::RAF_CROP_VERSION
+    {
+        return None;
+    }
     facts
         .camera_crop
         .as_ref()
-        .map(|_| offline(facts, &crate::source_frame::extension_of(path)))
+        .map(|_| offline(facts, &extension))
 }
 
 /// `apply_default` for an original that must not be read (a cloud file not
@@ -395,5 +403,20 @@ mod tests {
         // Facts from before the crop was kept tell nothing.
         facts.camera_crop = None;
         assert_eq!(offline(&facts, "CR3"), Vec::new());
+    }
+
+    #[test]
+    fn facts_from_before_a_rafs_crop_was_read_are_not_an_answer() {
+        let facts = |version| crate::source_facts::SourceFacts {
+            version,
+            camera_crop: Some(Vec::new()),
+            ..Default::default()
+        };
+        assert!(crops_from_facts(&facts(22), "/p/a.RAF").is_none());
+        assert!(
+            crops_from_facts(&facts(crate::source_facts::RAF_CROP_VERSION), "/p/a.RAF").is_some()
+        );
+        // Other makes kept their crop from version 15 on.
+        assert!(crops_from_facts(&facts(22), "/p/a.CR3").is_some());
     }
 }

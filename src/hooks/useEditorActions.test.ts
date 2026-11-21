@@ -1041,30 +1041,6 @@ describe('AI preset layers', () => {
     }
   );
 
-  it("queues the AI selections of the Library's active photo, which the batch leaves to the editor", async () => {
-    useUIStore.setState({ activeView: 'library' });
-    const { result } = renderHook(useEditorActions);
-    const masks = [
-      {
-        id: 'sky-layer',
-        visible: true,
-        subMasks: [{ id: 'source-sky', type: 'ai-sky', parameters: { maskDataBase64: null } }]
-      }
-    ] as never;
-    vi.useFakeTimers();
-    try {
-      act(() => {
-        void result.current.applyAdjustmentsToPaths({ masks }, ['/first.dng', '/second.dng']);
-      });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(300);
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-    expect(invoke).toHaveBeenCalledWith(Invokes.QueueSelections, { paths: ['/first.dng'] });
-  });
-
   it('keeps explicit preset nulls on the open photo as on the closed targets', async () => {
     const { result } = renderHook(useEditorActions);
     act(() =>

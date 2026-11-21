@@ -1079,9 +1079,23 @@ pub type CachedCamera = (
 /// the crop (`camera_crop`, the newest of them) are used, not merely the
 /// first preview's.
 pub fn cached_camera(source: &Path) -> CachedCamera {
+    // Only previews of this very file: its size and modification time (a
+    // placeholder's metadata is there without a download) as they were when
+    // the preview was made, not those of an earlier file at the same path.
+    let Some(meta) = fs::metadata(source).ok() else {
+        return (None, None);
+    };
+    let modified_ns = meta
+        .modified()
+        .ok()
+        .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos());
     let headers: Vec<Header> = [ProxyKind::Full, ProxyKind::Standard]
         .into_iter()
         .filter_map(|kind| read_header(&proxy_path_of(source, kind)?))
+        .filter(|header| {
+            header.key.file_size == meta.len() && Some(header.key.modified_ns) == modified_ns
+        })
         .collect();
     let path = source.to_string_lossy();
     let crops = headers
@@ -1976,6 +1990,10 @@ pub(crate) mod tests {
         );
         // Nothing was registered for rendering.
         assert!(source_facts::registered(&photo.to_string_lossy()).is_none());
+        // The file at that path changed since (another shot synced there):
+        // its previews are not this file's.
+        fs::write(&photo, b"another shot, another size").unwrap();
+        assert!(cached_camera(&photo).0.is_none());
         // No preview: not known.
         let other = session_with_photo(&dir.path().join("x"), b"raw bytes");
         assert!(cached_camera(&other).0.is_none());

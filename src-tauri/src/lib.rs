@@ -1238,7 +1238,6 @@ fn start(args: Vec<String>) {
             open_with::edit_with_interrupted,
             file_management::save_metadata_and_update_thumbnail,
             file_management::apply_adjustments_to_paths,
-            selection_queue::queue_selections,
             file_management::load_metadata,
             file_management::load_presets,
             file_management::load_builtin_presets,

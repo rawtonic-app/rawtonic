@@ -154,22 +154,6 @@ pub fn enqueue(paths: impl IntoIterator<Item = String>) {
     }
 }
 
-/// Queues the photos among `paths` whose saved recipes wait for AI
-/// selections: the Library's active photograph, which the editor writes
-/// itself, so the batch does not queue it. Photos that wait for nothing are
-/// left alone.
-#[tauri::command]
-pub async fn queue_selections(paths: Vec<String>) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        enqueue(paths.into_iter().filter(|path| {
-            let (_, sidecar) = rawtonic_export::sidecars::parse_virtual_path(path);
-            wants_detection(&crate::exif_processing::load_sidecar(&sidecar).adjustments)
-        }));
-    })
-    .await
-    .map_err(|e| e.to_string())
-}
-
 fn run(app: &AppHandle) {
     loop {
         let next = QUEUE.lock().unwrap_or_else(|e| e.into_inner()).next();

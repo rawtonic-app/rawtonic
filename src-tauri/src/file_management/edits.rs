@@ -344,7 +344,7 @@ pub struct RecipeBatch {
     /// Photographs whose first edit was written without the camera's crop
     /// because their original is in the cloud and nothing cached it
     /// (`missing_camera_crops`).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(rename = "cropMissing", skip_serializing_if = "Vec::is_empty")]
     pub crop_missing: Vec<String>,
 }
 
@@ -3509,6 +3509,17 @@ mod tests {
             after: edited.adjustments,
         }]);
         assert_eq!(notices, vec![paths[0].clone()]);
+        // The webview reads it as `cropMissing`.
+        let batch = RecipeBatch {
+            crop_missing: notices,
+            ..Default::default()
+        };
+        assert!(
+            serde_json::to_value(&batch)
+                .unwrap()
+                .get("cropMissing")
+                .is_some()
+        );
     }
 
     #[test]
