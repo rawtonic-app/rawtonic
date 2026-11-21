@@ -21,7 +21,7 @@
 //!   top-level box's position).
 //!
 //! JPEG (APP11 segments), PNG (a `caBX` chunk), TIFF (tag 0xCD41), WebP (a
-//! `C2PA` chunk) and AVIF (a C2PA `uuid` box) are written; other formats
+//! `C2PA` chunk) and AVIF (a C2PA `uuid` box before the media data) are written; other formats
 //! refuse the option ([`supports`]).
 
 pub mod cbor;
@@ -68,7 +68,7 @@ enum Binding<'b> {
         hash: &'b [u8],
     },
     /// `c2pa.hash.bmff.v3`: SHA-256 of each top-level box's offset and bytes
-    /// but the manifest's `uuid` box.
+    /// but the manifest's `uuid` box and any `mfra`.
     Bmff { hash: &'b [u8] },
 }
 
@@ -352,16 +352,21 @@ impl<'a> Manifest<'a> {
                 Cbor::map([
                     (
                         "exclusions",
-                        Cbor::Array(vec![Cbor::map([
-                            ("xpath", Cbor::text("/uuid")),
-                            (
-                                "data",
-                                Cbor::Array(vec![Cbor::map([
-                                    ("offset", Cbor::Int(8)),
-                                    ("value", Cbor::Bytes(BMFF_UUID.to_vec())),
-                                ])]),
-                            ),
-                        ])]),
+                        // The C2PA `uuid` box, and `/mfra`, which every
+                        // BMFF binding lists (C2PA 2.x, A.5.5).
+                        Cbor::Array(vec![
+                            Cbor::map([
+                                ("xpath", Cbor::text("/uuid")),
+                                (
+                                    "data",
+                                    Cbor::Array(vec![Cbor::map([
+                                        ("offset", Cbor::Int(8)),
+                                        ("value", Cbor::Bytes(BMFF_UUID.to_vec())),
+                                    ])]),
+                                ),
+                            ]),
+                            Cbor::map([("xpath", Cbor::text("/mfra"))]),
+                        ]),
                     ),
                     ("alg", Cbor::text("sha256")),
                     ("hash", Cbor::Bytes(hash.to_vec())),
@@ -699,10 +704,52 @@ fn bmff_boxes(file: &[u8]) -> Result<Vec<(usize, usize)>, String> {
     Ok(boxes)
 }
 
+/// The C2PA `uuid` box holding `store`: size, `uuid`, the extended type,
+/// version and flags, the purpose `manifest` and the (absent) Merkle
+/// offset, then the store.
+fn bmff_manifest_box(store: &[u8]) -> Result<Vec<u8>, String> {
+    let purpose = b"manifest\0";
+    let len = u32::try_from(8 + 16 + 4 + purpose.len() + 8 + store.len())
+        .map_err(|_| "The manifest is too large.".to_string())?;
+    let mut out = Vec::with_capacity(len as usize);
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(b"uuid");
+    out.extend_from_slice(&BMFF_UUID);
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(purpose);
+    out.extend_from_slice(&0u64.to_be_bytes());
+    out.extend_from_slice(store);
+    Ok(out)
+}
+
+/// Whether the box `whole` is excluded from the BMFF binding: the C2PA
+/// `uuid` box and any `mfra` (C2PA 2.x, `c2pa.hash.bmff.v3`).
+fn bmff_excluded(whole: &[u8]) -> bool {
+    let kind = &whole[4..8];
+    kind == b"mfra" || (kind == b"uuid" && whole.get(8..24) == Some(&BMFF_UUID[..]))
+}
+
+/// SHA-256 of each top-level box of `file` but the excluded ones, each
+/// preceded by its offset (64-bit big-endian), as `c2pa.hash.bmff.v3`
+/// without Merkle trees hashes them.
+fn bmff_hash(file: &[u8]) -> Result<digest::Digest, String> {
+    let mut hash = digest::Context::new(&digest::SHA256);
+    for (at, len) in bmff_boxes(file)? {
+        let whole = &file[at..at + len];
+        if !bmff_excluded(whole) {
+            hash.update(&(at as u64).to_be_bytes());
+            hash.update(whole);
+        }
+    }
+    Ok(hash.finish())
+}
+
 /// An AVIF with the manifest of `plan` signed by `identity`, in a C2PA
-/// `uuid` box appended after the file's last box: no other box moves, so
-/// no item location changes. Its binding (`c2pa.hash.bmff.v3`) hashes every
-/// other top-level box with its offset.
+/// `uuid` box right before the first `mdat` (C2PA 2.x: an AVIF without
+/// `moov` has its manifest before its media data), the item locations moved
+/// with the media data ([`crate::avif_container::insert_before_media`]).
+/// Its binding (`c2pa.hash.bmff.v3`) hashes every other top-level box with
+/// its offset, in that final layout.
 pub fn sign_avif(
     avif: &[u8],
     plan: &ManifestPlan,
@@ -712,38 +759,38 @@ pub fn sign_avif(
     if avif.get(4..8) != Some(b"ftyp") {
         return Err("Not an AVIF file.".to_string());
     }
-    let mut hash = digest::Context::new(&digest::SHA256);
     for &(at, len) in &boxes {
         let whole = &avif[at..at + len];
-        if &whole[4..8] == b"uuid" && whole.get(8..24) == Some(&BMFF_UUID[..]) {
+        if bmff_excluded(whole) {
             return Err("The AVIF file already holds a manifest.".to_string());
         }
-        hash.update(&(at as u64).to_be_bytes());
-        hash.update(whole);
+        if &whole[4..8] == b"moov" {
+            return Err("AVIF image sequences cannot be signed.".to_string());
+        }
     }
-    let hash = hash.finish();
     let manifest = Manifest::new(plan, identity);
+    // The store's size does not depend on the hash or the signature's
+    // bytes: lay the file out with an unsigned one, then sign it in place.
+    let unsigned = manifest.store(Binding::Bmff { hash: &[0; 32] }, false)?;
+    let mut file =
+        crate::avif_container::insert_before_media(avif, &bmff_manifest_box(&unsigned)?)?;
+    let hash = bmff_hash(&file)?;
     let store = manifest.store(
         Binding::Bmff {
             hash: hash.as_ref(),
         },
         true,
     )?;
-    // size, `uuid`, the extended type, version and flags, the purpose
-    // `manifest` and the (absent) Merkle offset, then the store.
-    let purpose = b"manifest\0";
-    let len = u32::try_from(8 + 16 + 4 + purpose.len() + 8 + store.len())
-        .map_err(|_| "The manifest is too large.".to_string())?;
-    let mut out = Vec::with_capacity(avif.len() + len as usize);
-    out.extend_from_slice(avif);
-    out.extend_from_slice(&len.to_be_bytes());
-    out.extend_from_slice(b"uuid");
-    out.extend_from_slice(&BMFF_UUID);
-    out.extend_from_slice(&[0; 4]);
-    out.extend_from_slice(purpose);
-    out.extend_from_slice(&0u64.to_be_bytes());
-    out.extend_from_slice(&store);
-    Ok(out)
+    let signed = bmff_manifest_box(&store)?;
+    let (at, len) = bmff_boxes(&file)?
+        .into_iter()
+        .find(|&(at, len)| bmff_excluded(&file[at..at + len]))
+        .ok_or("The manifest box was not placed.")?;
+    if signed.len() != len {
+        return Err("The signed manifest changed size.".to_string());
+    }
+    file[at..at + len].copy_from_slice(&signed);
+    Ok(file)
 }
 
 /// A TIFF's manifest with its place reserved ([`reserve_tiff`]), to be

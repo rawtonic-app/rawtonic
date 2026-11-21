@@ -244,6 +244,84 @@ fn write_ipma(version: u8, flags: u32, associations: &[Association]) -> Vec<u8> 
     full_box(b"ipma", version, flags, &body)
 }
 
+/// `avif` with `new_box` (a whole top-level box) put right before its first
+/// `mdat`, and the item locations moved with the media data behind it (the
+/// `iloc` rewritten as [`set_metadata`] writes it). For a C2PA manifest,
+/// which an AVIF without `moov` must have before its first `mdat`.
+pub fn insert_before_media(avif: &[u8], new_box: &[u8]) -> Result<Vec<u8>, String> {
+    let top = boxes(avif)?;
+    let meta_index = top
+        .iter()
+        .position(|b| &b.kind == b"meta")
+        .ok_or("AVIF file has no meta box")?;
+    let mdat_index = top
+        .iter()
+        .position(|b| &b.kind == b"mdat")
+        .ok_or("AVIF file has no mdat box")?;
+    if mdat_index < meta_index {
+        return Err("AVIF file has its media data before its meta box".to_string());
+    }
+    let start = |index: usize| top[..index].iter().map(|b| b.bytes.len()).sum::<usize>() as u64;
+    let meta = &top[meta_index];
+    let meta_end = start(meta_index) + meta.bytes.len() as u64;
+    let insert_at = start(mdat_index);
+    let meta_full = meta.payload();
+    let children = boxes(&meta_full[4..])?;
+    let (_, mut locations) = parse_iloc(
+        children
+            .iter()
+            .find(|b| &b.kind == b"iloc")
+            .ok_or("AVIF file has no item locations")?
+            .payload(),
+    )?;
+    let build = |locations: &[Location]| -> Vec<u8> {
+        let mut meta_body = meta_full[..4].to_vec();
+        for child in &children {
+            match &child.kind {
+                b"iloc" => meta_body.extend(write_iloc(locations)),
+                _ => meta_body.extend_from_slice(child.bytes),
+            }
+        }
+        write_box(b"meta", &meta_body)
+    };
+    // The rewritten `iloc` has fixed field sizes: the new meta box's size
+    // does not depend on the offsets in it.
+    let grown = build(&locations).len() as i64 - meta.bytes.len() as i64;
+    for l in &mut locations {
+        if l.construction_method != 0 || l.data_reference != 0 {
+            continue;
+        }
+        for e in &mut l.extents {
+            if e.offset < meta_end {
+                continue;
+            }
+            let moved = e.offset as i64
+                + grown
+                + if e.offset >= insert_at {
+                    new_box.len() as i64
+                } else {
+                    0
+                };
+            e.offset = u32::try_from(moved)
+                .map_err(|_| "AVIF item offsets exceed 4 GiB".to_string())?
+                .into();
+        }
+    }
+    let mut out = Vec::with_capacity(avif.len() + new_box.len() + 64);
+    for b in &top[..meta_index] {
+        out.extend_from_slice(b.bytes);
+    }
+    out.extend(build(&locations));
+    for b in &top[meta_index + 1..mdat_index] {
+        out.extend_from_slice(b.bytes);
+    }
+    out.extend_from_slice(new_box);
+    for b in &top[mdat_index..] {
+        out.extend_from_slice(b.bytes);
+    }
+    Ok(out)
+}
+
 /// Adds an ICC profile (`colr`/`prof` property of the primary item) and an
 /// XMP packet to an AVIF file written by the encoder.
 pub fn set_metadata(
@@ -511,6 +589,44 @@ mod tests {
             .iter()
             .flat_map(|e| avif[e.offset as usize..(e.offset + e.length) as usize].to_vec())
             .collect()
+    }
+
+    /// Every item's bytes, by item ID.
+    fn item_data(avif: &[u8]) -> Vec<(u32, Vec<u8>)> {
+        let children = meta_children(avif);
+        let iloc = &children.iter().find(|(k, _)| k == b"iloc").unwrap().1;
+        let (_, items) = parse_iloc(iloc).unwrap();
+        items
+            .iter()
+            .map(|l| {
+                let bytes = l
+                    .extents
+                    .iter()
+                    .flat_map(|e| avif[e.offset as usize..(e.offset + e.length) as usize].to_vec())
+                    .collect();
+                (l.item, bytes)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_box_put_before_the_media_data_moves_every_item_with_it() {
+        let xmp = b"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>";
+        let icc = crate::icc_profile::for_space(crate::output_color_space::OutputColorSpace::Srgb);
+        for avif in [
+            encoded(),
+            set_metadata(&encoded(), Some(icc), Some(xmp)).unwrap(),
+        ] {
+            let inserted = write_box(b"free", &[7; 1001]);
+            let out = insert_before_media(&avif, &inserted).unwrap();
+            assert_eq!(out.len(), avif.len() + inserted.len());
+            let top = boxes(&out).unwrap();
+            let mdat = top.iter().position(|b| &b.kind == b"mdat").unwrap();
+            assert_eq!(top[mdat - 1].bytes, &inserted[..]);
+            let before = item_data(&avif);
+            assert!(before.iter().all(|(_, bytes)| !bytes.is_empty()));
+            assert!(item_data(&out) == before);
+        }
     }
 
     #[test]

@@ -150,15 +150,16 @@ fn validate(file: &[u8], store: &[u8]) -> C {
         // big-endian), then its bytes.
         let hash = content(bmff);
         let exclusions = get(&hash, "exclusions").as_array().unwrap();
-        assert_eq!(exclusions.len(), 1);
+        assert_eq!(exclusions.len(), 2);
         assert_eq!(get(&exclusions[0], "xpath").as_text(), Some("/uuid"));
+        assert_eq!(get(&exclusions[1], "xpath").as_text(), Some("/mfra"));
         let data = &get(&exclusions[0], "data").as_array().unwrap()[0];
         assert_eq!(int(get(data, "offset")), 8);
         assert_eq!(get(data, "value").as_bytes().unwrap(), &BMFF_UUID);
         let mut bound = digest::Context::new(&digest::SHA256);
         for (at, len) in bmff_boxes(file).unwrap() {
             let whole = &file[at..at + len];
-            if &whole[4..8] == b"uuid" && whole[8..24] == BMFF_UUID {
+            if (&whole[4..8] == b"uuid" && whole[8..24] == BMFF_UUID) || &whole[4..8] == b"mfra" {
                 continue;
             }
             bound.update(&(at as u64).to_be_bytes());
@@ -513,26 +514,33 @@ fn signed_webp_and_avif_validate_and_bind_every_byte() {
     );
 
     let signed = sign_avif(&avif, &plan, &identity).unwrap();
-    assert_eq!(
-        &signed[..avif.len()],
-        &avif[..],
-        "the AVIF itself unchanged"
-    );
     let store = avif_store(&signed);
     let actions = validate(&signed, store);
     assert!(action_names(&actions).contains(&"c2pa.edited".to_string()));
     assert!(find(store, "c2pa.hash.data").is_none());
+    // The manifest right before the media data, the items moved with it:
+    // the same pixels and ICC profile as the encoder's file.
+    let kinds: Vec<[u8; 4]> = bmff_boxes(&signed)
+        .unwrap()
+        .iter()
+        .map(|&(at, _)| signed[at + 4..at + 8].try_into().unwrap())
+        .collect();
+    let mdat = kinds.iter().position(|k| k == b"mdat").unwrap();
+    assert_eq!(&kinds[mdat - 1], b"uuid", "{kinds:?}");
     let decoded = rawtonic_engine::avif::decode(&signed).unwrap();
+    let original = rawtonic_engine::avif::decode(&avif).unwrap();
     assert_eq!(
         image::GenericImageView::dimensions(&decoded.image),
         (40, 30)
     );
+    assert!(decoded.image.to_rgb32f() == original.image.to_rgb32f());
+    assert_eq!(decoded.icc, original.icc);
     // A changed byte, or a box moved (here a `free` box put in front of the
     // last one: every later offset changes), breaks the binding.
     let mut tampered = signed.clone();
-    tampered[avif.len() - 3] ^= 1;
+    tampered[signed.len() - 3] ^= 1;
     assert!(std::panic::catch_unwind(|| validate(&tampered, store)).is_err());
-    let boxes = bmff_boxes(&avif).unwrap();
+    let boxes = bmff_boxes(&signed).unwrap();
     let (last, _) = boxes[boxes.len() - 1];
     let mut moved = signed[..last].to_vec();
     moved.extend_from_slice(&[0, 0, 0, 8, b'f', b'r', b'e', b'e']);

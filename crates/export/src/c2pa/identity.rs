@@ -402,14 +402,26 @@ fn algorithm_oid(identifier: &[u8]) -> Option<(String, &[u8])> {
     Some((oid, params))
 }
 
-/// The hash RSASSA-PSS parameters (the contents of their SEQUENCE) name,
-/// when they are well formed as C2PA requires: `[0]` a SHA-2 hash (absent
-/// or NULL parameters), `[1]` MGF1 with that same hash, optionally `[2]` a
-/// salt length and `[3]` the trailer field 1, in this order and nothing
-/// else (the defaults, SHA-1, are not allowed).
-fn pss_hash(params: &[u8]) -> Option<String> {
+/// What RSASSA-PSS parameters say.
+struct Pss {
+    /// The hash (dotted OID).
+    hash: String,
+    /// The salt length in bytes (RFC 4055: 20 when absent; in a public
+    /// key's parameters the least it may be signed with).
+    salt: u64,
+}
+
+/// RSASSA-PSS parameters, when they are well formed as C2PA requires: a
+/// SEQUENCE of `[0]` a SHA-2 hash (absent or NULL parameters), `[1]` MGF1
+/// with that same hash, optionally `[2]` a salt length and `[3]` the trailer
+/// field 1, in this order and nothing else (the defaults, SHA-1, are not
+/// allowed).
+fn pss_parameters(params: &x509_parser::asn1_rs::Any<'_>) -> Option<Pss> {
+    if params.tag() != x509_parser::asn1_rs::Tag::Sequence {
+        return None;
+    }
     let hash_params_ok = |params: &[u8]| params.is_empty() || params == [0x05, 0x00];
-    let (0xa0, hash, rest) = der_element(params)? else {
+    let (0xa0, hash, rest) = der_element(params.data)? else {
         return None;
     };
     let (hash, hash_params) = algorithm_oid(hash)?;
@@ -426,14 +438,20 @@ fn pss_hash(params: &[u8]) -> Option<String> {
     {
         return None;
     }
-    if let Some((0xa2, salt, after)) = der_element(rest) {
-        let (0x02, value, []) = der_element(salt)? else {
+    let mut salt = 20;
+    if let Some((0xa2, field, after)) = der_element(rest) {
+        let (0x02, value, []) = der_element(field)? else {
             return None;
         };
-        // A non-negative salt length.
-        if value.is_empty() || value[0] & 0x80 != 0 {
+        // A non-negative salt length that fits 64 bits.
+        let value = match value {
+            [0, rest @ ..] if !rest.is_empty() => rest,
+            value => value,
+        };
+        if value.is_empty() || value[0] & 0x80 != 0 || value.len() > 8 {
             return None;
         }
+        salt = value.iter().fold(0u64, |n, b| (n << 8) | u64::from(*b));
         rest = after;
     }
     if let Some((0xa3, trailer, after)) = der_element(rest) {
@@ -442,13 +460,26 @@ fn pss_hash(params: &[u8]) -> Option<String> {
         };
         rest = after;
     }
-    rest.is_empty().then_some(hash)
+    rest.is_empty().then_some(Pss { hash, salt })
+}
+
+/// Whether an RSA public key named `oid` with `params` can verify the
+/// manifests' PS256 signatures (SHA-256, MGF1-SHA-256, a 32-byte salt):
+/// `rsaEncryption` (parameters absent or NULL), or RSASSA-PSS without
+/// parameters or restricted to SHA-256 and a salt of at most 32 bytes.
+fn rsa_key_named_ok(oid: &str, params: Option<&x509_parser::asn1_rs::Any<'_>>) -> bool {
+    match oid {
+        RSA_ENCRYPTION => params.is_none_or(|p| p.tag() == x509_parser::asn1_rs::Tag::Null),
+        RSASSA_PSS => params.is_none_or(|p| {
+            pss_parameters(p).is_some_and(|pss| pss.hash == SHA256 && pss.salt <= 32)
+        }),
+        _ => false,
+    }
 }
 
 /// The certificate's public key is named as C2PA verifiers accept it and as
 /// `key` signs (c2pa-rs `check_certificate_profile`): an EC key on its own
-/// curve, Ed25519 without parameters, RSA as `rsaEncryption` or as
-/// RSASSA-PSS that allows the SHA-256 the manifests are signed with.
+/// curve, Ed25519 without parameters, RSA as [`rsa_key_named_ok`] says.
 fn check_public_key_algorithm(cert: &X509Certificate<'_>, key: &Key) -> Result<(), String> {
     let algorithm = &cert.public_key().algorithm;
     let oid = algorithm.algorithm.to_id_string();
@@ -465,12 +496,7 @@ fn check_public_key_algorithm(cert: &X509Certificate<'_>, key: &Key) -> Result<(
                     .is_some_and(|named| named.to_id_string() == curve)
         }
         Key::Ed25519(_) => oid == ED25519 && params.is_none(),
-        Key::Rsa(_) => {
-            (oid == RSA_ENCRYPTION
-                && params.is_none_or(|p| p.tag() == x509_parser::asn1_rs::Tag::Null))
-                || (oid == RSASSA_PSS
-                    && params.is_none_or(|p| pss_hash(p.data).is_some_and(|hash| hash == SHA256)))
-        }
+        Key::Rsa(_) => rsa_key_named_ok(&oid, params),
     };
     if ok {
         Ok(())
@@ -505,7 +531,7 @@ fn check_certificate_profile(cert: &X509Certificate<'_>) -> Result<(), String> {
         return refuse("its signature algorithm");
     }
     let params = cert.signature_algorithm.parameters.as_ref();
-    if algorithm == RSASSA_PSS && !params.is_some_and(|params| pss_hash(params.data).is_some()) {
+    if algorithm == RSASSA_PSS && !params.is_some_and(|params| pss_parameters(params).is_some()) {
         return refuse("its RSA-PSS parameters");
     }
     if algorithm == ED25519 && params.is_some() {
@@ -1447,6 +1473,51 @@ mod tests {
         // The authority's certificate first: not the key's certificate.
         let error = check_signing_certificate(&[authority("A Studio CA"), leaf], &key).unwrap_err();
         assert!(error.contains("does not belong"), "{error}");
+    }
+
+    /// An RSA public key restricted to RSASSA-PSS must allow what the
+    /// manifests are signed with: SHA-256, MGF1-SHA-256, a 32-byte salt.
+    #[test]
+    fn an_rsa_key_restricted_to_other_pss_parameters_is_refused() {
+        fn any(der: &[u8]) -> x509_parser::asn1_rs::Any<'_> {
+            x509_parser::asn1_rs::Any::from_der(der).unwrap().1
+        }
+        let hash = |dotted: &str| der::seq(&[der::oid(dotted)]);
+        let pss = |hash_oid: &str, salt: Option<&[u8]>| {
+            let mut fields = vec![
+                der::explicit(0, &hash(hash_oid)),
+                der::explicit(1, &der::seq(&[der::oid(MGF1), hash(hash_oid)])),
+            ];
+            if let Some(salt) = salt {
+                fields.push(der::explicit(2, &der::tlv(0x02, salt)));
+            }
+            der::seq(&fields)
+        };
+        let null = [0x05, 0x00];
+        assert!(rsa_key_named_ok(RSA_ENCRYPTION, None));
+        assert!(rsa_key_named_ok(RSA_ENCRYPTION, Some(&any(&null))));
+        assert!(!rsa_key_named_ok(
+            RSA_ENCRYPTION,
+            Some(&any(&pss(SHA256, None)))
+        ));
+        assert!(rsa_key_named_ok(RSASSA_PSS, None));
+        for (params, ok) in [
+            (pss(SHA256, Some(&[32])), true),
+            (pss(SHA256, None), true),
+            (pss(SHA256, Some(&[0, 0x20])), true),
+            (pss(SHA256, Some(&[33])), false),
+            (pss(SHA256, Some(&[64])), false),
+            (pss(SHA256, Some(&[1, 0, 0, 0, 0, 0, 0, 0, 0])), false),
+            (pss("2.16.840.1.101.3.4.2.2", Some(&[48])), false),
+            (null.to_vec(), false),
+        ] {
+            assert_eq!(
+                rsa_key_named_ok(RSASSA_PSS, Some(&any(&params))),
+                ok,
+                "{params:02x?}"
+            );
+        }
+        assert!(!rsa_key_named_ok(EC_PUBLIC_KEY, None));
     }
 
     /// A PKCS#12 file whose key is tied to the authority's certificate
