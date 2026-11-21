@@ -1664,7 +1664,7 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
         // an additive, not inverted aggregate (with erasers: the first
         // component) stands for its items, which
         // take over its switch (`MaskActive`) and opacity (`MaskValue`).
-        let mut items = Vec::new();
+        let mut items: Vec<(roxmltree::Node, bool, f64)> = Vec::new();
         for li in seq_items(correction, "CorrectionMasks") {
             let mask = described(li);
             let attr = |n: &str| mask.attribute((CRS_NS, n));
@@ -1678,20 +1678,33 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                         .and_then(|v| v.parse::<f64>().ok())
                         .is_some_and(|v| v <= 0.0)
                 });
+                // Erasers cut the brush alone, so an aggregate with erasers
+                // after plain additive components goes first: coverage
+                // c ∪ (b · (1 − e)) is one value in either order (screen
+                // commutes), measured in Camera Raw.
+                let after_additive = items.iter().all(|(item, _, _)| {
+                    let attr = |n: &str| item.attribute((CRS_NS, n));
+                    item.attribute((CRS_NS, "What")) != Some("Mask/Aggregate")
+                        && matches!(attr("MaskBlendMode"), None | Some("0"))
+                        && attr("MaskInverted") != Some("true")
+                });
                 if matches!(attr("MaskBlendMode"), None | Some("0"))
                     && attr("MaskInverted") != Some("true")
-                    && (items.is_empty() || !erases)
+                    && (items.is_empty() || !erases || after_additive)
                 {
                     let active = attr("MaskActive") != Some("false");
                     let value = attr("MaskValue")
                         .and_then(|v| v.parse::<f64>().ok())
                         .unwrap_or(1.0)
                         .clamp(0.0, 1.0);
-                    items.extend(
-                        children
-                            .into_iter()
-                            .map(|li| (described(li), active, value)),
-                    );
+                    let flat = children
+                        .into_iter()
+                        .map(|li| (described(li), active, value));
+                    if erases {
+                        items.splice(0..0, flat);
+                    } else {
+                        items.extend(flat);
+                    }
                 } else {
                     supported = false;
                 }
@@ -1779,6 +1792,20 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             let mut value = mattr("MaskValue")
                 .and_then(|v| v.parse::<f64>().ok())
                 .unwrap_or(1.0);
+            // Camera Raw ignores a gradient's or range's MaskValue in every
+            // encoding (Add, Subtract and Intersect alike, at 0, 0.25, 0.5
+            // and 0.75; notes: benchmark-results/msk4-2026-11-21): a
+            // "fractional" Subtract is a full a · (1 − b). Zero stays the
+            // Intersect marker below. Brush strokes and the masks computed
+            // from the photo keep their value as their opacity.
+            let value_ignored = matches!(kind, "linear" | "radial" | "luma-range");
+            if value_ignored && value < 1.0 {
+                value = if blend == Some("1") && inverted {
+                    0.0
+                } else {
+                    1.0
+                };
+            }
             // Lightroom writes Intersect as subtraction of the inverted
             // component: a · (1 − (1 − b)) = a · b. Zero is the subtract
             // marker in this encoding, so restore full component opacity.
@@ -1787,14 +1814,19 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                     value = 1.0;
                     ("intersect", false)
                 }
-                // Lightroom's eraser paints MaskValue 0 strokes.
+                // Lightroom's eraser paints MaskValue 0 strokes: a · (1 − e)
+                // in Camera Raw (the brush's own flow and edge in e; an
+                // eraser after a stroke leaves the strokes after it alone).
                 _ if kind == "brush" && value <= 0.0 => {
                     value = 1.0;
-                    ("subtractive", inverted)
+                    ("intersect", !inverted)
                 }
                 // Lightroom's Subtract is a · (1 − b), Intersect with the
                 // inverse in Rawtonic's version 5 algebra (a − b is its
-                // own Subtract). Exact at full strength only.
+                // own Subtract). A brush stroke below full value stays a − b
+                // (unmeasured as Lightroom writes it: a hand-written Paint
+                // with blend 1 reads as an Add at value 1, half an erase at
+                // 0.5 in Camera Raw).
                 (Some("1"), false, v) if v >= 1.0 && group_value >= 1.0 => ("intersect", true),
                 (Some("1"), _, _) => ("subtractive", inverted),
                 (Some("2"), _, _) => ("intersect", inverted),
@@ -2570,6 +2602,30 @@ mod tests {
         }
     }
 
+    /// Imports Camera Raw mask XML fragments the way the app does and writes
+    /// the placed adjustments (reference measurements, notes:
+    /// benchmark-results/msk4-2026-11-21): `$MASK_IMPORTS` is a JSON list of
+    /// `{xml, w, h, out}`.
+    #[test]
+    #[ignore = "tool: needs MASK_IMPORTS"]
+    fn import_mask_fragments() {
+        let list: Vec<serde_json::Value> = serde_json::from_str(
+            &std::fs::read_to_string(std::env::var("MASK_IMPORTS").unwrap()).unwrap(),
+        )
+        .unwrap();
+        for item in list {
+            let xmp = format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">{}</rdf:Description></rdf:RDF></x:xmpmeta>"#,
+                item["xml"].as_str().unwrap()
+            );
+            let (layers, _) = super::lightroom_masks(&xmp);
+            let mut adjustments = json!({ "masks": layers });
+            let (w, h) = (item["w"].as_f64().unwrap(), item["h"].as_f64().unwrap());
+            super::place_lightroom_geometry(&mut adjustments, w, h, 1);
+            std::fs::write(item["out"].as_str().unwrap(), adjustments.to_string()).unwrap();
+        }
+    }
+
     #[test]
     fn adaptive_sky_and_subject_masks_become_layers() {
         let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -2855,8 +2911,14 @@ mod tests {
             (1, true, "1", "intersect", "product"),
             // Lightroom's Subtract is a · (1 − b): Intersect with the inverse.
             (1, false, "1", "intersect", "complement"),
-            // Below full strength no single component gives a · (1 − v·b).
-            (1, false, "0.5", "subtractive", "difference"),
+            // Camera Raw ignores a gradient's MaskValue: a "fractional"
+            // Subtract is the full a · (1 − b), at every value (measured
+            // 0, 0.25, 0.5, 0.75; MSK4), and so are Add and Intersect.
+            (1, false, "0.5", "intersect", "complement"),
+            (1, false, "0.25", "intersect", "complement"),
+            (1, false, "0", "intersect", "complement"),
+            (1, true, "0.5", "intersect", "product"),
+            (0, false, "0.5", "additive", "screen"),
         ] {
             let xmp = format!(
                 r#"<rdf:RDF xmlns:rdf="{rdf}" xmlns:crs="{crs}"><rdf:Description>
@@ -2882,10 +2944,7 @@ mod tests {
                 serde_json::from_value(adjustments["masks"][0].clone()).unwrap();
             assert_eq!(layer.mask_version, Some(5));
             assert_eq!(adjustments["masks"][0]["subMasks"][1]["mode"], json!(mode));
-            assert_eq!(
-                super::lightroom_subtract_warning(&xmp).is_some(),
-                law == "difference"
-            );
+            assert!(super::lightroom_subtract_warning(&xmp).is_none());
 
             let sample = |layer: &MaskDefinition| {
                 let bitmap = generate_layer_mask(
@@ -2913,8 +2972,7 @@ mod tests {
             let expected = match law {
                 "screen" => a + b - a * b,
                 "product" => a * b,
-                "complement" => a * (1.0 - b),
-                _ => (a - 0.5 * b).max(0.0),
+                _ => a * (1.0 - b),
             };
             assert!(
                 (actual - expected).abs() <= 2.0 / 65535.0,
@@ -2975,8 +3033,9 @@ mod tests {
         assert_eq!(strokes.as_array().unwrap().len(), 2);
         assert_eq!(strokes[0]["dabs"], json!([[0.3, 0.5], [0.31, 0.5]]));
         assert_eq!(strokes[1]["radius"], json!(0.08));
-        // The eraser stroke subtracts.
-        assert_eq!(subs[1]["mode"], "subtractive");
+        // The eraser stroke is a · (1 − e), as Camera Raw renders it.
+        assert_eq!(subs[1]["mode"], "intersect");
+        assert_eq!(subs[1]["invert"], json!(true));
         assert_eq!(subs[1]["opacity"], json!(100.0));
         assert_eq!(subs[2]["type"], "luma-range");
         assert_eq!(subs[2]["mode"], "intersect");
@@ -3035,13 +3094,14 @@ mod tests {
             subs[0]["parameters"]["lrNormalized"]["strokes"][0]["dabs"],
             json!([[0.62, 0.5], [0.64, 0.51]])
         );
-        assert_eq!(subs[1]["mode"], "subtractive", "the eraser");
-        assert!(
-            super::lightroom_subtract_warning(&brush("0", "false")).is_some(),
-            "an eraser stays Subtract: reported"
+        // The eraser is Camera Raw's a · (1 − e): Intersect with the inverse.
+        assert_eq!(
+            (subs[1]["mode"].as_str(), subs[1]["invert"].as_bool()),
+            (Some("intersect"), Some(true)),
+            "the eraser"
         );
-        // After another component its erasers would cut that one too:
-        // left out; without erasers it is flattened.
+        assert_eq!(subs[1]["opacity"], json!(100.0));
+        assert!(super::lightroom_subtract_warning(&brush("0", "false")).is_none());
         let gradient = r#"<rdf:li><rdf:Description crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.5" crs:ZeroY="0.5" crs:FullX="0.5" crs:FullY="0"/></rdf:li>
      <rdf:li><rdf:Description crs:What="Mask/Aggregate""#;
         let mixed = brush("0", "false").replacen(
@@ -3049,7 +3109,29 @@ mod tests {
             gradient,
             1,
         );
+        // After additive components its erasers cut the brush alone, so it
+        // goes first (c ∪ b·(1 − e) in either order, measured in Camera Raw).
         let (layers, skipped) = super::lightroom_masks(&mixed);
+        assert!(skipped.is_empty());
+        let subs = layers[0]["subMasks"].as_array().unwrap();
+        let modes: Vec<_> = subs
+            .iter()
+            .map(|s| (s["type"].as_str().unwrap(), s["mode"].as_str().unwrap()))
+            .collect();
+        assert_eq!(
+            modes,
+            [
+                ("brush", "additive"),
+                ("brush", "intersect"),
+                ("linear", "additive")
+            ]
+        );
+        // After a component that subtracts the order matters: left out.
+        let after_subtract = mixed.replace(
+            r#"crs:What="Mask/Gradient" crs:MaskValue="1""#,
+            r#"crs:What="Mask/Gradient" crs:MaskBlendMode="1" crs:MaskValue="1""#,
+        );
+        let (layers, skipped) = super::lightroom_masks(&after_subtract);
         assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
         let no_eraser = mixed.replace(
             r#"crs:MaskValue="0" crs:Radius="0.02""#,
