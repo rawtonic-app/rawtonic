@@ -157,7 +157,30 @@ pub fn run_job_in_turn(
     };
     library.set_ingest_job_state(id, JobState::Running)?;
     let _batch = library.import_batch(rawtonic_catalog::ImportKind::Ingest);
-    let items: Vec<_> = job.open_items().cloned().collect();
+    let mut items: Vec<_> = job.open_items().cloned().collect();
+    // A RAW is copied before a JPEG or HEIF of its name imported as a photo
+    // of its own: the JPEG's XMP then takes its own name beside the RAW
+    // (`rawtonic_metadata::sidecars`), never the one the RAW's gets. Names
+    // and sequence numbers were planned with the job and stay as they are.
+    // By name alone: a RAW and its JPEG may come from two folders (two
+    // cards of a camera that writes RAW to one and JPEG to the other).
+    let stem_key = |path: &Path| {
+        path.file_stem()
+            .map(|s| s.to_string_lossy().to_ascii_lowercase())
+    };
+    let developed = |path: &Path| {
+        path.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(rawtonic_metadata::sidecars::is_developed_image)
+    };
+    let raw_stems: std::collections::HashSet<_> = items
+        .iter()
+        .filter(|item| !developed(&item.source.path))
+        .map(|item| stem_key(&item.source.path))
+        .collect();
+    items.sort_by_key(|item| {
+        developed(&item.source.path) && raw_stems.contains(&stem_key(&item.source.path))
+    });
     let total = items
         .iter()
         .map(|item| 1 + usize::from(item.companion.is_some()))

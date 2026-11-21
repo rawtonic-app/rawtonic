@@ -4978,17 +4978,19 @@ impl std::fmt::Debug for FlareSamples {
     }
 }
 
-/// Effects a drag's display frame computes at half resolution, once per
-/// 2 x 2 pixels (G76/GRN3): the settled frame and every export compute
-/// them per pixel, and nothing here changes them.
+/// Effects a drag's display frame computes once per block of 2 x 2 or
+/// 4 x 4 pixels (G76/GRN3, GRN4, GRN6): the settled frame and every export
+/// compute them per pixel, and nothing here changes them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DragEffects {
     /// Glow's and halation's terms (the blurred photo through exposure and
     /// the tone stage), applied to each pixel's own colour.
     pub half_terms: bool,
     /// Film grain (`grainVersion` 3 on): the grain field of each block,
-    /// applied to each pixel's own colour. Not in a drag of a grain
-    /// control, which shows the grain being set as it settles.
+    /// applied to each pixel's own colour; blocks of 4 x 4 pixels in a
+    /// frame whose short side is below 1080 (G76/GRN6, the GPU's
+    /// `grain_block_shift`). Not in a drag of a grain control, which shows
+    /// the grain being set as it settles.
     pub half_grain: bool,
 }
 

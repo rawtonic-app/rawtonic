@@ -758,6 +758,8 @@ pub(crate) async fn render_browser_view(
                 roi: None,
                 key: prepared.key,
                 caller: CELL_RENDER,
+                space: None,
+                probe: None,
             },
         )?;
         let (width, height) = shown_size(&prepared.recipe, prepared.facts);
@@ -1324,6 +1326,11 @@ struct DevelopInput<'a> {
     /// Whose render it is at the GPU processor (`gpu_processing`'s turns):
     /// [`CELL_RENDER`] or [`LIVE_RENDER`].
     caller: &'static str,
+    /// The output space; None encodes for the display (the cells).
+    space: Option<rawtonic_engine::output_color_space::OutputColorSpace>,
+    /// A probe the shader writes instead of the developed colour
+    /// (`output_space.w`, e.g. `image_processing::color_range_input_probe`).
+    probe: Option<u32>,
 }
 
 /// The cell worker's renders: background renders at the GPU processor,
@@ -1386,10 +1393,13 @@ fn develop_rgba(
     adjustments.photo_placement = input.placement;
     adjustments.flare_samples = input.flare_samples;
     // Encoded for the window, as the live frame beside it.
-    let space = context.display_space;
+    let space = input.space.unwrap_or(context.display_space);
     adjustments.global.output_space[0] = space.shader_code();
     adjustments.global.output_matrix =
         image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+    if let Some(probe) = input.probe {
+        adjustments.global.output_space[3] = probe;
+    }
     let lut = recipe[effects::LUT_PATH.into_name()]
         .as_str()
         .and_then(|p| crate::lut_processing::get_or_load_lut(&luts, p).ok());
@@ -1472,6 +1482,8 @@ fn develop(
             roi: None,
             key: prepared.key,
             caller,
+            space: None,
+            probe: None,
         },
     )?;
     let (w, h) = shown_size(&prepared.recipe, prepared.facts);
@@ -1584,6 +1596,8 @@ pub(crate) fn develop_whole(
             roi: None,
             key: prepared.key,
             caller: CELL_RENDER,
+            space: None,
+            probe: None,
         },
     )?;
     let (w, h) = shown_size(&prepared.recipe, prepared.facts);
@@ -3118,6 +3132,28 @@ pub(crate) fn develop_region(
     key: u64,
     caller: &'static str,
 ) -> Result<Region, String> {
+    develop_region_in(
+        app_handle, context, bases, path, area, zoom, margin, recipe, key, caller, None, None,
+    )
+}
+
+/// [`develop_region`] encoded in `space` (None: for the display), or the
+/// shader's `probe` instead of the developed colour.
+#[allow(clippy::too_many_arguments)]
+fn develop_region_in(
+    app_handle: &tauri::AppHandle,
+    context: &GpuContext,
+    bases: &RegionBases,
+    path: &str,
+    area: [f32; 4],
+    zoom: CellZoom,
+    margin: f32,
+    recipe: serde_json::Value,
+    key: u64,
+    caller: &'static str,
+    space: Option<rawtonic_engine::output_color_space::OutputColorSpace>,
+    probe: Option<u32>,
+) -> Result<Region, String> {
     let start = Instant::now();
     // The texture covers the visible part and `margin` around it (and the
     // noise reductions' reach); the kept base reaches further
@@ -3245,6 +3281,8 @@ pub(crate) fn develop_region(
             }),
             key,
             caller,
+            space,
+            probe,
         },
     )?;
     Ok(Region {
@@ -3264,6 +3302,109 @@ pub(crate) fn develop_region(
         ms: start.elapsed().as_secs_f64() * 1e3,
     })
 }
+
+/// The colour target's region bases: apart from the cells' and the second
+/// window's, so neither evicts the other's.
+fn target_bases() -> &'static RegionBases {
+    static BASES: OnceLock<RegionBases> = OnceLock::new();
+    BASES.get_or_init(Default::default)
+}
+
+/// The colour target's measurement (`sample_color_range_result`, and the
+/// colour editor's input with a `probe`): the pixels of `recipe` in `block`
+/// (x, y, w, h in full-resolution px of the shown photograph, `shown` wide
+/// and high), developed as
+/// a zoomed region at 100 % (the whole photograph's pixels around it within
+/// the render's reach, as the export develops them) and encoded in `space`
+/// (or the shader's `probe` there), as RGBA8 per pixel. The region's base
+/// is kept across calls, so the target's corrections and readouts after the
+/// first cut it in milliseconds; the first may wait for the full-resolution
+/// source. None for a recipe with AI Denoise: a region's source is the
+/// decode without it, so it would not show the export's pixels.
+pub(crate) fn develop_target_block(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    block: [f32; 4],
+    (shown_w, shown_h): (f32, f32),
+    recipe: serde_json::Value,
+    space: rawtonic_engine::output_color_space::OutputColorSpace,
+    probe: Option<u32>,
+) -> Result<Option<TargetPixels>, String> {
+    if rawtonic_engine::image_loader::ai_denoise_settings(&recipe).is_some() {
+        return Ok(None);
+    }
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let context = gpu_processing::get_or_init_gpu_context(&gpu, app_handle)?;
+    let [bx, by, bw, bh] = block;
+    let key = {
+        let mut hash = DefaultHasher::new();
+        file_stamp(path).hash(&mut hash);
+        recipe.to_string().hash(&mut hash);
+        block.map(f32::to_bits).hash(&mut hash);
+        space.shader_code().hash(&mut hash);
+        probe.hash(&mut hash);
+        hash.finish() | 1
+    };
+    // Only the photograph being edited keeps its base.
+    target_bases()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|kept, _| kept == path);
+    // The zoom's centre is normalised to the shown photograph.
+    let zoom = CellZoom {
+        scale: 1.0,
+        center: [
+            (bx + bw / 2.0) / shown_w.max(1.0),
+            (by + bh / 2.0) / shown_h.max(1.0),
+        ],
+    };
+    let region = develop_region_in(
+        app_handle,
+        &context,
+        target_bases(),
+        path,
+        [0.0, 0.0, bw.max(1.0), bh.max(1.0)],
+        zoom,
+        0.0,
+        recipe,
+        key,
+        CELL_RENDER,
+        Some(space),
+        probe,
+    )?;
+    let covered =
+        region
+            .extent
+            .region
+            .unwrap_or([0.0, 0.0, region.extent.shown[0], region.extent.shown[1]]);
+    Ok(Some(block_pixels(&region.rgba, covered, block)))
+}
+
+/// The pixels of `rgba` (covering `region`, shown px) inside `wanted` (shown
+/// px), row-major, and how many columns and rows they are.
+fn block_pixels(rgba: &image::RgbaImage, region: [f32; 4], wanted: [f32; 4]) -> TargetPixels {
+    let (w, h) = rgba.dimensions();
+    if w == 0 || h == 0 || region[2] <= 0.0 || region[3] <= 0.0 {
+        return (Vec::new(), [0, 0]);
+    }
+    let (sx, sy) = (w as f32 / region[2], h as f32 / region[3]);
+    let span = |start: f32, len: f32, origin: f32, s: f32, max: u32| {
+        let a = (((start - origin) * s).round().max(0.0) as u32).min(max);
+        let b = (((start + len - origin) * s).round().max(0.0) as u32).min(max);
+        a..b.max(a)
+    };
+    let xs = span(wanted[0], wanted[2], region[0], sx, w);
+    let ys = span(wanted[1], wanted[3], region[1], sy, h);
+    let size = [xs.len() as u32, ys.len() as u32];
+    let pixels = ys
+        .flat_map(|y| xs.clone().map(move |x| (x, y)))
+        .map(|(x, y)| rgba.get_pixel(x, y).0)
+        .collect();
+    (pixels, size)
+}
+
+/// A target block's RGBA8 pixels (row-major) and its columns and rows.
+pub(crate) type TargetPixels = (Vec<[u8; 4]>, [u32; 2]);
 
 /// Whether the cell of `path` is a secondary shown at magnification `scale`
 /// with the recipe a region of render key `key` was developed with
@@ -3461,6 +3602,8 @@ fn develop_interim_region(
             }),
             key,
             caller: CELL_RENDER,
+            space: None,
+            probe: None,
         },
     )?;
     Ok(Region {
@@ -4821,6 +4964,24 @@ mod tests {
             received
                 .recv_timeout(std::time::Duration::from_millis(200))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn the_target_block_takes_the_pixels_of_its_square() {
+        // A 4 × 2 region covering shown px 10..14 × 20..22, one px per shown px.
+        let rgba = image::RgbaImage::from_fn(4, 2, |x, y| image::Rgba([x as u8, y as u8, 0, 255]));
+        let px = block_pixels(&rgba, [10.0, 20.0, 4.0, 2.0], [11.0, 20.0, 2.0, 1.0]);
+        assert_eq!(px, (vec![[1, 0, 0, 255], [2, 0, 0, 255]], [2, 1]));
+        // Clipped to the region; nothing outside it.
+        assert_eq!(
+            block_pixels(&rgba, [10.0, 20.0, 4.0, 2.0], [13.0, 21.0, 5.0, 5.0]),
+            (vec![[3, 1, 0, 255]], [1, 1])
+        );
+        assert!(
+            block_pixels(&rgba, [10.0, 20.0, 4.0, 2.0], [30.0, 30.0, 2.0, 2.0])
+                .0
+                .is_empty()
         );
     }
 
