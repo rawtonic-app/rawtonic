@@ -35,6 +35,8 @@
     },
     "copied": "Kopiert",
     "copyDetails": "Details kopieren",
+    "cropMissing_one": "Kamera-Zuschnitt nicht auf {{count}} Foto angewendet: Das Original liegt in der Cloud. Die Bearbeitung ist gespeichert; lade das Original herunter und setze den Zuschnitt in Entwickeln.",
+    "cropMissing_other": "Kamera-Zuschnitt nicht auf {{count}} Fotos angewendet: Die Originale liegen in der Cloud. Die Bearbeitungen sind gespeichert; lade die Originale herunter und setze den Zuschnitt in Entwickeln.",
     "dismiss": "Ausblenden: {{title}}",
     "dismissShort": "Ausblenden",
     "download": {
@@ -5593,6 +5595,7 @@
         "moveToolsLeft": "Entwickeln-Werkzeuge nach links verschieben",
         "moveToolsRight": "Entwickeln-Werkzeuge nach rechts verschieben"
       },
+      "lightroomHdr": "HDR-Bearbeitung aus Lightroom — wird als SDR angezeigt und exportiert",
       "loupe": {
         "adjust": "Entwickeln",
         "adjustTitle": "In Entwickeln bearbeiten",

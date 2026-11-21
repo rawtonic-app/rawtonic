@@ -47,7 +47,7 @@ pub async fn save_metadata_and_update_thumbnail(
     adjustments: Value,
     update_thumbnail: Option<bool>,
     app_handle: AppHandle,
-) -> Result<(), String> {
+) -> Result<EditorSave, String> {
     tauri::async_runtime::spawn_blocking(move || {
         // A caller whose loaded decode is stale (an Edit With render another
         // program saved) asks for the recipe alone.
@@ -60,13 +60,23 @@ pub async fn save_metadata_and_update_thumbnail(
     .map_err(|e| format!("Saving metadata failed: {e}"))?
 }
 
+/// What an editor save tells the webview.
+#[derive(Debug, Default, serde::Serialize, PartialEq)]
+pub struct EditorSave {
+    /// The photograph's first edit was written without the camera's crop:
+    /// its original is in the cloud and nothing cached the crop
+    /// (`missing_camera_crops`, as a batch apply reports it).
+    #[serde(rename = "cropMissing", skip_serializing_if = "std::ops::Not::not")]
+    pub crop_missing: bool,
+}
+
 /// Writes `adjustments` as the recipe of `path` (sidecar or library, and its
 /// XMP when that is synchronised).
 fn save_metadata_blocking(
     path: &str,
     adjustments: Value,
     app_handle: &AppHandle,
-) -> Result<(), String> {
+) -> Result<EditorSave, String> {
     let (source_path, sidecar_path) = parse_virtual_path(path);
 
     let turn = sidecar_field_edit();
@@ -86,6 +96,11 @@ fn save_metadata_blocking(
         );
     }
 
+    // The editor starts a never-edited photograph's first edit with the
+    // camera crop it was given (`get_camera_crops`); for an original in the
+    // cloud without a cached crop it had none to give.
+    let crop_missing =
+        first_edit_without_camera_crop(path, &metadata.adjustments, &final_adjustments);
     metadata.adjustments = final_adjustments;
 
     let json_string = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
@@ -100,15 +115,15 @@ fn save_metadata_blocking(
         sync_metadata_to_xmp(&source_path, &metadata, create_if_missing);
     }
 
-    Ok(())
+    Ok(EditorSave { crop_missing })
 }
 
 pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     path: String,
     adjustments: Value,
     app_handle: AppHandle,
-) -> Result<(), String> {
-    save_metadata_blocking(&path, adjustments, &app_handle)?;
+) -> Result<EditorSave, String> {
+    let saved = save_metadata_blocking(&path, adjustments, &app_handle)?;
     let state = app_handle.state::<AppState>();
 
     let loaded_image_lock = state.source.original_image.lock().unwrap();
@@ -180,7 +195,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
         );
     });
 
-    Ok(())
+    Ok(saved)
 }
 
 /// Regenerates the thumbnails of `paths` in the background, after their
@@ -412,8 +427,41 @@ pub struct RecipeBatch {
     pub changes: Vec<RecipeChange>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure: Option<SaveFailure>,
+    /// Photographs whose first edit was written without the camera's crop
+    /// because their original is in the cloud and nothing cached it
+    /// (`missing_camera_crops`).
+    #[serde(rename = "cropMissing", skip_serializing_if = "Vec::is_empty")]
+    pub crop_missing: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unwritten: Option<String>,
+}
+
+/// The photographs among `changes` that were never edited and whose original
+/// is only in the cloud, with no cached camera crop: their first edit
+/// started without the crop a camera that set another aspect ratio gives
+/// (the original is not downloaded for it). Told to the photographer.
+fn missing_camera_crops(changes: &[RecipeChange]) -> Vec<String> {
+    changes
+        .iter()
+        .filter(|change| {
+            first_edit_without_camera_crop(&change.path, &change.before, &change.after)
+        })
+        .map(|change| change.path.clone())
+        .collect()
+}
+
+/// Whether `after` is the first edit of the never-edited RAW at `path`
+/// (`before`) whose original is only in the cloud with no cached camera
+/// crop: written without the crop the camera's aspect ratio gives.
+fn first_edit_without_camera_crop(path: &str, before: &Value, after: &Value) -> bool {
+    use rawtonic_engine::image_processing::is_new_recipe;
+    if !is_new_recipe(before) || is_new_recipe(after) {
+        return false;
+    }
+    let (source, _) = parse_virtual_path(path);
+    rawtonic_engine::formats::is_raw_file(&source)
+        && crate::file_management::is_cloud_placeholder(&source)
+        && crate::preview_proxy::cached_camera(&source).0.is_none()
 }
 
 /// `edit_sidecars` that also returns the recipe changes of the photographs
@@ -457,6 +505,7 @@ pub(crate) async fn recorded_batch(
     .await;
     let changes = std::mem::take(&mut *recorded.lock().unwrap());
     RecipeBatch {
+        crop_missing: missing_camera_crops(&changes),
         changes,
         failure: result.err(),
         unwritten,
@@ -652,7 +701,12 @@ fn pasted_metadata(
         crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
     let in_cloud = crate::file_management::is_cloud_placeholder(source_path);
     if in_cloud {
-        cloud_gate(path, source_path, &existing_metadata, adjustments, size)?;
+        cloud_gate(path, source_path, adjustments, size)?;
+        // The EXIF the previews kept when the catalog has none (their
+        // headers only; the original is not opened).
+        if existing_metadata.exif.is_none() {
+            existing_metadata.exif = crate::preview_proxy::cached_camera(source_path).1;
+        }
     }
     existing_metadata.adjustments = pasted_into_with(
         std::mem::take(&mut existing_metadata.adjustments),
@@ -677,17 +731,25 @@ fn pasted_metadata(
 fn cloud_gate(
     path: &str,
     source_path: &Path,
-    metadata: &ImageMetadata,
     adjustments: &Value,
     size: Option<(f64, f64)>,
 ) -> Result<(), String> {
-    // The camera's crop and the camera's develop defaults come from the file.
-    if crate::image_processing::is_new_recipe(&metadata.adjustments) {
+    // The user's develop defaults are looked up by the camera as its file
+    // names it: not known without the file.
+    if rawtonic_engine::develop_defaults::any_set()
+        && rawtonic_engine::image_processing::is_new_recipe(
+            &crate::exif_processing::load_sidecar(&parse_virtual_path(path).1).adjustments,
+        )
+    {
         return Err(cloud_refusal(
             path,
-            "the camera's crop and defaults of its first edit",
+            "the develop defaults of its first edit",
         ));
     }
+    // A first edit starts with the camera's crop:
+    // from what its previews and EXIF cached (`pasted_into_with`); without a
+    // cached crop the edit is written and the crop reported as not applied
+    // (`missing_camera_crops`), so no first edit waits for a download.
     // Lightroom gradients and brushes are placed in the photo's pixels.
     if size.is_none() && adjustments.to_string().contains("lrNormalized") {
         return Err(cloud_refusal(path, "a preset's gradients and brushes"));
@@ -767,7 +829,17 @@ fn pasted_into_with(
     // version of the editor's new edit, so the paste renders as on the
     // photo opened first (a pasted crop replaces the crop; pasted versions
     // the photo's: it has nothing else that uses them).
-    rawtonic_engine::camera_crop::apply_default(&mut new_adjustments, source_path);
+    if in_cloud {
+        // Not read (macOS would download it): the crop its previews cached,
+        // the camera from its cached EXIF.
+        rawtonic_engine::camera_crop::apply_default_cached(
+            &mut new_adjustments,
+            source_path,
+            crate::preview_proxy::cached_camera(source_path).0,
+        );
+    } else {
+        rawtonic_engine::camera_crop::apply_default(&mut new_adjustments, source_path);
+    }
     // The versions chosen in the picker come with the editor's new edit,
     // which adds those left to the camera's data.
     if new_edit
@@ -3588,6 +3660,7 @@ mod tests {
         let (_temp, paths) = session_with_photos(1);
         let (source, sidecar) = parse_virtual_path(&paths[0]);
         in_cloud(&paths[0]);
+        let before = crate::exif_processing::load_sidecar(&sidecar).adjustments;
         // Lightroom geometry is placed in the photo's pixels.
         let gradient = serde_json::json!({"exposure": 1, "lrNormalized": true});
         let error = pasted_metadata(
@@ -3605,26 +3678,10 @@ mod tests {
             .unwrap_err();
         assert!(error.contains("original is in the cloud"), "{error}");
         assert!(error.contains("lens"), "{error}");
-        // A first edit starts with the camera's crop, read from the file.
-        let fresh = ImageMetadata::default();
-        save_sidecar(&paths[0], &fresh).unwrap();
-        let error = pasted_metadata(
-            &paths[0],
-            &source,
-            &sidecar,
-            &serde_json::json!({"exposure": 1}),
-            None,
-            None,
-            None,
-            None,
-        )
-        .unwrap_err();
-        assert!(error.contains("original is in the cloud"), "{error}");
         // Nothing was written for the photo.
-        assert!(
-            crate::exif_processing::load_sidecar(&sidecar)
-                .adjustments
-                .is_null()
+        assert_eq!(
+            crate::exif_processing::load_sidecar(&sidecar).adjustments,
+            before
         );
     }
 
@@ -3666,16 +3723,214 @@ mod tests {
         assert_eq!(after[LENS_PROFILE_FOR], lens[LENS_PROFILE_FOR]);
     }
 
+    #[cfg(unix)]
     #[test]
-    fn evicted_camera_tiff_is_reported_for_a_paste() {
-        let metadata = ImageMetadata {
-            adjustments: serde_json::json!({"exposure": 0.1}),
+    fn first_edit_of_an_evicted_never_edited_raw_uses_the_cached_crop_without_reading_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_temp, paths) = session_with_photos(1);
+        let (source, sidecar) = parse_virtual_path(&paths[0]);
+        save_sidecar(&paths[0], &ImageMetadata::default()).unwrap();
+        in_cloud(&paths[0]);
+        // What its previews cached: the camera's 16:9 crop.
+        crate::preview_proxy::tests::cache_camera_crop(&source, vec![0, 376, 4000, 2248]);
+        // Unreadable: any open of the original fails the edit.
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o000)).unwrap();
+        let result = pasted_metadata(
+            &paths[0],
+            &source,
+            &sidecar,
+            &serde_json::json!({"exposure": 1}),
+            None,
+            None,
+            None,
+            None,
+        );
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o644)).unwrap();
+        let edited = result.unwrap();
+        assert_eq!(edited.adjustments["exposure"], 1);
+        assert_eq!(edited.adjustments["crop"]["y"], 376);
+        assert_eq!(edited.adjustments["crop"]["height"], 2248);
+        assert!(
+            missing_camera_crops(&[RecipeChange {
+                path: paths[0].clone(),
+                before: serde_json::Value::Null,
+                after: edited.adjustments,
+            }])
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn first_edit_of_an_evicted_raw_without_a_cached_crop_is_written_and_reported() {
+        let (_temp, paths) = session_with_photos(1);
+        let (source, sidecar) = parse_virtual_path(&paths[0]);
+        save_sidecar(&paths[0], &ImageMetadata::default()).unwrap();
+        in_cloud(&paths[0]);
+        let edited = pasted_metadata(
+            &paths[0],
+            &source,
+            &sidecar,
+            &serde_json::json!({"exposure": 1}),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        // The edit is there, started as a first edit (versions), without a crop.
+        assert_eq!(edited.adjustments["exposure"], 1);
+        assert!(edited.adjustments.get("renderVersion").is_some());
+        assert!(edited.adjustments.get("crop").is_none());
+        let notices = missing_camera_crops(&[RecipeChange {
+            path: paths[0].clone(),
+            before: serde_json::Value::Null,
+            after: edited.adjustments,
+        }]);
+        assert_eq!(notices, vec![paths[0].clone()]);
+        // The webview reads it as `cropMissing`.
+        let batch = RecipeBatch {
+            crop_missing: notices,
             ..Default::default()
         };
+        assert!(
+            serde_json::to_value(&batch)
+                .unwrap()
+                .get("cropMissing")
+                .is_some()
+        );
+    }
+
+    /// The editor's own first edit of an evicted never-edited RAW (the
+    /// Library's active photo given a preset, a slider in Develop) is told
+    /// like a batch's when no crop was cached: the editor had none to apply.
+    #[test]
+    fn the_editors_first_edit_of_an_evicted_raw_without_a_cached_crop_is_reported() {
+        let (_temp, paths) = session_with_photos(1);
+        let (source, _) = parse_virtual_path(&paths[0]);
+        let never_edited = serde_json::Value::Null;
+        let edited = serde_json::json!({"exposure": 1, "renderVersion": 5});
+        // Online: the editor read the crop from the file.
+        assert!(!first_edit_without_camera_crop(
+            &paths[0],
+            &never_edited,
+            &edited
+        ));
+        in_cloud(&paths[0]);
+        assert!(first_edit_without_camera_crop(
+            &paths[0],
+            &never_edited,
+            &edited
+        ));
+        // Not a first edit, or nothing edited yet.
+        assert!(!first_edit_without_camera_crop(&paths[0], &edited, &edited));
+        assert!(!first_edit_without_camera_crop(
+            &paths[0],
+            &never_edited,
+            &serde_json::json!({})
+        ));
+        // Cached with its previews: the editor applied it.
+        crate::preview_proxy::tests::cache_camera_crop(&source, vec![0, 376, 4000, 2248]);
+        assert!(!first_edit_without_camera_crop(
+            &paths[0],
+            &never_edited,
+            &edited
+        ));
+        // The webview reads it as `cropMissing`.
+        assert_eq!(
+            serde_json::to_value(EditorSave { crop_missing: true }).unwrap(),
+            serde_json::json!({"cropMissing": true})
+        );
+        assert_eq!(
+            serde_json::to_value(EditorSave::default()).unwrap(),
+            serde_json::json!({})
+        );
+    }
+
+    /// A recipe given AI Denoise while the queue computed its selection on
+    /// the decode without it takes none (its export detects on the denoised
+    /// decode); the check reads the recipe as it is at the write.
+    #[test]
+    fn queued_selections_are_not_kept_in_a_recipe_given_ai_denoise_meanwhile() {
+        use rawtonic_engine::ai_selections::{AutoSelection, Detected, detected_parameters};
+        let (_temp, paths) = session_with_photos(1);
+        let (source, sidecar) = parse_virtual_path(&paths[0]);
+        let recipe = serde_json::json!({"aiDenoise": 60, "masks": [{"id": "l", "visible": true,
+            "subMasks": [{"id": "s", "type": "ai-sky", "visible": true,
+                "parameters": {"maskDataBase64": null, "detectPending": true}}]}]});
+        save_sidecar(
+            &paths[0],
+            &ImageMetadata {
+                adjustments: recipe.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let frame = crate::export_processing::detection_frame(&recipe, &source);
+        let found = vec![Detected {
+            layer_id: "l".into(),
+            component_id: "s".into(),
+            selection: AutoSelection::Sky,
+            parameters: detected_parameters(
+                &recipe["masks"][0]["subMasks"][0]["parameters"],
+                &frame,
+                "data:sky".into(),
+            ),
+        }];
+        let undenoised = |now: &serde_json::Value| {
+            rawtonic_engine::image_loader::ai_denoise_settings(now).is_none()
+        };
+        assert!(
+            !crate::export_processing::keep_detected_selections(&paths[0], &found, undenoised)
+                .unwrap()
+        );
+        let stored = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert!(stored["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"].is_null());
+        // Without AI Denoise it is kept.
+        assert!(
+            crate::export_processing::keep_detected_selections(&paths[0], &found, |_| true)
+                .unwrap()
+        );
+    }
+
+    /// A RAF whose previews were made before a RAF's aspect ratio was read
+    /// cached an empty crop: not an answer, so its first edit is reported.
+    #[test]
+    fn the_editors_first_edit_of_an_evicted_raf_with_older_previews_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture = dir.path().join("fixture.RAF");
+        fs::write(&fixture, b"raf bytes").unwrap();
+        let (_temp, paths) = session_of(1, Some(&fixture));
+        let (source, _) = parse_virtual_path(&paths[0]);
+        in_cloud(&paths[0]);
+        let edited = serde_json::json!({"exposure": 1, "renderVersion": 5});
+        crate::preview_proxy::tests::cache_camera_crop_in_facts(
+            &source,
+            Vec::new(),
+            rawtonic_engine::source_facts::RAF_CROP_VERSION - 1,
+        );
+        assert!(first_edit_without_camera_crop(
+            &paths[0],
+            &serde_json::Value::Null,
+            &edited
+        ));
+        // Previews made since: their crop (none set in the camera) is known.
+        crate::preview_proxy::tests::cache_camera_crop_in_facts(
+            &source,
+            Vec::new(),
+            rawtonic_engine::source_facts::RAF_CROP_VERSION,
+        );
+        assert!(!first_edit_without_camera_crop(
+            &paths[0],
+            &serde_json::Value::Null,
+            &edited
+        ));
+    }
+
+    #[test]
+    fn evicted_camera_tiff_is_reported_for_a_paste() {
         let error = cloud_gate(
             "/p/a.tif",
             Path::new("/p/a.tif"),
-            &metadata,
             &serde_json::json!({"blacks": -20}),
             None,
         )

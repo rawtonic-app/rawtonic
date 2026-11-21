@@ -32,6 +32,7 @@
     },
     "copied": "已複製",
     "copyDetails": "複製詳細資訊",
+    "cropMissing_other": "相機裁切未套用到 {{count}} 張照片：原檔在雲端。編輯已儲存；請下載原檔後在「顯影」中設定裁切。",
     "dismiss": "關閉：{{title}}",
     "dismissShort": "關閉",
     "download": {
@@ -5449,6 +5450,7 @@
         "moveToolsLeft": "將顯影工具移到左側",
         "moveToolsRight": "將顯影工具移到右側"
       },
+      "lightroomHdr": "來自 Lightroom 的 HDR 編輯 — 以 SDR 顯示與匯出",
       "loupe": {
         "adjust": "顯影",
         "adjustTitle": "在顯影中調整",

@@ -35,6 +35,8 @@
     },
     "copied": "Copied",
     "copyDetails": "Copy details",
+    "cropMissing_one": "Camera crop not applied to {{count}} photo: its original is in the cloud. The edit is saved; download the original and set the crop in Develop.",
+    "cropMissing_other": "Camera crop not applied to {{count}} photos: their originals are in the cloud. The edits are saved; download the originals and set the crop in Develop.",
     "dismiss": "Dismiss: {{title}}",
     "dismissShort": "Dismiss",
     "download": {
@@ -5593,6 +5595,7 @@
         "moveToolsLeft": "Move the Develop tools to the left",
         "moveToolsRight": "Move the Develop tools to the right"
       },
+      "lightroomHdr": "HDR edit from Lightroom — shown and exported as SDR",
       "loupe": {
         "adjust": "Develop",
         "adjustTitle": "Adjust in Develop",

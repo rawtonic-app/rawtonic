@@ -38,6 +38,9 @@
     },
     "copied": "Copiat",
     "copyDetails": "Copia els detalls",
+    "cropMissing_one": "Retall de la càmera no aplicat a {{count}} foto: l'original és al núvol. L'edició s'ha desat; descarrega l'original i defineix el retall a Revelar.",
+    "cropMissing_many": "Retall de la càmera no aplicat a {{count}} fotos: els originals són al núvol. Les edicions s'han desat; descarrega els originals i defineix el retall a Revelar.",
+    "cropMissing_other": "Retall de la càmera no aplicat a {{count}} fotos: els originals són al núvol. Les edicions s'han desat; descarrega els originals i defineix el retall a Revelar.",
     "dismiss": "Descarta: {{title}}",
     "dismissShort": "Descarta",
     "download": {
@@ -5810,6 +5813,7 @@
         "moveToolsLeft": "Mou les eines de Revelatge a l'esquerra",
         "moveToolsRight": "Mou les eines de Revelatge a la dreta"
       },
+      "lightroomHdr": "Edició HDR del Lightroom: es mostra i s'exporta com a SDR",
       "loupe": {
         "adjust": "Revelatge",
         "adjustTitle": "Ajusta a Revelatge",

@@ -41,6 +41,10 @@
     },
     "copied": "Skopiowano",
     "copyDetails": "Kopiuj szczegóły",
+    "cropMissing_one": "Kadrowanie aparatu nie zostało zastosowane do {{count}} zdjęcia: oryginał jest w chmurze. Edycja jest zapisana; pobierz oryginał i ustaw kadrowanie w Wywoływaniu.",
+    "cropMissing_few": "Kadrowanie aparatu nie zostało zastosowane do {{count}} zdjęć: oryginały są w chmurze. Edycje są zapisane; pobierz oryginały i ustaw kadrowanie w Wywoływaniu.",
+    "cropMissing_many": "Kadrowanie aparatu nie zostało zastosowane do {{count}} zdjęć: oryginały są w chmurze. Edycje są zapisane; pobierz oryginały i ustaw kadrowanie w Wywoływaniu.",
+    "cropMissing_other": "Kadrowanie aparatu nie zostało zastosowane do {{count}} zdjęć: oryginały są w chmurze. Edycje są zapisane; pobierz oryginały i ustaw kadrowanie w Wywoływaniu.",
     "dismiss": "Odrzuć: {{title}}",
     "dismissShort": "Odrzuć",
     "download": {
@@ -6026,6 +6030,7 @@
         "moveToolsLeft": "Przenieś narzędzia Wywoływania na lewo",
         "moveToolsRight": "Przenieś narzędzia Wywoływania na prawo"
       },
+      "lightroomHdr": "Edycja HDR z Lightrooma — wyświetlana i eksportowana jako SDR",
       "loupe": {
         "adjust": "Wywoływanie",
         "adjustTitle": "Dostosuj w Wywoływaniu",

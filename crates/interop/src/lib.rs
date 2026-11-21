@@ -21,6 +21,7 @@ pub mod capture_one;
 pub mod capture_one_masks;
 pub mod capture_one_tiles;
 pub mod lightroom;
+pub mod lightroom_hdr;
 pub mod lightroom_settings;
 
 /// The develop settings of a photograph, in its editor's own form.

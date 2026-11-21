@@ -30,6 +30,7 @@ import { notDeliveredToast } from '../components/session/tether';
 import { PhotoBatch, batchPhotoSettled, photoBatches, unsettledPhotos } from '../utils/photoWrites';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { debouncedSave } from './useEditorActions';
+import { AI_SELECTIONS_DETECTED, adoptQueuedSelections } from '../utils/queuedSelections';
 import { sourceOf } from '../entities/photo/photoRef';
 import {
   gpuBackendStatus,
@@ -516,6 +517,14 @@ export function useTauriListeners({
           if (event.payload.waveform != null) update.waveform = event.payload.waveform;
           useEditorStore.getState().setEditor(update);
         }
+      }),
+      // The background queue computed a photo's AI selections: the open
+      // photograph's editor takes them into the recipe it holds.
+      listen<string>(AI_SELECTIONS_DETECTED, (event) => {
+        if (!isEffectActive) return;
+        adoptQueuedSelections(event.payload).catch((error) =>
+          console.error('Taking the computed AI selections failed:', error)
+        );
       }),
       listen<string>('open-with-file', (event) => {
         if (isEffectActive) useProcessStore.getState().setProcess({ initialFileToOpen: event.payload });

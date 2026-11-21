@@ -38,6 +38,9 @@
     },
     "copied": "Copiato",
     "copyDetails": "Copia dettagli",
+    "cropMissing_one": "Ritaglio della fotocamera non applicato a {{count}} foto: l'originale è nel cloud. La modifica è salvata; scarica l'originale e imposta il ritaglio in Sviluppo.",
+    "cropMissing_many": "Ritaglio della fotocamera non applicato a {{count}} foto: gli originali sono nel cloud. Le modifiche sono salvate; scarica gli originali e imposta il ritaglio in Sviluppo.",
+    "cropMissing_other": "Ritaglio della fotocamera non applicato a {{count}} foto: gli originali sono nel cloud. Le modifiche sono salvate; scarica gli originali e imposta il ritaglio in Sviluppo.",
     "dismiss": "Ignora: {{title}}",
     "dismissShort": "Ignora",
     "download": {
@@ -5810,6 +5813,7 @@
         "moveToolsLeft": "Sposta gli strumenti di Sviluppo a sinistra",
         "moveToolsRight": "Sposta gli strumenti di Sviluppo a destra"
       },
+      "lightroomHdr": "Modifica HDR di Lightroom — mostrata ed esportata come SDR",
       "loupe": {
         "adjust": "Sviluppo",
         "adjustTitle": "Regola in Sviluppo",

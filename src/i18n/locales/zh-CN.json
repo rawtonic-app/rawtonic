@@ -32,6 +32,7 @@
     },
     "copied": "已复制",
     "copyDetails": "复制详细信息",
+    "cropMissing_other": "相机裁剪未应用到 {{count}} 张照片：原件在云端。编辑已保存；请下载原件后在“显影”中设置裁剪。",
     "dismiss": "关闭：{{title}}",
     "dismissShort": "关闭",
     "download": {
@@ -5449,6 +5450,7 @@
         "moveToolsLeft": "将显影工具移到左侧",
         "moveToolsRight": "将显影工具移到右侧"
       },
+      "lightroomHdr": "来自 Lightroom 的 HDR 编辑 — 以 SDR 显示和导出",
       "loupe": {
         "adjust": "显影",
         "adjustTitle": "在显影中调整",

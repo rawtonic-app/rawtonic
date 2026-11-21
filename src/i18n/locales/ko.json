@@ -32,6 +32,7 @@
     },
     "copied": "복사됨",
     "copyDetails": "세부 정보 복사",
+    "cropMissing_other": "카메라 자르기를 사진 {{count}}장에 적용하지 못했습니다. 원본이 클라우드에 있습니다. 편집은 저장되었습니다. 원본을 내려받은 뒤 현상에서 자르기를 설정하세요.",
     "dismiss": "닫기: {{title}}",
     "dismissShort": "닫기",
     "download": {
@@ -5449,6 +5450,7 @@
         "moveToolsLeft": "현상 도구를 왼쪽으로 이동",
         "moveToolsRight": "현상 도구를 오른쪽으로 이동"
       },
+      "lightroomHdr": "Lightroom의 HDR 편집 — SDR로 표시되고 내보내집니다",
       "loupe": {
         "adjust": "현상",
         "adjustTitle": "현상에서 조정",

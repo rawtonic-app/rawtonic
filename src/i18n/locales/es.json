@@ -38,6 +38,9 @@
     },
     "copied": "Copiado",
     "copyDetails": "Copiar detalles",
+    "cropMissing_one": "Recorte de la cámara no aplicado a {{count}} foto: su original está en la nube. La edición está guardada; descarga el original y ajusta el recorte en Revelar.",
+    "cropMissing_many": "Recorte de la cámara no aplicado a {{count}} fotos: sus originales están en la nube. Las ediciones están guardadas; descarga los originales y ajusta el recorte en Revelar.",
+    "cropMissing_other": "Recorte de la cámara no aplicado a {{count}} fotos: sus originales están en la nube. Las ediciones están guardadas; descarga los originales y ajusta el recorte en Revelar.",
     "dismiss": "Descartar: {{title}}",
     "dismissShort": "Descartar",
     "download": {
@@ -5810,6 +5813,7 @@
         "moveToolsLeft": "Mover las herramientas de Revelado a la izquierda",
         "moveToolsRight": "Mover las herramientas de Revelado a la derecha"
       },
+      "lightroomHdr": "Edición HDR de Lightroom: se muestra y se exporta como SDR",
       "loupe": {
         "adjust": "Revelado",
         "adjustTitle": "Ajustar en Revelado",
