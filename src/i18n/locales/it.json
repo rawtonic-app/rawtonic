@@ -3328,7 +3328,7 @@
       "reject_one": "Rifiuta {{n}} foto suggerita",
       "reject_many": "Rifiuta {{n}} foto suggerite",
       "reject_other": "Rifiuta {{n}} foto suggerite",
-      "rejectTitle": "Segna i suggerimenti spuntati come rifiutati in un solo passo annullabile; nulla viene spostato o eliminato",
+      "rejectTitle": "Segna come rifiutati i suggerimenti spuntati tra le foto mostrate, in un solo passo annullabile; nulla viene spostato o eliminato",
       "showAgain_one": "Mostra di nuovo i suggerimenti ({{n}} selezionata)",
       "showAgain_many": "Mostra di nuovo i suggerimenti ({{n}} selezionate)",
       "showAgain_other": "Mostra di nuovo i suggerimenti ({{n}} selezionate)",

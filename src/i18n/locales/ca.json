@@ -3328,7 +3328,7 @@
       "reject_one": "Rebutja {{n}} foto suggerida",
       "reject_many": "Rebutja {{n}} fotos suggerides",
       "reject_other": "Rebutja {{n}} fotos suggerides",
-      "rejectTitle": "Marca els suggeriments marcats com a rebutjats en un sol pas de desfer; no es mou ni s’esborra res",
+      "rejectTitle": "Marca com a rebutjats els suggeriments marcats entre les fotos mostrades, en un sol pas de desfer; no es mou ni s’esborra res",
       "showAgain_one": "Torna a mostrar els suggeriments ({{n}} seleccionada)",
       "showAgain_many": "Torna a mostrar els suggeriments ({{n}} seleccionades)",
       "showAgain_other": "Torna a mostrar els suggeriments ({{n}} seleccionades)",

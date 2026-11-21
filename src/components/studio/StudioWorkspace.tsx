@@ -1024,6 +1024,7 @@ export default function StudioWorkspace(props: Props) {
       folderActions={props.folderActions}
       // Beside Develop (tools on the right) it only switches photographs.
       develop={develop}
+      shown={files}
     />
   );
   const sessionBar = useSessionBar(useShallow((s) => ({ center: s.center, end: s.end, mark: s.mark })));

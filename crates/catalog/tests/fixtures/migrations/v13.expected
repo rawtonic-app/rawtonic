@@ -103,8 +103,10 @@
  asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
  model TEXT NOT NULL,
  fingerprint TEXT NOT NULL,
- misfire REAL NOT NULL,
- document REAL NOT NULL)'
+ misfire REAL,
+ document REAL,
+ error TEXT,
+ CHECK((misfire IS NULL) = (error IS NOT NULL) AND (document IS NULL) = (error IS NOT NULL)))'
 'table' | 'declared_keywords' | 'declared_keywords' | 'CREATE TABLE declared_keywords(
  folded TEXT PRIMARY KEY,
  path TEXT NOT NULL)'
@@ -387,7 +389,7 @@ END'
 # table stack_members (0 rows): stack_id, asset_id, copy, position
 # table content_embeddings (0 rows): asset_id, model, fingerprint, scale, vector, error
 # table declared_keywords (0 rows): folded, path
-# table cull_scores (0 rows): asset_id, model, fingerprint, misfire, document
+# table cull_scores (0 rows): asset_id, model, fingerprint, misfire, document, error
 # table cull_dismissed (0 rows): asset_id, criterion
 # foreign_key_check
 # searches

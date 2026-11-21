@@ -3328,7 +3328,7 @@
       "reject_one": "Rejeter {{n}} photo suggérée",
       "reject_many": "Rejeter {{n}} photos suggérées",
       "reject_other": "Rejeter {{n}} photos suggérées",
-      "rejectTitle": "Marque les suggestions cochées comme rejetées en une étape d’annulation ; rien n’est déplacé ni supprimé",
+      "rejectTitle": "Marque comme rejetées les suggestions cochées parmi les photos affichées, en une étape d’annulation ; rien n’est déplacé ni supprimé",
       "showAgain_one": "Réafficher les suggestions ({{n}} sélectionnée)",
       "showAgain_many": "Réafficher les suggestions ({{n}} sélectionnées)",
       "showAgain_other": "Réafficher les suggestions ({{n}} sélectionnées)",

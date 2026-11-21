@@ -222,6 +222,9 @@ fn run_pass(
             if done {
                 continue;
             }
+            // Read again only for its culling scores: its search embedding is
+            // kept whatever this reading gives.
+            let rescore = culling.is_some() && lib.has_embedding(&item.id, MODEL_ID)?;
             let path = item.path.to_string_lossy();
             // A cloud file not on this computer is left unread (nothing of it
             // is touched, not even its sidecar): the pass never makes the
@@ -246,7 +249,18 @@ fn run_pass(
                 }
                 Err(error) => {
                     log::warn!("Content search could not read {path}: {error}");
-                    lib.record_content(&item.id, MODEL_ID, &item.fingerprint, Err(error))?;
+                    match &culling {
+                        Some(set) if rescore => lib.record_cull_failure(
+                            &item.id,
+                            MODEL_ID,
+                            &set.id,
+                            &item.fingerprint,
+                            error,
+                        )?,
+                        _ => {
+                            lib.record_content(&item.id, MODEL_ID, &item.fingerprint, Err(error))?
+                        }
+                    }
                 }
             }
             read += 1;

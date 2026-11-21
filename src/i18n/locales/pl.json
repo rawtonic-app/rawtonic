@@ -3482,7 +3482,7 @@
       "reject_few": "Odrzuć {{n}} sugerowane zdjęcia",
       "reject_many": "Odrzuć {{n}} sugerowanych zdjęć",
       "reject_other": "Odrzuć {{n}} sugerowanego zdjęcia",
-      "rejectTitle": "Oznacza zaznaczone sugestie jako odrzucone w jednym kroku cofania; nic nie jest przenoszone ani usuwane",
+      "rejectTitle": "Oznacza zaznaczone sugestie wśród pokazanych zdjęć jako odrzucone w jednym kroku cofania; nic nie jest przenoszone ani usuwane",
       "showAgain_one": "Pokaż sugestie ponownie ({{n}} zaznaczone)",
       "showAgain_few": "Pokaż sugestie ponownie ({{n}} zaznaczone)",
       "showAgain_many": "Pokaż sugestie ponownie ({{n}} zaznaczonych)",

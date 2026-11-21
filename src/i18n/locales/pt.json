@@ -3328,7 +3328,7 @@
       "reject_one": "Rejeitar {{n}} foto sugerida",
       "reject_many": "Rejeitar {{n}} fotos sugeridas",
       "reject_other": "Rejeitar {{n}} fotos sugeridas",
-      "rejectTitle": "Marca as sugestões assinaladas como rejeitadas num só passo de desfazer; nada é movido nem apagado",
+      "rejectTitle": "Marca como rejeitadas as sugestões assinaladas entre as fotos mostradas, num só passo de desfazer; nada é movido nem apagado",
       "showAgain_one": "Mostrar sugestões de novo ({{n}} selecionada)",
       "showAgain_many": "Mostrar sugestões de novo ({{n}} selecionadas)",
       "showAgain_other": "Mostrar sugestões de novo ({{n}} selecionadas)",

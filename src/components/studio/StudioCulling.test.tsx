@@ -3,6 +3,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { PhotoCullBadge, StudioCulling } from './StudioCulling';
+import { PhotoEyesBadge } from './StudioEyes';
+import { useEyesStore } from '../../store/useEyesStore';
 import { useCullStore, type CullPhoto } from '../../store/useCullStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -190,4 +192,42 @@ it('tags a tile with its misfire or document suggestion, not closed eyes', () =>
   );
   expect(screen.getByRole('img', { name: 'Suggested: Misfire · Document' })).toBeTruthy();
   expect(container.querySelectorAll('.studio-cull-badge')).toHaveLength(1);
+});
+
+it('rejects only the suggested photos the grid shows', () => {
+  const mark = vi.fn(async () => {});
+  useSessionBar.setState({ mark });
+  // A rating filter shows a and c only; b is suggested but not shown.
+  render(<StudioCulling shown={list(['/job/a.arw', '/job/c.arw'])} />);
+  // The counts stay the folder's.
+  expect(screen.getByRole('button', { name: 'Show only Misfires (2)' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Reject 1 suggested photo' }));
+  expect(mark).toHaveBeenCalledWith(-1, ['/job/a.arw']);
+});
+
+it('hides the closed-eyes badge of a photo whose suggestion was dismissed', () => {
+  useEyesStore.setState({ summaries: { '/job/c.arw': { faces: 2, closed: 1, notVisible: 0, uncertain: 0 } } });
+  const { container, rerender } = render(<PhotoEyesBadge path="/job/c.arw" />);
+  expect(container.querySelector('.studio-eyes-badge.is-closed')).toBeTruthy();
+  useCullStore.setState({ photos: { '/job/c.arw': photo([], ['eyesClosed']) } });
+  rerender(<PhotoEyesBadge path="/job/c.arw" />);
+  expect(container.querySelector('.studio-eyes-badge')).toBeNull();
+});
+
+it('never publishes an answer older than the newest load or a reset', async () => {
+  let answer: (value: Record<string, CullPhoto>) => void = () => {};
+  mockInvoke.mockImplementation(
+    () => new Promise((resolve) => (answer = resolve as (value: Record<string, CullPhoto>) => void))
+  );
+  useCullStore.setState({ photos: {}, generation: 0 });
+  const first = useCullStore.getState().load('/job', ['/job/a.arw']);
+  const firstAnswer = answer;
+  useCullStore.getState().reset();
+  firstAnswer({ '/job/a.arw': photo(['misfire']) });
+  await first;
+  expect(useCullStore.getState().photos).toEqual({});
+  const second = useCullStore.getState().load('/job', ['/job/b.arw']);
+  answer({ '/job/b.arw': photo(['document']) });
+  await second;
+  expect(Object.keys(useCullStore.getState().photos)).toEqual(['/job/b.arw']);
 });

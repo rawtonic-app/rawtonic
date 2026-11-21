@@ -178,6 +178,39 @@ fn scores_are_made_from_each_reading_once_per_file_model_and_prompt_set() {
     assert_eq!(lib.cull_backlog(MODEL, "p1", 10).unwrap()[0].id, ids[0]);
     assert!(!lib.has_cull(&ids[0], MODEL, "p1").unwrap());
 
+    // A photograph whose embedding is kept but could not be read again for
+    // its scores keeps the embedding and is not asked for again.
+    db.execute(
+        "UPDATE assets SET fingerprint='xxh3:changed2' WHERE id=?",
+        [&ids[2]],
+    )
+    .unwrap();
+    embed(&lib, &ids[2], &axis(9));
+    assert!(
+        lib.cull_backlog(MODEL, "p1", 10)
+            .unwrap()
+            .iter()
+            .any(|w| w.id == ids[2])
+    );
+    assert!(lib.has_embedding(&ids[2], MODEL).unwrap());
+    lib.record_cull_failure(&ids[2], MODEL, "p1", "xxh3:changed2", "decode failed")
+        .unwrap();
+    assert!(lib.has_embedding(&ids[2], MODEL).unwrap());
+    assert!(lib.has_cull(&ids[2], MODEL, "p1").unwrap());
+    assert!(lib.cull_scores(&ids[2]).unwrap().is_none());
+    assert!(!lib.cull_photos(&ids[2..3]).unwrap()[&ids[2]].scored);
+    assert!(
+        lib.cull_backlog(MODEL, "p1", 10)
+            .unwrap()
+            .iter()
+            .all(|w| w.id != ids[2])
+    );
+    // A later good reading replaces the failure.
+    lib.record_cull(&ids[2], MODEL, &p1, "xxh3:changed2", &axis(9))
+        .unwrap();
+    assert!(lib.cull_scores(&ids[2]).unwrap().is_some());
+    assert!(!lib.has_embedding(&ids[3], MODEL).unwrap());
+
     // A bad prompt set or embedding is refused, nothing written.
     let mut bad = prompts("p3");
     bad.document = vec![vec![1.0; 3]];
@@ -343,6 +376,15 @@ fn auto_stack_compares_embeddings_and_fractions_of_a_second() {
     for (id, facts) in ids.iter().zip(&rows) {
         assert!(lib.record_facts(id, facts).unwrap());
     }
+    // A corrected capture time keeps its own fraction: photo 6 moved to
+    // 2.8 s after photo 5 is beyond the 2 s interval (its file's whole
+    // seconds would read 2.0).
+    let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
+    db.execute(
+        "INSERT INTO capture_overrides(asset_id,captured,subsec,offset) VALUES(?1,?2,?3,NULL)",
+        rusqlite::params![&ids[5], "2026-11-21 10:00:07", "900"],
+    )
+    .unwrap();
     let looks = [toward(0.99, 3), toward(0.98, 3), axis(4), toward(0.1, 4)];
     for (id, look) in ids.iter().zip(&looks) {
         embed(&lib, id, look);
@@ -367,11 +409,11 @@ fn auto_stack_compares_embeddings_and_fractions_of_a_second() {
         .auto_stack_plan_with(&ids, options, Some(MODEL))
         .unwrap();
     assert_eq!(plan.unread, 2);
-    assert_eq!(runs(plan), [vec![0, 1], vec![2, 3], vec![4, 5]]);
-    // Without a model (or similarity) time alone: 4 joins 5, 0–3 are one.
+    assert_eq!(runs(plan), [vec![0, 1], vec![2, 3]]);
+    // Without a model (or similarity) time alone: 0–3 are one.
     let plan = lib.auto_stack_plan_with(&ids, options, None).unwrap();
     assert_eq!(plan.unread, 0);
-    assert_eq!(runs(plan), [vec![0, 1, 2, 3], vec![4, 5]]);
+    assert_eq!(runs(plan), [vec![0, 1, 2, 3]]);
     let plan = lib
         .auto_stack_plan_with(
             &ids,
@@ -382,6 +424,10 @@ fn auto_stack_compares_embeddings_and_fractions_of_a_second() {
             Some(MODEL),
         )
         .unwrap();
+    assert_eq!(runs(plan), [vec![0, 1, 2, 3]]);
+    // Without the correction its file's 10:00:06 joins photo 5.
+    db.execute("DELETE FROM capture_overrides", []).unwrap();
+    let plan = lib.auto_stack_plan_with(&ids, options, None).unwrap();
     assert_eq!(runs(plan), [vec![0, 1, 2, 3], vec![4, 5]]);
 }
 

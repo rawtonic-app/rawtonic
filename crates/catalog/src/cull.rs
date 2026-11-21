@@ -206,7 +206,7 @@ impl Library {
     }
 
     /// Whether asset `id` has current scores of `model` and `set` (or a
-    /// current failure to read it).
+    /// current failure to read it for them or for its embedding).
     pub fn has_cull(&self, id: &str, model: &str, set: &str) -> Result<bool, CatalogError> {
         let stale: bool = self.conn.query_row(
             &format!("SELECT {CULL_STALE} FROM assets a WHERE a.id=?3"),
@@ -236,11 +236,11 @@ impl Library {
         );
         let (misfire, document) = set.scores(embedding);
         self.conn.execute(
-            "INSERT INTO cull_scores(asset_id,model,fingerprint,misfire,document)
-             SELECT ?1,?2,?3,?4,?5 WHERE EXISTS(SELECT 1 FROM assets WHERE id=?1)
+            "INSERT INTO cull_scores(asset_id,model,fingerprint,misfire,document,error)
+             SELECT ?1,?2,?3,?4,?5,NULL WHERE EXISTS(SELECT 1 FROM assets WHERE id=?1)
              ON CONFLICT(asset_id) DO UPDATE SET model=excluded.model,
              fingerprint=excluded.fingerprint,misfire=excluded.misfire,
-             document=excluded.document",
+             document=excluded.document,error=NULL",
             params![
                 id,
                 score_model(model, &set.id),
@@ -252,6 +252,29 @@ impl Library {
         Ok(())
     }
 
+    /// Records that asset `id`, whose search embedding of `model` is kept,
+    /// could not be read again for its scores of `set` when its file had
+    /// `fingerprint` (`error`): its embedding stays, and it is not asked for
+    /// again until the file, model or prompt set changes.
+    pub fn record_cull_failure(
+        &self,
+        id: &str,
+        model: &str,
+        set: &str,
+        fingerprint: &str,
+        error: &str,
+    ) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "INSERT INTO cull_scores(asset_id,model,fingerprint,misfire,document,error)
+             SELECT ?1,?2,?3,NULL,NULL,?4 WHERE EXISTS(SELECT 1 FROM assets WHERE id=?1)
+             ON CONFLICT(asset_id) DO UPDATE SET model=excluded.model,
+             fingerprint=excluded.fingerprint,misfire=NULL,document=NULL,
+             error=excluded.error",
+            params![id, score_model(model, set), fingerprint, error],
+        )?;
+        Ok(())
+    }
+
     /// The stored (misfire, document) scores of asset `id` when current.
     pub fn cull_scores(&self, id: &str) -> Result<Option<(f32, f32)>, CatalogError> {
         use rusqlite::OptionalExtension;
@@ -259,7 +282,7 @@ impl Library {
             .conn
             .query_row(
                 "SELECT s.misfire,s.document FROM cull_scores s JOIN assets a ON a.id=s.asset_id
-                 WHERE s.asset_id=? AND s.fingerprint=a.fingerprint",
+                 WHERE s.asset_id=? AND s.fingerprint=a.fingerprint AND s.error IS NULL",
                 [id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
@@ -275,7 +298,8 @@ impl Library {
             .join(",");
         let sql = format!(
             "SELECT a.id,{tests},
-               EXISTS(SELECT 1 FROM cull_scores s WHERE s.asset_id=a.id AND s.fingerprint=a.fingerprint),
+               EXISTS(SELECT 1 FROM cull_scores s WHERE s.asset_id=a.id
+                      AND s.fingerprint=a.fingerprint AND s.error IS NULL),
                (SELECT group_concat(d.criterion) FROM cull_dismissed d WHERE d.asset_id=a.id)
              FROM assets a JOIN (SELECT DISTINCT value AS id FROM json_each(?)) j ON j.id=a.id"
         );

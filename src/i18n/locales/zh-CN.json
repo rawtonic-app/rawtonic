@@ -3076,7 +3076,7 @@
       "needsModel": "为找出误拍和文档，搜索模型会读取每张照片。",
       "reading": "已读取 {{scored}}/{{total}} 张照片",
       "reject_other": "拒绝 {{n}} 张建议的照片",
-      "rejectTitle": "将已勾选的建议标为拒绝，可一步撤销；不移动也不删除任何文件",
+      "rejectTitle": "将所显示照片中已勾选的建议标为拒绝，可一步撤销；不移动也不删除任何文件",
       "showAgain_other": "重新显示建议（已选 {{n}} 张）",
       "showOnly": "只显示{{name}}（{{n}}）",
       "suggestionOnly": "仅为建议：点击“拒绝”之前不会拒绝任何照片，撤销即可恢复。",

@@ -16,7 +16,7 @@ import { downloadSearchModel, refreshContentStatus } from '../../hooks/useConten
 import { checkEyes } from '../../hooks/useEyeCheck';
 import { notify } from '../../activity/notify';
 import { errorMessage } from '../../shared/ipc/errors';
-import type { CullCriterion } from '../ui/AppProperties';
+import type { CullCriterion, ImageFile } from '../ui/AppProperties';
 
 /**
  * Assisted culling in one place (G35, ADOPT2 §8; notes: benchmark-results/
@@ -91,7 +91,10 @@ export function PhotoCullBadge({ path, compact }: { path: string; compact?: bool
   );
 }
 
-export function StudioCulling() {
+/** `shown`: the photos the grid shows (filters, search, collapsed stacks
+ * applied); Reject flags only those, never photos the photographer cannot
+ * see. The counts are the folder's or album's. */
+export function StudioCulling({ shown }: { shown?: ImageFile[] }) {
   const { t, i18n } = useTranslation();
   const { directory, imageList, imageFlags, selected, suggestion, contentStatus, setFilter } = useLibraryStore(
     useShallow((s) => ({
@@ -118,12 +121,15 @@ export function StudioCulling() {
 
   const paths = useMemo(() => imageList.map((image) => image.path), [imageList]);
   const counts = useMemo(() => cullCounts(photos, paths), [photos, paths]);
-  const toReject = useMemo(() => {
-    const out = new Set<string>();
-    for (const criterion of checked)
-      for (const path of counts.suggested[criterion]) if (imageFlag(imageFlags, path) !== -1) out.add(path);
-    return [...out];
-  }, [checked, counts, imageFlags]);
+  const toReject = useMemo(
+    () =>
+      (shown ?? imageList)
+        .map((image) => image.path)
+        .filter(
+          (path) => imageFlag(imageFlags, path) !== -1 && photos[path]?.suggested.some((c) => checked.includes(c))
+        ),
+    [shown, imageList, checked, photos, imageFlags]
+  );
   const selectedSuggested = selected.filter((p) => photos[p]?.suggested.some((c) => checked.includes(c)));
   const selectedDismissed = selected.filter((p) => photos[p]?.dismissed.length);
 

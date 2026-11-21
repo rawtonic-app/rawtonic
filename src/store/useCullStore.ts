@@ -29,6 +29,8 @@ interface CullState {
   photos: Record<string, CullPhoto>;
   /** Bumped when scores, eyes or dismissals changed. */
   generation: number;
+  /** The newest load or reset: an older answer is not published. */
+  request: number;
   load(directory: string, paths: string[]): Promise<void>;
   changed(): void;
   reset(): void;
@@ -37,8 +39,11 @@ interface CullState {
 export const useCullStore = create<CullState>((set, get) => ({
   photos: {},
   generation: 0,
+  request: 0,
   async load(directory, paths) {
     const asked = get().generation;
+    const request = get().request + 1;
+    set({ request });
     const photos: Record<string, CullPhoto> = {};
     for (let at = 0; at < paths.length; at += BATCH) {
       Object.assign(
@@ -49,11 +54,12 @@ export const useCullStore = create<CullState>((set, get) => ({
         })
       );
     }
-    // A change meanwhile asks again; this answer may predate it.
-    if (get().generation === asked) set({ photos });
+    // A change meanwhile asks again, and a newer load or a reset (another
+    // view, another library) replaces this one: this answer may predate it.
+    if (get().generation === asked && get().request === request) set({ photos });
   },
   changed: () => set((s) => ({ generation: s.generation + 1 })),
-  reset: () => set({ photos: {} })
+  reset: () => set((s) => ({ photos: {}, request: s.request + 1 }))
 }));
 
 /** What the panel counts among `paths`: per criterion the photographs it

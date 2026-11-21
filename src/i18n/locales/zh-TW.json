@@ -3076,7 +3076,7 @@
       "needsModel": "為找出誤拍和文件，搜尋模型會讀取每張相片。",
       "reading": "已讀取 {{scored}}/{{total}} 張相片",
       "reject_other": "拒絕 {{n}} 張建議的相片",
-      "rejectTitle": "將已勾選的建議標為拒絕，可一步復原；不移動也不刪除任何檔案",
+      "rejectTitle": "將所顯示相片中已勾選的建議標為拒絕，可一步復原；不移動也不刪除任何檔案",
       "showAgain_other": "重新顯示建議（已選 {{n}} 張）",
       "showOnly": "只顯示{{name}}（{{n}}）",
       "suggestionOnly": "僅為建議：按下「拒絕」之前不會拒絕任何相片，復原即可還原。",

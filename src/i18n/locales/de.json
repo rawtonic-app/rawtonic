@@ -3173,7 +3173,7 @@
       "reading": "{{scored}} von {{total}} Fotos gelesen",
       "reject_one": "{{n}} vorgeschlagenes Foto ablehnen",
       "reject_other": "{{n}} vorgeschlagene Fotos ablehnen",
-      "rejectTitle": "Markiert die angehakten Vorschläge als abgelehnt, in einem Widerrufschritt; nichts wird verschoben oder gelöscht",
+      "rejectTitle": "Markiert die angehakten Vorschläge unter den gezeigten Fotos als abgelehnt, in einem Widerrufschritt; nichts wird verschoben oder gelöscht",
       "showAgain_one": "Vorschläge wieder zeigen ({{n}} ausgewählt)",
       "showAgain_other": "Vorschläge wieder zeigen ({{n}} ausgewählt)",
       "showOnly": "Nur {{name}} zeigen ({{n}})",

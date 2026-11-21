@@ -17,6 +17,7 @@ import {
   type EyeSummary,
   type PhotoEyes
 } from '../../store/useEyesStore';
+import { useCullStore } from '../../store/useCullStore';
 import { Invokes } from '../ui/AppProperties';
 
 /**
@@ -62,8 +63,12 @@ export function eyeSummaryText(t: TFunction, summary: EyeSummary): string {
 export function PhotoEyesBadge({ path, compact }: { path: string; compact?: boolean }) {
   const { t } = useTranslation();
   const summary = useEyesStore((s) => s.summaries[path]);
-  if (!summary || (!summary.closed && !summary.uncertain)) return null;
-  const closed = summary.closed > 0;
+  // "Not a problem" in the Culling panel: the closed eyes are no suggestion
+  // here any more (the faces' readings stay, the Loupe still shows them).
+  const dismissed = useCullStore((s) => !!s.photos[path]?.dismissed.includes('eyesClosed'));
+  if (!summary) return null;
+  const closed = summary.closed > 0 && !dismissed;
+  if (!closed && !summary.uncertain) return null;
   const Icon = closed ? EyeClosed : CircleQuestionMark;
   const text = eyeSummaryText(t, summary);
   return (

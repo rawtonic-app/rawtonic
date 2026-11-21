@@ -54,6 +54,7 @@ import { StudioExif, StudioKeywords, StudioMetadataTool } from './StudioMetadata
 import { StudioKeywordList } from './StudioKeywordList';
 import StudioAlbums, { type SelectAlbum } from './StudioAlbums';
 import { StudioCulling } from './StudioCulling';
+import type { ImageFile } from '../ui/AppProperties';
 import {
   DEFAULT_FOLDER_TREE_SORT,
   filterFolderTree,
@@ -774,7 +775,8 @@ export default function StudioNavigation({
   onNavigate,
   onSelectAlbum,
   folderActions,
-  develop = false
+  develop = false,
+  shown
 }: {
   onNavigate(path: string): void;
   onSelectAlbum?: SelectAlbum;
@@ -784,6 +786,9 @@ export default function StudioNavigation({
    * Collections; keywords and metadata stay Library tasks. Tool order and
    * open states are its own, apart from the Library's. */
   develop?: boolean;
+  /** The photos the grid shows, in its order (the Culling panel's Reject
+   * acts on these only). */
+  shown?: ImageFile[];
 }) {
   const { t } = useTranslation();
   const selectedPath = useEditorStore((s) => s.selectedImage?.path ?? null);
@@ -816,7 +821,7 @@ export default function StudioNavigation({
         </div>
         {image && <div className="studio-nav-caption">{sourceFileName(image.path)}</div>}
       </ToolGroup>
-      {!develop && <StudioCulling key="culling" />}
+      {!develop && <StudioCulling key="culling" shown={shown} />}
       <StudioFolders key="folders" onNavigate={onNavigate} actions={folderActions} />
       {onSelectAlbum && <StudioAlbums key="albums" onSelectAlbum={onSelectAlbum} />}
       {!develop && <StudioKeywords key="keywords" />}

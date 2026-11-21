@@ -890,7 +890,8 @@ impl Library {
                     "SELECT a.id,{effective},a.make||' '||a.camera,a.exposure,a.exposure_mode,
                         a.exposure_bias,a.sequence,a.rel_path,
                         CASE WHEN EXISTS(SELECT 1 FROM capture_overrides o WHERE o.asset_id=a.id)
-                             THEN NULL ELSE a.capture_subsec END,
+                             THEN (SELECT o.subsec FROM capture_overrides o WHERE o.asset_id=a.id)
+                             ELSE a.capture_subsec END,
                         c.scale,c.vector
                  FROM assets a JOIN (SELECT DISTINCT value AS id FROM json_each(?1)) j ON j.id=a.id
                  LEFT JOIN content_embeddings c ON c.asset_id=a.id AND ?2 AND c.model=?3

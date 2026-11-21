@@ -3173,7 +3173,7 @@
       "reading": "Read {{scored}} of {{total}} photos",
       "reject_one": "Reject {{n}} suggested photo",
       "reject_other": "Reject {{n}} suggested photos",
-      "rejectTitle": "Flags the checked suggestions as rejected in one undo step; nothing is moved or deleted",
+      "rejectTitle": "Flags the checked suggestions among the photos shown as rejected, in one undo step; nothing is moved or deleted",
       "showAgain_one": "Show suggestions again ({{n}} selected)",
       "showAgain_other": "Show suggestions again ({{n}} selected)",
       "showOnly": "Show only {{name}} ({{n}})",
