@@ -18,6 +18,7 @@ import { startTileDrag } from './tileDrag';
 import { reportLibraryPresentation } from '../../utils/libraryListing';
 import { offlineTitle } from '../../utils/offline';
 import { PhotoEyesBadge } from './StudioEyes';
+import { PhotoCullBadge } from './StudioCulling';
 import type { StackMark } from '../../store/useStackStore';
 import { toggleStacks } from '../../utils/stacks';
 import { copyOf, sourceFileName } from '../../entities/photo/photoRef';
@@ -145,6 +146,7 @@ const Tile = memo(function Tile({
           <span className="studio-photo-type">{file.is_raw ? 'RAW' : fileName.split('.').pop()?.toUpperCase()}</span>
           {file.is_edited && <SlidersHorizontal className="studio-photo-edited" size={12} />}
           <PhotoEyesBadge path={file.path} compact={film} />
+          <PhotoCullBadge path={file.path} compact={film} />
           {stack && !stack.top && (
             // Expanded: its place in the stack, "3 of 5" on hover
             // (Lightroom); the top carries the badge.

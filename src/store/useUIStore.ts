@@ -3,7 +3,6 @@ import {
   ImageFile,
   Panel,
   UiVisibility,
-  CullingSuggestions,
   PanelRegion,
   WorkspaceState,
   CollapsibleSectionsState
@@ -83,14 +82,6 @@ export const CLOSED_MERGE_MODAL: MergeModalState = {
 interface NegativeConversionModalState {
   isOpen: boolean;
   targetPaths: Array<string>;
-}
-
-interface CullingModalState {
-  isOpen: boolean;
-  suggestions: CullingSuggestions | null;
-  progress: { current: number; total: number; stage: string } | null;
-  error: string | null;
-  pathsToCull: Array<string>;
 }
 
 const ALL_PANELS: Panel[] = [
@@ -280,7 +271,6 @@ export interface UIState {
   quitSaving: string | null;
   mergeModalState: MergeModalState;
   negativeModalState: NegativeConversionModalState;
-  cullingModalState: CullingModalState;
   collageModalState: CollageModalState;
 
   setUI: (updater: Partial<UIState> | ((state: UIState) => Partial<UIState>)) => void;
@@ -392,7 +382,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   quitSaving: null,
   mergeModalState: CLOSED_MERGE_MODAL,
   negativeModalState: { isOpen: false, targetPaths: [] },
-  cullingModalState: { isOpen: false, suggestions: null, progress: null, error: null, pathsToCull: [] },
   collageModalState: { isOpen: false, sourceImages: [] },
 
   setUI: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),

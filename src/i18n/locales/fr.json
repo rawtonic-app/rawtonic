@@ -5,6 +5,7 @@
       "depth": "Masque IA : profondeur",
       "foreground": "Masque IA : premier plan",
       "inpaint": "Remplissage génératif",
+      "landscape": "Masque IA : Paysage",
       "object": "Masque IA : objet",
       "other": "Tâche IA",
       "people": "Masque IA : personnes",
@@ -520,7 +521,6 @@
       "confirmReset": "Confirmer la réinitialisation",
       "convertNegative": "Convertir le négatif",
       "copyAdjustments": "Copier les ajustements",
-      "cullImage": "Trier l'image",
       "editImage": "Modifier l'image",
       "exportImage": "Exporter l'image",
       "frameImage": "Encadrer l'image",
@@ -598,9 +598,6 @@
       "copyImage_one": "Copier l'image",
       "copyImage_many": "Copier {{count}} images",
       "copyImage_other": "Copier {{count}} images",
-      "cullImage_one": "Trier l'image",
-      "cullImage_many": "Trier les images",
-      "cullImage_other": "Trier les images",
       "deleteAssociated": "Supprimer + Associés",
       "deleteImage_one": "Supprimer l'image",
       "deleteImage_many": "Supprimer {{count}} images",
@@ -930,6 +927,10 @@
       "exporting": "Exportation…",
       "savesTo": "Modification externe — s'enregistre dans"
     },
+    "frameMove": {
+      "action": "Déplacer sur l’image complète",
+      "undecided": "Cette retouche a peut-être été faite sur le petit aperçu que ce fichier TIFF affichait avant Rawtonic 0.1.0-alpha.17.1. Si son recadrage et ses corrections ponctuelles sont mal placés, déplacez-les sur l’image complète."
+    },
     "guided": {
       "cancel": "Annuler",
       "drawingActive": "Dessin actif",
@@ -1004,6 +1005,9 @@
         "maskName_other": "Masques {{count}}"
       },
       "rangeTitle": "Plages & Global",
+      "recomputedFullFrame_one": "Les masques IA de {{count}} calque ont été recalculés pour l’image en pleine résolution. Annuler rétablit les précédents.",
+      "recomputedFullFrame_many": "Les masques IA de {{count}} calques ont été recalculés pour l’image en pleine résolution. Annuler rétablit les précédents.",
+      "recomputedFullFrame_other": "Les masques IA de {{count}} calques ont été recalculés pour l’image en pleine résolution. Annuler rétablit les précédents.",
       "resetMaskingTooltip": "Réinitialiser le masquage",
       "settings": {
         "aiModelDownloading": "Téléchargement du modèle IA : ",
@@ -1100,6 +1104,7 @@
       "flow": "Flux",
       "foreground": "Premier plan",
       "heal": "Corriger",
+      "landscape": "Paysage",
       "linear": "Linéaire",
       "liquify": "Fluidité",
       "luminance": "Luminance",
@@ -1181,40 +1186,6 @@
       "create": "Créer",
       "placeholder": "Saisir le nom du dossier...",
       "title": "Créer un nouveau dossier"
-    },
-    "culling": {
-      "actionDelete": "Mettre à la corbeille",
-      "actionRateZero": "Définir la note sur 1 étoile",
-      "actionReject": "Marquer comme rejeté (Étiquette rouge)",
-      "applyButton_one": "Appliquer à 1 image",
-      "applyButton_many": "Appliquer à {{count}} images",
-      "applyButton_other": "Appliquer à {{count}} images",
-      "bestImage": "Meilleure image",
-      "blurryImagesTab": "Images floues",
-      "blurThreshold": "Seuil de flou",
-      "blurThresholdDesc": "Les images avec un score de netteté inférieur à cette valeur sont signalées. Une valeur plus élevée est plus stricte.",
-      "cancel": "Annuler",
-      "close": "Fermer",
-      "cullingFailed": "Échec du tri",
-      "cullingSuggestions": "Suggestions de tri",
-      "done": "Terminé",
-      "duplicatesHeader": "Doublons ({{count}})",
-      "duplicatesHeader_one": "Doublon ({{count}})",
-      "duplicatesHeader_many": "Doublons ({{count}})",
-      "duplicatesHeader_other": "Doublons ({{count}})",
-      "filterBlurry": "Filtrer les images floues",
-      "groupHeader": "Groupe {{index}}",
-      "groupSimilar": "Grouper les images similaires",
-      "noIssuesDesc": "Toutes les images semblent uniques et nettes.",
-      "noIssuesFound": "Aucun problème trouvé !",
-      "score": "Score : {{score}}",
-      "sharpness": "Netteté : {{sharpness}}",
-      "similarGroupsTab": "Groupes similaires",
-      "similarityThreshold": "Seuil de similarité",
-      "similarityThresholdDesc": "Une valeur plus basse est plus stricte (doublons exacts). Une valeur plus élevée est plus souple (quasi-doublons). Une valeur de 24 à 32 est recommandée.",
-      "startCulling": "Démarrer le tri",
-      "starting": "Démarrage...",
-      "title": "Trier les images"
     },
     "merge": {
       "align": "Aligner les photos",
@@ -2426,7 +2397,7 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
@@ -2970,7 +2941,7 @@
       "done_many": "{{count}} piles créées",
       "done_other": "{{count}} piles créées",
       "interval": "Temps entre les photos",
-      "intro": "Les photos prises au plus tard ce délai après la précédente forment une pile. Les photos déjà dans une pile restent telles quelles.",
+      "intro": "Les photos prises au plus cet intervalle après la précédente forment une pile ; avec « Seulement les photos qui se ressemblent », elles doivent aussi montrer la même scène. Les photos déjà empilées restent telles quelles.",
       "kind": {
         "bracket_one": "{{count}} bracketing",
         "bracket_many": "{{count}} bracketings",
@@ -2993,10 +2964,15 @@
       "seconds_one": "{{count}} seconde",
       "seconds_many": "{{count}} secondes",
       "seconds_other": "{{count}} secondes",
+      "similar": "Seulement les photos qui se ressemblent",
+      "similarity": "Ressemblance minimale",
       "single_one": "{{count}} photo reste seule",
       "single_many": "{{count}} photos restent seules",
       "single_other": "{{count}} photos restent seules",
       "title": "Empiler automatiquement par heure de prise de vue",
+      "unread_one": "{{count}} photo pas encore lue est groupée par heure seule",
+      "unread_many": "{{count}} photos pas encore lues sont groupées par heure seule",
+      "unread_other": "{{count}} photos pas encore lues sont groupées par heure seule",
       "useCameraData": "Utiliser les données de rafale et de bracketing de l’appareil si disponibles"
     },
     "badge": {
@@ -3341,6 +3317,41 @@
       "swapOrientation": "Inverser portrait et paysage",
       "turnOverlay": "Faire pivoter la superposition"
     },
+    "culling": {
+      "analyse": "Trouver ratés et documents",
+      "analyseDownload": "Trouver ratés et documents (télécharger {{size}})",
+      "autoStack": "Empilement auto…",
+      "badge": "Suggéré : {{names}}",
+      "checkEyes": "Vérifier les yeux…",
+      "checkTitle": "Rejeter prend les suggestions cochées",
+      "criteria": {
+        "document": "Documents",
+        "eyesClosed": "Yeux fermés",
+        "misfire": "Ratés"
+      },
+      "criteriaLabel": "Suggestions",
+      "dismiss_one": "Pas un problème ({{n}} sélectionnée)",
+      "dismiss_many": "Pas un problème ({{n}} sélectionnées)",
+      "dismiss_other": "Pas un problème ({{n}} sélectionnées)",
+      "dismissTitle": "Les suggestions cochées des photos sélectionnées ne sont plus affichées",
+      "failed": "Suggestions de tri non enregistrées : {{error}}",
+      "gridOnly": "Rejeter agit sur les photos affichées dans la grille : G affiche la grille.",
+      "needsModel": "Pour trouver ratés et documents, le modèle de recherche lit chaque photo.",
+      "reading": "{{scored}} photos lues sur {{total}}",
+      "reject_one": "Rejeter {{n}} photo suggérée",
+      "reject_many": "Rejeter {{n}} photos suggérées",
+      "reject_other": "Rejeter {{n}} photos suggérées",
+      "rejectTitle": "Marque comme rejetées les suggestions cochées parmi les photos affichées, en une étape d’annulation ; rien n’est déplacé ni supprimé",
+      "showAgain_one": "Réafficher les suggestions ({{n}} sélectionnée)",
+      "showAgain_many": "Réafficher les suggestions ({{n}} sélectionnées)",
+      "showAgain_other": "Réafficher les suggestions ({{n}} sélectionnées)",
+      "showOnly": "Afficher seulement : {{name}} ({{n}})",
+      "suggestionOnly": "Suggestions seulement : rien n’est rejeté avant que vous cliquiez sur Rejeter, et Annuler le reprend.",
+      "title": "Tri",
+      "unreadable_one": "{{n}} photo n’a pas pu être lue pour les suggestions ; elle sera relue à l’ouverture de la bibliothèque.",
+      "unreadable_many": "{{n}} photos n’ont pas pu être lues pour les suggestions ; elles seront relues à l’ouverture de la bibliothèque.",
+      "unreadable_other": "{{n}} photos n’ont pas pu être lues pour les suggestions ; elles seront relues à l’ouverture de la bibliothèque."
+    },
     "develop": {
       "auto": {
         "label": "Auto",
@@ -3466,6 +3477,7 @@
           "brush": "Pinceau",
           "color": "Couleur",
           "depth": "Profondeur",
+          "landscape": "Paysage",
           "linear": "Linéaire",
           "luminance": "Luminance",
           "object": "Objet",
@@ -3495,6 +3507,7 @@
           "brush": "Nouveau calque de pinceau",
           "color": "Nouveau calque : Plage de couleur",
           "depth": "Nouveau calque : Plage de profondeur",
+          "landscape": "Nouveau calque de paysage",
           "linear": "Nouveau calque de dégradé linéaire",
           "luminance": "Nouveau calque : Plage de luminance",
           "object": "Nouveau calque : Objet",
@@ -4128,6 +4141,23 @@
       "shadowClippingTitle": "Alerte d'écrêtage des ombres (bleu sur la photo ; {{shortcut}} bascule les deux)",
       "title": "Histogramme"
     },
+    "landscape": {
+      "aria": "Masque de paysage",
+      "choose": "Choisissez les éléments à sélectionner.",
+      "finding": "Recherche des éléments du paysage…",
+      "noneFound": "Aucun de ces éléments n'a été trouvé dans cette photo.",
+      "notFound": "(non trouvé)",
+      "parts": {
+        "architecture": "Architecture",
+        "artificialGround": "Sol artificiel",
+        "mountains": "Montagnes",
+        "naturalGround": "Sol naturel",
+        "sky": "Ciel",
+        "vegetation": "Végétation",
+        "water": "Eau"
+      },
+      "partsAria": "Éléments du paysage"
+    },
     "layers": {
       "bandWidth": "Largeur de bande",
       "brush": {
@@ -4657,6 +4687,11 @@
             "purple": "Violet",
             "red": "Rouge",
             "yellow": "Jaune"
+          },
+          "suggestion": {
+            "document": "Document",
+            "eyesClosed": "Yeux fermés",
+            "misfire": "Raté"
           }
         },
         "combine": {
@@ -4694,6 +4729,8 @@
           "previousImport": "Dans l’importation précédente",
           "rating": "Note",
           "sourceType": "Source numérique (dans le fichier)",
+          "stacked": "Dans une pile",
+          "suggestion": "Suggestion de tri",
           "text": "Tout texte consultable"
         },
         "folderPlaceholder": "Chemin du dossier",
@@ -4903,6 +4940,7 @@
         "brush": "Pinceau",
         "color": "Plage de couleur",
         "depth": "Plage de profondeur",
+        "landscape": "Paysage",
         "linear": "Linéaire",
         "luminance": "Plage de luminance",
         "object": "Objet",

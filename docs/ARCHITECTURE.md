@@ -159,6 +159,16 @@ New Rust workspace crates isolate data and file safety.
   exports, batch writes and auto tags, which hand it their embeddings; the text encoder as ONNX external data loaded on
   the first query and dropped after 5 min idle; never downloading by itself), UI `src/components/studio/StudioSearchBox.tsx`
   and `src/hooks/useContentSearch.ts` (the view's order: `useSortedLibrary`).
+- `cull`: assisted culling (G35, schema 30: `cull_scores` — misfire and document scores per photograph from its content
+  embedding and the frozen prompts' text embeddings, keyed by embedding model + prompt set and the file's fingerprint —
+  and `cull_dismissed`, the photographer's "not a problem" per criterion), `score_cull`, `cull_photos`,
+  `set_cull_dismissed`, the frozen prompts and thresholds (CUL1 tuning half, notes
+  `benchmark-results/cul1-2026-11-21/`) and the search fields `Suggestion` (`misfire`, `document`, `eyesClosed`) and
+  `Stacked`; never flags anything (accepting is the reject flag). App glue `src-tauri/src/culling.rs` (scores made in the
+  content pass after each batch, prompt embeddings made once with the text encoder and kept in the models folder;
+  `cull_suggestions`, `cull_dismiss`), UI `src/components/studio/StudioCulling.tsx` (the Library's Culling panel and the
+  tile tags) and `src/store/useCullStore.ts`. Auto-Stack's look-alike rule (`stacks::AutoStackOptions::similarity`)
+  compares the same embeddings of consecutive photographs.
 - `duplicates` + `image_hash`: Find Duplicates stage 1 — a hash of each photograph's image data as its file stores it
   (TIFF-based RAWs: the IFD with the most strip/tile bytes; RAF: the CFA section; ISO media/CR3: the largest track's
   samples; JPEG: all but APPn/COM segments; PNG: IHDR/PLTE/tRNS/IDAT; else the whole file, marked `file`), recorded in
@@ -402,7 +412,9 @@ preview/performance limits: notes `benchmark-results/fp-protection-2026-10-27/RE
 
 #### `segment`
 
-`segment` (the Sky (UperNet) and Subject (BiRefNet) networks on ONNX Runtime or Core ML and their masks, `Models` to
+`segment` (the Sky (UperNet) and Subject (BiRefNet) networks on ONNX Runtime or Core ML and their masks, the
+landscape parts (`landscape.rs`: the same UperNet with a seven-part head on ONNX Runtime; one run per photo gives every
+part, `landscape_mask` sums the chosen parts and cuts them off the sky's fitted edge), `Models` to
 load them from a model folder; the app loads them for the editor and its exports, the CLI from `--models`, so both
 compute the same masks; Select Subject is `subject_selection` at the component's `subjectVersion`: version 2
 (`select_subject`) is BiRefNet's foreground without separate objects clearly out of focus next to the sharpest
@@ -523,8 +535,9 @@ recipe `*Version` key read once, with its clamp and a named predicate per gate).
 under their former module names and keeps their Tauri commands in thin modules of the same name. `engine` also holds
 mask rasterisation and the recipe hashes.
 
-`engine::ai_selections` computes the Sky and Subject selections a never-opened photo (an import, pasted settings) holds
-without a bitmap at export, as the editor does on open (same warped photo, same parameters), through a
+`engine::ai_selections` computes the Sky, Subject and Landscape selections a never-opened photo (an import, pasted
+settings, a preset) holds without a bitmap at export (the Landscape selections of a photo from one network run,
+`SelectionDetector::detect_landscape`), as the editor does on open (same warped photo, same parameters), through a
 `SelectionDetector` (`ai_commands::ExportSelections` in the app, `SelectionModels` in the CLI); the app keeps the result
 in the stored recipe (`export_processing::keep_detected_selections`), a missing model fails that photo, and
 `prepare_export_source` refuses any shown Sky or Subject selection still without its bitmap.

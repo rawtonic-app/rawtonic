@@ -88,6 +88,12 @@ pub struct AutoStackOptions {
     pub interval_secs: u32,
     /// Group camera bursts and brackets by their own data first.
     pub use_camera_data: bool,
+    /// Photographs grouped by time also need this least cosine between
+    /// their content embedding and the one before's (`cull::
+    /// STACK_SIMILARITY` by default): two subjects shot seconds apart stay
+    /// apart. A photograph without an embedding is grouped by time alone.
+    #[serde(default)]
+    pub similarity: Option<f32>,
 }
 
 /// Why Auto-Stack made a group.
@@ -118,19 +124,27 @@ pub struct AutoPlan {
     pub photos: usize,
     /// Photographs looked at (not in a stack, with a capture time).
     pub considered: usize,
+    /// Of those, photographs grouped by time alone because the similarity
+    /// asked for has no embedding of theirs to compare (not read yet).
+    #[serde(default)]
+    pub unread: usize,
 }
 
 /// One photograph's facts as Auto-Stack reads them.
 #[derive(Debug, Clone)]
 struct Frame {
     id: String,
-    /// Seconds since the epoch of its local wall time.
-    time: i64,
+    /// Seconds since the epoch of its local wall time, with the camera's
+    /// fraction of a second where the facts hold one.
+    time: f64,
     camera: String,
     exposure: Option<f64>,
     mode: Option<u8>,
     bias: Option<f64>,
     sequence: Option<u32>,
+    /// Its content embedding as unit vector, when similarity is asked for
+    /// and it has one.
+    embedding: Option<Vec<f32>>,
 }
 
 /// Longest pause (s) between two frames of one bracket or burst, beyond
@@ -855,41 +869,52 @@ impl Library {
         assets: &[String],
         options: AutoStackOptions,
     ) -> Result<AutoPlan, CatalogError> {
+        self.auto_stack_plan_with(assets, options, None)
+    }
+
+    /// `auto_stack_plan` comparing content embeddings of `embedding_model`
+    /// (`content`) where `options.similarity` asks for it; without a model
+    /// the similarity is not used.
+    pub fn auto_stack_plan_with(
+        &self,
+        assets: &[String],
+        options: AutoStackOptions,
+        embedding_model: Option<&str>,
+    ) -> Result<AutoPlan, CatalogError> {
         let ids = serde_json::to_string(assets)?;
         let effective = crate::capture_time::EFFECTIVE;
-        let mut frames: Vec<(Frame, String)> = self
-            .conn
-            .prepare(&format!(
-                "SELECT a.id,{effective},a.make||' '||a.camera,a.exposure,a.exposure_mode,
-                        a.exposure_bias,a.sequence,a.rel_path
-                 FROM assets a JOIN (SELECT DISTINCT value AS id FROM json_each(?)) j ON j.id=a.id
+        let similar = options.similarity.is_some() && embedding_model.is_some();
+        let mut frames: Vec<(Frame, String)> =
+            self.conn
+                .prepare(&format!(
+                    "SELECT a.id,{effective},a.make||' '||a.camera,a.exposure,a.exposure_mode,
+                        a.exposure_bias,a.sequence,a.rel_path,
+                        CASE WHEN EXISTS(SELECT 1 FROM capture_overrides o WHERE o.asset_id=a.id)
+                             THEN (SELECT o.subsec FROM capture_overrides o WHERE o.asset_id=a.id)
+                             ELSE a.capture_subsec END,
+                        c.scale,c.vector
+                 FROM assets a JOIN (SELECT DISTINCT value AS id FROM json_each(?1)) j ON j.id=a.id
+                 LEFT JOIN content_embeddings c ON c.asset_id=a.id AND ?2 AND c.model=?3
+                      AND c.fingerprint=a.fingerprint AND c.vector IS NOT NULL
                  WHERE NOT EXISTS(SELECT 1 FROM stack_members m WHERE m.asset_id=a.id)"
-            ))?
-            .query_map([ids], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, Option<String>>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, Option<f64>>(3)?,
-                    r.get::<_, Option<u8>>(4)?,
-                    r.get::<_, Option<f64>>(5)?,
-                    r.get::<_, Option<u32>>(6)?,
-                    r.get::<_, String>(7)?,
-                ))
-            })?
-            .filter_map(|row| {
-                let (id, time, camera, exposure, mode, bias, sequence, name) = match row {
-                    Ok(row) => row,
-                    Err(e) => return Some(Err(e)),
-                };
-                let time =
-                    jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S", time.as_deref()?).ok()?;
-                // Seconds since 1970 of the wall time read as UTC.
-                let time = time
-                    .duration_since(jiff::civil::date(1970, 1, 1).at(0, 0, 0, 0))
-                    .as_secs();
-                Some(Ok((
-                    Frame {
+                ))?
+                .query_map(params![ids, similar, embedding_model.unwrap_or("")], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, Option<f64>>(3)?,
+                        r.get::<_, Option<u8>>(4)?,
+                        r.get::<_, Option<f64>>(5)?,
+                        r.get::<_, Option<u32>>(6)?,
+                        r.get::<_, String>(7)?,
+                        r.get::<_, Option<String>>(8)?,
+                        r.get::<_, Option<f32>>(9)?,
+                        r.get::<_, Option<Vec<u8>>>(10)?,
+                    ))
+                })?
+                .filter_map(|row| {
+                    let (
                         id,
                         time,
                         camera,
@@ -897,19 +922,56 @@ impl Library {
                         mode,
                         bias,
                         sequence,
-                    },
-                    name,
-                )))
-            })
-            .collect::<rusqlite::Result<_>>()?;
-        frames.sort_by(|(a, an), (b, bn)| a.time.cmp(&b.time).then_with(|| an.cmp(bn)));
+                        name,
+                        subsec,
+                        scale,
+                        vector,
+                    ) = match row {
+                        Ok(row) => row,
+                        Err(e) => return Some(Err(e)),
+                    };
+                    let time =
+                        jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S", time.as_deref()?)
+                            .ok()?;
+                    // Seconds since 1970 of the wall time read as UTC.
+                    let whole = time
+                        .duration_since(jiff::civil::date(1970, 1, 1).at(0, 0, 0, 0))
+                        .as_secs();
+                    let time = whole as f64 + subsec.as_deref().map_or(0.0, fraction);
+                    let embedding = match (scale, vector) {
+                        (Some(scale), Some(bytes)) if bytes.len() == crate::content::DIM => {
+                            unit(&bytes, scale)
+                        }
+                        _ => None,
+                    };
+                    Some(Ok((
+                        Frame {
+                            id,
+                            time,
+                            camera,
+                            exposure,
+                            mode,
+                            bias,
+                            sequence,
+                            embedding,
+                        },
+                        name,
+                    )))
+                })
+                .collect::<rusqlite::Result<_>>()?;
+        frames.sort_by(|(a, an), (b, bn)| a.time.total_cmp(&b.time).then_with(|| an.cmp(bn)));
         let frames: Vec<Frame> = frames.into_iter().map(|(f, _)| f).collect();
         let considered = frames.len();
-        let groups = auto_groups(&frames, options);
+        let options = AutoStackOptions {
+            similarity: options.similarity.filter(|_| similar),
+            ..options
+        };
+        let (groups, unread) = auto_groups(&frames, options);
         Ok(AutoPlan {
             photos: groups.iter().map(|g| g.assets.len()).sum(),
             groups,
             considered,
+            unread,
         })
     }
 
@@ -949,11 +1011,41 @@ impl Library {
     }
 }
 
+/// The value of a capture time's fraction digits (`"428"` → 0.428); none
+/// for anything else.
+fn fraction(digits: &str) -> f64 {
+    let digits = digits.trim();
+    if digits.is_empty() || digits.len() > 9 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return 0.0;
+    }
+    format!("0.{digits}").parse().unwrap_or(0.0)
+}
+
+/// A stored embedding (`bytes` × `scale`) as unit vector; none without a
+/// direction.
+fn unit(bytes: &[u8], scale: f32) -> Option<Vec<f32>> {
+    let values: Vec<f32> = bytes.iter().map(|&b| (b as i8) as f32 * scale).collect();
+    let norm = values.iter().map(|v| v * v).sum::<f32>().sqrt();
+    (norm.is_finite() && norm > 0.0).then(|| values.iter().map(|v| v / norm).collect())
+}
+
+/// Whether two consecutive photographs look alike enough to share a stack
+/// (`similarity`, none: time alone); one without an embedding counts as
+/// alike (time decides).
+fn alike(prev: &Frame, next: &Frame, similarity: Option<f32>) -> bool {
+    match (similarity, &prev.embedding, &next.embedding) {
+        (Some(least), Some(a), Some(b)) => {
+            a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>() >= least
+        }
+        _ => true,
+    }
+}
+
 /// Whether `next` follows `prev` closely enough to be the camera's next
 /// frame of one bracket or burst.
 fn camera_close(prev: &Frame, next: &Frame) -> bool {
     prev.camera == next.camera
-        && ((next.time - prev.time) as f64) <= prev.exposure.unwrap_or(0.0).ceil() + CAMERA_GAP_SECS
+        && (next.time - prev.time) <= prev.exposure.unwrap_or(0.0).ceil() + CAMERA_GAP_SECS
 }
 
 fn same_bias(a: Option<f64>, b: Option<f64>) -> bool {
@@ -965,8 +1057,10 @@ fn same_bias(a: Option<f64>, b: Option<f64>) -> bool {
 }
 
 /// Groups `frames` (in capture order): camera brackets and bursts first,
-/// then the rest by time (`Library::auto_stack_plan`).
-fn auto_groups(frames: &[Frame], options: AutoStackOptions) -> Vec<AutoGroup> {
+/// then the rest by time (`Library::auto_stack_plan`); also how many of the
+/// frames grouped by time had no embedding to compare where similarity was
+/// asked for.
+fn auto_groups(frames: &[Frame], options: AutoStackOptions) -> (Vec<AutoGroup>, usize) {
     let mut taken = vec![false; frames.len()];
     let mut groups: Vec<(usize, AutoGroup)> = Vec::new();
     if options.use_camera_data {
@@ -1050,8 +1144,15 @@ fn auto_groups(frames: &[Frame], options: AutoStackOptions) -> Vec<AutoGroup> {
             i = j;
         }
     }
-    // The rest by capture time.
-    let interval = i64::from(options.interval_secs);
+    // The rest by capture time (and look).
+    let interval = f64::from(options.interval_secs);
+    let unread = if options.similarity.is_some() {
+        (0..frames.len())
+            .filter(|&k| !taken[k] && frames[k].embedding.is_none())
+            .count()
+    } else {
+        0
+    };
     let mut run: Vec<usize> = Vec::new();
     let flush = |run: &mut Vec<usize>, groups: &mut Vec<(usize, AutoGroup)>| {
         if run.len() >= 2 {
@@ -1071,7 +1172,8 @@ fn auto_groups(frames: &[Frame], options: AutoStackOptions) -> Vec<AutoGroup> {
             continue;
         }
         if let Some(&last) = run.last()
-            && frame.time - frames[last].time > interval
+            && (frame.time - frames[last].time > interval
+                || !alike(&frames[last], frame, options.similarity))
         {
             flush(&mut run, &mut groups);
         }
@@ -1079,7 +1181,7 @@ fn auto_groups(frames: &[Frame], options: AutoStackOptions) -> Vec<AutoGroup> {
     }
     flush(&mut run, &mut groups);
     groups.sort_by_key(|(first, _)| *first);
-    groups.into_iter().map(|(_, g)| g).collect()
+    (groups.into_iter().map(|(_, g)| g).collect(), unread)
 }
 
 #[cfg(test)]
@@ -1095,12 +1197,13 @@ mod tests {
     ) -> Frame {
         Frame {
             id: id.into(),
-            time,
+            time: time as f64,
             camera: "Maker Body".into(),
             exposure: Some(0.01),
             mode,
             bias,
             sequence,
+            embedding: None,
         }
     }
 
@@ -1108,7 +1211,73 @@ mod tests {
         AutoStackOptions {
             interval_secs,
             use_camera_data,
+            similarity: None,
         }
+    }
+
+    fn grouped(frames: &[Frame], options: AutoStackOptions) -> Vec<AutoGroup> {
+        auto_groups(frames, options).0
+    }
+
+    fn looking(id: &str, time: f64, direction: [f32; 2]) -> Frame {
+        let mut values = vec![0.0; crate::content::DIM];
+        values[0] = direction[0];
+        values[1] = direction[1];
+        let norm = (direction[0].powi(2) + direction[1].powi(2)).sqrt();
+        Frame {
+            time,
+            embedding: Some(values.iter().map(|v| v / norm).collect()),
+            ..frame(id, 0, None, None, None)
+        }
+    }
+
+    #[test]
+    fn similarity_splits_a_run_of_close_frames_where_the_subject_changes() {
+        let frames = [
+            looking("a1", 0.0, [1.0, 0.0]),
+            looking("a2", 0.6, [1.0, 0.1]),
+            // Another subject 0.4 s later: cosine ~0.
+            looking("b1", 1.0, [0.0, 1.0]),
+            looking("b2", 1.7, [0.1, 1.0]),
+            // No embedding: joins by time alone.
+            Frame {
+                time: 2.2,
+                ..frame("b3", 0, None, None, None)
+            },
+        ];
+        let similar = AutoStackOptions {
+            similarity: Some(0.78),
+            ..opts(2, false)
+        };
+        let (found, unread) = auto_groups(&frames, similar);
+        let runs: Vec<_> = found.iter().map(|g| g.assets.clone()).collect();
+        assert_eq!(runs, [vec!["a1", "a2"], vec!["b1", "b2", "b3"]]);
+        assert_eq!(unread, 1);
+        // Time alone puts all five together and counts nothing unread.
+        let (found, unread) = auto_groups(&frames, opts(2, false));
+        assert_eq!(found.len(), 1);
+        assert_eq!(unread, 0);
+    }
+
+    #[test]
+    fn fractions_of_a_second_count_and_bad_digits_do_not() {
+        assert!((fraction("428") - 0.428).abs() < 1e-9);
+        assert!((fraction("05") - 0.05).abs() < 1e-9);
+        assert_eq!(fraction(""), 0.0);
+        assert_eq!(fraction("4x"), 0.0);
+        assert_eq!(fraction("1234567890"), 0.0);
+        // 2.1 s apart is more than a 2 s interval, as the camera's times say.
+        let frames = [
+            Frame {
+                time: 10.9,
+                ..frame("a", 0, None, None, None)
+            },
+            Frame {
+                time: 13.0,
+                ..frame("b", 0, None, None, None)
+            },
+        ];
+        assert!(grouped(&frames, opts(2, false)).is_empty());
     }
 
     #[test]
@@ -1122,13 +1291,13 @@ mod tests {
             frame("b3", 2, Some(2), Some(2.0), None),
             frame("c", 3, Some(0), Some(0.0), None),
         ];
-        let groups = auto_groups(&frames, opts(60, true));
+        let groups = grouped(&frames, opts(60, true));
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].kind, AutoKind::Bracket);
         assert_eq!(groups[0].assets, ["a1", "a2", "a3"]);
         assert_eq!(groups[1].assets, ["b2", "b1", "b3"]);
         // Without camera data, all seven are one group by time.
-        let groups = auto_groups(&frames, opts(60, false));
+        let groups = grouped(&frames, opts(60, false));
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].assets.len(), 7);
     }
@@ -1145,7 +1314,7 @@ mod tests {
             frame("y", 35, None, None, None),
             frame("z", 100, None, None, None),
         ];
-        let groups = auto_groups(&frames, opts(10, true));
+        let groups = grouped(&frames, opts(10, true));
         let kinds: Vec<_> = groups.iter().map(|g| (g.kind, g.assets.clone())).collect();
         assert_eq!(
             kinds,
@@ -1169,7 +1338,7 @@ mod tests {
             frame("b1", 1, None, None, Some(1)),
             frame("b2", 2, None, None, Some(2)),
         ];
-        let groups = auto_groups(&frames, opts(1, true));
+        let groups = grouped(&frames, opts(1, true));
         let runs: Vec<_> = groups.iter().map(|g| g.assets.clone()).collect();
         assert_eq!(runs, [vec!["a1", "a3", "a7"], vec!["b1", "b2"]]);
         assert!(groups.iter().all(|g| g.kind == AutoKind::Burst));
@@ -1181,6 +1350,6 @@ mod tests {
             frame("a", 0, Some(2), Some(0.0), None),
             frame("b", 60, Some(2), Some(-1.0), None),
         ];
-        assert!(auto_groups(&frames, opts(1, true)).is_empty());
+        assert!(grouped(&frames, opts(1, true)).is_empty());
     }
 }

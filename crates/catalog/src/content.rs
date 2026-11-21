@@ -141,6 +141,22 @@ impl Library {
         })
     }
 
+    /// Whether asset `id` has a current embedding of `model` (not a
+    /// failure) for its file as it is now.
+    pub fn has_embedding(&self, id: &str, model: &str) -> Result<bool, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT 1 FROM content_embeddings c JOIN assets a ON a.id=c.asset_id
+                 WHERE c.asset_id=?1 AND c.model=?2 AND c.fingerprint=a.fingerprint
+                   AND c.vector IS NOT NULL",
+                params![id, model],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
     /// Whether asset `id` has a current embedding of `model` (or a current
     /// failure to read it) for its file as it is now.
     pub fn has_content(&self, id: &str, model: &str) -> Result<bool, CatalogError> {

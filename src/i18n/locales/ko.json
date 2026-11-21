@@ -5,6 +5,7 @@
       "depth": "AI 마스크: 깊이",
       "foreground": "AI 마스크: 전경",
       "inpaint": "생성형 채우기",
+      "landscape": "AI 마스크: 풍경",
       "object": "AI 마스크: 개체",
       "other": "AI 작업",
       "people": "AI 마스크: 인물",
@@ -483,7 +484,6 @@
       "confirmReset": "초기화 확인",
       "convertNegative": "네거티브 변환",
       "copyAdjustments": "조정값 복사",
-      "cullImage": "이미지 선별",
       "editImage": "이미지 편집",
       "exportImage": "이미지 내보내기",
       "frameImage": "이미지 프레임",
@@ -555,8 +555,6 @@
       "convertNegative_other": "네거티브 변환",
       "copyImage_one": "이미지 복사",
       "copyImage_other": "이미지 {{count}}개 복사",
-      "cullImage_one": "이미지 선별",
-      "cullImage_other": "이미지 선별",
       "deleteAssociated": "삭제 + 연결된 항목",
       "deleteImage_one": "이미지 삭제",
       "deleteImage_other": "이미지 {{count}}개 삭제",
@@ -869,6 +867,10 @@
       "exporting": "내보내는 중…",
       "savesTo": "외부 편집 — 저장 위치:"
     },
+    "frameMove": {
+      "action": "전체 이미지로 옮기기",
+      "undecided": "이 편집은 Rawtonic 0.1.0-alpha.17.1 이전에 이 TIFF 파일이 보여 주던 작은 미리 보기에서 만들어졌을 수 있습니다. 자르기와 스팟 보정 위치가 틀리면 전체 이미지로 옮기세요."
+    },
     "guided": {
       "cancel": "취소",
       "drawingActive": "그리기 활성화",
@@ -942,6 +944,7 @@
         "maskName_other": "마스크 {{count}}"
       },
       "rangeTitle": "범위 및 글로벌",
+      "recomputedFullFrame_other": "레이어 {{count}}개의 AI 마스크를 전체 해상도 이미지에 맞게 다시 계산했습니다. 실행 취소하면 이전 마스크로 돌아갑니다.",
       "resetMaskingTooltip": "마스킹 초기화",
       "settings": {
         "aiModelDownloading": "AI 모델 다운로드 중: ",
@@ -1038,6 +1041,7 @@
       "flow": "플로우",
       "foreground": "전경",
       "heal": "복구",
+      "landscape": "풍경",
       "linear": "선형",
       "liquify": "픽셀 유동화",
       "luminance": "휘도",
@@ -1119,38 +1123,6 @@
       "create": "만들기",
       "placeholder": "폴더 이름 입력...",
       "title": "새 폴더 만들기"
-    },
-    "culling": {
-      "actionDelete": "휴지통으로 이동",
-      "actionRateZero": "평점을 1점으로 설정",
-      "actionReject": "거부됨으로 표시 (빨간 레이블)",
-      "applyButton_one": "이미지 1개에 적용",
-      "applyButton_other": "이미지 {{count}}개에 적용",
-      "bestImage": "최고의 이미지",
-      "blurryImagesTab": "흐릿한 이미지",
-      "blurThreshold": "흐림 임계값",
-      "blurThresholdDesc": "선명도 점수가 이 값보다 낮은 이미지가 표시됩니다. 값이 높을수록 더 엄격합니다.",
-      "cancel": "취소",
-      "close": "닫기",
-      "cullingFailed": "선별 실패",
-      "cullingSuggestions": "선별 제안",
-      "done": "완료",
-      "duplicatesHeader": "중복 ({{count}})",
-      "duplicatesHeader_one": "중복 ({{count}})",
-      "duplicatesHeader_other": "중복 ({{count}})",
-      "filterBlurry": "흐릿한 이미지 필터링",
-      "groupHeader": "그룹 {{index}}",
-      "groupSimilar": "유사한 이미지 그룹화",
-      "noIssuesDesc": "모든 이미지가 고유하고 선명한 것으로 보입니다.",
-      "noIssuesFound": "문제를 찾을 수 없습니다!",
-      "score": "점수: {{score}}",
-      "sharpness": "선명도: {{sharpness}}",
-      "similarGroupsTab": "유사한 그룹",
-      "similarityThreshold": "유사도 임계값",
-      "similarityThresholdDesc": "값이 낮을수록 더 엄격합니다 (완전 중복). 높을수록 더 느슨합니다 (유사 중복). 24~32 값을 권장합니다.",
-      "startCulling": "선별 시작",
-      "starting": "시작 중...",
-      "title": "이미지 선별"
     },
     "merge": {
       "align": "사진 정렬",
@@ -2196,7 +2168,7 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
@@ -2734,7 +2706,7 @@
       "done_one": "스택 {{count}}개를 만들었습니다",
       "done_other": "스택 {{count}}개를 만들었습니다",
       "interval": "사진 사이 시간",
-      "intro": "이전 사진 후 이 시간 안에 촬영한 사진을 한 스택으로 묶습니다. 이미 스택에 있는 사진은 그대로 둡니다.",
+      "intro": "앞 사진 다음 이 시간 안에 찍은 사진은 같은 스택이 됩니다. “비슷해 보이는 사진만”을 켜면 같은 장면이어야 합니다. 이미 스택에 있는 사진은 그대로 둡니다.",
       "kind": {
         "bracket_one": "브라케팅 {{count}}개",
         "bracket_other": "브라케팅 {{count}}개",
@@ -2751,9 +2723,12 @@
       "reading": "세는 중…",
       "seconds_one": "{{count}}초",
       "seconds_other": "{{count}}초",
+      "similar": "비슷해 보이는 사진만",
+      "similarity": "최소 유사도",
       "single_one": "사진 {{count}}장은 그대로 남습니다",
       "single_other": "사진 {{count}}장은 그대로 남습니다",
       "title": "촬영 시간으로 자동 스택",
+      "unread_other": "아직 읽지 않은 사진 {{count}}장은 촬영 시간으로만 묶습니다",
       "useCameraData": "카메라의 연속 촬영 및 브라케팅 정보가 있으면 사용"
     },
     "badge": {
@@ -3092,6 +3067,33 @@
       "swapOrientation": "세로와 가로 전환",
       "turnOverlay": "오버레이 회전"
     },
+    "culling": {
+      "analyse": "실패 사진과 문서 찾기",
+      "analyseDownload": "실패 사진과 문서 찾기({{size}} 다운로드)",
+      "autoStack": "자동 스택…",
+      "badge": "제안: {{names}}",
+      "checkEyes": "눈 확인…",
+      "checkTitle": "거부는 체크한 제안에 적용됩니다",
+      "criteria": {
+        "document": "문서",
+        "eyesClosed": "눈 감음",
+        "misfire": "실패 사진"
+      },
+      "criteriaLabel": "제안",
+      "dismiss_other": "문제없음({{n}}장 선택)",
+      "dismissTitle": "선택한 사진의 체크한 제안을 다시 표시하지 않습니다",
+      "failed": "선별 제안을 저장하지 못했습니다: {{error}}",
+      "gridOnly": "거부는 격자에 표시된 사진에 적용됩니다. G를 누르면 격자가 표시됩니다.",
+      "needsModel": "실패 사진과 문서를 찾기 위해 검색 모델이 각 사진을 읽습니다.",
+      "reading": "사진 {{total}}장 중 {{scored}}장 읽음",
+      "reject_other": "제안된 사진 {{n}}장 거부",
+      "rejectTitle": "표시된 사진 중 체크한 제안을 한 번의 실행 취소 단계로 거부 표시합니다. 이동하거나 삭제하지 않습니다",
+      "showAgain_other": "제안 다시 보기({{n}}장 선택)",
+      "showOnly": "{{name}}만 보기({{n}})",
+      "suggestionOnly": "제안일 뿐입니다. 거부를 누르기 전에는 아무것도 거부되지 않으며 실행 취소로 되돌릴 수 있습니다.",
+      "title": "선별",
+      "unreadable_other": "사진 {{n}}장을 제안을 위해 읽지 못했습니다. 라이브러리를 열면 다시 시도합니다."
+    },
     "develop": {
       "auto": {
         "label": "자동",
@@ -3217,6 +3219,7 @@
           "brush": "브러시",
           "color": "색상",
           "depth": "심도",
+          "landscape": "풍경",
           "linear": "선형",
           "luminance": "휘도",
           "object": "개체",
@@ -3246,6 +3249,7 @@
           "brush": "새 브러시 레이어",
           "color": "새 레이어: 색상 범위",
           "depth": "새 레이어: 심도 범위",
+          "landscape": "새 풍경 레이어",
           "linear": "새 선형 그라디언트 레이어",
           "luminance": "새 레이어: 휘도 범위",
           "object": "새 레이어: 개체",
@@ -3861,6 +3865,23 @@
       "shadowClippingTitle": "그림자 클리핑 경고(사진에서 파란색으로 표시; {{shortcut}}로 둘 다 전환)",
       "title": "히스토그램"
     },
+    "landscape": {
+      "aria": "풍경 마스크",
+      "choose": "선택할 요소를 고르세요.",
+      "finding": "풍경 요소를 찾는 중…",
+      "noneFound": "이 사진에서 이 요소들을 찾지 못했습니다.",
+      "notFound": "(찾지 못함)",
+      "parts": {
+        "architecture": "건축물",
+        "artificialGround": "인공 지면",
+        "mountains": "산",
+        "naturalGround": "자연 지면",
+        "sky": "하늘",
+        "vegetation": "식물",
+        "water": "물"
+      },
+      "partsAria": "풍경 요소"
+    },
     "layers": {
       "bandWidth": "띠 너비",
       "brush": {
@@ -4349,6 +4370,11 @@
             "purple": "보라",
             "red": "빨강",
             "yellow": "노랑"
+          },
+          "suggestion": {
+            "document": "문서",
+            "eyesClosed": "눈 감음",
+            "misfire": "실패 사진"
           }
         },
         "combine": {
@@ -4386,6 +4412,8 @@
           "previousImport": "이전 가져오기에 포함",
           "rating": "별점",
           "sourceType": "디지털 출처 유형(파일 내)",
+          "stacked": "스택 안",
+          "suggestion": "선별 제안",
           "text": "검색 가능한 모든 텍스트"
         },
         "folderPlaceholder": "폴더 경로",
@@ -4584,6 +4612,7 @@
         "brush": "브러시",
         "color": "색상 범위",
         "depth": "심도 범위",
+        "landscape": "풍경",
         "linear": "선형",
         "luminance": "휘도 범위",
         "object": "개체",

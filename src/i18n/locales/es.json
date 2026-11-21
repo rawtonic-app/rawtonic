@@ -5,6 +5,7 @@
       "depth": "Máscara IA: profundidad",
       "foreground": "Máscara IA: primer plano",
       "inpaint": "Relleno generativo",
+      "landscape": "Máscara IA: Paisaje",
       "object": "Máscara IA: objeto",
       "other": "Tarea de IA",
       "people": "Máscara IA: personas",
@@ -520,7 +521,6 @@
       "confirmReset": "Confirmar restablecimiento",
       "convertNegative": "Convertir negativo",
       "copyAdjustments": "Copiar ajustes",
-      "cullImage": "Cribar imagen",
       "editImage": "Editar imagen",
       "exportImage": "Exportar imagen",
       "frameImage": "Enmarcar imagen",
@@ -598,9 +598,6 @@
       "copyImage_one": "Copiar imagen",
       "copyImage_many": "Copiar {{count}} imágenes",
       "copyImage_other": "Copiar {{count}} imágenes",
-      "cullImage_one": "Cribar imagen",
-      "cullImage_many": "Cribar imágenes",
-      "cullImage_other": "Cribar imágenes",
       "deleteAssociated": "Eliminar + Asociadas",
       "deleteImage_one": "Eliminar imagen",
       "deleteImage_many": "Eliminar {{count}} imágenes",
@@ -930,6 +927,10 @@
       "exporting": "Exportando…",
       "savesTo": "Edición externa: se guarda en"
     },
+    "frameMove": {
+      "action": "Mover a la imagen completa",
+      "undecided": "Puede que esta edición se hiciera sobre la pequeña vista previa que este archivo TIFF mostraba antes de Rawtonic 0.1.0-alpha.17.1. Si el recorte y los retoques puntuales están mal colocados, muévelos a la imagen completa."
+    },
     "guided": {
       "cancel": "Cancelar",
       "drawingActive": "Dibujo activo",
@@ -1004,6 +1005,9 @@
         "maskName_other": "Máscara {{count}}"
       },
       "rangeTitle": "Rangos y global",
+      "recomputedFullFrame_one": "Las máscaras de IA de {{count}} capa se han recalculado para la imagen a resolución completa. Deshacer recupera las anteriores.",
+      "recomputedFullFrame_many": "Las máscaras de IA de {{count}} capas se han recalculado para la imagen a resolución completa. Deshacer recupera las anteriores.",
+      "recomputedFullFrame_other": "Las máscaras de IA de {{count}} capas se han recalculado para la imagen a resolución completa. Deshacer recupera las anteriores.",
       "resetMaskingTooltip": "Restablecer enmascaramiento",
       "settings": {
         "aiModelDownloading": "Descargando modelo de IA: ",
@@ -1100,6 +1104,7 @@
       "flow": "Flujo",
       "foreground": "Primer plano",
       "heal": "Curar",
+      "landscape": "Paisaje",
       "linear": "Lineal",
       "liquify": "Licuar",
       "luminance": "Luminancia",
@@ -1181,40 +1186,6 @@
       "create": "Crear",
       "placeholder": "Introduce el nombre de la carpeta...",
       "title": "Crear nueva carpeta"
-    },
-    "culling": {
-      "actionDelete": "Mover a la papelera",
-      "actionRateZero": "Establecer puntuación a 1 estrella",
-      "actionReject": "Marcar como rechazada (Etiqueta roja)",
-      "applyButton_one": "Aplicar a 1 imagen",
-      "applyButton_many": "Aplicar a {{count}} imágenes",
-      "applyButton_other": "Aplicar a {{count}} imágenes",
-      "bestImage": "Mejor imagen",
-      "blurryImagesTab": "Imágenes borrosas",
-      "blurThreshold": "Umbral de desenfoque",
-      "blurThresholdDesc": "Se marcarán las imágenes con una puntuación de nitidez por debajo de este valor. Un valor más alto es más estricto.",
-      "cancel": "Cancelar",
-      "close": "Cerrar",
-      "cullingFailed": "Cribado fallido",
-      "cullingSuggestions": "Sugerencias de cribado",
-      "done": "Hecho",
-      "duplicatesHeader": "Duplicados ({{count}})",
-      "duplicatesHeader_one": "Duplicados ({{count}})",
-      "duplicatesHeader_many": "Duplicados ({{count}})",
-      "duplicatesHeader_other": "Duplicados ({{count}})",
-      "filterBlurry": "Filtrar imágenes borrosas",
-      "groupHeader": "Grupo {{index}}",
-      "groupSimilar": "Agrupar imágenes similares",
-      "noIssuesDesc": "Todas las imágenes parecen ser únicas y nítidas.",
-      "noIssuesFound": "¡No se encontraron problemas!",
-      "score": "Puntuación: {{score}}",
-      "sharpness": "Nitidez: {{sharpness}}",
-      "similarGroupsTab": "Grupos similares",
-      "similarityThreshold": "Umbral de similitud",
-      "similarityThresholdDesc": "Más bajo es más estricto (duplicados exactos). Más alto es más flexible (casi duplicados). Se recomienda un valor de 24-32.",
-      "startCulling": "Iniciar cribado",
-      "starting": "Iniciando...",
-      "title": "Cribar imágenes"
     },
     "merge": {
       "align": "Alinear fotos",
@@ -2426,7 +2397,7 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
@@ -2970,7 +2941,7 @@
       "done_many": "{{count}} pilas creadas",
       "done_other": "{{count}} pilas creadas",
       "interval": "Tiempo entre fotos",
-      "intro": "Las fotos tomadas como mucho este tiempo después de la anterior comparten pila. Las fotos que ya están en una pila no cambian.",
+      "intro": "Las fotos tomadas como mucho este tiempo después de la anterior comparten pila; con «Solo fotos que se parecen» también deben mostrar la misma escena. Las fotos que ya están en una pila no cambian.",
       "kind": {
         "bracket_one": "{{count}} horquillado",
         "bracket_many": "{{count}} horquillados",
@@ -2993,10 +2964,15 @@
       "seconds_one": "{{count}} segundo",
       "seconds_many": "{{count}} segundos",
       "seconds_other": "{{count}} segundos",
+      "similar": "Solo fotos que se parecen",
+      "similarity": "Parecido mínimo",
       "single_one": "{{count}} foto queda sola",
       "single_many": "{{count}} fotos quedan solas",
       "single_other": "{{count}} fotos quedan solas",
       "title": "Apilar automáticamente por hora de captura",
+      "unread_one": "{{count}} foto aún sin leer se agrupa solo por hora",
+      "unread_many": "{{count}} fotos aún sin leer se agrupan solo por hora",
+      "unread_other": "{{count}} fotos aún sin leer se agrupan solo por hora",
       "useCameraData": "Usar los datos de ráfaga y horquillado de la cámara cuando existan"
     },
     "badge": {
@@ -3341,6 +3317,41 @@
       "swapOrientation": "Cambiar entre vertical y horizontal",
       "turnOverlay": "Girar la superposición"
     },
+    "culling": {
+      "analyse": "Buscar disparos fallidos y documentos",
+      "analyseDownload": "Buscar disparos fallidos y documentos (descargar {{size}})",
+      "autoStack": "Apilar automáticamente…",
+      "badge": "Sugerido: {{names}}",
+      "checkEyes": "Comprobar ojos…",
+      "checkTitle": "Rechazar toma las sugerencias marcadas",
+      "criteria": {
+        "document": "Documentos",
+        "eyesClosed": "Ojos cerrados",
+        "misfire": "Disparos fallidos"
+      },
+      "criteriaLabel": "Sugerencias",
+      "dismiss_one": "No es un problema ({{n}} seleccionada)",
+      "dismiss_many": "No es un problema ({{n}} seleccionadas)",
+      "dismiss_other": "No es un problema ({{n}} seleccionadas)",
+      "dismissTitle": "Las sugerencias marcadas de las fotos seleccionadas no se vuelven a mostrar",
+      "failed": "Sugerencias de descarte no guardadas: {{error}}",
+      "gridOnly": "Rechazar actúa sobre las fotos que muestra la cuadrícula: G muestra la cuadrícula.",
+      "needsModel": "Para encontrar disparos fallidos y documentos, el modelo de búsqueda lee cada foto.",
+      "reading": "{{scored}} de {{total}} fotos leídas",
+      "reject_one": "Rechazar {{n}} foto sugerida",
+      "reject_many": "Rechazar {{n}} fotos sugeridas",
+      "reject_other": "Rechazar {{n}} fotos sugeridas",
+      "rejectTitle": "Marca como rechazadas las sugerencias marcadas entre las fotos mostradas, en un solo paso de deshacer; nada se mueve ni se borra",
+      "showAgain_one": "Volver a mostrar sugerencias ({{n}} seleccionada)",
+      "showAgain_many": "Volver a mostrar sugerencias ({{n}} seleccionadas)",
+      "showAgain_other": "Volver a mostrar sugerencias ({{n}} seleccionadas)",
+      "showOnly": "Mostrar solo {{name}} ({{n}})",
+      "suggestionOnly": "Solo sugerencias: nada se rechaza hasta que pulse Rechazar, y Deshacer lo revierte.",
+      "title": "Descarte",
+      "unreadable_one": "{{n}} foto no se pudo leer para las sugerencias; se volverá a intentar al abrir la biblioteca.",
+      "unreadable_many": "{{n}} fotos no se pudieron leer para las sugerencias; se volverá a intentar al abrir la biblioteca.",
+      "unreadable_other": "{{n}} fotos no se pudieron leer para las sugerencias; se volverá a intentar al abrir la biblioteca."
+    },
     "develop": {
       "auto": {
         "label": "Auto",
@@ -3466,6 +3477,7 @@
           "brush": "Pincel",
           "color": "Color",
           "depth": "Profundidad",
+          "landscape": "Paisaje",
           "linear": "Lineal",
           "luminance": "Luminancia",
           "object": "Objeto",
@@ -3495,6 +3507,7 @@
           "brush": "Nueva capa de pincel",
           "color": "Nueva capa: Rango de color",
           "depth": "Nueva capa: Rango de profundidad",
+          "landscape": "Nueva capa de paisaje",
           "linear": "Nueva capa de degradado lineal",
           "luminance": "Nueva capa: Rango de luminancia",
           "object": "Nueva capa: Objeto",
@@ -4128,6 +4141,23 @@
       "shadowClippingTitle": "Aviso de recorte de sombras (azul en la foto; {{shortcut}} alterna ambos)",
       "title": "Histograma"
     },
+    "landscape": {
+      "aria": "Máscara de paisaje",
+      "choose": "Elige las partes que quieres seleccionar.",
+      "finding": "Buscando las partes del paisaje…",
+      "noneFound": "No se encontró ninguna de estas partes en esta foto.",
+      "notFound": "(no encontrada)",
+      "parts": {
+        "architecture": "Arquitectura",
+        "artificialGround": "Suelo artificial",
+        "mountains": "Montañas",
+        "naturalGround": "Suelo natural",
+        "sky": "Cielo",
+        "vegetation": "Vegetación",
+        "water": "Agua"
+      },
+      "partsAria": "Partes del paisaje"
+    },
     "layers": {
       "bandWidth": "Anchura de banda",
       "brush": {
@@ -4657,6 +4687,11 @@
             "purple": "Púrpura",
             "red": "Rojo",
             "yellow": "Amarillo"
+          },
+          "suggestion": {
+            "document": "Documento",
+            "eyesClosed": "Ojos cerrados",
+            "misfire": "Disparo fallido"
           }
         },
         "combine": {
@@ -4694,6 +4729,8 @@
           "previousImport": "En la importación anterior",
           "rating": "Valoración",
           "sourceType": "Origen digital (en el archivo)",
+          "stacked": "En una pila",
+          "suggestion": "Sugerencia de descarte",
           "text": "Cualquier texto buscable"
         },
         "folderPlaceholder": "Ruta de la carpeta",
@@ -4903,6 +4940,7 @@
         "brush": "Pincel",
         "color": "Rango de color",
         "depth": "Rango de profundidad",
+        "landscape": "Paisaje",
         "linear": "Lineal",
         "luminance": "Rango de luminancia",
         "object": "Objeto",

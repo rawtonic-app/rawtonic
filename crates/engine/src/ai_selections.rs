@@ -1,4 +1,4 @@
-//! Sky, Subject, People and depth range selections computed for a photo
+//! Sky, Subject, People, landscape-part and depth range selections computed for a photo
 //! that was never opened (a Lightroom or Capture One import, a preset,
 //! settings pasted or synced onto it, a capture given a preset): the recipe
 //! holds the selection but not its bitmap, which the editor computes when
@@ -39,6 +39,45 @@ pub enum AutoSelection {
     /// `ai-depth`: a depth range; the bitmap is the photo's depth map, the
     /// range (`minDepth` … `maxDepth`) applies when it renders.
     Depth,
+    /// `ai-landscape`: parts of the landscape (`parts`, `landscape_parts`).
+    Landscape,
+}
+
+/// A set of `masks::LANDSCAPE_PARTS` (bit `i`: the `i`-th part).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct LandscapeParts(pub u8);
+
+impl LandscapeParts {
+    /// The set a component's `parts` name; `None` when one is not a known
+    /// part (made by a newer version) or none is named.
+    pub fn of(parts: &Value) -> Option<Self> {
+        let mut bits = 0u8;
+        for part in parts.as_array()? {
+            let i = masks::LANDSCAPE_PARTS
+                .iter()
+                .position(|&known| Some(known) == part.as_str())?;
+            bits |= 1 << i;
+        }
+        (bits != 0).then_some(Self(bits))
+    }
+
+    /// The parts' keys, in the model's order.
+    pub fn keys(self) -> Vec<&'static str> {
+        masks::LANDSCAPE_PARTS
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| self.0 & (1 << i) != 0)
+            .map(|(_, &key)| key)
+            .collect()
+    }
+}
+
+/// The landscape parts a component's `parameters` select; `None` when it
+/// names none or one this version does not know (nothing to detect).
+pub fn landscape_parts(parameters: &Value) -> Option<LandscapeParts> {
+    parameters
+        .get(masks::PARTS.name())
+        .and_then(LandscapeParts::of)
 }
 
 impl AutoSelection {
@@ -49,6 +88,7 @@ impl AutoSelection {
             "ai-foreground" => Some(Self::Subject),
             "ai-people" => Some(Self::People),
             "ai-depth" => Some(Self::Depth),
+            "ai-landscape" => Some(Self::Landscape),
             _ => None,
         }
     }
@@ -59,6 +99,7 @@ impl AutoSelection {
             Self::Subject => "Subject",
             Self::People => "People",
             Self::Depth => "depth range",
+            Self::Landscape => "Landscape",
         }
     }
 }
@@ -95,6 +136,10 @@ fn run_key(selection: AutoSelection, parameters: &Value) -> String {
             people_parts(parameters),
             people_person(parameters)
         ),
+        AutoSelection::Landscape => format!(
+            "Landscape {}",
+            landscape_parts(parameters).map_or(0, |p| p.0)
+        ),
     }
 }
 
@@ -123,6 +168,23 @@ pub trait SelectionDetector: Send + Sync {
         warped: &DynamicImage,
         linear: bool,
     ) -> Result<String, String>;
+
+    /// The masks of several landscape selections of `warped` (in the order
+    /// of `sets`), as `detect` gives each; an implementation runs the
+    /// network once for all of them.
+    fn detect_landscape(
+        &self,
+        sets: &[LandscapeParts],
+        warped: &DynamicImage,
+        linear: bool,
+    ) -> Result<Vec<String>, String> {
+        sets.iter()
+            .map(|set| {
+                let parameters = serde_json::json!({ masks::PARTS.name(): set.keys() });
+                self.detect(AutoSelection::Landscape, &parameters, warped, linear)
+            })
+            .collect()
+    }
 }
 
 /// One component an export detected: where it is and its parameters now.
@@ -140,7 +202,8 @@ fn shown(value: &Value) -> bool {
 
 /// The shown Sky, Subject, People and depth range components of shown
 /// layers without their bitmap (`layer`, `component` indices): rendered as
-/// they are, their layers would apply nowhere. A People component without
+/// they are, their layers would apply nowhere. So are those whose bitmap
+/// was migrated from a camera TIFF's thumbnail (`detects_again`). A People component without
 /// parts has nothing to detect; People and depth ranges count only while
 /// they wait for this photo's detection (`DETECT_PENDING`).
 pub fn undetected(adjustments: &Value) -> Vec<(usize, usize, AutoSelection)> {
@@ -164,18 +227,45 @@ pub fn undetected(adjustments: &Value) -> Vec<(usize, usize, AutoSelection)> {
                 continue;
             };
             let parameters = sub.get(masks::PARAMETERS.name()).unwrap_or(&Value::Null);
-            let no_parts =
-                selection == AutoSelection::People && people_parts(parameters).is_empty();
+            let no_parts = (selection == AutoSelection::People
+                && people_parts(parameters).is_empty())
+                || (selection == AutoSelection::Landscape && landscape_parts(parameters).is_none());
             // People and depth ranges only where they wait for this photo
             // (see the module): older saved recipes export as before.
-            let waits = matches!(selection, AutoSelection::Sky | AutoSelection::Subject)
-                || parameters.get(DETECT_PENDING).and_then(Value::as_bool) == Some(true);
-            if waits && !has_bitmap(parameters) && !nothing_to_detect(parameters) && !no_parts {
+            let waits = matches!(
+                selection,
+                AutoSelection::Sky | AutoSelection::Subject | AutoSelection::Landscape
+            ) || parameters.get(DETECT_PENDING).and_then(Value::as_bool) == Some(true);
+            if ((waits && !has_bitmap(parameters)) || detects_again(parameters))
+                && !nothing_to_detect(parameters)
+                && !no_parts
+            {
                 found.push((l, s, selection));
             }
         }
     }
     found
+}
+
+/// Whether a component holds a bitmap migrated from a camera TIFF's
+/// thumbnail that waits to be computed again on the full frame
+/// (`recipe_frame::DETECT_AGAIN`).
+pub fn detects_again(parameters: &Value) -> bool {
+    parameters
+        .get(crate::recipe_frame::DETECT_AGAIN)
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
+/// Whether `undetected` lists a component with nothing to render without
+/// its selection: every one but a migrated bitmap that renders as it is
+/// where its selection cannot be computed (`detects_again`).
+pub fn missing_without_stand_ins(adjustments: &Value) -> bool {
+    undetected(adjustments).iter().any(|&(l, s, _)| {
+        let parameters = &adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s]
+            [masks::PARAMETERS.name()];
+        !(detects_again(parameters) && has_bitmap(parameters))
+    })
 }
 
 /// What the export says about an undetected selection: its layer's name.
@@ -227,7 +317,14 @@ pub fn detected_parameters(own: &Value, adjustments: &Value, data_url: String) -
     if let Ok(Value::Object(result)) = serde_json::to_value(result) {
         parameters.extend(result);
     }
-    parameters.remove(DETECT_PENDING);
+    // Computed on this frame: no longer a stand-in to stretch or replace.
+    for key in [
+        DETECT_PENDING,
+        crate::recipe_frame::DETECT_AGAIN,
+        crate::mask_generation::BITMAP_FRAME,
+    ] {
+        parameters.remove(key);
+    }
     Value::Object(parameters)
 }
 
@@ -248,30 +345,76 @@ pub fn detect_missing(
     if wanted.is_empty() {
         return Ok(Vec::new());
     }
+    // A bitmap migrated from a camera TIFF's thumbnail renders as it is
+    // where its selection cannot be computed here (no model on this
+    // computer); the others have nothing to render without it.
+    let stands_in = |l: usize, s: usize| {
+        let parameters = &adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s]
+            [masks::PARAMETERS.name()];
+        detects_again(parameters) && has_bitmap(parameters)
+    };
     let fail = |error: &str| {
         let layers: Vec<String> = wanted
             .iter()
+            .filter(|&&(l, s, _)| !stands_in(l, s))
             .map(|&(l, _, selection)| undetected_message(adjustments, l, selection))
             .collect();
         format!("{}: {error}", layers.join("; "))
     };
+    let required = wanted.iter().any(|&(l, s, _)| !stands_in(l, s));
     let Some(detector) = detector else {
-        return Err(fail("no AI model to compute it here"));
+        return if required {
+            Err(fail("no AI model to compute it here"))
+        } else {
+            Ok(Vec::new())
+        };
     };
     started();
     let geometry = mask_warp(adjustments);
     let warped = prepare_shared_warped_mask_image(source, is_raw, &geometry)?;
     let mut masks: Map<String, Value> = Map::new();
+    // The landscape selections wanted, from one run of their network.
+    let mut sets: Vec<LandscapeParts> = Vec::new();
+    for &(l, s, selection) in &wanted {
+        let parameters = &adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s]
+            [masks::PARAMETERS.name()];
+        if selection == AutoSelection::Landscape
+            && let Some(parts) = landscape_parts(parameters)
+            && !sets.contains(&parts)
+        {
+            sets.push(parts);
+        }
+    }
+    if !sets.is_empty() {
+        match detector.detect_landscape(&sets, &warped, is_raw) {
+            Ok(found) if found.len() == sets.len() => {
+                for (parts, data) in sets.iter().zip(found) {
+                    let key = run_key(
+                        AutoSelection::Landscape,
+                        &serde_json::json!({ masks::PARTS.name(): parts.keys() }),
+                    );
+                    masks.insert(key, Value::String(data));
+                }
+            }
+            Ok(_) => return Err(fail("the landscape model returned too few masks")),
+            // Each component then fails, or keeps its stand-in, below.
+            Err(_) => {}
+        }
+    }
     let mut detected = Vec::new();
+    let mut placed = Vec::new();
     for &(l, s, selection) in &wanted {
         let sub = &adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s];
         let parameters = &sub[masks::PARAMETERS.name()];
         let key = run_key(selection, parameters);
         if !masks.contains_key(&key) {
-            let data = detector
-                .detect(selection, parameters, &warped, is_raw)
-                .map_err(|e| fail(&e))?;
-            masks.insert(key.clone(), Value::String(data));
+            match detector.detect(selection, parameters, &warped, is_raw) {
+                Ok(data) => {
+                    masks.insert(key.clone(), Value::String(data));
+                }
+                Err(_) if stands_in(l, s) => continue,
+                Err(e) => return Err(fail(&e)),
+            }
         }
         let data = masks[&key].as_str().unwrap_or_default().to_string();
         detected.push(Detected {
@@ -286,8 +429,9 @@ pub fn detect_missing(
             selection,
             parameters: detected_parameters(&sub[masks::PARAMETERS.name()], adjustments, data),
         });
+        placed.push((l, s));
     }
-    for (&(l, s, _), found) in wanted.iter().zip(&detected) {
+    for (&(l, s), found) in placed.iter().zip(&detected) {
         adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s][masks::PARAMETERS.name()] =
             found.parameters.clone();
     }
@@ -355,7 +499,8 @@ pub fn keep_detected_in(stored: &mut Value, frame: &Value, detected: &[Detected]
             continue;
         };
         if sub[masks::TYPE.name()].as_str().and_then(AutoSelection::of) != Some(found.selection)
-            || has_bitmap(&sub[masks::PARAMETERS.name()])
+            || (has_bitmap(&sub[masks::PARAMETERS.name()])
+                && !detects_again(&sub[masks::PARAMETERS.name()]))
             || run_key(found.selection, &sub[masks::PARAMETERS.name()])
                 != run_key(found.selection, p)
         {
@@ -475,6 +620,81 @@ mod tests {
             &mut || panic!("nothing to detect"),
         );
         assert_eq!(again, Ok(Vec::new()));
+    }
+
+    /// A selection migrated from a camera TIFF's thumbnail
+    /// (`recipe_frame::DETECT_AGAIN`) is computed again on the full frame
+    /// although it holds a bitmap; its refinements stay, and the stand-in's
+    /// frame and mark go.
+    #[test]
+    fn migrated_selections_are_detected_again() {
+        let mut adjustments = json!({"masks": [
+            {"id": "a", "name": "Sky", "visible": true, "subMasks": [
+                {"id": "s", "type": "ai-sky", "visible": true, "parameters": {"maskDataBase64": "data:thumb",
+                 "bitmapFrame": {"width": 288, "height": 192}, "detectAgain": true, "grow": 7, "feather": 20}},
+                {"id": "t", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": "data:thumb",
+                 "bitmapFrame": {"width": 288, "height": 192}, "detectAgain": true, "parts": ["hair"]}},
+                {"id": "u", "type": "ai-subject", "visible": true, "parameters": {"maskDataBase64": "data:thumb",
+                 "bitmapFrame": {"width": 288, "height": 192}}}]}]});
+        assert_eq!(
+            undetected(&adjustments)
+                .iter()
+                .map(|w| w.2)
+                .collect::<Vec<_>>(),
+            [AutoSelection::Sky, AutoSelection::People]
+        );
+        let source = Arc::new(DynamicImage::new_rgb8(6, 4));
+        let detector = Fixed(Default::default());
+        let found = detect_missing(
+            &mut adjustments,
+            &source,
+            false,
+            Some(&detector),
+            &mut || {},
+        )
+        .unwrap();
+        assert_eq!(found.len(), 2);
+        let sky = &adjustments["masks"][0]["subMasks"][0]["parameters"];
+        assert_eq!(sky["maskDataBase64"], "data:Sky:6x4");
+        assert_eq!(sky["grow"], 7);
+        assert_eq!(sky["feather"], 20);
+        assert!(sky.get("bitmapFrame").is_none() && sky.get("detectAgain").is_none());
+        // The Object selection keeps its migrated bitmap.
+        let object = &adjustments["masks"][0]["subMasks"][2]["parameters"];
+        assert_eq!(object["maskDataBase64"], "data:thumb");
+        assert!(undetected(&adjustments).is_empty());
+    }
+
+    /// Without a model here a migrated bitmap renders as it is: the export
+    /// keeps it instead of failing (a selection without a bitmap still
+    /// fails, as before).
+    #[test]
+    fn a_migrated_selection_without_a_model_keeps_its_bitmap() {
+        struct Failing;
+        impl SelectionDetector for Failing {
+            fn detect(
+                &self,
+                _: AutoSelection,
+                _: &Value,
+                _: &DynamicImage,
+                _: bool,
+            ) -> Result<String, String> {
+                Err("the sky model is not installed".into())
+            }
+        }
+        let migrated = json!({"masks": [{"id": "a", "name": "Sky", "visible": true, "subMasks": [
+            {"id": "s", "type": "ai-sky", "visible": true, "parameters": {"maskDataBase64": "data:thumb",
+             "bitmapFrame": {"width": 288, "height": 192}, "detectAgain": true}}]}]});
+        let source = Arc::new(DynamicImage::new_rgb8(6, 4));
+        for detector in [None, Some(&Failing as &dyn SelectionDetector)] {
+            let mut adjustments = migrated.clone();
+            let found = detect_missing(&mut adjustments, &source, false, detector, &mut || {});
+            assert_eq!(found, Ok(Vec::new()));
+            assert_eq!(adjustments, migrated);
+        }
+        let mut missing = migrated.clone();
+        missing["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"] = Value::Null;
+        assert!(detect_missing(&mut missing, &source, false, Some(&Failing), &mut || {}).is_err());
     }
 
     #[test]
@@ -672,5 +892,75 @@ mod tests {
         opened["masks"][1]["subMasks"][0]["parameters"]["maskDataBase64"] = json!("data:own");
         opened["masks"][1]["subMasks"][1]["parameters"]["maskDataBase64"] = json!("data:own");
         assert!(!keep_detected(&mut opened, &found));
+    }
+
+    struct Landscapes(std::sync::Mutex<Vec<Vec<Vec<&'static str>>>>);
+    impl SelectionDetector for Landscapes {
+        fn detect(
+            &self,
+            _: AutoSelection,
+            _: &Value,
+            _: &DynamicImage,
+            _: bool,
+        ) -> Result<String, String> {
+            Err("one part at a time".into())
+        }
+        fn detect_landscape(
+            &self,
+            sets: &[LandscapeParts],
+            _: &DynamicImage,
+            _: bool,
+        ) -> Result<Vec<String>, String> {
+            let sets: Vec<Vec<&'static str>> = sets.iter().map(|s| s.keys()).collect();
+            let found = sets
+                .iter()
+                .map(|keys| format!("data:{}", keys.join("+")))
+                .collect();
+            self.0.lock().unwrap().push(sets);
+            Ok(found)
+        }
+    }
+
+    #[test]
+    fn landscape_parts_of_a_photo_come_from_one_run() {
+        let part = |id: &str, parts: Value| {
+            json!({"id": id, "type": "ai-landscape", "visible": true,
+                "parameters": {"parts": parts, "maskDataBase64": null, "detectPending": true, "grow": 5}})
+        };
+        let mut adjustments = json!({"masks": [
+            {"id": "a", "name": "Land", "visible": true, "subMasks": [
+                part("w", json!(["water"])), part("m", json!(["architecture", "mountains"]))]},
+            {"id": "b", "name": "Water again", "visible": true, "subMasks": [part("x", json!(["water"]))]},
+            // A part this version does not know, or none, is not a selection.
+            {"id": "c", "name": "Unknown", "visible": true, "subMasks": [
+                part("y", json!(["water", "lava"])), part("z", json!([]))]}]});
+        assert_eq!(undetected(&adjustments).len(), 3);
+        let detector = Landscapes(Default::default());
+        let found = detect_missing(
+            &mut adjustments,
+            &Arc::new(DynamicImage::new_rgb8(6, 4)),
+            false,
+            Some(&detector),
+            &mut || {},
+        )
+        .unwrap();
+        assert_eq!(
+            *detector.0.lock().unwrap(),
+            [vec![vec!["water"], vec!["mountains", "architecture"]]]
+        );
+        assert_eq!(found.len(), 3);
+        let params =
+            |l: usize, s: usize| adjustments["masks"][l]["subMasks"][s]["parameters"].clone();
+        assert_eq!(params(0, 0)["maskDataBase64"], "data:water");
+        assert_eq!(params(0, 0)["parts"], json!(["water"]));
+        assert_eq!(params(0, 0)["grow"], 5);
+        assert!(params(0, 0).get("detectPending").is_none());
+        assert_eq!(
+            params(0, 1)["maskDataBase64"],
+            "data:mountains+architecture"
+        );
+        assert_eq!(params(1, 0)["maskDataBase64"], "data:water");
+        assert!(params(2, 0)["maskDataBase64"].is_null());
+        assert!(params(2, 1)["maskDataBase64"].is_null());
     }
 }

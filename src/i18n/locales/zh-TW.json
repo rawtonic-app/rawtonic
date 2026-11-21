@@ -5,6 +5,7 @@
       "depth": "AI 遮罩：深度",
       "foreground": "AI 遮罩：前景",
       "inpaint": "生成式填色",
+      "landscape": "AI 遮色片：風景",
       "object": "AI 遮罩：物件",
       "other": "AI 工作",
       "people": "AI 遮罩：人物",
@@ -483,7 +484,6 @@
       "confirmReset": "確認重置",
       "convertNegative": "轉換負片",
       "copyAdjustments": "複製調整",
-      "cullImage": "篩選影像",
       "editImage": "編輯影像",
       "exportImage": "匯出影像",
       "frameImage": "裝裱影像",
@@ -555,8 +555,6 @@
       "convertNegative_other": "轉換負片",
       "copyImage_one": "複製影像",
       "copyImage_other": "複製 {{count}} 張影像",
-      "cullImage_one": "篩選影像",
-      "cullImage_other": "篩選影像",
       "deleteAssociated": "刪除 + 關聯檔案",
       "deleteImage_one": "刪除影像",
       "deleteImage_other": "刪除 {{count}} 張影像",
@@ -869,6 +867,10 @@
       "exporting": "正在匯出…",
       "savesTo": "外部編輯 — 儲存至"
     },
+    "frameMove": {
+      "action": "移到完整影像",
+      "undecided": "此編輯可能是在 Rawtonic 0.1.0-alpha.17.1 之前此 TIFF 檔案顯示的小預覽圖上完成的。如果裁切和污點修復位置不對，請將其移到完整影像上。"
+    },
     "guided": {
       "cancel": "取消",
       "drawingActive": "繪圖中",
@@ -942,6 +944,7 @@
         "maskName_other": "遮色片 {{count}}"
       },
       "rangeTitle": "範圍與全域",
+      "recomputedFullFrame_other": "已為全解析度影像重新計算 {{count}} 個圖層的 AI 遮罩。復原可恢復先前的遮罩。",
       "resetMaskingTooltip": "重置遮色片",
       "settings": {
         "aiModelDownloading": "AI 模型下載中：",
@@ -1038,6 +1041,7 @@
       "flow": "流線",
       "foreground": "前景",
       "heal": "修復",
+      "landscape": "風景",
       "linear": "線性",
       "liquify": "液化",
       "luminance": "亮度",
@@ -1119,38 +1123,6 @@
       "create": "建立",
       "placeholder": "輸入資料夾名稱...",
       "title": "建立新資料夾"
-    },
-    "culling": {
-      "actionDelete": "移至垃圾桶",
-      "actionRateZero": "將評分設為 1 星",
-      "actionReject": "標記為已拒絕（紅色標籤）",
-      "applyButton_one": "應用到 1 張影像",
-      "applyButton_other": "應用到 {{count}} 張影像",
-      "bestImage": "最佳影像",
-      "blurryImagesTab": "模糊影像",
-      "blurThreshold": "模糊臨界值",
-      "blurThresholdDesc": "銳度評分低於此值的影像將被標記。值越高越嚴格。",
-      "cancel": "取消",
-      "close": "關閉",
-      "cullingFailed": "篩選失敗",
-      "cullingSuggestions": "篩選建議",
-      "done": "完成",
-      "duplicatesHeader": "重複項（{{count}}）",
-      "duplicatesHeader_one": "重複項（{{count}}）",
-      "duplicatesHeader_other": "重複項（{{count}}）",
-      "filterBlurry": "過濾模糊影像",
-      "groupHeader": "第 {{index}} 組",
-      "groupSimilar": "分組相似影像",
-      "noIssuesDesc": "所有影像似乎都是唯一且清晰的。",
-      "noIssuesFound": "未發現問題！",
-      "score": "評分：{{score}}",
-      "sharpness": "銳度：{{sharpness}}",
-      "similarGroupsTab": "相似組",
-      "similarityThreshold": "相似度臨界值",
-      "similarityThresholdDesc": "值越低越嚴格（完全重複）。值越高越寬鬆（近似重複）。建議值 24-32。",
-      "startCulling": "開始篩選",
-      "starting": "啟動中...",
-      "title": "篩選影像"
     },
     "merge": {
       "align": "對齊相片",
@@ -2196,7 +2168,7 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
@@ -2734,7 +2706,7 @@
       "done_one": "已建立 {{count}} 個堆疊",
       "done_other": "已建立 {{count}} 個堆疊",
       "interval": "相片間隔",
-      "intro": "與上一張相隔不超過此時間拍攝的相片會放入同一堆疊。已在堆疊中的相片維持不變。",
+      "intro": "與上一張相隔不超過此時間拍攝的相片放入同一堆疊；勾選「只限看起來相似的相片」後，還須是同一場景。已在堆疊中的相片保持不變。",
       "kind": {
         "bracket_one": "{{count}} 組包圍曝光",
         "bracket_other": "{{count}} 組包圍曝光",
@@ -2751,9 +2723,12 @@
       "reading": "正在計算…",
       "seconds_one": "{{count}} 秒",
       "seconds_other": "{{count}} 秒",
+      "similar": "只限看起來相似的相片",
+      "similarity": "最低相似度",
       "single_one": "{{count}} 張相片維持單獨",
       "single_other": "{{count}} 張相片維持單獨",
       "title": "依拍攝時間自動堆疊",
+      "unread_other": "{{count}} 張尚未讀取的相片僅依時間分組",
       "useCameraData": "若有相機連拍與包圍曝光資料則使用"
     },
     "badge": {
@@ -3092,6 +3067,33 @@
       "swapOrientation": "切換直式與橫式",
       "turnOverlay": "旋轉疊加"
     },
+    "culling": {
+      "analyse": "找出誤拍和文件",
+      "analyseDownload": "找出誤拍和文件（下載 {{size}}）",
+      "autoStack": "自動堆疊…",
+      "badge": "建議：{{names}}",
+      "checkEyes": "檢查眼睛…",
+      "checkTitle": "「拒絕」作用於已勾選的建議",
+      "criteria": {
+        "document": "文件",
+        "eyesClosed": "閉眼",
+        "misfire": "誤拍"
+      },
+      "criteriaLabel": "建議",
+      "dismiss_other": "沒有問題（已選 {{n}} 張）",
+      "dismissTitle": "所選相片的已勾選建議不再顯示",
+      "failed": "篩選建議未儲存：{{error}}",
+      "gridOnly": "「拒絕」作用於格線中顯示的相片：按 G 顯示格線。",
+      "needsModel": "為找出誤拍和文件，搜尋模型會讀取每張相片。",
+      "reading": "已讀取 {{scored}}/{{total}} 張相片",
+      "reject_other": "拒絕 {{n}} 張建議的相片",
+      "rejectTitle": "將所顯示相片中已勾選的建議標為拒絕，可一步復原；不移動也不刪除任何檔案",
+      "showAgain_other": "重新顯示建議（已選 {{n}} 張）",
+      "showOnly": "只顯示{{name}}（{{n}}）",
+      "suggestionOnly": "僅為建議：按下「拒絕」之前不會拒絕任何相片，復原即可還原。",
+      "title": "篩選",
+      "unreadable_other": "有 {{n}} 張相片無法讀取以產生建議；開啟圖庫時會重試。"
+    },
     "develop": {
       "auto": {
         "label": "自動",
@@ -3217,6 +3219,7 @@
           "brush": "畫筆",
           "color": "顏色",
           "depth": "深度",
+          "landscape": "風景",
           "linear": "線性",
           "luminance": "亮度",
           "object": "物件",
@@ -3246,6 +3249,7 @@
           "brush": "新增筆刷圖層",
           "color": "新增圖層：顏色範圍",
           "depth": "新增圖層：深度範圍",
+          "landscape": "新增風景圖層",
           "linear": "新增線性漸層圖層",
           "luminance": "新增圖層：亮度範圍",
           "object": "新增圖層：物件",
@@ -3861,6 +3865,23 @@
       "shadowClippingTitle": "陰影剪裁警告（照片中顯示為藍色；{{shortcut}} 同時切換兩側）",
       "title": "色階分佈圖"
     },
+    "landscape": {
+      "aria": "風景遮色片",
+      "choose": "選擇要選取的部分。",
+      "finding": "正在尋找風景的組成部分…",
+      "noneFound": "這張照片中未找到這些部分。",
+      "notFound": "（未找到）",
+      "parts": {
+        "architecture": "建築",
+        "artificialGround": "人工地面",
+        "mountains": "山脈",
+        "naturalGround": "自然地面",
+        "sky": "天空",
+        "vegetation": "植被",
+        "water": "水"
+      },
+      "partsAria": "風景的組成部分"
+    },
     "layers": {
       "bandWidth": "條帶寬度",
       "brush": {
@@ -4349,6 +4370,11 @@
             "purple": "紫色",
             "red": "紅色",
             "yellow": "黃色"
+          },
+          "suggestion": {
+            "document": "文件",
+            "eyesClosed": "閉眼",
+            "misfire": "誤拍"
           }
         },
         "combine": {
@@ -4386,6 +4412,8 @@
           "previousImport": "在上次匯入中",
           "rating": "星級",
           "sourceType": "數位來源類型（檔案中）",
+          "stacked": "在堆疊中",
+          "suggestion": "篩選建議",
           "text": "任何可搜尋的文字"
         },
         "folderPlaceholder": "資料夾路徑",
@@ -4584,6 +4612,7 @@
         "brush": "畫筆",
         "color": "顏色範圍",
         "depth": "深度範圍",
+        "landscape": "風景",
         "linear": "線性",
         "luminance": "亮度範圍",
         "object": "物件",

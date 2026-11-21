@@ -117,6 +117,11 @@ pub enum Field {
     /// check), `notVisible` or `open`; a photograph matches when one of its
     /// faces does.
     Eyes,
+    /// A culling suggestion the photographer has not dismissed (`cull`):
+    /// `misfire`, `document`, `eyesClosed`.
+    Suggestion,
+    /// In a stack (`true`) or not (`false`).
+    Stacked,
 }
 
 /// How a condition compares.
@@ -1077,6 +1082,33 @@ impl<'a> Compiler<'a> {
                     Op::Is => Ok(test),
                     Op::IsNot => Ok(format!("NOT {test}")),
                     _ => bail!("Use is / is not for eyes"),
+                }
+            }
+            Field::Suggestion => {
+                let parts = names_verbatim(value)?
+                    .iter()
+                    .map(|name| {
+                        let criterion = crate::cull::CRITERIA
+                            .iter()
+                            .find(|c| c.eq_ignore_ascii_case(name))
+                            .with_context(|| format!("Unknown culling suggestion {name}"))?;
+                        Ok(crate::cull::suggested_sql(criterion)?)
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let test = format!("({})", parts.join(" OR "));
+                match op {
+                    Op::Is => Ok(test),
+                    Op::IsNot => Ok(format!("NOT {test}")),
+                    _ => bail!("Use is / is not for culling suggestions"),
+                }
+            }
+            Field::Stacked => {
+                let wanted = value.as_bool().context("Stacked is true or false")?;
+                let test = "EXISTS(SELECT 1 FROM stack_members m WHERE m.asset_id=a.id)";
+                match (op, wanted) {
+                    (Op::Is, true) | (Op::IsNot, false) => Ok(test.to_string()),
+                    (Op::Is, false) | (Op::IsNot, true) => Ok(format!("NOT {test}")),
+                    _ => bail!("Use is / is not for stacked"),
                 }
             }
             Field::Album => {

@@ -5,6 +5,7 @@
       "depth": "Maska AI: głębia",
       "foreground": "Maska AI: pierwszy plan",
       "inpaint": "Wypełnienie generatywne",
+      "landscape": "Maska AI: Krajobraz",
       "object": "Maska AI: obiekt",
       "other": "Zadanie AI",
       "people": "Maska AI: osoby",
@@ -544,7 +545,6 @@
       "confirmReset": "Potwierdź reset",
       "convertNegative": "Konwertuj negatyw",
       "copyAdjustments": "Kopiuj korekty",
-      "cullImage": "Selekcja obrazu",
       "editImage": "Edytuj obraz",
       "exportImage": "Eksportuj obraz",
       "frameImage": "Dodaj ramkę do obrazu",
@@ -628,10 +628,6 @@
       "copyImage_few": "Kopiuj {{count}} obrazy",
       "copyImage_many": "Kopiuj {{count}} obrazów",
       "copyImage_other": "Kopiuj {{count}} obrazów",
-      "cullImage_one": "Selekcja obrazu",
-      "cullImage_few": "Selekcja {{count}} obrazów",
-      "cullImage_many": "Selekcja {{count}} obrazów",
-      "cullImage_other": "Selekcja obrazów",
       "deleteAssociated": "Usuń + powiązane",
       "deleteImage_one": "Usuń obraz",
       "deleteImage_few": "Usuń {{count}} obrazy",
@@ -978,6 +974,10 @@
       "exporting": "Eksportowanie…",
       "savesTo": "Zewnętrzna edycja — zapisuje do"
     },
+    "frameMove": {
+      "action": "Przenieś na pełny obraz",
+      "undecided": "Ta edycja mogła powstać na małym podglądzie, który ten plik TIFF pokazywał przed Rawtonic 0.1.0-alpha.17.1. Jeśli kadrowanie i punktowe poprawki są w złym miejscu, przenieś je na pełny obraz."
+    },
     "guided": {
       "cancel": "Anuluj",
       "drawingActive": "Rysowanie aktywne",
@@ -1053,6 +1053,10 @@
         "maskName_other": "Maska {{count}}"
       },
       "rangeTitle": "Zakresy i globalne",
+      "recomputedFullFrame_one": "Maski AI na {{count}} warstwie zostały przeliczone dla obrazu w pełnej rozdzielczości. Cofnij przywraca wcześniejsze.",
+      "recomputedFullFrame_few": "Maski AI na {{count}} warstwach zostały przeliczone dla obrazu w pełnej rozdzielczości. Cofnij przywraca wcześniejsze.",
+      "recomputedFullFrame_many": "Maski AI na {{count}} warstwach zostały przeliczone dla obrazu w pełnej rozdzielczości. Cofnij przywraca wcześniejsze.",
+      "recomputedFullFrame_other": "Maski AI na {{count}} warstwach zostały przeliczone dla obrazu w pełnej rozdzielczości. Cofnij przywraca wcześniejsze.",
       "resetMaskingTooltip": "Resetuj maskowanie",
       "settings": {
         "aiModelDownloading": "Pobieranie modelu AI: ",
@@ -1149,6 +1153,7 @@
       "flow": "Przepływ",
       "foreground": "Pierwszy plan",
       "heal": "Naprawianie",
+      "landscape": "Krajobraz",
       "linear": "Liniowy",
       "liquify": "Skraplanie",
       "luminance": "Luminancja",
@@ -1230,42 +1235,6 @@
       "create": "Utwórz",
       "placeholder": "Wpisz nazwę folderu...",
       "title": "Utwórz nowy folder"
-    },
-    "culling": {
-      "actionDelete": "Przenieś do kosza",
-      "actionRateZero": "Ustaw ocenę na 1 Gwiazdkę",
-      "actionReject": "Oznacz jako odrzucone (Czerwona etykieta)",
-      "applyButton_one": "Zastosuj dla 1 obrazu",
-      "applyButton_few": "Zastosuj dla {{count}} obrazów",
-      "applyButton_many": "Zastosuj dla {{count}} obrazów",
-      "applyButton_other": "Zastosuj dla {{count}} obrazów",
-      "bestImage": "Najlepszy obraz",
-      "blurryImagesTab": "Rozmyte obrazy",
-      "blurThreshold": "Próg rozmycia",
-      "blurThresholdDesc": "Obrazy z oceną ostrości poniżej tej wartości są oznaczane. Wyższa wartość = ostrzejsze kryteria.",
-      "cancel": "Anuluj",
-      "close": "Zamknij",
-      "cullingFailed": "Selekcja nie powiodła się",
-      "cullingSuggestions": "Sugestie do selekcji",
-      "done": "Gotowe",
-      "duplicatesHeader": "Duplikaty ({{count}})",
-      "duplicatesHeader_one": "Duplikaty ({{count}})",
-      "duplicatesHeader_few": "Duplikaty ({{count}})",
-      "duplicatesHeader_many": "Duplikaty ({{count}})",
-      "duplicatesHeader_other": "Duplikaty ({{count}})",
-      "filterBlurry": "Filtruj rozmyte obrazy",
-      "groupHeader": "Grupa {{index}}",
-      "groupSimilar": "Grupuj podobne obrazy",
-      "noIssuesDesc": "Wszystkie obrazy wydają się być unikalne i ostre.",
-      "noIssuesFound": "Nie znaleziono problemów!",
-      "score": "Wynik: {{score}}",
-      "sharpness": "Ostrość: {{sharpness}}",
-      "similarGroupsTab": "Podobne grupy",
-      "similarityThreshold": "Próg podobieństwa",
-      "similarityThresholdDesc": "Niższa wartość = ostrzejsze (dokładne duplikaty). Wyższa wartość = luźniejsze (zbliżone duplikaty). Rekomendowana wartość: 24-32.",
-      "startCulling": "Rozpocznij selekcję",
-      "starting": "Rozpoczynanie...",
-      "title": "Selekcja obrazów"
     },
     "merge": {
       "align": "Wyrównaj zdjęcia",
@@ -2562,7 +2531,7 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
@@ -3112,7 +3081,7 @@
       "done_many": "Utworzono {{count}} stosów",
       "done_other": "Utworzono {{count}} stosu",
       "interval": "Czas między zdjęciami",
-      "intro": "Zdjęcia zrobione najwyżej tyle po poprzednim trafiają do jednego stosu. Zdjęcia, które są już w stosie, pozostają bez zmian.",
+      "intro": "Zdjęcia zrobione najwyżej tyle po poprzednim trafiają do jednego stosu; z „Tylko zdjęcia, które są podobne” muszą też pokazywać tę samą scenę. Zdjęcia, które już są w stosie, zostają bez zmian.",
       "kind": {
         "bracket_one": "{{count}} bracketing",
         "bracket_few": "{{count}} bracketingi",
@@ -3141,11 +3110,17 @@
       "seconds_few": "{{count}} sekundy",
       "seconds_many": "{{count}} sekund",
       "seconds_other": "{{count}} sekundy",
+      "similar": "Tylko zdjęcia, które są podobne",
+      "similarity": "Podobieństwo co najmniej",
       "single_one": "{{count}} zdjęcie zostaje pojedyncze",
       "single_few": "{{count}} zdjęcia zostają pojedyncze",
       "single_many": "{{count}} zdjęć zostaje pojedynczych",
       "single_other": "{{count}} zdjęcia zostaje pojedynczych",
       "title": "Automatyczne stosy wg czasu wykonania",
+      "unread_one": "{{count}} jeszcze nieodczytane zdjęcie jest grupowane tylko według czasu",
+      "unread_few": "{{count}} jeszcze nieodczytane zdjęcia są grupowane tylko według czasu",
+      "unread_many": "{{count}} jeszcze nieodczytanych zdjęć jest grupowanych tylko według czasu",
+      "unread_other": "{{count}} jeszcze nieodczytanego zdjęcia jest grupowane tylko według czasu",
       "useCameraData": "Użyj danych serii i bracketingu z aparatu, jeśli są dostępne"
     },
     "badge": {
@@ -3495,6 +3470,45 @@
       "swapOrientation": "Zamień orientację pionową i poziomą",
       "turnOverlay": "Obróć nakładkę"
     },
+    "culling": {
+      "analyse": "Znajdź nieudane ujęcia i dokumenty",
+      "analyseDownload": "Znajdź nieudane ujęcia i dokumenty (pobierz {{size}})",
+      "autoStack": "Układaj w stosy automatycznie…",
+      "badge": "Sugerowane: {{names}}",
+      "checkEyes": "Sprawdź oczy…",
+      "checkTitle": "Odrzuć bierze zaznaczone sugestie",
+      "criteria": {
+        "document": "Dokumenty",
+        "eyesClosed": "Zamknięte oczy",
+        "misfire": "Nieudane ujęcia"
+      },
+      "criteriaLabel": "Sugestie",
+      "dismiss_one": "To nie problem ({{n}} zaznaczone)",
+      "dismiss_few": "To nie problem ({{n}} zaznaczone)",
+      "dismiss_many": "To nie problem ({{n}} zaznaczonych)",
+      "dismiss_other": "To nie problem ({{n}} zaznaczonego)",
+      "dismissTitle": "Zaznaczone sugestie wybranych zdjęć nie będą już pokazywane",
+      "failed": "Nie zapisano sugestii selekcji: {{error}}",
+      "gridOnly": "Odrzuć działa na zdjęcia pokazane w siatce: G pokazuje siatkę.",
+      "needsModel": "Aby znaleźć nieudane ujęcia i dokumenty, model wyszukiwania odczytuje każde zdjęcie.",
+      "reading": "Odczytano {{scored}} z {{total}} zdjęć",
+      "reject_one": "Odrzuć {{n}} sugerowane zdjęcie",
+      "reject_few": "Odrzuć {{n}} sugerowane zdjęcia",
+      "reject_many": "Odrzuć {{n}} sugerowanych zdjęć",
+      "reject_other": "Odrzuć {{n}} sugerowanego zdjęcia",
+      "rejectTitle": "Oznacza zaznaczone sugestie wśród pokazanych zdjęć jako odrzucone w jednym kroku cofania; nic nie jest przenoszone ani usuwane",
+      "showAgain_one": "Pokaż sugestie ponownie ({{n}} zaznaczone)",
+      "showAgain_few": "Pokaż sugestie ponownie ({{n}} zaznaczone)",
+      "showAgain_many": "Pokaż sugestie ponownie ({{n}} zaznaczonych)",
+      "showAgain_other": "Pokaż sugestie ponownie ({{n}} zaznaczonego)",
+      "showOnly": "Pokaż tylko: {{name}} ({{n}})",
+      "suggestionOnly": "Tylko sugestie: nic nie zostaje odrzucone, dopóki nie klikniesz Odrzuć, a Cofnij to odwraca.",
+      "title": "Selekcja",
+      "unreadable_one": "{{n}} zdjęcia nie udało się odczytać dla sugestii; nastąpi ponowna próba przy otwarciu biblioteki.",
+      "unreadable_few": "{{n}} zdjęć nie udało się odczytać dla sugestii; nastąpi ponowna próba przy otwarciu biblioteki.",
+      "unreadable_many": "{{n}} zdjęć nie udało się odczytać dla sugestii; nastąpi ponowna próba przy otwarciu biblioteki.",
+      "unreadable_other": "{{n}} zdjęcia nie udało się odczytać dla sugestii; nastąpi ponowna próba przy otwarciu biblioteki."
+    },
     "develop": {
       "auto": {
         "label": "Auto",
@@ -3620,6 +3634,7 @@
           "brush": "Pędzel",
           "color": "Kolor",
           "depth": "Głębia",
+          "landscape": "Krajobraz",
           "linear": "Liniowy",
           "luminance": "Luminancja",
           "object": "Obiekt",
@@ -3649,6 +3664,7 @@
           "brush": "Nowa warstwa: Pędzel",
           "color": "Nowa warstwa: Zakres koloru",
           "depth": "Nowa warstwa: Zakres głębi",
+          "landscape": "Nowa warstwa krajobrazu",
           "linear": "Nowa warstwa gradientu liniowego",
           "luminance": "Nowa warstwa: Zakres luminancji",
           "object": "Nowa warstwa: Obiekt",
@@ -4291,6 +4307,23 @@
       "shadowClippingTitle": "Ostrzeżenie o obciętych cieniach (niebieski na zdjęciu; {{shortcut}} przełącza oba)",
       "title": "Histogram"
     },
+    "landscape": {
+      "aria": "Maska krajobrazu",
+      "choose": "Wybierz części do zaznaczenia.",
+      "finding": "Wyszukiwanie części krajobrazu…",
+      "noneFound": "Na tym zdjęciu nie znaleziono żadnej z tych części.",
+      "notFound": "(nie znaleziono)",
+      "parts": {
+        "architecture": "Architektura",
+        "artificialGround": "Podłoże sztuczne",
+        "mountains": "Góry",
+        "naturalGround": "Podłoże naturalne",
+        "sky": "Niebo",
+        "vegetation": "Roślinność",
+        "water": "Woda"
+      },
+      "partsAria": "Części krajobrazu"
+    },
     "layers": {
       "bandWidth": "Szerokość pasa",
       "brush": {
@@ -4844,6 +4877,11 @@
             "purple": "Fioletowy",
             "red": "Czerwony",
             "yellow": "Żółty"
+          },
+          "suggestion": {
+            "document": "Dokument",
+            "eyesClosed": "Zamknięte oczy",
+            "misfire": "Nieudane ujęcie"
           }
         },
         "combine": {
@@ -4881,6 +4919,8 @@
           "previousImport": "W poprzednim imporcie",
           "rating": "Ocena",
           "sourceType": "Źródło cyfrowe (w pliku)",
+          "stacked": "W stosie",
+          "suggestion": "Sugestia selekcji",
           "text": "Dowolny tekst do wyszukania"
         },
         "folderPlaceholder": "Ścieżka folderu",
@@ -5098,6 +5138,7 @@
         "brush": "Pędzel",
         "color": "Zakres koloru",
         "depth": "Zakres głębi",
+        "landscape": "Krajobraz",
         "linear": "Liniowy",
         "luminance": "Zakres luminancji",
         "object": "Obiekt",

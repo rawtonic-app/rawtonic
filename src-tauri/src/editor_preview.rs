@@ -24,7 +24,7 @@ use crate::image_processing::process_and_get_dynamic_image;
 use crate::image_processing::resolve_tonemapper_override;
 use crate::image_processing::resolve_tonemapper_override_from_handle;
 use crate::image_processing::warp_image_geometry;
-use crate::image_processing::{downscale_f32_image, resample_f32_image};
+use crate::image_processing::{downscale_f32_image_signed, resample_f32_image};
 use crate::image_processing::{
     get_all_adjustments_from_json, get_all_adjustments_with_masks, mask_definitions_from_json,
 };
@@ -436,10 +436,9 @@ fn build_reduced_preview_base(
             if input.dimensions() == (width, height) {
                 input.clone()
             } else {
-                // Ringing cut at 0, as `resample_f32_image` cuts it.
-                let mut resized = rawtonic_engine::lanczos::resize_signed(input, width, height);
-                resized.iter_mut().for_each(|v| *v = v.max(0.0));
-                resized
+                // As `resample_f32_image`: ringing cut at 0, colours
+                // beyond sRGB kept.
+                rawtonic_engine::lanczos::resize_wide_gamut(input, width, height)
             },
         )),
         None if width < source.width() || height < source.height() => {
@@ -623,7 +622,9 @@ pub(crate) fn prepare_interactive_preview(
         let ratio = width as f32 / height as f32;
         ((target_size as f32 * ratio) as u32, target_size)
     };
-    Some(Arc::new(downscale_f32_image(
+    // Signed: colours beyond sRGB keep their negative channels during a
+    // drag as in the final frame (`resample_f32_image`) and the export.
+    Some(Arc::new(downscale_f32_image_signed(
         final_preview,
         small_width,
         small_height,
@@ -5205,7 +5206,7 @@ mod preview_memory_tests {
         let scale = reduced_preview_scale(w, h, &adjustments, dim).expect("reduced");
         for round in 0..3 {
             let start = std::time::Instant::now();
-            let reduced = downscale_f32_image(
+            let reduced = crate::image_processing::downscale_f32_image(
                 &source,
                 (w as f32 * scale).round() as u32,
                 (h as f32 * scale).round() as u32,
@@ -5309,15 +5310,28 @@ mod preview_memory_tests {
     }
     #[test]
     fn final_preview_defers_interactive_resampling_and_preserves_prepared_pixels() {
-        let original = Arc::new(DynamicImage::ImageRgb32F(image::Rgb32FImage::new(12, 8)));
+        // A colour beyond sRGB (negative red) in one corner.
+        let original = Arc::new(DynamicImage::ImageRgb32F(image::Rgb32FImage::from_fn(
+            12,
+            8,
+            |x, y| {
+                image::Rgb(if x < 3 && y < 3 {
+                    [-0.1, 0.1, 0.8]
+                } else {
+                    [0.0; 3]
+                })
+            },
+        )));
         assert!(prepare_interactive_preview(&original, 12, 1.4, false, None).is_none());
         let full = prepare_interactive_preview(&original, 12, 1.0, true, None).unwrap();
         assert!(Arc::ptr_eq(&original, &full));
         let small = prepare_interactive_preview(&original, 12, 1.4, true, None).unwrap();
         assert_eq!(
             small.as_bytes(),
-            downscale_f32_image(&original, 8, 5).as_bytes()
+            rawtonic_engine::image_processing::downscale_f32_image_signed(&original, 8, 5)
+                .as_bytes()
         );
+        assert!(small.to_rgb32f().get_pixel(0, 0)[0] < -0.05);
         for interactive in [false, true] {
             let cached =
                 prepare_interactive_preview(&original, 12, 1.4, interactive, Some(&small)).unwrap();
@@ -5351,7 +5365,7 @@ mod lateral_ca_sharing_tests {
     #[test]
     fn a_cached_preview_base_warps_with_the_exports_estimate() {
         let full = DynamicImage::ImageRgb32F(photo(3000, 2000));
-        let reduced = downscale_f32_image(&full, 1500, 1500);
+        let reduced = crate::image_processing::downscale_f32_image(&full, 1500, 1500);
         let full_dims = full.dimensions();
         let off = json!({"autoCaVersion": 2, "autoChromaticAberration": false});
         let on = json!({"autoCaVersion": 2, "autoChromaticAberration": true});
@@ -5389,7 +5403,7 @@ mod lateral_ca_sharing_tests {
         let full = DynamicImage::ImageRgb32F(photo(3000, 2000));
         // (A size no other test's reduced copy has: the estimates are cached
         // per pixels for the whole process.)
-        let draft = downscale_f32_image(&full, 1400, 1400);
+        let draft = crate::image_processing::downscale_f32_image(&full, 1400, 1400);
         let scale = draft.width() as f32 / 3000.0;
         let on = json!({"autoCaVersion": 2, "autoChromaticAberration": true});
         let off = json!({"autoCaVersion": 2, "autoChromaticAberration": false});

@@ -5,6 +5,7 @@
       "depth": "Màscara IA: profunditat",
       "foreground": "Màscara IA: primer pla",
       "inpaint": "Emplenament generatiu",
+      "landscape": "Màscara IA: Paisatge",
       "object": "Màscara IA: objecte",
       "other": "Tasca d’IA",
       "people": "Màscara IA: persones",
@@ -520,7 +521,6 @@
       "confirmReset": "Confirmar restabliment",
       "convertNegative": "Convertir negatiu",
       "copyAdjustments": "Copiar ajustaments",
-      "cullImage": "Cribrar imatge",
       "editImage": "Editar imatge",
       "exportImage": "Exportar imatge",
       "frameImage": "Emmarcar imatge",
@@ -598,9 +598,6 @@
       "copyImage_one": "Copiar imatge",
       "copyImage_many": "Copiar {{count}} imatges",
       "copyImage_other": "Copiar {{count}} imatges",
-      "cullImage_one": "Cribrar imatge",
-      "cullImage_many": "Cribrar imatges",
-      "cullImage_other": "Cribrar imatges",
       "deleteAssociated": "Eliminar + Associades",
       "deleteImage_one": "Eliminar imatge",
       "deleteImage_many": "Eliminar {{count}} imatges",
@@ -930,6 +927,10 @@
       "exporting": "S'està exportant…",
       "savesTo": "Edició externa — es desa a"
     },
+    "frameMove": {
+      "action": "Mou a la imatge completa",
+      "undecided": "Potser aquesta edició es va fer sobre la petita previsualització que aquest fitxer TIFF mostrava abans de Rawtonic 0.1.0-alpha.17.1. Si el retall i els retocs puntuals estan mal col·locats, mou-los a la imatge completa."
+    },
     "guided": {
       "cancel": "Cancel·lar",
       "drawingActive": "Dibuix actiu",
@@ -1004,6 +1005,9 @@
         "maskName_other": "Màscara {{count}}"
       },
       "rangeTitle": "Rangs i global",
+      "recomputedFullFrame_one": "Les màscares d’IA de {{count}} capa s’han recalculat per a la imatge a resolució completa. Desfer recupera les anteriors.",
+      "recomputedFullFrame_many": "Les màscares d’IA de {{count}} capes s’han recalculat per a la imatge a resolució completa. Desfer recupera les anteriors.",
+      "recomputedFullFrame_other": "Les màscares d’IA de {{count}} capes s’han recalculat per a la imatge a resolució completa. Desfer recupera les anteriors.",
       "resetMaskingTooltip": "Restablir emmascarament",
       "settings": {
         "aiModelDownloading": "S'està baixant el model d'IA: ",
@@ -1100,6 +1104,7 @@
       "flow": "Flux",
       "foreground": "Primer pla",
       "heal": "Corregir",
+      "landscape": "Paisatge",
       "linear": "Lineal",
       "liquify": "Liquar",
       "luminance": "Luminància",
@@ -1181,40 +1186,6 @@
       "create": "Crear",
       "placeholder": "Introduïu el nom de la carpeta...",
       "title": "Crear nova carpeta"
-    },
-    "culling": {
-      "actionDelete": "Moure a la paperera",
-      "actionRateZero": "Establir puntuació a 1 estrella",
-      "actionReject": "Marcar com a rebutjada (Etiqueta vermella)",
-      "applyButton_one": "Aplicar a 1 imatge",
-      "applyButton_many": "Aplicar a {{count}} imatges",
-      "applyButton_other": "Aplicar a {{count}} imatges",
-      "bestImage": "Millor imatge",
-      "blurryImagesTab": "Imatges borroses",
-      "blurThreshold": "Llindar de desenfocament",
-      "blurThresholdDesc": "Les imatges amb una puntuació de nitidesa per sota d'aquest valor es marcaran. Un valor més alt és més estricte.",
-      "cancel": "Cancel·lar",
-      "close": "Tancar",
-      "cullingFailed": "El cribratge ha fallat",
-      "cullingSuggestions": "Suggeriments de cribratge",
-      "done": "Fet",
-      "duplicatesHeader": "Duplicats ({{count}})",
-      "duplicatesHeader_one": "Duplicats ({{count}})",
-      "duplicatesHeader_many": "Duplicats ({{count}})",
-      "duplicatesHeader_other": "Duplicats ({{count}})",
-      "filterBlurry": "Filtrar imatges borroses",
-      "groupHeader": "Grup {{index}}",
-      "groupSimilar": "Agrupar imatges similars",
-      "noIssuesDesc": "Toutes les imatges semblen ser úniques i nítides.",
-      "noIssuesFound": "No s'ha trobat cap problema!",
-      "score": "Puntuació: {{score}}",
-      "sharpness": "Nitidesa: {{sharpness}}",
-      "similarGroupsTab": "Grups similars",
-      "similarityThreshold": "Llindar de similitud",
-      "similarityThresholdDesc": "Més baix és més estricte (duplicats exactes). Més alt és més flexible (gairebé duplicats). Es recomana un valor de 24 a 32.",
-      "startCulling": "Iniciar cribratge",
-      "starting": "S'està iniciant...",
-      "title": "Cribrar imatges"
     },
     "merge": {
       "align": "Alinea les fotos",
@@ -2426,7 +2397,7 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
@@ -2970,7 +2941,7 @@
       "done_many": "S’han creat {{count}} piles",
       "done_other": "S’han creat {{count}} piles",
       "interval": "Temps entre fotos",
-      "intro": "Les fotos fetes com a màxim aquest temps després de l’anterior comparteixen pila. Les fotos que ja són en una pila no canvien.",
+      "intro": "Les fotos fetes com a molt aquest temps després de l’anterior comparteixen pila; amb «Només fotos que s’assemblen» també han de mostrar la mateixa escena. Les fotos que ja són en una pila no canvien.",
       "kind": {
         "bracket_one": "{{count}} horquillat",
         "bracket_many": "{{count}} horquillats",
@@ -2993,10 +2964,15 @@
       "seconds_one": "{{count}} segon",
       "seconds_many": "{{count}} segons",
       "seconds_other": "{{count}} segons",
+      "similar": "Només fotos que s’assemblen",
+      "similarity": "Semblança mínima",
       "single_one": "{{count}} foto queda sola",
       "single_many": "{{count}} fotos queden soles",
       "single_other": "{{count}} fotos queden soles",
       "title": "Apila automàticament per hora de captura",
+      "unread_one": "{{count}} foto encara no llegida s’agrupa només per l’hora",
+      "unread_many": "{{count}} fotos encara no llegides s’agrupen només per l’hora",
+      "unread_other": "{{count}} fotos encara no llegides s’agrupen només per l’hora",
       "useCameraData": "Fes servir les dades de ràfega i horquillat de la càmera si n’hi ha"
     },
     "badge": {
@@ -3341,6 +3317,41 @@
       "swapOrientation": "Canvia entre vertical i horitzontal",
       "turnOverlay": "Gira la superposició"
     },
+    "culling": {
+      "analyse": "Troba trets fallits i documents",
+      "analyseDownload": "Troba trets fallits i documents (baixa {{size}})",
+      "autoStack": "Apila automàticament…",
+      "badge": "Suggerit: {{names}}",
+      "checkEyes": "Comprova els ulls…",
+      "checkTitle": "Rebutja agafa els suggeriments marcats",
+      "criteria": {
+        "document": "Documents",
+        "eyesClosed": "Ulls tancats",
+        "misfire": "Trets fallits"
+      },
+      "criteriaLabel": "Suggeriments",
+      "dismiss_one": "No és cap problema ({{n}} seleccionada)",
+      "dismiss_many": "No és cap problema ({{n}} seleccionades)",
+      "dismiss_other": "No és cap problema ({{n}} seleccionades)",
+      "dismissTitle": "Els suggeriments marcats de les fotos seleccionades no es tornen a mostrar",
+      "failed": "Suggeriments de descart no desats: {{error}}",
+      "gridOnly": "Rebutja actua sobre les fotos que mostra la quadrícula: G mostra la quadrícula.",
+      "needsModel": "Per trobar trets fallits i documents, el model de cerca llegeix cada foto.",
+      "reading": "{{scored}} de {{total}} fotos llegides",
+      "reject_one": "Rebutja {{n}} foto suggerida",
+      "reject_many": "Rebutja {{n}} fotos suggerides",
+      "reject_other": "Rebutja {{n}} fotos suggerides",
+      "rejectTitle": "Marca com a rebutjats els suggeriments marcats entre les fotos mostrades, en un sol pas de desfer; no es mou ni s’esborra res",
+      "showAgain_one": "Torna a mostrar els suggeriments ({{n}} seleccionada)",
+      "showAgain_many": "Torna a mostrar els suggeriments ({{n}} seleccionades)",
+      "showAgain_other": "Torna a mostrar els suggeriments ({{n}} seleccionades)",
+      "showOnly": "Mostra només {{name}} ({{n}})",
+      "suggestionOnly": "Només suggeriments: no es rebutja res fins que feu clic a Rebutja, i Desfés ho reverteix.",
+      "title": "Descart",
+      "unreadable_one": "{{n}} foto no s’ha pogut llegir per als suggeriments; es tornarà a provar en obrir la biblioteca.",
+      "unreadable_many": "{{n}} fotos no s’han pogut llegir per als suggeriments; es tornaran a provar en obrir la biblioteca.",
+      "unreadable_other": "{{n}} fotos no s’han pogut llegir per als suggeriments; es tornaran a provar en obrir la biblioteca."
+    },
     "develop": {
       "auto": {
         "label": "Auto",
@@ -3466,6 +3477,7 @@
           "brush": "Pinzell",
           "color": "Color",
           "depth": "Profunditat",
+          "landscape": "Paisatge",
           "linear": "Lineal",
           "luminance": "Luminància",
           "object": "Objecte",
@@ -3495,6 +3507,7 @@
           "brush": "Nova capa de pinzell",
           "color": "Nova capa: Rang de color",
           "depth": "Nova capa: Rang de profunditat",
+          "landscape": "Nova capa de paisatge",
           "linear": "Nova capa de degradat lineal",
           "luminance": "Nova capa: Rang de luminància",
           "object": "Nova capa: Objecte",
@@ -4128,6 +4141,23 @@
       "shadowClippingTitle": "Avís de retall d'ombres (blau a la foto; {{shortcut}} alterna tots dos)",
       "title": "Histograma"
     },
+    "landscape": {
+      "aria": "Màscara de paisatge",
+      "choose": "Tria les parts que vols seleccionar.",
+      "finding": "S'estan cercant les parts del paisatge…",
+      "noneFound": "No s'ha trobat cap d'aquestes parts en aquesta foto.",
+      "notFound": "(no trobada)",
+      "parts": {
+        "architecture": "Arquitectura",
+        "artificialGround": "Sòl artificial",
+        "mountains": "Muntanyes",
+        "naturalGround": "Sòl natural",
+        "sky": "Cel",
+        "vegetation": "Vegetació",
+        "water": "Aigua"
+      },
+      "partsAria": "Parts del paisatge"
+    },
     "layers": {
       "bandWidth": "Amplada de banda",
       "brush": {
@@ -4657,6 +4687,11 @@
             "purple": "Púrpura",
             "red": "Vermell",
             "yellow": "Groc"
+          },
+          "suggestion": {
+            "document": "Document",
+            "eyesClosed": "Ulls tancats",
+            "misfire": "Tret fallit"
           }
         },
         "combine": {
@@ -4694,6 +4729,8 @@
           "previousImport": "A la importació anterior",
           "rating": "Valoració",
           "sourceType": "Origen digital (al fitxer)",
+          "stacked": "En una pila",
+          "suggestion": "Suggeriment de descart",
           "text": "Qualsevol text cercable"
         },
         "folderPlaceholder": "Camí de la carpeta",
@@ -4903,6 +4940,7 @@
         "brush": "Pinzell",
         "color": "Rang de color",
         "depth": "Rang de profunditat",
+        "landscape": "Paisatge",
         "linear": "Lineal",
         "luminance": "Rang de luminància",
         "object": "Objecte",

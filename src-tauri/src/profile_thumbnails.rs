@@ -10,8 +10,8 @@ use crate::cache_utils::calculate_transform_hash;
 use crate::editor_preview::{preview_mask_bitmaps, preview_source};
 use crate::gpu_processing;
 use crate::image_processing::{
-    RenderRequest, downscale_f32_image, get_all_adjustments_with_masks, get_or_init_gpu_context,
-    mask_definitions_from_json, resolve_tonemapper_override_from_handle,
+    RenderRequest, downscale_f32_image_signed, get_all_adjustments_with_masks,
+    get_or_init_gpu_context, mask_definitions_from_json, resolve_tonemapper_override_from_handle,
 };
 use crate::lut_processing;
 use crate::state::develop::DevelopSession;
@@ -208,7 +208,9 @@ fn small_base(base: &Arc<DynamicImage>, transform_hash: u64, size: u32) -> Arc<D
     {
         return Arc::clone(image);
     }
-    let image = Arc::new(downscale_f32_image(base, size, size));
+    // Signed: colours beyond sRGB keep their negative channels, as in the
+    // export's full-resolution develop.
+    let image = Arc::new(downscale_f32_image_signed(base, size, size));
     *cached = Some((key, Arc::clone(&image)));
     image
 }

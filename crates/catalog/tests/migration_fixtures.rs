@@ -849,6 +849,24 @@ fn fill(conn: &Connection, version: usize) {
             ("error", t("unreadable")),
         ],
     );
+    // Culling (schema 30): photograph 3 scored as a misfire, which the
+    // photographer dismissed for photograph 9.
+    put(
+        conn,
+        "cull_scores",
+        &[
+            ("asset_id", t(&asset_id(3))),
+            ("model", t("d6e4f91fd3779a52/prompts-1")),
+            ("fingerprint", t(&format!("xxh3:{:016x}", 3 * 7919))),
+            ("misfire", r(0.25)),
+            ("document", r(0.001)),
+        ],
+    );
+    put(
+        conn,
+        "cull_dismissed",
+        &[("asset_id", t(&asset_id(9))), ("criterion", t("misfire"))],
+    );
     // A stack of photograph 1, its copy and photograph 2 (schema 22).
     put(conn, "stacks", &[("id", t("stack-1")), ("collapsed", i(1))]);
     for (photo, copy, position) in [(1, "", 0), (1, "a1b2c3", 1), (2, "", 2)] {
@@ -1112,6 +1130,14 @@ fn searches() -> Vec<(&'static str, serde_json::Value)> {
         (
             "eyes closed",
             json!({"field": "eyes", "op": "is", "value": "closed"}),
+        ),
+        (
+            "misfire suggested",
+            json!({"field": "suggestion", "op": "is", "value": "misfire"}),
+        ),
+        (
+            "stacked",
+            json!({"field": "stacked", "op": "is", "value": true}),
         ),
         (
             "none of: keyword wedding, rating 0",

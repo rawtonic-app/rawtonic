@@ -72,8 +72,16 @@ Rawtonic otherwise goes online only when you ask it to:
   photos with people the people-normal model. Content search (the Library search
   box's *Content* mode) downloads its model (1.5 GB, or 1.2 GB when automatic
   keywords already installed the image model) only when you click *Download
-  search model*; it then reads what your library's photos show from their
-  thumbnails on your computer and keeps that in the library's catalog.
+  search model* (or, in the Library's Culling panel, *Find misfires and
+  documents*, which downloads the same model); it then reads what your
+  library's photos show from their thumbnails on your computer and keeps
+  that, and the misfire and document scores made from it, in the library's
+  catalog.
+  The Landscape mask downloads its model (119 MB) only when you open a Landscape
+  mask's settings in Develop. Until then a Landscape layer that was pasted, synced
+  or came with a preset stays without its mask (opening its photo downloads
+  nothing), and exporting that photo stops with a message to open the mask's
+  settings.
   Ticking Super Resolution in the Export dialog (or opening the dialog with a
   preset that has it) downloads its model if it is not installed yet, on
   Windows and Linux with GPU AI on also its 1.2 MB graphics-card version.

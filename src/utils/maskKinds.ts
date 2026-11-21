@@ -18,6 +18,7 @@ export type MaskKind =
   | 'background'
   | 'object'
   | 'people'
+  | 'landscape'
   | 'color'
   | 'luminance'
   | 'depth';
@@ -31,6 +32,7 @@ export const MASK_KIND_LABELS: Record<MaskKind, string> = {
   background: 'Background',
   object: 'Object',
   people: 'People',
+  landscape: 'Landscape',
   color: 'Color range',
   luminance: 'Luminance range',
   depth: 'Depth range'
@@ -50,6 +52,19 @@ export const PEOPLE_PARTS = [
   { part: 'clothes', label: 'Clothes' }
 ] as const;
 export type PeoplePart = (typeof PEOPLE_PARTS)[number]['part'];
+
+/** Parts of a Landscape mask (`rawtonic_segment::LandscapePart` keys), in
+ * the order of Lightroom's Landscape mask. */
+export const LANDSCAPE_PARTS = [
+  'sky',
+  'mountains',
+  'water',
+  'naturalGround',
+  'vegetation',
+  'architecture',
+  'artificialGround'
+] as const;
+export type LandscapePart = (typeof LANDSCAPE_PARTS)[number];
 
 /** A new People mask: everyone, entire person (Lightroom's default). */
 export const DEFAULT_PEOPLE_MASK = { parts: ['entirePerson'] as PeoplePart[], person: null, grow: 0, feather: 0 };
@@ -88,6 +103,9 @@ export function createComponents(kind: MaskKind, image: ImageDimensions, mode = 
       return one(Mask.AiSubject, { maskDataBase64: null, grow: 0, feather: 0 });
     case 'people':
       return one(Mask.AiPeople, { maskDataBase64: null, ...structuredClone(DEFAULT_PEOPLE_MASK) });
+    case 'landscape':
+      // No part until the user picks those the photo has (as Lightroom).
+      return one(Mask.AiLandscape, { maskDataBase64: null, parts: [], grow: 0, feather: 0 });
     case 'color':
       return one(Mask.Color, { ...DEFAULT_COLOR_RANGE });
     case 'depth':
@@ -116,6 +134,8 @@ export function kindOf(sub: SubMask): MaskKind | null {
       return 'object';
     case Mask.AiPeople:
       return 'people';
+    case Mask.AiLandscape:
+      return 'landscape';
     case Mask.Color:
       return 'color';
     case Mask.AiDepth:
