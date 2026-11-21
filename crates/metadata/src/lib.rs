@@ -1024,6 +1024,8 @@ fn merge_packet(
         metadata
     };
     let base = existing.unwrap_or("<?xml version=\"1.0\" encoding=\"UTF-8\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"></rdf:RDF></x:xmpmeta>");
+    let refreshed = refresh_lightroom_hdr(base, recipe)?;
+    let base = refreshed.as_deref().unwrap_or(base);
     let (patched, language_alternatives) = edit_language_alternatives(base, metadata)?;
     let base = patched.as_str();
     let doc = parse_packet(base)?;
@@ -1278,6 +1280,42 @@ fn merge_packet(
     Ok(out)
 }
 
+/// The recipe's Lightroom HDR settings (`LIGHTROOM_HDR_KEY`) as the
+/// newest state: a `crs:` attribute in the sidecar with another value (the
+/// photo was imported again after a change in Lightroom) takes the recipe's
+/// value in place. Values that are equal, and everything else in the packet,
+/// stay byte for byte; `None` when nothing changes.
+fn refresh_lightroom_hdr(base: &str, recipe: Option<&serde_json::Value>) -> Result<Option<String>> {
+    let Some(settings) = recipe
+        .and_then(|r| r.pointer(&format!("/adjustments/{LIGHTROOM_HDR_KEY}")))
+        .and_then(serde_json::Value::as_object)
+    else {
+        return Ok(None);
+    };
+    let doc = parse_packet(base)?;
+    let mut edits: Vec<(std::ops::Range<usize>, String)> = Vec::new();
+    for node in doc.descendants().filter(|n| n.is_element()) {
+        for attr in node.attributes() {
+            if attr.namespace() == Some(CRS)
+                && is_lightroom_hdr_name(attr.name())
+                && let Some(new) = settings.get(attr.name()).and_then(|v| v.as_str())
+                && new != attr.value()
+            {
+                edits.push((attr.range_value(), escape(new)));
+            }
+        }
+    }
+    if edits.is_empty() {
+        return Ok(None);
+    }
+    edits.sort_by_key(|(range, _)| range.start);
+    let mut out = base.to_string();
+    for (range, value) in edits.into_iter().rev() {
+        out.replace_range(range, &value);
+    }
+    Ok(Some(out))
+}
+
 /// The Lightroom HDR settings the recipe carries (`LIGHTROOM_HDR_KEY`) as a
 /// `crs:` description of their own, for those the sidecar does not hold
 /// already (a setting in the packet is Lightroom's and stays as it is).
@@ -1301,7 +1339,9 @@ fn lightroom_hdr_description(root: roxmltree::Node, recipe: Option<&serde_json::
     if attributes.is_empty() {
         return String::new();
     }
-    format!("<rdf:Description rdf:about=\"\" xmlns:crs=\"{CRS}\"{attributes}/>\n")
+    format!(
+        "<rdf:Description xmlns:rdf=\"{RDF}\" xmlns:crs=\"{CRS}\" rdf:about=\"\"{attributes}/>\n"
+    )
 }
 
 /// The XMP packet embedded in exported images: the descriptive metadata a
@@ -1993,11 +2033,18 @@ mod tests {
             merge_xmp(Some(&again), &meta, Some(&recipe)).unwrap(),
             again
         );
-        // A setting the sidecar holds (Lightroom's own) is not overridden.
+        // The recipe is the newer state (the photo was imported again): a
+        // stale value in the sidecar is replaced in place, equal ones and the
+        // rest of the packet stay as they are.
         let held = hdr_sidecar().replace("crs:HDRMaxValue=\"4.000000\"", "crs:HDRMaxValue=\"2\"");
         let merged = merge_xmp(Some(&held), &meta, Some(&recipe)).unwrap();
         assert_eq!(merged.matches("crs:HDRMaxValue").count(), 1);
-        assert!(merged.contains("crs:HDRMaxValue=\"2\""));
+        assert!(merged.contains("crs:HDRMaxValue=\"4.000000\""));
+        assert!(merged.contains("crs:Exposure2012=\"1.25\""));
+        // A sidecar whose RDF prefix is not `rdf:` still takes the settings.
+        let prefixed = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><r:RDF xmlns:r=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><r:Description r:about=\"\"/></r:RDF></x:xmpmeta>";
+        let merged = merge_xmp(Some(prefixed), &meta, Some(&recipe)).unwrap();
+        assert_eq!(hdr_values(&merged), expected);
     }
 
     #[test]
