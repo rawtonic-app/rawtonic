@@ -130,10 +130,7 @@ const READ_VERSIONS: [u32; 3] = [1, 2, 3];
 /// R50, R50 V, 1D X III) and ColorData version 48 white offsets (2026-11-19).
 /// 62: dithered linearization and curve lookups clamp instead of wrapping at
 /// the table ends (JPEG-to-DNG and ProRAW highlights, small NEF) (2026-11-20).
-/// 63: the reduced copy keeps colours beyond sRGB (negative channels) as the
-/// export's full-resolution develop does; it clamped them at 0
-/// (`lanczos::resize_wide_gamut`) (2026-11-21).
-pub const ENGINE_VERSION: u32 = 63;
+pub const ENGINE_VERSION: u32 = 62;
 /// Rows per band of half floats (format 1; written by tests only).
 #[cfg(test)]
 const F16_ROWS_PER_BAND: u32 = 64;

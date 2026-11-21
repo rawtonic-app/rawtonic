@@ -218,77 +218,32 @@ pub fn resize_signed(
     ImageBuffer::from_raw(new_width, new_height, pixels).expect("resized buffer size")
 }
 
-/// The value a reduced copy keeps of a signed Lanczos3 `sum` whose taps'
-/// lowest source value is `lowest` (the rule of the geometry warp's
-/// Catmull-Rom sample since `renderVersion` 2, `GeometryParams::keep_negative`):
-/// it may go down to `lowest` where that is negative (a colour beyond the
-/// working space's primaries keeps its negative channel), else it stops at 0
-/// (the filter's ringing beside a bright edge is cut, as
-/// [`resize_scene_linear`] cuts it). NaN becomes 0.
+/// The parts of a value a wide-gamut reduction resizes apart: its positive
+/// part and its negative part (a colour beyond the working space's
+/// primaries; NaN counts as 0).
 #[inline]
-fn wide_gamut_value(sum: f32, lowest: f32) -> f32 {
-    if lowest < 0.0 {
-        if sum < lowest {
-            lowest
-        } else if sum.is_nan() {
-            0.0
-        } else {
-            sum
-        }
-    } else {
-        // `resize_scene_linear`'s clamp, then `max(0.0)` (NaN to 0), so
-        // pixels without negative taps keep the clamped resize's bits.
-        (if sum < 0.0 { 0.0 } else { sum }).max(0.0)
-    }
+fn wide_gamut_parts(value: f32) -> (f32, f32) {
+    (value.max(0.0), value.min(0.0))
 }
 
-/// Per output position, the lowest of each channel over the source
-/// positions its Lanczos3 taps read (the taps' rectangle: the lowest of the
-/// rows' lowest).
-fn tap_lowest(image: &image::Rgb32FImage, new_width: u32, new_height: u32) -> Vec<f32> {
-    let (width, height) = image.dimensions();
-    let row = width as usize * 3;
-    let pixels = image.as_raw();
-    let rows = taps(height, new_height);
-    let columns = taps(width, new_width);
-    let new_row = new_width as usize * 3;
-    let mut lowest = vec![0.0f32; new_row * new_height as usize];
-    lowest
-        .par_chunks_mut(new_row)
-        .zip(rows.par_iter())
-        .for_each(|(out, taps)| {
-            let mut vertical = vec![f32::INFINITY; row];
-            for y in taps.first..taps.first + taps.weights.len() {
-                for (low, &value) in vertical.iter_mut().zip(&pixels[y * row..(y + 1) * row]) {
-                    *low = low.min(value);
-                }
-            }
-            horizontal_lowest(&vertical, &columns, out);
-        });
-    lowest
-}
-
-/// The lowest of each channel of `vertical` (one row, RGB) over each
-/// output pixel's column taps, into `out`.
-fn horizontal_lowest(vertical: &[f32], columns: &[Taps], out: &mut [f32]) {
-    for (pixel, taps) in out.as_chunks_mut::<3>().0.iter_mut().zip(columns) {
-        let mut low = [f32::INFINITY; 3];
-        for x in taps.first..taps.first + taps.weights.len() {
-            for (low, &value) in low.iter_mut().zip(&vertical[x * 3..x * 3 + 3]) {
-                *low = low.min(value);
-            }
-        }
-        *pixel = low;
-    }
+/// The value a wide-gamut reduction keeps of the resized `positive` and
+/// `negative` parts: each part's ringing is cut at 0 (a bright edge cannot
+/// pull a value below 0, a negative colour's edge cannot push one above
+/// it), and the parts are added.
+#[inline]
+fn wide_gamut_value(positive: f32, negative: f32) -> f32 {
+    positive.max(0.0) + negative.min(0.0)
 }
 
 /// [`resize_signed`] for the reduced copies the display renders instead of
-/// the photograph (`image_processing::resample_f32_image`): each value
-/// floored at its taps' lowest where that is negative, else at 0
-/// (`wide_gamut_value`), so colours beyond sRGB keep their negative
-/// channels as the export's full-resolution develop does, and the filter's
-/// ringing is cut at 0 as [`resize_scene_linear`] cuts it. An image without
-/// negative values gets [`resize_scene_linear`]'s values with NaN as 0.
+/// the photograph (`image_processing::resample_f32_image`): the positive
+/// and the negative parts of each value resized apart, each part's ringing
+/// cut at 0, then added (`wide_gamut_value`). Colours beyond sRGB keep their
+/// negative channels as the export's full-resolution develop keeps them,
+/// and the filter's ringing beside a bright edge is cut at 0 as
+/// [`resize_scene_linear`] cuts it, also where a negative colour is near.
+/// An image without negative values gets [`resize_scene_linear`]'s values
+/// with NaN as 0, bit for bit.
 pub fn resize_wide_gamut(
     image: &image::Rgb32FImage,
     new_width: u32,
@@ -296,19 +251,92 @@ pub fn resize_wide_gamut(
 ) -> image::Rgb32FImage {
     if !image.as_raw().par_iter().any(|v| *v < 0.0) {
         let mut out = resize_scene_linear(image, new_width, new_height);
-        out.iter_mut().for_each(|v| *v = wide_gamut_value(*v, 0.0));
+        out.iter_mut().for_each(|v| *v = v.max(0.0));
         return out;
     }
-    let mut out = resize_signed(image, new_width, new_height);
     if (new_width, new_height) == image.dimensions() {
-        out.iter_mut().for_each(|v| *v = wide_gamut_value(*v, *v));
+        let mut out = image.clone();
+        out.iter_mut().for_each(|v| {
+            let (positive, negative) = wide_gamut_parts(*v);
+            *v = wide_gamut_value(positive, negative);
+        });
         return out;
     }
-    let lowest = tap_lowest(image, new_width, new_height);
-    out.iter_mut()
-        .zip(&lowest)
-        .for_each(|(v, &low)| *v = wide_gamut_value(*v, low));
-    out
+    let (width, height) = image.dimensions();
+    let pixels = image.as_raw();
+    let row = width as usize * 3;
+    // `resize_channels`' passes with two sums per value, the positive and
+    // the negative part's, each added in `resize_signed`'s order.
+    let rows = taps(height, new_height);
+    let mut vertical = vec![(0.0f32, 0.0f32); row * new_height as usize];
+    vertical
+        .par_chunks_mut(row)
+        .zip(rows.par_iter())
+        .for_each(|(out, taps)| {
+            for (i, &weight) in taps.weights.iter().enumerate() {
+                let start = (taps.first + i) * row;
+                for (sum, &value) in out.iter_mut().zip(&pixels[start..start + row]) {
+                    let (positive, negative) = wide_gamut_parts(value);
+                    sum.0 += positive * weight;
+                    sum.1 += negative * weight;
+                }
+            }
+        });
+    let columns = taps(width, new_width);
+    let new_row = new_width as usize * 3;
+    let mut resized = vec![0.0f32; new_row * new_height as usize];
+    resized
+        .par_chunks_mut(new_row)
+        .zip(vertical.par_chunks(row))
+        .for_each(|(out, line)| {
+            for (pixel, taps) in out.as_chunks_mut::<3>().0.iter_mut().zip(&columns) {
+                let mut sum = [(0.0f32, 0.0f32); 3];
+                for (i, &weight) in taps.weights.iter().enumerate() {
+                    let start = (taps.first + i) * 3;
+                    for (sum, &(positive, negative)) in sum.iter_mut().zip(&line[start..start + 3])
+                    {
+                        sum.0 += positive * weight;
+                        sum.1 += negative * weight;
+                    }
+                }
+                *pixel = sum.map(|(positive, negative)| wide_gamut_value(positive, negative));
+            }
+        });
+    ImageBuffer::from_raw(new_width, new_height, resized).expect("resized buffer size")
+}
+
+/// [`SignedRowStream`] of [`resize_wide_gamut`]'s values: the positive and
+/// negative parts of the rows streamed apart, added when finished.
+pub struct WideGamutRowStream {
+    positive: SignedRowStream,
+    negative: SignedRowStream,
+}
+
+impl WideGamutRowStream {
+    pub fn new(width: u32, height: u32, new_width: u32, new_height: u32) -> Self {
+        Self {
+            positive: SignedRowStream::new(width, height, new_width, new_height),
+            negative: SignedRowStream::new(width, height, new_width, new_height),
+        }
+    }
+
+    /// Adds the next whole rows (RGB, `width` pixels each).
+    pub fn push_rows(&mut self, band: &[f32]) {
+        let (positive, negative): (Vec<f32>, Vec<f32>) =
+            band.par_iter().map(|v| wide_gamut_parts(*v)).unzip();
+        self.positive.push_rows(&positive);
+        self.negative.push_rows(&negative);
+    }
+
+    /// The resized image once every source row came; None before.
+    pub fn finish(self) -> Option<image::Rgb32FImage> {
+        let mut out = self.positive.finish()?;
+        let negative = self.negative.finish()?;
+        out.par_iter_mut()
+            .zip(negative.as_raw().par_iter())
+            .for_each(|(v, n)| *v = wide_gamut_value(*v, *n));
+        Some(out)
+    }
 }
 
 /// [`resize_signed`] of an RGB image that arrives in bands of whole rows,
@@ -330,9 +358,6 @@ pub struct SignedRowStream {
     first_open: usize,
     /// Vertical sums of the output rows being built, by output row.
     open: Vec<Option<Vec<f32>>>,
-    /// With [`SignedRowStream::wide_gamut`]: the lowest value of each
-    /// column over the rows read so far, by output row (as `open`).
-    open_lowest: Option<Vec<Option<Vec<f32>>>>,
     out: Vec<f32>,
 }
 
@@ -348,18 +373,8 @@ impl SignedRowStream {
             source_height: height as usize,
             first_open: 0,
             open: (0..new_height).map(|_| None).collect(),
-            open_lowest: None,
             out: vec![0.0; new_width as usize * new_height as usize * 3],
         }
-    }
-
-    /// The stream of [`resize_wide_gamut`]'s values instead of
-    /// [`resize_signed`]'s: the same sums, each floored at its taps' lowest
-    /// where that is negative, else at 0.
-    pub fn wide_gamut(width: u32, height: u32, new_width: u32, new_height: u32) -> Self {
-        let mut stream = Self::new(width, height, new_width, new_height);
-        stream.open_lowest = Some((0..new_height).map(|_| None).collect());
-        stream
     }
 
     /// Adds the next whole rows (RGB, `width` pixels each).
@@ -371,11 +386,7 @@ impl SignedRowStream {
         self.next = end;
         // As `resize_signed`: the same size is a copy.
         if self.width == self.new_width as usize && self.rows.len() == self.source_height {
-            let out = &mut self.out[start * row..end * row];
-            out.copy_from_slice(band);
-            if self.open_lowest.is_some() {
-                out.iter_mut().for_each(|v| *v = wide_gamut_value(*v, *v));
-            }
+            self.out[start * row..end * row].copy_from_slice(band);
             self.first_open = end;
             return;
         }
@@ -390,21 +401,11 @@ impl SignedRowStream {
         let columns = &self.columns;
         let new_row = self.new_width as usize * 3;
         let open = &mut self.open[touched.start..touched.end];
-        let mut no_lowest: Vec<Option<Vec<f32>>> = Vec::new();
-        let wide_gamut = self.open_lowest.is_some();
-        let open_lowest = match self.open_lowest.as_mut() {
-            Some(lowest) => &mut lowest[touched.start..touched.end],
-            None => {
-                no_lowest.resize_with(touched.len(), || None);
-                &mut no_lowest[..]
-            }
-        };
         let out = &mut self.out[touched.start * new_row..];
         open.par_iter_mut()
-            .zip(open_lowest.par_iter_mut())
             .zip(out.par_chunks_mut(new_row))
             .zip(touched.clone().into_par_iter())
-            .for_each(|(((sums, lowest), out), j)| {
+            .for_each(|((sums, out), j)| {
                 let taps = &rows[j];
                 let sums = sums.get_or_insert_with(|| vec![0.0; row]);
                 let from = taps.first.max(start);
@@ -414,15 +415,6 @@ impl SignedRowStream {
                     let source = &band[(y - start) * row..(y - start + 1) * row];
                     for (sum, &value) in sums.iter_mut().zip(source) {
                         *sum += value * weight;
-                    }
-                }
-                if wide_gamut {
-                    let lowest = lowest.get_or_insert_with(|| vec![f32::INFINITY; row]);
-                    for y in from..to {
-                        let source = &band[(y - start) * row..(y - start + 1) * row];
-                        for (low, &value) in lowest.iter_mut().zip(source) {
-                            *low = low.min(value);
-                        }
                     }
                 }
                 if taps.first + taps.weights.len() <= end {
@@ -436,13 +428,6 @@ impl SignedRowStream {
                         }
                         *pixel = sum;
                     }
-                    if let Some(vertical) = lowest.take() {
-                        let mut floors = vec![0.0f32; new_row];
-                        horizontal_lowest(&vertical, columns, &mut floors);
-                        for (v, &low) in out[..new_row].iter_mut().zip(&floors) {
-                            *v = wide_gamut_value(*v, low);
-                        }
-                    }
                     *sums = Vec::new();
                 }
             });
@@ -450,9 +435,6 @@ impl SignedRowStream {
             && self.rows[self.first_open].first + self.rows[self.first_open].weights.len() <= end
         {
             self.open[self.first_open] = None;
-            if let Some(lowest) = self.open_lowest.as_mut() {
-                lowest[self.first_open] = None;
-            }
             self.first_open += 1;
         }
     }
@@ -650,7 +632,7 @@ mod tests {
                 "{w}x{h} -> {nw}x{nh}"
             );
             let expected = resize_wide_gamut(&image, nw, nh);
-            let mut stream = SignedRowStream::wide_gamut(w, h, nw, nh);
+            let mut stream = WideGamutRowStream::new(w, h, nw, nh);
             for rows in values.chunks(w as usize * 3 * band) {
                 stream.push_rows(rows);
             }
@@ -667,52 +649,74 @@ mod tests {
         }
     }
 
-    /// A saturated blue beyond sRGB (linear sRGB, red below 0) beside a
-    /// bright white edge on black.
-    fn wide_gamut_scene(width: u32, height: u32) -> image::Rgb32FImage {
-        image::Rgb32FImage::from_fn(width, height, |x, _| {
-            if x < width / 3 {
-                image::Rgb([-0.16, 0.087, 1.24])
-            } else if x < width * 2 / 3 {
-                image::Rgb([0.0, 0.0, 0.0])
+    /// A row of a saturated blue beyond sRGB (linear sRGB, red below 0),
+    /// black from `black`, bright white from `white`.
+    fn wide_gamut_scene(width: u32, black: u32, white: u32) -> image::Rgb32FImage {
+        image::Rgb32FImage::from_fn(width, 12, |x, _| {
+            image::Rgb(if x < black {
+                [-0.16, 0.087, 1.24]
+            } else if x < white {
+                [0.0; 3]
             } else {
-                image::Rgb([4.0, 4.0, 4.0])
-            }
+                [4.0; 3]
+            })
         })
     }
 
     #[test]
     fn wide_gamut_resize_keeps_negative_colours_and_cuts_ringing() {
-        let (w, h) = (300, 40);
-        let scene = wide_gamut_scene(w, h);
-        let reduced = resize_wide_gamut(&scene, 100, 13);
-        let signed = resize_signed(&scene, 100, 13);
-        for y in 0..13 {
+        // The blue far from the white edge, then (the review's case) the
+        // white edge within the blue's filter taps.
+        for (black, white) in [(100, 200), (48, 60)] {
+            let scene = wide_gamut_scene(300, black, white);
+            let reduced = resize_wide_gamut(&scene, 100, 4);
+            let signed = resize_signed(&scene, 100, 4);
             for x in 0..100 {
-                let p = reduced.get_pixel(x, y).0;
-                let s = signed.get_pixel(x, y).0;
-                // Inside the blue patch: its own colour, negative red kept.
-                if x < 30 {
+                let p = reduced.get_pixel(x, 1).0;
+                // Inside the blue: its own colour, negative red kept.
+                if x + 3 < black / 3 {
                     for c in 0..3 {
-                        assert!((p[c] - s[c]).abs() < 1e-6, "({x},{y}) {p:?} vs {s:?}");
+                        assert!((p[c] - signed.get_pixel(x, 1)[c]).abs() < 1e-6, "{x} {p:?}");
                     }
-                    assert!((p[0] + 0.16).abs() < 1e-4, "({x},{y}) {p:?}");
+                    assert!((p[0] + 0.16).abs() < 1e-4, "{x} {p:?}");
                 }
-                // Never below the lowest source value (the blue's red).
-                assert!(p.iter().all(|v| *v >= -0.16), "({x},{y}) {p:?}");
-                // The black beside the white edge: ringing cut at 0.
-                if (40..66).contains(&x) {
-                    assert!(p.iter().all(|v| *v >= 0.0), "({x},{y}) {p:?}");
+                // The white edge never pulls a value below 0: green and
+                // blue (positive in every source pixel) stay at or above 0
+                // beside it, and red does once the blue is out of the taps'
+                // reach (3 × 3 source pixels on each side).
+                if x * 3 >= black + 6 {
+                    assert!(p[1] >= 0.0 && p[2] >= 0.0, "{black} {x} {p:?}");
                 }
+                if x * 3 >= black + 10 {
+                    assert!(p[0] >= 0.0, "{black} {x} {p:?}");
+                }
+                // At the blue's own edge the filter overshoots its red by
+                // a few percent, as it overshoots a bright edge above its
+                // level (kept by every reduction).
+                assert!(p[0] >= -0.16 * 1.1, "{black} {x} {p:?}");
             }
+            assert!(
+                (0..100)
+                    .any(|x| signed.get_pixel(x, 1).0.iter().any(|v| *v < -1e-3)
+                        && x * 3 >= black + 6),
+                "the scene rings below 0 beside the white edge"
+            );
         }
+        // The review's case: at output 18 the old floor let the white edge's
+        // ringing through (red about −0.067); the blue's own share is small.
+        let scene = wide_gamut_scene(300, 48, 60);
+        let reduced = resize_wide_gamut(&scene, 100, 4);
+        let negative_only = resize_signed(
+            &image::Rgb32FImage::from_fn(300, 12, |x, _| {
+                image::Rgb(if x < 48 { [-0.16, 0.0, 0.0] } else { [0.0; 3] })
+            }),
+            100,
+            4,
+        );
+        let red = reduced.get_pixel(18, 1)[0];
         assert!(
-            signed
-                .pixels()
-                .skip(40)
-                .take(26)
-                .any(|p| p.0.iter().any(|v| *v < 0.0)),
-            "the scene rings below 0 beside the edge"
+            (red - negative_only.get_pixel(18, 1)[0].min(0.0)).abs() < 1e-6,
+            "red {red}"
         );
     }
 

@@ -948,7 +948,7 @@ mod tests {
     }
 
     /// The stored render input keeps a colour beyond sRGB (negative red):
-    /// its reduction (`SignedRowStream::wide_gamut`) cut the ringing already
+    /// its reduction (`WideGamutRowStream`) cut the ringing already
     /// and kept such colours, as the view's own reduction.
     #[test]
     fn stored_render_inputs_keep_colours_beyond_srgb() {

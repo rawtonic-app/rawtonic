@@ -17,7 +17,7 @@
 //! (`shaders/color_noise_view.wgsl` plus that section of `shader.wgsl`)
 //! writes the filtered pixel band by band (the input pixel at Color 0).
 //! Each band is read back and fed to a streaming Lanczos3
-//! ([`rawtonic_engine::lanczos::SignedRowStream::wide_gamut`], the values of
+//! ([`rawtonic_engine::lanczos::WideGamutRowStream`], the values of
 //! `lanczos::resize_wide_gamut`: colours beyond sRGB keep their negative
 //! channels, ringing is cut at 0), so the full-resolution result never exists
 //! whole on the CPU. Measured: notes:
@@ -27,7 +27,7 @@
 use std::sync::{Arc, Mutex};
 
 use image::DynamicImage;
-use rawtonic_engine::lanczos::SignedRowStream;
+use rawtonic_engine::lanczos::WideGamutRowStream;
 
 use super::*;
 
@@ -354,7 +354,7 @@ pub fn reduced_render_input(
         // Never read without the filter.
         None => (&pipelines.blur, &pipelines.blur),
     };
-    let mut stream = Some(SignedRowStream::wide_gamut(
+    let mut stream = Some(WideGamutRowStream::new(
         source_width,
         source_height,
         width,
@@ -447,6 +447,6 @@ pub fn reduced_render_input(
         top += rows;
     }
     let mut reduced = None;
-    cpu(&mut || reduced = stream.take().and_then(SignedRowStream::finish));
+    cpu(&mut || reduced = stream.take().and_then(WideGamutRowStream::finish));
     Ok(reduced)
 }
