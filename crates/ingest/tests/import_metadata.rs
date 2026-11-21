@@ -314,7 +314,11 @@ fn independent_same_stem_photos_each_write_their_own_xmp() {
         .map(|r| r.sidecar.clone().unwrap().file_name().unwrap().to_owned())
         .collect();
     assert_eq!(sidecars, ["source.xmp", "source.JPG.xmp"]);
-    assert!(results.iter().all(|r| r.sidecar.as_ref().unwrap().is_file()));
+    assert!(
+        results
+            .iter()
+            .all(|r| r.sidecar.as_ref().unwrap().is_file())
+    );
     assert_eq!(lib.summary().unwrap().xmp_pending, 0);
 }
 
