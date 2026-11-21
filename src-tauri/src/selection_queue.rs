@@ -159,11 +159,15 @@ pub fn enqueue(paths: impl IntoIterator<Item = String>) {
 /// itself, so the batch does not queue it. Photos that wait for nothing are
 /// left alone.
 #[tauri::command]
-pub fn queue_selections(paths: Vec<String>) {
-    enqueue(paths.into_iter().filter(|path| {
-        let (_, sidecar) = rawtonic_export::sidecars::parse_virtual_path(path);
-        wants_detection(&crate::exif_processing::load_sidecar(&sidecar).adjustments)
-    }));
+pub async fn queue_selections(paths: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        enqueue(paths.into_iter().filter(|path| {
+            let (_, sidecar) = rawtonic_export::sidecars::parse_virtual_path(path);
+            wants_detection(&crate::exif_processing::load_sidecar(&sidecar).adjustments)
+        }));
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 fn run(app: &AppHandle) {

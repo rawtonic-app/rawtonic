@@ -1066,18 +1066,19 @@ pub fn prepare_offline(source: &Path) -> Option<HashMap<String, String>> {
     header.exif
 }
 
+/// The camera's crops (None: not cached) and the EXIF the previews kept.
+pub type CachedCamera = (
+    Option<Vec<Option<rawtonic_engine::camera_crop::CameraCrop>>>,
+    Option<HashMap<String, String>>,
+);
+
 /// What the previews of the RAW `source` cached of its camera (the camera's
 /// crops from their facts, the EXIF), read from the preview headers only:
 /// the original is not touched (a cloud file not downloaded is opened by no
 /// call here) and nothing is registered for rendering. The facts that record
 /// the crop (`camera_crop`, the newest of them) are used, not merely the
 /// first preview's.
-pub fn cached_camera(
-    source: &Path,
-) -> (
-    Option<Vec<Option<rawtonic_engine::camera_crop::CameraCrop>>>,
-    Option<HashMap<String, String>>,
-) {
+pub fn cached_camera(source: &Path) -> CachedCamera {
     let headers: Vec<Header> = [ProxyKind::Full, ProxyKind::Standard]
         .into_iter()
         .filter_map(|kind| read_header(&proxy_path_of(source, kind)?))
