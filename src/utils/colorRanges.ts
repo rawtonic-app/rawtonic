@@ -4,7 +4,21 @@ import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
 import { MAX_COLOR_RANGES, newColorRange, type Adjustments, type ColorRange } from './adjustments';
 import { srgbToOklch } from './oklab';
-import { colorBeforeRanges, linearToLab, rangeCentre, solveColorTarget, srgb8ToLinear, type Vec3 } from './colorTarget';
+import {
+  colorBeforeRanges,
+  inverseGain,
+  linearToLab,
+  rangeCentre,
+  solveColorTarget,
+  srgb8ToLinear,
+  type Vec3
+} from './colorTarget';
+
+/** Error gain above which a colour picked through the ranges is uncertain. */
+const UNCERTAIN_GAIN = 3;
+
+/** The key of a range in `colorPicksThroughRanges`. */
+export const rangePickKey = (photo: string, layer: string | null, id: string) => `${photo}|${layer ?? ''}|${id}`;
 
 /** The picker target that samples a target colour; `targetPickFor(id)` also
  * moves range `id` onto it. */
@@ -120,24 +134,30 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   }
   const shown = srgbToOklch(rgb);
   let activeId: string | null = target;
+  let uncertain = false;
   const next = (ranges: ColorRange[], limit: number) => {
     // The sample shows the ranges' work (a range picked again after its own
     // shift, or a colour another range moves): select by the colour before.
     const h = (shown.hue * Math.PI) / 180;
     const again = target === 'skin' ? skinRangeOf(ranges) : ranges.find((r) => r.id === target);
-    const [lightness, a, b] = colorBeforeRanges(
-      ranges,
-      [shown.lightness, shown.chroma * Math.cos(h), shown.chroma * Math.sin(h)],
-      again ? [rangeCentre(again)] : []
-    );
+    const sample: Vec3 = [shown.lightness, shown.chroma * Math.cos(h), shown.chroma * Math.sin(h)];
+    const [lightness, a, b] = colorBeforeRanges(ranges, sample, again ? [rangeCentre(again)] : []);
     const hue = ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
     const picked = applyColorPick(ranges, target, limit, hue, Math.hypot(a, b), lightness);
+    const moved = Math.hypot(lightness - sample[0], a - sample[1], b - sample[2]) > 1e-4;
+    uncertain = moved && inverseGain(ranges, [lightness, a, b]) > UNCERTAIN_GAIN;
     activeId = picked.id;
     return picked.ranges;
   };
   updateAdjustments((prev: Adjustments) => withRanges(prev, layer, (ranges) => next(ranges, MAX_COLOR_RANGES)));
-  useEditorStore
-    .getState()
-    .setEditor({ colorPickerTarget: null, colorPickerLayer: null, activeColorRangeId: activeId });
+  const after = useEditorStore.getState();
+  const key = activeId ? rangePickKey(path, layer, activeId) : null;
+  const through = after.colorPicksThroughRanges.filter((k) => k !== key);
+  after.setEditor({
+    colorPickerTarget: null,
+    colorPickerLayer: null,
+    activeColorRangeId: activeId,
+    colorPicksThroughRanges: uncertain && key ? [...through, key] : through
+  });
   return true;
 }

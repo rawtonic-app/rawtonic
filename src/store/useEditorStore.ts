@@ -172,6 +172,11 @@ interface EditorState {
    * kept across photographs so a colour sampled in one can be used in
    * another). */
   colorTarget: ColorTarget | null;
+  /** Colour editor ranges (`photo|layer|range id`) last picked through a
+   * strong change of the ranges themselves (utils/colorTarget
+   * `inverseGain`): their sampled colour, and so a target's readout, is
+   * uncertain. View state. */
+  colorPicksThroughRanges: string[];
   /** The mask layer the picker edits, or null for the photo. */
   colorPickerLayer: string | null;
   /** The colour editor range shown in the tool. */
@@ -360,6 +365,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   showFaceProtection: false,
   colorPickerTarget: null,
   colorTarget: null,
+  colorPicksThroughRanges: [],
   colorPickerLayer: null,
   activeColorRangeId: null,
   colorRangeShow: null,

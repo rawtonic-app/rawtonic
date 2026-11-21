@@ -191,6 +191,8 @@ const smoothstep = (e0: number, e1: number, x: number) => {
 // WGSL's `%` keeps the dividend's sign, as JavaScript's does.
 const wrap180 = (d: number) => (((d % 360) + 540) % 360) - 180;
 
+/** ΔE00 up to which a target counts as reached. */
+export const TARGET_REACHED = 1;
 /** Limits of the range shifts (the sliders and `pack_color_range`). */
 export const SHIFT_LIMIT = 100;
 /** Degrees of Oklab hue per hue shift step, lightness change per step at L 0.5. */
@@ -339,6 +341,38 @@ export function colorBeforeRanges(ranges: ColorRange[], shown: Vec3, hints: Vec3
   return shown;
 }
 
+/**
+ * How much a small error in a sampled colour (the preview's 8-bit steps)
+ * grows when `colorBeforeRanges` undoes the ranges at `before`: about 1
+ * where the ranges only turn or lift colours, 10 where they took 90 % of
+ * the chroma away. RMS gain of the inverse Jacobian; Infinity when singular.
+ */
+export function inverseGain(ranges: ColorRange[], before: Vec3): number {
+  const h = 1e-5;
+  const out = applyColorRanges(ranges, before);
+  const J = [0, 1, 2].map((k) => {
+    const d = [...before] as Vec3;
+    d[k] += h;
+    const o = applyColorRanges(ranges, d);
+    return [(o[0] - out[0]) / h, (o[1] - out[1]) / h, (o[2] - out[2]) / h];
+  });
+  // Rows of J (J[k] holds column k).
+  const m = [0, 1, 2].map((i) => [J[0][i], J[1][i], J[2][i]]);
+  const det =
+    m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
+    m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
+    m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return Infinity;
+  const cof = (r: number, c: number) => {
+    const rows = [0, 1, 2].filter((i) => i !== r);
+    const cols = [0, 1, 2].filter((i) => i !== c);
+    return m[rows[0]][cols[0]] * m[rows[1]][cols[1]] - m[rows[0]][cols[1]] * m[rows[1]][cols[0]];
+  };
+  let sum = 0;
+  for (let r = 0; r < 3; r += 1) for (let c = 0; c < 3; c += 1) sum += (cof(r, c) / det) ** 2;
+  return Math.sqrt(sum / 3);
+}
+
 /** Oklab of a range's sampled colour. */
 export const rangeCentre = (range: ColorRange): Vec3 => {
   const h = (range.hue * Math.PI) / 180;
@@ -425,16 +459,21 @@ export function solveColorTarget(ranges: ColorRange[], id: string, targetLab: Ve
     return { result, resultLab, deltaE: deltaE00(targetLab, resultLab) };
   };
   // The closed form matches hue, chroma and lightness each on its own. When
-  // its result or the target lies outside sRGB, the colour shown is the
-  // clipped one, and the nearest of those needs the sliders together: a
-  // pattern search over whole slider steps from there (a few hundred
-  // evaluations of the model at most). Sliders at their limit stay there,
-  // so an out-of-reach target goes as far as it can in its own direction,
-  // and inside sRGB the others keep matching their own part.
+  // its result or the target lies outside sRGB (the colour shown is then the
+  // clipped one), or a slider runs out, the nearest colour needs the sliders
+  // together: a pattern search over whole slider steps from there (a few
+  // hundred evaluations of the model at most); sliders at their limit stay
+  // there. Inside sRGB a pinned target takes the search's result only when
+  // it reaches the target; otherwise the target goes as far as it can in its
+  // own direction and the other sliders keep matching their own part (no
+  // colour drained just to shave the distance).
   let best: Vec3 = [hueSteps, satSteps, lightSteps];
   let bestFit = evaluate(best);
   const free = [!limited.hue, !limited.saturation, !limited.lightness].flatMap((open, k) => (open ? [k] : []));
-  if (w > 1e-6 && (targetOutsideSrgb || !insideSrgb(oklabToLinear(bestFit.result)))) {
+  const closed = { best, bestFit };
+  const outside = targetOutsideSrgb || !insideSrgb(oklabToLinear(bestFit.result));
+  const pinned = limited.hue || limited.saturation || limited.lightness;
+  if (w > 1e-6 && (outside || pinned)) {
     for (const step of [32, 16, 8, 4, 2, 1]) {
       for (let improved = true, rounds = 0; improved && rounds < 25; rounds += 1) {
         improved = false;
@@ -453,6 +492,7 @@ export function solveColorTarget(ranges: ColorRange[], id: string, targetLab: Ve
         }
       }
     }
+    if (!outside && bestFit.deltaE > TARGET_REACHED) ({ best, bestFit } = closed);
   }
   return {
     shifts: { hueShift: best[0], saturation: best[1], lightnessShift: best[2] },

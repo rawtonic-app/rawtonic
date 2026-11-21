@@ -21,13 +21,14 @@ const at = (hue: number, chroma: number) => {
 let changes: Partial<Adjustments>[] = [];
 const interaction = vi.fn();
 
-function Harness({ initial }: { initial: ColorRange[] }) {
+function Harness({ initial, layerId }: { initial: ColorRange[]; layerId?: string }) {
   const [values, setValues] = useState<Partial<Adjustments>>({
     colorRanges: initial
   });
   return (
     <StudioColorEditor
       values={values}
+      layerId={layerId}
       disabled={false}
       onInteraction={interaction}
       change={(patch) => {
@@ -430,7 +431,7 @@ describe('target colour', () => {
     const { hue, chroma, lightness } = srgbToOklch([200, 60, 50]);
     return newColorRange(hue, chroma, lightness);
   };
-  beforeEach(() => useEditorStore.setState({ selectedImage: photo, colorTarget: null }));
+  beforeEach(() => useEditorStore.setState({ selectedImage: photo, colorTarget: null, colorPicksThroughRanges: [] }));
 
   const typeInto = (name: string, text: string) => {
     const field = screen.getByRole('textbox', { name });
@@ -510,19 +511,41 @@ describe('target colour', () => {
     expect(useEditorStore.getState().colorPickerTarget).toBe('new');
   });
 
-  it('says that a layer range is predicted at full layer strength', () => {
-    render(
-      <StudioColorEditor
-        values={{ colorRanges: [red()] }}
-        layerId="L1"
-        disabled={false}
-        onInteraction={interaction}
-        change={(patch) => changes.push(patch)}
-      />
-    );
+  it('a layer range is predicted at full layer strength, never claimed as reached', () => {
+    render(<Harness initial={[red()]} layerId="L1" />);
     openTool();
     typeInto('Target color as sRGB hex', '#c81e2d');
-    expect(screen.getByRole('status').textContent).toContain('Predicted at full layer strength');
+    const text = screen.getByRole('status').textContent!;
+    expect(text).toMatch(/^At full layer strength the range lands ΔE00 0\.\d from the target/);
+    expect(text).not.toContain('Target reached');
+  });
+
+  it('does not claim a target reached for a range picked through its own strong change', () => {
+    const range = red();
+    useEditorStore.setState({ colorPicksThroughRanges: [`/a.cr3||${range.id}`] });
+    render(<Harness initial={[range]} />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    expect(screen.getByRole('status').textContent).toMatch(
+      /^Predicted ΔE00 0\.\d from the target, but this color was picked through/
+    );
+  });
+
+  it('a pick armed for a layer ends when the tool turns to another layer', () => {
+    const range = red();
+    const { rerender } = render(<Harness initial={[range]} layerId="L1" />);
+    openTool();
+    fireEvent.click(screen.getByRole('button', { name: 'Pick the target color' }));
+    expect(useEditorStore.getState()).toMatchObject({
+      colorPickerTarget: `target:${range.id}`,
+      colorPickerLayer: 'L1'
+    });
+    rerender(<Harness initial={[range]} layerId="L2" />);
+    expect(useEditorStore.getState()).toMatchObject({ colorPickerTarget: null, colorPickerLayer: null });
+    // Sampling a target edits nothing and stays armed.
+    fireEvent.click(screen.getByRole('button', { name: 'Sample a target color' }));
+    rerender(<Harness initial={[range]} layerId="L1" />);
+    expect(useEditorStore.getState().colorPickerTarget).toBe('target');
   });
 
   it('arms the target pickers', () => {

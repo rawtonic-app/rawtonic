@@ -34,7 +34,8 @@ beforeEach(() => {
     colorPickerTarget: 'new',
     colorPickerLayer: null,
     activeColorRangeId: null,
-    colorTarget: null
+    colorTarget: null,
+    colorPicksThroughRanges: []
   });
   vi.mocked(invoke).mockReset();
 });
@@ -182,6 +183,24 @@ describe('target colour picks', () => {
     expect(again.chroma).toBeCloseTo(picked.chroma, 6);
     expect(again.lightness).toBeCloseTo(picked.lightness, 6);
     expect(again.hueShift).toBe(100);
+  });
+
+  it('marks a range picked again through its own strong change as uncertain, and clears it on a clean pick', async () => {
+    vi.mocked(invoke).mockResolvedValue([180, 85, 55]);
+    await redRange();
+    const picked = useEditorStore.getState().adjustments.colorRanges![0];
+    const drained = { ...picked, saturation: -90 };
+    useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, colorRanges: [drained] } });
+    const shown = linearToSrgb8(oklabToLinear(applyColorRanges([drained], rangeCentre(picked)))).map(Math.round);
+    vi.mocked(invoke).mockResolvedValue(shown);
+    useEditorStore.setState({ colorPickerTarget: picked.id });
+    await pickColorRange('/a.cr3', picked.id, 0.5, 0.5);
+    expect(useEditorStore.getState().colorPicksThroughRanges).toEqual([`/a.cr3||${picked.id}`]);
+    // Picked again on a colour the range does not touch: certain again.
+    vi.mocked(invoke).mockResolvedValue([40, 160, 60]);
+    useEditorStore.setState({ colorPickerTarget: picked.id });
+    await pickColorRange('/a.cr3', picked.id, 0.5, 0.5);
+    expect(useEditorStore.getState().colorPicksThroughRanges).toEqual([]);
   });
 
   it('only keeps a target sampled without a range (for another photo)', async () => {

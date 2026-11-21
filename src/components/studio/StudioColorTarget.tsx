@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useEditorStore } from '../../store/useEditorStore';
 import type { ColorRange } from '../../utils/adjustments';
-import { rangesWithTarget, targetPickFor } from '../../utils/colorRanges';
+import { rangePickKey, rangesWithTarget, targetPickFor } from '../../utils/colorRanges';
 import {
   applyColorRanges,
   deltaE00,
@@ -20,11 +20,9 @@ import {
   rangeCentre,
   solveColorTarget,
   srgb8ToLinear,
+  TARGET_REACHED,
   type Vec3
 } from '../../utils/colorTarget';
-
-/** ΔE00 up to which a target counts as reached. */
-const REACHED = 1;
 
 const clip01 = (lin: Vec3) => lin.map((v) => Math.min(1, Math.max(0, v))) as Vec3;
 const cssOf = (lab: Vec3) => {
@@ -104,9 +102,10 @@ interface Props {
  */
 export default function StudioColorTarget({ ranges, active, layerId, disabled, apply }: Props) {
   const { t } = useTranslation();
-  const { target, photo, pickerTarget, setEditor } = useEditorStore(
+  const { target, photo, pickerTarget, through, setEditor } = useEditorStore(
     useShallow((s) => ({
       target: s.colorTarget,
+      through: s.colorPicksThroughRanges,
       photo: s.selectedImage?.path ?? null,
       pickerTarget: s.colorPickerTarget,
       setEditor: s.setEditor
@@ -177,6 +176,10 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
         .map((k) => t(`studio.color.editor.target.limit.${k}`))
     : [];
   const grey = !!solve && !solve.movable;
+  const value = deltaE.toFixed(1);
+  // The range was last picked through a strong change of the ranges: its
+  // colour, and so this prediction, is uncertain.
+  const pickedThrough = !!photo && through.includes(rangePickKey(photo, layer, active.id));
   // A colour picked at the edge of sRGB was clipped by the display: the
   // photo's own colour lies beyond it and may move differently
   // (docs/benchmark-results/tgt1-target-colour-2026-11-21).
@@ -260,13 +263,19 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
         >
           {grey
             ? t('studio.color.editor.target.grey')
-            : deltaE <= REACHED
-              ? t('studio.color.editor.target.reached', { value: deltaE.toFixed(1) })
-              : limits.length
-                ? t('studio.color.editor.target.outOfReach', { value: deltaE.toFixed(1), limits: limits.join(', ') })
-                : t('studio.color.editor.target.distance', { value: deltaE.toFixed(1) })}
+            : pickedThrough
+              ? t('studio.color.editor.target.pickedThrough', { value })
+              : deltaE <= TARGET_REACHED
+                ? layerId
+                  ? t('studio.color.editor.target.layerPredicted', { value })
+                  : t('studio.color.editor.target.reached', { value })
+                : limits.length
+                  ? t('studio.color.editor.target.outOfReach', { value, limits: limits.join(', ') })
+                  : t('studio.color.editor.target.distance', { value })}
           {!insideSrgb(shownLinear) && <> {t('studio.color.editor.target.outsideSrgb')}</>}
-          {layerId && !grey && <> {t('studio.color.editor.target.layerStrength')}</>}
+          {layerId && !grey && !(deltaE <= TARGET_REACHED && !pickedThrough) && (
+            <> {t('studio.color.editor.target.layerStrength')}</>
+          )}
           {sourceClipped && !grey && <> {t('studio.color.editor.target.sourceClipped')}</>}
         </p>
       )}

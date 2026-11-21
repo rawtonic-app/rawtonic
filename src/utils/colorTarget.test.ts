@@ -4,6 +4,7 @@ import {
   applyColorRanges,
   colorBeforeRanges,
   deltaE00,
+  inverseGain,
   hexOf,
   labToLch,
   labToLinear,
@@ -119,6 +120,28 @@ describe('solveColorTarget', () => {
     expect(solve.deltaE).toBeLessThan(1);
     const rendered = applyColorRanges([{ ...range, ...solve.shifts }], rangeCentre(range));
     rendered.forEach((v, i) => expect(v).toBeCloseTo(solve.result[i], 9));
+  });
+
+  it('reaches a pinned target inside sRGB through the other sliders, else keeps them on their own part', () => {
+    // Review TGT1 round 2: purple → #C8006A needs more than +50° of hue.
+    const purple = rangeAt([115, 60, 170]);
+    const reached = solveColorTarget([purple], purple.id, labOfSrgb([200, 0, 106]))!;
+    expect(reached.shifts.hueShift).toBe(100);
+    expect(reached.deltaE).toBeLessThan(1);
+    // Red → blue is out of reach: hue at its limit, saturation and lightness
+    // as the closed form sets them (no chroma drained to shave ΔE).
+    const red = rangeAt([200, 60, 50]);
+    const far = solveColorTarget([red], red.id, labOfSrgb([40, 60, 200]))!;
+    expect(far.limited.hue).toBe(true);
+    expect(far.deltaE).toBeGreaterThan(10);
+    expect(far.shifts.saturation).toBeGreaterThan(-60);
+  });
+
+  it('measures how much a sample error grows when the ranges are undone', () => {
+    const range = rangeAt([180, 85, 55]);
+    expect(inverseGain([range], rangeCentre(range))).toBeCloseTo(1, 1);
+    expect(inverseGain([{ ...range, hueShift: 100 }], rangeCentre(range))).toBeLessThan(1.5);
+    expect(inverseGain([{ ...range, saturation: -90 }], rangeCentre(range))).toBeGreaterThan(3);
   });
 
   it('recovers the colour before the ranges from a sample of the finished photo', () => {

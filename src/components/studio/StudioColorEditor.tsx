@@ -1,5 +1,5 @@
 import { Eye, Pipette, Plus, Target, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -80,6 +80,18 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
       showRange: s.colorRangeShow,
       setEditor: s.setEditor
     }))
+  );
+  // A pick armed here (a new range, picking one again, its target) ends when
+  // this tool turns to another layer or goes away: the click would otherwise
+  // edit ranges no longer shown. Sampling a target edits nothing and stays.
+  useEffect(
+    () => () => {
+      const state = useEditorStore.getState();
+      const armed = state.colorPickerTarget;
+      if (armed && armed !== TARGET_PICK && state.colorPickerLayer === (layerId ?? null))
+        state.setEditor({ colorPickerTarget: null, colorPickerLayer: null });
+    },
+    [layerId]
   );
   const ranges = colorRangesOf(values);
   const skin = skinRangeOf(ranges);

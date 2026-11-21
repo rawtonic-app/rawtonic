@@ -1,9 +1,11 @@
 // TGT1 measurement: solve target colours with the app's solver, render with
 // the CLI, sample the same block, ΔE00 (CIELAB D50) to the target.
 import { execFileSync } from 'node:child_process';
-import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 // RAWTONIC_REPO: the Rawtonic checkout; TGT1_SCRATCH: folder with src/ (the
-// RAW copies), out/<id>_base.tif (default-recipe exports) and the CLI build.
+// RAW copies) and out/<id>_base.tif (default-recipe exports). Each run
+// writes only into a new folder runs/<time>/ (recipe, renders while they are
+// sampled, results.json) and deletes only the renders it made there.
 const REPO = process.env.RAWTONIC_REPO!;
 const S = process.env.TGT1_SCRATCH!;
 const {
@@ -70,23 +72,22 @@ function sample(tif: string, x: number, y: number): V {
   if (!m) throw new Error('no sample: ' + txt);
   return [Number(m[1]), Number(m[2]), Number(m[3])].map((v) => (v / 65535) * 255) as V;
 }
-function render(src: string, recipe: object, out: string) {
-  writeFileSync(S + '/recipe.json', JSON.stringify(recipe));
-  if (existsSync(out)) unlinkSync(out);
+const RUN = `${S}/runs/${new Date().toISOString().replace(/[:.]/g, '-')}`;
+mkdirSync(`${S}/runs`, { recursive: true });
+mkdirSync(RUN);
+let serial = 0;
+/** Renders into a new file of this run (the CLI never overwrites); returns its path. */
+function render(src: string, recipe: object): string {
+  serial += 1;
+  const json = `${RUN}/recipe-${serial}.json`;
+  const out = `${RUN}/render-${serial}.tif`;
+  writeFileSync(json, JSON.stringify(recipe), { flag: 'wx' });
   execFileSync(
     CLI,
-    [
-      'export',
-      src,
-      '--output',
-      out,
-      '--adjustments',
-      S + '/recipe.json',
-      '--lensfun-db',
-      REPO + '/src-tauri/lensfun_db'
-    ],
+    ['export', src, '--output', out, '--adjustments', json, '--lensfun-db', REPO + '/src-tauri/lensfun_db'],
     { stdio: 'ignore' }
   );
+  return out;
 }
 
 const rows: object[] = [];
@@ -119,31 +120,25 @@ for (const p of picks) {
   }));
   if (p.hex) targets.push({ id: 'hex ' + p.hex, lab: linearToLab(srgb8ToLinear(parseHex(p.hex)!)) });
   for (const t of targets) {
-    // Iteration 0: the model's solve; 1–2: closed loop on the rendered sample.
+    // Pass 0: the app's solve; passes 1–2: closed loop on the rendered sample
+    // (an experiment). The row's fields are pass 0's; `loop` lists every
+    // pass's ΔE00.
     let aim = t.lab;
-    const iters: number[] = [];
-    let solve,
-      got: V = [0, 0, 0],
-      gotLab: V = [0, 0, 0],
-      ms = 0,
-      first: V = [0, 0, 0],
-      firstSolve;
+    const loop: number[] = [];
+    let first: { solve: any; got: V; gotLab: V; ms: number } | null = null;
     for (let k = 0; k < 3; k++) {
-      solve = solveColorTarget([range as never], 'r1', aim)!;
-      if (k === 0) firstSolve = solve;
-      const out = `${S}/out/m_${p.id}.tif`;
+      const solve = solveColorTarget([range as never], 'r1', aim)!;
       const t0 = Date.now();
-      render(`${S}/src/${p.file}`, { colorRanges: [{ ...range, ...solve.shifts }] }, out);
-      ms = Date.now() - t0;
-      got = sample(out, p.x, p.y);
+      const out = render(`${S}/src/${p.file}`, { colorRanges: [{ ...range, ...solve.shifts }] });
+      const ms = Date.now() - t0;
+      const got = sample(out, p.x, p.y);
       unlinkSync(out);
-      gotLab = linearToLab(srgb8ToLinear(got));
-      if (k === 0) first = gotLab;
-      iters.push(+deltaE00(t.lab, gotLab).toFixed(2));
-      aim = aim.map((v, i) => v + (t.lab[i] - gotLab[i])) as V;
+      const gotLab = linearToLab(srgb8ToLinear(got));
+      if (k === 0) first = { solve, got, gotLab, ms };
+      loop.push(+deltaE00(t.lab, gotLab).toFixed(2));
+      aim = aim.map((v: number, i: number) => v + (t.lab[i] - gotLab[i])) as V;
     }
-    solve = firstSolve;
-    gotLab = first;
+    const { solve, got, gotLab, ms } = first!;
     const row = {
       pick: p.id,
       kind: p.kind,
@@ -160,10 +155,11 @@ for (const p of picks) {
       sourceToTargetDE: +deltaE00(srcLab, t.lab).toFixed(2),
       got: hexOf(got),
       renderMs: ms,
-      loop: iters
+      loop
     };
     rows.push(row);
     console.log(JSON.stringify(row));
   }
 }
-writeFileSync(S + '/results.json', JSON.stringify(rows, null, 1));
+writeFileSync(`${RUN}/results.json`, JSON.stringify(rows, null, 1), { flag: 'wx' });
+console.error('results: ' + RUN + '/results.json');
