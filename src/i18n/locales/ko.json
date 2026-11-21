@@ -3543,6 +3543,7 @@
         "legend": "출처 정보 (C2PA)",
         "none": "설정된 서명 인증서가 없습니다.",
         "password": "인증서 암호",
+        "planSigned": "서명됨 (C2PA)",
         "remove": "서명 인증서 제거",
         "removeConfirm": "이 컴퓨터에서 인증서와 개인 키를 제거할까요? 다른 인증서를 설정할 때까지 이 옵션을 사용한 내보내기는 실패합니다. 가져온 인증서의 원본 파일은 변경되지 않습니다.",
         "removeNo": "취소",
@@ -3550,12 +3551,13 @@
         "review": {
           "actions": "편집",
           "author": "저자",
+          "certificate": "인증서 (모든 파일에 포함, 받는 사람이 읽을 수 있음)",
           "generated": "생성 모델이 만듦 ({{type}})",
           "generator": "제작 도구",
           "ingredient": "현상 원본",
           "noAuthor": "표시 안 함",
           "noSigner": "아직 인증서 없음",
-          "notIncluded": "포함되지 않음",
+          "notIncluded": "사진에서 포함되지 않음",
           "notIncludedList": "원본의 썸네일이나 픽셀, 조정 값, 위치, 계정, 타임스탬프 서비스.",
           "signer": "서명자"
         },

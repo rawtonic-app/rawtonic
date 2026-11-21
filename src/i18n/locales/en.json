@@ -3639,6 +3639,7 @@
         "legend": "Provenance (C2PA)",
         "none": "No signing certificate is set up.",
         "password": "Certificate password",
+        "planSigned": "signed (C2PA)",
         "remove": "Remove signing certificate",
         "removeConfirm": "Remove the certificate and its private key from this computer? Exports with this option fail until another is set up. An imported certificate's own file is not touched.",
         "removeNo": "Cancel",
@@ -3646,12 +3647,13 @@
         "review": {
           "actions": "Edits",
           "author": "Author",
+          "certificate": "Certificate (in every file, readable by recipients)",
           "generated": "made by a generative model ({{type}})",
           "generator": "Made with",
           "ingredient": "Developed from",
           "noAuthor": "Not named",
           "noSigner": "No certificate yet",
-          "notIncluded": "Not included",
+          "notIncluded": "Not included from the photo",
           "notIncludedList": "No thumbnail or pixels of the original, no edit values, no location, no account, no time-stamp service.",
           "signer": "Signed by"
         },

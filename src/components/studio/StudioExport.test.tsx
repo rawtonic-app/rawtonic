@@ -1017,6 +1017,7 @@ it("reviews a ticked recipe's manifest and queues it with the certificate shown"
     validUntil: '2031-01-01T00:00:00Z',
     algorithm: 'ES256',
     fingerprint: 'f1',
+    subject: 'CN=Studio, O=Rawtonic local identity (unverified)',
     expired: false
   };
   const original = vi.mocked(invoke).getMockImplementation();
@@ -1052,7 +1053,9 @@ it("reviews a ticked recipe's manifest and queues it with the certificate shown"
   render(<StudioExport />);
   fireEvent.click(screen.getByRole('checkbox', { name: 'Export with Signed' }));
   // The form's own option is off; the ticked recipe's manifest is reviewed.
-  expect(await screen.findByRole('region', { name: 'What goes into the manifest' })).toBeTruthy();
+  expect(await screen.findByRole('region', { name: 'What goes into the manifest: Signed' })).toBeTruthy();
+  // The embedded certificate is shown: recipients can read it.
+  expect(screen.getByText('CN=Studio, O=Rawtonic local identity (unverified)')).toBeTruthy();
   expect(screen.getByText('Ada')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Export with Signed' }));
   await vi.waitFor(() => expect(exported()).toHaveLength(1));

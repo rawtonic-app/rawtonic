@@ -3796,6 +3796,7 @@
         "legend": "Proveniência (C2PA)",
         "none": "Nenhum certificado de assinatura configurado.",
         "password": "Palavra-passe do certificado",
+        "planSigned": "assinado (C2PA)",
         "remove": "Remover certificado de assinatura",
         "removeConfirm": "Remover o certificado e a sua chave privada deste computador? As exportações com esta opção falham até configurar outro. O ficheiro de um certificado importado não é alterado.",
         "removeNo": "Cancelar",
@@ -3803,12 +3804,13 @@
         "review": {
           "actions": "Edições",
           "author": "Autor",
+          "certificate": "Certificado (em cada ficheiro, legível pelos destinatários)",
           "generated": "criado por um modelo generativo ({{type}})",
           "generator": "Criado com",
           "ingredient": "Revelado de",
           "noAuthor": "Não indicado",
           "noSigner": "Ainda sem certificado",
-          "notIncluded": "Não incluído",
+          "notIncluded": "Não incluído da fotografia",
           "notIncludedList": "Sem miniatura nem píxeis do original, sem valores de ajuste, sem localização, sem conta, sem serviço de carimbo temporal.",
           "signer": "Assinado por"
         },

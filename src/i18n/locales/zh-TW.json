@@ -3543,6 +3543,7 @@
         "legend": "來源證明 (C2PA)",
         "none": "尚未設定簽署憑證。",
         "password": "憑證密碼",
+        "planSigned": "已簽署 (C2PA)",
         "remove": "移除簽署憑證",
         "removeConfirm": "要從此電腦移除憑證及其私密金鑰嗎？在設定其他憑證之前，使用此選項的輸出都會失敗。已匯入憑證的原始檔案不會被更動。",
         "removeNo": "取消",
@@ -3550,12 +3551,13 @@
         "review": {
           "actions": "編輯",
           "author": "作者",
+          "certificate": "憑證（包含在每個檔案中，收件者可讀取）",
           "generated": "由生成模型建立 ({{type}})",
           "generator": "製作軟體",
           "ingredient": "沖洗自",
           "noAuthor": "未列名",
           "noSigner": "尚無憑證",
-          "notIncluded": "不包含",
+          "notIncluded": "不包含相片中的",
           "notIncludedList": "原圖的縮圖或像素、調整數值、位置、帳戶、時間戳記服務。",
           "signer": "簽署者"
         },

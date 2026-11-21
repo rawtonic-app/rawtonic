@@ -3796,6 +3796,7 @@
         "legend": "Procedència (C2PA)",
         "none": "No hi ha cap certificat de signatura configurat.",
         "password": "Contrasenya del certificat",
+        "planSigned": "signat (C2PA)",
         "remove": "Elimina el certificat de signatura",
         "removeConfirm": "Voleu eliminar el certificat i la seva clau privada d'aquest ordinador? Les exportacions amb aquesta opció fallaran fins que en configureu un altre. El fitxer d'un certificat importat no es toca.",
         "removeNo": "Cancel·la",
@@ -3803,12 +3804,13 @@
         "review": {
           "actions": "Edicions",
           "author": "Autor",
+          "certificate": "Certificat (a cada fitxer, llegible pels destinataris)",
           "generated": "creat per un model generatiu ({{type}})",
           "generator": "Creat amb",
           "ingredient": "Revelat de",
           "noAuthor": "Sense nom",
           "noSigner": "Encara sense certificat",
-          "notIncluded": "No inclòs",
+          "notIncluded": "No inclòs de la foto",
           "notIncludedList": "Ni miniatura ni píxels de l'original, ni valors d'ajust, ni ubicació, ni compte, ni servei de segellat de temps.",
           "signer": "Signat per"
         },

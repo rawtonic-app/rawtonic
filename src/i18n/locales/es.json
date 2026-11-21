@@ -3796,6 +3796,7 @@
         "legend": "Procedencia (C2PA)",
         "none": "No hay ningún certificado de firma configurado.",
         "password": "Contraseña del certificado",
+        "planSigned": "firmado (C2PA)",
         "remove": "Quitar certificado de firma",
         "removeConfirm": "¿Quitar el certificado y su clave privada de este ordenador? Las exportaciones con esta opción fallarán hasta configurar otro. El archivo de un certificado importado no se toca.",
         "removeNo": "Cancelar",
@@ -3803,12 +3804,13 @@
         "review": {
           "actions": "Ediciones",
           "author": "Autor",
+          "certificate": "Certificado (en cada archivo, legible por los destinatarios)",
           "generated": "creado por un modelo generativo ({{type}})",
           "generator": "Creado con",
           "ingredient": "Revelado de",
           "noAuthor": "Sin nombre",
           "noSigner": "Aún sin certificado",
-          "notIncluded": "No incluido",
+          "notIncluded": "No incluido de la foto",
           "notIncludedList": "Ni miniatura ni píxeles del original, ni valores de ajuste, ni ubicación, ni cuenta, ni servicio de sellado de tiempo.",
           "signer": "Firmado por"
         },

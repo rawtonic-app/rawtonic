@@ -3639,6 +3639,7 @@
         "legend": "Herkunftsnachweis (C2PA)",
         "none": "Kein Signaturzertifikat eingerichtet.",
         "password": "Zertifikatspasswort",
+        "planSigned": "signiert (C2PA)",
         "remove": "Signaturzertifikat entfernen",
         "removeConfirm": "Zertifikat und privaten Schlüssel von diesem Computer entfernen? Exporte mit dieser Option schlagen fehl, bis ein anderes eingerichtet ist. Die Datei eines importierten Zertifikats bleibt unberührt.",
         "removeNo": "Abbrechen",
@@ -3646,12 +3647,13 @@
         "review": {
           "actions": "Bearbeitungen",
           "author": "Autor",
+          "certificate": "Zertifikat (in jeder Datei, für Empfänger lesbar)",
           "generated": "von einem generativen Modell erzeugt ({{type}})",
           "generator": "Erstellt mit",
           "ingredient": "Entwickelt aus",
           "noAuthor": "Nicht genannt",
           "noSigner": "Noch kein Zertifikat",
-          "notIncluded": "Nicht enthalten",
+          "notIncluded": "Nicht enthalten aus dem Foto",
           "notIncludedList": "Kein Vorschaubild und keine Pixel des Originals, keine Reglerwerte, kein Ort, kein Konto, kein Zeitstempeldienst.",
           "signer": "Signiert von"
         },

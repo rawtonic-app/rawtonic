@@ -3796,6 +3796,7 @@
         "legend": "Provenienza (C2PA)",
         "none": "Nessun certificato di firma impostato.",
         "password": "Password del certificato",
+        "planSigned": "firmato (C2PA)",
         "remove": "Rimuovi certificato di firma",
         "removeConfirm": "Rimuovere il certificato e la sua chiave privata da questo computer? Le esportazioni con questa opzione falliscono finché non ne imposti un altro. Il file di un certificato importato non viene toccato.",
         "removeNo": "Annulla",
@@ -3803,12 +3804,13 @@
         "review": {
           "actions": "Modifiche",
           "author": "Autore",
+          "certificate": "Certificato (in ogni file, leggibile dai destinatari)",
           "generated": "creato da un modello generativo ({{type}})",
           "generator": "Creato con",
           "ingredient": "Sviluppato da",
           "noAuthor": "Non indicato",
           "noSigner": "Ancora nessun certificato",
-          "notIncluded": "Non incluso",
+          "notIncluded": "Non incluso dalla foto",
           "notIncludedList": "Nessuna miniatura né pixel dell'originale, nessun valore di regolazione, nessuna posizione, nessun account, nessun servizio di marcatura temporale.",
           "signer": "Firmato da"
         },

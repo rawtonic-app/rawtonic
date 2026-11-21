@@ -48,6 +48,9 @@ pub struct IdentityInfo {
     pub algorithm: String,
     /// SHA-256 of the signing certificate (hex), to tell identities apart.
     pub fingerprint: String,
+    /// The signing certificate's whole subject (`CN=…, O=…, …`): every
+    /// signed file carries it, readable by its recipients.
+    pub subject: String,
     /// The certificate is not valid now: exports cannot be signed with it.
     pub expired: bool,
 }
@@ -185,6 +188,7 @@ impl SigningIdentity {
             valid_until: until,
             algorithm: self.algorithm().name().to_string(),
             fingerprint: self.fingerprint(),
+            subject: cert.subject().to_string(),
             expired: !cert.validity().is_valid(),
         })
     }
@@ -318,6 +322,72 @@ const CERTIFICATE_ALGORITHMS: [&str; 8] = [
     "1.3.101.112",
 ];
 
+const RSASSA_PSS: &str = "1.2.840.113549.1.1.10";
+
+/// One DER element of `input`: its tag, its contents and what follows.
+fn der_element(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
+    let (&tag, rest) = input.split_first()?;
+    let (&first, rest) = rest.split_first()?;
+    let (len, rest) = if first < 0x80 {
+        (first as usize, rest)
+    } else {
+        let count = (first & 0x7f) as usize;
+        if count == 0 || count > 4 || rest.len() < count {
+            return None;
+        }
+        let len = rest[..count]
+            .iter()
+            .fold(0usize, |len, b| (len << 8) | *b as usize);
+        (len, &rest[count..])
+    };
+    (rest.len() >= len).then(|| (tag, &rest[..len], &rest[len..]))
+}
+
+/// The OID inside an AlgorithmIdentifier SEQUENCE's encoding, and its
+/// parameters.
+fn algorithm_oid(identifier: &[u8]) -> Option<(&[u8], &[u8])> {
+    let (0x30, content, _) = der_element(identifier)? else {
+        return None;
+    };
+    let (0x06, oid, params) = der_element(content)? else {
+        return None;
+    };
+    Some((oid, params))
+}
+
+/// Whether RSASSA-PSS parameters (the contents of their SEQUENCE) name a
+/// SHA-2 hash and MGF1 with the same hash, as C2PA requires (the defaults,
+/// SHA-1, are not allowed).
+fn pss_parameters_ok(params: &[u8]) -> bool {
+    let oid_contents = |dotted: &str| der::oid(dotted)[2..].to_vec();
+    let sha2 = [
+        "2.16.840.1.101.3.4.2.1",
+        "2.16.840.1.101.3.4.2.2",
+        "2.16.840.1.101.3.4.2.3",
+    ]
+    .map(oid_contents);
+    let mgf1 = oid_contents("1.2.840.113549.1.1.8");
+    let (mut hash, mut mgf_hash) = (None, None);
+    let mut rest = params;
+    while !rest.is_empty() {
+        let Some((tag, content, after)) = der_element(rest) else {
+            return false;
+        };
+        rest = after;
+        match tag {
+            0xa0 => hash = algorithm_oid(content).map(|(oid, _)| oid.to_vec()),
+            0xa1 => {
+                mgf_hash = algorithm_oid(content)
+                    .filter(|(oid, _)| *oid == mgf1.as_slice())
+                    .and_then(|(_, params)| algorithm_oid(params))
+                    .map(|(oid, _)| oid.to_vec())
+            }
+            _ => {}
+        }
+    }
+    hash.is_some_and(|hash| sha2.contains(&hash) && mgf_hash.as_ref() == Some(&hash))
+}
+
 /// The rest of the C2PA certificate profile a signing certificate must
 /// follow, as the reference validator checks it (c2pa-rs
 /// `check_certificate_profile`): X.509 v3, an accepted signature algorithm
@@ -336,10 +406,20 @@ fn check_certificate_profile(cert: &X509Certificate<'_>) -> Result<(), String> {
         return refuse("not an X.509 version 3 certificate");
     }
     let algorithm = cert.signature_algorithm.algorithm.to_id_string();
-    if cert.tbs_certificate.signature.algorithm != cert.signature_algorithm.algorithm
+    // The whole identifiers, parameters included.
+    if cert.tbs_certificate.signature != cert.signature_algorithm
         || !CERTIFICATE_ALGORITHMS.contains(&algorithm.as_str())
     {
         return refuse("its signature algorithm");
+    }
+    if algorithm == RSASSA_PSS
+        && !cert
+            .signature_algorithm
+            .parameters
+            .as_ref()
+            .is_some_and(|params| pss_parameters_ok(params.data))
+    {
+        return refuse("its RSA-PSS parameters");
     }
     if cert.tbs_certificate.issuer_uid.is_some() || cert.tbs_certificate.subject_uid.is_some() {
         return refuse("unique identifiers");
@@ -351,8 +431,9 @@ fn check_certificate_profile(cert: &X509Certificate<'_>) -> Result<(), String> {
             ParsedExtension::KeyUsage(usage) if usage.key_cert_sign() => {
                 return refuse("it may sign certificates");
             }
-            ParsedExtension::ExtendedKeyUsage(eku) if eku.ocsp_signing && eku.time_stamping => {
-                return refuse("both time-stamping and OCSP signing");
+            // A claim signer is not a time-stamping or OCSP responder.
+            ParsedExtension::ExtendedKeyUsage(eku) if eku.ocsp_signing || eku.time_stamping => {
+                return refuse("time-stamping or OCSP signing use");
             }
             ParsedExtension::UnsupportedExtension { .. }
             | ParsedExtension::ParseError { .. }
@@ -608,10 +689,33 @@ fn certificate(
     issuer: &[u8],
     subject: &[u8],
     public_key: &[u8],
-    (not_before, not_after): (jiff::Timestamp, jiff::Timestamp),
+    validity: (jiff::Timestamp, jiff::Timestamp),
     extensions: &[Vec<u8>],
 ) -> Result<Vec<u8>, String> {
     let ecdsa_sha256 = der::seq(&[der::oid("1.2.840.10045.4.3.2")]);
+    certificate_named(
+        rng,
+        issuer_key,
+        &ecdsa_sha256,
+        (issuer, subject),
+        public_key,
+        validity,
+        extensions,
+    )
+}
+
+/// [`certificate`] whose signature algorithm is named `algorithm` (tests
+/// name others than the ECDSA it is signed with).
+fn certificate_named(
+    rng: &SystemRandom,
+    issuer_key: &EcdsaKeyPair,
+    algorithm: &[u8],
+    (issuer, subject): (&[u8], &[u8]),
+    public_key: &[u8],
+    (not_before, not_after): (jiff::Timestamp, jiff::Timestamp),
+    extensions: &[Vec<u8>],
+) -> Result<Vec<u8>, String> {
+    let ecdsa_sha256 = algorithm.to_vec();
     let mut serial = [0u8; 16];
     rng.fill(&mut serial)
         .map_err(|_| "A certificate serial number could not be made.".to_string())?;
@@ -948,6 +1052,57 @@ mod tests {
         // The same without it, as a CA might issue it: refused.
         let error = check_signing_certificate(&[leaf(&base())], &key).unwrap_err();
         assert!(error.contains("Authority Key Identifier"), "{error}");
+        // Time-stamping or OCSP signing beside document signing: refused, each.
+        for purpose in ["1.3.6.1.5.5.7.3.8", "1.3.6.1.5.5.7.3.9"] {
+            let mut mixed = base();
+            mixed[2] = extension(
+                "2.5.29.37",
+                false,
+                &der::seq(&[der::oid(DOCUMENT_SIGNING), der::oid(purpose)]),
+            );
+            mixed.push(extension(
+                "2.5.29.35",
+                false,
+                &der::seq(&[der::tlv(0x80, &[1; 20])]),
+            ));
+            let error = check_signing_certificate(&[leaf(&mixed)], &key).unwrap_err();
+            assert!(
+                error.contains("time-stamping or OCSP"),
+                "{purpose}: {error}"
+            );
+        }
+        // RSA-PSS named with SHA-256 but MGF1 with SHA-384: refused; matching: accepted.
+        let pss = |mgf_hash: &str| {
+            let hash = |dotted: &str| der::seq(&[der::oid(dotted)]);
+            der::seq(&[
+                der::oid(RSASSA_PSS),
+                der::seq(&[
+                    der::explicit(0, &hash("2.16.840.1.101.3.4.2.1")),
+                    der::explicit(
+                        1,
+                        &der::seq(&[der::oid("1.2.840.113549.1.1.8"), hash(mgf_hash)]),
+                    ),
+                    der::explicit(2, &der::uint(&[32])),
+                ]),
+            ])
+        };
+        for (mgf_hash, ok) in [
+            ("2.16.840.1.101.3.4.2.2", false),
+            ("2.16.840.1.101.3.4.2.1", true),
+        ] {
+            let cert = certificate_named(
+                &rng,
+                &ca,
+                &pss(mgf_hash),
+                (&name("A Studio CA"), &name("Studio")),
+                ee.public_key().as_ref(),
+                (now - day, now + day * 30),
+                &with_aki,
+            )
+            .unwrap();
+            let result = check_signing_certificate(&[cert], &key);
+            assert_eq!(result.is_ok(), ok, "{mgf_hash}: {result:?}");
+        }
         // A critical extension verifiers do not know: refused.
         let mut unknown = with_aki.clone();
         unknown.push(extension("1.3.6.1.4.1.99999.1", true, &der::octets(&[1])));

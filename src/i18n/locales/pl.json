@@ -3952,6 +3952,7 @@
         "legend": "Pochodzenie (C2PA)",
         "none": "Nie skonfigurowano certyfikatu podpisu.",
         "password": "Hasło certyfikatu",
+        "planSigned": "podpisany (C2PA)",
         "remove": "Usuń certyfikat podpisu",
         "removeConfirm": "Usunąć certyfikat i jego klucz prywatny z tego komputera? Eksporty z tą opcją nie powiodą się, dopóki nie skonfigurujesz innego. Plik zaimportowanego certyfikatu pozostaje nietknięty.",
         "removeNo": "Anuluj",
@@ -3959,12 +3960,13 @@
         "review": {
           "actions": "Edycje",
           "author": "Autor",
+          "certificate": "Certyfikat (w każdym pliku, czytelny dla odbiorców)",
           "generated": "utworzone przez model generatywny ({{type}})",
           "generator": "Utworzono w",
           "ingredient": "Wywołano z",
           "noAuthor": "Nie podano",
           "noSigner": "Brak certyfikatu",
-          "notIncluded": "Nie zawiera",
+          "notIncluded": "Nie zawiera ze zdjęcia",
           "notIncludedList": "Miniatury ani pikseli oryginału, wartości suwaków, lokalizacji, konta ani usługi znacznika czasu.",
           "signer": "Podpisał"
         },

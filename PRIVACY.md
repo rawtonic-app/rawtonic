@@ -149,12 +149,13 @@ JPEG, PNG or TIFF carries a signed manifest: Rawtonic's name and version, the fi
 name and type of the photograph it was developed from, the kinds of edits
 (opened, tone and colour, cropped, rotated, local adjustments, retouching,
 resized, border or watermark) and each area a generative model made, and,
-only if you tick it, the photo's creator as author. No thumbnail or pixels of
-the original, no slider values, no location, no account. The manifest also
-holds your signing certificate, which names the signer you chose (a
+only if you tick it, the photo's creator as author. From the photo: no
+thumbnail or pixels of the original, no slider values, no location, no account. The manifest also
+holds your signing certificate, readable by everyone who gets the file: a
 certificate made on this computer names the name you typed; an imported one
-whatever its authority wrote into it). The Export panel shows what goes into
-the manifest before you export. Signing happens on this computer and sends
+holds whatever its authority wrote into its subject (organisation, and
+possibly a place or an e-mail address). The Export panel shows what goes into
+the manifest, the certificate's subject included, before you export. Signing happens on this computer and sends
 nothing: there is no time-stamp authority (that would send a hash of each
 file to a third party; verifiers then take the certificate's validity
 instead), no account and no upload. The private key stays in Rawtonic's data

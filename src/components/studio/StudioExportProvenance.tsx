@@ -15,6 +15,8 @@ export interface ProvenanceIdentity {
   validUntil: string;
   algorithm: string;
   fingerprint: string;
+  /** The signing certificate's whole subject, as embedded in every signed file. */
+  subject: string;
   /** Not valid now: exports cannot be signed with it. */
   expired: boolean;
 }
@@ -278,7 +280,7 @@ export default function StudioExportProvenance({
               <ProvenanceReview
                 key={job.key}
                 job={job}
-                label={signed.length > 1 ? job.label : null}
+                label={job.key !== 'current' || signed.length > 1 ? job.label : null}
                 path={path}
                 library={library}
                 fingerprint={identity?.fingerprint ?? null}
@@ -352,6 +354,12 @@ function ProvenanceReview({
         </dd>
         <dt>{t('studio.export.provenance.review.signer')}</dt>
         <dd>{shown.identity ? shown.identity.signer : t('studio.export.provenance.review.noSigner')}</dd>
+        {shown.identity && (
+          <>
+            <dt>{t('studio.export.provenance.review.certificate')}</dt>
+            <dd>{shown.identity.subject}</dd>
+          </>
+        )}
         <dt>{t('studio.export.provenance.review.ingredient')}</dt>
         <dd>
           {shown.manifest.ingredientTitle}

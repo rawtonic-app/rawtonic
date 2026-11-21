@@ -472,7 +472,8 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       format ? formatLabel(format) : job.format,
       QUALITY_FORMATS.includes(job.format) && t('studio.export.plan.quality', { quality: job.quality }),
       job.resize ? `${t(`studio.export.sizing.modes.${job.resizeMode}`)} ${size}` : t('studio.export.plan.fullSize'),
-      subfolder ? `${where} / ${subfolder}` : where
+      subfolder ? `${where} / ${subfolder}` : where,
+      job.provenance && t('studio.export.provenance.planSigned')
     ]
       .filter(Boolean)
       .join(' · ');

@@ -221,8 +221,10 @@ export function presetFromDraft(draft: RecipeDraft, id: string, name: string, ba
     keepMetadata: draft.metadata,
     stripGps: draft.stripGps,
     keepCreatorContact: !!draft.keepCreatorContact,
-    // Saved only when on, so recipes without it stay as they were.
-    ...(draft.provenance ? { provenance: true, provenanceAuthor: draft.provenanceAuthor } : {}),
+    // Saved only when on, so recipes without it stay as they were; turned
+    // off, a recipe that had it loses both (never kept from `base`).
+    provenance: draft.provenance ? true : undefined,
+    provenanceAuthor: draft.provenance ? draft.provenanceAuthor : undefined,
     // The naming tokens; `filenameTemplate` held the first export tokens.
     filenameTemplate: '',
     nameTemplate: draft.template,

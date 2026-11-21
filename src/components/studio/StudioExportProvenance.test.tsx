@@ -20,6 +20,7 @@ const local: ProvenanceIdentity = {
   validUntil: '2031-11-21T00:00:00Z',
   algorithm: 'ES256',
   fingerprint: 'ab',
+  subject: 'CN=Studio Example, O=Rawtonic local identity (unverified)',
   expired: false
 };
 
