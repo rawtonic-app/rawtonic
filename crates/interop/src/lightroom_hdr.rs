@@ -23,16 +23,14 @@ pub use rawtonic_metadata::LIGHTROOM_HDR_KEY;
 /// A fragment without its root (the XMP Rawtonic builds from a catalog's
 /// settings) is read inside one that declares the usual prefixes.
 pub fn hdr_settings(xmp: &str) -> BTreeMap<String, String> {
-    let wrapped;
-    let doc = match roxmltree::Document::parse(xmp) {
-        Ok(doc) => doc,
-        Err(_) => {
-            wrapped = format!("<x xmlns:rdf=\"{RDF}\" xmlns:crs=\"{CRS}\">{xmp}</x>");
-            match roxmltree::Document::parse(&wrapped) {
-                Ok(doc) => doc,
-                Err(_) => return BTreeMap::new(),
-            }
-        }
+    let wrapped = format!("<x xmlns:rdf=\"{RDF}\" xmlns:crs=\"{CRS}\">{xmp}</x>");
+    // The repository's bounded check (size, depth, attribute counts) comes
+    // before any DOM is built.
+    let Some(doc) = [xmp, wrapped.as_str()].into_iter().find_map(|text| {
+        rawtonic_metadata::check_xmp_input(text).ok()?;
+        roxmltree::Document::parse(text).ok()
+    }) else {
+        return BTreeMap::new();
     };
     let mut found = BTreeMap::new();
     for node in doc
