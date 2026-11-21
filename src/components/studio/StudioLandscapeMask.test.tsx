@@ -57,5 +57,8 @@ it('marks the parts the photo does not have, but keeps them selectable', async (
   expect(label(/^Vegetation/)?.textContent).toContain('(not found)');
   expect((screen.getByRole('checkbox', { name: /^Vegetation/ }) as HTMLInputElement).disabled).toBe(false);
   expect(label(/^Mountains/)?.textContent).toBe('Mountains');
-  expect(vi.mocked(invoke)).toHaveBeenCalledWith('detect_landscape_parts', expect.objectContaining({ path: '/photo.raf' }));
+  expect(vi.mocked(invoke)).toHaveBeenCalledWith(
+    'detect_landscape_parts',
+    expect.objectContaining({ path: '/photo.raf' })
+  );
 });
