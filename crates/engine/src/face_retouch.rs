@@ -22,6 +22,9 @@
 //!   surroundings and pull its colour towards theirs.
 //! - **Shine** lowers specular highlights on the skin.
 //!
+//! - **Eyes** (Iris, Sclera; both eyes or the one on the left or right of
+//!   the photo) and **Teeth** (Brightness, Whiten): see `eye_teeth`.
+//!
 //! - **Protect** (`protect`): areas the user paints keep their pixels from
 //!   before the retouch (freckles, moles, beauty marks).
 //!
@@ -39,7 +42,9 @@ use serde_json::Value;
 
 use crate::spot_removal::{mask_frame, to_base};
 
+mod eye_teeth;
 mod protect;
+pub use eye_teeth::Eye;
 pub use protect::ProtectStroke;
 
 /// Slider values, 0–100 (Texture −100–100); unset values of a face take
@@ -56,6 +61,17 @@ pub struct Settings {
     pub contouring: Option<f32>,
     /// Blemishes, even skin and texture on the neck too (below the chin).
     pub include_neck: Option<bool>,
+    /// Eyes, 0–100: both eyes; `*_left`/`*_right` (−100–100) are added to
+    /// it for the eye on the left or right of the photo.
+    pub iris: Option<f32>,
+    pub sclera: Option<f32>,
+    pub iris_left: Option<f32>,
+    pub iris_right: Option<f32>,
+    pub sclera_left: Option<f32>,
+    pub sclera_right: Option<f32>,
+    /// Teeth, 0–100.
+    pub teeth_brightness: Option<f32>,
+    pub teeth_whiten: Option<f32>,
 }
 
 /// Effective strengths: 0–1 (Texture −1–1), Impact already applied.
@@ -68,6 +84,11 @@ pub struct Amounts {
     pub shine: f32,
     pub contouring: f32,
     pub include_neck: bool,
+    /// Eye on the left, on the right of the photo.
+    pub iris: [f32; 2],
+    pub sclera: [f32; 2],
+    pub teeth_brightness: f32,
+    pub teeth_whiten: f32,
 }
 
 impl Settings {
@@ -82,12 +103,24 @@ impl Settings {
             shine: self.shine.or(all.shine),
             contouring: self.contouring.or(all.contouring),
             include_neck: self.include_neck.or(all.include_neck),
+            iris: self.iris.or(all.iris),
+            sclera: self.sclera.or(all.sclera),
+            iris_left: self.iris_left.or(all.iris_left),
+            iris_right: self.iris_right.or(all.iris_right),
+            sclera_left: self.sclera_left.or(all.sclera_left),
+            sclera_right: self.sclera_right.or(all.sclera_right),
+            teeth_brightness: self.teeth_brightness.or(all.teeth_brightness),
+            teeth_whiten: self.teeth_whiten.or(all.teeth_whiten),
         }
     }
 
     pub fn amounts(self) -> Amounts {
         let impact = self.impact.unwrap_or(100.0).clamp(0.0, 100.0) / 100.0;
         let unit = |v: Option<f32>| v.unwrap_or(0.0).clamp(0.0, 100.0) / 100.0 * impact;
+        let eye = |both: Option<f32>, side: Option<f32>| {
+            let side = side.unwrap_or(0.0).clamp(-100.0, 100.0);
+            unit(Some(both.unwrap_or(0.0).clamp(0.0, 100.0) + side))
+        };
         Amounts {
             blemishes: unit(self.blemishes),
             even_skin: unit(self.even_skin),
@@ -96,6 +129,16 @@ impl Settings {
             shine: unit(self.shine),
             contouring: unit(self.contouring),
             include_neck: self.include_neck.unwrap_or(false),
+            iris: [
+                eye(self.iris, self.iris_left),
+                eye(self.iris, self.iris_right),
+            ],
+            sclera: [
+                eye(self.sclera, self.sclera_left),
+                eye(self.sclera, self.sclera_right),
+            ],
+            teeth_brightness: unit(self.teeth_brightness),
+            teeth_whiten: unit(self.teeth_whiten),
         }
     }
 }
@@ -108,6 +151,7 @@ impl Amounts {
             && self.dark_circles <= 0.0
             && self.shine <= 0.0
             && self.contouring <= 0.0
+            && !eye_teeth::active(self)
     }
 }
 
@@ -147,6 +191,14 @@ pub struct RetouchFace {
     pub neck: Option<String>,
     #[serde(default)]
     pub blemishes: Vec<Blemish>,
+    /// The eyes on the left and on the right of the photo (`None`: not
+    /// seen); empty for faces found before Eyes and Teeth or without
+    /// landmarks.
+    #[serde(default)]
+    pub eyes: Vec<Option<Eye>>,
+    /// Inner lip outline of an open mouth, mask-frame pixels.
+    #[serde(default)]
+    pub mouth: Option<Vec<[f64; 2]>>,
     /// Blemishes (ids) the user keeps.
     #[serde(default)]
     pub kept: Vec<u32>,
@@ -172,6 +224,11 @@ pub struct FaceRetouch {
     /// Set by the app for the quick preview while a control is dragged:
     /// crowded blemishes are healed once, not three times. Never stored.
     pub draft: bool,
+    /// Set by `scaled_recipe`: the reduced image's pixels per full-size
+    /// pixel, so what depends on a feature's full size (the small-eye fade
+    /// of Eyes) stays as in the export. Never stored.
+    #[serde(rename = "previewScale")]
+    pub preview_scale: Option<f64>,
     /// The protection brush's strokes (mask-frame pixels), for every face.
     #[serde(deserialize_with = "protect::deserialize_strokes")]
     pub protect: Vec<ProtectStroke>,
@@ -270,6 +327,13 @@ pub fn from_adjustments(adjustments: &Value) -> Option<FaceRetouch> {
 /// pixels, scaled; the geometry stays, so the frame key still matches.
 pub fn scaled_recipe(adjustments: &Value, scale: f64) -> Value {
     let mut recipe = adjustments.clone();
+    if let Some(retouch) = recipe.get_mut("faceRetouch").and_then(Value::as_object_mut) {
+        let before = retouch
+            .get("previewScale")
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0);
+        retouch.insert("previewScale".into(), serde_json::json!(before * scale));
+    }
     let Some(faces) = recipe
         .get_mut("faceRetouch")
         .and_then(|r| r.get_mut("faces"))
@@ -291,6 +355,39 @@ pub fn scaled_recipe(adjustments: &Value, scale: f64) -> Value {
             }
         }
         scale_value(face, "eyeDistance");
+        let scale_point = |p: &mut Value| {
+            for v in p.as_array_mut().into_iter().flatten() {
+                if let Some(x) = v.as_f64() {
+                    *v = serde_json::json!(x * scale);
+                }
+            }
+        };
+        for eye in face
+            .get_mut("eyes")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(iris) = eye.get_mut("iris") {
+                scale_point(iris);
+            }
+            for p in eye
+                .get_mut("lid")
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                scale_point(p);
+            }
+        }
+        for p in face
+            .get_mut("mouth")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            scale_point(p);
+        }
         if let Some(blemishes) = face.get_mut("blemishes").and_then(Value::as_array_mut) {
             for b in blemishes {
                 for key in ["x", "y", "r"] {
@@ -1307,6 +1404,21 @@ pub fn apply_face_retouch(image: &mut Rgb32FImage, adjustments: &Value) -> bool 
             (face.eye_distance * base_per_mask) as f32,
             amounts,
         );
+        if eye_teeth::active(&amounts) {
+            eye_teeth::retouch(
+                image,
+                &face.eyes,
+                face.mouth.as_deref(),
+                &eye_teeth::Placement {
+                    adjustments,
+                    frame,
+                    scale: base_per_mask,
+                    full_size: 1.0 / retouch.preview_scale.filter(|&s| s > 0.0).unwrap_or(1.0),
+                    eye_distance: (face.eye_distance * base_per_mask) as f32,
+                },
+                &amounts,
+            );
+        }
         changed = true;
     }
     if changed && let Some(protection) = protection {
@@ -1350,6 +1462,8 @@ mod tests {
             under_eyes: None,
             neck: None,
             blemishes,
+            eyes: vec![],
+            mouth: None,
             kept: vec![],
             added: vec![],
             settings,

@@ -3823,10 +3823,32 @@
         "darkCircles": "Face dark circles",
         "evenSkin": "Face even skin",
         "impact": "Face impact",
+        "iris": "Iris ({{side}})",
+        "sclera": "Sclera ({{side}})",
         "shine": "Face shine",
+        "teethBrightness": "Teeth brightness",
+        "teethWhiten": "Teeth whiten",
         "texture": "Face texture"
       },
       "downloadModels": "Download face models",
+      "eyes": {
+        "find": "Find eyes and teeth",
+        "finding": "Finding eyes and teeth…",
+        "missing": "Eyes and Teeth need the eyes and mouth of these faces, which were found before these tools existed.",
+        "none": "No eyes or open mouth found on this face.",
+        "sideAria": "Eye",
+        "sideHint": {
+          "both": "Both eyes",
+          "left": "The eye on the left of the photo",
+          "right": "The eye on the right of the photo"
+        },
+        "sides": {
+          "both": "Both",
+          "left": "Left",
+          "right": "Right"
+        },
+        "title": "Eyes"
+      },
       "face": "Face {{n}}",
       "faceOwn": "Face {{n}} (own settings)",
       "facesAria": "Faces",
@@ -3858,8 +3880,15 @@
         "darkCircles": "Dark circles",
         "evenSkin": "Even skin",
         "impact": "Impact",
+        "iris": "Iris",
+        "sclera": "Sclera",
         "shine": "Shine",
+        "teethBrightness": "Brightness",
+        "teethWhiten": "Whiten",
         "texture": "Texture"
+      },
+      "teeth": {
+        "title": "Teeth"
       },
       "useAll": "Use the values of all faces"
     },

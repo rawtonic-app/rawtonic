@@ -4625,7 +4625,8 @@ body.is-dragging.is-drop-refused * {
 
 .studio-color-editor-modes button[aria-selected='true'],
 .studio-segments button[aria-pressed='true'],
-.studio-spot-controls .studio-segments button[aria-checked='true'] {
+.studio-spot-controls .studio-segments button[aria-checked='true'],
+.studio-face-retouch .studio-segments button[aria-checked='true'] {
   background: var(--studio-shade-raised, #3a3c40);
   color: var(--studio-shade-text, #eef0f3);
 }

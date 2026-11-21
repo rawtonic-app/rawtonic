@@ -3721,10 +3721,32 @@
         "darkCircles": "人脸黑眼圈",
         "evenSkin": "人脸均匀肤色",
         "impact": "人脸强度",
+        "iris": "虹膜（{{side}}）",
+        "sclera": "眼白（{{side}}）",
         "shine": "人脸油光",
+        "teethBrightness": "牙齿亮度",
+        "teethWhiten": "牙齿美白",
         "texture": "人脸纹理"
       },
       "downloadModels": "下载面部模型",
+      "eyes": {
+        "find": "查找眼睛和牙齿",
+        "finding": "正在查找眼睛和牙齿…",
+        "missing": "眼睛和牙齿需要这些面孔的眼睛和嘴，这些面孔是在这些工具出现之前找到的。",
+        "none": "在此面孔上未找到眼睛或张开的嘴。",
+        "sideAria": "眼睛",
+        "sideHint": {
+          "both": "双眼",
+          "left": "照片左侧的眼睛",
+          "right": "照片右侧的眼睛"
+        },
+        "sides": {
+          "both": "双眼",
+          "left": "左",
+          "right": "右"
+        },
+        "title": "眼睛"
+      },
       "face": "人脸 {{n}}",
       "faceOwn": "人脸 {{n}}（单独设置）",
       "facesAria": "人脸",
@@ -3755,8 +3777,15 @@
         "darkCircles": "黑眼圈",
         "evenSkin": "均匀肤色",
         "impact": "强度",
+        "iris": "虹膜",
+        "sclera": "眼白",
         "shine": "油光",
+        "teethBrightness": "亮度",
+        "teethWhiten": "美白",
         "texture": "纹理"
+      },
+      "teeth": {
+        "title": "牙齿"
       },
       "useAll": "使用所有人脸的值"
     },

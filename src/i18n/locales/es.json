@@ -3986,10 +3986,32 @@
         "darkCircles": "Cara: ojeras",
         "evenSkin": "Cara: piel uniforme",
         "impact": "Cara: intensidad",
+        "iris": "Iris ({{side}})",
+        "sclera": "Esclerótica ({{side}})",
         "shine": "Cara: brillo",
+        "teethBrightness": "Brillo de los dientes",
+        "teethWhiten": "Blanquear dientes",
         "texture": "Cara: textura"
       },
       "downloadModels": "Descargar modelos de rostro",
+      "eyes": {
+        "find": "Buscar ojos y dientes",
+        "finding": "Buscando ojos y dientes…",
+        "missing": "Ojos y Dientes necesitan los ojos y la boca de estas caras, encontradas antes de que existieran estas herramientas.",
+        "none": "No se han encontrado ojos ni boca abierta en esta cara.",
+        "sideAria": "Ojo",
+        "sideHint": {
+          "both": "Ambos ojos",
+          "left": "El ojo a la izquierda de la foto",
+          "right": "El ojo a la derecha de la foto"
+        },
+        "sides": {
+          "both": "Ambos",
+          "left": "Izquierdo",
+          "right": "Derecho"
+        },
+        "title": "Ojos"
+      },
       "face": "Cara {{n}}",
       "faceOwn": "Cara {{n}} (valores propios)",
       "facesAria": "Caras",
@@ -4022,8 +4044,15 @@
         "darkCircles": "Ojeras",
         "evenSkin": "Piel uniforme",
         "impact": "Intensidad",
+        "iris": "Iris",
+        "sclera": "Esclerótica",
         "shine": "Brillo",
+        "teethBrightness": "Brillo",
+        "teethWhiten": "Blanquear",
         "texture": "Textura"
+      },
+      "teeth": {
+        "title": "Dientes"
       },
       "useAll": "Usar los valores de todas las caras"
     },
