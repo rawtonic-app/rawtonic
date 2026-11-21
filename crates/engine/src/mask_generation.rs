@@ -97,6 +97,10 @@ pub struct PhotoGeometry {
     size: Option<(f64, f64)>,
     /// Whether `size` is the full decode's own (`with_decoded_size`).
     decoded: bool,
+    /// Whether AI bitmaps compare their recorded warp with `warp` by
+    /// geometry only (`warp_change`): set for the layers of `maskVersion` 6
+    /// and up (`generate_layer_mask`).
+    warp_by_geometry: bool,
 }
 
 impl PhotoGeometry {
@@ -111,6 +115,7 @@ impl PhotoGeometry {
             warp: Some(Arc::new(warp)),
             size: None,
             decoded: false,
+            warp_by_geometry: false,
         }
     }
 
@@ -175,25 +180,40 @@ impl PhotoGeometry {
         })
     }
 
-    /// From the warp a mask was made in to the current one, when they differ.
-    fn warp_change(&self, params: &Value, width: u32, height: u32) -> Option<WarpChange> {
-        self.warp_change_with(params, width, height, false)
+    /// From the warp an AI bitmap was made in to the current one, when they
+    /// differ. Layers of `maskVersion` 6 and up (`warp_by_geometry`) and
+    /// bitmaps stored on the grid (`grid`, `BITMAP_GRID_OF`) compare them by
+    /// geometry only (`warp_change_with`); older layers' other bitmaps
+    /// keep the full comparison, so saved recipes export as they did.
+    fn warp_change(
+        &self,
+        params: &Value,
+        width: u32,
+        height: u32,
+        grid: bool,
+    ) -> Option<WarpChange> {
+        self.warp_change_with(params, width, height, grid || self.warp_by_geometry)
     }
 
-    /// `warp_change` for a bitmap stored on the grid (`BITMAP_GRID_OF`): the
-    /// recorded warp is read with the current render's way of computing a
+    /// This geometry for a layer of `mask_version`: AI bitmaps compare
+    /// warps by geometry only from version 6 (`warp_change`).
+    fn for_layer(&self, mask_version: Option<u32>) -> Option<Self> {
+        (crate::recipe_versions::MaskVersion::new(mask_version).warp_by_geometry()
+            && !self.warp_by_geometry)
+            .then(|| Self {
+                warp_by_geometry: true,
+                ..self.clone()
+            })
+    }
+
+    /// `current_engine`: the recorded warp is read with the current render's way of computing a
     /// warp (`keep_negative`, `f32_warp`, `gpu_warp`, which come from the
     /// recipe's render version and which `mask_warp` does not record), so a
     /// mask made in the current lens and transform correction is not mapped
     /// through it again. Reading it without them made every AI mask on a
     /// photo with a lens profile look made in another warp: a 40 MP Fuji's
     /// mask took ~160 ms instead of a few to place (notes:
-    /// benchmark-results/lsm2-2026-11-21/REPORT.md). The other bitmaps keep
-    /// that comparison until a decision on their exports' bytes.
-    fn grid_warp_change(&self, params: &Value, width: u32, height: u32) -> Option<WarpChange> {
-        self.warp_change_with(params, width, height, true)
-    }
-
+    /// benchmark-results/lsm2-2026-11-21/REPORT.md).
     fn warp_change_with(
         &self,
         params: &Value,
@@ -232,6 +252,7 @@ impl PhotoGeometry {
             .map(|(w, h)| (w.to_bits(), h.to_bits()))
             .hash(hasher);
         self.decoded.hash(hasher);
+        self.warp_by_geometry.hash(hasher);
     }
 }
 
@@ -4095,7 +4116,7 @@ pub(crate) fn ai_bitmap_in_frame(
         crop_offset,
     };
     if let Some((w, h)) = grid_of {
-        let change = geometry.grid_warp_change(params_value, w, h);
+        let change = geometry.warp_change(params_value, w, h, true);
         return Some(generate_ai_bitmap_from_grid(
             &full_mask,
             (w, h),
@@ -4103,7 +4124,7 @@ pub(crate) fn ai_bitmap_in_frame(
             change.as_ref(),
         ));
     }
-    let change = geometry.warp_change(params_value, full_mask.width(), full_mask.height());
+    let change = geometry.warp_change(params_value, full_mask.width(), full_mask.height(), false);
     Some(generate_ai_bitmap_from_full_mask(
         &full_mask,
         &tf,
@@ -5623,6 +5644,17 @@ pub fn generate_layer_mask(
 ) -> Option<MaskBitmap> {
     if !mask_def.produces_bitmap() {
         return None;
+    }
+    if let Some(layer_geometry) = geometry.for_layer(mask_def.mask_version) {
+        return generate_layer_mask(
+            mask_def,
+            width,
+            height,
+            scale,
+            crop_offset,
+            &layer_geometry,
+            warped_image,
+        );
     }
     if geometry.decoded
         && let Some(size) = geometry.size
@@ -9464,36 +9496,44 @@ mod geometry_follow_tests {
             // the new one.
             let made = warped_luma(&sensor, &then);
             let expected = warped_luma(&sensor, &now);
-            let def = ai_layer("ai-sky", &made, json!({"warp": mask_warp(&then)}));
-            let shown = render(&def, &now, (w, h), (0.0, 0.0));
             let legacy = render(
                 &ai_layer("ai-sky", &made, json!({})),
                 &now,
                 (w, h),
                 (0.0, 0.0),
             );
-            // Inside the frame both warps cover, away from the edges.
-            let (mut moved, mut stayed, mut n) = (0.0, 0.0, 0.0);
-            for y in 30..h - 30 {
-                for x in 40..w - 40 {
-                    let e = expected.get_pixel(x, y)[0] as f64;
-                    let a = shown.get_pixel(x, y)[0] as f64;
-                    let b = legacy.get_pixel(x, y)[0] as f64;
-                    if e == 0.0 || a == 0.0 || b == 0.0 {
-                        continue;
+            // Saved layers and new ones (`maskVersion` 6, which compares the
+            // warps by geometry only) move it alike.
+            for version in [None, Some(crate::recipe_versions::mask::WARP_BY_GEOMETRY)] {
+                let mut def = ai_layer("ai-sky", &made, json!({"warp": mask_warp(&then)}));
+                def.mask_version = version;
+                let shown = render(&def, &now, (w, h), (0.0, 0.0));
+                // Inside the frame both warps cover, away from the edges.
+                let (mut moved, mut stayed, mut n) = (0.0, 0.0, 0.0);
+                for y in 30..h - 30 {
+                    for x in 40..w - 40 {
+                        let e = expected.get_pixel(x, y)[0] as f64;
+                        let a = shown.get_pixel(x, y)[0] as f64;
+                        let b = legacy.get_pixel(x, y)[0] as f64;
+                        if e == 0.0 || a == 0.0 || b == 0.0 {
+                            continue;
+                        }
+                        moved += (a - e).abs();
+                        stayed += (b - e).abs();
+                        n += 1.0;
                     }
-                    moved += (a - e).abs();
-                    stayed += (b - e).abs();
-                    n += 1.0;
                 }
+                let (moved, stayed) = (moved / n, stayed / n);
+                assert!(n > 10_000.0, "{now} {version:?}: {n} pixels compared");
+                assert!(
+                    moved < 1.5,
+                    "{now} {version:?}: mean error {moved:.2} after the move"
+                );
+                assert!(
+                    stayed > 3.0 * moved,
+                    "{now}: {stayed:.2} without the move vs {moved:.2}"
+                );
             }
-            let (moved, stayed) = (moved / n, stayed / n);
-            assert!(n > 10_000.0, "{now}: {n} pixels compared");
-            assert!(moved < 1.5, "{now}: mean error {moved:.2} after the move");
-            assert!(
-                stayed > 3.0 * moved,
-                "{now}: {stayed:.2} without the move vs {moved:.2}"
-            );
         }
         // The same warp: the mask as stored, bit for bit.
         let made = warped_luma(&sensor, &then);
@@ -10946,7 +10986,8 @@ mod bitmap_frame_tests {
     /// A grid bitmap made in the photo's current lens profile correction
     /// is not mapped through it again, though the recorded warp lacks the
     /// render version's way of computing it; a changed correction still
-    /// moves it. (Other bitmaps keep their comparison, see `grid_warp_change`.)
+    /// moves it. (Other bitmaps of older layers keep their comparison, see
+    /// `warp_change`.)
     #[test]
     fn grid_bitmaps_made_in_the_current_lens_correction_are_not_remapped() {
         let recipe = json!({
@@ -10961,10 +11002,107 @@ mod bitmap_frame_tests {
         });
         let geometry = PhotoGeometry::from_adjustments(&recipe);
         let made_now = json!({"warp": mask_warp(&recipe)});
-        assert!(geometry.grid_warp_change(&made_now, 600, 400).is_none());
+        assert!(geometry.warp_change(&made_now, 600, 400, true).is_none());
         let mut before = recipe.clone();
         before["lensDistortionAmount"] = json!(50);
         let made_before = json!({"warp": mask_warp(&before)});
-        assert!(geometry.grid_warp_change(&made_before, 600, 400).is_some());
+        assert!(geometry.warp_change(&made_before, 600, 400, true).is_some());
+    }
+
+    /// An AI mask (Sky, Subject, People, depth) made in the photo's current
+    /// lens profile correction: a layer of `maskVersion` 6 places its bitmap
+    /// as made in that correction, while a saved layer of an older version
+    /// maps it through both warps as before (its exports keep their bytes).
+    #[test]
+    fn new_layers_skip_the_no_op_remap_and_saved_layers_keep_it() {
+        use crate::recipe_versions::mask::{SOFT_FOLD, WARP_BY_GEOMETRY};
+        let recipe = json!({
+            "renderVersion": crate::image_processing::RENDER_VERSION,
+            "lensCorrectionMode": "camera",
+            "lensDistortionEnabled": true,
+            "lensDistortionAmount": 100,
+            "lensDistortionParams": {"model": 3, "k1": 0, "k2": 0, "k3": 0,
+                "table": [1.10, 1.09, 1.07, 1.05, 1.03, 1.0],
+                "table_radii": [0.0, 0.3, 0.5, 0.7, 0.85, 1.0],
+                "zoom": 1.08, "exact_zoom": true},
+        });
+        let (w, h) = (300u32, 200u32);
+        let bitmap = GrayImage::from_fn(w, h, |x, y| {
+            Luma([((x * 7 + y * 3) % 50 * 5 + if (x / 9 + y / 7) % 2 == 0 { 0 } else { 5 }) as u8])
+        });
+        let url = data_url(&bitmap);
+        let geometry = PhotoGeometry::from_adjustments(&recipe).with_decoded_size(w, h);
+        for kind in [
+            "ai-sky",
+            "ai-subject",
+            "ai-foreground",
+            "ai-people",
+            "ai-depth",
+        ] {
+            let mut parameters = json!({"maskDataBase64": url, "warp": mask_warp(&recipe)});
+            if kind == "ai-subject" {
+                for (k, v) in [("startX", 0), ("startY", 0), ("endX", w), ("endY", h)] {
+                    parameters[k] = json!(v);
+                }
+            }
+            if kind == "ai-depth" {
+                parameters["minDepth"] = json!(20);
+                parameters["maxDepth"] = json!(60);
+                parameters["minFade"] = json!(20);
+                parameters["maxFade"] = json!(20);
+            }
+            let layer = |version: Option<u32>| -> MaskDefinition {
+                serde_json::from_value(json!({
+                    "id": "l", "name": "l", "visible": true, "invert": false, "opacity": 100.0,
+                    "adjustments": {}, "maskVersion": version,
+                    "subMasks": [{"id": "s", "type": kind, "visible": true, "invert": false,
+                        "opacity": 100.0, "mode": "additive", "parameters": parameters}],
+                }))
+                .unwrap()
+            };
+            let render = |version: Option<u32>, geometry: &PhotoGeometry| {
+                generate_mask_bitmap(&layer(version), w, h, 1.0, (0.0, 0.0), geometry, None)
+                    .unwrap()
+            };
+            // Placed with no warp at all: the bitmap as it was made.
+            let unwarped = PhotoGeometry::default().with_decoded_size(w, h);
+            assert!(geometry.warp_change(&parameters, w, h, false).is_some());
+            assert_eq!(
+                render(Some(WARP_BY_GEOMETRY), &geometry),
+                render(Some(WARP_BY_GEOMETRY), &unwarped),
+                "{kind}"
+            );
+            // A correction changed after the mask was made still moves it.
+            let mut changed = recipe.clone();
+            changed["lensDistortionAmount"] = json!(50);
+            let changed = PhotoGeometry::from_adjustments(&changed).with_decoded_size(w, h);
+            assert!(changed.warp_change(&parameters, w, h, true).is_some());
+            assert_ne!(
+                render(Some(WARP_BY_GEOMETRY), &changed),
+                render(Some(WARP_BY_GEOMETRY), &unwarped),
+                "{kind}"
+            );
+            // Saved layers: mapped through both warps, as before.
+            for version in [None, Some(4), Some(SOFT_FOLD)] {
+                let old = render(version, &geometry);
+                let change = geometry.warp_change(&parameters, w, h, false);
+                let tf = TransformParams {
+                    rotation: 0.0,
+                    flip_horizontal: false,
+                    flip_vertical: false,
+                    orientation_steps: 0,
+                    width: w,
+                    height: h,
+                    scale: 1.0,
+                    crop_offset: (0.0, 0.0),
+                };
+                let remapped = generate_ai_bitmap_from_full_mask(&bitmap, &tf, change.as_ref());
+                // (Sky places its bitmap as stored; the others process it.)
+                if kind == "ai-sky" {
+                    assert_eq!(old, remapped, "{version:?}");
+                }
+                assert_ne!(old, render(version, &unwarped), "{kind} {version:?}");
+            }
+        }
     }
 }

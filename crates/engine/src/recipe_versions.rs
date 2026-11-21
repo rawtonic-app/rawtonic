@@ -1062,6 +1062,11 @@ pub mod mask {
     /// Components add as a + b − a·b and intersect as a·b instead of max
     /// and min (`mask_generation::fold`).
     pub const SOFT_FOLD: u32 = 5;
+    /// AI bitmaps compare the warp they were made in with the current one
+    /// by geometry only (`mask_generation::PhotoGeometry`), so a mask made
+    /// in the current lens profile correction is not mapped through it
+    /// again.
+    pub const WARP_BY_GEOMETRY: u32 = 6;
 }
 
 /// `maskVersion` of a mask layer: none for masks from before the key, read
@@ -1092,6 +1097,10 @@ impl MaskVersion {
 
     pub fn soft_fold(self) -> bool {
         self.at_least(mask::SOFT_FOLD)
+    }
+
+    pub fn warp_by_geometry(self) -> bool {
+        self.at_least(mask::WARP_BY_GEOMETRY)
     }
 }
 
