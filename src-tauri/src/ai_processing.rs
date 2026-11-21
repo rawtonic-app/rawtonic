@@ -1185,10 +1185,29 @@ pub(crate) async fn load_core_ml(
     label: &str,
     model_name: &str,
 ) -> Option<rawtonic_denoise::coreml::CoreMlModel> {
+    load_core_ml_in(
+        app_handle, models_dir, package, files, download, label, model_name, None,
+    )
+    .await
+}
+
+/// `load_core_ml`, counting its download into `batch`.
+#[cfg(target_os = "macos")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn load_core_ml_in(
+    app_handle: &tauri::AppHandle,
+    models_dir: &Path,
+    package: &str,
+    files: &[(&str, &str, &str)],
+    download: bool,
+    label: &str,
+    model_name: &str,
+    batch: Option<&mut DownloadBatch>,
+) -> Option<rawtonic_denoise::coreml::CoreMlModel> {
     let package = models_dir.join(package);
     let start = std::time::Instant::now();
     match assemble_package(
-        app_handle, models_dir, &package, files, download, model_name, None,
+        app_handle, models_dir, &package, files, download, model_name, batch,
     )
     .await
     {

@@ -258,27 +258,27 @@ it('shows a model download with its progress', async () => {
   await act(async () => {});
   handlers.get('ai-model-download-start')!({ payload: 'sky-v2' });
   handlers.get('ai-model-download-progress')!({ payload: { model: 'sky-v2', received: 50, total: 200 } });
-  expect(entry('download:ai-model')).toMatchObject({
+  expect(entry('download:ai-model:sky-v2')).toMatchObject({
     source: 'download',
     title: 'Downloading sky-v2',
     progress: { done: 50, total: 200 }
   });
   handlers.get('ai-model-download-finish')!({ payload: 'sky-v2' });
-  expect(entry('download:ai-model')).toBeUndefined();
+  expect(entry('download:ai-model:sky-v2')).toBeUndefined();
 });
 
 it("titles a model download in the UI's language, not the backend's English name", async () => {
   await act(async () => {});
   handlers.get('ai-model-download-start')!({ payload: 'Eye and teeth model' });
-  expect(entry('download:ai-model')?.title).toBe('Downloading eye and teeth model');
+  expect(entry('download:ai-model:Eye and teeth model')?.title).toBe('Downloading eye and teeth model');
   handlers.get('ai-model-download-finish')!({ payload: 'Eye and teeth model' });
   await i18n.changeLanguage('de');
   try {
     handlers.get('ai-model-download-start')!({ payload: 'Eye and teeth model' });
-    expect(entry('download:ai-model')?.title).toBe('Wird geladen: Augen- und Zahnmodell');
+    expect(entry('download:ai-model:Eye and teeth model')?.title).toBe('Wird geladen: Augen- und Zahnmodell');
     handlers.get('ai-model-download-finish')!({ payload: 'Eye and teeth model' });
     handlers.get('ai-model-download-start')!({ payload: 'Face models' });
-    expect(entry('download:ai-model')?.title).toBe('Wird geladen: Gesichtsmodelle');
+    expect(entry('download:ai-model:Face models')?.title).toBe('Wird geladen: Gesichtsmodelle');
   } finally {
     await i18n.changeLanguage('en');
   }

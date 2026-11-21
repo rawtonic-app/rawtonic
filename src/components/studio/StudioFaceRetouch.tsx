@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useActivityStore } from '../../store/useActivityStore';
+import { modelDownloadId } from '../../activity/bridges';
 import { recipeWrite, useEditorActions } from '../../hooks/useEditorActions';
 import { Invokes } from '../ui/AppProperties';
 import type {
@@ -393,13 +394,19 @@ const SLIDERS = [
  * when the tool shows; the recipe keeps them only once a slider moves.
  */
 
+/** The backend's names of the models this panel downloads (`ai_faces`). */
+const FACE_MODELS = 'Face models';
+const EYES_TEETH_MODEL = 'Eye and teeth model';
+
 /** In place of a model's download button while the download the user
- * clicked runs: its percent from the Activity entry, else "Preparing" (the
- * request starting, or the model loading after the download). */
-function ModelDownloadStatus() {
+ * clicked runs: the percent of that model's Activity entry (all its files
+ * together), else "Preparing" (the request starting, or the model loading
+ * after the download). */
+function ModelDownloadStatus({ model }: { model: string }) {
   const { t } = useTranslation();
   const percent = useActivityStore((state) => {
-    const progress = state.entries.find((e) => e.id === 'download:ai-model' && e.status === 'running')?.progress;
+    const id = modelDownloadId(model);
+    const progress = state.entries.find((e) => e.id === id && e.status === 'running')?.progress;
     return progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : null;
   });
   return (
@@ -699,9 +706,9 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       {busy && <p className="studio-hint">{t('studio.faceRetouch.finding')}</p>}
       {reparseMissing && (
         <div className="studio-hint" role="note">
-          {downloadFailure ? <p role="alert">{downloadFailure}</p> : <p>{t('studio.faceRetouch.eyes.modelMissing')}</p>}
+          {failure ? <p role="alert">{failure}</p> : <p>{t('studio.faceRetouch.eyes.modelMissing')}</p>}
           {isFetching ? (
-            <ModelDownloadStatus />
+            <ModelDownloadStatus model={EYES_TEETH_MODEL} />
           ) : (
             <button type="button" className="studio-text-button" onClick={downloadEyesTeeth}>
               {t('studio.faceRetouch.eyes.downloadModel')}
@@ -713,7 +720,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
         <div className="studio-hint" role="note">
           {downloadFailure ? <p role="alert">{downloadFailure}</p> : <p>{t('studio.faceRetouch.modelsMissing')}</p>}
           {isFetching ? (
-            <ModelDownloadStatus />
+            <ModelDownloadStatus model={FACE_MODELS} />
           ) : (
             <button
               type="button"
@@ -783,7 +790,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
             <div className="studio-hint" role="note">
               {parseError ? <p role="alert">{parseError}</p> : <p>{t('studio.faceRetouch.eyes.modelMissing')}</p>}
               {isFetching ? (
-                <ModelDownloadStatus />
+                <ModelDownloadStatus model={EYES_TEETH_MODEL} />
               ) : (
                 <button type="button" className="studio-text-button" onClick={downloadEyesTeeth}>
                   {t('studio.faceRetouch.eyes.downloadModel')}

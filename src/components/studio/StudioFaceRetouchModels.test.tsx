@@ -8,6 +8,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 import StudioFaceRetouch, { faceRetouchGeometry, faceRetouchIsCurrent } from './StudioFaceRetouch';
 import { useEditorStore } from '../../store/useEditorStore';
 import { resetActivityStore, useActivityStore } from '../../store/useActivityStore';
+import { modelDownloadId } from '../../activity/bridges';
 import { INITIAL_ADJUSTMENTS, type FaceRetouch } from '../../utils/adjustments';
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../../utils/geometryKeys';
 
@@ -354,12 +355,19 @@ describe('model downloads in the Retouch tab', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Download eye and teeth model' }));
     expect(await screen.findByText('Preparing the model…')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Download eye and teeth model' })).toBeNull();
+    // Another model's download (Sky) does not show here.
     act(() => {
-      useActivityStore.getState().start({ id: 'download:ai-model', source: 'download', title: 'x' });
-      useActivityStore.getState().update('download:ai-model', { progress: { done: 25, total: 100 } });
+      useActivityStore.getState().start({ id: modelDownloadId('Sky Model'), source: 'download', title: 'x' });
+      useActivityStore.getState().update(modelDownloadId('Sky Model'), { progress: { done: 90, total: 100 } });
+    });
+    expect(screen.queryByText('Downloading… 90%')).toBeNull();
+    const id = modelDownloadId('Eye and teeth model');
+    act(() => {
+      useActivityStore.getState().start({ id, source: 'download', title: 'x' });
+      useActivityStore.getState().update(id, { progress: { done: 25, total: 100 } });
     });
     expect(await screen.findByText('Downloading… 25%')).toBeTruthy();
-    act(() => useActivityStore.getState().finish('download:ai-model'));
+    act(() => useActivityStore.getState().finish(id));
     finish({ frame: '2:{}', faces: [analysed] });
     await waitFor(() => expect(screen.queryByText('Preparing the model…')).toBeNull());
   });

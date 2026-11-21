@@ -81,6 +81,12 @@ const MODEL_NAMES: Record<string, ModelId | undefined> = {
   'Relight people normals': 'relight'
 };
 
+/** The Activity entry of a model's download (`model`: the backend's name),
+ * one per model, so two downloads at once each show their own progress. */
+export function modelDownloadId(model: string): string {
+  return `download:ai-model:${model}`;
+}
+
 export function modelName(model: string): string {
   const key = MODEL_NAMES[model];
   return key ? i18n.t(`activity.download.names.${key}`) : model;
@@ -556,7 +562,7 @@ export function startActivityBridges(): () => void {
   const listeners = [
     listenSafely<string>('ai-model-download-start', (model) => {
       useActivityStore.getState().start({
-        id: 'download:ai-model',
+        id: modelDownloadId(model),
         source: 'download',
         title: i18n.t('activity.download.model', { name: modelName(model) })
       });
@@ -564,9 +570,11 @@ export function startActivityBridges(): () => void {
     listenSafely<DownloadProgress>('ai-model-download-progress', (payload) => {
       const total = payload.batchTotal || payload.total;
       const done = payload.batchTotal ? (payload.batchReceived ?? 0) : payload.received;
-      if (total > 0) useActivityStore.getState().update('download:ai-model', { progress: { done, total } });
+      if (total > 0) useActivityStore.getState().update(modelDownloadId(payload.model), { progress: { done, total } });
     }),
-    listenSafely('ai-model-download-finish', () => useActivityStore.getState().finish('download:ai-model')),
+    listenSafely<string>('ai-model-download-finish', (model) =>
+      useActivityStore.getState().finish(modelDownloadId(model))
+    ),
     listenSafely<DuplicatesProgress>(DUPLICATES_PROGRESS, syncDuplicatesProgress),
     listenSafely<AiSelectionsProgress>(AI_SELECTIONS_PROGRESS, syncAiSelections),
     listenSafely<LeftoversReport>('leftovers-removed', syncLeftovers),
