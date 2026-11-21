@@ -10838,7 +10838,12 @@ mod bitmap_frame_tests {
         )
     }
 
-    fn place(url: &str, params: &Value, frame: (u32, u32, f32), geometry: &PhotoGeometry) -> GrayImage {
+    fn place(
+        url: &str,
+        params: &Value,
+        frame: (u32, u32, f32),
+        geometry: &PhotoGeometry,
+    ) -> GrayImage {
         ai_bitmap_in_frame(params, url, frame.0, frame.1, frame.2, (0.0, 0.0), geometry).unwrap()
     }
 

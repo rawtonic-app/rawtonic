@@ -2650,10 +2650,7 @@ mod tests {
  <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
   <crs:MaskGroupBasedCorrections><rdf:Seq>{}{}{}{}</rdf:Seq></crs:MaskGroupBasedCorrections>
  </rdf:Description></rdf:RDF></x:xmpmeta>"#,
-            correction(
-                "Mountains and water",
-                &[part(50002, ""), part(50007, "")]
-            ),
+            correction("Mountains and water", &[part(50002, ""), part(50007, "")]),
             correction(
                 "Ground but not the road",
                 &[
@@ -2697,7 +2694,12 @@ mod tests {
             parts(&layers[1]),
             vec![
                 add("naturalGround"),
-                ("intersect".to_string(), json!(["artificialGround"]), true, 100.0),
+                (
+                    "intersect".to_string(),
+                    json!(["artificialGround"]),
+                    true,
+                    100.0
+                ),
                 ("additive".to_string(), json!(["architecture"]), false, 50.0),
             ]
         );

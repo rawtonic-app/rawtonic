@@ -544,8 +544,7 @@ pub(crate) fn has_ai_masks_on_open(adjustments: &Value) -> bool {
             matches!(
                 sub["type"].as_str(),
                 Some("ai-foreground" | "ai-sky" | "ai-landscape")
-            )
-                && sub["parameters"]["maskDataBase64"].is_null()
+            ) && sub["parameters"]["maskDataBase64"].is_null()
         })
 }
 
