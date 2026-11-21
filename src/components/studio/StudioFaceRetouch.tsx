@@ -92,7 +92,7 @@ function analyse(path: string, geometry: string, download = false): Promise<Anal
   const key = `${path}\n${geometry}`;
   let pending = analyses.get(key);
   if (!pending) {
-    pending = invoke<Analysis>(Invokes.AnalyzeFaceRetouch, { jsAdjustments: JSON.parse(geometry), download });
+    pending = invoke<Analysis>(Invokes.AnalyzeFaceRetouch, { jsAdjustments: JSON.parse(geometry), path, download });
     pending.catch(() => analyses.delete(key));
     analyses.set(key, pending);
   }
@@ -100,15 +100,18 @@ function analyse(path: string, geometry: string, download = false): Promise<Anal
 }
 
 /** The faces with the eye and teeth parser's outlines, the parser run when
- * it is installed or `download` (the user's click) may fetch it. A result
- * without the parser is not kept, so the next request after a download
- * finds it. */
-function analyseEyesTeeth(path: string, geometry: string, download = false): Promise<Analysis> {
+ * it is installed or `download` (the user's click) may fetch it;
+ * `downloadFaces` the same for the face models. A result without the
+ * parser is not kept, so the next request after a download finds it; a
+ * request in progress is shared. */
+function analyseEyesTeeth(path: string, geometry: string, download = false, downloadFaces = false): Promise<Analysis> {
   const key = `${path}\n${geometry}`;
   let pending = parses.get(key);
-  if (!pending || download) {
+  if (!pending || download || downloadFaces) {
     pending = invoke<Analysis>(Invokes.AnalyzeFaceRetouch, {
       jsAdjustments: JSON.parse(geometry),
+      path,
+      download: downloadFaces,
       eyesTeeth: true,
       downloadEyesTeeth: download
     });
@@ -406,6 +409,9 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
     analysis?: Analysis;
     error?: string;
     modelsMissing?: boolean;
+    /** A retouch with the parser's outlines was found again without the
+     * parser installed: it stays as stored until the parser is there. */
+    eyesTeethMissing?: boolean;
   } | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const showBlemishes = useEditorStore((s) => s.showFaceBlemishes);
@@ -471,12 +477,23 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   // A retouch with the parser's outlines is found again with them (only a
   // parser removed from the model folder meanwhile leaves Face Mesh's).
   const storedParsed = Boolean(stored && eyesTeethParsed(stored.faces));
+  // The parser's download is allowed for the photo and geometry it was
+  // clicked on, once: taken when the request goes out (PRIVACY.md); a failed
+  // one offers the button again.
+  const [eyesDownload, setEyesDownload] = useState<string | null>(null);
+  const downloadNow = eyesDownload === key;
   useEffect(() => {
     if (!path || !ready || (current && !findEyes)) return;
     let live = true;
-    (storedParsed && !current ? analyseEyesTeeth(path, geometry) : analyse(path, geometry, download > 0))
+    const reparse = storedParsed && !current;
+    if (reparse && downloadNow) setEyesDownload(null);
+    (reparse ? analyseEyesTeeth(path, geometry, downloadNow, download > 0) : analyse(path, geometry, download > 0))
       .then((analysis) => {
         if (!live) return;
+        if (reparse && analysis.eyesTeethMissing) {
+          setFound({ key: `${path}\n${geometry}`, eyesTeethMissing: true });
+          return;
+        }
         setFound({ key: `${path}\n${geometry}`, analysis });
         // Retouch made in another geometry follows the faces, and the
         // protected areas the photo.
@@ -516,7 +533,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, ready, geometry, Boolean(current), findEyes, download, storedParsed]);
+  }, [path, ready, geometry, Boolean(current), findEyes, download, storedParsed, downloadNow]);
 
   const analysis = found?.key === key ? found.analysis : undefined;
   // New Eyes and Teeth use the eye and teeth parser: a retouch it has not
@@ -527,31 +544,23 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   const wantsParse = current
     ? !needsEyes && !eyesTeethParsed(current.faces) && !eyesTeethSet(current)
     : Boolean(analysis && analysis.faces.length > 0 && !eyesTeethParsed(analysis.faces));
-  // The download is allowed for the photo and geometry it was clicked on,
-  // once (PRIVACY.md); a failed one offers the button again.
-  const [eyesDownload, setEyesDownload] = useState<string | null>(null);
-  const downloadNow = eyesDownload === key;
   const [parse, setParse] = useState<{ key: string; analysis?: Analysis; error?: string } | null>(null);
   useEffect(() => {
     if (!path || !ready || !wantsParse) return;
     let live = true;
     const at = `${path}\n${geometry}`;
-    const done = (result: { key: string; analysis?: Analysis; error?: string }) => {
-      if (!live) return;
-      setParse(result);
-      if (downloadNow) setEyesDownload(null);
-    };
+    if (downloadNow) setEyesDownload(null);
     analyseEyesTeeth(path, geometry, downloadNow)
-      .then((analysis) => done({ key: at, analysis }))
-      .catch((error) => done({ key: at, error: aiErrorMessage(error) }));
+      .then((analysis) => live && setParse({ key: at, analysis }))
+      .catch((error) => live && setParse({ key: at, error: aiErrorMessage(error) }));
     return () => {
       live = false;
     };
   }, [path, ready, geometry, wantsParse, downloadNow]);
   const parsedFaces =
     parse?.key === key && parse.analysis && !parse.analysis.eyesTeethMissing ? parse.analysis.faces : undefined;
-  const parseMissing = wantsParse && !downloadNow && parse?.key === key && Boolean(parse.analysis?.eyesTeethMissing);
-  const parseError = wantsParse && !downloadNow && parse?.key === key ? parse.error : undefined;
+  const parseMissing = wantsParse && parse?.key === key && Boolean(parse.analysis?.eyesTeethMissing);
+  const parseError = wantsParse && parse?.key === key ? parse.error : undefined;
   const parseWaiting = wantsParse && !parsedFaces;
   const faces = current?.faces ?? analysis?.faces ?? [];
   const settings = current?.settings ?? {};
@@ -595,7 +604,8 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   // mouth (all faces when none is chosen).
   const eyesMissing = Boolean(current) && (face ? face.eyes === undefined : needsEyes);
   const eyesTeethWait = eyesMissing || parseWaiting;
-  const busy = !current && !analysis && !(found?.key === key && found.error);
+  const reparseMissing = found?.key === key && Boolean(found.eyesTeethMissing);
+  const busy = !current && !analysis && !(found?.key === key && (found.error || found.eyesTeethMissing));
   const failure = found?.key === key ? found.error : undefined;
   const modelsMissing = found?.key === key && Boolean(found.modelsMissing);
   const error = modelsMissing ? undefined : failure;
@@ -635,6 +645,14 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
         </div>
       )}
       {busy && <p className="studio-hint">{t('studio.faceRetouch.finding')}</p>}
+      {reparseMissing && (
+        <div className="studio-hint" role="note">
+          <p>{t('studio.faceRetouch.eyes.modelMissing')}</p>
+          <button type="button" className="studio-text-button" onClick={() => setEyesDownload(key)}>
+            {t('studio.faceRetouch.eyes.downloadModel')}
+          </button>
+        </div>
+      )}
       {modelsMissing && (
         <div className="studio-hint" role="note">
           <p>{t('studio.faceRetouch.modelsMissing')}</p>

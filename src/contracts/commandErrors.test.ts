@@ -66,7 +66,7 @@ function commands(): Map<string, { args: string; returns: string }> {
 const CONVERTED: Record<string, { args: string; ok: string }> = {
   // Eyes and Teeth' parser arguments added later (EYE4).
   analyze_face_retouch: {
-    args: `js_adjustments: serde_json::Value, download: Option<bool>, eyes_teeth: Option<bool>, download_eyes_teeth: Option<bool>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    args: `js_adjustments: serde_json::Value, path: Option<String>, download: Option<bool>, eyes_teeth: Option<bool>, download_eyes_teeth: Option<bool>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
     ok: `serde_json::Value`
   },
   apply_adjustments: {

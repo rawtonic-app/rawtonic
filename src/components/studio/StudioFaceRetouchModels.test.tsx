@@ -233,4 +233,23 @@ describe('the eye and teeth parser', () => {
     expect(invoke).not.toHaveBeenCalled();
     expect(useEditorStore.getState().adjustments.faceRetouch?.faces[0].parsedTeeth).toBeUndefined();
   });
+
+  it('keeps a stored parser retouch as it is when the parser is missing after a geometry change', async () => {
+    invoke.mockResolvedValue({ frame: '2:{}', faces: [analysed], eyesTeethMissing: true });
+    const adjustments = { ...INITIAL_ADJUSTMENTS };
+    const faceRetouch = {
+      settings: { iris: 50 },
+      faces: [{ ...parsed, enabled: true }],
+      frame: '2:{}',
+      geometry: JSON.stringify(faceRetouchGeometry({ ...adjustments, rotation: 3 }))
+    } as unknown as FaceRetouch;
+    useEditorStore.setState({
+      selectedImage: { path: '/s/g.CR3', isReady: true } as never,
+      adjustments: { ...adjustments, faceRetouch }
+    });
+    render(<StudioFaceRetouch onInteraction={() => {}} />);
+    await screen.findByRole('button', { name: 'Download eye and teeth model' });
+    expect(invoke.mock.calls[0][1]).toMatchObject({ path: '/s/g.CR3', eyesTeeth: true, downloadEyesTeeth: false });
+    expect(useEditorStore.getState().adjustments.faceRetouch).toBe(faceRetouch);
+  });
 });

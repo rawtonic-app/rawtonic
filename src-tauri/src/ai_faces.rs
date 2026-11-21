@@ -378,6 +378,7 @@ pub async fn generate_ai_people_mask(
 /// The faces of the open photo for the face retouch tool (see
 /// `retouch_faces`), found in the mask frame of `js_adjustments`' geometry
 /// (transform adjustments with rotation, flips and orientation steps).
+/// `path`: the photo asked for (a stale error when another one is open).
 /// `eyes_teeth`: with the eye and teeth parser's outlines too, when it is
 /// installed or `download_eyes_teeth` may fetch it. Returns
 /// `{ frame, faces, eyesTeethMissing }`: the frame key the faces belong to
@@ -386,15 +387,21 @@ pub async fn generate_ai_people_mask(
 #[tauri::command]
 pub async fn analyze_face_retouch(
     js_adjustments: serde_json::Value,
+    path: Option<String>,
     download: Option<bool>,
     eyes_teeth: Option<bool>,
     download_eyes_teeth: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, CommandError> {
-    // The photo open now, taken before any download: a photo switch while
-    // a model downloads cannot give one photo's faces to another.
-    let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
+    // The photo open now, taken before any download and checked against
+    // the photo asked for (`path`): a photo switch while a model downloads
+    // or the photo decodes cannot give one photo's faces to another.
+    let loaded = crate::image_loader::original_image(&state.source).await?;
+    if let Some(asked) = path.as_deref() {
+        crate::ai_commands::ensure_photo(&loaded.path, asked)?;
+    }
+    let (source, is_raw) = (loaded.image, loaded.is_raw);
     // Opening the Retouch tab analyses with installed models only; the
     // download needs the user's click (`download`, `download_eyes_teeth`).
     let models = models(&app_handle, download.unwrap_or(false)).await?;
