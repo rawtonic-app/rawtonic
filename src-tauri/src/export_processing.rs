@@ -1857,7 +1857,7 @@ fn export_photo(
     let normalized = rawtonic_export::normalize::normalize(
         &mut js_adjustments,
         &rawtonic_export::normalize::RecipeSource::file(&source_path),
-        rawtonic_export::normalize::Bitmaps::Shared(&develop.patch_cache),
+        rawtonic_export::normalize::Bitmaps::Queued(&develop.patch_cache),
         rawtonic_export::normalize::Defaults::Render,
     );
     let versions = normalized.file_versions();

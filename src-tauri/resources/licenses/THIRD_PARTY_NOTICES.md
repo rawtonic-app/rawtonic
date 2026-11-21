@@ -53,6 +53,10 @@ Tethered shooting talks to cameras through [libgphoto2](https://github.com/gphot
 
 `scripts/release/updater_manifest.py` verifies the in-app update signatures on the release machine with Ed25519 routines adapted from the Python reference code in RFC 8032, section 6 (S. Josefsson, I. Liusvaara), a Code Component under the IETF Trust's Revised BSD License (Trust Legal Provisions 4.e). It is not part of the app. Copyright (c) 2017 IETF Trust and the persons identified as authors of the code. All rights reserved. The license's conditions and disclaimer are kept in the file's header.
 
+## cyrb53 hash (mask bitmap keys)
+
+The editor and the native side name a mask bitmap's content with cyrb53, a 53-bit string hash by bryc (https://github.com/bryc/code/blob/master/jshash/experimental/cyrb53.js), released into the public domain: `bitmapKey` in `src/utils/bitmapIds.ts` follows it and `bitmap_key` in `crates/engine/src/adjustment_utils.rs` is a port of it to Rust.
+
 ## Data and assets
 **Windows time zone names.** The Windows-to-IANA mapping in `crates/runtime/src/windows_zones.rs` is the table from [Jiff 1.0.0](https://docs.rs/crate/jiff/1.0.0/source/src/tz/system/windows/windows_zones.rs) (Copyright 2015 Andrew Gallant, MIT, `licenses/Jiff-MIT.txt`), derived from Unicode CLDR (Copyright Unicode, Inc., Unicode-3.0, `licenses/spdx/Unicode-3.0.txt`). Only the source header was changed.
 
@@ -80,7 +84,9 @@ The Lensfun display-name index `crates/engine/src/lensfun_display_names_2026_10_
 
 **Landscape model.** The Landscape mask uses the Sky mask's checkpoint: UperNet + ConvNeXt-T on ADE20K (Copyright (c) Meta Platforms, Inc. and affiliates, github.com/facebookresearch/ConvNeXt, MIT; transformers conversion `openmmlab/upernet-convnext-tiny` at revision 876ffc5). Changed by Rawtonic: `scripts/models/export_landscape.py` exports the unchanged weights as an ONNX model (`landscape_upernet_convnext_t.onnx`) whose head gives seven part probabilities, each the 150-class softmax summed over the part's ADE20K classes. The authors do not endorse Rawtonic. See `docs/MODELS.md` and `licenses/models/ConvNeXt-MIT.txt`. No weights are included in this repository.
 
-**AI models** are not part of the source or the app; they download on first use from Rawtonic's model pack, each under its own license (MIT, Apache-2.0 or CC BY 4.0). Origins, hashes and licenses: `docs/MODELS.md`, license texts in `licenses/models/`.
+**EasyPortrait eye and teeth model.** The face retouch's Eyes and Teeth use EasyPortrait's FPN + ResNet-50 face parsing weights (`fpn-fp-1024.pth`, Copyright SberDevices; Alexander Kapitanov, Karina Kvanchiani, Elizaveta Petrova, Karen Efremyan, Alexander Sautin; github.com/hukenovs/easyportrait), licensed under the authors' variant of the Creative Commons Attribution-ShareAlike 4.0 licence (`licenses/models/easyportrait-LICENSE.txt`). Changed by Rawtonic: `scripts/models/export_easyportrait.py` and `convert_easyportrait_coreml.py` re-implement the network in plain PyTorch, remove the optimizer state, put the input normalisation, a mirror pass and the eye-class merge into the graph and convert it to ONNX (weights stored as fp16) and to a Core ML program (fp16). The converted files are published in Rawtonic's model pack under CC BY-SA 4.0 (`licenses/models/easyportrait-CC-BY-SA-4.0.txt`), as the licence allows for adaptations. The authors do not endorse Rawtonic. See `docs/MODELS.md`. No weights are included in this repository.
+
+**AI models** are not part of the source or the app; they download on first use from Rawtonic's model pack, each under its own license (MIT, Apache-2.0, CC BY 4.0 or CC BY-SA 4.0). Origins, hashes and licenses: `docs/MODELS.md`, license texts in `licenses/models/`.
 
 **Benchmark fixtures** are not part of the source or the app: `scripts/bench/fetch_fixtures.sh` downloads three sample RAW files from raw.pixls.us (CC0) for the hot-path benchmarks (docs/DEVELOPMENT.md "Benchmarks"); criterion (Apache-2.0 OR MIT), the benchmark harness, is a development dependency only and is not shipped.
 

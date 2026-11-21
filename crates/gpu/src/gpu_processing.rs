@@ -11584,8 +11584,14 @@ impl GpuProcessor {
             && !deferred
             && adjustments.global.grain_version >= 3
             && request.adjustments.drag_effects.half_grain;
+        // Its blocks: 4 x 4 pixels in a small frame (G76/GRN6), as a shift.
+        let grain_shift = if half_grain {
+            effect_passes::grain_block_shift(width, height)
+        } else {
+            0
+        };
         // The largest block of the frame, in which the smaller nest.
-        let block_shift = terms_shift.max(u32::from(half_grain));
+        let block_shift = terms_shift.max(grain_shift);
         let finish_pass = match passes {
             Some(passes) if grain || deferred => Some((
                 passes.finish_pipeline(device, grain, deferred, half_grain)?,
@@ -12348,8 +12354,8 @@ impl GpuProcessor {
                     });
                     (pipeline, bind_group, tiles)
                 });
-                // The finish pass, and a drag's grain field pass over the
-                // 2 x 2 blocks with the same resources (G76/GRN3).
+                // The finish pass, and a drag's grain field pass over its
+                // blocks with the same resources (G76/GRN3, GRN6).
                 let (finish, grain_field) = match &finish_pass {
                     Some((pipeline, colour, views, passes)) => {
                         let entries = vec![
@@ -12632,8 +12638,7 @@ impl GpuProcessor {
                     bytemuck::cast_slice(&region_data),
                 );
                 // A drag's terms pass and grain field pass cover the
-                // regions' blocks (4 x 4 or 2 x 2 for the terms, 2 x 2 for
-                // the grain).
+                // regions' blocks (4 x 4 or 2 x 2 each).
                 let block_workgroups = |shift: u32, buffer: &wgpu::Buffer| -> u32 {
                     let blocks = effect_passes::block_regions(
                         &regions,
@@ -12655,7 +12660,9 @@ impl GpuProcessor {
                     _ => workgroups,
                 };
                 let field_workgroups = match passes {
-                    Some(passes) if half_grain => block_workgroups(1, passes.field_regions()),
+                    Some(passes) if half_grain => {
+                        block_workgroups(grain_shift, passes.field_regions())
+                    }
                     _ => workgroups,
                 };
                 let mut tile_adjustments = boxed_uniforms(adjustments);
@@ -12667,9 +12674,10 @@ impl GpuProcessor {
                 tile_adjustments.detail_cache = [
                     u32::from(detail_view.is_some()),
                     u32::from(finish_pass.is_some()),
-                    // z: the terms' block shift (`terms_shift`).
+                    // z: the terms' block shift (`terms_shift`), w: the grain
+                    // field's (`grain_shift`).
                     terms_shift,
-                    0,
+                    grain_shift,
                 ];
                 tile_adjustments.source_window = source_window;
                 queue.write_buffer(

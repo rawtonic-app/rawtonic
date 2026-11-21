@@ -27,6 +27,7 @@ import { capturePendingSliderClick, useEditorStore } from '../store/useEditorSto
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
+import { useLibraryActions } from './useLibraryActions';
 import { INITIAL_ADJUSTMENTS, PasteMode, normalizeLoadedAdjustments, whitesAmountV17 } from '../utils/adjustments';
 import { revertStyle, withStyleAmount } from '../utils/appliedStyle';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
@@ -1624,16 +1625,36 @@ describe('pasted version keys onto a never-edited open photo', () => {
   });
 });
 
-it('copies the active Library photo after the stale editor photo is deselected', async () => {
-  useUIStore.setState({ activeView: 'library' });
-  select('/a.dng');
-  useLibraryStore.setState({ multiSelectedPaths: ['/a.dng', '/b.dng'], libraryActivePath: '/b.dng' });
-  useLibraryStore.setState({ multiSelectedPaths: ['/b.dng'] });
-  vi.mocked(invoke).mockResolvedValue({ adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } });
-  const { result } = renderHook(() => useEditorActions());
-  await act(async () => {
-    await result.current.handleCopyAdjustments(undefined, { quick: true });
+describe('Copy from the Library selection', () => {
+  beforeEach(() => {
+    useUIStore.setState({ activeView: 'library' });
+    select('/a.dng');
   });
-  expect(useEditorStore.getState().copiedFrom).toBe('/b.dng');
-  expect(useEditorStore.getState().copiedAdjustments?.exposure).toBe(1);
+  afterEach(() => useUIStore.setState({ activeView: 'editor' }));
+
+  it('copies the focused photo of the remaining selection after Ctrl-click deselects the editor photo', async () => {
+    useLibraryStore.setState({ multiSelectedPaths: ['/b.dng', '/c.dng', '/a.dng'] });
+    vi.mocked(invoke).mockResolvedValue({ adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } });
+    const { result } = renderHook(() => ({ ...useEditorActions(), ...useLibraryActions() }));
+    act(() => {
+      result.current.handleLibraryImageSingleClick('/a.dng', { ctrlKey: true, metaKey: false, shiftKey: false });
+    });
+    await act(async () => {
+      await result.current.handleCopyAdjustments(undefined, { quick: true });
+    });
+    expect(useEditorStore.getState().copiedFrom).toBe('/c.dng');
+    expect(useEditorStore.getState().copiedAdjustments?.exposure).toBe(1);
+  });
+
+  it('keeps the clipboard when Ctrl-click removes the last selected photo', async () => {
+    const { result } = renderHook(() => ({ ...useEditorActions(), ...useLibraryActions() }));
+    const clipboard = useEditorStore.getState().copiedAdjustments;
+    act(() => {
+      result.current.handleLibraryImageSingleClick('/a.dng', { ctrlKey: true, metaKey: false, shiftKey: false });
+    });
+    await act(async () => {
+      await result.current.handleCopyAdjustments(undefined, { quick: true });
+    });
+    expect(useEditorStore.getState().copiedAdjustments).toBe(clipboard);
+  });
 });

@@ -102,7 +102,7 @@ fn a_rating_not_written_to_its_xmp_yet_is_pending_until_written_again() {
 }
 
 #[test]
-fn a_sidecar_changed_elsewhere_or_shared_is_reported_and_left_alone() {
+fn a_sidecar_changed_elsewhere_is_reported_and_left_alone_while_a_pair_writes_its_own() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids, paths) = session(d.path(), &["A.ARW", "B.ARW", "B.JPG"]);
     lib.sync_xmp(&ids[0]).unwrap();
@@ -114,23 +114,18 @@ fn a_sidecar_changed_elsewhere_or_shared_is_reported_and_left_alone() {
         lib.set_metadata(id, &meta).unwrap();
     }
     let retry = lib.write_pending_xmp().unwrap();
-    assert_eq!(retry.written, 0);
+    // A RAW and its JPEG of one name have a sidecar each.
+    assert_eq!(retry.written, 2);
     let problems: Vec<_> = retry
         .unsaved
         .iter()
         .map(|u| (u.path.clone(), u.problem.clone()))
         .collect();
-    assert_eq!(
-        problems,
-        [
-            (paths[0].clone(), XmpProblem::ChangedElsewhere),
-            (paths[1].clone(), XmpProblem::SharedName),
-            (paths[2].clone(), XmpProblem::SharedName),
-        ]
-    );
+    assert_eq!(problems, [(paths[0].clone(), XmpProblem::ChangedElsewhere)]);
     assert_eq!(fs::read(&sidecar).unwrap(), b"another program");
-    assert!(!paths[1].with_extension("xmp").exists());
-    assert_eq!(lib.summary().unwrap().xmp_pending, 3);
+    assert!(paths[1].with_extension("xmp").is_file());
+    assert!(d.path().join("Job/Capture/B.JPG.xmp").is_file());
+    assert_eq!(lib.summary().unwrap().xmp_pending, 1);
 }
 
 /// Libraries made before schema 18 counted every untouched photograph as
@@ -432,14 +427,18 @@ fn only_what_is_still_changed_elsewhere_is_marked() {
     fs::write(paths[2].with_extension("xmp"), "another program").unwrap();
     let mut seen = SidecarStamps::default();
     let check = lib.check_xmp_sidecars(None, &mut seen).unwrap();
-    assert_eq!(check.changed, [ids[0].clone(), ids[1].clone()]);
+    // C.xmp is the RAW's (its JPEG has its own): one written there by
+    // another program is a change to review for C.ARW.
+    assert_eq!(
+        check.changed,
+        [ids[0].clone(), ids[1].clone(), ids[2].clone()]
+    );
     // Meanwhile A's sidecar is put back and B's photograph goes offline:
-    // neither is a sidecar to review now. C and its JPEG share theirs and
-    // are never written, so not found either.
+    // neither is a sidecar to review now.
     fs::write(&a, written).unwrap();
     fs::remove_file(&paths[1]).unwrap();
-    assert_eq!(lib.mark_changed_elsewhere(&check.changed).unwrap(), 0);
-    assert_eq!(lib.summary().unwrap().xmp_pending, 0);
+    assert_eq!(lib.mark_changed_elsewhere(&check.changed).unwrap(), 1);
+    assert_eq!(lib.summary().unwrap().xmp_pending, 1);
 }
 
 /// Synthetic catalog timing only: 5,000 invented photos and changed sidecars,

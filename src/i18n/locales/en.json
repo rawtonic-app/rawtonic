@@ -1796,6 +1796,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "The photos are back, but the folder role stays where it is: {{error}}",
       "selectsUnavailable": "The Selects folder {{folder}} is not available (is its drive connected?). Nothing was moved; choose another Selects folder in Session Folders.",
       "title": "Session Folders",
       "unavailableUse": {
@@ -2237,8 +2238,8 @@
         "offline_other": "{{count}} photos are offline. Their XMP files are updated when the drive is connected again.",
         "pending_one": "{{count}} XMP file can be written again.",
         "pending_other": "{{count}} XMP files can be written again.",
-        "sharedName_one": "{{count}} photo has the same name as another one (RAW and JPEG), so both would write the same XMP file.",
-        "sharedName_other": "{{count}} photos have the same name as another one (RAW and JPEG), so both would write the same XMP file."
+        "sharedName_one": "{{count}} photo has the same name as another one (two RAW files, such as CR3 and DNG), so both would write the same XMP file.",
+        "sharedName_other": "{{count}} photos have the same name as another one (two RAW files, such as CR3 and DNG), so both would write the same XMP file."
       },
       "resolved_one": "XMP conflict resolved for {{count}} photo",
       "resolved_other": "XMP conflicts resolved for {{count}} photos",
@@ -2265,12 +2266,14 @@
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Eye openings and teeth for the face retouch (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Changed: converted to ONNX and Core ML, published under CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Windows time zone names mapped to IANA identifiers.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -3904,9 +3907,11 @@
       },
       "downloadModels": "Download face models",
       "eyes": {
+        "downloadModel": "Download eye and teeth model",
         "find": "Find eyes and teeth",
         "finding": "Finding eyes and teeth…",
         "missing": "Eyes and Teeth need the eyes and mouth of these faces, which were found before these tools existed.",
+        "modelMissing": "Eyes and Teeth use an eye and teeth model (57 MB). It is downloaded once from Rawtonic's model pack on GitHub and runs on this computer.",
         "none": "No eyes or open mouth found on this face.",
         "sideAria": "Eye",
         "sideHint": {

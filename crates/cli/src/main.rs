@@ -398,6 +398,7 @@ fn with_face_retouch(
     mut recipe: serde_json::Value,
     settings: &serde_json::Value,
     models: &rawtonic_faces::FaceModels,
+    portrait: Option<&rawtonic_faces::portrait::PortraitModel>,
 ) -> Result<serde_json::Value> {
     let bytes = std::fs::read(source).with_context(|| format!("Read {source}"))?;
     let is_raw = rawtonic_engine::formats::is_raw_file(source);
@@ -437,8 +438,8 @@ fn with_face_retouch(
     );
     let image = rawtonic_faces::recipe::display_rgb8(&framed, is_raw);
     let analysis = rawtonic_faces::analyze(&image, models)?;
-    let faces =
-        rawtonic_faces::recipe::retouch_faces(&image, &analysis).map_err(anyhow::Error::msg)?;
+    let faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis, portrait)
+        .map_err(anyhow::Error::msg)?;
     eprintln!("{source}: {} face(s)", faces.len());
     recipe["faceRetouch"] = serde_json::json!({
         "settings": settings,
@@ -626,8 +627,7 @@ impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
             .map(|set| {
                 let parts =
                     rawtonic_segment::landscape_parts(&set.keys()).map_err(|e| format!("{e:#}"))?;
-                rawtonic_segment::mask_data_url(&rawtonic_segment::landscape_mask(
-                    (warped.width(), warped.height()),
+                rawtonic_segment::mask_data_url(&rawtonic_segment::landscape_mask_grid(
                     &probabilities,
                     &parts,
                 ))
@@ -1353,6 +1353,13 @@ fn export(args: ExportArgs) -> Result<()> {
                 serde_json::from_str(settings).context("--face-retouch: JSON expected")?;
             ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);
             let face_models = rawtonic_faces::FaceModels::load(&models_dir(models.clone())?)?;
+            // New Eyes and Teeth use the eye and teeth parser, as in the app.
+            let portrait = rawtonic_engine::face_retouch::Settings::uses_eyes_teeth(&settings)
+                .then(|| {
+                    rawtonic_faces::portrait::PortraitModel::from_dir(&models_dir(models.clone())?)
+                        .context("Eyes and Teeth")
+                })
+                .transpose()?;
             let recipes = jobs
                 .iter()
                 .zip(recipes)
@@ -1365,12 +1372,14 @@ fn export(args: ExportArgs) -> Result<()> {
                         recipe.unwrap_or_default(),
                         &settings,
                         &face_models,
+                        portrait.as_ref(),
                     )
                     .map(Some)
                 })
                 .collect::<Result<Vec<_>>>()?;
             // ONNX Runtime aborts when its environment is torn down at exit.
             std::mem::forget(face_models);
+            std::mem::forget(portrait);
             recipes
         }
         None => recipes,

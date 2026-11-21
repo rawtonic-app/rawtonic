@@ -414,10 +414,23 @@ fn plan_move(
             session.file_name().unwrap_or_default().to_string_lossy()
         ));
     }
-    let steps = crate::file_operations::associated_files(&images)?
+    let renamed = crate::file_operations::xmp_targets(&images, dest_path);
+    // A JPEG there alone keeps its XMP under its own name first, before a
+    // RAW of its name arrives (`rawtonic_metadata::sidecars`).
+    let steps = crate::file_operations::partner_xmp_renames(&images, dest_path)
         .into_iter()
-        .map(|file| {
-            let target = dest_path.join(file.file_name().unwrap_or_default());
+        .chain(
+            crate::file_operations::associated_files(&images)?
+                .into_iter()
+                .map(|file| {
+                    let target = renamed
+                        .get(&file)
+                        .cloned()
+                        .unwrap_or_else(|| dest_path.join(file.file_name().unwrap_or_default()));
+                    (file, target)
+                }),
+        )
+        .map(|(file, target)| {
             rawtonic_fileops::Step::moving(file, target).map_err(|e| format!("{e:#}"))
         })
         .collect::<Result<_, _>>()?;

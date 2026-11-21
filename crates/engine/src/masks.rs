@@ -123,6 +123,10 @@ pub struct AiSkyMaskParameters {
     /// (`mask_generation::mask_warp`): a later change moves the mask along.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warp: Option<serde_json::Value>,
+    /// The photo's size when the bitmap is a coarser grid over it
+    /// (`mask_generation::BITMAP_GRID_OF`: the Landscape mask's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bitmap_grid_of: Option<serde_json::Value>,
 }
 /// A People mask: parts (`faceSkin`, `lips`, … as named by
 /// `rawtonic_faces::Part`) of everyone or of one person (the index of their
@@ -245,12 +249,13 @@ pub fn pending_detections_message(pending: &[PendingDetection]) -> String {
 /// Detection output is tied to one photograph. Keep selection intent and
 /// refinement settings when saving a preset or transferring its layers.
 /// Keep in sync with `DETECTION_RESULT_KEYS` in src/utils/settingsClipboard.ts.
-const DETECTION_RESULT_KEYS: [&str; 10] = [
+const DETECTION_RESULT_KEYS: [&str; 11] = [
     masks::MASK_DATA_BASE64.into_name(),
     masks::MASK_DATA_BASE64_LEGACY.into_name(),
     DETECT_PENDING,
     crate::recipe_frame::DETECT_AGAIN,
     crate::mask_generation::BITMAP_FRAME,
+    crate::mask_generation::BITMAP_GRID_OF,
     geometry::ROTATION.name(),
     geometry::FLIP_HORIZONTAL.name(),
     geometry::FLIP_VERTICAL.name(),

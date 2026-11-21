@@ -425,7 +425,9 @@ pub(crate) fn inputs_from(
                         ModelKind::TagVision => {
                             planes.iter_mut().for_each(|v| *v = (*v - 0.5) / 0.5)
                         }
-                        ModelKind::FaceDetector => planes.iter_mut().for_each(|v| *v *= 255.0),
+                        ModelKind::FaceDetector | ModelKind::EyesTeeth => {
+                            planes.iter_mut().for_each(|v| *v *= 255.0)
+                        }
                         _ => {}
                     }
                     Input::F32(dims, planes)

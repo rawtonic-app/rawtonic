@@ -142,6 +142,8 @@ const DETECTION_RESULT_KEYS = [
   // A bitmap migrated from a camera TIFF's thumbnail (crates/engine/src/recipe_frame.rs).
   'detectAgain',
   'bitmapFrame',
+  // The photo size a Landscape bitmap's grid covers (`mask_generation::BITMAP_GRID_OF`).
+  'bitmapGridOf',
   'rotation',
   'flipHorizontal',
   'flipVertical',

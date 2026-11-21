@@ -1890,6 +1890,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "Les photos sont revenues, mais le rôle du dossier reste où il est : {{error}}",
       "selectsUnavailable": "Le dossier Selects {{folder}} est indisponible (son disque est-il connecté ?). Rien n’a été déplacé ; choisissez un autre dossier Selects dans Dossiers de la session.",
       "title": "Dossiers de la session",
       "unavailable": "Indisponible : le dossier manque ou son disque n’est pas connecté.",
@@ -2370,9 +2371,9 @@
         "pending_one": "{{count}} fichier XMP peut être réécrit.",
         "pending_many": "{{count}} fichiers XMP peuvent être réécrits.",
         "pending_other": "{{count}} fichiers XMP peuvent être réécrits.",
-        "sharedName_one": "{{count}} photo porte le même nom qu’une autre (RAW et JPEG) : les deux écriraient le même fichier XMP.",
-        "sharedName_many": "{{count}} photos portent le même nom qu’une autre (RAW et JPEG) : les deux écriraient le même fichier XMP.",
-        "sharedName_other": "{{count}} photos portent le même nom qu’une autre (RAW et JPEG) : les deux écriraient le même fichier XMP."
+        "sharedName_one": "{{count}} photo porte le même nom qu’une autre (deux fichiers RAW, par exemple CR3 et DNG) : les deux écriraient le même fichier XMP.",
+        "sharedName_many": "{{count}} photos portent le même nom qu’une autre (deux fichiers RAW, par exemple CR3 et DNG) : les deux écriraient le même fichier XMP.",
+        "sharedName_other": "{{count}} photos portent le même nom qu’une autre (deux fichiers RAW, par exemple CR3 et DNG) : les deux écriraient le même fichier XMP."
       },
       "resolved_one": "Conflit XMP résolu pour {{count}} photo",
       "resolved_many": "Conflits XMP résolus pour {{count}} photos",
@@ -2401,12 +2402,14 @@
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Ouvertures des yeux et dents pour la retouche du visage (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Modifié : converti en ONNX et Core ML, publié sous CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Correspondance entre les noms de fuseaux horaires Windows et les identifiants IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -4071,9 +4074,11 @@
       },
       "downloadModels": "Télécharger les modèles de visage",
       "eyes": {
+        "downloadModel": "Télécharger le modèle des yeux et des dents",
         "find": "Trouver les yeux et les dents",
         "finding": "Recherche des yeux et des dents…",
         "missing": "Yeux et Dents ont besoin des yeux et de la bouche de ces visages, trouvés avant l’existence de ces outils.",
+        "modelMissing": "Yeux et Dents utilisent un modèle des yeux et des dents (57 Mo). Il est téléchargé une fois depuis le pack de modèles de Rawtonic sur GitHub et s'exécute sur cet ordinateur.",
         "none": "Aucun œil ni bouche ouverte trouvé sur ce visage.",
         "sideAria": "Œil",
         "sideHint": {

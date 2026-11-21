@@ -1890,6 +1890,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "Les fotos han tornat, però el paper de la carpeta es queda on és: {{error}}",
       "selectsUnavailable": "La carpeta Selects {{folder}} no està disponible (el disc està connectat?). No s’ha mogut res; tria una altra carpeta Selects a Carpetes de la sessió.",
       "title": "Carpetes de la sessió",
       "unavailable": "No disponible: falta la carpeta o el seu disc no està connectat.",
@@ -2370,9 +2371,9 @@
         "pending_one": "{{count}} fitxer XMP es pot tornar a escriure.",
         "pending_many": "{{count}} fitxers XMP es poden tornar a escriure.",
         "pending_other": "{{count}} fitxers XMP es poden tornar a escriure.",
-        "sharedName_one": "{{count}} foto té el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP.",
-        "sharedName_many": "{{count}} fotos tenen el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP.",
-        "sharedName_other": "{{count}} fotos tenen el mateix nom que una altra (RAW i JPEG), així que totes dues escriurien el mateix fitxer XMP."
+        "sharedName_one": "{{count}} foto té el mateix nom que una altra (dos fitxers RAW, com ara CR3 i DNG), així que totes dues escriurien el mateix fitxer XMP.",
+        "sharedName_many": "{{count}} fotos tenen el mateix nom que una altra (dos fitxers RAW, com ara CR3 i DNG), així que totes dues escriurien el mateix fitxer XMP.",
+        "sharedName_other": "{{count}} fotos tenen el mateix nom que una altra (dos fitxers RAW, com ara CR3 i DNG), així que totes dues escriurien el mateix fitxer XMP."
       },
       "resolved_one": "Conflicte XMP resolt per a {{count}} foto",
       "resolved_many": "Conflictes XMP resolts per a {{count}} fotos",
@@ -2401,12 +2402,14 @@
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Obertures dels ulls i dents per al retoc facial (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Modificat: convertit a ONNX i Core ML, publicat sota CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Correspondència entre els noms de zones horàries de Windows i els identificadors IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -4071,9 +4074,11 @@
       },
       "downloadModels": "Baixa els models de cara",
       "eyes": {
+        "downloadModel": "Baixa el model d'ulls i dents",
         "find": "Troba ulls i dents",
         "finding": "S’estan trobant ulls i dents…",
         "missing": "Ulls i Dents necessiten els ulls i la boca d’aquestes cares, trobades abans que existissin aquestes eines.",
+        "modelMissing": "Ulls i Dents utilitzen un model d'ulls i dents (57 MB). Es baixa una vegada del paquet de models de Rawtonic a GitHub i s'executa en aquest ordinador.",
         "none": "No s’han trobat ulls ni boca oberta en aquesta cara.",
         "sideAria": "Ull",
         "sideHint": {

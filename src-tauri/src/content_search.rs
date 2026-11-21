@@ -177,6 +177,9 @@ fn run_pass(
         log::warn!("Culling scores not made: {e:#}");
         None
     });
+    if let Some(set) = &culling {
+        Library::open(directory)?.forget_other_cull_scores(MODEL_ID, &set.id)?;
+    }
     let mut status = Library::open(directory)?.content_status(MODEL_ID)?;
     emit(
         PROGRESS,

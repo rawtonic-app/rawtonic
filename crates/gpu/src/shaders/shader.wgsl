@@ -2827,8 +2827,8 @@ fn shadows_v19_level(coords: vec2<u32>) -> f32 {
 // lift falls by 1 − SH_V20_KEEP EV for each EV of the pixel, and the
 // level's lift takes no pixel beyond the tone shown at SH_V20_TO EV (about
 // L* 87). It is never lifted less than its own luminance is, which may be
-// beyond that tone. The lift here is Shadows' share; Blacks' stays the
-// level's. So light tones get their
+// beyond that tone. The lift here is Shadows' share; Blacks' is not
+// bounded. So light tones get their
 // own lift and darker pixels, the shadows' own texture, keep version 19's;
 // the second bound acts where the lift is larger than the first can take
 // back on the way (the darkest surroundings at high values).
@@ -2865,6 +2865,12 @@ fn shadows_v19_level(coords: vec2<u32>) -> f32 {
 // SH_V20_KEEP and SH_V20_TO were chosen on the order test, the slider
 // atlas (shadow detail at +100), the stroke chart's gaps and two real
 // frames; SH_V20_FROM is the first build's.
+// On public camera samples used for none of this: light pixels within
+// 15 px of dark detail at +100 move by a median p90 / p99 of 0.69 / 1.19 L*
+// (version 19: 1.60 / 3.01; the 46 frames with at least 20 000 such
+// pixels), and the shadow-detail bands stay at 0.999 of version 19's in
+// the median (all 53 that decode; the 48 atlas frames: 0.996); notes:
+// benchmark-results/shg3-2026-11-21.
 const SH_V20_FROM: f32 = -2.0;
 const SH_V20_KEEP: f32 = 0.6;
 const SH_V20_TO: f32 = -0.5;
@@ -2872,37 +2878,69 @@ const SH_V20_TO: f32 = -0.5;
 const SH_V20_SOFT: f32 = 0.25;
 
 // The gain of the tone stage's Shadows and Blacks for a pixel of version
-// 20: `level` is the stage's level and `pixel` the pixel's luminance, both
-// with Exposure and after Whites. The second bound has to hold for darker
+// 20: `level` is the wide level, `tonal` the tonal blur's level (the one
+// the stage uses at Shadows 0) and `pixel` the pixel's luminance, all with
+// Exposure and after Whites. The second bound has to hold for darker
 // pixels too (a dark pixel lifted beyond SH_V20_TO would otherwise render
 // lighter than a brighter one at the bound), so the level's lift is
 // evaluated first for every pixel.
-// The bounds act on Shadows' share of the gain; Blacks' share stays the
-// level's. So they are nothing at Shadows 0 and grow with it: taken from
-// the whole gain they removed Blacks' lift as well, at once at the first
-// step above 0 or, faded in, while Shadows rose (gaps of a grating 1.6 L*
-// darker from +7 to +12 with Blacks +50).
-fn shadows_v20_gain(level: f32, pixel: f32, sh: f32, bl: f32, fade: f32) -> f32 {
+// The bounds act on Shadows' share of the gain, so they are nothing at
+// Shadows 0 and grow with it: taken from the whole gain they removed
+// Blacks' lift as well, at once at the first step above 0 or, faded in,
+// while Shadows rose (gaps of a grating 1.6 L* darker from +7 to +12 with
+// Blacks +50).
+// Blacks' share is read at the tonal level for every pixel, as at Shadows
+// 0, and Shadows' share at the wide level from the first step on (notes:
+// benchmark-results/shg3-2026-11-21). Versions 6 to 19 read both at one
+// level that moves from the tonal to the wide one over Shadows 0 … +12, so
+// that Blacks' lift does not switch its level at the first step. Where the
+// wide level is the brighter one (a light line inside a dark stroke on a
+// light field) Blacks' lift fell while Shadows rose: with Blacks +50 a
+// 1 px line at −3.5 EV in a 27 px stroke rendered 2.8 L* darker at Shadows
+// +12 than at +2 (version 19, 4000 px short side), and with the bounds on
+// Shadows' share a line at −2.5 EV 0.65 L* darker at +6 than at 0. With
+// its own level Blacks' lift does not depend on Shadows, and Shadows'
+// share, nothing at 0, is read at a level that does not move. With Blacks
+// 0 the render from +12 on is the same as with the one level, to rounding.
+// Shadows' share is the shared gain less Blacks' at the same level, and
+// the shared gain adapts to the photo's key as a whole: on a dark photo of
+// low contrast it can be less than Blacks' alone (scalar check in review:
+// −0.03 EV at Blacks +50, Shadows +50, scene 0.08, 10th / 90th percentile
+// 0.024 / 0.096; version 19 has that on flat areas). So with Blacks set
+// the gain is held at Blacks' own at the tonal level, the render of
+// Shadows 0: raising Shadows renders no pixel below it, whatever the key.
+// Between two raised Shadows values the order is measured, not built in
+// (`tone_version_20_shadows_with_blacks_keeps_light_lines`).
+fn shadows_v20_gain(level: f32, tonal: f32, pixel: f32, sh: f32, bl: f32, fade: f32) -> f32 {
     let gain = shadows_v13_gain(level, sh, bl, fade);
-    if (pixel <= level) {
-        return gain;
-    }
+    // Blacks' log2 gains at the wide level, the tonal level and the pixel,
+    // and the gain of Shadows 0 (Blacks' at the tonal level), below which
+    // nothing is rendered; with Blacks 0 there is no such floor.
     var blacks_level = 0.0;
+    var blacks_tonal = 0.0;
     var blacks_pixel = 0.0;
+    var at_shadows_0 = 0.0;
     if (bl != 0.0) {
         blacks_level = log2(max(camera_raw_shadows_blacks_gain(level, 0.0, bl), 1e-9));
+        at_shadows_0 = camera_raw_shadows_blacks_gain(tonal, 0.0, bl);
+        blacks_tonal = log2(max(at_shadows_0, 1e-9));
         blacks_pixel = log2(max(camera_raw_shadows_blacks_gain(pixel, 0.0, bl), 1e-9));
+    }
+    // The level's gain with Blacks' share moved to the tonal level.
+    let own = gain * exp2(blacks_tonal - blacks_level);
+    if (pixel <= level) {
+        return max(own, at_shadows_0);
     }
     let at_level = log2(max(gain, 1e-9)) - blacks_level;
     let above = log2(pixel / max(cr_curve_level(SH_V20_FROM), 1e-6));
     let q = clamp(above + SH_V20_SOFT, 0.0, 2.0 * SH_V20_SOFT);
     let rise = select(q * q / (4.0 * SH_V20_SOFT), above, above >= SH_V20_SOFT);
-    let bound = min(at_level - (1.0 - SH_V20_KEEP) * rise, log2(max(cr_curve_level(SH_V20_TO), 1e-6) / pixel) - blacks_level);
+    let bound = min(at_level - (1.0 - SH_V20_KEEP) * rise, log2(max(cr_curve_level(SH_V20_TO), 1e-6) / pixel) - blacks_tonal);
     if (bound >= at_level) {
-        return gain;
+        return max(own, at_shadows_0);
     }
     let at_pixel = log2(max(shadows_v13_gain(pixel, sh, bl, fade), 1e-9)) - blacks_pixel;
-    return gain * exp2(min(max(at_pixel, bound) - at_level, 0.0));
+    return max(own * exp2(min(max(at_pixel, bound) - at_level, 0.0)), at_shadows_0);
 }
 
 // The texture gain on top of the wide level's lift `gain`.
@@ -3714,9 +3752,11 @@ fn apply_tonal_adjustments_v13(
 }
 
 // Tone version 20: `apply_tonal_adjustments_v13` with raised Shadows' gain
-// of version 20 (`shadows_v20_gain`, the one line that differs:
+// of version 20 (`shadows_v20_gain`) at the wide level from the first
+// step, without version 13's move from the tonal level to it over Shadows
+// 0 … +12 (the two lines that differ:
 // `tone_version_20_stage_is_version_13s_but_for_the_gain` compares the
-// texts), in its own function and compiled only where `SHADOWS_V20` is set
+// texts; `fade` still fades in version 13's cut), in its own function and compiled only where `SHADOWS_V20` is set
 // (recipes of version 20 that raise Shadows), so older recipes compile
 // exactly as before. The bounds sit where the gain is applied: after
 // Whites, with the level the stage uses. As a factor on the pixel before
@@ -3820,11 +3860,11 @@ fn apply_tonal_adjustments_v20(
         let fade = ramp * ramp;
         if (v6) {
             let wide = max(wide_luma_input_space * whites_ratio, 0.0001);
-            level_luma = exp2(mix(log2(max(tonal_level, 0.0001)), log2(wide), fade));
+            level_luma = wide;
         }
         // Version 13: no texture boost (the level stays version 6's wide
         // one), and less lift in the midtones (shadows_v13_gain).
-        rgb *= shadows_v20_gain(level_luma * exposure_gain, safe_pixel_luma, sh, bl, fade);
+        rgb *= shadows_v20_gain(level_luma * exposure_gain, tonal_level * exposure_gain, safe_pixel_luma, sh, bl, fade);
     } else if (sh != 0.0 || bl != 0.0) {
         let t_pixel = pow(safe_pixel_luma, 0.4545);
         let t_blurred = pow(safe_blurred_luma, 0.4545);

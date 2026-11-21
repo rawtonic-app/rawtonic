@@ -451,14 +451,30 @@ fn uppercase_sidecar_is_discovered_adopted_checked_and_updated_in_place() {
     lib.mark_changed_elsewhere(&checked.changed).unwrap();
     lib.use_xmp(&id).unwrap();
     assert_eq!(lib.metadata(&id).unwrap().rating, 2);
-    // A RAW/JPEG pair still cannot own a single stem sidecar.
+    // A JPEG of the name has its own sidecar: the RAW's `.XMP` is still
+    // updated in place, and the JPEG never writes it.
     let jpeg = photo.with_extension("jpg");
     fs::write(&jpeg, b"synthetic jpeg").unwrap();
-    lib.add_asset(&jpeg).unwrap();
-    let before = fs::read(&upper).unwrap();
-    assert!(lib.sync_xmp(&id).is_err());
-    assert_eq!(fs::read(&upper).unwrap(), before);
+    let jpeg_id = lib.add_asset(&jpeg).unwrap().id;
+    let mut meta = lib.metadata(&id).unwrap();
+    meta.rating = 4;
+    lib.set_metadata(&id, &meta).unwrap();
+    lib.sync_xmp(&id).unwrap();
+    let raw_xmp = fs::read(&upper).unwrap();
+    assert_eq!(
+        rawtonic_metadata::read_xmp(std::str::from_utf8(&raw_xmp).unwrap())
+            .unwrap()
+            .0
+            .rating,
+        4
+    );
     assert!(!lower.exists());
+    let mut meta = lib.metadata(&jpeg_id).unwrap();
+    meta.rating = 1;
+    lib.set_metadata(&jpeg_id, &meta).unwrap();
+    lib.sync_xmp(&jpeg_id).unwrap();
+    assert_eq!(fs::read(&upper).unwrap(), raw_xmp);
+    assert!(jpeg.with_file_name("upper.jpg.xmp").is_file());
 }
 
 #[test]

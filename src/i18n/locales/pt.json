@@ -1890,6 +1890,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "As fotos voltaram, mas a função da pasta fica onde está: {{error}}",
       "selectsUnavailable": "A pasta Selects {{folder}} não está disponível (o disco está ligado?). Nada foi movido; escolha outra pasta Selects em Pastas da sessão.",
       "title": "Pastas da sessão",
       "unavailable": "Indisponível: a pasta não existe ou o disco não está ligado.",
@@ -2370,9 +2371,9 @@
         "pending_one": "{{count}} arquivo XMP pode ser gravado novamente.",
         "pending_many": "{{count}} arquivos XMP podem ser gravados novamente.",
         "pending_other": "{{count}} arquivos XMP podem ser gravados novamente.",
-        "sharedName_one": "{{count}} foto tem o mesmo nome que outra (RAW e JPEG), então ambas gravariam o mesmo arquivo XMP.",
-        "sharedName_many": "{{count}} fotos têm o mesmo nome que outra (RAW e JPEG), então ambas gravariam o mesmo arquivo XMP.",
-        "sharedName_other": "{{count}} fotos têm o mesmo nome que outra (RAW e JPEG), então ambas gravariam o mesmo arquivo XMP."
+        "sharedName_one": "{{count}} foto tem o mesmo nome que outra (dois arquivos RAW, como CR3 e DNG), então ambas gravariam o mesmo arquivo XMP.",
+        "sharedName_many": "{{count}} fotos têm o mesmo nome que outra (dois arquivos RAW, como CR3 e DNG), então ambas gravariam o mesmo arquivo XMP.",
+        "sharedName_other": "{{count}} fotos têm o mesmo nome que outra (dois arquivos RAW, como CR3 e DNG), então ambas gravariam o mesmo arquivo XMP."
       },
       "resolved_one": "Conflito XMP resolvido em {{count}} foto",
       "resolved_many": "Conflitos XMP resolvidos em {{count}} fotos",
@@ -2401,12 +2402,14 @@
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Aberturas dos olhos e dentes para o retoque facial (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Alterado: convertido para ONNX e Core ML, publicado sob CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Mapeamento dos nomes dos fusos horários do Windows para identificadores IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -4071,9 +4074,11 @@
       },
       "downloadModels": "Transferir modelos de rosto",
       "eyes": {
+        "downloadModel": "Transferir o modelo de olhos e dentes",
         "find": "Encontrar olhos e dentes",
         "finding": "A encontrar olhos e dentes…",
         "missing": "Olhos e Dentes precisam dos olhos e da boca destes rostos, encontrados antes de estas ferramentas existirem.",
+        "modelMissing": "Olhos e Dentes usam um modelo de olhos e dentes (57 MB). É transferido uma vez do pacote de modelos do Rawtonic no GitHub e é executado neste computador.",
         "none": "Nenhum olho ou boca aberta encontrado neste rosto.",
         "sideAria": "Olho",
         "sideHint": {

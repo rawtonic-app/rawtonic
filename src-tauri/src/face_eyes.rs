@@ -176,44 +176,107 @@ fn run_pass(
         if work.is_empty() {
             break;
         }
-        for item in work {
-            if cancel.load(Ordering::Acquire) {
-                break 'pass;
-            }
-            if !item.path.is_file() {
-                skipped.insert(item.id);
-                continue;
-            }
-            ai_state.lifecycle.touch();
-            let reading = {
-                let _running = ai_state.lifecycle.run();
-                upright_preview(&item.path)
-                    .and_then(|image| read_image(&image, models).map_err(|e| e.to_string()))
-            };
-            match &reading {
-                Ok(faces) => {
-                    lib.record_eyes(&item.id, eyes::VERSION, &item.fingerprint, Ok(faces))?;
-                    *read += 1;
+        // The next photograph's preview is decoded while this one's faces
+        // are read (the decode is two fifths of a 33 MP camera JPEG's time).
+        let mut stopped = None;
+        read_ahead(
+            work,
+            |item| {
+                (!cancel.load(Ordering::Acquire) && item.path.is_file())
+                    .then(|| upright_preview(&item.path))
+            },
+            |item, preview| {
+                if cancel.load(Ordering::Acquire) {
+                    stopped = Some(Ok(()));
+                    return false;
                 }
-                Err(error) => {
-                    log::warn!("Eyes not read for {}: {error}", item.path.display());
-                    lib.record_eyes(&item.id, eyes::VERSION, &item.fingerprint, Err(error))?;
-                    *failed += 1;
+                let Some(preview) = preview else {
+                    skipped.insert(item.id);
+                    return true;
+                };
+                ai_state.lifecycle.touch();
+                let reading = {
+                    let _running = ai_state.lifecycle.run();
+                    preview.and_then(|image| read_image(&image, models).map_err(|e| e.to_string()))
+                };
+                let recorded = match &reading {
+                    Ok(faces) => lib
+                        .record_eyes(&item.id, eyes::VERSION, &item.fingerprint, Ok(faces))
+                        .map(|()| *read += 1),
+                    Err(error) => {
+                        log::warn!("Eyes not read for {}: {error}", item.path.display());
+                        lib.record_eyes(&item.id, eyes::VERSION, &item.fingerprint, Err(error))
+                            .map(|()| *failed += 1)
+                    }
+                };
+                if let Err(e) = recorded {
+                    stopped = Some(Err(e));
+                    return false;
                 }
-            }
-            emit(
-                EYES_PROGRESS,
-                Progress {
-                    directory,
-                    done: (*read + *failed).min(total),
-                    total,
-                },
-            );
-            std::thread::sleep(PASS_PAUSE);
+                emit(
+                    EYES_PROGRESS,
+                    Progress {
+                        directory,
+                        done: (*read + *failed).min(total),
+                        total,
+                    },
+                );
+                std::thread::sleep(PASS_PAUSE);
+                true
+            },
+        );
+        match stopped {
+            Some(Ok(())) => break 'pass,
+            Some(Err(e)) => return Err(e.into()),
+            None => {}
         }
         emit(EYES_CHANGED, directory);
     }
     Ok(())
+}
+
+/// Calls `each` on every item in order with what `prepare` made of it,
+/// preparing the next item on another thread meanwhile (at most one item
+/// ahead); stops when `each` returns false. Without that thread the items
+/// are prepared one after the other.
+fn read_ahead<T: Send, R: Send>(
+    items: Vec<T>,
+    prepare: impl Fn(&T) -> R + Sync,
+    mut each: impl FnMut(T, R) -> bool,
+) {
+    let queue = Mutex::new(items.into_iter());
+    let next = || queue.lock().unwrap_or_else(|e| e.into_inner()).next();
+    std::thread::scope(|scope| {
+        // A rendezvous: the next item is prepared while `each` runs and
+        // waits there until it is taken.
+        let (send, receive) = std::sync::mpsc::sync_channel(0);
+        let (prepare, next) = (&prepare, &next);
+        let ahead = std::thread::Builder::new()
+            .name("eye-check-read-ahead".into())
+            .spawn_scoped(scope, move || {
+                while let Some(item) = next() {
+                    let prepared = prepare(&item);
+                    if send.send((item, prepared)).is_err() {
+                        break;
+                    }
+                }
+            });
+        if let Err(e) = ahead {
+            log::warn!("Eye check reads without reading ahead: {e}");
+            while let Some(item) = next() {
+                let prepared = prepare(&item);
+                if !each(item, prepared) {
+                    return;
+                }
+            }
+            return;
+        }
+        for (item, prepared) in receive {
+            if !each(item, prepared) {
+                break;
+            }
+        }
+    });
 }
 
 /// Starts the pass for the library at `directory` with `models` in the
@@ -611,6 +674,53 @@ mod tests {
             eyes.faces.unwrap()[1].override_state.as_deref(),
             Some("closed")
         );
+    }
+
+    #[test]
+    fn the_next_photograph_is_prepared_while_one_is_read() {
+        use std::sync::mpsc;
+        // `each` of the first item waits until the second is being
+        // prepared: only reading ahead lets it go on.
+        let (started, waits) = mpsc::channel();
+        let started = Mutex::new(started);
+        let mut seen = Vec::new();
+        read_ahead(
+            vec![1, 2, 3],
+            |&n| {
+                started.lock().unwrap().send(n).unwrap();
+                n * 10
+            },
+            |n, prepared| {
+                if n == 1 {
+                    let mut next = 0;
+                    while next != 2 {
+                        next = waits
+                            .recv_timeout(Duration::from_secs(5))
+                            .expect("the second item was not prepared while the first was read");
+                    }
+                }
+                seen.push((n, prepared));
+                true
+            },
+        );
+        assert_eq!(seen, [(1, 10), (2, 20), (3, 30)]);
+    }
+
+    #[test]
+    fn reading_ahead_stops_when_asked() {
+        let prepared = std::sync::atomic::AtomicUsize::new(0);
+        let mut seen = Vec::new();
+        read_ahead(
+            (1..=100).collect(),
+            |_| prepared.fetch_add(1, Ordering::AcqRel),
+            |n, _| {
+                seen.push(n);
+                n < 2
+            },
+        );
+        assert_eq!(seen, [1, 2]);
+        // At most the one after the last read was prepared ahead.
+        assert!(prepared.load(Ordering::Acquire) <= 3);
     }
 
     #[test]

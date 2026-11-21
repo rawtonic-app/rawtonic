@@ -6,9 +6,13 @@ import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useUIStore } from '../store/useUIStore';
+import { Invokes } from '../components/ui/AppProperties';
+import { undo, useCatalogUndoStore, type CullingChange } from '../utils/appUndo';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
+vi.mock('../activity/notify', () => ({
+  notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), dismiss: vi.fn() }
+}));
 
 it('reads which photos a batch save missed', () => {
   expect(saveFailure({ message: 'Could not save 1 of 2 photos', failed: ['/a.jpg'] }, ['/a.jpg', '/b.jpg'])).toEqual({
@@ -56,6 +60,64 @@ it('rates nothing in the Library once the selection was emptied, the open photog
   useUIStore.setState({ activeView: 'editor' });
   result.current.handleRate(2);
   expect(useLibraryStore.getState().imageRatings).toEqual({ '/open.jpg': 2 });
+});
+
+it('undoes each rating action in one step across the selection and preserves the reject flag', async () => {
+  const paths = ['/a.jpg', '/b.jpg'];
+  const originalRatings = { '/a.jpg': 1, '/b.jpg': 4 };
+  const flags = { '/a.jpg': -1, '/b.jpg': 1 };
+  const rating = (value: number) => ({ kind: 'rating', value }) as const;
+  const changes: CullingChange[] = paths.map((path) => ({
+    path,
+    before: rating(originalRatings[path as keyof typeof originalRatings]),
+    after: rating(3)
+  }));
+  const nextChanges = changes.map(({ path, after }) => ({ path, before: after, after: rating(5) }));
+  const reversed = (items: CullingChange[]) =>
+    items.map(({ path, before, after }) => ({ path, before: after, after: before }));
+  const mockInvoke = vi.mocked(invoke);
+  mockInvoke.mockClear();
+  mockInvoke
+    .mockResolvedValueOnce(changes)
+    .mockResolvedValueOnce(nextChanges)
+    .mockResolvedValueOnce(reversed(nextChanges))
+    .mockResolvedValueOnce(reversed(changes));
+  useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
+  useUIStore.setState({ activeView: 'library' });
+  useEditorStore.setState({ selectedImage: null });
+  useLibraryStore.setState({
+    sessionDirectory: null,
+    imageList: [],
+    multiSelectedPaths: paths,
+    imageRatings: originalRatings,
+    imageFlags: flags
+  });
+  const { result, unmount } = renderHook(() => useLibraryActions());
+  try {
+    result.current.handleRate(3);
+    result.current.handleRate(5);
+    // Undo must follow the photos rated at input time even after selection changes.
+    useLibraryStore.setState({ multiSelectedPaths: ['/c.jpg'] });
+    await undo();
+    expect(useCatalogUndoStore.getState().past).toHaveLength(1);
+    expect(useLibraryStore.getState().imageRatings).toEqual({ '/a.jpg': 3, '/b.jpg': 3 });
+    await undo();
+    expect(useCatalogUndoStore.getState().past).toHaveLength(0);
+    expect(useLibraryStore.getState().imageRatings).toEqual(originalRatings);
+    expect(useLibraryStore.getState().imageFlags).toEqual(flags);
+    expect(mockInvoke.mock.calls).toEqual([
+      [Invokes.SetRatingForPaths, { paths, rating: 3 }],
+      [Invokes.SetRatingForPaths, { paths, rating: 5 }],
+      [Invokes.RestoreCulling, { directory: null, values: paths.map((path) => ({ path, value: rating(3) })) }],
+      [
+        Invokes.RestoreCulling,
+        { directory: null, values: changes.map(({ path, before }) => ({ path, value: before })) }
+      ]
+    ]);
+  } finally {
+    unmount();
+    useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
+  }
 });
 
 it('labels nothing in the Library once the selection was emptied, the open photograph in Develop', async () => {
