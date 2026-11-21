@@ -1492,11 +1492,25 @@ impl Library {
         Ok(metadata)
     }
 
-    /// Check only possible owners, using the existing (root_id, rel_path)
-    /// index. Never deserialize every catalog asset for each imported photo.
-    /// Roots can overlap after relocation, so check all matching root prefixes.
+    /// How many photographs of the library have the sidecar `photo` has
+    /// (itself included): only photographs of one stem can, and whose it is
+    /// follows the pair rule (`rawtonic_metadata::sidecars`).
     fn xmp_owners(&self, photo: &Path) -> Result<usize> {
-        let sidecar = photo.with_extension("xmp");
+        let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
+        let sidecar = sidecars.path(photo);
+        Ok(self
+            .same_stem_assets(photo)?
+            .iter()
+            .filter(|(_, path)| sidecars.path(path) == sidecar)
+            .count())
+    }
+
+    /// The photographs of the library with `photo`'s stem in its folder
+    /// (itself included), by id. Check only possible owners, using the
+    /// existing (root_id, rel_path) index. Never deserialize every catalog
+    /// asset for each imported photo. Roots can overlap after relocation,
+    /// so check all matching root prefixes.
+    pub(crate) fn same_stem_assets(&self, photo: &Path) -> Result<Vec<(String, PathBuf)>> {
         let mut roots = self.conn.prepare("SELECT id,path,external FROM roots")?;
         let roots = roots.query_map([], |row| {
             Ok((
@@ -1506,11 +1520,11 @@ impl Library {
             ))
         })?;
         let mut candidates = self.conn.prepare(
-            "SELECT rel_path FROM assets WHERE root_id=?1 AND rel_path=?2
+            "SELECT id,rel_path FROM assets WHERE root_id=?1 AND rel_path=?2
              UNION ALL
-             SELECT rel_path FROM assets WHERE root_id=?1 AND rel_path>=?3 AND rel_path<?4",
+             SELECT id,rel_path FROM assets WHERE root_id=?1 AND rel_path>=?3 AND rel_path<?4",
         )?;
-        let mut count = 0;
+        let mut found = Vec::new();
         for root in roots {
             let (id, path, external) = root?;
             let base = if external {
@@ -1527,18 +1541,18 @@ impl Library {
             // binary collation. Also include an extensionless sibling.
             let lower = format!("{stem}.");
             let upper = format!("{stem}/");
-            for relative in candidates.query_map(params![id, stem, lower, upper], |row| {
-                row.get::<_, String>(0)
+            for row in candidates.query_map(params![id, stem, lower, upper], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })? {
-                if native_join(base, &relative?).with_extension("xmp") == sidecar {
-                    count += 1;
-                    if count > 1 {
-                        return Ok(count);
-                    }
+                let (asset, relative) = row?;
+                let path = native_join(base, &relative);
+                // Only the same stem (`name.multi.extra.JPG` is not `name.multi`'s).
+                if path.with_extension("") == photo.with_extension("") {
+                    found.push((asset, path));
                 }
             }
         }
-        Ok(count)
+        Ok(found)
     }
 
     /// Brings the photograph's XMP sidecar up to date with the library. An

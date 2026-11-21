@@ -614,6 +614,7 @@ fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
 fn index_folder(lib: &Library) -> anyhow::Result<Vec<SkippedDuplicate>> {
     let known = lib.index_entries()?;
     let mut new = Vec::new();
+    let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
     for photo in session_photos(lib)? {
         if let Some(asset) = known.get(&photo) {
             if !asset.needs_metadata_adoption {
@@ -622,7 +623,7 @@ fn index_folder(lib: &Library) -> anyhow::Result<Vec<SkippedDuplicate>> {
             // Neutral files without sidecars need no more per-asset DB
             // queries; `adopt_contents` checks again inside its transaction,
             // so an edit or explicit clear made since the index snapshot stays.
-            match rawtonic_catalog::Contents::read_sidecars(&photo) {
+            match rawtonic_catalog::Contents::read_sidecars_with(&photo, &sidecars) {
                 Ok(contents) => {
                     lib.adopt_contents(&asset.id, &contents)?;
                 }

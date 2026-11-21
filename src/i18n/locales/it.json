@@ -2367,9 +2367,9 @@
         "pending_one": "{{count}} file XMP può essere riscritto.",
         "pending_many": "{{count}} file XMP possono essere riscritti.",
         "pending_other": "{{count}} file XMP possono essere riscritti.",
-        "sharedName_one": "{{count}} foto ha lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP.",
-        "sharedName_many": "{{count}} foto hanno lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP.",
-        "sharedName_other": "{{count}} foto hanno lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP."
+        "sharedName_one": "{{count}} foto ha lo stesso nome di un’altra (due file RAW, ad esempio CR3 e DNG), quindi entrambe scriverebbero lo stesso file XMP.",
+        "sharedName_many": "{{count}} foto hanno lo stesso nome di un’altra (due file RAW, ad esempio CR3 e DNG), quindi entrambe scriverebbero lo stesso file XMP.",
+        "sharedName_other": "{{count}} foto hanno lo stesso nome di un’altra (due file RAW, ad esempio CR3 e DNG), quindi entrambe scriverebbero lo stesso file XMP."
       },
       "resolved_one": "Conflitto XMP risolto per {{count}} foto",
       "resolved_many": "Conflitti XMP risolti per {{count}} foto",
