@@ -1059,6 +1059,9 @@ pub mod mask {
     pub const REFINE_BOTH_SIDES: u32 = 3;
     /// Selections grow and feather from beyond the crop.
     pub const BEYOND_CROP: u32 = 4;
+    /// Components add as a + b − a·b and intersect as a·b instead of max
+    /// and min (`mask_generation::fold`).
+    pub const SOFT_FOLD: u32 = 5;
 }
 
 /// `maskVersion` of a mask layer: none for masks from before the key, read
@@ -1085,6 +1088,10 @@ impl MaskVersion {
 
     pub fn beyond_crop(self) -> bool {
         self.at_least(mask::BEYOND_CROP)
+    }
+
+    pub fn soft_fold(self) -> bool {
+        self.at_least(mask::SOFT_FOLD)
     }
 }
 
