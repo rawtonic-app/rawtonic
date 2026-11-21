@@ -78,6 +78,8 @@ export interface ExportSettings {
   outputSharpening?: { amount: number; radius: number; threshold: number } | null;
   /** Enlarge 2× with the AI model before the resize (Super Resolution). */
   superResolution?: boolean;
+  /** Sign a provenance manifest (C2PA) into each file; absent or null = off. */
+  provenance?: { includeAuthor: boolean } | null;
 }
 
 /** A recipe's output sharpening: for screen with a radius, for print from the viewing distance. */
@@ -170,6 +172,10 @@ export interface ExportPreset {
   preserveTimestamps: boolean;
   stripGps: boolean;
   keepCreatorContact?: boolean;
+  /** Sign a provenance manifest (C2PA) into the files. */
+  provenance?: boolean;
+  /** Name the photo's creator as the manifest's author. */
+  provenanceAuthor?: boolean;
   exportMasks?: boolean;
   preserveFolders?: boolean;
   /** The first export tokens; recipes saved since hold `nameTemplate`. */

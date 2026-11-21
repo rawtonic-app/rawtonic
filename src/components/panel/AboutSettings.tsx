@@ -62,6 +62,24 @@ export const CREDITS: Credit[] = [
     license: 'Jiff table: MIT, CLDR data: Unicode-3.0'
   },
   {
+    name: 'ring',
+    url: 'https://github.com/briansmith/ring',
+    what: 'Signing of provenance (C2PA) manifests in exports: ECDSA, RSA-PSS and Ed25519 signatures, SHA-256.',
+    license: 'Apache-2.0 AND ISC'
+  },
+  {
+    name: 'p12-keystore / RustCrypto',
+    url: 'https://github.com/ancwrd1/p12-keystore',
+    what: 'Opening the PKCS#12 certificate file a provenance signing certificate is imported from.',
+    license: 'MIT OR Apache-2.0'
+  },
+  {
+    name: 'x509-parser',
+    url: 'https://github.com/rusticata/x509-parser',
+    what: 'Reading signing certificates (signer, validity, allowed uses).',
+    license: 'MIT OR Apache-2.0'
+  },
+  {
     name: 'Lensfun database',
     url: 'https://lensfun.github.io/',
     what: 'Lens profiles for automatic lens correction (data only; no Lensfun code).',

@@ -2,7 +2,7 @@ import { runExportJobs, submittedFrom } from '../../utils/runExportJobs';
 import { validNamingTemplate, validSequenceStart, type NamingPreview } from '../../utils/namingTemplates';
 import { readJobName, startFormDraft, writeFormDraft, writeJobName } from '../../utils/exportJob';
 import NamingEditor from '../ui/NamingEditor';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { openDialog } from '../../utils/fileDialog';
@@ -13,6 +13,7 @@ import { renderErrorMessage } from '../../utils/renderErrors';
 import OperationError from '../ui/OperationError';
 import { formatFileSize } from '../../utils/formatFileSize';
 import { ExportQueueJobs } from './StudioExportQueue';
+import StudioExportProvenance from './StudioExportProvenance';
 import { Invokes } from '../ui/AppProperties';
 import {
   BorderBasis,
@@ -164,6 +165,9 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       active = false;
     };
   }, [draft.watermark, draft.watermarkKind, fonts]);
+  // The form signs with an identity it has, into a format that takes it.
+  const [provenanceReady, setProvenanceReady] = useState(true);
+  const onProvenanceReady = useCallback((ready: boolean) => setProvenanceReady(ready), []);
   const formInvalid =
     !!subfolderError ||
     watermarkMissing ||
@@ -416,7 +420,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   };
 
   const run = async () => {
-    if (!paths.length || choosing || (!checked.length && formInvalid)) return;
+    if (!paths.length || choosing || (!checked.length && (formInvalid || !provenanceReady))) return;
     setChoosing(true);
     try {
       if (await runExportJobs(planned, paths)) onStarted?.();
@@ -961,6 +965,15 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
               </label>
             </fieldset>
           </details>
+          <StudioExportProvenance
+            draft={draft}
+            set={set}
+            disabled={choosing}
+            path={paths[0] ?? null}
+            settings={exportSettingsFromDraft(form).settings}
+            library={submittedFrom(session)}
+            onReady={onProvenanceReady}
+          />
           <details className="studio-export-section">
             <summary>{t('studio.export.watermark.legend')}</summary>
             <fieldset disabled={choosing}>
@@ -1284,7 +1297,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
         )}
         <button
           type="submit"
-          disabled={!paths.length || choosing || (!checked.length && formInvalid)}
+          disabled={!paths.length || choosing || (!checked.length && (formInvalid || !provenanceReady))}
           className="studio-export-submit"
         >
           {choosing

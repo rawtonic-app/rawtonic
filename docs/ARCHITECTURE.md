@@ -608,6 +608,14 @@ once and the thread pool each runs in, for the app's queue and `rawtonic export`
 stored or editor recipe renderable: bitmaps, offline lens, new-edit crop and versions, camera lens defaults, Lightroom
 orientation, in that order; every render caller in the app and the CLI calls it once).
 
+`export::c2pa`: provenance manifests (C2PA 2.x) for exports whose settings ask for them (`ExportSettings::provenance`,
+off by default): its own CBOR/JUMBF/COSE_Sign1 writer on `ring` (no c2pa-rs: its RSA and chrono dependencies fail the
+advisory gates), JPEG APP11, PNG `caBX` and TIFF tag 0xCD41 (`tiff_exif::append_reserved_tag`), signed after every other write of
+the file (`with_provenance` in `export_processing`; a streamed TIFF once it is written); `identity` keeps the signing key
+and certificate in a folder the app gives (`src-tauri/src/provenance.rs`: the app data folder's `provenance/`, and the
+Export panel's commands). `ExportOutput::provenance` carries the loaded identity; the CLI has none
+(`FileExporter::with_provenance` for callers that do).
+
 
 #### Layering check and colour pipeline
 

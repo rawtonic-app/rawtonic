@@ -337,6 +337,15 @@ struct ExportArgs {
     /// before any resize and output sharpening, as the app's export option.
     #[arg(long)]
     super_resolution: bool,
+    /// Sign a provenance manifest (C2PA) into each JPEG, PNG or TIFF with the
+    /// signing identity in DIR, as the app keeps it (its data folder's
+    /// `provenance/`: `signing-key.p8`, `signing-chain.pem`,
+    /// `signing-identity.json`).
+    #[arg(long, value_name = "DIR")]
+    provenance_identity: Option<PathBuf>,
+    /// With --provenance-identity: name the photo's creator as author.
+    #[arg(long, requires = "provenance_identity")]
+    provenance_author: bool,
     /// Face retouch for every photo: the sliders for all faces as JSON
     /// (`{"blemishes":60,"evenSkin":50}`, see docs/RECIPE_SCHEMA.md). The
     /// faces are found with the face models in --models (ONNX Runtime from
@@ -1119,6 +1128,8 @@ fn export(args: ExportArgs) -> Result<()> {
         models,
         output_sharpening,
         super_resolution,
+        provenance_identity,
+        provenance_author,
         face_retouch,
         render_inputs,
         jobs: max_jobs,
@@ -1167,6 +1178,11 @@ fn export(args: ExportArgs) -> Result<()> {
         subfolder: None,
         output_sharpening,
         super_resolution,
+        provenance: provenance_identity.as_ref().map(|_| {
+            rawtonic_export::export_processing::ProvenanceSettings {
+                include_author: provenance_author,
+            }
+        }),
     };
 
     // (photo path, output) pairs. A folder exports every supported image below
@@ -1295,6 +1311,15 @@ fn export(args: ExportArgs) -> Result<()> {
         exporter.with_enlarger(std::sync::Arc::new(SuperResolution(model)))
     } else {
         exporter
+    };
+    let exporter = match &provenance_identity {
+        Some(dir) => {
+            let identity = rawtonic_export::c2pa::identity::load(dir)
+                .map_err(anyhow::Error::msg)?
+                .with_context(|| format!("No signing identity in {}", dir.display()))?;
+            exporter.with_provenance(std::sync::Arc::new(identity))
+        }
+        None => exporter,
     };
     let exporter = with_recipe_models(exporter, models, &recipes);
     let inputs = render_inputs

@@ -58,6 +58,7 @@ fn output<'a>(path: &'a Path, format: &'a str) -> ExportOutput<'a> {
         catalog: &no_catalog,
         enlarger: None,
         write: &write,
+        provenance: None,
     }
 }
 
