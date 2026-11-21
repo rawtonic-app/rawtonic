@@ -3902,9 +3902,11 @@
       },
       "downloadModels": "Gesichtsmodelle laden",
       "eyes": {
+        "downloadModel": "Augen- und Zahnmodell laden",
         "find": "Augen und Zähne finden",
         "finding": "Augen und Zähne werden gefunden…",
         "missing": "Augen und Zähne brauchen Augen und Mund dieser Gesichter; sie wurden gefunden, bevor es diese Werkzeuge gab.",
+        "modelMissing": "Augen und Zähne verwenden ein Augen- und Zahnmodell (57 MB). Es wird einmal aus Rawtonics Modellpaket auf GitHub geladen und läuft auf diesem Computer.",
         "none": "Auf diesem Gesicht wurden keine Augen und kein offener Mund gefunden.",
         "sideAria": "Auge",
         "sideHint": {

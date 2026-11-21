@@ -4068,9 +4068,11 @@
       },
       "downloadModels": "Scarica i modelli del viso",
       "eyes": {
+        "downloadModel": "Scarica il modello di occhi e denti",
         "find": "Trova occhi e denti",
         "finding": "Ricerca di occhi e denti…",
         "missing": "Occhi e Denti richiedono occhi e bocca di questi volti, trovati prima che esistessero questi strumenti.",
+        "modelMissing": "Occhi e Denti usano un modello di occhi e denti (57 MB). Viene scaricato una volta dal pacchetto di modelli di Rawtonic su GitHub e funziona su questo computer.",
         "none": "Nessun occhio né bocca aperta trovati in questo volto.",
         "sideAria": "Occhio",
         "sideHint": {

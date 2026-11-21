@@ -4233,9 +4233,11 @@
       },
       "downloadModels": "Pobierz modele twarzy",
       "eyes": {
+        "downloadModel": "Pobierz model oczu i zębów",
         "find": "Znajdź oczy i zęby",
         "finding": "Szukanie oczu i zębów…",
         "missing": "Oczy i Zęby wymagają oczu i ust tych twarzy, znalezionych, zanim te narzędzia istniały.",
+        "modelMissing": "Oczy i Zęby korzystają z modelu oczu i zębów (57 MB). Jest pobierany raz z pakietu modeli Rawtonic na GitHubie i działa na tym komputerze.",
         "none": "Na tej twarzy nie znaleziono oczu ani otwartych ust.",
         "sideAria": "Oko",
         "sideHint": {

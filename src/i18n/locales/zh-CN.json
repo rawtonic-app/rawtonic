@@ -3794,9 +3794,11 @@
       },
       "downloadModels": "下载面部模型",
       "eyes": {
+        "downloadModel": "下载眼睛与牙齿模型",
         "find": "查找眼睛和牙齿",
         "finding": "正在查找眼睛和牙齿…",
         "missing": "眼睛和牙齿需要这些面孔的眼睛和嘴，这些面孔是在这些工具出现之前找到的。",
+        "modelMissing": "眼睛和牙齿需要眼睛与牙齿模型（57 MB）。它会从 GitHub 上的 Rawtonic 模型包下载一次，并在这台电脑上运行。",
         "none": "在此面孔上未找到眼睛或张开的嘴。",
         "sideAria": "眼睛",
         "sideHint": {

@@ -4068,9 +4068,11 @@
       },
       "downloadModels": "Baixa els models de cara",
       "eyes": {
+        "downloadModel": "Baixa el model d'ulls i dents",
         "find": "Troba ulls i dents",
         "finding": "S’estan trobant ulls i dents…",
         "missing": "Ulls i Dents necessiten els ulls i la boca d’aquestes cares, trobades abans que existissin aquestes eines.",
+        "modelMissing": "Ulls i Dents utilitzen un model d'ulls i dents (57 MB). Es baixa una vegada del paquet de models de Rawtonic a GitHub i s'executa en aquest ordinador.",
         "none": "No s’han trobat ulls ni boca oberta en aquesta cara.",
         "sideAria": "Ull",
         "sideHint": {

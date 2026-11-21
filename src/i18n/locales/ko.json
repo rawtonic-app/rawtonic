@@ -3794,9 +3794,11 @@
       },
       "downloadModels": "얼굴 모델 다운로드",
       "eyes": {
+        "downloadModel": "눈·치아 모델 다운로드",
         "find": "눈과 치아 찾기",
         "finding": "눈과 치아 찾는 중…",
         "missing": "눈과 치아 도구에는 이 도구가 생기기 전에 찾은 얼굴의 눈과 입이 필요합니다.",
+        "modelMissing": "눈과 치아에는 눈·치아 모델(57MB)이 필요합니다. GitHub의 Rawtonic 모델 팩에서 한 번 내려받으며 이 컴퓨터에서 실행됩니다.",
         "none": "이 얼굴에서 눈이나 벌린 입을 찾지 못했습니다.",
         "sideAria": "눈",
         "sideHint": {

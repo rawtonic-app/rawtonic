@@ -3902,9 +3902,11 @@
       },
       "downloadModels": "Download face models",
       "eyes": {
+        "downloadModel": "Download eye and teeth model",
         "find": "Find eyes and teeth",
         "finding": "Finding eyes and teeth…",
         "missing": "Eyes and Teeth need the eyes and mouth of these faces, which were found before these tools existed.",
+        "modelMissing": "Eyes and Teeth use an eye and teeth model (57 MB). It is downloaded once from Rawtonic's model pack on GitHub and runs on this computer.",
         "none": "No eyes or open mouth found on this face.",
         "sideAria": "Eye",
         "sideHint": {

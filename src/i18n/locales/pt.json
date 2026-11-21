@@ -4068,9 +4068,11 @@
       },
       "downloadModels": "Transferir modelos de rosto",
       "eyes": {
+        "downloadModel": "Transferir o modelo de olhos e dentes",
         "find": "Encontrar olhos e dentes",
         "finding": "A encontrar olhos e dentes…",
         "missing": "Olhos e Dentes precisam dos olhos e da boca destes rostos, encontrados antes de estas ferramentas existirem.",
+        "modelMissing": "Olhos e Dentes usam um modelo de olhos e dentes (57 MB). É transferido uma vez do pacote de modelos do Rawtonic no GitHub e é executado neste computador.",
         "none": "Nenhum olho ou boca aberta encontrado neste rosto.",
         "sideAria": "Olho",
         "sideHint": {

@@ -16,6 +16,7 @@ pub mod geometry;
 pub mod landmarks;
 pub mod parse;
 pub mod parts;
+pub mod portrait;
 pub mod recipe;
 pub mod relight;
 pub mod retouch;

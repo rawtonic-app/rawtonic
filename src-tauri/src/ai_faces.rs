@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use base64::{Engine as _, engine::general_purpose};
 use image::{ImageFormat, RgbImage};
+use rawtonic_faces::portrait::PortraitModel;
 use rawtonic_faces::{FaceAnalysis, FaceModels, Part};
 use rawtonic_recipe::geometry;
 use serde::Serialize;
@@ -49,6 +50,8 @@ pub struct CachedFaces {
 #[derive(Default)]
 pub struct FaceState {
     models: Option<Arc<FaceModels>>,
+    /// The eye and teeth parser (Eyes and Teeth), loaded on their first use.
+    portrait: Option<Arc<PortraitModel>>,
     cached: Option<CachedFaces>,
 }
 
@@ -60,8 +63,9 @@ impl FaceState {
     /// Drops the models and the analysis (`ai_lifecycle`); `true` if there
     /// was something to drop.
     pub fn unload(&mut self) -> bool {
-        let had = self.models.is_some() || self.cached.is_some();
+        let had = self.models.is_some() || self.portrait.is_some() || self.cached.is_some();
         self.models = None;
+        self.portrait = None;
         self.cached = None;
         had
     }
@@ -142,6 +146,80 @@ pub(crate) async fn models(
         faces.models = Some(models.clone());
     }
     Ok(models)
+}
+
+/// The eye and teeth parser (rawtonic-faces `portrait`), loaded once: on
+/// macOS its Core ML program, elsewhere (or when Core ML fails) the ONNX
+/// model. `download`: fetch it from the model pack (the user's click on
+/// Eyes and Teeth' download, PRIVACY.md); otherwise `None` when it is not
+/// installed.
+pub(crate) async fn portrait_model(
+    app_handle: &tauri::AppHandle,
+    download: bool,
+) -> Result<Option<Arc<PortraitModel>>, CommandError> {
+    use rawtonic_faces::portrait;
+    let ai_state = app_handle.state::<AiState>();
+    if let Some(model) = lock_recover(&ai_state.faces).portrait.clone() {
+        return Ok(Some(model));
+    }
+    let _guard = ai_state.init_lock.lock().await;
+    if let Some(model) = lock_recover(&ai_state.faces).portrait.clone() {
+        return Ok(Some(model));
+    }
+    let generation = ai_state.lifecycle.generation();
+    let dir = crate::ai_processing::models_dir(app_handle).map_err(|e| e.to_string())?;
+    let start = std::time::Instant::now();
+    #[cfg(target_os = "macos")]
+    let core_ml = crate::ai_processing::load_core_ml(
+        app_handle,
+        &dir,
+        portrait::CORE_ML_PACKAGE,
+        &portrait::CORE_ML_FILES,
+        download,
+        "eyes-teeth",
+        "Eye and teeth model",
+    )
+    .await
+    .map(PortraitModel::core_ml);
+    #[cfg(not(target_os = "macos"))]
+    let core_ml: Option<PortraitModel> = None;
+    let model = match core_ml {
+        Some(model) => model,
+        None => {
+            let path = dir.join(portrait::FILE);
+            if download {
+                crate::ai_processing::ensure_runtime()?;
+                crate::ai_processing::download_verified(
+                    app_handle,
+                    &dir,
+                    portrait::FILE,
+                    portrait::SHA256,
+                    "Eye and teeth model",
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+            } else if crate::ai_processing::ensure_runtime().is_err()
+                || !crate::ai_processing::verify_sha256(&path, portrait::SHA256).unwrap_or(false)
+            {
+                return Ok(None);
+            }
+            tokio::task::spawn_blocking(move || PortraitModel::onnx(&path))
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?
+        }
+    };
+    log::info!(
+        "Eyes and Teeth: eye and teeth model loaded on {} in {} ms",
+        model.backend_name(),
+        start.elapsed().as_millis()
+    );
+    crate::register_exit_handler();
+    let model = Arc::new(model);
+    if ai_state.lifecycle.keep(generation) {
+        lock_recover(&ai_state.faces).portrait = Some(model.clone());
+    }
+    Ok(Some(model))
 }
 
 /// The analysis of the open photo with `js_adjustments`' geometry, made on
@@ -300,18 +378,29 @@ pub async fn generate_ai_people_mask(
 /// The faces of the open photo for the face retouch tool (see
 /// `retouch_faces`), found in the mask frame of `js_adjustments`' geometry
 /// (transform adjustments with rotation, flips and orientation steps).
-/// Returns `{ frame, faces }`: the frame key the faces belong to
-/// (rawtonic-engine `face_retouch::frame_key`) and the faces.
+/// `eyes_teeth`: with the eye and teeth parser's outlines too, when it is
+/// installed or `download_eyes_teeth` may fetch it. Returns
+/// `{ frame, faces, eyesTeethMissing }`: the frame key the faces belong to
+/// (rawtonic-engine `face_retouch::frame_key`), the faces, and whether the
+/// parser was asked for but is not installed.
 #[tauri::command]
 pub async fn analyze_face_retouch(
     js_adjustments: serde_json::Value,
     download: Option<bool>,
+    eyes_teeth: Option<bool>,
+    download_eyes_teeth: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, CommandError> {
     // Opening the Retouch tab analyses with installed models only; the
-    // download needs the user's click (`download`).
+    // download needs the user's click (`download`, `download_eyes_teeth`).
     let models = models(&app_handle, download.unwrap_or(false)).await?;
+    let portrait = if eyes_teeth.unwrap_or(false) {
+        portrait_model(&app_handle, download_eyes_teeth.unwrap_or(false)).await?
+    } else {
+        None
+    };
+    let eyes_teeth_missing = eyes_teeth.unwrap_or(false) && portrait.is_none();
     let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
     tokio::task::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
@@ -327,7 +416,8 @@ pub async fn analyze_face_retouch(
         let analysis = rawtonic_faces::analyze(&image, &models).map_err(|e| e.to_string())?;
         Ok(serde_json::json!({
             "frame": rawtonic_engine::face_retouch::frame_key(&js_adjustments),
-            "faces": rawtonic_faces::recipe::retouch_faces(&image, &analysis)?,
+            "faces": rawtonic_faces::recipe::retouch_faces(&image, &analysis, portrait.as_deref())?,
+            "eyesTeethMissing": eyes_teeth_missing,
         }))
     })
     .await
@@ -398,6 +488,18 @@ pub async fn apply_face_retouch_to_paths(
     let models = models(&app_handle, true)
         .await
         .map_err(|e| fail(e.message))?;
+    // Eyes and Teeth applied anew use the eye and teeth parser.
+    let uses_eyes_teeth = rawtonic_engine::face_retouch::Settings::uses_eyes_teeth(&settings)
+        || face_settings
+            .iter()
+            .any(|f| rawtonic_engine::face_retouch::Settings::uses_eyes_teeth(&f.settings));
+    let portrait = if uses_eyes_teeth {
+        portrait_model(&app_handle, true)
+            .await
+            .map_err(|e| fail(e.message))?
+    } else {
+        None
+    };
     let app_settings = crate::state::settings::current(&app_handle);
     let face_settings = Arc::new(face_settings);
     let mut done = 0;
@@ -428,6 +530,7 @@ pub async fn apply_face_retouch_to_paths(
         let in_photo = path.clone();
         let (source_path, sidecar_path) = rawtonic_export::sidecars::parse_virtual_path(&in_photo);
         let models = models.clone();
+        let portrait = portrait.clone();
         let app_settings = app_settings.clone();
         let settings = settings.clone();
         // Both layers flattened into this one: a panicking (or cancelled)
@@ -475,7 +578,8 @@ pub async fn apply_face_retouch_to_paths(
                 let image = rawtonic_faces::recipe::display_rgb8(&framed, is_raw);
                 let analysis =
                     rawtonic_faces::analyze(&image, &models).map_err(|e| e.to_string())?;
-                let mut faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis)?;
+                let mut faces =
+                    rawtonic_faces::recipe::retouch_faces(&image, &analysis, portrait.as_deref())?;
                 carry_face_settings(
                     &mut faces,
                     &face_settings,
@@ -658,7 +762,7 @@ mod tests {
         for file in files {
             let image = image::open(&file).unwrap().into_rgb8();
             let analysis = rawtonic_faces::analyze(&image, &models).unwrap();
-            let faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis).unwrap();
+            let faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis, None).unwrap();
             if faces.is_empty() {
                 continue;
             }
@@ -836,7 +940,7 @@ mod tests {
         for file in files {
             let image = image::open(&file).unwrap().into_rgb8();
             let analysis = rawtonic_faces::analyze(&image, &models).unwrap();
-            let faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis).unwrap();
+            let faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis, None).unwrap();
             if faces.is_empty() {
                 continue;
             }
