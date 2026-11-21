@@ -253,7 +253,12 @@ notifications; the catalog builds volume identity from it, file operations plan 
 #### `metadata`
 
 `metadata`: XMP sidecar IO (written through `rawtonic_fs::atomic_write`) and shared recipe provenance predicates
-(`provenance`, consumed by the renderer, export and catalog).
+(`provenance`, consumed by the renderer, export and catalog). `sidecars` decides which XMP belongs to which photo, from
+the files on disk: a RAW owns `<stem>.xmp`; a developed image (JPEG, HEIF, TIFF, …) that shares its stem with another
+file has `<name>.<ext>.xmp` and never reads the stem one; alone it keeps `<stem>.xmp`, and an existing full-name sidecar
+is always its own. Every reader and writer (catalog, folder mode, file moves/renames, ingest copies) asks it
+(`sidecar_path`, `existing_sidecar`, `Sidecars` for batches); the catalog still refuses two photos whose sidecar has one
+name (two RAWs of one stem).
 
 #### `naming`
 

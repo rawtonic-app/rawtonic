@@ -101,8 +101,17 @@ impl Contents {
     /// there is one, else its XMP sidecar (`<stem>.xmp`), whose rating,
     /// label and keywords also seed an editor state. Reads only; an
     /// unreadable sidecar is an error, so the photograph is not added
-    /// without what it holds.
+    /// without what it holds. A JPEG beside its RAW never takes the RAW's
+    /// stem sidecar (`rawtonic_metadata::sidecars`).
     pub fn read_sidecars(photo: &Path) -> Result<Self, CatalogError> {
+        Self::read_sidecars_with(photo, &rawtonic_metadata::sidecars::Sidecars::new())
+    }
+
+    /// `read_sidecars`, listing each folder once for a batch of photos.
+    pub fn read_sidecars_with(
+        photo: &Path,
+        sidecars: &rawtonic_metadata::sidecars::Sidecars,
+    ) -> Result<Self, CatalogError> {
         let editor = PhotoRef::of_path(photo, None).sidecar_path();
         if editor.is_file() {
             let bytes =
@@ -114,8 +123,7 @@ impl Contents {
                 ..Self::default()
             });
         }
-        let xmp = rawtonic_metadata::sidecar_path(photo);
-        if xmp.is_file() {
+        if let Some(xmp) = sidecars.existing(photo).filter(|xmp| xmp.is_file()) {
             let text = rawtonic_metadata::read_xmp_text(&xmp)
                 .with_context(|| format!("Cannot read {}", xmp.display()))?;
             let (metadata, _) = rawtonic_metadata::read_xmp(&text)
@@ -526,6 +534,7 @@ impl Library {
         let mut seen = HashSet::new();
         let companions = self.companions()?;
         let ingesting = self.planned_ingest_copies()?;
+        let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
         for path in paths {
             let plan = (|| -> Result<Option<PlannedAsset>> {
                 let place = self.place(path)?;
@@ -546,7 +555,7 @@ impl Library {
                     report.importing.push(place.path.clone());
                     return Ok(None);
                 }
-                let contents = Contents::read_sidecars(&place.path)?;
+                let contents = Contents::read_sidecars_with(&place.path, &sidecars)?;
                 Ok(Some(prepare(self.plan_add(&place.path, contents)?)?))
             })();
             match plan {

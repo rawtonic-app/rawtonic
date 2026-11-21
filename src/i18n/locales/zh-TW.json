@@ -2144,7 +2144,7 @@
         "failed_other": "無法寫入 {{count}} 個 XMP 檔案：{{error}}",
         "offline_other": "{{count}} 張照片處於離線狀態。重新連接磁碟後會更新其 XMP 檔案。",
         "pending_other": "{{count}} 個 XMP 檔案可以重新寫入。",
-        "sharedName_other": "{{count}} 張照片與另一張同名（RAW 和 JPEG），兩者會寫入同一個 XMP 檔案。"
+        "sharedName_other": "{{count}} 張照片與另一張同名（兩個 RAW 檔案，例如 CR3 和 DNG），兩者會寫入同一個 XMP 檔案。"
       },
       "resolved_other": "已為 {{count}} 張照片解決 XMP 衝突",
       "retry": "重試",

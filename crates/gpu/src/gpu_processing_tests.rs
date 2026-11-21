@@ -15400,7 +15400,7 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
     // At Exposure −0.7 the gaps show at L* 84, below the tone no pixel is
     // lifted beyond (L* 87): they keep a part of the lift.
     // Shadows 0 … +14 in single steps, with Blacks raised too and at
-    // Exposure −0.7 (the stage fades its level in over 0 … +12): the gaps
+    // Exposure −0.7 (version 19's stage moves its level over 0 … +12): the gaps
     // do not jump at the first step and never darken as Shadows rises. The
     // bounds act on Shadows' share of the gain; on the whole gain they took
     // Blacks' lift from the gaps too.
@@ -15540,8 +15540,217 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
     }
 }
 
+/// Light lines inside dark strokes on a light field (−0.5 EV): bands of
+/// (stroke width, the line's EV) down the rows, in each band one stroke at
+/// −7 EV per line width 1 … 5 px with the line in its middle. Returns the
+/// levels and each line's (band, width, first column).
+const SHADOWS_V20_STROKE_BANDS: [(usize, f32); 9] = [
+    (15, -3.5),
+    (15, -2.5),
+    (15, -1.5),
+    (27, -3.5),
+    (27, -2.5),
+    (27, -1.5),
+    (51, -3.5),
+    (51, -2.5),
+    (51, -1.5),
+];
+
+fn shadows_v20_lines_in_strokes(width: u32, height: u32) -> (Vec<f32>, Vec<(usize, usize, usize)>) {
+    let (w, h) = (width as usize, height as usize);
+    let band = h / SHADOWS_V20_STROKE_BANDS.len();
+    let pitch = w / 5;
+    let mut levels = vec![(2.0f32).powf(-0.5); w * h];
+    let mut lines = Vec::new();
+    for (b, &(stroke, line_ev)) in SHADOWS_V20_STROKE_BANDS.iter().enumerate() {
+        for line in 1..=5usize {
+            let centre = (line - 1) * pitch + pitch / 2;
+            let first = centre - line / 2;
+            lines.push((b, line, first));
+            for y in b * band..(b + 1) * band {
+                for x in centre - stroke / 2..=centre + stroke / 2 {
+                    levels[y * w + x] = (2.0f32).powf(-7.0);
+                }
+                for x in first..first + line {
+                    levels[y * w + x] = (2.0f32).powf(line_ev);
+                }
+            }
+        }
+    }
+    (levels, lines)
+}
+
+/// A dark photo of low contrast as image key [10th, 90th, 50th percentile]
+/// (`NIGHT_KEY`'s form): there the shared Shadows and Blacks gain, which
+/// adapts to the key as a whole, can be less than Blacks' alone.
+const SHADOWS_V20_DIM_KEY: [f64; 3] = [0.024, 0.096, 0.06];
+
+#[test]
+#[ignore = "requires a native GPU; raising Shadows of tone version 20 with Blacks raised does not darken a light line inside a dark stroke"]
+fn tone_version_20_shadows_with_blacks_keeps_light_lines() {
+    let context = context();
+    let _limit = DeviceCompileLimit::set(&context);
+    let render_version = new_edit_render_version();
+    let look = (3, 2.0);
+    // A flat tone of such a dim photo (0.08) with Blacks +50: raising
+    // Shadows renders it no darker than Shadows 0 does, although the shared
+    // gain there can be less than Blacks' alone (version 19's render falls
+    // 0.83 L* on the way to +100, Vulkan).
+    {
+        let (width, height) = (512u32, 512u32);
+        let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+        let view = grey_texture(
+            &context,
+            width,
+            height,
+            &vec![0.08f32; (width * height) as usize],
+        );
+        let flat = |version: u64, amount: i32| {
+            let img = render_raw_look(
+                &processor,
+                &view,
+                (width, height),
+                &with_image_key(
+                    &json!({ "shadows": amount, "blacks": 50,
+                        "toneVersion": version, "renderVersion": render_version }),
+                    SHADOWS_V20_DIM_KEY,
+                ),
+                look,
+            );
+            lstar_of_codes(&img[(height / 2 * width + width / 2) as usize])
+        };
+        for version in [19u64, 20] {
+            let at_0 = flat(version, 0);
+            let lowest = (1..=20)
+                .map(|step| flat(version, step * 5) - at_0)
+                .fold(f64::MAX, f64::min);
+            eprintln!(
+                "flat 0.08 on a dim key, Blacks +50, version {version}: L* {at_0:.2} at Shadows 0, lowest of +5 … +100 {lowest:+.3}"
+            );
+            assert!(
+                version == 19 || lowest > -0.01,
+                "a flat tone renders {lowest:.3} L* below Shadows 0"
+            );
+        }
+    }
+    // 4000 px short side: the blurs 3.7 times their reference size.
+    let (width, height) = (4000u32, 4000u32);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    let (levels, lines) = shadows_v20_lines_in_strokes(width, height);
+    let view = grey_texture(&context, width, height, &levels);
+    let (w, band) = (
+        width as usize,
+        height as usize / SHADOWS_V20_STROKE_BANDS.len(),
+    );
+    // The worst fall without an image key and with one, and the deepest
+    // render below Shadows 0 of any line.
+    let mut worst = [(0.0f64, String::new()), (0.0f64, String::new())];
+    let mut below_0 = (0.0f64, String::new());
+    let mut worst_19 = 0.0f64;
+    // Shadows 0 … +20 in single steps: no line may render darker than at a
+    // lower Shadows value. Blacks' lift is read at its own level whatever
+    // Shadows is; at one level with Shadows' (versions 6 to 19) it fell
+    // while that level moved to the wide one over Shadows 0 … +12. Without
+    // a measured image key (the adaptive parts of the response at rest) and,
+    // with Blacks +50, on a dim photo's and a night frame's key.
+    for (blacks, key) in [
+        (0, None),
+        (25, None),
+        (50, None),
+        (50, Some(SHADOWS_V20_DIM_KEY)),
+        (50, Some(NIGHT_KEY)),
+    ] {
+        // Each line's mean L* by version and Shadows value.
+        let sweep = |version: u64| -> Vec<Vec<f64>> {
+            (0..=20)
+                .map(|amount| {
+                    let recipe = json!({ "shadows": amount, "blacks": blacks,
+                        "toneVersion": version, "renderVersion": render_version });
+                    let img = render_raw_look(
+                        &processor,
+                        &view,
+                        (width, height),
+                        &key.map_or(recipe.clone(), |key| with_image_key(&recipe, key)),
+                        look,
+                    );
+                    lines
+                        .iter()
+                        .map(|&(b, line, first)| {
+                            let (mut sum, mut n) = (0.0f64, 0.0f64);
+                            for y in (b * band + band / 2 - 40..b * band + band / 2 + 40).step_by(8)
+                            {
+                                for x in first..first + line {
+                                    sum += lstar_of_codes(&img[y * w + x]);
+                                    n += 1.0;
+                                }
+                            }
+                            sum / n
+                        })
+                        .collect()
+                })
+                .collect()
+        };
+        let (v19, v20) = (sweep(19), sweep(20));
+        for (k, &(b, line, _)) in lines.iter().enumerate() {
+            // The deepest fall below any lower Shadows value's rendering.
+            let fall = |v: &[Vec<f64>]| {
+                let (mut high, mut fall) = (f64::MIN, 0.0f64);
+                for step in v {
+                    high = high.max(step[k]);
+                    fall = fall.max(high - step[k]);
+                }
+                fall
+            };
+            let (stroke, line_ev) = SHADOWS_V20_STROKE_BANDS[b];
+            let (f19, f20) = (fall(&v19), fall(&v20));
+            let row = |v: &[Vec<f64>]| {
+                v.iter()
+                    .map(|s| format!("{:.2}", s[k] - v[0][k]))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            let keyed = key.map_or(String::new(), |key| format!(" key {key:?}"));
+            eprintln!(
+                "GRID blacks {blacks}{keyed} stroke {stroke} line {line} px at {line_ev} EV: L* {:.2}, fall v19 {f19:.3} v20 {f20:.3}\n  v19 {}\n  v20 {}",
+                v20[0][k],
+                row(&v19),
+                row(&v20)
+            );
+            let slot = usize::from(key.is_some());
+            let cell = format!(
+                "Blacks {blacks}{keyed}, {line} px line at {line_ev} EV in a {stroke} px stroke"
+            );
+            if f20 > worst[slot].0 {
+                worst[slot] = (
+                    f20,
+                    format!("{cell}: falls {f20:.3} L* (version 19 {f19:.3})"),
+                );
+            }
+            let under = v20.iter().map(|s| v20[0][k] - s[k]).fold(0.0f64, f64::max);
+            if under > below_0.0 {
+                below_0 = (under, format!("{cell}: {under:.3} L* below Shadows 0"));
+            }
+            worst_19 = worst_19.max(f19);
+        }
+    }
+    // Measured on Vulkan (RTX 3080): 0.004 L* without a key and 0.030 on
+    // either key (a 4 px line that rises 0.06 L* by Shadows +8 and gives
+    // 0.03 back by +20); nothing below Shadows 0 beyond rounding. Version
+    // 19 falls 2.76 L* without a key (Blacks +50, 1 px line at −3.5 EV in
+    // the 27 px stroke, Shadows +2 → +12), 4.06 on the dim key, and with
+    // Blacks 0 not at all.
+    eprintln!(
+        "worst fall without a key: {:.3} L* ({}); with a key: {:.3} L* ({}); deepest below Shadows 0: {:.3} L* ({}); version 19's worst fall {worst_19:.3} L*",
+        worst[0].0, worst[0].1, worst[1].0, worst[1].1, below_0.0, below_0.1
+    );
+    assert!(worst[0].0 < 0.02, "{}", worst[0].1);
+    assert!(worst[1].0 < 0.05, "{}", worst[1].1);
+    assert!(below_0.0 < 0.02, "{}", below_0.1);
+}
+
 /// Version 20's tone stage is version 13's with raised Shadows' gain of
-/// version 20: the copies must stay the same but for that line.
+/// version 20 at the wide level: the copies must stay the same but for
+/// those two lines.
 #[test]
 fn tone_version_20_stage_is_version_13s_but_for_the_gain() {
     let shader = include_str!("shaders/shader.wgsl");
@@ -15553,13 +15762,16 @@ fn tone_version_20_stage_is_version_13s_but_for_the_gain() {
         &rest[..rest.find("\n}\n").unwrap()]
     };
     let v13_gain = "rgb *= shadows_v13_gain(level_luma * exposure_gain, sh, bl, fade);";
-    let v20_gain =
-        "rgb *= shadows_v20_gain(level_luma * exposure_gain, safe_pixel_luma, sh, bl, fade);";
+    let v20_gain = "rgb *= shadows_v20_gain(level_luma * exposure_gain, tonal_level * exposure_gain, safe_pixel_luma, sh, bl, fade);";
+    let v13_level = "level_luma = exp2(mix(log2(max(tonal_level, 0.0001)), log2(wide), fade));";
+    let v20_level = "level_luma = wide;";
     let v13 = body("apply_tonal_adjustments_v13");
     assert_eq!(v13.matches(v13_gain).count(), 1);
+    assert_eq!(v13.matches(v13_level).count(), 1);
     assert_eq!(
         body("apply_tonal_adjustments_v20"),
         v13.replace(v13_gain, v20_gain)
+            .replace(v13_level, v20_level)
     );
 }
 

@@ -20,8 +20,8 @@ pub enum XmpProblem {
     /// The file is missing, moved away or on a disconnected drive; written
     /// when it is back.
     Offline,
-    /// Another photograph of the same name (a RAW and its JPEG) would share
-    /// the sidecar.
+    /// Another photograph's sidecar has the same name (two RAWs of one
+    /// stem, a CR3 and a DNG); a RAW and its JPEG have one each.
     SharedName,
     /// The sidecar was changed by another program, or was there before and
     /// never read: it is not replaced.
@@ -132,7 +132,8 @@ impl Library {
     /// (or something else that is not a file has its name), or the one it
     /// wrote or read is gone: `sync_xmp` replaces neither (Keep library does).
     fn sidecar_changed_elsewhere(&self, id: &str, path: &Path) -> Result<bool> {
-        let sidecar = rawtonic_metadata::sidecar_path(path);
+        let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
+        let sidecar = sidecars.path(path);
         if sidecar.exists() && !sidecar.is_file() {
             return Ok(true);
         }
@@ -148,7 +149,8 @@ impl Library {
                 let here = Some(rawtonic_fs::sha256_hex(&bytes));
                 Ok(here != hash && here != publishing)
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(hash.is_some()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(hash.is_some()
+                && !held_partners_sidecar(&sidecars, path, hash.as_deref(), publishing.as_deref())),
             // A sidecar above the read limit cannot be one we wrote or accepted.
             Err(e) if e.kind() == std::io::ErrorKind::InvalidData => Ok(true),
             // Unreadable: writing it is tried and fails with why.
@@ -214,14 +216,23 @@ impl Library {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let mut check = XmpCheck::default();
+        let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
         for (id, path, hash, publishing) in rows {
             if folder.as_ref().is_some_and(|f| !path.starts_with(f)) {
                 continue;
             }
             check.checked += 1;
-            let sidecar = rawtonic_metadata::sidecar_path(&path);
+            let sidecar = sidecars.path(&path);
             let changed = match fs::metadata(&sidecar) {
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => hash.is_some(),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    hash.is_some()
+                        && !held_partners_sidecar(
+                            &sidecars,
+                            &path,
+                            hash.as_deref(),
+                            publishing.as_deref(),
+                        )
+                }
                 // Unreadable (permissions, a drive going away): not a change.
                 Err(_) => false,
                 Ok(meta) if !meta.is_file() => true,
@@ -317,4 +328,30 @@ impl Library {
         tx.commit()?;
         Ok(marked)
     }
+}
+
+/// Whether the digest the library keeps for `photo` (a developed image
+/// with a RAW partner) is that of the partner's stem sidecar: libraries
+/// before the pair rule (`rawtonic_metadata::sidecars`) read a JPEG's XMP
+/// from its RAW's. That digest is not the JPEG's sidecar going missing;
+/// `Library::writable_sidecar` forgets it before the JPEG's own is written.
+pub(crate) fn held_partners_sidecar(
+    sidecars: &rawtonic_metadata::sidecars::Sidecars,
+    photo: &Path,
+    hash: Option<&str>,
+    publishing: Option<&str>,
+) -> bool {
+    let developed = photo
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(rawtonic_metadata::sidecars::is_developed_image);
+    if !developed || (hash.is_none() && publishing.is_none()) || !sidecars.has_partner(photo) {
+        return false;
+    }
+    let stem = rawtonic_metadata::sidecars::stem_sidecar(photo);
+    let Ok(bytes) = rawtonic_metadata::read_xmp_bytes(&stem) else {
+        return false;
+    };
+    let digest = rawtonic_fs::sha256_hex(&bytes);
+    hash == Some(digest.as_str()) || publishing == Some(digest.as_str())
 }
