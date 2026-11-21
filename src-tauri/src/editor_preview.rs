@@ -1432,7 +1432,7 @@ pub async fn sample_color_range_input(
             &app_handle,
             &path,
             point,
-            None,
+            block,
             recipe.clone(),
             probe(false),
         )?
@@ -1485,6 +1485,10 @@ fn pick_block((x, y): (f64, f64), base: (u32, u32), shown: (f32, f32)) -> Option
     ])
 }
 
+/// A target block's RGBA8 pixels and where it lies (x, y, w, h,
+/// full-resolution px of the shown photograph).
+type TargetBlock = (Vec<[u8; 4]>, [f32; 4]);
+
 /// The pixels of `recipe` (normalised, without view states) in the picker's
 /// block around a point of the shown photograph, developed at full
 /// resolution as the export develops it (`multi_view::develop_target_block`:
@@ -1502,7 +1506,7 @@ fn target_block(
     block: Option<[f32; 4]>,
     recipe: serde_json::Value,
     probe: Option<u32>,
-) -> Result<Option<(Vec<[u8; 4]>, [f32; 4])>, String> {
+) -> Result<Option<TargetBlock>, String> {
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
     let (loaded_image, _, (full_w, full_h)) = preview_source(&state)?;
