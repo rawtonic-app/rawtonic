@@ -2913,24 +2913,23 @@ const SH_V20_SOFT: f32 = 0.25;
 // (`tone_version_20_shadows_with_blacks_keeps_light_lines`).
 fn shadows_v20_gain(level: f32, tonal: f32, pixel: f32, sh: f32, bl: f32, fade: f32) -> f32 {
     let gain = shadows_v13_gain(level, sh, bl, fade);
-    if (bl == 0.0) {
-        return shadows_v20_bounded(gain, 0.0, 0.0, 0.0, level, pixel, sh, bl, fade);
+    // Blacks' log2 gains at the wide level, the tonal level and the pixel,
+    // and the gain of Shadows 0 (Blacks' at the tonal level), below which
+    // nothing is rendered; with Blacks 0 there is no such floor.
+    var blacks_level = 0.0;
+    var blacks_tonal = 0.0;
+    var blacks_pixel = 0.0;
+    var at_shadows_0 = 0.0;
+    if (bl != 0.0) {
+        blacks_level = log2(max(camera_raw_shadows_blacks_gain(level, 0.0, bl), 1e-9));
+        at_shadows_0 = camera_raw_shadows_blacks_gain(tonal, 0.0, bl);
+        blacks_tonal = log2(max(at_shadows_0, 1e-9));
+        blacks_pixel = log2(max(camera_raw_shadows_blacks_gain(pixel, 0.0, bl), 1e-9));
     }
-    let blacks_level = log2(max(camera_raw_shadows_blacks_gain(level, 0.0, bl), 1e-9));
-    let blacks_tonal_gain = camera_raw_shadows_blacks_gain(tonal, 0.0, bl);
-    let blacks_tonal = log2(max(blacks_tonal_gain, 1e-9));
-    let blacks_pixel = log2(max(camera_raw_shadows_blacks_gain(pixel, 0.0, bl), 1e-9));
-    // Never below the render at Shadows 0 (Blacks' gain at the tonal level).
-    return max(shadows_v20_bounded(gain, blacks_level, blacks_tonal, blacks_pixel, level, pixel, sh, bl, fade), blacks_tonal_gain);
-}
-
-// `shadows_v20_gain` for the level's gain `gain` and Blacks' log2 gains at
-// the wide level, the tonal level and the pixel (all 0 with Blacks 0).
-fn shadows_v20_bounded(gain: f32, blacks_level: f32, blacks_tonal: f32, blacks_pixel: f32, level: f32, pixel: f32, sh: f32, bl: f32, fade: f32) -> f32 {
     // The level's gain with Blacks' share moved to the tonal level.
     let own = gain * exp2(blacks_tonal - blacks_level);
     if (pixel <= level) {
-        return own;
+        return max(own, at_shadows_0);
     }
     let at_level = log2(max(gain, 1e-9)) - blacks_level;
     let above = log2(pixel / max(cr_curve_level(SH_V20_FROM), 1e-6));
@@ -2938,10 +2937,10 @@ fn shadows_v20_bounded(gain: f32, blacks_level: f32, blacks_tonal: f32, blacks_p
     let rise = select(q * q / (4.0 * SH_V20_SOFT), above, above >= SH_V20_SOFT);
     let bound = min(at_level - (1.0 - SH_V20_KEEP) * rise, log2(max(cr_curve_level(SH_V20_TO), 1e-6) / pixel) - blacks_tonal);
     if (bound >= at_level) {
-        return own;
+        return max(own, at_shadows_0);
     }
     let at_pixel = log2(max(shadows_v13_gain(pixel, sh, bl, fade), 1e-9)) - blacks_pixel;
-    return own * exp2(min(max(at_pixel, bound) - at_level, 0.0));
+    return max(own * exp2(min(max(at_pixel, bound) - at_level, 0.0)), at_shadows_0);
 }
 
 // The texture gain on top of the wide level's lift `gain`.

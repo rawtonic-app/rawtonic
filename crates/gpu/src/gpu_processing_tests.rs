@@ -15634,7 +15634,10 @@ fn tone_version_20_shadows_with_blacks_keeps_light_lines() {
         width as usize,
         height as usize / SHADOWS_V20_STROKE_BANDS.len(),
     );
-    let mut worst = (0.0f64, String::new());
+    // The worst fall without an image key and with one, and the deepest
+    // render below Shadows 0 of any line.
+    let mut worst = [(0.0f64, String::new()), (0.0f64, String::new())];
+    let mut below_0 = (0.0f64, String::new());
     let mut worst_19 = 0.0f64;
     // Shadows 0 … +20 in single steps: no line may render darker than at a
     // lower Shadows value. Blacks' lift is read at its own level whatever
@@ -15705,27 +15708,36 @@ fn tone_version_20_shadows_with_blacks_keeps_light_lines() {
                 row(&v19),
                 row(&v20)
             );
-            if f20 > worst.0 {
-                worst = (
+            let slot = usize::from(key.is_some());
+            let cell = format!(
+                "Blacks {blacks}{keyed}, {line} px line at {line_ev} EV in a {stroke} px stroke"
+            );
+            if f20 > worst[slot].0 {
+                worst[slot] = (
                     f20,
-                    format!(
-                        "Blacks {blacks}{keyed}, {line} px line at {line_ev} EV in a {stroke} px stroke: falls {f20:.3} L* (version 19 {f19:.3})"
-                    ),
+                    format!("{cell}: falls {f20:.3} L* (version 19 {f19:.3})"),
                 );
+            }
+            let under = v20.iter().map(|s| v20[0][k] - s[k]).fold(0.0f64, f64::max);
+            if under > below_0.0 {
+                below_0 = (under, format!("{cell}: {under:.3} L* below Shadows 0"));
             }
             worst_19 = worst_19.max(f19);
         }
     }
     // Measured on Vulkan (RTX 3080): 0.004 L* without a key and 0.030 on
     // either key (a 4 px line that rises 0.06 L* by Shadows +8 and gives
-    // 0.03 back by +20, never below Shadows 0). Version 19 falls 2.76 L*
-    // without a key (Blacks +50, 1 px line at −3.5 EV in the 27 px stroke,
-    // Shadows +2 → +12), 4.06 on the dim key, and with Blacks 0 not at all.
+    // 0.03 back by +20); nothing below Shadows 0 beyond rounding. Version
+    // 19 falls 2.76 L* without a key (Blacks +50, 1 px line at −3.5 EV in
+    // the 27 px stroke, Shadows +2 → +12), 4.06 on the dim key, and with
+    // Blacks 0 not at all.
     eprintln!(
-        "worst fall: {:.3} L* ({}); version 19's worst {worst_19:.3} L*",
-        worst.0, worst.1
+        "worst fall without a key: {:.3} L* ({}); with a key: {:.3} L* ({}); deepest below Shadows 0: {:.3} L* ({}); version 19's worst fall {worst_19:.3} L*",
+        worst[0].0, worst[0].1, worst[1].0, worst[1].1, below_0.0, below_0.1
     );
-    assert!(worst.0 < 0.05, "{}", worst.1);
+    assert!(worst[0].0 < 0.02, "{}", worst[0].1);
+    assert!(worst[1].0 < 0.05, "{}", worst[1].1);
+    assert!(below_0.0 < 0.02, "{}", below_0.1);
 }
 
 /// Version 20's tone stage is version 13's with raised Shadows' gain of
