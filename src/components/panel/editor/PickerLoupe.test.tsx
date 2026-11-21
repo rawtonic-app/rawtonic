@@ -6,8 +6,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { PickerLoupe, usePointerSampling } from './PickerLoupe';
 import { PointerReadout } from '../../studio/ViewerControls';
 import { useSettingsStore } from '../../../store/useSettingsStore';
+import { useEditorStore } from '../../../store/useEditorStore';
 import { usePointerSampleStore, type PreviewPatch } from '../../../utils/pointerSample';
-import type { AppSettings } from '../../ui/AppProperties';
+import { whiteBalanceForCurrentPreview } from '../../../utils/whiteBalance';
+import { Invokes, type AppSettings, type SelectedImage } from '../../ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const frameReady = vi.hoisted(() => ({ handler: null as null | ((event: { payload: { path: string } }) => void) }));
@@ -29,15 +31,47 @@ const patch: PreviewPatch = {
   frame: [400, 300]
 };
 
-function Viewer({ enabled, picker, preview = null }: { enabled: boolean; picker: boolean; preview?: string | null }) {
+function Viewer({
+  enabled,
+  picker,
+  preview = null,
+  whiteBalance = false
+}: {
+  enabled: boolean;
+  picker: boolean;
+  preview?: string | null;
+  whiteBalance?: boolean;
+}) {
   const root = useRef<HTMLDivElement>(null);
   const image = useRef<HTMLDivElement>(null);
-  usePointerSampling(root, image, '/a.raw', enabled, preview);
+  usePointerSampling(
+    root,
+    image,
+    '/a.raw',
+    enabled,
+    preview,
+    null,
+    whiteBalance
+      ? (normalizedX, normalizedY) => {
+          const { selectedImage, adjustments } = useEditorStore.getState();
+          return whiteBalanceForCurrentPreview({
+            image: selectedImage!,
+            adjustments,
+            normalizedX,
+            normalizedY,
+            useWgpu: true,
+            finalPreviewUrl: null
+          });
+        }
+      : undefined
+  );
   return (
     <div className="studio-viewer" data-testid="viewer">
       <div ref={root} data-testid="root">
         <div ref={image} data-testid="image" />
-        {picker && <PickerLoupe unit="rgb255" anchorRef={root} />}
+        {picker && (
+          <PickerLoupe unit={whiteBalance ? 'percent' : 'rgb255'} anchorRef={root} whiteBalance={whiteBalance} />
+        )}
       </div>
     </div>
   );
@@ -74,17 +108,44 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  useEditorStore.setState(useEditorStore.getInitialState());
   vi.unstubAllGlobals();
 });
 
-const setup = (enabled = true, picker = true, preview: string | null = null) => {
-  render(<Viewer enabled={enabled} picker={picker} preview={preview} />);
+const setup = (enabled = true, picker = true, preview: string | null = null, whiteBalance = false) => {
+  render(<Viewer enabled={enabled} picker={picker} preview={preview} whiteBalance={whiteBalance} />);
   // The viewer's box on screen; the zoomed canvas inside it is larger.
   screen.getByTestId('viewer').getBoundingClientRect = () => rect(0, 0, 1000, 800);
   screen.getByTestId('root').getBoundingClientRect = () => rect(-2000, -1500, 5000, 4000);
   // The photograph shown 400 × 300 at (100, 50), as zoomed and panned.
   screen.getByTestId('image').getBoundingClientRect = () => rect(100, 50, 400, 300);
 };
+
+it('previews the Kelvin and tint a RAW pick would apply without editing the photo', async () => {
+  useEditorStore.setState({ selectedImage: { path: '/a.raw', isReady: true, isRaw: true } as SelectedImage });
+  const before = useEditorStore.getState().adjustments;
+  const rgb = [0.18, 0.2, 0.25];
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === Invokes.SamplePreviewWhiteBalance) return rgb;
+    if (command === Invokes.WhiteBalanceFromSample) return { temperature: 6150, tint: 7 };
+    return patch;
+  });
+  setup(true, true, null, true);
+  await act(async () => {
+    fireEvent.pointerMove(screen.getByTestId('root'), { clientX: 300, clientY: 125, buttons: 0 });
+  });
+  expect(invoke).toHaveBeenCalledWith(Invokes.SamplePreviewWhiteBalance, {
+    path: '/a.raw',
+    normalizedX: 0.5,
+    normalizedY: 0.25
+  });
+  expect(invoke).toHaveBeenCalledWith(Invokes.WhiteBalanceFromSample, { imagePath: '/a.raw', rgb });
+  const loupe = await screen.findByTestId('picker-loupe');
+  expect(loupe.textContent).toContain('R 50.0');
+  expect(loupe.textContent).toContain('6,150 K');
+  expect(loupe.textContent).toContain('Tint7');
+  expect(useEditorStore.getState().adjustments).toBe(before);
+});
 
 it('samples the shown photograph under the pointer and shows the loupe beside it', async () => {
   setup();

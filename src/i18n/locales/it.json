@@ -3513,7 +3513,7 @@
         "expandAll": "Espandi tutti gli strumenti",
         "moveDown": "Sposta giù",
         "moveUp": "Sposta su",
-        "oneOpen": "Uno strumento aperto alla volta",
+        "oneOpen": "Modalità Solo",
         "restoreOrder": "Ripristina l'ordine predefinito",
         "restoreOrderMenu": "Ripristina l'ordine predefinito degli strumenti",
         "restoreOrderTitle": "Riporta gli strumenti nell'ordine originale"
@@ -3644,9 +3644,9 @@
       },
       "toolGroup": {
         "isOn": "{{tool}} attivo",
+        "openOnlyHint": "Alt/Opzione-clic per aprire solo questo strumento",
         "reset": "Ripristina {{tool}}",
         "resetGroup": "Reimposta gruppo",
-        "resetHint": "Alt/Opzione-clic sul nome reimposta {{tool}}",
         "resetOrHold": "Reimposta {{tool}} (tieni premuto, o premi con Alt/Opzione: mostra la foto senza lo strumento)",
         "turnOff": "Disattiva {{tool}}",
         "turnOn": "Attiva {{tool}}"

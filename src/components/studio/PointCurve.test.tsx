@@ -27,6 +27,34 @@ function stubCurvePointer(container: HTMLElement, matrix = identity, inverse = i
   return Object.assign(svg, { getScreenCTM: () => ({ ...matrix, inverse: () => inverse }) });
 }
 
+it('reads the curve and the matching histogram bin on hover without editing', () => {
+  const red = Array(256).fill(0);
+  red[100] = 0.25;
+  useEditorStore.setState({
+    curveChannel: 'red',
+    histogram: { red, luma: Array(256).fill(0), green: [], blue: [] }
+  });
+  const onChange = vi.fn();
+  const curves = {
+    ...INITIAL_ADJUSTMENTS.curves,
+    red: [
+      { x: 0, y: 0 },
+      { x: 100, y: 140 },
+      { x: 255, y: 255 }
+    ]
+  };
+  const { container } = render(
+    <PointCurve curves={curves} onChange={onChange} disabled={false} onInteraction={vi.fn()} />
+  );
+  const svg = stubCurvePointer(container);
+  fireEvent.pointerMove(svg, { clientX: 100, clientY: 200 });
+  expect(screen.getByText('100 → 140')).toBeTruthy();
+  expect(screen.getByText('Histogram 25%')).toBeTruthy();
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.pointerLeave(svg);
+  expect(screen.queryByText('100 → 140')).toBeNull();
+});
+
 describe('point curve targeted marker', () => {
   it("marks the sampled input on the shown channel's curve, only for the targeted curve", () => {
     const curves = {

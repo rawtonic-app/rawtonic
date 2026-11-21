@@ -3264,7 +3264,7 @@
         "expandAll": "すべてのツールを展開",
         "moveDown": "下へ移動",
         "moveUp": "上へ移動",
-        "oneOpen": "一度に1つのツールだけを開く",
+        "oneOpen": "ソロモード",
         "restoreOrder": "既定の順序に戻す",
         "restoreOrderMenu": "ツールの順序を初期設定に戻す",
         "restoreOrderTitle": "ツールを元の順序に戻します"
@@ -3395,9 +3395,9 @@
       },
       "toolGroup": {
         "isOn": "{{tool}} オン",
+        "openOnlyHint": "Alt/Option キーを押しながらクリックすると、このツールだけが開きます",
         "reset": "{{tool}}をリセット",
         "resetGroup": "グループをリセット",
-        "resetHint": "名前を Alt/Option クリックすると {{tool}} をリセット",
         "resetOrHold": "{{tool}}をリセット（長押し、またはAlt/Optionを押しながら押す: このツールなしの写真を表示）",
         "turnOff": "{{tool}}をオフ",
         "turnOn": "{{tool}}をオン"
