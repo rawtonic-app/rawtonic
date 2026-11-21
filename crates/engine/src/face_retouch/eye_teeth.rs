@@ -882,6 +882,30 @@ mod tests {
     }
 
     #[test]
+    fn eyes_and_teeth_follow_later_geometry_changes() {
+        // Left eye only, so a flip that would swap the photo's sides still
+        // retouches the eye the user chose.
+        let (before, recipe) = face();
+        let mut recipe = with(
+            recipe,
+            json!({"irisLeft": 80, "sclera": 70, "teethBrightness": 60, "teethWhiten": 90}),
+        );
+        recipe["faceRetouch"]["frame"] = json!(crate::face_retouch::frame_key(&recipe));
+        let mut expected = before.clone();
+        assert!(apply_face_retouch(&mut expected, &recipe));
+        assert!(changed(&before, &expected, 120, 100) && !changed(&before, &expected, 280, 100));
+        for (name, change) in crate::face_retouch::tests::later_geometry() {
+            let changed = crate::face_retouch::tests::with_geometry(&recipe, &change);
+            let mut image = before.clone();
+            assert!(apply_face_retouch(&mut image, &changed), "{name}");
+            assert!(
+                image == expected,
+                "{name}: eyes or teeth moved or were skipped"
+            );
+        }
+    }
+
+    #[test]
     fn iris_and_sclera_stay_in_the_eye() {
         let (before, recipe) = face();
         let mut image = before.clone();
