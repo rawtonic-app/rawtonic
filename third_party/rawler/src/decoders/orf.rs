@@ -173,7 +173,8 @@ impl<'a> Decoder for OrfDecoder<'a> {
       self.camera.clone()
     };
 
-    let src = file.subview_padded(offset as u64, size as u64)?; // TODO add size and check all samples
+    // Rawtonic patch (CRD2): no strip copy for a dummy decode.
+    let src = file.subview_padded_for(offset as u64, size as u64, dummy)?; // TODO add size and check all samples
 
     log::debug!(
       "ORF raw image size: {}, dim: {}x{}, total mp: {}, strip counts: {}",

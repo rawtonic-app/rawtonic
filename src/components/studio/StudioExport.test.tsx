@@ -1,6 +1,6 @@
 import '../../i18n';
 import i18n from 'i18next';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import StudioExport, { describeExportJob } from './StudioExport';
@@ -985,4 +985,82 @@ it('accepts a typed lossless JXL quality of 100', () => {
   const input = screen.getByLabelText('JPEG XL quality') as HTMLInputElement;
   fireEvent.change(input, { target: { value: '100' } });
   expect(input.value).toBe('100');
+});
+
+it('does not start a ticked recipe that asks for provenance without a signing certificate', async () => {
+  const signed = presetFromDraft(
+    { ...DEFAULT_RECIPE_DRAFT, format: 'jpg', where: 'output', provenance: true, provenanceAuthor: false },
+    'signed',
+    'Signed'
+  );
+  useSettingsStore.setState({
+    appSettings: { exportPresets: [signed] } as unknown as AppSettings,
+    handleSettingsChange: vi.fn(async () => {})
+  });
+  useLibraryStore.setState({ sessionDirectory: '/job' });
+  render(<StudioExport />);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Export with Signed' }));
+  // The default mock answers `provenance_identity` with no identity.
+  const alert = await screen.findByText(/Provenance \(C2PA\) cannot sign Signed/);
+  expect(alert).toBeTruthy();
+  const submit = screen.getByRole('button', { name: 'Export with Signed' }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
+  fireEvent.click(submit);
+  expect(exported()).toHaveLength(0);
+});
+
+it("reviews a ticked recipe's manifest and queues it with the certificate shown", async () => {
+  const identity = {
+    kind: 'generated',
+    signer: 'Studio',
+    issuer: 'Studio (local certificate authority)',
+    validUntil: '2031-01-01T00:00:00Z',
+    algorithm: 'ES256',
+    fingerprint: 'f1',
+    subject: 'CN=Studio, O=Rawtonic local identity (unverified)',
+    expired: false
+  };
+  const original = vi.mocked(invoke).getMockImplementation();
+  onTestFinished(() => {
+    vi.mocked(invoke).mockImplementation(original!);
+  });
+  vi.mocked(invoke).mockImplementation(((command: string, args?: { directory?: string }) => {
+    if (command === 'provenance_identity') return Promise.resolve(identity);
+    if (command === 'export_provenance_preview')
+      return Promise.resolve({
+        manifest: {
+          generator: 'Rawtonic',
+          generatorVersion: '0.1.0',
+          ingredientTitle: 'a.RAF',
+          actions: [{ action: 'c2pa.opened' }],
+          author: 'Ada'
+        },
+        identity,
+        formatError: null
+      });
+    return Promise.resolve(command === 'session_usable_folder' ? `${args?.directory}/Output` : undefined);
+  }) as never);
+  const signed = presetFromDraft(
+    { ...DEFAULT_RECIPE_DRAFT, format: 'jpg', where: 'output', provenance: true, provenanceAuthor: true },
+    'signed',
+    'Signed'
+  );
+  useSettingsStore.setState({
+    appSettings: { exportPresets: [signed] } as unknown as AppSettings,
+    handleSettingsChange: vi.fn(async () => {})
+  });
+  useLibraryStore.setState({ sessionDirectory: '/job' });
+  render(<StudioExport />);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Export with Signed' }));
+  // The form's own option is off; the ticked recipe's manifest is reviewed.
+  expect(await screen.findByRole('region', { name: 'What goes into the manifest: Signed' })).toBeTruthy();
+  // The embedded certificate is shown: recipients can read it.
+  expect(screen.getByText('CN=Studio, O=Rawtonic local identity (unverified)')).toBeTruthy();
+  expect(screen.getByText('Ada')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Export with Signed' }));
+  await vi.waitFor(() => expect(exported()).toHaveLength(1));
+  expect((exported()[0].exportSettings as { provenance: unknown }).provenance).toEqual({
+    includeAuthor: true,
+    signer: 'f1'
+  });
 });

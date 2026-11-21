@@ -351,7 +351,10 @@ fn retouched_base<'a>(
 
 pub(crate) fn try_load_embedded_raw_preview(source_path: &Path) -> Option<DynamicImage> {
     let mmap = read_file_mapped(source_path).ok()?;
-    image_loader::safe_embedded_preview_fallback(&mmap, &source_path.to_string_lossy())
+    image_loader::safe_embedded_preview_fallback_shared(
+        Arc::new(mmap),
+        &source_path.to_string_lossy(),
+    )
 }
 
 pub fn generate_thumbnail_data(
@@ -1652,6 +1655,11 @@ pub(crate) fn generate_single_thumbnail_and_cache(
     app_handle: &AppHandle,
     settings: &AppSettings,
 ) -> Option<CachedThumbnails> {
+    // Developing again needs the file; an evicted original is not downloaded
+    // for it (and the cache entry itself would open it for its camera).
+    if force_regenerate && is_cloud_placeholder(&parse_virtual_path(path_str).0) {
+        return None;
+    }
     let mut entry = ThumbnailCacheEntry::of(path_str, thumb_cache_dir, app_handle, settings)?;
 
     if !force_regenerate && let Some(cached) = entry.cached() {

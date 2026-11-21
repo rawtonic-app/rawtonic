@@ -40,6 +40,9 @@ pub fn load_sidecar_with_exif(sidecar_path: &Path, source_path: &Path) -> ImageM
     if meta.exif.is_none() {
         if let Some(cached_exif) = read_rrexif_sidecar(source_path) {
             meta.exif = Some(cached_exif);
+        } else if crate::file_management::is_cloud_placeholder(source_path) {
+            // An original that is only in the cloud is never opened for its
+            // EXIF (macOS would download it): None, as for a missing file.
         } else {
             let source_path_str = source_path.to_string_lossy();
             let extracted_exif =

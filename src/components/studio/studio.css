@@ -5416,6 +5416,44 @@ body.is-dragging.is-drop-refused * {
   overflow: hidden;
   clip-path: inset(50%);
 }
+/* Provenance (C2PA): the signing identity and the manifest review. */
+.studio-provenance-identity {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+.studio-provenance-identity > p {
+  margin: 0;
+  font-size: 12px;
+}
+.studio-provenance-review {
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--studio-shade-hover, #4b4e53);
+  border-radius: 4px;
+  font-size: 11px;
+}
+.studio-provenance-review h5 {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+.studio-provenance-review dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 10px;
+  margin: 8px 0 0;
+}
+.studio-provenance-review dt {
+  color: var(--studio-shade-muted, #b8bec6);
+}
+.studio-provenance-review dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.studio-provenance-review ol {
+  margin: 0;
+  padding-left: 16px;
+}
 .studio-export-recipe-hint {
   font-size: 11px;
   line-height: 1.6;

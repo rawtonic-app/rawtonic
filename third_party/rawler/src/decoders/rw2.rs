@@ -146,7 +146,8 @@ impl<'a> Decoder for Rw2Decoder<'a> {
         let offset = fetch_tiff_tag!(raw, TiffCommonTag::PanaOffsets).force_usize(0);
         //let size = fetch_tiff_tag!(raw, TiffCommonTag::StripByteCounts).force_usize(0);
         log::debug!("PanaOffset: {}", offset);
-        let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
+        // Rawtonic patch (CRD2): no strip copy for a dummy decode.
+        let src = file.subview_until_eof_padded_for(offset as u64, dummy)?; // TODO add size and check all samples
         Rw2Decoder::decode_panasonic(file, &src, width, height, split, raw_format, bps, self.tiff.root_ifd(), dummy)?
       } else {
         let raw = self
@@ -158,7 +159,8 @@ impl<'a> Decoder for Rw2Decoder<'a> {
         let offset = fetch_tiff_tag!(raw, TiffCommonTag::StripOffsets).force_usize(0);
         //let size = fetch_tiff_tag!(raw, TiffCommonTag::StripByteCounts).force_usize(0);
         log::debug!("StripOffset: {}", offset);
-        let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
+        // Rawtonic patch (CRD2): no strip copy for a dummy decode.
+        let src = file.subview_until_eof_padded_for(offset as u64, dummy)?; // TODO add size and check all samples
 
         if src.len() >= width * height * 2 {
           decode_12le_unpacked_left_aligned(&src, width, height, dummy)?
