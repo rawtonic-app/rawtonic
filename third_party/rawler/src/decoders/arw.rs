@@ -536,7 +536,8 @@ impl<'a> ArwDecoder<'a> {
         format!("ARW LJPEG: trying to decode {} tiles from {} offsets", coltiles * rowtiles, offsets.count()),
       ));
     }
-    let buffer = file.as_vec()?;
+    // Rawtonic patch (CRD2): borrowed, not a copy of the whole file.
+    let buffer = file.buf();
 
     if cpp == 3 {
       let mut image = decode_threaded_multiline(
@@ -637,7 +638,8 @@ impl<'a> ArwDecoder<'a> {
         0,
       )
     };
-    let buffer = file.as_vec()?;
+    // Rawtonic patch (CRD2): borrowed, not a copy of the whole file.
+    let buffer = file.buf();
     let decrypted_buf = ArwDecoder::sony_decrypt(&buffer, sony_offset as usize, sony_length, sony_key)?;
     Ok(IFD::new(&mut Cursor::new(decrypted_buf), 0, 0, -(sony_offset as i32), Endian::Little, &[])?)
   }
@@ -712,7 +714,8 @@ impl<'a> ArwDecoder<'a> {
         0,
       )
     };
-    let buffer = file.as_vec()?;
+    // Rawtonic patch (CRD2): borrowed, not a copy of the whole file.
+    let buffer = file.buf();
     let decrypted_buf = ArwDecoder::sony_decrypt(&buffer, sony_offset as usize, sony_length, sony_key)?;
 
     let decrypted_tiff = IFD::new(&mut Cursor::new(decrypted_buf), 0, 0, -(sony_offset as i32), Endian::Little, &[])?;

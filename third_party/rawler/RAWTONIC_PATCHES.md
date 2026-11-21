@@ -613,6 +613,25 @@ suite allows 120 seconds without progress and 600 seconds total.
   uses it for the Library's metadata pass. Evidence: notes
   benchmark-results/crd1-2026-11-20/.
 
+## Dummy decodes without strip copies (2026-11-21, CRD2, G55)
+
+- `src/rawsource.rs` (`subview_padded_for`, `subview_until_eof_padded_for`):
+  a dummy `raw_image` (sizes and metadata, no samples) gets a zeroed buffer
+  of the same length where `subview_padded` / `subview_until_eof_padded`
+  copy the strip (it ends within 16 bytes of EOF, as the raw data of most
+  RAWs does). Used in `decoders/{raf,nef,orf,rw2,srw}.rs`; other decoders
+  (no sample files here) keep the copying calls. Test:
+  `rawtonic_dummy_view_tests`.
+- `src/decoders/arw.rs` (`decode_ljpeg`, `get_params`, the SR2 sub-IFD
+  reader): borrow the file (`buf()`) instead of copying all of it
+  (`as_vec()`); the SR2 decryption and the LJPEG tiles read the same bytes.
+- The camera-crop step of the Library's never-edited thumbnail
+  (`source_frame::frame` per frame version) read every byte of RAF, NEF,
+  ORF, RW2, SRW and ARW files through these copies; on 363 RAWs the dummy
+  decodes now read 6 MB instead of 7.3 GB, with identical dummy images,
+  frames, crops, metadata, previews and photo info. Evidence: notes
+  benchmark-results/crd2-2026-11-21/.
+
 ## Canon CR3 white level (2026-11-19, RAWL3, G01)
 
 - `src/decoders/cr2/colordata.rs`: ColorData version 48 (R6 II, R7, R8,
