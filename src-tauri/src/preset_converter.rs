@@ -3123,7 +3123,10 @@ mod tests {
             ));
             let layer: MaskDefinition =
                 serde_json::from_value(adjustments["masks"][0].clone()).unwrap();
-            assert_eq!(layer.mask_version, Some(mask::WARP_BY_GEOMETRY));
+            assert_eq!(
+                layer.mask_version,
+                Some(rawtonic_engine::recipe_versions::mask::WARP_BY_GEOMETRY)
+            );
             assert_eq!(adjustments["masks"][0]["subMasks"][1]["mode"], json!(mode));
             assert!(super::lightroom_subtract_warning(&xmp).is_none());
 

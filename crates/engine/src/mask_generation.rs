@@ -11007,6 +11007,7 @@ mod bitmap_frame_tests {
     /// maps it through both warps as before (its exports keep their bytes).
     #[test]
     fn new_layers_skip_the_no_op_remap_and_saved_layers_keep_it() {
+        use crate::recipe_versions::mask::{SOFT_FOLD, WARP_BY_GEOMETRY};
         let recipe = json!({
             "renderVersion": crate::image_processing::RENDER_VERSION,
             "lensCorrectionMode": "camera",
@@ -11023,7 +11024,13 @@ mod bitmap_frame_tests {
         });
         let url = data_url(&bitmap);
         let geometry = PhotoGeometry::from_adjustments(&recipe).with_decoded_size(w, h);
-        for kind in ["ai-sky", "ai-subject", "ai-foreground", "ai-people", "ai-depth"] {
+        for kind in [
+            "ai-sky",
+            "ai-subject",
+            "ai-foreground",
+            "ai-people",
+            "ai-depth",
+        ] {
             let mut parameters = json!({"maskDataBase64": url, "warp": mask_warp(&recipe)});
             if kind == "ai-subject" {
                 for (k, v) in [("startX", 0), ("startY", 0), ("endX", w), ("endY", h)] {
@@ -11053,12 +11060,12 @@ mod bitmap_frame_tests {
             let unwarped = PhotoGeometry::default().with_decoded_size(w, h);
             assert!(geometry.warp_change(&parameters, w, h, false).is_some());
             assert_eq!(
-                render(Some(crate::recipe_versions::mask::WARP_BY_GEOMETRY), &geometry),
-                render(Some(crate::recipe_versions::mask::WARP_BY_GEOMETRY), &unwarped),
+                render(Some(WARP_BY_GEOMETRY), &geometry),
+                render(Some(WARP_BY_GEOMETRY), &unwarped),
                 "{kind}"
             );
             // Saved layers: mapped through both warps, as before.
-            for version in [None, Some(4), Some(crate::recipe_versions::mask::SOFT_FOLD)] {
+            for version in [None, Some(4), Some(SOFT_FOLD)] {
                 let old = render(version, &geometry);
                 let change = geometry.warp_change(&parameters, w, h, false);
                 let tf = TransformParams {
