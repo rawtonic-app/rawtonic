@@ -9692,9 +9692,11 @@ fn grain_frame_cost_probe() {
     // a hash grain), with film grain (grainVersion 3, the default of new
     // edits) monochrome and in colour, with Glow + Halation (terms pass) and
     // with all three, and (G76/GRN3) a drag's frames of the effects
-    // (`DragEffects`: terms and film grain once per 2 x 2 pixels). Each
-    // frame changes Exposure; the time runs until the GPU has finished the
-    // frame. Modes take turns, five frames each.
+    // (`DragEffects`: terms and film grain once per block), and (G76/GRN6)
+    // the same with the grain forced to 2 x 2 blocks (`_2x2`: the grain as
+    // before GRN6, whose 4 x 4 grain blocks below 1080 px the other drag
+    // modes take). Each frame changes Exposure; the time runs until the GPU
+    // has finished the frame. Modes take turns, five frames each.
     // `RAWTONIC_GRAIN_PROBE_SIZES=WxH,...` picks other sizes.
     let context = context();
     let _limit = DeviceCompileLimit::set(&context);
@@ -9750,12 +9752,14 @@ fn grain_frame_cost_probe() {
             .map(|(_, profile)| get_all_adjustments_from_json(profile, true, Some(3)))
             .collect::<Vec<_>>();
         // A drag's frames of the effects (G76/GRN3).
-        for drag in [4, 5, 2, 3] {
+        for drag in [4, 5, 2, 3, 5, 2] {
             let mut frame = adjustments[drag].clone();
             frame.drag_effects.half_terms = true;
             frame.drag_effects.half_grain = true;
             adjustments.push(frame);
         }
+        // The grain block shift each mode forces (G76/GRN6).
+        let forced_grain = |mode: usize| (mode >= modes.len() + 4).then_some(1u32);
         for adjustments in &adjustments {
             prepare_preview_pipeline(&processor, preview_features(adjustments));
         }
@@ -9767,6 +9771,8 @@ fn grain_frame_cost_probe() {
                 "all_drag",
                 "film_grain_drag",
                 "film_grain_colour_drag",
+                "all_drag_2x2",
+                "film_grain_drag_2x2",
             ])
             .collect::<Vec<_>>();
         let mut times = vec![Vec::new(); names.len()];
@@ -9775,6 +9781,7 @@ fn grain_frame_cost_probe() {
                 for frame in 0..5 {
                     let mut adjustments = adjustments.clone();
                     adjustments.uniforms.global.exposure += 0.01 * (1 + frame) as f32;
+                    effect_passes::FORCED_GRAIN_SHIFT.with(|shift| shift.set(forced_grain(mode)));
                     let started = Instant::now();
                     processor
                         .run(
@@ -9801,6 +9808,7 @@ fn grain_frame_cost_probe() {
             }
         }
         effect_passes::FORCED.with(|forced| forced.set(None));
+        effect_passes::FORCED_GRAIN_SHIFT.with(|shift| shift.set(None));
         let medians = times
             .into_iter()
             .map(|mut times| {
@@ -15392,7 +15400,7 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
     // At Exposure −0.7 the gaps show at L* 84, below the tone no pixel is
     // lifted beyond (L* 87): they keep a part of the lift.
     // Shadows 0 … +14 in single steps, with Blacks raised too and at
-    // Exposure −0.7 (the stage fades its level in over 0 … +12): the gaps
+    // Exposure −0.7 (version 19's stage moves its level over 0 … +12): the gaps
     // do not jump at the first step and never darken as Shadows rises. The
     // bounds act on Shadows' share of the gain; on the whole gain they took
     // Blacks' lift from the gaps too.
@@ -15532,8 +15540,217 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
     }
 }
 
+/// Light lines inside dark strokes on a light field (−0.5 EV): bands of
+/// (stroke width, the line's EV) down the rows, in each band one stroke at
+/// −7 EV per line width 1 … 5 px with the line in its middle. Returns the
+/// levels and each line's (band, width, first column).
+const SHADOWS_V20_STROKE_BANDS: [(usize, f32); 9] = [
+    (15, -3.5),
+    (15, -2.5),
+    (15, -1.5),
+    (27, -3.5),
+    (27, -2.5),
+    (27, -1.5),
+    (51, -3.5),
+    (51, -2.5),
+    (51, -1.5),
+];
+
+fn shadows_v20_lines_in_strokes(width: u32, height: u32) -> (Vec<f32>, Vec<(usize, usize, usize)>) {
+    let (w, h) = (width as usize, height as usize);
+    let band = h / SHADOWS_V20_STROKE_BANDS.len();
+    let pitch = w / 5;
+    let mut levels = vec![(2.0f32).powf(-0.5); w * h];
+    let mut lines = Vec::new();
+    for (b, &(stroke, line_ev)) in SHADOWS_V20_STROKE_BANDS.iter().enumerate() {
+        for line in 1..=5usize {
+            let centre = (line - 1) * pitch + pitch / 2;
+            let first = centre - line / 2;
+            lines.push((b, line, first));
+            for y in b * band..(b + 1) * band {
+                for x in centre - stroke / 2..=centre + stroke / 2 {
+                    levels[y * w + x] = (2.0f32).powf(-7.0);
+                }
+                for x in first..first + line {
+                    levels[y * w + x] = (2.0f32).powf(line_ev);
+                }
+            }
+        }
+    }
+    (levels, lines)
+}
+
+/// A dark photo of low contrast as image key [10th, 90th, 50th percentile]
+/// (`NIGHT_KEY`'s form): there the shared Shadows and Blacks gain, which
+/// adapts to the key as a whole, can be less than Blacks' alone.
+const SHADOWS_V20_DIM_KEY: [f64; 3] = [0.024, 0.096, 0.06];
+
+#[test]
+#[ignore = "requires a native GPU; raising Shadows of tone version 20 with Blacks raised does not darken a light line inside a dark stroke"]
+fn tone_version_20_shadows_with_blacks_keeps_light_lines() {
+    let context = context();
+    let _limit = DeviceCompileLimit::set(&context);
+    let render_version = new_edit_render_version();
+    let look = (3, 2.0);
+    // A flat tone of such a dim photo (0.08) with Blacks +50: raising
+    // Shadows renders it no darker than Shadows 0 does, although the shared
+    // gain there can be less than Blacks' alone (version 19's render falls
+    // 0.83 L* on the way to +100, Vulkan).
+    {
+        let (width, height) = (512u32, 512u32);
+        let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+        let view = grey_texture(
+            &context,
+            width,
+            height,
+            &vec![0.08f32; (width * height) as usize],
+        );
+        let flat = |version: u64, amount: i32| {
+            let img = render_raw_look(
+                &processor,
+                &view,
+                (width, height),
+                &with_image_key(
+                    &json!({ "shadows": amount, "blacks": 50,
+                        "toneVersion": version, "renderVersion": render_version }),
+                    SHADOWS_V20_DIM_KEY,
+                ),
+                look,
+            );
+            lstar_of_codes(&img[(height / 2 * width + width / 2) as usize])
+        };
+        for version in [19u64, 20] {
+            let at_0 = flat(version, 0);
+            let lowest = (1..=20)
+                .map(|step| flat(version, step * 5) - at_0)
+                .fold(f64::MAX, f64::min);
+            eprintln!(
+                "flat 0.08 on a dim key, Blacks +50, version {version}: L* {at_0:.2} at Shadows 0, lowest of +5 … +100 {lowest:+.3}"
+            );
+            assert!(
+                version == 19 || lowest > -0.01,
+                "a flat tone renders {lowest:.3} L* below Shadows 0"
+            );
+        }
+    }
+    // 4000 px short side: the blurs 3.7 times their reference size.
+    let (width, height) = (4000u32, 4000u32);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    let (levels, lines) = shadows_v20_lines_in_strokes(width, height);
+    let view = grey_texture(&context, width, height, &levels);
+    let (w, band) = (
+        width as usize,
+        height as usize / SHADOWS_V20_STROKE_BANDS.len(),
+    );
+    // The worst fall without an image key and with one, and the deepest
+    // render below Shadows 0 of any line.
+    let mut worst = [(0.0f64, String::new()), (0.0f64, String::new())];
+    let mut below_0 = (0.0f64, String::new());
+    let mut worst_19 = 0.0f64;
+    // Shadows 0 … +20 in single steps: no line may render darker than at a
+    // lower Shadows value. Blacks' lift is read at its own level whatever
+    // Shadows is; at one level with Shadows' (versions 6 to 19) it fell
+    // while that level moved to the wide one over Shadows 0 … +12. Without
+    // a measured image key (the adaptive parts of the response at rest) and,
+    // with Blacks +50, on a dim photo's and a night frame's key.
+    for (blacks, key) in [
+        (0, None),
+        (25, None),
+        (50, None),
+        (50, Some(SHADOWS_V20_DIM_KEY)),
+        (50, Some(NIGHT_KEY)),
+    ] {
+        // Each line's mean L* by version and Shadows value.
+        let sweep = |version: u64| -> Vec<Vec<f64>> {
+            (0..=20)
+                .map(|amount| {
+                    let recipe = json!({ "shadows": amount, "blacks": blacks,
+                        "toneVersion": version, "renderVersion": render_version });
+                    let img = render_raw_look(
+                        &processor,
+                        &view,
+                        (width, height),
+                        &key.map_or(recipe.clone(), |key| with_image_key(&recipe, key)),
+                        look,
+                    );
+                    lines
+                        .iter()
+                        .map(|&(b, line, first)| {
+                            let (mut sum, mut n) = (0.0f64, 0.0f64);
+                            for y in (b * band + band / 2 - 40..b * band + band / 2 + 40).step_by(8)
+                            {
+                                for x in first..first + line {
+                                    sum += lstar_of_codes(&img[y * w + x]);
+                                    n += 1.0;
+                                }
+                            }
+                            sum / n
+                        })
+                        .collect()
+                })
+                .collect()
+        };
+        let (v19, v20) = (sweep(19), sweep(20));
+        for (k, &(b, line, _)) in lines.iter().enumerate() {
+            // The deepest fall below any lower Shadows value's rendering.
+            let fall = |v: &[Vec<f64>]| {
+                let (mut high, mut fall) = (f64::MIN, 0.0f64);
+                for step in v {
+                    high = high.max(step[k]);
+                    fall = fall.max(high - step[k]);
+                }
+                fall
+            };
+            let (stroke, line_ev) = SHADOWS_V20_STROKE_BANDS[b];
+            let (f19, f20) = (fall(&v19), fall(&v20));
+            let row = |v: &[Vec<f64>]| {
+                v.iter()
+                    .map(|s| format!("{:.2}", s[k] - v[0][k]))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            let keyed = key.map_or(String::new(), |key| format!(" key {key:?}"));
+            eprintln!(
+                "GRID blacks {blacks}{keyed} stroke {stroke} line {line} px at {line_ev} EV: L* {:.2}, fall v19 {f19:.3} v20 {f20:.3}\n  v19 {}\n  v20 {}",
+                v20[0][k],
+                row(&v19),
+                row(&v20)
+            );
+            let slot = usize::from(key.is_some());
+            let cell = format!(
+                "Blacks {blacks}{keyed}, {line} px line at {line_ev} EV in a {stroke} px stroke"
+            );
+            if f20 > worst[slot].0 {
+                worst[slot] = (
+                    f20,
+                    format!("{cell}: falls {f20:.3} L* (version 19 {f19:.3})"),
+                );
+            }
+            let under = v20.iter().map(|s| v20[0][k] - s[k]).fold(0.0f64, f64::max);
+            if under > below_0.0 {
+                below_0 = (under, format!("{cell}: {under:.3} L* below Shadows 0"));
+            }
+            worst_19 = worst_19.max(f19);
+        }
+    }
+    // Measured on Vulkan (RTX 3080): 0.004 L* without a key and 0.030 on
+    // either key (a 4 px line that rises 0.06 L* by Shadows +8 and gives
+    // 0.03 back by +20); nothing below Shadows 0 beyond rounding. Version
+    // 19 falls 2.76 L* without a key (Blacks +50, 1 px line at −3.5 EV in
+    // the 27 px stroke, Shadows +2 → +12), 4.06 on the dim key, and with
+    // Blacks 0 not at all.
+    eprintln!(
+        "worst fall without a key: {:.3} L* ({}); with a key: {:.3} L* ({}); deepest below Shadows 0: {:.3} L* ({}); version 19's worst fall {worst_19:.3} L*",
+        worst[0].0, worst[0].1, worst[1].0, worst[1].1, below_0.0, below_0.1
+    );
+    assert!(worst[0].0 < 0.02, "{}", worst[0].1);
+    assert!(worst[1].0 < 0.05, "{}", worst[1].1);
+    assert!(below_0.0 < 0.02, "{}", below_0.1);
+}
+
 /// Version 20's tone stage is version 13's with raised Shadows' gain of
-/// version 20: the copies must stay the same but for that line.
+/// version 20 at the wide level: the copies must stay the same but for
+/// those two lines.
 #[test]
 fn tone_version_20_stage_is_version_13s_but_for_the_gain() {
     let shader = include_str!("shaders/shader.wgsl");
@@ -15545,13 +15762,16 @@ fn tone_version_20_stage_is_version_13s_but_for_the_gain() {
         &rest[..rest.find("\n}\n").unwrap()]
     };
     let v13_gain = "rgb *= shadows_v13_gain(level_luma * exposure_gain, sh, bl, fade);";
-    let v20_gain =
-        "rgb *= shadows_v20_gain(level_luma * exposure_gain, safe_pixel_luma, sh, bl, fade);";
+    let v20_gain = "rgb *= shadows_v20_gain(level_luma * exposure_gain, tonal_level * exposure_gain, safe_pixel_luma, sh, bl, fade);";
+    let v13_level = "level_luma = exp2(mix(log2(max(tonal_level, 0.0001)), log2(wide), fade));";
+    let v20_level = "level_luma = wide;";
     let v13 = body("apply_tonal_adjustments_v13");
     assert_eq!(v13.matches(v13_gain).count(), 1);
+    assert_eq!(v13.matches(v13_level).count(), 1);
     assert_eq!(
         body("apply_tonal_adjustments_v20"),
         v13.replace(v13_gain, v20_gain)
+            .replace(v13_level, v20_level)
     );
 }
 
@@ -27170,9 +27390,14 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
     // to the settled frame, and the settled frame after it (the same
     // values, so the partial-frame path could reuse the drag's pixels)
     // is byte for byte a settled frame rendered on its own. At 2048 x 1366
-    // the terms' blocks are 4 x 4 (G76/GRN4, `terms_block_shift`).
+    // the terms' blocks are 4 x 4 (G76/GRN4, `terms_block_shift`); below a
+    // short side of 1080 the grain's blocks are (G76/GRN6,
+    // `grain_block_shift`): its drag frame's grain is one value per 4 x 4
+    // block, above it one per 2 x 2 block.
     let context = context();
-    for (width, height) in [(1608u32, 1072u32), (2048, 1366)] {
+    for (width, height) in [(1024u32, 682u32), (1608, 1072), (1920, 1080), (2048, 1366)] {
+        // The grain's block side in this frame.
+        let block = if width.min(height) < 1080 { 4 } else { 2 };
         // A gradient with a bright disk (above white, so glow and halation
         // show) and the synthetic texture faintly on top.
         let data: Vec<f16> = (0..width * height)
@@ -27318,10 +27543,10 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
             let mut record = json!({"probe":"drag_effects","edit":name,"width":width,"mean_signed_codes":shift,
             "mean_abs_codes":mean_abs,"p999_abs_codes":p999});
             // The grain alone (green, codes): each frame less the same render
-            // without grain, settled or a drag's. Its spread within 2 x 2
-            // blocks, and at half resolution (each block's mean against the
-            // blocks around it) its strength and how far the drag's follows
-            // the settled grain's pattern.
+            // without grain, settled or a drag's. Its spread within blocks
+            // of `b` x `b` pixels, and at the grain blocks' resolution (each
+            // block's mean against the blocks around it) its strength and
+            // how far the drag's follows the settled grain's pattern.
             let grain_signal = |frame: &[u8], drag_frame: bool| -> Option<Vec<f64>> {
                 let mut without = profile.clone();
                 without
@@ -27345,29 +27570,27 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
                 )
             };
             let (w, h) = (width as usize, height as usize);
-            let within = |g: &[f64]| {
+            let within = |g: &[f64], b: usize| {
                 let mut sum = 0.0f64;
-                for y in (0..h - 1).step_by(2) {
-                    for x in (0..w - 1).step_by(2) {
-                        let at = |dx: usize, dy: usize| g[(y + dy) * w + x + dx];
-                        let mean = (at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4.0;
-                        sum += (0..4)
-                            .map(|k| (at(k % 2, k / 2) - mean).powi(2))
-                            .sum::<f64>();
+                for y in (0..h - b + 1).step_by(b) {
+                    for x in (0..w - b + 1).step_by(b) {
+                        let at = |k: usize| g[(y + k / b) * w + x + k % b];
+                        let mean = (0..b * b).map(at).sum::<f64>() / (b * b) as f64;
+                        sum += (0..b * b).map(|k| (at(k) - mean).powi(2)).sum::<f64>();
                     }
                 }
-                (sum / (w / 2 * 2 * (h / 2 * 2)) as f64).sqrt()
+                (sum / (w / b * b * (h / b * b)) as f64).sqrt()
             };
-            let half_res = |g: &[f64]| -> Vec<f64> {
-                let (bw, bh) = (w / 2, h / 2);
+            let block_res = |g: &[f64]| -> Vec<f64> {
+                let b = block as usize;
+                let (bw, bh) = (w / b, h / b);
                 let block: Vec<f64> = (0..bw * bh)
                     .map(|i| {
-                        let (x, y) = (i % bw * 2, i / bw * 2);
-                        (g[y * w + x]
-                            + g[y * w + x + 1]
-                            + g[(y + 1) * w + x]
-                            + g[(y + 1) * w + x + 1])
-                            / 4.0
+                        let (x, y) = (i % bw * b, i / bw * b);
+                        (0..b * b)
+                            .map(|k| g[(y + k / b) * w + x + k % b])
+                            .sum::<f64>()
+                            / (b * b) as f64
                     })
                     .collect();
                 let mut high = Vec::with_capacity(bw * bh);
@@ -27388,7 +27611,7 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
                     grain_signal(&exact, false).unwrap(),
                     grain_signal(&approximate, true).unwrap(),
                 ];
-                let high = [half_res(&g[0]), half_res(&g[1])];
+                let high = [block_res(&g[0]), block_res(&g[1])];
                 let strength = [rms(&high[0]), rms(&high[1])];
                 let correlation = high[0]
                     .iter()
@@ -27398,10 +27621,14 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
                     / high[0].len() as f64
                     / (strength[0] * strength[1]);
                 record["grain_rms"] = json!([rms(&g[0]), rms(&g[1])]);
-                record["grain_within_2x2"] = json!([within(&g[0]), within(&g[1])]);
-                record["grain_half_res"] = json!(strength);
-                record["grain_half_res_correlation"] = json!(correlation);
-                (strength, correlation)
+                let within_4x4 = [within(&g[0], 4), within(&g[1], 4)];
+                let within_2x2 = [within(&g[0], 2), within(&g[1], 2)];
+                record["grain_within_2x2"] = json!(within_2x2);
+                record["grain_within_4x4"] = json!(within_4x4);
+                record["grain_block"] = json!(block);
+                record["grain_block_res"] = json!(strength);
+                record["grain_block_res_correlation"] = json!(correlation);
+                (strength, correlation, within_4x4[1] / within_2x2[1])
             });
             println!("{record}");
             // No shift of the frame's brightness or colour while dragging.
@@ -27412,12 +27639,37 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
                 // The terms come from the blurred photo: the coarser drag frame
                 // is within a code or two of the settled one.
                 None => assert!(mean_abs < 0.5 && p999 <= 3, "{name}: {mean_abs} / {p999}"),
-                // The settled grain seen at half resolution: most of its
-                // strength and the same pattern.
-                Some((strength, correlation)) => assert!(
-                    strength[1] > 0.85 * strength[0] && correlation > 0.8,
-                    "{name}: {strength:?}, correlation {correlation}"
-                ),
+                // The settled grain seen at the blocks' resolution: most of
+                // its strength and its pattern. A 4 x 4 block's grain is one
+                // sample of a footprint 16 pixels wide, against the mean of
+                // 16 pixels' samples, which more often straddle the grain's
+                // blend cells: it follows the settled pattern less closely
+                // than a 2 x 2 block's (measured 0.62 against 0.79 at
+                // 1024 x 682; notes: benchmark-results/grn6-2026-11-21).
+                // Where the blocks are 4 x 4 the drag's grain varies no more
+                // within 4 x 4 pixels than within 2 x 2 (the 8-bit rounding
+                // alone); where they are 2 x 2 it varies more, between its
+                // blocks.
+                Some((strength, correlation, spread_4x4_to_2x2)) => {
+                    let least_correlation = if block == 4 { 0.5 } else { 0.8 };
+                    assert!(
+                        strength[1] > 0.85 * strength[0] && correlation > least_correlation,
+                        "{name} at {width}: {strength:?}, correlation {correlation}"
+                    );
+                    if block == 4 {
+                        assert!(
+                            spread_4x4_to_2x2 < 1.3,
+                            "{name} at {width}: the drag's grain varies within 4 x 4 blocks \
+                             ({spread_4x4_to_2x2})"
+                        );
+                    } else {
+                        assert!(
+                            spread_4x4_to_2x2 > 1.5,
+                            "{name} at {width}: the drag's grain is coarser than 2 x 2 \
+                             ({spread_4x4_to_2x2})"
+                        );
+                    }
+                }
             }
         }
     }

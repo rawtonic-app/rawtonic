@@ -127,8 +127,8 @@ it('removes the certificate only after a second click', async () => {
 it('refuses a format that cannot carry a manifest', async () => {
   stored = local;
   const ready = vi.fn();
-  render(<Harness initial={{ provenance: true, format: 'avif' }} onReady={ready} />);
-  expect(screen.getByRole('alert').textContent).toContain('AVIF files cannot carry a provenance manifest yet');
+  render(<Harness initial={{ provenance: true, format: 'jxl' }} onReady={ready} />);
+  expect(screen.getByRole('alert').textContent).toContain('JXL files cannot carry a provenance manifest yet');
   await screen.findByText(/Signed as/);
   expect(ready).toHaveBeenLastCalledWith(false);
 });

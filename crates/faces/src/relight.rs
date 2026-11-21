@@ -2,12 +2,12 @@
 //! Persistable facial relief, inferred once. Coordinates use the displayed
 //! frame: x/width, y/height, and camera-facing z/short side. MediaPipe z has
 //! the same scale as crop x, negative towards the camera; it is not metres.
-use crate::{FaceModels, detect, geometry, landmarks, parse};
+use crate::{FaceModels, geometry, landmarks, parse};
 use anyhow::Result;
 use image::RgbImage;
 
 pub fn analyze(image: &RgbImage, models: &FaceModels) -> Result<Vec<Vec<[f32; 4]>>> {
-    let detections = models.detector.run(|s| detect::detect(s, image))?;
+    let detections = models.detect(image)?;
     let mut faces = Vec::new();
     let short = image.width().min(image.height()) as f32;
     // Tiny faces cannot provide a dependable shading surface. Keep the cost

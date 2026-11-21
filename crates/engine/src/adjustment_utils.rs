@@ -8,21 +8,114 @@ use crate::image_processing::{
     apply_rotation, fused_spatial_transform,
 };
 
-/// What the editor sends in a mask component's bitmap field for a bitmap it
-/// sent before under the component's id: the native side fills it in from
-/// its cache. A null field means the component has no bitmap (its inputs
-/// select nothing, or its detection is still running) and renders nothing.
+/// The start of what the editor sends in a mask component's bitmap field
+/// for a bitmap it sent whole before: `cached:<key>`, the key naming the
+/// bitmap's content ([`bitmap_key`]). The native side fills it in from its
+/// cache. A null field means the component has no bitmap (its inputs select
+/// nothing, or its detection is still running) and renders nothing.
 pub const CACHED_BITMAP: &str = "cached";
 
-/// Fills in the mask bitmaps `sub_masks` refer to as `CACHED_BITMAP` from
-/// `cache` and remembers the ones they carry, by component id. A component
-/// whose bitmap is null renders none; the cache keeps what it holds under
-/// the id (requests run independently, so an older null must not evict a
-/// newer bitmap; the editor sends the next bitmap under that id whole). A
-/// reference the cache cannot fill becomes null.
+/// How many bitmaps the cache keeps under one component id: the one the
+/// preview shows and those queued exports carried under the same id (an AI
+/// selection computed again, an Object prompt) since, the oldest dropped.
+const BITMAPS_PER_COMPONENT: usize = 8;
+
+/// The key of a mask bitmap's content, as the editor computes it
+/// (`bitmapKey` in src/utils/bitmapIds.ts): cyrb53 (public domain, by
+/// bryc) over the string's UTF-16 code units, in decimal.
+pub fn bitmap_key(bitmap: &str) -> String {
+    let (mut h1, mut h2): (u32, u32) = (0xdeadbeef, 0x41c6ce57);
+    for unit in bitmap.encode_utf16() {
+        let unit = u32::from(unit);
+        h1 = (h1 ^ unit).wrapping_mul(2_654_435_761);
+        h2 = (h2 ^ unit).wrapping_mul(1_597_334_677);
+    }
+    h1 = (h1 ^ (h1 >> 16)).wrapping_mul(2_246_822_507);
+    h1 ^= (h2 ^ (h2 >> 13)).wrapping_mul(3_266_489_909);
+    h2 = (h2 ^ (h2 >> 16)).wrapping_mul(2_246_822_507);
+    h2 ^= (h1 ^ (h1 >> 13)).wrapping_mul(3_266_489_909);
+    ((u64::from(h2 & 0x1f_ffff) << 32) | u64::from(h1)).to_string()
+}
+
+/// Where `cache` keeps the bitmap of `key` under component `id`.
+fn bitmap_entry(id: &str, key: &str) -> String {
+    format!("mask-bitmap:{id}:{key}")
+}
+
+/// Where `cache` lists the keys of the bitmaps it holds under `id`, the
+/// most recently used last.
+fn bitmap_versions(id: &str) -> String {
+    format!("mask-bitmaps:{id}")
+}
+
+/// Who a recipe being hydrated comes from: what it carries is kept as the
+/// most recently used bitmap (the editor, which refers to its newest one
+/// later), or as the least (a queued export, which carries its bitmaps
+/// whole and never refers to them later): exports carrying other versions
+/// of a mask push out each other, never the one the editor refers to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sender {
+    Editor,
+    QueuedExport,
+}
+
+/// Marks `key` as the most recently used bitmap under `id` (as the least
+/// for a [`Sender::QueuedExport`]), dropping the oldest beyond
+/// [`BITMAPS_PER_COMPONENT`] other than `key`.
+fn touch_bitmap(
+    cache: &mut HashMap<String, serde_json::Value>,
+    id: &str,
+    key: &str,
+    sender: Sender,
+) {
+    let versions_key = bitmap_versions(id);
+    let mut versions: Vec<String> = cache
+        .get(&versions_key)
+        .and_then(|v| v.as_array())
+        .map(|keys| {
+            keys.iter()
+                .filter_map(|k| k.as_str())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let known = versions.iter().position(|k| k == key);
+    if let Some(held) = known {
+        versions.remove(held);
+    }
+    match sender {
+        Sender::Editor => versions.push(key.to_string()),
+        // A bitmap the cache holds keeps its place (the editor may be
+        // showing it); a new one comes in as the least recently used.
+        Sender::QueuedExport => versions.insert(known.unwrap_or(0), key.to_string()),
+    }
+    while versions.len() > BITMAPS_PER_COMPONENT {
+        let oldest = versions.iter().position(|k| k != key).unwrap_or(0);
+        let oldest = versions.remove(oldest);
+        cache.remove(&bitmap_entry(id, &oldest));
+    }
+    cache.insert(versions_key, serde_json::json!(versions));
+}
+
+/// Fills in the mask bitmaps `sub_masks` refer to as `cached:<key>` from
+/// `cache` and remembers the ones they carry, by component id and content.
+/// Requests run independently (the preview, queued exports carrying an
+/// older or newer bitmap under the same id, overlays): each one's
+/// reference names the bitmap it means, so none takes another state's
+/// bitmap. A component whose bitmap is null renders none and evicts
+/// nothing. A reference the cache cannot fill becomes null.
 pub fn hydrate_sub_masks(
     sub_masks: &mut Vec<serde_json::Value>,
     cache: &mut HashMap<String, serde_json::Value>,
+) {
+    hydrate_sub_masks_from(sub_masks, cache, Sender::Editor);
+}
+
+/// [`hydrate_sub_masks`] for a recipe from `sender`.
+fn hydrate_sub_masks_from(
+    sub_masks: &mut Vec<serde_json::Value>,
+    cache: &mut HashMap<String, serde_json::Value>,
+    sender: Sender,
 ) {
     for sub_mask in sub_masks {
         let id = sub_mask
@@ -53,10 +146,31 @@ pub fn hydrate_sub_masks(
                 let Some(val) = params.get_mut(key) else {
                     continue;
                 };
-                if val.as_str() == Some(CACHED_BITMAP) {
-                    *val = cache.get(&id).cloned().unwrap_or(serde_json::Value::Null);
-                } else if !val.is_null() {
-                    cache.insert(id.clone(), val.clone());
+                let Some(text) = val.as_str() else {
+                    continue;
+                };
+                if let Some(content) = text
+                    .strip_prefix(CACHED_BITMAP)
+                    .and_then(|rest| rest.strip_prefix(':'))
+                {
+                    let content = content.to_string();
+                    match cache.get(&bitmap_entry(&id, &content)).cloned() {
+                        Some(bitmap) => {
+                            *val = bitmap;
+                            if sender == Sender::Editor {
+                                touch_bitmap(cache, &id, &content, sender);
+                            }
+                        }
+                        None => *val = serde_json::Value::Null,
+                    }
+                } else if text == CACHED_BITMAP {
+                    // A reference that names no content cannot tell which
+                    // bitmap it means.
+                    *val = serde_json::Value::Null;
+                } else {
+                    let content = bitmap_key(text);
+                    cache.insert(bitmap_entry(&id, &content), val.clone());
+                    touch_bitmap(cache, &id, &content, sender);
                 }
             }
         }
@@ -68,6 +182,15 @@ pub fn hydrate_sub_masks(
 pub fn hydrate_adjustments_from_cache(
     cache: &mut HashMap<String, serde_json::Value>,
     adjustments: &mut serde_json::Value,
+) {
+    hydrate_adjustments_from(cache, adjustments, Sender::Editor);
+}
+
+/// [`hydrate_adjustments_from_cache`] for a recipe from `sender`.
+pub fn hydrate_adjustments_from(
+    cache: &mut HashMap<String, serde_json::Value>,
+    adjustments: &mut serde_json::Value,
+    sender: Sender,
 ) {
     if let Some(patches) = adjustments
         .get_mut("aiPatches")
@@ -98,7 +221,7 @@ pub fn hydrate_adjustments_from_cache(
                 .get_mut(masks::SUB_MASKS.name())
                 .and_then(|v| v.as_array_mut())
             {
-                hydrate_sub_masks(sub_masks, cache);
+                hydrate_sub_masks_from(sub_masks, cache, sender);
             }
         }
     }
@@ -112,7 +235,7 @@ pub fn hydrate_adjustments_from_cache(
                 .get_mut(masks::SUB_MASKS.name())
                 .and_then(|v| v.as_array_mut())
             {
-                hydrate_sub_masks(sub_masks, cache);
+                hydrate_sub_masks_from(sub_masks, cache, sender);
             }
         }
     }
@@ -314,10 +437,13 @@ mod hydration_tests {
     #[test]
     fn a_pasted_selection_waiting_for_its_detection_takes_no_cached_bitmap() {
         let mut cache = HashMap::new();
-        cache.insert("sky-c".to_string(), serde_json::json!("data:source"));
+        let mut source = vec![
+            serde_json::json!({"id": "sky-c", "parameters": {"maskDataBase64": "data:source"}}),
+        ];
+        hydrate_sub_masks(&mut source, &mut cache);
         let mut subs = vec![
             serde_json::json!({"id": "sky-c", "parameters": {"maskDataBase64": null, "detectPending": true}}),
-            serde_json::json!({"id": "sky-c", "parameters": {"maskDataBase64": CACHED_BITMAP}}),
+            serde_json::json!({"id": "sky-c", "parameters": {"maskDataBase64": refer("data:source")}}),
         ];
         hydrate_sub_masks(&mut subs, &mut cache);
         assert_eq!(
@@ -352,10 +478,12 @@ mod hydration_tests {
         hydrate_sub_masks(&mut preview, &mut cache);
         let mut overlay = vec![json!({"id": "p", "parameters": {"maskDataBase64": null}})];
         hydrate_sub_masks(&mut overlay, &mut cache);
-        let mut later = vec![json!({"id": "p", "parameters": {"maskDataBase64": CACHED_BITMAP}})];
+        let mut later =
+            vec![json!({"id": "p", "parameters": {"maskDataBase64": refer("data:new")}})];
         hydrate_sub_masks(&mut later, &mut cache);
         assert_eq!(later[0]["parameters"]["maskDataBase64"], "data:new");
-        let mut unknown = vec![json!({"id": "q", "parameters": {"maskDataBase64": CACHED_BITMAP}})];
+        let mut unknown =
+            vec![json!({"id": "q", "parameters": {"maskDataBase64": refer("data:new")}})];
         hydrate_sub_masks(&mut unknown, &mut cache);
         assert_eq!(unknown[0]["parameters"]["maskDataBase64"], json!(null));
     }
@@ -365,9 +493,144 @@ mod hydration_tests {
         let mut cache = HashMap::new();
         let mut first = vec![json!({"id": "p", "parameters": {"maskDataBase64": "data:lips"}})];
         hydrate_sub_masks(&mut first, &mut cache);
-        let mut later = vec![json!({"id": "p", "parameters": {"maskDataBase64": CACHED_BITMAP}})];
+        let mut later =
+            vec![json!({"id": "p", "parameters": {"maskDataBase64": refer("data:lips")}})];
         hydrate_sub_masks(&mut later, &mut cache);
         assert_eq!(later, first);
+    }
+
+    /// What the editor sends for a bitmap it sent whole before.
+    fn refer(bitmap: &str) -> String {
+        format!("{CACHED_BITMAP}:{}", bitmap_key(bitmap))
+    }
+
+    /// One request's bitmap of component `id` after hydration.
+    fn hydrated(
+        cache: &mut HashMap<String, serde_json::Value>,
+        id: &str,
+        sent: &str,
+    ) -> serde_json::Value {
+        let mut subs = vec![json!({"id": id, "parameters": {"maskDataBase64": sent}})];
+        hydrate_sub_masks(&mut subs, cache);
+        subs[0]["parameters"]["maskDataBase64"].clone()
+    }
+
+    #[test]
+    fn the_editor_and_the_native_side_key_a_bitmap_alike() {
+        // The same values as `bitmapKey` in src/utils/bitmapIds.test.ts.
+        assert_eq!(bitmap_key(""), "3338908027751811");
+        assert_eq!(bitmap_key("data:thumb"), "7596472580574772");
+        assert_eq!(bitmap_key("data:full"), "6409932804508894");
+        assert_eq!(bitmap_key("é✓😀"), "2813155200082369");
+    }
+
+    #[test]
+    fn an_export_queued_before_an_undo_leaves_the_preview_its_bitmap() {
+        // A migrated Sky selection computed again on the full frame, an
+        // export of it queued, then Undo back to the stretched bitmap: the
+        // preview sends that whole, the queued export (pinned with the
+        // full-frame one) runs after it, and the next preview refers to
+        // the stretched one.
+        let mut cache = HashMap::new();
+        hydrated(&mut cache, "sky", "data:thumb");
+        hydrated(&mut cache, "sky", "data:full");
+        hydrated(&mut cache, "sky", "data:thumb");
+        assert_eq!(hydrated(&mut cache, "sky", "data:full"), "data:full");
+        assert_eq!(
+            hydrated(&mut cache, "sky", &refer("data:thumb")),
+            "data:thumb"
+        );
+        // Redo refers to the full-frame one, which the export left there.
+        assert_eq!(
+            hydrated(&mut cache, "sky", &refer("data:full")),
+            "data:full"
+        );
+    }
+
+    #[test]
+    fn an_object_prompt_undone_with_an_export_queued_keeps_each_bitmap() {
+        let mut cache = HashMap::new();
+        hydrated(&mut cache, "object", "data:first-prompt");
+        hydrated(&mut cache, "object", "data:second-prompt");
+        // Undo of the second prompt, then the queued export of it.
+        hydrated(&mut cache, "object", "data:first-prompt");
+        hydrated(&mut cache, "object", "data:second-prompt");
+        assert_eq!(
+            hydrated(&mut cache, "object", &refer("data:first-prompt")),
+            "data:first-prompt"
+        );
+        // A reference naming no content (an older editor) takes no bitmap.
+        assert_eq!(hydrated(&mut cache, "object", CACHED_BITMAP), json!(null));
+    }
+
+    #[test]
+    fn queued_exports_never_push_out_the_bitmap_the_idle_preview_refers_to() {
+        let mut cache = HashMap::new();
+        hydrated(&mut cache, "o", "data:shown");
+        // More queued exports of other versions than the cache keeps, while
+        // the preview sends nothing.
+        for prompt in 0..2 * BITMAPS_PER_COMPONENT {
+            let mut subs = vec![
+                json!({"id": "o", "parameters": {"maskDataBase64": format!("data:{prompt}")}}),
+            ];
+            hydrate_sub_masks_from(&mut subs, &mut cache, Sender::QueuedExport);
+            assert_eq!(
+                subs[0]["parameters"]["maskDataBase64"],
+                format!("data:{prompt}")
+            );
+        }
+        assert_eq!(
+            hydrated(&mut cache, "o", &refer("data:shown")),
+            "data:shown"
+        );
+        let held = cache
+            .keys()
+            .filter(|k| k.starts_with("mask-bitmap:o:"))
+            .count();
+        assert_eq!(held, BITMAPS_PER_COMPONENT);
+    }
+
+    #[test]
+    fn a_queued_export_of_the_shown_bitmap_leaves_it_where_the_editor_put_it() {
+        let mut cache = HashMap::new();
+        let export = |cache: &mut HashMap<String, serde_json::Value>, bitmap: &str| {
+            let mut subs = vec![json!({"id": "o", "parameters": {"maskDataBase64": bitmap}})];
+            hydrate_sub_masks_from(&mut subs, cache, Sender::QueuedExport);
+        };
+        // Exports of several revisions queued; Develop shows one of them.
+        for prompt in 0..BITMAPS_PER_COMPONENT {
+            hydrated(&mut cache, "o", &format!("data:{prompt}"));
+        }
+        hydrated(&mut cache, "o", "data:shown");
+        // The queue drains: the export of the shown revision, then others.
+        export(&mut cache, "data:shown");
+        for prompt in 0..2 * BITMAPS_PER_COMPONENT {
+            export(&mut cache, &format!("data:new-{prompt}"));
+        }
+        assert_eq!(
+            hydrated(&mut cache, "o", &refer("data:shown")),
+            "data:shown"
+        );
+    }
+
+    #[test]
+    fn the_cache_keeps_a_few_bitmaps_per_component_the_used_one_last() {
+        let mut cache = HashMap::new();
+        hydrated(&mut cache, "o", "data:shown");
+        for prompt in 0..BITMAPS_PER_COMPONENT {
+            hydrated(&mut cache, "o", &format!("data:{prompt}"));
+            // The preview refers to its bitmap between the exports.
+            assert_eq!(
+                hydrated(&mut cache, "o", &refer("data:shown")),
+                "data:shown"
+            );
+        }
+        assert_eq!(hydrated(&mut cache, "o", &refer("data:0")), json!(null));
+        let held = cache
+            .keys()
+            .filter(|k| k.starts_with("mask-bitmap:o:"))
+            .count();
+        assert_eq!(held, BITMAPS_PER_COMPONENT);
     }
 
     #[test]

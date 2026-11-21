@@ -67,7 +67,9 @@ impl FaceModels {
     /// The faces of `image` found by the detector alone (no landmarks or
     /// parsing): where a tool must keep away from faces (Find Dust).
     pub fn detect(&self, image: &RgbImage) -> Result<Vec<Detection>> {
-        self.detector.run(|s| detect::detect(s, image))
+        let inputs = detect::pass_inputs(image);
+        self.detector
+            .run(|s| detect::detect(s, image.width(), &inputs))
     }
 }
 
@@ -103,7 +105,7 @@ pub struct FaceAnalysis {
 /// Finds the faces in `image` and parses them.
 pub fn analyze(image: &RgbImage, models: &FaceModels) -> Result<FaceAnalysis> {
     let (width, height) = image.dimensions();
-    let detections = models.detector.run(|s| detect::detect(s, image))?;
+    let detections = models.detect(image)?;
     let global = models
         .parser
         .run(|s| parse::parse(s, image, parse::whole_photo(width, height)))?;
@@ -202,7 +204,7 @@ pub fn face_skin(
     models: &FaceModels,
     max: usize,
 ) -> Result<Vec<(Detection, ParseCrop)>> {
-    let detections = models.detector.run(|s| detect::detect(s, image))?;
+    let detections = models.detect(image)?;
     let mut faces = Vec::new();
     for detection in detections.into_iter().take(max) {
         let [x, y, w, h] = detection.bbox;

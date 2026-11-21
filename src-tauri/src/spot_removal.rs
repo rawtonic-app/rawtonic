@@ -519,10 +519,7 @@ pub async fn sync_dust_spots(
     .map_err(|e| e.to_string())??;
     if items.is_empty() || targets.is_empty() {
         return Ok(DustSync {
-            batch: crate::file_management::RecipeBatch {
-                changes: Vec::new(),
-                failure: None,
-            },
+            batch: crate::file_management::RecipeBatch::default(),
             skipped,
         });
     }
