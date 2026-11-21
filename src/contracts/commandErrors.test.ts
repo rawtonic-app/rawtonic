@@ -96,6 +96,10 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
     args: `js_adjustments: serde_json::Value, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
     ok: `Vec<PersonSummary>`
   },
+  detect_landscape_parts: {
+    args: `js_adjustments: serde_json::Value, path: String, task_id: Option<String>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    ok: `Vec<(String, f32)>`
+  },
   edit_with_start: {
     args: `paths: Vec<String>, mut recipe: ExportRequest, program: String, app: AppHandle`,
     ok: `EditWithStart`
@@ -111,6 +115,10 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
   generate_ai_foreground_mask: {
     args: `js_adjustments: serde_json::Value, path: String, rotation: f32, flip_horizontal: bool, flip_vertical: bool, orientation_steps: u8, subject_version: Option<u32>, task_id: Option<String>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
     ok: `AiForegroundMaskParameters`
+  },
+  generate_ai_landscape_mask: {
+    args: `js_adjustments: serde_json::Value, path: String, parts: Vec<String>, rotation: f32, flip_horizontal: bool, flip_vertical: bool, orientation_steps: u8, task_id: Option<String>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    ok: `AiSkyMaskParameters`
   },
   generate_ai_people_mask: {
     args: `js_adjustments: serde_json::Value, parts: Vec<String>, person: Option<usize>, rotation: f32, flip_horizontal: bool, flip_vertical: bool, orientation_steps: u8, task_id: Option<String>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
