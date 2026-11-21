@@ -572,6 +572,25 @@ export const debouncedSetHistory = Object.assign(
   }
 );
 
+/**
+ * A correction that belongs to the newest undo step: when the recipe `was`
+ * is still the editor's and the newest step (already written, nothing
+ * after it), that step becomes `now` and the editor shows it — one step,
+ * not two. Returns false (nothing changed) otherwise. A target colour's
+ * measured correction uses it when the step of its first solve was written
+ * before the measurement came back.
+ */
+export function amendHistoryStep(was: Adjustments, now: Adjustments): boolean {
+  const state = useEditorStore.getState();
+  const top = state.history.length - 1;
+  if (state.adjustments !== was || state.historyIndex !== top || state.history[top] !== was || state.historyPending)
+    return false;
+  const history = [...state.history.slice(0, top), now];
+  setHistoryOrders(history, historyOrders(state.history));
+  useEditorStore.setState({ history, adjustments: now });
+  return true;
+}
+
 /** Capture only this click's still-pending history entry. A following click
  * at the same track position can replace it with a double-click reset,
  * without holding draft rendering or touching a later edit/another photo. */

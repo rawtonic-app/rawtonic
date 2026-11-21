@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { capturePendingSliderClick, debouncedSetHistory, useEditorStore } from './useEditorStore';
+import { amendHistoryStep, capturePendingSliderClick, debouncedSetHistory, useEditorStore } from './useEditorStore';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from '../utils/adjustments';
 
 const state = () => useEditorStore.getState();
@@ -184,4 +184,23 @@ it('a continued click remains undoable even when its following press is cancelle
   state().undo();
   expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 20]);
   expect(state().adjustments.relightSkinReflections).toBe(0);
+});
+
+it('lets a correction replace the newest step it belongs to, and nothing else', () => {
+  edit(10);
+  vi.advanceTimersByTime(600);
+  const written = state().adjustments;
+  expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 10]);
+  // The correction of that step: still one step, now with the corrected recipe.
+  expect(amendHistoryStep(written, recipe(12))).toBe(true);
+  expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 12]);
+  expect(state().adjustments.relightSkinReflections).toBe(12);
+  state().undo();
+  expect(state().adjustments.relightSkinReflections).toBe(0);
+  // Not after an undo, another edit or while one is pending.
+  expect(amendHistoryStep(state().history[1], recipe(14))).toBe(false);
+  state().redo();
+  edit(20);
+  expect(amendHistoryStep(state().adjustments, recipe(21))).toBe(false);
+  expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 12]);
 });

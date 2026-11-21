@@ -578,8 +578,10 @@ describe('target colour', () => {
     expect(screen.getByRole('status').textContent).toMatch(
       /^Target reached: ΔE00 0\.\d, measured at the picked point\./
     );
-    // The model's solve and the correction are one interaction: one undo step.
-    expect(dragging).toEqual([true, false]);
+    // Return ends any interaction at once (the photo renders at full
+    // quality); the model's solve comes first, the correction after it.
+    expect(dragging).toEqual([]);
+    expect(changes.length).toBeGreaterThanOrEqual(2);
     cleanStore();
   });
 
@@ -656,7 +658,7 @@ describe('target colour', () => {
     cleanStore();
   });
 
-  it('drops a pending correction when Undo moves the history meanwhile', async () => {
+  it('drops a pending correction when Undo (or any edit) changes the recipe meanwhile', async () => {
     const range = red();
     pickedRenderer(range, 1, [3, 0, 0]);
     const render0 = vi.mocked(invoke).getMockImplementation()!;
@@ -670,8 +672,8 @@ describe('target colour', () => {
     openTool();
     typeInto('Target color as sRGB hex', '#c81e2d');
     await waitFor(() => expect(changes).toHaveLength(1));
-    // Undo while the measurement is on its way: the history moves.
-    act(() => useEditorStore.setState((s) => ({ history: [...s.history], historyIndex: s.historyIndex })));
+    // Undo while the measurement is on its way: the recipe is another one.
+    act(() => useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments } })));
     release();
     await new Promise((r) => setTimeout(r, 30));
     expect(changes).toHaveLength(1);

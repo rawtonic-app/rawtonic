@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
-import { debouncedSetHistory } from '../store/useEditorStore';
+import { amendHistoryStep, debouncedSetHistory } from '../store/useEditorStore';
 import { draftFor, flushSliderDraft } from './sliderDraft';
 import { MAX_COLOR_RANGES, newColorRange, type Adjustments, type ColorRange } from './adjustments';
 import { srgbToOklch } from './oklab';
@@ -419,12 +419,12 @@ const remember = (
  * slider move or an edit elsewhere), for the readout. */
 export async function measureColorTarget(photo: string, layer: string | null, range: ColorRange) {
   const pick = rangePickOf(photo, layer, range);
-  if (!pick || live) return;
+  if (!pick || live || correcting) return;
   const ranges = colorRangesOfLayer(shownRecipe(photo), layer);
   const measured = await measureRanges(photo, layer, pick, ranges);
   // Also when nothing came back: the readout then says it is not measured
   // instead of waiting.
-  if (!live) remember(photo, layer, range.id, measured.recipe, measured.lab, measured.unmeasured);
+  if (!live && !correcting) remember(photo, layer, range.id, measured.recipe, measured.lab, measured.unmeasured);
 }
 
 /** A target being typed (or being solved): one interaction, as a slider
@@ -432,6 +432,8 @@ export async function measureColorTarget(photo: string, layer: string | null, ra
 let live: { photo: string; before: Adjustments; target: ColorTarget | null } | null = null;
 /** The latest target request; an older one's results are dropped. */
 let targetRequest = 0;
+/** Target corrections on their way: the readout's own measurement waits for them. */
+let correcting = 0;
 
 function beginLive(photo: string) {
   if (live) return;
@@ -521,56 +523,70 @@ export async function applyColorTarget(
   const mine = ++targetRequest;
   state.setEditor({ colorTarget: { lab, sampledIn, appliedTo: { photo, layer, rangeId } } });
   const pick = rangePickOf(photo, layer, range);
-  const solveNow = (input?: RangeInput | null) => io.apply(rangesWithTarget(io.ranges(), rangeId, lab, input));
-  if (!pick) {
-    solveNow();
-    endLive();
-    return;
-  }
-  beginLive(photo);
-  // The photo follows at once with the model's solve.
-  solveNow(pick.input);
-  // An undo or redo meanwhile moves the history: the correction then
-  // belongs to an edit that is gone.
-  const { history, historyIndex } = useEditorStore.getState();
+  // The model's solve at once, and the interaction of a typed value (its
+  // redraws) ends: the photo renders at full quality now and the edit is
+  // one undo step, which the measured correction joins below.
+  io.apply(rangesWithTarget(io.ranges(), rangeId, lab, pick?.input));
+  endLive();
+  if (!pick) return;
+  const model = useEditorStore.getState().adjustments;
+  // Another target, another photo or range, or any edit meanwhile (Undo,
+  // Redo, a slider): the correction belongs to a recipe that is gone.
   const stale = () => {
     const now = useEditorStore.getState();
     const applied = now.colorTarget?.appliedTo;
     return (
       mine !== targetRequest ||
-      now.history !== history ||
-      now.historyIndex !== historyIndex ||
+      now.adjustments !== model ||
       now.selectedImage?.path !== photo ||
       applied?.rangeId !== rangeId ||
       applied.layer !== layer
     );
   };
-  // A finished request that a newer one did not replace gives the interaction back.
-  const drop = () => {
-    if (mine === targetRequest) endLive();
-  };
-  const fresh = (await rangeInputFor(photo, layer, range)) ?? pick.input;
-  if (stale()) return drop();
-  const current = io.ranges();
-  if (!current.some((r) => r.id === rangeId)) return drop();
-  const recipes = new Map<ColorRange[], Adjustments>();
-  let unmeasured: string | null = null;
-  const loop = await solveColorTargetMeasured(current, rangeId, lab, fresh, async (ranges) => {
-    if (stale()) return null;
-    const measured = await measureRanges(photo, layer, pick, ranges);
-    recipes.set(ranges, measured.recipe);
-    unmeasured = measured.unmeasured;
-    return measured.lab;
-  });
-  if (stale() || !loop) return drop();
-  const solved = loop.ranges.find((r) => r.id === rangeId)!;
-  // The ranges as they are now (another edit may have come meanwhile).
-  io.apply(io.ranges().map((x) => (x.id === rangeId ? { ...x, ...shiftsOf(solved) } : x)));
-  const recipe = recipes.get(loop.ranges);
-  if (loop.measured && recipe) remember(photo, layer, rangeId, recipe, loop.measured.lab);
-  // Not measurable: the readout says so for the recipe as it is now.
-  else remember(photo, layer, rangeId, shownRecipe(photo), null, unmeasured);
-  endLive();
+  correcting += 1;
+  let measuredHere = false;
+  try {
+    const fresh = (await rangeInputFor(photo, layer, range)) ?? pick.input;
+    if (stale()) return;
+    const current = io.ranges();
+    if (!current.some((r) => r.id === rangeId)) return;
+    const recipes = new Map<ColorRange[], Adjustments>();
+    let unmeasured: string | null = null;
+    const loop = await solveColorTargetMeasured(current, rangeId, lab, fresh, async (ranges) => {
+      if (stale()) return null;
+      const measured = await measureRanges(photo, layer, pick, ranges);
+      recipes.set(ranges, measured.recipe);
+      unmeasured = measured.unmeasured;
+      return measured.lab;
+    });
+    if (stale() || !loop) return;
+    const solved = loop.ranges.find((r) => r.id === rangeId)!;
+    const own = current.find((r) => r.id === rangeId)!;
+    if (
+      shiftsOf(solved).hueShift !== own.hueShift ||
+      solved.saturation !== own.saturation ||
+      solved.lightnessShift !== own.lightnessShift
+    ) {
+      io.apply(current.map((x) => (x.id === rangeId ? { ...x, ...shiftsOf(solved) } : x)));
+      // Written already as its own step (the first measurement waited for
+      // the full-resolution source): the correction replaces it. Still
+      // pending, the edit above joined it.
+      amendHistoryStep(model, useEditorStore.getState().adjustments);
+    }
+    const recipe = recipes.get(loop.ranges);
+    if (loop.measured && recipe) remember(photo, layer, rangeId, recipe, loop.measured.lab);
+    // Not measurable: the readout says so for the recipe as it is now.
+    else remember(photo, layer, rangeId, shownRecipe(photo), null, unmeasured);
+    measuredHere = true;
+  } finally {
+    correcting -= 1;
+  }
+  // Dropped on the way (an edit meanwhile): the readout measures the recipe
+  // as it is, as after any edit.
+  if (!measuredHere && !correcting) {
+    const now = io.ranges().find((r) => r.id === rangeId);
+    if (now && useEditorStore.getState().selectedImage?.path === photo) void measureColorTarget(photo, layer, now);
+  }
 }
 
 const shiftsOf = (r: ColorRange) => ({
