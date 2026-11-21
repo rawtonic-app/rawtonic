@@ -297,22 +297,15 @@ impl<'a> Manifest<'a> {
         ));
 
         if let Some(author) = &plan.author {
+            // A JSON-LD assertion (C2PA: `stds.schema-org.CreativeWork`).
             let label = "stds.schema-org.CreativeWork";
-            let work = Cbor::map([
-                ("@context", Cbor::text("http://schema.org/")),
-                ("@type", Cbor::text("CreativeWork")),
-                (
-                    "author",
-                    Cbor::Array(vec![Cbor::map([
-                        ("@type", Cbor::text("Person")),
-                        ("name", Cbor::text(author)),
-                    ])]),
-                ),
-            ]);
-            assertions.push((
-                label,
-                jumbf::cbor_superbox(jumbf::CBOR, label, &work.encode()),
-            ));
+            let work = serde_json::json!({
+                "@context": "http://schema.org/",
+                "@type": "CreativeWork",
+                "author": [{"@type": "Person", "name": author}],
+            });
+            let json = serde_json::to_vec(&work).expect("a JSON-LD assertion");
+            assertions.push((label, jumbf::json_superbox(label, &json)));
         }
 
         let hash_label = "c2pa.hash.data";

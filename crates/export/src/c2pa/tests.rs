@@ -58,6 +58,13 @@ fn content(superbox: &[u8]) -> C {
     ciborium::from_reader(&cbor[8..]).unwrap()
 }
 
+/// A JSON assertion's content.
+fn json_content(superbox: &[u8]) -> Value {
+    let (kind, json) = boxes(&superbox[8..])[1];
+    assert_eq!(&kind, b"json");
+    serde_json::from_slice(&json[8..]).unwrap()
+}
+
 fn get<'a>(map: &'a C, key: &str) -> &'a C {
     map.as_map()
         .unwrap()
@@ -281,7 +288,15 @@ fn signed_jpeg_validates_and_binds_every_byte() {
 
     // No private key in the file: the PKCS#8's ECPrivateKey scalar
     // (OCTET STRING of 32 bytes; its public key is in the certificate).
-    let key = std::fs::read(dir.path().join("signing-key.p8")).unwrap();
+    let record: Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("signing-identity.json")).unwrap())
+            .unwrap();
+    let key = {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .decode(record["key"].as_str().unwrap())
+            .unwrap()
+    };
     let at = key.windows(2).position(|w| w == [0x04, 0x20]).unwrap() + 2;
     let scalar = &key[at..at + 32];
     assert!(!signed.windows(32).any(|w| w == scalar));
@@ -361,9 +376,9 @@ fn the_author_is_named_only_when_asked() {
     let signed = sign_jpeg(&jpeg, &with, &identity).unwrap();
     let store = jpeg_store(&signed);
     validate(&signed, &store);
-    let work = content(find(&store, "stds.schema-org.CreativeWork").unwrap());
-    let author = &get(&work, "author").as_array().unwrap()[0];
-    assert_eq!(get(author, "name").as_text(), Some("Ada Example"));
+    let work = json_content(find(&store, "stds.schema-org.CreativeWork").unwrap());
+    assert_eq!(work["@type"], "CreativeWork");
+    assert_eq!(work["author"][0]["name"], "Ada Example");
 }
 
 #[test]
@@ -483,6 +498,14 @@ fn c2patool_validates_signed_files() {
             rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI,
             "{name}"
         );
+        // The author as the reference SDK reads it.
+        let work = manifest["assertions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["label"] == "stds.schema-org.CreativeWork")
+            .unwrap_or_else(|| panic!("{name}: no CreativeWork: {manifest:#}"));
+        assert_eq!(work["data"]["author"][0]["name"], "Ada Example", "{name}");
         assert_eq!(manifest["ingredients"][0]["title"], "DSC0001.ARW");
         assert_eq!(manifest["ingredients"][0]["relationship"], "parentOf");
         assert!(manifest.get("thumbnail").is_none(), "{name}: no thumbnail");
@@ -625,9 +648,8 @@ mod export {
             let marking = rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI.as_bytes();
             let at = file.windows(marking.len()).position(|w| w == marking);
             assert!(at.is_some(), "{extension}: the XMP marking");
-            let author = content(find(&store, "stds.schema-org.CreativeWork").unwrap());
-            let name = get(&get(&author, "author").as_array().unwrap()[0], "name").clone();
-            assert_eq!(name.as_text(), Some("Ada Example"));
+            let work = json_content(find(&store, "stds.schema-org.CreativeWork").unwrap());
+            assert_eq!(work["author"][0]["name"], "Ada Example");
         }
     }
 
@@ -648,6 +670,74 @@ mod export {
         assert!(saved.get("provenance").is_none(), "{saved}");
         let saved = serde_json::to_value(settings(true)).unwrap();
         assert_eq!(saved["provenance"], json!({"includeAuthor": true}));
+    }
+
+    #[test]
+    fn the_manifest_describes_the_main_file_and_finds_the_embedded_author() {
+        let (_dir, identity) = identity();
+        let recipe = json!({"masks": [{"visible": true, "subMasks": []}]});
+        let written = std::rc::Rc::new(RefCell::new(None));
+        let into = written.clone();
+        let write = move |_: &Path, _: &str, encoded: EncodedExport<'_>| {
+            *into.borrow_mut() = Some(encoded.into_bytes()?);
+            Ok(())
+        };
+        // A photo outside any library: the author is its EXIF Artist.
+        let exif = || {
+            Some(
+                [("Artist".to_string(), "Exif Person".to_string())]
+                    .into_iter()
+                    .collect(),
+            )
+        };
+        for export_masks in [false, true] {
+            let mut settings = settings(true);
+            settings.export_masks = export_masks;
+            save_rendered_export(
+                render(),
+                "/photos/DSC0001.ARW",
+                &recipe,
+                &settings,
+                &ExportOutput {
+                    path: Path::new("/out/photo.jpg"),
+                    format: "jpg",
+                    exif_sidecar: &exif,
+                    catalog: &|| None,
+                    enlarger: None,
+                    write: &write,
+                    provenance: Some(&identity),
+                },
+                &|| Ok(()),
+            )
+            .unwrap();
+            let file = written.take().unwrap();
+            let store = jpeg_store(&file);
+            let actions = action_names(&validate(&file, &store));
+            // With mask files the main file is rendered without its layers.
+            assert_eq!(
+                actions.contains(&"c2pa.edited".to_string()),
+                !export_masks,
+                "{actions:?}"
+            );
+            let work = json_content(find(&store, "stds.schema-org.CreativeWork").unwrap());
+            assert_eq!(work["author"][0]["name"], "Exif Person");
+        }
+    }
+
+    #[test]
+    fn a_queued_export_signs_only_with_its_identity() {
+        let (_dir, identity) = identity();
+        let mut settings = settings(true);
+        settings.provenance.as_mut().unwrap().signer = Some("another".to_string());
+        let (result, file) = export("jpg", &settings, Some(&identity), &json!({}));
+        assert_eq!(
+            result.unwrap_err(),
+            crate::export_processing::PROVENANCE_SIGNER_CHANGED
+        );
+        assert!(file.is_none());
+        settings.provenance.as_mut().unwrap().signer = Some(identity.fingerprint());
+        let (result, _) = export("jpg", &settings, Some(&identity), &json!({}));
+        result.unwrap();
     }
 
     #[test]

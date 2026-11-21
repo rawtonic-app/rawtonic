@@ -15,6 +15,38 @@ export interface ProvenanceIdentity {
   validUntil: string;
   algorithm: string;
   fingerprint: string;
+  /** Not valid now: exports cannot be signed with it. */
+  expired: boolean;
+}
+
+/**
+ * The signing identity, read once an export wants provenance (`undefined`
+ * until read, `null` for none). The Export panel holds it: its section shows
+ * and changes it, and every planned recipe is checked against it.
+ */
+export function useProvenanceIdentity(wanted: boolean) {
+  const [identity, setIdentity] = useState<ProvenanceIdentity | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!wanted || identity !== undefined) return;
+    let active = true;
+    invoke<ProvenanceIdentity | null>(Invokes.ProvenanceIdentity)
+      .then((info) => active && setIdentity(info ?? null))
+      .catch((e) => {
+        if (!active) return;
+        setIdentity(null);
+        setError(String(e));
+      });
+    return () => {
+      active = false;
+    };
+  }, [wanted, identity]);
+  return { identity, setIdentity, error };
+}
+
+/** Whether an export of `draft` can be signed with `identity` (the panel's preflight; the queue checks again). */
+export function provenanceReady(draft: RecipeDraft, identity: ProvenanceIdentity | null | undefined): boolean {
+  return !draft.provenance || (!!identity && !identity.expired && provenanceFormat(draft.format));
 }
 
 interface ManifestAction {
@@ -45,8 +77,11 @@ interface Props {
   path: string | null;
   settings: ExportSettings;
   library: unknown;
-  /** Whether the form can export with its provenance setting. */
-  onReady: (ready: boolean) => void;
+  /** The signing identity (`useProvenanceIdentity`). */
+  identity: ProvenanceIdentity | null | undefined;
+  setIdentity: (identity: ProvenanceIdentity | null) => void;
+  /** Why the identity could not be read. */
+  loadError: string | null;
 }
 
 const date = (rfc3339: string) => {
@@ -60,34 +95,27 @@ const date = (rfc3339: string) => {
  * shows what the manifest of the first photo holds before anything is
  * exported. Nothing is sent anywhere.
  */
-export default function StudioExportProvenance({ draft, set, disabled, path, settings, library, onReady }: Props) {
+export default function StudioExportProvenance({
+  draft,
+  set,
+  disabled,
+  path,
+  settings,
+  library,
+  identity,
+  setIdentity,
+  loadError
+}: Props) {
   const { t } = useTranslation();
-  const [identity, setIdentity] = useState<ProvenanceIdentity | null | undefined>(undefined);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setError] = useState<string | null>(null);
+  const error = actionError ?? loadError;
   const [working, setWorking] = useState(false);
   const [signer, setSigner] = useState('');
   const [importing, setImporting] = useState<{ file: string; password: string } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [preview, setPreview] = useState<{ request: string; preview: ProvenancePreview } | null>(null);
 
-  useEffect(() => {
-    if (!draft.provenance || identity !== undefined) return;
-    let active = true;
-    invoke<ProvenanceIdentity | null>(Invokes.ProvenanceIdentity)
-      .then((info) => active && setIdentity(info ?? null))
-      .catch((e) => {
-        if (!active) return;
-        setIdentity(null);
-        setError(String(e));
-      });
-    return () => {
-      active = false;
-    };
-  }, [draft.provenance, identity]);
-
   const formatOk = provenanceFormat(draft.format);
-  const ready = !draft.provenance || (!!identity && formatOk);
-  useEffect(() => onReady(ready), [ready, onReady]);
 
   const request = JSON.stringify({
     path,
@@ -194,6 +222,11 @@ export default function StudioExportProvenance({ draft, set, disabled, path, set
                           until: date(identity.validUntil)
                         })}
                   </p>
+                  {identity.expired && (
+                    <p className="studio-export-error" role="alert">
+                      {t('studio.export.provenance.expired', { until: date(identity.validUntil) })}
+                    </p>
+                  )}
                   {identity.kind === 'generated' && <small>{t('studio.export.provenance.unknownSigner')}</small>}
                   {confirmRemove ? (
                     <div role="group" aria-label={t('studio.export.provenance.remove')}>

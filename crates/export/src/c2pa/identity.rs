@@ -2,11 +2,11 @@
 //! generated with its own local certificate (verifiers show an unknown
 //! signer), or a certificate the user imported from a PKCS#12 file.
 //!
-//! Stored in one folder the app gives (its data folder): the private key as
-//! PKCS#8 (`signing-key.p8`, readable by the user's account only), the
-//! certificate chain (`signing-chain.pem`) and which kind it is
-//! (`signing-identity.json`). The key never goes into recipes, the catalog,
-//! logs or reports; only [`remove`] deletes it, on the user's request.
+//! Stored as one record in a folder the app gives (its data folder):
+//! `signing-identity.json`, readable by the user's account only, with which
+//! kind it is, the private key (PKCS#8) and the certificate chain, replaced
+//! as a whole. The key never goes into recipes, the catalog, logs or
+//! reports; only [`remove`] deletes it, on the user's request.
 
 use std::path::{Path, PathBuf};
 
@@ -17,9 +17,7 @@ use x509_parser::prelude::{FromDer, X509Certificate};
 
 use super::der;
 
-const KEY_FILE: &str = "signing-key.p8";
-const CHAIN_FILE: &str = "signing-chain.pem";
-const KIND_FILE: &str = "signing-identity.json";
+const IDENTITY_FILE: &str = "signing-identity.json";
 
 /// EKUs C2PA accepts for a claim signer (C2PA 2.x, "Certificate profile").
 const EMAIL_PROTECTION: &str = "1.3.6.1.5.5.7.3.4";
@@ -50,11 +48,19 @@ pub struct IdentityInfo {
     pub algorithm: String,
     /// SHA-256 of the signing certificate (hex), to tell identities apart.
     pub fingerprint: String,
+    /// The certificate is not valid now: exports cannot be signed with it.
+    pub expired: bool,
 }
 
+/// The stored record (never shown or logged).
 #[derive(Serialize, Deserialize)]
-struct KindRecord {
+#[serde(rename_all = "camelCase")]
+struct Record {
     kind: IdentityKind,
+    /// The private key, PKCS#8 DER in base64.
+    key: String,
+    /// The certificates, the signer's first, in PEM.
+    chain: String,
 }
 
 enum Key {
@@ -178,8 +184,34 @@ impl SigningIdentity {
             issuer: name(cert.issuer()),
             valid_until: until,
             algorithm: self.algorithm().name().to_string(),
-            fingerprint: rawtonic_fs::sha256_hex(&self.chain[0]),
+            fingerprint: self.fingerprint(),
+            expired: !cert.validity().is_valid(),
         })
+    }
+
+    /// SHA-256 of the signing certificate (hex).
+    pub fn fingerprint(&self) -> String {
+        rawtonic_fs::sha256_hex(&self.chain[0])
+    }
+
+    /// Whether manifests can be signed now: the signing certificate is
+    /// valid at this moment (verifiers reject a signature made outside it).
+    pub fn check_usable(&self) -> Result<(), String> {
+        let (_, cert) = X509Certificate::from_der(&self.chain[0])
+            .map_err(|e| format!("The signing certificate cannot be read: {e}"))?;
+        if cert.validity().is_valid() {
+            return Ok(());
+        }
+        let at = |t: x509_parser::time::ASN1Time| {
+            jiff::Timestamp::from_second(t.timestamp())
+                .map(|t| t.to_string())
+                .unwrap_or_default()
+        };
+        Err(format!(
+            "The signing certificate is valid from {} to {}, not now: import a renewed certificate or make a new one in the Export panel's Provenance section.",
+            at(cert.validity().not_before),
+            at(cert.validity().not_after)
+        ))
     }
 }
 
@@ -272,28 +304,36 @@ fn check_signing_certificate(chain: &[Vec<u8>], key: &Key) -> Result<(), String>
     Ok(())
 }
 
-/// The identity stored in `dir`, if there is one.
+/// The identity stored in `dir`, if there is one. A record whose key does
+/// not belong to its certificate is refused.
 pub fn load(dir: &Path) -> Result<Option<SigningIdentity>, String> {
-    let key_path = dir.join(KEY_FILE);
-    if !key_path.exists() {
-        return Ok(None);
-    }
-    let unreadable = |e: std::io::Error| format!("The signing identity cannot be read: {e}");
-    let pkcs8 = std::fs::read(&key_path).map_err(unreadable)?;
-    let pem = std::fs::read_to_string(dir.join(CHAIN_FILE)).map_err(unreadable)?;
-    let kind: KindRecord =
-        serde_json::from_slice(&std::fs::read(dir.join(KIND_FILE)).map_err(unreadable)?)
-            .map_err(|e| format!("The signing identity cannot be read: {e}"))?;
+    let path = dir.join(IDENTITY_FILE);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("The signing identity cannot be read: {e}")),
+    };
+    let record: Record = serde_json::from_str(&text)
+        .map_err(|_| "The signing identity cannot be read.".to_string())?;
+    use base64::Engine;
+    let pkcs8 = base64::engine::general_purpose::STANDARD
+        .decode(record.key.as_bytes())
+        .map_err(|_| "The signing identity cannot be read.".to_string())?;
     let rng = SystemRandom::new();
     let key = key_from_pkcs8(&pkcs8, &rng)?;
-    let chain = pem_certificates(&pem)?;
-    if chain.is_empty() {
-        return Err("The signing identity has no certificate.".to_string());
+    let chain = pem_certificates(&record.chain)?;
+    let first = chain
+        .first()
+        .ok_or("The signing identity has no certificate.")?;
+    let (_, cert) = X509Certificate::from_der(first)
+        .map_err(|e| format!("The signing certificate cannot be read: {e}"))?;
+    if cert.public_key().subject_public_key.data.as_ref() != public_key(&key) {
+        return Err("The signing identity's key does not belong to its certificate.".to_string());
     }
     Ok(Some(SigningIdentity {
         key,
         chain,
-        kind: kind.kind,
+        kind: record.kind,
         rng,
     }))
 }
@@ -305,15 +345,11 @@ pub fn info(dir: &Path) -> Result<Option<IdentityInfo>, String> {
 
 /// Deletes the identity in `dir` (the user's request). Whether there was one.
 pub fn remove(dir: &Path) -> Result<bool, String> {
-    let mut removed = false;
-    for name in [KEY_FILE, CHAIN_FILE, KIND_FILE] {
-        match std::fs::remove_file(dir.join(name)) {
-            Ok(()) => removed = true,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(format!("The signing identity could not be removed: {e}")),
-        }
+    match std::fs::remove_file(dir.join(IDENTITY_FILE)) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(format!("The signing identity could not be removed: {e}")),
     }
-    Ok(removed)
 }
 
 /// Generates a key and a local certificate for it, naming `signer`, and
@@ -428,14 +464,19 @@ fn store(
 ) -> Result<IdentityInfo, String> {
     let failed = |e: anyhow::Error| format!("The signing identity could not be saved: {e:#}");
     private_dir(dir).map_err(|e| failed(e.into()))?;
-    // `atomic_write`'s temporary file is readable by the user only, and a
-    // new file keeps that; an existing key file is replaced the same way.
-    let key_path = dir.join(KEY_FILE);
-    remove_if_shared(&key_path).map_err(|e| failed(e.into()))?;
-    rawtonic_fs::atomic_write(&key_path, pkcs8).map_err(failed)?;
-    rawtonic_fs::atomic_write(&dir.join(CHAIN_FILE), pem(chain)).map_err(failed)?;
-    let record = serde_json::to_vec(&KindRecord { kind }).expect("a kind record");
-    rawtonic_fs::atomic_write(&dir.join(KIND_FILE), record).map_err(failed)?;
+    use base64::Engine;
+    let record = Record {
+        kind,
+        key: base64::engine::general_purpose::STANDARD.encode(pkcs8),
+        chain: pem(chain),
+    };
+    let bytes = serde_json::to_vec(&record).expect("an identity record");
+    // One file, replaced whole: `atomic_write`'s temporary file is readable
+    // by the user only and a new file keeps that; a replaced one keeps its
+    // permissions, so a record others can read is removed first.
+    let path = dir.join(IDENTITY_FILE);
+    remove_if_shared(&path).map_err(|e| failed(e.into()))?;
+    rawtonic_fs::atomic_write(&path, bytes).map_err(failed)?;
     load(dir)?
         .ok_or("The signing identity was not saved.")?
         .info()
@@ -452,7 +493,7 @@ fn private_dir(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// An existing key file others can read is removed before the new key is
+/// An existing record others can read is removed before the new one is
 /// written (an atomic replace keeps the replaced file's permissions).
 fn remove_if_shared(path: &PathBuf) -> std::io::Result<()> {
     #[cfg(unix)]
@@ -583,6 +624,17 @@ fn pem_certificates(pem: &str) -> Result<Vec<Vec<u8>>, String> {
 mod tests {
     use super::*;
 
+    /// The key (PKCS#8) and chain of the record in `dir`.
+    fn stored(dir: &Path) -> (Vec<u8>, Vec<Vec<u8>>) {
+        use base64::Engine;
+        let record: Record =
+            serde_json::from_slice(&std::fs::read(dir.join(IDENTITY_FILE)).unwrap()).unwrap();
+        let key = base64::engine::general_purpose::STANDARD
+            .decode(record.key.as_bytes())
+            .unwrap();
+        (key, pem_certificates(&record.chain).unwrap())
+    }
+
     #[test]
     fn generated_identity_is_private_and_valid_for_c2pa() {
         let dir = tempfile::tempdir().unwrap();
@@ -596,7 +648,7 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-            assert_eq!(mode(&store_dir.join(KEY_FILE)), 0o600);
+            assert_eq!(mode(&store_dir.join(IDENTITY_FILE)), 0o600);
             assert_eq!(mode(&store_dir), 0o700);
         }
         let identity = load(&store_dir).unwrap().unwrap();
@@ -622,7 +674,9 @@ mod tests {
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
-        assert_eq!(files.len(), 3, "{files:?}");
+        assert_eq!(files, [IDENTITY_FILE], "{files:?}");
+        assert!(!info.expired);
+        identity.check_usable().unwrap();
         let message = b"claim";
         let sig = identity.sign(message).unwrap();
         assert_eq!(sig.len(), identity.signature_len());
@@ -645,14 +699,14 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let dir = tempfile::tempdir().unwrap();
-            std::fs::write(dir.path().join(KEY_FILE), b"old").unwrap();
+            std::fs::write(dir.path().join(IDENTITY_FILE), b"old").unwrap();
             std::fs::set_permissions(
-                dir.path().join(KEY_FILE),
+                dir.path().join(IDENTITY_FILE),
                 std::fs::Permissions::from_mode(0o644),
             )
             .unwrap();
             generate(dir.path(), "").unwrap();
-            let mode = std::fs::metadata(dir.path().join(KEY_FILE))
+            let mode = std::fs::metadata(dir.path().join(IDENTITY_FILE))
                 .unwrap()
                 .permissions()
                 .mode();
@@ -690,10 +744,7 @@ mod tests {
     fn imports_a_pkcs12_certificate_and_refuses_wrong_ones() {
         let made = tempfile::tempdir().unwrap();
         let generated = generate(made.path(), "Studio Example").unwrap();
-        let key = std::fs::read(made.path().join(KEY_FILE)).unwrap();
-        let chain =
-            pem_certificates(&std::fs::read_to_string(made.path().join(CHAIN_FILE)).unwrap())
-                .unwrap();
+        let (key, chain) = stored(made.path());
         use p12_keystore::EncryptionAlgorithm::*;
         for algorithm in [PbeWithHmacSha256AndAes256, PbeWithShaAnd3KeyTripleDesCbc] {
             let file = made.path().join("signer.p12");
@@ -715,7 +766,7 @@ mod tests {
         // A certificate of another key is refused, and nothing is stored.
         let other = tempfile::tempdir().unwrap();
         generate(other.path(), "Other").unwrap();
-        let other_key = std::fs::read(other.path().join(KEY_FILE)).unwrap();
+        let (other_key, _) = stored(other.path());
         let file = made.path().join("mismatch.p12");
         std::fs::write(
             &file,
@@ -731,6 +782,63 @@ mod tests {
         let rng = SystemRandom::new();
         let key = key_from_pkcs8(&key, &rng).unwrap();
         assert!(check_signing_certificate(&ca_only, &key).is_err());
+    }
+
+    #[test]
+    fn a_record_whose_key_is_not_its_certificates_is_refused() {
+        let one = tempfile::tempdir().unwrap();
+        let two = tempfile::tempdir().unwrap();
+        generate(one.path(), "One").unwrap();
+        generate(two.path(), "Two").unwrap();
+        let (key_two, _) = stored(two.path());
+        let (_, chain_one) = stored(one.path());
+        let mixed = tempfile::tempdir().unwrap();
+        // As if a replacement had been cut short between key and chain.
+        let record = Record {
+            kind: IdentityKind::Generated,
+            key: {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD.encode(&key_two)
+            },
+            chain: pem(&chain_one),
+        };
+        std::fs::write(
+            mixed.path().join(IDENTITY_FILE),
+            serde_json::to_vec(&record).unwrap(),
+        )
+        .unwrap();
+        let error = load(mixed.path()).unwrap_err();
+        assert!(error.contains("does not belong"), "{error}");
+    }
+
+    #[test]
+    fn an_expired_certificate_cannot_sign() {
+        let rng = SystemRandom::new();
+        let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
+        let key = EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref(), &rng).unwrap();
+        let name = name("Expired");
+        let day = jiff::SignedDuration::from_hours(24);
+        let now = jiff::Timestamp::now();
+        let cert = certificate(
+            &rng,
+            &key,
+            &name,
+            &name,
+            key.public_key().as_ref(),
+            (now - day * 10, now - day),
+            &[],
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let info = store(dir.path(), pkcs8.as_ref(), &[cert], IdentityKind::Imported).unwrap();
+        assert!(info.expired);
+        let error = load(dir.path())
+            .unwrap()
+            .unwrap()
+            .check_usable()
+            .unwrap_err();
+        assert!(error.contains("not now"), "{error}");
     }
 
     fn info_matches(dir: &Path, want: &IdentityInfo) -> bool {

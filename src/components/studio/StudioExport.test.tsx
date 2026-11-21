@@ -986,3 +986,25 @@ it('accepts a typed lossless JXL quality of 100', () => {
   fireEvent.change(input, { target: { value: '100' } });
   expect(input.value).toBe('100');
 });
+
+it('does not start a ticked recipe that asks for provenance without a signing certificate', async () => {
+  const signed = presetFromDraft(
+    { ...DEFAULT_RECIPE_DRAFT, format: 'jpg', where: 'output', provenance: true, provenanceAuthor: false },
+    'signed',
+    'Signed'
+  );
+  useSettingsStore.setState({
+    appSettings: { exportPresets: [signed] } as unknown as AppSettings,
+    handleSettingsChange: vi.fn(async () => {})
+  });
+  useLibraryStore.setState({ sessionDirectory: '/job' });
+  render(<StudioExport />);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Export with Signed' }));
+  // The default mock answers `provenance_identity` with no identity.
+  const alert = await screen.findByText(/Provenance \(C2PA\) cannot sign Signed/);
+  expect(alert).toBeTruthy();
+  const submit = screen.getByRole('button', { name: 'Export with Signed' }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
+  fireEvent.click(submit);
+  expect(exported()).toHaveLength(0);
+});

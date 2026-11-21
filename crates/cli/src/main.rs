@@ -339,8 +339,7 @@ struct ExportArgs {
     super_resolution: bool,
     /// Sign a provenance manifest (C2PA) into each JPEG, PNG or TIFF with the
     /// signing identity in DIR, as the app keeps it (its data folder's
-    /// `provenance/`: `signing-key.p8`, `signing-chain.pem`,
-    /// `signing-identity.json`).
+    /// `provenance/`, holding `signing-identity.json`).
     #[arg(long, value_name = "DIR")]
     provenance_identity: Option<PathBuf>,
     /// With --provenance-identity: name the photo's creator as author.
@@ -1181,6 +1180,7 @@ fn export(args: ExportArgs) -> Result<()> {
         provenance: provenance_identity.as_ref().map(|_| {
             rawtonic_export::export_processing::ProvenanceSettings {
                 include_author: provenance_author,
+                signer: None,
             }
         }),
     };

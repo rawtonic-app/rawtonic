@@ -10,6 +10,8 @@ pub const CLAIM: [u8; 16] = uuid(*b"c2cl");
 pub const SIGNATURE: [u8; 16] = uuid(*b"c2cs");
 /// A CBOR content box.
 pub const CBOR: [u8; 16] = uuid(*b"cbor");
+/// A JSON content box (JSON-LD assertions such as `stds.schema-org.CreativeWork`).
+pub const JSON: [u8; 16] = uuid(*b"json");
 
 /// The JUMBF type UUID `XXXX0011-0010-8000-00AA00389B71` of a four-letter code.
 const fn uuid(code: [u8; 4]) -> [u8; 16] {
@@ -47,6 +49,11 @@ pub fn superbox(kind: [u8; 16], label: &str, children: &[Vec<u8>]) -> Vec<u8> {
 /// An assertion or claim superbox holding one CBOR box.
 pub fn cbor_superbox(kind: [u8; 16], label: &str, cbor: &[u8]) -> Vec<u8> {
     superbox(kind, label, &[boxed(b"cbor", cbor)])
+}
+
+/// An assertion superbox holding one JSON box.
+pub fn json_superbox(label: &str, json: &[u8]) -> Vec<u8> {
+    superbox(JSON, label, &[boxed(b"json", json)])
 }
 
 /// The hash a hashed URI gives for a superbox: SHA-256 of its contents

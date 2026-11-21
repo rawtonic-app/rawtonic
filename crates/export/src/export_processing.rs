@@ -196,6 +196,11 @@ pub struct ProvenanceSettings {
     /// Name the photo's creator (its metadata) as the author.
     #[serde(default)]
     pub include_author: bool,
+    /// The fingerprint (SHA-256 of the signing certificate) of the identity
+    /// the export was queued with: a job never signs with another one
+    /// (`SigningIdentity::fingerprint`). None: the current identity (the CLI).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signer: Option<String>,
 }
 
 impl ExportSettings {
@@ -1744,11 +1749,15 @@ pub fn provenance_format_error(extension: &str) -> Option<String> {
 }
 
 /// The manifest an export of `source_path_str` gets (its recipe's
-/// `provenance`): the author from the photo's metadata when asked.
+/// `provenance`): the actions of the adjustments its main file renders
+/// ([`main_export_adjustments`]: mask layers that go to their own files are
+/// not in it), and the author when asked: the creator its metadata embeds
+/// ([`crate::exif_processing::export_rights`]).
 pub fn provenance_plan(
     source_path_str: &str,
     js_adjustments: &Value,
     export_settings: &ExportSettings,
+    exif_sidecar: &dyn Fn() -> Option<ExifMap>,
     catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
     changes: crate::c2pa::OutputChanges,
 ) -> crate::c2pa::ManifestPlan {
@@ -1756,10 +1765,47 @@ pub fn provenance_plan(
         .provenance
         .as_ref()
         .filter(|p| p.include_author)
-        .and_then(|_| catalog())
-        .map(|metadata| metadata.creator);
-    crate::c2pa::plan_for(source_path_str, js_adjustments, changes, author.as_deref())
+        .map(|_| {
+            crate::exif_processing::export_rights(source_path_str, exif_sidecar, catalog).creator
+        });
+    crate::c2pa::plan_for(
+        source_path_str,
+        &main_export_adjustments(js_adjustments, export_settings),
+        changes,
+        author.as_deref(),
+    )
 }
+
+/// The identity `output` signs a file of `extension` with, when the export
+/// asks for a manifest: Err when it cannot be signed (no identity, an expired
+/// certificate, another identity than the job was queued with, a format
+/// without manifests). Ok(None) when no manifest is asked for.
+pub fn provenance_signer<'a>(
+    export_settings: &ExportSettings,
+    output: &ExportOutput<'a>,
+    extension: &str,
+) -> Result<Option<&'a crate::c2pa::SigningIdentity>, String> {
+    let Some(provenance) = &export_settings.provenance else {
+        return Ok(None);
+    };
+    let identity = output
+        .provenance
+        .ok_or_else(|| PROVENANCE_NEEDS_IDENTITY.to_string())?;
+    if let Some(error) = provenance_format_error(extension) {
+        return Err(error);
+    }
+    if let Some(signer) = &provenance.signer
+        && *signer != identity.fingerprint()
+    {
+        return Err(PROVENANCE_SIGNER_CHANGED.to_string());
+    }
+    identity.check_usable()?;
+    Ok(Some(identity))
+}
+
+/// Why a queued export no longer signs: its signing certificate was replaced
+/// or removed after it was queued.
+pub const PROVENANCE_SIGNER_CHANGED: &str = "The signing certificate was replaced after this export was queued, so it is not signed with another one: export again to sign with the current certificate.";
 
 /// `encoded` with the provenance manifest its recipe asks for, signed in
 /// after every other byte of the file (EXIF, XMP, ICC are written by then):
@@ -1774,19 +1820,14 @@ fn with_provenance<'a>(
     output: &ExportOutput<'a>,
     changes: crate::c2pa::OutputChanges,
 ) -> Result<EncodedExport<'a>, String> {
-    if export_settings.provenance.is_none() {
+    let Some(identity) = provenance_signer(export_settings, output, extension)? else {
         return Ok(encoded);
-    }
-    let identity = output
-        .provenance
-        .ok_or_else(|| PROVENANCE_NEEDS_IDENTITY.to_string())?;
-    if let Some(error) = provenance_format_error(extension) {
-        return Err(error);
-    }
+    };
     let plan = provenance_plan(
         source_path_str,
         js_adjustments,
         export_settings,
+        output.exif_sidecar,
         output.catalog,
         changes,
     );
@@ -2520,7 +2561,12 @@ pub fn save_group_rendering(
     own: usize,
 ) -> Result<Vec<GroupRender>, String> {
     let render_all = || render_prepared_exports(prepared, env, debug_tag, outputs, &mut []);
-    if own >= outputs.len() || !streams_into_file(prepared, export_settings, output) {
+    // A file that cannot be signed fails on its own when it is saved
+    // (`save_rendered_export`), not the whole group's render.
+    if own >= outputs.len()
+        || !streams_into_file(prepared, export_settings, output)
+        || provenance_signer(export_settings, output, &output_extension(output)).is_err()
+    {
         return render_all().map(|images| images.into_iter().map(GroupRender::Image).collect());
     }
     let mut rendered = None;

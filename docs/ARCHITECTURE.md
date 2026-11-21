@@ -613,8 +613,9 @@ off by default): its own CBOR/JUMBF/COSE_Sign1 writer on `ring` (no c2pa-rs: its
 advisory gates), JPEG APP11, PNG `caBX` and TIFF tag 0xCD41 (`tiff_exif::append_reserved_tag`), signed after every other write of
 the file (`with_provenance` in `export_processing`; a streamed TIFF once it is written); `identity` keeps the signing key
 and certificate in a folder the app gives (`src-tauri/src/provenance.rs`: the app data folder's `provenance/`, and the
-Export panel's commands). `ExportOutput::provenance` carries the loaded identity; the CLI has none
-(`FileExporter::with_provenance` for callers that do).
+Export panel's commands). `ExportOutput::provenance` carries the loaded identity (`FileExporter::with_provenance`, the CLI's
+`--provenance-identity`); the app checks and pins it when a job is queued (`provenance::pin_signers` from
+`export_queue::enqueue_all`).
 
 
 #### Layering check and colour pipeline

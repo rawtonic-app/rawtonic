@@ -38,6 +38,62 @@ pub(crate) fn identity_for_export(app_handle: &AppHandle) -> Option<Arc<SigningI
     }
 }
 
+/// Checks, when a job is queued, that each export asking for a manifest can
+/// be signed now (the current identity, a usable certificate, a format that
+/// takes it) and pins the identity's fingerprint to it, so the job never
+/// signs with a certificate the user did not see when queuing it
+/// (`PROVENANCE_SIGNER_CHANGED`). Nothing is queued on an error. Covers
+/// every way exports are queued (the Export panel, the File menu's recipes).
+pub(crate) fn pin_signers(
+    app_handle: &AppHandle,
+    requests: &mut [crate::export_queue::ExportRequest],
+) -> Result<(), String> {
+    if requests
+        .iter()
+        .all(|request| request.export_settings.provenance.is_none())
+    {
+        return Ok(());
+    }
+    let identity = c2pa::identity::load(&identity_dir(app_handle)?)?;
+    for request in requests {
+        pin_signer(
+            &mut request.export_settings,
+            &request.output_format,
+            identity.as_ref(),
+        )?;
+    }
+    Ok(())
+}
+
+/// [`pin_signers`] for one export's settings.
+fn pin_signer(
+    settings: &mut ExportSettings,
+    output_format: &str,
+    identity: Option<&SigningIdentity>,
+) -> Result<(), String> {
+    let Some(provenance) = settings.provenance.as_mut() else {
+        return Ok(());
+    };
+    let identity = identity
+        .ok_or_else(|| rawtonic_export::export_processing::PROVENANCE_NEEDS_IDENTITY.to_string())?;
+    if let Some(error) = rawtonic_export::export_processing::provenance_format_error(
+        &output_format.to_ascii_lowercase(),
+    ) {
+        return Err(error);
+    }
+    identity.check_usable()?;
+    let fingerprint = identity.fingerprint();
+    match &provenance.signer {
+        Some(pinned) if *pinned != fingerprint => {
+            Err(rawtonic_export::export_processing::PROVENANCE_SIGNER_CHANGED.to_string())
+        }
+        _ => {
+            provenance.signer = Some(fingerprint);
+            Ok(())
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn provenance_identity(app_handle: AppHandle) -> Result<Option<IdentityInfo>, String> {
     let dir = identity_dir(&app_handle)?;
@@ -127,10 +183,13 @@ pub async fn export_provenance_preview(
                 || export_settings.watermark.is_some(),
         };
         let metadata = pinned.metadata.clone();
+        let source_str = source.to_string_lossy();
+        let exif = || pinned.exif(&source);
         let manifest = rawtonic_export::export_processing::provenance_plan(
-            &source.to_string_lossy(),
+            &source_str,
             &pinned.adjustments,
             &export_settings,
+            &exif,
             &|| metadata.clone(),
             changes,
         );
@@ -144,4 +203,54 @@ pub async fn export_provenance_preview(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(format_ok: bool) -> (ExportSettings, &'static str) {
+        let settings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 90, "resize": null, "keepMetadata": false, "stripGps": true,
+            "filenameTemplate": null, "watermark": null, "provenance": {"includeAuthor": false}
+        }))
+        .unwrap();
+        (settings, if format_ok { "jpg" } else { "webp" })
+    }
+
+    #[test]
+    fn queued_exports_pin_the_signer_they_were_checked_with() {
+        let dir = tempfile::tempdir().unwrap();
+        c2pa::identity::generate(dir.path(), "Studio").unwrap();
+        let identity = c2pa::identity::load(dir.path()).unwrap().unwrap();
+
+        let (mut ok, format) = settings(true);
+        pin_signer(&mut ok, format, Some(&identity)).unwrap();
+        assert_eq!(
+            ok.provenance.as_ref().unwrap().signer.as_deref(),
+            Some(identity.fingerprint().as_str())
+        );
+        // Resumed later with the same identity: still fine.
+        pin_signer(&mut ok, format, Some(&identity)).unwrap();
+
+        // Another identity by the time it runs: refused.
+        let other_dir = tempfile::tempdir().unwrap();
+        c2pa::identity::generate(other_dir.path(), "Other").unwrap();
+        let other = c2pa::identity::load(other_dir.path()).unwrap().unwrap();
+        assert!(pin_signer(&mut ok.clone(), format, Some(&other)).is_err());
+
+        let (mut none, format) = settings(true);
+        assert_eq!(
+            pin_signer(&mut none, format, None).unwrap_err(),
+            rawtonic_export::export_processing::PROVENANCE_NEEDS_IDENTITY
+        );
+        let (mut webp, format) = settings(false);
+        assert!(pin_signer(&mut webp, format, Some(&identity)).is_err());
+
+        // Exports without the option are left as they are.
+        let mut plain = settings(true).0;
+        plain.provenance = None;
+        pin_signer(&mut plain, "webp", None).unwrap();
+        assert!(plain.provenance.is_none());
+    }
 }

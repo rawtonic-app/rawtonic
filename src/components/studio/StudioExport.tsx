@@ -2,7 +2,7 @@ import { runExportJobs, submittedFrom } from '../../utils/runExportJobs';
 import { validNamingTemplate, validSequenceStart, type NamingPreview } from '../../utils/namingTemplates';
 import { readJobName, startFormDraft, writeFormDraft, writeJobName } from '../../utils/exportJob';
 import NamingEditor from '../ui/NamingEditor';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { openDialog } from '../../utils/fileDialog';
@@ -13,7 +13,7 @@ import { renderErrorMessage } from '../../utils/renderErrors';
 import OperationError from '../ui/OperationError';
 import { formatFileSize } from '../../utils/formatFileSize';
 import { ExportQueueJobs } from './StudioExportQueue';
-import StudioExportProvenance from './StudioExportProvenance';
+import StudioExportProvenance, { provenanceReady, useProvenanceIdentity } from './StudioExportProvenance';
 import { Invokes } from '../ui/AppProperties';
 import {
   BorderBasis,
@@ -165,9 +165,6 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       active = false;
     };
   }, [draft.watermark, draft.watermarkKind, fonts]);
-  // The form signs with an identity it has, into a format that takes it.
-  const [provenanceReady, setProvenanceReady] = useState(true);
-  const onProvenanceReady = useCallback((ready: boolean) => setProvenanceReady(ready), []);
   const formInvalid =
     !!subfolderError ||
     watermarkMissing ||
@@ -188,6 +185,12 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       ? checked.map((recipe) => ({ recipe, draft: recipeDraft(recipe) }))
       : [{ recipe: editedRecipe, draft: form }]
   ).map((job) => ({ ...job, ...exportSettingsFromDraft(job.draft) }));
+
+  // Provenance (C2PA): every planned export that asks for a manifest needs a
+  // usable signing certificate and a format that carries one (the queue
+  // checks again for exports started elsewhere).
+  const provenance = useProvenanceIdentity(draft.provenance || planned.some((job) => job.draft.provenance));
+  const unsignable = planned.filter((job) => !provenanceReady(job.draft, provenance.identity));
 
   // Super Resolution's AI model, fetched once when an export would use it,
   // so the export itself downloads nothing.
@@ -420,7 +423,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   };
 
   const run = async () => {
-    if (!paths.length || choosing || (!checked.length && (formInvalid || !provenanceReady))) return;
+    if (!paths.length || choosing || (!checked.length && formInvalid) || unsignable.length) return;
     setChoosing(true);
     try {
       if (await runExportJobs(planned, paths)) onStarted?.();
@@ -972,7 +975,9 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             path={paths[0] ?? null}
             settings={exportSettingsFromDraft(form).settings}
             library={submittedFrom(session)}
-            onReady={onProvenanceReady}
+            identity={provenance.identity}
+            setIdentity={provenance.setIdentity}
+            loadError={provenance.error}
           />
           <details className="studio-export-section">
             <summary>{t('studio.export.watermark.legend')}</summary>
@@ -1275,6 +1280,13 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             </p>
           )}
           {state.status === Status.Success && <p role="status">{t('studio.export.progress.complete')}</p>}
+          {unsignable.length > 0 && (
+            <p className="studio-export-error" role="alert">
+              {t('studio.export.provenance.blocked', {
+                recipes: unsignable.map((job) => job.recipe?.name ?? t('studio.export.recipes.current')).join(', ')
+              })}
+            </p>
+          )}
           <ExportQueueJobs />
         </div>
       </div>
@@ -1297,7 +1309,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
         )}
         <button
           type="submit"
-          disabled={!paths.length || choosing || (!checked.length && (formInvalid || !provenanceReady))}
+          disabled={!paths.length || choosing || (!checked.length && formInvalid) || unsignable.length > 0}
           className="studio-export-submit"
         >
           {choosing

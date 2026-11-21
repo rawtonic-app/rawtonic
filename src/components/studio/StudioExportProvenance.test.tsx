@@ -1,8 +1,13 @@
 import '../../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { useEffect } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
-import StudioExportProvenance, { type ProvenanceIdentity } from './StudioExportProvenance';
+import StudioExportProvenance, {
+  provenanceReady,
+  useProvenanceIdentity,
+  type ProvenanceIdentity
+} from './StudioExportProvenance';
 import { DEFAULT_RECIPE_DRAFT, exportSettingsFromDraft, type RecipeDraft } from '../../utils/exportRecipes';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -14,7 +19,8 @@ const local: ProvenanceIdentity = {
   issuer: 'Studio Example (local certificate authority)',
   validUntil: '2031-11-21T00:00:00Z',
   algorithm: 'ES256',
-  fingerprint: 'ab'
+  fingerprint: 'ab',
+  expired: false
 };
 
 let stored: ProvenanceIdentity | null;
@@ -60,6 +66,9 @@ afterEach(cleanup);
 
 function Harness({ initial, onReady }: { initial: Partial<RecipeDraft>; onReady: (ready: boolean) => void }) {
   const draft = { ...DEFAULT_RECIPE_DRAFT, ...initial };
+  const provenance = useProvenanceIdentity(draft.provenance);
+  const ready = provenanceReady(draft, provenance.identity);
+  useEffect(() => onReady(ready), [ready, onReady]);
   return (
     <StudioExportProvenance
       draft={draft}
@@ -68,7 +77,9 @@ function Harness({ initial, onReady }: { initial: Partial<RecipeDraft>; onReady:
       path="/photos/DSC0001.ARW"
       settings={exportSettingsFromDraft(draft).settings}
       library={{ kind: 'noLibrary' }}
-      onReady={onReady}
+      identity={provenance.identity}
+      setIdentity={provenance.setIdentity}
+      loadError={provenance.error}
     />
   );
 }
@@ -117,4 +128,12 @@ it('refuses a format that cannot carry a manifest', async () => {
   expect(screen.getByRole('alert').textContent).toContain('AVIF files cannot carry a provenance manifest yet');
   await screen.findByText(/Signed as/);
   expect(ready).toHaveBeenLastCalledWith(false);
+});
+
+it('blocks an expired certificate and says until when it was valid', async () => {
+  stored = { ...local, kind: 'imported', expired: true, validUntil: '2020-01-02T00:00:00Z' };
+  const ready = vi.fn();
+  render(<Harness initial={{ provenance: true }} onReady={ready} />);
+  expect((await screen.findByRole('alert')).textContent).toContain('not valid now');
+  await waitFor(() => expect(ready).toHaveBeenLastCalledWith(false));
 });
