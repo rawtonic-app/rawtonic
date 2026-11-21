@@ -47,6 +47,7 @@ it('applies flag and color filters and clears every hidden constraint', async ()
   expect(useLibraryStore.getState().filterCriteria).toEqual({
     flag: 'all',
     eyes: 'all',
+    suggestion: 'all',
     rating: 0,
     colors: [],
     rawStatus: RawStatus.All,
