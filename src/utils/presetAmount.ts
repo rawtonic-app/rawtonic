@@ -1,5 +1,4 @@
 import { INITIAL_MASK_ADJUSTMENTS, type MaskContainer } from './adjustments';
-import { joinedLayers } from './settingsClipboard';
 
 /**
  * Lightroom's preset Amount: a preset applied at less than full strength
@@ -42,27 +41,28 @@ export function blendPreset(
   );
 }
 
-/** A preset's layers (`preset`) at `amount` (0 … 1) on a photo: the
- * photo's layers before it (`base`) with the preset's joined
- * (`joinedLayers`), each preset layer as the photo shows it now (`current`:
- * its detection kept) and its settings blended from neutral to the
- * preset's, as Lightroom's Amount scales an adaptive preset's masks. */
+/** The photo's layers (`current`) with a preset's layers (`preset`, by id,
+ * as applying it joined them) at `amount` (0 … 1): each one's settings
+ * blended from neutral to the preset's, as Lightroom's Amount scales an
+ * adaptive preset's masks; at 0 hidden (nothing to render or detect for
+ * it), shown again above. Its detection and the photo's other layers stay. */
 export function amountLayers(
-  base: MaskContainer[] | undefined,
   current: MaskContainer[] | undefined,
   preset: MaskContainer[],
   amount: number
 ): MaskContainer[] {
-  const shown = new Map((current ?? []).map((layer) => [layer.id, layer]));
-  return joinedLayers(base, preset).map((layer) => {
+  return (current ?? []).map((layer) => {
     const own = preset.find((p) => p.id === layer.id);
     if (!own) return layer;
-    const now = shown.get(layer.id) ?? layer;
     const scaled = blendPreset(
       INITIAL_MASK_ADJUSTMENTS as unknown as Record<string, unknown>,
       (own.adjustments ?? {}) as unknown as Record<string, unknown>,
       amount
     );
-    return { ...now, adjustments: { ...now.adjustments, ...scaled } as MaskContainer['adjustments'] };
+    return {
+      ...layer,
+      visible: amount > 0,
+      adjustments: { ...layer.adjustments, ...scaled } as MaskContainer['adjustments']
+    };
   });
 }

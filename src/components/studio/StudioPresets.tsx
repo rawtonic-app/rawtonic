@@ -12,7 +12,6 @@ import { useContextMenu } from '../../context/ContextMenuContext';
 import type { Preset } from '../ui/AppProperties';
 import { ToolGroup } from './StudioDevelop';
 import { amountLayers, blendPreset } from '../../utils/presetAmount';
-import type { MaskContainer } from '../../utils/adjustments';
 import { loadBuiltinPresets, presetName, useBuiltinPresets } from '../../utils/builtinPresets';
 import {
   initialAdjustmentsFor,
@@ -353,21 +352,20 @@ export default function StudioPresets() {
       isRaw: Boolean(selectedImage?.isRaw),
       replaceLayers: false
     });
-    // The preset's layers stay on the photo, joined to its own
-    // (`joinedLayers`), with their detections; Amount scales each layer's
-    // settings from neutral (Lightroom's adaptive Amount).
-    const layers = values.masks
-      ? amountLayers(
-          (amount.base as { masks?: MaskContainer[] }).masks,
-          currentAdjustments().masks,
-          values.masks,
-          value / 100
-        )
-      : null;
+    // The preset's layers stay on the photo as applying it joined them,
+    // with their detections; Amount scales each one's settings from
+    // neutral (Lightroom's adaptive Amount). The photo's other settings and
+    // layers stay as they are now (edits made since the preset included).
+    const presetLayers = values.masks;
     delete values.masks;
     const blended = blendPreset(amount.base, values as unknown as Record<string, unknown>, value / 100);
     setAdjustments(
-      (current) => ({ ...current, ...amount.base, ...blended, ...(layers ? { masks: layers } : {}) }) as typeof current
+      (current) =>
+        ({
+          ...current,
+          ...blended,
+          ...(presetLayers ? { masks: amountLayers(current.masks, presetLayers, value / 100) } : {})
+        }) as typeof current
     );
   };
   const exportPreset = async (preset: Preset) => {

@@ -79,7 +79,7 @@ it('keeps curves whole with their version', () => {
   expect(blendPreset(base, { curves: legacy }, 0.25)).toEqual(base);
 });
 
-it('scales an adaptive preset’s layers from neutral and keeps the photo’s own layers and detections', () => {
+it('scales an adaptive preset’s layers from neutral and keeps the photo’s other layers and detections', () => {
   const layer = (id: string, adjustments: Record<string, unknown>, bitmap: string | null) =>
     ({
       ...INITIAL_MASK_CONTAINER,
@@ -98,15 +98,22 @@ it('scales an adaptive preset’s layers from neutral and keeps the photo’s ow
       ]
     }) as unknown as MaskContainer;
   const own = layer('brush', { exposure: 1 }, 'data:own');
+  // A brush added after the preset was applied.
+  const later = layer('later', { exposure: 0.3 }, 'data:later');
   const preset = [
     { ...layer('sky', {}, null), adjustments: { exposure: -0.4, saturation: 20 } } as unknown as MaskContainer
   ];
   // As shown now: the preset's layer with its detection.
-  const current = [own, layer('sky', { exposure: -0.4, saturation: 20 }, 'data:sky')];
-  const half = amountLayers([own], current, preset, 0.5);
-  expect(half.map((l) => l.id)).toEqual(['brush', 'sky']);
+  const current = [own, layer('sky', { exposure: -0.4, saturation: 20 }, 'data:sky'), later];
+  const half = amountLayers(current, preset, 0.5);
+  expect(half.map((l) => l.id)).toEqual(['brush', 'sky', 'later']);
   expect(half[0]).toBe(own);
+  expect(half[2]).toBe(later);
   expect(half[1].adjustments).toMatchObject({ exposure: -0.2, saturation: 10, contrast: 0 });
   expect(half[1].subMasks[0].parameters).toMatchObject({ maskDataBase64: 'data:sky' });
-  expect(amountLayers([own], current, preset, 0)[1].adjustments).toMatchObject({ exposure: 0, saturation: 0 });
+  expect(half[1].visible).toBe(true);
+  // At 0: hidden, so no export waits for its detection; shown again above.
+  const none = amountLayers(current, preset, 0);
+  expect(none[1]).toMatchObject({ visible: false, adjustments: { exposure: 0, saturation: 0 } });
+  expect(amountLayers(none, preset, 0.2)[1].visible).toBe(true);
 });

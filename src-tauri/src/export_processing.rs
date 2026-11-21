@@ -1658,6 +1658,13 @@ pub(crate) fn keep_detected_selections(
     let (source_path, sidecar_path) = parse_virtual_path(path);
     let _turn = crate::file_management::sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
+    // An edit still to be moved from a camera TIFF's thumbnail to its full
+    // frame (`recipe_frame::conform`, done when the user saves): a bitmap of
+    // the full frame in it would read as made on the full frame, so nothing
+    // is kept; its export computes the selections again.
+    if needs_frame_migration(&metadata.adjustments, &source_path) {
+        return Ok(false);
+    }
     // Its geometry as the detection saw it: prepared for a render as the
     // export and the queue prepare it (version keys, the resolved lens),
     // which a never-opened recipe may not hold yet.
@@ -1679,6 +1686,13 @@ pub(crate) fn keep_detected_selections(
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json)
         .map_err(|e| format!("the selections could not be kept: {e}"))?;
     Ok(true)
+}
+
+/// Whether `adjustments` is an edit of a camera TIFF still made on its
+/// thumbnail, which opening or rendering moves to the full frame
+/// (`recipe_frame::conform`) without writing it.
+pub(crate) fn needs_frame_migration(adjustments: &Value, source: &Path) -> bool {
+    rawtonic_engine::recipe_frame::conform(&mut adjustments.clone(), source)
 }
 
 /// What the naming tokens read about `original` for its export and rename

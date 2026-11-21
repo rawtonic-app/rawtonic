@@ -1,8 +1,9 @@
 //! A never-opened photo whose recipe holds Sky, Subject and People
 //! selections without their bitmap (a Lightroom import, an adaptive preset
 //! applied in the Library) exports with the selections
-//! computed, byte-identical to the export of the recipe that holds them (a
-//! photo opened in Develop, or exported before: the app keeps the result);
+//! computed, byte-identical to the export of the recipe that holds the
+//! masks this export path computed (as the app keeps them after an export;
+//! Develop's and the selection queue's masks are not compared here);
 //! without the models the export fails and writes nothing. Opt-in, as it
 //! needs a RAW, a GPU and the app's Sky, Subject and face models:
 //!

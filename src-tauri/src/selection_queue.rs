@@ -207,6 +207,12 @@ fn detect_photo(app: &AppHandle, path: &str) -> Result<(), String> {
         );
     }
     rawtonic_export::file_export::require_local_tiff(&source_path)?;
+    if crate::export_processing::needs_frame_migration(&recipe, &source_path) {
+        return Err(
+            "an edit from before this camera TIFF developed as a RAW; its selections are computed when it is opened or exported"
+                .into(),
+        );
+    }
     // As the export prepares it: the lens correction resolved for the photo
     // (the selections are computed on the corrected photo).
     rawtonic_export::normalize::normalize(
@@ -221,8 +227,9 @@ fn detect_photo(app: &AppHandle, path: &str) -> Result<(), String> {
     let bytes =
         std::fs::read(&source_path).map_err(|e| format!("the photo's file cannot be read: {e}"))?;
     // The decode without AI Denoise (a minute per photo without a GPU, and
-    // its model may not be loaded): the networks see the photo at their own
-    // small input size, where denoising does not change what they find.
+    // its model may not be loaded). The networks see the photo at their own
+    // small input size; that this matches a detection on the denoised
+    // decode (as the export's) is not measured (G28).
     let mut decode = recipe.clone();
     if let Some(map) = decode.as_object_mut() {
         map.remove("aiDenoise");
