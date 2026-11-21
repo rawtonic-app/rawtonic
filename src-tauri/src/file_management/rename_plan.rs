@@ -495,6 +495,22 @@ fn plan_xmp(
     };
     match taker {
         Some(i) => {
+            // A JPEG renamed alone to the name of a file that stays there
+            // (`B.JPG` → `A.JPG` beside `A.NEF`): its `B.xmp` becomes
+            // `A.JPG.xmp`, never the `A.xmp` the RAW would take for its own.
+            let renamed_away: Vec<&PathBuf> = planned.iter().map(|p| &p.from).collect();
+            let meets_partner = is_developed(&planned[i].from)
+                && entries.iter().map(|e| folder.join(e)).any(|p| {
+                    stem(&p).eq_ignore_ascii_case(new_stem)
+                        && !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
+                        && p != planned[i].to
+                        && !renamed_away.contains(&&p)
+                });
+            let to = if meets_partner {
+                folder.join(format!("{}.xmp", file_name(&planned[i].to)))
+            } else {
+                to
+            };
             planned[i].files.push(PlannedFile {
                 from: xmp.clone(),
                 to,
@@ -856,6 +872,18 @@ mod tests {
         let paths = [arg(&dir.path().join("A.NEF"))];
         let plan = plan_rename(&paths, "Job_{orig}");
         assert_eq!(plan.photos[0].to, dir.path().join("Job_A.NEF"));
+    }
+
+    /// (f) of review round 3: a lone JPEG renamed to the name of a RAW that
+    /// has no XMP never hands its `B.xmp` to the RAW as `A.xmp`.
+    #[test]
+    fn a_jpeg_renamed_to_its_raws_name_keeps_its_xmp_its_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().canonical().unwrap();
+        write(&dir, &["A.NEF", "B.JPG", "B.xmp"]);
+        let plan = plan_rename(&[arg(&dir.join("B.JPG"))], "A");
+        assert_eq!(renames(&plan), ["B.JPG → A.JPG", "B.xmp → A.JPG.xmp"]);
+        assert!(!plan.files().iter().any(|f| f.to == dir.join("A.xmp")));
     }
 
     /// On a case-insensitive volume `img.NEF` and `IMG.JPG` are a pair:

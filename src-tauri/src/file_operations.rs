@@ -393,7 +393,8 @@ pub fn xmp_targets(images: &[PathBuf], dest: &Path) -> HashMap<PathBuf, PathBuf>
 }
 
 /// Renames a move into `dest` needs first: a JPEG there alone whose
-/// `A.xmp` would become the RAW's moved in beside it takes `A.JPG.xmp`
+/// `A.xmp` would become the RAW's (or be no one's) once another photo of its
+/// name is moved in beside it takes `A.JPG.xmp`
 /// (`xmp_targets` for the JPEG that stays).
 pub fn partner_xmp_renames(images: &[PathBuf], dest: &Path) -> Vec<(PathBuf, PathBuf)> {
     let mut renames = Vec::new();
@@ -401,7 +402,9 @@ pub fn partner_xmp_renames(images: &[PathBuf], dest: &Path) -> Vec<(PathBuf, Pat
         return renames;
     };
     let there: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
-    for image in images.iter().filter(|image| !is_developed(image)) {
+    // Any photo of its name arriving (a RAW, or a rendered TIFF beside a
+    // JPEG) makes the JPEG's sidecar the full-name one.
+    for image in images {
         let Some(stem) = image.file_stem() else {
             continue;
         };
@@ -1715,6 +1718,40 @@ mod tests {
         assert_eq!(
             partner_xmp_renames(&[raws.join("B.NEF")], &to),
             [(to.join("B.xmp"), to.join("B.JPG.xmp"))]
+        );
+    }
+
+    /// (g) of review round 3: a rendered TIFF of a JPEG's name moved in
+    /// beside it: the JPEG's `A.xmp` takes its own full name first, and the
+    /// TIFF never takes it.
+    #[test]
+    fn a_tiff_moved_beside_a_lone_jpeg_leaves_the_jpegs_xmp_its_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (from, to) = (tmp.path().join("from"), tmp.path().join("to"));
+        fs::create_dir_all(&from).unwrap();
+        fs::create_dir_all(&to).unwrap();
+        fs::write(from.join("A.TIF"), b"rendered").unwrap();
+        fs::write(to.join("A.JPG"), b"jpg").unwrap();
+        fs::write(to.join("A.xmp"), b"jpeg's").unwrap();
+        let images = [from.join("A.TIF")];
+        assert_eq!(
+            partner_xmp_renames(&images, &to),
+            [(to.join("A.xmp"), to.join("A.JPG.xmp"))]
+        );
+        assert!(xmp_targets(&images, &to).is_empty());
+        assert!(
+            !associated_files(&images)
+                .unwrap()
+                .contains(&to.join("A.xmp"))
+        );
+        // After the move the TIFF has no sidecar of its own yet, the JPEG
+        // has its own.
+        fs::rename(to.join("A.xmp"), to.join("A.JPG.xmp")).unwrap();
+        fs::rename(from.join("A.TIF"), to.join("A.TIF")).unwrap();
+        assert_eq!(rawtonic_metadata::existing_sidecar(&to.join("A.TIF")), None);
+        assert_eq!(
+            rawtonic_metadata::existing_sidecar(&to.join("A.JPG")),
+            Some(to.join("A.JPG.xmp"))
         );
     }
 
