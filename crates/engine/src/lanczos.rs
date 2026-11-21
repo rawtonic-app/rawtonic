@@ -731,8 +731,9 @@ mod tests {
 
     /// Review round 2's case: the blue, a grey, then the white edge within
     /// the blue's taps. The edge's ringing is cut at 0 in the positive part
-    /// only: the value may go below 0 by at most the blue's own share (the
-    /// negative part), never by the edge's ringing.
+    /// only, so the sum stays at or above the blue's own share (the clamped
+    /// negative part). The edge can still move it across 0 (red +0.0135
+    /// without the edge, −0.051 with it), as it darkens any colour beside it.
     #[test]
     fn wide_gamut_resize_beside_a_grey_and_a_bright_edge() {
         let scene = image::Rgb32FImage::from_fn(300, 12, |x, _| {
