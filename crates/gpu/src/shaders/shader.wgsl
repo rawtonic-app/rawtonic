@@ -2820,9 +2820,11 @@ fn shadows_v19_level(coords: vec2<u32>) -> f32 {
 // +100, where Camera Raw and Capture One lift them by less than 0.1 L*.
 // A pixel above its level is lifted as its level is, within two bounds:
 // from the tone the look shows at SH_V20_FROM EV (about L* 57) upwards the
-// lift falls by 1 − SH_V20_KEEP EV for each EV of the pixel, and no pixel
-// is lifted beyond the tone shown at SH_V20_TO EV (about L* 87). It is
-// never lifted less than its own luminance is. So light tones get their
+// lift falls by 1 − SH_V20_KEEP EV for each EV of the pixel, and the
+// level's lift takes no pixel beyond the tone shown at SH_V20_TO EV (about
+// L* 87). It is never lifted less than its own luminance is, which may be
+// beyond that tone. The lift here is Shadows' share; Blacks' stays the
+// level's. So light tones get their
 // own lift and darker pixels, the shadows' own texture, keep version 19's;
 // the second bound acts where the lift is larger than the first can take
 // back on the way (the darkest surroundings at high values).
@@ -2871,26 +2873,32 @@ const SH_V20_SOFT: f32 = 0.25;
 // pixels too (a dark pixel lifted beyond SH_V20_TO would otherwise render
 // lighter than a brighter one at the bound), so the level's lift is
 // evaluated first for every pixel.
-// Over Shadows 0 … +SH_V6_FADE the stage fades its level from the tonal
-// blur's to the wide one, and the gain holds Blacks' share too: the bounds
-// fade in with the same weight, so the first step above 0 changes nothing
-// at once, with Blacks raised or not. Both renderings rise with the pixel,
-// so their mix does.
+// The bounds act on Shadows' share of the gain; Blacks' share stays the
+// level's. So they are nothing at Shadows 0 and grow with it: taken from
+// the whole gain they removed Blacks' lift as well, at once at the first
+// step above 0 or, faded in, while Shadows rose (gaps of a grating 1.6 L*
+// darker from +7 to +12 with Blacks +50).
 fn shadows_v20_gain(level: f32, pixel: f32, sh: f32, bl: f32, fade: f32) -> f32 {
     let gain = shadows_v13_gain(level, sh, bl, fade);
     if (pixel <= level) {
         return gain;
     }
-    let at_level = log2(max(gain, 1e-9));
+    var blacks_level = 0.0;
+    var blacks_pixel = 0.0;
+    if (bl != 0.0) {
+        blacks_level = log2(max(camera_raw_shadows_blacks_gain(level, 0.0, bl), 1e-9));
+        blacks_pixel = log2(max(camera_raw_shadows_blacks_gain(pixel, 0.0, bl), 1e-9));
+    }
+    let at_level = log2(max(gain, 1e-9)) - blacks_level;
     let above = log2(pixel / max(cr_curve_level(SH_V20_FROM), 1e-6));
     let q = clamp(above + SH_V20_SOFT, 0.0, 2.0 * SH_V20_SOFT);
     let rise = select(q * q / (4.0 * SH_V20_SOFT), above, above >= SH_V20_SOFT);
-    let bound = min(at_level - (1.0 - SH_V20_KEEP) * rise, log2(max(cr_curve_level(SH_V20_TO), 1e-6) / pixel));
+    let bound = min(at_level - (1.0 - SH_V20_KEEP) * rise, log2(max(cr_curve_level(SH_V20_TO), 1e-6) / pixel) - blacks_level);
     if (bound >= at_level) {
         return gain;
     }
-    let at_pixel = log2(max(shadows_v13_gain(pixel, sh, bl, fade), 1e-9));
-    return gain * exp2(fade * min(max(at_pixel, bound) - at_level, 0.0));
+    let at_pixel = log2(max(shadows_v13_gain(pixel, sh, bl, fade), 1e-9)) - blacks_pixel;
+    return gain * exp2(min(max(at_pixel, bound) - at_level, 0.0));
 }
 
 // The texture gain on top of the wide level's lift `gain`.

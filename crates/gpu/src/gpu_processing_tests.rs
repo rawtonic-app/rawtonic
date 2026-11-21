@@ -15391,31 +15391,58 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
     // Exposure ±0.7 too: the pixel arrives with it, the wide level without.
     // At Exposure −0.7 the gaps show at L* 84, below the tone no pixel is
     // lifted beyond (L* 87): they keep a part of the lift.
-    // The first step above 0, with Blacks raised too: the bounds fade in
-    // with the stage's level, so the gaps do not jump (the factor at full
-    // strength from +1 on took Blacks' lift from them at once).
-    for blacks in [0, 50] {
-        let step = |version: u64| {
-            let at = |amount: i32| {
-                render_raw_look(
-                    &processor,
-                    &grating,
-                    (width, height),
-                    &with(&json!({ "shadows": amount, "blacks": blacks }), version),
-                    look,
-                )
-            };
-            let (zero, one) = (at(0), at(1));
-            rows.clone()
-                .flat_map(|y| (200..560).map(move |x| y * w + x))
-                .map(|i| (lstar_of_codes(&one[i]) - lstar_of_codes(&zero[i])).abs())
-                .fold(0.0f64, f64::max)
+    // Shadows 0 … +14 in single steps, with Blacks raised too and at
+    // Exposure −0.7 (the stage fades its level in over 0 … +12): the gaps
+    // do not jump at the first step and never darken as Shadows rises. The
+    // bounds act on Shadows' share of the gain; on the whole gain they took
+    // Blacks' lift from the gaps too.
+    for (blacks, exposure) in [(0, 0.0), (50, 0.0), (50, -0.7)] {
+        let sweep = |version: u64| -> Vec<f64> {
+            (0..=14)
+                .map(|amount| {
+                    let img = render_raw_look(
+                        &processor,
+                        &grating,
+                        (width, height),
+                        &with(
+                            &json!({ "shadows": amount, "blacks": blacks, "exposure": exposure }),
+                            version,
+                        ),
+                        look,
+                    );
+                    let (mut sum, mut n) = (0.0f64, 0.0f64);
+                    for y in rows.clone() {
+                        for x in (200..560).filter(|x| x % 4 >= 2) {
+                            sum += lstar_of_codes(&img[y * w + x]);
+                            n += 1.0;
+                        }
+                    }
+                    sum / n
+                })
+                .collect()
         };
-        let (step_19, step_20) = (step(19), step(20));
-        eprintln!("Shadows 0 → +1, Blacks {blacks}: largest dL* {step_19:.3} → {step_20:.3}");
+        let (v19, v20) = (sweep(19), sweep(20));
+        let fall = |v: &[f64]| v.windows(2).map(|p| p[0] - p[1]).fold(0.0f64, f64::max);
+        eprintln!(
+            "Shadows 0 … +14, Blacks {blacks}, Exposure {exposure}: gaps L* {:.2} → {:.2} (version 19 → {:.2}), first step {:.3} (version 19 {:.3}), largest fall per step {:.3}",
+            v20[0],
+            v20[14],
+            v19[14],
+            v20[1] - v20[0],
+            v19[1] - v19[0],
+            fall(&v20)
+        );
         assert!(
-            step_20 < step_19 + 0.05,
-            "Shadows 0 → +1, Blacks {blacks}: {step_20:.3} L* (version 19 {step_19:.3})"
+            (v20[0] - v19[0]).abs() < 0.01
+                && (v20[1] - v20[0]).abs() < (v19[1] - v19[0]).abs() + 0.05,
+            "Shadows 0 → +1, Blacks {blacks}, Exposure {exposure}: {:.3} L* (version 19 {:.3})",
+            v20[1] - v20[0],
+            v19[1] - v19[0]
+        );
+        assert!(
+            fall(&v20) < 0.02,
+            "Blacks {blacks}, Exposure {exposure}: the gaps darken by {:.3} L* in one Shadows step",
+            fall(&v20)
         );
     }
     for (amount, exposure, whites, most) in [
