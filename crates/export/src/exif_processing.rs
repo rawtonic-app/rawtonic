@@ -2810,6 +2810,18 @@ mod tests {
             cut[8..10].copy_from_slice(&entries);
             cut.truncate(4200);
             cases.push(cut);
+            // A valid IFD0 whose next IFD, on a page of its own, declares
+            // more entries than the file holds.
+            let second: u32 = 6 * 4096;
+            let mut tail = tiff_with_pointer(big_endian, 4, 1, second);
+            tail.resize(second as usize, 0xAB);
+            tail.extend(if big_endian {
+                400u16.to_be_bytes()
+            } else {
+                400u16.to_le_bytes()
+            });
+            tail.extend([0u8; 30]);
+            cases.push(tail);
         }
         for (i, tiff) in cases.iter().enumerate() {
             let expected = whole(tiff);

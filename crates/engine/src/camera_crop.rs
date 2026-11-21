@@ -51,7 +51,9 @@ pub fn crops(path: &str) -> Vec<Option<CameraCrop>> {
     {
         return found;
     }
-    let Ok(source) = rawler::rawsource::RawSource::new(std::path::Path::new(path)) else {
+    // Mapped without read-ahead: the crop tags are a few kilobytes, and
+    // `RawSource::new` would read the whole file (on a share, every byte).
+    let Ok(source) = rawler::rawsource::RawSource::new_lazy(std::path::Path::new(path)) else {
         return Vec::new();
     };
     let found: Vec<_> = (0..=crate::source_frame::VERSION)
