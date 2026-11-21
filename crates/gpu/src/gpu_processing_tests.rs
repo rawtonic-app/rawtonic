@@ -25468,6 +25468,180 @@ fn mixer_probes_store_the_colour_each_mixer_receives_in_display_variants_only() 
     );
 }
 
+/// The colour editor probe's two renders (shader `color_range_probe_pixel`)
+/// as linear ProPhoto per pixel and the influence, or None when a pixel of
+/// the first is no probe pixel (src-tauri `editor_preview::color_range_input`).
+fn color_range_probe_decode(high: &[u8], low: &[u8]) -> Option<Vec<([f64; 3], f64)>> {
+    let high = high.as_chunks::<4>().0;
+    let low = low.as_chunks::<4>().0;
+    if high.iter().any(|p| p[3] != 0) {
+        return None;
+    }
+    Some(
+        high.iter()
+            .zip(low)
+            .map(|(h, l)| {
+                let pro = std::array::from_fn(|c| {
+                    let code = f64::from(u16::from(h[c]) << 8 | u16::from(l[c])) / 65535.0;
+                    code * code
+                });
+                (pro, f64::from(l[3]) / 255.0)
+            })
+            .collect(),
+    )
+}
+
+#[test]
+#[ignore = "requires a native GPU; the target colour solve's colour editor probe"]
+fn color_range_probe_stores_the_unclipped_colour_entering_each_colour_editor_and_the_mask_influence()
+ {
+    use rawtonic_engine::image_processing::color_range_input_probe;
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let context = context();
+    let (width, height) = (32u32, 16u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // A saturated blue beyond sRGB (linear sRGB, red below 0).
+    let base = [-0.1f32, 0.08, 0.6];
+    let data: Vec<f16> = (0..width * height)
+        .flat_map(|_| base.map(f16::from_f32).into_iter().chain([f16::ONE]))
+        .collect();
+    let view = input_from(&context, width, height, &data);
+    let mask = Arc::new(MaskBitmap::from_coverage(
+        width,
+        height,
+        &vec![0.5; (width * height) as usize],
+    ));
+    let range = |shift: i32, saturation: i32| {
+        json!({"id": "r", "hue": 265.0, "chroma": 0.3, "lightness": 0.45, "hueRange": 40,
+            "chromaRange": 100, "lightnessRange": 100, "smoothness": 50, "hueShift": shift,
+            "saturation": saturation, "lightnessShift": 0})
+    };
+    let layer = |ranges: serde_json::Value| {
+        json!({"id": "L", "name": "L", "visible": true, "invert": false,
+            "subMasks": [{"id": "s", "type": "radial", "visible": true, "mode": "additive", "parameters": {}}],
+            "adjustments": {"colorRanges": ranges}})
+    };
+    let prepared = |recipe: &serde_json::Value| {
+        let definitions = rawtonic_engine::image_processing::mask_definitions_from_json(recipe);
+        rawtonic_engine::image_processing::get_all_adjustments_with_masks(
+            recipe,
+            true,
+            Some(1),
+            &definitions,
+            &rawtonic_engine::recipe_versions::RecipeVersions::of(recipe, true),
+        )
+    };
+    let masks_of = |recipe: &serde_json::Value| -> Vec<Arc<MaskBitmap>> {
+        let n = recipe["masks"].as_array().map_or(0, Vec::len);
+        (0..n).map(|_| Arc::clone(&mask)).collect()
+    };
+    let probe = |recipe: serde_json::Value, slot: u32, shader: ReadbackShader| {
+        let render = |low: bool| -> Vec<u8> {
+            let mut adjustments = prepared(&recipe);
+            adjustments.global.output_space[3] = color_range_input_probe(slot, low);
+            if shader == ReadbackShader::Display {
+                prepare_preview_pipeline(&processor, preview_features(&adjustments));
+            }
+            let RenderedPixels::U8(pixels) = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &masks_of(&recipe),
+                RenderOutputPrecision::EightBit,
+                shader,
+            ) else {
+                unreachable!()
+            };
+            pixels
+        };
+        color_range_probe_decode(&render(false), &render(true))
+    };
+    // The colour itself: a 16-bit ProPhoto export of the recipe (nothing
+    // after the colour editor acts in these recipes; ProPhoto output keeps
+    // the working gamut).
+    let export = |recipe: serde_json::Value| -> [f64; 3] {
+        let mut adjustments = prepared(&recipe);
+        let space = OutputColorSpace::ProPhoto;
+        adjustments.global.output_space[0] = space.shader_code();
+        adjustments.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+        let RenderedPixels::U16(pixels) = readback_pixels(
+            &processor,
+            &view,
+            (width, height),
+            *adjustments,
+            &masks_of(&recipe),
+            RenderOutputPrecision::SixteenBit,
+            ReadbackShader::Export,
+        ) else {
+            unreachable!()
+        };
+        std::array::from_fn(|c| (f64::from(pixels[c]) / 65535.0).powf(461.0 / 256.0))
+    };
+    let display = ReadbackShader::Display;
+    let close = |a: [f64; 3], b: [f64; 3], what: &str| {
+        for c in 0..3 {
+            assert!(
+                (a[c].sqrt() - b[c].sqrt()).abs() < 2.0 / 255.0,
+                "{what}: probe {a:?} vs export {b:?}"
+            );
+        }
+    };
+    // The photo's ranges: their input whatever they do (a strong
+    // desaturation and turn change nothing), unclipped beyond sRGB.
+    let plain = probe(json!({}), 0, display).expect("display variants hold the probe");
+    let strong = json!({"colorRanges": [range(80, -90)]});
+    assert_eq!(probe(strong.clone(), 0, display).unwrap(), plain);
+    let (colour, influence) = plain[0];
+    assert_eq!(influence, 1.0);
+    close(colour, export(json!({})), "photo's ranges");
+    let srgb = OutputColorSpace::ProPhoto.to_linear_srgb();
+    let linear: [f64; 3] = std::array::from_fn(|r| (0..3).map(|c| srgb[r][c] * colour[c]).sum());
+    assert!(linear[0] < -0.005, "beyond sRGB, unclipped: {linear:?}");
+    assert!(plain.iter().all(|p| *p == plain[0]), "a flat patch is flat");
+    // A layer's ranges: the colour after the photo's ranges, and the
+    // layer's mask influence; the layer's own ranges change nothing.
+    let layered =
+        json!({"colorRanges": [range(80, -60)], "masks": [layer(json!([range(-40, 50)]))]});
+    let at_layer = probe(layered.clone(), 1, display).unwrap();
+    let (colour, influence) = at_layer[0];
+    assert!(
+        (influence - 128.0 / 255.0).abs() < 1e-9,
+        "influence {influence}"
+    );
+    close(
+        colour,
+        export(json!({"colorRanges": [range(80, -60)]})),
+        "layer's ranges",
+    );
+    let quiet = json!({"colorRanges": [range(80, -60)], "masks": [layer(json!([]))]});
+    assert_eq!(
+        probe(quiet, 1, display).unwrap(),
+        at_layer,
+        "a layer without ranges yet"
+    );
+    // A layer above another: after the photo's ranges and the lower layer's
+    // at its influence.
+    let lower = layer(json!([range(-40, 50)]));
+    let mut upper = layer(json!([range(30, -30)]));
+    upper["id"] = json!("U");
+    let stacked = json!({"colorRanges": [range(80, -60)], "masks": [lower.clone(), upper]});
+    let (colour, influence) = probe(stacked, 2, display).unwrap()[0];
+    assert!(
+        (influence - 128.0 / 255.0).abs() < 1e-9,
+        "influence {influence}"
+    );
+    close(
+        colour,
+        export(json!({"colorRanges": [range(80, -60)], "masks": [lower]})),
+        "upper layer's ranges",
+    );
+    // No such layer, and export pipelines: no probe.
+    assert_eq!(probe(layered, 2, display), None);
+    assert_eq!(probe(json!({}), 0, ReadbackShader::Export), None);
+}
+
 /// Vibrance version 2 (`vibranceVersion`): without Vibrance it renders
 /// exactly as version 1 (Saturation alone included); raising it lifts a muted
 /// blue more than a muted orange of the same chroma, spares a saturated

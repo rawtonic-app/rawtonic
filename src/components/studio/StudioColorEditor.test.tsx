@@ -1,5 +1,5 @@
 import '../../i18n';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,6 +8,10 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 import { newColorRange, type Adjustments, type ColorRange } from '../../utils/adjustments';
 import { useEditorStore } from '../../store/useEditorStore';
 import { srgbToOklch } from '../../utils/oklab';
+import { invoke } from '@tauri-apps/api/core';
+import { Invokes } from '../ui/AppProperties';
+import { geometryKeyOf } from '../../utils/colorRanges';
+import { deltaE00, linearToLab, oklabToLinear, rangeCentre, renderedLab, srgb8ToLinear } from '../../utils/colorTarget';
 import StudioColorEditor from './StudioColorEditor';
 import StudioColorRangeWheel, { chromaOf, radiusOf, rangeBand, wheelPoint } from './StudioColorRangeWheel';
 
@@ -464,17 +468,79 @@ describe('target colour', () => {
     openTool();
     typeInto('Target hue h° (CIELAB D50)', '250');
     expect(changes).toHaveLength(1);
-    expect(lastRanges()[0].hueShift).toBe(-100);
+    const [moved] = lastRanges();
+    expect(moved.hueShift).toBe(-100);
+    // Every slider the result leaves at its end is named.
+    expect(Math.abs(moved.saturation)).toBe(100);
     expect(screen.getByRole('status').textContent).toMatch(
-      /^Out of reach: ΔE00 [\d.]+ left; hue \(±50°\) at its limit\./
+      /^Out of reach: ΔE00 [\d.]+ left; hue \(±50°\), saturation \(0–200 %\) at its limit\./
     );
+  });
+
+  it('solves a typed target on a range picked in the photo at the renderer’s sample there, sampled again', async () => {
+    const range = red();
+    const centre = rangeCentre(range);
+    // Picked on a feathered layer: half its strength at the pick.
+    const pick = {
+      point: [0.3, 0.7] as [number, number],
+      centre,
+      geometry: geometryKeyOf(useEditorStore.getState().adjustments),
+      input: { pixels: [centre], influence: [0.5] }
+    };
+    useEditorStore.setState({ colorRangeInputs: { [`/a.cr3|L1|${range.id}`]: pick } });
+    vi.mocked(invoke).mockResolvedValue({ pixels: [oklabToLinear(centre)], influence: [0.5] });
+    render(<Harness initial={[range]} layerId="L1" />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    await waitFor(() => expect(changes).toHaveLength(1));
+    expect(invoke).toHaveBeenCalledWith(
+      Invokes.SampleColorRangeInput,
+      expect.objectContaining({ path: '/a.cr3', normalizedX: 0.3, normalizedY: 0.7, layer: 'L1' })
+    );
+    const [moved] = lastRanges();
+    const lab = linearToLab(srgb8ToLinear([0xc8, 0x1e, 0x2d]));
+    expect(deltaE00(lab, renderedLab([moved], { pixels: [centre], influence: [0.5] }))).toBeLessThan(1);
+    // The readout predicts at the layer's strength, not at full strength.
+    expect(screen.getByRole('status').textContent).toMatch(/^Target reached \(ΔE00 0\.\d\)\./);
+    useEditorStore.setState({ colorRangeInputs: {} });
+  });
+
+  it('applies only the latest typed target when samples return in reverse order', async () => {
+    const range = red();
+    const centre = rangeCentre(range);
+    const pick = {
+      point: [0.3, 0.7] as [number, number],
+      centre,
+      geometry: geometryKeyOf(useEditorStore.getState().adjustments),
+      input: { pixels: [centre], influence: [1] }
+    };
+    useEditorStore.setState({ colorRangeInputs: { [`/a.cr3||${range.id}`]: pick } });
+    const answers: ((value: unknown) => void)[] = [];
+    vi.mocked(invoke).mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+    render(<Harness initial={[range]} />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    typeInto('Target color as sRGB hex', '#b4283c');
+    await waitFor(() => expect(answers.length).toBeGreaterThanOrEqual(2));
+    const sample = { pixels: [oklabToLinear(centre)], influence: [1] };
+    // The later request's sample first, then the earlier one's.
+    answers[1](sample);
+    await waitFor(() => expect(changes).toHaveLength(1));
+    answers[0](sample);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(changes).toHaveLength(1);
+    const lab = linearToLab(srgb8ToLinear([0xb4, 0x28, 0x3c]));
+    expect(deltaE00(lab, renderedLab(lastRanges(), { pixels: [centre], influence: [1] }))).toBeLessThan(1);
+    useEditorStore.setState({ colorRangeInputs: {} });
   });
 
   it('flags a typed target outside sRGB', () => {
     render(<Harness initial={[red()]} />);
     openTool();
     typeInto('Target chroma C* (CIELAB D50)', '130');
-    expect(screen.getByRole('status').textContent).toContain('The target is outside sRGB.');
+    expect(screen.getByRole('status').textContent).toContain(
+      'The target is outside sRGB; an sRGB export maps the color into sRGB.'
+    );
   });
 
   it('Escape restores the field without applying; Return applies and leaves the field', () => {

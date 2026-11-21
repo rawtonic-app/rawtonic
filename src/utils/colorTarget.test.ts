@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newColorRange, type ColorRange } from './adjustments';
 import {
   applyColorRanges,
+  centreInput,
   colorBeforeRanges,
   deltaE00,
   inverseGain,
@@ -14,7 +15,9 @@ import {
   linearToSrgb8,
   oklabToLinear,
   parseHex,
+  meanOklab,
   rangeCentre,
+  renderedLab,
   solveColorTarget,
   srgb8ToLinear,
   type Vec3
@@ -80,8 +83,8 @@ describe('solveColorTarget', () => {
     expect(solve.deltaE).toBeLessThan(0.5);
     expect(solve.limited).toEqual({ hue: false, saturation: false, lightness: false });
     // The reported result is what the shader model renders with the new shifts.
-    const rendered = applyColorRanges([{ ...range, ...solve.shifts }], rangeCentre(range));
-    rendered.forEach((v, i) => expect(v).toBeCloseTo(solve.result[i], 9));
+    const rendered = renderedLab([{ ...range, ...solve.shifts }], centreInput(range));
+    rendered.forEach((v, i) => expect(v).toBeCloseTo(solve.resultLab[i], 9));
     for (const v of Object.values(solve.shifts)) expect(Number.isInteger(v)).toBe(true);
   });
 
@@ -92,8 +95,8 @@ describe('solveColorTarget', () => {
     const target = labOfSrgb([220, 160, 140]);
     const solve = solveColorTarget([other, range], range.id, target)!;
     expect(solve.deltaE).toBeLessThan(0.5);
-    const rendered = applyColorRanges([other, { ...range, ...solve.shifts }], rangeCentre(range));
-    rendered.forEach((v, i) => expect(v).toBeCloseTo(solve.result[i], 9));
+    const rendered = renderedLab([other, { ...range, ...solve.shifts }], centreInput(range));
+    rendered.forEach((v, i) => expect(v).toBeCloseTo(solve.resultLab[i], 9));
   });
 
   it('clamps out-of-reach targets and says which shift ran out', () => {
@@ -110,24 +113,27 @@ describe('solveColorTarget', () => {
     expect(bright.shifts.lightnessShift).toBe(100);
   });
 
-  it('reaches with the other sliders a target one slider cannot reach alone', () => {
-    // Hue needs more than +50°; saturation and lightness make up for it
-    // within sRGB (review TGT1 round 1).
+  it('says hue when a target needs more than the hue reach, also at the edge of sRGB', () => {
+    // The renderer maps colours beyond sRGB into an output rather than
+    // clipping each channel, so overshooting past the sRGB edge reaches
+    // nothing: the solve works in the working gamut (TGT2; TGT1 counted
+    // #FF9600 from this pink as reached through such a clip).
     const range = rangeAt([190, 100, 120]);
     const solve = solveColorTarget([range], range.id, labOfSrgb([255, 150, 0]))!;
     expect(solve.limited.hue).toBe(true);
     expect(solve.shifts.hueShift).toBe(100);
-    expect(solve.deltaE).toBeLessThan(1);
-    const rendered = applyColorRanges([{ ...range, ...solve.shifts }], rangeCentre(range));
-    rendered.forEach((v, i) => expect(v).toBeCloseTo(solve.result[i], 9));
+    expect(solve.deltaE).toBeGreaterThan(1);
+    const rendered = renderedLab([{ ...range, ...solve.shifts }], centreInput(range));
+    rendered.forEach((v, i) => expect(v).toBeCloseTo(solve.resultLab[i], 9));
   });
 
-  it('reaches a pinned target inside sRGB through the other sliders, else keeps them on their own part', () => {
-    // Review TGT1 round 2: purple → #C8006A needs more than +50° of hue.
+  it('reaches a pinned target through the other sliders, else keeps them on their own part', () => {
+    // Hue just beyond +50°: a little more lightness and chroma bring the
+    // working-gamut colour within reach of the target.
     const purple = rangeAt([115, 60, 170]);
-    const reached = solveColorTarget([purple], purple.id, labOfSrgb([200, 0, 106]))!;
-    expect(reached.shifts.hueShift).toBe(100);
-    expect(reached.deltaE).toBeLessThan(1);
+    const [L, C, h] = labToLch(linearToLab(oklabToLinear(rangeCentre(purple))));
+    const near = solveColorTarget([purple], purple.id, lchToLab([L + 1, C * 1.1, h + 40]))!;
+    expect(near.deltaE).toBeLessThan(1);
     // Red → blue is out of reach: hue at its limit, saturation and lightness
     // as the closed form sets them (no chroma drained to shave ΔE).
     const red = rangeAt([200, 60, 50]);
@@ -137,12 +143,14 @@ describe('solveColorTarget', () => {
     expect(far.shifts.saturation).toBeGreaterThan(-60);
   });
 
-  it('finds a reachable target where two free sliders cross the sRGB boundary together', () => {
-    // Review TGT1 round 3: green → #00ECFA.
+  it('finds the nearest colour with the sliders together for a target beyond the working gamut', () => {
     const green = rangeAt([33, 225, 55]);
-    const solve = solveColorTarget([green], green.id, labOfSrgb([0, 236, 250]))!;
-    expect(solve.shifts.hueShift).toBe(100);
-    expect(solve.deltaE).toBeLessThan(1);
+    // Far beyond ProPhoto in chroma: the sliders find the nearest it holds.
+    const solve = solveColorTarget([green], green.id, lchToLab([80, 400, 140]))!;
+    expect(solve.targetOutsideWorkingGamut).toBe(true);
+    expect(solveColorTarget([green], green.id, labOfSrgb([30, 170, 70]))!.targetOutsideWorkingGamut).toBe(false);
+    const closed = renderedLab([{ ...green, saturation: 100 }], centreInput(green));
+    expect(solve.deltaE).toBeLessThanOrEqual(deltaE00(lchToLab([80, 400, 140]), closed) + 1e-9);
   });
 
   it('measures how much a sample error grows when the ranges are undone', () => {
@@ -179,6 +187,118 @@ describe('solveColorTarget', () => {
     expect(solve.limited).toEqual({ hue: true, saturation: true, lightness: true });
     expect(solve.shifts).toEqual({ hueShift: 0, saturation: 0, lightnessShift: 0 });
     expect(solve.movable).toBe(false);
+  });
+
+  it('solves on the renderer’s sample: the pixels around the pick and a layer’s mask influence', () => {
+    // A textured patch: reds spread around the range's colour.
+    const centre = linearToOklab(srgb8ToLinear([200, 60, 50]));
+    const pixels: Vec3[] = [-1, 0, 1].flatMap((i) =>
+      [-1, 0, 1].map((j) => [centre[0] + 0.03 * i, centre[1] + 0.02 * j, centre[2] - 0.02 * i] as Vec3)
+    );
+    const [L, a, b] = meanOklab(pixels);
+    const range = { ...newColorRange(((Math.atan2(b, a) * 180) / Math.PI + 360) % 360, Math.hypot(a, b), L) };
+    const target = labOfSrgb([200, 20, 40]);
+    const full = { pixels, influence: pixels.map(() => 1) };
+    const solve = solveColorTarget([range], range.id, target, full)!;
+    expect(solve.deltaE).toBeLessThan(0.5);
+    renderedLab([{ ...range, ...solve.shifts }], full).forEach((v, i) => expect(v).toBeCloseTo(solve.resultLab[i], 9));
+    // Half the layer's strength at the pick needs larger shifts for the same
+    // colour; a solve at full strength misses there.
+    const half = { pixels, influence: pixels.map(() => 0.5) };
+    const feathered = solveColorTarget([range], range.id, target, half)!;
+    expect(feathered.deltaE).toBeLessThan(0.5);
+    expect(Math.abs(feathered.shifts.saturation)).toBeGreaterThan(Math.abs(solve.shifts.saturation));
+    expect(deltaE00(target, renderedLab([{ ...range, ...solve.shifts }], half))).toBeGreaterThan(1);
+  });
+
+  it('reaches a target beyond sRGB in the working gamut from a colour beyond sRGB', () => {
+    // A saturated blue the display clips (linear sRGB red below 0).
+    const blue = linearToOklab([-0.05, 0.05, 0.6]);
+    const range = newColorRange(
+      ((Math.atan2(blue[2], blue[1]) * 180) / Math.PI + 360) % 360,
+      Math.hypot(blue[1], blue[2]),
+      blue[0]
+    );
+    const input = { pixels: [blue], influence: [1] };
+    const [Lb, Cb, hb] = labToLch(linearToLab([-0.05, 0.05, 0.6]));
+    const target = lchToLab([Lb, Cb * 1.05, hb + 3]);
+    const solve = solveColorTarget([range], range.id, target, input)!;
+    expect(solve.targetOutsideSrgb).toBe(true);
+    expect(solve.deltaE).toBeLessThan(1);
+  });
+
+  it('reaches a target on a patch across two colours under a feathered mask with the sliders together', () => {
+    // Review TGT2 rounds 1–2: an 11 × 11 blue/green product edge under a
+    // diagonal mask ramp, range picked across it with a 45° hue range.
+    const blue = linearToOklab(srgb8ToLinear([0x32, 0x41, 0x9d]));
+    const green = linearToOklab(srgb8ToLinear([0x61, 0xc6, 0x43]));
+    const pixels: Vec3[] = [];
+    const influence: number[] = [];
+    for (let y = 0; y < 11; y += 1)
+      for (let x = 0; x < 11; x += 1) {
+        pixels.push(x < 5 ? blue : green);
+        influence.push(0.1 + (0.8 * (x + y)) / 20);
+      }
+    const input = { pixels, influence };
+    const [L, a, b] = meanOklab(pixels);
+    const range = {
+      ...newColorRange(((Math.atan2(b, a) * 180) / Math.PI + 360) % 360, Math.hypot(a, b), L),
+      hueRange: 45
+    };
+    // A target the patch reaches only with clearly changed sliders.
+    const target = renderedLab([{ ...range, hueShift: -60, saturation: 30, lightnessShift: 10 }], input);
+    expect(deltaE00(target, renderedLab([range], input))).toBeGreaterThan(5);
+    const solve = solveColorTarget([range], range.id, target, input)!;
+    expect(solve.deltaE).toBeLessThan(1);
+    expect(solve.limited).toEqual({ hue: false, saturation: false, lightness: false });
+    // #6E8433 lies just beyond this patch's reach: the solve lands on the
+    // nearest the sliders give (a brute-force scan's best is ΔE00 1.83).
+    const olive = solveColorTarget([range], range.id, labOfSrgb([0x6e, 0x84, 0x33]), input)!;
+    expect(olive.deltaE).toBeLessThan(1.85);
+  });
+
+  it('reaches #6E8433 across a blue/green edge under the steeper ramp of review round 3', () => {
+    const blue = linearToOklab(srgb8ToLinear([0x32, 0x41, 0x9d]));
+    const green = linearToOklab(srgb8ToLinear([0x61, 0xc6, 0x43]));
+    const pixels: Vec3[] = [];
+    const influence: number[] = [];
+    for (let y = 0; y < 11; y += 1)
+      for (let x = 0; x < 11; x += 1) {
+        pixels.push(x < 5 ? blue : green);
+        influence.push(Math.round(Math.min(1, 0.4 + (x + y) / 20) * 255) / 255);
+      }
+    const input = { pixels, influence };
+    const [L, a, b] = meanOklab(pixels);
+    const range = {
+      ...newColorRange(((Math.atan2(b, a) * 180) / Math.PI + 360) % 360, Math.hypot(a, b), L),
+      hueRange: 45
+    };
+    const solve = solveColorTarget([range], range.id, labOfSrgb([0x6e, 0x84, 0x33]), input)!;
+    expect(solve.deltaE).toBeLessThan(0.5);
+  });
+
+  it('labels as at their limit only the sliders the result leaves there', () => {
+    // Review TGT2 round 2: a light sky blue to a far more saturated violet.
+    const sky = rangeAt([0x91, 0xb9, 0xde]);
+    const solve = solveColorTarget([sky], sky.id, lchToLab([73.2, 100, 295]))!;
+    const ends = {
+      hue: solve.shifts.hueShift,
+      saturation: solve.shifts.saturation,
+      lightness: solve.shifts.lightnessShift
+    };
+    for (const [k, v] of Object.entries(ends))
+      if (solve.limited[k as keyof typeof solve.limited]) expect(Math.abs(v)).toBe(100);
+  });
+
+  it('keeps the shifts and says so when the layer’s mask no longer covers the pick', () => {
+    const range = rangeAt([200, 60, 50], { hueShift: 30, saturation: 20, lightnessShift: -10 });
+    const solve = solveColorTarget([range], range.id, labOfSrgb([200, 20, 40]), {
+      pixels: [rangeCentre(range)],
+      influence: [0]
+    })!;
+    expect(solve.shifts).toEqual({ hueShift: 30, saturation: 20, lightnessShift: -10 });
+    expect(solve.movable).toBe(false);
+    expect(solve.uncovered).toBe(true);
   });
 
   it('returns null for an unknown range', () => {

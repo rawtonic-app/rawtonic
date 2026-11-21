@@ -2932,7 +2932,8 @@
             "saturation": "飽和度(0–200 %)"
           },
           "outOfReach": "無法達到:剩餘 ΔE00 {{value}};{{limits}} 已達極限。",
-          "outsideSrgb": "目標超出 sRGB。",
+          "outsideSrgb": "目標超出 sRGB;sRGB 輸出會將顏色映射到 sRGB 內。",
+          "outsideWorkingGamut": "目標超出照片的工作色彩(ProPhoto):照片中沒有顏色能成為它,範圍會盡可能接近。",
           "pickAria": "擷取目標顏色",
           "pickedThrough": "預測距目標 ΔE00 {{value}},但此顏色是在範圍本身的大幅調整下擷取的:請在照片中檢查結果,或將滑桿歸零後重新擷取。",
           "pickTitle": "在照片中擷取目標顏色,此範圍會移到該顏色",
@@ -2944,6 +2945,7 @@
           "sourceClipped": "擷取的顏色位於 sRGB 邊緣:請在照片中檢查結果。",
           "srgb": "sRGB",
           "swatchAria": "範圍結果 {{result}},目標 {{target}}",
+          "uncovered": "圖層的蒙版已不覆蓋取樣點:範圍的滑桿保持不變。",
           "useSampled": "使用來自 {{name}} 的目標",
           "useSampledTitle": "將此範圍移到在 {{name}} 中擷取的顏色"
         },

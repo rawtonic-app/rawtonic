@@ -2932,7 +2932,8 @@
             "saturation": "채도(0–200 %)"
           },
           "outOfReach": "도달 불가: ΔE00 {{value}} 남음, {{limits}} 한계 도달.",
-          "outsideSrgb": "목표가 sRGB 밖에 있습니다.",
+          "outsideSrgb": "목표가 sRGB 밖에 있습니다. sRGB 내보내기는 색을 sRGB 안으로 매핑합니다.",
+          "outsideWorkingGamut": "목표가 사진의 작업 색역(ProPhoto) 밖에 있습니다. 사진의 어떤 색도 그 색이 될 수 없으며, 범위는 최대한 가까이 갑니다.",
           "pickAria": "목표 색상 찍기",
           "pickedThrough": "목표에서 ΔE00 {{value}}로 예측되지만, 이 색은 범위 자체의 큰 변경을 거쳐 찍혔습니다. 사진에서 결과를 확인하거나 슬라이더를 0으로 두고 다시 찍으세요.",
           "pickTitle": "사진에서 목표 색상을 찍으면 이 범위가 그 색으로 이동합니다",
@@ -2944,6 +2945,7 @@
           "sourceClipped": "찍은 색이 sRGB 경계에 있습니다. 사진에서 결과를 확인하세요.",
           "srgb": "sRGB",
           "swatchAria": "범위 결과 {{result}}, 목표 {{target}}",
+          "uncovered": "레이어 마스크가 더 이상 선택한 지점을 덮지 않습니다. 범위 슬라이더는 그대로 유지됩니다.",
           "useSampled": "{{name}}의 목표 사용",
           "useSampledTitle": "이 범위를 {{name}}에서 찍은 색으로 이동"
         },

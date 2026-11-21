@@ -3179,7 +3179,8 @@
             "saturation": "saturació (0–200 %)"
           },
           "outOfReach": "Fora d'abast: queden ΔE00 {{value}}; {{limits}} al límit.",
-          "outsideSrgb": "L'objectiu és fora de sRGB.",
+          "outsideSrgb": "L'objectiu és fora de sRGB; una exportació sRGB porta el color dins de sRGB.",
+          "outsideWorkingGamut": "L'objectiu és fora dels colors de treball de la foto (ProPhoto): cap color de la foto no hi pot arribar, l'interval s'hi acosta tant com pot.",
           "pickAria": "Agafar el color objectiu",
           "pickedThrough": "Previst a ΔE00 {{value}} de l'objectiu, però aquest color s'ha agafat a través del fort canvi del mateix interval: comprova el resultat a la foto o torna'l a agafar amb els controls a 0.",
           "pickTitle": "Agafa el color objectiu a la foto; aquest interval s'hi desplaça",
@@ -3191,6 +3192,7 @@
           "sourceClipped": "El color agafat és a la vora de sRGB: comprova el resultat a la foto.",
           "srgb": "sRGB",
           "swatchAria": "Resultat de l'interval {{result}}, objectiu {{target}}",
+          "uncovered": "La màscara de la capa ja no cobreix el punt triat: els controls de l'interval es queden com estan.",
           "useSampled": "Fes servir l'objectiu de {{name}}",
           "useSampledTitle": "Desplaça aquest interval al color agafat a {{name}}"
         },

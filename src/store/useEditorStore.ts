@@ -9,7 +9,7 @@ import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } fr
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
 import type { SharpenView } from '../utils/sharpenView';
-import type { ColorTarget } from '../utils/colorTarget';
+import type { ColorRangePick, ColorTarget } from '../utils/colorTarget';
 import { DEFAULT_SPLIT_POSITION, type SplitOrientation } from '../utils/beforeAfter';
 import { historyOrders, setHistoryOrders, inheritHistoryOrders, newEditOrder } from '../utils/undoOrder';
 import { noteEdit } from '../components/contribute/usageStats';
@@ -177,6 +177,11 @@ interface EditorState {
    * `inverseGain`): their sampled colour, and so a target's readout, is
    * uncertain. View state. */
   colorPicksThroughRanges: string[];
+  /** The renderer's sample at each colour editor range's pick
+   * (`photo|layer|range id`, utils/colorRanges `rangeInputFor`): the point,
+   * the range's colour it set and the colour entering the ranges there.
+   * View state. */
+  colorRangeInputs: Record<string, ColorRangePick>;
   /** The mask layer the picker edits, or null for the photo. */
   colorPickerLayer: string | null;
   /** The colour editor range shown in the tool. */
@@ -366,6 +371,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   colorPickerTarget: null,
   colorTarget: null,
   colorPicksThroughRanges: [],
+  colorRangeInputs: {},
   colorPickerLayer: null,
   activeColorRangeId: null,
   colorRangeShow: null,

@@ -4859,6 +4859,19 @@ pub const LEVELS_INPUT_PROBE: u32 = 1;
 pub const MIXER_INPUT_PROBE: u32 = 2;
 /// As [`MIXER_INPUT_PROBE`], for the colour the B&W mix receives.
 pub const BW_INPUT_PROBE: u32 = 3;
+/// `output_space[3]` of the colour editor's input probe (the target colour
+/// solve's sample, [`color_range_input_probe`]): the shader stores the colour
+/// entering the photo's ranges (`slot` 0) or mask layer `slot - 1`'s, and
+/// that layer's mask influence, and stops. Display variants only (shader
+/// `MIXER_PROBES`); others store Levels' input.
+pub const COLOR_RANGE_INPUT_PROBE: u32 = 4;
+
+/// The colour editor probe's `output_space[3]`: `slot` 0 the photo's ranges,
+/// `1 + i` the `i`-th mask layer that produces a bitmap; `low` the render
+/// with the low bytes and the influence (shader `color_range_probe_pixel`).
+pub fn color_range_input_probe(slot: u32, low: bool) -> u32 {
+    COLOR_RANGE_INPUT_PROBE | (u32::from(low) << 4) | (slot << 8)
+}
 pub use crate::color_grading::GRADING_LUT_SIZE;
 
 #[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]
