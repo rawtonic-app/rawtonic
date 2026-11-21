@@ -3561,6 +3561,7 @@
         },
         "reviewHint": "最初の写真について表示しています。各写真には、それぞれのファイル名と編集が記録されます。",
         "reviewLegend": "マニフェストに含まれる内容",
+        "reviewLegendFor": "マニフェストに含まれる内容: {{recipe}}",
         "signedImported": "「{{signer}}」として署名します。証明書の発行者: {{issuer}}、有効期限: {{until}}。",
         "signedLocal": "このコンピューターで作成した証明書で「{{signer}}」として署名します。",
         "signerName": "署名者名",
@@ -3684,6 +3685,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "何も書き出されませんでした: {{error}}",
         "queuedMany_other": "{{count}} 件の書き出しをキューに追加しました。",
         "queuedOne": "書き出しキューに追加しました。",
         "unsavedEdits": "{{names}} の編集を保存できなかったため、何も書き出していません。保存されたら、もう一度書き出してください。"

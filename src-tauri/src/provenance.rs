@@ -60,7 +60,12 @@ pub(crate) fn pin_signers(
             &mut request.export_settings,
             &request.output_format,
             identity.as_ref(),
-        )?;
+        )
+        // Named, so a refusal from the File menu says which recipe.
+        .map_err(|error| match request.display_label.as_deref() {
+            Some(label) if !label.is_empty() => format!("{label}: {error}"),
+            _ => error,
+        })?;
     }
     Ok(())
 }

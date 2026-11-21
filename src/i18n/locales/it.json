@@ -3814,6 +3814,7 @@
         },
         "reviewHint": "Mostrato per la prima foto; ogni foto riceve il proprio nome file e le proprie modifiche.",
         "reviewLegend": "Cosa contiene il manifesto",
+        "reviewLegendFor": "Cosa contiene il manifesto: {{recipe}}",
         "signedImported": "Firmato come «{{signer}}»; certificato rilasciato da {{issuer}}, valido fino al {{until}}.",
         "signedLocal": "Firmato come «{{signer}}» con un certificato creato su questo computer.",
         "signerName": "Nome del firmatario",
@@ -3943,6 +3944,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "Non è stato esportato nulla: {{error}}",
         "queuedMany_one": "{{count}} esportazione aggiunta alla coda.",
         "queuedMany_many": "{{count}} esportazioni aggiunte alla coda.",
         "queuedMany_other": "{{count}} esportazioni aggiunte alla coda.",

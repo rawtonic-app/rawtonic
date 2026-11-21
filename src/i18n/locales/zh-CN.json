@@ -3561,6 +3561,7 @@
         },
         "reviewHint": "针对第一张照片显示；每张照片会记录各自的文件名和编辑。",
         "reviewLegend": "清单包含的内容",
+        "reviewLegendFor": "清单包含的内容：{{recipe}}",
         "signedImported": "以“{{signer}}”的身份签名；证书由 {{issuer}} 颁发，有效期至 {{until}}。",
         "signedLocal": "以“{{signer}}”的身份，用在此电脑上创建的证书签名。",
         "signerName": "签名者名称",
@@ -3684,6 +3685,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "未导出任何内容：{{error}}",
         "queuedMany_other": "已将 {{count}} 个导出加入队列。",
         "queuedOne": "已加入导出队列。",
         "unsavedEdits": "无法保存 {{names}} 的编辑，因此未导出任何内容。保存后请重新导出。"

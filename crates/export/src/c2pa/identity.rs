@@ -301,6 +301,72 @@ fn check_signing_certificate(chain: &[Vec<u8>], key: &Key) -> Result<(), String>
                 .to_string(),
         );
     }
+    check_certificate_profile(&cert)
+}
+
+/// Signature algorithms C2PA accepts for certificates (C2PA 2.x,
+/// "Certificate profile"): RSA PKCS#1 v1.5 and PSS with SHA-2, ECDSA with
+/// SHA-2, Ed25519.
+const CERTIFICATE_ALGORITHMS: [&str; 8] = [
+    "1.2.840.113549.1.1.11",
+    "1.2.840.113549.1.1.12",
+    "1.2.840.113549.1.1.13",
+    "1.2.840.113549.1.1.10",
+    "1.2.840.10045.4.3.2",
+    "1.2.840.10045.4.3.3",
+    "1.2.840.10045.4.3.4",
+    "1.3.101.112",
+];
+
+/// The rest of the C2PA certificate profile a signing certificate must
+/// follow, as the reference validator checks it (c2pa-rs
+/// `check_certificate_profile`): X.509 v3, an accepted signature algorithm
+/// named alike inside and outside the signed part, no unique identifiers,
+/// an Authority Key Identifier, no certificate-signing key usage, not both
+/// time-stamping and OCSP signing, and no critical extension it does not
+/// know.
+fn check_certificate_profile(cert: &X509Certificate<'_>) -> Result<(), String> {
+    use x509_parser::extensions::ParsedExtension;
+    let refuse = |what: &str| {
+        Err(format!(
+            "The certificate does not follow the C2PA certificate profile ({what}); C2PA verifiers reject signatures made with it."
+        ))
+    };
+    if cert.version() != x509_parser::x509::X509Version::V3 {
+        return refuse("not an X.509 version 3 certificate");
+    }
+    let algorithm = cert.signature_algorithm.algorithm.to_id_string();
+    if cert.tbs_certificate.signature.algorithm != cert.signature_algorithm.algorithm
+        || !CERTIFICATE_ALGORITHMS.contains(&algorithm.as_str())
+    {
+        return refuse("its signature algorithm");
+    }
+    if cert.tbs_certificate.issuer_uid.is_some() || cert.tbs_certificate.subject_uid.is_some() {
+        return refuse("unique identifiers");
+    }
+    let mut authority_key_id = false;
+    for extension in cert.extensions() {
+        match extension.parsed_extension() {
+            ParsedExtension::AuthorityKeyIdentifier(_) => authority_key_id = true,
+            ParsedExtension::KeyUsage(usage) if usage.key_cert_sign() => {
+                return refuse("it may sign certificates");
+            }
+            ParsedExtension::ExtendedKeyUsage(eku) if eku.ocsp_signing && eku.time_stamping => {
+                return refuse("both time-stamping and OCSP signing");
+            }
+            ParsedExtension::UnsupportedExtension { .. }
+            | ParsedExtension::ParseError { .. }
+            | ParsedExtension::Unparsed
+                if extension.critical =>
+            {
+                return refuse("a critical extension verifiers do not know");
+            }
+            _ => {}
+        }
+    }
+    if !authority_key_id {
+        return refuse("no Authority Key Identifier");
+    }
     Ok(())
 }
 
@@ -839,6 +905,54 @@ mod tests {
             .check_usable()
             .unwrap_err();
         assert!(error.contains("not now"), "{error}");
+    }
+
+    #[test]
+    fn a_certificate_outside_the_c2pa_profile_is_refused_at_import() {
+        let rng = SystemRandom::new();
+        let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
+        let ca_pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
+        let ca = EcdsaKeyPair::from_pkcs8(alg, ca_pkcs8.as_ref(), &rng).unwrap();
+        let ee_pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
+        let ee = EcdsaKeyPair::from_pkcs8(alg, ee_pkcs8.as_ref(), &rng).unwrap();
+        let now = jiff::Timestamp::now();
+        let day = jiff::SignedDuration::from_hours(24);
+        let leaf = |extensions: &[Vec<u8>]| {
+            certificate(
+                &rng,
+                &ca,
+                &name("A Studio CA"),
+                &name("Studio"),
+                ee.public_key().as_ref(),
+                (now - day, now + day * 30),
+                extensions,
+            )
+            .unwrap()
+        };
+        let base = || {
+            vec![
+                extension("2.5.29.19", true, &der::seq(&[])),
+                extension("2.5.29.15", true, &der::tlv(0x03, &[0x07, 0x80])),
+                extension("2.5.29.37", false, &der::seq(&[der::oid(EMAIL_PROTECTION)])),
+            ]
+        };
+        let key = key_from_pkcs8(ee_pkcs8.as_ref(), &rng).unwrap();
+        // Everything C2PA asks for, with an Authority Key Identifier: accepted.
+        let mut with_aki = base();
+        with_aki.push(extension(
+            "2.5.29.35",
+            false,
+            &der::seq(&[der::tlv(0x80, &[1; 20])]),
+        ));
+        check_signing_certificate(&[leaf(&with_aki)], &key).unwrap();
+        // The same without it, as a CA might issue it: refused.
+        let error = check_signing_certificate(&[leaf(&base())], &key).unwrap_err();
+        assert!(error.contains("Authority Key Identifier"), "{error}");
+        // A critical extension verifiers do not know: refused.
+        let mut unknown = with_aki.clone();
+        unknown.push(extension("1.3.6.1.4.1.99999.1", true, &der::octets(&[1])));
+        let error = check_signing_certificate(&[leaf(&unknown)], &key).unwrap_err();
+        assert!(error.contains("critical extension"), "{error}");
     }
 
     fn info_matches(dir: &Path, want: &IdentityInfo) -> bool {

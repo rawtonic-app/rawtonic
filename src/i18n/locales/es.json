@@ -3814,6 +3814,7 @@
         },
         "reviewHint": "Se muestra para la primera foto; cada foto recibe su propio nombre de archivo y ediciones.",
         "reviewLegend": "Qué contiene el manifiesto",
+        "reviewLegendFor": "Qué contiene el manifiesto: {{recipe}}",
         "signedImported": "Firmado como «{{signer}}»; certificado emitido por {{issuer}}, válido hasta {{until}}.",
         "signedLocal": "Firmado como «{{signer}}» con un certificado creado en este ordenador.",
         "signerName": "Nombre del firmante",
@@ -3943,6 +3944,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "No se exportó nada: {{error}}",
         "queuedMany_one": "{{count}} exportación añadida a la cola.",
         "queuedMany_many": "{{count}} exportaciones añadidas a la cola.",
         "queuedMany_other": "{{count}} exportaciones añadidas a la cola.",

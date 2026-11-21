@@ -3814,6 +3814,7 @@
         },
         "reviewHint": "Es mostra per a la primera foto; cada foto rep el seu propi nom de fitxer i edicions.",
         "reviewLegend": "Què conté el manifest",
+        "reviewLegendFor": "Què conté el manifest: {{recipe}}",
         "signedImported": "Signat com a «{{signer}}»; certificat emès per {{issuer}}, vàlid fins al {{until}}.",
         "signedLocal": "Signat com a «{{signer}}» amb un certificat creat en aquest ordinador.",
         "signerName": "Nom del signant",
@@ -3943,6 +3944,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "No s'ha exportat res: {{error}}",
         "queuedMany_one": "S'ha afegit {{count}} exportació a la cua.",
         "queuedMany_many": "S'han afegit {{count}} exportacions a la cua.",
         "queuedMany_other": "S'han afegit {{count}} exportacions a la cua.",

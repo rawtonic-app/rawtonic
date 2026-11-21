@@ -14,7 +14,7 @@
 //!   `c2pa.resized`), and one `c2pa.edited` per area a generative model
 //!   made, with the IPTC Digital Source Type the file's XMP carries
 //!   (`DIGITAL_SOURCE_COMPOSITE_AI`),
-//! - the author, only when the recipe asks for it,
+//! - the author (`cawg.metadata`, `dc:creator`), only when the recipe asks,
 //! - the hard binding: SHA-256 of the whole file except the manifest,
 //!   computed after every other byte of the file is written.
 //!
@@ -297,14 +297,16 @@ impl<'a> Manifest<'a> {
         ));
 
         if let Some(author) = &plan.author {
-            // A JSON-LD assertion (C2PA: `stds.schema-org.CreativeWork`).
-            let label = "stds.schema-org.CreativeWork";
-            let work = serde_json::json!({
-                "@context": "http://schema.org/",
-                "@type": "CreativeWork",
-                "author": [{"@type": "Person", "name": author}],
+            // The creator in a CAWG metadata assertion (JSON-LD, Dublin
+            // Core): C2PA 2.x moved human-made metadata out of claims'
+            // CreativeWork into `*.metadata` assertions, and `dc:creator` is
+            // not among `c2pa.metadata`'s fields.
+            let label = "cawg.metadata";
+            let metadata = serde_json::json!({
+                "@context": {"dc": "http://purl.org/dc/elements/1.1/"},
+                "dc:creator": [author],
             });
-            let json = serde_json::to_vec(&work).expect("a JSON-LD assertion");
+            let json = serde_json::to_vec(&metadata).expect("a JSON-LD assertion");
             assertions.push((label, jumbf::json_superbox(label, &json)));
         }
 

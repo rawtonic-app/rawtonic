@@ -3970,6 +3970,7 @@
         },
         "reviewHint": "Pokazano dla pierwszego zdjęcia; każde zdjęcie otrzymuje własną nazwę pliku i edycje.",
         "reviewLegend": "Co trafia do manifestu",
+        "reviewLegendFor": "Co trafia do manifestu: {{recipe}}",
         "signedImported": "Podpisano jako „{{signer}}”; certyfikat wydany przez {{issuer}}, ważny do {{until}}.",
         "signedLocal": "Podpisano jako „{{signer}}” certyfikatem utworzonym na tym komputerze.",
         "signerName": "Nazwa podpisującego",
@@ -4102,6 +4103,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "Nic nie wyeksportowano: {{error}}",
         "queuedMany_one": "Dodano {{count}} eksport do kolejki.",
         "queuedMany_few": "Dodano {{count}} eksporty do kolejki.",
         "queuedMany_many": "Dodano {{count}} eksportów do kolejki.",

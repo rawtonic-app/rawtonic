@@ -3561,6 +3561,7 @@
         },
         "reviewHint": "以第一張相片顯示；每張相片會記錄各自的檔名與編輯。",
         "reviewLegend": "清單包含的內容",
+        "reviewLegendFor": "清單包含的內容：{{recipe}}",
         "signedImported": "以「{{signer}}」的身分簽署；憑證由 {{issuer}} 簽發，有效至 {{until}}。",
         "signedLocal": "以「{{signer}}」的身分，用在此電腦上建立的憑證簽署。",
         "signerName": "簽署者名稱",
@@ -3684,6 +3685,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "未輸出任何內容：{{error}}",
         "queuedMany_other": "已將 {{count}} 個匯出加入佇列。",
         "queuedOne": "已加入匯出佇列。",
         "unsavedEdits": "無法儲存 {{names}} 的編輯，因此未匯出任何內容。儲存後請重新匯出。"

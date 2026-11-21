@@ -69,13 +69,23 @@ interface ProvenancePreview {
   formatError: string | null;
 }
 
+/** One planned export that asks for a manifest: its review is shown. */
+export interface SignedExport {
+  key: string;
+  /** The recipe's name (the form's: "Current settings"). */
+  label: string;
+  settings: ExportSettings;
+  outputFormat: string;
+}
+
 interface Props {
   draft: RecipeDraft;
   set: (patch: Partial<RecipeDraft>) => void;
   disabled: boolean;
-  /** The first photo to export: its manifest is shown. */
+  /** The first photo to export: its manifests are shown. */
   path: string | null;
-  settings: ExportSettings;
+  /** Every planned export that asks for a manifest (ticked recipes or the form). */
+  signed: SignedExport[];
   library: unknown;
   /** The signing identity (`useProvenanceIdentity`). */
   identity: ProvenanceIdentity | null | undefined;
@@ -100,7 +110,7 @@ export default function StudioExportProvenance({
   set,
   disabled,
   path,
-  settings,
+  signed,
   library,
   identity,
   setIdentity,
@@ -113,40 +123,10 @@ export default function StudioExportProvenance({
   const [signer, setSigner] = useState('');
   const [importing, setImporting] = useState<{ file: string; password: string } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [preview, setPreview] = useState<{ request: string; preview: ProvenancePreview } | null>(null);
 
   const formatOk = provenanceFormat(draft.format);
-
-  const request = JSON.stringify({
-    path,
-    exportSettings: settings,
-    outputFormat: draft.format,
-    library,
-    identity: identity?.fingerprint ?? null
-  });
-  useEffect(() => {
-    const parsed = JSON.parse(request) as { path: string | null };
-    if (!draft.provenance || !parsed.path) return;
-    let stale = false;
-    const timer = setTimeout(() => {
-      // `identity` only asks for the review again when the signer changes.
-      const args = JSON.parse(request);
-      delete args.identity;
-      invoke<ProvenancePreview>(Invokes.ExportProvenancePreview, {
-        ...args,
-        ...currentEditForExport(useEditorStore.getState())
-      })
-        .then((result) => !stale && result && setPreview({ request, preview: result }))
-        .catch(() => {
-          // The review is shown again with the next change.
-        });
-    }, 250);
-    return () => {
-      stale = true;
-      clearTimeout(timer);
-    };
-  }, [request, draft.provenance]);
-  const shown = preview?.request === request ? preview.preview : null;
+  // The signer is set up here for the form and for ticked recipes alike.
+  const active = draft.provenance || signed.length > 0;
 
   const run = async (action: () => Promise<ProvenanceIdentity | boolean>) => {
     setWorking(true);
@@ -185,7 +165,7 @@ export default function StudioExportProvenance({
   const remove = () => run(() => invoke<boolean>(Invokes.RemoveProvenanceIdentity).then(() => false));
 
   return (
-    <details className="studio-export-section">
+    <details className="studio-export-section" open={active || undefined}>
       <summary>{t('studio.export.provenance.legend')}</summary>
       <fieldset disabled={disabled}>
         <legend>{t('studio.export.provenance.legend')}</legend>
@@ -194,22 +174,23 @@ export default function StudioExportProvenance({
           {t('studio.export.provenance.add')}
         </label>
         <small>{t('studio.export.provenance.about')}</small>
+        {draft.provenance && !formatOk && (
+          <p className="studio-export-error" role="alert">
+            {t('studio.export.provenance.formatUnsupported', { format: draft.format.toUpperCase() })}
+          </p>
+        )}
         {draft.provenance && (
+          <label className="studio-check">
+            <input
+              type="checkbox"
+              checked={draft.provenanceAuthor}
+              onChange={(e) => set({ provenanceAuthor: e.target.checked })}
+            />
+            {t('studio.export.provenance.author')}
+          </label>
+        )}
+        {active && (
           <>
-            {!formatOk && (
-              <p className="studio-export-error" role="alert">
-                {t('studio.export.provenance.formatUnsupported', { format: draft.format.toUpperCase() })}
-              </p>
-            )}
-            <label className="studio-check">
-              <input
-                type="checkbox"
-                checked={draft.provenanceAuthor}
-                onChange={(e) => set({ provenanceAuthor: e.target.checked })}
-              />
-              {t('studio.export.provenance.author')}
-            </label>
-
             <div className="studio-provenance-identity" aria-live="polite">
               {identity === undefined ? null : identity ? (
                 <>
@@ -293,53 +274,115 @@ export default function StudioExportProvenance({
               )}
             </div>
 
-            {shown && (
-              <section className="studio-provenance-review" aria-label={t('studio.export.provenance.reviewLegend')}>
-                <h5>{t('studio.export.provenance.reviewLegend')}</h5>
-                <small>{t('studio.export.provenance.reviewHint')}</small>
-                <dl>
-                  <dt>{t('studio.export.provenance.review.generator')}</dt>
-                  <dd>
-                    {shown.manifest.generator} {shown.manifest.generatorVersion}
-                  </dd>
-                  <dt>{t('studio.export.provenance.review.signer')}</dt>
-                  <dd>{shown.identity ? shown.identity.signer : t('studio.export.provenance.review.noSigner')}</dd>
-                  <dt>{t('studio.export.provenance.review.ingredient')}</dt>
-                  <dd>
-                    {shown.manifest.ingredientTitle}
-                    {shown.manifest.ingredientFormat ? ` (${shown.manifest.ingredientFormat})` : ''}
-                  </dd>
-                  <dt>{t('studio.export.provenance.review.author')}</dt>
-                  <dd>{shown.manifest.author ?? t('studio.export.provenance.review.noAuthor')}</dd>
-                  <dt>{t('studio.export.provenance.review.actions')}</dt>
-                  <dd>
-                    <ol>
-                      {shown.manifest.actions.map((action, index) => (
-                        <li key={index}>
-                          <code>{action.action}</code>
-                          {action.description ? ` — ${action.description}` : ''}
-                          {action.digitalSourceType && (
-                            <>
-                              {' '}
-                              <small>
-                                {t('studio.export.provenance.review.generated', {
-                                  type: action.digitalSourceType.split('/').pop()
-                                })}
-                              </small>
-                            </>
-                          )}
-                        </li>
-                      ))}
-                    </ol>
-                  </dd>
-                  <dt>{t('studio.export.provenance.review.notIncluded')}</dt>
-                  <dd>{t('studio.export.provenance.review.notIncludedList')}</dd>
-                </dl>
-              </section>
-            )}
+            {signed.map((job) => (
+              <ProvenanceReview
+                key={job.key}
+                job={job}
+                label={signed.length > 1 ? job.label : null}
+                path={path}
+                library={library}
+                fingerprint={identity?.fingerprint ?? null}
+              />
+            ))}
           </>
         )}
       </fieldset>
     </details>
+  );
+}
+
+/** What one signed export's manifest holds for the first photo (`export_provenance_preview`). */
+function ProvenanceReview({
+  job,
+  label,
+  path,
+  library,
+  fingerprint
+}: {
+  job: SignedExport;
+  /** Named when several recipes sign. */
+  label: string | null;
+  path: string | null;
+  library: unknown;
+  /** Asks again when the signer changes. */
+  fingerprint: string | null;
+}) {
+  const { t } = useTranslation();
+  const [preview, setPreview] = useState<{ request: string; preview: ProvenancePreview } | null>(null);
+  const request = JSON.stringify({
+    path,
+    exportSettings: job.settings,
+    outputFormat: job.outputFormat,
+    library,
+    fingerprint
+  });
+  useEffect(() => {
+    const args = JSON.parse(request) as Record<string, unknown> & { path: string | null };
+    if (!args.path) return;
+    delete args.fingerprint;
+    let stale = false;
+    const timer = setTimeout(() => {
+      invoke<ProvenancePreview>(Invokes.ExportProvenancePreview, {
+        ...args,
+        ...currentEditForExport(useEditorStore.getState())
+      })
+        .then((result) => !stale && result && setPreview({ request, preview: result }))
+        .catch(() => {
+          // The review is shown again with the next change.
+        });
+    }, 250);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [request]);
+  const shown = preview?.request === request ? preview.preview : null;
+  if (!shown) return null;
+  const legend = label
+    ? t('studio.export.provenance.reviewLegendFor', { recipe: label })
+    : t('studio.export.provenance.reviewLegend');
+  return (
+    <section className="studio-provenance-review" aria-label={legend}>
+      <h5>{legend}</h5>
+      <small>{t('studio.export.provenance.reviewHint')}</small>
+      <dl>
+        <dt>{t('studio.export.provenance.review.generator')}</dt>
+        <dd>
+          {shown.manifest.generator} {shown.manifest.generatorVersion}
+        </dd>
+        <dt>{t('studio.export.provenance.review.signer')}</dt>
+        <dd>{shown.identity ? shown.identity.signer : t('studio.export.provenance.review.noSigner')}</dd>
+        <dt>{t('studio.export.provenance.review.ingredient')}</dt>
+        <dd>
+          {shown.manifest.ingredientTitle}
+          {shown.manifest.ingredientFormat ? ` (${shown.manifest.ingredientFormat})` : ''}
+        </dd>
+        <dt>{t('studio.export.provenance.review.author')}</dt>
+        <dd>{shown.manifest.author ?? t('studio.export.provenance.review.noAuthor')}</dd>
+        <dt>{t('studio.export.provenance.review.actions')}</dt>
+        <dd>
+          <ol>
+            {shown.manifest.actions.map((action, index) => (
+              <li key={index}>
+                <code>{action.action}</code>
+                {action.description ? ` — ${action.description}` : ''}
+                {action.digitalSourceType && (
+                  <>
+                    {' '}
+                    <small>
+                      {t('studio.export.provenance.review.generated', {
+                        type: action.digitalSourceType.split('/').pop()
+                      })}
+                    </small>
+                  </>
+                )}
+              </li>
+            ))}
+          </ol>
+        </dd>
+        <dt>{t('studio.export.provenance.review.notIncluded')}</dt>
+        <dd>{t('studio.export.provenance.review.notIncludedList')}</dd>
+      </dl>
+    </section>
   );
 }

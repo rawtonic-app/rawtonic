@@ -615,7 +615,8 @@ the file (`with_provenance` in `export_processing`; a streamed TIFF once it is w
 and certificate in a folder the app gives (`src-tauri/src/provenance.rs`: the app data folder's `provenance/`, and the
 Export panel's commands). `ExportOutput::provenance` carries the loaded identity (`FileExporter::with_provenance`, the CLI's
 `--provenance-identity`); the app checks and pins it when a job is queued (`provenance::pin_signers` from
-`export_queue::enqueue_all`).
+`export_queue::enqueue_all`; the panel sends the fingerprint it showed). A group member that cannot be signed fails
+alone before the group renders (`save_group_rendering`).
 
 
 #### Layering check and colour pipeline

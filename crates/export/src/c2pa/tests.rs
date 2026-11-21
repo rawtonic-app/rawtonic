@@ -366,7 +366,7 @@ fn the_author_is_named_only_when_asked() {
     let jpeg = small_jpeg();
     let without = sign_jpeg(&jpeg, &plan(&json!({})), &identity).unwrap();
     let manifest_without = jpeg_store(&without);
-    assert!(find(&manifest_without, "stds.schema-org.CreativeWork").is_none());
+    assert!(find(&manifest_without, "cawg.metadata").is_none());
     let with = plan_for(
         "/p/a.dng",
         &json!({}),
@@ -376,9 +376,12 @@ fn the_author_is_named_only_when_asked() {
     let signed = sign_jpeg(&jpeg, &with, &identity).unwrap();
     let store = jpeg_store(&signed);
     validate(&signed, &store);
-    let work = json_content(find(&store, "stds.schema-org.CreativeWork").unwrap());
-    assert_eq!(work["@type"], "CreativeWork");
-    assert_eq!(work["author"][0]["name"], "Ada Example");
+    let metadata = json_content(find(&store, "cawg.metadata").unwrap());
+    assert_eq!(
+        metadata["@context"]["dc"],
+        "http://purl.org/dc/elements/1.1/"
+    );
+    assert_eq!(metadata["dc:creator"][0], "Ada Example");
 }
 
 #[test]
@@ -498,14 +501,15 @@ fn c2patool_validates_signed_files() {
             rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI,
             "{name}"
         );
-        // The author as the reference SDK reads it.
-        let work = manifest["assertions"]
+        // The author as the reference SDK reads it (a metadata assertion it
+        // validates: no `assertion.*` failure above).
+        let metadata = manifest["assertions"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|a| a["label"] == "stds.schema-org.CreativeWork")
-            .unwrap_or_else(|| panic!("{name}: no CreativeWork: {manifest:#}"));
-        assert_eq!(work["data"]["author"][0]["name"], "Ada Example", "{name}");
+            .find(|a| a["label"] == "cawg.metadata")
+            .unwrap_or_else(|| panic!("{name}: no cawg.metadata: {manifest:#}"));
+        assert_eq!(metadata["data"]["dc:creator"][0], "Ada Example", "{name}");
         assert_eq!(manifest["ingredients"][0]["title"], "DSC0001.ARW");
         assert_eq!(manifest["ingredients"][0]["relationship"], "parentOf");
         assert!(manifest.get("thumbnail").is_none(), "{name}: no thumbnail");
@@ -648,8 +652,8 @@ mod export {
             let marking = rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI.as_bytes();
             let at = file.windows(marking.len()).position(|w| w == marking);
             assert!(at.is_some(), "{extension}: the XMP marking");
-            let work = json_content(find(&store, "stds.schema-org.CreativeWork").unwrap());
-            assert_eq!(work["author"][0]["name"], "Ada Example");
+            let metadata = json_content(find(&store, "cawg.metadata").unwrap());
+            assert_eq!(metadata["dc:creator"][0], "Ada Example");
         }
     }
 
@@ -719,8 +723,8 @@ mod export {
                 !export_masks,
                 "{actions:?}"
             );
-            let work = json_content(find(&store, "stds.schema-org.CreativeWork").unwrap());
-            assert_eq!(work["author"][0]["name"], "Exif Person");
+            let metadata = json_content(find(&store, "cawg.metadata").unwrap());
+            assert_eq!(metadata["dc:creator"][0], "Exif Person");
         }
     }
 

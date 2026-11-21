@@ -79,7 +79,11 @@ export interface ExportSettings {
   /** Enlarge 2× with the AI model before the resize (Super Resolution). */
   superResolution?: boolean;
   /** Sign a provenance manifest (C2PA) into each file; absent or null = off. */
-  provenance?: { includeAuthor: boolean } | null;
+  provenance?: {
+    includeAuthor: boolean;
+    /** The signing certificate's fingerprint the export was reviewed with (the queue pins it). */
+    signer?: string;
+  } | null;
 }
 
 /** A recipe's output sharpening: for screen with a radius, for print from the viewing distance. */

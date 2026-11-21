@@ -2561,13 +2561,28 @@ pub fn save_group_rendering(
     own: usize,
 ) -> Result<Vec<GroupRender>, String> {
     let render_all = || render_prepared_exports(prepared, env, debug_tag, outputs, &mut []);
-    // A file that cannot be signed fails on its own when it is saved
-    // (`save_rendered_export`), not the whole group's render.
-    if own >= outputs.len()
-        || !streams_into_file(prepared, export_settings, output)
-        || provenance_signer(export_settings, output, &output_extension(output)).is_err()
-    {
+    if own >= outputs.len() || !streams_into_file(prepared, export_settings, output) {
         return render_all().map(|images| images.into_iter().map(GroupRender::Image).collect());
+    }
+    // A file that cannot be signed fails on its own, before anything is
+    // rendered for it; the others still render.
+    if let Err(error) = provenance_signer(export_settings, output, &output_extension(output)) {
+        let others: Vec<_> = outputs
+            .iter()
+            .enumerate()
+            .filter(|&(index, _)| index != own)
+            .map(|(_, output)| *output)
+            .collect();
+        let mut renders: Vec<GroupRender> = if others.is_empty() {
+            Vec::new()
+        } else {
+            render_prepared_exports(prepared, env, debug_tag, &others, &mut [])?
+                .into_iter()
+                .map(GroupRender::Image)
+                .collect()
+        };
+        renders.insert(own, GroupRender::Failed(error));
+        return Ok(renders);
     }
     let mut rendered = None;
     let encoded = streamed_export(

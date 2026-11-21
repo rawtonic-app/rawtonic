@@ -3561,6 +3561,7 @@
         },
         "reviewHint": "첫 번째 사진 기준으로 표시합니다. 각 사진에는 고유한 파일 이름과 편집이 기록됩니다.",
         "reviewLegend": "매니페스트에 들어가는 내용",
+        "reviewLegendFor": "매니페스트에 들어가는 내용: {{recipe}}",
         "signedImported": "“{{signer}}”(으)로 서명합니다. 인증서 발급자: {{issuer}}, 유효 기간: {{until}}까지.",
         "signedLocal": "이 컴퓨터에서 만든 인증서로 “{{signer}}”(으)로 서명합니다.",
         "signerName": "서명자 이름",
@@ -3684,6 +3685,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "아무것도 내보내지 않았습니다: {{error}}",
         "queuedMany_other": "내보내기 {{count}}건을 대기열에 추가했습니다.",
         "queuedOne": "내보내기 대기열에 추가했습니다.",
         "unsavedEdits": "{{names}}의 편집 내용을 저장하지 못해 아무것도 내보내지 않았습니다. 저장된 후 다시 내보내세요."

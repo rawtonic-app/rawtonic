@@ -426,7 +426,15 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
     if (!paths.length || choosing || (!checked.length && formInvalid) || unsignable.length) return;
     setChoosing(true);
     try {
-      if (await runExportJobs(planned, paths)) onStarted?.();
+      // Signed with the certificate the panel showed: the queue refuses
+      // another one (replaced meanwhile).
+      const signer = provenance.identity?.fingerprint;
+      const jobs = planned.map((job) =>
+        job.settings.provenance && signer
+          ? { ...job, settings: { ...job.settings, provenance: { ...job.settings.provenance, signer } } }
+          : job
+      );
+      if (await runExportJobs(jobs, paths)) onStarted?.();
     } finally {
       setChoosing(false);
     }
@@ -973,7 +981,14 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             set={set}
             disabled={choosing}
             path={paths[0] ?? null}
-            settings={exportSettingsFromDraft(form).settings}
+            signed={planned
+              .filter((job) => job.draft.provenance)
+              .map((job) => ({
+                key: job.recipe?.id ?? 'current',
+                label: job.recipe?.name ?? t('studio.export.recipes.current'),
+                settings: job.settings,
+                outputFormat: job.outputFormat
+              }))}
             library={submittedFrom(session)}
             identity={provenance.identity}
             setIdentity={provenance.setIdentity}

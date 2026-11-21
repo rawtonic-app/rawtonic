@@ -10,7 +10,7 @@ pub const CLAIM: [u8; 16] = uuid(*b"c2cl");
 pub const SIGNATURE: [u8; 16] = uuid(*b"c2cs");
 /// A CBOR content box.
 pub const CBOR: [u8; 16] = uuid(*b"cbor");
-/// A JSON content box (JSON-LD assertions such as `stds.schema-org.CreativeWork`).
+/// A JSON content box (JSON-LD assertions such as `cawg.metadata`).
 pub const JSON: [u8; 16] = uuid(*b"json");
 
 /// The JUMBF type UUID `XXXX0011-0010-8000-00AA00389B71` of a four-letter code.

@@ -75,7 +75,9 @@ function Harness({ initial, onReady }: { initial: Partial<RecipeDraft>; onReady:
       set={() => {}}
       disabled={false}
       path="/photos/DSC0001.ARW"
-      settings={exportSettingsFromDraft(draft).settings}
+      signed={
+        draft.provenance ? [{ key: 'current', label: 'Current settings', ...exportSettingsFromDraft(draft) }] : []
+      }
       library={{ kind: 'noLibrary' }}
       identity={provenance.identity}
       setIdentity={provenance.setIdentity}

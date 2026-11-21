@@ -3657,6 +3657,7 @@
         },
         "reviewHint": "Gezeigt für das erste Foto; jedes Foto erhält seinen eigenen Dateinamen und seine Bearbeitungen.",
         "reviewLegend": "Was in den Nachweis kommt",
+        "reviewLegendFor": "Was in den Nachweis kommt: {{recipe}}",
         "signedImported": "Signiert als „{{signer}}“; Zertifikat ausgestellt von {{issuer}}, gültig bis {{until}}.",
         "signedLocal": "Signiert als „{{signer}}“ mit einem auf diesem Computer erstellten Zertifikat.",
         "signerName": "Name des Unterzeichners",
@@ -3783,6 +3784,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "Es wurde nichts exportiert: {{error}}",
         "queuedMany_one": "{{count}} Export zur Warteschlange hinzugefügt.",
         "queuedMany_other": "{{count}} Exporte zur Warteschlange hinzugefügt.",
         "queuedOne": "Zur Exportwarteschlange hinzugefügt.",

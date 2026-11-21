@@ -305,8 +305,8 @@ fn a_group_writes_each_tiff_while_it_renders_with_the_bytes_of_its_render() {
 }
 
 /// A TIFF recipe asking for a provenance manifest that cannot be signed (no
-/// signing identity) does not stream: the group renders for everyone, the
-/// TIFF fails alone at its save and the unsigned JPEG beside it is written.
+/// signing identity) fails alone, before anything is rendered for it: the
+/// unsigned JPEG beside it still gets its render and its file.
 #[test]
 #[ignore = "needs a GPU"]
 fn an_unsignable_streaming_member_fails_alone() {
@@ -351,21 +351,12 @@ fn an_unsignable_streaming_member_fails_alone() {
     let renders = group(&env, &fixture, &recipes, &paths, 0);
     assert_eq!(
         renders.iter().map(kind).collect::<Vec<_>>(),
-        ["image", "image"]
+        ["failed", "image"]
     );
     let mut renders = renders.into_iter();
-    let Some(GroupRender::Image(tiff)) = renders.next() else {
+    let Some(GroupRender::Failed(error)) = renders.next() else {
         unreachable!()
     };
-    let error = save_rendered_export(
-        tiff,
-        SOURCE,
-        &fixture.recipe,
-        &recipes[0].settings,
-        &output(&paths[0], "tif"),
-        &going,
-    )
-    .unwrap_err();
     assert!(error.contains("no signing certificate"), "{error}");
     assert!(!paths[0].exists());
     let jpeg = file_of(renders.next().unwrap(), &fixture, &recipes[1], &paths[1]);
