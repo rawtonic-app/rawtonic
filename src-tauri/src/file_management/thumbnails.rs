@@ -180,13 +180,11 @@ fn thumbnail_hash_for_engine(
     thumbnail_hash_with(path_str, adjustments_bytes, engine, true)
 }
 
-/// The key a thumbnail was cached under before face retouch tiles were made
-/// again (2026-11-21): while the original is unavailable, a tile cached
-/// then is better than none (`ThumbnailCacheEntry::of`).
-fn thumbnail_hash_before_face_retouch_refresh(
-    path_str: &str,
-    adjustments_bytes: &[u8],
-) -> Option<String> {
+/// The key a thumbnail was cached under before face retouch tiles and RAW
+/// tiles reduced with a clamp were made again (2026-11-21): while the
+/// original is unavailable, a tile cached then is better than none
+/// (`ThumbnailCacheEntry::of`).
+fn thumbnail_hash_before_refreshes(path_str: &str, adjustments_bytes: &[u8]) -> Option<String> {
     thumbnail_hash_with(
         path_str,
         adjustments_bytes,
@@ -199,7 +197,7 @@ fn thumbnail_hash_with(
     path_str: &str,
     adjustments_bytes: &[u8],
     engine: u32,
-    face_retouch_refresh: bool,
+    refreshed: bool,
 ) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
@@ -246,9 +244,16 @@ fn thumbnail_hash_with(
         if crate::preview_proxy::proxy_path(&source_path).is_some_and(|p| p.is_file()) {
             hasher.update(b"\0developed-from-proxy-v1");
         }
+        // Reductions clamped colours beyond sRGB until 2026-11-21 (the
+        // display copy, `preview_proxy::DISPLAY_COPY`): tiles are made again.
+        // A tile developed from a preview proxy that still holds the clamp
+        // shows it, so it keeps its key until the proxy is renewed.
+        if refreshed && !crate::preview_proxy::standard_display_copy_is_stale(&source_path) {
+            hasher.update(b"\0display-copy-keeps-beyond-srgb-v1\0");
+        }
         // A face retouch drawn on a reduced base (a preview proxy or a fast
         // decode) was placed with full-size positions until 2026-11-21.
-        if face_retouch_refresh
+        if refreshed
             && adjustments
                 .as_ref()
                 .is_some_and(rawtonic_engine::face_retouch::is_active)
@@ -317,7 +322,7 @@ fn thumbnail_hash_with(
     // A face retouch found before a later flip, turn, straightening or lens
     // change is placed through its stored frame; it was skipped before
     // (2026-11-21), so thumbnails cached then show it missing.
-    if face_retouch_refresh
+    if refreshed
         && adjustments
             .as_ref()
             .is_some_and(rawtonic_engine::face_retouch::follows_stored_frame)
@@ -1539,7 +1544,7 @@ impl ThumbnailCacheEntry {
         let cache_hash = compute_thumbnail_cache_hash(path_str, &adjustments_bytes)?;
         let cache_hash =
             keep_tile_of_unavailable_original(thumb_cache_dir, &source_path, cache_hash, || {
-                thumbnail_hash_before_face_retouch_refresh(path_str, &adjustments_bytes)
+                thumbnail_hash_before_refreshes(path_str, &adjustments_bytes)
             });
         let embedded_hash = embedded_thumbnail_hash(path_str);
         let selected = preferred_thumbnail_hash(
@@ -2941,6 +2946,7 @@ mod thumbnail_queue_tests {
             hasher.update(
                 format!("\0raw-engine-{}", crate::preview_proxy::ENGINE_VERSION).as_bytes(),
             );
+            hasher.update(b"\0display-copy-keeps-beyond-srgb-v1\0");
             hasher.finalize().to_hex().to_string()
         };
         for adjustments in [
@@ -3006,6 +3012,7 @@ mod thumbnail_queue_tests {
             hasher.update(
                 format!("\0raw-engine-{}", crate::preview_proxy::ENGINE_VERSION).as_bytes(),
             );
+            hasher.update(b"\0display-copy-keeps-beyond-srgb-v1\0");
             hasher.update(
                 format!(
                     "\0never-edited-defaults-{}-{}",
@@ -3324,20 +3331,67 @@ mod face_retouch_thumbnail_tests {
         // A fast decode is a reduced base too: the tile is made again.
         assert_ne!(
             compute_thumbnail_cache_hash(path, &bytes),
-            thumbnail_hash_before_face_retouch_refresh(path, &bytes)
+            thumbnail_hash_before_refreshes(path, &bytes)
         );
         let proxy = crate::preview_proxy::proxy_path(&source).expect("proxy location");
         std::fs::create_dir_all(proxy.parent().unwrap()).unwrap();
         std::fs::write(&proxy, b"proxy").unwrap();
         assert_ne!(
             compute_thumbnail_cache_hash(path, &bytes),
-            thumbnail_hash_before_face_retouch_refresh(path, &bytes)
+            thumbnail_hash_before_refreshes(path, &bytes)
         );
-        // A recipe without face retouch keeps its key.
+        // A recipe without face retouch is made again only for its display
+        // copy (`raw_tiles_that_clamped_colours_are_made_again…`).
         let plain = serde_json::to_vec(&json!({"lensCorrectionMode": "manual"})).unwrap();
-        assert_eq!(
+        assert_ne!(
             compute_thumbnail_cache_hash(path, &plain),
-            thumbnail_hash_before_face_retouch_refresh(path, &plain)
+            thumbnail_hash_before_refreshes(path, &plain)
+        );
+    }
+
+    #[test]
+    fn raw_tiles_that_clamped_colours_are_made_again_unless_their_proxy_still_clamps() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("session.json"),
+            br#"{"id":"display-copy"}"#,
+        )
+        .unwrap();
+        let source = temp.path().join("Capture/photo.RAF");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, b"source unchanged").unwrap();
+        let path = source.to_str().unwrap();
+        let bytes = serde_json::to_vec(&json!({"lensCorrectionMode": "manual"})).unwrap();
+        // Developed from the RAW: a new key, so the tile is made again.
+        assert_ne!(
+            compute_thumbnail_cache_hash(path, &bytes),
+            thumbnail_hash_before_refreshes(path, &bytes)
+        );
+        // A JPEG was never reduced with a clamp that mattered.
+        let jpeg = temp.path().join("Capture/photo.jpg");
+        std::fs::write(&jpeg, b"jpeg").unwrap();
+        let jpeg_path = jpeg.to_str().unwrap();
+        assert_eq!(
+            compute_thumbnail_cache_hash(jpeg_path, &bytes),
+            thumbnail_hash_before_refreshes(jpeg_path, &bytes)
+        );
+        // Developed from a proxy that clamps: the tile shows that, so it
+        // keeps its key until the proxy is made again.
+        let image = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+            80,
+            60,
+            image::Rgb([0.2, 0.3, 0.4]),
+        ));
+        crate::preview_proxy::write_for_test(&source, &image, 40);
+        assert_ne!(
+            compute_thumbnail_cache_hash(path, &bytes),
+            thumbnail_hash_before_refreshes(path, &bytes),
+            "a renewed proxy holds the colours: its tile is made again"
+        );
+        crate::preview_proxy::clear_display_copy_marker_for_test(&source);
+        assert_eq!(
+            compute_thumbnail_cache_hash(path, &bytes),
+            thumbnail_hash_before_refreshes(path, &bytes)
         );
     }
 
