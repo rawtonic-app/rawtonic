@@ -840,6 +840,8 @@ export interface LoadImageResult {
   ai_denoise_version: number;
   /** Why the recipe's AI Denoise could not be applied. */
   ai_denoise_error?: string | null;
+  /** The source is that skipped sensor's rawler decode (`aiDenoiseStandIn`). */
+  ai_denoise_stand_in?: boolean;
   /** The RAW is offline; the photograph opened on its 1:1 or Standard preview. */
   offline?: OfflinePreview | null;
   /** The source was developed for the multi-scale colour noise filter (no
@@ -916,6 +918,14 @@ export interface SelectedImage {
   aiDenoiseFailed?: number;
   /** The `aiDenoiseVersion` that failed with it (missing: 1). */
   aiDenoiseFailedVersion?: number;
+  /** The pixels are a skipped sensor's rawler decode that stands in for the
+   * recipe's AI Denoise although Apple RAW 9 would develop it without
+   * (`ai_denoise_stand_in`): developed again when AI Denoise is off. */
+  aiDenoiseStandIn?: boolean;
+  /** Decode preferences (linear RAW mode, preprocessing, Apple RAW 9) changed
+   * since the source was developed: the revision (a count of the changes) to
+   * develop it again for (`decode-preferences-changed`); 0 or missing: none. */
+  decoderStale?: number;
   /** The decoded source was developed for the multi-scale colour noise
    * filter (`colorNoiseMultiscale` in src/utils/adjustments.ts); unknown for
    * preview data. */

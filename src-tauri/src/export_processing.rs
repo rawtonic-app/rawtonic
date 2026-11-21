@@ -161,13 +161,17 @@ where
 /// Whether the open photograph's source `loaded` holds the pixels an
 /// export of `adjustments` on `source` develops: the same decode variant
 /// and the same AI Denoise (amount, version and so model). Anything else
-/// is decoded afresh.
+/// is decoded afresh, and so is anything developed under other decode
+/// preferences (linear RAW mode, preprocessing, Apple RAW 9).
 fn reusable_for_export(
     loaded: &crate::state::source::LoadedImage,
     adjustments: &Value,
     source: &str,
+    settings: &crate::app_settings::AppSettings,
 ) -> bool {
     loaded.decode == Some(crate::image_loader::decode_variant(adjustments, source))
+        && loaded.decoder.as_deref()
+            == Some(crate::image_loader::decode_preferences(settings).as_str())
         && loaded.ai_denoise
             == rawtonic_engine::image_loader::ai_denoise_settings(adjustments)
                 .filter(|_| loaded.is_raw)
@@ -1912,7 +1916,9 @@ fn export_photo(
                 // Developed for the decode variant and the AI Denoise
                 // exported: the open photograph's may have changed since
                 // this export was queued.
-                .filter(|loaded| reusable_for_export(loaded, &js_adjustments, &source_path_str))
+                .filter(|loaded| {
+                    reusable_for_export(loaded, &js_adjustments, &source_path_str, settings)
+                })
                 .map(|loaded| (Arc::clone(&loaded.image), loaded.measures))
         } else {
             None
@@ -2960,6 +2966,7 @@ mod tests {
         use crate::state::source::LoadedImage;
         use rawtonic_engine::image_loader::{ai_denoise_settings, decode_variant};
         let source = "/no-such-dir/open.raf";
+        let settings = crate::app_settings::AppSettings::default();
         let recipe = |amount: f64, version: u8| serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": version });
         let open = |recipe: &serde_json::Value, is_raw: bool| LoadedImage {
             path: source.to_string(),
@@ -2967,10 +2974,16 @@ mod tests {
             is_raw,
             decode: Some(decode_variant(recipe, source)),
             ai_denoise: ai_denoise_settings(recipe).filter(|_| is_raw),
+            decoder: Some(crate::image_loader::decode_preferences(&settings)),
             measures: None,
         };
         let queued = recipe(50.0, 4);
-        assert!(reusable_for_export(&open(&queued, true), &queued, source));
+        assert!(reusable_for_export(
+            &open(&queued, true),
+            &queued,
+            source,
+            &settings
+        ));
         for changed in [
             recipe(0.0, 4),
             recipe(30.0, 4),
@@ -2978,35 +2991,94 @@ mod tests {
             recipe(50.0, 1),
         ] {
             assert!(
-                !reusable_for_export(&open(&changed, true), &queued, source),
+                !reusable_for_export(&open(&changed, true), &queued, source, &settings),
                 "open at {changed}, export queued at {queued}"
             );
-            assert!(!reusable_for_export(&open(&queued, true), &changed, source));
+            assert!(!reusable_for_export(
+                &open(&queued, true),
+                &changed,
+                source,
+                &settings
+            ));
         }
         // An export develops the stored amount whether the photograph is
         // open or not: an old fine drag's 50.4 is not the open 50.
         assert!(!reusable_for_export(
             &open(&queued, true),
             &recipe(50.4, 4),
-            source
+            source,
+            &settings
         ));
         // The model could not be had when the photograph opened: its
         // pixels are undenoised, so an export with AI Denoise decodes.
         let undenoised = LoadedImage {
             ai_denoise: None,
+            decoder: None,
             ..open(&queued, true)
         };
-        assert!(!reusable_for_export(&undenoised, &queued, source));
+        assert!(!reusable_for_export(
+            &undenoised,
+            &queued,
+            source,
+            &settings
+        ));
         // Without AI Denoise either way the pixels are the same.
         let off = recipe(0.0, 4);
-        assert!(reusable_for_export(&open(&off, true), &off, source));
+        assert!(reusable_for_export(
+            &open(&off, true),
+            &off,
+            source,
+            &settings
+        ));
         // Other formats never run it: the slider does not matter.
         let tiff = LoadedImage {
             path: "/no-such-dir/open.tif".to_string(),
             decode: Some(decode_variant(&queued, "/no-such-dir/open.tif")),
             ..open(&queued, false)
         };
-        assert!(reusable_for_export(&tiff, &queued, "/no-such-dir/open.tif"));
+        assert!(reusable_for_export(
+            &tiff,
+            &queued,
+            "/no-such-dir/open.tif",
+            &settings
+        ));
+        // The open pixels were decoded under other preferences (linear RAW
+        // mode, preprocessing, Apple RAW 9): the export decodes afresh.
+        let open_now = open(&queued, true);
+        for changed in [
+            crate::app_settings::AppSettings {
+                linear_raw_mode: "linear".to_string(),
+                ..settings.clone()
+            },
+            crate::app_settings::AppSettings {
+                raw_preprocessing_sharpening: Some(0.9),
+                ..settings.clone()
+            },
+            crate::app_settings::AppSettings {
+                use_apple_raw9: Some(true),
+                ..settings.clone()
+            },
+        ] {
+            assert!(!reusable_for_export(&open_now, &queued, source, &changed));
+            // Of every format: the export never depends on which photo is open.
+            let tiff_open = LoadedImage {
+                path: "/no-such-dir/open.tif".to_string(),
+                decode: Some(decode_variant(&queued, "/no-such-dir/open.tif")),
+                ..open(&queued, false)
+            };
+            assert!(!reusable_for_export(
+                &tiff_open,
+                &queued,
+                "/no-such-dir/open.tif",
+                &changed
+            ));
+        }
+        // Preview data carries no preferences.
+        let preview = LoadedImage {
+            decoder: None,
+            ..open(&queued, true)
+        };
+        assert!(!reusable_for_export(&preview, &queued, source, &settings));
     }
 
     /// Exercise the app's layer export, including real PNG encoding and

@@ -1820,6 +1820,7 @@ mod tests {
                 is_raw: true,
                 decode: None,
                 ai_denoise: None,
+                decoder: None,
                 measures: None,
             };
         let pixels = || Arc::new(image::DynamicImage::new_rgb8(2, 1));

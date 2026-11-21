@@ -62,6 +62,10 @@ pub struct LoadedImage {
     /// None without it, for a sensor the denoiser skips and for preview
     /// data. With `decode` it says which recipes these pixels stand for.
     pub ai_denoise: Option<crate::image_loader::AiDenoiseSettings>,
+    /// The decode preferences it was developed under
+    /// (`image_loader::decode_preferences`); None for preview data. A
+    /// preference change makes these pixels another decode's.
+    pub decoder: Option<String>,
     /// The measures of the decode (`image_loader::DecodeMeasures`); None for
     /// preview data, drafts and other formats.
     pub measures: Option<crate::image_loader::DecodeMeasures>,

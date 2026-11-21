@@ -419,12 +419,8 @@ pub fn current_key(
 /// the camera planes (`WarpPlanes::Camera`).
 fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
     let key = format!(
-        "linear={};cnr={:?};sharp={:?};nonraw={:?};raw9={:?};cnrms={}",
-        settings.linear_raw_mode,
-        settings.raw_preprocessing_color_nr.unwrap_or(0.5),
-        settings.raw_preprocessing_sharpening.unwrap_or(0.35),
-        settings.apply_preprocessing_to_non_raws.unwrap_or(false),
-        settings.use_apple_raw9.unwrap_or(false),
+        "{};cnrms={}",
+        crate::image_loader::decode_preferences(settings),
         u8::from(variant.multiscale),
     );
     let key = if variant.dead_test == DeadTest::Adjacent {
