@@ -239,11 +239,11 @@ fn wide_gamut_value(positive: f32, negative: f32) -> f32 {
 /// the photograph (`image_processing::resample_f32_image`): the positive
 /// and the negative parts of each value resized apart, each part's ringing
 /// cut at 0, then added (`wide_gamut_value`). Colours beyond sRGB keep their
-/// negative channels as the export's full-resolution develop keeps them,
-/// and the filter's ringing beside a bright edge is cut at 0 as
-/// [`resize_scene_linear`] cuts it, also where a negative colour is near.
-/// An image without negative values gets [`resize_scene_linear`]'s values
-/// with NaN as 0, bit for bit.
+/// negative channels as the export's full-resolution develop keeps them.
+/// A bright edge's ringing is cut at 0 in the positive part, as
+/// [`resize_scene_linear`] cuts it; beside a negative colour the sum can
+/// still go below 0 by that colour's own share. An image without negative
+/// values gets [`resize_scene_linear`]'s values with NaN as 0, bit for bit.
 pub fn resize_wide_gamut(
     image: &image::Rgb32FImage,
     new_width: u32,
@@ -305,40 +305,6 @@ pub fn resize_wide_gamut(
     ImageBuffer::from_raw(new_width, new_height, resized).expect("resized buffer size")
 }
 
-/// [`SignedRowStream`] of [`resize_wide_gamut`]'s values: the positive and
-/// negative parts of the rows streamed apart, added when finished.
-pub struct WideGamutRowStream {
-    positive: SignedRowStream,
-    negative: SignedRowStream,
-}
-
-impl WideGamutRowStream {
-    pub fn new(width: u32, height: u32, new_width: u32, new_height: u32) -> Self {
-        Self {
-            positive: SignedRowStream::new(width, height, new_width, new_height),
-            negative: SignedRowStream::new(width, height, new_width, new_height),
-        }
-    }
-
-    /// Adds the next whole rows (RGB, `width` pixels each).
-    pub fn push_rows(&mut self, band: &[f32]) {
-        let (positive, negative): (Vec<f32>, Vec<f32>) =
-            band.par_iter().map(|v| wide_gamut_parts(*v)).unzip();
-        self.positive.push_rows(&positive);
-        self.negative.push_rows(&negative);
-    }
-
-    /// The resized image once every source row came; None before.
-    pub fn finish(self) -> Option<image::Rgb32FImage> {
-        let mut out = self.positive.finish()?;
-        let negative = self.negative.finish()?;
-        out.par_iter_mut()
-            .zip(negative.as_raw().par_iter())
-            .for_each(|(v, n)| *v = wide_gamut_value(*v, *n));
-        Some(out)
-    }
-}
-
 /// [`resize_signed`] of an RGB image that arrives in bands of whole rows,
 /// top to bottom (a GPU pass read back band by band): the same taps and
 /// the same sums in the same order, so the same values, while only the
@@ -356,8 +322,11 @@ pub struct SignedRowStream {
     source_height: usize,
     /// The first output row not yet finished.
     first_open: usize,
-    /// Vertical sums of the output rows being built, by output row.
+    /// Vertical sums of the output rows being built, by output row (with
+    /// `wide_gamut` the positive parts' row, then the negative parts').
     open: Vec<Option<Vec<f32>>>,
+    /// [`resize_wide_gamut`]'s values instead of [`resize_signed`]'s.
+    wide_gamut: bool,
     out: Vec<f32>,
 }
 
@@ -373,7 +342,18 @@ impl SignedRowStream {
             source_height: height as usize,
             first_open: 0,
             open: (0..new_height).map(|_| None).collect(),
+            wide_gamut: false,
             out: vec![0.0; new_width as usize * new_height as usize * 3],
+        }
+    }
+
+    /// The stream of [`resize_wide_gamut`]'s values: the positive and
+    /// negative parts of each value summed apart (the same sums in the same
+    /// order), each part's ringing cut at 0, then added.
+    pub fn wide_gamut(width: u32, height: u32, new_width: u32, new_height: u32) -> Self {
+        Self {
+            wide_gamut: true,
+            ..Self::new(width, height, new_width, new_height)
         }
     }
 
@@ -386,7 +366,14 @@ impl SignedRowStream {
         self.next = end;
         // As `resize_signed`: the same size is a copy.
         if self.width == self.new_width as usize && self.rows.len() == self.source_height {
-            self.out[start * row..end * row].copy_from_slice(band);
+            let out = &mut self.out[start * row..end * row];
+            out.copy_from_slice(band);
+            if self.wide_gamut {
+                out.iter_mut().for_each(|v| {
+                    let (positive, negative) = wide_gamut_parts(*v);
+                    *v = wide_gamut_value(positive, negative);
+                });
+            }
             self.first_open = end;
             return;
         }
@@ -400,6 +387,7 @@ impl SignedRowStream {
         let rows = &self.rows;
         let columns = &self.columns;
         let new_row = self.new_width as usize * 3;
+        let wide_gamut = self.wide_gamut;
         let open = &mut self.open[touched.start..touched.end];
         let out = &mut self.out[touched.start * new_row..];
         open.par_iter_mut()
@@ -407,26 +395,47 @@ impl SignedRowStream {
             .zip(touched.clone().into_par_iter())
             .for_each(|((sums, out), j)| {
                 let taps = &rows[j];
-                let sums = sums.get_or_insert_with(|| vec![0.0; row]);
+                let sums =
+                    sums.get_or_insert_with(|| vec![0.0; if wide_gamut { 2 * row } else { row }]);
                 let from = taps.first.max(start);
                 let to = (taps.first + taps.weights.len()).min(end);
                 for y in from..to {
                     let weight = taps.weights[y - taps.first];
                     let source = &band[(y - start) * row..(y - start + 1) * row];
-                    for (sum, &value) in sums.iter_mut().zip(source) {
-                        *sum += value * weight;
+                    if wide_gamut {
+                        let (positive, negative) = sums.split_at_mut(row);
+                        for ((p, n), &value) in
+                            positive.iter_mut().zip(negative.iter_mut()).zip(source)
+                        {
+                            let (vp, vn) = wide_gamut_parts(value);
+                            *p += vp * weight;
+                            *n += vn * weight;
+                        }
+                    } else {
+                        for (sum, &value) in sums.iter_mut().zip(source) {
+                            *sum += value * weight;
+                        }
                     }
                 }
                 if taps.first + taps.weights.len() <= end {
-                    for (pixel, taps) in out.as_chunks_mut::<3>().0.iter_mut().zip(columns) {
+                    let horizontal = |line: &[f32], taps: &Taps| {
                         let mut sum = [0.0f32; 3];
                         for (i, &weight) in taps.weights.iter().enumerate() {
                             let start = (taps.first + i) * 3;
-                            for (sum, &value) in sum.iter_mut().zip(&sums[start..start + 3]) {
+                            for (sum, &value) in sum.iter_mut().zip(&line[start..start + 3]) {
                                 *sum += value * weight;
                             }
                         }
-                        *pixel = sum;
+                        sum
+                    };
+                    for (pixel, taps) in out.as_chunks_mut::<3>().0.iter_mut().zip(columns) {
+                        *pixel = if wide_gamut {
+                            let positive = horizontal(&sums[..row], taps);
+                            let negative = horizontal(&sums[row..], taps);
+                            std::array::from_fn(|c| wide_gamut_value(positive[c], negative[c]))
+                        } else {
+                            horizontal(sums, taps)
+                        };
                     }
                     *sums = Vec::new();
                 }
@@ -632,7 +641,7 @@ mod tests {
                 "{w}x{h} -> {nw}x{nh}"
             );
             let expected = resize_wide_gamut(&image, nw, nh);
-            let mut stream = WideGamutRowStream::new(w, h, nw, nh);
+            let mut stream = SignedRowStream::wide_gamut(w, h, nw, nh);
             for rows in values.chunks(w as usize * 3 * band) {
                 stream.push_rows(rows);
             }
@@ -718,6 +727,39 @@ mod tests {
             (red - negative_only.get_pixel(18, 1)[0].min(0.0)).abs() < 1e-6,
             "red {red}"
         );
+    }
+
+    /// Review round 2's case: the blue, a grey, then the white edge within
+    /// the blue's taps. The edge's ringing is cut at 0 in the positive part
+    /// only: the value may go below 0 by at most the blue's own share (the
+    /// negative part), never by the edge's ringing.
+    #[test]
+    fn wide_gamut_resize_beside_a_grey_and_a_bright_edge() {
+        let scene = image::Rgb32FImage::from_fn(300, 12, |x, _| {
+            image::Rgb(if x < 55 {
+                [-0.16, 0.087, 1.24]
+            } else if x < 60 {
+                [0.1; 3]
+            } else {
+                [4.0; 3]
+            })
+        });
+        let negative = resize_signed(
+            &image::Rgb32FImage::from_fn(300, 12, |x, _| {
+                image::Rgb(if x < 55 { [-0.16, 0.0, 0.0] } else { [0.0; 3] })
+            }),
+            100,
+            4,
+        );
+        let reduced = resize_wide_gamut(&scene, 100, 4);
+        for x in 0..100 {
+            let red = reduced.get_pixel(x, 1)[0];
+            assert!(
+                red >= negative.get_pixel(x, 1)[0].min(0.0) - 1e-6,
+                "{x} {red}"
+            );
+            assert!(reduced.get_pixel(x, 1)[1] >= 0.0, "{x}");
+        }
     }
 
     #[test]
