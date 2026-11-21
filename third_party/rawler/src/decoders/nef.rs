@@ -213,7 +213,8 @@ impl<'a> Decoder for NefDecoder<'a> {
     // chunk at once, instead of iterating over every strip.
     // It would be safer to process each strip offset, but it is not need for any known model so far.
     let src = if rows_per_strip == height {
-      file.subview_padded(offset as u64, size as u64)?
+      // Rawtonic patch (CRD2): no strip copy for a dummy decode.
+      file.subview_padded_for(offset as u64, size as u64, dummy)?
     } else {
       let full_size: u32 = match fetch_tiff_tag!(raw, TiffCommonTag::StripByteCounts) {
         Value::Long(data) => data.iter().copied().sum(),
@@ -221,7 +222,8 @@ impl<'a> Decoder for NefDecoder<'a> {
           return Err("StripByteCounts is not of type LONG".into());
         }
       };
-      file.subview_padded(offset as u64, full_size as u64)?
+      // Rawtonic patch (CRD2): no strip copy for a dummy decode.
+      file.subview_padded_for(offset as u64, full_size as u64, dummy)?
     };
 
     let coeffs = normalize_wb(self.get_wb()?);

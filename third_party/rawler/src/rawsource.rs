@@ -141,6 +141,38 @@ impl RawSource {
     }
   }
 
+  // Rawtonic patch (CRD2): new methods.
+  /// `subview_padded` for a decoder that reads the samples only when
+  /// `dummy` is false. A dummy decode (sizes and metadata, no samples) gets
+  /// a zeroed buffer of the same length where `subview_padded` would copy
+  /// the strip (it ends within 16 bytes of EOF, as the raw data of most
+  /// RAWs does): the copy read the whole strip, on a share every byte.
+  pub fn subview_padded_for(&self, offset: u64, size: u64, dummy: bool) -> std::io::Result<PaddedBuf<'_>> {
+    let len = self.len() as u64;
+    // Checked: a wrapped `offset + size` from bad metadata is out of range.
+    match offset.checked_add(size) {
+      Some(end) if end <= len => {
+        if dummy && end.saturating_add(16) > len {
+          return Ok(PaddedBuf::new_owned(vec![0; (size + 16) as usize], size as usize));
+        }
+        self.subview_padded(offset, size)
+      }
+      _ => Err(std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        format!("subview_padded(): Offset {}+{} is behind EOF", offset, size),
+      )),
+    }
+  }
+
+  /// `subview_until_eof_padded` as [`Self::subview_padded_for`] does it.
+  pub fn subview_until_eof_padded_for(&self, offset: u64, dummy: bool) -> std::io::Result<PaddedBuf<'_>> {
+    if dummy && offset < self.len() as u64 {
+      let size = self.len() - offset as usize;
+      return Ok(PaddedBuf::new_owned(vec![0; size + 16], size));
+    }
+    self.subview_until_eof_padded(offset)
+  }
+
   pub fn reader(&self) -> Cursor<&[u8]> {
     Cursor::new(self.buf())
   }
@@ -169,5 +201,37 @@ impl Deref for RawSource {
 impl Debug for RawSource {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("RawSource").field("path", &self.path).finish()
+  }
+}
+
+// Rawtonic patch (CRD2): tests of the dummy views.
+#[cfg(test)]
+mod rawtonic_dummy_view_tests {
+  use super::*;
+
+  #[test]
+  fn a_dummy_view_near_eof_has_the_padded_length_without_the_strip() {
+    let source = RawSource::new_from_shared_vec(Arc::new((1..=100u8).collect()));
+    // Ends within 16 bytes of EOF: the real view copies, the dummy one is zeros.
+    let real = source.subview_padded(60, 30).unwrap();
+    let dummy = source.subview_padded_for(60, 30, true).unwrap();
+    assert_eq!((dummy.len(), dummy.size()), (real.len(), real.size()));
+    assert!(dummy.iter().all(|b| *b == 0));
+    assert_eq!(&source.subview_padded_for(60, 30, false).unwrap()[..], &real[..]);
+    // Far from EOF the dummy view is the file's bytes, as before.
+    assert_eq!(
+      &source.subview_padded_for(10, 30, true).unwrap()[..],
+      &source.subview_padded(10, 30).unwrap()[..]
+    );
+    let real = source.subview_until_eof_padded(40).unwrap();
+    let dummy = source.subview_until_eof_padded_for(40, true).unwrap();
+    assert_eq!((dummy.len(), dummy.size()), (real.len(), real.size()));
+    assert!(dummy.iter().all(|b| *b == 0));
+    assert_eq!(&source.subview_until_eof_padded_for(40, false).unwrap()[..], &real[..]);
+    // Out of range stays an error, also where `offset + size` would wrap.
+    assert!(source.subview_padded_for(90, 30, true).is_err());
+    assert!(source.subview_padded_for(u64::MAX - 5, 10, true).is_err());
+    assert!(source.subview_padded_for(u64::MAX - 5, 10, false).is_err());
+    assert!(source.subview_until_eof_padded_for(100, true).is_err());
   }
 }

@@ -79,7 +79,9 @@ pub fn frames(path: &str) -> Option<Vec<u32>> {
         {
             return Some(found);
         }
-        if let Some(found) = rawler::rawsource::RawSource::new(std::path::Path::new(path))
+        // Mapped without read-ahead: only the metadata is read (dummy
+        // decodes), and `RawSource::new` would read the whole file.
+        if let Some(found) = rawler::rawsource::RawSource::new_lazy(std::path::Path::new(path))
             .ok()
             .filter(|source| rawtonic_rawdecode::source_frame::frame(source, 0).is_some())
             .map(|source| {

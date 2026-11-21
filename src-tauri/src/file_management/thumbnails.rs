@@ -351,7 +351,10 @@ fn retouched_base<'a>(
 
 pub(crate) fn try_load_embedded_raw_preview(source_path: &Path) -> Option<DynamicImage> {
     let mmap = read_file_mapped(source_path).ok()?;
-    image_loader::safe_embedded_preview_fallback(&mmap, &source_path.to_string_lossy())
+    image_loader::safe_embedded_preview_fallback_shared(
+        Arc::new(mmap),
+        &source_path.to_string_lossy(),
+    )
 }
 
 pub fn generate_thumbnail_data(
