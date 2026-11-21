@@ -2983,6 +2983,12 @@ mod tests {
             );
             assert!(!reusable_for_export(&open(&queued, true), &changed, source));
         }
+        // A fine drag's 50.4 develops at 50, in Develop and in the export.
+        assert!(reusable_for_export(
+            &open(&queued, true),
+            &recipe(50.4, 4),
+            source
+        ));
         // The model could not be had when the photograph opened: its
         // pixels are undenoised, so an export with AI Denoise decodes.
         let undenoised = LoadedImage {

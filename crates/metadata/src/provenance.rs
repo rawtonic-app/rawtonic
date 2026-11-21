@@ -99,15 +99,18 @@ pub fn pending_detections(adjustments: &Value) -> Vec<PendingDetection> {
         .collect()
 }
 
-/// The recipe's AI Denoise amount (`aiDenoise`, 0 … 100) as 0 … 1; zero
-/// when the Detail section or its Noise reduction tool is switched off.
+/// The recipe's AI Denoise amount (`aiDenoise`, 0 … 100, rounded to a
+/// whole step as Develop develops it: a fine drag can store 50.4) as
+/// 0 … 1; zero when the Detail section or its Noise reduction tool is
+/// switched off.
 pub fn ai_denoise_amount(adjustments: &Value) -> f32 {
     let visibility = &adjustments[masks::SECTION_VISIBILITY.name()];
     let off = |key: &str| visibility[key].as_bool() == Some(false);
     if off("details") || off("noiseReduction") {
         return 0.0;
     }
-    (adjustments["aiDenoise"].as_f64().unwrap_or(0.0) as f32 / 100.0).clamp(0.0, 1.0)
+    let amount = adjustments["aiDenoise"].as_f64().unwrap_or(0.0);
+    amount.clamp(0.0, 100.0).round() as f32 / 100.0
 }
 
 /// The newest AI Denoise version this build renders.

@@ -1136,7 +1136,7 @@ pub async fn load_image(
         0.0
     };
     // The AI Denoise the photograph is developed with.
-    let mut applied_ai = rawtonic_engine::image_loader::ai_denoise_settings(&metadata.adjustments)
+    let applied_ai = rawtonic_engine::image_loader::ai_denoise_settings(&metadata.adjustments)
         .filter(|_| denoise.is_some());
     let ai_denoise_version = applied_ai.map_or(1, |ai| ai.version);
     // The opened recipe decides the decode-time chroma clean-up, the
@@ -1153,7 +1153,7 @@ pub async fn load_image(
             .as_ref()
             .is_none_or(|p| p.path != path))
     .then(|| draft_sink(&app_handle, &path, my_generation));
-    let mut cache_key = decoded_cache_key(&source_path_str, denoise.as_ref(), variant);
+    let cache_key = decoded_cache_key(&source_path_str, denoise.as_ref(), variant);
     let decode_denoise = denoise.clone();
 
     let cached_data = {
@@ -1304,24 +1304,27 @@ pub async fn load_image(
         .map_err(|e| e.to_string())??;
 
         let arc_img = pristine_img;
-        // A sensor the denoiser skips develops as without AI Denoise.
-        if denoise.as_ref().is_some_and(|d| !d.was_applied()) {
+        // A sensor the denoiser skips develops without AI Denoise, but by
+        // the decoder AI Denoise asks for (never Apple's RAW engine): its
+        // pixels keep standing for the recipe's AI Denoise
+        // (`LoadedImage::ai_denoise`) and are not cached, so they never
+        // stand in for a decode without it.
+        let skipped = denoise.as_ref().is_some_and(|d| !d.was_applied());
+        if skipped {
             ai_denoise = 0.0;
             ai_denoise_error = Some(NOT_BAYER.to_string());
-            applied_ai = None;
-            cache_key = decoded_cache_key(&source_path_str, None, variant);
+        } else {
+            develop
+                .decoded_image_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(
+                    cache_key.clone(),
+                    arc_img.clone(),
+                    exif_data_loaded.clone(),
+                    measures,
+                );
         }
-
-        develop
-            .decoded_image_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(
-                cache_key.clone(),
-                arc_img.clone(),
-                exif_data_loaded.clone(),
-                measures,
-            );
 
         (arc_img, exif_data_loaded, measures)
     };

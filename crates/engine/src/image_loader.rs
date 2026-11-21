@@ -2131,6 +2131,11 @@ mod ai_denoise_tests {
         assert_eq!(ai_denoise_amount(&json!({})), 0.0);
         assert_eq!(ai_denoise_amount(&json!({ "aiDenoise": 60 })), 0.6);
         assert_eq!(ai_denoise_amount(&json!({ "aiDenoise": 250 })), 1.0);
+        // A fine drag's fraction develops as Develop rounds it
+        // (`aiDenoiseAmount` in src/utils/aiDenoise.ts).
+        assert_eq!(ai_denoise_amount(&json!({ "aiDenoise": 50.4 })), 0.5);
+        assert_eq!(ai_denoise_amount(&json!({ "aiDenoise": 50.5 })), 0.51);
+        assert_eq!(ai_denoise_amount(&json!({ "aiDenoise": 0.4 })), 0.0);
         let off = json!({ "aiDenoise": 60, "sectionVisibility": { "noiseReduction": false } });
         assert_eq!(ai_denoise_amount(&off), 0.0);
         let details_off = json!({ "aiDenoise": 60, "sectionVisibility": { "details": false } });
