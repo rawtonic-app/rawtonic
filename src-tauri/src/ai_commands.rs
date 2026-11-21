@@ -1308,7 +1308,7 @@ impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> 
         )
         .map_err(|e| e.to_string())?
         .ok_or_else(|| {
-            "the Landscape model is not installed (open the photo in Develop once to download it, then export again)".to_string()
+            "the Landscape model is not installed (open a Landscape mask's settings in Develop once to download it, then export again)".to_string()
         })?;
         let started = std::time::Instant::now();
         let probabilities = rawtonic_segment::landscape_probabilities(warped, &model, linear, None)

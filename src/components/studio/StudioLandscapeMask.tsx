@@ -34,6 +34,9 @@ export default function StudioLandscapeMask({ sub, setParameters, onInteraction 
   const geometryKey = JSON.stringify(geometry);
   const [shares, setShares] = useState<Record<string, number> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed detection (offline on first use) is asked again by the next
+  // tick of a part.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!path) return;
@@ -51,18 +54,20 @@ export default function StudioLandscapeMask({ sub, setParameters, onInteraction 
     return () => {
       current = false;
     };
-  }, [path, geometryKey]);
+  }, [path, geometryKey, attempt]);
 
   const parts = ((sub.parameters as { parts?: LandscapePart[] }).parts ?? []).filter((p) =>
     LANDSCAPE_PARTS.includes(p)
   );
   const found = (part: LandscapePart) => (shares?.[part] ?? 0) >= LANDSCAPE_FOUND_SHARE;
-  const toggle = (part: LandscapePart) =>
+  const toggle = (part: LandscapePart) => {
+    if (error) setAttempt((n) => n + 1);
     setParameters({
       // Kept in the list's order, so the same parts are the same recipe.
       parts: LANDSCAPE_PARTS.filter((p) => (p === part ? !parts.includes(p) : parts.includes(p))),
       maskDataBase64: null
     });
+  };
 
   return (
     <div className="studio-people" role="group" aria-label={t('studio.landscape.aria')}>

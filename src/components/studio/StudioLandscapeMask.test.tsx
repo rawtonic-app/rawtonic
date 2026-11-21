@@ -62,3 +62,14 @@ it('marks the parts the photo does not have, but keeps them selectable', async (
     expect.objectContaining({ path: '/photo.raf' })
   );
 });
+
+it('asks again when a part is ticked after the detection failed (offline on first use)', async () => {
+  useEditorStore.setState({ selectedImage: { path: '/photo.raf' } as never });
+  vi.mocked(invoke).mockRejectedValueOnce({ code: 'internal', message: 'offline' });
+  render(<StudioLandscapeMask sub={sub([])} setParameters={() => {}} onInteraction={() => {}} />);
+  await screen.findByRole('alert');
+  const calls = vi.mocked(invoke).mock.calls.length;
+  fireEvent.click(screen.getByRole('checkbox', { name: /^Mountains/ }));
+  await screen.findByText('Choose the parts to select.');
+  expect(vi.mocked(invoke).mock.calls.length).toBe(calls + 1);
+});
