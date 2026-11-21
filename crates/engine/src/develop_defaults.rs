@@ -325,17 +325,10 @@ fn camera_of_exif(path: &Path) -> Option<CameraIdentity> {
     )
 }
 
-/// The camera named by a photograph's cached EXIF values ("Make", "Model",
-/// "SerialNumber"), for an original that must not be read.
-pub fn camera_of_exif_map(
-    exif: &std::collections::HashMap<String, String>,
-) -> Option<CameraIdentity> {
-    let get = |key: &str| exif.get(key).map(String::as_str);
-    identity(
-        get("Make").unwrap_or_default(),
-        get("Model").unwrap_or_default(),
-        get("SerialNumber"),
-    )
+/// Whether the user has set any develop default (none: a first edit reads
+/// nothing of the photograph's camera).
+pub fn any_set() -> bool {
+    !current().is_empty()
 }
 
 fn identity(make: &str, model: &str, serial: Option<&str>) -> Option<CameraIdentity> {

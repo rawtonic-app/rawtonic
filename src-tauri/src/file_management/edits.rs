@@ -637,7 +637,19 @@ fn cloud_gate(
     adjustments: &Value,
     size: Option<(f64, f64)>,
 ) -> Result<(), String> {
-    // A first edit starts with the camera's crop and develop defaults:
+    // The user's develop defaults are looked up by the camera as its file
+    // names it: not known without the file.
+    if rawtonic_engine::develop_defaults::any_set()
+        && rawtonic_engine::image_processing::is_new_recipe(
+            &crate::exif_processing::load_sidecar(&parse_virtual_path(path).1).adjustments,
+        )
+    {
+        return Err(cloud_refusal(
+            path,
+            "the develop defaults of its first edit",
+        ));
+    }
+    // A first edit starts with the camera's crop:
     // from what its previews and EXIF cached (`pasted_into_with`); without a
     // cached crop the edit is written and the crop reported as not applied
     // (`missing_camera_crops`), so no first edit waits for a download.
@@ -727,8 +739,6 @@ fn pasted_into_with(
             &mut new_adjustments,
             source_path,
             crate::preview_proxy::cached_camera(source_path).0,
-            exif.as_ref()
-                .and_then(rawtonic_engine::develop_defaults::camera_of_exif_map),
         );
     } else {
         rawtonic_engine::camera_crop::apply_default(&mut new_adjustments, source_path);
