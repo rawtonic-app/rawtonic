@@ -496,7 +496,6 @@
       "confirmReset": "Confirm reset",
       "convertNegative": "Convert negative",
       "copyAdjustments": "Copy adjustments",
-      "cullImage": "Cull photo",
       "editImage": "Open in Develop",
       "exportImage": "Export photo",
       "frameImage": "Frame photo",
@@ -568,8 +567,6 @@
       "convertNegative_other": "Convert negatives",
       "copyImage_one": "Copy photo",
       "copyImage_other": "Copy {{count}} photos",
-      "cullImage_one": "Cull photo",
-      "cullImage_other": "Cull photos",
       "deleteAssociated": "Move associated files too",
       "deleteImage_one": "Move photo to Trash",
       "deleteImage_other": "Move {{count}} photos to Trash",
@@ -1132,38 +1129,6 @@
       "create": "Create",
       "placeholder": "Enter folder name...",
       "title": "Create New Folder"
-    },
-    "culling": {
-      "actionDelete": "Move to Trash",
-      "actionRateZero": "Set Rating to 1 Stars",
-      "actionReject": "Mark as Rejected (Red Label)",
-      "applyButton_one": "Apply to 1 photo",
-      "applyButton_other": "Apply to {{count}} photos",
-      "bestImage": "Best Photo",
-      "blurryImagesTab": "Blurry Photos",
-      "blurThreshold": "Blur Threshold",
-      "blurThresholdDesc": "Photos with a sharpness score below this value are flagged. Higher is stricter.",
-      "cancel": "Cancel",
-      "close": "Close",
-      "cullingFailed": "Culling Failed",
-      "cullingSuggestions": "Culling Suggestions",
-      "done": "Done",
-      "duplicatesHeader": "Duplicates ({{count}})",
-      "duplicatesHeader_one": "Duplicates ({{count}})",
-      "duplicatesHeader_other": "Duplicates ({{count}})",
-      "filterBlurry": "Filter Blurry Photos",
-      "groupHeader": "Group {{index}}",
-      "groupSimilar": "Group Similar Photos",
-      "noIssuesDesc": "All photos seem to be unique and sharp.",
-      "noIssuesFound": "No issues found!",
-      "score": "Score: {{score}}",
-      "sharpness": "Sharpness: {{sharpness}}",
-      "similarGroupsTab": "Similar Groups",
-      "similarityThreshold": "Similarity Threshold",
-      "similarityThresholdDesc": "Lower is stricter (exact duplicates). Higher is looser (near duplicates). A value of 24-32 is recommended.",
-      "startCulling": "Start Culling",
-      "starting": "Starting...",
-      "title": "Cull Photos"
     },
     "merge": {
       "align": "Align photos",
@@ -2827,7 +2792,7 @@
       "done_one": "{{count}} stack made",
       "done_other": "{{count}} stacks made",
       "interval": "Time between photos",
-      "intro": "Photos taken at most this long after the one before share a stack. Photos already in a stack stay as they are.",
+      "intro": "Photos taken at most this long after the one before share a stack; with “Only photos that look alike” they must also show the same scene. Photos already in a stack stay as they are.",
       "kind": {
         "bracket_one": "{{count}} bracket",
         "bracket_other": "{{count}} brackets",
@@ -2844,9 +2809,13 @@
       "reading": "Counting…",
       "seconds_one": "{{count}} second",
       "seconds_other": "{{count}} seconds",
+      "similar": "Only photos that look alike",
+      "similarity": "Look alike at least",
       "single_one": "{{count}} photo stays single",
       "single_other": "{{count}} photos stay single",
       "title": "Auto-Stack by Capture Time",
+      "unread_one": "{{count}} photo not read yet is grouped by time alone",
+      "unread_other": "{{count}} photos not read yet are grouped by time alone",
       "useCameraData": "Use camera burst and bracket data when available"
     },
     "badge": {
@@ -3185,6 +3154,37 @@
       "straightenToolTitle": "Draw a line along an edge that should be level or plumb",
       "swapOrientation": "Swap portrait and landscape",
       "turnOverlay": "Turn the overlay"
+    },
+    "culling": {
+      "analyse": "Find misfires and documents",
+      "analyseDownload": "Find misfires and documents (download {{size}})",
+      "autoStack": "Auto-Stack…",
+      "badge": "Suggested: {{names}}",
+      "checkEyes": "Check eyes…",
+      "checkTitle": "Reject takes the checked suggestions",
+      "criteria": {
+        "document": "Documents",
+        "eyesClosed": "Eyes closed",
+        "misfire": "Misfires"
+      },
+      "criteriaLabel": "Suggestions",
+      "dismiss_one": "Not a problem ({{n}} selected)",
+      "dismiss_other": "Not a problem ({{n}} selected)",
+      "dismissTitle": "The checked suggestions of the selected photos are not shown again",
+      "failed": "Culling suggestions not saved: {{error}}",
+      "gridOnly": "Reject works on the photos the grid shows: press G for the grid.",
+      "needsModel": "Finding misfires and documents reads each photo with the search model.",
+      "reading": "Read {{scored}} of {{total}} photos",
+      "reject_one": "Reject {{n}} suggested photo",
+      "reject_other": "Reject {{n}} suggested photos",
+      "rejectTitle": "Flags the checked suggestions among the photos shown as rejected, in one undo step; nothing is moved or deleted",
+      "showAgain_one": "Show suggestions again ({{n}} selected)",
+      "showAgain_other": "Show suggestions again ({{n}} selected)",
+      "showOnly": "Show only {{name}} ({{n}})",
+      "suggestionOnly": "Suggestions only: nothing is rejected until you click Reject, and Undo takes it back.",
+      "title": "Culling",
+      "unreadable_one": "{{n}} photo could not be read for suggestions; it is tried again when the library is opened.",
+      "unreadable_other": "{{n}} photos could not be read for suggestions; they are tried again when the library is opened."
     },
     "develop": {
       "auto": {
@@ -4469,6 +4469,11 @@
             "purple": "Purple",
             "red": "Red",
             "yellow": "Yellow"
+          },
+          "suggestion": {
+            "document": "Document",
+            "eyesClosed": "Eyes closed",
+            "misfire": "Misfire"
           }
         },
         "combine": {
@@ -4506,6 +4511,8 @@
           "previousImport": "In the previous import",
           "rating": "Rating",
           "sourceType": "Digital source type (in the file)",
+          "stacked": "In a stack",
+          "suggestion": "Culling suggestion",
           "text": "Any searchable text"
         },
         "folderPlaceholder": "Folder path",

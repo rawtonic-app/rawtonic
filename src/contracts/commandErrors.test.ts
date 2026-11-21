@@ -211,6 +211,14 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
   content_search_rank: {
     args: `directory: String, query: String, listed: Option<String>, app_handle: tauri::AppHandle`,
     ok: `ContentRanking`
+  },
+  cull_suggestions: {
+    args: `directory: String, paths: Vec<String>`,
+    ok: `HashMap<String, CullPhoto>`
+  },
+  cull_dismiss: {
+    args: `directory: String, paths: Vec<String>, criterion: String, dismissed: bool, app_handle: tauri::AppHandle`,
+    ok: `Vec<String>`
   }
 };
 

@@ -496,7 +496,6 @@
       "confirmReset": "Zurücksetzen bestätigen",
       "convertNegative": "Negativ umwandeln",
       "copyAdjustments": "Anpassungen kopieren",
-      "cullImage": "Bild aussortieren",
       "editImage": "In Entwickeln öffnen",
       "exportImage": "Bild exportieren",
       "frameImage": "Bild rahmen",
@@ -568,8 +567,6 @@
       "convertNegative_other": "Negative umwandeln",
       "copyImage_one": "Bild kopieren",
       "copyImage_other": "{{count}} Bilder kopieren",
-      "cullImage_one": "Bild aussortieren",
-      "cullImage_other": "Bilder aussortieren",
       "deleteAssociated": "Löschen + Zugehörige",
       "deleteImage_one": "Bild löschen",
       "deleteImage_other": "{{count}} Bilder löschen",
@@ -1132,38 +1129,6 @@
       "create": "Erstellen",
       "placeholder": "Ordnernamen eingeben...",
       "title": "Neuen Ordner erstellen"
-    },
-    "culling": {
-      "actionDelete": "In den Papierkorb verschieben",
-      "actionRateZero": "Bewertung auf 1 Stern setzen",
-      "actionReject": "Als abgelehnt markieren (Rote Markierung)",
-      "applyButton_one": "Auf 1 Bild anwenden",
-      "applyButton_other": "Auf {{count}} Bilder anwenden",
-      "bestImage": "Bestes Bild",
-      "blurryImagesTab": "Unscharfe Bilder",
-      "blurThreshold": "Unschärfe-Schwellenwert",
-      "blurThresholdDesc": "Bilder mit einem Schärfewert unter diesem Wert werden markiert. Höher ist strenger.",
-      "cancel": "Abbrechen",
-      "close": "Schließen",
-      "cullingFailed": "Aussortieren fehlgeschlagen",
-      "cullingSuggestions": "Vorschläge zum Aussortieren",
-      "done": "Fertig",
-      "duplicatesHeader": "Duplikate ({{count}})",
-      "duplicatesHeader_one": "Duplikate ({{count}})",
-      "duplicatesHeader_other": "Duplikate ({{count}})",
-      "filterBlurry": "Unscharfe Bilder filtern",
-      "groupHeader": "Gruppe {{index}}",
-      "groupSimilar": "Ähnliche Bilder gruppieren",
-      "noIssuesDesc": "Alle Bilder scheinen einzigartig und scharf zu sein.",
-      "noIssuesFound": "Keine Probleme gefunden!",
-      "score": "Punktzahl: {{score}}",
-      "sharpness": "Schärfe: {{sharpness}}",
-      "similarGroupsTab": "Ähnliche Gruppen",
-      "similarityThreshold": "Ähnlichkeits-Schwellenwert",
-      "similarityThresholdDesc": "Niedriger ist strenger (exakte Duplikate). Höher ist lockerer. 24-32 wird empfohlen.",
-      "startCulling": "Aussortieren starten",
-      "starting": "Wird gestartet...",
-      "title": "Bilder aussortieren"
     },
     "merge": {
       "align": "Fotos ausrichten",
@@ -2827,7 +2792,7 @@
       "done_one": "{{count}} Stapel gebildet",
       "done_other": "{{count}} Stapel gebildet",
       "interval": "Zeit zwischen Fotos",
-      "intro": "Fotos, die höchstens so lange nach dem vorigen aufgenommen wurden, kommen in einen Stapel. Fotos in einem Stapel bleiben, wie sie sind.",
+      "intro": "Fotos, die höchstens so lange nach dem vorigen aufgenommen wurden, kommen in einen Stapel; mit „Nur Fotos, die sich ähneln“ müssen sie auch dieselbe Szene zeigen. Fotos in einem Stapel bleiben, wie sie sind.",
       "kind": {
         "bracket_one": "{{count}} Belichtungsreihe",
         "bracket_other": "{{count}} Belichtungsreihen",
@@ -2844,9 +2809,13 @@
       "reading": "Wird gezählt…",
       "seconds_one": "{{count}} Sekunde",
       "seconds_other": "{{count}} Sekunden",
+      "similar": "Nur Fotos, die sich ähneln",
+      "similarity": "Mindestens so ähnlich",
       "single_one": "{{count}} Foto bleibt einzeln",
       "single_other": "{{count}} Fotos bleiben einzeln",
       "title": "Automatisch nach Aufnahmezeit stapeln",
+      "unread_one": "{{count}} noch nicht gelesenes Foto wird nur nach Zeit gruppiert",
+      "unread_other": "{{count}} noch nicht gelesene Fotos werden nur nach Zeit gruppiert",
       "useCameraData": "Serien- und Belichtungsreihen-Daten der Kamera nutzen, wenn vorhanden"
     },
     "badge": {
@@ -3185,6 +3154,37 @@
       "straightenToolTitle": "Ziehe eine Linie entlang einer Kante, die waagerecht oder senkrecht sein soll",
       "swapOrientation": "Hoch- und Querformat tauschen",
       "turnOverlay": "Überlagerung drehen"
+    },
+    "culling": {
+      "analyse": "Fehlaufnahmen und Dokumente finden",
+      "analyseDownload": "Fehlaufnahmen und Dokumente finden ({{size}} laden)",
+      "autoStack": "Automatisch stapeln…",
+      "badge": "Vorgeschlagen: {{names}}",
+      "checkEyes": "Augen prüfen…",
+      "checkTitle": "Ablehnen nimmt die angehakten Vorschläge",
+      "criteria": {
+        "document": "Dokumente",
+        "eyesClosed": "Augen geschlossen",
+        "misfire": "Fehlaufnahmen"
+      },
+      "criteriaLabel": "Vorschläge",
+      "dismiss_one": "Kein Problem ({{n}} ausgewählt)",
+      "dismiss_other": "Kein Problem ({{n}} ausgewählt)",
+      "dismissTitle": "Die angehakten Vorschläge der ausgewählten Fotos werden nicht mehr gezeigt",
+      "failed": "Vorschläge nicht gespeichert: {{error}}",
+      "gridOnly": "Ablehnen wirkt auf die Fotos, die das Raster zeigt: G zeigt das Raster.",
+      "needsModel": "Für Fehlaufnahmen und Dokumente liest das Suchmodell jedes Foto.",
+      "reading": "{{scored}} von {{total}} Fotos gelesen",
+      "reject_one": "{{n}} vorgeschlagenes Foto ablehnen",
+      "reject_other": "{{n}} vorgeschlagene Fotos ablehnen",
+      "rejectTitle": "Markiert die angehakten Vorschläge unter den gezeigten Fotos als abgelehnt, in einem Widerrufschritt; nichts wird verschoben oder gelöscht",
+      "showAgain_one": "Vorschläge wieder zeigen ({{n}} ausgewählt)",
+      "showAgain_other": "Vorschläge wieder zeigen ({{n}} ausgewählt)",
+      "showOnly": "Nur {{name}} zeigen ({{n}})",
+      "suggestionOnly": "Nur Vorschläge: Nichts wird abgelehnt, bevor Sie auf Ablehnen klicken, und Widerrufen nimmt es zurück.",
+      "title": "Aussortieren",
+      "unreadable_one": "{{n}} Foto konnte für Vorschläge nicht gelesen werden; es wird beim Öffnen der Bibliothek erneut versucht.",
+      "unreadable_other": "{{n}} Fotos konnten für Vorschläge nicht gelesen werden; sie werden beim Öffnen der Bibliothek erneut versucht."
     },
     "develop": {
       "auto": {
@@ -4469,6 +4469,11 @@
             "purple": "Lila",
             "red": "Rot",
             "yellow": "Gelb"
+          },
+          "suggestion": {
+            "document": "Dokument",
+            "eyesClosed": "Augen geschlossen",
+            "misfire": "Fehlaufnahme"
           }
         },
         "combine": {
@@ -4506,6 +4511,8 @@
           "previousImport": "Im letzten Import",
           "rating": "Bewertung",
           "sourceType": "Digitale Quelle (in der Datei)",
+          "stacked": "In einem Stapel",
+          "suggestion": "Aussortier-Vorschlag",
           "text": "Beliebiger durchsuchbarer Text"
         },
         "folderPlaceholder": "Ordnerpfad",

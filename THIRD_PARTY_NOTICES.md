@@ -412,7 +412,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | idna_adapter | 1.2.2 | Apache-2.0 OR MIT |
 | image | 0.25.10 | MIT OR Apache-2.0 |
 | image-webp | 0.2.4 | MIT OR Apache-2.0 |
-| image_hasher | 3.1.1 | MIT OR Apache-2.0 |
 | imageproc | 0.27.0 | MIT |
 | imgref | 1.12.2 | CC0-1.0 OR Apache-2.0 |
 | indexmap | 1.9.3 | Apache-2.0 OR MIT |
