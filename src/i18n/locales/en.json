@@ -40,7 +40,21 @@
     "dismiss": "Dismiss: {{title}}",
     "dismissShort": "Dismiss",
     "download": {
-      "model": "Downloading {{name}}"
+      "model": "Downloading {{name}}",
+      "names": {
+        "denoise": "AI Denoise model",
+        "depth": "depth model",
+        "eyesTeeth": "eye and teeth model",
+        "faces": "face models",
+        "fill": "fill model",
+        "landscape": "landscape model",
+        "objectRemoval": "object removal model",
+        "relight": "Relight model",
+        "search": "search model",
+        "sky": "sky model",
+        "subject": "subject model",
+        "superResolution": "Super Resolution model"
+      }
     },
     "duplicates": {
       "failed": "Finding duplicates failed",
@@ -868,6 +882,7 @@
         "upgradeRequired": "Upgrade Required"
       },
       "createNewTitle": "Create New Generative Edit",
+      "downloadFailed": "The model could not be downloaded. Check the internet connection and try again.",
       "generatingDepthMap": "Calculating AI Depth Map...",
       "params": {
         "feather": "Feather",
@@ -3906,6 +3921,10 @@
         "teethBrightness": "Teeth brightness",
         "teethWhiten": "Teeth whiten",
         "texture": "Face texture"
+      },
+      "download": {
+        "preparing": "Preparing the model…",
+        "progress": "Downloading… {{percent}}%"
       },
       "downloadModels": "Download face models",
       "eyes": {

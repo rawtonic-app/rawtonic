@@ -44,7 +44,21 @@
     "dismiss": "Dispensar: {{title}}",
     "dismissShort": "Dispensar",
     "download": {
-      "model": "A transferir {{name}}"
+      "model": "A transferir {{name}}",
+      "names": {
+        "denoise": "o modelo de redução de ruído IA",
+        "depth": "o modelo de profundidade",
+        "eyesTeeth": "o modelo de olhos e dentes",
+        "faces": "os modelos de rosto",
+        "fill": "o modelo de preenchimento",
+        "landscape": "o modelo de paisagem",
+        "objectRemoval": "o modelo de remoção de objetos",
+        "relight": "o modelo de reiluminação",
+        "search": "o modelo de pesquisa",
+        "sky": "o modelo de céu",
+        "subject": "o modelo de motivo",
+        "superResolution": "o modelo de super-resolução"
+      }
     },
     "duplicates": {
       "failed": "A procura de duplicados falhou",
@@ -916,6 +930,7 @@
         "upgradeRequired": "Atualização Necessária"
       },
       "createNewTitle": "Criar Nova Edição Generativa",
+      "downloadFailed": "Não foi possível transferir o modelo. Verifique a ligação à internet e tente novamente.",
       "generatingDepthMap": "A calcular mapa de profundidade IA...",
       "params": {
         "feather": "Difusão",
@@ -4073,6 +4088,10 @@
         "teethBrightness": "Brilho dos dentes",
         "teethWhiten": "Branquear dentes",
         "texture": "Rosto: textura"
+      },
+      "download": {
+        "preparing": "A preparar o modelo…",
+        "progress": "A transferir… {{percent}} %"
       },
       "downloadModels": "Transferir modelos de rosto",
       "eyes": {

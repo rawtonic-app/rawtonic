@@ -44,7 +44,21 @@
     "dismiss": "Masquer : {{title}}",
     "dismissShort": "Masquer",
     "download": {
-      "model": "Téléchargement : {{name}}"
+      "model": "Téléchargement : {{name}}",
+      "names": {
+        "denoise": "modèle de réduction du bruit IA",
+        "depth": "modèle de profondeur",
+        "eyesTeeth": "modèle des yeux et des dents",
+        "faces": "modèles de visage",
+        "fill": "modèle de remplissage",
+        "landscape": "modèle de paysage",
+        "objectRemoval": "modèle de suppression d’objets",
+        "relight": "modèle de rééclairage",
+        "search": "modèle de recherche",
+        "sky": "modèle de ciel",
+        "subject": "modèle de sujet",
+        "superResolution": "modèle de super-résolution"
+      }
     },
     "duplicates": {
       "failed": "La recherche de doublons a échoué",
@@ -916,6 +930,7 @@
         "upgradeRequired": "Mise à niveau requise"
       },
       "createNewTitle": "Créer une nouvelle retouche générative",
+      "downloadFailed": "Le modèle n’a pas pu être téléchargé. Vérifiez la connexion Internet et réessayez.",
       "generatingDepthMap": "Calcul de la carte de profondeur IA...",
       "params": {
         "feather": "Contour progressif",
@@ -4073,6 +4088,10 @@
         "teethBrightness": "Luminosité des dents",
         "teethWhiten": "Blanchir les dents",
         "texture": "Visage : texture"
+      },
+      "download": {
+        "preparing": "Préparation du modèle…",
+        "progress": "Téléchargement… {{percent}} %"
       },
       "downloadModels": "Télécharger les modèles de visage",
       "eyes": {

@@ -493,10 +493,8 @@ pub async fn content_search_download(
     let missing = tauri::async_runtime::spawn_blocking(move || missing_files(&dir))
         .await
         .map_err(|e| e.to_string())?;
-    let mut batch = crate::ai_processing::DownloadBatch {
-        done: 0,
-        total: missing.iter().map(|(_, _, size)| size).sum(),
-    };
+    let mut batch =
+        crate::ai_processing::DownloadBatch::of(missing.iter().map(|(_, _, size)| size).sum());
     for (file, sha, _) in missing {
         crate::ai_processing::download_verified_in(
             &app_handle,

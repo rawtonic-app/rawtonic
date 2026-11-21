@@ -40,6 +40,36 @@ const MODEL_FILES: [(&str, &str); 3] = [
     ),
 ];
 
+/// Sizes of the model pack files the face models and the eye and teeth
+/// parser download (pinned by their SHA-256), so a download of several of
+/// them reports one progress from 0 to 100 % (`DownloadBatch`).
+const FILE_BYTES: [(&str, u64); 6] = [
+    (rawtonic_faces::DETECTOR_FILE, 232_589),
+    (rawtonic_faces::MESH_FILE, 4_819_408),
+    (rawtonic_faces::PARSER_FILE, 16_302_385),
+    ("easyportrait_coreml_Manifest.json", 617),
+    ("easyportrait_coreml_model.mlmodel", 118_567),
+    ("easyportrait_coreml_weight.bin", 56_947_008),
+];
+
+/// The bytes of `files` (name, SHA-256) not yet in `dir`.
+fn missing_bytes<'a>(
+    dir: &std::path::Path,
+    files: impl Iterator<Item = (&'a str, &'a str)>,
+) -> u64 {
+    files
+        .filter(|(file, sha)| {
+            !crate::ai_processing::verify_sha256(&dir.join(file), sha).unwrap_or(false)
+        })
+        .map(|(file, _)| {
+            FILE_BYTES
+                .iter()
+                .find(|(name, _)| *name == file)
+                .map_or(0, |&(_, n)| n)
+        })
+        .sum()
+}
+
 /// The analysis of the open photo, for one geometry.
 pub struct CachedFaces {
     key: String,
@@ -119,6 +149,11 @@ pub(crate) async fn models(
     let generation = ai_state.lifecycle.generation();
     crate::ai_processing::ensure_runtime()?;
     let dir = crate::ai_processing::models_dir(app_handle).map_err(|e| e.to_string())?;
+    let mut batch = crate::ai_processing::DownloadBatch::of(if download {
+        missing_bytes(&dir, MODEL_FILES.into_iter())
+    } else {
+        0
+    });
     for (file, sha) in MODEL_FILES {
         if !download {
             if crate::ai_processing::verify_sha256(&dir.join(file), sha)
@@ -131,9 +166,17 @@ pub(crate) async fn models(
                 FACE_MODELS_MISSING,
             ));
         }
-        crate::ai_processing::download_verified(app_handle, &dir, file, sha, "Face models")
-            .await
-            .map_err(|e| e.to_string())?;
+        // A failed download keeps its code: the panel offers it again.
+        crate::ai_processing::download_verified_in(
+            app_handle,
+            &dir,
+            file,
+            sha,
+            "Face models",
+            Some(&mut batch),
+        )
+        .await
+        .map_err(CommandError::chain)?;
     }
     let models = tokio::task::spawn_blocking(move || FaceModels::load(&dir))
         .await
@@ -170,17 +213,30 @@ pub(crate) async fn portrait_model(
     let dir = crate::ai_processing::models_dir(app_handle).map_err(|e| e.to_string())?;
     let start = std::time::Instant::now();
     #[cfg(target_os = "macos")]
-    let core_ml = crate::ai_processing::load_core_ml(
-        app_handle,
-        &dir,
-        portrait::CORE_ML_PACKAGE,
-        &portrait::CORE_ML_FILES,
-        download,
-        "eyes-teeth",
-        "Eye and teeth model",
-    )
-    .await
-    .map(PortraitModel::core_ml);
+    let core_ml = {
+        let mut batch = crate::ai_processing::DownloadBatch::of(if download {
+            missing_bytes(
+                &dir,
+                portrait::CORE_ML_FILES
+                    .iter()
+                    .map(|&(file, _, sha)| (file, sha)),
+            )
+        } else {
+            0
+        });
+        crate::ai_processing::load_core_ml_in(
+            app_handle,
+            &dir,
+            portrait::CORE_ML_PACKAGE,
+            &portrait::CORE_ML_FILES,
+            download,
+            "eyes-teeth",
+            "Eye and teeth model",
+            Some(&mut batch),
+        )
+        .await
+        .map(PortraitModel::core_ml)
+    };
     #[cfg(not(target_os = "macos"))]
     let core_ml: Option<PortraitModel> = None;
     let model = match core_ml {
@@ -197,7 +253,7 @@ pub(crate) async fn portrait_model(
                     "Eye and teeth model",
                 )
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(CommandError::chain)?;
             } else if crate::ai_processing::ensure_runtime().is_err()
                 || !crate::ai_processing::verify_sha256(&path, portrait::SHA256).unwrap_or(false)
             {
@@ -708,6 +764,18 @@ fn own_protection(recipe: &serde_json::Value) -> Result<Option<serde_json::Value
 mod tests {
     use super::*;
     use image::DynamicImage;
+
+    #[test]
+    fn every_downloaded_file_has_its_size_for_the_progress() {
+        let files = MODEL_FILES.iter().map(|&(file, _)| file).chain(
+            rawtonic_faces::portrait::CORE_ML_FILES
+                .iter()
+                .map(|&(file, _, _)| file),
+        );
+        for file in files {
+            assert!(FILE_BYTES.iter().any(|(name, _)| *name == file), "{file}");
+        }
+    }
 
     #[test]
     fn own_protection_strokes_are_kept_only_in_the_geometry_they_were_painted_in() {

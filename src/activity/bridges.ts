@@ -47,6 +47,51 @@ const act = (command: Invokes, args: Record<string, unknown>) =>
  * after the user dismissed its failure) reports nothing new. */
 const exportReported = new Map<string, string>();
 
+/** The backend's model names (`download_verified`'s English labels, also
+ * in its log) as the UI's language names them; an unknown one as it is. */
+type ModelId =
+  | 'faces'
+  | 'eyesTeeth'
+  | 'denoise'
+  | 'depth'
+  | 'fill'
+  | 'landscape'
+  | 'objectRemoval'
+  | 'sky'
+  | 'subject'
+  | 'superResolution'
+  | 'search'
+  | 'relight';
+
+const MODEL_NAMES: Record<string, ModelId | undefined> = {
+  'Face models': 'faces',
+  'Eye and teeth model': 'eyesTeeth',
+  'AI Denoise model': 'denoise',
+  'Depth Model': 'depth',
+  'Inpainting Model': 'fill',
+  'Landscape Model': 'landscape',
+  'Object removal model': 'objectRemoval',
+  'Sky Model': 'sky',
+  'Subject Model': 'subject',
+  'Super Resolution Model': 'superResolution',
+  'Super Resolution CPU Model': 'superResolution',
+  'Super Resolution GPU Model': 'superResolution',
+  'Search model': 'search',
+  'Relight geometry': 'relight',
+  'Relight people normals': 'relight'
+};
+
+/** The Activity entry of a model's download (`model`: the backend's name),
+ * one per model, so two downloads at once each show their own progress. */
+export function modelDownloadId(model: string): string {
+  return `download:ai-model:${model}`;
+}
+
+export function modelName(model: string): string {
+  const key = MODEL_NAMES[model];
+  return key ? i18n.t(`activity.download.names.${key}`) : model;
+}
+
 export function syncExportJobs(jobs: ExportJob[], held: boolean) {
   const activity = useActivityStore.getState();
   const ids = new Set(jobs.map((job) => job.id));
@@ -517,17 +562,19 @@ export function startActivityBridges(): () => void {
   const listeners = [
     listenSafely<string>('ai-model-download-start', (model) => {
       useActivityStore.getState().start({
-        id: 'download:ai-model',
+        id: modelDownloadId(model),
         source: 'download',
-        title: i18n.t('activity.download.model', { name: model })
+        title: i18n.t('activity.download.model', { name: modelName(model) })
       });
     }),
     listenSafely<DownloadProgress>('ai-model-download-progress', (payload) => {
       const total = payload.batchTotal || payload.total;
       const done = payload.batchTotal ? (payload.batchReceived ?? 0) : payload.received;
-      if (total > 0) useActivityStore.getState().update('download:ai-model', { progress: { done, total } });
+      if (total > 0) useActivityStore.getState().update(modelDownloadId(payload.model), { progress: { done, total } });
     }),
-    listenSafely('ai-model-download-finish', () => useActivityStore.getState().finish('download:ai-model')),
+    listenSafely<string>('ai-model-download-finish', (model) =>
+      useActivityStore.getState().finish(modelDownloadId(model))
+    ),
     listenSafely<DuplicatesProgress>(DUPLICATES_PROGRESS, syncDuplicatesProgress),
     listenSafely<AiSelectionsProgress>(AI_SELECTIONS_PROGRESS, syncAiSelections),
     listenSafely<LeftoversReport>('leftovers-removed', syncLeftovers),
