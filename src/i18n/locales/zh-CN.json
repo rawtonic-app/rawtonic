@@ -3543,13 +3543,13 @@
         "exporting": "正在导出 {{current}}/{{total}}"
       },
       "provenance": {
-        "about": "记录每个文件冲洗自哪张照片、编辑的类型，以及生成模型创建的每个区域，并用您的证书签名。JPEG、PNG 和 TIFF。不会发送任何内容。",
+        "about": "记录每个文件冲洗自哪张照片、编辑的类型，以及生成模型创建的每个区域，并用您的证书签名。JPEG、PNG、TIFF、WebP 和 AVIF。不会发送任何内容。",
         "add": "在每个文件中签署来源清单",
         "author": "将照片的创作者署名为作者",
-        "blocked": "来源证明 (C2PA) 无法为 {{recipes}} 签名：请设置有效的签名证书，并导出为 JPEG、PNG 或 TIFF。",
+        "blocked": "来源证明 (C2PA) 无法为 {{recipes}} 签名：请设置有效的签名证书，并导出为 JPEG、PNG、TIFF、WebP 或 AVIF。",
         "certificateFilter": "PKCS#12 证书",
         "expired": "此证书当前无效（有效期至 {{until}}）：无法用它为导出签名。请导入续期的证书或新建一个。",
-        "formatUnsupported": "{{format}} 文件暂不能携带来源清单。请选择 JPEG、PNG 或 TIFF，或关闭此选项。",
+        "formatUnsupported": "{{format}} 文件暂不能携带来源清单。请选择 JPEG、PNG、TIFF、WebP 或 AVIF，或关闭此选项。",
         "generate": "在此电脑上创建证书",
         "import": "导入您的证书 (.p12)…",
         "importConfirm": "导入",
