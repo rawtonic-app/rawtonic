@@ -234,6 +234,13 @@ const EYE_KEYS: ReadonlySet<string> = new Set([
   'teethBrightness',
   'teethWhiten'
 ]);
+
+/** Whether `retouch` sets an Eyes or Teeth value, for all faces or one. */
+export function usesEyesOrTeeth(retouch: FaceRetouch | null | undefined) {
+  const sets = (settings: FaceRetouchSettings | undefined) =>
+    Object.keys(settings ?? {}).some((key) => EYE_KEYS.has(key));
+  return Boolean(retouch) && (sets(retouch!.settings) || retouch!.faces.some((f) => sets(f.settings)));
+}
 const SLIDERS = [
   { key: 'impact', min: 0, max: 100, initial: 100 },
   { key: 'blemishes', min: 0, max: 100, initial: 0 },
@@ -325,11 +332,12 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
 
   const [download, setDownload] = useState(0);
   // Faces stored before Eyes and Teeth have no eyes or mouth: once an Eyes
-  // or Teeth slider moves on them, the faces are found again (no download)
+  // or Teeth slider moves on them (now, or before the tool was closed while
+  // the faces were being found), the faces are found again (no download)
   // and their eyes and mouth filled in; opening the tool alone runs nothing.
   const needsEyes = Boolean(current?.faces.some((f) => f.eyes === undefined));
   const [eyesWanted, setEyesWanted] = useState<string | null>(null);
-  const fillEyes = needsEyes && eyesWanted === key;
+  const fillEyes = needsEyes && (eyesWanted === key || usesEyesOrTeeth(current));
   useEffect(() => {
     if (!path || !ready || (current && !fillEyes)) return;
     let live = true;

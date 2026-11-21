@@ -119,3 +119,36 @@ describe('eyes and teeth on faces found before them', () => {
     expect(stored.faces[0]).toMatchObject({ kept: [3], mouth: null });
   });
 });
+
+describe('eyes and teeth set before the faces were found again', () => {
+  it('fills in eyes and mouth when the tool opens on such a retouch', async () => {
+    const eyes = [
+      {
+        iris: [5, 5, 2],
+        lid: [
+          [0, 0],
+          [9, 0],
+          [9, 9]
+        ]
+      },
+      null
+    ];
+    invoke.mockResolvedValue({ frame: '2:{}', faces: [{ id: 'face-1', box: [0, 0, 10, 10], eyes, mouth: null }] });
+    const adjustments = { ...INITIAL_ADJUSTMENTS };
+    const faceRetouch = {
+      settings: {},
+      faces: [
+        { id: 'face-1', kept: [], settings: { teethWhiten: 40 }, blemishes: [], box: [1, 0, 10, 10], enabled: true }
+      ],
+      frame: '2:{}',
+      geometry: JSON.stringify(faceRetouchGeometry(adjustments))
+    } as unknown as FaceRetouch;
+    useEditorStore.setState({
+      selectedImage: { path: '/s/c.CR3', isReady: true } as never,
+      adjustments: { ...adjustments, faceRetouch }
+    });
+    render(<StudioFaceRetouch onInteraction={() => {}} />);
+    await waitFor(() => expect(useEditorStore.getState().adjustments.faceRetouch?.faces[0].eyes).toEqual(eyes));
+    expect(useEditorStore.getState().adjustments.faceRetouch?.faces[0].settings).toEqual({ teethWhiten: 40 });
+  });
+});

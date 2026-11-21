@@ -25,8 +25,10 @@
 //!
 //! All of it in the face retouch's square-root working space; the lid
 //! opening is pulled in by a little so no lid or lash edge is lightened.
-//! Very small eyes (an iris under 4 pixels) fade out: their outlines are
-//! too coarse to keep the rim clean.
+//! Very small eyes (an iris under 4 pixels at full size) fade out: their
+//! outlines are too coarse to keep the rim clean. An iris under 6 pixels in
+//! the image being rendered (a reduced preview) is masked by the outlines
+//! alone: too few pixels for colour models.
 
 use image::Rgb32FImage;
 use rayon::prelude::*;
@@ -35,6 +37,10 @@ use serde_json::Value;
 
 use super::{Amounts, decode, encode, smoothstep};
 use crate::spot_removal::to_base;
+
+/// Iris radius (render pixels) below which the eye masks come from the
+/// outlines alone.
+const TINY_IRIS: f32 = 6.0;
 
 /// `faceRetouch.eyesTeethVersion`: the response of Eyes and Teeth a recipe
 /// was made with. 1 (the only one) when missing.
@@ -445,6 +451,26 @@ fn eye_masks(patch: &Patch, lid: &Outline, (cx, cy, r): (f32, f32, f32)) -> (Vec
         .iter()
         .map(|&d| (0.5 - (d - r) / iris_feather).clamp(0.0, 1.0))
         .collect();
+    // An iris a few pixels across (a reduced preview of a group photo) has
+    // too few pixels for colour models: the outlines alone, the white by
+    // its lightness against the opening's lighter pixels, so the preview
+    // shows what the full-size render does.
+    if r < TINY_IRIS {
+        let mut light: Vec<f32> = (0..n)
+            .filter(|&k| region[k] >= 0.99 && disk[k] <= 0.0)
+            .map(|k| feature[k][0])
+            .collect();
+        let white = quantile(&mut light, 0.75).filter(|&w| w > 0.0);
+        let iris_w = (0..n).map(|k| region[k] * disk[k]).collect();
+        let white_w = (0..n)
+            .map(|k| {
+                white.map_or(0.0, |w| {
+                    region[k] * (1.0 - disk[k]) * smoothstep(0.55, 0.85, feature[k][0] / w)
+                })
+            })
+            .collect();
+        return (iris_w, white_w);
+    }
     let likely = |class: Option<Class>| -> Vec<f32> {
         match (class, skin) {
             (Some(a), Some(s)) => box_mean(
@@ -546,7 +572,9 @@ fn retouch_eye(
     let [ix, iy, ir] = eye.iris;
     let [cx, cy] = place.point([ix, iy]);
     let r = (ir * place.scale) as f32;
-    let fade = smoothstep(1.5, 4.0, r);
+    // By the full-size iris (mask-frame pixels), so a reduced preview fades
+    // exactly as the export does.
+    let fade = smoothstep(1.5, 4.0, ir as f32);
     if fade <= 0.0 {
         return;
     }
@@ -924,6 +952,30 @@ mod tests {
             ),
         );
         assert_eq!(image.as_raw(), before.as_raw());
+    }
+
+    #[test]
+    fn reduced_previews_show_the_eyes_too() {
+        // The face at 0.15 of its size: an iris of 2.1 px, as in a fit view
+        // of a large group photo.
+        let (full, recipe) = face();
+        let scale = 0.15;
+        let small = Rgb32FImage::from_fn(60, 45, |x, y| {
+            *full.get_pixel(
+                ((x as f64 + 0.5) / scale) as u32,
+                ((y as f64 + 0.5) / scale) as u32,
+            )
+        });
+        let recipe = crate::face_retouch::scaled_recipe(
+            &with(recipe, json!({"iris": 100, "sclera": 100})),
+            scale,
+        );
+        let mut image = small.clone();
+        assert!(apply_face_retouch(&mut image, &recipe));
+        // The iris centre (120, 100) → (18, 15); the white beside it.
+        assert!(changed(&small, &image, 18, 15), "iris");
+        assert!(changed(&small, &image, 21, 15), "white");
+        assert!(!changed(&small, &image, 18, 25), "cheek");
     }
 
     #[test]
