@@ -468,9 +468,12 @@ describe('target colour', () => {
     openTool();
     typeInto('Target hue h° (CIELAB D50)', '250');
     expect(changes).toHaveLength(1);
-    expect(lastRanges()[0].hueShift).toBe(-100);
+    const [moved] = lastRanges();
+    expect(moved.hueShift).toBe(-100);
+    // Every slider the result leaves at its end is named.
+    expect(Math.abs(moved.saturation)).toBe(100);
     expect(screen.getByRole('status').textContent).toMatch(
-      /^Out of reach: ΔE00 [\d.]+ left; hue \(±50°\) at its limit\./
+      /^Out of reach: ΔE00 [\d.]+ left; hue \(±50°\), saturation \(0–200 %\) at its limit\./
     );
   });
 

@@ -430,7 +430,8 @@ export interface ColorRangePick {
   centre: Vec3;
   /** The framing the point belongs to (utils/colorRanges `geometryKeyOf`). */
   geometry: string;
-  input: RangeInput;
+  /** Null while the renderer has no sample there (a hidden layer). */
+  input: RangeInput | null;
 }
 
 /** The input a range stands for without a probe: its sampled colour at full strength. */
@@ -489,6 +490,42 @@ export interface TargetSolve {
    * layer whose mask does not cover the pick (`uncovered`). */
   movable: boolean;
   uncovered: boolean;
+}
+
+/**
+ * The readout's status of range `id` against `targetLab` with its shifts as
+ * they are, without a search (the readout follows every slider move): the
+ * distance, which sliders sit at their end while the target is missed,
+ * whether the sliders reach the pick at all, and the target's gamut.
+ */
+export function targetStatus(
+  ranges: ColorRange[],
+  id: string,
+  targetLab: Vec3,
+  input?: RangeInput | null
+): Omit<TargetSolve, 'shifts'> | null {
+  const index = ranges.findIndex((r) => r.id === id);
+  if (index < 0) return null;
+  const at = input?.pixels.length ? input : centreInput(ranges[index]);
+  const range = ranges[index];
+  const { L, chroma, hue } = toLch(meanOklab(at.pixels));
+  const ownWeight = weight(pack(range), L, chroma, hue);
+  const strength = clamp(meanOf(at.influence), 0, 1);
+  const movable = ownWeight * strength > 1e-6;
+  const resultLab = renderedLab(ranges, at);
+  const deltaE = deltaE00(targetLab, resultLab);
+  const missed = deltaE > TARGET_REACHED;
+  const end = (v: number | undefined) => missed && (!movable || Math.abs(num(v, 0)) >= SHIFT_LIMIT);
+  const targetLinear = labToLinear(targetLab);
+  return {
+    resultLab,
+    deltaE,
+    limited: { hue: end(range.hueShift), saturation: end(range.saturation), lightness: end(range.lightnessShift) },
+    targetOutsideSrgb: !insideSrgb(targetLinear),
+    targetOutsideWorkingGamut: !insideWorkingGamut(targetLinear),
+    movable,
+    uncovered: !movable && ownWeight > 1e-6
+  };
 }
 
 /**
@@ -589,8 +626,8 @@ export function solveColorTarget(
     };
   }
   // Up to nine of the pixels with their influence: the coarse grid's stand-in
-  // for the full model when it ranks starts (a patch across an edge keeps
-  // both colours); the search from each start runs on every pixel.
+  // for the full model when it ranks starts and takes the first large steps
+  // (a patch across an edge keeps both colours).
   const every = Math.max(1, Math.ceil(at.pixels.length / 9));
   const coarse: RangeInput = {
     pixels: at.pixels.filter((_, i) => i % every === 0),
@@ -648,9 +685,13 @@ export function solveColorTarget(
       for (const b of grid)
         for (const c of grid) starts.push({ point: [a, b, c], deltaE: fitOf([a, b, c], coarse).deltaE });
     starts.sort((x, y) => x.deltaE - y.deltaE);
+    // From each start two ways down (the coarse sample's large steps, then
+    // every pixel; every pixel throughout): they settle in different
+    // valleys of a patch across an edge, and the better one counts.
     for (const start of starts.slice(0, 3)) {
-      const found = descend(start.point, [16, 8, 4, 2, 1]);
-      if (found.fit.deltaE < bestFit.deltaE - 1e-9) ({ point: best, fit: bestFit } = found);
+      const rough = descend(start.point, [16, 8, 4], coarse);
+      for (const found of [descend(rough.point, [2, 1]), descend(start.point, [16, 8, 4, 2, 1])])
+        if (found.fit.deltaE < bestFit.deltaE - 1e-9) ({ point: best, fit: bestFit } = found);
     }
     const outside = targetOutsideWorkingGamut || !insideWorkingGamut(labToLinear(closed.bestFit.resultLab));
     if (!outside && bestFit.deltaE > TARGET_REACHED) ({ best, bestFit } = closed);

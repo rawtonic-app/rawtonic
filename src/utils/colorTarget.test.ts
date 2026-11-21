@@ -257,6 +257,26 @@ describe('solveColorTarget', () => {
     expect(olive.deltaE).toBeLessThan(1.85);
   });
 
+  it('reaches #6E8433 across a blue/green edge under the steeper ramp of review round 3', () => {
+    const blue = linearToOklab(srgb8ToLinear([0x32, 0x41, 0x9d]));
+    const green = linearToOklab(srgb8ToLinear([0x61, 0xc6, 0x43]));
+    const pixels: Vec3[] = [];
+    const influence: number[] = [];
+    for (let y = 0; y < 11; y += 1)
+      for (let x = 0; x < 11; x += 1) {
+        pixels.push(x < 5 ? blue : green);
+        influence.push(Math.round(Math.min(1, 0.4 + (x + y) / 20) * 255) / 255);
+      }
+    const input = { pixels, influence };
+    const [L, a, b] = meanOklab(pixels);
+    const range = {
+      ...newColorRange(((Math.atan2(b, a) * 180) / Math.PI + 360) % 360, Math.hypot(a, b), L),
+      hueRange: 45
+    };
+    const solve = solveColorTarget([range], range.id, labOfSrgb([0x6e, 0x84, 0x33]), input)!;
+    expect(solve.deltaE).toBeLessThan(0.5);
+  });
+
   it('labels as at their limit only the sliders the result leaves there', () => {
     // Review TGT2 round 2: a light sky blue to a far more saturated violet.
     const sky = rangeAt([0x91, 0xb9, 0xde]);

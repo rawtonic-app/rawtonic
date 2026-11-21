@@ -7,7 +7,6 @@ import type { ColorRange } from '../../utils/adjustments';
 import { rangeInputFor, rangePickKey, rangePickOf, rangesWithTarget, targetPickFor } from '../../utils/colorRanges';
 import {
   centreInput,
-  deltaE00,
   hexOf,
   insideSrgb,
   labToLch,
@@ -19,7 +18,7 @@ import {
   parseHex,
   rangeCentre,
   renderedLab,
-  solveColorTarget,
+  targetStatus,
   srgb8ToLinear,
   TARGET_REACHED,
   type Vec3
@@ -214,13 +213,10 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
     />
   );
 
-  // The search runs again only when its inputs change, not on every render.
-  const ownLab = own?.lab ?? null;
-  const solve = useMemo(
-    () => (ownLab ? solveColorTarget(ranges, active.id, ownLab, input) : null),
-    [ranges, active.id, ownLab, input]
-  );
-  const deltaE = own ? deltaE00(own.lab, resultLab) : 0;
+  // The readout's status of the sliders as they are (no search: it follows
+  // every slider move).
+  const solve = own ? targetStatus(ranges, active.id, own.lab, input) : null;
+  const deltaE = solve?.deltaE ?? 0;
   const limits = solve
     ? (['hue', 'saturation', 'lightness'] as const)
         .filter((k) => solve.limited[k])
@@ -235,9 +231,9 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
   // photo's own colour lies beyond it and may move differently
   // (docs/benchmark-results/tgt1-target-colour-2026-11-21).
   // With the renderer's sample the colour is the photo's own.
-  const sourceClipped = !pick && linearToSrgb8(oklabToLinear(centre)).some((v) => v <= 1 || v >= 254);
+  const sourceClipped = !pickInput && linearToSrgb8(oklabToLinear(centre)).some((v) => v <= 1 || v >= 254);
   // A layer's prediction is at full strength without the mask influence at the pick.
-  const fullStrength = !!layerId && !pick;
+  const fullStrength = !!layerId && !pickInput;
   // A sampled target not on this range yet (from another photo, or sampled
   // here without a range).
   const sampled = target?.sampledIn && !own ? target : null;

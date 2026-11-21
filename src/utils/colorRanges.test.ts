@@ -307,15 +307,24 @@ describe('the renderer probe at a pick', () => {
     expect(rangePickOf('/a.cr3', null, range)).not.toBeNull();
   });
 
-  it('forgets the pick when the renderer has no sample there any more (a hidden layer)', async () => {
+  it('drops the sample but keeps the point while the renderer has none there (a hidden layer)', async () => {
     probeWith(0.5);
     useEditorStore.setState({ colorPickerTarget: 'new', colorPickerLayer: 'L1' });
     await pickColorRange('/a.cr3', 'new', 0.4, 0.6);
     const range = useEditorStore.getState().adjustments.masks[0].adjustments.colorRanges![0];
-    expect(rangePickOf('/a.cr3', 'L1', range)).not.toBeNull();
+    expect(rangePickOf('/a.cr3', 'L1', range)!.input).not.toBeNull();
+    // Hidden: no sample, the point stays.
     vi.mocked(invoke).mockResolvedValue(null);
     expect(await rangeInputFor('/a.cr3', 'L1', range)).toBeNull();
-    expect(rangePickOf('/a.cr3', 'L1', range)).toBeNull();
+    expect(rangePickOf('/a.cr3', 'L1', range)).toMatchObject({ point: [0.4, 0.6], input: null });
+    // Shown again: the next sample at the same point.
+    probeWith(0.25);
+    expect((await rangeInputFor('/a.cr3', 'L1', range))!.influence[0]).toBe(0.25);
+    expect(invoke).toHaveBeenLastCalledWith(
+      Invokes.SampleColorRangeInput,
+      expect.objectContaining({ normalizedX: 0.4, normalizedY: 0.6, layer: 'L1' })
+    );
+    expect(rangePickOf('/a.cr3', 'L1', range)!.input!.influence[0]).toBe(0.25);
   });
 
   it('solves a target on a feathered layer at the mask influence of the pick', async () => {
