@@ -1941,13 +1941,10 @@ pub fn lightroom_subtract_warning(xmp: &str) -> Option<&'static str> {
             subs.iter()
                 .filter(|sub| sub[masks::VISIBLE.name()] == true)
                 .skip(1)
-                .any(|sub| {
-                    sub["mode"] == "subtractive"
-                        && sub[masks::OPACITY.name()].as_f64().is_some_and(|o| o < 100.0)
-                })
+                .any(|sub| sub["mode"] == "subtractive")
         })
         .then_some(
-            "A Subtract below full strength can differ where soft mask edges overlap. Rawtonic uses max(a − s·b, 0); Lightroom and Camera Raw use a × (1 − s·b).",
+            "A Subtract (below full strength, or a brush eraser) is imported as max(a − b, 0) and can differ from Lightroom and Camera Raw where soft mask edges overlap.",
         )
 }
 
