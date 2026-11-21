@@ -11894,20 +11894,39 @@ fn main(
         && adjustments.global.show_clipping - 2u < 8u) {
         range_view = color_range_view_weight(default_tonemapped, adjustments.global.show_clipping - 2u);
     }
-    // The colour each colour editor receives (its probe, display variants only).
-    let range_probe = color_range_probe_slot();
-    if (range_probe == 1u) {
-        textureStore(output_texture, id.xy, color_range_probe_pixel(default_tonemapped, 1.0));
-        return;
+    // The colour each colour editor receives (its probe, display variants
+    // only): the code below, up to the colour editor of the probed layer.
+    if (MIXER_PROBES && color_range_probe_slot() != 0u) {
+        let slot = color_range_probe_slot();
+        var entering = default_tonemapped;
+        var influence = 1.0;
+        if (slot > 1u) {
+            if (adjustments.global.color_range_count.x > 0u) {
+                entering = apply_color_ranges(entering, 0u, adjustments.global.color_range_count.x);
+            }
+            for (var i = 0u; ENABLE_MASKS && i < adjustments.mask_count && i + 2u < slot; i = i + 1u) {
+                let count = adjustments.mask_adjustments[i].color_range_count;
+                if (count == 0u) { continue; }
+                let layer_influence = get_mask_influence(i, absolute_coord);
+                if (layer_influence > 0.001) {
+                    entering = mix(entering, apply_color_ranges(entering, i + 1u, count), layer_influence);
+                }
+            }
+            if (slot - 2u >= adjustments.mask_count) {
+                influence = -1.0;
+            } else {
+                influence = get_mask_influence(slot - 2u, absolute_coord);
+            }
+        }
+        if (influence >= 0.0) {
+            textureStore(output_texture, id.xy, color_range_probe_pixel(entering, influence));
+            return;
+        }
     }
     if (adjustments.global.color_range_count.x > 0u) {
         default_tonemapped = apply_color_ranges(default_tonemapped, 0u, adjustments.global.color_range_count.x);
     }
-    for (var i = 0u; ENABLE_MASKS && (any_layer_has(32u) || range_probe > 1u) && i < adjustments.mask_count; i = i + 1u) {
-        if (range_probe == i + 2u) {
-            textureStore(output_texture, id.xy, color_range_probe_pixel(default_tonemapped, get_mask_influence(i, absolute_coord)));
-            return;
-        }
+    for (var i = 0u; ENABLE_MASKS && any_layer_has(32u) && i < adjustments.mask_count; i = i + 1u) {
         if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 32u) == 0u) { continue; }
         let count = adjustments.mask_adjustments[i].color_range_count;
         if (count == 0u) { continue; }

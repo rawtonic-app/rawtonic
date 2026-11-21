@@ -25621,6 +25621,22 @@ fn color_range_probe_stores_the_unclipped_colour_entering_each_colour_editor_and
         at_layer,
         "a layer without ranges yet"
     );
+    // A layer above another: after the photo's ranges and the lower layer's
+    // at its influence.
+    let lower = layer(json!([range(-40, 50)]));
+    let mut upper = layer(json!([range(30, -30)]));
+    upper["id"] = json!("U");
+    let stacked = json!({"colorRanges": [range(80, -60)], "masks": [lower.clone(), upper]});
+    let (colour, influence) = probe(stacked, 2, display).unwrap()[0];
+    assert!(
+        (influence - 128.0 / 255.0).abs() < 1e-9,
+        "influence {influence}"
+    );
+    close(
+        colour,
+        export(json!({"colorRanges": [range(80, -60)], "masks": [lower]})),
+        "upper layer's ranges",
+    );
     // No such layer, and export pipelines: no probe.
     assert_eq!(probe(layered, 2, display), None);
     assert_eq!(probe(json!({}), 0, ReadbackShader::Export), None);
