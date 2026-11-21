@@ -12,6 +12,8 @@ import { useContextMenu } from '../../context/ContextMenuContext';
 import type { Preset } from '../ui/AppProperties';
 import { ToolGroup } from './StudioDevelop';
 import { blendPreset } from '../../utils/presetAmount';
+import { joinedLayers } from '../../utils/settingsClipboard';
+import type { MaskContainer } from '../../utils/adjustments';
 import { loadBuiltinPresets, presetName, useBuiltinPresets } from '../../utils/builtinPresets';
 import {
   initialAdjustmentsFor,
@@ -332,7 +334,7 @@ export default function StudioPresets() {
     const values = expressPastedSettings(presetValues(stylePreset.adjustments), {
       recipe: without,
       isRaw: Boolean(selectedImage?.isRaw),
-      replaceLayers: true,
+      replaceLayers: false,
       mergeGroups: true
     });
     const base = removed ? normalizeLoadedAdjustments(without, Boolean(selectedImage?.isRaw)) : without;
@@ -347,12 +349,15 @@ export default function StudioPresets() {
     const values = expressPastedSettings(presetValues(amount.preset.adjustments), {
       ...amount.target,
       isRaw: Boolean(selectedImage?.isRaw),
-      replaceLayers: true
+      replaceLayers: false
     });
     // Above half strength the preset's mask is already on this photo.
     // Keep its pending/completed detection across Amount moves; returning
     // from the base masks below half strength starts a fresh detection.
+    // The preset's layers join the photo's own (`joinedLayers`).
     if (amount.value >= 50 && values.masks) values.masks = currentAdjustments().masks;
+    else if (values.masks)
+      values.masks = joinedLayers((amount.base as { masks?: MaskContainer[] }).masks, values.masks);
     const blended = blendPreset(amount.base, values as unknown as Record<string, unknown>, value / 100);
     setAdjustments((current) => ({ ...current, ...amount.base, ...blended }) as typeof current);
   };

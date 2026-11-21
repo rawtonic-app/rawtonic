@@ -10,7 +10,7 @@ import {
   type Adjustments
 } from '../../utils/adjustments';
 import { expressPastedSettings } from '../../utils/pastedVersions';
-import { DETECTED_TYPES, withPendingDetections } from '../../utils/settingsClipboard';
+import { DETECTED_TYPES, joinedLayers, withPendingDetections } from '../../utils/settingsClipboard';
 import { developmentSignature } from '../../utils/aiDenoise';
 import { COPIED_ALONG, pick } from './StudioToolCopy';
 import { withStyleValues } from '../../utils/appliedStyle';
@@ -64,9 +64,11 @@ export function presetPreview(
     isNew: false,
     ...target,
     isRaw,
-    replaceLayers: true,
+    replaceLayers: false,
     mergeGroups: Boolean(style)
   });
+  // A preset's layers join the photo's own, as applying it does.
+  if (values.masks) values.masks = joinedLayers((style ? style.base : current).masks, values.masks);
   const previewed = (style ? withStyleValues(style.base, values) : { ...current, ...values }) as Adjustments;
   return developmentSignature(previewed, isRaw) === developmentSignature(current, isRaw) ? previewed : null;
 }

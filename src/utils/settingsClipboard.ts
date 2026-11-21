@@ -252,6 +252,14 @@ function pastedLayers(
   return layers;
 }
 
+/** A preset's or style's layers joined to a photograph's own (`own`), as
+ * `apply_adjustments_to_paths` joins them on the others (Lightroom adds a
+ * preset's masks): a layer of the same id replaces its earlier copy, AI
+ * detections wait for this photograph's. */
+export function joinedLayers(own: MaskContainer[] | undefined, preset: MaskContainer[]): MaskContainer[] {
+  return pastedLayers(own, preset, false, false);
+}
+
 /** The shared paste/preset reset for a target photo. A bitmapless Object
  * component remains pending until the user selects an object there. */
 export function withPendingDetections(layer: MaskContainer): MaskContainer {

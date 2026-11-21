@@ -916,6 +916,207 @@
         "colorNoiseSmoothness": 60,
         "colorNoiseVersion": 10
       }
+    },
+    {
+      "id": "adaptive-sky-deeper",
+      "version": 1,
+      "name": "Sky: deeper",
+      "presetType": "style",
+      "adjustments": {
+        "masks": [
+          {
+            "id": "adaptive-sky",
+            "name": "Sky",
+            "visible": true,
+            "invert": false,
+            "opacity": 100,
+            "maskVersion": 5,
+            "adjustments": {
+              "exposure": -0.3,
+              "highlights": -25,
+              "saturation": 12,
+              "dehaze": 10
+            },
+            "subMasks": [
+              {
+                "id": "adaptive-sky-c",
+                "type": "ai-sky",
+                "visible": true,
+                "invert": false,
+                "opacity": 100,
+                "mode": "additive",
+                "parameters": {
+                  "maskDataBase64": null,
+                  "grow": 0,
+                  "feather": 0
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "adaptive-subject-lift",
+      "version": 1,
+      "name": "Subject: lift",
+      "presetType": "style",
+      "adjustments": {
+        "masks": [
+          {
+            "id": "adaptive-subject",
+            "name": "Subject",
+            "visible": true,
+            "invert": false,
+            "opacity": 100,
+            "maskVersion": 5,
+            "adjustments": {
+              "exposure": 0.25,
+              "shadows": 10,
+              "clarity": 8,
+              "vibrance": 8
+            },
+            "subMasks": [
+              {
+                "id": "adaptive-subject-c",
+                "type": "ai-foreground",
+                "visible": true,
+                "invert": false,
+                "opacity": 100,
+                "mode": "additive",
+                "parameters": {
+                  "maskDataBase64": null,
+                  "grow": 0,
+                  "feather": 0,
+                  "subjectVersion": 2
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "adaptive-background-darker",
+      "version": 1,
+      "name": "Background: darker",
+      "presetType": "style",
+      "adjustments": {
+        "masks": [
+          {
+            "id": "adaptive-background",
+            "name": "Background",
+            "visible": true,
+            "invert": false,
+            "opacity": 100,
+            "maskVersion": 5,
+            "adjustments": {
+              "exposure": -0.5,
+              "saturation": -12
+            },
+            "subMasks": [
+              {
+                "id": "adaptive-background-c",
+                "type": "ai-foreground",
+                "visible": true,
+                "invert": true,
+                "opacity": 100,
+                "mode": "additive",
+                "parameters": {
+                  "maskDataBase64": null,
+                  "grow": 0,
+                  "feather": 0,
+                  "subjectVersion": 2
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "adaptive-skin-smoother",
+      "version": 1,
+      "name": "Portrait: smoother skin",
+      "presetType": "style",
+      "adjustments": {
+        "masks": [
+          {
+            "id": "adaptive-skin",
+            "name": "Skin",
+            "visible": true,
+            "invert": false,
+            "opacity": 100,
+            "maskVersion": 5,
+            "adjustments": {
+              "clarity": -20,
+              "structure": -15
+            },
+            "subMasks": [
+              {
+                "id": "adaptive-skin-c",
+                "type": "ai-people",
+                "visible": true,
+                "invert": false,
+                "opacity": 100,
+                "mode": "additive",
+                "parameters": {
+                  "maskDataBase64": null,
+                  "grow": 0,
+                  "feather": 0,
+                  "parts": [
+                    "faceSkin",
+                    "bodySkin"
+                  ],
+                  "person": null
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "adaptive-eyes-brighter",
+      "version": 1,
+      "name": "Portrait: brighter eyes",
+      "presetType": "style",
+      "adjustments": {
+        "masks": [
+          {
+            "id": "adaptive-eyes",
+            "name": "Eyes",
+            "visible": true,
+            "invert": false,
+            "opacity": 100,
+            "maskVersion": 5,
+            "adjustments": {
+              "exposure": 0.3,
+              "clarity": 10
+            },
+            "subMasks": [
+              {
+                "id": "adaptive-eyes-c",
+                "type": "ai-people",
+                "visible": true,
+                "invert": false,
+                "opacity": 100,
+                "mode": "additive",
+                "parameters": {
+                  "maskDataBase64": null,
+                  "grow": 0,
+                  "feather": 0,
+                  "parts": [
+                    "iris",
+                    "sclera"
+                  ],
+                  "person": null
+                }
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

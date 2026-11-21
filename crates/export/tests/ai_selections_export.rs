@@ -29,10 +29,11 @@ impl SelectionDetector for Models {
     fn detect(
         &self,
         selection: AutoSelection,
-        version: u32,
+        parameters: &Value,
         warped: &image::DynamicImage,
         linear: bool,
     ) -> Result<String, String> {
+        let version = rawtonic_engine::ai_selections::subject_version(parameters);
         let mask = match selection {
             AutoSelection::Sky => self
                 .0
@@ -41,6 +42,7 @@ impl SelectionDetector for Models {
             AutoSelection::Subject => self.0.subject().and_then(|m| {
                 rawtonic_segment::subject_selection(warped, &m, linear, None, version)
             }),
+            other => return Err(format!("{} is not tested here", other.name())),
         }
         .map_err(|e| format!("{e:#}"))?;
         rawtonic_segment::mask_data_url(&mask)

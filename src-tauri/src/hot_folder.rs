@@ -309,10 +309,20 @@ pub fn ingest_capture(
     let Some(asset) = result.asset_id else {
         return (imported, None);
     };
-    if contents.is_some() {
+    if let Some(contents) = &contents {
         // The derived editor sidecar and XMP, as after an edit; the library
         // already holds the adjustments and metadata.
         crate::session_bridge::rederive(lib, &asset);
+        // A preset's AI selections are computed for the capture now, not
+        // when it is first opened (`selection_queue`).
+        if contents
+            .editor_state
+            .as_ref()
+            .is_some_and(|state| crate::selection_queue::wants_detection(&state["adjustments"]))
+            && let Ok(stored) = lib.asset(&asset)
+        {
+            crate::selection_queue::enqueue([stored.path.to_string_lossy().into_owned()]);
+        }
     }
     (imported, Some(asset))
 }

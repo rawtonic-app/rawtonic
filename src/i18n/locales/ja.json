@@ -11,6 +11,11 @@
       "sky": "AI マスク: 空",
       "subject": "AI マスク: 被写体"
     },
+    "aiSelections": {
+      "done": "閉じた写真の AI 選択範囲を計算しました（{{total}}）",
+      "failed": "{{total}} 枚中 {{failed}} 枚の AI 選択範囲を計算できませんでした",
+      "running": "AI 選択範囲を計算中: {{total}} 枚中 {{done}} 枚"
+    },
     "batch": {
       "auto_other": "自動補正: {{count}} 枚",
       "faceRetouch_other": "顔のレタッチ: {{count}} 枚",
@@ -4716,6 +4721,11 @@
       "appliesSaved": "保存時に含めた設定を適用します",
       "appliesToSelection_other": "クリックすると選択中の {{count}} 枚の写真に適用されます。",
       "builtin": {
+        "adaptive-background-darker": "背景：暗く",
+        "adaptive-eyes-brighter": "ポートレート：目を明るく",
+        "adaptive-skin-smoother": "ポートレート：肌をなめらかに",
+        "adaptive-sky-deeper": "空：深く",
+        "adaptive-subject-lift": "被写体：明るく",
         "bw-darker-skies": "モノクロ 空を暗く",
         "bw-high-contrast": "モノクロ 高コントラスト",
         "bw-lighter-skin": "モノクロ 肌を明るく",

@@ -217,6 +217,43 @@ it('shows AI tasks while they run, with Generative fill progress', async () => {
   expect(entry('ai:denoise')).toBeUndefined();
 });
 
+it('shows the AI selections of closed photos and names each photo they failed for', async () => {
+  await act(async () => {});
+  const progress = (part: object) =>
+    handlers.get('ai-selections-progress')!({
+      payload: { total: 3, done: 0, current: '/s/A.NEF', failed: [], finished: false, ...part }
+    });
+  progress({});
+  expect(entry('ai:selections')).toMatchObject({
+    status: 'running',
+    source: 'ai',
+    title: 'Computing AI selections: 0 of 3 photos',
+    progress: { done: 0, total: 3 }
+  });
+  progress({ done: 2, current: '/s/C.NEF' });
+  expect(entry('ai:selections')).toMatchObject({ progress: { done: 2, total: 3 } });
+  const failed = [
+    { path: '/s/B.NEF', message: 'layer “Skin”: its People selection: there is no person 2 in this photo' }
+  ];
+  progress({ done: 3, current: null, failed, finished: true });
+  expect(entry('ai:selections')).toBeUndefined();
+  const report = useActivityStore.getState().entries.find((e) => e.id.startsWith('ai:selections:failed'))!;
+  expect(report).toMatchObject({
+    status: 'warning',
+    title: 'AI selections not computed for 1 of 3 photos',
+    paths: ['/s/B.NEF']
+  });
+  expect(report.detail).toBe('B.NEF: layer “Skin”: its People selection: there is no person 2 in this photo');
+
+  // All computed: a result under Done.
+  progress({ total: 2, done: 0 });
+  progress({ total: 2, done: 2, current: null, finished: true });
+  expect(entry('ai:selections')).toMatchObject({
+    status: 'done',
+    title: 'AI selections computed for closed photos (2)'
+  });
+});
+
 it('shows a model download with its progress', async () => {
   await act(async () => {});
   handlers.get('ai-model-download-start')!({ payload: 'sky-v2' });
