@@ -497,8 +497,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               onClick: () => {
                 setUI({ collageModalState: { isOpen: true, sourceImages: [selectedImage] } });
               }
-            },
-            { label: t('contextMenus.editor.cullImage'), icon: Users, disabled: true }
+            }
           ]
         },
         {
@@ -776,7 +775,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         ? (useLibraryStore.getState().sessionFolders.find((f) => f.role === 'selects')?.path ??
           joinPath(sessionDirectory, 'Selects'))
         : null;
-      const cullLabel = t('contextMenus.thumbnail.cullImage', { count: selectionCount });
       const collageLabel = t('contextMenus.thumbnail.collage', { count: selectionCount });
       const stitchLabel = t('contextMenus.editor.stitchPanorama');
       const conversionLabel = t('contextMenus.thumbnail.convertNegative', { count: selectionCount });
@@ -984,21 +982,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               label: t('contextMenus.thumbnail.proofSheet'),
               onClick: () => showProofSheet(finalSelection),
               disabled: selectionCount === 0
-            },
-            {
-              label: cullLabel,
-              icon: Users,
-              onClick: () =>
-                setUI({
-                  cullingModalState: {
-                    isOpen: true,
-                    progress: null,
-                    suggestions: null,
-                    error: null,
-                    pathsToCull: finalSelection
-                  }
-                }),
-              disabled: selectionCount < 2
             }
           ]
         },

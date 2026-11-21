@@ -92,7 +92,6 @@ sha2 = { workspace = true }
 tauri-plugin-shell = "2.6.0"
 tempfile = { workspace = true }
 mimalloc = { workspace = true }
-image_hasher = "3.1.1"
 regex = { workspace = true }
 memmap2 = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }

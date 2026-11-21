@@ -48,7 +48,7 @@ pub const MODEL_ID: &str = SIGLIP_VISION_SHA256;
 /// SigLIP 2's text encoder saved as ONNX external data
 /// (scripts/models/external_data.py; same weights as `siglip2_text.onnx`).
 const TEXT_FILENAME: &str = "siglip2_text_ext.onnx";
-const TEXT_SHA256: &str = "8850287083d7a450ec8112162ccc82c0c830432aee4f7814bcc090de65218dba";
+pub(crate) const TEXT_SHA256: &str = "8850287083d7a450ec8112162ccc82c0c830432aee4f7814bcc090de65218dba";
 const TEXT_DATA_FILENAME: &str = "siglip2_text_ext.onnx.data";
 const TEXT_DATA_SHA256: &str = "d7721a55cb0242769a6d4b1031ef14c48df21609757a63b856cb00c21e502348";
 
@@ -193,6 +193,8 @@ fn run_pass(
         if work.is_empty() {
             break;
         }
+        // The culling panel's scores of what was read so far.
+        score_culling(app, directory, &lib);
         for item in work {
             while should_wait(app) {
                 if cancel.load(Ordering::Acquire) {
@@ -244,6 +246,9 @@ fn run_pass(
             std::thread::sleep(PASS_PAUSE);
         }
     }
+    if !cancel.load(Ordering::Acquire) {
+        score_culling(app, directory, &Library::open(directory)?);
+    }
     if read > 0 {
         log::info!(
             "Content search read {read} photographs in {:.1} s",
@@ -251,6 +256,21 @@ fn run_pass(
         );
     }
     Ok(status)
+}
+
+/// Scores the culling panel's misfires and documents from the embeddings
+/// recorded (`culling::score_library`); a failure only leaves them for the
+/// next pass.
+fn score_culling(app: &tauri::AppHandle, directory: &Path, lib: &Library) {
+    let started = Instant::now();
+    match crate::culling::score_library(app, directory, lib) {
+        Ok(0) => {}
+        Ok(n) => log::info!(
+            "[PERF] culling scored={n} ms={}",
+            started.elapsed().as_millis()
+        ),
+        Err(e) => log::warn!("Culling scores not made: {e:#}"),
+    }
 }
 
 /// Whether the pass may read the photograph at `path` now: it is there,
@@ -358,9 +378,16 @@ pub async fn start_content_index(
     if !installed || crate::ai_processing::ensure_runtime().is_err() {
         return Ok(());
     }
+    // Photographs to read, or read ones the culling panel has no scores
+    // of (a library from before schema 30, a new prompt set).
     let backlog = with_library(directory.clone(), false, |lib| {
-        lib.content_backlog_count(MODEL_ID)
-            .map_err(|e| e.to_string())
+        Ok::<_, String>(
+            lib.content_backlog_count(MODEL_ID)
+                .map_err(|e| e.to_string())?
+                + lib
+                    .cull_backlog_count(MODEL_ID, &crate::culling::prompt_set_id())
+                    .map_err(|e| e.to_string())?,
+        )
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -520,7 +547,7 @@ fn watch_idle_text() {
 
 /// The text encoder, loaded on first use (never downloaded here: without
 /// its files `ModelsMissing`).
-async fn text_encoder(app: &tauri::AppHandle) -> Result<Arc<TextEncoder>, CommandError> {
+pub(crate) async fn text_encoder(app: &tauri::AppHandle) -> Result<Arc<TextEncoder>, CommandError> {
     let cached = || {
         lock_recover(&TEXT).as_mut().map(|loaded| {
             loaded.used = Instant::now();

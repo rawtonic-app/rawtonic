@@ -1,317 +1,308 @@
-use image::{GenericImageView, GrayImage, imageops};
-use image_hasher::{HashAlg, HasherConfig};
-use rayon::prelude::*;
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//! Assisted culling (G35; notes: benchmark-results/cul1-2026-11-21/
+//! REPORT.md "CUL2 build plan"): the Library's Culling panel reads its
+//! suggestions — misfires, documents, closed eyes — from the catalog
+//! (`rawtonic_catalog::cull`) and the photographer dismisses the ones that
+//! are no problem. Nothing here flags, rejects, hides or removes a
+//! photograph: the panel's "Reject" is the ordinary reject flag, one undo
+//! step.
+//!
+//! Misfire and document scores are made by content search's background
+//! pass (`content_search`) from the embedding it records, with the frozen
+//! prompts' text embeddings (`prompt_set`): no second image pass and no new
+//! model. The prompt embeddings are made once per text model and prompt
+//! set and kept in the models folder, so the text encoder is not loaded
+//! again for them.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use rawtonic_catalog::Library;
+use rawtonic_catalog::cull::{CRITERIA, CullPhoto, DOCUMENT_PROMPTS, MISFIRE_PROMPTS, PromptSet};
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
-use std::path::Path;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use tauri::{AppHandle, Emitter};
+use sha2::{Digest, Sha256};
+use tauri::Emitter;
 
-use crate::image_loader;
+use crate::ipc::CommandError;
+use crate::session_bridge::with_library;
+use crate::state::lock::lock_recover;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct CullingSettings {
-    pub similarity_threshold: u32,
-    pub blur_threshold: f64,
-    pub group_similar: bool,
-    pub filter_blurry: bool,
-}
+/// Suggestions changed in the library at the payload's directory.
+pub const CULLING_CHANGED: &str = "library-culling-changed";
 
-#[derive(Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ImageAnalysisResult {
-    pub path: String,
-    pub quality_score: f64,
-    pub sharpness_metric: f64,
-    pub center_focus_metric: f64,
-    pub exposure_metric: f64,
-    pub width: u32,
-    pub height: u32,
-}
-
-#[derive(Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct CullGroup {
-    pub representative: ImageAnalysisResult,
-    pub duplicates: Vec<ImageAnalysisResult>,
-}
-
-#[derive(Serialize, Debug, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct CullingSuggestions {
-    pub similar_groups: Vec<CullGroup>,
-    pub blurry_images: Vec<ImageAnalysisResult>,
-    pub failed_paths: Vec<String>,
-}
-
-#[derive(Serialize, Clone)]
-struct CullingProgress {
-    current: usize,
-    total: usize,
-    stage: String,
-}
-
-struct ImageAnalysisData {
-    hash: image_hasher::ImageHash,
-    result: ImageAnalysisResult,
-}
-
-const WEIGHT_SHARPNESS: f64 = 0.40;
-const WEIGHT_CENTER_FOCUS: f64 = 0.35;
-const WEIGHT_EXPOSURE: f64 = 0.25;
-
-fn calculate_laplacian_variance(image: &GrayImage) -> f64 {
-    let (width, height) = image.dimensions();
-    if width < 3 || height < 3 {
-        return 0.0;
+/// The prompt set's id: the text model and every prompt, so a change to
+/// either scores every photograph again.
+pub fn prompt_set_id() -> String {
+    let mut hash = Sha256::new();
+    hash.update(crate::content_search::TEXT_SHA256);
+    for prompt in MISFIRE_PROMPTS {
+        hash.update(b"\0m");
+        hash.update(prompt);
     }
-
-    let mut laplacian_values = Vec::with_capacity(((width - 2) * (height - 2)) as usize);
-    let mut sum = 0.0;
-
-    for y in 1..height - 1 {
-        for x in 1..width - 1 {
-            let p_center = image.get_pixel(x, y)[0] as i32;
-            let p_north = image.get_pixel(x, y - 1)[0] as i32;
-            let p_south = image.get_pixel(x, y + 1)[0] as i32;
-            let p_west = image.get_pixel(x - 1, y)[0] as i32;
-            let p_east = image.get_pixel(x + 1, y)[0] as i32;
-            let conv_val = (p_north + p_south + p_west + p_east - 4 * p_center) as f64;
-            laplacian_values.push(conv_val);
-            sum += conv_val;
-        }
+    for prompt in DOCUMENT_PROMPTS {
+        hash.update(b"\0d");
+        hash.update(prompt);
     }
-
-    if laplacian_values.is_empty() {
-        return 0.0;
-    }
-    let mean = sum / laplacian_values.len() as f64;
-
-    laplacian_values
+    hash.finalize()[..8]
         .iter()
-        .map(|v| (v - mean).powi(2))
-        .sum::<f64>()
-        / laplacian_values.len() as f64
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
-fn calculate_exposure_metric(image: &GrayImage) -> f64 {
-    let histogram = imageproc::stats::histogram(image);
-    let total_pixels = (image.width() * image.height()) as f64;
-    if total_pixels == 0.0 {
-        return 0.0;
-    }
-
-    let clip_threshold_dark = 5;
-    let clip_threshold_bright = 250;
-
-    let dark_pixels = histogram.channels[0][0..clip_threshold_dark]
-        .iter()
-        .sum::<u32>() as f64;
-    let bright_pixels = histogram.channels[0][clip_threshold_bright..256]
-        .iter()
-        .sum::<u32>() as f64;
-
-    let dark_clip_ratio = dark_pixels / total_pixels;
-    let bright_clip_ratio = bright_pixels / total_pixels;
-
-    let penalty = (dark_clip_ratio * 5.0) + (bright_clip_ratio * 5.0);
-
-    (1.0f64 - penalty).max(0.0)
+/// The prompt embeddings as kept on disk.
+#[derive(Serialize, Deserialize)]
+struct StoredPrompts {
+    id: String,
+    misfire: Vec<Vec<f32>>,
+    document: Vec<Vec<f32>>,
 }
 
-fn analyze_image(
-    path: &str,
-    hasher: &image_hasher::Hasher,
-    settings: &crate::app_settings::AppSettings,
-) -> Result<ImageAnalysisData, String> {
-    const ANALYSIS_DIM: u32 = 720; // FIXME: How should we calculate good focus if it's downscaled?!?
-
-    if crate::file_management::is_cloud_placeholder(Path::new(path)) {
-        return Err(format!("'{}' is stored in iCloud and not downloaded", path));
-    }
-
-    let file_bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-
-    let img = image_loader::load_base_image_from_bytes(&file_bytes, path, true, settings, None)
-        .map_err(|e| e.to_string())?;
-
-    let (width, height) = img.dimensions();
-    let thumbnail = crate::image_processing::thumbnail(&img, ANALYSIS_DIM, ANALYSIS_DIM);
-    let gray_thumbnail = thumbnail.to_luma8();
-
-    let sharpness_metric = calculate_laplacian_variance(&gray_thumbnail);
-    let exposure_metric = calculate_exposure_metric(&gray_thumbnail);
-
-    let (thumb_w, thumb_h) = gray_thumbnail.dimensions();
-    let center_crop = imageops::crop_imm(
-        &gray_thumbnail,
-        thumb_w / 4,
-        thumb_h / 4,
-        thumb_w / 2,
-        thumb_h / 2,
-    )
-    .to_image();
-    let center_focus_metric = calculate_laplacian_variance(&center_crop);
-
-    let normalized_sharpness = ((sharpness_metric + 1.0).log10() / 3.5).min(1.0);
-    let normalized_center_focus = ((center_focus_metric + 1.0).log10() / 3.5).min(1.0);
-
-    let quality_score = (normalized_sharpness * WEIGHT_SHARPNESS)
-        + (normalized_center_focus * WEIGHT_CENTER_FOCUS)
-        + (exposure_metric * WEIGHT_EXPOSURE);
-
-    let hash = hasher.hash_image(&thumbnail);
-
-    Ok(ImageAnalysisData {
-        hash,
-        result: ImageAnalysisResult {
-            path: path.to_string(),
-            quality_score,
-            sharpness_metric,
-            center_focus_metric,
-            exposure_metric,
-            width,
-            height,
-        },
-    })
+fn stored_path(models: &Path, id: &str) -> PathBuf {
+    models.join(format!("culling-prompts-{id}.json"))
 }
 
-#[tauri::command]
-pub async fn cull_images(
-    paths: Vec<String>,
-    settings: CullingSettings,
-    app_handle: AppHandle,
-) -> Result<CullingSuggestions, String> {
-    if paths.is_empty() {
-        return Ok(CullingSuggestions::default());
+fn as_set(stored: StoredPrompts) -> PromptSet {
+    PromptSet {
+        id: stored.id,
+        misfire: stored.misfire,
+        document: stored.document,
+        logit_scale: crate::tagging::SIGLIP_LOGIT_SCALE,
+        logit_bias: crate::tagging::SIGLIP_LOGIT_BIAS,
     }
+}
 
-    let app_settings = crate::state::settings::current(&app_handle);
+/// The stored prompt embeddings of `id` in `models`, if there and whole.
+fn read_stored(models: &Path, id: &str) -> Option<PromptSet> {
+    let bytes = std::fs::read(stored_path(models, id)).ok()?;
+    let stored: StoredPrompts = serde_json::from_slice(&bytes).ok()?;
+    let whole = stored.id == id
+        && stored.misfire.len() == MISFIRE_PROMPTS.len()
+        && stored.document.len() == DOCUMENT_PROMPTS.len()
+        && stored
+            .misfire
+            .iter()
+            .chain(&stored.document)
+            .all(|p| p.len() == rawtonic_catalog::content::DIM && p.iter().all(|v| v.is_finite()));
+    whole.then(|| as_set(stored))
+}
 
-    let total_count = paths.len();
-    let completed_count = Arc::new(AtomicUsize::new(0));
-    let _ = app_handle.emit("culling-start", total_count);
-
-    let hasher = HasherConfig::new()
-        .hash_alg(HashAlg::DoubleGradient)
-        .hash_size(16, 16)
-        .to_hasher();
-
-    let analysis_results: Vec<Result<ImageAnalysisData, (String, String)>> = paths
-        .par_iter()
-        .map(|path| {
-            let completed = completed_count.fetch_add(1, Ordering::Relaxed) + 1;
-            let _ = app_handle.emit(
-                "culling-progress",
-                CullingProgress {
-                    current: completed,
-                    total: total_count,
-                    stage: "Analyzing images...".to_string(),
-                },
-            );
-
-            analyze_image(path, &hasher, &app_settings).map_err(|e| (path.to_string(), e))
-        })
-        .collect();
-
-    let mut successful_analyses = Vec::new();
-    let mut failed_paths = Vec::new();
-    for res in analysis_results {
-        match res {
-            Ok(data) => successful_analyses.push(data),
-            Err((path, error)) => {
-                eprintln!("Failed to analyze image {}: {}", path, error);
-                failed_paths.push(path);
-            }
-        }
-    }
-
-    let _ = app_handle.emit(
-        "culling-progress",
-        CullingProgress {
-            current: total_count,
-            total: total_count,
-            stage: "Grouping similar images...".to_string(),
-        },
+/// `rows` (one embedding per prompt, flat) cut into unit vectors.
+fn rows(flat: &[f32], count: usize) -> anyhow::Result<Vec<Vec<f32>>> {
+    let dim = rawtonic_catalog::content::DIM;
+    anyhow::ensure!(
+        flat.len() == dim * count,
+        "The text model gave {} values for {count} prompts",
+        flat.len()
     );
+    Ok(flat
+        .chunks(dim)
+        .map(|row| {
+            let norm = row.iter().map(|v| v * v).sum::<f32>().sqrt().max(f32::MIN_POSITIVE);
+            row.iter().map(|v| v / norm).collect()
+        })
+        .collect())
+}
 
-    let mut suggestions = CullingSuggestions {
-        failed_paths,
-        ..Default::default()
+static PROMPTS: Mutex<Option<Arc<PromptSet>>> = Mutex::new(None);
+
+/// The prompt set the pass scores with: kept in memory, else read from the
+/// models folder, else made with content search's text encoder (loaded
+/// from the installed model, never downloaded) and written there. `None`
+/// while the text model is not installed.
+pub fn prompt_set(app: &tauri::AppHandle) -> anyhow::Result<Option<Arc<PromptSet>>> {
+    let id = prompt_set_id();
+    if let Some(set) = lock_recover(&PROMPTS).as_ref().filter(|s| s.id == id) {
+        return Ok(Some(set.clone()));
+    }
+    let models = crate::ai_processing::models_dir(app)?;
+    let set = match read_stored(&models, &id) {
+        Some(set) => set,
+        None => {
+            let encoder =
+                match tauri::async_runtime::block_on(crate::content_search::text_encoder(app)) {
+                    Ok(encoder) => encoder,
+                    Err(e) if e.code == crate::ipc::ErrorCode::ModelsMissing => return Ok(None),
+                    Err(e) => anyhow::bail!("{}", e.message),
+                };
+            let prompts = |list: &[&str]| list.iter().map(|p| p.to_string()).collect();
+            let misfire = rows(
+                &crate::tagging::embed_texts(&encoder, prompts(&MISFIRE_PROMPTS))?,
+                MISFIRE_PROMPTS.len(),
+            )?;
+            let document = rows(
+                &crate::tagging::embed_texts(&encoder, prompts(&DOCUMENT_PROMPTS))?,
+                DOCUMENT_PROMPTS.len(),
+            )?;
+            let stored = StoredPrompts {
+                id: id.clone(),
+                misfire,
+                document,
+            };
+            if let Err(e) = rawtonic_fs::atomic_write(
+                &stored_path(&models, &id),
+                serde_json::to_vec(&stored)?,
+            ) {
+                log::warn!("Culling prompts not kept: {e:#}");
+            }
+            as_set(stored)
+        }
     };
-    let mut processed_indices = vec![false; successful_analyses.len()];
+    let set = Arc::new(set);
+    *lock_recover(&PROMPTS) = Some(set.clone());
+    Ok(Some(set))
+}
 
-    if settings.group_similar {
-        for i in 0..successful_analyses.len() {
-            if processed_indices[i] {
-                continue;
-            }
-
-            let mut current_group_indices = vec![];
-            let mut queue = VecDeque::new();
-
-            processed_indices[i] = true;
-            current_group_indices.push(i);
-            queue.push_back(i);
-
-            while let Some(current_idx) = queue.pop_front() {
-                for j in (current_idx + 1)..successful_analyses.len() {
-                    if processed_indices[j] {
-                        continue;
-                    }
-
-                    let dist = successful_analyses[current_idx]
-                        .hash
-                        .dist(&successful_analyses[j].hash);
-                    if dist <= settings.similarity_threshold {
-                        processed_indices[j] = true;
-                        current_group_indices.push(j);
-                        queue.push_back(j);
-                    }
-                }
-            }
-
-            if current_group_indices.len() > 1 {
-                current_group_indices.sort_by(|&a, &b| {
-                    successful_analyses[b]
-                        .result
-                        .quality_score
-                        .partial_cmp(&successful_analyses[a].result.quality_score)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-
-                let representative_idx = current_group_indices[0];
-                let duplicate_indices = &current_group_indices[1..];
-
-                suggestions.similar_groups.push(CullGroup {
-                    representative: successful_analyses[representative_idx].result.clone(),
-                    duplicates: duplicate_indices
-                        .iter()
-                        .map(|&idx| successful_analyses[idx].result.clone())
-                        .collect(),
-                });
-            }
+/// Scores every current embedding of the library without current culling
+/// scores (none while the text model is not installed); returns how many.
+/// Announces new scores to the panel.
+pub fn score_library(
+    app: &tauri::AppHandle,
+    directory: &Path,
+    lib: &Library,
+) -> anyhow::Result<usize> {
+    let model = crate::content_search::MODEL_ID;
+    let set_id = prompt_set_id();
+    if lib.cull_backlog_count(model, &set_id)? == 0 {
+        return Ok(0);
+    }
+    let Some(set) = prompt_set(app)? else {
+        return Ok(0);
+    };
+    let mut scored = 0;
+    loop {
+        let n = lib.score_cull(model, &set, 512)?;
+        scored += n;
+        if n == 0 {
+            break;
         }
     }
+    if scored > 0 {
+        let _ = app.emit(CULLING_CHANGED, directory);
+    }
+    Ok(scored)
+}
 
-    if settings.filter_blurry {
-        for i in 0..successful_analyses.len() {
-            if !processed_indices[i] {
-                let item = &successful_analyses[i];
-                if item.result.sharpness_metric < settings.blur_threshold {
-                    suggestions.blurry_images.push(item.result.clone());
-                }
-            }
-        }
-        suggestions.blurry_images.sort_by(|a, b| {
-            a.sharpness_metric
-                .partial_cmp(&b.sharpness_metric)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+fn asset_id(lib: &Library, path: &str) -> Option<String> {
+    let file = rawtonic_metadata::photo_ref::source_of(path);
+    lib.asset_at(Path::new(file)).ok().flatten().map(|a| a.id)
+}
+
+/// What the panel shows of the listed photographs: each one's suggestions
+/// (by path as listed; photographs not in the library left out).
+#[tauri::command]
+pub async fn cull_suggestions(
+    directory: String,
+    paths: Vec<String>,
+) -> Result<HashMap<String, CullPhoto>, CommandError> {
+    with_library(directory, false, move |lib| {
+        let ids: Vec<(String, String)> = paths
+            .into_iter()
+            .filter_map(|path| asset_id(lib, &path).map(|id| (path, id)))
+            .collect();
+        let read = lib
+            .cull_photos(&ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>())
+            .map_err(|e| e.to_string())?;
+        Ok(ids
+            .into_iter()
+            .filter_map(|(path, id)| read.get(&id).map(|photo| (path, photo.clone())))
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(CommandError::from)
+}
+
+/// Dismisses criterion `criterion`'s suggestion for `paths` ("not a
+/// problem"), or with `dismissed` false shows it again. Returns the paths
+/// whose state changed and announces the change.
+#[tauri::command]
+pub async fn cull_dismiss(
+    directory: String,
+    paths: Vec<String>,
+    criterion: String,
+    dismissed: bool,
+    app_handle: tauri::AppHandle,
+) -> Result<Vec<String>, CommandError> {
+    if !CRITERIA.contains(&criterion.as_str()) {
+        return Err(CommandError::from(format!(
+            "Unknown culling suggestion {criterion}"
+        )));
+    }
+    let announced = directory.clone();
+    let changed = with_library(directory, false, move |lib| {
+        let ids: Vec<(String, String)> = paths
+            .into_iter()
+            .filter_map(|path| asset_id(lib, &path).map(|id| (path, id)))
+            .collect();
+        let changed = lib
+            .set_cull_dismissed(
+                &ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>(),
+                &criterion,
+                dismissed,
+            )
+            .map_err(|e| e.to_string())?;
+        Ok::<_, String>(
+            ids.into_iter()
+                .filter(|(_, id)| changed.contains(id))
+                .map(|(path, _)| path)
+                .collect::<Vec<_>>(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if !changed.is_empty() {
+        let _ = app_handle.emit(CULLING_CHANGED, announced);
+    }
+    Ok(changed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_prompt_set_id_names_the_text_model_and_every_prompt() {
+        let id = prompt_set_id();
+        assert_eq!(id.len(), 16);
+        assert_eq!(id, prompt_set_id());
     }
 
-    let _ = app_handle.emit("culling-complete", &suggestions);
-    Ok(suggestions)
+    #[test]
+    fn stored_prompts_are_read_back_only_when_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let unit = |n: usize| {
+            let mut v = vec![0.0; rawtonic_catalog::content::DIM];
+            v[n] = 1.0;
+            v
+        };
+        let stored = StoredPrompts {
+            id: "abc".into(),
+            misfire: (0..MISFIRE_PROMPTS.len()).map(unit).collect(),
+            document: (0..DOCUMENT_PROMPTS.len()).map(unit).collect(),
+        };
+        rawtonic_fs::atomic_write(
+            &stored_path(dir.path(), "abc"),
+            serde_json::to_vec(&stored).unwrap(),
+        )
+        .unwrap();
+        let set = read_stored(dir.path(), "abc").unwrap();
+        assert_eq!(set.misfire.len(), MISFIRE_PROMPTS.len());
+        assert_eq!(set.logit_scale, crate::tagging::SIGLIP_LOGIT_SCALE);
+        // Another id, or a file cut short, is made again.
+        assert!(read_stored(dir.path(), "abd").is_none());
+        std::fs::write(stored_path(dir.path(), "abc"), b"{\"id\":\"abc\"").unwrap();
+        assert!(read_stored(dir.path(), "abc").is_none());
+    }
+
+    #[test]
+    fn rows_are_unit_vectors_and_a_wrong_count_is_refused() {
+        let dim = rawtonic_catalog::content::DIM;
+        let flat = vec![2.0; dim * 2];
+        let out = rows(&flat, 2).unwrap();
+        assert_eq!(out.len(), 2);
+        let norm: f32 = out[0].iter().map(|v| v * v).sum::<f32>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-5);
+        assert!(rows(&flat, 3).is_err());
+    }
 }
