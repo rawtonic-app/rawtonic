@@ -3304,7 +3304,13 @@ mod face_retouch_thumbnail_tests {
     #[test]
     fn retouched_raw_tiles_built_from_a_proxy_are_made_again() {
         let temp = tempfile::tempdir().unwrap();
-        let source = temp.path().join("photo.RAF");
+        std::fs::write(
+            temp.path().join("session.json"),
+            br#"{"id":"retouch-proxy"}"#,
+        )
+        .unwrap();
+        let source = temp.path().join("Capture/photo.RAF");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
         std::fs::write(&source, b"source unchanged").unwrap();
         let path = source.to_str().unwrap();
         let (_, mut recipe) = skin_and_recipe();
