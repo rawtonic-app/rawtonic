@@ -224,6 +224,11 @@ pub struct FaceRetouch {
     /// Set by the app for the quick preview while a control is dragged:
     /// crowded blemishes are healed once, not three times. Never stored.
     pub draft: bool,
+    /// Set by `scaled_recipe`: the reduced image's pixels per full-size
+    /// pixel, so what depends on a feature's full size (the small-eye fade
+    /// of Eyes) stays as in the export. Never stored.
+    #[serde(rename = "previewScale")]
+    pub preview_scale: Option<f64>,
     /// The protection brush's strokes (mask-frame pixels), for every face.
     #[serde(deserialize_with = "protect::deserialize_strokes")]
     pub protect: Vec<ProtectStroke>,
@@ -322,6 +327,13 @@ pub fn from_adjustments(adjustments: &Value) -> Option<FaceRetouch> {
 /// pixels, scaled; the geometry stays, so the frame key still matches.
 pub fn scaled_recipe(adjustments: &Value, scale: f64) -> Value {
     let mut recipe = adjustments.clone();
+    if let Some(retouch) = recipe.get_mut("faceRetouch").and_then(Value::as_object_mut) {
+        let before = retouch
+            .get("previewScale")
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0);
+        retouch.insert("previewScale".into(), serde_json::json!(before * scale));
+    }
     let Some(faces) = recipe
         .get_mut("faceRetouch")
         .and_then(|r| r.get_mut("faces"))
@@ -1402,6 +1414,7 @@ pub fn apply_face_retouch(image: &mut Rgb32FImage, adjustments: &Value) -> bool 
                     adjustments,
                     frame,
                     scale: base_per_mask,
+                    full_size: 1.0 / retouch.preview_scale.filter(|&s| s > 0.0).unwrap_or(1.0),
                     eye_distance: (face.eye_distance * base_per_mask) as f32,
                 },
                 &amounts,

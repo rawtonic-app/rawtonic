@@ -144,6 +144,27 @@ describe('eye sides through a flip', () => {
     expect(eyesSwapped(face(40, 80), face(40, 80), { ...sides, to: plain })).toBe(false);
   });
 
+  it('follows a lone eye through a flip', () => {
+    const sides = { from: plain, to: { ...plain, flipHorizontal: true }, width: 200, height: 100 };
+    const lone = (slot: 0 | 1, x: number) =>
+      ({
+        id: 'f',
+        box: [x - 50, 0, 100, 100],
+        settings: {},
+        eyes: slot === 0 ? [{ iris: [x, 50, 5], lid: [] }, null] : [null, { iris: [x, 50, 5], lid: [] }]
+      }) as unknown as RetouchFace;
+    // The eye on the left at x 80 is at 120 after the flip: seen there as
+    // the right one, or as the left one with the right one hidden.
+    expect(eyesSwapped(lone(0, 80), lone(1, 120), sides)).toBe(true);
+    expect(
+      eyesSwapped(
+        lone(0, 80),
+        { ...face(120, 160), eyes: [{ iris: [120, 50, 5], lid: [] }, null] } as RetouchFace,
+        sides
+      )
+    ).toBe(false);
+  });
+
   it('exchanges only the left and right values', () => {
     expect(swapSides({ iris: 20, irisLeft: 30, scleraRight: -10, teethWhiten: 5 })).toEqual({
       iris: 20,

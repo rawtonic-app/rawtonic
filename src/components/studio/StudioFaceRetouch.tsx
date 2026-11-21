@@ -102,13 +102,20 @@ function carryOver(
   sides?: Sides
 ): { faces: RetouchFace[]; swapped: boolean } {
   const centre = (f: RetouchFace) => [f.box[0] + f.box[2] / 2, f.box[1] + f.box[3] / 2];
+  // The old faces' centres where they are now (a flip or turn moves them).
+  const moved = (f: RetouchFace) => {
+    const [x, y] = centre(f);
+    if (!sides) return [x, y];
+    const p = reframePoint({ x, y }, sides.from, sides.to, sides.width, sides.height);
+    return [p.x, p.y];
+  };
   let swapped = false;
   const faces = next.map((face) => {
     const [x, y] = centre(face);
     let best: RetouchFace | undefined;
     let bestDistance = face.box[2] / 2;
     for (const old of previous) {
-      const [ox, oy] = centre(old);
+      const [ox, oy] = moved(old);
       const d = Math.hypot(ox - x, oy - y);
       if (d < bestDistance) {
         best = old;
@@ -152,14 +159,21 @@ export function swapSides(settings: FaceRetouchSettings): FaceRetouchSettings {
  * is the eye on the right of `next` (found in `sides.to`): the photo was
  * flipped or turned. Faces without both eyes keep their sides. */
 export function eyesSwapped(old: RetouchFace, next: RetouchFace, sides: Sides): boolean {
-  const [a, b] = [next.eyes?.[0], next.eyes?.[1]];
-  if (!a || !b) return false;
   const side = old.eyes?.[0] ? 0 : old.eyes?.[1] ? 1 : -1;
-  if (side < 0) return false;
+  const [a, b] = [next.eyes?.[0], next.eyes?.[1]];
+  if (side < 0 || (!a && !b)) return false;
   const iris = old.eyes![side]!.iris;
   const p = reframePoint({ x: iris[0], y: iris[1] }, sides.from, sides.to, sides.width, sides.height);
-  const nearer = Math.hypot(p.x - a.iris[0], p.y - a.iris[1]) <= Math.hypot(p.x - b.iris[0], p.y - b.iris[1]) ? 0 : 1;
-  return nearer !== side;
+  const distance = (eye: { iris: number[] }) => Math.hypot(p.x - eye.iris[0], p.y - eye.iris[1]);
+  let slot: number;
+  if (a && b) slot = distance(a) <= distance(b) ? 0 : 1;
+  else {
+    // One eye seen now: the old eye is that one when it lands within a
+    // quarter of the face's width of it, else the hidden one.
+    const [seen, index] = a ? [a, 0] : [b!, 1];
+    slot = distance(seen) <= next.box[2] / 4 ? index : 1 - index;
+  }
+  return slot !== side;
 }
 
 /** The geometry change from a retouch's panel `geometry` to `to`. */
@@ -426,15 +440,16 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
           };
         });
       })
-      .catch(
-        (error) =>
-          live &&
-          setFound({
-            key: `${path}\n${geometry}`,
-            error: aiErrorMessage(error),
-            modelsMissing: errorCode(error) === 'models_missing'
-          })
-      );
+      .catch((error) => {
+        if (!live) return;
+        // A failed search for eyes and teeth can be asked again.
+        setEyesAsked(null);
+        setFound({
+          key: `${path}\n${geometry}`,
+          error: aiErrorMessage(error),
+          modelsMissing: errorCode(error) === 'models_missing'
+        });
+      });
     return () => {
       live = false;
     };

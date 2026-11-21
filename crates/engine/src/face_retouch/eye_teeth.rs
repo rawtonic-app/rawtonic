@@ -11,17 +11,20 @@
 //!   of the radius (the limbal ring is a soft edge itself). More texture
 //!   (contrast against the iris's own mean), lighter and more colourful;
 //!   never lighter than the white of the eye, the pupil stays dark.
-//! - **Sclera**: the lid opening outside the iris, weighted by lightness
-//!   against the eye white's own (lashes, the lid's shadow and the pink
-//!   inner corner are darker, so they stay). Lighter with a roll-off
+//! - **Sclera**: the lid opening outside the iris, where the colour models
+//!   take a pixel for eye white rather than lid skin (lashes, the lid's
+//!   shadow and the pink inner corner mostly stay; lower-lid skin as light
+//!   as a shadowed eye white can be taken along: notes
+//!   benchmark-results/eye1-2026-11-21). Lighter with a roll-off
 //!   towards white, and less colourful (red veins, yellowish whites).
 //! - **Teeth**: inside the inner lip outline (grown by 2.5 % of the eye
 //!   distance: Face Mesh's outline often cuts the teeth's edges), the
 //!   pixels light for the mouth (in the upper part of its own dark-to-light
-//!   range), of low colour and not red, so lips, gums, tongue and the dark
-//!   of the mouth stay. Brightness lightens with a
-//!   roll-off; Whiten takes out yellow only, towards neutral and never past
-//!   it, so whitened teeth never turn blue.
+//!   range), of low colour and not red, weighed against the mouth's dark
+//!   and the lips around it, so lips, gums and tongue mostly stay (light
+//!   grey lips in a black-and-white photo can be taken along). Brightness
+//!   lightens with a roll-off; Whiten takes out yellow only, towards
+//!   neutral and never past it, so whitened teeth never turn blue.
 //!
 //! All of it in the face retouch's square-root working space; the lid
 //! opening is pulled in by a little so no lid or lash edge is lightened.
@@ -213,6 +216,9 @@ pub(super) struct Placement<'a> {
     pub frame: (f64, f64),
     /// Base pixels per mask-frame pixel.
     pub scale: f64,
+    /// Full-size pixels per mask-frame pixel (above 1 in a reduced
+    /// preview's recipe).
+    pub full_size: f64,
     /// Eye distance, base pixels.
     pub eye_distance: f32,
 }
@@ -591,9 +597,9 @@ fn retouch_eye(
     let [ix, iy, ir] = eye.iris;
     let [cx, cy] = place.point([ix, iy]);
     let r = (ir * place.scale) as f32;
-    // By the full-size iris (mask-frame pixels), so a reduced preview fades
-    // exactly as the export does.
-    let fade = smoothstep(1.5, 4.0, ir as f32);
+    // By the full-size iris, so a reduced preview fades exactly as the
+    // export does.
+    let fade = smoothstep(1.5, 4.0, (ir * place.full_size) as f32);
     if fade <= 0.0 {
         return;
     }
@@ -1036,9 +1042,33 @@ mod tests {
         );
         let mut image = small.clone();
         assert!(apply_face_retouch(&mut image, &recipe));
-        // The iris centre (120, 100) → (18, 15); the white beside it.
-        assert!(changed(&small, &image, 18, 15), "iris");
-        assert!(changed(&small, &image, 21, 15), "white");
+        // The full-size render, for the strength the preview must show.
+        let (_, full_recipe) = face();
+        let mut full_after = full.clone();
+        apply_face_retouch(
+            &mut full_after,
+            &with(full_recipe, json!({"iris": 100, "sclera": 100})),
+        );
+        let gain = |a: &Rgb32FImage, b: &Rgb32FImage, x: u32, y: u32| {
+            lum(b.get_pixel(x, y).0) / lum(a.get_pixel(x, y).0) - 1.0
+        };
+        // The iris (120, 100) → (18, 15); the white beside it.
+        let (preview, export) = (
+            gain(&small, &image, 18, 15),
+            gain(&full, &full_after, 120, 100),
+        );
+        assert!(
+            preview > 0.5 * export,
+            "iris: preview {preview}, export {export}"
+        );
+        let (preview, export) = (
+            gain(&small, &image, 21, 15),
+            gain(&full, &full_after, 142, 100),
+        );
+        assert!(
+            preview > 0.5 * export,
+            "white: preview {preview}, export {export}"
+        );
         assert!(!changed(&small, &image, 18, 25), "cheek");
     }
 

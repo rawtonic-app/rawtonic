@@ -122,3 +122,26 @@ describe('eyes and teeth on faces found before them', () => {
     );
   });
 });
+
+describe('a failed search for eyes and teeth', () => {
+  it('shows the error and offers the search again', async () => {
+    invoke.mockRejectedValue({ code: 'needs_original', message: 'The original is offline.' });
+    const adjustments = { ...INITIAL_ADJUSTMENTS };
+    const faceRetouch = {
+      settings: {},
+      faces: [{ id: 'face-1', kept: [], settings: {}, blemishes: [], box: [1, 0, 10, 10], enabled: true }],
+      frame: '2:{}',
+      geometry: JSON.stringify(faceRetouchGeometry(adjustments))
+    } as unknown as FaceRetouch;
+    useEditorStore.setState({
+      selectedImage: { path: '/s/d.CR3', isReady: true } as never,
+      adjustments: { ...adjustments, faceRetouch }
+    });
+    render(<StudioFaceRetouch onInteraction={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Find eyes and teeth' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    const again = await screen.findByRole('button', { name: 'Find eyes and teeth' });
+    fireEvent.click(again);
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+  });
+});
