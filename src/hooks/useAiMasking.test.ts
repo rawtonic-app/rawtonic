@@ -688,6 +688,56 @@ describe('automatic AI masks from imported presets', () => {
     expect(invoke.mock.calls[1][1]).toMatchObject({ parts: ['faceSkin', 'lips'], person: 1 });
   });
 
+  it('fills a Landscape mask into the step that chose its parts, and waits while it is hidden', async () => {
+    let answer: (value: unknown) => void = () => {};
+    invoke.mockImplementation(
+      (command: string) =>
+        new Promise((resolve) => (command === 'generate_ai_landscape_mask' ? (answer = resolve) : resolve(null)))
+    );
+    // An edit an earlier test left waiting settles before this history.
+    debouncedSetHistory.flush();
+    const before = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [] as never };
+    const hidden = { ...layer('ai-landscape', { maskDataBase64: null, parts: ['water'] }), visible: false };
+    useEditorStore.setState({
+      selectedImage: { path: '/s/a.NEF', isReady: true, isRaw: true } as never,
+      adjustments: { ...before, masks: [hidden] as never },
+      history: [before, { ...before, masks: [hidden] as never }],
+      historyIndex: 1
+    });
+    const generated = () => invoke.mock.calls.filter((c) => c[0] === 'generate_ai_landscape_mask');
+    renderHook(() => useAiMasking());
+    // Hidden: no detection, so no model download for it.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(generated()).toHaveLength(0);
+    // Shown with Mountains ticked: the edit is a step of its own.
+    const ticked = {
+      ...before,
+      masks: [layer('ai-landscape', { maskDataBase64: null, parts: ['mountains'] })] as never
+    };
+    useEditorStore.setState((state) => ({
+      adjustments: ticked,
+      history: [...state.history, ticked],
+      historyIndex: state.history.length
+    }));
+    await waitFor(() => expect(generated()).toHaveLength(1));
+    expect(generated()[0][1]).toMatchObject({ path: '/s/a.NEF', parts: ['mountains'] });
+    // A slow answer arrives after the edit settled: no step of its own.
+    await act(async () => answer({ maskDataBase64: 'data:image/png;base64,MMMM' }));
+    const state = useEditorStore.getState();
+    const bitmap = (a: { masks: { subMasks: { parameters: { maskDataBase64?: string } }[] }[] }) =>
+      a.masks[0]?.subMasks[0].parameters.maskDataBase64;
+    expect(bitmap(state.adjustments as never)).toBe('data:image/png;base64,MMMM');
+    expect(state.history).toHaveLength(3);
+    expect(bitmap(state.history[2] as never)).toBe('data:image/png;base64,MMMM');
+    expect(state.historyIndex).toBe(2);
+    // Undo goes back to before the tick, and Redo brings the mask with it.
+    act(() => useEditorStore.getState().undo());
+    expect(useEditorStore.getState().historyIndex).toBe(1);
+    act(() => useEditorStore.getState().redo());
+    expect(bitmap(useEditorStore.getState().adjustments as never)).toBe('data:image/png;base64,MMMM');
+    expect(generated()).toHaveLength(1);
+  });
+
   it('has the backend place imported Lightroom geometry once, on the full decode', async () => {
     const placed = {
       centerX: 3000,

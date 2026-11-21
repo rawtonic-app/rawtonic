@@ -40,6 +40,25 @@ export function withOwnBitmapIds(adjustments: Adjustments, shown?: Adjustments):
   };
 }
 
+/** Forgets in `sent` each mask component whose bitmap differs between
+ * `before` and `after` (an undo, a redo, a History step): the native side
+ * holds the other bitmap under its id, so referring to it would show that
+ * one (a People or Landscape selection whose parts changed keeps its id).
+ * The next request sends the bitmap whole. */
+export function forgetChangedMaskBitmaps(
+  before: Adjustments | undefined,
+  after: Adjustments | undefined,
+  sent: Set<string>
+): void {
+  const old = new Map<string, unknown>();
+  before?.masks?.forEach((mask: MaskContainer) => mask.subMasks?.forEach((sub) => old.set(sub.id, bitmapOf(sub))));
+  after?.masks?.forEach((mask: MaskContainer) =>
+    mask.subMasks?.forEach((sub) => {
+      if (old.has(sub.id) && old.get(sub.id) !== bitmapOf(sub)) sent.delete(sub.id);
+    })
+  );
+}
+
 /** Sent in place of a mask bitmap the native side already holds under the
  * component's id (`CACHED_BITMAP` in crates/engine/src/adjustment_utils.rs).
  * A null bitmap means the component has none and renders nothing. */

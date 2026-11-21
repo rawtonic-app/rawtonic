@@ -624,15 +624,59 @@ export function useAiMasking() {
         rotation: adjustments.rotation,
         taskId: subMaskId
       });
-      // The parts may have changed meanwhile: keep the newer request's
-      // choice, which computes again.
-      const current = useEditorStore
-        .getState()
-        .adjustments.masks?.flatMap((m: MaskContainer) => m.subMasks)
-        .find((sm: SubMask) => sm.id === subMaskId);
-      const now = (current?.parameters as { parts?: string[] } | undefined)?.parts;
-      if (now && JSON.stringify(now) !== JSON.stringify(parts)) return true;
-      return !applyAiResult(selectedImage.path, subMaskId, newParameters);
+      const path = selectedImage.path;
+      // A slider owns its draft until release: wait for it, as an Object
+      // selection does.
+      if (useEditorStore.getState().isSliderDragging) {
+        await new Promise<void>((resolve) => {
+          const unsubscribe = useEditorStore.subscribe((state) => {
+            if (state.isSliderDragging && state.selectedImage?.path === path) return;
+            unsubscribe();
+            resolve();
+          });
+        });
+      }
+      const editor = useEditorStore.getState();
+      if (editor.selectedImage?.path !== path || !editor.selectedImage.isReady) return true;
+      // The mask belongs to the edit that chose these parts: it fills that
+      // edit's step, and every step holding the component with these parts
+      // and no mask, instead of making a step of its own. Undo after it
+      // arrives then goes back to before the parts changed, and redo stays.
+      // Parts changed meanwhile (or an undo) keep their own request.
+      const asked = JSON.stringify(parts);
+      const waiting = (sub: SubMask) => {
+        const own = (sub.parameters ?? {}) as { parts?: string[]; maskDataBase64?: string | null };
+        return sub.id === subMaskId && !own.maskDataBase64 && JSON.stringify(own.parts ?? []) === asked;
+      };
+      const fill = (recipe: Adjustments): Adjustments => {
+        if (!recipe.masks?.some((c: MaskContainer) => c.subMasks.some(waiting))) return recipe;
+        return {
+          ...recipe,
+          masks: recipe.masks.map((c: MaskContainer) =>
+            c.subMasks.some(waiting)
+              ? {
+                  ...c,
+                  subMasks: c.subMasks.map((sub: SubMask) => {
+                    if (!waiting(sub)) return sub;
+                    const { [DETECT_PENDING]: _pending, ...rest } = {
+                      ...(sub.parameters ?? {}),
+                      ...newParameters
+                    } as Record<string, unknown>;
+                    return { ...sub, parameters: rest };
+                  })
+                }
+              : c
+          )
+        };
+      };
+      debouncedSetHistory.flush();
+      editor.patchesSentToBackend.delete(subMaskId);
+      editor.setEditor((state) =>
+        state.selectedImage?.path !== path
+          ? state
+          : { adjustments: fill(state.adjustments), history: state.history.map(fill) }
+      );
+      return false;
     } catch (error) {
       if (isPhotoChanged(error)) return true;
       toastAiError(error, `Landscape mask failed: ${errorMessage(error)}`);
@@ -742,6 +786,11 @@ export function useAiMasking() {
     if (!selectedImageReady) return;
     const { selectedImage } = useEditorStore.getState();
     const masks = useEditorStore.getState().adjustments.masks ?? [];
+    const hidden = new Set(
+      masks.flatMap((m: MaskContainer) =>
+        m.subMasks.filter((sub: SubMask) => m.visible === false || sub.visible === false).map((sub: SubMask) => sub.id)
+      )
+    );
     for (const sub of masks.flatMap((m: MaskContainer) => m.subMasks)) {
       if ((sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized) continue;
       // A People mask computes again whenever its parts or person change
@@ -763,12 +812,15 @@ export function useAiMasking() {
         });
         continue;
       }
-      // A Landscape mask computes again whenever its parts change.
+      // A Landscape mask computes again whenever its parts change; a hidden
+      // one (layer or component) waits until it is shown, so a photo opened
+      // with one does not download the model for it.
       if (sub.type === 'ai-landscape') {
         const p = (sub.parameters ?? {}) as { parts?: string[]; maskDataBase64?: string | null };
         const parts = p.parts ?? [];
         const key = `${selectedImage?.path}:${sub.id}:${JSON.stringify(parts)}`;
-        if (p.maskDataBase64 || parts.length === 0 || requestedAutoMasks.current.has(key)) continue;
+        if (p.maskDataBase64 || parts.length === 0 || hidden.has(sub.id) || requestedAutoMasks.current.has(key))
+          continue;
         requestedAutoMasks.current.add(key);
         const asked = selectedImage?.path;
         void handleGenerateAiLandscapeMask(sub.id, parts).then((dropped) => {

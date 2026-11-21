@@ -159,10 +159,10 @@ pub fn landscape_probabilities(
 /// Parts of the landscape as a mask of `size` (the photo's). The sky is the
 /// sky with its fitted edge. The other parts are their share of what the
 /// network does not call sky, times what the fitted edge does not call sky:
-/// along the sky their edge follows the sky's, so a ridge or a tree line
-/// against the sky has no halo (the network's own edge, from a quarter of
-/// its 512² input, spreads tens of pixels into the sky of a full-size
-/// photo). Elsewhere they keep the network's edge, which the export
+/// where the fitted edge finds the sky, theirs follows it (the network's own
+/// edge, from a quarter of its 512² input, spread 30-60 pixels into the sky
+/// above a ridge on a 36 MP photo; checked by eye on two full-size RAWs);
+/// where it is unsure, they keep part of the network's softer edge. Elsewhere they keep the network's edge, which the export
 /// upsampled in logit space: the sky's colour-based edge fitting, applied
 /// to each part, lowered every part's boundary F on the 12 measured scenes
 /// (vegetation 0.69 → 0.49) and spread halos into flat areas (notes:
@@ -321,8 +321,8 @@ mod tests {
 
     /// Tool: landscape part masks as the app computes them, for evaluation.
     /// `LANDSCAPE_MODEL` (the ONNX file), `LANDSCAPE_FILES` (`;`-separated
-    /// 8-bit photos), `LANDSCAPE_OUT` (writes `<stem>.<part>.png` and, with
-    /// `LANDSCAPE_RAW` set, the unrefined probability as `<stem>.<part>.raw.png`).
+    /// 8-bit photos), `LANDSCAPE_OUT` (writes new files `<stem>.<part>.png`;
+    /// an existing one stops the tool).
     #[test]
     #[ignore = "tool: landscape masks for evaluation"]
     fn print_landscape_masks() {
@@ -337,8 +337,16 @@ mod tests {
             let net = start.elapsed().as_millis();
             for part in LandscapePart::ALL {
                 let t = std::time::Instant::now();
+                // A new file only: never over an input or an earlier result
+                // (two inputs with one stem stop here).
+                let path = out.join(format!("{stem}.{}.png", part.key()));
+                let file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&path)
+                    .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
                 landscape_mask((image.width(), image.height()), &p, &[part])
-                    .save(out.join(format!("{stem}.{}.png", part.key())))
+                    .write_to(&mut std::io::BufWriter::new(file), image::ImageFormat::Png)
                     .unwrap();
                 eprintln!("{stem} {} {} ms", part.key(), t.elapsed().as_millis());
             }
