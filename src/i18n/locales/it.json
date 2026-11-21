@@ -2367,9 +2367,9 @@
         "pending_one": "{{count}} file XMP può essere riscritto.",
         "pending_many": "{{count}} file XMP possono essere riscritti.",
         "pending_other": "{{count}} file XMP possono essere riscritti.",
-        "sharedName_one": "{{count}} foto ha lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP.",
-        "sharedName_many": "{{count}} foto hanno lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP.",
-        "sharedName_other": "{{count}} foto hanno lo stesso nome di un’altra (RAW e JPEG), quindi entrambe scriverebbero lo stesso file XMP."
+        "sharedName_one": "{{count}} foto ha lo stesso nome di un’altra (due file RAW, ad esempio CR3 e DNG), quindi entrambe scriverebbero lo stesso file XMP.",
+        "sharedName_many": "{{count}} foto hanno lo stesso nome di un’altra (due file RAW, ad esempio CR3 e DNG), quindi entrambe scriverebbero lo stesso file XMP.",
+        "sharedName_other": "{{count}} foto hanno lo stesso nome di un’altra (due file RAW, ad esempio CR3 e DNG), quindi entrambe scriverebbero lo stesso file XMP."
       },
       "resolved_one": "Conflitto XMP risolto per {{count}} foto",
       "resolved_many": "Conflitti XMP risolti per {{count}} foto",
@@ -2405,6 +2405,7 @@
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Aperture degli occhi e denti per il ritocco del viso (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Modificato: convertito in ONNX e Core ML, pubblicato sotto CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Corrispondenza tra i nomi dei fusi orari di Windows e gli identificatori IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -4069,9 +4070,11 @@
       },
       "downloadModels": "Scarica i modelli del viso",
       "eyes": {
+        "downloadModel": "Scarica il modello di occhi e denti",
         "find": "Trova occhi e denti",
         "finding": "Ricerca di occhi e denti…",
         "missing": "Occhi e Denti richiedono occhi e bocca di questi volti, trovati prima che esistessero questi strumenti.",
+        "modelMissing": "Occhi e Denti usano un modello di occhi e denti (57 MB). Viene scaricato una volta dal pacchetto di modelli di Rawtonic su GitHub e funziona su questo computer.",
         "none": "Nessun occhio né bocca aperta trovati in questo volto.",
         "sideAria": "Occhio",
         "sideHint": {

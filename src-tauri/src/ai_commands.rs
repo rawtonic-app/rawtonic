@@ -42,7 +42,7 @@ pub(crate) fn task_cancelled() -> CommandError {
 pub(crate) const PHOTO_CHANGED: &str = "The photo changed while its mask was asked for";
 
 /// Whether `loaded` (the photo the backend holds) is the photo `asked` for.
-fn ensure_photo(loaded: &str, asked: &str) -> Result<(), CommandError> {
+pub(crate) fn ensure_photo(loaded: &str, asked: &str) -> Result<(), CommandError> {
     if loaded == asked {
         Ok(())
     } else {

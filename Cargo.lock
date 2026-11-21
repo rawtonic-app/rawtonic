@@ -5996,6 +5996,7 @@ dependencies = [
  "image",
  "ndarray",
  "ort",
+ "rawtonic-denoise",
  "rawtonic-fs",
  "rawtonic-onnx",
  "rayon",

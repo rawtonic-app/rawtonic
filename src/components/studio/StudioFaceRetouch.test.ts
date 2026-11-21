@@ -11,7 +11,10 @@ import {
   swapSides,
   faceRetouchGeometry,
   removedBlemishes,
-  withEyesAndMouth
+  withEyesAndMouth,
+  eyesTeethParsed,
+  eyesTeethSet,
+  withParsedEyesTeeth
 } from './StudioFaceRetouch';
 import type { RetouchFace } from '../../utils/adjustments';
 import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
@@ -113,6 +116,62 @@ describe('eyes and teeth', () => {
     // A face that has them keeps its own; none nearby: unchanged.
     expect(filled[1]).toBe(stored[1]);
     expect(withEyesAndMouth([face('c', 2000)], analysed)[0].eyes).toBeUndefined();
+  });
+});
+
+describe('eye and teeth parser outlines', () => {
+  const face = (id: string, x: number, extra: Partial<RetouchFace> = {}): RetouchFace => ({
+    id,
+    crop: [1, 0, 0, 0, 1, 0],
+    size: 10,
+    eyeDistance: 10,
+    skin: '',
+    underEyes: null,
+    blemishes: [],
+    kept: [],
+    settings: {},
+    enabled: true,
+    box: [x, 0, 100, 100],
+    eyes: [{ iris: [1, 2, 3], lid: [[0, 0]] }, null],
+    mouth: null,
+    ...extra
+  });
+  const loop = [
+    [
+      [0, 0],
+      [4, 0],
+      [4, 4]
+    ]
+  ];
+  const parsed = face('x', 10, {
+    eyes: [{ iris: [1, 2, 3], lid: [[0, 0]], parsedEye: loop, parsedIris: loop }, null],
+    mouth: [[1, 1]],
+    parsedTeeth: loop
+  });
+
+  it('marks a retouch as parsed only with the teeth outlines', () => {
+    expect(eyesTeethParsed([face('a', 0)])).toBe(false);
+    expect(eyesTeethParsed([face('a', 0, { parsedTeeth: [] })])).toBe(true);
+  });
+
+  it('sees an Eyes or Teeth value for all faces or one', () => {
+    const retouch = (settings: object, own: object = {}) => ({
+      settings,
+      faces: [face('a', 0, { settings: own })],
+      frame: '',
+      geometry: ''
+    });
+    expect(eyesTeethSet(retouch({ blemishes: 50 }))).toBe(false);
+    expect(eyesTeethSet(retouch({ teethWhiten: 20 }))).toBe(true);
+    expect(eyesTeethSet(retouch({}, { irisLeft: -10 }))).toBe(true);
+    expect(eyesTeethSet(retouch({ iris: 0 }))).toBe(false);
+  });
+
+  it('takes the outlines of the face at the same place', () => {
+    const [merged, far] = withParsedEyesTeeth([face('a', 0, { settings: { iris: 30 } }), face('b', 2000)], [parsed]);
+    expect(merged).toMatchObject({ id: 'a', mouth: [[1, 1]], parsedTeeth: loop, settings: { iris: 30 } });
+    expect(merged.eyes?.[0]?.parsedEye).toEqual(loop);
+    expect(far.parsedTeeth).toBeUndefined();
   });
 });
 

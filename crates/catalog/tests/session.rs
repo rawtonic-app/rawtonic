@@ -153,29 +153,39 @@ fn xmp_ownership_is_scoped_to_the_exact_folder_and_complete_stem() {
     lib.sync_xmp(&asset.id).unwrap();
     let xmp = photo.with_extension("xmp");
     let before = std::fs::read(&xmp).unwrap();
-    // A real sibling, including one without an extension, must still block.
+    // A JPEG of the same name has a sidecar of its own: the RAW's still
+    // writes, the JPEG's goes to `name.multi.JPG.xmp`.
     let sibling = capture.join("name.multi.JPG");
     std::fs::write(&sibling, b"independent photograph").unwrap();
-    lib.add_asset(&sibling).unwrap();
+    let sibling_id = lib.add_asset(&sibling).unwrap().id;
+    lib.sync_xmp(&asset.id).unwrap();
+    lib.sync_xmp(&sibling_id).unwrap();
+    assert!(capture.join("name.multi.JPG.xmp").is_file());
+    // A second RAW of that stem would share the RAW's: it blocks.
+    let second = capture.join("name.multi.DNG");
+    std::fs::write(&second, b"second raw").unwrap();
+    lib.add_asset(&second).unwrap();
     assert!(
         lib.sync_xmp(&asset.id)
             .unwrap_err()
             .to_string()
-            .contains("pair resolution")
+            .contains("share this XMP sidecar name")
     );
     assert_eq!(std::fs::read(&xmp).unwrap(), before);
 
+    // A file without an extension and a RAW of its stem (`bare.xmp` would
+    // be both's) block too.
     let bare = external.join("bare");
-    let extended = external.join("bare.JPG");
+    let raw = external.join("bare.NEF");
     std::fs::write(&bare, b"bare").unwrap();
-    std::fs::write(&extended, b"extended").unwrap();
+    std::fs::write(&raw, b"raw").unwrap();
     let bare_id = lib.add_asset(&bare).unwrap().id;
-    lib.add_asset(&extended).unwrap();
+    lib.add_asset(&raw).unwrap();
     assert!(
         lib.sync_xmp(&bare_id)
             .unwrap_err()
             .to_string()
-            .contains("pair resolution")
+            .contains("share this XMP sidecar name")
     );
     assert!(!bare.with_extension("xmp").exists());
 }

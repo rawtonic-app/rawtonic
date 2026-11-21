@@ -379,6 +379,33 @@ FACES_EXPORT = [
     "python", str(Path(__file__).resolve().parent / "export_faces.py"),
 ]
 
+# The face retouch's eye and teeth parser: EasyPortrait's FPN + ResNet-50
+# (SberDevices, the authors' variant of CC BY-SA 4.0), converted by
+# export_easyportrait.py (ONNX, every platform) and
+# convert_easyportrait_coreml.py (Core ML, macOS); the converted files are
+# published under CC BY-SA 4.0 (licenses/models/easyportrait-*.txt).
+EASYPORTRAIT_CHECKPOINT = {
+    "url": "https://rndml-team-cv.obs.ru-moscow-1.hc.sbercloud.ru/datasets/easyportrait/experiments/models/fpn-fp-1024.pth",
+    "sha256": "3543661ad51e08fe49c2f202fafc39d99d1a1c78e9de033c67b532ee5401ef40",
+}
+EASYPORTRAIT_ENTRY = {
+    "used_by": "Face retouch Eyes and Teeth (eye openings and teeth)",
+    "source": "EasyPortrait FPN + ResNet-50 face parsing fpn-fp-1024.pth (SberDevices: Kapitanov, Kvanchiani, Petrova, Efremyan, Sautin; github.com/hukenovs/easyportrait at 1b3d3e5, SHA-256 3543661ad51e08fe49c2f202fafc39d99d1a1c78e9de033c67b532ee5401ef40), changed: re-implemented in plain PyTorch, optimizer state removed, normalisation, mirror pass and eye-class merge in the graph, converted by scripts/models/export_easyportrait.py (ONNX, fp16 storage) and convert_easyportrait_coreml.py (Core ML, fp16)",
+    "license": "CC BY-SA 4.0 (converted files; original: the authors' variant of CC BY-SA 4.0)",
+    "license_files": ["easyportrait-LICENSE.txt", "easyportrait-CC-BY-SA-4.0.txt"],
+}
+EASYPORTRAIT_SHA256 = {"easyportrait_fpn_1024.onnx": "4ddf76e62492273fa25d731722e71413f20038546be51e9ab03d3419d954219c"}
+EASYPORTRAIT_COREML_SHA256 = {
+    "easyportrait_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    "easyportrait_coreml_model.mlmodel": "bee5760ef6a038aa02193b93671484add681ab65cb4680cd5bc59655ddc2fd26",
+    "easyportrait_coreml_weight.bin": "d0d2e88f41652514494c0fd273666b26add3bc91e72ddf26187ff071e11427b9",
+}
+EASYPORTRAIT_ENV = [
+    "uv", "run", "--python", "3.12", "--with", "torch==2.7.0", "--with", "transformers==4.57.3",
+    "--with", "onnx==1.23.2", "--with", "onnxruntime==1.22.0", "--with", "coremltools==9.0",
+    "--with", "numpy==2.2.6", "python",
+]
+
 # Microsoft's ONNX Runtime 1.22.0 release archives; the library inside each is
 # the file src-tauri/build.rs pins (same hash).
 ORT_BASE = "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/"
@@ -759,6 +786,22 @@ def main() -> None:
                     "source": SUPERRES_ENTRY["source"] + "; GPU conversion by scripts/models/convert_superres_fp16.py: "
                               "weights rounded to fp16 and fp16 compute, fp32 input and output",
                 })
+
+    if todo(EASYPORTRAIT_SHA256) or todo(EASYPORTRAIT_COREML_SHA256):
+        checkpoint = fetch(EASYPORTRAIT_CHECKPOINT["url"], EASYPORTRAIT_CHECKPOINT["sha256"], args.cache)
+        here = Path(__file__).resolve().parent
+        easyportrait = args.cache / "easyportrait"
+        if todo(EASYPORTRAIT_SHA256):
+            subprocess.run(EASYPORTRAIT_ENV + [str(here / "export_easyportrait.py"), str(checkpoint), str(easyportrait)],
+                           check=True)
+        if todo(EASYPORTRAIT_COREML_SHA256):
+            subprocess.run(EASYPORTRAIT_ENV + [str(here / "convert_easyportrait_coreml.py"), str(checkpoint),
+                                               str(easyportrait)], check=True, env=os.environ | {"PYTHONHASHSEED": "0"})
+        for name, expected in (EASYPORTRAIT_SHA256 | EASYPORTRAIT_COREML_SHA256).items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entries.append(place(easyportrait / name, args.out, name, expected) | EASYPORTRAIT_ENTRY
+                           | {"checkpoint_sha256": EASYPORTRAIT_CHECKPOINT["sha256"]})
 
     if todo(FACES_SHA256):
         faces = args.cache / "faces-out"
