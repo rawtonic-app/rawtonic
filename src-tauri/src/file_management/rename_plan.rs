@@ -402,12 +402,27 @@ fn plan_xmp(
         .map(|e| folder.join(e))
         .filter(is_xmp)
         .collect();
-    let other_case_photo = entries.iter().map(|e| folder.join(e)).any(|p| {
-        is_supported_image_file(&p)
-            && stem(&p) != old_stem
-            && stem(&p).eq_ignore_ascii_case(&old_stem)
-            && !is_developed(&p)
-    });
+    // Only a case-sensitive volume holds two photos whose names differ in
+    // letter case alone; on others `img.NEF` and `IMG.JPG` are a pair.
+    let from = &planned[members[0]].from;
+    let swapped: String = file_name(from)
+        .chars()
+        .map(|c| {
+            if c.is_ascii_uppercase() {
+                c.to_ascii_lowercase()
+            } else {
+                c.to_ascii_uppercase()
+            }
+        })
+        .collect();
+    let case_sensitive = swapped != file_name(from) && !from.with_file_name(&swapped).exists();
+    let other_case_photo = case_sensitive
+        && entries.iter().map(|e| folder.join(e)).any(|p| {
+            is_supported_image_file(&p)
+                && stem(&p) != old_stem
+                && stem(&p).eq_ignore_ascii_case(&old_stem)
+                && !is_developed(&p)
+        });
     let Some(xmp) = candidates
         .iter()
         .find(|p| stem(p) == old_stem)
@@ -841,6 +856,20 @@ mod tests {
         let paths = [arg(&dir.path().join("A.NEF"))];
         let plan = plan_rename(&paths, "Job_{orig}");
         assert_eq!(plan.photos[0].to, dir.path().join("Job_A.NEF"));
+    }
+
+    /// On a case-insensitive volume `img.NEF` and `IMG.JPG` are a pair:
+    /// renaming the JPEG leaves the RAW's `IMG.xmp` with it.
+    #[test]
+    fn a_mixed_case_pair_keeps_the_raws_xmp_with_the_raw() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().canonical().unwrap();
+        write(&dir, &["img.NEF", "IMG.JPG", "IMG.xmp"]);
+        if !dir.join("IMG.NEF").exists() {
+            return; // case-sensitive volume: not a pair there
+        }
+        let plan = plan_rename(&[arg(&dir.join("IMG.JPG"))], "Job");
+        assert_eq!(renames(&plan), ["IMG.JPG → Job.JPG"]);
     }
 
     /// On a case-sensitive volume `A.NEF` and `a.NEF` are two photos; each
