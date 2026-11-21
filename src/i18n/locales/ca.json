@@ -926,6 +926,10 @@
       "exporting": "S'està exportant…",
       "savesTo": "Edició externa — es desa a"
     },
+    "frameMove": {
+      "action": "Mou a la imatge completa",
+      "undecided": "Potser aquesta edició es va fer sobre la petita previsualització que aquest fitxer TIFF mostrava abans de Rawtonic 0.1.0-alpha.17.1. Si el retall i els retocs puntuals estan mal col·locats, mou-los a la imatge completa."
+    },
     "guided": {
       "cancel": "Cancel·lar",
       "drawingActive": "Dibuix actiu",
@@ -1000,6 +1004,9 @@
         "maskName_other": "Màscara {{count}}"
       },
       "rangeTitle": "Rangs i global",
+      "recomputedFullFrame_one": "Les màscares d’IA de {{count}} capa s’han recalculat per a la imatge a resolució completa. Desfer recupera les anteriors.",
+      "recomputedFullFrame_many": "Les màscares d’IA de {{count}} capes s’han recalculat per a la imatge a resolució completa. Desfer recupera les anteriors.",
+      "recomputedFullFrame_other": "Les màscares d’IA de {{count}} capes s’han recalculat per a la imatge a resolució completa. Desfer recupera les anteriors.",
       "resetMaskingTooltip": "Restablir emmascarament",
       "settings": {
         "aiModelDownloading": "S'està baixant el model d'IA: ",

@@ -72,18 +72,16 @@
   - Measured with the CLI on five CC0 raw.pixls.us samples (Canon EOS-1D, Kodak DCS560C, Phase One P30, H 25 and IQ140) against the same edit made on the full frame:
     - Crop, crop with a 90° turn, and Straighten with crop export at the same size, with a mean luminance difference of 0.00 codes at the best shift of 0 px.
     - Spot removals land within 0.1 px (overlap 0.991–1.0).
-    - AI masks are stretched over the photograph. A synthetic Subject selection lands 1.5–21 px off, with overlap 0.94–0.996, on frames 9–31 times larger; the thumbnail-sized bitmap holds no finer detail. Sky and depth masks use the same placement but were not measured separately.
+    - Sky, Subject, People and depth range masks are computed again on the full-resolution image when the photo opens in Develop, keeping their Grow, Feather and Invert; a notice says on how many layers, and one undo brings back the earlier masks, stretched from the thumbnail (which hold no finer detail than it: 1.5–21 px off, overlap 0.94–0.996). Exports of such edits compute them the same way. MEASURE_AI. Object selections keep their stretched mask: an export cannot point at the object again.
   - Brush, Linear and Radial masks, which record the size they were drawn on, and edits of all other files render exactly as before.
   - Rawtonic now saves the photo size each edit was made on with it.
   - Snapshots, Object selection prompts and Library thumbnails move with the edit.
-  - No version number marks an edit as made before 0.1.0-alpha.17.1, so the edit itself decides. An edit is left as it is when any of these hold:
-    - it carries RAW-only processing settings, which every edit begun on a RAW has and an ordinary TIFF's never had;
-    - it has a drawn mask or AI mask of the full size;
-    - it has a crop or spot reaching beyond the thumbnail's size.
-  - Otherwise it is moved.
-  - Two rare cases are decided wrongly:
-    - An older edit that got a new full-size crop or spot entirely within the thumbnail-sized top-left corner, during the two days 0.1.0-alpha.17.1 and alpha.18 were current, is moved too.
-    - An older edit onto which processing versions of a RAW were pasted is not moved: it stays as it rendered in 0.1.0-alpha.18.
+  - No version number marks an edit as made before 0.1.0-alpha.17.1, so the edit itself decides:
+    - It is left as it is when it has a drawn mask or AI mask of the full size, or a crop or spot reaching beyond the thumbnail's size.
+    - It is moved when it has a drawn mask or AI mask of the thumbnail's size, or a crop of exactly the whole thumbnail, also when processing versions of a RAW were pasted onto it.
+    - Otherwise RAW-only processing settings, which every edit begun on a RAW has and an ordinary TIFF's never had, mean the full frame, but processing versions pasted from a RAW add them too: when such an edit has a crop or spots, all within the thumbnail-sized top-left corner, it cannot tell, so it opens as it was saved and Develop offers to move it to the full image (one undo step; saving keeps your choice).
+    - An edit without RAW-only settings and with everything within the thumbnail is moved. An older edit that got a new full-size spot within the thumbnail-sized corner during the two days 0.1.0-alpha.17.1 and alpha.18 were current looks exactly like one and is moved too.
+  - Pasting, syncing or applying a preset to such an edit in the Library now moves it to the full frame first, so pasted processing versions no longer keep it on the thumbnail.
 - **JPEG-to-DNG and iPhone ProRAW photos with clipped highlights** render those highlights white where some pixels were near black before, also in saved edits: a wrapped lookup is a decoding defect, and decoder fixes apply to all photos. Measured with the CLI, before and after: in a synthetic JPEG-to-DNG exported as 8-bit JPEG (default settings), 3,987 of 12,482 pure-white source pixels had a channel below 200 of 255 before; after, none do (lowest channel 242 of 255, at the white area's JPEG edges). On the public iPhone 12 Pro ProRAW sample from raw.pixls.us, 2 samples decoded as 0 instead of 65535; in its 16-bit TIFF export, 818 pixels change by at most 765 of 65535. Every other decoded value is unchanged. 17 other files whose decoders use these tables export byte for byte as before: Adobe DNG Converter lossy DNGs, Leica M8/M9, Sigma fp, Autel, Nikon curves including small NEF, Sony curves, Leaf. The method and results are in `third_party/rawler/RAWTONIC_PATCHES.md`.
 
 ## 0.1.0-alpha.18 — 2026-11-19

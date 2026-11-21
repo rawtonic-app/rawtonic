@@ -140,7 +140,8 @@ fn shown(value: &Value) -> bool {
 
 /// The shown Sky, Subject, People and depth range components of shown
 /// layers without their bitmap (`layer`, `component` indices): rendered as
-/// they are, their layers would apply nowhere. A People component without
+/// they are, their layers would apply nowhere. So are those whose bitmap
+/// was migrated from a camera TIFF's thumbnail (`detects_again`). A People component without
 /// parts has nothing to detect; People and depth ranges count only while
 /// they wait for this photo's detection (`DETECT_PENDING`).
 pub fn undetected(adjustments: &Value) -> Vec<(usize, usize, AutoSelection)> {
@@ -170,12 +171,25 @@ pub fn undetected(adjustments: &Value) -> Vec<(usize, usize, AutoSelection)> {
             // (see the module): older saved recipes export as before.
             let waits = matches!(selection, AutoSelection::Sky | AutoSelection::Subject)
                 || parameters.get(DETECT_PENDING).and_then(Value::as_bool) == Some(true);
-            if waits && !has_bitmap(parameters) && !nothing_to_detect(parameters) && !no_parts {
+            if ((waits && !has_bitmap(parameters)) || detects_again(parameters))
+                && !nothing_to_detect(parameters)
+                && !no_parts
+            {
                 found.push((l, s, selection));
             }
         }
     }
     found
+}
+
+/// Whether a component holds a bitmap migrated from a camera TIFF's
+/// thumbnail that waits to be computed again on the full frame
+/// (`recipe_frame::DETECT_AGAIN`).
+pub fn detects_again(parameters: &Value) -> bool {
+    parameters
+        .get(crate::recipe_frame::DETECT_AGAIN)
+        .and_then(Value::as_bool)
+        == Some(true)
 }
 
 /// What the export says about an undetected selection: its layer's name.
@@ -227,7 +241,14 @@ pub fn detected_parameters(own: &Value, adjustments: &Value, data_url: String) -
     if let Ok(Value::Object(result)) = serde_json::to_value(result) {
         parameters.extend(result);
     }
-    parameters.remove(DETECT_PENDING);
+    // Computed on this frame: no longer a stand-in to stretch or replace.
+    for key in [
+        DETECT_PENDING,
+        crate::recipe_frame::DETECT_AGAIN,
+        crate::mask_generation::BITMAP_FRAME,
+    ] {
+        parameters.remove(key);
+    }
     Value::Object(parameters)
 }
 
@@ -355,7 +376,8 @@ pub fn keep_detected_in(stored: &mut Value, frame: &Value, detected: &[Detected]
             continue;
         };
         if sub[masks::TYPE.name()].as_str().and_then(AutoSelection::of) != Some(found.selection)
-            || has_bitmap(&sub[masks::PARAMETERS.name()])
+            || (has_bitmap(&sub[masks::PARAMETERS.name()])
+                && !detects_again(&sub[masks::PARAMETERS.name()]))
             || run_key(found.selection, &sub[masks::PARAMETERS.name()])
                 != run_key(found.selection, p)
         {
@@ -475,6 +497,49 @@ mod tests {
             &mut || panic!("nothing to detect"),
         );
         assert_eq!(again, Ok(Vec::new()));
+    }
+
+    /// A selection migrated from a camera TIFF's thumbnail
+    /// (`recipe_frame::DETECT_AGAIN`) is computed again on the full frame
+    /// although it holds a bitmap; its refinements stay, and the stand-in's
+    /// frame and mark go.
+    #[test]
+    fn migrated_selections_are_detected_again() {
+        let mut adjustments = json!({"masks": [
+            {"id": "a", "name": "Sky", "visible": true, "subMasks": [
+                {"id": "s", "type": "ai-sky", "visible": true, "parameters": {"maskDataBase64": "data:thumb",
+                 "bitmapFrame": {"width": 288, "height": 192}, "detectAgain": true, "grow": 7, "feather": 20}},
+                {"id": "t", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": "data:thumb",
+                 "bitmapFrame": {"width": 288, "height": 192}, "detectAgain": true, "parts": ["hair"]}},
+                {"id": "u", "type": "ai-subject", "visible": true, "parameters": {"maskDataBase64": "data:thumb",
+                 "bitmapFrame": {"width": 288, "height": 192}}}]}]});
+        assert_eq!(
+            undetected(&adjustments)
+                .iter()
+                .map(|w| w.2)
+                .collect::<Vec<_>>(),
+            [AutoSelection::Sky, AutoSelection::People]
+        );
+        let source = Arc::new(DynamicImage::new_rgb8(6, 4));
+        let detector = Fixed(Default::default());
+        let found = detect_missing(
+            &mut adjustments,
+            &source,
+            false,
+            Some(&detector),
+            &mut || {},
+        )
+        .unwrap();
+        assert_eq!(found.len(), 2);
+        let sky = &adjustments["masks"][0]["subMasks"][0]["parameters"];
+        assert_eq!(sky["maskDataBase64"], "data:Sky:6x4");
+        assert_eq!(sky["grow"], 7);
+        assert_eq!(sky["feather"], 20);
+        assert!(sky.get("bitmapFrame").is_none() && sky.get("detectAgain").is_none());
+        // The Object selection keeps its migrated bitmap.
+        let object = &adjustments["masks"][0]["subMasks"][2]["parameters"];
+        assert_eq!(object["maskDataBase64"], "data:thumb");
+        assert!(undetected(&adjustments).is_empty());
     }
 
     #[test]

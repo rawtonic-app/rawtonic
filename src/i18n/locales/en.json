@@ -879,6 +879,10 @@
       "exporting": "Exporting…",
       "savesTo": "External edit — saves to"
     },
+    "frameMove": {
+      "action": "Move to full image",
+      "undecided": "This edit may have been made on the small preview this TIFF file showed before Rawtonic 0.1.0-alpha.17.1. If its crop and spots are in the wrong place, move them to the full image."
+    },
     "guided": {
       "cancel": "Cancel",
       "drawingActive": "Drawing Active",
@@ -952,6 +956,8 @@
         "maskName_other": "Mask {{count}}"
       },
       "rangeTitle": "Ranges & Global",
+      "recomputedFullFrame_one": "AI masks on {{count}} layer were recomputed for the full-resolution image. Undo brings back the earlier ones.",
+      "recomputedFullFrame_other": "AI masks on {{count}} layers were recomputed for the full-resolution image. Undo brings back the earlier ones.",
       "resetMaskingTooltip": "Reset Masking",
       "settings": {
         "aiModelDownloading": "AI Model Downloading: ",

@@ -246,3 +246,83 @@ fn ai_prompts_scale_in_their_own_orientation() {
     close(&p["startY"], 140.0 * sx);
     close(&p["prompts"][0]["y"], 140.0 * sx);
 }
+
+fn png(w: u32, h: u32) -> String {
+    let mut bytes = Vec::new();
+    image::GrayImage::new(w, h)
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+    format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    )
+}
+
+/// Processing Versions pasted from a RAW onto a thumbnail edit add the RAW
+/// passes' versions; what only the thumbnail can have made still tells it
+/// (TIFR2 open case 2): an AI bitmap or a drawn mask of the thumbnail's
+/// size, a crop of exactly the thumbnail.
+#[test]
+fn pasted_versions_do_not_hide_a_thumbnail_edit() {
+    let spot = json!([{"x": 40.0, "y": 30.0, "radius": 8.0, "sourceX": 60.0, "sourceY": 30.0}]);
+    let bitmap = json!({"fringeVersion": 6, "spots": spot,
+        "masks": [{"subMasks": [{"type": "ai-sky", "parameters": {"maskDataBase64": png(288, 192)}}]}]});
+    let drawn = json!({"autoCaVersion": 1, "spots": spot,
+        "masks": [{"subMasks": [{"type": "radial", "parameters": {"frame": {"width": 288.0, "height": 192.0}}}]}]});
+    let whole =
+        json!({"fringeVersion": 6, "crop": {"x": 0.0, "y": 0.0, "width": 288.0, "height": 192.0}});
+    let turned = json!({"fringeVersion": 6, "orientationSteps": 1,
+        "crop": {"x": 0.0, "y": 0.0, "width": 192.0, "height": 288.0}});
+    for recipe in [bitmap, drawn, whole, turned] {
+        assert_eq!(made_on(&recipe, FRAMES), Made::Thumbnail, "{recipe}");
+    }
+}
+
+/// The RAW passes' versions with nothing else that tells (a spot or crop
+/// within the thumbnail's corner): an edit begun on the RAW and a thumbnail
+/// edit given pasted versions look alike, so the recipe cannot decide and
+/// is left as it is. Without anything placed there is nothing to move.
+#[test]
+fn some_recipes_cannot_tell_their_frame() {
+    let corner = json!({"fringeVersion": 6,
+        "spots": [{"x": 40.0, "y": 30.0, "radius": 8.0, "sourceX": 60.0, "sourceY": 30.0}]});
+    assert_eq!(made_on(&corner, FRAMES), Made::Unknown);
+    let crop =
+        json!({"autoCaVersion": 1, "crop": {"x": 10.0, "y": 10.0, "width": 100.0, "height": 80.0}});
+    assert_eq!(made_on(&crop, FRAMES), Made::Unknown);
+    assert_eq!(
+        made_on(&json!({"fringeVersion": 6, "exposure": 1.0}), FRAMES),
+        Made::Full
+    );
+    // Full-frame evidence still wins.
+    let beyond = json!({"fringeVersion": 6,
+        "spots": [{"x": 1000.0, "y": 30.0, "radius": 8.0, "sourceX": 60.0, "sourceY": 30.0}]});
+    assert_eq!(made_on(&beyond, FRAMES), Made::Full);
+}
+
+/// A migrated Sky, Subject, People or depth range selection waits to be
+/// computed again on the full frame (`DETECT_AGAIN`), keeping its
+/// stretched bitmap until then; an Object selection keeps its bitmap.
+#[test]
+fn semantic_ai_selections_are_detected_again() {
+    let mut recipe = json!({"masks": [{"subMasks": [
+        {"type": "ai-sky", "parameters": {"maskDataBase64": "data:x", "grow": 5, "feather": 10}},
+        {"type": "ai-foreground", "parameters": {"maskDataBase64": "data:x", "invert": true}},
+        {"type": "ai-people", "parameters": {"maskDataBase64": "data:x", "parts": ["faceSkin"]}},
+        {"type": "ai-people", "parameters": {"maskDataBase64": "data:x", "parts": []}},
+        {"type": "ai-depth", "parameters": {"maskDataBase64": "data:x", "minDepth": 30}},
+        {"type": "ai-subject", "parameters": {"maskDataBase64": "data:x", "prompts": [{"type": "point", "x": 5.0, "y": 6.0}]}},
+        {"type": "ai-sky", "parameters": {"maskDataBase64": null}}
+    ]}]});
+    scale_geometry(&mut recipe, FRAMES.thumbnail, FRAMES.full);
+    let subs = recipe["masks"][0]["subMasks"].as_array().unwrap();
+    let again: Vec<bool> = subs
+        .iter()
+        .map(|s| s["parameters"].get(DETECT_AGAIN) == Some(&json!(true)))
+        .collect();
+    assert_eq!(again, [true, true, true, false, true, false, false]);
+    // Refinements and the stand-in bitmap stay.
+    assert_eq!(subs[0]["parameters"]["grow"], json!(5));
+    assert_eq!(subs[0]["parameters"]["maskDataBase64"], json!("data:x"));
+    assert_eq!(subs[1]["parameters"]["invert"], json!(true));
+}

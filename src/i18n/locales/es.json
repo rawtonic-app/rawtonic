@@ -926,6 +926,10 @@
       "exporting": "Exportando…",
       "savesTo": "Edición externa: se guarda en"
     },
+    "frameMove": {
+      "action": "Mover a la imagen completa",
+      "undecided": "Puede que esta edición se hiciera sobre la pequeña vista previa que este archivo TIFF mostraba antes de Rawtonic 0.1.0-alpha.17.1. Si el recorte y los retoques puntuales están mal colocados, muévelos a la imagen completa."
+    },
     "guided": {
       "cancel": "Cancelar",
       "drawingActive": "Dibujo activo",
@@ -1000,6 +1004,9 @@
         "maskName_other": "Máscara {{count}}"
       },
       "rangeTitle": "Rangos y global",
+      "recomputedFullFrame_one": "Las máscaras de IA de {{count}} capa se han recalculado para la imagen a resolución completa. Deshacer recupera las anteriores.",
+      "recomputedFullFrame_many": "Las máscaras de IA de {{count}} capas se han recalculado para la imagen a resolución completa. Deshacer recupera las anteriores.",
+      "recomputedFullFrame_other": "Las máscaras de IA de {{count}} capas se han recalculado para la imagen a resolución completa. Deshacer recupera las anteriores.",
       "resetMaskingTooltip": "Restablecer enmascaramiento",
       "settings": {
         "aiModelDownloading": "Descargando modelo de IA: ",

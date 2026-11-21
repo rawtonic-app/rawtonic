@@ -32,6 +32,7 @@ import { useUIStore } from '../../store/useUIStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useMultiViewStore } from '../../store/useMultiViewStore';
 import { useAiMasking } from '../../hooks/useAiMasking';
+import { useUndecidedFrame } from '../../hooks/useUndecidedFrame';
 import { useMaskOverlay, type OverlayMaskDefinition } from '../../hooks/useMaskOverlay';
 import { requestLiveMaskRender, withLiveMaskContainer, type LiveStroke } from '../../utils/liveMaskRender';
 import { applyLayerSolo } from '../../utils/layerSolo';
@@ -200,6 +201,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const setAdjustments = updateAdjustments;
 
   const { handleGenerateAiMask } = useAiMasking();
+  useUndecidedFrame();
 
   const [crop, setCrop] = useState<Crop | null>(null);
   const prevCropParams = useRef<{ rotation: number; aspectRatio: number | null; orientationSteps: number } | null>(

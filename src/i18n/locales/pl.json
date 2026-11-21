@@ -973,6 +973,10 @@
       "exporting": "Eksportowanie…",
       "savesTo": "Zewnętrzna edycja — zapisuje do"
     },
+    "frameMove": {
+      "action": "Przenieś na pełny obraz",
+      "undecided": "Ta edycja mogła powstać na małym podglądzie, który ten plik TIFF pokazywał przed Rawtonic 0.1.0-alpha.17.1. Jeśli kadrowanie i punktowe poprawki są w złym miejscu, przenieś je na pełny obraz."
+    },
     "guided": {
       "cancel": "Anuluj",
       "drawingActive": "Rysowanie aktywne",
@@ -1048,6 +1052,10 @@
         "maskName_other": "Maska {{count}}"
       },
       "rangeTitle": "Zakresy i globalne",
+      "recomputedFullFrame_one": "Maski AI na {{count}} warstwie zostały przeliczone dla obrazu w pełnej rozdzielczości. Cofnij przywraca wcześniejsze.",
+      "recomputedFullFrame_few": "Maski AI na {{count}} warstwach zostały przeliczone dla obrazu w pełnej rozdzielczości. Cofnij przywraca wcześniejsze.",
+      "recomputedFullFrame_many": "Maski AI na {{count}} warstwach zostały przeliczone dla obrazu w pełnej rozdzielczości. Cofnij przywraca wcześniejsze.",
+      "recomputedFullFrame_other": "Maski AI na {{count}} warstwach zostały przeliczone dla obrazu w pełnej rozdzielczości. Cofnij przywraca wcześniejsze.",
       "resetMaskingTooltip": "Resetuj maskowanie",
       "settings": {
         "aiModelDownloading": "Pobieranie modelu AI: ",

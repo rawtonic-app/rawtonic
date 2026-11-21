@@ -261,7 +261,8 @@ fn edit_sidecars(
         .filter_map(|path| {
             let _turn = sidecar_field_edit();
             let (source_path, sidecar_path) = parse_virtual_path(path);
-            let saved = edit(path, &source_path, &sidecar_path)
+            let saved = conform_frame(path, &source_path, &sidecar_path)
+                .and_then(|()| edit(path, &source_path, &sidecar_path))
                 .and_then(|metadata| save_sidecar(path, &metadata).map(|()| metadata));
             match saved {
                 Ok(metadata) => {
@@ -274,6 +275,22 @@ fn edit_sidecars(
             }
         })
         .collect()
+}
+
+/// A camera TIFF's edit made on its embedded thumbnail is moved to the full
+/// frame (`recipe_frame::conform`) and written before a batch edit changes
+/// it: settings pasted from a RAW (its processing versions) would otherwise
+/// make it read as made on the full frame, and the move is the user's next
+/// save anyway. Other files are not read.
+fn conform_frame(path: &str, source_path: &Path, sidecar_path: &Path) -> Result<(), String> {
+    if rawtonic_engine::recipe_frame::tiff_frames(source_path).is_none() {
+        return Ok(());
+    }
+    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+    if rawtonic_engine::recipe_frame::conform(&mut metadata.adjustments, source_path) {
+        save_sidecar(path, &metadata)?;
+    }
+    Ok(())
 }
 
 /// Runs the blocking `work` (which writes the recipes of `paths` and returns
@@ -3020,6 +3037,39 @@ mod tests {
             })
             .collect();
         (temp, paths)
+    }
+
+    /// A camera TIFF's edit made on its thumbnail is moved to the full frame
+    /// before a batch edit changes it: Processing Versions pasted from a RAW
+    /// would otherwise make it read as made on the full frame (TIFR2 open
+    /// case 2).
+    #[test]
+    fn a_batch_edit_moves_a_thumbnail_edit_first() {
+        use rawtonic_engine::recipe_frame;
+        let (_temp, paths) = session_with_photos(1);
+        let (source, sidecar) = parse_virtual_path(&paths[0]);
+        recipe_frame::pretend_frames(
+            &source,
+            recipe_frame::TiffFrames {
+                thumbnail: (288, 192),
+                full: (2496, 1662),
+            },
+        );
+        let legacy = serde_json::json!({"version": 1, "rating": 0, "tags": [], "adjustments": {
+            "exposure": 0.1, "crop": {"x": 10.0, "y": 10.0, "width": 100.0, "height": 80.0}}});
+        crate::session_bridge::write_editor_sidecar(&sidecar, serde_json::to_vec(&legacy).unwrap())
+            .unwrap();
+        let failed = edit_sidecars(&paths, None, |_, _, sidecar| {
+            let mut metadata = crate::exif_processing::load_sidecar(sidecar);
+            metadata.adjustments["fringeVersion"] = serde_json::json!(6);
+            Ok(metadata)
+        });
+        assert!(failed.is_empty(), "{failed:?}");
+        let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert_eq!(saved["fringeVersion"], 6);
+        assert_eq!(recipe_frame::stamped(&saved), Some((2496.0, 1662.0)));
+        let width = saved["crop"]["width"].as_f64().unwrap();
+        assert!((width - 100.0 * 2496.0 / 288.0).abs() < 1e-6, "{width}");
     }
 
     #[test]

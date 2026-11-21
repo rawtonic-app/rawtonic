@@ -866,6 +866,10 @@
       "exporting": "書き出し中…",
       "savesTo": "外部編集 — 保存先"
     },
+    "frameMove": {
+      "action": "フル画像に移動",
+      "undecided": "この編集は、Rawtonic 0.1.0-alpha.17.1 より前にこの TIFF ファイルで表示されていた小さなプレビュー上で行われた可能性があります。切り抜きやスポット修正の位置がずれている場合は、フル画像に移動してください。"
+    },
     "guided": {
       "cancel": "キャンセル",
       "drawingActive": "描画中",
@@ -939,6 +943,7 @@
         "maskName_other": "マスク {{count}}"
       },
       "rangeTitle": "範囲とグローバル",
+      "recomputedFullFrame_other": "{{count}} 個のレイヤーの AI マスクをフル解像度の画像で再計算しました。取り消すと以前のマスクに戻ります。",
       "resetMaskingTooltip": "マスク処理をリセット",
       "settings": {
         "aiModelDownloading": "AIモデルをダウンロード中: ",

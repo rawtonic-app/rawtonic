@@ -879,6 +879,10 @@
       "exporting": "Exportieren…",
       "savesTo": "Externe Bearbeitung — speichert in"
     },
+    "frameMove": {
+      "action": "Auf volles Bild verschieben",
+      "undecided": "Diese Bearbeitung wurde vielleicht an der kleinen Vorschau gemacht, die Rawtonic vor 0.1.0-alpha.17.1 für diese TIFF-Datei zeigte. Sitzen Freistellung und Retuschepunkte falsch, verschiebe sie auf das volle Bild."
+    },
     "guided": {
       "cancel": "Abbrechen",
       "drawingActive": "Zeichnen aktiv",
@@ -952,6 +956,8 @@
         "maskName_other": "Maske {{count}}"
       },
       "rangeTitle": "Bereiche & Global",
+      "recomputedFullFrame_one": "KI-Masken auf {{count}} Ebene wurden für das Bild in voller Auflösung neu berechnet. Rückgängig holt die früheren zurück.",
+      "recomputedFullFrame_other": "KI-Masken auf {{count}} Ebenen wurden für das Bild in voller Auflösung neu berechnet. Rückgängig holt die früheren zurück.",
       "resetMaskingTooltip": "Maskierung zurücksetzen",
       "settings": {
         "aiModelDownloading": "KI-Modell wird heruntergeladen: ",

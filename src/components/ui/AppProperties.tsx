@@ -209,6 +209,7 @@ export enum Invokes {
   CalculateUpright = 'calculate_upright',
   CalculateAutoStraighten = 'calculate_auto_straighten',
   GetCameraCrops = 'get_camera_crops',
+  UndecidedFrameMove = 'undecided_frame_move',
   DevelopDefaultsFor = 'develop_defaults_for',
   GetCameraLensProfile = 'get_camera_lens_profile',
   GetLensDistortionParams = 'get_lens_distortion_params',
