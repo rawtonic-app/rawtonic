@@ -172,14 +172,6 @@ pub(crate) fn compute_thumbnail_cache_hash(
     )
 }
 
-/// Whether the recipe's face retouch has faces found in another geometry
-/// than its own (placed in their own frame since 2026-11-21, skipped before).
-fn faces_from_another_frame(adjustments: &serde_json::Value) -> bool {
-    adjustments["faceRetouch"]["frame"]
-        .as_str()
-        .is_some_and(|frame| !rawtonic_engine::face_retouch::frame_matches(frame, adjustments))
-}
-
 fn thumbnail_hash_for_engine(
     path_str: &str,
     adjustments_bytes: &[u8],
@@ -199,12 +191,6 @@ fn thumbnail_hash_for_engine(
         .is_some_and(|adjustments| !adjustments["relightDepth"].is_null())
     {
         hasher.update(b"\0relight-face-reflection-v7");
-    }
-    // Faces found before a later geometry change were left out of the
-    // thumbnail until 2026-11-21; such a recipe now shows its face retouch
-    // (`rawtonic_engine::face_retouch`, placed in the faces' own frame).
-    if adjustments.as_ref().is_some_and(faces_from_another_frame) {
-        hasher.update(b"\0face-retouch-in-its-frame");
     }
     // A photograph without an edit renders with the user's develop defaults
     // (`rawtonic_engine::develop_defaults`): new ones make new thumbnails.
@@ -2089,20 +2075,6 @@ mod source_preview_tests {
         );
         std::fs::remove_file(&medium).unwrap();
         assert_eq!(super::announced_medium_thumbnail(photo), None);
-    }
-
-    #[test]
-    fn thumbnails_of_faces_found_before_a_geometry_change_are_made_again() {
-        // Their face retouch was left out before 2026-11-21; it shows now.
-        let mut recipe = serde_json::json!({"rotation": 2.0, "faceRetouch": {"faces": []}});
-        recipe["faceRetouch"]["frame"] =
-            serde_json::json!(rawtonic_engine::face_retouch::frame_key(&recipe));
-        assert!(!super::faces_from_another_frame(&recipe));
-        assert!(!super::faces_from_another_frame(
-            &serde_json::json!({"rotation": 4.0})
-        ));
-        recipe["rotation"] = serde_json::json!(4.0);
-        assert!(super::faces_from_another_frame(&recipe));
     }
 
     #[test]
