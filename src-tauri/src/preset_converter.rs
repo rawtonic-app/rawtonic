@@ -3036,6 +3036,10 @@ mod tests {
             json!([[0.62, 0.5], [0.64, 0.51]])
         );
         assert_eq!(subs[1]["mode"], "subtractive", "the eraser");
+        assert!(
+            super::lightroom_subtract_warning(&brush("0", "false")).is_some(),
+            "an eraser stays Subtract: reported"
+        );
         // After another component its erasers would cut that one too:
         // left out; without erasers it is flattened.
         let gradient = r#"<rdf:li><rdf:Description crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.5" crs:ZeroY="0.5" crs:FullX="0.5" crs:FullY="0"/></rdf:li>
