@@ -93,9 +93,9 @@ const V2_SCALE_AT_100: f32 = 1.25;
 /// clearly weaker than Camera Raw 19.0 Denoise 50 (flat-area noise 2.1×
 /// on ten RawNIND frames, ISO 6400–51200); 0.955 is the equal flat-noise
 /// scale fitted on five of them (sharpening 0 and 40). On the five held
-/// out: flat-area noise 1.30× / 1.13× Camera Raw's at sharpening 0 / 40
-/// (version 4: 2.42× / 2.02×), lightness error 1.29× / 1.15× (1.71× /
-/// 1.68×), finest detail kept 0.97× / 0.99× (notes:
+/// out: flat-area noise 1.43× / 1.20× Camera Raw's at sharpening 0 / 40
+/// (version 4: 2.42× / 2.02×), lightness error 1.30× / 1.14× (1.71× /
+/// 1.68×), finest detail kept 0.97× / 1.00× (notes:
 /// benchmark-results/dnz1-2026-11-19). Slider 100 stays at
 /// `V2_SCALE_AT_100`, about Capture One Enhanced Denoise 50's strength.
 const V5_SCALE_AT_50: f32 = 0.955;

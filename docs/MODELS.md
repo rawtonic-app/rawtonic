@@ -1110,11 +1110,11 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   body, not by ISO or the noise estimate (α7C 0.96–1.05, EOS 6D 0.88–0.89,
   7D / M100 / Z 6 0.98), so one constant: 0.955, fitted on five frames
   (sharpening 0 and 40). Held out (five frames, sharpening 0 / 40, medians
-  of Rawtonic / Camera Raw): flat-area noise 1.30 / 1.13 (version 4 2.42 /
-  2.02), lightness error 1.29 / 1.15 (1.71 / 1.68), finest detail 0.97 /
-  0.99, colour error 0.92. Capture One 16.9.1 Enhanced Denoise 50 is
+  of Rawtonic / Camera Raw): flat-area noise 1.43 / 1.20 (version 4 2.42 /
+  2.02), lightness error 1.30 / 1.14 (1.71 / 1.68), finest detail 0.97 /
+  1.00, colour error 0.90 (renders at 0.955). Capture One 16.9.1 Enhanced Denoise 50 is
   stronger still (flat noise 0.51 at sharpening 0; equal for Rawtonic at a
-  scale of about 1.2, i.e. slider ≈ 95). At equal flat noise Rawtonic's
+  scale of about 1.2, i.e. slider ≈ 95). At equal flat noise (interpolated) Rawtonic's
   lightness error stays +6 % / +4 % above Camera Raw's, finest detail
   0.955 / 0.995; transposed self-ensemble, tile halo 16–80, luminance noise
   reduction after the network and the noise model's read term ×0.5 / ×2
