@@ -1120,6 +1120,7 @@ impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> 
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn subject_mask(
     state: &tauri::State<'_, AppState>,
     ai_state: &AiState,
