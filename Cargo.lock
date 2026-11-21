@@ -5430,7 +5430,6 @@ dependencies = [
  "half",
  "hex",
  "image",
- "imageproc",
  "imgref",
  "jiff 1.0.0",
  "jxl-oxide",
