@@ -528,7 +528,9 @@ pub fn downscale_f32_image(image: &DynamicImage, nwidth: u32, nheight: u32) -> D
 /// `image` reduced to fit `nwidth` x `nheight` (aspect kept, as
 /// [`downscale_f32_image`]) with the export's Lanczos3 filter
 /// ([`crate::lanczos`]), in the linear light the photograph is decoded in,
-/// negative ringing clamped to zero. For the reduced copies the display
+/// negative ringing clamped to zero while colours beyond sRGB keep their
+/// negative channels (`lanczos::resize_wide_gamut`, as the export's
+/// full-resolution develop keeps them). For the reduced copies the display
 /// renders instead of the photograph (fit view, Library loupe, Standard
 /// preview, thumbnails): they must show what the export shows at that size,
 /// and the export is resized with this filter. The area average of
@@ -552,12 +554,10 @@ pub fn resample_f32_image(image: &DynamicImage, nwidth: u32, nheight: u32) -> Dy
         DynamicImage::ImageRgb32F(buffer) => std::borrow::Cow::Borrowed(buffer),
         other => std::borrow::Cow::Owned(other.to_rgb32f()),
     };
-    let mut out = crate::lanczos::resize_scene_linear(&rgb, new_w, new_h);
-    // NaN as the area average leaves it: 0.
-    for v in out.iter_mut() {
-        *v = v.max(0.0);
-    }
-    DynamicImage::ImageRgb32F(out)
+    // Negative channels (colours beyond sRGB) kept as the export's
+    // full-resolution develop keeps them, ringing cut at 0, NaN as the area
+    // average leaves it: 0.
+    DynamicImage::ImageRgb32F(crate::lanczos::resize_wide_gamut(&rgb, new_w, new_h))
 }
 
 /// A rendered sRGB image (8 or 16 bit) reduced to fit `nwidth` x `nheight`
@@ -11173,6 +11173,24 @@ mod resample_tests {
             .collect();
         let mean = row.iter().sum::<f32>() / row.len() as f32;
         (row.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / row.len() as f32).sqrt()
+    }
+
+    /// A colour beyond sRGB (negative red) keeps its channels in the reduced
+    /// copy the display renders from, as the export's full-resolution
+    /// develop keeps them (notes: benchmark-results/pvx1-2026-11-21).
+    #[test]
+    fn reduced_copy_keeps_colours_beyond_srgb() {
+        let source = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_fn(240, 160, |x, _| {
+            if x < 120 {
+                image::Rgb([-0.16, 0.087, 1.24])
+            } else {
+                image::Rgb([0.3, 0.2, 0.1])
+            }
+        }));
+        let reduced = resample_f32_image(&source, 80, 80).to_rgb32f();
+        let p = reduced.get_pixel(10, 20).0;
+        assert!((p[0] + 0.16).abs() < 1e-4, "{p:?}");
+        assert!((p[2] - 1.24).abs() < 1e-4, "{p:?}");
     }
 
     #[test]

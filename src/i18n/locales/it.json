@@ -5,6 +5,7 @@
       "depth": "Maschera IA: profondità",
       "foreground": "Maschera IA: primo piano",
       "inpaint": "Riempimento generativo",
+      "landscape": "Maschera IA: Paesaggio",
       "object": "Maschera IA: oggetto",
       "other": "Attività IA",
       "people": "Maschera IA: persone",
@@ -926,6 +927,10 @@
       "exporting": "Esportazione…",
       "savesTo": "Modifica esterna — salva in"
     },
+    "frameMove": {
+      "action": "Sposta sull’immagine intera",
+      "undecided": "Questa modifica potrebbe essere stata fatta sulla piccola anteprima che questo file TIFF mostrava prima di Rawtonic 0.1.0-alpha.17.1. Se il ritaglio e i ritocchi puntuali sono fuori posto, spostali sull’immagine intera."
+    },
     "guided": {
       "cancel": "Annulla",
       "drawingActive": "Disegno attivo",
@@ -1000,6 +1005,9 @@
         "maskName_other": "Maschera {{count}}"
       },
       "rangeTitle": "Intervalli e Globale",
+      "recomputedFullFrame_one": "Le maschere IA di {{count}} livello sono state ricalcolate per l’immagine a piena risoluzione. Annulla ripristina le precedenti.",
+      "recomputedFullFrame_many": "Le maschere IA di {{count}} livelli sono state ricalcolate per l’immagine a piena risoluzione. Annulla ripristina le precedenti.",
+      "recomputedFullFrame_other": "Le maschere IA di {{count}} livelli sono state ricalcolate per l’immagine a piena risoluzione. Annulla ripristina le precedenti.",
       "resetMaskingTooltip": "Ripristina Mascheratura",
       "settings": {
         "aiModelDownloading": "Download Modello AI: ",
@@ -1096,6 +1104,7 @@
       "flow": "Flusso",
       "foreground": "Primo Piano",
       "heal": "Ripara",
+      "landscape": "Paesaggio",
       "linear": "Lineare",
       "liquify": "Fluidifica",
       "luminance": "Luminanza",
@@ -2388,7 +2397,7 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
@@ -3138,7 +3147,6 @@
         "target": {
           "blueAria": "Blu obiettivo (sRGB 0–255)",
           "chromaAria": "Croma obiettivo C* (CIELAB D50)",
-          "distance": "A ΔE00 {{value}} dall'obiettivo.",
           "greenAria": "Verde obiettivo (sRGB 0–255)",
           "grey": "Questo intervallo è troppo grigio per prendere un colore.",
           "heading": "Obiettivo",
@@ -3153,14 +3161,20 @@
             "lightness": "luminosità (×0,6–1,4)",
             "saturation": "saturazione (0–200 %)"
           },
-          "outOfReach": "Fuori portata: restano ΔE00 {{value}}; {{limits}} al limite.",
+          "measuredDistance": "ΔE00 {{value}} dall'obiettivo, misurato nel punto scelto.",
+          "measuredOutOfReach": "Fuori portata: restano ΔE00 {{value}}, misurato nel punto scelto; {{limits}} al limite.",
+          "measuredOutsideSrgb": "L'obiettivo è fuori da sRGB: il risultato sRGB nel punto scelto resta a ΔE00 {{value}} (misurato).",
+          "measuredReached": "Obiettivo raggiunto: ΔE00 {{value}}, misurato nel punto scelto.",
+          "measuring": "Misurazione del risultato nel punto scelto…",
+          "notMeasured": "Previsto a ΔE00 {{value}} dall'obiettivo; con la riduzione rumore IA il risultato nel punto scelto non può essere misurato.",
           "outsideSrgb": "L'obiettivo è fuori da sRGB; un'esportazione sRGB riporta il colore dentro sRGB.",
           "outsideWorkingGamut": "L'obiettivo è oltre i colori di lavoro della foto (ProPhoto): nessun colore della foto può esserlo, l'intervallo si avvicina quanto può.",
           "pickAria": "Preleva il colore obiettivo",
           "pickedThrough": "Previsto a ΔE00 {{value}} dall'obiettivo, ma questo colore è stato prelevato attraverso la forte modifica dell'intervallo stesso: controlla il risultato nella foto o prelevalo di nuovo con i cursori a 0.",
           "pickTitle": "Preleva il colore obiettivo nella foto; questo intervallo vi si sposta",
-          "reached": "Obiettivo raggiunto (ΔE00 {{value}}).",
-          "readoutTitle": "Previsione per il colore prelevato dell'intervallo, prima degli strumenti successivi come curve e color grading",
+          "predicted": "Previsto a ΔE00 {{value}} dall'obiettivo per il colore dell'intervallo, non misurato: scegli l'intervallo nella foto per misurarlo.",
+          "predictedOutOfReach": "Previsto fuori portata: restano ΔE00 {{value}}; {{limits}} al limite (non misurato: scegli l'intervallo nella foto per misurarlo).",
+          "readoutTitle": "Misurato nel rendering sRGB della foto con tutti gli strumenti, sugli 11 × 11 pixel di anteprima del contagocce nel punto scelto; un intervallo non scelto nella foto è previsto per il suo colore",
           "redAria": "Rosso obiettivo (sRGB 0–255)",
           "sampleAria": "Preleva un colore obiettivo",
           "sampleTitle": "Preleva un colore obiettivo in questa foto, per un intervallo qui o in un'altra foto",
@@ -3168,6 +3182,7 @@
           "srgb": "sRGB",
           "swatchAria": "Risultato dell'intervallo {{result}}, obiettivo {{target}}",
           "uncovered": "La maschera del livello non copre più il punto prelevato: i cursori dell'intervallo restano come sono.",
+          "unmeasured": "Previsto a ΔE00 {{value}} dall'obiettivo; non è stato possibile misurare il risultato nel punto scelto.",
           "useSampled": "Usa l'obiettivo da {{name}}",
           "useSampledTitle": "Sposta questo intervallo sul colore prelevato in {{name}}"
         },
@@ -3468,6 +3483,7 @@
           "brush": "Pennello",
           "color": "Colore",
           "depth": "Profondità",
+          "landscape": "Paesaggio",
           "linear": "Lineare",
           "luminance": "Luminanza",
           "object": "Oggetto",
@@ -3497,6 +3513,7 @@
           "brush": "Nuovo livello pennello",
           "color": "Nuovo livello: Gamma colore",
           "depth": "Nuovo livello: Gamma profondità",
+          "landscape": "Nuovo livello paesaggio",
           "linear": "Nuovo livello gradiente lineare",
           "luminance": "Nuovo livello: Gamma luminanza",
           "object": "Nuovo livello: Oggetto",
@@ -3788,13 +3805,13 @@
         "exporting": "Esportazione {{current}} di {{total}}"
       },
       "provenance": {
-        "about": "Registra la foto da cui ogni file è stato sviluppato, i tipi di modifica e ogni area creata da un modello generativo, firmato con il tuo certificato. JPEG, PNG e TIFF. Non viene inviato nulla.",
+        "about": "Registra la foto da cui ogni file è stato sviluppato, i tipi di modifica e ogni area creata da un modello generativo, firmato con il tuo certificato. JPEG, PNG, TIFF, WebP e AVIF. Non viene inviato nulla.",
         "add": "Firma un manifesto di provenienza in ogni file",
         "author": "Indica il creatore della foto come autore",
-        "blocked": "La provenienza (C2PA) non può firmare {{recipes}}: imposta un certificato di firma valido ed esporta JPEG, PNG o TIFF.",
+        "blocked": "La provenienza (C2PA) non può firmare {{recipes}}: imposta un certificato di firma valido ed esporta JPEG, PNG, TIFF, WebP o AVIF.",
         "certificateFilter": "Certificato PKCS#12",
         "expired": "Questo certificato non è valido ora (valido fino al {{until}}): non è possibile firmare le esportazioni con esso. Importa un certificato rinnovato o creane uno nuovo.",
-        "formatUnsupported": "I file {{format}} non possono ancora contenere un manifesto di provenienza. Scegli JPEG, PNG o TIFF, oppure disattiva l'opzione.",
+        "formatUnsupported": "I file {{format}} non possono ancora contenere un manifesto di provenienza. Scegli JPEG, PNG, TIFF, WebP o AVIF, oppure disattiva l'opzione.",
         "generate": "Crea un certificato su questo computer",
         "import": "Importa il tuo certificato (.p12)…",
         "importConfirm": "Importa",
@@ -4129,6 +4146,23 @@
       "shadowClippingLit": "Avviso ombre, chiuse",
       "shadowClippingTitle": "Avviso di clipping delle ombre (blu nella foto; {{shortcut}} attiva o disattiva entrambi)",
       "title": "Istogramma"
+    },
+    "landscape": {
+      "aria": "Maschera paesaggio",
+      "choose": "Scegli le parti da selezionare.",
+      "finding": "Ricerca delle parti del paesaggio…",
+      "noneFound": "Nessuna di queste parti è stata trovata in questa foto.",
+      "notFound": "(non trovata)",
+      "parts": {
+        "architecture": "Architettura",
+        "artificialGround": "Terreno artificiale",
+        "mountains": "Montagne",
+        "naturalGround": "Terreno naturale",
+        "sky": "Cielo",
+        "vegetation": "Vegetazione",
+        "water": "Acqua"
+      },
+      "partsAria": "Parti del paesaggio"
     },
     "layers": {
       "bandWidth": "Larghezza banda",
@@ -4912,6 +4946,7 @@
         "brush": "Pennello",
         "color": "Gamma colore",
         "depth": "Gamma profondità",
+        "landscape": "Paesaggio",
         "linear": "Lineare",
         "luminance": "Gamma luminanza",
         "object": "Oggetto",

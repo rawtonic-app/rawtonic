@@ -125,8 +125,9 @@ A worker that skips a photo already in flight emits its progress event while it 
 The tokio locks are held across the awaits of one load or run:
 
 1. a run lock: `sam_encode_lock` (one SAM encode), `subject_lock` / `sky_lock` (one Subject or Sky
-   run, `AutoMask::lock`)
-2. a load lock: `init_lock` (the models that share it), `sky_init_lock`, `moebius_init_lock`; taken
+   run, `AutoMask::lock`), `landscape_lock` (one landscape-parts run)
+2. a load lock: `init_lock` (the models that share it), `sky_init_lock`, `landscape_init_lock`,
+   `moebius_init_lock`; taken
    only inside the loaders, which take no run lock
 3. `models`, `faces` or `denoisers` (the std locks, each held for one step: a look-up or a store)
 4. `lifecycle`'s usage lock (inside `keep`, under `models` or `faces` when a loaded model is kept)

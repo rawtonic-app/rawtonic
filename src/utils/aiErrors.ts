@@ -20,6 +20,11 @@ export function isPhotoChanged(error: unknown): boolean {
   return errorCode(error) === 'stale';
 }
 
+/** The tool's model is not installed and the request did not download it. */
+export function isModelsMissing(error: unknown): boolean {
+  return errorCode(error) === 'models_missing';
+}
+
 /** The task was cancelled (Cancel, or a newer request replaced it). */
 export function isAiTaskCancelled(error: unknown): boolean {
   return errorCode(error) === 'cancelled';

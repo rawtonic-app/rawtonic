@@ -1088,7 +1088,7 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
     const grid = screen.getByRole('group', { name: 'New layer' });
     const groups = within(grid).getAllByRole('group');
     expect(groups.map((g) => g.querySelector('p')?.textContent)).toEqual(['Draw', 'Select', 'Range']);
-    expect(groups.map((g) => within(g).getAllByRole('button').length)).toEqual([3, 5, 3]);
+    expect(groups.map((g) => within(g).getAllByRole('button').length)).toEqual([3, 6, 3]);
     // Each tile shows an icon above a short name.
     expect(within(groups[2]).getByRole('button', { name: 'New depth range layer' }).textContent).toBe('Depth');
     expect(
@@ -1129,6 +1129,7 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
       'Background',
       'Object',
       'People',
+      'Landscape',
       'Color range',
       'Luminance range',
       'Depth range'
@@ -1155,6 +1156,7 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
       'New background layer',
       'New object layer',
       'New people layer',
+      'New landscape layer',
       'New color range layer',
       'New luminance range layer',
       'New depth range layer'
@@ -1172,6 +1174,7 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
       'Background',
       'Object',
       'People',
+      'Landscape',
       'Color range',
       'Luminance range',
       'Depth range'
@@ -1186,7 +1189,7 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
       fireEvent.click(within(screen.getAllByRole('menu').at(-1)!).getByRole('menuitem', { name: item }));
       expect(shape(before)).toEqual(shape(before + 1));
     });
-    // 22 layers made and checked: ~2 s alone, over the 5 s default within
+    // 24 layers made and checked: ~2 s alone, over the 5 s default within
     // the full parallel run on a 6-core laptop.
   }, 20_000);
 

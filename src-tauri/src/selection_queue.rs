@@ -124,6 +124,13 @@ pub fn wants_detection(adjustments: &Value) -> bool {
     !rawtonic_engine::ai_selections::undetected(adjustments).is_empty()
 }
 
+/// Whether a recipe still waits for a selection after the queue ran: one
+/// without anything to render (a migrated bitmap the queue could not
+/// compute again renders as it is).
+fn still_waiting(adjustments: &Value) -> bool {
+    rawtonic_engine::ai_selections::missing_without_stand_ins(adjustments)
+}
+
 /// Queues `paths` (photos or virtual copies) whose recipes were just given
 /// layers with AI selections; a photo already waiting is not queued twice.
 pub fn enqueue(paths: impl IntoIterator<Item = String>) {
@@ -252,9 +259,10 @@ fn detect_photo(app: &AppHandle, path: &str) -> Result<(), String> {
         return Ok(());
     }
     // Not kept: the photo changed meanwhile (its geometry, the layer). Still
-    // waiting is reported, never taken for done.
+    // waiting is reported, never taken for done; a camera TIFF's migrated
+    // bitmap kept because its model is not installed here is no change.
     let now = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
-    if wants_detection(&now) {
+    if still_waiting(&now) {
         return Err(
             "the photo was changed while its selections were computed; they are computed when it is opened or exported"
                 .into(),
@@ -332,5 +340,20 @@ mod tests {
             json!({"maskDataBase64": null, "detectPending": true})
         )));
         assert!(!wants_detection(&json!({"exposure": 1.0})));
+    }
+
+    /// A camera TIFF's migrated bitmap the queue kept (its model is not
+    /// installed) is not taken for a photo changed meanwhile.
+    #[test]
+    fn a_kept_migrated_bitmap_is_not_a_change() {
+        let layer = |parameters: Value| {
+            json!({"masks": [{"id": "l", "visible": true, "subMasks": [
+                {"id": "s", "type": "ai-sky", "visible": true, "parameters": parameters}]}]})
+        };
+        let migrated = layer(json!({"maskDataBase64": "data:thumb", "detectAgain": true,
+            "bitmapFrame": {"width": 288, "height": 192}}));
+        assert!(wants_detection(&migrated));
+        assert!(!still_waiting(&migrated));
+        assert!(still_waiting(&layer(json!({"maskDataBase64": null}))));
     }
 }

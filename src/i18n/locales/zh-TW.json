@@ -5,6 +5,7 @@
       "depth": "AI 遮罩：深度",
       "foreground": "AI 遮罩：前景",
       "inpaint": "生成式填色",
+      "landscape": "AI 遮色片：風景",
       "object": "AI 遮罩：物件",
       "other": "AI 工作",
       "people": "AI 遮罩：人物",
@@ -866,6 +867,10 @@
       "exporting": "正在匯出…",
       "savesTo": "外部編輯 — 儲存至"
     },
+    "frameMove": {
+      "action": "移到完整影像",
+      "undecided": "此編輯可能是在 Rawtonic 0.1.0-alpha.17.1 之前此 TIFF 檔案顯示的小預覽圖上完成的。如果裁切和污點修復位置不對，請將其移到完整影像上。"
+    },
     "guided": {
       "cancel": "取消",
       "drawingActive": "繪圖中",
@@ -939,6 +944,7 @@
         "maskName_other": "遮色片 {{count}}"
       },
       "rangeTitle": "範圍與全域",
+      "recomputedFullFrame_other": "已為全解析度影像重新計算 {{count}} 個圖層的 AI 遮罩。復原可恢復先前的遮罩。",
       "resetMaskingTooltip": "重置遮色片",
       "settings": {
         "aiModelDownloading": "AI 模型下載中：",
@@ -1035,6 +1041,7 @@
       "flow": "流線",
       "foreground": "前景",
       "heal": "修復",
+      "landscape": "風景",
       "linear": "線性",
       "liquify": "液化",
       "luminance": "亮度",
@@ -2161,7 +2168,7 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
@@ -2892,7 +2899,6 @@
         "target": {
           "blueAria": "目標藍(sRGB 0–255)",
           "chromaAria": "目標彩度 C*(CIELAB D50)",
-          "distance": "距目標 ΔE00 {{value}}。",
           "greenAria": "目標綠(sRGB 0–255)",
           "grey": "此範圍太接近灰色,無法著色。",
           "heading": "目標顏色",
@@ -2907,14 +2913,20 @@
             "lightness": "明度(×0.6–1.4)",
             "saturation": "飽和度(0–200 %)"
           },
-          "outOfReach": "無法達到:剩餘 ΔE00 {{value}};{{limits}} 已達極限。",
+          "measuredDistance": "距目標 ΔE00 {{value}}，在所選點測得。",
+          "measuredOutOfReach": "無法達到：還差 ΔE00 {{value}}，在所選點測得；{{limits}}已到極限。",
+          "measuredOutsideSrgb": "目標在 sRGB 之外：所選點的 sRGB 結果與其相差 ΔE00 {{value}}（測得）。",
+          "measuredReached": "已達到目標：ΔE00 {{value}}，在所選點測得。",
+          "measuring": "正在測量所選點的結果…",
+          "notMeasured": "預測距目標 ΔE00 {{value}}；開啟 AI 降噪時無法測量所選點的結果。",
           "outsideSrgb": "目標超出 sRGB;sRGB 輸出會將顏色映射到 sRGB 內。",
           "outsideWorkingGamut": "目標超出照片的工作色彩(ProPhoto):照片中沒有顏色能成為它,範圍會盡可能接近。",
           "pickAria": "擷取目標顏色",
           "pickedThrough": "預測距目標 ΔE00 {{value}},但此顏色是在範圍本身的大幅調整下擷取的:請在照片中檢查結果,或將滑桿歸零後重新擷取。",
           "pickTitle": "在照片中擷取目標顏色,此範圍會移到該顏色",
-          "reached": "已達到目標(ΔE00 {{value}})。",
-          "readoutTitle": "針對範圍擷取顏色的預測值,在曲線、調色等後續工具之前",
+          "predicted": "依範圍顏色預測距目標 ΔE00 {{value}}，未測量：在照片中選取該範圍即可測量。",
+          "predictedOutOfReach": "預測無法達到：還差 ΔE00 {{value}}；{{limits}}已到極限（未測量：在照片中選取該範圍即可測量）。",
+          "readoutTitle": "在套用所有工具的照片 sRGB 算繪中，於所選點滴管的 11 × 11 預覽像素上測得；未在照片中選取的範圍依其顏色預測",
           "redAria": "目標紅(sRGB 0–255)",
           "sampleAria": "擷取目標顏色",
           "sampleTitle": "在此照片中擷取目標顏色,用於此處或另一張照片的範圍",
@@ -2922,6 +2934,7 @@
           "srgb": "sRGB",
           "swatchAria": "範圍結果 {{result}},目標 {{target}}",
           "uncovered": "圖層的蒙版已不覆蓋取樣點:範圍的滑桿保持不變。",
+          "unmeasured": "預測距目標 ΔE00 {{value}}；無法測量所選點的結果。",
           "useSampled": "使用來自 {{name}} 的目標",
           "useSampledTitle": "將此範圍移到在 {{name}} 中擷取的顏色"
         },
@@ -3212,6 +3225,7 @@
           "brush": "畫筆",
           "color": "顏色",
           "depth": "深度",
+          "landscape": "風景",
           "linear": "線性",
           "luminance": "亮度",
           "object": "物件",
@@ -3241,6 +3255,7 @@
           "brush": "新增筆刷圖層",
           "color": "新增圖層：顏色範圍",
           "depth": "新增圖層：深度範圍",
+          "landscape": "新增風景圖層",
           "linear": "新增線性漸層圖層",
           "luminance": "新增圖層：亮度範圍",
           "object": "新增圖層：物件",
@@ -3528,13 +3543,13 @@
         "exporting": "正在匯出 {{current}}/{{total}}"
       },
       "provenance": {
-        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG 與 TIFF。不會傳送任何內容。",
+        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG、TIFF、WebP 與 AVIF。不會傳送任何內容。",
         "add": "在每個檔案中簽署來源清單",
         "author": "將相片的創作者列為作者",
-        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG 或 TIFF。",
+        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG、TIFF、WebP 或 AVIF。",
         "certificateFilter": "PKCS#12 憑證",
         "expired": "此憑證目前無效（有效至 {{until}}）：無法用它為輸出簽署。請匯入更新的憑證或建立新的憑證。",
-        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG 或 TIFF，或關閉此選項。",
+        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG、TIFF、WebP 或 AVIF，或關閉此選項。",
         "generate": "在此電腦上建立憑證",
         "import": "匯入您的憑證 (.p12)…",
         "importConfirm": "匯入",
@@ -3855,6 +3870,23 @@
       "shadowClippingLit": "陰影警告，已壓暗",
       "shadowClippingTitle": "陰影剪裁警告（照片中顯示為藍色；{{shortcut}} 同時切換兩側）",
       "title": "色階分佈圖"
+    },
+    "landscape": {
+      "aria": "風景遮色片",
+      "choose": "選擇要選取的部分。",
+      "finding": "正在尋找風景的組成部分…",
+      "noneFound": "這張照片中未找到這些部分。",
+      "notFound": "（未找到）",
+      "parts": {
+        "architecture": "建築",
+        "artificialGround": "人工地面",
+        "mountains": "山脈",
+        "naturalGround": "自然地面",
+        "sky": "天空",
+        "vegetation": "植被",
+        "water": "水"
+      },
+      "partsAria": "風景的組成部分"
     },
     "layers": {
       "bandWidth": "條帶寬度",
@@ -4586,6 +4618,7 @@
         "brush": "畫筆",
         "color": "顏色範圍",
         "depth": "深度範圍",
+        "landscape": "風景",
         "linear": "線性",
         "luminance": "亮度範圍",
         "object": "物件",

@@ -5,6 +5,7 @@
       "depth": "KI-Maske: Tiefe",
       "foreground": "KI-Maske: Vordergrund",
       "inpaint": "Generatives Füllen",
+      "landscape": "KI-Maske: Landschaft",
       "object": "KI-Maske: Objekt",
       "other": "KI-Aufgabe",
       "people": "KI-Maske: Personen",
@@ -879,6 +880,10 @@
       "exporting": "Exportieren…",
       "savesTo": "Externe Bearbeitung — speichert in"
     },
+    "frameMove": {
+      "action": "Auf volles Bild verschieben",
+      "undecided": "Diese Bearbeitung wurde vielleicht an der kleinen Vorschau gemacht, die Rawtonic vor 0.1.0-alpha.17.1 für diese TIFF-Datei zeigte. Sitzen Freistellung und Retuschepunkte falsch, verschiebe sie auf das volle Bild."
+    },
     "guided": {
       "cancel": "Abbrechen",
       "drawingActive": "Zeichnen aktiv",
@@ -952,6 +957,8 @@
         "maskName_other": "Maske {{count}}"
       },
       "rangeTitle": "Bereiche & Global",
+      "recomputedFullFrame_one": "KI-Masken auf {{count}} Ebene wurden für das Bild in voller Auflösung neu berechnet. Rückgängig holt die früheren zurück.",
+      "recomputedFullFrame_other": "KI-Masken auf {{count}} Ebenen wurden für das Bild in voller Auflösung neu berechnet. Rückgängig holt die früheren zurück.",
       "resetMaskingTooltip": "Maskierung zurücksetzen",
       "settings": {
         "aiModelDownloading": "KI-Modell wird heruntergeladen: ",
@@ -1048,6 +1055,7 @@
       "flow": "Fluss",
       "foreground": "Vordergrund",
       "heal": "Reparieren",
+      "landscape": "Landschaft",
       "linear": "Linear",
       "liquify": "Verflüssigen",
       "luminance": "Luminanz",
@@ -2254,7 +2262,7 @@
         "2xBHI_small_compact_pretrain": "Super-Resolution beim Export (Philip Hofmann). Geändert: nach ONNX und Core ML umgewandelt, Mittel aus vier Drehungen jeder Kachel (in der CPU-Konvertierung nacheinander; in der GPU-Konvertierung fp16-Gewichte und -Berechnung).",
         "avif-parse": "Liest den AVIF-Container.",
         "BiRefNet": "Motiv- und Hintergrundmasken (Peng Zheng und andere).",
-        "ConvNeXt UperNet": "Himmelsmasken (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Himmels- und Landschaftsmasken (Meta, ADE20K).",
         "darktable": "Referenzimplementierungen für Teile des übernommenen Editors.",
         "DAViD": "Oberflächennormalen von Personen für Relight (Microsoft).",
         "Dawn": "WebGPU für KI-Modelle unter Windows und Linux im WebGPU-Plugin von ONNX Runtime (Google).",
@@ -2986,7 +2994,6 @@
         "target": {
           "blueAria": "Ziel Blau (sRGB 0–255)",
           "chromaAria": "Ziel-Buntheit C* (CIELAB D50)",
-          "distance": "ΔE00 {{value}} vom Ziel entfernt.",
           "greenAria": "Ziel Grün (sRGB 0–255)",
           "grey": "Dieser Bereich ist zu grau, um eine Farbe anzunehmen.",
           "heading": "Zielfarbe",
@@ -3001,14 +3008,20 @@
             "lightness": "Helligkeit (×0,6–1,4)",
             "saturation": "Sättigung (0–200 %)"
           },
-          "outOfReach": "Nicht erreichbar: ΔE00 {{value}} bleiben; {{limits}} am Anschlag.",
+          "measuredDistance": "ΔE00 {{value}} vom Ziel, gemessen am gewählten Punkt.",
+          "measuredOutOfReach": "Nicht erreichbar: ΔE00 {{value}} bleiben, gemessen am gewählten Punkt; {{limits}} am Anschlag.",
+          "measuredOutsideSrgb": "Das Ziel liegt außerhalb von sRGB: Das sRGB-Ergebnis am gewählten Punkt bleibt ΔE00 {{value}} davon entfernt (gemessen).",
+          "measuredReached": "Ziel erreicht: ΔE00 {{value}}, gemessen am gewählten Punkt.",
+          "measuring": "Ergebnis am gewählten Punkt wird gemessen …",
+          "notMeasured": "Vorhergesagt ΔE00 {{value}} vom Ziel; mit KI-Entrauschen lässt sich das Ergebnis am gewählten Punkt nicht messen.",
           "outsideSrgb": "Das Ziel liegt außerhalb von sRGB; ein sRGB-Export bildet die Farbe in sRGB ab.",
           "outsideWorkingGamut": "Das Ziel liegt außerhalb der Arbeitsfarben des Fotos (ProPhoto): Keine Farbe des Fotos kann es sein, der Bereich geht so nah heran, wie er kann.",
           "pickAria": "Zielfarbe aufnehmen",
           "pickedThrough": "Vorhergesagt ΔE00 {{value}} vom Ziel, aber diese Farbe wurde durch die starke Änderung des Bereichs selbst aufgenommen: Ergebnis im Foto prüfen oder mit Reglern auf 0 neu aufnehmen.",
           "pickTitle": "Zielfarbe im Foto aufnehmen; dieser Bereich wird darauf verschoben",
-          "reached": "Ziel erreicht (ΔE00 {{value}}).",
-          "readoutTitle": "Vorhersage für die aufgenommene Farbe des Bereichs, vor späteren Werkzeugen wie Kurven und Color Grading",
+          "predicted": "Vorhergesagt ΔE00 {{value}} vom Ziel für die Farbe des Bereichs, nicht gemessen: Nimm den Bereich im Foto auf, um das Ergebnis zu messen.",
+          "predictedOutOfReach": "Vorhergesagt nicht erreichbar: ΔE00 {{value}} bleiben; {{limits}} am Anschlag (nicht gemessen: Nimm den Bereich im Foto auf, um das Ergebnis zu messen).",
+          "readoutTitle": "Gemessen in der sRGB-Darstellung des Fotos mit allen Werkzeugen, über die 11 × 11 Vorschaupixel der Pipette am gewählten Punkt; ein nicht im Foto gewählter Bereich wird für seine Farbe vorhergesagt",
           "redAria": "Ziel Rot (sRGB 0–255)",
           "sampleAria": "Zielfarbe aufnehmen (merken)",
           "sampleTitle": "Zielfarbe in diesem Foto aufnehmen, für einen Bereich hier oder in einem anderen Foto",
@@ -3016,6 +3029,7 @@
           "srgb": "sRGB",
           "swatchAria": "Ergebnis des Bereichs {{result}}, Ziel {{target}}",
           "uncovered": "Die Maske der Ebene deckt die aufgenommene Stelle nicht mehr ab: Die Regler des Bereichs bleiben, wie sie sind.",
+          "unmeasured": "Vorhergesagt ΔE00 {{value}} vom Ziel; das Ergebnis am gewählten Punkt ließ sich nicht messen.",
           "useSampled": "Zielfarbe aus {{name}} verwenden",
           "useSampledTitle": "Diesen Bereich auf die in {{name}} aufgenommene Farbe verschieben"
         },
@@ -3311,6 +3325,7 @@
           "brush": "Pinsel",
           "color": "Farbe",
           "depth": "Tiefe",
+          "landscape": "Landschaft",
           "linear": "Linear",
           "luminance": "Luminanz",
           "object": "Objekt",
@@ -3340,6 +3355,7 @@
           "brush": "Neue Ebene: Pinsel",
           "color": "Neue Ebene: Farbbereich",
           "depth": "Neue Ebene: Tiefenbereich",
+          "landscape": "Neue Landschaftsebene",
           "linear": "Neue Ebene mit linearem Verlauf",
           "luminance": "Neue Ebene: Luminanzbereich",
           "object": "Neue Ebene: Objekt",
@@ -3629,13 +3645,13 @@
         "exporting": "Export {{current}} von {{total}}"
       },
       "provenance": {
-        "about": "Hält fest, aus welchem Foto jede Datei entwickelt wurde, welche Arten von Bearbeitungen es gab und jeden Bereich, den ein generatives Modell erzeugt hat – signiert mit Ihrem Zertifikat. JPEG, PNG und TIFF. Es wird nichts gesendet.",
+        "about": "Hält fest, aus welchem Foto jede Datei entwickelt wurde, welche Arten von Bearbeitungen es gab und jeden Bereich, den ein generatives Modell erzeugt hat – signiert mit Ihrem Zertifikat. JPEG, PNG, TIFF, WebP und AVIF. Es wird nichts gesendet.",
         "add": "Herkunftsnachweis in jede Datei signieren",
         "author": "Urheber des Fotos als Autor nennen",
-        "blocked": "Der Herkunftsnachweis (C2PA) kann {{recipes}} nicht signieren: Richten Sie ein gültiges Signaturzertifikat ein und exportieren Sie JPEG, PNG oder TIFF.",
+        "blocked": "Der Herkunftsnachweis (C2PA) kann {{recipes}} nicht signieren: Richten Sie ein gültiges Signaturzertifikat ein und exportieren Sie JPEG, PNG, TIFF, WebP oder AVIF.",
         "certificateFilter": "PKCS#12-Zertifikat",
         "expired": "Dieses Zertifikat ist derzeit nicht gültig (gültig bis {{until}}): Exporte können damit nicht signiert werden. Importieren Sie ein erneuertes Zertifikat oder erstellen Sie ein neues.",
-        "formatUnsupported": "{{format}}-Dateien können noch keinen Herkunftsnachweis tragen. Wählen Sie JPEG, PNG oder TIFF oder schalten Sie die Option aus.",
+        "formatUnsupported": "{{format}}-Dateien können noch keinen Herkunftsnachweis tragen. Wählen Sie JPEG, PNG, TIFF, WebP oder AVIF oder schalten Sie die Option aus.",
         "generate": "Zertifikat auf diesem Computer erstellen",
         "import": "Eigenes Zertifikat importieren (.p12)…",
         "importConfirm": "Importieren",
@@ -3963,6 +3979,23 @@
       "shadowClippingLit": "Schattenwarnung, abgesoffen",
       "shadowClippingTitle": "Schattenwarnung (blau im Foto; {{shortcut}} schaltet beide)",
       "title": "Histogramm"
+    },
+    "landscape": {
+      "aria": "Landschaftsmaske",
+      "choose": "Wähle die Teile, die ausgewählt werden sollen.",
+      "finding": "Teile der Landschaft werden gesucht…",
+      "noneFound": "Keiner dieser Teile wurde in diesem Foto gefunden.",
+      "notFound": "(nicht gefunden)",
+      "parts": {
+        "architecture": "Architektur",
+        "artificialGround": "Künstlicher Boden",
+        "mountains": "Berge",
+        "naturalGround": "Natürlicher Boden",
+        "sky": "Himmel",
+        "vegetation": "Vegetation",
+        "water": "Wasser"
+      },
+      "partsAria": "Teile der Landschaft"
     },
     "layers": {
       "bandWidth": "Bandbreite",
@@ -4714,6 +4747,7 @@
         "brush": "Pinsel",
         "color": "Farbbereich",
         "depth": "Tiefenbereich",
+        "landscape": "Landschaft",
         "linear": "Linear",
         "luminance": "Luminanzbereich",
         "object": "Objekt",

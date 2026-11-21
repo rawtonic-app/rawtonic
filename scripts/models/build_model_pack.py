@@ -165,6 +165,16 @@ SKY_ENTRY = {
     "license_files": ["ConvNeXt-MIT.txt"],
 }
 SKY_SHA256 = "e5dc2a0bee8b4cdfbd866d8f811b4390d04ba621644d99de25478338a5b15bbf"
+# The same checkpoint with a head of seven landscape-part probabilities
+# (mountains, water, vegetation, natural and artificial ground,
+# architecture, sky), exported by export_landscape.py (reproducible: same SHA-256
+# in two exports in this environment).
+LANDSCAPE_ENTRY = SKY_ENTRY | {
+    "used_by": "Landscape mask",
+    "source": SKY_ENTRY["source"].replace("export_sky.py", "export_landscape.py (seven part probabilities "
+                                          "summed from the 150-class softmax: changed head)"),
+}
+LANDSCAPE_SHA256 = "36faaefebdaacc743fa89a592b2a0ebcc35c561661a56ecf8566ab0d90f21451"
 # The same checkpoint as a Core ML program (macOS's fast path), converted by
 # convert_sky_coreml.py in the BiRefNet Core ML environment (PYTHONHASHSEED=0;
 # the converter numbers generated ops by position, so the bytes repeat).
@@ -664,6 +674,11 @@ def main() -> None:
 
         sky = export_sky(args.cache / "sky")
         entries.append(place(sky, args.out, sky.name, SKY_SHA256) | SKY_ENTRY)
+    if todo({"landscape_upernet_convnext_t.onnx": LANDSCAPE_SHA256}):
+        from export_landscape import export as export_landscape
+
+        landscape = export_landscape(args.cache / "landscape")
+        entries.append(place(landscape, args.out, landscape.name, LANDSCAPE_SHA256) | LANDSCAPE_ENTRY)
     if todo(SKY_COREML_SHA256):
         sky_coreml = args.cache / "sky-coreml"
         subprocess.run(SUBJECT_COREML_EXPORT[:-1] + [str(Path(__file__).resolve().parent / "convert_sky_coreml.py"),

@@ -17,8 +17,9 @@
 //! (`shaders/color_noise_view.wgsl` plus that section of `shader.wgsl`)
 //! writes the filtered pixel band by band (the input pixel at Color 0).
 //! Each band is read back and fed to a streaming Lanczos3
-//! ([`rawtonic_engine::lanczos::SignedRowStream`], the values of
-//! `lanczos::resize_signed`), so the full-resolution result never exists
+//! ([`rawtonic_engine::lanczos::SignedRowStream::wide_gamut`], the values of
+//! `lanczos::resize_wide_gamut`: colours beyond sRGB keep their negative
+//! channels, ringing is cut at 0), so the full-resolution result never exists
 //! whole on the CPU. Measured: notes:
 //! benchmark-results/tpx5-gpu-chroma-2026-11-15/REPORT.md (the filter),
 //! benchmark-results/tpx7-2026-11-17/REPORT.md (the render input).
@@ -353,7 +354,7 @@ pub fn reduced_render_input(
         // Never read without the filter.
         None => (&pipelines.blur, &pipelines.blur),
     };
-    let mut stream = Some(SignedRowStream::new(
+    let mut stream = Some(SignedRowStream::wide_gamut(
         source_width,
         source_height,
         width,
