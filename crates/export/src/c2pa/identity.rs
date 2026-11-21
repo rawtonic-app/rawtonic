@@ -1160,7 +1160,9 @@ mod tests {
             serde_json::to_vec(&record).unwrap(),
         )
         .unwrap();
-        let error = load(dir.path()).err().expect("refused");
+        let Err(error) = load(dir.path()) else {
+            panic!("loaded");
+        };
         assert!(error.contains("public key"), "{error}");
     }
 
