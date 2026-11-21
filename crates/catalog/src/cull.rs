@@ -47,8 +47,11 @@ pub const DOCUMENT_PROMPTS: [&str; 6] = [
 ];
 
 /// Least misfire score that suggests a misfire: chosen on CUL1's tuning
-/// half (max F1), held-out P 0.77 R 0.71 (REPORT.md "Bottom line").
-pub const MISFIRE_THRESHOLD: f32 = 0.01153;
+/// half (max F1, the lowest tied score) from the scores the app itself
+/// gives (its cached thumbnails; notes: benchmark-results/
+/// cul3-2026-11-21/REPORT.md), held-out through the app P 0.75 R 0.64.
+/// CUL1's 0.01153 from the camera JPEGs flags the same frames.
+pub const MISFIRE_THRESHOLD: f32 = 0.01175;
 /// Least document score that suggests a document (CUL1 tuning half;
 /// held-out P 1.00 R 0.75).
 pub const DOCUMENT_THRESHOLD: f32 = 0.02835;

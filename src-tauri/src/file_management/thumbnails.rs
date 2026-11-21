@@ -2146,14 +2146,65 @@ pub fn get_cached_or_generate_thumbnail_image(
     let mut embedded = false;
     let image =
         generate_thumbnail_with_source(path_str, gpu_context, None, app_handle, &mut embedded)?;
-    if let Err(error) = entry.save(path_str, &image, embedded, &settings) {
+    let saved = entry.save(path_str, &image, embedded, &settings);
+    Ok(as_cached(path_str, &entry.medium, image, saved))
+}
+
+/// The thumbnail as its cached file gives it (`medium`, resized and
+/// compressed), once `saved` cached it: the photograph is read from the same
+/// pixels the first time and every later time, so its content embedding and
+/// culling scores do not depend on whether the pass or the grid made its
+/// thumbnail (notes: benchmark-results/cul3-2026-11-21/REPORT.md). The
+/// `generated` image when it was not cached or cannot be read back.
+fn as_cached(
+    path_str: &str,
+    medium: &Path,
+    generated: DynamicImage,
+    saved: Result<()>,
+) -> DynamicImage {
+    if let Err(error) = saved {
         log::warn!("Thumbnail of {path_str} not cached: {error:#}");
+        return generated;
     }
-    Ok(image)
+    match image::open(medium) {
+        Ok(cached) => {
+            crate::storage_fs::mark_used(medium);
+            cached
+        }
+        Err(error) => {
+            log::warn!("Cached thumbnail of {path_str} not read back: {error}");
+            generated
+        }
+    }
 }
 
 #[cfg(test)]
 mod source_preview_tests {
+    #[test]
+    fn a_thumbnail_just_made_is_read_as_its_cached_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let medium = temp.path().join("hash_medium.jpg");
+        let generated =
+            image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(1600, 1000, |x, y| {
+                image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x ^ y) % 256) as u8])
+            }));
+        std::fs::write(&medium, super::encode_thumbnail(&generated, 1280).unwrap()).unwrap();
+        let read = super::as_cached("photo.jpg", &medium, generated.clone(), Ok(()));
+        assert_eq!(read, image::open(&medium).unwrap());
+        // Not cached: the image as made.
+        let read = super::as_cached(
+            "photo.jpg",
+            &medium,
+            generated.clone(),
+            Err(anyhow::anyhow!("full")),
+        );
+        assert_eq!(read, generated);
+        // Cached but unreadable: the image as made.
+        std::fs::write(&medium, b"not a jpeg").unwrap();
+        let read = super::as_cached("photo.jpg", &medium, generated.clone(), Ok(()));
+        assert_eq!(read, generated);
+    }
+
     #[test]
     fn an_announced_medium_thumbnail_is_found_while_its_file_is_cached() {
         let temp = tempfile::tempdir().unwrap();
