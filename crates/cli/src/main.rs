@@ -537,7 +537,7 @@ impl rawtonic_export::export_processing::Enlarger for SuperResolution {
     }
 }
 
-/// The Sky, Subject and People networks of the app's model folder, for
+/// The Sky, Subject, People and landscape networks of the app's model folder, for
 /// selections an export computes (`ai_selections::detect_missing`). Depth
 /// ranges are computed by the app only (its depth network is not in the
 /// CLI); a photo needing one fails, naming the layer.
@@ -601,9 +601,38 @@ impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
                     "depth ranges are computed by the app (export the photo from the app)".into(),
                 );
             }
+            AutoSelection::Landscape => {
+                let parts = sel::landscape_parts(parameters)
+                    .ok_or_else(|| "a Landscape selection without known parts".to_string())?;
+                return self
+                    .detect_landscape(&[parts], warped, linear)
+                    .map(|mut masks| masks.remove(0));
+            }
         }
         .map_err(|e| format!("{e:#}"))?;
         rawtonic_segment::mask_data_url(&mask)
+    }
+
+    fn detect_landscape(
+        &self,
+        sets: &[rawtonic_engine::ai_selections::LandscapeParts],
+        warped: &image::DynamicImage,
+        linear: bool,
+    ) -> Result<Vec<String>, String> {
+        let model = self.segment.landscape().map_err(|e| format!("{e:#}"))?;
+        let probabilities = rawtonic_segment::landscape_probabilities(warped, &model, linear, None)
+            .map_err(|e| format!("{e:#}"))?;
+        sets.iter()
+            .map(|set| {
+                let parts =
+                    rawtonic_segment::landscape_parts(&set.keys()).map_err(|e| format!("{e:#}"))?;
+                rawtonic_segment::mask_data_url(&rawtonic_segment::landscape_mask(
+                    (warped.width(), warped.height()),
+                    &probabilities,
+                    &parts,
+                ))
+            })
+            .collect()
     }
 }
 

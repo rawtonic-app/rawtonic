@@ -230,6 +230,7 @@ pub fn pending_detections_message(pending: &[PendingDetection]) -> String {
             } else {
                 format!("layer “{layer}”: open the photograph in Develop to detect its {} selection", match p.kind.as_str() {
                     "ai-sky" => "Sky",
+                    "ai-landscape" => "Landscape",
                     "ai-foreground" => "Subject",
                     "ai-depth" => "depth range",
                     "ai-people" => "People",

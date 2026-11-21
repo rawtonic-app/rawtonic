@@ -77,6 +77,11 @@ Rawtonic otherwise goes online only when you ask it to:
   library's photos show from their thumbnails on your computer and keeps
   that, and the misfire and document scores made from it, in the library's
   catalog.
+  The Landscape mask downloads its model (119 MB) only when you open a Landscape
+  mask's settings in Develop. Until then a Landscape layer that was pasted, synced
+  or came with a preset stays without its mask (opening its photo downloads
+  nothing), and exporting that photo stops with a message to open the mask's
+  settings.
   Ticking Super Resolution in the Export dialog (or opening the dialog with a
   preset that has it) downloads its model if it is not installed yet, on
   Windows and Linux with GPU AI on also its 1.2 MB graphics-card version.
@@ -148,7 +153,7 @@ areas made by a generative AI tool also records that fact (IPTC Digital Source
 Type), as the EU AI Act requires.
 
 **Provenance (C2PA), off by default.** With Export > Provenance (C2PA) on, each
-JPEG, PNG or TIFF carries a signed manifest: Rawtonic's name and version, the file
+JPEG, PNG, TIFF, WebP or AVIF carries a signed manifest: Rawtonic's name and version, the file
 name and type of the photograph it was developed from, the kinds of edits
 (opened, tone and colour, cropped, rotated, local adjustments, retouching,
 resized, border or watermark) and each area a generative model made, and,

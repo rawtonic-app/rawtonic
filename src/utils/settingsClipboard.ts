@@ -18,7 +18,14 @@ import { sourceOf } from '../entities/photo/photoRef';
  * selection, pointed on one photograph, is pointed again): pasted or synced
  * onto another photograph they never keep the source's bitmap
  * (`masks::DETECTED_TYPES`). */
-export const DETECTED_TYPES = new Set(['ai-subject', 'ai-foreground', 'ai-sky', 'ai-depth', 'ai-people']);
+export const DETECTED_TYPES = new Set([
+  'ai-subject',
+  'ai-foreground',
+  'ai-sky',
+  'ai-landscape',
+  'ai-depth',
+  'ai-people'
+]);
 
 /** Marks a component pasted from another photograph whose detection has not
  * run on this one yet (`masks::DETECT_PENDING`). */

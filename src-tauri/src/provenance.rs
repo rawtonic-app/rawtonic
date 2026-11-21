@@ -220,7 +220,7 @@ mod tests {
             "filenameTemplate": null, "watermark": null, "provenance": {"includeAuthor": false}
         }))
         .unwrap();
-        (settings, if format_ok { "jpg" } else { "webp" })
+        (settings, if format_ok { "jpg" } else { "jxl" })
     }
 
     #[test]
@@ -249,8 +249,8 @@ mod tests {
             pin_signer(&mut none, format, None).unwrap_err(),
             rawtonic_export::export_processing::PROVENANCE_NEEDS_IDENTITY
         );
-        let (mut webp, format) = settings(false);
-        assert!(pin_signer(&mut webp, format, Some(&identity)).is_err());
+        let (mut jxl, format) = settings(false);
+        assert!(pin_signer(&mut jxl, format, Some(&identity)).is_err());
 
         // Exports without the option are left as they are.
         let mut plain = settings(true).0;

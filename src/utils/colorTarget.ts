@@ -413,7 +413,8 @@ export const rangeCentre = (range: ColorRange): Vec3 => {
 
 /**
  * What the renderer's probe saw at a pick (`sample_color_range_input`): the
- * colour entering the edited ranges in each preview pixel around the point
+ * colour entering the edited ranges in each pixel of the picker's block
+ * around the point, developed at full resolution as the export develops it
  * (Oklab of the unclipped working colour: before the photo's ranges, or for
  * a mask layer after the photo's ranges and the layers below it) and the
  * layer's mask influence there (1 for the photo's own ranges).
@@ -421,6 +422,9 @@ export const rangeCentre = (range: ColorRange): Vec3 => {
 export interface RangeInput {
   pixels: Vec3[];
   influence: number[];
+  /** The mean (Oklab, display values averaged) of every pixel the renderer
+   * read; `pixels` may be cells of that block (utils/colorRanges `binned`). */
+  mean?: Vec3;
 }
 
 /** A range picked in the photo: the normalised point, the range's colour
@@ -430,6 +434,9 @@ export interface ColorRangePick {
   centre: Vec3;
   /** The framing the point belongs to (utils/colorRanges `geometryKeyOf`). */
   geometry: string;
+  /** The eyedropper's block (x, y, w, h normalised to the shown photograph):
+   * the range's later samples and the target's measurements read it. */
+  block?: [number, number, number, number] | null;
   /** Null while the renderer has no sample there (a hidden layer). */
   input: RangeInput | null;
 }
@@ -716,4 +723,103 @@ export function solveColorTarget(
     movable: true,
     uncovered: false
   };
+}
+
+// --- Closed loop on the renderer's result ------------------------------
+
+/** CIELAB D50 of the pickers' mean of sRGB display values (0–255 per pixel). */
+export function meanDisplayLab(pixels: Vec3[]): Vec3 | null {
+  if (!pixels.length) return null;
+  const sum: Vec3 = [0, 0, 0];
+  for (const p of pixels) for (let k = 0; k < 3; k += 1) sum[k] += p[k] / pixels.length;
+  return linearToLab(srgb8ToLinear(sum));
+}
+
+/** The measured result of a range's target (`useEditorStore.colorTargetMeasure`):
+ * the range (`photo|layer|range id`), the recipe measured (JSON) and the
+ * CIELAB D50 the renderer left at the pick, or null when it could not be measured. */
+export interface ColorTargetMeasure {
+  key: string;
+  recipe: string;
+  /** Null when the renderer could not measure this recipe there. */
+  lab: Vec3 | null;
+  /** Why not: 'notTheExport' (AI Denoise: a region's source is not the
+   * export's) or 'unavailable'; null with `lab`. */
+  unmeasured?: string | null;
+}
+
+/** What the renderer leaves at the pick, in its sRGB render with every tool. */
+export interface MeasuredTarget {
+  lab: Vec3;
+  /** ΔE00 to the target. */
+  deltaE: number;
+}
+
+export interface MeasuredSolve {
+  /** The ranges with the shifts that measured closest to the target. */
+  ranges: ColorRange[];
+  /** Their measurement, or null when the renderer could not measure (the
+   * ranges are then the model's solve). */
+  measured: MeasuredTarget | null;
+  /** How many corrections after the model's solve were measured. */
+  corrections: number;
+}
+
+/** Corrections after the model's solve (each one renderer probe). */
+export const MAX_CORRECTIONS = 3;
+/** No further correction starts once this much time has passed since the
+ * first measurement came back (the corrections' share of a typed target's
+ * latency; the first measurement may wait for the full-resolution source). */
+export const CORRECTION_BUDGET_MS = 120;
+/** Below this measured distance no correction is tried. */
+const GOOD_ENOUGH = 0.2;
+
+/**
+ * The closed loop of the target solve: the model's solve
+ * (`solveColorTarget`) is rendered and measured at the pick (`measure`: the
+ * renderer's sRGB result there, every tool and the output's mapping
+ * included), the aim is moved by the measured error and solved again, up
+ * to `MAX_CORRECTIONS` times while the measured ΔE00 keeps improving and
+ * the time budget lasts. Texture at the pick (the mean of shifted pixels
+ * is not the shifted mean), later tools and the output's gamut mapping are
+ * what the model leaves out; the measurement holds them all. Returns the
+ * best measured ranges.
+ */
+export async function solveColorTargetMeasured(
+  ranges: ColorRange[],
+  id: string,
+  targetLab: Vec3,
+  input: RangeInput | null | undefined,
+  measure: (ranges: ColorRange[]) => Promise<Vec3 | null>,
+  { maxCorrections = MAX_CORRECTIONS, budgetMs = CORRECTION_BUDGET_MS, now = () => performance.now() } = {}
+): Promise<MeasuredSolve | null> {
+  const first = solveColorTarget(ranges, id, targetLab, input);
+  if (!first) return null;
+  const withShifts = (shifts: TargetSolve['shifts']) => ranges.map((r) => (r.id === id ? { ...r, ...shifts } : r));
+  let best: MeasuredSolve = { ranges: withShifts(first.shifts), measured: null, corrections: 0 };
+  let started: number | null = null;
+  const tried = new Set<string>();
+  let aim = targetLab;
+  let solve = first;
+  for (let step = 0; step <= maxCorrections; step += 1) {
+    const { hueShift, saturation, lightnessShift } = solve.shifts;
+    const key = `${hueShift}|${saturation}|${lightnessShift}`;
+    // The same sliders again measure the same: the loop has settled.
+    if (tried.has(key)) break;
+    tried.add(key);
+    const next = withShifts(solve.shifts);
+    const lab = await measure(next);
+    if (!lab || !lab.every(Number.isFinite)) break;
+    const deltaE = deltaE00(targetLab, lab);
+    if (best.measured && deltaE >= best.measured.deltaE - 0.01) break;
+    best = { ranges: next, measured: { lab, deltaE }, corrections: step };
+    started ??= now();
+    if (deltaE <= GOOD_ENOUGH || now() - started > budgetMs) break;
+    // Aim past the target by what the render missed it by.
+    aim = aim.map((v, k) => v + (targetLab[k] - lab[k])) as Vec3;
+    const again = solveColorTarget(ranges, id, aim, input);
+    if (!again) break;
+    solve = again;
+  }
+  return best;
 }

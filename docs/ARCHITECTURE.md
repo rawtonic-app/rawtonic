@@ -412,7 +412,9 @@ preview/performance limits: notes `benchmark-results/fp-protection-2026-10-27/RE
 
 #### `segment`
 
-`segment` (the Sky (UperNet) and Subject (BiRefNet) networks on ONNX Runtime or Core ML and their masks, `Models` to
+`segment` (the Sky (UperNet) and Subject (BiRefNet) networks on ONNX Runtime or Core ML and their masks, the
+landscape parts (`landscape.rs`: the same UperNet with a seven-part head on ONNX Runtime; one run per photo gives every
+part, `landscape_mask` sums the chosen parts and cuts them off the sky's fitted edge), `Models` to
 load them from a model folder; the app loads them for the editor and its exports, the CLI from `--models`, so both
 compute the same masks; Select Subject is `subject_selection` at the component's `subjectVersion`: version 2
 (`select_subject`) is BiRefNet's foreground without separate objects clearly out of focus next to the sharpest
@@ -533,8 +535,9 @@ recipe `*Version` key read once, with its clamp and a named predicate per gate).
 under their former module names and keeps their Tauri commands in thin modules of the same name. `engine` also holds
 mask rasterisation and the recipe hashes.
 
-`engine::ai_selections` computes the Sky and Subject selections a never-opened photo (an import, pasted settings) holds
-without a bitmap at export, as the editor does on open (same warped photo, same parameters), through a
+`engine::ai_selections` computes the Sky, Subject and Landscape selections a never-opened photo (an import, pasted
+settings, a preset) holds without a bitmap at export (the Landscape selections of a photo from one network run,
+`SelectionDetector::detect_landscape`), as the editor does on open (same warped photo, same parameters), through a
 `SelectionDetector` (`ai_commands::ExportSelections` in the app, `SelectionModels` in the CLI); the app keeps the result
 in the stored recipe (`export_processing::keep_detected_selections`), a missing model fails that photo, and
 `prepare_export_source` refuses any shown Sky or Subject selection still without its bitmap.
@@ -620,8 +623,12 @@ orientation, in that order; every render caller in the app and the CLI calls it 
 
 `export::c2pa`: provenance manifests (C2PA 2.x) for exports whose settings ask for them (`ExportSettings::provenance`,
 off by default): its own CBOR/JUMBF/COSE_Sign1 writer on `ring` (no c2pa-rs: its RSA and chrono dependencies fail the
-advisory gates), JPEG APP11, PNG `caBX` and TIFF tag 0xCD41 (`tiff_exif::append_reserved_tag`), signed after every other write of
-the file (`with_provenance` in `export_processing`; a streamed TIFF once it is written); `identity` keeps the signing key
+advisory gates), JPEG APP11, PNG `caBX`, TIFF tag 0xCD41 (`tiff_exif::append_reserved_tag`), WebP `C2PA` chunk (`c2pa.hash.data`)
+and AVIF C2PA `uuid` box right before the first `mdat`, item locations moved (`avif_container::insert_before_media`;
+`c2pa.hash.bmff.v3`: each top-level box with its offset, but the manifest box and `/mfra`), signed after every other write of
+the file (`with_provenance` in `export_processing`); a TIFF is written in two passes, the layout with its strips left out
+and the metadata and reserved manifest appended, then the strips while a thread hashes them (`signed_tiff`): the
+pixel strips are not read back, only the few KB around them; `identity` keeps the signing key
 and certificate in a folder the app gives (`src-tauri/src/provenance.rs`: the app data folder's `provenance/`, and the
 Export panel's commands). `ExportOutput::provenance` carries the loaded identity (`FileExporter::with_provenance`, the CLI's
 `--provenance-identity`); the app checks and pins it when a job is queued (`provenance::pin_signers` from
