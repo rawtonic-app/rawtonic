@@ -44,7 +44,7 @@ use crate::spot_removal::{mask_frame, to_base};
 
 mod eye_teeth;
 mod protect;
-pub use eye_teeth::{EYES_TEETH_VERSION, Eye};
+pub use eye_teeth::Eye;
 pub use protect::ProtectStroke;
 
 /// Slider values, 0–100 (Texture −100–100); unset values of a face take
@@ -1373,7 +1373,6 @@ pub fn apply_face_retouch(image: &mut Rgb32FImage, adjustments: &Value) -> bool 
     };
     let frame = mask_frame(adjustments, image.width(), image.height());
     let protection = protect::Protection::new(image, &retouch.protect, adjustments, frame);
-    let eyes_teeth_version = adjustments.get("faceRetouch").map_or(1, eye_teeth::version);
     let mut changed = false;
     for face in retouch.faces.iter().filter(|f| f.enabled) {
         let amounts = face.settings.over(retouch.settings).amounts();
@@ -1418,7 +1417,6 @@ pub fn apply_face_retouch(image: &mut Rgb32FImage, adjustments: &Value) -> bool 
                     eye_distance: (face.eye_distance * base_per_mask) as f32,
                 },
                 &amounts,
-                eyes_teeth_version,
             );
         }
         changed = true;

@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { rustRecipeKeys } from '../../contracts/recipeKeys.testSupport';
 import cacheUtils from '../../../crates/engine/src/cache_utils.rs?raw';
 import faceRetouch from '../../../crates/engine/src/face_retouch.rs?raw';
-import eyeTeeth from '../../../crates/engine/src/face_retouch/eye_teeth.rs?raw';
 import {
-  EYES_TEETH_VERSION,
   FACE_FRAME_KEYS,
   blemishThreshold,
   eyeChange,
@@ -115,12 +113,6 @@ describe('eyes and teeth', () => {
     // A face that has them keeps its own; none nearby: unchanged.
     expect(filled[1]).toBe(stored[1]);
     expect(withEyesAndMouth([face('c', 2000)], analysed)[0].eyes).toBeUndefined();
-  });
-
-  it("writes the engine's version", () => {
-    expect(String(EYES_TEETH_VERSION)).toBe(
-      eyeTeeth.match(/pub const EYES_TEETH_VERSION: u64 = (\d+);/)?.[1] ?? 'missing'
-    );
   });
 });
 

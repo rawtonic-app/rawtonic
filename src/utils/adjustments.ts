@@ -411,9 +411,6 @@ export interface FaceRetouch {
   enabled?: boolean;
   /** The protection brush's strokes, in the order painted (for every face). */
   protect?: FaceProtectStroke[];
-  /** The response of Eyes and Teeth the recipe was made with (engine
-   * `face_retouch::EYES_TEETH_VERSION`); written when one of them is set. */
-  eyesTeethVersion?: number;
 }
 
 /** Grain structures (shader `grain_structure_noise`, notes: reference/grain.md). */

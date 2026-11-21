@@ -45,10 +45,6 @@ use crate::spot_removal::to_base;
 /// outlines alone.
 const TINY_IRIS: f32 = 6.0;
 
-/// `faceRetouch.eyesTeethVersion`: the response of Eyes and Teeth a recipe
-/// was made with. 1 (the only one) when missing.
-pub const EYES_TEETH_VERSION: u64 = 1;
-
 /// An eye as the app found it, mask-frame pixels.
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 pub struct Eye {
@@ -58,7 +54,9 @@ pub struct Eye {
     pub lid: Vec<[f64; 2]>,
 }
 
-/// The tuning of one `eyesTeethVersion`.
+/// The strengths at 100. A later change to them that would alter saved
+/// edits needs a recipe version key then (none exists yet: recipes without
+/// Eyes and Teeth values render as before).
 #[derive(Clone, Copy, Debug)]
 struct Tuning {
     /// Iris at 100: contrast gain, lightness gain (square-root values),
@@ -76,28 +74,16 @@ struct Tuning {
     teeth_whiten_light: f32,
 }
 
-fn tuning(_version: u64) -> Tuning {
-    Tuning {
-        iris_contrast: 0.35,
-        iris_light: 0.1,
-        iris_colour: 0.1,
-        sclera_light: 0.6,
-        sclera_colour: 0.7,
-        teeth_light: 0.6,
-        teeth_yellow: 0.85,
-        teeth_whiten_light: 0.15,
-    }
-}
-
-/// The recipe's `eyesTeethVersion` (1 when missing, never newer than this
-/// renderer knows).
-pub fn version(retouch: &Value) -> u64 {
-    retouch
-        .get("eyesTeethVersion")
-        .and_then(Value::as_u64)
-        .unwrap_or(1)
-        .clamp(1, EYES_TEETH_VERSION)
-}
+const TUNE: Tuning = Tuning {
+    iris_contrast: 0.35,
+    iris_light: 0.1,
+    iris_colour: 0.1,
+    sclera_light: 0.6,
+    sclera_colour: 0.7,
+    teeth_light: 0.6,
+    teeth_yellow: 0.85,
+    teeth_whiten_light: 0.15,
+};
 
 /// A closed outline in base pixels.
 struct Outline {
@@ -244,9 +230,8 @@ pub(super) fn retouch(
     mouth: Option<&[[f64; 2]]>,
     place: &Placement,
     amounts: &Amounts,
-    version: u64,
 ) {
-    let tune = tuning(version);
+    let tune = TUNE;
     // Left, then right in the photo; `None`: that eye is not seen.
     for (side, eye) in eyes.iter().enumerate().take(2) {
         let Some(eye) = eye else { continue };
@@ -1070,15 +1055,6 @@ mod tests {
             "white: preview {preview}, export {export}"
         );
         assert!(!changed(&small, &image, 18, 25), "cheek");
-    }
-
-    #[test]
-    fn version_defaults_to_one_and_clamps() {
-        assert_eq!(version(&json!({})), 1);
-        assert_eq!(
-            version(&json!({"eyesTeethVersion": 99})),
-            EYES_TEETH_VERSION
-        );
     }
 
     /// Time of Eyes and Teeth at 100 on real photos at full size: for each

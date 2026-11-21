@@ -359,15 +359,13 @@ fn carry_face_settings(
 /// the Retouch tab finds them (in its mask frame, its own geometry), take
 /// `settings` for all faces and, by position, the per-face values, and the
 /// result is written like any applied adjustment (sidecar, XMP, thumbnail).
-/// `eyes_teeth_version`: the source's `eyesTeethVersion`, so Eyes and Teeth
-/// render alike on every photo. Each photo's finished write is announced (`BATCH_WRITE_SETTLED`, tagged
+/// Each photo's finished write is announced (`BATCH_WRITE_SETTLED`, tagged
 /// `batch`); short of all, the error names every photo that was not written.
 #[tauri::command]
 pub async fn apply_face_retouch_to_paths(
     paths: Vec<String>,
     settings: serde_json::Value,
     face_settings: Vec<FaceSettingsAt>,
-    eyes_teeth_version: Option<u64>,
     batch: Option<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<usize, SaveFailure> {
@@ -488,9 +486,6 @@ pub async fn apply_face_retouch_to_paths(
                 });
                 if let Some(protect) = protect {
                     value["protect"] = protect;
-                }
-                if let Some(version) = eyes_teeth_version {
-                    value["eyesTeethVersion"] = serde_json::json!(version);
                 }
                 Ok(value)
             })

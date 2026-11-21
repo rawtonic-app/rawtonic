@@ -246,10 +246,6 @@ export function removedBlemishes(face: RetouchFace, all: FaceRetouchSettings) {
 
 type SliderKey = Exclude<keyof FaceRetouchSettings, 'includeNeck'>;
 
-/** The response of Eyes and Teeth this app writes (engine
- * `face_retouch::EYES_TEETH_VERSION`). */
-export const EYES_TEETH_VERSION = 1;
-
 /** Which eye the Eyes sliders show: both, or the one on the left or right
  * of the photo. */
 export type EyeSide = 'both' | 'left' | 'right';
@@ -300,17 +296,6 @@ export function withEyesAndMouth(faces: RetouchFace[], analysed: RetouchFace[]):
     return best ? { ...face, eyes: best.eyes ?? [], mouth: best.mouth ?? null } : face;
   });
 }
-
-const EYE_KEYS: ReadonlySet<string> = new Set([
-  'iris',
-  'sclera',
-  'irisLeft',
-  'irisRight',
-  'scleraLeft',
-  'scleraRight',
-  'teethBrightness',
-  'teethWhiten'
-]);
 
 const SLIDERS = [
   { key: 'impact', min: 0, max: 100, initial: 100 },
@@ -374,7 +359,6 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
             paths: others,
             settings: current.settings,
             faceSettings,
-            eyesTeethVersion: current.eyesTeethVersion ?? null,
             ...(batch ? { batch } : {})
           }),
         /** It answers how many it wrote; short of all it failed with the
@@ -477,18 +461,14 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       return base ? { ...prev, faceRetouch: change(base) } : prev;
     });
   const set = <K extends keyof FaceRetouchSettings>(key: K, value: FaceRetouchSettings[K]) =>
-    update((before) => {
-      // Eyes and Teeth: record their response.
-      const r = EYE_KEYS.has(key)
-        ? { ...before, eyesTeethVersion: before.eyesTeethVersion ?? EYES_TEETH_VERSION }
-        : before;
-      return face
+    update((r) =>
+      face
         ? {
             ...r,
             faces: r.faces.map((f) => (f.id === face.id ? { ...f, settings: { ...f.settings, [key]: value } } : f))
           }
-        : { ...r, settings: { ...r.settings, [key]: value } };
-    });
+        : { ...r, settings: { ...r.settings, [key]: value } }
+    );
   const valueOf = (key: SliderKey, initial: number) => face?.settings[key] ?? settings[key] ?? initial;
   const get = (key: SliderKey) => face?.settings[key] ?? settings[key];
   const [eyeSide, setEyeSide] = useState<EyeSide>('both');
