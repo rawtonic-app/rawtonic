@@ -9692,9 +9692,11 @@ fn grain_frame_cost_probe() {
     // a hash grain), with film grain (grainVersion 3, the default of new
     // edits) monochrome and in colour, with Glow + Halation (terms pass) and
     // with all three, and (G76/GRN3) a drag's frames of the effects
-    // (`DragEffects`: terms and film grain once per 2 x 2 pixels). Each
-    // frame changes Exposure; the time runs until the GPU has finished the
-    // frame. Modes take turns, five frames each.
+    // (`DragEffects`: terms and film grain once per block), and (G76/GRN6)
+    // the same with the grain forced to 2 x 2 blocks (`_2x2`: the grain as
+    // before GRN6, whose 4 x 4 grain blocks below 1080 px the other drag
+    // modes take). Each frame changes Exposure; the time runs until the GPU
+    // has finished the frame. Modes take turns, five frames each.
     // `RAWTONIC_GRAIN_PROBE_SIZES=WxH,...` picks other sizes.
     let context = context();
     let _limit = DeviceCompileLimit::set(&context);
@@ -9750,12 +9752,14 @@ fn grain_frame_cost_probe() {
             .map(|(_, profile)| get_all_adjustments_from_json(profile, true, Some(3)))
             .collect::<Vec<_>>();
         // A drag's frames of the effects (G76/GRN3).
-        for drag in [4, 5, 2, 3] {
+        for drag in [4, 5, 2, 3, 5, 2] {
             let mut frame = adjustments[drag].clone();
             frame.drag_effects.half_terms = true;
             frame.drag_effects.half_grain = true;
             adjustments.push(frame);
         }
+        // The grain block shift each mode forces (G76/GRN6).
+        let forced_grain = |mode: usize| (mode >= modes.len() + 4).then_some(1u32);
         for adjustments in &adjustments {
             prepare_preview_pipeline(&processor, preview_features(adjustments));
         }
@@ -9767,6 +9771,8 @@ fn grain_frame_cost_probe() {
                 "all_drag",
                 "film_grain_drag",
                 "film_grain_colour_drag",
+                "all_drag_2x2",
+                "film_grain_drag_2x2",
             ])
             .collect::<Vec<_>>();
         let mut times = vec![Vec::new(); names.len()];
@@ -9775,6 +9781,7 @@ fn grain_frame_cost_probe() {
                 for frame in 0..5 {
                     let mut adjustments = adjustments.clone();
                     adjustments.uniforms.global.exposure += 0.01 * (1 + frame) as f32;
+                    effect_passes::FORCED_GRAIN_SHIFT.with(|shift| shift.set(forced_grain(mode)));
                     let started = Instant::now();
                     processor
                         .run(
@@ -9801,6 +9808,7 @@ fn grain_frame_cost_probe() {
             }
         }
         effect_passes::FORCED.with(|forced| forced.set(None));
+        effect_passes::FORCED_GRAIN_SHIFT.with(|shift| shift.set(None));
         let medians = times
             .into_iter()
             .map(|mut times| {
@@ -27170,9 +27178,14 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
     // to the settled frame, and the settled frame after it (the same
     // values, so the partial-frame path could reuse the drag's pixels)
     // is byte for byte a settled frame rendered on its own. At 2048 x 1366
-    // the terms' blocks are 4 x 4 (G76/GRN4, `terms_block_shift`).
+    // the terms' blocks are 4 x 4 (G76/GRN4, `terms_block_shift`); below a
+    // short side of 1080 the grain's blocks are (G76/GRN6,
+    // `grain_block_shift`): its drag frame's grain is one value per 4 x 4
+    // block, above it one per 2 x 2 block.
     let context = context();
-    for (width, height) in [(1608u32, 1072u32), (2048, 1366)] {
+    for (width, height) in [(1024u32, 682u32), (1608, 1072), (1920, 1080), (2048, 1366)] {
+        // The grain's block side in this frame.
+        let block = if width.min(height) < 1080 { 4 } else { 2 };
         // A gradient with a bright disk (above white, so glow and halation
         // show) and the synthetic texture faintly on top.
         let data: Vec<f16> = (0..width * height)
@@ -27318,10 +27331,10 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
             let mut record = json!({"probe":"drag_effects","edit":name,"width":width,"mean_signed_codes":shift,
             "mean_abs_codes":mean_abs,"p999_abs_codes":p999});
             // The grain alone (green, codes): each frame less the same render
-            // without grain, settled or a drag's. Its spread within 2 x 2
-            // blocks, and at half resolution (each block's mean against the
-            // blocks around it) its strength and how far the drag's follows
-            // the settled grain's pattern.
+            // without grain, settled or a drag's. Its spread within blocks
+            // of `b` x `b` pixels, and at the grain blocks' resolution (each
+            // block's mean against the blocks around it) its strength and
+            // how far the drag's follows the settled grain's pattern.
             let grain_signal = |frame: &[u8], drag_frame: bool| -> Option<Vec<f64>> {
                 let mut without = profile.clone();
                 without
@@ -27345,29 +27358,27 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
                 )
             };
             let (w, h) = (width as usize, height as usize);
-            let within = |g: &[f64]| {
+            let within = |g: &[f64], b: usize| {
                 let mut sum = 0.0f64;
-                for y in (0..h - 1).step_by(2) {
-                    for x in (0..w - 1).step_by(2) {
-                        let at = |dx: usize, dy: usize| g[(y + dy) * w + x + dx];
-                        let mean = (at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1)) / 4.0;
-                        sum += (0..4)
-                            .map(|k| (at(k % 2, k / 2) - mean).powi(2))
-                            .sum::<f64>();
+                for y in (0..h - b + 1).step_by(b) {
+                    for x in (0..w - b + 1).step_by(b) {
+                        let at = |k: usize| g[(y + k / b) * w + x + k % b];
+                        let mean = (0..b * b).map(at).sum::<f64>() / (b * b) as f64;
+                        sum += (0..b * b).map(|k| (at(k) - mean).powi(2)).sum::<f64>();
                     }
                 }
-                (sum / (w / 2 * 2 * (h / 2 * 2)) as f64).sqrt()
+                (sum / (w / b * b * (h / b * b)) as f64).sqrt()
             };
-            let half_res = |g: &[f64]| -> Vec<f64> {
-                let (bw, bh) = (w / 2, h / 2);
+            let block_res = |g: &[f64]| -> Vec<f64> {
+                let b = block as usize;
+                let (bw, bh) = (w / b, h / b);
                 let block: Vec<f64> = (0..bw * bh)
                     .map(|i| {
-                        let (x, y) = (i % bw * 2, i / bw * 2);
-                        (g[y * w + x]
-                            + g[y * w + x + 1]
-                            + g[(y + 1) * w + x]
-                            + g[(y + 1) * w + x + 1])
-                            / 4.0
+                        let (x, y) = (i % bw * b, i / bw * b);
+                        (0..b * b)
+                            .map(|k| g[(y + k / b) * w + x + k % b])
+                            .sum::<f64>()
+                            / (b * b) as f64
                     })
                     .collect();
                 let mut high = Vec::with_capacity(bw * bh);
@@ -27388,7 +27399,7 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
                     grain_signal(&exact, false).unwrap(),
                     grain_signal(&approximate, true).unwrap(),
                 ];
-                let high = [half_res(&g[0]), half_res(&g[1])];
+                let high = [block_res(&g[0]), block_res(&g[1])];
                 let strength = [rms(&high[0]), rms(&high[1])];
                 let correlation = high[0]
                     .iter()
@@ -27398,10 +27409,14 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
                     / high[0].len() as f64
                     / (strength[0] * strength[1]);
                 record["grain_rms"] = json!([rms(&g[0]), rms(&g[1])]);
-                record["grain_within_2x2"] = json!([within(&g[0]), within(&g[1])]);
-                record["grain_half_res"] = json!(strength);
-                record["grain_half_res_correlation"] = json!(correlation);
-                (strength, correlation)
+                let within_4x4 = [within(&g[0], 4), within(&g[1], 4)];
+                let within_2x2 = [within(&g[0], 2), within(&g[1], 2)];
+                record["grain_within_2x2"] = json!(within_2x2);
+                record["grain_within_4x4"] = json!(within_4x4);
+                record["grain_block"] = json!(block);
+                record["grain_block_res"] = json!(strength);
+                record["grain_block_res_correlation"] = json!(correlation);
+                (strength, correlation, within_4x4[1] / within_2x2[1])
             });
             println!("{record}");
             // No shift of the frame's brightness or colour while dragging.
@@ -27412,12 +27427,37 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
                 // The terms come from the blurred photo: the coarser drag frame
                 // is within a code or two of the settled one.
                 None => assert!(mean_abs < 0.5 && p999 <= 3, "{name}: {mean_abs} / {p999}"),
-                // The settled grain seen at half resolution: most of its
-                // strength and the same pattern.
-                Some((strength, correlation)) => assert!(
-                    strength[1] > 0.85 * strength[0] && correlation > 0.8,
-                    "{name}: {strength:?}, correlation {correlation}"
-                ),
+                // The settled grain seen at the blocks' resolution: most of
+                // its strength and its pattern. A 4 x 4 block's grain is one
+                // sample of a footprint 16 pixels wide, against the mean of
+                // 16 pixels' samples, which more often straddle the grain's
+                // blend cells: it follows the settled pattern less closely
+                // than a 2 x 2 block's (measured 0.62 against 0.79 at
+                // 1024 x 682; notes: benchmark-results/grn6-2026-11-21).
+                // Where the blocks are 4 x 4 the drag's grain varies no more
+                // within 4 x 4 pixels than within 2 x 2 (the 8-bit rounding
+                // alone); where they are 2 x 2 it varies more, between its
+                // blocks.
+                Some((strength, correlation, spread_4x4_to_2x2)) => {
+                    let least_correlation = if block == 4 { 0.5 } else { 0.8 };
+                    assert!(
+                        strength[1] > 0.85 * strength[0] && correlation > least_correlation,
+                        "{name} at {width}: {strength:?}, correlation {correlation}"
+                    );
+                    if block == 4 {
+                        assert!(
+                            spread_4x4_to_2x2 < 1.3,
+                            "{name} at {width}: the drag's grain varies within 4 x 4 blocks \
+                             ({spread_4x4_to_2x2})"
+                        );
+                    } else {
+                        assert!(
+                            spread_4x4_to_2x2 > 1.5,
+                            "{name} at {width}: the drag's grain is coarser than 2 x 2 \
+                             ({spread_4x4_to_2x2})"
+                        );
+                    }
+                }
             }
         }
     }
