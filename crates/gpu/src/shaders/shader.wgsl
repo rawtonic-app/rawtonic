@@ -2865,10 +2865,11 @@ fn shadows_v19_level(coords: vec2<u32>) -> f32 {
 // SH_V20_KEEP and SH_V20_TO were chosen on the order test, the slider
 // atlas (shadow detail at +100), the stroke chart's gaps and two real
 // frames; SH_V20_FROM is the first build's.
-// On 46 public camera samples used for none of this, light pixels within
+// On public camera samples used for none of this: light pixels within
 // 15 px of dark detail at +100 move by a median p90 / p99 of 0.69 / 1.19 L*
-// (version 19: 1.60 / 3.01) and the shadow-detail bands stay at 0.999 of
-// version 19's in the median (the 48 atlas frames: 0.996); notes:
+// (version 19: 1.60 / 3.01; the 46 frames with at least 20 000 such
+// pixels), and the shadow-detail bands stay at 0.999 of version 19's in
+// the median (all 53 that decode; the 48 atlas frames: 0.996); notes:
 // benchmark-results/shg3-2026-11-21.
 const SH_V20_FROM: f32 = -2.0;
 const SH_V20_KEEP: f32 = 0.6;
@@ -2899,17 +2900,33 @@ const SH_V20_SOFT: f32 = 0.25;
 // +12 than at +2 (version 19, 4000 px short side), and with the bounds on
 // Shadows' share a line at −2.5 EV 0.65 L* darker at +6 than at 0. With
 // its own level Blacks' lift does not depend on Shadows, and Shadows'
-// share, nothing at 0, rises with the slider at a level that does not
-// move. With Blacks 0 the render from +12 on is the same as with the one
-// level.
+// share, nothing at 0, is read at a level that does not move. With Blacks
+// 0 the render from +12 on is the same as with the one level, to rounding.
+// Shadows' share is the shared gain less Blacks' at the same level, and
+// the shared gain adapts to the photo's key as a whole: on a dark photo of
+// low contrast it can be less than Blacks' alone (scalar check in review:
+// −0.03 EV at Blacks +50, Shadows +50, scene 0.08, 10th / 90th percentile
+// 0.024 / 0.096; version 19 has that on flat areas). So with Blacks set
+// the gain is held at Blacks' own at the tonal level, the render of
+// Shadows 0: raising Shadows renders no pixel below it, whatever the key.
+// Between two raised Shadows values the order is measured, not built in
+// (`tone_version_20_shadows_with_blacks_keeps_light_lines`).
 fn shadows_v20_gain(level: f32, tonal: f32, pixel: f32, sh: f32, bl: f32, fade: f32) -> f32 {
     let gain = shadows_v13_gain(level, sh, bl, fade);
-    var blacks_level = 0.0;
-    var blacks_tonal = 0.0;
-    if (bl != 0.0) {
-        blacks_level = log2(max(camera_raw_shadows_blacks_gain(level, 0.0, bl), 1e-9));
-        blacks_tonal = log2(max(camera_raw_shadows_blacks_gain(tonal, 0.0, bl), 1e-9));
+    if (bl == 0.0) {
+        return shadows_v20_bounded(gain, 0.0, 0.0, 0.0, level, pixel, sh, bl, fade);
     }
+    let blacks_level = log2(max(camera_raw_shadows_blacks_gain(level, 0.0, bl), 1e-9));
+    let blacks_tonal_gain = camera_raw_shadows_blacks_gain(tonal, 0.0, bl);
+    let blacks_tonal = log2(max(blacks_tonal_gain, 1e-9));
+    let blacks_pixel = log2(max(camera_raw_shadows_blacks_gain(pixel, 0.0, bl), 1e-9));
+    // Never below the render at Shadows 0 (Blacks' gain at the tonal level).
+    return max(shadows_v20_bounded(gain, blacks_level, blacks_tonal, blacks_pixel, level, pixel, sh, bl, fade), blacks_tonal_gain);
+}
+
+// `shadows_v20_gain` for the level's gain `gain` and Blacks' log2 gains at
+// the wide level, the tonal level and the pixel (all 0 with Blacks 0).
+fn shadows_v20_bounded(gain: f32, blacks_level: f32, blacks_tonal: f32, blacks_pixel: f32, level: f32, pixel: f32, sh: f32, bl: f32, fade: f32) -> f32 {
     // The level's gain with Blacks' share moved to the tonal level.
     let own = gain * exp2(blacks_tonal - blacks_level);
     if (pixel <= level) {
@@ -2922,10 +2939,6 @@ fn shadows_v20_gain(level: f32, tonal: f32, pixel: f32, sh: f32, bl: f32, fade: 
     let bound = min(at_level - (1.0 - SH_V20_KEEP) * rise, log2(max(cr_curve_level(SH_V20_TO), 1e-6) / pixel) - blacks_tonal);
     if (bound >= at_level) {
         return own;
-    }
-    var blacks_pixel = 0.0;
-    if (bl != 0.0) {
-        blacks_pixel = log2(max(camera_raw_shadows_blacks_gain(pixel, 0.0, bl), 1e-9));
     }
     let at_pixel = log2(max(shadows_v13_gain(pixel, sh, bl, fade), 1e-9)) - blacks_pixel;
     return own * exp2(min(max(at_pixel, bound) - at_level, 0.0));
