@@ -1682,8 +1682,12 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                 // after plain additive components goes first: coverage
                 // c ∪ (b · (1 − e)) is one value in either order (screen
                 // commutes), measured in Camera Raw.
-                let after_additive = items.iter().all(|(item, _, _)| {
+                let after_additive = items.iter().all(|(item, active, _)| {
                     let attr = |n: &str| item.attribute((CRS_NS, n));
+                    // A hidden component adds nothing to the coverage.
+                    if !active || attr("MaskActive") == Some("false") {
+                        return true;
+                    }
                     // A stroke with value 0 (an eraser) is not additive: an
                     // earlier aggregate's erasers would cut this one's brush.
                     let eraser = attr("MaskValue")
@@ -1798,13 +1802,15 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             let mut value = mattr("MaskValue")
                 .and_then(|v| v.parse::<f64>().ok())
                 .unwrap_or(1.0);
-            // Camera Raw ignores a gradient's or range's MaskValue in every
-            // encoding (Add, Subtract and Intersect alike, at 0, 0.25, 0.5
-            // and 0.75; notes: benchmark-results/msk4-2026-11-21): a
-            // "fractional" Subtract is a full a · (1 − b). Zero stays the
-            // Intersect marker below. Brush strokes and the masks computed
-            // from the photo keep their value as their opacity.
-            let value_ignored = matches!(kind, "linear" | "radial" | "luma-range");
+            // Camera Raw ignores a gradient's or range's MaskValue when it
+            // adds or subtracts (also Lightroom's Intersect, an inverted
+            // Subtract; measured at 0, 0.25, 0.5 and 0.75, notes:
+            // benchmark-results/msk4-2026-11-21): a "fractional" Subtract is
+            // a full a · (1 − b). Zero stays the Intersect marker below.
+            // Brush strokes, the masks computed from the photo and a direct
+            // MaskBlendMode 2 (not measured) keep their value as opacity.
+            let value_ignored = matches!(kind, "linear" | "radial" | "luma-range")
+                && matches!(blend, None | Some("0" | "1"));
             if value_ignored && value < 1.0 {
                 value = if blend == Some("1") && inverted {
                     0.0
@@ -2643,15 +2649,7 @@ mod tests {
                 out.extension().is_some_and(|e| e == "json"),
                 "{out:?}: not a .json"
             );
-            std::io::Write::write_all(
-                &mut std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(out)
-                    .unwrap(),
-                adjustments.to_string().as_bytes(),
-            )
-            .unwrap();
+            rawtonic_export::output::write_new_output(out, adjustments.to_string()).unwrap();
         }
     }
 
@@ -3142,6 +3140,16 @@ mod tests {
         assert_eq!(doubled.matches("Mask/Aggregate").count(), 2);
         let (doubled_layers, doubled_skipped) = super::lightroom_masks(&doubled);
         assert!(doubled_layers.is_empty() && doubled_skipped == vec!["Brush".to_string()]);
+        // With the first brush hidden its eraser cuts nothing: the second
+        // brush stays.
+        let hidden = doubled.replacen(
+            r#"crs:MaskInverted="false" crs:MaskValue="1""#,
+            r#"crs:MaskInverted="false" crs:MaskValue="1" crs:MaskActive="false""#,
+            1,
+        );
+        let (hidden_layers, hidden_skipped) = super::lightroom_masks(&hidden);
+        assert!(hidden_skipped.is_empty());
+        assert_eq!(hidden_layers[0]["subMasks"].as_array().unwrap().len(), 4);
         let subs = layers[0]["subMasks"].as_array().unwrap();
         assert_eq!(subs.len(), 2);
         assert_eq!(
