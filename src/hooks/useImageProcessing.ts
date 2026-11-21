@@ -759,6 +759,7 @@ export function useImageProcessing(
         settleBusy();
         // A newer request or another photograph replaced this one.
         if (errorCode(err) === 'cancelled') return;
+        const published = errorCode(err) === 'unsupported';
         editor.setEditor({
           ...(editor.selectedImage?.path === path
             ? {
@@ -770,7 +771,9 @@ export function useImageProcessing(
                     (editor.selectedImage.decoderStale ?? 0) === revision ? 0 : editor.selectedImage.decoderStale,
                   // The backend published a sensor AI Denoise skips as its
                   // rawler decode, standing in for the amount.
-                  ...(errorCode(err) === 'unsupported' ? { aiDenoiseStandIn: true } : {}),
+                  ...(published && useSettingsStore.getState().appSettings?.useAppleRaw9
+                    ? { aiDenoiseStandIn: true }
+                    : {}),
                   ...(changesAiDenoise ? { aiDenoiseFailed: amount, aiDenoiseFailedVersion: version ?? 1 } : {}),
                   ...(!changesAiDenoise && changesFilter ? { colorNoiseMultiscaleFailed: multiscale } : {}),
                   ...(!changesAiDenoise && changesDeadTest ? { deadPixelAdjacentFailed: deadPixelAdjacent } : {}),
@@ -782,6 +785,16 @@ export function useImageProcessing(
               }
             : {})
         });
+        // The skipped sensor's decode is the source now: shown.
+        const targetRes = currentResRef.current;
+        if (published && targetRes && editor.selectedImage?.path === path) {
+          previewQueue.submit({
+            path,
+            adjustments: editor.previewOverride ?? editor.adjustments,
+            dragging: false,
+            targetRes
+          });
+        }
         if (changesAiDenoise) toastAiError(err, `AI Denoise failed: ${errorMessage(err)}`);
         else console.error('Developing the source again failed:', err);
       });

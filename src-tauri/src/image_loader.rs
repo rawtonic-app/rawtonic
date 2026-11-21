@@ -958,8 +958,6 @@ pub async fn apply_ai_denoise(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get_measured(&key);
-    // A sensor the denoiser skipped (never cached, `settle_decode`).
-    let stands_in = skipped_stands_in(&settings);
     let (image, measures, skipped) = match cached {
         Some((image, _, measures)) => (image, measures, false),
         None => {
@@ -979,11 +977,6 @@ pub async fn apply_ai_denoise(
                 )
                 .map_err(|e| e.to_string())?;
                 let skipped = denoise.as_ref().is_some_and(|d| !d.was_applied());
-                // Without Apple RAW 9 rawler's pixels are the plain decode
-                // already open.
-                if skipped && !stands_in {
-                    return Err(NOT_BAYER.to_string());
-                }
                 let exif = exif_processing::read_exif_data(&decode_source, &bytes);
                 Ok::<_, String>((image, exif, skipped))
             })
@@ -1046,7 +1039,8 @@ pub async fn apply_ai_denoise(
     clear_derived_caches(&develop, &merges);
     if skipped {
         // Published as the load does (its pixels stand in for the recipe's
-        // AI Denoise); the editor is told, and marks the amount failed.
+        // AI Denoise, under the preferences just in force); the editor is
+        // told, shows them and marks the amount failed.
         return Err(CommandError::new(ErrorCode::Unsupported, NOT_BAYER));
     }
     Ok(applied)

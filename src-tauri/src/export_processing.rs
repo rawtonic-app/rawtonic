@@ -170,11 +170,8 @@ fn reusable_for_export(
     settings: &crate::app_settings::AppSettings,
 ) -> bool {
     loaded.decode == Some(crate::image_loader::decode_variant(adjustments, source))
-        // Another format's open pixels are what Develop shows: preferences
-        // reach it only by reopening it.
-        && (!loaded.is_raw
-            || loaded.decoder.as_deref()
-                == Some(crate::image_loader::decode_preferences(settings).as_str()))
+        && loaded.decoder.as_deref()
+            == Some(crate::image_loader::decode_preferences(settings).as_str())
         && loaded.ai_denoise
             == rawtonic_engine::image_loader::ai_denoise_settings(adjustments)
                 .filter(|_| loaded.is_raw)
@@ -3063,13 +3060,13 @@ mod tests {
             },
         ] {
             assert!(!reusable_for_export(&open_now, &queued, source, &changed));
-            // The open pixels of another format are the ones Develop shows.
+            // Of every format: the export never depends on which photo is open.
             let tiff_open = LoadedImage {
                 path: "/no-such-dir/open.tif".to_string(),
                 decode: Some(decode_variant(&queued, "/no-such-dir/open.tif")),
                 ..open(&queued, false)
             };
-            assert!(reusable_for_export(
+            assert!(!reusable_for_export(
                 &tiff_open,
                 &queued,
                 "/no-such-dir/open.tif",
