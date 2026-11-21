@@ -507,11 +507,14 @@ pub fn read_exif(file_bytes: &[u8]) -> Option<Exif> {
 /// most 8, as it parses) and of its Exif, GPS and Interop IFDs, and every
 /// field value stored outside its entry, read as that parser reads them
 /// (a child IFD pointer is the first BYTE, SHORT or LONG of its value).
-/// Ranges the parser would reject as truncated are not copied (it then
-/// fails as on the whole file); each page is copied at most once and each
-/// IFD walked once, so the work is bounded by the file's size. The zeroed
-/// allocation is not touched, so only those pages of a mapped file are
-/// read. None when `data` is no TIFF.
+/// A field value the parser would reject as truncated is not copied (it
+/// fails on its length alone); an IFD is copied up to the end of the file,
+/// so a truncated one fails as on the whole file. Each page is copied at
+/// most once and each IFD walked once, within a budget of page visits and
+/// entries proportional to the file's size: a malformed file that exceeds
+/// it gives None, and `read_exif` reads the whole file as before. The
+/// zeroed allocation is not touched, so only those pages of a mapped file
+/// are read. None when `data` is no TIFF.
 fn tiff_structure(data: &[u8]) -> Option<Vec<u8>> {
     const PAGE: usize = 4096;
     let le = match data.get(..4)? {
@@ -537,14 +540,25 @@ fn tiff_structure(data: &[u8]) -> Option<Vec<u8>> {
     };
     let mut out = vec![0u8; data.len()];
     let mut copied = vec![false; data.len().div_ceil(PAGE)];
-    // Copies `data[start..start + len]` (by whole pages) when it lies in the
-    // file; false when it does not.
-    let mut copy = |start: usize, len: usize| -> bool {
-        let Some(end) = start.checked_add(len).filter(|end| *end <= data.len()) else {
-            return false;
+    // Page visits and IFD entries left before giving up on the prepass.
+    let budget = std::cell::Cell::new(4 * copied.len() + (1 << 20));
+    let spend = |units: usize| -> Option<()> {
+        budget.set(budget.get().checked_sub(units)?);
+        Some(())
+    };
+    // Copies `data[start..start + len]` (by whole pages): Some(false), copying
+    // nothing, when it does not lie in the file, unless `clamp` (then up to
+    // the end of the file); None when the budget is spent.
+    let mut copy = |start: usize, len: usize, clamp: bool| -> Option<bool> {
+        let end = match start.checked_add(len) {
+            Some(end) if end <= data.len() => end,
+            _ if clamp && start < data.len() => data.len(),
+            _ => return Some(false),
         };
         let first = start / PAGE;
-        for (page, done) in copied[first..end.div_ceil(PAGE)].iter_mut().enumerate() {
+        let pages = &mut copied[first..end.div_ceil(PAGE)];
+        spend(pages.len())?;
+        for (page, done) in pages.iter_mut().enumerate() {
             if !*done {
                 *done = true;
                 let page = first + page;
@@ -552,7 +566,7 @@ fn tiff_structure(data: &[u8]) -> Option<Vec<u8>> {
                 out[range.clone()].copy_from_slice(&data[range]);
             }
         }
-        true
+        Some(true)
     };
     let unit = |typ: usize| -> usize {
         match typ {
@@ -563,7 +577,7 @@ fn tiff_structure(data: &[u8]) -> Option<Vec<u8>> {
             _ => 0,
         }
     };
-    copy(0, 8);
+    copy(0, 8, false)?;
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]
     enum Ctx {
         Tiff,
@@ -586,9 +600,10 @@ fn tiff_structure(data: &[u8]) -> Option<Vec<u8>> {
         let Some(count) = u16_at(offset) else {
             continue;
         };
-        if !copy(offset, 2 + 12 * count + 4) {
+        if !copy(offset, 2 + 12 * count + 4, true)? {
             continue;
         }
+        spend(count)?;
         for i in 0..count {
             let entry = offset + 2 + 12 * i;
             let (Some(tag), Some(typ), Some(cnt)) =
@@ -603,7 +618,7 @@ fn tiff_structure(data: &[u8]) -> Option<Vec<u8>> {
                 entry + 8
             } else {
                 match u32_at(entry + 8) {
-                    Some(at) if copy(at, len) => at,
+                    Some(at) if copy(at, len, false)? => at,
                     _ => break,
                 }
             };
@@ -2737,8 +2752,11 @@ mod tests {
         t.extend(w16(0x920A));
         t.extend(w16(5));
         t.extend(w32(1));
-        t.extend(w32(exif_ifd + 18));
+        // The value on a later page: read only by following the pointer.
+        let rational_at: u32 = 3 * 4096;
+        t.extend(w32(rational_at));
         t.extend(w32(0));
+        t.resize(rational_at as usize, 0xAB);
         t.extend(w32(35));
         t.extend(w32(1));
         t.extend(std::iter::repeat_n(0xAB, 8192));
@@ -2772,19 +2790,39 @@ mod tests {
             // A next-IFD offset back to IFD0 (a loop) and one past the end.
             cases.push(tiff_with_pointer(big_endian, 4, 1, 8));
             cases.push(tiff_with_pointer(big_endian, 4, 1, 1 << 30));
-            // An out-of-line pointer array running past the end of the file.
-            cases.push(tiff_with_pointer(big_endian, 4, 1 << 28, 0));
+            // An out-of-line pointer array running past the end of the file
+            // (a small array whose declared count is raised).
+            let mut long = tiff_with_pointer(big_endian, 4, 2, 0);
+            let count = if big_endian {
+                (1u32 << 28).to_be_bytes()
+            } else {
+                (1u32 << 28).to_le_bytes()
+            };
+            long[14..18].copy_from_slice(&count);
+            cases.push(long);
+            // IFD0 cut short: its entries run past the end of the file.
+            let mut cut = tiff_with_pointer(big_endian, 4, 1, 0);
+            let entries = if big_endian {
+                400u16.to_be_bytes()
+            } else {
+                400u16.to_le_bytes()
+            };
+            cut[8..10].copy_from_slice(&entries);
+            cut.truncate(4200);
+            cases.push(cut);
         }
         for (i, tiff) in cases.iter().enumerate() {
             let expected = whole(tiff);
             assert_eq!(fields(super::read_exif(tiff)), expected, "case {i}");
         }
-        assert!(
-            whole(&cases[1])
-                .unwrap()
-                .iter()
-                .any(|f| f.contains("FocalLength"))
-        );
+        for case in &cases[..6] {
+            assert!(
+                whole(case)
+                    .unwrap()
+                    .iter()
+                    .any(|f| f.contains("FocalLength 35"))
+            );
+        }
     }
 
     /// The primary sidecar is the photo's path with `.rrdata` pushed onto
