@@ -1683,6 +1683,9 @@ pub(crate) fn load_metadata_blocking(
     // For the editor only (not written): its history carries it (see
     // LensLookup::Keep).
     stamp_loaded_lens_profile(&mut metadata.adjustments);
+    // A camera TIFF's edit made on its embedded thumbnail, moved to the
+    // full frame (`recipe_frame`; saved with the next edit).
+    rawtonic_engine::recipe_frame::conform(&mut metadata.adjustments, &source_path);
     // Saved while the photo could not be read: resolved now if it can be,
     // so the editor shows the correction (saved with the next edit).
     let _ = rawtonic_export::exif_processing::resolve_unresolved_lens(

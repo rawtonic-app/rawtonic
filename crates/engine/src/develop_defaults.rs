@@ -51,6 +51,7 @@ const NEVER_DEFAULTED: &[&str] = &[
     SETTINGS_KEY,
     "renderVersion",
     "sourceFrameVersion",
+    crate::recipe_frame::KEY,
     "lensProfileFor",
     "colorLabel",
     "masks",

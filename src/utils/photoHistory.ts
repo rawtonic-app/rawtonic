@@ -20,7 +20,13 @@ interface Kept {
  * photograph's recipe is read with (`colorLabel`, library metadata;
  * crates/catalog `apply_editor_metadata`): the same edit before and after
  * saving. */
-const withoutReadStamps = (recipe: Adjustments) => ({ ...recipe, lensProfileFor: undefined, colorLabel: undefined });
+// The save's stamp of the photo size (utils/frameSize.ts) is no edit either.
+const withoutReadStamps = (recipe: Adjustments) => ({
+  ...recipe,
+  lensProfileFor: undefined,
+  colorLabel: undefined,
+  frameSize: undefined
+});
 
 /** Whether two numbers are the same as a save keeps them: they may differ in
  * their last digits, since the backend's JSON parser rounds some 17-digit

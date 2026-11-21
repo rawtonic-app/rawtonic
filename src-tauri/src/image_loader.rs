@@ -1099,7 +1099,11 @@ pub async fn load_image(
         clear_source_caches(&state.source, &develop, &merges);
     }
 
-    let metadata: ImageMetadata = crate::exif_processing::load_sidecar(&sidecar_path);
+    let mut metadata: ImageMetadata = crate::exif_processing::load_sidecar(&sidecar_path);
+    // A camera TIFF's edit made on its embedded thumbnail opens moved to
+    // the full frame (`recipe_frame`); the sidecar is written only when the
+    // user saves.
+    rawtonic_engine::recipe_frame::conform(&mut metadata.adjustments, &source_path);
 
     // An offline RAW renders with what its previews keep of the file (base
     // look, colour, lens defaults); one that can be read with its file.
