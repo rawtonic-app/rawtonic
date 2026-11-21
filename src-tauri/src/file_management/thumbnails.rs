@@ -3411,7 +3411,15 @@ mod face_retouch_thumbnail_tests {
             "a renewed proxy holds the colours: its tile is made again"
         );
         crate::preview_proxy::clear_display_copy_marker_for_test(&source);
+        // A never-edited photo's decode is the one the proxy stands for.
+        let new_edit = b"null".as_slice();
         assert_eq!(
+            compute_thumbnail_cache_hash(path, new_edit),
+            thumbnail_hash_before_refreshes(path, new_edit)
+        );
+        // A recipe that asks for another decode variant cannot use it: its
+        // tile is developed from the RAW and is made again.
+        assert_ne!(
             compute_thumbnail_cache_hash(path, &bytes),
             thumbnail_hash_before_refreshes(path, &bytes)
         );
