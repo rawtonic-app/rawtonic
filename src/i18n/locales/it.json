@@ -3786,13 +3786,13 @@
         "exporting": "Esportazione {{current}} di {{total}}"
       },
       "provenance": {
-        "about": "Registra la foto da cui ogni file è stato sviluppato, i tipi di modifica e ogni area creata da un modello generativo, firmato con il tuo certificato. JPEG, PNG e TIFF. Non viene inviato nulla.",
+        "about": "Registra la foto da cui ogni file è stato sviluppato, i tipi di modifica e ogni area creata da un modello generativo, firmato con il tuo certificato. JPEG, PNG, TIFF, WebP e AVIF. Non viene inviato nulla.",
         "add": "Firma un manifesto di provenienza in ogni file",
         "author": "Indica il creatore della foto come autore",
-        "blocked": "La provenienza (C2PA) non può firmare {{recipes}}: imposta un certificato di firma valido ed esporta JPEG, PNG o TIFF.",
+        "blocked": "La provenienza (C2PA) non può firmare {{recipes}}: imposta un certificato di firma valido ed esporta JPEG, PNG, TIFF, WebP o AVIF.",
         "certificateFilter": "Certificato PKCS#12",
         "expired": "Questo certificato non è valido ora (valido fino al {{until}}): non è possibile firmare le esportazioni con esso. Importa un certificato rinnovato o creane uno nuovo.",
-        "formatUnsupported": "I file {{format}} non possono ancora contenere un manifesto di provenienza. Scegli JPEG, PNG o TIFF, oppure disattiva l'opzione.",
+        "formatUnsupported": "I file {{format}} non possono ancora contenere un manifesto di provenienza. Scegli JPEG, PNG, TIFF, WebP o AVIF, oppure disattiva l'opzione.",
         "generate": "Crea un certificato su questo computer",
         "import": "Importa il tuo certificato (.p12)…",
         "importConfirm": "Importa",

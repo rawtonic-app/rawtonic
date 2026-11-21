@@ -115,23 +115,74 @@ fn png_store(png: &[u8]) -> &[u8] {
     }
 }
 
+/// The manifest store of a WebP, from its `C2PA` chunk.
+fn webp_store(webp: &[u8]) -> &[u8] {
+    let mut at = 12;
+    loop {
+        let len = u32::from_le_bytes(webp[at + 4..at + 8].try_into().unwrap()) as usize;
+        if &webp[at..at + 4] == b"C2PA" {
+            return &webp[at + 8..at + 8 + len];
+        }
+        at += 8 + len + (len & 1);
+    }
+}
+
+/// The manifest store of an AVIF, from its C2PA `uuid` box.
+fn avif_store(avif: &[u8]) -> &[u8] {
+    let (at, len) = bmff_boxes(avif)
+        .unwrap()
+        .into_iter()
+        .find(|&(at, _)| &avif[at + 4..at + 8] == b"uuid" && avif[at + 8..at + 24] == BMFF_UUID)
+        .expect("a C2PA uuid box");
+    let whole = &avif[at..at + len];
+    assert_eq!(&whole[24..28], &[0; 4], "version and flags");
+    assert_eq!(&whole[28..37], b"manifest\0");
+    &whole[45..]
+}
+
 /// Checks what a validator checks: the hard binding over `file`, every
 /// hashed URI, and the claim signature against the signing certificate.
 /// Returns the actions assertion.
 fn validate(file: &[u8], store: &[u8]) -> C {
     let manifest = boxes(&store[8..])[1].1;
-    let hash = content(find(manifest, "c2pa.hash.data").unwrap());
-    let exclusions = get(&hash, "exclusions").as_array().unwrap();
-    assert_eq!(exclusions.len(), 1);
-    let start = int(get(&exclusions[0], "start")) as usize;
-    let len = int(get(&exclusions[0], "length")) as usize;
-    let mut bound = file[..start].to_vec();
-    bound.extend_from_slice(&file[start + len..]);
-    assert_eq!(
-        get(&hash, "hash").as_bytes().unwrap().as_slice(),
-        digest::digest(&digest::SHA256, &bound).as_ref(),
-        "hard binding"
-    );
+    if let Some(bmff) = find(manifest, "c2pa.hash.bmff.v3") {
+        // Each top-level box but the C2PA `uuid` box: its offset (64-bit
+        // big-endian), then its bytes.
+        let hash = content(bmff);
+        let exclusions = get(&hash, "exclusions").as_array().unwrap();
+        assert_eq!(exclusions.len(), 1);
+        assert_eq!(get(&exclusions[0], "xpath").as_text(), Some("/uuid"));
+        let data = &get(&exclusions[0], "data").as_array().unwrap()[0];
+        assert_eq!(int(get(data, "offset")), 8);
+        assert_eq!(get(data, "value").as_bytes().unwrap(), &BMFF_UUID);
+        let mut bound = digest::Context::new(&digest::SHA256);
+        for (at, len) in bmff_boxes(file).unwrap() {
+            let whole = &file[at..at + len];
+            if &whole[4..8] == b"uuid" && whole[8..24] == BMFF_UUID {
+                continue;
+            }
+            bound.update(&(at as u64).to_be_bytes());
+            bound.update(whole);
+        }
+        assert_eq!(
+            get(&hash, "hash").as_bytes().unwrap().as_slice(),
+            bound.finish().as_ref(),
+            "hard binding"
+        );
+    } else {
+        let hash = content(find(manifest, "c2pa.hash.data").unwrap());
+        let exclusions = get(&hash, "exclusions").as_array().unwrap();
+        assert_eq!(exclusions.len(), 1);
+        let start = int(get(&exclusions[0], "start")) as usize;
+        let len = int(get(&exclusions[0], "length")) as usize;
+        let mut bound = file[..start].to_vec();
+        bound.extend_from_slice(&file[start + len..]);
+        assert_eq!(
+            get(&hash, "hash").as_bytes().unwrap().as_slice(),
+            digest::digest(&digest::SHA256, &bound).as_ref(),
+            "hard binding"
+        );
+    }
 
     let claim_box = find(manifest, "c2pa.claim.v2").unwrap();
     let claim = content(claim_box);
@@ -399,13 +450,118 @@ fn large_manifests_span_app11_segments() {
 }
 
 #[test]
-fn only_jpeg_png_and_tiff_take_a_manifest() {
-    for ext in ["jpg", "jpeg", "png", "tif", "tiff"] {
+fn only_jpeg_png_tiff_webp_and_avif_take_a_manifest() {
+    for ext in ["jpg", "jpeg", "png", "tif", "tiff", "webp", "avif"] {
         assert!(supports(ext));
     }
-    for ext in ["webp", "avif", "jxl", "cube"] {
+    for ext in ["jxl", "cube"] {
         assert!(!supports(ext));
     }
+}
+
+/// A WebP and an AVIF as the export encodes them (with their ICC profile).
+fn small_webp_and_avif() -> (Vec<u8>, Vec<u8>) {
+    let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(40, 30, |x, y| {
+        image::Rgba([x as u8 * 6, y as u8 * 8, 70, 255])
+    }));
+    let encode = |format| {
+        crate::export_processing::encode_image_to_bytes(
+            &image,
+            format,
+            90,
+            crate::export_processing::TiffBitDepth::Eight,
+            crate::output_color_space::OutputColorSpace::Srgb,
+            None,
+        )
+        .unwrap()
+    };
+    (encode("webp"), encode("avif"))
+}
+
+#[test]
+fn signed_webp_and_avif_validate_and_bind_every_byte() {
+    let (_dir, identity) = identity();
+    let recipe = json!({"aiPatches": [{"patchData": {"color": "A"}}]});
+    let plan = plan(&recipe);
+    let (webp, avif) = small_webp_and_avif();
+
+    let signed = sign_webp(&webp, &plan, &identity).unwrap();
+    let store = webp_store(&signed);
+    let actions = validate(&signed, store);
+    assert!(action_names(&actions).contains(&"c2pa.edited".to_string()));
+    let riff = u32::from_le_bytes(signed[4..8].try_into().unwrap()) as usize;
+    assert_eq!(riff + 8, signed.len(), "the RIFF size counts the chunk");
+    assert_eq!(
+        &signed[8..webp.len()],
+        &webp[8..],
+        "the image chunks unchanged"
+    );
+    let decoded = image::load_from_memory(&signed).unwrap().to_rgb8();
+    assert_eq!(decoded, image::load_from_memory(&webp).unwrap().to_rgb8());
+    for at in [5, 20, webp.len() - 2] {
+        let mut tampered = signed.clone();
+        tampered[at] ^= 1;
+        assert!(
+            std::panic::catch_unwind(|| validate(&tampered, store)).is_err(),
+            "{at}"
+        );
+    }
+    assert!(
+        sign_webp(&signed, &plan, &identity)
+            .unwrap_err()
+            .contains("already")
+    );
+
+    let signed = sign_avif(&avif, &plan, &identity).unwrap();
+    assert_eq!(
+        &signed[..avif.len()],
+        &avif[..],
+        "the AVIF itself unchanged"
+    );
+    let store = avif_store(&signed);
+    let actions = validate(&signed, store);
+    assert!(action_names(&actions).contains(&"c2pa.edited".to_string()));
+    assert!(find(store, "c2pa.hash.data").is_none());
+    let decoded = rawtonic_engine::avif::decode(&signed).unwrap();
+    assert_eq!(
+        image::GenericImageView::dimensions(&decoded.image),
+        (40, 30)
+    );
+    // A changed byte, or a box moved (here a `free` box put in front of the
+    // last one: every later offset changes), breaks the binding.
+    let mut tampered = signed.clone();
+    tampered[avif.len() - 3] ^= 1;
+    assert!(std::panic::catch_unwind(|| validate(&tampered, store)).is_err());
+    let boxes = bmff_boxes(&avif).unwrap();
+    let (last, _) = boxes[boxes.len() - 1];
+    let mut moved = signed[..last].to_vec();
+    moved.extend_from_slice(&[0, 0, 0, 8, b'f', b'r', b'e', b'e']);
+    moved.extend_from_slice(&signed[last..]);
+    assert!(std::panic::catch_unwind(|| validate(&moved, store)).is_err());
+    assert!(
+        sign_avif(&signed, &plan, &identity)
+            .unwrap_err()
+            .contains("already")
+    );
+
+    // Files the signers cannot take whole: refused, not half signed.
+    let mut open_ended = avif.clone();
+    open_ended.extend_from_slice(&[0, 0, 0, 0, b'm', b'd', b'a', b't', 1, 2]);
+    assert!(
+        sign_avif(&open_ended, &plan, &identity)
+            .unwrap_err()
+            .contains("runs to its end")
+    );
+    let mut simple = Vec::new();
+    simple.extend_from_slice(b"RIFF");
+    simple.extend_from_slice(&12u32.to_le_bytes());
+    simple.extend_from_slice(b"WEBPVP8L");
+    simple.extend_from_slice(&0u32.to_le_bytes());
+    assert!(
+        sign_webp(&simple, &plan, &identity)
+            .unwrap_err()
+            .contains("extended")
+    );
 }
 
 /// The C2PA reference validator on our files: `C2PATOOL=/path/to/c2patool
@@ -446,10 +602,15 @@ fn c2patool_validates_signed_files() {
     .write_to(&mut Cursor::new(&mut png), image::ImageFormat::Png)
     .unwrap();
     let png = sign_png(&png, &plan, &identity).unwrap();
+    let (webp, avif) = small_webp_and_avif();
+    let webp = sign_webp(&webp, &plan, &identity).unwrap();
+    let avif = sign_avif(&avif, &plan, &identity).unwrap();
     for (name, bytes) in [
         ("signed.jpg", jpeg),
         ("signed.png", png),
         ("signed.tif", tiff.into_inner()),
+        ("signed.webp", webp),
+        ("signed.avif", avif),
     ] {
         let path = out.path().join(name);
         std::fs::write(&path, &bytes).unwrap();
@@ -637,13 +798,15 @@ mod export {
     fn signed_exports_bind_their_metadata_and_ai_marking() {
         let (_dir, identity) = identity();
         let recipe = json!({"aiPatches": [{"patchData": {"color": "A"}}]});
-        for extension in ["jpg", "png", "tif"] {
+        for extension in ["jpg", "png", "tif", "webp", "avif"] {
             let (result, file) = export(extension, &settings(true), Some(&identity), &recipe);
             result.unwrap();
             let file = file.unwrap();
             let store = match extension {
                 "jpg" => jpeg_store(&file),
                 "png" => png_store(&file).to_vec(),
+                "webp" => webp_store(&file).to_vec(),
+                "avif" => avif_store(&file).to_vec(),
                 _ => tiff_store(&file).to_vec(),
             };
             let actions = validate(&file, &store);
@@ -660,7 +823,7 @@ mod export {
     #[test]
     fn without_the_option_nothing_changes() {
         let (_dir, identity) = identity();
-        for extension in ["jpg", "tif", "png"] {
+        for extension in ["jpg", "tif", "png", "webp", "avif"] {
             let (result, plain) = export(extension, &settings(false), Some(&identity), &json!({}));
             result.unwrap();
             let plain = plain.unwrap();
@@ -750,7 +913,7 @@ mod export {
         let (result, file) = export("jpg", &settings(true), None, &json!({}));
         assert_eq!(result.unwrap_err(), PROVENANCE_NEEDS_IDENTITY);
         assert!(file.is_none());
-        for extension in ["webp", "avif", "jxl"] {
+        for extension in ["jxl"] {
             let (result, file) = export(extension, &settings(true), Some(&identity), &json!({}));
             assert!(
                 result.unwrap_err().contains("cannot be written to"),

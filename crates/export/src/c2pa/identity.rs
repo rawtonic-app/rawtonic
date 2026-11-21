@@ -183,12 +183,12 @@ impl SigningIdentity {
             .unwrap_or_default();
         Ok(IdentityInfo {
             kind: self.kind,
-            signer: name(cert.subject()),
-            issuer: name(cert.issuer()),
+            signer: shown(&name(cert.subject())),
+            issuer: shown(&name(cert.issuer())),
             valid_until: until,
             algorithm: self.algorithm().name().to_string(),
             fingerprint: self.fingerprint(),
-            subject: cert.subject().to_string(),
+            subject: shown(&cert.subject().to_string()),
             expired: !cert.validity().is_valid(),
         })
     }
@@ -217,6 +217,24 @@ impl SigningIdentity {
             at(cert.validity().not_after)
         ))
     }
+}
+
+/// A certificate's name as the Export panel shows it: control and
+/// bidirectional-override characters (which could make one name look like
+/// another) become U+FFFD.
+fn shown(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            let bidi = matches!(c, '\u{200e}' | '\u{200f}' | '\u{061c}')
+                || ('\u{202a}'..='\u{202e}').contains(&c)
+                || ('\u{2066}'..='\u{2069}').contains(&c);
+            if c.is_control() || bidi {
+                '\u{fffd}'
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 /// A private key from PKCS#8 DER, of any type C2PA and ring sign with.
@@ -262,6 +280,23 @@ fn check_signing_certificate(chain: &[Vec<u8>], key: &Key) -> Result<(), String>
     // are what the certificate's subjectPublicKey bit string holds.
     if spki.as_ref() != public_key(key) {
         return Err("The certificate does not belong to the private key.".to_string());
+    }
+    check_public_key_algorithm(&cert, key)?;
+    // Verifiers take the chain as given: each certificate issued by the
+    // next one.
+    for pair in chain.windows(2) {
+        let (Ok((_, cert)), Ok((_, issuer))) = (
+            X509Certificate::from_der(&pair[0]),
+            X509Certificate::from_der(&pair[1]),
+        ) else {
+            return Err("A certificate of the chain cannot be read.".to_string());
+        };
+        if cert.issuer().as_raw() != issuer.subject().as_raw() {
+            return Err(
+                "The certificate chain is not in order (each certificate followed by its issuer's)."
+                    .to_string(),
+            );
+        }
     }
     // Verifiers name the signer by the subject's organisation; c2pa-rs
     // (c2patool 0.27) rejects a signature whose certificate has none.
@@ -324,9 +359,20 @@ const CERTIFICATE_ALGORITHMS: [&str; 8] = [
 
 const RSASSA_PSS: &str = "1.2.840.113549.1.1.10";
 
+const SHA256: &str = "2.16.840.1.101.3.4.2.1";
+const SHA2: [&str; 3] = [SHA256, "2.16.840.1.101.3.4.2.2", "2.16.840.1.101.3.4.2.3"];
+const MGF1: &str = "1.2.840.113549.1.1.8";
+const RSA_ENCRYPTION: &str = "1.2.840.113549.1.1.1";
+const EC_PUBLIC_KEY: &str = "1.2.840.10045.2.1";
+const ED25519: &str = "1.3.101.112";
+
 /// One DER element of `input`: its tag, its contents and what follows.
+/// Only single-byte tags and definite lengths (DER).
 fn der_element(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
     let (&tag, rest) = input.split_first()?;
+    if tag & 0x1f == 0x1f {
+        return None;
+    }
     let (&first, rest) = rest.split_first()?;
     let (len, rest) = if first < 0x80 {
         (first as usize, rest)
@@ -343,57 +389,103 @@ fn der_element(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
     (rest.len() >= len).then(|| (tag, &rest[..len], &rest[len..]))
 }
 
-/// The OID inside an AlgorithmIdentifier SEQUENCE's encoding, and its
-/// parameters.
-fn algorithm_oid(identifier: &[u8]) -> Option<(&[u8], &[u8])> {
-    let (0x30, content, _) = der_element(identifier)? else {
+/// The dotted OID and the parameters' encoding of `identifier`, which must
+/// be exactly one AlgorithmIdentifier SEQUENCE.
+fn algorithm_oid(identifier: &[u8]) -> Option<(String, &[u8])> {
+    let (0x30, content, []) = der_element(identifier)? else {
         return None;
     };
     let (0x06, oid, params) = der_element(content)? else {
         return None;
     };
+    let oid = x509_parser::asn1_rs::Oid::new(oid.into()).to_id_string();
     Some((oid, params))
 }
 
-/// Whether RSASSA-PSS parameters (the contents of their SEQUENCE) name a
-/// SHA-2 hash and MGF1 with the same hash, as C2PA requires (the defaults,
-/// SHA-1, are not allowed).
-fn pss_parameters_ok(params: &[u8]) -> bool {
-    let oid_contents = |dotted: &str| der::oid(dotted)[2..].to_vec();
-    let sha2 = [
-        "2.16.840.1.101.3.4.2.1",
-        "2.16.840.1.101.3.4.2.2",
-        "2.16.840.1.101.3.4.2.3",
-    ]
-    .map(oid_contents);
-    let mgf1 = oid_contents("1.2.840.113549.1.1.8");
-    let (mut hash, mut mgf_hash) = (None, None);
-    let mut rest = params;
-    while !rest.is_empty() {
-        let Some((tag, content, after)) = der_element(rest) else {
-            return false;
+/// The hash RSASSA-PSS parameters (the contents of their SEQUENCE) name,
+/// when they are well formed as C2PA requires: `[0]` a SHA-2 hash (absent
+/// or NULL parameters), `[1]` MGF1 with that same hash, optionally `[2]` a
+/// salt length and `[3]` the trailer field 1, in this order and nothing
+/// else (the defaults, SHA-1, are not allowed).
+fn pss_hash(params: &[u8]) -> Option<String> {
+    let hash_params_ok = |params: &[u8]| params.is_empty() || params == [0x05, 0x00];
+    let (0xa0, hash, rest) = der_element(params)? else {
+        return None;
+    };
+    let (hash, hash_params) = algorithm_oid(hash)?;
+    let (0xa1, mgf, mut rest) = der_element(rest)? else {
+        return None;
+    };
+    let (mgf, mgf_params) = algorithm_oid(mgf)?;
+    let (mgf_hash, mgf_hash_params) = algorithm_oid(mgf_params)?;
+    if !SHA2.contains(&hash.as_str())
+        || mgf != MGF1
+        || mgf_hash != hash
+        || !hash_params_ok(hash_params)
+        || !hash_params_ok(mgf_hash_params)
+    {
+        return None;
+    }
+    if let Some((0xa2, salt, after)) = der_element(rest) {
+        let (0x02, value, []) = der_element(salt)? else {
+            return None;
+        };
+        // A non-negative salt length.
+        if value.is_empty() || value[0] & 0x80 != 0 {
+            return None;
+        }
+        rest = after;
+    }
+    if let Some((0xa3, trailer, after)) = der_element(rest) {
+        let (0x02, [1], []) = der_element(trailer)? else {
+            return None;
         };
         rest = after;
-        match tag {
-            0xa0 => hash = algorithm_oid(content).map(|(oid, _)| oid.to_vec()),
-            0xa1 => {
-                mgf_hash = algorithm_oid(content)
-                    .filter(|(oid, _)| *oid == mgf1.as_slice())
-                    .and_then(|(_, params)| algorithm_oid(params))
-                    .map(|(oid, _)| oid.to_vec())
-            }
-            _ => {}
-        }
     }
-    hash.is_some_and(|hash| sha2.contains(&hash) && mgf_hash.as_ref() == Some(&hash))
+    rest.is_empty().then_some(hash)
+}
+
+/// The certificate's public key is named as C2PA verifiers accept it and as
+/// `key` signs (c2pa-rs `check_certificate_profile`): an EC key on its own
+/// curve, Ed25519 without parameters, RSA as `rsaEncryption` or as
+/// RSASSA-PSS that allows the SHA-256 the manifests are signed with.
+fn check_public_key_algorithm(cert: &X509Certificate<'_>, key: &Key) -> Result<(), String> {
+    let algorithm = &cert.public_key().algorithm;
+    let oid = algorithm.algorithm.to_id_string();
+    let params = algorithm.parameters.as_ref();
+    let ok = match key {
+        Key::Ecdsa(_, alg) => {
+            let curve = match alg {
+                Algorithm::Es384 => "1.3.132.0.34",
+                _ => "1.2.840.10045.3.1.7",
+            };
+            oid == EC_PUBLIC_KEY
+                && params
+                    .and_then(|p| p.as_oid().ok())
+                    .is_some_and(|named| named.to_id_string() == curve)
+        }
+        Key::Ed25519(_) => oid == ED25519 && params.is_none(),
+        Key::Rsa(_) => {
+            (oid == RSA_ENCRYPTION
+                && params.is_none_or(|p| p.tag() == x509_parser::asn1_rs::Tag::Null))
+                || (oid == RSASSA_PSS
+                    && params.is_none_or(|p| pss_hash(p.data).is_some_and(|hash| hash == SHA256)))
+        }
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err("The certificate names its public key in a way C2PA verifiers reject (algorithm or curve parameters).".to_string())
+    }
 }
 
 /// The rest of the C2PA certificate profile a signing certificate must
 /// follow, as the reference validator checks it (c2pa-rs
 /// `check_certificate_profile`): X.509 v3, an accepted signature algorithm
 /// named alike inside and outside the signed part, no unique identifiers,
-/// an Authority Key Identifier, no certificate-signing key usage, not both
-/// time-stamping and OCSP signing, and no critical extension it does not
+/// an Authority Key Identifier, no certificate-signing key usage, no
+/// time-stamping or OCSP signing use (c2pa-rs refuses either beside another
+/// purpose, and a claim signer needs one), and no critical extension it does not
 /// know.
 fn check_certificate_profile(cert: &X509Certificate<'_>) -> Result<(), String> {
     use x509_parser::extensions::ParsedExtension;
@@ -412,14 +504,12 @@ fn check_certificate_profile(cert: &X509Certificate<'_>) -> Result<(), String> {
     {
         return refuse("its signature algorithm");
     }
-    if algorithm == RSASSA_PSS
-        && !cert
-            .signature_algorithm
-            .parameters
-            .as_ref()
-            .is_some_and(|params| pss_parameters_ok(params.data))
-    {
+    let params = cert.signature_algorithm.parameters.as_ref();
+    if algorithm == RSASSA_PSS && !params.is_some_and(|params| pss_hash(params.data).is_some()) {
         return refuse("its RSA-PSS parameters");
+    }
+    if algorithm == ED25519 && params.is_some() {
+        return refuse("parameters with its Ed25519 signature algorithm");
     }
     if cert.tbs_certificate.issuer_uid.is_some() || cert.tbs_certificate.subject_uid.is_some() {
         return refuse("unique identifiers");
@@ -698,20 +788,29 @@ fn certificate(
         issuer_key,
         &ecdsa_sha256,
         (issuer, subject),
-        public_key,
+        &p256_public_key_info(public_key),
         validity,
         extensions,
     )
 }
 
-/// [`certificate`] whose signature algorithm is named `algorithm` (tests
-/// name others than the ECDSA it is signed with).
+/// The SubjectPublicKeyInfo of a P-256 `public_key`.
+fn p256_public_key_info(public_key: &[u8]) -> Vec<u8> {
+    der::seq(&[
+        der::seq(&[der::oid(EC_PUBLIC_KEY), der::oid("1.2.840.10045.3.1.7")]),
+        der::bit_string(public_key),
+    ])
+}
+
+/// [`certificate`] whose signature algorithm is named `algorithm` and whose
+/// SubjectPublicKeyInfo is `public_key_info` (tests name others than the
+/// ECDSA it is signed with).
 fn certificate_named(
     rng: &SystemRandom,
     issuer_key: &EcdsaKeyPair,
     algorithm: &[u8],
     (issuer, subject): (&[u8], &[u8]),
-    public_key: &[u8],
+    public_key_info: &[u8],
     (not_before, not_after): (jiff::Timestamp, jiff::Timestamp),
     extensions: &[Vec<u8>],
 ) -> Result<Vec<u8>, String> {
@@ -727,13 +826,7 @@ fn certificate_named(
         issuer.to_vec(),
         der::seq(&[der::time(not_before), der::time(not_after)]),
         subject.to_vec(),
-        der::seq(&[
-            der::seq(&[
-                der::oid("1.2.840.10045.2.1"),
-                der::oid("1.2.840.10045.3.1.7"),
-            ]),
-            der::bit_string(public_key),
-        ]),
+        public_key_info.to_vec(),
         der::explicit(3, &der::seq(extensions)),
     ]);
     // ring signs r‖s; X.509 takes the same signature in DER.
@@ -1095,7 +1188,7 @@ mod tests {
                 &ca,
                 &pss(mgf_hash),
                 (&name("A Studio CA"), &name("Studio")),
-                ee.public_key().as_ref(),
+                &p256_public_key_info(ee.public_key().as_ref()),
                 (now - day, now + day * 30),
                 &with_aki,
             )
@@ -1108,6 +1201,278 @@ mod tests {
         unknown.push(extension("1.3.6.1.4.1.99999.1", true, &der::octets(&[1])));
         let error = check_signing_certificate(&[leaf(&unknown)], &key).unwrap_err();
         assert!(error.contains("critical extension"), "{error}");
+    }
+
+    /// The checks of review round 3 (PSS parameters, Ed25519 parameters,
+    /// the public key's algorithm), and the key usage, validity and chain
+    /// order a signing certificate needs: each malformed or refused case
+    /// beside one that passes.
+    #[test]
+    fn malformed_or_unusable_certificates_are_refused_at_import() {
+        let rng = SystemRandom::new();
+        let alg = &signature::ECDSA_P256_SHA256_FIXED_SIGNING;
+        let ca_pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
+        let ca = EcdsaKeyPair::from_pkcs8(alg, ca_pkcs8.as_ref(), &rng).unwrap();
+        let ee_pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng).unwrap();
+        let ee = EcdsaKeyPair::from_pkcs8(alg, ee_pkcs8.as_ref(), &rng).unwrap();
+        let key = key_from_pkcs8(ee_pkcs8.as_ref(), &rng).unwrap();
+        let now = jiff::Timestamp::now();
+        let day = jiff::SignedDuration::from_hours(24);
+        let ee_info = p256_public_key_info(ee.public_key().as_ref());
+        let ecdsa = der::seq(&[der::oid("1.2.840.10045.4.3.2")]);
+        let extensions = |key_usage: Option<&[u8]>| {
+            let mut all = vec![extension("2.5.29.19", true, &der::seq(&[]))];
+            if let Some(bits) = key_usage {
+                all.push(extension("2.5.29.15", true, &der::tlv(0x03, bits)));
+            }
+            all.push(extension(
+                "2.5.29.37",
+                false,
+                &der::seq(&[der::oid(DOCUMENT_SIGNING)]),
+            ));
+            all.push(extension(
+                "2.5.29.35",
+                false,
+                &der::seq(&[der::tlv(0x80, &[1; 20])]),
+            ));
+            all
+        };
+        let signing = extensions(Some(&[0x07, 0x80]));
+        let cert = |algorithm: &[u8], info: &[u8], validity, extensions: &[Vec<u8>]| {
+            certificate_named(
+                &rng,
+                &ca,
+                algorithm,
+                (&name("A Studio CA"), &name("Studio")),
+                info,
+                validity,
+                extensions,
+            )
+            .unwrap()
+        };
+        let valid = (now - day, now + day * 30);
+        let check = |cert: Vec<u8>| check_signing_certificate(&[cert], &key);
+        check(cert(&ecdsa, &ee_info, valid, &signing)).unwrap();
+
+        // RSASSA-PSS parameters: [0] hash, [1] MGF1 with that hash,
+        // optional [2] salt length and [3] trailer field 1, nothing else.
+        let hash = |dotted: &str| der::seq(&[der::oid(dotted)]);
+        let sha256 = "2.16.840.1.101.3.4.2.1";
+        let mgf1 = |hash_id: Vec<u8>| der::seq(&[der::oid(MGF1), hash_id]);
+        let pss = |fields: &[Vec<u8>]| der::seq(&[der::oid(RSASSA_PSS), der::seq(fields)]);
+        let h0 = || der::explicit(0, &hash(sha256));
+        let m1 = || der::explicit(1, &mgf1(hash(sha256)));
+        let salt = |value: &[u8]| der::explicit(2, &der::tlv(0x02, value));
+        let cases: Vec<(&str, Vec<u8>, bool)> = vec![
+            (
+                "SHA-256, MGF1 SHA-256, salt 32",
+                pss(&[h0(), m1(), salt(&[32])]),
+                true,
+            ),
+            (
+                "with trailer field 1",
+                pss(&[h0(), m1(), salt(&[32]), der::explicit(3, &der::uint(&[1]))]),
+                true,
+            ),
+            (
+                "hash with NULL parameters",
+                pss(&[
+                    der::explicit(0, &der::seq(&[der::oid(sha256), vec![0x05, 0x00]])),
+                    der::explicit(1, &mgf1(der::seq(&[der::oid(sha256), vec![0x05, 0x00]]))),
+                ]),
+                true,
+            ),
+            ("no parameters", der::seq(&[der::oid(RSASSA_PSS)]), false),
+            ("empty parameters (SHA-1 defaults)", pss(&[]), false),
+            ("hash only", pss(&[h0()]), false),
+            ("MGF before hash", pss(&[m1(), h0()]), false),
+            (
+                "SHA-1",
+                pss(&[
+                    der::explicit(0, &hash("1.3.14.3.2.26")),
+                    der::explicit(1, &mgf1(hash("1.3.14.3.2.26"))),
+                ]),
+                false,
+            ),
+            (
+                "a mask function other than MGF1",
+                pss(&[
+                    h0(),
+                    der::explicit(
+                        1,
+                        &der::seq(&[der::oid("1.2.840.113549.1.1.9"), hash(sha256)]),
+                    ),
+                ]),
+                false,
+            ),
+            (
+                "MGF1 with SHA-512",
+                pss(&[
+                    h0(),
+                    der::explicit(1, &mgf1(hash("2.16.840.1.101.3.4.2.3"))),
+                ]),
+                false,
+            ),
+            (
+                "trailer field 2",
+                pss(&[h0(), m1(), der::explicit(3, &der::uint(&[2]))]),
+                false,
+            ),
+            (
+                "an unknown field",
+                pss(&[h0(), m1(), der::explicit(4, &der::uint(&[1]))]),
+                false,
+            ),
+            (
+                "a negative salt length",
+                pss(&[h0(), m1(), salt(&[0xe0])]),
+                false,
+            ),
+            (
+                "bytes after the hash identifier",
+                pss(&[
+                    der::explicit(0, &[hash(sha256), vec![0x05, 0x00]].concat()),
+                    m1(),
+                ]),
+                false,
+            ),
+            (
+                "hash parameters other than NULL",
+                pss(&[
+                    der::explicit(0, &der::seq(&[der::oid(sha256), der::uint(&[1])])),
+                    m1(),
+                ]),
+                false,
+            ),
+            (
+                "a length past the end",
+                {
+                    let mut p = pss(&[h0(), m1()]);
+                    let n = p.len();
+                    p[n - 1] = 0x7f;
+                    p[n - 3] = 0x7f;
+                    p
+                },
+                false,
+            ),
+        ];
+        for (case, algorithm, ok) in cases {
+            let result = check(cert(&algorithm, &ee_info, valid, &signing));
+            assert_eq!(result.is_ok(), ok, "{case}: {result:?}");
+            if !ok {
+                let error = result.unwrap_err();
+                assert!(
+                    error.contains("RSA-PSS") || error.contains("signature algorithm"),
+                    "{case}: {error}"
+                );
+            }
+        }
+
+        // Ed25519 as the certificate's signature algorithm takes no parameters.
+        check(cert(
+            &der::seq(&[der::oid(ED25519)]),
+            &ee_info,
+            valid,
+            &signing,
+        ))
+        .unwrap();
+        let error = check(cert(
+            &der::seq(&[der::oid(ED25519), vec![0x05, 0x00]]),
+            &ee_info,
+            valid,
+            &signing,
+        ))
+        .unwrap_err();
+        assert!(error.contains("Ed25519"), "{error}");
+
+        // The public key named on another curve, or without its curve.
+        let point = ee.public_key().as_ref();
+        for info in [
+            der::seq(&[
+                der::seq(&[der::oid(EC_PUBLIC_KEY), der::oid("1.3.132.0.34")]),
+                der::bit_string(point),
+            ]),
+            der::seq(&[der::seq(&[der::oid(EC_PUBLIC_KEY)]), der::bit_string(point)]),
+        ] {
+            let error = check(cert(&ecdsa, &info, valid, &signing)).unwrap_err();
+            assert!(error.contains("public key"), "{error}");
+        }
+
+        // Key usage without digitalSignature (key encipherment, or
+        // non-repudiation only), or none at all.
+        for key_usage in [Some(&[0x05, 0x20][..]), Some(&[0x06, 0x40][..]), None] {
+            let error = check(cert(&ecdsa, &ee_info, valid, &extensions(key_usage))).unwrap_err();
+            assert!(
+                error.contains("digital signatures"),
+                "{key_usage:?}: {error}"
+            );
+        }
+
+        // Expired, or not valid yet.
+        for validity in [(now - day * 10, now - day), (now + day, now + day * 30)] {
+            let error = check(cert(&ecdsa, &ee_info, validity, &signing)).unwrap_err();
+            assert!(error.contains("not valid now"), "{error}");
+        }
+
+        // The chain: the signer's certificate, then its issuer's.
+        let authority = |subject: &str| {
+            certificate(
+                &rng,
+                &ca,
+                &name(subject),
+                &name(subject),
+                ca.public_key().as_ref(),
+                valid,
+                &[extension(
+                    "2.5.29.19",
+                    true,
+                    &der::seq(&[der::boolean(true)]),
+                )],
+            )
+            .unwrap()
+        };
+        let leaf = cert(&ecdsa, &ee_info, valid, &signing);
+        check_signing_certificate(&[leaf.clone(), authority("A Studio CA")], &key).unwrap();
+        for chain in [
+            vec![leaf.clone(), authority("Another CA")],
+            vec![
+                leaf.clone(),
+                authority("A Studio CA"),
+                authority("Another CA"),
+            ],
+        ] {
+            let error = check_signing_certificate(&chain, &key).unwrap_err();
+            assert!(error.contains("not in order"), "{error}");
+        }
+        // The authority's certificate first: not the key's certificate.
+        let error = check_signing_certificate(&[authority("A Studio CA"), leaf], &key).unwrap_err();
+        assert!(error.contains("does not belong"), "{error}");
+    }
+
+    /// A PKCS#12 file whose key is tied to the authority's certificate
+    /// (listed first, so the writer gives it the key's local id) is refused
+    /// and nothing is stored: p12-keystore orders the chain from the
+    /// certificate tied to the key, by issuer, and that one is not the key's.
+    #[test]
+    fn a_pkcs12_whose_key_is_tied_to_another_certificate_is_refused() {
+        let made = tempfile::tempdir().unwrap();
+        generate(made.path(), "Studio Example").unwrap();
+        let (key, chain) = stored(made.path());
+        let file = made.path().join("reversed.p12");
+        let reversed = vec![chain[1].clone(), chain[0].clone()];
+        let algorithm = p12_keystore::EncryptionAlgorithm::PbeWithHmacSha256AndAes256;
+        std::fs::write(&file, pkcs12(&key, &reversed, algorithm)).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let error = import_pkcs12(target.path(), &file, "secret").unwrap_err();
+        assert!(error.contains("does not belong"), "{error}");
+        assert!(load(target.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn names_are_shown_without_control_or_direction_characters() {
+        assert_eq!(shown("Studio Example"), "Studio Example");
+        assert_eq!(shown("Ann\u{202e}gpj.exe\n"), "Ann\u{fffd}gpj.exe\u{fffd}");
+        assert_eq!(shown("a\u{2066}b\u{200f}c"), "a\u{fffd}b\u{fffd}c");
     }
 
     fn info_matches(dir: &Path, want: &IdentityInfo) -> bool {
