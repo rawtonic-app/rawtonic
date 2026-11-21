@@ -2009,7 +2009,7 @@ mod tests {
         );
         let merged = merge_xmp(Some(&element), &meta, Some(&recipe)).unwrap();
         assert_eq!(
-            merged.matches("SDRBlend").count(),
+            merged.matches("crs:SDRBlend").count(),
             2,
             "element and its end tag only"
         );
