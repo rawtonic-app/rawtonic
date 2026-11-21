@@ -2983,8 +2983,9 @@ mod tests {
             );
             assert!(!reusable_for_export(&open(&queued, true), &changed, source));
         }
-        // A fine drag's 50.4 develops at 50, in Develop and in the export.
-        assert!(reusable_for_export(
+        // An export develops the stored amount whether the photograph is
+        // open or not: an old fine drag's 50.4 is not the open 50.
+        assert!(!reusable_for_export(
             &open(&queued, true),
             &recipe(50.4, 4),
             source

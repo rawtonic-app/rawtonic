@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { aiDenoiseToApply, developmentSignature, sourceDevelopToApply, warpPlanesMatter } from './aiDenoise';
+import {
+  aiDenoiseToApply,
+  developmentSignature,
+  sourceDevelopToApply,
+  storedSliderValue,
+  warpPlanesMatter
+} from './aiDenoise';
 
 const decoded = { isDecoded: true, isRaw: true, aiDenoise: 0 };
 
@@ -282,5 +288,19 @@ describe('developmentSignature', () => {
       developmentSignature(v14, true, warpPlanesMatter({}))
     );
     expect(developmentSignature(v13, true)).toBe(developmentSignature(v14, true));
+  });
+});
+
+describe('storedSliderValue', () => {
+  it('stores AI Denoise in whole steps, from fine drags and typed values too', () => {
+    expect(storedSliderValue('aiDenoise', 50.4)).toBe(50);
+    expect(storedSliderValue('aiDenoise', 50.5)).toBe(51);
+    expect(storedSliderValue('aiDenoise', 0.4)).toBe(0);
+    expect(storedSliderValue('aiDenoise', 60)).toBe(60);
+  });
+
+  it('leaves the other sliders as they are', () => {
+    expect(storedSliderValue('exposure', 0.37)).toBe(0.37);
+    expect(storedSliderValue('lumaNoiseReduction', 12.4)).toBe(12.4);
   });
 });

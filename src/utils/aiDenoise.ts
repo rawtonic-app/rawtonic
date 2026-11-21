@@ -20,6 +20,14 @@ export function aiDenoiseAmount(
   return switchedOff ? 0 : Math.round(Math.min(100, Math.max(0, adjustments.aiDenoise ?? 0)));
 }
 
+/** The value a Develop slider stores for `key`: AI Denoise in whole steps
+ * (drags, fine Option drags, typed values), the amount Develop develops and
+ * every export reads, so a new edit renders the same open or not. Recipes
+ * that already hold a fraction keep it. */
+export function storedSliderValue(key: string, value: number): number {
+  return key === 'aiDenoise' ? Math.round(value) : value;
+}
+
 /**
  * The AI Denoise amount the open RAW must be developed with, or null when
  * its source already carries the recipe's amount, the amount failed before,
