@@ -1794,6 +1794,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "Die Fotos sind zurück, aber die Ordnerrolle bleibt, wo sie ist: {{error}}",
       "selectsUnavailable": "Der Selects-Ordner {{folder}} ist nicht verfügbar (ist sein Laufwerk angeschlossen?). Nichts wurde verschoben; wähle in „Session-Ordner“ einen anderen Selects-Ordner.",
       "title": "Session-Ordner",
       "unavailableUse": {

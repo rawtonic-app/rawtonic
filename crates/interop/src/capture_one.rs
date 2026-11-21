@@ -67,6 +67,12 @@ const SETTINGS: &[(&str, &str)] = &[
     ("ZLENSDISTORTION", "LensGeoAbr"),
     ("ZLENSLIGHTFALLOFF", "LensLightFallOff"),
     ("ZLENSIDGUID", "LensIdGuid"),
+    // Chromatic Aberration on/off (null: Capture One's default, no choice
+    // stored) and the curve its Analyse makes (`LensChromAbrDefaultCurve`
+    // is the profile's; the analysed one's style key is not seen in any
+    // style, so it is named after it).
+    ("ZLENSCHROMABRENABLED", "ChromaticAberEnabled"),
+    ("ZLENSCUSTOMCHROMABR", "LensChromAbrCustomCurve"),
 ];
 
 /// A Capture One local adjustment layer.
@@ -318,7 +324,7 @@ pub fn read(session_db: &Path) -> Result<Library> {
                 layer.mask = file.mask(&uuid);
                 layer.frame = file.frame;
             }
-            if matches!(layer.mask, Mask::Unsupported { .. }) {
+            if matches!(layer.mask, Mask::Unsupported { .. } | Mask::Missing) {
                 unread_layers += 1;
             }
             photo.capture_one_layers.push(layer);
@@ -473,9 +479,7 @@ fn read_layers(
                 .unwrap_or(100.0)
                 .clamp(0.0, 100.0),
             settings: values,
-            mask: Mask::Unsupported {
-                what: "missing mask".into(),
-            },
+            mask: Mask::Missing,
             frame: (0.0, 0.0),
         };
         out.entry(variant)
@@ -579,7 +583,7 @@ mod tests {
         };
         let values = raster.values().unwrap();
         assert_eq!((values[64 * 7360 + 2 * 64], values[0]), (90, 0));
-        assert!(matches!(layers[3].mask, Mask::Unsupported { .. }));
+        assert_eq!(layers[3].mask, Mask::Missing);
         // The photo's own settings are not a layer's.
         let Develop::CaptureOne(own) = &lib.photos[0].develop else {
             panic!();
