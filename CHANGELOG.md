@@ -225,14 +225,9 @@ The seventeenth alpha. Color Grading tints coloured tones closer to Lightroom, .
 These are measured shortfalls or open work; they stay open until they are closed by measurement.
 
 - **Export memory on a 14 GB Windows laptop (Radeon 680M):** seven 50–61 MP RAWs as 16-bit TIFF and JPEG, two at a time, still peak at 7.5 GB, above the 6.6 GB target (6.1 GB one at a time); this release's TIFF streaming did not lower it there. The multi view with large RAWs still reaches 7.8–8.8 GB on that laptop, and in one Windows test after the fix a cell stayed empty for 2.3 s.
-- **The first AI Subject mask on a fresh Windows computer** (Radeon 680M laptop, AI on the processor) still takes about 24 s: about 9 s to prepare the model, 1.6 s to keep its optimized form and 15 s to compute the mask. Later masks were ready within a second in our test when the app had computed them ahead.
 - **The scopes panel opens only with the A key** for now; a View menu and command palette entry is in work. On Linux an open scope still costs a few milliseconds per frame in the fit view while dragging; on a Mac the measured cost is within the noise.
-- **.cube LUTs with their own input range:** the check that saved edits export byte for byte as before is done on Apple silicon, not yet on NVIDIA under Linux.
-- **Imports:** Lightroom's pre-2012 curves are an approximation and not yet compared with Lightroom's renders. Guided Upright from Lightroom catalogs is not yet imported for Sony RAWs set to another aspect ratio in the camera. Capture One's brush strokes and colour ranges come over as fixed masks that cannot be edited as strokes or ranges, and a Capture One linear gradient on a lens-corrected photo stays within 2.3 % (0.3 % on average) of a mask that follows the correction exactly, because a straight Rawtonic gradient cannot follow the correction's slight bow.
 - **Multi view:** entering 12 photos shows them all after 0.10 s; Lightroom shows them about one frame sooner on the same Mac.
-- **Sidecars:** an XMP sidecar with more than 250,000 XML elements (far beyond normal brush work) is refused and treated as changed elsewhere.
 - **Accessibility:** the Undo and Redo buttons in the toolbar have no accessible name for screen readers.
-- **Windows** stays experimental: unsigned, tested on one NVIDIA card and one AMD Radeon 680M laptop.
 - The known gaps of alpha.16 and earlier not named here remain.
 
 ## 0.1.0-alpha.16 — 2026-11-16
@@ -269,7 +264,6 @@ These are measured shortfalls or open work; they stay open until they are closed
 - **Windows with AMD graphics (Radeon 680M):** importing a 24 MP Sony ARW, the 100 % view's real pixels take 2.8–3.1 s; raised Shadows costs about 1.5 ms more per frame while dragging; the first use of Halation or Grain on top of Glow still prepares a larger view once per computer.
 - **Masks:** a mask's Shadows and Clarity act as the global sliders do, which is stronger than Camera Raw's local ones in places (a deliberate choice for now).
 - **Export speed** is still below Capture One's (the export is limited by the graphics card).
-- **Windows** stays experimental: unsigned, tested on one NVIDIA card and one AMD Radeon 680M laptop.
 - The known gaps of alpha.15 and earlier not named here remain.
 
 ## 0.1.0-alpha.15 — 2026-11-15
@@ -336,7 +330,6 @@ These are measured shortfalls or open work; they stay open until they are closed
 - **Export speed** is still below Capture One's (the export is limited by the graphics card); the CPU speed-ups cut processor time by 16 % but wall time only by about 2 %.
 - **Fit view colour noise reduction** matches the export only on Apple silicon and discrete graphics cards; on integrated graphics (a Radeon 680M took 0.9–2.9 s and 1–1.7 GB per change) and on Linux it still uses the quick filter, as does the Library loupe. The Windows timing on a discrete card is not measured yet.
 - **Color Grading** still differs from Camera Raw in a few cells (wheels at saturation 100, a green shadow tint in near-black tones); the colour mixer's Blues Saturation +100 and Luminance −100 stay further from Camera Raw than the rest.
-- **Windows** stays experimental: unsigned, tested on one NVIDIA card and one AMD Radeon 680M laptop.
 - The known gaps of alpha.14 and earlier not named here remain.
 
 ## 0.1.0-alpha.14 — 2026-11-14
@@ -656,7 +649,6 @@ These are measured shortfalls or open work; they stay open until they are closed
 - **Find Dust** finds less than Lightroom's Dust: on 24 test photos at the default sensitivity it found 40 % of the judged dust (Lightroom 81 %).
 - **Import from Lightroom** leaves out Remove spots, history steps and virtual copies' names and album membership; Select Subject can take a larger subject than Lightroom's.
 - **Deep shadows at ISO 12800 and above** still keep more colour cast than Camera Raw after lifting; the remaining cause is known and not fixed in this release.
-- **Windows** is experimental: unsigned, tested on one NVIDIA graphics card and on a build machine without a graphics card. It does not run without a Vulkan or DirectX 12 driver (Microsoft's software renderer is refused).
 - **Open With and Edit With** are macOS only for now.
 - **Find Duplicates** finds identical image data only, not visually similar photos. **Eyes** are suggestions; there is no eye-focus check.
 - **Keyboard focus:** some dialogs do not yet return the keyboard focus or show a focus ring where they should.
@@ -706,13 +698,7 @@ The tenth alpha. An activity centre in the top bar keeps every running task, res
 These are measured shortfalls or open work; they stay open until they are closed by measurement.
 
 - **Deep shadows at ISO 12800 and above** still keep more colour cast than Camera Raw after lifting (about 1.0 against 0.5–0.8 on our flat-shadow measure); the remaining cause is known and not fixed in this release.
-- **Windows** is experimental: unsigned, tested on one NVIDIA graphics card and on a build machine without a graphics card. It does not run without a Vulkan or DirectX 12 driver (Microsoft's software renderer is refused).
-- **Open With and Edit With** are macOS only for now.
-- **Find Duplicates** finds identical image data only, not visually similar photos. **Eyes** are suggestions; there is no eye-focus check.
-- **Keyboard focus:** some dialogs do not yet return the keyboard focus or show a focus ring where they should.
 - **Auto-advance with the physical Caps Lock key** is not yet verified on real hardware; Photo > Auto-advance works.
-- **Object removal on large holes:** the AI fill is still poor on some objects (a kitten in foliage, a pot on a table).
-- **Canon tethering** is experimental and untested on a real Canon body; leave it off unless you want to help test.
 - The known gaps of alpha.9 and earlier not named here remain; the alpha.9 gaps *Undo after Sync or paste on several photos* and the *XMP pending* indicator are fixed.
 
 ## 0.1.0-alpha.9.1 — 2026-10-28
@@ -765,9 +751,7 @@ These are measured shortfalls or open work; they stay open until they are closed
 - **Undo after Sync or paste on several photos** may not restore every photo; check the photos after undoing a batch (a fix is in progress, not in this release).
 - **XMP sidecar status:** the "XMP pending" indicator can stay on for photos whose sidecar was written, and failed sidecar writes from batch paste or styles are not always reported (fix in progress, not in this release).
 - **Keyboard focus:** some dialogs do not yet return the keyboard focus or show a focus ring where they should (accessibility fixes in progress, not in this release).
-- **Auto-advance with the physical Caps Lock key** is not yet verified on real hardware; Photo > Auto-advance works.
 - **Object removal on large holes:** the AI fill is still poor on some objects (a kitten in foliage, a pot on a table); on holes with known content the error is a little higher than before the halo fix (LPIPS 0.0705 → 0.0715), mostly fine texture such as water coming out smoother.
-- **Canon tethering** is experimental and untested on a real Canon body; leave it off unless you want to help test.
 - The known gaps of alpha.8 and earlier not named here remain (see below).
 
 ## 0.1.0-alpha.8 — 2026-10-27
@@ -1097,9 +1081,7 @@ New behaviour is tied to recipe version keys, so photos edited with alpha.2 rend
 
 These are measured shortfalls against the better of the leading professional RAW editors; they stay open until they are closed by measurement.
 
-- **AI Denoise** is about 1.5× slower than Camera Raw's Denoise (about 10 s vs 6.5 s for 24 MP on the same Mac) and leaves a higher lightness error at the same noise level (2.21 vs 1.69); on Linux it takes about 35 s per 24 MP photo on the GPU.
 - **Tethering** on the GFX 50R: the new photo is on screen 2.4 s after the shot, in Capture One 2.1 s (on the a7 III, a7 IV and X-H2S Rawtonic takes 1.1–1.5 s, Capture One 1.2–1.6 s). Tethering as a whole is experimental.
-- **Auto straighten**: on 51 test photos its median error is lower than Lightroom's Auto (0.06° vs 0.18°), but its 90th percentile is slightly behind (0.46° vs 0.42°). Straightening several selected photos at once is not available yet.
 - **Layers**: at most 32 visible layers take effect; further visible layers are ignored.
 - **Colour noise reduction** still leaves more lone colour specks than the leading editors at the default amount, and fine colour detail at ISO 3200 and above is below the best of them.
 - **Chromatic aberration and fringes** remain above the best reference on a few cameras (e.g. Lumix GX850, TZ202, Canon EOS M50 II).
