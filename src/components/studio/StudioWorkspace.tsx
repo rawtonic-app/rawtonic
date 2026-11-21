@@ -1024,7 +1024,9 @@ export default function StudioWorkspace(props: Props) {
       folderActions={props.folderActions}
       // Beside Develop (tools on the right) it only switches photographs.
       develop={develop}
-      shown={files}
+      // The Culling panel's Reject takes what the grid shows; in the loupe
+      // and full screen (one photo on screen) it is the grid's action only.
+      shown={libraryViewer ? null : files}
     />
   );
   const sessionBar = useSessionBar(useShallow((s) => ({ center: s.center, end: s.end, mark: s.mark })));

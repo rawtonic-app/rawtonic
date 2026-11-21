@@ -787,8 +787,9 @@ export default function StudioNavigation({
    * open states are its own, apart from the Library's. */
   develop?: boolean;
   /** The photos the grid shows, in its order (the Culling panel's Reject
-   * acts on these only). */
-  shown?: ImageFile[];
+   * acts on these only); null while the loupe or full screen shows one
+   * photo instead of the grid. */
+  shown?: ImageFile[] | null;
 }) {
   const { t } = useTranslation();
   const selectedPath = useEditorStore((s) => s.selectedImage?.path ?? null);

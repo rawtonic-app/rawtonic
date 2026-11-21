@@ -3476,6 +3476,7 @@
       "dismiss_other": "To nie problem ({{n}} zaznaczonego)",
       "dismissTitle": "Zaznaczone sugestie wybranych zdjęć nie będą już pokazywane",
       "failed": "Nie zapisano sugestii selekcji: {{error}}",
+      "gridOnly": "Odrzuć działa na zdjęcia pokazane w siatce: G pokazuje siatkę.",
       "needsModel": "Aby znaleźć nieudane ujęcia i dokumenty, model wyszukiwania odczytuje każde zdjęcie.",
       "reading": "Odczytano {{scored}} z {{total}} zdjęć",
       "reject_one": "Odrzuć {{n}} sugerowane zdjęcie",
@@ -3489,7 +3490,11 @@
       "showAgain_other": "Pokaż sugestie ponownie ({{n}} zaznaczonego)",
       "showOnly": "Pokaż tylko: {{name}} ({{n}})",
       "suggestionOnly": "Tylko sugestie: nic nie zostaje odrzucone, dopóki nie klikniesz Odrzuć, a Cofnij to odwraca.",
-      "title": "Selekcja"
+      "title": "Selekcja",
+      "unreadable_one": "{{n}} zdjęcia nie udało się odczytać dla sugestii; nastąpi ponowna próba przy otwarciu biblioteki.",
+      "unreadable_few": "{{n}} zdjęć nie udało się odczytać dla sugestii; nastąpi ponowna próba przy otwarciu biblioteki.",
+      "unreadable_many": "{{n}} zdjęć nie udało się odczytać dla sugestii; nastąpi ponowna próba przy otwarciu biblioteki.",
+      "unreadable_other": "{{n}} zdjęcia nie udało się odczytać dla sugestii; nastąpi ponowna próba przy otwarciu biblioteki."
     },
     "develop": {
       "auto": {

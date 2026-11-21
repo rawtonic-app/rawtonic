@@ -404,6 +404,11 @@ pub async fn start_content_index(
     // panel has no scores of (a library from before schema 30, a new prompt
     // set), which the pass reads again.
     let backlog = with_library(directory.clone(), false, move |lib| {
+        // Opened (or turned on): photographs that could not be read again
+        // for their culling scores are tried once more.
+        if culling && resume {
+            lib.clear_cull_failures().map_err(|e| e.to_string())?;
+        }
         if culling {
             lib.cull_backlog_count(MODEL_ID, &crate::culling::prompt_set_id())
         } else {
@@ -707,7 +712,7 @@ pub fn share_embedding(app: &tauri::AppHandle, path: &str, embedding: &[f32]) {
         // Its culling scores from the same values, when the prompts are at
         // hand (else the pass reads it again for them).
         if let Some(set) = crate::culling::cached_prompt_set()
-            && !lib.has_cull(&asset.id, MODEL_ID, &set.id)?
+            && lib.cull_scores(&asset.id)?.is_none()
         {
             lib.record_cull(&asset.id, MODEL_ID, &set, &asset.fingerprint, embedding)?;
         }

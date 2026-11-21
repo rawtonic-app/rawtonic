@@ -3073,6 +3073,7 @@
       "dismiss_other": "没有问题（已选 {{n}} 张）",
       "dismissTitle": "所选照片的已勾选建议不再显示",
       "failed": "筛选建议未保存：{{error}}",
+      "gridOnly": "“拒绝”作用于网格中显示的照片：按 G 显示网格。",
       "needsModel": "为找出误拍和文档，搜索模型会读取每张照片。",
       "reading": "已读取 {{scored}}/{{total}} 张照片",
       "reject_other": "拒绝 {{n}} 张建议的照片",
@@ -3080,7 +3081,8 @@
       "showAgain_other": "重新显示建议（已选 {{n}} 张）",
       "showOnly": "只显示{{name}}（{{n}}）",
       "suggestionOnly": "仅为建议：点击“拒绝”之前不会拒绝任何照片，撤销即可恢复。",
-      "title": "筛选"
+      "title": "筛选",
+      "unreadable_other": "有 {{n}} 张照片无法读取以生成建议；打开图库时会重试。"
     },
     "develop": {
       "auto": {

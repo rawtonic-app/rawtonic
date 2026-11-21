@@ -3169,6 +3169,7 @@
       "dismiss_other": "Not a problem ({{n}} selected)",
       "dismissTitle": "The checked suggestions of the selected photos are not shown again",
       "failed": "Culling suggestions not saved: {{error}}",
+      "gridOnly": "Reject works on the photos the grid shows: press G for the grid.",
       "needsModel": "Finding misfires and documents reads each photo with the search model.",
       "reading": "Read {{scored}} of {{total}} photos",
       "reject_one": "Reject {{n}} suggested photo",
@@ -3178,7 +3179,9 @@
       "showAgain_other": "Show suggestions again ({{n}} selected)",
       "showOnly": "Show only {{name}} ({{n}})",
       "suggestionOnly": "Suggestions only: nothing is rejected until you click Reject, and Undo takes it back.",
-      "title": "Culling"
+      "title": "Culling",
+      "unreadable_one": "{{n}} photo could not be read for suggestions; it is tried again when the library is opened.",
+      "unreadable_other": "{{n}} photos could not be read for suggestions; they are tried again when the library is opened."
     },
     "develop": {
       "auto": {

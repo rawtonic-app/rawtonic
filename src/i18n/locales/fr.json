@@ -3323,6 +3323,7 @@
       "dismiss_other": "Pas un problème ({{n}} sélectionnées)",
       "dismissTitle": "Les suggestions cochées des photos sélectionnées ne sont plus affichées",
       "failed": "Suggestions de tri non enregistrées : {{error}}",
+      "gridOnly": "Rejeter agit sur les photos affichées dans la grille : G affiche la grille.",
       "needsModel": "Pour trouver ratés et documents, le modèle de recherche lit chaque photo.",
       "reading": "{{scored}} photos lues sur {{total}}",
       "reject_one": "Rejeter {{n}} photo suggérée",
@@ -3334,7 +3335,10 @@
       "showAgain_other": "Réafficher les suggestions ({{n}} sélectionnées)",
       "showOnly": "Afficher seulement : {{name}} ({{n}})",
       "suggestionOnly": "Suggestions seulement : rien n’est rejeté avant que vous cliquiez sur Rejeter, et Annuler le reprend.",
-      "title": "Tri"
+      "title": "Tri",
+      "unreadable_one": "{{n}} photo n’a pas pu être lue pour les suggestions ; elle sera relue à l’ouverture de la bibliothèque.",
+      "unreadable_many": "{{n}} photos n’ont pas pu être lues pour les suggestions ; elles seront relues à l’ouverture de la bibliothèque.",
+      "unreadable_other": "{{n}} photos n’ont pas pu être lues pour les suggestions ; elles seront relues à l’ouverture de la bibliothèque."
     },
     "develop": {
       "auto": {

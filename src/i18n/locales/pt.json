@@ -3323,6 +3323,7 @@
       "dismiss_other": "Não é problema ({{n}} selecionadas)",
       "dismissTitle": "As sugestões assinaladas das fotos selecionadas deixam de ser mostradas",
       "failed": "Sugestões de triagem não guardadas: {{error}}",
+      "gridOnly": "Rejeitar atua nas fotos que a grelha mostra: G mostra a grelha.",
       "needsModel": "Para encontrar disparos falhados e documentos, o modelo de pesquisa lê cada foto.",
       "reading": "{{scored}} de {{total}} fotos lidas",
       "reject_one": "Rejeitar {{n}} foto sugerida",
@@ -3334,7 +3335,10 @@
       "showAgain_other": "Mostrar sugestões de novo ({{n}} selecionadas)",
       "showOnly": "Mostrar só {{name}} ({{n}})",
       "suggestionOnly": "Só sugestões: nada é rejeitado até clicar em Rejeitar, e Desfazer reverte.",
-      "title": "Triagem"
+      "title": "Triagem",
+      "unreadable_one": "{{n}} foto não pôde ser lida para as sugestões; será tentada de novo ao abrir a biblioteca.",
+      "unreadable_many": "{{n}} fotos não puderam ser lidas para as sugestões; serão tentadas de novo ao abrir a biblioteca.",
+      "unreadable_other": "{{n}} fotos não puderam ser lidas para as sugestões; serão tentadas de novo ao abrir a biblioteca."
     },
     "develop": {
       "auto": {

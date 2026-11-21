@@ -157,6 +157,8 @@ pub struct CullPhoto {
     pub dismissed: Vec<String>,
     /// Its misfire and document scores are current (else not read yet).
     pub scored: bool,
+    /// It could not be read again for its scores (`record_cull_failure`).
+    pub failed: bool,
 }
 
 impl Library {
@@ -275,6 +277,15 @@ impl Library {
         Ok(())
     }
 
+    /// Forgets every failure to read a photograph again for its scores, so
+    /// the content pass tries them once more (the library was opened). The
+    /// search embeddings stay; returns how many.
+    pub fn clear_cull_failures(&self) -> Result<usize, CatalogError> {
+        Ok(self
+            .conn
+            .execute("DELETE FROM cull_scores WHERE error IS NOT NULL", [])?)
+    }
+
     /// The stored (misfire, document) scores of asset `id` when current.
     pub fn cull_scores(&self, id: &str) -> Result<Option<(f32, f32)>, CatalogError> {
         use rusqlite::OptionalExtension;
@@ -300,7 +311,9 @@ impl Library {
             "SELECT a.id,{tests},
                EXISTS(SELECT 1 FROM cull_scores s WHERE s.asset_id=a.id
                       AND s.fingerprint=a.fingerprint AND s.error IS NULL),
-               (SELECT group_concat(d.criterion) FROM cull_dismissed d WHERE d.asset_id=a.id)
+               (SELECT group_concat(d.criterion) FROM cull_dismissed d WHERE d.asset_id=a.id),
+               EXISTS(SELECT 1 FROM cull_scores s WHERE s.asset_id=a.id
+                      AND s.fingerprint=a.fingerprint AND s.error IS NOT NULL)
              FROM assets a JOIN (SELECT DISTINCT value AS id FROM json_each(?)) j ON j.id=a.id"
         );
         let mut out = HashMap::new();
@@ -319,6 +332,7 @@ impl Library {
                 .map(|d| d.split(',').map(str::to_string).collect())
                 .unwrap_or_default();
             photo.dismissed.sort();
+            photo.failed = row.get(CRITERIA.len() + 3)?;
             out.insert(row.get(0)?, photo);
         }
         Ok(out)

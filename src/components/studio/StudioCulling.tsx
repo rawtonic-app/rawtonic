@@ -93,8 +93,9 @@ export function PhotoCullBadge({ path, compact }: { path: string; compact?: bool
 
 /** `shown`: the photos the grid shows (filters, search, collapsed stacks
  * applied); Reject flags only those, never photos the photographer cannot
- * see. The counts are the folder's or album's. */
-export function StudioCulling({ shown }: { shown?: ImageFile[] }) {
+ * see, and nothing while the loupe or full screen shows one photo (`null`).
+ * The counts are the folder's or album's. */
+export function StudioCulling({ shown }: { shown?: ImageFile[] | null }) {
   const { t, i18n } = useTranslation();
   const { directory, imageList, imageFlags, selected, suggestion, contentStatus, setFilter } = useLibraryStore(
     useShallow((s) => ({
@@ -123,11 +124,13 @@ export function StudioCulling({ shown }: { shown?: ImageFile[] }) {
   const counts = useMemo(() => cullCounts(photos, paths), [photos, paths]);
   const toReject = useMemo(
     () =>
-      (shown ?? imageList)
-        .map((image) => image.path)
-        .filter(
-          (path) => imageFlag(imageFlags, path) !== -1 && photos[path]?.suggested.some((c) => checked.includes(c))
-        ),
+      shown === null
+        ? []
+        : (shown ?? imageList)
+            .map((image) => image.path)
+            .filter(
+              (path) => imageFlag(imageFlags, path) !== -1 && photos[path]?.suggested.some((c) => checked.includes(c))
+            ),
     [shown, imageList, checked, photos, imageFlags]
   );
   const selectedSuggested = selected.filter((p) => photos[p]?.suggested.some((c) => checked.includes(c)));
@@ -185,10 +188,16 @@ export function StudioCulling({ shown }: { shown?: ImageFile[] }) {
         </button>
       </div>
     );
-  } else if (counts.scored < counts.known) {
+  } else if (counts.scored + counts.failed < counts.known) {
     modelLine = (
       <p className="studio-help" role="status">
         {t('studio.culling.reading', { scored: number(counts.scored), total: number(counts.known) })}
+      </p>
+    );
+  } else if (counts.failed > 0) {
+    modelLine = (
+      <p className="studio-help" role="status">
+        {t('studio.culling.unreadable', { count: counts.failed, n: number(counts.failed) })}
       </p>
     );
   }
@@ -240,6 +249,7 @@ export function StudioCulling({ shown }: { shown?: ImageFile[] }) {
         >
           {t('studio.culling.reject', { count: toReject.length, n: number(toReject.length) })}
         </button>
+        {shown === null && <p className="studio-help">{t('studio.culling.gridOnly')}</p>}
         {(selectedSuggested.length > 0 || selectedDismissed.length > 0) && (
           <div className="studio-culling-selection">
             {selectedSuggested.length > 0 && (

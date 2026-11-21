@@ -19,6 +19,9 @@ export interface CullPhoto {
   dismissed: CullCriterion[];
   /** Misfire and document scores are current (else not read yet). */
   scored: boolean;
+  /** It could not be read for its scores (tried again when the library is
+   * opened). */
+  failed?: boolean;
 }
 
 /** How many paths one request asks about. */
@@ -34,6 +37,8 @@ interface CullState {
   load(directory: string, paths: string[]): Promise<void>;
   changed(): void;
   reset(): void;
+  /** A pending load's answer is not published (the view changed). */
+  invalidate(): void;
 }
 
 export const useCullStore = create<CullState>((set, get) => ({
@@ -59,7 +64,8 @@ export const useCullStore = create<CullState>((set, get) => ({
     if (get().generation === asked && get().request === request) set({ photos });
   },
   changed: () => set((s) => ({ generation: s.generation + 1 })),
-  reset: () => set((s) => ({ photos: {}, request: s.request + 1 }))
+  reset: () => set((s) => ({ photos: {}, request: s.request + 1 })),
+  invalidate: () => set((s) => ({ request: s.request + 1 }))
 }));
 
 /** What the panel counts among `paths`: per criterion the photographs it
@@ -67,15 +73,17 @@ export const useCullStore = create<CullState>((set, get) => ({
 export function cullCounts(photos: Record<string, CullPhoto>, paths: string[]) {
   const suggested: Record<CullCriterion, string[]> = { misfire: [], document: [], eyesClosed: [] };
   let scored = 0;
+  let failed = 0;
   let known = 0;
   for (const path of paths) {
     const photo = photos[path];
     if (!photo) continue;
     known += 1;
     if (photo.scored) scored += 1;
+    else if (photo.failed) failed += 1;
     for (const criterion of photo.suggested) suggested[criterion].push(path);
   }
-  return { suggested, scored, known };
+  return { suggested, scored, failed, known };
 }
 
 /** Dismisses (or with `dismissed` false shows again) `criterion` for

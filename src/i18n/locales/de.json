@@ -3169,6 +3169,7 @@
       "dismiss_other": "Kein Problem ({{n}} ausgewählt)",
       "dismissTitle": "Die angehakten Vorschläge der ausgewählten Fotos werden nicht mehr gezeigt",
       "failed": "Vorschläge nicht gespeichert: {{error}}",
+      "gridOnly": "Ablehnen wirkt auf die Fotos, die das Raster zeigt: G zeigt das Raster.",
       "needsModel": "Für Fehlaufnahmen und Dokumente liest das Suchmodell jedes Foto.",
       "reading": "{{scored}} von {{total}} Fotos gelesen",
       "reject_one": "{{n}} vorgeschlagenes Foto ablehnen",
@@ -3178,7 +3179,9 @@
       "showAgain_other": "Vorschläge wieder zeigen ({{n}} ausgewählt)",
       "showOnly": "Nur {{name}} zeigen ({{n}})",
       "suggestionOnly": "Nur Vorschläge: Nichts wird abgelehnt, bevor Sie auf Ablehnen klicken, und Widerrufen nimmt es zurück.",
-      "title": "Aussortieren"
+      "title": "Aussortieren",
+      "unreadable_one": "{{n}} Foto konnte für Vorschläge nicht gelesen werden; es wird beim Öffnen der Bibliothek erneut versucht.",
+      "unreadable_other": "{{n}} Fotos konnten für Vorschläge nicht gelesen werden; sie werden beim Öffnen der Bibliothek erneut versucht."
     },
     "develop": {
       "auto": {

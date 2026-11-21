@@ -3073,6 +3073,7 @@
       "dismiss_other": "沒有問題（已選 {{n}} 張）",
       "dismissTitle": "所選相片的已勾選建議不再顯示",
       "failed": "篩選建議未儲存：{{error}}",
+      "gridOnly": "「拒絕」作用於格線中顯示的相片：按 G 顯示格線。",
       "needsModel": "為找出誤拍和文件，搜尋模型會讀取每張相片。",
       "reading": "已讀取 {{scored}}/{{total}} 張相片",
       "reject_other": "拒絕 {{n}} 張建議的相片",
@@ -3080,7 +3081,8 @@
       "showAgain_other": "重新顯示建議（已選 {{n}} 張）",
       "showOnly": "只顯示{{name}}（{{n}}）",
       "suggestionOnly": "僅為建議：按下「拒絕」之前不會拒絕任何相片，復原即可還原。",
-      "title": "篩選"
+      "title": "篩選",
+      "unreadable_other": "有 {{n}} 張相片無法讀取以產生建議；開啟圖庫時會重試。"
     },
     "develop": {
       "auto": {

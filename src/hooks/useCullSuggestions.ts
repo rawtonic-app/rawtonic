@@ -50,6 +50,11 @@ export function useCullSuggestions() {
         )
         .catch(() => {});
     }, LOAD_DELAY_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      // An answer still coming for the old list, library or readings is
+      // not published.
+      useCullStore.getState().invalidate();
+    };
   }, [directory, imageList, generation, eyes]);
 }

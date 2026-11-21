@@ -69,8 +69,10 @@ export function PhotoEyesBadge({ path, compact }: { path: string; compact?: bool
   if (!summary) return null;
   const closed = summary.closed > 0 && !dismissed;
   if (!closed && !summary.uncertain) return null;
+  // Its label counts what is still suggested.
+  const shownSummary = dismissed ? { ...summary, closed: 0 } : summary;
   const Icon = closed ? EyeClosed : CircleQuestionMark;
-  const text = eyeSummaryText(t, summary);
+  const text = eyeSummaryText(t, shownSummary);
   return (
     <span
       className={`studio-eyes-badge ${closed ? 'is-closed' : 'is-uncertain'}`}

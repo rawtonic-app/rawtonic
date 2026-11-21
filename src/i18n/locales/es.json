@@ -3323,6 +3323,7 @@
       "dismiss_other": "No es un problema ({{n}} seleccionadas)",
       "dismissTitle": "Las sugerencias marcadas de las fotos seleccionadas no se vuelven a mostrar",
       "failed": "Sugerencias de descarte no guardadas: {{error}}",
+      "gridOnly": "Rechazar actúa sobre las fotos que muestra la cuadrícula: G muestra la cuadrícula.",
       "needsModel": "Para encontrar disparos fallidos y documentos, el modelo de búsqueda lee cada foto.",
       "reading": "{{scored}} de {{total}} fotos leídas",
       "reject_one": "Rechazar {{n}} foto sugerida",
@@ -3334,7 +3335,10 @@
       "showAgain_other": "Volver a mostrar sugerencias ({{n}} seleccionadas)",
       "showOnly": "Mostrar solo {{name}} ({{n}})",
       "suggestionOnly": "Solo sugerencias: nada se rechaza hasta que pulse Rechazar, y Deshacer lo revierte.",
-      "title": "Descarte"
+      "title": "Descarte",
+      "unreadable_one": "{{n}} foto no se pudo leer para las sugerencias; se volverá a intentar al abrir la biblioteca.",
+      "unreadable_many": "{{n}} fotos no se pudieron leer para las sugerencias; se volverá a intentar al abrir la biblioteca.",
+      "unreadable_other": "{{n}} fotos no se pudieron leer para las sugerencias; se volverá a intentar al abrir la biblioteca."
     },
     "develop": {
       "auto": {

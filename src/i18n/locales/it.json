@@ -3323,6 +3323,7 @@
       "dismiss_other": "Non è un problema ({{n}} selezionate)",
       "dismissTitle": "I suggerimenti spuntati delle foto selezionate non vengono più mostrati",
       "failed": "Suggerimenti non salvati: {{error}}",
+      "gridOnly": "Rifiuta agisce sulle foto mostrate dalla griglia: G mostra la griglia.",
       "needsModel": "Per trovare scatti mancati e documenti, il modello di ricerca legge ogni foto.",
       "reading": "Lette {{scored}} di {{total}} foto",
       "reject_one": "Rifiuta {{n}} foto suggerita",
@@ -3334,7 +3335,10 @@
       "showAgain_other": "Mostra di nuovo i suggerimenti ({{n}} selezionate)",
       "showOnly": "Mostra solo {{name}} ({{n}})",
       "suggestionOnly": "Solo suggerimenti: nulla viene rifiutato finché non fai clic su Rifiuta, e Annulla lo ripristina.",
-      "title": "Selezione"
+      "title": "Selezione",
+      "unreadable_one": "{{n}} foto non è stata letta per i suggerimenti; verrà riprovata all’apertura della libreria.",
+      "unreadable_many": "{{n}} foto non sono state lette per i suggerimenti; verranno riprovate all’apertura della libreria.",
+      "unreadable_other": "{{n}} foto non sono state lette per i suggerimenti; verranno riprovate all’apertura della libreria."
     },
     "develop": {
       "auto": {

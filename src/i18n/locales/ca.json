@@ -3323,6 +3323,7 @@
       "dismiss_other": "No és cap problema ({{n}} seleccionades)",
       "dismissTitle": "Els suggeriments marcats de les fotos seleccionades no es tornen a mostrar",
       "failed": "Suggeriments de descart no desats: {{error}}",
+      "gridOnly": "Rebutja actua sobre les fotos que mostra la quadrícula: G mostra la quadrícula.",
       "needsModel": "Per trobar trets fallits i documents, el model de cerca llegeix cada foto.",
       "reading": "{{scored}} de {{total}} fotos llegides",
       "reject_one": "Rebutja {{n}} foto suggerida",
@@ -3334,7 +3335,10 @@
       "showAgain_other": "Torna a mostrar els suggeriments ({{n}} seleccionades)",
       "showOnly": "Mostra només {{name}} ({{n}})",
       "suggestionOnly": "Només suggeriments: no es rebutja res fins que feu clic a Rebutja, i Desfés ho reverteix.",
-      "title": "Descart"
+      "title": "Descart",
+      "unreadable_one": "{{n}} foto no s’ha pogut llegir per als suggeriments; es tornarà a provar en obrir la biblioteca.",
+      "unreadable_many": "{{n}} fotos no s’han pogut llegir per als suggeriments; es tornaran a provar en obrir la biblioteca.",
+      "unreadable_other": "{{n}} fotos no s’han pogut llegir per als suggeriments; es tornaran a provar en obrir la biblioteca."
     },
     "develop": {
       "auto": {

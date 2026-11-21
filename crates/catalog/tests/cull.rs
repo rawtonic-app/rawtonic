@@ -205,10 +205,24 @@ fn scores_are_made_from_each_reading_once_per_file_model_and_prompt_set() {
             .iter()
             .all(|w| w.id != ids[2])
     );
+    assert!(lib.cull_photos(&ids[2..3]).unwrap()[&ids[2]].failed);
+    // Opening the library forgets the failure: it is read once more, its
+    // embedding kept.
+    assert_eq!(lib.clear_cull_failures().unwrap(), 1);
+    assert!(
+        lib.cull_backlog(MODEL, "p1", 10)
+            .unwrap()
+            .iter()
+            .any(|w| w.id == ids[2])
+    );
+    assert!(lib.has_embedding(&ids[2], MODEL).unwrap());
+    lib.record_cull_failure(&ids[2], MODEL, "p1", "xxh3:changed2", "decode failed")
+        .unwrap();
     // A later good reading replaces the failure.
     lib.record_cull(&ids[2], MODEL, &p1, "xxh3:changed2", &axis(9))
         .unwrap();
     assert!(lib.cull_scores(&ids[2]).unwrap().is_some());
+    assert!(!lib.cull_photos(&ids[2..3]).unwrap()[&ids[2]].failed);
     assert!(!lib.has_embedding(&ids[3], MODEL).unwrap());
 
     // A bad prompt set or embedding is refused, nothing written.
