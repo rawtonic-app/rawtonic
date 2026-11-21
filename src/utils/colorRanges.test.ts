@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { applyColorPick, invalidatePendingColorPicks, pickColorRange, TARGET_PICK, targetPickFor } from './colorRanges';
+import {
+  applyColorPick,
+  invalidatePendingColorPicks,
+  pickColorRange,
+  rangePickOf,
+  TARGET_PICK,
+  targetPickFor
+} from './colorRanges';
 import {
   applyColorRanges,
   deltaE00,
@@ -281,6 +288,22 @@ describe('the renderer probe at a pick', () => {
     expect(again.saturation).toBe(-90);
     expect(state.colorPicksThroughRanges).toEqual([]);
     expect(state.colorRangeInputs[`/a.cr3||${picked.id}`].point).toEqual([0.4, 0.6]);
+  });
+
+  it('forgets the pick when the photo is cropped, rotated or flipped (its point lies on other pixels)', async () => {
+    probeWith(1);
+    await pickColorRange('/a.cr3', 'new', 0.4, 0.6);
+    const state = useEditorStore.getState();
+    const range = state.adjustments.colorRanges![0];
+    expect(rangePickOf('/a.cr3', null, range)).not.toBeNull();
+    useEditorStore.setState({ adjustments: { ...state.adjustments, flipHorizontal: true } });
+    expect(rangePickOf('/a.cr3', null, range)).toBeNull();
+    useEditorStore.setState({
+      adjustments: { ...state.adjustments, crop: { x: 10, y: 10, width: 50, height: 50, unit: '%' } as never }
+    });
+    expect(rangePickOf('/a.cr3', null, range)).toBeNull();
+    useEditorStore.setState({ adjustments: state.adjustments });
+    expect(rangePickOf('/a.cr3', null, range)).not.toBeNull();
   });
 
   it('solves a target on a feathered layer at the mask influence of the pick', async () => {

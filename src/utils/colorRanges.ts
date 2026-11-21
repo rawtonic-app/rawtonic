@@ -4,6 +4,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
 import { MAX_COLOR_RANGES, newColorRange, type Adjustments, type ColorRange } from './adjustments';
 import { srgbToOklch } from './oklab';
+import { GEOMETRY_KEYS, ORIENTATION_KEYS } from './geometryKeys';
 import {
   colorBeforeRanges,
   inverseGain,
@@ -128,8 +129,21 @@ const sameColour = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[
 
 /** The pick behind range `range` of `photo`/`layer`, while the range still has the colour that pick set. */
 export function rangePickOf(photo: string, layer: string | null, range: ColorRange): ColorRangePick | null {
-  const pick = useEditorStore.getState().colorRangeInputs[rangePickKey(photo, layer, range.id)];
-  return pick && sameColour(pick.centre, rangeCentre(range)) ? pick : null;
+  const state = useEditorStore.getState();
+  const pick = state.colorRangeInputs[rangePickKey(photo, layer, range.id)];
+  // The point is normalised to the photo as it was framed then: a crop,
+  // rotation, flip or warp since moves it onto other pixels.
+  return pick && sameColour(pick.centre, rangeCentre(range)) && pick.geometry === geometryKeyOf(state.adjustments)
+    ? pick
+    : null;
+}
+
+/** The recipe values that decide where a normalised preview point lies on the photograph. */
+export function geometryKeyOf(adjustments: Adjustments): string {
+  const values = adjustments as unknown as Record<string, unknown>;
+  return JSON.stringify(
+    [...GEOMETRY_KEYS, ...ORIENTATION_KEYS, 'crop', 'aspectRatio'].map((key) => values[key] ?? null)
+  );
 }
 
 /**
@@ -245,7 +259,10 @@ export async function pickColorRange(path: string, target: string, x: number, y:
       colorPicksThroughRanges: after.colorPicksThroughRanges.filter((k) => k !== key),
       colorRangeInputs:
         key && picked
-          ? { ...after.colorRangeInputs, [key]: { point: [x, y], centre: rangeCentre(picked), input } }
+          ? {
+              ...after.colorRangeInputs,
+              [key]: { point: [x, y], centre: rangeCentre(picked), geometry: geometryKeyOf(asked.adjustments), input }
+            }
           : after.colorRangeInputs
     });
     return true;

@@ -1,5 +1,5 @@
 import { Pipette } from 'lucide-react';
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -114,9 +114,14 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
       setEditor: s.setEditor
     }))
   );
+  const adjustments = useEditorStore((s) => s.adjustments);
   const layer = layerId ?? null;
   const latestRanges = useRef(ranges);
   latestRanges.current = ranges;
+  const latestActive = useRef(active);
+  latestActive.current = active;
+  // The latest target request: an older one's sample arriving later is dropped.
+  const request = useRef(0);
   const own =
     target?.appliedTo &&
     target.appliedTo.photo === photo &&
@@ -130,6 +135,15 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
   // at full strength.
   const pick = photo ? rangePickOf(photo, layer, active) : null;
   const input = pick?.input ?? centreInput(active);
+  // Edits before the colour editor or of the layer's mask change what it
+  // receives at the pick: sample it again once they settle, so the readout
+  // follows them.
+  const followed = !!own && !!pick;
+  useEffect(() => {
+    if (!photo || !followed) return;
+    const timer = setTimeout(() => void rangeInputFor(photo, layer, latestActive.current), 250);
+    return () => clearTimeout(timer);
+  }, [adjustments, photo, layer, active.id, followed]);
   // The colour at the pick as the renderer leaves it (the sliders as they are).
   const resultLab = renderedLab(ranges, input);
   const shown = own ? own.lab : resultLab;
@@ -140,6 +154,7 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
   const setTarget = (lab: Vec3, sampledIn: string | null = null) => {
     if (!photo || !lab.every(Number.isFinite)) return false;
     setEditor({ colorTarget: { lab, sampledIn, appliedTo: { photo, layer, rangeId: active.id } } });
+    const mine = ++request.current;
     if (!rangePickOf(photo, layer, active)) {
       apply(rangesWithTarget(ranges, active.id, lab));
       return true;
@@ -150,6 +165,7 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
     void rangeInputFor(photo, layer, active).then((fresh) => {
       const state = useEditorStore.getState();
       const applied = state.colorTarget?.appliedTo;
+      if (mine !== request.current) return;
       if (state.selectedImage?.path !== photo || applied?.rangeId !== id || applied.layer !== layer) return;
       // The ranges as they are now (another edit may have come meanwhile).
       const current = latestRanges.current;
@@ -288,17 +304,19 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
           role="status"
           title={t('studio.color.editor.target.readoutTitle')}
         >
-          {grey
-            ? t('studio.color.editor.target.grey')
-            : pickedThrough
-              ? t('studio.color.editor.target.pickedThrough', { value })
-              : deltaE <= TARGET_REACHED
-                ? fullStrength
-                  ? t('studio.color.editor.target.layerPredicted', { value })
-                  : t('studio.color.editor.target.reached', { value })
-                : limits.length
-                  ? t('studio.color.editor.target.outOfReach', { value, limits: limits.join(', ') })
-                  : t('studio.color.editor.target.distance', { value })}
+          {solve?.uncovered
+            ? t('studio.color.editor.target.uncovered')
+            : grey
+              ? t('studio.color.editor.target.grey')
+              : pickedThrough
+                ? t('studio.color.editor.target.pickedThrough', { value })
+                : deltaE <= TARGET_REACHED
+                  ? fullStrength
+                    ? t('studio.color.editor.target.layerPredicted', { value })
+                    : t('studio.color.editor.target.reached', { value })
+                  : limits.length
+                    ? t('studio.color.editor.target.outOfReach', { value, limits: limits.join(', ') })
+                    : t('studio.color.editor.target.distance', { value })}
           {solve?.targetOutsideWorkingGamut ? (
             <> {t('studio.color.editor.target.outsideWorkingGamut')}</>
           ) : (

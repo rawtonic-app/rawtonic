@@ -227,6 +227,39 @@ describe('solveColorTarget', () => {
     expect(solve.deltaE).toBeLessThan(1);
   });
 
+  it('reaches a target on a patch across two colours under a feathered mask with the sliders together', () => {
+    // Review TGT2 round 1: an 11 × 11 red/green patch under a linear mask
+    // ramp; the mean-pixel closed form pins Hue while the patch is reachable.
+    const red = linearToOklab(srgb8ToLinear([190, 40, 35]));
+    const green = linearToOklab(srgb8ToLinear([60, 150, 50]));
+    const pixels: Vec3[] = [];
+    const influence: number[] = [];
+    for (let y = 0; y < 11; y += 1)
+      for (let x = 0; x < 11; x += 1) {
+        pixels.push(x < 6 ? red : green);
+        influence.push(0.2 + (0.8 * y) / 10);
+      }
+    const input = { pixels, influence };
+    const [L, a, b] = meanOklab(pixels);
+    const range = newColorRange(((Math.atan2(b, a) * 180) / Math.PI + 360) % 360, Math.hypot(a, b), L);
+    // A target the full model reaches: the patch's colour with known shifts.
+    const target = renderedLab([{ ...range, hueShift: -45, saturation: -50, lightnessShift: 30 }], input);
+    const solve = solveColorTarget([range], range.id, target, input)!;
+    expect(solve.deltaE).toBeLessThan(1);
+    expect(solve.limited).toEqual({ hue: false, saturation: false, lightness: false });
+  });
+
+  it('keeps the shifts and says so when the layer’s mask no longer covers the pick', () => {
+    const range = rangeAt([200, 60, 50], { hueShift: 30, saturation: 20, lightnessShift: -10 });
+    const solve = solveColorTarget([range], range.id, labOfSrgb([200, 20, 40]), {
+      pixels: [rangeCentre(range)],
+      influence: [0]
+    })!;
+    expect(solve.shifts).toEqual({ hueShift: 30, saturation: 20, lightnessShift: -10 });
+    expect(solve.movable).toBe(false);
+    expect(solve.uncovered).toBe(true);
+  });
+
   it('returns null for an unknown range', () => {
     expect(solveColorTarget([rangeAt([1, 2, 3])], 'missing', [50, 0, 0])).toBeNull();
   });

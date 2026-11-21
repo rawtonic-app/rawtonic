@@ -428,6 +428,8 @@ export interface RangeInput {
 export interface ColorRangePick {
   point: [number, number];
   centre: Vec3;
+  /** The framing the point belongs to (utils/colorRanges `geometryKeyOf`). */
+  geometry: string;
   input: RangeInput;
 }
 
@@ -478,12 +480,15 @@ export interface TargetSolve {
   deltaE: number;
   /** Which shifts hit their limit before reaching the target. */
   limited: { hue: boolean; saturation: boolean; lightness: boolean };
-  /** The target lies outside sRGB: the photo holds it, an sRGB output shows the nearest colour it can. */
+  /** The target lies outside sRGB (an sRGB output maps it into sRGB). */
   targetOutsideSrgb: boolean;
   /** The target lies beyond the working gamut (the ProPhoto cube): no colour of the photo is it. */
   targetOutsideWorkingGamut: boolean;
-  /** False for a range too grey for its own selection (nothing moves). */
+  /** False when the range's sliders cannot reach the pick (its shifts are
+   * then kept as they are): a range too grey for its own selection, or a
+   * layer whose mask does not cover the pick (`uncovered`). */
   movable: boolean;
+  uncovered: boolean;
 }
 
 /**
@@ -558,28 +563,53 @@ export function solveColorTarget(
     packed.map((p, i) =>
       i === index ? pack({ ...ranges[index], hueShift: s[0], saturation: s[1], lightnessShift: s[2] }) : p
     );
-  // The full model over every pixel, and its one-pixel stand-in for the
-  // coarse grid below (the mean colour at the mean influence).
-  const proxy: RangeInput = { pixels: [meanOklab(at.pixels)], influence: [strength] };
   const fitOf = (s: Vec3, over: RangeInput = at) => {
     const resultLab = renderedPacked(withShifts(s), over);
     return { resultLab, deltaE: deltaE00(targetLab, resultLab) };
   };
+  const targetOutsideWorkingGamut = !insideWorkingGamut(targetLinear);
+  const current: Vec3 = [
+    num(ranges[index].hueShift, 0),
+    num(ranges[index].saturation, 0),
+    num(ranges[index].lightnessShift, 0)
+  ];
+  if (w <= 1e-6) {
+    // Nothing the range's sliders do reaches the pick (a grey range, or a
+    // layer whose mask no longer covers the point): its shifts stay.
+    const fit = fitOf(current);
+    return {
+      shifts: { hueShift: current[0], saturation: current[1], lightnessShift: current[2] },
+      resultLab: fit.resultLab,
+      deltaE: fit.deltaE,
+      limited: { hue: true, saturation: true, lightness: true },
+      targetOutsideSrgb,
+      targetOutsideWorkingGamut,
+      movable: false,
+      uncovered: ownWeight > 1e-6
+    };
+  }
+  // Up to nine of the pixels with their influence: the coarse grid's stand-in
+  // for the full model (a patch across an edge keeps both colours).
+  const every = Math.max(1, Math.ceil(at.pixels.length / 9));
+  const coarse: RangeInput = {
+    pixels: at.pixels.filter((_, i) => i % every === 0),
+    influence: at.influence.filter((_, i) => i % every === 0)
+  };
   // The closed form matches hue, chroma and lightness each on its own at
   // the mean colour; the pixels around the pick, a layer's mix and the
-  // working gamut's edge bend that a little, so a local search over whole
-  // slider steps finishes it on the full model (sliders at their limit stay
-  // there). When the target or the closed form's result leaves the working
-  // gamut, or a slider runs out, the nearest colour needs the sliders
-  // together: a coarse grid over the free sliders first. A pinned target
-  // inside the gamut takes that search's result only when it reaches the
+  // working gamut's edge bend that, so a local search over whole slider
+  // steps finishes it on the full model. When that does not reach the
+  // target, the sliders together may (a patch across two colours, a target
+  // at the gamut's edge, one slider beyond its reach): a coarse grid over all
+  // three, then the local search from its best starts. A target inside the
+  // working gamut takes that search's result only when it reaches the
   // target; otherwise the target goes as far as it can in its own direction
   // and the other sliders keep matching their own part (no colour drained
   // just to shave the distance).
   let best: Vec3 = [hueSteps, satSteps, lightSteps];
   let bestFit = fitOf(best);
-  const free = [!limited.hue, !limited.saturation, !limited.lightness].flatMap((open, k) => (open ? [k] : []));
-  const descend = (start: Vec3, sizes: number[], over: RangeInput = at) => {
+  const all = [0, 1, 2];
+  const descend = (start: Vec3, sizes: number[], over: RangeInput = at, free = all) => {
     let point = start;
     let fit = fitOf(point, over);
     for (const step of sizes) {
@@ -602,45 +632,46 @@ export function solveColorTarget(
     }
     return { point, fit: over === at ? fit : fitOf(point) };
   };
-  if (w > 1e-6 && bestFit.deltaE > 0.05) {
-    const found = descend(best, [4, 2, 1]);
+  if (bestFit.deltaE > 0.05) {
+    // Sliders the closed form ran out stay at their limit here.
+    const open = all.filter((k) => ![limited.hue, limited.saturation, limited.lightness][k]);
+    const found = descend(best, [4, 2, 1], at, open);
     if (found.fit.deltaE < bestFit.deltaE - 1e-9) ({ point: best, fit: bestFit } = found);
   }
   const closed = { best, bestFit };
-  const outside = !insideWorkingGamut(targetLinear) || !insideWorkingGamut(labToLinear(fitOf(best, proxy).resultLab));
-  const pinned = limited.hue || limited.saturation || limited.lightness;
-  if (w > 1e-6 && (outside || pinned) && bestFit.deltaE > TARGET_REACHED) {
-    // A coarse grid over the free sliders (steps of 20, at most 1331
-    // evaluations of the one-pixel stand-in) picks the starts.
+  if (bestFit.deltaE > TARGET_REACHED) {
+    // Steps of 20 over the three sliders: 1331 evaluations of the stand-in.
     const grid = [-100, -80, -60, -40, -20, 0, 20, 40, 60, 80, 100];
     const starts: { point: Vec3; deltaE: number }[] = [];
-    const visit = (k: number, point: Vec3) => {
-      if (k === free.length) {
-        starts.push({ point, deltaE: fitOf(point, proxy).deltaE });
-        return;
-      }
-      for (const v of grid) {
-        const next = [...point] as Vec3;
-        next[free[k]] = v;
-        visit(k + 1, next);
-      }
-    };
-    visit(0, best);
-    starts.sort((a, b) => a.deltaE - b.deltaE);
+    for (const a of grid)
+      for (const b of grid)
+        for (const c of grid) starts.push({ point: [a, b, c], deltaE: fitOf([a, b, c], coarse).deltaE });
+    starts.sort((x, y) => x.deltaE - y.deltaE);
     for (const start of starts.slice(0, 3)) {
-      const rough = descend(start.point, [16, 8, 4], proxy);
+      const rough = descend(start.point, [16, 8, 4], coarse);
       const found = descend(rough.point, [2, 1]);
       if (found.fit.deltaE < bestFit.deltaE - 1e-9) ({ point: best, fit: bestFit } = found);
     }
+    const outside = targetOutsideWorkingGamut || !insideWorkingGamut(labToLinear(closed.bestFit.resultLab));
     if (!outside && bestFit.deltaE > TARGET_REACHED) ({ best, bestFit } = closed);
   }
+  // A slider counts as run out only where the target stays out of reach.
+  const missed = bestFit.deltaE > TARGET_REACHED;
+  // The closed form's own limits, or a slider the joint search left at its end.
+  const searched = best !== closed.best;
+  const atLimit = (k: number) => searched && Math.abs(best[k]) >= SHIFT_LIMIT;
   return {
     shifts: { hueShift: best[0], saturation: best[1], lightnessShift: best[2] },
     resultLab: bestFit.resultLab,
     deltaE: bestFit.deltaE,
-    limited,
+    limited: {
+      hue: missed && (limited.hue || atLimit(0)),
+      saturation: missed && (limited.saturation || atLimit(1)),
+      lightness: missed && (limited.lightness || atLimit(2))
+    },
     targetOutsideSrgb,
-    targetOutsideWorkingGamut: !insideWorkingGamut(targetLinear),
-    movable: w > 1e-6
+    targetOutsideWorkingGamut,
+    movable: true,
+    uncovered: false
   };
 }

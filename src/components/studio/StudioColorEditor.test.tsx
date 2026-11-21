@@ -10,6 +10,7 @@ import { useEditorStore } from '../../store/useEditorStore';
 import { srgbToOklch } from '../../utils/oklab';
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../ui/AppProperties';
+import { geometryKeyOf } from '../../utils/colorRanges';
 import { deltaE00, linearToLab, oklabToLinear, rangeCentre, renderedLab, srgb8ToLinear } from '../../utils/colorTarget';
 import StudioColorEditor from './StudioColorEditor';
 import StudioColorRangeWheel, { chromaOf, radiusOf, rangeBand, wheelPoint } from './StudioColorRangeWheel';
@@ -477,7 +478,12 @@ describe('target colour', () => {
     const range = red();
     const centre = rangeCentre(range);
     // Picked on a feathered layer: half its strength at the pick.
-    const pick = { point: [0.3, 0.7] as [number, number], centre, input: { pixels: [centre], influence: [0.5] } };
+    const pick = {
+      point: [0.3, 0.7] as [number, number],
+      centre,
+      geometry: geometryKeyOf(useEditorStore.getState().adjustments),
+      input: { pixels: [centre], influence: [0.5] }
+    };
     useEditorStore.setState({ colorRangeInputs: { [`/a.cr3|L1|${range.id}`]: pick } });
     vi.mocked(invoke).mockResolvedValue({ pixels: [oklabToLinear(centre)], influence: [0.5] });
     render(<Harness initial={[range]} layerId="L1" />);
@@ -496,11 +502,42 @@ describe('target colour', () => {
     useEditorStore.setState({ colorRangeInputs: {} });
   });
 
+  it('applies only the latest typed target when samples return in reverse order', async () => {
+    const range = red();
+    const centre = rangeCentre(range);
+    const pick = {
+      point: [0.3, 0.7] as [number, number],
+      centre,
+      geometry: geometryKeyOf(useEditorStore.getState().adjustments),
+      input: { pixels: [centre], influence: [1] }
+    };
+    useEditorStore.setState({ colorRangeInputs: { [`/a.cr3||${range.id}`]: pick } });
+    const answers: ((value: unknown) => void)[] = [];
+    vi.mocked(invoke).mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+    render(<Harness initial={[range]} />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    typeInto('Target color as sRGB hex', '#b4283c');
+    await waitFor(() => expect(answers.length).toBeGreaterThanOrEqual(2));
+    const sample = { pixels: [oklabToLinear(centre)], influence: [1] };
+    // The later request's sample first, then the earlier one's.
+    answers[1](sample);
+    await waitFor(() => expect(changes).toHaveLength(1));
+    answers[0](sample);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(changes).toHaveLength(1);
+    const lab = linearToLab(srgb8ToLinear([0xb4, 0x28, 0x3c]));
+    expect(deltaE00(lab, renderedLab(lastRanges(), { pixels: [centre], influence: [1] }))).toBeLessThan(1);
+    useEditorStore.setState({ colorRangeInputs: {} });
+  });
+
   it('flags a typed target outside sRGB', () => {
     render(<Harness initial={[red()]} />);
     openTool();
     typeInto('Target chroma C* (CIELAB D50)', '130');
-    expect(screen.getByRole('status').textContent).toContain('The target is outside sRGB: the photo holds it');
+    expect(screen.getByRole('status').textContent).toContain(
+      'The target is outside sRGB; an sRGB export maps the color into sRGB.'
+    );
   });
 
   it('Escape restores the field without applying; Return applies and leaves the field', () => {
