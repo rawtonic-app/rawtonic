@@ -148,10 +148,20 @@ impl RawSource {
   /// the strip (it ends within 16 bytes of EOF, as the raw data of most
   /// RAWs does): the copy read the whole strip, on a share every byte.
   pub fn subview_padded_for(&self, offset: u64, size: u64, dummy: bool) -> std::io::Result<PaddedBuf<'_>> {
-    if dummy && offset + size <= self.len() as u64 && offset + size + 16 > self.len() as u64 {
-      return Ok(PaddedBuf::new_owned(vec![0; (size + 16) as usize], size as usize));
+    let len = self.len() as u64;
+    // Checked: a wrapped `offset + size` from bad metadata is out of range.
+    match offset.checked_add(size) {
+      Some(end) if end <= len => {
+        if dummy && end.saturating_add(16) > len {
+          return Ok(PaddedBuf::new_owned(vec![0; (size + 16) as usize], size as usize));
+        }
+        self.subview_padded(offset, size)
+      }
+      _ => Err(std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        format!("subview_padded(): Offset {}+{} is behind EOF", offset, size),
+      )),
     }
-    self.subview_padded(offset, size)
   }
 
   /// `subview_until_eof_padded` as [`Self::subview_padded_for`] does it.
@@ -218,8 +228,10 @@ mod rawtonic_dummy_view_tests {
     assert_eq!((dummy.len(), dummy.size()), (real.len(), real.size()));
     assert!(dummy.iter().all(|b| *b == 0));
     assert_eq!(&source.subview_until_eof_padded_for(40, false).unwrap()[..], &real[..]);
-    // Out of range stays an error.
+    // Out of range stays an error, also where `offset + size` would wrap.
     assert!(source.subview_padded_for(90, 30, true).is_err());
+    assert!(source.subview_padded_for(u64::MAX - 5, 10, true).is_err());
+    assert!(source.subview_padded_for(u64::MAX - 5, 10, false).is_err());
     assert!(source.subview_until_eof_padded_for(100, true).is_err());
   }
 }

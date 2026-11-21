@@ -627,10 +627,13 @@ suite allows 120 seconds without progress and 600 seconds total.
   (`as_vec()`); the SR2 decryption and the LJPEG tiles read the same bytes.
 - The camera-crop step of the Library's never-edited thumbnail
   (`source_frame::frame` per frame version) read every byte of RAF, NEF,
-  ORF, RW2, SRW and ARW files through these copies; on 363 RAWs the dummy
-  decodes now read 6 MB instead of 7.3 GB, with identical dummy images,
-  frames, crops, metadata, previews and photo info. Evidence: notes
-  benchmark-results/crd2-2026-11-21/.
+  ORF, RW2, SRW and ARW files through these copies. Measured on the
+  `raw_image(dummy = true)` call alone (after `get_decoder`; pages made
+  resident, readahead off) for the 334 files of a 363-RAW corpus that rawler
+  decodes (one file could not be opened, 28 Nikon HE NEFs are refused as
+  before): 7.3 GB before, 6 MB after. Old and new builds gave identical dummy
+  images, `raw_metadata`, frames and camera crops on all 363 files. Evidence:
+  notes benchmark-results/crd2-2026-11-21/.
 
 ## Canon CR3 white level (2026-11-19, RAWL3, G01)
 

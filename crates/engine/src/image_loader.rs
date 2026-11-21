@@ -928,6 +928,35 @@ pub fn priority_embedded_jpeg(bytes: &[u8]) -> Option<Vec<u8>> {
 }
 
 pub fn embedded_preview_fallback(bytes: &[u8], path: &str) -> Option<DynamicImage> {
+    embedded_preview_with(bytes, path, || {
+        rawler::rawsource::RawSource::new_from_slice(bytes)
+    })
+}
+
+/// A file buffer shared with rawler without a copy (a mapping of the file).
+pub type SharedBytes = Arc<dyn AsRef<[u8]> + Send + Sync + panic::RefUnwindSafe>;
+
+/// [`safe_embedded_preview_fallback`] of a shared buffer (the Library's
+/// mapping of the file): where the decoder's own preview is needed (CR3,
+/// Panasonic RW2), rawler reads it in place instead of copying the whole
+/// file first, so a cold RAW is read only where its preview lies.
+pub fn safe_embedded_preview_fallback_shared(
+    file: SharedBytes,
+    path: &str,
+) -> Option<DynamicImage> {
+    let bytes: &[u8] = (*file).as_ref();
+    catch_preview_panic(path, || {
+        embedded_preview_with(bytes, path, || {
+            rawler::rawsource::RawSource::new_from_shared(file.clone())
+        })
+    })
+}
+
+fn embedded_preview_with(
+    bytes: &[u8],
+    path: &str,
+    source: impl FnOnce() -> rawler::rawsource::RawSource,
+) -> Option<DynamicImage> {
     let (img, orientation) = if let Some(jpeg) = raf_embedded_jpeg(bytes) {
         let image = image::load_from_memory_with_format(jpeg, image::ImageFormat::Jpeg).ok()?;
         (image, exif_orientation(jpeg))
@@ -936,7 +965,7 @@ pub fn embedded_preview_fallback(bytes: &[u8], path: &str) -> Option<DynamicImag
     } else {
         // Other RAW containers (for example CR3) also need the decoder's
         // metadata instead of assuming that the container is TIFF or JPEG.
-        let source = rawler::rawsource::RawSource::new_from_slice(bytes).with_path(path);
+        let source = source().with_path(path);
         let decoder = rawler::get_decoder(&source).ok()?;
         let params = rawler::decoders::RawDecodeParams::default();
         let image = decoder
@@ -958,9 +987,14 @@ pub fn embedded_preview_fallback(bytes: &[u8], path: &str) -> Option<DynamicImag
 }
 
 pub fn safe_embedded_preview_fallback(bytes: &[u8], path: &str) -> Option<DynamicImage> {
-    match panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        embedded_preview_fallback(bytes, path)
-    })) {
+    catch_preview_panic(path, || embedded_preview_fallback(bytes, path))
+}
+
+fn catch_preview_panic(
+    path: &str,
+    preview: impl FnOnce() -> Option<DynamicImage>,
+) -> Option<DynamicImage> {
+    match panic::catch_unwind(panic::AssertUnwindSafe(preview)) {
         Ok(preview) => preview,
         Err(_) => {
             log::warn!("Embedded RAW preview extraction panicked for '{}'", path);
@@ -2075,6 +2109,13 @@ mod private_preview_tests {
             let preview = safe_embedded_preview_fallback(&bytes, &path.to_string_lossy())
                 .expect("camera must expose a browser preview without RAW development");
             assert!(preview.width().max(preview.height()) >= 480);
+            // The Library's in-place read of the file gives the same preview.
+            let shared = safe_embedded_preview_fallback_shared(
+                Arc::new(bytes.clone()),
+                &path.to_string_lossy(),
+            )
+            .unwrap();
+            assert_eq!(shared.as_bytes(), preview.as_bytes());
             let priority = priority_embedded_jpeg(&bytes)
                 .expect("camera must expose a priority JPEG without RAW development");
             let source = rawler::rawsource::RawSource::new(&path).unwrap();
