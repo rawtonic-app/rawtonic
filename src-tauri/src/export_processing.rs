@@ -1671,16 +1671,7 @@ pub(crate) fn keep_detected_selections(
     if needs_frame_migration(&metadata.adjustments, &source_path) {
         return Ok(false);
     }
-    // Its geometry as the detection saw it: prepared for a render as the
-    // export and the queue prepare it (version keys, the resolved lens),
-    // which a never-opened recipe may not hold yet.
-    let mut frame = metadata.adjustments.clone();
-    let _ = rawtonic_export::normalize::normalize(
-        &mut frame,
-        &rawtonic_export::normalize::RecipeSource::file(&source_path),
-        rawtonic_export::normalize::Bitmaps::None,
-        rawtonic_export::normalize::Defaults::Render,
-    );
+    let frame = detection_frame(&metadata.adjustments, &source_path);
     if !rawtonic_engine::ai_selections::keep_detected_in(
         &mut metadata.adjustments,
         &frame,
@@ -1692,6 +1683,20 @@ pub(crate) fn keep_detected_selections(
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json)
         .map_err(|e| format!("the selections could not be kept: {e}"))?;
     Ok(true)
+}
+
+/// The geometry of `adjustments` as a detection saw it: prepared for a
+/// render as the export and the selection queue prepare it (version keys,
+/// the resolved lens), which a never-opened recipe may not hold yet.
+pub(crate) fn detection_frame(adjustments: &Value, source_path: &Path) -> Value {
+    let mut frame = adjustments.clone();
+    let _ = rawtonic_export::normalize::normalize(
+        &mut frame,
+        &rawtonic_export::normalize::RecipeSource::file(source_path),
+        rawtonic_export::normalize::Bitmaps::None,
+        rawtonic_export::normalize::Defaults::Render,
+    );
+    frame
 }
 
 /// Whether `adjustments` is an edit of a camera TIFF still made on its

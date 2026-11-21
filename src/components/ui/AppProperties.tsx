@@ -113,6 +113,8 @@ export enum Invokes {
   AddTagForPaths = 'add_tag_for_paths',
   ApplyAdjustments = 'apply_adjustments',
   ApplyAdjustmentsToPaths = 'apply_adjustments_to_paths',
+  QueueSelections = 'queue_selections',
+  AdoptSelections = 'adopt_selections',
   ApplyAutoAdjustmentsToPaths = 'apply_auto_adjustments_to_paths',
   AnalyzeSeriesMatch = 'analyze_series_match',
   CancelSeriesMatch = 'cancel_series_match',

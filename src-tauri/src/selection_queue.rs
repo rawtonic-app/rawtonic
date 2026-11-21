@@ -24,6 +24,124 @@ use tauri::{AppHandle, Emitter};
 /// empty (`finished`).
 pub const PROGRESS_EVENT: &str = "ai-selections-progress";
 
+/// Event with the path of a photo whose selections the queue computed: the
+/// editor that has it open takes them (`adopt_selections`) into the recipe
+/// it holds, which may be ahead of the saved one (an edit made meanwhile),
+/// so its next save does not write the selections back as waiting.
+pub const DETECTED_EVENT: &str = "ai-selections-detected";
+
+/// The selections computed last, per photo, until its editor takes them
+/// (`adopt_selections`); a few only (one photo is open at a time; the
+/// others' are in their recipes).
+const HANDED_KEPT: usize = 4;
+static HANDED: Mutex<VecDeque<(String, Vec<rawtonic_engine::ai_selections::Detected>)>> =
+    Mutex::new(VecDeque::new());
+
+/// Keeps `detected` of `path` for its editor, over what it was given before.
+fn hand(path: &str, detected: Vec<rawtonic_engine::ai_selections::Detected>) {
+    let mut handed = HANDED.lock().unwrap_or_else(|e| e.into_inner());
+    handed.retain(|(p, _)| p != path);
+    handed.push_back((path.to_string(), detected));
+    while handed.len() > HANDED_KEPT {
+        handed.pop_front();
+    }
+}
+
+/// What was handed for `path` (kept: an editor whose recipe changed while
+/// it asked asks again).
+fn handed(path: &str) -> Option<Vec<rawtonic_engine::ai_selections::Detected>> {
+    let handed = HANDED.lock().unwrap_or_else(|e| e.into_inner());
+    handed
+        .iter()
+        .find(|(p, _)| p == path)
+        .map(|(_, detected)| detected.clone())
+}
+
+/// The components `adopted` filled that `recipe` left waiting: component id
+/// → its parameters with the selection.
+fn filled_components(recipe: &Value, adopted: &Value) -> serde_json::Map<String, Value> {
+    let components = |recipe: &Value| -> Vec<(String, Value)> {
+        recipe["masks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|layer| layer["subMasks"].as_array().into_iter().flatten())
+            .filter_map(|sub| Some((sub["id"].as_str()?.to_string(), sub["parameters"].clone())))
+            .collect()
+    };
+    let before: std::collections::HashMap<String, Value> = components(recipe).into_iter().collect();
+    components(adopted)
+        .into_iter()
+        .filter(|(id, parameters)| before.get(id) != Some(parameters))
+        .collect()
+}
+
+/// `recipes` (the open photo's recipe and its History entries) with the
+/// selections the queue computed for `path` put in, by the rule the queue
+/// keeps them in the saved recipe (`ai_selections::keep_detected_in`):
+/// only into components still waiting (same layer and component id and
+/// type, no bitmap, the same parts or version) in the geometry they were
+/// computed in. Everything else of a recipe stays as it is. None for a
+/// recipe that takes nothing.
+pub fn adopt_into(
+    recipes: Vec<Value>,
+    detected: &[rawtonic_engine::ai_selections::Detected],
+    frame_of: impl Fn(&Value) -> Value,
+) -> Vec<Option<Value>> {
+    recipes
+        .into_iter()
+        .map(|mut recipe| {
+            let frame = frame_of(&recipe);
+            rawtonic_engine::ai_selections::keep_detected_in(&mut recipe, &frame, detected)
+                .then_some(recipe)
+        })
+        .collect()
+}
+
+/// The editor of the open photo `path` takes the selections the queue
+/// computed for it (`DETECTED_EVENT`) into `recipes` (`adopt_into`): per
+/// recipe the components it fills (id → parameters), None when it fills
+/// none (none computed, or none waits as they were computed).
+#[tauri::command]
+pub async fn adopt_selections(
+    path: String,
+    recipes: Vec<Value>,
+) -> Result<Vec<Option<serde_json::Map<String, Value>>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(detected) = handed(&path) else {
+            return recipes.iter().map(|_| None).collect();
+        };
+        let (source_path, _) = rawtonic_export::sidecars::parse_virtual_path(&path);
+        let adopted = adopt_into(recipes.clone(), &detected, |recipe| {
+            crate::export_processing::detection_frame(recipe, &source_path)
+        });
+        recipes
+            .iter()
+            .zip(adopted)
+            .map(|(recipe, adopted)| adopted.map(|adopted| filled_components(recipe, &adopted)))
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Queues the photos among `paths` whose saved recipes wait for AI
+/// selections: the Library's active photograph, which the editor writes
+/// itself (the batch leaves it out), after its save. Its editor takes what
+/// was computed (`DETECTED_EVENT`). Photos that wait for nothing are left
+/// alone.
+#[tauri::command]
+pub async fn queue_selections(paths: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        enqueue(paths.into_iter().filter(|path| {
+            let (_, sidecar) = rawtonic_export::sidecars::parse_virtual_path(path);
+            wants_detection(&crate::exif_processing::load_sidecar(&sidecar).adjustments)
+        }));
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// A photo whose selections were not computed, and why.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -254,7 +372,14 @@ fn detect_photo(app: &AppHandle, path: &str) -> Result<(), String> {
         Some(&crate::ai_commands::ExportSelections { app_handle: app }),
         &mut || {},
     )?;
-    if crate::export_processing::keep_detected_selections(path, &detected)? {
+    let kept = crate::export_processing::keep_detected_selections(path, &detected);
+    // Also for a photo changed meanwhile: its editor, if it has it open,
+    // takes what still fits the recipe it holds.
+    if !detected.is_empty() {
+        hand(path, detected);
+        let _ = app.emit(DETECTED_EVENT, path);
+    }
+    if kept? {
         crate::file_management::refresh_thumbnail(app, path);
         return Ok(());
     }
@@ -340,6 +465,87 @@ mod tests {
             json!({"maskDataBase64": null, "detectPending": true})
         )));
         assert!(!wants_detection(&json!({"exposure": 1.0})));
+    }
+
+    /// The open photo's editor takes the queue's selections into the recipe
+    /// it holds: an edit made while they were computed (a slider) stays,
+    /// only the waiting component is filled; a recipe in another frame, or
+    /// whose component holds a bitmap already, takes nothing.
+    #[test]
+    fn the_editor_takes_the_queues_selections_without_losing_its_edits() {
+        use rawtonic_engine::ai_selections::{AutoSelection, Detected, detected_parameters};
+        let saved = json!({"exposure": 0.0, "masks": [{"id": "sky-layer", "visible": true,
+            "subMasks": [{"id": "sky-1", "type": "ai-sky", "visible": true,
+                "parameters": {"maskDataBase64": null, "detectPending": true, "grow": 0, "feather": 0}}]}]});
+        let found = vec![Detected {
+            layer_id: "sky-layer".into(),
+            component_id: "sky-1".into(),
+            selection: AutoSelection::Sky,
+            parameters: detected_parameters(
+                &saved["masks"][0]["subMasks"][0]["parameters"],
+                &saved,
+                "data:image/png;base64,SKY".into(),
+            ),
+        }];
+        // Edited while the queue computed: Exposure, and the layer's Feather.
+        let mut edited = saved.clone();
+        edited["exposure"] = json!(1.5);
+        edited["masks"][0]["subMasks"][0]["parameters"]["feather"] = json!(30);
+        let mut turned = saved.clone();
+        turned["orientationSteps"] = json!(1);
+        let mut filled = saved.clone();
+        filled["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"] = json!("data:own");
+        let plain = json!({"exposure": 0.3});
+        let adopted = adopt_into(
+            vec![edited.clone(), turned, filled, plain],
+            &found,
+            |recipe| recipe.clone(),
+        );
+        let first = adopted[0]
+            .as_ref()
+            .expect("the waiting component is filled");
+        assert_eq!(first["exposure"], 1.5);
+        let parameters = &first["masks"][0]["subMasks"][0]["parameters"];
+        assert_eq!(parameters["maskDataBase64"], "data:image/png;base64,SKY");
+        assert_eq!(parameters["feather"], 30);
+        assert!(parameters.get("detectPending").is_none());
+        // Nothing else of the recipe changed.
+        let mut back = first.clone();
+        back["masks"][0]["subMasks"][0]["parameters"] =
+            edited["masks"][0]["subMasks"][0]["parameters"].clone();
+        assert_eq!(back, edited);
+        assert_eq!(adopted[1..], [None, None, None]);
+    }
+
+    /// The newest selections per photo are handed, for a few photos.
+    #[test]
+    fn the_newest_selections_of_a_few_photos_are_handed() {
+        use rawtonic_engine::ai_selections::{AutoSelection, Detected};
+        let one = |id: &str| Detected {
+            layer_id: "l".into(),
+            component_id: id.into(),
+            selection: AutoSelection::Sky,
+            parameters: json!({}),
+        };
+        hand("/handed/a.nef", vec![one("old")]);
+        hand("/handed/a.nef", vec![one("new")]);
+        assert_eq!(handed("/handed/a.nef").unwrap()[0].component_id, "new");
+        for i in 0..HANDED_KEPT {
+            hand(&format!("/handed/other{i}.nef"), vec![one("x")]);
+        }
+        assert!(handed("/handed/a.nef").is_none());
+    }
+
+    #[test]
+    fn only_the_filled_components_are_answered() {
+        let recipe = json!({"masks": [{"id": "l", "subMasks": [
+            {"id": "a", "parameters": {"maskDataBase64": null}},
+            {"id": "b", "parameters": {"maskDataBase64": "data:kept"}}]}]});
+        let mut adopted = recipe.clone();
+        adopted["masks"][0]["subMasks"][0]["parameters"] = json!({"maskDataBase64": "data:sky"});
+        let filled = filled_components(&recipe, &adopted);
+        assert_eq!(filled.len(), 1);
+        assert_eq!(filled["a"], json!({"maskDataBase64": "data:sky"}));
     }
 
     /// A camera TIFF's migrated bitmap the queue kept (its model is not

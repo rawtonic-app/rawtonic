@@ -116,6 +116,12 @@ import {
  * later write supersedes them; null: its never-edited recipe (a restore). */
 const unsavedRecipes = new Map<string, Adjustments | null>();
 
+/** What an editor save answers (`EditorSave` in edits.rs). */
+type EditorSave = {
+  /** Its first edit was written without the camera's crop (original in the cloud, nothing cached). */
+  cropMissing?: boolean;
+};
+
 /** Writes a recipe kept in `unsavedRecipes` (not through the queue: the
  * caller is a queued write or waits for it). */
 function writeUnsaved(path: string, recipe: Adjustments | null): Promise<unknown> {
@@ -186,12 +192,15 @@ function saveEditorRecipe(
   return submitPhotoWrite(
     [path],
     () =>
-      invoke<void>(Invokes.SaveMetadataAndUpdateThumbnail, {
+      invoke<EditorSave | null>(Invokes.SaveMetadataAndUpdateThumbnail, {
         path,
         adjustments: adjustmentsToSave,
         ...(updateThumbnail ? {} : { updateThumbnail: false })
       }).then(
-        () => {
+        (saved) => {
+          // A first edit of a photo in the cloud the camera's crop was not
+          // known for: told as a batch apply tells it.
+          if (saved?.cropMissing) noteCropMissing([path]);
           if (epoch === libraryEpoch) unsavedRecipes.delete(path);
           recipeWritten([path], null);
           return undefined;
@@ -343,6 +352,18 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string, qu
       return failed;
     }
   );
+}
+
+/** Queues the AI selections the saved recipe of `path` waits for, after
+ * the editor's own write (`selection_queue`); the editor takes them when
+ * they are computed (src/utils/queuedSelections.ts). */
+function queueOpenSelections(path: string) {
+  setTimeout(() => {
+    debouncedSave.flush();
+    void (photoWritesSettled(path) ?? Promise.resolve())
+      .then(() => invoke(Invokes.QueueSelections, { paths: [path] }))
+      .catch((error) => console.error('Queuing the AI selections failed:', error));
+  }, 100);
 }
 
 type RecipeBatch = {
@@ -1698,6 +1719,12 @@ export function useEditorActions() {
         // Its History entry now, so it is the open photograph's part of the
         // batch's undo step (not a later step of its own).
         debouncedSetHistory.flush();
+      }
+      // In the Library the open photograph is only the active one: nothing
+      // there computes its new AI selections, so the background queue does
+      // after its save, as for the others (the batch queues those).
+      if (open && pastedOntoOpen && presetWithAiMasks && useUIStore.getState().activeView !== 'editor') {
+        queueOpenSelections(open.path);
       }
       const others = pastedOntoOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
       if (others.length === 0) return Promise.resolve([] as string[]);
