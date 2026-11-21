@@ -329,6 +329,42 @@ pub(crate) fn file_replaced_since_open(source: &Path) -> Option<&'static str> {
     (now != recorded).then_some(FILE_REPLACED)
 }
 
+/// The error of an editor sidecar write the library committed but whose
+/// derived sidecar beside the photograph could not be written (a
+/// write-protected folder): the edit is saved and its undo holds; the file
+/// follows on the next save. Tell it from other errors with
+/// [`saved_in_library`].
+#[derive(Debug)]
+pub struct DerivedSidecarUnwritten(io::Error);
+
+impl std::fmt::Display for DerivedSidecarUnwritten {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "saved in the library; the sidecar file next to the photo could not be written: {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for DerivedSidecarUnwritten {}
+
+fn derived_unwritten(e: io::Error) -> io::Error {
+    io::Error::other(DerivedSidecarUnwritten(e))
+}
+
+/// Why only the derived sidecar was not written, when `error` (of
+/// [`write_editor_sidecar`]) left the edit saved in the library.
+pub fn saved_in_library(error: &io::Error) -> Option<&io::Error> {
+    error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<DerivedSidecarUnwritten>())
+        .map(|unwritten| &unwritten.0)
+}
+
+/// Writes an editor sidecar: through the library that holds the photograph
+/// (committed first), then the sidecar beside it. An error after the
+/// library committed is a [`DerivedSidecarUnwritten`].
 pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> {
     let _lock = WRITE_LOCK.lock().map_err(io_error)?;
     let path = path.as_ref();
@@ -362,9 +398,15 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             if !online {
                 return Ok(());
             }
-            let version = lib.version_for(&asset.id, Some(&copy)).map_err(io_error)?;
-            let bytes = with_library_snapshots(&lib, version.as_deref(), bytes, &state)?;
-            return rawtonic_fs::atomic_write(path, &*bytes).map_err(io_error);
+            let version = lib
+                .version_for(&asset.id, Some(&copy))
+                .map_err(io_error)
+                .map_err(derived_unwritten)?;
+            let bytes = with_library_snapshots(&lib, version.as_deref(), bytes, &state)
+                .map_err(derived_unwritten)?;
+            return rawtonic_fs::atomic_write(path, &*bytes)
+                .map_err(io_error)
+                .map_err(derived_unwritten);
         }
         return rawtonic_fs::atomic_write(path, bytes).map_err(io_error);
     }
@@ -405,10 +447,16 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             lib.save_editor_state(&asset.id, &state)
         })
         .map_err(io_error)?;
-        let version = lib.primary_version(&asset.id).map_err(io_error)?;
-        let bytes = with_library_snapshots(&lib, Some(&version), bytes, &state)?;
+        let version = lib
+            .primary_version(&asset.id)
+            .map_err(io_error)
+            .map_err(derived_unwritten)?;
+        let bytes = with_library_snapshots(&lib, Some(&version), bytes, &state)
+            .map_err(derived_unwritten)?;
         // SQLite committed first. A failed derived write can be retried without losing edits.
-        rawtonic_fs::atomic_write(path, &*bytes).map_err(io_error)?;
+        rawtonic_fs::atomic_write(path, &*bytes)
+            .map_err(io_error)
+            .map_err(derived_unwritten)?;
         if let Err(e) = lib.sync_xmp(&asset.id) {
             log::warn!(
                 "Edit saved in database; XMP pending for {}: {e}",
