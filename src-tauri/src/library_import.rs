@@ -296,7 +296,11 @@ pub fn translate(develop: &Develop) -> Option<Value> {
 }
 
 fn import_warnings(photo: &Photo) -> Vec<String> {
-    let layers = crate::capture_one_layers::report(&photo.capture_one_layers);
+    let mut layers = match &photo.develop {
+        Develop::CaptureOne(entries) => capture_one_lens_report(entries),
+        _ => Vec::new(),
+    };
+    layers.extend(crate::capture_one_layers::report(&photo.capture_one_layers));
     let layers = layers
         .into_iter()
         .map(|line| format!("{}: {line}", photo.path.display()));
@@ -600,13 +604,16 @@ fn recipe_for_with(
     lens: LensOf,
 ) -> Option<(Value, bool)> {
     let translated = translate(develop);
-    let edited = translated.is_some();
-    if !edited && c1_layers.is_empty() {
-        return None;
-    }
-    let mut adjustments = translated.unwrap_or_else(|| json!({}));
+    let mut adjustments = translated.clone().unwrap_or_else(|| json!({}));
+    // Capture One's lens choice and CA switch are edits of their own: a
+    // variant with only those comes over too.
     if let Develop::CaptureOne(entries) = develop {
         capture_one_lens(entries, path, &mut adjustments);
+        capture_one_chromatic_aberration(entries, path, &mut adjustments);
+    }
+    let edited = translated.is_some() || adjustments.as_object().is_some_and(|m| !m.is_empty());
+    if !edited && c1_layers.is_empty() {
+        return None;
     }
     let is_raw = crate::formats::is_raw_file(path);
     let mut base = json!({});
@@ -823,9 +830,91 @@ fn capture_one_lens_amounts(entries: &[(String, String)]) -> Option<(Option<f64>
             .filter(|v| v.is_finite())
             .map(|v| v.clamp(0.0, 200.0))
     };
-    get("LensIdGuid").filter(|v| !v.trim().is_empty())?;
+    get("LensIdGuid").filter(|v| !v.trim().is_empty() && !is_generic_lens(v))?;
     let amounts = (amount("LensGeoAbr"), amount("LensLightFallOff"));
     (amounts.0.is_some() || amounts.1.is_some()).then_some(amounts)
+}
+
+/// The `LensIdGuid` of Capture One's "Generic" lens profile, the one it
+/// uses for a lens it has no profile of: seen the same on Olympus, Canon,
+/// Leaf and DNG files of Capture One 16.6–16.9 (notes:
+/// benchmark-results/c1q1-2026-11-21/). It holds no data of the lens, so
+/// its Distortion and Light Falloff amounts scale a generic model, not the
+/// lens's own correction.
+const CAPTURE_ONE_GENERIC_LENS: &str = "E936EE15-75CA-42EC-9602-629D90D9947E";
+
+fn is_generic_lens(guid: &str) -> bool {
+    guid.trim().eq_ignore_ascii_case(CAPTURE_ONE_GENERIC_LENS)
+}
+
+/// The entry `key` of Capture One's settings.
+fn capture_one_entry<'a>(entries: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    entries
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.trim())
+}
+
+/// The import report's lines for Capture One's lens settings Rawtonic does
+/// not take over as they are: the Generic profile (the photo keeps
+/// Rawtonic's default correction for its lens, never a lens profile picked
+/// in its place) with the amounts set on it, which have no measured
+/// equivalent on Rawtonic's sliders; and an analysed chromatic aberration
+/// curve (Rawtonic measures the photo's own CA instead).
+fn capture_one_lens_report(entries: &[(String, String)]) -> Vec<String> {
+    let mut out = Vec::new();
+    if capture_one_entry(entries, "LensIdGuid").is_some_and(is_generic_lens) {
+        out.push(
+            "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies"
+                .to_string(),
+        );
+        for (key, name) in [
+            ("LensGeoAbr", "Distortion"),
+            ("LensLightFallOff", "Light Falloff"),
+        ] {
+            let amount = capture_one_entry(entries, key)
+                .and_then(|v| v.split('|').nth(1))
+                .and_then(|v| v.trim().parse::<f64>().ok())
+                .filter(|v| v.is_finite() && *v != 0.0);
+            if let Some(amount) = amount {
+                out.push(format!(
+                    "Capture One's {name} {amount} with the Generic profile not carried (no measured equivalent)"
+                ));
+            }
+        }
+    }
+    if capture_one_entry(entries, "LensChromAbrCustomCurve").is_some_and(|v| !v.is_empty()) {
+        out.push(
+            "Capture One's analysed chromatic aberration curve not carried (Rawtonic measures the photo's own)"
+                .to_string(),
+        );
+    }
+    out
+}
+
+/// Capture One's Chromatic Aberration switch as Rawtonic's CA correction:
+/// on is the correction on (a RAW's new edit has it on by default, the
+/// automatic correction of `lateral_ca`; other files get its switch on);
+/// off turns off both the automatic correction and the lens data's own.
+/// Not set (Capture One's default left alone) keeps Rawtonic's default.
+fn capture_one_chromatic_aberration(
+    entries: &[(String, String)],
+    path: &Path,
+    adjustments: &mut Value,
+) {
+    let Some(map) = adjustments.as_object_mut() else {
+        return;
+    };
+    match capture_one_entry(entries, "ChromaticAberEnabled") {
+        Some("0") => {
+            map.insert(lens::AUTO_CHROMATIC_ABERRATION.name().into(), json!(false));
+            map.insert(lens::TCA_ENABLED.name().into(), json!(false));
+        }
+        Some("1") if !crate::formats::is_raw_file(path) => {
+            map.insert(lens::AUTO_CHROMATIC_ABERRATION.name().into(), json!(true));
+        }
+        _ => {}
+    }
 }
 
 /// Lightroom's lens profile corrections on Rawtonic's own lens data
@@ -1229,10 +1318,10 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
         };
-        let curve = "0.0,0.0000;8037.0,-32.7000;22513.0,-922.2000";
+        let curve = "0,0;1000,-10;2000,-40";
         let on = entries(
             &format!("{curve}|100.0|1|100|-1.0"),
-            "3004.0,-0.0150|0.0|1",
+            "1000,-0.01|0.0|1",
             "G",
         );
         assert_eq!(
@@ -1241,7 +1330,7 @@ mod tests {
         );
         let half = entries(&format!("{curve}|50.0|1|100|-1.0"), "", "G");
         assert_eq!(capture_one_lens_amounts(&half), Some((Some(50.0), None)));
-        let falloff_only = entries("", "3004.0,-0.0150|40.0|1", "G");
+        let falloff_only = entries("", "1000,-0.01|40.0|1", "G");
         assert_eq!(
             capture_one_lens_amounts(&falloff_only),
             Some((None, Some(40.0)))
@@ -1259,11 +1348,7 @@ mod tests {
         fs::write(&path, b"not a raw").unwrap();
         // Both amounts 0: the photo is neither moved nor brightened,
         // whatever the default.
-        let off = entries(
-            &format!("{curve}|0.0|1|100|-1.0"),
-            "3004.0,-0.0150|0.0|1",
-            "G",
-        );
+        let off = entries(&format!("{curve}|0.0|1|100|-1.0"), "1000,-0.01|0.0|1", "G");
         let mut adjustments = json!({});
         capture_one_lens(&off, &path, &mut adjustments);
         assert_eq!(
@@ -1280,6 +1365,109 @@ mod tests {
         let mut adjustments = json!({"lensCorrectionMode": "manual"});
         capture_one_lens(&off, &path, &mut adjustments);
         assert_eq!(adjustments, json!({"lensCorrectionMode": "manual"}));
+    }
+
+    /// C1Q1: Capture One's Generic lens profile (no profile of the lens) is
+    /// not swapped for a lens profile: the photo keeps Rawtonic's default
+    /// for its lens, and the report says so and names Generic amounts that
+    /// have no measured equivalent. Chromatic Aberration on/off is carried
+    /// as Rawtonic's CA correction on/off.
+    #[test]
+    fn capture_one_generic_lens_and_chromatic_aberration() {
+        let entries = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let generic = entries(&[
+            ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),
+            ("LensGeoAbr", "0,0;1000,-10;2000,-40|30.0|1|100|-1"),
+            ("LensLightFallOff", "|0.0|1"),
+            ("ChromaticAberEnabled", "1"),
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.ORF");
+        fs::write(&raw, b"not a raw").unwrap();
+        // No lens profile in Capture One: no amounts to put on one.
+        assert_eq!(capture_one_lens_amounts(&generic), None);
+        let mut adjustments = json!({});
+        capture_one_lens(&generic, &raw, &mut adjustments);
+        assert_eq!(adjustments, json!({}), "the default lens correction stays");
+        assert_eq!(
+            capture_one_lens_report(&generic),
+            [
+                "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies",
+                "Capture One's Distortion 30 with the Generic profile not carried (no measured equivalent)",
+            ]
+        );
+        let warnings =
+            import_warnings(&photo("1", raw.clone(), Develop::CaptureOne(generic), None));
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert!(warnings[0].starts_with(&raw.display().to_string()));
+        // A Generic profile left at 0 is said once, with nothing left out.
+        let untouched = entries(&[
+            ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),
+            ("LensGeoAbr", "0,0;1000,-10|0.000000|1|100|-1"),
+            ("LensLightFallOff", "|0|1"),
+        ]);
+        assert_eq!(capture_one_lens_report(&untouched).len(), 1);
+        // A lens profile of Capture One's own reports nothing.
+        let profiled = entries(&[
+            ("LensIdGuid", "P"),
+            ("LensGeoAbr", "0,0;1000,-10|60.0|1|100|-1"),
+            ("ChromaticAberEnabled", "1"),
+        ]);
+        assert!(capture_one_lens_report(&profiled).is_empty());
+
+        // Chromatic Aberration: on is Rawtonic's CA correction on (by default
+        // on a RAW's new edit, set on other files), off turns it off.
+        let tiff = dir.path().join("a.tif");
+        let ca = |on: &str, path: &Path| {
+            let mut adjustments = json!({});
+            capture_one_chromatic_aberration(
+                &entries(&[("ChromaticAberEnabled", on)]),
+                path,
+                &mut adjustments,
+            );
+            adjustments
+        };
+        assert_eq!(ca("1", &raw), json!({}));
+        assert_eq!(ca("1", &tiff), json!({"autoChromaticAberration": true}));
+        let off = json!({"autoChromaticAberration": false, "lensTcaEnabled": false});
+        assert_eq!(ca("0", &raw), off);
+        assert_eq!(ca("0", &tiff), off);
+        let mut adjustments = json!({});
+        capture_one_chromatic_aberration(&entries(&[]), &raw, &mut adjustments);
+        assert_eq!(
+            adjustments,
+            json!({}),
+            "not set in Capture One: the default"
+        );
+        // Capture One's analysed CA curve has no Rawtonic counterpart.
+        let analysed = entries(&[
+            ("ChromaticAberEnabled", "1"),
+            ("LensChromAbrCustomCurve", "0,0;1000,1|0,0;1000,-1"),
+        ]);
+        assert_eq!(
+            capture_one_lens_report(&analysed),
+            [
+                "Capture One's analysed chromatic aberration curve not carried (Rawtonic measures the photo's own)"
+            ]
+        );
+        // Through the whole recipe: a RAW with CA off renders without it,
+        // also when that is the variant's only edit.
+        for develop in [
+            entries(&[("Exposure", "0.5"), ("ChromaticAberEnabled", "0")]),
+            entries(&[("ChromaticAberEnabled", "0")]),
+        ] {
+            let (recipe, _) = recipe_for(&Develop::CaptureOne(develop), &[], &raw).unwrap();
+            assert_eq!(recipe["autoChromaticAberration"], false);
+            assert_eq!(recipe["lensTcaEnabled"], false);
+        }
+        // CA on is Rawtonic's default: nothing to import.
+        let on = entries(&[("ChromaticAberEnabled", "1")]);
+        assert!(recipe_for(&Develop::CaptureOne(on), &[], &raw).is_none());
     }
 
     fn photo(key: &str, path: PathBuf, develop: Develop, copy_of: Option<&str>) -> Photo {

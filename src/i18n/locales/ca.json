@@ -1890,6 +1890,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "Les fotos han tornat, però el paper de la carpeta es queda on és: {{error}}",
       "selectsUnavailable": "La carpeta Selects {{folder}} no està disponible (el disc està connectat?). No s’ha mogut res; tria una altra carpeta Selects a Carpetes de la sessió.",
       "title": "Carpetes de la sessió",
       "unavailable": "No disponible: falta la carpeta o el seu disc no està connectat.",

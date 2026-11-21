@@ -231,6 +231,14 @@ pub fn stop_file_operation(run: u64) {
     STOP.stop(run);
 }
 
+/// `with_journal` for the session folders' glue (`session_folders`).
+pub(crate) fn with_journal_pub<T>(
+    app: &AppHandle,
+    f: impl FnOnce(&Journal) -> Result<T, FileOpsError>,
+) -> Result<T, String> {
+    with_journal(app, f)
+}
+
 fn with_journal<T>(
     app: &AppHandle,
     f: impl FnOnce(&Journal) -> Result<T, FileOpsError>,
@@ -578,6 +586,19 @@ pub fn run(
     label: &str,
     steps: Vec<Step>,
 ) -> Result<Operation, String> {
+    run_with_context(app, kind, label, steps, None)
+}
+
+/// `run`, with `context` kept with the operation under
+/// `session_folders::CONTEXT_KEY` (the folder role a Move contents part went
+/// with), for its undo and redo to follow (`sync`).
+pub fn run_with_context(
+    app: &AppHandle,
+    kind: &str,
+    label: &str,
+    steps: Vec<Step>,
+    context: Option<serde_json::Value>,
+) -> Result<Operation, String> {
     // Album memberships of what goes to the system Trash, for undo.
     let trashed: Vec<String> = steps
         .iter()
@@ -604,8 +625,15 @@ pub fn run(
             notify_kept(app, journal, &id, &[]);
         }
         let op = result?;
+        let mut stored = serde_json::Map::new();
         if !memberships.is_empty() {
-            journal.set_context(&op.id, serde_json::json!({ "albums": memberships }))?;
+            stored.insert("albums".into(), serde_json::json!(memberships));
+        }
+        if let Some(context) = &context {
+            stored.insert(crate::session_folders::CONTEXT_KEY.into(), context.clone());
+        }
+        if !stored.is_empty() {
+            journal.set_context(&op.id, serde_json::Value::Object(stored))?;
         }
         journal.operation(&op.id)
     })?;
@@ -1004,11 +1032,51 @@ fn sync(app: &AppHandle, op: &Operation, follows: bool) -> Result<(), String> {
             }
         }
     }
+    // The folder role a Move contents part went with follows its undo and
+    // redo (C1Q1, G38), and the Library shows the roles as they now are; a
+    // role that cannot follow is said, the records' sync goes on.
+    use crate::session_folders::Followed;
+    match with_journal(app, |journal| {
+        Ok(crate::session_folders::follow(journal, op, forward))
+    }) {
+        Ok(Followed::Changed { session }) => {
+            let _ = app.emit(
+                SESSION_FOLDERS_CHANGED,
+                SessionFoldersChanged {
+                    session,
+                    refused: None,
+                },
+            );
+        }
+        Ok(Followed::Refused { session, error }) => {
+            log::warn!("'{}': the folder role stays: {error}", op.label);
+            let _ = app.emit(
+                SESSION_FOLDERS_CHANGED,
+                SessionFoldersChanged {
+                    session,
+                    refused: Some(error),
+                },
+            );
+        }
+        Ok(Followed::Unchanged) => {}
+        Err(e) => log::warn!("'{}': the folder role could not follow: {e}", op.label),
+    }
     catalog?;
     if let Err(e) = with_journal(app, |journal| journal.mark_synced(&op.id)) {
         log::warn!("File operation '{}' synced but not recorded: {e}", op.label);
     }
     Ok(())
+}
+
+/// The event telling the Library that a session's folder roles changed with
+/// a file operation's undo or redo, or could not (`refused`: why).
+pub const SESSION_FOLDERS_CHANGED: &str = "session-folders-changed";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionFoldersChanged {
+    session: PathBuf,
+    refused: Option<String>,
 }
 
 /// The (old, new) places of what the operation moved, in the direction its
@@ -1830,6 +1898,146 @@ mod tests {
             plan_trash(&[vec![folder.clone()]]),
             vec![Step::rename(&folder, dir.join("Trash/Selects"))]
         );
+    }
+
+    /// C1Q1 (G38): undoing "Move contents" gives the Capture role back to
+    /// the folder the photos returned to, and redo gives it to the new
+    /// folder again; a folder chosen in between keeps the role, and a role
+    /// that cannot go back is refused without holding up the records.
+    #[test]
+    fn move_contents_undo_and_redo_carry_the_folder_role() {
+        use crate::session_folders::{Followed, follow};
+        use rawtonic_catalog::session_folders::FolderRole;
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let (old, new) = (dir.join("Capture"), dir.join("Capture2"));
+        fs::create_dir_all(&new).unwrap();
+        let photo = old.join("A.NEF");
+        fs::write(&photo, "a").unwrap();
+        Library::open(&dir).unwrap().add_asset(&photo).unwrap();
+        let folder = |role| Library::open(&dir).unwrap().session_folder(role).path;
+        let set = |role, path: &Path| {
+            Library::open(&dir)
+                .unwrap()
+                .set_session_folder(role, path)
+                .unwrap();
+        };
+        let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+        let nt = &rawtonic_fileops::NoSystemTrash;
+        // As Session Folders does it: the role first, then the contents.
+        let move_contents = || {
+            set(FolderRole::Capture, &new);
+            let steps = rawtonic_fileops::plan_move_contents(&old, &new)
+                .unwrap()
+                .remove(0);
+            let op = journal
+                .execute("move", "Move contents to Capture2", steps, nt)
+                .unwrap();
+            let context = crate::session_folders::move_context(&dir, &old, &new).unwrap();
+            journal
+                .set_context(
+                    &op.id,
+                    serde_json::json!({ crate::session_folders::CONTEXT_KEY: context }),
+                )
+                .unwrap();
+            let op = journal.operation(&op.id).unwrap();
+            sync_catalog(&op, true).unwrap();
+            assert_eq!(follow(&journal, &op, true), Followed::Unchanged);
+            op
+        };
+        let undo = |op: &Operation| {
+            let op = journal.undo(&op.id, nt).unwrap();
+            sync_catalog(&op, false).unwrap();
+            let followed = follow(&journal, &op, false);
+            assert!(photo.is_file());
+            (op, followed)
+        };
+        let redo = |op: &Operation| {
+            let op = journal.redo(&op.id, nt).unwrap();
+            sync_catalog(&op, true).unwrap();
+            let followed = follow(&journal, &op, true);
+            assert!(new.join("A.NEF").is_file());
+            (op, followed)
+        };
+
+        let op = move_contents();
+        assert_eq!(folder(FolderRole::Capture), new);
+        let (op, followed) = undo(&op);
+        assert_eq!(
+            followed,
+            Followed::Changed {
+                session: dir.clone()
+            }
+        );
+        assert_eq!(
+            folder(FolderRole::Capture),
+            old,
+            "undo puts the Capture role back"
+        );
+        // Running it again (a retried sync) changes nothing more.
+        assert_eq!(follow(&journal, &op, false), Followed::Unchanged);
+        let (op, followed) = redo(&op);
+        assert_eq!(
+            followed,
+            Followed::Changed {
+                session: dir.clone()
+            }
+        );
+        assert_eq!(
+            folder(FolderRole::Capture),
+            new,
+            "redo gives it to the new folder again"
+        );
+
+        // A folder chosen after the move keeps the role through undo and redo.
+        let other = dir.join("Elsewhere");
+        fs::create_dir_all(&other).unwrap();
+        set(FolderRole::Capture, &other);
+        let (op, followed) = undo(&op);
+        assert_eq!(followed, Followed::Unchanged);
+        let (op, followed) = redo(&op);
+        assert_eq!(followed, Followed::Unchanged);
+        assert_eq!(folder(FolderRole::Capture), other.canonical().unwrap());
+        let (_, _) = undo(&op);
+
+        // Undo, then the role chosen by hand (elsewhere and back to the old
+        // folder): redo leaves it there.
+        let op = move_contents();
+        let (op, followed) = undo(&op);
+        assert_eq!(
+            followed,
+            Followed::Changed {
+                session: dir.clone()
+            }
+        );
+        set(FolderRole::Capture, &other);
+        set(FolderRole::Capture, &old);
+        crate::session_folders::chosen_by_hand(&journal, &dir, FolderRole::Capture);
+        let (op, followed) = redo(&op);
+        assert_eq!(followed, Followed::Unchanged);
+        assert_eq!(folder(FolderRole::Capture), old);
+        let (_, _) = undo(&op);
+
+        // The role put back by hand after the move: redo leaves it there.
+        let op = move_contents();
+        set(FolderRole::Capture, &old);
+        let (op, followed) = undo(&op);
+        assert_eq!(followed, Followed::Unchanged);
+        let (op, followed) = redo(&op);
+        assert_eq!(followed, Followed::Unchanged);
+        assert_eq!(folder(FolderRole::Capture), old);
+        let (_, _) = undo(&op);
+        set(FolderRole::Capture, &old);
+
+        // The old folder took another role since: the files come back, the
+        // Capture role stays, and the records followed all the same.
+        let op = move_contents();
+        set(FolderRole::Selects, &old);
+        let (_, followed) = undo(&op);
+        assert!(matches!(followed, Followed::Refused { .. }), "{followed:?}");
+        assert_eq!(folder(FolderRole::Capture), new);
+        let lib = Library::open(&dir).unwrap();
+        assert!(lib.asset_at(&photo).unwrap().is_some());
     }
 
     #[test]

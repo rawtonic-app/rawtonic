@@ -1890,6 +1890,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "Le foto sono tornate, ma il ruolo della cartella resta dov’è: {{error}}",
       "selectsUnavailable": "La cartella Selects {{folder}} non è disponibile (il suo disco è collegato?). Non è stato spostato nulla; scegli un’altra cartella Selects in Cartelle della sessione.",
       "title": "Cartelle della sessione",
       "unavailable": "Non disponibile: la cartella manca o il suo disco non è collegato.",

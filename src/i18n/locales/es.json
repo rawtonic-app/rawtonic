@@ -1890,6 +1890,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "Las fotos han vuelto, pero la función de la carpeta se queda donde está: {{error}}",
       "selectsUnavailable": "La carpeta Selects {{folder}} no está disponible (¿está conectado su disco?). No se movió nada; elige otra carpeta Selects en Carpetas de la sesión.",
       "title": "Carpetas de la sesión",
       "unavailable": "No disponible: falta la carpeta o su disco no está conectado.",

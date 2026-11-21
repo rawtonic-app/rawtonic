@@ -1890,6 +1890,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "As fotos voltaram, mas a função da pasta fica onde está: {{error}}",
       "selectsUnavailable": "A pasta Selects {{folder}} não está disponível (o disco está ligado?). Nada foi movido; escolha outra pasta Selects em Pastas da sessão.",
       "title": "Pastas da sessão",
       "unavailable": "Indisponível: a pasta não existe ou o disco não está ligado.",

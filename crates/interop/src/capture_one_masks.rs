@@ -26,6 +26,8 @@
 //!   the last uniform value, `09 hi lo` the compressed tile number hi·256 +
 //!   lo, `08` the one after the last. Brushes, colour ranges (Color Editor
 //!   "Create masked layer"), AI masks and rasterized masks are such rasters.
+//! - no shape: a layer never painted (an empty mask; notes:
+//!   benchmark-results/c1q1-2026-11-21/REPORT.md).
 //! - `Blk` (after the last mask): `Hdr` (the number of compressed tiles),
 //!   `Idx` (each tile's size, u16) and `dat` (the tiles back to back), shared
 //!   by all masks of the file; `capture_one_tiles` reads a tile.
@@ -75,6 +77,11 @@ pub enum Mask {
         sensitivity: f64,
         invert: bool,
     },
+    /// A layer made and never painted: its record holds no shape (no
+    /// effect anywhere, as in Capture One).
+    Empty,
+    /// No mask record for the layer in the photograph's mask files.
+    Missing,
     /// A mask in a form not read (named for the import report).
     Unsupported { what: String },
 }
@@ -224,6 +231,8 @@ struct Record {
     luma: Option<(Vec<f32>, i32)>,
     /// The `Map` field's bytes.
     map: Option<Vec<u8>>,
+    /// A field this reader does not know (a shape it cannot read).
+    unknown: bool,
 }
 
 /// One field: key, type byte and value bytes.
@@ -382,19 +391,38 @@ impl MaskFile {
                             "Info" => r.uuid = String::from_utf8_lossy(f.value).into_owned(),
                             "Name" => r.name = String::from_utf8_lossy(f.value).into_owned(),
                             "MaskType" => r.mask_type = f.value.get(..4)?.try_into().ok(),
-                            "CompositeMask" => r.composite = int_at(f.value, 0).map(|n| n as u32),
-                            "LinearGradient" => r.linear = floats(f.value, 5),
+                            // A shape field that does not read is a shape
+                            // not read, never an empty mask.
+                            "CompositeMask" => {
+                                r.composite = int_at(f.value, 0).map(|n| n as u32);
+                                r.unknown |= r.composite.is_none();
+                            }
+                            "LinearGradient" => {
+                                r.linear = floats(f.value, 5);
+                                r.unknown |= r.linear.is_none();
+                            }
                             "RadialGradient" => {
                                 r.radial = floats(f.value, 7).zip(int_at(f.value, 7));
+                                r.unknown |= r.radial.is_none();
                             }
-                            "LumaRange" => r.luma = floats(f.value, 6).zip(int_at(f.value, 6)),
+                            "LumaRange" => {
+                                r.luma = floats(f.value, 6).zip(int_at(f.value, 6));
+                                r.unknown |= r.luma.is_none();
+                            }
                             "Map" => r.map = Some(f.value.to_vec()),
-                            _ => {}
+                            "UserInfo" | "CompParam" => {}
+                            _ => r.unknown = true,
                         }
                     }
                 }
             }
             i = next;
+        }
+        // Capture One ends the file with the shared tiles: a file cut short
+        // may have cut the last mask's shape off, so it is not read as one
+        // never painted.
+        if !in_blk && let Some(r) = current.as_mut() {
+            r.unknown = true;
         }
         file.records.extend(current);
         if let (Some(sizes), Some(data)) = (sizes, data) {
@@ -459,7 +487,7 @@ impl MaskFile {
             .iter()
             .position(|r| r.uuid.eq_ignore_ascii_case(uuid))
         else {
-            return unsupported("missing mask");
+            return Mask::Missing;
         };
         let r = &self.records[at];
         if let Some(n) = r.composite {
@@ -505,7 +533,13 @@ impl MaskFile {
             };
         }
         if r.map.is_none() {
-            return unsupported("unknown mask");
+            // Capture One's record of a layer never painted: its index,
+            // UUID, name, type and composition parameters, nothing else.
+            return if r.unknown || r.luma.is_some() {
+                unsupported("unknown mask")
+            } else {
+                Mask::Empty
+            };
         }
         match self.raster(r) {
             Ok(raster) => match raster.uniform() {
@@ -782,7 +816,7 @@ pub(crate) mod tests {
                 invert: false,
             }
         );
-        assert!(matches!(f.mask("missing"), Mask::Unsupported { .. }));
+        assert_eq!(f.mask("missing"), Mask::Missing);
         assert!(f.has("y") && !f.has("Z"));
     }
 
@@ -881,6 +915,41 @@ pub(crate) mod tests {
                 "{uuid}"
             );
         }
+    }
+
+    /// A layer made and never painted: Capture One writes its record with
+    /// no shape (C1Q1: "Anpassungsebene 1" on every photo). Its mask is
+    /// empty, not unknown; a layer without any record is missing.
+    #[test]
+    fn never_painted_masks_read_as_empty() {
+        let mut odd = record(6, "O", 0, Vec::new());
+        odd.extend(field("SomeNewShape", &f32s(&[1.0, 2.0])));
+        let short = record(7, "S", 3, field("LinearGradient", &f32s(&[1.0, 2.0])));
+        let f = MaskFile::parse(&file(&[
+            record(5, "E", 0, Vec::new()),
+            odd,
+            short,
+            filled("F", 255),
+        ]))
+        .unwrap();
+        assert_eq!(f.mask("E"), Mask::Empty);
+        assert_eq!(f.mask("F"), Mask::Uniform { value: 255 });
+        // A shape this reader does not know is not taken for an empty mask.
+        assert!(matches!(f.mask("O"), Mask::Unsupported { .. }));
+        // Nor is a gradient too short to read, nor a Luma Range alone.
+        assert!(matches!(f.mask("S"), Mask::Unsupported { .. }));
+        let mut range = f32s(&[60.0, 170.0, 30.0, 210.0, 0.0, 50.0]);
+        range.extend(0i32.to_le_bytes());
+        let lone = record(8, "R", 1, field("LumaRange", &range));
+        let f = MaskFile::parse(&file(&[lone])).unwrap();
+        assert!(matches!(f.mask("R"), Mask::Unsupported { .. }));
+        // A file cut off in its last mask (no tiles after it).
+        let mut cut = file(&[record(5, "E", 0, Vec::new())]);
+        let end = cut.windows(3).rposition(|w| w == b"Blk").unwrap() - 1;
+        cut.truncate(end);
+        let f = MaskFile::parse(&cut).unwrap();
+        assert!(matches!(f.mask("E"), Mask::Unsupported { .. }));
+        assert_eq!(f.mask("nowhere"), Mask::Missing);
     }
 
     #[test]
