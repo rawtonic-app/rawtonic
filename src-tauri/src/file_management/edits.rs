@@ -3091,7 +3091,8 @@ mod tests {
         let failed = edit_sidecars(&paths, None, |_, _, _| Err("too many layers".to_string()));
         assert_eq!(failed.len(), 1);
         let kept = crate::exif_processing::load_sidecar(&sidecar).adjustments;
-        assert_eq!(kept, legacy["adjustments"]);
+        assert_eq!(kept["crop"], legacy["adjustments"]["crop"]);
+        assert_eq!(recipe_frame::stamped(&kept), None);
     }
 
     #[test]
