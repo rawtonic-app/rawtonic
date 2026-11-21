@@ -161,6 +161,7 @@ pub async fn generate_ai_sky_mask(
         flip_vertical: Some(flip_vertical),
         orientation_steps: Some(orientation_steps),
         warp: Some(crate::mask_generation::mask_warp(&js_adjustments)),
+        bitmap_grid_of: None,
     })
 }
 
@@ -211,8 +212,12 @@ pub async fn generate_ai_landscape_mask(
     if cancelled() {
         return Err(task_cancelled());
     }
+    // The network's grid with the photo's size: placing it reads the grid
+    // (`mask_generation::BITMAP_GRID_OF`), a 36 MP photo's full-size mask
+    // took ~50 ms to make and ~80 ms to decode for each part.
+    let size = run.size;
     let data = tokio::task::spawn_blocking(move || {
-        let mask = rawtonic_segment::landscape_mask(run.size, &run.probabilities, &parts);
+        let mask = rawtonic_segment::landscape_mask_grid(&run.probabilities, &parts);
         encode_to_base64_png(&mask)
     })
     .await
@@ -228,6 +233,7 @@ pub async fn generate_ai_landscape_mask(
         flip_vertical: Some(flip_vertical),
         orientation_steps: Some(orientation_steps),
         warp: Some(crate::mask_generation::mask_warp(&js_adjustments)),
+        bitmap_grid_of: Some(serde_json::json!({"width": size.0, "height": size.1})),
     })
 }
 
@@ -1375,8 +1381,7 @@ impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> 
         );
         sets.iter()
             .map(|parts| {
-                encode_to_base64_png(&rawtonic_segment::landscape_mask(
-                    (warped.width(), warped.height()),
+                encode_to_base64_png(&rawtonic_segment::landscape_mask_grid(
                     &probabilities,
                     parts,
                 ))

@@ -1794,6 +1794,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "The photos are back, but the folder role stays where it is: {{error}}",
       "selectsUnavailable": "The Selects folder {{folder}} is not available (is its drive connected?). Nothing was moved; choose another Selects folder in Session Folders.",
       "title": "Session Folders",
       "unavailableUse": {

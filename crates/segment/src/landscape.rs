@@ -173,6 +173,19 @@ pub fn landscape_mask(
     probabilities: &LandscapeProbabilities,
     parts: &[LandscapePart],
 ) -> GrayImage {
+    let grid = landscape_mask_grid(probabilities, parts);
+    resize_gray_triangle(&grid, size.0, size.1)
+}
+
+/// `landscape_mask` at the grid it is made on (the fitted sky's, at most
+/// `SKY_GUIDE_SIZE` / 2 long): all the mask holds, which the photo's size
+/// only interpolates. The editor stores this (`bitmapGridOf`): a 36 MP
+/// photo's mask is then decoded and placed in a few milliseconds instead of
+/// ~80 (notes: benchmark-results/lsm2-2026-11-21/REPORT.md).
+pub fn landscape_mask_grid(
+    probabilities: &LandscapeProbabilities,
+    parts: &[LandscapePart],
+) -> GrayImage {
     let (gw, gh) = probabilities.sky.dimensions();
     let with_sky = parts.contains(&LandscapePart::Sky);
     let ground: Vec<LandscapePart> = LandscapePart::ALL
@@ -208,7 +221,7 @@ pub fn landscape_mask(
             *o = o.saturating_add(r);
         }
     }
-    resize_gray_triangle(&out, size.0, size.1)
+    out
 }
 
 /// The share of the photo (0 … 1) each part covers (probability above one

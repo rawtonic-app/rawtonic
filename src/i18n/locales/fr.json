@@ -1887,6 +1887,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "Les photos sont revenues, mais le rôle du dossier reste où il est : {{error}}",
       "selectsUnavailable": "Le dossier Selects {{folder}} est indisponible (son disque est-il connecté ?). Rien n’a été déplacé ; choisissez un autre dossier Selects dans Dossiers de la session.",
       "title": "Dossiers de la session",
       "unavailable": "Indisponible : le dossier manque ou son disque n’est pas connecté.",

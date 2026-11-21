@@ -1980,6 +1980,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "Zdjęcia wróciły, ale rola folderu pozostaje bez zmian: {{error}}",
       "selectsUnavailable": "Folder Selects {{folder}} jest niedostępny (czy jego dysk jest podłączony?). Nic nie przeniesiono; wybierz inny folder Selects w Folderach sesji.",
       "title": "Foldery sesji",
       "unavailable": "Niedostępny: folder nie istnieje lub jego dysk nie jest podłączony.",

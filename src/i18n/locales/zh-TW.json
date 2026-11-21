@@ -1740,6 +1740,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "照片已移回，但資料夾角色保持不變：{{error}}",
       "selectsUnavailable": "Selects 資料夾 {{folder}} 無法使用（其磁碟是否已連接？）。未移動任何內容；請在「工作階段資料夾」中選擇其他 Selects 資料夾。",
       "title": "工作階段資料夾",
       "unavailable": "無法使用：資料夾不存在或其磁碟未連接。",
