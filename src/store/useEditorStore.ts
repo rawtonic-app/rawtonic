@@ -9,7 +9,7 @@ import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } fr
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
 import type { SharpenView } from '../utils/sharpenView';
-import type { ColorRangePick, ColorTarget } from '../utils/colorTarget';
+import type { ColorRangePick, ColorTarget, ColorTargetMeasure } from '../utils/colorTarget';
 import { DEFAULT_SPLIT_POSITION, type SplitOrientation } from '../utils/beforeAfter';
 import { historyOrders, setHistoryOrders, inheritHistoryOrders, newEditOrder } from '../utils/undoOrder';
 import { noteEdit } from '../components/contribute/usageStats';
@@ -182,6 +182,10 @@ interface EditorState {
    * the range's colour it set and the colour entering the ranges there.
    * View state. */
   colorRangeInputs: Record<string, ColorRangePick>;
+  /** The renderer's measured result at the targeted range's pick (utils/
+   * colorRanges `measureColorTarget`), for the recipe it was measured with.
+   * View state. */
+  colorTargetMeasure: ColorTargetMeasure | null;
   /** The mask layer the picker edits, or null for the photo. */
   colorPickerLayer: string | null;
   /** The colour editor range shown in the tool. */
@@ -372,6 +376,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   colorTarget: null,
   colorPicksThroughRanges: [],
   colorRangeInputs: {},
+  colorTargetMeasure: null,
   colorPickerLayer: null,
   activeColorRangeId: null,
   colorRangeShow: null,
@@ -566,6 +571,25 @@ export const debouncedSetHistory = Object.assign(
     }
   }
 );
+
+/**
+ * A correction that belongs to the newest undo step: when the recipe `was`
+ * is still the editor's and the newest step (already written, nothing
+ * after it), that step becomes `now` and the editor shows it — one step,
+ * not two. Returns false (nothing changed) otherwise. A target colour's
+ * measured correction uses it when the step of its first solve was written
+ * before the measurement came back.
+ */
+export function amendHistoryStep(was: Adjustments, now: Adjustments): boolean {
+  const state = useEditorStore.getState();
+  const top = state.history.length - 1;
+  if (state.adjustments !== was || state.historyIndex !== top || state.history[top] !== was || state.historyPending)
+    return false;
+  const history = [...state.history.slice(0, top), now];
+  setHistoryOrders(history, historyOrders(state.history));
+  useEditorStore.setState({ history, adjustments: now });
+  return true;
+}
 
 /** Capture only this click's still-pending history entry. A following click
  * at the same track position can replace it with a double-click reset,
