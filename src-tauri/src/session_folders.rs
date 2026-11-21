@@ -55,6 +55,7 @@ pub async fn session_set_folder(
     role: FolderRole,
     path: String,
     move_contents: bool,
+    app: AppHandle,
 ) -> Result<FolderChange, String> {
     crate::file_management::blocking(move || {
         let directory = Path::new(&directory);
@@ -71,6 +72,12 @@ pub async fn session_set_folder(
                 .map_err(|e| format!("{e:#}"))?;
             FolderChange { folder, previous }
         };
+        // A folder chosen now is the user's: no earlier Move contents
+        // gives the role elsewhere on its redo.
+        crate::file_operations::with_journal_pub(&app, |journal| {
+            chosen_by_hand(journal, directory, role);
+            Ok(())
+        })?;
         if crate::session_bridge::active_library_directory().as_deref() == Some(directory) {
             crate::session_bridge::register_outside_folders(directory);
         }
@@ -101,9 +108,168 @@ pub async fn session_move_folder_contents(
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
-        let op =
-            crate::file_operations::run(&app, "move", &format!("Move contents to {name}"), steps)?;
+        let context = crate::session_bridge::active_library_directory()
+            .and_then(|session| move_context(&session, Path::new(&from), Path::new(&to)));
+        let op = crate::file_operations::run_with_context(
+            &app,
+            "move",
+            &format!("Move contents to {name}"),
+            steps,
+            context,
+        )?;
         Ok(Some((&op).into()))
     })
     .await?
+}
+
+/// The key of a Move contents operation's journal context: the folder role
+/// that changed with it (`move_context`).
+pub const CONTEXT_KEY: &str = "sessionFolder";
+
+/// The journal context of a part of "Move contents" from `from` to `to`:
+/// the session's role whose folder `to` now is (chosen just before the
+/// move, `session_set_folder`), so that undoing the move gives the role
+/// back to `from` and redoing it gives it to `to` again (`follow`). None
+/// when no role of the session at `session` has `to`.
+pub fn move_context(session: &Path, from: &Path, to: &Path) -> Option<serde_json::Value> {
+    let lib = Library::open(session).ok()?;
+    let to = canonical(to);
+    let role = FolderRole::ALL
+        .into_iter()
+        .find(|role| canonical(&lib.session_folder(*role).path) == to)?;
+    Some(serde_json::json!({
+        "session": lib.directory,
+        "role": role,
+        "from": canonical(from),
+        "to": to,
+    }))
+}
+
+fn canonical(path: &Path) -> PathBuf {
+    rawtonic_fs::Canonical::canonical(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// A folder chosen for `role` by the user in the session at `session`:
+/// the Move contents operations whose undo gave that role back no longer
+/// give it away on their redo (`follow`), whatever folder it is now.
+pub fn chosen_by_hand(journal: &rawtonic_fileops::Journal, session: &Path, role: FolderRole) {
+    let session = canonical(session);
+    let Ok(history) = journal.history(1000) else {
+        return;
+    };
+    for op in history {
+        let Some(mut context) = op.context else {
+            continue;
+        };
+        let Some(change) = context
+            .get(CONTEXT_KEY)
+            .and_then(|c| serde_json::from_value::<Change>(c.clone()).ok())
+        else {
+            continue;
+        };
+        if change.restored && change.role == role && canonical(&change.session) == session {
+            context[CONTEXT_KEY]["restored"] = serde_json::json!(false);
+            if let Err(e) = journal.set_context(&op.id, context) {
+                log::warn!("Move contents: a folder choice was not recorded: {e}");
+            }
+        }
+    }
+}
+
+/// What `follow` did to a session's folder role.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Followed {
+    /// The operation changed no role, or the role is not where it left it.
+    Unchanged,
+    /// The role followed the undo or redo.
+    Changed { session: PathBuf },
+    /// The role could not follow (e.g. the old folder has another role
+    /// now): the files moved all the same; the role stays as it is.
+    Refused { session: PathBuf, error: String },
+}
+
+#[derive(serde::Deserialize)]
+struct Change {
+    session: PathBuf,
+    role: FolderRole,
+    from: PathBuf,
+    to: PathBuf,
+    /// Whether the operation's latest undo gave the role back (only then
+    /// does its redo give it to `to` again).
+    #[serde(default)]
+    restored: bool,
+}
+
+/// The role a "Move contents" part went with follows its undo (back to the
+/// folder the contents came from) and its redo (to where they went again),
+/// in the session's settings. An undo changes the role only while it is
+/// still on the new folder, and a redo only when that undo changed it and
+/// the role is still on the old folder: a folder chosen in between keeps
+/// the role. A role that cannot follow is refused (named for the user), not
+/// a failure of the operation's records. Running it again changes nothing
+/// more (the catalog's sync may retry).
+pub fn follow(
+    journal: &rawtonic_fileops::Journal,
+    op: &rawtonic_fileops::Operation,
+    forward: bool,
+) -> Followed {
+    // The newest context: an earlier run of this may have recorded `restored`.
+    let context = journal
+        .operation(&op.id)
+        .ok()
+        .and_then(|op| op.context)
+        .or_else(|| op.context.clone());
+    let Some(mut context) = context else {
+        return Followed::Unchanged;
+    };
+    let Some(change) = context
+        .get(CONTEXT_KEY)
+        .and_then(|c| serde_json::from_value::<Change>(c.clone()).ok())
+    else {
+        return Followed::Unchanged;
+    };
+    let _turn = crate::session_bridge::write_turn();
+    let Ok(mut lib) = Library::open(&change.session) else {
+        return Followed::Unchanged;
+    };
+    let now = canonical(&lib.session_folder(change.role).path);
+    let (wanted, restored) = match forward {
+        true if change.restored && now == change.from => (Some(&change.to), false),
+        true => (None, false),
+        false if now == change.to => (Some(&change.from), true),
+        // Given back already by an earlier run of this undo.
+        false if now == change.from => (None, change.restored),
+        false => (None, false),
+    };
+    let result = match wanted {
+        Some(folder) => lib
+            .set_session_folder(change.role, folder)
+            .map(|_| ())
+            .map_err(|e| format!("{e:#}")),
+        None => Ok(()),
+    };
+    drop(lib);
+    let restored = restored && result.is_ok();
+    if restored != change.restored {
+        context[CONTEXT_KEY]["restored"] = serde_json::json!(restored);
+        if let Err(e) = journal.set_context(&op.id, context) {
+            log::warn!("Move contents: the folder role's undo state was not kept: {e}");
+        }
+    }
+    match (wanted, result) {
+        (None, _) => Followed::Unchanged,
+        (Some(_), Ok(())) => {
+            if crate::session_bridge::active_library_directory().as_deref() == Some(&change.session)
+            {
+                crate::session_bridge::register_outside_folders(&change.session);
+            }
+            Followed::Changed {
+                session: change.session,
+            }
+        }
+        (Some(_), Err(error)) => Followed::Refused {
+            session: change.session,
+            error,
+        },
+    }
 }

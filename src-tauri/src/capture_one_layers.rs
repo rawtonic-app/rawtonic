@@ -13,6 +13,10 @@
 //!   the smoothstep out to the ellipse (`gradientVersion` 3), inverted when
 //!   Capture One applies it outside (as drawn by default);
 //! - a filled (or cleared) mask: the whole photo at that value;
+//! - a layer never painted (no mask content yet): the layer with its
+//!   settings and no mask component, so no effect until it is painted, as
+//!   in Capture One (notes: benchmark-results/c1q1-2026-11-21/); one whose
+//!   mask record is missing the same, named in the import report;
 //! - a painted, colour range or AI mask (Capture One stores each as a
 //!   raster; notes: benchmark-results/c1l2-2026-11-17/): its pixels as a
 //!   `raster` component, over the photo before its lens and transform
@@ -351,6 +355,17 @@ fn components(
                         "falloffLow": below, "falloffHigh": above}),
                 ),
             ])
+        }
+        // A layer never painted keeps its settings with an empty mask (no
+        // effect until painted, as in Capture One); one whose mask record
+        // is not there is kept the same way and named (C1Q1).
+        Mask::Empty => Ok(Vec::new()),
+        Mask::Missing => {
+            notes.push(
+                "mask not found in Capture One's mask files, imported without a mask (paint it again)"
+                    .into(),
+            );
+            Ok(Vec::new())
         }
         Mask::Unsupported { what } => Err(what.clone()),
         _ => Err("gradient without a frame".into()),
@@ -694,6 +709,36 @@ mod tests {
         );
         assert!(
             adjustments["masks"][2]["subMasks"][1]["parameters"]["sourceOrientation"].is_null()
+        );
+    }
+
+    /// C1Q1: a layer made and never painted (or whose mask record is not
+    /// in the mask files) keeps its name, switch and settings with an empty
+    /// mask (no effect until painted, as in Capture One); a filled layer
+    /// covers the photo. Only the missing record is named in the report.
+    #[test]
+    fn never_painted_layers_come_over_with_their_settings() {
+        let mut never = layer(Mask::Empty, &[("Exposure", "-3")]);
+        never.name = "Adjustment Layer 1".into();
+        let mut gone = layer(Mask::Missing, &[("Exposure", "-2")]);
+        gone.name = "Lost".into();
+        gone.enabled = false;
+        let full = layer(Mask::Uniform { value: 255 }, &[("Exposure", "-1")]);
+        let (out, report) = layers(&[never, gone, full]);
+        assert_eq!(out.len(), 3, "{report:?}");
+        assert_eq!(out[0]["name"], "Adjustment Layer 1");
+        assert_eq!(out[0]["adjustments"]["exposure"], -3.0);
+        assert_eq!(out[0]["subMasks"], json!([]));
+        assert_eq!(out[1]["visible"], false);
+        assert_eq!(out[1]["adjustments"]["exposure"], -2.0);
+        assert_eq!(out[1]["subMasks"], json!([]));
+        assert_eq!(out[2]["subMasks"][0]["type"], "all");
+        assert_eq!(out[2]["subMasks"][0]["opacity"], 100.0);
+        assert_eq!(
+            report,
+            [
+                "Capture One layer “Lost”: mask not found in Capture One's mask files, imported without a mask (paint it again)"
+            ]
         );
     }
 
