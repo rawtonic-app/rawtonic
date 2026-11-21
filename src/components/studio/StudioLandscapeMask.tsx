@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/useEditorStore';
-import { getTransformAdjustments } from '../../hooks/useAiMasking';
+import { getTransformAdjustments, noteLandscapeModelReady } from '../../hooks/useAiMasking';
 import { Invokes } from '../ui/AppProperties';
 import type { SubMask } from '../panel/right/Masks';
 import { LANDSCAPE_PARTS, type LandscapePart } from '../../utils/maskKinds';
@@ -22,7 +22,9 @@ interface Props {
  * Lightroom's Landscape mask: which parts of the landscape (mountains,
  * water, …) the layer selects, as one mask. The parts the photo has are
  * marked; the others stay selectable (the network may miss a part the
- * photographer sees). Changing the parts computes the mask again.
+ * photographer sees). Changing the parts computes the mask again. Opening
+ * these settings is what downloads the Landscape model on first use (the
+ * editor's automatic detection of a pasted layer does not).
  */
 export default function StudioLandscapeMask({ sub, setParameters, onInteraction }: Props) {
   const { t } = useTranslation();
@@ -39,7 +41,12 @@ export default function StudioLandscapeMask({ sub, setParameters, onInteraction 
     setShares(null);
     setError(null);
     invoke<[string, number][]>(Invokes.DetectLandscapeParts, { jsAdjustments: JSON.parse(geometryKey), path })
-      .then((found) => current && setShares(Object.fromEntries(found)))
+      .then((found) => {
+        // Opening these settings installed the model if it was missing:
+        // Landscape selections waiting for it are computed now.
+        noteLandscapeModelReady();
+        if (current) setShares(Object.fromEntries(found));
+      })
       .catch((e) => current && setError(aiErrorMessage(e)));
     return () => {
       current = false;

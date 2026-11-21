@@ -40,6 +40,10 @@ it('an undo that brings back another bitmap under the same id sends it whole', (
     sent
   );
   expect([...sent].sort()).toEqual(['gone', 'sky']);
+  // A deleted layer brought back by History: its old bitmap is sent again.
+  const back = new Set(['land']);
+  forgetChangedMaskBitmaps(recipe(), recipe(sub('land', 'data:mountains')), back);
+  expect(back.size).toBe(0);
   const restored = [sub('land', 'data:mountains')];
   expect(referToSentMaskBitmaps(restored, sent)).toEqual(['land']);
   expect(restored[0].parameters.maskDataBase64).toBe('data:mountains');

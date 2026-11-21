@@ -164,13 +164,16 @@ pub async fn generate_ai_sky_mask(
 /// of the open photo with the caller's geometry, as one mask. Every part of
 /// a photo comes from one run of the landscape model, kept per photo and
 /// geometry (`AiModels::landscape_runs`): other parts answer without the
-/// network.
+/// network. Downloads the model only with `download` (the editor's
+/// automatic detection does not: `ModelsMissing` without it; opening a
+/// Landscape mask's settings downloads it, `detect_landscape_parts`).
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn generate_ai_landscape_mask(
     js_adjustments: serde_json::Value,
     path: String,
     parts: Vec<String>,
+    download: Option<bool>,
     rotation: f32,
     flip_horizontal: bool,
     flip_vertical: bool,
@@ -197,6 +200,7 @@ pub async fn generate_ai_landscape_mask(
         &app_handle,
         &js_adjustments,
         &path,
+        download.unwrap_or(false),
         cancel,
     )
     .await?;
@@ -226,7 +230,8 @@ pub async fn generate_ai_landscape_mask(
 /// The share of the open photo (0 … 1) each landscape part covers, by part
 /// key, so the editor offers the parts the photo has (as Lightroom lists
 /// only the parts it found). Runs the landscape model (downloading it on
-/// first use) or answers from its cached run.
+/// first use: the user opened a Landscape mask's settings) or answers from
+/// its cached run.
 #[tauri::command]
 pub async fn detect_landscape_parts(
     js_adjustments: serde_json::Value,
@@ -247,6 +252,7 @@ pub async fn detect_landscape_parts(
         &app_handle,
         &js_adjustments,
         &path,
+        true,
         cancel,
     )
     .await?;
@@ -266,6 +272,7 @@ async fn landscape_run(
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
     asked: &str,
+    download: bool,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<CachedLandscape, CommandError> {
     let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
@@ -289,7 +296,7 @@ async fn landscape_run(
     // they take turns, waited for without this kind's lock.
     let _turn = if rawtonic_gpu::memory_turns::takes_turns() {
         drop(_run);
-        let turn = crate::ai_lifecycle::turn(true).await;
+        let turn = crate::ai_lifecycle::turn(download).await;
         _run = ai_state.landscape_lock.lock().await;
         if let Some(run) = cached(ai_state) {
             return Ok(run);
@@ -311,12 +318,15 @@ async fn landscape_run(
         .await
     };
     let (model, warped) = tokio::join!(
-        crate::ai_processing::get_or_init_landscape_model(app_handle, ai_state, true),
+        crate::ai_processing::get_or_init_landscape_model(app_handle, ai_state, download),
         warp
     );
-    let model = model
-        .map_err(CommandError::from)?
-        .ok_or_else(|| "The landscape model is not available".to_string())?;
+    let model = model.map_err(CommandError::from)?.ok_or_else(|| {
+        CommandError::new(
+            ErrorCode::ModelsMissing,
+            "The Landscape model is not installed: open a Landscape mask's settings to download it",
+        )
+    })?;
     let warped = warped?;
     if cancelled() {
         return Err(task_cancelled());

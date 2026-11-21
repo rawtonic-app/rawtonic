@@ -40,11 +40,11 @@ export function withOwnBitmapIds(adjustments: Adjustments, shown?: Adjustments):
   };
 }
 
-/** Forgets in `sent` each mask component whose bitmap differs between
- * `before` and `after` (an undo, a redo, a History step): the native side
- * holds the other bitmap under its id, so referring to it would show that
- * one (a People or Landscape selection whose parts changed keeps its id).
- * The next request sends the bitmap whole. */
+/** Forgets in `sent` each mask component of `after` whose bitmap differs
+ * from `before`'s, or that `before` lacks (a deleted layer brought back):
+ * the native side may hold another bitmap under its id (a People or
+ * Landscape selection whose parts changed keeps its id), so referring to it
+ * could show that one. The next request sends the bitmap whole. */
 export function forgetChangedMaskBitmaps(
   before: Adjustments | undefined,
   after: Adjustments | undefined,
@@ -54,7 +54,7 @@ export function forgetChangedMaskBitmaps(
   before?.masks?.forEach((mask: MaskContainer) => mask.subMasks?.forEach((sub) => old.set(sub.id, bitmapOf(sub))));
   after?.masks?.forEach((mask: MaskContainer) =>
     mask.subMasks?.forEach((sub) => {
-      if (old.has(sub.id) && old.get(sub.id) !== bitmapOf(sub)) sent.delete(sub.id);
+      if (!old.has(sub.id) || old.get(sub.id) !== bitmapOf(sub)) sent.delete(sub.id);
     })
   );
 }
