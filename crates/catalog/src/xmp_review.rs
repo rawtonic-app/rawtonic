@@ -236,12 +236,36 @@ impl Library {
         if !a.path.is_file() {
             return Err(crate::CatalogError::XmpOffline.into());
         }
-        // RAW+JPEG siblings would share a stem; refuse ambiguity rather than clobber.
+        // Two photographs whose sidecar has one name (a CR3 and a DNG of
+        // one stem): refuse ambiguity rather than clobber. A RAW and its
+        // JPEG have a sidecar each (`rawtonic_metadata::sidecars`).
         ensure!(
             self.xmp_owners(&a.path)? == 1,
-            "RAW/JPEG sidecar ownership needs pair resolution"
+            "Two photographs share this XMP sidecar name; it is not written"
         );
-        Ok(rawtonic_metadata::sidecar_path(&a.path))
+        let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
+        let path = sidecars.path(&a.path);
+        if !path.exists() {
+            let (hash, publishing): (Option<String>, Option<String>) = self.conn.query_row(
+                "SELECT xmp_hash,xmp_publishing FROM metadata WHERE asset_id=?",
+                [asset],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            if crate::xmp_state::held_partners_sidecar(
+                &sidecars,
+                &a.path,
+                hash.as_deref(),
+                publishing.as_deref(),
+            ) {
+                // The RAW's sidecar, read for the JPEG before the pair rule:
+                // the JPEG never had one of its own.
+                self.conn.execute(
+                    "UPDATE metadata SET xmp_hash=NULL,xmp_publishing=NULL WHERE asset_id=?",
+                    [asset],
+                )?;
+            }
+        }
+        Ok(path)
     }
 
     /// Writes the library's metadata and recipe over a sidecar whose digest

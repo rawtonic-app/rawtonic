@@ -2144,7 +2144,7 @@
         "failed_other": "{{count}} 件の XMP ファイルを書き込めませんでした: {{error}}",
         "offline_other": "{{count}} 枚の写真がオフラインです。ドライブを再接続すると XMP ファイルが更新されます。",
         "pending_other": "{{count}} 件の XMP ファイルを再度書き込めます。",
-        "sharedName_other": "{{count}} 枚の写真がほかの写真と同じ名前です (RAW と JPEG)。両方が同じ XMP ファイルに書き込むことになります。"
+        "sharedName_other": "{{count}} 枚の写真がほかの写真と同じ名前です (CR3 と DNG など 2 つの RAW ファイル)。両方が同じ XMP ファイルに書き込むことになります。"
       },
       "resolved_other": "{{count}} 枚の写真の XMP の競合を解決しました",
       "retry": "再試行",

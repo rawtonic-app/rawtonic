@@ -6,11 +6,13 @@ pub mod labels;
 pub mod photo_ref;
 pub mod provenance;
 pub mod resources;
+pub mod sidecars;
 mod xmp_input;
 use anyhow::{Context, Result, ensure};
 pub use error::MetadataError;
 use rawtonic_fs::atomic_write;
 use serde::{Deserialize, Serialize};
+pub use sidecars::{existing_sidecar, sidecar_path};
 use std::{
     collections::{BTreeMap, HashSet},
     fs,
@@ -379,35 +381,6 @@ impl Metadata {
             self.iptc.insert(key.to_string(), value.to_string());
         }
     }
-}
-
-/// The existing stem sidecar, preserving its extension's case. New sidecars
-/// use `.xmp`; an existing `.XMP` must be read and updated in place on Linux.
-/// On a case-insensitive volume both spellings find the one sidecar; on
-/// Windows its name as stored is used then, because replacing it under
-/// another spelling renames it there (the replace takes the new spelling).
-pub fn sidecar_path(photo: &Path) -> std::path::PathBuf {
-    let lower = photo.with_extension("xmp");
-    let upper = photo.with_extension("XMP");
-    match (lower.exists(), upper.exists()) {
-        (false, true) => upper,
-        (true, true) => stored_spelling(&lower, &upper).unwrap_or(lower),
-        _ => lower,
-    }
-}
-
-/// The name `a` and `b` have on disk when they are one file under two
-/// spellings.
-fn stored_spelling(a: &Path, b: &Path) -> Option<std::path::PathBuf> {
-    let name = rawtonic_fs::stored_name(a)?;
-    let stored = a.with_file_name(&name);
-    // Only another case of the same name, and the file `b` finds too.
-    (name.to_string_lossy().len() == a.file_name()?.to_string_lossy().len()
-        && name
-            .to_string_lossy()
-            .eq_ignore_ascii_case(&a.file_name()?.to_string_lossy())
-        && rawtonic_fs::stored_name(b).as_ref() == Some(&name))
-    .then_some(stored)
 }
 
 fn escape(text: &str) -> String {

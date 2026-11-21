@@ -2235,8 +2235,8 @@
         "offline_other": "{{count}} photos are offline. Their XMP files are updated when the drive is connected again.",
         "pending_one": "{{count}} XMP file can be written again.",
         "pending_other": "{{count}} XMP files can be written again.",
-        "sharedName_one": "{{count}} photo has the same name as another one (RAW and JPEG), so both would write the same XMP file.",
-        "sharedName_other": "{{count}} photos have the same name as another one (RAW and JPEG), so both would write the same XMP file."
+        "sharedName_one": "{{count}} photo has the same name as another one (two RAW files, such as CR3 and DNG), so both would write the same XMP file.",
+        "sharedName_other": "{{count}} photos have the same name as another one (two RAW files, such as CR3 and DNG), so both would write the same XMP file."
       },
       "resolved_one": "XMP conflict resolved for {{count}} photo",
       "resolved_other": "XMP conflicts resolved for {{count}} photos",

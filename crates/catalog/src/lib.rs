@@ -1496,7 +1496,10 @@ impl Library {
     /// index. Never deserialize every catalog asset for each imported photo.
     /// Roots can overlap after relocation, so check all matching root prefixes.
     fn xmp_owners(&self, photo: &Path) -> Result<usize> {
-        let sidecar = photo.with_extension("xmp");
+        // Only photographs of one stem can share a sidecar; whose it is
+        // follows the pair rule (`rawtonic_metadata::sidecars`).
+        let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
+        let sidecar = sidecars.path(photo);
         let mut roots = self.conn.prepare("SELECT id,path,external FROM roots")?;
         let roots = roots.query_map([], |row| {
             Ok((
@@ -1530,7 +1533,7 @@ impl Library {
             for relative in candidates.query_map(params![id, stem, lower, upper], |row| {
                 row.get::<_, String>(0)
             })? {
-                if native_join(base, &relative?).with_extension("xmp") == sidecar {
+                if sidecars.path(&native_join(base, &relative?)) == sidecar {
                     count += 1;
                     if count > 1 {
                         return Ok(count);

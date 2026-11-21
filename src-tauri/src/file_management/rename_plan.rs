@@ -117,12 +117,19 @@ impl RenamePlan {
 /// it: its editor sidecar, EXIF cache or a virtual copy's sidecar
 /// (`<photo>.<copy id>.rrdata`). The sidecar of another photo whose name
 /// starts with this one's (`A.NEF.jpg.rrdata` of a derivative `A.NEF.jpg`)
-/// is not its own.
+/// is not its own. A developed image's full-name XMP (`A.JPG.xmp`, its own
+/// beside a RAW of its stem: `rawtonic_metadata::sidecars`) is its own; a
+/// RAW's XMP is the stem form, handled with the name group (`plan_xmp`).
 pub(crate) fn own_file_role(photo: &str, entry: &str) -> Option<FileRole> {
     let rest = entry.strip_prefix(photo)?.strip_prefix('.')?;
+    let developed = Path::new(photo)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(rawtonic_metadata::sidecars::is_developed_image);
     match rest {
         "rrdata" => Some(FileRole::EditSidecar),
         "rrexif" => Some(FileRole::ExifCache),
+        _ if developed && rest.eq_ignore_ascii_case("xmp") => Some(FileRole::Xmp),
         _ => {
             let id = rest.strip_suffix(".rrdata")?;
             // Copy ids never hold a dot nor make the name another photo's.
@@ -397,6 +404,18 @@ fn plan_xmp(
         .filter_map(|p| facts.companion(p))
         .collect();
     let owners: Vec<PathBuf> = named.into_iter().filter(|p| !hidden.contains(p)).collect();
+    // Beside a RAW, a JPEG of the name has its own sidecar (`A.JPG.xmp`,
+    // `rawtonic_metadata::sidecars`): the stem one is the RAW's alone.
+    let developed = |p: &PathBuf| {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(rawtonic_metadata::sidecars::is_developed_image)
+    };
+    let owners: Vec<PathBuf> = if owners.iter().any(|p| !developed(p)) {
+        owners.into_iter().filter(|p| !developed(p)).collect()
+    } else {
+        owners
+    };
     let others: Vec<PathBuf> = owners
         .iter()
         .filter(|o| !selected.contains(o))
@@ -588,15 +607,21 @@ mod tests {
         ] {
             assert_eq!(own_file_role("A.NEF", other), None, "{other}");
         }
+        // A JPEG's own XMP beside its RAW, any letter case.
+        for own in ["A.JPG.xmp", "A.JPG.XMP"] {
+            assert_eq!(own_file_role("A.JPG", own), Some(FileRole::Xmp), "{own}");
+        }
+        assert_eq!(own_file_role("A.JPG", "A.JPG.jpg.xmp"), None);
     }
 
-    /// R2: independent `A.NEF` and `A.JPG` sharing `A.xmp`, renamed
-    /// together, share one sequence number and their XMP follows once.
+    /// R2: independent `A.NEF` and `A.JPG` renamed together share one
+    /// sequence number; `A.xmp` is the RAW's and follows it, the JPEG's own
+    /// `A.JPG.xmp` follows the JPEG.
     #[test]
     fn a_raw_and_jpeg_sharing_an_xmp_are_renamed_as_a_pair() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().canonical().unwrap();
-        write(&dir, &["A.NEF", "A.JPG", "A.xmp", "B.NEF"]);
+        write(&dir, &["A.NEF", "A.JPG", "A.xmp", "A.JPG.xmp", "B.NEF"]);
         let paths = [dir.join("A.NEF"), dir.join("A.JPG"), dir.join("B.NEF")].map(|p| arg(&p));
         let plan = plan_rename(&paths, "Job");
         assert!(!plan.blocked(), "{plan:?}");
@@ -604,24 +629,22 @@ mod tests {
             renames(&plan),
             [
                 "A.JPG → Job_1.JPG",
+                "A.JPG.xmp → Job_1.JPG.xmp",
                 "A.NEF → Job_1.NEF",
                 "A.xmp → Job_1.xmp",
                 "B.NEF → Job_2.NEF",
             ]
         );
         assert!(plan.photos.iter().all(|p| p.notes.is_empty()));
-        // Only one renamed: the XMP follows the RAW, and the plan says so.
+        // Only the RAW renamed: its XMP follows it; the JPEG keeps its own.
         let plan = plan_rename(&[arg(&dir.join("A.NEF"))], "Job");
         assert_eq!(renames(&plan), ["A.NEF → Job.NEF", "A.xmp → Job.xmp"]);
-        assert_eq!(
-            plan.photos[0].notes,
-            [Note::XmpWithRaw {
-                xmp: dir.join("A.xmp"),
-                others: vec![dir.join("A.JPG")]
-            }]
-        );
+        assert!(plan.photos[0].notes.is_empty());
         let plan = plan_rename(&[arg(&dir.join("A.JPG"))], "Job");
-        assert_eq!(renames(&plan), ["A.JPG → Job.JPG"]);
+        assert_eq!(
+            renames(&plan),
+            ["A.JPG → Job.JPG", "A.JPG.xmp → Job.JPG.xmp"]
+        );
         assert_eq!(
             plan.photos[0].notes,
             [Note::XmpStays {

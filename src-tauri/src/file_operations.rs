@@ -353,15 +353,17 @@ fn album_key(path: &Path) -> Option<String> {
     Some(PhotoRef::of_path(&path.with_file_name(image), Some(id)).format())
 }
 
-/// The XMP sidecar of `image` (`name.xmp`, shared by RAW+JPEG pairs).
+/// The XMP sidecar `image` has (`rawtonic_metadata::sidecars`): a RAW's
+/// is `<stem>.xmp`, a JPEG beside its RAW has `<name>.JPG.xmp`.
 fn xmp_for(image: &Path) -> PathBuf {
     rawtonic_metadata::sidecar_path(image)
 }
 
 /// Every file that belongs to `images` and moves with them: editor sidecars,
 /// virtual copies, the EXIF cache, a RAW's companion JPEG
-/// (`session_bridge::companion_of`), and an XMP whose every photo is
-/// included.
+/// (`session_bridge::companion_of`), and its XMP sidecar, unless another
+/// photo left behind has a sidecar of that name too (a CR3 and a DNG of one
+/// stem): then it stays with the remaining photo.
 pub fn associated_files(images: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
     let selected: HashSet<&PathBuf> = images.iter().collect();
     let mut files = BTreeSet::new();
@@ -377,8 +379,8 @@ pub fn associated_files(images: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
         if !xmp.is_file() || files.contains(&xmp) {
             continue;
         }
-        // Another photo with this name (RAW+JPEG) keeps its XMP; a
-        // companion is no photo of its own.
+        // A JPEG partner's sidecar is its own (`A.JPG.xmp`), not this one;
+        // a companion is no photo of its own.
         let stem = image.file_stem();
         let shared = fs::read_dir(image.parent().ok_or("No parent folder")?)
             .map_err(|e| e.to_string())?
@@ -389,6 +391,7 @@ pub fn associated_files(images: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
                     && is_supported_image_file(&p)
                     && !selected.contains(&p)
                     && companion.as_ref() != Some(&p)
+                    && xmp_for(&p) == xmp
             });
         if !shared {
             files.insert(xmp);
@@ -1433,8 +1436,8 @@ mod tests {
     }
 
     /// A RAW's recorded companion JPEG moves and goes to the Trash with it,
-    /// and so does the XMP (the companion is no photo of its own); a JPEG
-    /// of the same name that is not its companion keeps the XMP.
+    /// and so does the XMP; a JPEG of the same name that is not its
+    /// companion stays, and the RAW's XMP goes with the RAW all the same.
     #[test]
     fn a_companion_jpeg_belongs_to_its_raw() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1456,7 +1459,7 @@ mod tests {
         assert!(files.contains(&capture.join("A.JPG")));
         assert!(files.contains(&capture.join("A.xmp")));
         assert!(!files.contains(&capture.join("B.JPG")));
-        assert!(!files.contains(&capture.join("B.xmp")));
+        assert!(files.contains(&capture.join("B.xmp")));
         assert_eq!(
             crate::session_bridge::companions_in_folder(&capture),
             HashSet::from([capture.join("A.JPG")])
@@ -1496,7 +1499,7 @@ mod tests {
     }
 
     #[test]
-    fn uppercase_xmp_follows_its_photo_and_keeps_the_shared_stem_guard() {
+    fn uppercase_xmp_follows_its_raw_also_beside_a_jpeg() {
         let tmp = tempfile::tempdir().unwrap();
         let photo = tmp.path().join("upper.arw");
         let upper = photo.with_extension("XMP");
@@ -1511,9 +1514,16 @@ mod tests {
                 .contains(&upper)
         );
         let jpeg = photo.with_extension("jpg");
-        fs::write(&jpeg, b"companion").unwrap();
+        fs::write(&jpeg, b"partner").unwrap();
+        // The stem sidecar is the RAW's: it goes with the RAW alone, never
+        // with the JPEG alone.
         assert!(
-            !associated_files(std::slice::from_ref(&photo))
+            associated_files(std::slice::from_ref(&photo))
+                .unwrap()
+                .contains(&upper)
+        );
+        assert!(
+            !associated_files(std::slice::from_ref(&jpeg))
                 .unwrap()
                 .contains(&upper)
         );
@@ -1521,13 +1531,14 @@ mod tests {
     }
 
     #[test]
-    fn associated_files_keep_a_shared_xmp_with_the_remaining_photo() {
+    fn each_partner_of_a_raw_jpeg_pair_moves_with_its_own_xmp() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         for name in [
             "A.RAF",
             "A.JPG",
             "A.xmp",
+            "A.JPG.xmp",
             "A.RAF.rrdata",
             "A.RAF.abc123.rrdata",
             "B.ARW",
@@ -1540,15 +1551,33 @@ mod tests {
         assert!(files.contains(&dir.join("A.RAF.abc123.rrdata")));
         assert!(files.contains(&dir.join("B.xmp")), "B's own XMP moves");
         assert!(
-            !files.contains(&dir.join("A.xmp")),
-            "A.JPG stays and keeps A.xmp"
+            files.contains(&dir.join("A.xmp")),
+            "the RAW's XMP moves with it"
         );
         assert!(!files.contains(&dir.join("A.JPG")));
-        let both = associated_files(&[dir.join("A.RAF"), dir.join("A.JPG")]).unwrap();
         assert!(
-            both.contains(&dir.join("A.xmp")),
-            "both photos go, so does their XMP"
+            !files.contains(&dir.join("A.JPG.xmp")),
+            "the JPEG keeps its own"
         );
+        let jpeg = associated_files(&[dir.join("A.JPG")]).unwrap();
+        assert!(jpeg.contains(&dir.join("A.JPG.xmp")));
+        assert!(!jpeg.contains(&dir.join("A.xmp")), "never the RAW's");
+    }
+
+    #[test]
+    fn a_sidecar_two_raws_share_stays_with_the_one_left_behind() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        for name in ["A.CR3", "A.DNG", "A.xmp"] {
+            fs::write(dir.join(name), name).unwrap();
+        }
+        let one = associated_files(&[dir.join("A.CR3")]).unwrap();
+        assert!(
+            !one.contains(&dir.join("A.xmp")),
+            "A.DNG stays and keeps A.xmp"
+        );
+        let both = associated_files(&[dir.join("A.CR3"), dir.join("A.DNG")]).unwrap();
+        assert!(both.contains(&dir.join("A.xmp")), "both go, so does it");
     }
 
     #[test]
