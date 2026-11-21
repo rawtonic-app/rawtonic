@@ -1682,12 +1682,10 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                 // after plain additive components goes first: coverage
                 // c ∪ (b · (1 − e)) is one value in either order (screen
                 // commutes), measured in Camera Raw.
-                let after_additive = items.iter().all(|(item, active, _)| {
+                // Hidden components count too: switching one back on in Develop
+                // must not change what an eraser cuts.
+                let after_additive = items.iter().all(|(item, _, _)| {
                     let attr = |n: &str| item.attribute((CRS_NS, n));
-                    // A hidden component adds nothing to the coverage.
-                    if !active || attr("MaskActive") == Some("false") {
-                        return true;
-                    }
                     // A stroke with value 0 (an eraser) is not additive: an
                     // earlier aggregate's erasers would cut this one's brush.
                     let eraser = attr("MaskValue")
@@ -3140,16 +3138,15 @@ mod tests {
         assert_eq!(doubled.matches("Mask/Aggregate").count(), 2);
         let (doubled_layers, doubled_skipped) = super::lightroom_masks(&doubled);
         assert!(doubled_layers.is_empty() && doubled_skipped == vec!["Brush".to_string()]);
-        // With the first brush hidden its eraser cuts nothing: the second
-        // brush stays.
+        // A hidden brush's eraser would cut the other brush once it is
+        // switched on in Develop: still left out and named, never imported wrong.
         let hidden = doubled.replacen(
             r#"crs:MaskInverted="false" crs:MaskValue="1""#,
             r#"crs:MaskInverted="false" crs:MaskValue="1" crs:MaskActive="false""#,
             1,
         );
         let (hidden_layers, hidden_skipped) = super::lightroom_masks(&hidden);
-        assert!(hidden_skipped.is_empty());
-        assert_eq!(hidden_layers[0]["subMasks"].as_array().unwrap().len(), 4);
+        assert!(hidden_layers.is_empty() && hidden_skipped == vec!["Brush".to_string()]);
         let subs = layers[0]["subMasks"].as_array().unwrap();
         assert_eq!(subs.len(), 2);
         assert_eq!(
