@@ -427,6 +427,13 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
     // are reused.
     let existing = catalog.collections().map_err(|e| e.to_string())?;
     let mut created: HashMap<&str, String> = HashMap::new();
+    report.smart_albums_skipped.extend(
+        source
+            .not_read
+            .smart_album_names
+            .iter()
+            .map(|name| format!("{name}: its rules could not be read")),
+    );
     let mut pending: Vec<&rawtonic_interop::Album> = source.albums.iter().collect();
     while !pending.is_empty() {
         let before = pending.len();
@@ -502,6 +509,9 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                     .iter()
                     .filter_map(|key| {
                         let photo = source.photos.iter().find(|p| &p.key == key)?;
+                        let member = assets
+                            .get(photo.copy_of.as_deref().unwrap_or(&photo.key))
+                            .cloned()?;
                         if photo.copy_of.is_some() {
                             report.copies_in_albums.push(format!(
                                 "{}: {}{}",
@@ -518,9 +528,7 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                                     .unwrap_or_default()
                             ));
                         }
-                        assets
-                            .get(photo.copy_of.as_deref().unwrap_or(&photo.key))
-                            .cloned()
+                        Some(member)
                     })
                     .collect();
                 if !members.is_empty() {
@@ -1862,6 +1870,9 @@ mod tests {
                 ),
                 photo("2", photos.join("Gone.NEF"), Develop::None, None),
                 photo("3", photos.join("A.NEF"), Develop::None, Some("1")),
+                // A copy of a photograph that is not there: no member, no
+                // claim that its photograph was added.
+                photo("4", photos.join("Gone.NEF"), Develop::None, Some("2")),
             ],
             albums: vec![
                 Album {
@@ -1877,7 +1888,7 @@ mod tests {
                     name: "Italy".into(),
                     parent: Some("10".into()),
                     is_group: false,
-                    photos: vec!["1".into(), "3".into()],
+                    photos: vec!["1".into(), "3".into(), "4".into()],
                     smart: None,
                 },
                 Album {
@@ -1922,7 +1933,7 @@ mod tests {
                 report.copies,
                 report.albums
             ),
-            (1, 1, 1, 0, 1, 2)
+            (1, 1, 1, 1, 1, 2)
         );
         // What was left out or became something else is named, never silent.
         assert_eq!(
@@ -2832,7 +2843,9 @@ ProcessVersion = "15.4" }}"#,
 
     /// Smart collection membership of an imported Lightroom catalog, as the
     /// app shows it (`SMR_LRCAT`, photographs at their catalog paths,
-    /// `SMR_OUT` the scratch catalog and result files). Run by hand.
+    /// `SMR_OUT` the scratch catalog and result files, which must not exist
+    /// yet). Importing writes the copies' `.rrdata` beside their
+    /// photographs: run it on scratch copies of the photographs.
     #[test]
     #[ignore = "tool: needs SMR_LRCAT and SMR_OUT"]
     fn smart_collection_membership_of_a_lightroom_catalog() {
@@ -2881,12 +2894,21 @@ ProcessVersion = "15.4" }}"#,
                 paths.join(",")
             );
         }
-        fs::write(out.join("rawtonic-collections.tsv"), tsv).unwrap();
-        fs::write(
-            out.join("preview-and-report.txt"),
+        let write_new = |name: &str, text: String| {
+            use std::io::Write;
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(out.join(name))
+                .unwrap()
+                .write_all(text.as_bytes())
+                .unwrap();
+        };
+        write_new("rawtonic-collections.tsv", tsv);
+        write_new(
+            "preview-and-report.txt",
             format!("{shown:#?}\n{report:#?}\n"),
-        )
-        .unwrap();
+        );
     }
 
     /// Imports a real library (`RAWTONIC_IMPORT_SAMPLE`) into a temporary

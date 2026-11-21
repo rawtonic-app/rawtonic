@@ -872,7 +872,16 @@ mod measurement {
                 .collect();
             writeln!(out, "{query}\t{}", names.join("\t")).unwrap();
         }
-        std::fs::write(env("CONTENT_RANKED"), out).unwrap();
+        // Never over an existing file (a mistyped path must not cost one).
+        std::io::Write::write_all(
+            &mut std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(env("CONTENT_RANKED"))
+                .unwrap(),
+            out.as_bytes(),
+        )
+        .unwrap();
     }
 
     #[test]
