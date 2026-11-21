@@ -393,6 +393,11 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             lib.asset_at(&source).map_err(io_error)?
         };
         if let Some(asset) = &asset {
+            let previous = if online {
+                lib.copy_state(&asset.id, &copy).map_err(io_error)?
+            } else {
+                None
+            };
             crate::library_search::announcing_ai_facts(&lib, &asset.id, || {
                 lib.save_copy_state(&asset.id, &copy, &state)
             })
@@ -402,10 +407,31 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             }
             // Not a `DerivedSidecarUnwritten`: while the photograph is there
             // its copy is read from this file (`read_editor_sidecar`), so
-            // an edit the file did not get is not saved.
-            let version = lib.version_for(&asset.id, Some(&copy)).map_err(io_error)?;
-            let bytes = with_library_snapshots(&lib, version.as_deref(), bytes, &state)?;
-            return rawtonic_fs::atomic_write(path, &*bytes).map_err(io_error);
+            // an edit the file did not get is not saved, and the library
+            // goes back to what it held (a relink writes that out).
+            let written = lib
+                .version_for(&asset.id, Some(&copy))
+                .map_err(io_error)
+                .and_then(|version| with_library_snapshots(&lib, version.as_deref(), bytes, &state))
+                .and_then(|bytes| rawtonic_fs::atomic_write(path, &*bytes).map_err(io_error));
+            if written.is_err() {
+                let restored = match &previous {
+                    Some(previous) => {
+                        crate::library_search::announcing_ai_facts(&lib, &asset.id, || {
+                            lib.save_copy_state(&asset.id, &copy, previous)
+                        })
+                        .map(|_| ())
+                    }
+                    None => lib.remove_copy(&asset.id, &copy).map(|_| ()),
+                };
+                if let Err(e) = restored {
+                    log::warn!(
+                        "Virtual copy {copy} of {} keeps an edit its sidecar did not get: {e}",
+                        source.display()
+                    );
+                }
+            }
+            return written;
         }
         return rawtonic_fs::atomic_write(path, bytes).map_err(io_error);
     }

@@ -2146,7 +2146,7 @@ mod tests {
         use rawtonic_catalog::{Library, Mode};
         use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::tempdir().unwrap();
-        let _lib = Library::create(temp.path(), "Write-protected copy", Mode::Session).unwrap();
+        let lib = Library::create(temp.path(), "Write-protected copy", Mode::Session).unwrap();
         let capture = temp.path().join("Capture");
         let source = capture.join("a.jpg");
         fs::write(&source, b"synthetic original").unwrap();
@@ -2175,6 +2175,13 @@ mod tests {
         let (_, sidecar) = parse_virtual_path(&copy);
         assert_eq!(
             crate::exif_processing::load_sidecar(&sidecar).adjustments["exposure"],
+            0.5
+        );
+        // The library holds the recipe before too: a relink writes the
+        // copy's sidecar from it (`rederive_copies`).
+        let asset = lib.asset_at(&source).unwrap().unwrap();
+        assert_eq!(
+            lib.copy_state(&asset.id, "c0ffee").unwrap().unwrap()["adjustments"]["exposure"],
             0.5
         );
         assert_eq!(fs::read(&source).unwrap(), b"synthetic original");

@@ -75,14 +75,19 @@ fn touch_bitmap(
         .map(|keys| {
             keys.iter()
                 .filter_map(|k| k.as_str())
-                .filter(|k| *k != key)
                 .map(str::to_string)
                 .collect()
         })
         .unwrap_or_default();
+    let known = versions.iter().position(|k| k == key);
+    if let Some(held) = known {
+        versions.remove(held);
+    }
     match sender {
         Sender::Editor => versions.push(key.to_string()),
-        Sender::QueuedExport => versions.insert(0, key.to_string()),
+        // A bitmap the cache holds keeps its place (the editor may be
+        // showing it); a new one comes in as the least recently used.
+        Sender::QueuedExport => versions.insert(known.unwrap_or(0), key.to_string()),
     }
     while versions.len() > BITMAPS_PER_COMPONENT {
         let oldest = versions.iter().position(|k| k != key).unwrap_or(0);
@@ -583,6 +588,29 @@ mod hydration_tests {
             .filter(|k| k.starts_with("mask-bitmap:o:"))
             .count();
         assert_eq!(held, BITMAPS_PER_COMPONENT);
+    }
+
+    #[test]
+    fn a_queued_export_of_the_shown_bitmap_leaves_it_where_the_editor_put_it() {
+        let mut cache = HashMap::new();
+        let export = |cache: &mut HashMap<String, serde_json::Value>, bitmap: &str| {
+            let mut subs = vec![json!({"id": "o", "parameters": {"maskDataBase64": bitmap}})];
+            hydrate_sub_masks_from(&mut subs, cache, Sender::QueuedExport);
+        };
+        // Exports of several revisions queued; Develop shows one of them.
+        for prompt in 0..BITMAPS_PER_COMPONENT {
+            hydrated(&mut cache, "o", &format!("data:{prompt}"));
+        }
+        hydrated(&mut cache, "o", "data:shown");
+        // The queue drains: the export of the shown revision, then others.
+        export(&mut cache, "data:shown");
+        for prompt in 0..2 * BITMAPS_PER_COMPONENT {
+            export(&mut cache, &format!("data:new-{prompt}"));
+        }
+        assert_eq!(
+            hydrated(&mut cache, "o", &refer("data:shown")),
+            "data:shown"
+        );
     }
 
     #[test]
