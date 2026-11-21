@@ -2611,7 +2611,8 @@ mod tests {
     /// notes: benchmark-results/lsm2-2026-11-21/REPORT.md).
     #[test]
     fn landscape_masks_become_landscape_parts_detected_on_open() {
-        // `extra`: attributes in place of the usual ones (name="value" …).
+        // As Lightroom Classic 15 writes them: the component's attributes on
+        // its `rdf:li` (`extra`: name="value" … in place of the usual ones).
         let part = |id: u32, extra: &str| {
             let mut attributes = vec![
                 ("What", "Mask/Image".to_string()),
@@ -2634,10 +2635,7 @@ mod tests {
                 .iter()
                 .map(|(n, v)| format!(r#"crs:{n}="{v}""#))
                 .collect();
-            format!(
-                "<rdf:li><rdf:Description {}/></rdf:li>",
-                attributes.join(" ")
-            )
+            format!("<rdf:li {}/>", attributes.join(" "))
         };
         let correction = |name: &str, parts: &[String]| {
             format!(
