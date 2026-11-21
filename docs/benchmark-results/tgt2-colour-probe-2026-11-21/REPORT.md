@@ -22,7 +22,7 @@ The `measure.ts` folder layout is as in TGT1, with the same 12 picks in 9 public
 - **Influence:** the change a layer range makes, divided by the change the same range makes on the whole photo. The layer is a linear gradient through the pick, with its 50 % line at the pick or half a range above it.
 - **Measured:** the same cells of the solved recipe's ProPhoto export ("working", the colour the photo holds) and the block mean of its sRGB export ("sRGB", for targets inside sRGB). ΔE00 is in CIELAB D50.
 
-Each run writes only into `runs/<time>/`. A second run on the final code reproduced every number (`results.json`).
+Each run writes only into `runs/<time>/`. A second run reproduced every number. After review round 1 changed the search, a third run (`results.json`) changed only limit flags (reached targets are no longer marked as at a limit) and two out-of-reach results (31.7 → 24.4, 2.12 → 2.08).
 
 ## Results (60 global targets, 20 layer targets)
 
@@ -33,16 +33,16 @@ Each run writes only into `runs/<time>/`. A second run on the final code reprodu
 | Product, source and target inside sRGB (TGT1 grouping), working / sRGB | 7 | 0.14 / 0.58; 0.22 / 1.54 | 7 |
 | Product, source beyond sRGB, in reach (working) | 15 | 0.15 / 3.56 | 13 (both misses: target beyond the working gamut, flagged) |
 | Target beyond sRGB, inside the working gamut, in reach (working) | 11 | 0.12 / 0.17 | 11 |
-| Sky, in reach | 16 | 0.10 / 2.21 | 15 (miss: target beyond the working gamut, flagged) |
+| Sky, in reach | 17 | 0.10 / 2.21 | 16 (miss: target beyond the working gamut, flagged) |
 | Skin, in reach | 3 | 0.14 / 0.15 | 3 |
-| Out of reach (a slider at its limit; flagged) | 18 | 12.4 / 31.7 | 1 |
-| Feathered layer (influence 0.50–0.75), solved at the influence, in reach | 15 | 0.10 / 3.70 | 14 (miss: target beyond the working gamut, flagged); prediction vs export ≤ 0.09 |
-| Same targets solved at full strength (TGT1) | 19 | 3.19 / 12.5 | 6 |
+| Out of reach (a slider at its limit; flagged) | 17 | 12.7 / 24.4 | 0 |
+| Feathered layer (influence 0.50–0.75), solved at the influence, in reach | 17 | 0.10 / 3.70 | 16 (miss: target beyond the working gamut, flagged); prediction vs export ≤ 0.18 |
+| All 20 layer targets: at the influence / at full strength (TGT1) | 20 | – | 17 / 6 |
 
 - Bar "in-sRGB products ≤ ΔE00 2": met. All 11 land within 2 in the sRGB export. TGT1 met it for 8 of 9, worst 2.42; the textured red can is now 0.58 working / 1.54 sRGB.
 - Bar "beyond-sRGB targets reach the gamut-mapped nearest within 2 or are flagged": met. Every target inside the working gamut is reached within 0.17 in the working colour. An sRGB export shows that colour through the renderer's output mapping, which is the same for every colour; that mapping was not measured separately here. Every in-reach miss has its target beyond the working gamut, and the readout flags it and predicts it within 0.01.
 - Bar "re-picks through strong changes exact": met by construction and checked. The probe is before the ranges. The GPU test asserts byte-equal probe pixels with and without a Saturation −90 / hue +80 range. In the QA build, a re-pick of the blue robot through Saturation −90 left the range's hue, chroma and lightness bit-identical and set no uncertainty flag.
-- Bar "feathered-mask layers correct at the actual weight": met. 14 of 15 in-reach targets are within 2, median 0.10, and the miss is flagged. Solving at full strength gives 6 of 19.
+- Bar "feathered-mask layers correct at the actual weight": met. 16 of 17 in-reach targets are within 2, median 0.10, and the miss is flagged. Of all 20 layer targets, 17 land within 2 when solved at the influence and 6 when solved at full strength.
 
 ## Exports
 
