@@ -673,6 +673,18 @@ export function useTauriListeners({
             selecting: [...(state.selecting ?? []), event.payload]
           }));
       }),
+      // Preferences that change a decode changed (linear RAW mode,
+      // preprocessing, Apple RAW 9): the open RAW is developed again.
+      listen('decode-preferences-changed', () => {
+        if (!isEffectActive) return;
+        useEditorStore
+          .getState()
+          .setEditor((state) =>
+            state.selectedImage?.isRaw
+              ? { selectedImage: { ...state.selectedImage, decoderStale: (state.selectedImage.decoderStale ?? 0) + 1 } }
+              : {}
+          );
+      }),
       listen<string>('export-denoising', (event) => {
         if (isEffectActive)
           useProcessStore.getState().setExportState((state) => ({

@@ -11,6 +11,11 @@
       "sky": "KI-Maske: Himmel",
       "subject": "KI-Maske: Motiv"
     },
+    "aiSelections": {
+      "done": "KI-Auswahlen für geschlossene Fotos berechnet ({{total}})",
+      "failed": "KI-Auswahlen für {{failed}} von {{total}} Fotos nicht berechnet",
+      "running": "KI-Auswahlen werden berechnet: {{done}} von {{total}} Fotos"
+    },
     "batch": {
       "auto_one": "Auto-Korrekturen: {{count}} Foto",
       "auto_other": "Auto-Korrekturen: {{count}} Fotos",
@@ -4850,6 +4855,11 @@
       "appliesToSelection_one": "Ein Klick wirkt auf {{count}} ausgewähltes Foto.",
       "appliesToSelection_other": "Ein Klick wirkt auf {{count}} ausgewählte Fotos.",
       "builtin": {
+        "adaptive-background-darker": "Hintergrund: dunkler",
+        "adaptive-eyes-brighter": "Porträt: hellere Augen",
+        "adaptive-skin-smoother": "Porträt: glattere Haut",
+        "adaptive-sky-deeper": "Himmel: tiefer",
+        "adaptive-subject-lift": "Motiv: anheben",
         "bw-darker-skies": "S/W dunklerer Himmel",
         "bw-high-contrast": "S/W hoher Kontrast",
         "bw-lighter-skin": "S/W hellere Hauttöne",

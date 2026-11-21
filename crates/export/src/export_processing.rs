@@ -1308,7 +1308,7 @@ pub fn prepare_export_source(
             rawtonic_engine::masks::pending_detections_message(&pending)
         ));
     }
-    // Sky and Subject selections are computed before (`ai_selections::
+    // Automatic selections are computed before (`ai_selections::
     // detect_missing`); one still without its bitmap is never left out.
     let undetected = rawtonic_engine::ai_selections::undetected(js_adjustments);
     if !undetected.is_empty() {

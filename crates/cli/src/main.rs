@@ -529,26 +529,70 @@ impl rawtonic_export::export_processing::Enlarger for SuperResolution {
     }
 }
 
-/// The Sky and Subject networks of the app's model folder, for selections
-/// an export computes (`ai_selections::detect_missing`).
-struct SelectionModels(rawtonic_segment::Models);
+/// The Sky, Subject and People networks of the app's model folder, for
+/// selections an export computes (`ai_selections::detect_missing`). Depth
+/// ranges are computed by the app only (its depth network is not in the
+/// CLI); a photo needing one fails, naming the layer.
+struct SelectionModels {
+    segment: rawtonic_segment::Models,
+    dir: PathBuf,
+    faces: std::sync::OnceLock<Result<rawtonic_faces::FaceModels, String>>,
+}
+
+impl SelectionModels {
+    fn new(dir: PathBuf) -> Self {
+        Self {
+            segment: rawtonic_segment::Models::new(&dir),
+            dir,
+            faces: std::sync::OnceLock::new(),
+        }
+    }
+}
 
 impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
     fn detect(
         &self,
         selection: rawtonic_engine::ai_selections::AutoSelection,
-        version: u32,
+        parameters: &serde_json::Value,
         warped: &image::DynamicImage,
         linear: bool,
     ) -> Result<String, String> {
-        use rawtonic_engine::ai_selections::AutoSelection;
+        use rawtonic_engine::ai_selections::{self as sel, AutoSelection};
         let mask = match selection {
-            AutoSelection::Sky => self.0.sky().and_then(|model| {
+            AutoSelection::Sky => self.segment.sky().and_then(|model| {
                 rawtonic_segment::run_sky_seg_model(warped, &model, linear, None)
             }),
-            AutoSelection::Subject => self.0.subject().and_then(|model| {
-                rawtonic_segment::subject_selection(warped, &model, linear, None, version)
+            AutoSelection::Subject => self.segment.subject().and_then(|model| {
+                rawtonic_segment::subject_selection(
+                    warped,
+                    &model,
+                    linear,
+                    None,
+                    sel::subject_version(parameters),
+                )
             }),
+            AutoSelection::People => {
+                let models = self
+                    .faces
+                    .get_or_init(|| {
+                        rawtonic_faces::FaceModels::load(&self.dir).map_err(|e| format!("{e:#}"))
+                    })
+                    .as_ref()
+                    .map_err(|e| format!("the face models are not available: {e}"))?;
+                let mask = rawtonic_faces::recipe::people_selection(
+                    warped,
+                    linear,
+                    models,
+                    &sel::people_parts(parameters),
+                    sel::people_person(parameters),
+                )?;
+                return rawtonic_segment::mask_data_url(&mask);
+            }
+            AutoSelection::Depth => {
+                return Err(
+                    "depth ranges are computed by the app (export the photo from the app)".into(),
+                );
+            }
         }
         .map_err(|e| format!("{e:#}"))?;
         rawtonic_segment::mask_data_url(&mask)
@@ -1571,9 +1615,9 @@ fn with_recipe_models(
             Err(e) => eprintln!("AI Denoise model {model} unavailable: {e:#}"),
         }
     }
-    // Sky and Subject selections a never-opened photo holds without their
-    // bitmap are computed with the app's models, as the app's export does;
-    // without the models those photos fail.
+    // Automatic selections a never-opened photo holds without their bitmap
+    // are computed with the app's models, as the app's export does; without
+    // the models those photos fail.
     if recipes
         .iter()
         .flatten()
@@ -1582,9 +1626,8 @@ fn with_recipe_models(
         match models_dir(models.clone()) {
             Ok(dir) => {
                 ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);
-                exporter = exporter.with_selection_detector(std::sync::Arc::new(SelectionModels(
-                    rawtonic_segment::Models::new(dir),
-                )));
+                exporter = exporter
+                    .with_selection_detector(std::sync::Arc::new(SelectionModels::new(dir)));
             }
             Err(e) => eprintln!("AI selections unavailable: {e:#}"),
         }

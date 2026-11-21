@@ -423,7 +423,7 @@ pub async fn apply_adjustments_to_paths(
     open: Option<String>,
     app_handle: AppHandle,
 ) -> Result<RecipeBatch, String> {
-    Ok(recorded_batch(app_handle, paths, move |app_handle, paths| {
+    let batch = recorded_batch(app_handle, paths, move |app_handle, paths| {
         // A kill before every photograph is written is offered at the next
         // open (crate::batch_journal).
         let batch = if style.is_some() {
@@ -514,7 +514,23 @@ pub async fn apply_adjustments_to_paths(
             },
         )
     })
-    .await)
+    .await;
+    // The open photo is not among `paths`: the editor computes its own.
+    queue_selections(&batch);
+    Ok(batch)
+}
+
+/// AI selections the written photos now wait for (a preset's Sky or People
+/// layer, a recipe an undo or redo brings back) are computed in the
+/// background, as opening each photo would (`selection_queue`).
+fn queue_selections(batch: &RecipeBatch) {
+    crate::selection_queue::enqueue(
+        batch
+            .changes
+            .iter()
+            .filter(|change| crate::selection_queue::wants_detection(&change.after))
+            .map(|change| change.path.clone()),
+    );
 }
 
 /// The editor sidecar of `path` with `adjustments` applied
@@ -622,7 +638,8 @@ fn pasted_into(
                 recipe: &new_adjustments,
                 is_new: new_edit,
                 is_raw: is_raw_file(source_path),
-                replace_layers: paste.is_none_or(|from| from.replace_layers),
+                // A preset's layers join the photograph's own.
+                replace_layers: paste.is_some_and(|from| from.replace_layers),
                 merge_groups: style.is_some(),
             },
         );
@@ -650,13 +667,18 @@ fn pasted_into(
                     from.replace_layers,
                     &mut || uuid::Uuid::new_v4().to_string(),
                 ),
-                None if k == masks::MASKS.name() => {
-                    let mut layers = v.clone();
-                    rawtonic_engine::masks::prepare_layers_for_photo(&mut layers, &mut || {
-                        uuid::Uuid::new_v4().to_string()
-                    });
-                    layers
-                }
+                // A preset's or style's layers join the photograph's own
+                // (as Lightroom adds a preset's masks; coordinator decision
+                // APR1 2026-11-21): a layer of the same id replaces its
+                // earlier copy (applied again: updated, not doubled); their
+                // AI detections wait for this photograph's.
+                None if k == masks::MASKS.name() => rawtonic_engine::masks::paste_layers(
+                    new_map.get(masks::MASKS.name()).unwrap_or(&Value::Null),
+                    v,
+                    false,
+                    false,
+                    &mut || uuid::Uuid::new_v4().to_string(),
+                ),
                 // A style's groups join the photograph's own settings.
                 _ if style.is_some() => {
                     applied_style::merged(&mut vec![k.clone()], new_map.get(k), v)
@@ -808,14 +830,18 @@ pub async fn replace_recipes(
         .into_iter()
         .map(|c| (c.path, c.adjustments))
         .collect();
-    Ok(recorded_batch(app_handle, paths, move |app_handle, paths| {
+    let batch = recorded_batch(app_handle, paths, move |app_handle, paths| {
         edit_sidecars_recorded(paths, xmp_sync(app_handle), |path, _, sidecar_path| {
             let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
             metadata.adjustments = by_path.get(path).ok_or("no recipe")?.clone();
             Ok(metadata)
         })
     })
-    .await)
+    .await;
+    // An undo or redo of a batch apply brings back recipes from before
+    // their selections were computed: computed again.
+    queue_selections(&batch);
+    Ok(batch)
 }
 
 #[tauri::command]
@@ -3137,7 +3163,15 @@ mod tests {
                 assert_eq!(saved.get("lutPath"), Some(&Value::Null));
                 assert_eq!(saved.get("lutData"), Some(&Value::Null));
                 assert_eq!(saved.get("crop"), Some(&Value::Null));
-                let sub = &saved["masks"][0]["subMasks"][0];
+                // Joined to the photo's own layers, once (applied again: replaced).
+                let preset_layers: Vec<&Value> = saved["masks"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|layer| layer["id"] == "preset-sky")
+                    .collect();
+                assert_eq!(preset_layers.len(), 1);
+                let sub = &preset_layers[0]["subMasks"][0];
                 assert!(sub["parameters"]["maskDataBase64"].is_null());
                 assert_eq!(sub["parameters"]["detectPending"], true);
                 assert_ne!(sub["id"], "preset-sky-c");
@@ -3146,6 +3180,53 @@ mod tests {
             assert_ne!(ids[0], ids[1]);
             assert_eq!(preset["masks"][0]["subMasks"][0]["id"], "preset-sky-c");
         }
+    }
+
+    #[test]
+    fn preset_layers_join_the_photos_own_and_replace_their_earlier_copy() {
+        // A built-in adaptive style on a photo with its own layer, twice:
+        // the photo keeps its layer, the style's layer is there once and
+        // waits for this photo's Sky selection (the selection queue).
+        let (_temp, paths) = session_with_photos(1);
+        let (_, sidecar) = parse_virtual_path(&paths[0]);
+        let own = crate::exif_processing::load_sidecar(&sidecar).adjustments["masks"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(!own.is_empty(), "the fixture photo has a layer of its own");
+        let builtins = super::super::presets::parse_builtin_presets(include_str!(
+            "../../resources/presets/builtin.json"
+        ))
+        .unwrap();
+        let sky = builtins
+            .iter()
+            .find(|p| p.id == "adaptive-sky-deeper")
+            .unwrap();
+        for _ in 0..2 {
+            let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
+                pasted_metadata(
+                    path,
+                    source,
+                    sidecar,
+                    &sky.adjustments,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            });
+            assert!(failed.is_empty(), "{failed:?}");
+        }
+        let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        let masks = saved["masks"].as_array().unwrap();
+        assert_eq!(masks.len(), own.len() + 1);
+        assert_eq!(&masks[..own.len()], own.as_slice());
+        assert_eq!(masks[own.len()]["id"], "adaptive-sky");
+        assert_eq!(
+            masks[own.len()]["subMasks"][0]["parameters"]["detectPending"],
+            true
+        );
+        assert!(crate::selection_queue::wants_detection(&saved));
     }
 
     /// Timing of a sync of 100 library photographs (the recipe writes

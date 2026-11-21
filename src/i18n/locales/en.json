@@ -11,6 +11,11 @@
       "sky": "AI mask: Sky",
       "subject": "AI mask: Subject"
     },
+    "aiSelections": {
+      "done": "AI selections computed for closed photos ({{total}})",
+      "failed": "AI selections not computed for {{failed}} of {{total}} photos",
+      "running": "Computing AI selections: {{done}} of {{total}} photos"
+    },
     "batch": {
       "auto_one": "Auto adjustments: {{count}} photo",
       "auto_other": "Auto adjustments: {{count}} photos",
@@ -4850,6 +4855,11 @@
       "appliesToSelection_one": "A click applies to {{count}} selected photo.",
       "appliesToSelection_other": "A click applies to {{count}} selected photos.",
       "builtin": {
+        "adaptive-background-darker": "Background: darker",
+        "adaptive-eyes-brighter": "Portrait: brighter eyes",
+        "adaptive-skin-smoother": "Portrait: smoother skin",
+        "adaptive-sky-deeper": "Sky: deeper",
+        "adaptive-subject-lift": "Subject: lift",
         "bw-darker-skies": "B&W darker skies",
         "bw-high-contrast": "B&W high contrast",
         "bw-lighter-skin": "B&W lighter skin tones",

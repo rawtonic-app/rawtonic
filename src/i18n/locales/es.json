@@ -11,6 +11,11 @@
       "sky": "Máscara IA: cielo",
       "subject": "Máscara IA: sujeto"
     },
+    "aiSelections": {
+      "done": "Selecciones con IA calculadas para fotos cerradas ({{total}})",
+      "failed": "Selecciones con IA no calculadas para {{failed}} de {{total}} fotos",
+      "running": "Calculando selecciones con IA: {{done}} de {{total}} fotos"
+    },
     "batch": {
       "auto_one": "Ajustes automáticos: {{count}} foto",
       "auto_many": "Ajustes automáticos: {{count}} fotos",
@@ -5054,6 +5059,11 @@
       "appliesToSelection_many": "Un clic se aplica a {{count}} fotos seleccionadas.",
       "appliesToSelection_other": "Un clic se aplica a {{count}} fotos seleccionadas.",
       "builtin": {
+        "adaptive-background-darker": "Fondo: más oscuro",
+        "adaptive-eyes-brighter": "Retrato: ojos más claros",
+        "adaptive-skin-smoother": "Retrato: piel más suave",
+        "adaptive-sky-deeper": "Cielo: más profundo",
+        "adaptive-subject-lift": "Sujeto: realzar",
         "bw-darker-skies": "ByN cielo más oscuro",
         "bw-high-contrast": "ByN alto contraste",
         "bw-lighter-skin": "ByN piel más clara",
