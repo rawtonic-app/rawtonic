@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { create } from 'zustand';
 import { Invokes } from '../components/ui/AppProperties';
+import type { WhiteBalancePick } from './whiteBalance';
 
 /** The shown frame's display pixels around the pointer (`sample_preview_patch`
  * in src-tauri/src/gpu_processing.rs): at most 11 × 11 cells, sRGB 0–255. */
@@ -95,6 +96,7 @@ export interface PointerSample {
   clientX: number;
   clientY: number;
   patch: PreviewPatch | null;
+  balance?: WhiteBalancePick | null;
 }
 
 interface PointerSampleState {
@@ -231,7 +233,8 @@ export function createImagePatchFetch(url: () => string | null, region: () => Sa
 export function createPatchSampler(
   onSample: (sample: PointerSample, inputAt?: number) => void,
   fetch: Fetch = fetchPatch,
-  schedule: (run: () => void) => unknown = (run) => run()
+  schedule: (run: () => void) => unknown = (run) => run(),
+  estimateBalance?: (x: number, y: number, patch: Promise<PreviewPatch | null>) => Promise<WhiteBalancePick | null>
 ) {
   let pending: Request | null = null;
   let busy = false;
@@ -245,14 +248,14 @@ export function createPatchSampler(
     pending = null;
     busy = true;
     const asked = generation;
-    fetch(request.path, request.x, request.y)
-      .catch(() => null)
-      .then((patch) => {
-        busy = false;
-        if (asked === generation)
-          onSample({ clientX: request.clientX, clientY: request.clientY, patch }, request.inputAt);
-        if (pending) kick();
-      });
+    const patch = fetch(request.path, request.x, request.y).catch(() => null);
+    const balance = estimateBalance?.(request.x, request.y, patch).catch(() => null);
+    Promise.all([patch, balance]).then(([patch, balance]) => {
+      busy = false;
+      if (asked === generation)
+        onSample({ clientX: request.clientX, clientY: request.clientY, patch, balance }, request.inputAt);
+      if (pending) kick();
+    });
   };
   const kick = () => {
     if (scheduled) return;

@@ -3518,7 +3518,7 @@
         "expandAll": "Desplega totes les eines",
         "moveDown": "Baixa",
         "moveUp": "Puja",
-        "oneOpen": "Una eina oberta alhora",
+        "oneOpen": "Mode Solo",
         "restoreOrder": "Restaura l'ordre predeterminat",
         "restoreOrderMenu": "Restaura l'ordre predeterminat de les eines",
         "restoreOrderTitle": "Torna les eines a l'ordre original"
@@ -3649,9 +3649,9 @@
       },
       "toolGroup": {
         "isOn": "{{tool}} activat",
+        "openOnlyHint": "Alt/Opció-clic per obrir només aquesta eina",
         "reset": "Restableix {{tool}}",
         "resetGroup": "Restableix el grup",
-        "resetHint": "Alt/Opció-clic al nom restableix {{tool}}",
         "resetOrHold": "Restableix {{tool}} (mantén premut, o prem amb Alt/Opció: mostra la foto sense l’eina)",
         "turnOff": "Desactiva {{tool}}",
         "turnOn": "Activa {{tool}}"

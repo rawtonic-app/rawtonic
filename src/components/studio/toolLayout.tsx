@@ -26,7 +26,7 @@ import { createDragGhost } from './dragGhost';
 const ToolColumnContext = createContext<{
   scope: string;
   /** `extra`: the tool's own entries after its reset (its develop defaults). */
-  menu?(e: React.MouseEvent, resetThis?: () => void, extra?: Option[]): void;
+  menu?(e: React.MouseEvent | React.KeyboardEvent, resetThis?: () => void, extra?: Option[]): void;
   /** One tool open at a time in this column. */
   solo?: boolean;
   /** Opens `title` and closes the column's other tools. */
@@ -180,33 +180,37 @@ export function ToolColumn({ scope, className, children }: { scope: string; clas
     [...(ref.current?.querySelectorAll<HTMLElement>('[data-tool-title]') ?? [])]
       .filter((el) => el.closest('[data-tool-column]') === ref.current)
       .map((el) => el.dataset.toolTitle!);
-  /** Every tool of the column open or closed, or only `only` open. */
-  const setAllOpen = (open: boolean, only?: string) =>
-    saveLayout((layout) => {
-      const next = { ...layout.open };
-      // Opening one alone also closes the column's remembered tools that are
-      // not shown right now (they may come back after a photo switch).
-      if (only !== undefined) for (const key of Object.keys(next)) if (key.startsWith(`${scope}/`)) next[key] = false;
-      for (const title of columnTitles()) next[`${scope}/${title}`] = only === undefined ? open : title === only;
-      return { ...layout, open: next };
-    });
-  const setSolo = (on: boolean, title: string | undefined) => {
-    saveLayout((layout) => ({ ...layout, solo: { ...layout.solo, [scope]: on } }));
-    // Turning it on leaves the tool whose header was clicked open alone.
-    if (on && title) setAllOpen(true, title);
+  /** Change this column, including remembered tools that might reappear. */
+  const withOpenTools = (layout: ToolLayout, open: boolean, only?: string): ToolLayout => {
+    const next = { ...layout.open };
+    if (!open || only !== undefined) {
+      for (const key of Object.keys(next)) {
+        if (key.startsWith(`${scope}/`)) next[key] = false;
+      }
+    }
+    for (const title of columnTitles()) next[`${scope}/${title}`] = only === undefined ? open : title === only;
+    return { ...layout, open: next };
   };
+  const setAllOpen = (open: boolean, only?: string) => saveLayout((layout) => withOpenTools(layout, open, only));
+  const setSolo = (on: boolean, title?: string) =>
+    saveLayout((layout) => ({
+      ...(on && title ? withOpenTools(layout, true, title) : layout),
+      solo: { ...layout.solo, [scope]: on }
+    }));
 
   const slotOf = (el: Element | null) => {
     const slot = el?.closest<HTMLElement>('[data-tool-slot]');
     return slot && slot.parentElement === ref.current ? slot : null;
   };
-  const menu = (e: React.MouseEvent, resetThis?: () => void, extra: Option[] = []) => {
+  const menu = (e: React.MouseEvent | React.KeyboardEvent, resetThis?: () => void, extra: Option[] = []) => {
     const id = slotOf(e.currentTarget as Element)?.dataset.toolSlot;
-    if (!id) return;
+    if (!id || !showContextMenu) return;
     e.preventDefault();
     const at = order.indexOf(id);
     const title = (e.currentTarget as Element).closest<HTMLElement>('[data-tool-title]')?.dataset.toolTitle;
-    showContextMenu(e.clientX, e.clientY, [
+    const rect = e.currentTarget.getBoundingClientRect();
+    const keyboard = !('clientX' in e);
+    const options: Option[] = [
       ...(resetThis
         ? [
             { label: t('studio.develop.toolGroup.resetGroup'), icon: RotateCcw, onClick: resetThis },
@@ -249,7 +253,10 @@ export function ToolColumn({ scope, className, children }: { scope: string; clas
         disabled: !stored,
         onClick: () => saveOrder(null)
       }
-    ]);
+    ];
+    showContextMenu(keyboard ? rect.left : e.clientX, keyboard ? rect.bottom : e.clientY, options, {
+      focusFirst: keyboard
+    });
   };
 
   // Drop position: before the first slot whose middle is below the pointer.
@@ -264,7 +271,7 @@ export function ToolColumn({ scope, className, children }: { scope: string; clas
     return null;
   };
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || e.altKey) return;
     const target = e.target as Element;
     const summary = target.closest('summary');
     if (!summary || target.closest('button, input, select, textarea')) return;
@@ -324,7 +331,8 @@ export function ToolColumn({ scope, className, children }: { scope: string; clas
   const context = useMemo(
     () => ({
       scope,
-      menu: (e: React.MouseEvent, resetThis?: () => void, extra?: Option[]) => menuRef.current(e, resetThis, extra),
+      menu: (e: React.MouseEvent | React.KeyboardEvent, resetThis?: () => void, extra?: Option[]) =>
+        menuRef.current(e, resetThis, extra),
       solo,
       openOnly: (title: string) => openOnlyRef.current(title)
     }),

@@ -3269,7 +3269,7 @@
         "expandAll": "모든 도구 펼치기",
         "moveDown": "아래로 이동",
         "moveUp": "위로 이동",
-        "oneOpen": "한 번에 도구 하나만 열기",
+        "oneOpen": "솔로 모드",
         "restoreOrder": "기본 순서 복원",
         "restoreOrderMenu": "기본 도구 순서 복원",
         "restoreOrderTitle": "도구를 원래 순서로 되돌립니다"
@@ -3400,9 +3400,9 @@
       },
       "toolGroup": {
         "isOn": "{{tool}} 켬",
+        "openOnlyHint": "Alt/Option 키를 누른 채 클릭하면 이 도구만 열립니다",
         "reset": "{{tool}} 재설정",
         "resetGroup": "그룹 재설정",
-        "resetHint": "이름을 Alt/Option 클릭하면 {{tool}} 재설정",
         "resetOrHold": "{{tool}} 재설정 (길게 누르거나 Alt/Option과 함께 누르기: 이 도구 없이 사진 보기)",
         "turnOff": "{{tool}} 끄기",
         "turnOn": "{{tool}} 켜기"

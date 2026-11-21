@@ -3363,7 +3363,7 @@
         "expandAll": "Alle Werkzeuge aufklappen",
         "moveDown": "Nach unten",
         "moveUp": "Nach oben",
-        "oneOpen": "Nur ein Werkzeug geöffnet",
+        "oneOpen": "Solomodus",
         "restoreOrder": "Standardreihenfolge wiederherstellen",
         "restoreOrderMenu": "Standardreihenfolge der Werkzeuge wiederherstellen",
         "restoreOrderTitle": "Werkzeuge wieder in ihre ursprüngliche Reihenfolge bringen"
@@ -3494,9 +3494,9 @@
       },
       "toolGroup": {
         "isOn": "{{tool}} ein",
+        "openOnlyHint": "Alt/Wahltaste-Klick öffnet nur dieses Werkzeug",
         "reset": "{{tool}} zurücksetzen",
         "resetGroup": "Gruppe zurücksetzen",
-        "resetHint": "Alt/Wahltaste-Klick auf den Namen setzt {{tool}} zurück",
         "resetOrHold": "{{tool}} zurücksetzen (halten oder mit Alt/Wahltaste drücken: Foto ohne das Werkzeug zeigen)",
         "turnOff": "{{tool}} ausschalten",
         "turnOn": "{{tool}} einschalten"
