@@ -109,8 +109,9 @@ export function applyColorPick(
 /**
  * The renderer's sample of what the colour editor of the photo (`layer`
  * null) or of a mask layer receives around a normalised point
- * (`sample_color_range_input`), rendered from `adjustments`; null when the
- * renderer could not probe (no display variant or preview base yet).
+ * (`sample_color_range_input`: the picker's block at full resolution, as
+ * the export develops it), rendered from `adjustments`; null when the
+ * renderer could not probe (no preview base yet, a layer without a mask).
  */
 export async function sampleRangeInput(
   path: string,

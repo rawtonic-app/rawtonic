@@ -413,7 +413,8 @@ export const rangeCentre = (range: ColorRange): Vec3 => {
 
 /**
  * What the renderer's probe saw at a pick (`sample_color_range_input`): the
- * colour entering the edited ranges in each preview pixel around the point
+ * colour entering the edited ranges in each pixel of the picker's block
+ * around the point, developed at full resolution as the export develops it
  * (Oklab of the unclipped working colour: before the photo's ranges, or for
  * a mask layer after the photo's ranges and the layers below it) and the
  * layer's mask influence there (1 for the photo's own ranges).

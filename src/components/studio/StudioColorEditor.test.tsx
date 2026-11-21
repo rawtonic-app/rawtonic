@@ -673,6 +673,25 @@ describe('target colour', () => {
     }
   });
 
+  it('keeps Return and Escape from the app shortcuts once the field lets go of the focus', () => {
+    render(<Harness initial={[red()]} />);
+    openTool();
+    const seen: boolean[] = [];
+    const listen = (e: KeyboardEvent) => seen.push(e.defaultPrevented);
+    window.addEventListener('keydown', listen);
+    try {
+      const field = screen.getByRole('textbox', { name: 'Target color as sRGB hex' });
+      for (const key of ['Escape', 'Enter']) {
+        field.focus();
+        fireEvent.change(field, { target: { value: '#c81e2d' } });
+        fireEvent.keyDown(field, { key });
+      }
+    } finally {
+      window.removeEventListener('keydown', listen);
+    }
+    expect(seen).toEqual([true, true]);
+  });
+
   it('Escape after typed redraws restores the recipe and the target as they were', () => {
     vi.useFakeTimers();
     try {

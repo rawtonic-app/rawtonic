@@ -109,6 +109,9 @@ function Field({
       onChange={(e) => edit(e.target.value)}
       onBlur={finish}
       onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+        // The field's own keys: the app's shortcuts (Escape leaves Develop)
+        // must not act on them once the field has let go of the focus.
+        if (e.key === 'Enter' || e.key === 'Escape') e.preventDefault();
         if (e.key === 'Enter') {
           finish();
           e.currentTarget.blur();
