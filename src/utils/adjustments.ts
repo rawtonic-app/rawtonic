@@ -1099,9 +1099,12 @@ export interface MaskContainer
     Omit<MaskContainerKeys, RequiredMaskContainerKey>,
     Required<Pick<MaskContainerKeys, RequiredMaskContainerKey>> {}
 
-/** The mask version new layers get (crates/engine/src/masks.rs): 5 adds
- * components as a + b − a·b and intersects them as a·b. */
-export const MASK_VERSION = 5;
+/** The mask version new layers get (crates/engine/src/recipe_versions.rs
+ * `mask`): 5 adds components as a + b − a·b and intersects them as a·b; 6
+ * compares an AI mask's recorded lens and transform warp with the current
+ * one by geometry only, so a mask made in the current lens profile
+ * correction is not mapped through it again. */
+export const MASK_VERSION = 6;
 
 /** The version Refine edge moves an older layer to: the 16-bit mask with
  * the current Refine edge, keeping how its components combine (version 5
