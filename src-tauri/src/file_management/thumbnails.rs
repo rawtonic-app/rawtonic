@@ -281,7 +281,38 @@ fn thumbnail_hash_for_engine(
         // editor source or shifted layer adjustments. Preserve unmasked entries.
         hasher.update(b"\0masked-thumbnail-source-and-alignment-v1");
     }
+    // A face retouch found before a later flip, turn, straightening or lens
+    // change is placed through its stored frame; it was skipped before
+    // (2026-11-21), so thumbnails cached then show it missing.
+    if adjustments
+        .as_ref()
+        .is_some_and(rawtonic_engine::face_retouch::follows_stored_frame)
+    {
+        hasher.update(b"\0face-retouch-by-stored-frame\0");
+    }
     Some(hasher.finalize().to_hex().to_string())
+}
+
+/// The decoded base with the recipe's base retouch, for a source at
+/// `scale` (its pixels per full-resolution pixel; below 1 for a preview
+/// proxy or a fast decode).
+fn retouched_base<'a>(
+    pristine_source: &'a DynamicImage,
+    adjustments: &serde_json::Value,
+    scale: f32,
+) -> anyhow::Result<Cow<'a, DynamicImage>> {
+    if scale == 1.0 {
+        return image_loader::composite_patches_for_render(pristine_source, adjustments);
+    }
+    // A reduced source leaves Lightroom's spots and red eyes not yet placed
+    // out, and places patches, spots and faces (in full-resolution pixels)
+    // at its scale, as reduced copies do.
+    if image_loader::has_base_retouch(adjustments) {
+        image_loader::composite_patches_on_scaled_image(pristine_source, adjustments, scale)
+            .map(Cow::Owned)
+    } else {
+        Ok(Cow::Borrowed(pristine_source))
+    }
 }
 
 pub(crate) fn try_load_embedded_raw_preview(source_path: &Path) -> Option<DynamicImage> {
@@ -643,16 +674,7 @@ fn develop_thumbnail_with_source(
                 Cow::Owned(img)
             };
 
-            // A reduced source (proxy, fast decode) leaves Lightroom's spots
-            // and red eyes not yet placed out, as reduced copies do
-            // (`composite_patches_on_scaled_image`).
-            let retouch = if raw_scale_factor == 1.0 {
-                std::borrow::Cow::Borrowed(&adjustments)
-            } else {
-                rawtonic_engine::lightroom_retouch::without_pending(&adjustments)
-            };
-            let composite_image =
-                image_loader::composite_patches_for_render(&pristine_source, &retouch)?;
+            let composite_image = retouched_base(&pristine_source, &adjustments, raw_scale_factor)?;
             // A full decode's size places Lightroom masks still in their
             // imported form, as for exports (`lightroom_masks`).
             let decoded_size = (raw_scale_factor == 1.0).then(|| pristine_source.dimensions());
@@ -3113,5 +3135,101 @@ mod thumbnail_queue_tests {
         queue.replace(names(&["b"]));
         assert_eq!(queue.take(Decode), None);
         assert!(queue.has(Lookup));
+    }
+}
+
+#[cfg(test)]
+mod face_retouch_thumbnail_tests {
+    use super::*;
+    use base64::{Engine, engine::general_purpose};
+    use serde_json::json;
+    use std::io::Cursor;
+
+    /// A 200 × 160 skin image with one dark spot at (60, 70), and a recipe
+    /// that heals it (the face's 100 px crop covers the photo, found at
+    /// full resolution).
+    fn skin_and_recipe() -> (DynamicImage, serde_json::Value) {
+        let image = image::Rgb32FImage::from_fn(200, 160, |x, y| {
+            let t = (((x * 7 + y * 13) % 5) as f32 - 2.0) * 0.004;
+            let d = ((x as f32 - 60.0).powi(2) + (y as f32 - 70.0).powi(2)).sqrt();
+            let dark = if d < 5.0 { 0.07 } else { 0.0 };
+            image::Rgb([0.24 + t - dark, 0.18 + t - dark, 0.15 + t - dark])
+        });
+        let mut png = Cursor::new(Vec::new());
+        DynamicImage::ImageLuma8(image::GrayImage::from_pixel(100, 100, image::Luma([255])))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let skin = format!(
+            "data:image/png;base64,{}",
+            general_purpose::STANDARD.encode(png.into_inner())
+        );
+        let recipe = json!({"faceRetouch": {
+            "settings": {"blemishes": 100},
+            "faces": [{
+                "crop": [2.0, 0.0, 0.0, 0.0, 1.6, 0.0], "size": 100, "eyeDistance": 80.0,
+                "skin": skin,
+                "blemishes": [{"id": 1, "x": 60.0, "y": 70.0, "r": 5.0, "score": 0.4, "neck": false}],
+                "kept": [],
+            }],
+        }});
+        (DynamicImage::ImageRgb32F(image), recipe)
+    }
+
+    fn luma_at(image: &DynamicImage, x: u32, y: u32) -> f32 {
+        image.to_rgb32f().get_pixel(x, y)[0]
+    }
+
+    #[test]
+    fn a_reduced_proxy_places_the_face_retouch_where_the_full_render_does() {
+        let (full, recipe) = skin_and_recipe();
+        let on_full = retouched_base(&full, &recipe, 1.0).unwrap();
+        assert!(
+            luma_at(&on_full, 60, 70) > 0.2,
+            "the full render heals the spot"
+        );
+
+        let proxy = full.resize_exact(100, 80, image::imageops::FilterType::Triangle);
+        let spot = luma_at(&proxy, 30, 35);
+        assert!(spot < 0.2, "the proxy shows the spot ({spot})");
+        let on_proxy = retouched_base(&proxy, &recipe, 0.5).unwrap();
+        let healed = luma_at(&on_proxy, 30, 35);
+        assert!(healed > 0.2, "the proxy heals the same spot ({healed})");
+        // Nothing is retouched where the full render leaves the skin alone.
+        for (x, y) in [(10, 10), (80, 60), (40, 70)] {
+            assert!((luma_at(&on_proxy, x, y) - luma_at(&proxy, x, y)).abs() < 0.03);
+        }
+    }
+
+    #[test]
+    fn a_retouch_whose_frame_is_stale_is_keyed_apart_from_the_unretouched_render() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.jpg");
+        std::fs::write(&source, b"source unchanged").unwrap();
+        let path = source.to_str().unwrap();
+        let modified = source_mtime(&source).unwrap();
+        // The key a thumbnail was cached under before such a retouch was
+        // placed through its stored frame (it was skipped).
+        let skipped = |bytes: &[u8]| {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(cache_label(path, &source).as_bytes());
+            hasher.update(&modified.to_le_bytes());
+            hasher.update(bytes);
+            hasher.finalize().to_hex().to_string()
+        };
+        let (_, mut recipe) = skin_and_recipe();
+        recipe["faceRetouch"]["frame"] = json!(rawtonic_engine::face_retouch::frame_key(&recipe));
+        let current = serde_json::to_vec(&recipe).unwrap();
+        assert_eq!(
+            compute_thumbnail_cache_hash(path, &current).unwrap(),
+            skipped(&current),
+            "faces found in the photo's geometry keep their thumbnails"
+        );
+        recipe["flipHorizontal"] = json!(true);
+        let stale = serde_json::to_vec(&recipe).unwrap();
+        assert_ne!(
+            compute_thumbnail_cache_hash(path, &stale).unwrap(),
+            skipped(&stale),
+            "a thumbnail cached while the retouch was skipped is made again"
+        );
     }
 }
