@@ -800,7 +800,10 @@ export interface Preset {
   name: string;
   includeMasks?: boolean;
   includeCropTransform?: boolean;
-  presetType?: 'tool' | 'style';
+  /** "tool": one tool's settings; "style": a whole look (default);
+   * "adaptive": a built-in of AI layers only, applied as a preset (its
+   * Amount scales its layers' settings; nothing to take back as a style). */
+  presetType?: 'tool' | 'style' | 'adaptive';
   /** A preset of one tool's menu: that tool's parameters, which "Update
    * with current settings" keeps to. */
   toolKeys?: string[];

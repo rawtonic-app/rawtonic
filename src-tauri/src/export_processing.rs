@@ -1646,28 +1646,57 @@ fn plan_output_path(
     Ok(output_path)
 }
 
-/// Keeps the selections an export computed in the photo's stored recipe,
-/// as opening it in Develop would (`ai_selections::keep_detected`), so the
-/// next export or the editor uses the same mask. Only components still as
-/// the export found them take it; a failure is logged, the export stands.
-/// The photo open in Develop is left to the editor, which computes and
-/// saves its own.
-fn keep_detected_selections(path: &str, detected: &[rawtonic_engine::ai_selections::Detected]) {
+/// Keeps the selections an export (or the selection queue) computed in the
+/// photo's stored recipe, as opening it in Develop would
+/// (`ai_selections::keep_detected`), so the next export or the editor uses
+/// the same mask. Only components still as the export found them, in the
+/// same geometry, take it. Returns whether the recipe changed. The photo open in Develop is left
+/// to the editor, which computes and saves its own.
+pub(crate) fn keep_detected_selections(
+    path: &str,
+    detected: &[rawtonic_engine::ai_selections::Detected],
+) -> Result<bool, String> {
+    if detected.is_empty() {
+        return Ok(false);
+    }
     let (source_path, sidecar_path) = parse_virtual_path(path);
     let _turn = crate::file_management::sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
-    if !rawtonic_engine::ai_selections::keep_detected(&mut metadata.adjustments, detected) {
-        return;
+    // An edit still to be moved from a camera TIFF's thumbnail to its full
+    // frame (`recipe_frame::conform`, done when the user saves): a bitmap of
+    // the full frame in it would read as made on the full frame, so nothing
+    // is kept; its export computes the selections again.
+    if needs_frame_migration(&metadata.adjustments, &source_path) {
+        return Ok(false);
     }
-    let written = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| e.to_string())
-        .and_then(|json| {
-            crate::session_bridge::write_editor_sidecar(&sidecar_path, json)
-                .map_err(|e| e.to_string())
-        });
-    if let Err(e) = written {
-        log::warn!("Export: keeping the AI selections of {path} failed: {e}");
+    // Its geometry as the detection saw it: prepared for a render as the
+    // export and the queue prepare it (version keys, the resolved lens),
+    // which a never-opened recipe may not hold yet.
+    let mut frame = metadata.adjustments.clone();
+    let _ = rawtonic_export::normalize::normalize(
+        &mut frame,
+        &rawtonic_export::normalize::RecipeSource::file(&source_path),
+        rawtonic_export::normalize::Bitmaps::None,
+        rawtonic_export::normalize::Defaults::Render,
+    );
+    if !rawtonic_engine::ai_selections::keep_detected_in(
+        &mut metadata.adjustments,
+        &frame,
+        detected,
+    ) {
+        return Ok(false);
     }
+    let json = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
+    crate::session_bridge::write_editor_sidecar(&sidecar_path, json)
+        .map_err(|e| format!("the selections could not be kept: {e}"))?;
+    Ok(true)
+}
+
+/// Whether `adjustments` is an edit of a camera TIFF still made on its
+/// thumbnail, which opening or rendering moves to the full frame
+/// (`recipe_frame::conform`) without writing it.
+pub(crate) fn needs_frame_migration(adjustments: &Value, source: &Path) -> bool {
+    rawtonic_engine::recipe_frame::conform(&mut adjustments.clone(), source)
 }
 
 /// What the naming tokens read about `original` for its export and rename
@@ -1951,8 +1980,8 @@ fn export_photo(
         drop(source_stage);
         Ok((pristine_source, measures))
     })();
-    // Sky and Subject selections the photo holds without their bitmap (it
-    // was never opened: an import, pasted settings) are computed as the
+    // AI selections the photo holds without their bitmap (it was never
+    // opened: an import, a preset, pasted settings) are computed as the
     // editor computes them when it opens, and kept in its recipe.
     let source = source.and_then(|(pristine_source, measures)| {
         let detected = rawtonic_engine::ai_selections::detect_missing(
@@ -1973,8 +2002,9 @@ fn export_photo(
         )
         .map_err(|e| format!("{source_path_str}: not exported, {e}"))?;
         ensure_export_not_cancelled(cancellation_token)?;
-        if !detected.is_empty() && !is_current_edit {
-            keep_detected_selections(image_path_str, &detected);
+        if !is_current_edit && let Err(e) = keep_detected_selections(image_path_str, &detected) {
+            // The export stands; its next export computes them again.
+            log::warn!("Export: keeping the AI selections of {image_path_str} failed: {e}");
         }
         let source =
             prepare_export_source(&source_path_str, pristine_source, measures, &js_adjustments)?

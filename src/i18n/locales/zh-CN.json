@@ -11,6 +11,11 @@
       "sky": "AI 蒙版：天空",
       "subject": "AI 蒙版：主体"
     },
+    "aiSelections": {
+      "done": "已为未打开的照片计算 AI 选区（{{total}}）",
+      "failed": "{{failed}} / {{total}} 张照片的 AI 选区未计算",
+      "running": "正在计算 AI 选区：{{done}} / {{total}} 张照片"
+    },
     "batch": {
       "auto_other": "自动调整：{{count}} 张照片",
       "faceRetouch_other": "面部修饰：{{count}} 张照片",
@@ -4716,6 +4721,11 @@
       "appliesSaved": "应用存储时包含的设置",
       "appliesToSelection_other": "单击将应用到 {{count}} 张所选照片。",
       "builtin": {
+        "adaptive-background-darker": "背景：更暗",
+        "adaptive-eyes-brighter": "人像：更亮的眼睛",
+        "adaptive-skin-smoother": "人像：更平滑的皮肤",
+        "adaptive-sky-deeper": "天空：更深",
+        "adaptive-subject-lift": "主体：提亮",
         "bw-darker-skies": "黑白 更暗的天空",
         "bw-high-contrast": "黑白 高对比度",
         "bw-lighter-skin": "黑白 更亮的肤色",
