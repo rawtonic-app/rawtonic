@@ -373,7 +373,7 @@ describe('the pick’s block at full resolution', () => {
     expect(eyedropperBlock(0.5, 0.5, [0, 0])).toBeNull();
   });
 
-  it('gives the solve 11 × 11 cell means, so a fine stripe cannot stand for the block', () => {
+  it('gives the solve one scattered pixel per 11 × 11 cell, so a fine stripe cannot stand for the block', () => {
     // 44 × 44 pixels: every fourth column a red stripe, the rest green.
     const red = linearToOklab(srgb8ToLinear([220, 30, 40]));
     const green = linearToOklab(srgb8ToLinear([40, 160, 60]));
@@ -384,11 +384,19 @@ describe('the pick’s block at full resolution', () => {
       [44, 44]
     );
     expect(cells.pixels).toHaveLength(121);
-    const whole = meanOklab(pixels);
-    for (const cell of cells.pixels) {
-      // Every cell holds the stripe and its ground, as the whole block does.
-      expect(Math.hypot(...cell.map((v, k) => v - whole[k]))).toBeLessThan(1e-6);
-    }
+    // A strided subset would take only stripe pixels (every column a
+    // multiple of 4); the scatter takes about the stripe's share.
+    const stripes = cells.pixels.filter((p) => p === red).length;
+    expect(stripes).toBeGreaterThan(121 * 0.1);
+    expect(stripes).toBeLessThan(121 * 0.45);
+    // The same block always gives the same pixels.
+    expect(
+      binned(
+        pixels,
+        pixels.map(() => 1),
+        [44, 44]
+      ).pixels
+    ).toEqual(cells.pixels);
     // Small blocks (the preview's own) stay as they are.
     expect(
       binned(

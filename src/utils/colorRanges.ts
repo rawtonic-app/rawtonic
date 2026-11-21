@@ -150,30 +150,47 @@ const MODEL_BINS = 11;
 
 /**
  * A full-resolution block (`size` columns × rows, row-major) as at most
- * 11 × 11 cells, each the mean of its pixels' display values (as a preview
- * pixel is the mean of the photo's pixels under it) with its mean
- * influence: the model's solve runs on every input pixel at each step, so
- * it reads about as many as the picker's preview pixels; the measured
- * corrections see every pixel.
+ * 11 × 11 of its pixels, one from each cell of an 11 × 11 grid at a
+ * scattered place in it (stratified sampling): the model's solve runs on
+ * every input pixel at each step, so it reads about as many as the
+ * picker's preview pixels. Single pixels keep the block's texture, which
+ * the ranges act on pixel by pixel (cell means would hide it and leave the
+ * measured correction more to do); the scattered places keep a fine
+ * repeating pattern from lining up with the grid. The range's colour is the
+ * whole block's mean (`RangeInput.mean`), and the measured corrections see
+ * every pixel.
  */
 export function binned(pixels: Vec3[], influence: number[], size: [number, number] | null): RangeInput {
   if (!size || size[0] * size[1] !== pixels.length || size[0] * size[1] <= MODEL_BINS * MODEL_BINS)
     return { pixels, influence };
   const [w, h] = size;
-  const bw = Math.ceil(w / MODEL_BINS);
-  const bh = Math.ceil(h / MODEL_BINS);
-  const cells = new Map<number, number[]>();
-  for (let i = 0; i < pixels.length; i += 1) {
-    const cell = Math.floor(Math.floor(i / w) / bh) * MODEL_BINS + Math.floor((i % w) / bw);
-    (cells.get(cell) ?? cells.set(cell, []).get(cell)!).push(i);
-  }
   const out: RangeInput = { pixels: [], influence: [] };
-  for (const members of cells.values()) {
-    out.pixels.push(meanOklab(members.map((i) => pixels[i])));
-    out.influence.push(members.reduce((sum, i) => sum + influence[i], 0) / members.length);
+  for (let cy = 0; cy < MODEL_BINS; cy += 1) {
+    const y0 = Math.floor((cy * h) / MODEL_BINS);
+    const y1 = Math.floor(((cy + 1) * h) / MODEL_BINS);
+    for (let cx = 0; cx < MODEL_BINS; cx += 1) {
+      const x0 = Math.floor((cx * w) / MODEL_BINS);
+      const x1 = Math.floor(((cx + 1) * w) / MODEL_BINS);
+      if (x1 <= x0 || y1 <= y0) continue;
+      // A fixed scatter (the same block always gives the same pixels).
+      const k = cy * MODEL_BINS + cx;
+      const x = x0 + (scatter(k, 1) % (x1 - x0));
+      const y = y0 + (scatter(k, 2) % (y1 - y0));
+      out.pixels.push(pixels[y * w + x]);
+      out.influence.push(influence[y * w + x]);
+    }
   }
   return out;
 }
+
+/** A small integer hash of a cell and an axis, for `binned`'s scatter. */
+const scatter = (cell: number, axis: number) => {
+  let v = Math.imul(cell + 1, 0x9e3779b1) ^ Math.imul(axis, 0x85ebca77);
+  v ^= v >>> 15;
+  v = Math.imul(v, 0x2c1b3c6d);
+  v ^= v >>> 12;
+  return v >>> 0;
+};
 
 const sameColour = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6;
 
