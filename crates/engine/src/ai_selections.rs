@@ -577,7 +577,13 @@ mod tests {
 
     struct Landscapes(std::sync::Mutex<Vec<Vec<Vec<&'static str>>>>);
     impl SelectionDetector for Landscapes {
-        fn detect(&self, _: AutoSelection, _: u32, _: &DynamicImage, _: bool) -> Result<String, String> {
+        fn detect(
+            &self,
+            _: AutoSelection,
+            _: u32,
+            _: &DynamicImage,
+            _: bool,
+        ) -> Result<String, String> {
             Err("one part at a time".into())
         }
         fn detect_landscape(
@@ -587,7 +593,10 @@ mod tests {
             _: bool,
         ) -> Result<Vec<String>, String> {
             let sets: Vec<Vec<&'static str>> = sets.iter().map(|s| s.keys()).collect();
-            let found = sets.iter().map(|keys| format!("data:{}", keys.join("+"))).collect();
+            let found = sets
+                .iter()
+                .map(|keys| format!("data:{}", keys.join("+")))
+                .collect();
             self.0.lock().unwrap().push(sets);
             Ok(found)
         }
@@ -609,7 +618,10 @@ mod tests {
         let water = LandscapeParts(0b10);
         let mountains_architecture = LandscapeParts(0b10_0001);
         assert_eq!(
-            undetected(&adjustments).iter().map(|w| w.2).collect::<Vec<_>>(),
+            undetected(&adjustments)
+                .iter()
+                .map(|w| w.2)
+                .collect::<Vec<_>>(),
             [
                 AutoSelection::Landscape(water),
                 AutoSelection::Landscape(mountains_architecture),
@@ -630,12 +642,16 @@ mod tests {
             [vec![vec!["water"], vec!["mountains", "architecture"]]]
         );
         assert_eq!(found.len(), 3);
-        let params = |l: usize, s: usize| adjustments["masks"][l]["subMasks"][s]["parameters"].clone();
+        let params =
+            |l: usize, s: usize| adjustments["masks"][l]["subMasks"][s]["parameters"].clone();
         assert_eq!(params(0, 0)["maskDataBase64"], "data:water");
         assert_eq!(params(0, 0)["parts"], json!(["water"]));
         assert_eq!(params(0, 0)["grow"], 5);
         assert!(params(0, 0).get("detectPending").is_none());
-        assert_eq!(params(0, 1)["maskDataBase64"], "data:mountains+architecture");
+        assert_eq!(
+            params(0, 1)["maskDataBase64"],
+            "data:mountains+architecture"
+        );
         assert_eq!(params(1, 0)["maskDataBase64"], "data:water");
         assert!(params(2, 0)["maskDataBase64"].is_null());
         assert!(params(2, 1)["maskDataBase64"].is_null());

@@ -10,9 +10,9 @@ use tauri::Manager;
 
 use crate::ai_processing::{
     AI_MASKS_KEPT, AiDepthMaskParameters, AiForegroundMaskParameters, AiSkyMaskParameters,
-    AiSubjectMaskParameters, CachedDepthMap, CachedLandscape, CachedMask, ImageEmbeddings, SamModels, SamPrompt,
-    generate_image_embeddings, get_or_init_depth_model, get_or_init_sam_models,
-    get_or_init_sky_model, get_or_init_subject_model, mask_model_installed,
+    AiSubjectMaskParameters, CachedDepthMap, CachedLandscape, CachedMask, ImageEmbeddings,
+    SamModels, SamPrompt, generate_image_embeddings, get_or_init_depth_model,
+    get_or_init_sam_models, get_or_init_sky_model, get_or_init_subject_model, mask_model_installed,
     run_depth_anything_model, run_sam_decoder, run_sam_decoder_prompts, run_sky_seg_model,
     subject_selection,
 };
@@ -191,7 +191,15 @@ pub async fn generate_ai_landscape_mask(
     }
     ai_state.lifecycle.touch();
     let started = std::time::Instant::now();
-    let run = landscape_run(&state, &ai_state, &app_handle, &js_adjustments, &path, cancel).await?;
+    let run = landscape_run(
+        &state,
+        &ai_state,
+        &app_handle,
+        &js_adjustments,
+        &path,
+        cancel,
+    )
+    .await?;
     if cancelled() {
         return Err(task_cancelled());
     }
@@ -233,7 +241,15 @@ pub async fn detect_landscape_parts(
         .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
     let cancel = _guard.as_ref().map(|g| &g.token);
     ai_state.lifecycle.touch();
-    let run = landscape_run(&state, &ai_state, &app_handle, &js_adjustments, &path, cancel).await?;
+    let run = landscape_run(
+        &state,
+        &ai_state,
+        &app_handle,
+        &js_adjustments,
+        &path,
+        cancel,
+    )
+    .await?;
     Ok(rawtonic_segment::LandscapePart::ALL
         .into_iter()
         .zip(rawtonic_segment::landscape_shares(&run.probabilities))

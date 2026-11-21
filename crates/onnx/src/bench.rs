@@ -498,7 +498,9 @@ pub(crate) fn compare(kind: ModelKind, cpu: &[Output], gpu: &[Output]) -> Vec<Ag
                 sum += d;
             }
             let threshold = match (kind, c.name.as_str()) {
-                (ModelKind::Subject, _) | (ModelKind::Sky, _) | (ModelKind::Landscape, _) => Some(0.5),
+                (ModelKind::Subject, _) | (ModelKind::Sky, _) | (ModelKind::Landscape, _) => {
+                    Some(0.5)
+                }
                 (ModelKind::SamDecoder, "masks") => Some(0.0),
                 _ => None,
             };

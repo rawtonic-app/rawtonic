@@ -13,8 +13,7 @@ use anyhow::Result;
 use image::{DynamicImage, GrayImage};
 
 use crate::{
-    FittedInput, SKYSEG_INPUT_SIZE, fitted_input, refine_sky_mask, resize_gray_triangle,
-    run_single,
+    FittedInput, SKYSEG_INPUT_SIZE, fitted_input, refine_sky_mask, resize_gray_triangle, run_single,
 };
 
 // UperNet + ConvNeXt-T on ADE20K (the sky model's checkpoint, MIT), exported
@@ -139,7 +138,10 @@ pub fn landscape_probabilities(
             let mut data = Vec::with_capacity(w_ * h_);
             for y in 0..h_ {
                 let row = &plane[(y + py) * side + px..(y + py) * side + px + w_];
-                data.extend(row.iter().map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8));
+                data.extend(
+                    row.iter()
+                        .map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8),
+                );
             }
             GrayImage::from_raw(w, h, data).expect("sized")
         })
@@ -280,9 +282,15 @@ mod tests {
         assert_eq!(landscape_mask((4, 2), &p, &[Water]), plane(90));
         assert_eq!(landscape_mask((4, 2), &p, &[Water, Mountains]), plane(190));
         // Rounding may push a sum past 255: it stays full.
-        assert_eq!(landscape_mask((4, 2), &p, &[Architecture, Mountains]), plane(255));
+        assert_eq!(
+            landscape_mask((4, 2), &p, &[Architecture, Mountains]),
+            plane(255)
+        );
         assert_eq!(landscape_mask((4, 2), &p, &[]), plane(0));
-        assert_eq!(landscape_mask((8, 4), &p, &[Vegetation]).dimensions(), (8, 4));
+        assert_eq!(
+            landscape_mask((8, 4), &p, &[Vegetation]).dimensions(),
+            (8, 4)
+        );
         assert_eq!(landscape_shares(&p), [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
         assert!(landscape_parts(&["water", "lava"]).is_err());
         assert_eq!(landscape_parts(&["water", "sky"]).unwrap(), [Water, Sky]);
@@ -302,7 +310,10 @@ mod tests {
         // Sky and the part beside it make the whole photo.
         let between = probabilities([127, 0, 0, 0, 0, 0, 128], 100);
         assert_eq!(landscape_mask((4, 2), &between, &[Mountains]), plane(155));
-        assert_eq!(landscape_mask((4, 2), &between, &[Mountains, Sky]), plane(255));
+        assert_eq!(
+            landscape_mask((4, 2), &between, &[Mountains, Sky]),
+            plane(255)
+        );
         // A part sharing the ground with another keeps its share.
         let shared = probabilities([60, 60, 0, 0, 0, 0, 135], 155);
         assert_eq!(landscape_mask((4, 2), &shared, &[Water]), plane(50));
