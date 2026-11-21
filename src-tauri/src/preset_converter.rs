@@ -1630,6 +1630,19 @@ fn seq_items<'a, 'i>(parent: roxmltree::Node<'a, 'i>, name: &str) -> Vec<roxmltr
 /// local tone curves and Point Color come along. Corrections with other
 /// masks (people parts, colour and depth ranges) are left out and named in
 /// the second result.
+/// The Lightroom masks an import leaves out (a component it cannot read,
+/// such as Lightroom's Snow part, leaves out its whole mask), for the
+/// import report.
+pub fn skipped_masks_warning(xmp: &str) -> Option<String> {
+    let (_, skipped) = lightroom_masks(xmp);
+    (!skipped.is_empty()).then(|| {
+        format!(
+            "Lightroom masks not imported (a part or tool Rawtonic cannot read): {}",
+            skipped.join(", ")
+        )
+    })
+}
+
 /// The Landscape part (`masks::LANDSCAPE_PARTS` key) of a Lightroom
 /// Landscape component's `MaskSubCategoryID`.
 fn lightroom_landscape_part(id: &str) -> Option<&'static str> {

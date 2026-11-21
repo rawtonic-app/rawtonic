@@ -537,6 +537,13 @@ pub fn keep_detected_in(stored: &mut Value, frame: &Value, detected: &[Detected]
         ] {
             merged[key] = p[key].clone();
         }
+        // A grid bitmap keeps the photo size it covers.
+        if let (Some(of), Some(merged)) = (
+            p.get(crate::mask_generation::BITMAP_GRID_OF),
+            merged.as_object_mut(),
+        ) {
+            merged.insert(crate::mask_generation::BITMAP_GRID_OF.into(), of.clone());
+        }
         sub[masks::PARAMETERS.name()] = merged;
         changed = true;
     }
@@ -1024,7 +1031,8 @@ mod tests {
                 "subMasks": [{"id": "w", "type": "ai-landscape", "visible": true, "parameters": {
                     "parts": ["water"], "maskDataBase64": null, "detectPending": true,
                     "bitmapGridOf": {"width": 60, "height": 40}}}]}]});
-            detect_missing(
+            let mut stored = adjustments.clone();
+            let found = detect_missing(
                 &mut adjustments,
                 &Arc::new(DynamicImage::new_rgb8(6, 4)),
                 false,
@@ -1039,6 +1047,11 @@ mod tests {
                 recorded,
                 "{size:?}"
             );
+            // Kept in the saved edit with its bitmap, as the export rendered it.
+            assert!(keep_detected_in(&mut stored, &json!({}), &found));
+            let kept = &stored["masks"][0]["subMasks"][0]["parameters"];
+            assert_eq!(kept["maskDataBase64"], parameters["maskDataBase64"]);
+            assert_eq!(kept.get("bitmapGridOf").cloned(), recorded, "{size:?}");
         }
     }
 }
