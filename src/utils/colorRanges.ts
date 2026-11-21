@@ -2,6 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
+import { debouncedSetHistory } from '../store/useEditorStore';
+import { draftFor, flushSliderDraft } from './sliderDraft';
 import { MAX_COLOR_RANGES, newColorRange, type Adjustments, type ColorRange } from './adjustments';
 import { srgbToOklch } from './oklab';
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from './geometryKeys';
@@ -10,11 +12,14 @@ import {
   inverseGain,
   linearToLab,
   linearToOklab,
+  meanDisplayLab,
   meanOklab,
   rangeCentre,
   solveColorTarget,
+  solveColorTargetMeasured,
   srgb8ToLinear,
   type ColorRangePick,
+  type ColorTarget,
   type RangeInput,
   type Vec3
 } from './colorTarget';
@@ -46,7 +51,7 @@ export function rangesWithTarget(ranges: ColorRange[], id: string, lab: Vec3, in
 }
 
 /** The recipe with the ranges of the photo (`layer` null) or of a mask layer replaced. */
-function withRanges(
+export function withRanges(
   prev: Adjustments,
   layer: string | null,
   next: (ranges: ColorRange[]) => ColorRange[]
@@ -223,20 +228,12 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   if (targetPick) {
     const lab = linearToLab(srgb8ToLinear(rgb));
     const rangeId = target === TARGET_PICK ? null : target.slice(TARGET_PICK.length + 1);
-    const range = rangeId
-      ? colorRangesOfLayer(useEditorStore.getState().adjustments, layer).find((r) => r.id === rangeId)
-      : undefined;
-    const rangeInput = range ? await rangeInputFor(path, layer, range) : null;
-    if (!stillArmed()) return false;
     useEditorStore.getState().setEditor({
       colorTarget: { lab, sampledIn: path, appliedTo: rangeId ? { photo: path, layer, rangeId } : null },
       colorPickerTarget: null,
       colorPickerLayer: null
     });
-    if (rangeId)
-      updateAdjustments((prev: Adjustments) =>
-        withRanges(prev, layer, (r) => rangesWithTarget(r, rangeId, lab, rangeInput))
-      );
+    if (rangeId) void applyColorTarget(path, layer, rangeId, lab, path);
     return true;
   }
   if (input) {
@@ -300,3 +297,189 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   });
   return true;
 }
+
+// --- Target colour: live redraw, closed loop, measured readout -----------
+
+/** The recipe the editor shows for `photo`: a pending drag's draft, else the store's. */
+const shownRecipe = (photo: string) => draftFor(photo) ?? useEditorStore.getState().adjustments;
+
+/**
+ * The renderer's result at range `range`'s pick with the layer's ranges
+ * `ranges` (`sample_color_range_result`: the sRGB render with every tool
+ * and the output's mapping, the picker's block), and the recipe it rendered;
+ * null without a pick or a render.
+ */
+async function measureRanges(
+  photo: string,
+  layer: string | null,
+  point: [number, number],
+  ranges: ColorRange[]
+): Promise<{ lab: Vec3; recipe: Adjustments } | null> {
+  const recipe = withRanges(shownRecipe(photo), layer, () => ranges);
+  const pixels = await invoke<Vec3[] | null>(Invokes.SampleColorRangeResult, {
+    path: photo,
+    normalizedX: point[0],
+    normalizedY: point[1],
+    adjustments: recipe
+  }).catch(() => null);
+  const lab = pixels?.length ? meanDisplayLab(pixels) : null;
+  return lab ? { lab, recipe } : null;
+}
+
+const remember = (photo: string, layer: string | null, rangeId: string, recipe: Adjustments, lab: Vec3) =>
+  useEditorStore.getState().setEditor({
+    colorTargetMeasure: { key: rangePickKey(photo, layer, rangeId), recipe: JSON.stringify(recipe), lab }
+  });
+
+/** Measures the target range's result for the recipe as it is (after a
+ * slider move or an edit elsewhere), for the readout. */
+export async function measureColorTarget(photo: string, layer: string | null, range: ColorRange) {
+  const pick = rangePickOf(photo, layer, range);
+  if (!pick || live) return;
+  const ranges = colorRangesOfLayer(shownRecipe(photo), layer);
+  const measured = await measureRanges(photo, layer, pick.point, ranges);
+  if (measured && !live) remember(photo, layer, range.id, measured.recipe, measured.lab);
+}
+
+/** A target being typed (or being solved): one interaction, as a slider
+ * drag, so the redraws in between and the result are one undo step. */
+let live: { photo: string; before: Adjustments; target: ColorTarget | null } | null = null;
+/** The latest target request; an older one's results are dropped. */
+let targetRequest = 0;
+
+function beginLive(photo: string) {
+  if (live) return;
+  const state = useEditorStore.getState();
+  const target = state.colorTarget;
+  // Starting an interaction commits an edit still waiting as its own step.
+  state.setEditor({ isSliderDragging: true });
+  live = { photo, before: useEditorStore.getState().adjustments, target };
+}
+
+function endLive() {
+  if (!live) return;
+  live = null;
+  useEditorStore.getState().setEditor({ isSliderDragging: false });
+}
+
+/** Where a target reads and writes the ranges it edits: the colour panel's
+ * (its `change`, one edit), or the editor's recipe (the photo pickers). */
+export interface TargetRanges {
+  ranges(): ColorRange[];
+  apply(ranges: ColorRange[]): void;
+}
+
+const recipeRanges = (photo: string, layer: string | null): TargetRanges => ({
+  ranges: () => colorRangesOfLayer(shownRecipe(photo), layer),
+  apply: (next) => updateAdjustments((prev: Adjustments) => withRanges(prev, layer, () => next))
+});
+
+/**
+ * A valid value typed into a target field, before Return: the photo is
+ * redrawn with the model's solve at once (no measurement), as Capture One
+ * redraws while digits are typed; Return commits it (`applyColorTarget`).
+ */
+export function previewColorTarget(
+  photo: string,
+  layer: string | null,
+  rangeId: string,
+  lab: Vec3,
+  io: TargetRanges = recipeRanges(photo, layer)
+) {
+  const state = useEditorStore.getState();
+  const ranges = io.ranges();
+  const range = ranges.find((r) => r.id === rangeId);
+  if (state.selectedImage?.path !== photo || !range || !lab.every(Number.isFinite)) return;
+  targetRequest += 1;
+  beginLive(photo);
+  const input = rangePickOf(photo, layer, range)?.input;
+  useEditorStore.getState().setEditor({ colorTarget: { lab, sampledIn: null, appliedTo: { photo, layer, rangeId } } });
+  io.apply(rangesWithTarget(ranges, rangeId, lab, input));
+}
+
+/** Escape while typing: the recipe and the target as they were before. */
+export function cancelColorTargetPreview() {
+  const was = live;
+  if (!was) return;
+  targetRequest += 1;
+  live = null;
+  const state = useEditorStore.getState();
+  if (state.selectedImage?.path !== was.photo) {
+    state.setEditor({ isSliderDragging: false });
+    return;
+  }
+  // The redraws in between leave no step behind.
+  flushSliderDraft();
+  debouncedSetHistory.cancel();
+  state.setEditor({ adjustments: was.before, colorTarget: was.target, isSliderDragging: false });
+}
+
+/**
+ * Moves range `rangeId` (of the photo or of mask layer `layer`) onto the
+ * target `lab` (CIELAB D50) — one edit, one undo step. With a pick in the
+ * photo the model's solve is shown at once, then corrected on the
+ * renderer's measured result at the pick (`solveColorTargetMeasured`) and
+ * that measurement kept for the readout; without one, the model's solve.
+ */
+export async function applyColorTarget(
+  photo: string,
+  layer: string | null,
+  rangeId: string,
+  lab: Vec3,
+  sampledIn: string | null,
+  io: TargetRanges = recipeRanges(photo, layer)
+) {
+  const state = useEditorStore.getState();
+  const range = io.ranges().find((r) => r.id === rangeId);
+  if (state.selectedImage?.path !== photo || !range || !lab.every(Number.isFinite)) return;
+  const mine = ++targetRequest;
+  state.setEditor({ colorTarget: { lab, sampledIn, appliedTo: { photo, layer, rangeId } } });
+  const pick = rangePickOf(photo, layer, range);
+  const solveNow = (input?: RangeInput | null) => io.apply(rangesWithTarget(io.ranges(), rangeId, lab, input));
+  if (!pick) {
+    solveNow();
+    endLive();
+    return;
+  }
+  beginLive(photo);
+  // The photo follows at once with the model's solve.
+  solveNow(pick.input);
+  const stale = () => {
+    const now = useEditorStore.getState();
+    const applied = now.colorTarget?.appliedTo;
+    return (
+      mine !== targetRequest ||
+      now.selectedImage?.path !== photo ||
+      applied?.rangeId !== rangeId ||
+      applied.layer !== layer
+    );
+  };
+  // A finished request that a newer one did not replace gives the interaction back.
+  const drop = () => {
+    if (mine === targetRequest) endLive();
+  };
+  const fresh = (await rangeInputFor(photo, layer, range)) ?? pick.input;
+  if (stale()) return drop();
+  const current = io.ranges();
+  if (!current.some((r) => r.id === rangeId)) return drop();
+  const recipes = new Map<ColorRange[], Adjustments>();
+  const loop = await solveColorTargetMeasured(current, rangeId, lab, fresh, async (ranges) => {
+    if (stale()) return null;
+    const measured = await measureRanges(photo, layer, pick.point, ranges);
+    if (measured) recipes.set(ranges, measured.recipe);
+    return measured?.lab ?? null;
+  });
+  if (stale() || !loop) return drop();
+  const solved = loop.ranges.find((r) => r.id === rangeId)!;
+  // The ranges as they are now (another edit may have come meanwhile).
+  io.apply(io.ranges().map((x) => (x.id === rangeId ? { ...x, ...shiftsOf(solved) } : x)));
+  const recipe = recipes.get(loop.ranges);
+  if (loop.measured && recipe) remember(photo, layer, rangeId, recipe, loop.measured.lab);
+  endLive();
+}
+
+const shiftsOf = (r: ColorRange) => ({
+  hueShift: r.hueShift,
+  saturation: r.saturation,
+  lightnessShift: r.lightnessShift
+});

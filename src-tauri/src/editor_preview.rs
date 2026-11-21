@@ -1445,6 +1445,45 @@ pub async fn sample_color_range_input(
     .map_err(|error| format!("Colour editor input sampling task failed: {error}"))?
 }
 
+/// The target colour's measurement: the pixels of `adjustments` (the recipe
+/// as it would be applied, without view states) around a point of the shown
+/// preview, rendered in sRGB with every tool, mask layer and the output's
+/// mapping into sRGB, as display values 0–255 per pixel of the picker's
+/// block (`preview_sample_roi`, the block the range was sampled from). The
+/// target solve corrects its sliders on it and its readout states it. None
+/// while no preview base of the recipe's geometry is cached.
+#[tauri::command]
+pub async fn sample_color_range_result(
+    path: String,
+    normalized_x: f64,
+    normalized_y: f64,
+    adjustments: serde_json::Value,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<Vec<[f64; 3]>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let image = render_probe(
+            &app_handle,
+            &path,
+            adjustments,
+            ProbeArea::Point(normalized_x, normalized_y),
+            ProbeOutput::Space(rawtonic_engine::output_color_space::OutputColorSpace::Srgb),
+            "sample_color_range_result",
+        )?;
+        Ok(image.map(|image| display_pixels(image.to_rgba8().as_raw())))
+    })
+    .await
+    .map_err(|error| format!("Colour editor result sampling task failed: {error}"))?
+}
+
+/// The colour channels of RGBA8 pixels (0–255).
+fn display_pixels(rgba: &[u8]) -> Vec<[f64; 3]> {
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|p| [p[0], p[1], p[2]].map(f64::from))
+        .collect()
+}
+
 /// The colour editor probe's two renders as colours and influences (shader
 /// `color_range_probe_pixel`): 16-bit codes of sqrt(linear ProPhoto), high
 /// bytes in `high` (alpha 0 marks the probe), low bytes and the influence in
@@ -5825,6 +5864,16 @@ mod color_range_input_tests {
         assert!(color_range_input(plain.as_flattened(), low.as_flattened()).is_none());
         assert!(color_range_input(high[..1].as_flattened(), low.as_flattened()).is_none());
         assert!(color_range_input(&[], &[]).is_none());
+    }
+
+    #[test]
+    fn result_probe_keeps_each_pixels_display_values() {
+        let rgba = [161u8, 105, 105, 255, 0, 87, 184, 255];
+        assert_eq!(
+            display_pixels(&rgba),
+            vec![[161.0, 105.0, 105.0], [0.0, 87.0, 184.0]]
+        );
+        assert!(display_pixels(&[]).is_empty());
     }
 }
 

@@ -1006,6 +1006,7 @@ fn start(args: Vec<String>) {
             editor_preview::sample_curve_input,
             editor_preview::sample_mixer_input,
             editor_preview::sample_color_range_input,
+            editor_preview::sample_color_range_result,
             editor_preview::levels_input_histogram,
             profile_thumbnails::profile_thumbnails,
             profile_thumbnails::cancel_profile_thumbnails,
