@@ -130,7 +130,14 @@ export async function adoptQueuedSelections(path: string): Promise<boolean> {
       if (!was) return false;
       const filled = await matched(path, was);
       if (!filled) return false;
-      if (replaceKeptHistory(path, was, was.map((recipe) => filled.get(recipe) ?? recipe))) return true;
+      if (
+        replaceKeptHistory(
+          path,
+          was,
+          was.map((recipe) => filled.get(recipe) ?? recipe)
+        )
+      )
+        return true;
       continue;
     }
     if (!selectedImage.isReady) continue;
