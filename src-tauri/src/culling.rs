@@ -8,9 +8,10 @@
 //! step.
 //!
 //! Misfire and document scores are made by content search's background
-//! pass (`content_search`) from the embedding it records, with the frozen
-//! prompts' text embeddings (`prompt_set`): no second image pass and no new
-//! model. The prompt embeddings are made once per text model and prompt
+//! pass (`content_search`) from each embedding as the model gives it (never
+//! from the stored bytes, whose rounding the calibration's ×112 slope turns
+//! into score changes of up to ~46 %), with the frozen prompts' text
+//! embeddings (`prompt_set`): one image pass for both and no new model. The prompt embeddings are made once per text model and prompt
 //! set and kept in the models folder, so the text encoder is not loaded
 //! again for them.
 
@@ -153,34 +154,15 @@ pub fn prompt_set(app: &tauri::AppHandle) -> anyhow::Result<Option<Arc<PromptSet
     Ok(Some(set))
 }
 
-/// Scores every current embedding of the library without current culling
-/// scores (none while the text model is not installed); returns how many.
-/// Announces new scores to the panel.
-pub fn score_library(
-    app: &tauri::AppHandle,
-    directory: &Path,
-    lib: &Library,
-) -> anyhow::Result<usize> {
-    let model = crate::content_search::MODEL_ID;
-    let set_id = prompt_set_id();
-    if lib.cull_backlog_count(model, &set_id)? == 0 {
-        return Ok(0);
-    }
-    let Some(set) = prompt_set(app)? else {
-        return Ok(0);
-    };
-    let mut scored = 0;
-    loop {
-        let n = lib.score_cull(model, &set, 512)?;
-        scored += n;
-        if n == 0 {
-            break;
-        }
-    }
-    if scored > 0 {
-        let _ = app.emit(CULLING_CHANGED, directory);
-    }
-    Ok(scored)
+/// The prompt set when it is in memory already (never loads anything).
+pub fn cached_prompt_set() -> Option<Arc<PromptSet>> {
+    let id = prompt_set_id();
+    lock_recover(&PROMPTS).as_ref().filter(|s| s.id == id).cloned()
+}
+
+/// Announces new scores or dismissals in the library at `directory`.
+pub fn announce(app: &tauri::AppHandle, directory: &Path) {
+    let _ = app.emit(CULLING_CHANGED, directory);
 }
 
 fn asset_id(lib: &Library, path: &str) -> Option<String> {

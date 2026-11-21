@@ -169,6 +169,13 @@ fn run_pass(
         app,
     )
     .ok();
+    // The culling panel's prompts (made once with the text encoder when not
+    // kept yet): with them the pass also reads photographs that have an
+    // embedding but no scores, and scores each one it reads.
+    let culling = crate::culling::prompt_set(app).unwrap_or_else(|e| {
+        log::warn!("Culling scores not made: {e:#}");
+        None
+    });
     let mut status = Library::open(directory)?.content_status(MODEL_ID)?;
     emit(
         PROGRESS,
@@ -184,17 +191,18 @@ fn run_pass(
     let mut read = 0usize;
     'pass: while !cancel.load(Ordering::Acquire) {
         let lib = Library::open(directory)?;
-        let work: Vec<_> = lib
-            .content_backlog(MODEL_ID, PASS_BATCH + skipped.len())?
-            .into_iter()
+        let asked = PASS_BATCH + skipped.len();
+        let work: Vec<_> = match &culling {
+            Some(set) => lib.cull_backlog(MODEL_ID, &set.id, asked)?,
+            None => lib.content_backlog(MODEL_ID, asked)?,
+        }
+        .into_iter()
             .filter(|w| !skipped.contains(&w.id))
             .take(PASS_BATCH)
             .collect();
         if work.is_empty() {
             break;
         }
-        // The culling panel's scores of what was read so far.
-        score_culling(app, directory, &lib);
         for item in work {
             while should_wait(app) {
                 if cancel.load(Ordering::Acquire) {
@@ -206,7 +214,11 @@ fn run_pass(
                 break 'pass;
             }
             // The auto tags may have read it meanwhile.
-            if lib.has_content(&item.id, MODEL_ID)? {
+            let done = match &culling {
+                Some(set) => lib.has_cull(&item.id, MODEL_ID, &set.id)?,
+                None => lib.has_content(&item.id, MODEL_ID)?,
+            };
+            if done {
                 continue;
             }
             let path = item.path.to_string_lossy();
@@ -226,7 +238,10 @@ fn run_pass(
             .map_err(|e| format!("{e:#}"));
             match &embedding {
                 Ok(values) => {
-                    lib.record_content(&item.id, MODEL_ID, &item.fingerprint, Ok(values))?
+                    lib.record_content(&item.id, MODEL_ID, &item.fingerprint, Ok(values))?;
+                    if let Some(set) = &culling {
+                        lib.record_cull(&item.id, MODEL_ID, set, &item.fingerprint, values)?;
+                    }
                 }
                 Err(error) => {
                     log::warn!("Content search could not read {path}: {error}");
@@ -245,9 +260,12 @@ fn run_pass(
             );
             std::thread::sleep(PASS_PAUSE);
         }
+        if culling.is_some() {
+            crate::culling::announce(app, directory);
+        }
     }
-    if !cancel.load(Ordering::Acquire) {
-        score_culling(app, directory, &Library::open(directory)?);
+    if read > 0 && culling.is_some() {
+        crate::culling::announce(app, directory);
     }
     if read > 0 {
         log::info!(
@@ -256,21 +274,6 @@ fn run_pass(
         );
     }
     Ok(status)
-}
-
-/// Scores the culling panel's misfires and documents from the embeddings
-/// recorded (`culling::score_library`); a failure only leaves them for the
-/// next pass.
-fn score_culling(app: &tauri::AppHandle, directory: &Path, lib: &Library) {
-    let started = Instant::now();
-    match crate::culling::score_library(app, directory, lib) {
-        Ok(0) => {}
-        Ok(n) => log::info!(
-            "[PERF] culling scored={n} ms={}",
-            started.elapsed().as_millis()
-        ),
-        Err(e) => log::warn!("Culling scores not made: {e:#}"),
-    }
 }
 
 /// Whether the pass may read the photograph at `path` now: it is there,
@@ -370,24 +373,28 @@ pub async fn start_content_index(
     }
     let models = crate::ai_processing::models_dir(&app_handle).map_err(|e| e.to_string())?;
     let vision = models.join(SIGLIP_VISION_FILENAME);
-    let installed = tauri::async_runtime::spawn_blocking(move || {
-        crate::ai_processing::verify_sha256(&vision, SIGLIP_VISION_SHA256).unwrap_or(false)
+    // The text model too: then the culling panel's scores can be made.
+    let (installed, culling) = tauri::async_runtime::spawn_blocking(move || {
+        (
+            crate::ai_processing::verify_sha256(&vision, SIGLIP_VISION_SHA256).unwrap_or(false),
+            missing_files(&models).is_empty(),
+        )
     })
     .await
     .map_err(|e| e.to_string())?;
     if !installed || crate::ai_processing::ensure_runtime().is_err() {
         return Ok(());
     }
-    // Photographs to read, or read ones the culling panel has no scores
-    // of (a library from before schema 30, a new prompt set).
-    let backlog = with_library(directory.clone(), false, |lib| {
-        Ok::<_, String>(
+    // Photographs to read; with the text model also read ones the culling
+    // panel has no scores of (a library from before schema 30, a new prompt
+    // set), which the pass reads again.
+    let backlog = with_library(directory.clone(), false, move |lib| {
+        if culling {
+            lib.cull_backlog_count(MODEL_ID, &crate::culling::prompt_set_id())
+        } else {
             lib.content_backlog_count(MODEL_ID)
-                .map_err(|e| e.to_string())?
-                + lib
-                    .cull_backlog_count(MODEL_ID, &crate::culling::prompt_set_id())
-                    .map_err(|e| e.to_string())?,
-        )
+        }
+        .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -681,6 +688,13 @@ pub fn share_embedding(app: &tauri::AppHandle, path: &str, embedding: &[f32]) {
         };
         if !lib.has_content(&asset.id, MODEL_ID)? {
             lib.record_content(&asset.id, MODEL_ID, &asset.fingerprint, Ok(embedding))?;
+        }
+        // Its culling scores from the same values, when the prompts are at
+        // hand (else the pass reads it again for them).
+        if let Some(set) = crate::culling::cached_prompt_set()
+            && !lib.has_cull(&asset.id, MODEL_ID, &set.id)?
+        {
+            lib.record_cull(&asset.id, MODEL_ID, &set, &asset.fingerprint, embedding)?;
         }
         Ok(())
     });

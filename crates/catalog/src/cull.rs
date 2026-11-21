@@ -11,8 +11,9 @@
 //! Misfire and document scores come from the photograph's content embedding
 //! (`content`, SigLIP 2): the best cosine to the frozen prompts below, as
 //! SigLIP's calibrated tag score `sigmoid(scale · cos + bias)`. The app
-//! gives the prompt embeddings (its text encoder); the catalog stores the
-//! two scores (`score_cull`), never a second image pass. Eyes come from
+//! gives the prompt embeddings (its text encoder) and the image embedding as
+//! the model gave it when the content pass reads the photograph; the catalog
+//! stores the two scores (`record_cull`). Eyes come from
 //! `face_eyes` (closed or partly, the photographer's call winning).
 use crate::CatalogError;
 use crate::Library;
@@ -78,12 +79,15 @@ impl PromptSet {
         1.0 / (1.0 + (-(self.logit_scale * best_cosine + self.logit_bias)).exp())
     }
 
-    /// The (misfire, document) scores of a stored embedding.
-    fn scores(&self, bytes: &[u8], scale: f32) -> (f32, f32) {
+    /// The (misfire, document) scores of an image embedding as the model
+    /// gave it (unit length, f32). Never from the catalog's stored bytes:
+    /// the calibration's slope (×112) turns their rounding into score
+    /// changes of up to ~46 % (CUL2 measured, p95 24 %).
+    pub fn scores(&self, embedding: &[f32]) -> (f32, f32) {
         let best = |prompts: &[Vec<f32>]| {
             prompts
                 .iter()
-                .map(|p| crate::content::score(bytes, scale, p))
+                .map(|p| p.iter().zip(embedding).map(|(a, b)| a * b).sum::<f32>())
                 .fold(f32::NEG_INFINITY, f32::max)
         };
         (
@@ -108,6 +112,13 @@ impl PromptSet {
         Ok(())
     }
 }
+
+/// SQL test for an asset `a` without current scores of model `?1` and the
+/// score id `?2`, whose reading by `?1` has not failed for its file now.
+const CULL_STALE: &str = "(NOT EXISTS(SELECT 1 FROM cull_scores s WHERE s.asset_id=a.id \
+     AND s.model=?2 AND s.fingerprint=a.fingerprint) \
+     AND NOT EXISTS(SELECT 1 FROM content_embeddings c WHERE c.asset_id=a.id \
+     AND c.model=?1 AND c.fingerprint=a.fingerprint AND c.error IS NOT NULL))";
 
 /// The id scores of `model`'s embeddings made with prompt set `set` carry.
 fn score_model(model: &str, set: &str) -> String {
@@ -149,60 +160,90 @@ pub struct CullPhoto {
 }
 
 impl Library {
-    /// How many current embeddings of `model` have no current scores of
-    /// prompt set `set`.
+    /// Present photographs without current scores of `model` and prompt
+    /// set `set` whose reading has not failed for their file as it is now:
+    /// the content pass reads them (again) and scores them, newest
+    /// registered first, at most `limit`. A superset of `content_backlog`.
+    pub fn cull_backlog(
+        &self,
+        model: &str,
+        set: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::content::ContentWork>, CatalogError> {
+        let rows: Vec<(String, String, String, bool, String)> = self
+            .conn
+            .prepare(&format!(
+                "SELECT a.id,a.rel_path,r.path,r.external,a.fingerprint FROM assets a
+                 JOIN roots r ON r.id=a.root_id
+                 WHERE a.missing=0 AND {CULL_STALE}
+                 ORDER BY a.rowid DESC LIMIT ?3"
+            ))?
+            .query_map(
+                params![model, score_model(model, set), i64::try_from(limit)?],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, relative, root, external, fingerprint)| crate::content::ContentWork {
+                    id,
+                    path: self.join_root(root, external, relative),
+                    fingerprint,
+                },
+            )
+            .collect())
+    }
+
+    /// How many photographs `cull_backlog` would give without a limit.
     pub fn cull_backlog_count(&self, model: &str, set: &str) -> Result<usize, CatalogError> {
         let n: i64 = self.conn.query_row(
-            "SELECT count(*) FROM content_embeddings c JOIN assets a ON a.id=c.asset_id
-             LEFT JOIN cull_scores s ON s.asset_id=a.id
-             WHERE c.model=?1 AND c.fingerprint=a.fingerprint AND c.vector IS NOT NULL
-               AND (s.asset_id IS NULL OR s.model!=?2 OR s.fingerprint!=c.fingerprint)",
+            &format!("SELECT count(*) FROM assets a WHERE a.missing=0 AND {CULL_STALE}"),
             params![model, score_model(model, set)],
             |r| r.get(0),
         )?;
         Ok(usize::try_from(n)?)
     }
 
-    /// Scores up to `limit` photographs whose current embedding of `model`
-    /// has no current scores of `set`, in one transaction; returns how many.
-    pub fn score_cull(
+    /// Whether asset `id` has current scores of `model` and `set` (or a
+    /// current failure to read it).
+    pub fn has_cull(&self, id: &str, model: &str, set: &str) -> Result<bool, CatalogError> {
+        let stale: bool = self.conn.query_row(
+            &format!("SELECT {CULL_STALE} FROM assets a WHERE a.id=?3"),
+            params![model, score_model(model, set), id],
+            |r| r.get(0),
+        )?;
+        Ok(!stale)
+    }
+
+    /// Records the scores of asset `id` from `embedding`, the image
+    /// embedding `model` read from its file when it had `fingerprint`, made
+    /// with prompt set `set`. Replaces older scores; ignored when the asset
+    /// is gone.
+    pub fn record_cull(
         &self,
+        id: &str,
         model: &str,
         set: &PromptSet,
-        limit: usize,
-    ) -> Result<usize, CatalogError> {
+        fingerprint: &str,
+        embedding: &[f32],
+    ) -> Result<(), CatalogError> {
         set.check()?;
-        let key = score_model(model, &set.id);
-        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-        let rows: Vec<(String, String, f32, Vec<u8>)> = tx
-            .prepare(
-                "SELECT a.id,c.fingerprint,c.scale,c.vector FROM content_embeddings c
-                 JOIN assets a ON a.id=c.asset_id LEFT JOIN cull_scores s ON s.asset_id=a.id
-                 WHERE c.model=?1 AND c.fingerprint=a.fingerprint AND c.vector IS NOT NULL
-                   AND (s.asset_id IS NULL OR s.model!=?2 OR s.fingerprint!=c.fingerprint)
-                 LIMIT ?3",
-            )?
-            .query_map(params![model, key, i64::try_from(limit)?], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-            })?
-            .collect::<rusqlite::Result<_>>()?;
-        let mut written = 0;
-        for (id, fingerprint, scale, bytes) in rows {
-            if bytes.len() != crate::content::DIM {
-                continue;
-            }
-            let (misfire, document) = set.scores(&bytes, scale);
-            tx.execute(
-                "INSERT INTO cull_scores(asset_id,model,fingerprint,misfire,document)
-                 VALUES(?1,?2,?3,?4,?5) ON CONFLICT(asset_id) DO UPDATE SET
-                 model=excluded.model,fingerprint=excluded.fingerprint,
-                 misfire=excluded.misfire,document=excluded.document",
-                params![id, key, fingerprint, misfire, document],
-            )?;
-            written += 1;
-        }
-        tx.commit()?;
-        Ok(written)
+        ensure!(
+            embedding.len() == crate::content::DIM && embedding.iter().all(|v| v.is_finite()),
+            "An embedding has {} finite values",
+            crate::content::DIM
+        );
+        let (misfire, document) = set.scores(embedding);
+        self.conn.execute(
+            "INSERT INTO cull_scores(asset_id,model,fingerprint,misfire,document)
+             SELECT ?1,?2,?3,?4,?5 WHERE EXISTS(SELECT 1 FROM assets WHERE id=?1)
+             ON CONFLICT(asset_id) DO UPDATE SET model=excluded.model,
+             fingerprint=excluded.fingerprint,misfire=excluded.misfire,
+             document=excluded.document",
+            params![id, score_model(model, &set.id), fingerprint, misfire, document],
+        )?;
+        Ok(())
     }
 
     /// The stored (misfire, document) scores of asset `id` when current.

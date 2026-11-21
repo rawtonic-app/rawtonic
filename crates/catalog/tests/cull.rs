@@ -101,7 +101,7 @@ fn a_new_library_has_the_culling_tables() {
 }
 
 #[test]
-fn an_older_library_takes_the_tables_and_keeps_its_embeddings() {
+fn an_older_library_takes_the_tables_and_reads_its_photographs_for_scores() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids) = library(d.path(), &["a.jpg"]);
     embed(&lib, &ids[0], &toward(0.5, 3));
@@ -110,52 +110,63 @@ fn an_older_library_takes_the_tables_and_keeps_its_embeddings() {
     db.execute_batch(include_str!("undo_0030.sql")).unwrap();
     drop(db);
     let lib = Library::open(&d.path().join("Job")).unwrap();
+    // Its embedding is kept, but scores come only from a fresh reading.
+    assert_eq!(lib.content_backlog_count(MODEL).unwrap(), 0);
     assert_eq!(lib.cull_backlog_count(MODEL, "p1").unwrap(), 1);
-    assert_eq!(lib.score_cull(MODEL, &prompts("p1"), 10).unwrap(), 1);
+    assert_eq!(lib.cull_backlog(MODEL, "p1", 10).unwrap()[0].id, ids[0]);
+}
+
+/// What the content pass does with a photograph it read: its embedding and
+/// its scores from the same values.
+fn read(lib: &Library, id: &str, set: &PromptSet, values: &[f32]) {
+    embed(lib, id, values);
+    let fingerprint = lib.asset(id).unwrap().fingerprint;
+    lib.record_cull(id, MODEL, set, &fingerprint, values).unwrap();
 }
 
 #[test]
-fn scores_follow_the_embedding_once_per_file_model_and_prompt_set() {
+fn scores_are_made_from_each_reading_once_per_file_model_and_prompt_set() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids) = library(
         d.path(),
-        &["cap.jpg", "page.jpg", "people.jpg", "unread.jpg"],
+        &["cap.jpg", "page.jpg", "people.jpg", "unreadable.jpg"],
     );
+    let p1 = prompts("p1");
+    // Every present photograph waits for a reading, newest first.
+    assert_eq!(lib.cull_backlog_count(MODEL, "p1").unwrap(), 4);
+    assert_eq!(lib.cull_backlog(MODEL, "p1", 2).unwrap()[0].id, ids[3]);
     let misfire = cos_of(MISFIRE_THRESHOLD * 2.0);
     let document = cos_of(DOCUMENT_THRESHOLD * 2.0);
-    embed(&lib, &ids[0], &toward(misfire, 7));
+    read(&lib, &ids[0], &p1, &toward(misfire, 7));
     let mut page = vec![0.0; DIM];
     page[1] = document;
     page[8] = (1.0 - document * document).sqrt();
-    embed(&lib, &ids[1], &page);
-    embed(&lib, &ids[2], &axis(9));
-    // An embedding of another model is not scored.
+    read(&lib, &ids[1], &p1, &page);
+    read(&lib, &ids[2], &p1, &axis(9));
+    // A photograph the model could not read is not asked for again.
     let fp = lib.asset(&ids[3]).unwrap().fingerprint;
-    lib.record_content(&ids[3], "vision-b", &fp, Ok(&axis(0)))
+    lib.record_content(&ids[3], MODEL, &fp, Err("unreadable"))
         .unwrap();
+    assert_eq!(lib.cull_backlog_count(MODEL, "p1").unwrap(), 0);
+    assert!(lib.has_cull(&ids[0], MODEL, "p1").unwrap());
+    assert!(lib.has_cull(&ids[3], MODEL, "p1").unwrap());
 
-    assert_eq!(lib.cull_backlog_count(MODEL, "p1").unwrap(), 3);
-    // In batches: two, then the last one, then nothing.
-    assert_eq!(lib.score_cull(MODEL, &prompts("p1"), 2).unwrap(), 2);
-    assert_eq!(lib.score_cull(MODEL, &prompts("p1"), 10).unwrap(), 1);
-    assert_eq!(lib.score_cull(MODEL, &prompts("p1"), 10).unwrap(), 0);
+    // Scores come from the values as read (exact), not the stored bytes.
     let (m, doc) = lib.cull_scores(&ids[0]).unwrap().unwrap();
-    // Stored as bytes: the steep calibration (×112) moves a two-axis test
-    // vector's score by up to a third; real embeddings spread over 768
-    // values move it by a few per cent.
-    assert!((m / (MISFIRE_THRESHOLD * 2.0) - 1.0).abs() < 0.35, "{m}");
+    assert!((m / (MISFIRE_THRESHOLD * 2.0) - 1.0).abs() < 1e-3, "{m}");
     assert!(doc < DOCUMENT_THRESHOLD);
     let (m, doc) = lib.cull_scores(&ids[1]).unwrap().unwrap();
     assert!(
-        m < MISFIRE_THRESHOLD && doc > DOCUMENT_THRESHOLD,
+        m < MISFIRE_THRESHOLD && (doc / (DOCUMENT_THRESHOLD * 2.0) - 1.0).abs() < 1e-3,
         "{m} {doc}"
     );
     assert!(lib.cull_scores(&ids[3]).unwrap().is_none());
 
-    // Another prompt set scores all again.
+    // Another prompt set, or another model, reads all but the failed one
+    // again.
     assert_eq!(lib.cull_backlog_count(MODEL, "p2").unwrap(), 3);
-    assert_eq!(lib.score_cull(MODEL, &prompts("p2"), 10).unwrap(), 3);
-    // A changed file has no current score until it is read and scored again.
+    assert_eq!(lib.cull_backlog_count("vision-b", "p1").unwrap(), 4);
+    // A changed file has no current score until it is read again.
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
     db.execute(
         "UPDATE assets SET fingerprint='xxh3:changed' WHERE id=?",
@@ -163,14 +174,14 @@ fn scores_follow_the_embedding_once_per_file_model_and_prompt_set() {
     )
     .unwrap();
     assert!(lib.cull_scores(&ids[0]).unwrap().is_none());
-    assert_eq!(lib.cull_backlog_count(MODEL, "p2").unwrap(), 0);
-    embed(&lib, &ids[0], &toward(misfire, 7));
-    assert_eq!(lib.cull_backlog_count(MODEL, "p2").unwrap(), 1);
+    assert_eq!(lib.cull_backlog(MODEL, "p1", 10).unwrap()[0].id, ids[0]);
+    assert!(!lib.has_cull(&ids[0], MODEL, "p1").unwrap());
 
-    // A bad prompt set is refused, nothing written.
+    // A bad prompt set or embedding is refused, nothing written.
     let mut bad = prompts("p3");
     bad.document = vec![vec![1.0; 3]];
-    assert!(lib.score_cull(MODEL, &bad, 10).is_err());
+    assert!(lib.record_cull(&ids[2], MODEL, &bad, &fp, &axis(9)).is_err());
+    assert!(lib.record_cull(&ids[2], MODEL, &p1, &fp, &[0.5; 3]).is_err());
 }
 
 #[test]
@@ -180,16 +191,16 @@ fn suggestions_dismissals_and_search_rules() {
         d.path(),
         &["cap.jpg", "page.jpg", "people.jpg", "blink.jpg"],
     );
-    embed(&lib, &ids[0], &toward(cos_of(0.05), 7));
-    embed(&lib, &ids[1], &{
+    let p1 = prompts("p1");
+    read(&lib, &ids[0], &p1, &toward(cos_of(0.05), 7));
+    read(&lib, &ids[1], &p1, &{
         let mut v = toward(cos_of(0.05), 1);
         // Also very much a document.
         v[1] = 0.6;
         let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
         v.iter().map(|x| x / n).collect::<Vec<_>>()
     });
-    embed(&lib, &ids[2], &axis(9));
-    lib.score_cull(MODEL, &prompts("p1"), 10).unwrap();
+    read(&lib, &ids[2], &p1, &axis(9));
     // Closed eyes on blink.jpg, read by the eye check.
     let fp = lib.asset(&ids[3]).unwrap().fingerprint;
     lib.record_eyes(
@@ -243,7 +254,12 @@ fn suggestions_dismissals_and_search_rules() {
             .unwrap()
             .is_empty()
     );
-    lib.score_cull(MODEL, &prompts("p2"), 10).unwrap();
+    let p2 = prompts("p2");
+    for id in &ids[..3] {
+        let fingerprint = lib.asset(id).unwrap().fingerprint;
+        lib.record_cull(id, MODEL, &p2, &fingerprint, &toward(cos_of(0.05), 7))
+            .unwrap();
+    }
     let photos = lib.cull_photos(&ids).unwrap();
     assert!(photos[&ids[0]].suggested.is_empty());
     assert_eq!(photos[&ids[0]].dismissed, ["misfire"]);
@@ -360,4 +376,32 @@ fn auto_stack_compares_embeddings_and_fractions_of_a_second() {
         )
         .unwrap();
     assert_eq!(runs(plan), [vec![0, 1, 2, 3], vec![4, 5]]);
+}
+
+/// Not a check: prints Auto-Stack's plan of every photograph of the library
+/// at `CUL2_LIBRARY` as the app makes it from the Culling panel's defaults
+/// (2 s, look-alike 0.78, embeddings of model `CUL2_MODEL`), as JSON, for
+/// the CUL2 hold-out re-check (notes: scripts/reference/cul2/).
+#[test]
+#[ignore]
+fn dump_auto_stack_plan() {
+    let (Some(dir), Some(model)) = (
+        std::env::var_os("CUL2_LIBRARY"),
+        std::env::var("CUL2_MODEL").ok(),
+    ) else {
+        return;
+    };
+    let lib = Library::open(Path::new(&dir)).unwrap();
+    let ids: Vec<String> = lib.assets(None).unwrap().into_iter().map(|a| a.id).collect();
+    let options = AutoStackOptions {
+        interval_secs: 2,
+        // `CUL2_CAMERA=0`: without the camera's burst and bracket data.
+        use_camera_data: std::env::var("CUL2_CAMERA").as_deref() != Ok("0"),
+        similarity: (std::env::var("CUL2_LOOK").as_deref() != Ok("0"))
+            .then_some(rawtonic_catalog::cull::STACK_SIMILARITY),
+    };
+    let plan = lib
+        .auto_stack_plan_with(&ids, options, Some(&model))
+        .unwrap();
+    println!("CUL2PLAN {}", serde_json::to_string(&plan).unwrap());
 }
