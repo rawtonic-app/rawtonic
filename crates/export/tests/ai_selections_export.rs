@@ -62,7 +62,10 @@ impl SelectionDetector for Models {
                 )
             }),
             AutoSelection::People => {
-                let faces = self.faces.as_ref().ok_or("the face models are not installed")?;
+                let faces = self
+                    .faces
+                    .as_ref()
+                    .ok_or("the face models are not installed")?;
                 let mask = rawtonic_faces::recipe::people_selection(
                     warped,
                     linear,
