@@ -2286,7 +2286,7 @@
         "2xBHI_small_compact_pretrain": "Super-Resolution beim Export (Philip Hofmann). Geändert: nach ONNX und Core ML umgewandelt, Mittel aus vier Drehungen jeder Kachel (in der CPU-Konvertierung nacheinander; in der GPU-Konvertierung fp16-Gewichte und -Berechnung).",
         "avif-parse": "Liest den AVIF-Container.",
         "BiRefNet": "Motiv- und Hintergrundmasken (Peng Zheng und andere).",
-        "ConvNeXt UperNet": "Himmelsmasken (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Himmels- und Landschaftsmasken (Meta, ADE20K).",
         "darktable": "Referenzimplementierungen für Teile des übernommenen Editors.",
         "DAViD": "Oberflächennormalen von Personen für Relight (Microsoft).",
         "Dawn": "WebGPU für KI-Modelle unter Windows und Linux im WebGPU-Plugin von ONNX Runtime (Google).",
