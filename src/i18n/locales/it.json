@@ -3952,10 +3952,29 @@
         "darkCircles": "Volto: occhiaie",
         "evenSkin": "Volto: pelle uniforme",
         "impact": "Volto: intensità",
+        "iris": "Iride ({{side}})",
+        "sclera": "Sclera ({{side}})",
         "shine": "Volto: lucidità",
+        "teethBrightness": "Luminosità dei denti",
+        "teethWhiten": "Sbiancare i denti",
         "texture": "Volto: texture"
       },
       "downloadModels": "Scarica i modelli del viso",
+      "eyes": {
+        "none": "Nessun occhio né bocca aperta trovati in questo volto.",
+        "sideAria": "Occhio",
+        "sideHint": {
+          "both": "Entrambi gli occhi",
+          "left": "L’occhio a sinistra nella foto",
+          "right": "L’occhio a destra nella foto"
+        },
+        "sides": {
+          "both": "Entrambi",
+          "left": "Sinistro",
+          "right": "Destro"
+        },
+        "title": "Occhi"
+      },
       "face": "Volto {{n}}",
       "faceOwn": "Volto {{n}} (valori propri)",
       "facesAria": "Volti",
@@ -3988,8 +4007,15 @@
         "darkCircles": "Occhiaie",
         "evenSkin": "Pelle uniforme",
         "impact": "Intensità",
+        "iris": "Iride",
+        "sclera": "Sclera",
         "shine": "Lucidità",
+        "teethBrightness": "Luminosità",
+        "teethWhiten": "Sbiancare",
         "texture": "Texture"
+      },
+      "teeth": {
+        "title": "Denti"
       },
       "useAll": "Usa i valori di tutti i volti"
     },

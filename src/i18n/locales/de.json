@@ -3789,10 +3789,29 @@
         "darkCircles": "Gesicht: Augenringe",
         "evenSkin": "Gesicht: Ebenmäßige Haut",
         "impact": "Gesicht: Wirkung",
+        "iris": "Iris ({{side}})",
+        "sclera": "Sklera ({{side}})",
         "shine": "Gesicht: Glanz",
+        "teethBrightness": "Zähne Helligkeit",
+        "teethWhiten": "Zähne aufhellen",
         "texture": "Gesicht: Textur"
       },
       "downloadModels": "Gesichtsmodelle laden",
+      "eyes": {
+        "none": "Auf diesem Gesicht wurden keine Augen und kein offener Mund gefunden.",
+        "sideAria": "Auge",
+        "sideHint": {
+          "both": "Beide Augen",
+          "left": "Das Auge links im Foto",
+          "right": "Das Auge rechts im Foto"
+        },
+        "sides": {
+          "both": "Beide",
+          "left": "Links",
+          "right": "Rechts"
+        },
+        "title": "Augen"
+      },
       "face": "Gesicht {{n}}",
       "faceOwn": "Gesicht {{n}} (eigene Werte)",
       "facesAria": "Gesichter",
@@ -3824,8 +3843,15 @@
         "darkCircles": "Augenringe",
         "evenSkin": "Ebenmäßige Haut",
         "impact": "Wirkung",
+        "iris": "Iris",
+        "sclera": "Sklera",
         "shine": "Glanz",
+        "teethBrightness": "Helligkeit",
+        "teethWhiten": "Aufhellen",
         "texture": "Textur"
+      },
+      "teeth": {
+        "title": "Zähne"
       },
       "useAll": "Werte aller Gesichter verwenden"
     },

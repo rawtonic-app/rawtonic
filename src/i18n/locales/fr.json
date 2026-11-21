@@ -3952,10 +3952,29 @@
         "darkCircles": "Visage : cernes",
         "evenSkin": "Visage : peau uniforme",
         "impact": "Visage : intensité",
+        "iris": "Iris ({{side}})",
+        "sclera": "Sclère ({{side}})",
         "shine": "Visage : brillance",
+        "teethBrightness": "Luminosité des dents",
+        "teethWhiten": "Blanchir les dents",
         "texture": "Visage : texture"
       },
       "downloadModels": "Télécharger les modèles de visage",
+      "eyes": {
+        "none": "Aucun œil ni bouche ouverte trouvé sur ce visage.",
+        "sideAria": "Œil",
+        "sideHint": {
+          "both": "Les deux yeux",
+          "left": "L’œil à gauche de la photo",
+          "right": "L’œil à droite de la photo"
+        },
+        "sides": {
+          "both": "Les deux",
+          "left": "Gauche",
+          "right": "Droite"
+        },
+        "title": "Yeux"
+      },
       "face": "Visage {{n}}",
       "faceOwn": "Visage {{n}} (réglages propres)",
       "facesAria": "Visages",
@@ -3988,8 +4007,15 @@
         "darkCircles": "Cernes",
         "evenSkin": "Peau uniforme",
         "impact": "Intensité",
+        "iris": "Iris",
+        "sclera": "Sclère",
         "shine": "Brillance",
+        "teethBrightness": "Luminosité",
+        "teethWhiten": "Blanchir",
         "texture": "Texture"
+      },
+      "teeth": {
+        "title": "Dents"
       },
       "useAll": "Utiliser les valeurs de tous les visages"
     },

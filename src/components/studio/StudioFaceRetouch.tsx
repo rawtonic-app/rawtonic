@@ -168,6 +168,72 @@ export function removedBlemishes(face: RetouchFace, all: FaceRetouchSettings) {
 }
 
 type SliderKey = Exclude<keyof FaceRetouchSettings, 'includeNeck'>;
+
+/** The response of Eyes and Teeth this app writes (engine
+ * `face_retouch::EYES_TEETH_VERSION`). */
+export const EYES_TEETH_VERSION = 1;
+
+/** Which eye the Eyes sliders show: both, or the one on the left or right
+ * of the photo. */
+export type EyeSide = 'both' | 'left' | 'right';
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** The value an Eyes slider shows for `side`: the value for both eyes, or
+ * for one eye the value for both plus its own offset (as the engine's
+ * `Settings::amounts`). `get` reads a key with the face's own value over
+ * the one for all faces. */
+export function eyeValue(get: (key: SliderKey) => number | undefined, part: 'iris' | 'sclera', side: EyeSide) {
+  const both = clamp(get(part) ?? 0, 0, 100);
+  if (side === 'both') return both;
+  const offset = get(side === 'left' ? `${part}Left` : `${part}Right`) ?? 0;
+  return clamp(both + clamp(offset, -100, 100), 0, 100);
+}
+
+/** The settings change that gives one eye (`side` left or right) the value
+ * `value`: its offset against the value for both eyes. */
+export function eyeChange(
+  get: (key: SliderKey) => number | undefined,
+  part: 'iris' | 'sclera',
+  side: 'left' | 'right',
+  value: number
+) {
+  const key: SliderKey = side === 'left' ? `${part}Left` : `${part}Right`;
+  return { key, value: clamp(value - clamp(get(part) ?? 0, 0, 100), -100, 100) };
+}
+
+/** `faces` with the eyes and mouth of the analysed faces filled in where
+ * they are missing (faces found before Eyes and Teeth), each from the
+ * analysed face at the same place (within half a face). */
+export function withEyesAndMouth(faces: RetouchFace[], analysed: RetouchFace[]): RetouchFace[] {
+  const centre = (f: RetouchFace) => [f.box[0] + f.box[2] / 2, f.box[1] + f.box[3] / 2];
+  return faces.map((face) => {
+    if (face.eyes !== undefined) return face;
+    const [x, y] = centre(face);
+    let best: RetouchFace | undefined;
+    let bestDistance = face.box[2] / 2;
+    for (const other of analysed) {
+      const [ox, oy] = centre(other);
+      const d = Math.hypot(ox - x, oy - y);
+      if (d < bestDistance) {
+        best = other;
+        bestDistance = d;
+      }
+    }
+    return best ? { ...face, eyes: best.eyes ?? [], mouth: best.mouth ?? null } : face;
+  });
+}
+
+const EYE_KEYS: ReadonlySet<string> = new Set([
+  'iris',
+  'sclera',
+  'irisLeft',
+  'irisRight',
+  'scleraLeft',
+  'scleraRight',
+  'teethBrightness',
+  'teethWhiten'
+]);
 const SLIDERS = [
   { key: 'impact', min: 0, max: 100, initial: 100 },
   { key: 'blemishes', min: 0, max: 100, initial: 0 },
@@ -230,6 +296,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
             paths: others,
             settings: current.settings,
             faceSettings,
+            eyesTeethVersion: current.eyesTeethVersion ?? null,
             ...(batch ? { batch } : {})
           }),
         /** It answers how many it wrote; short of all it failed with the
@@ -257,8 +324,14 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   const key = `${path}\n${geometry}`;
 
   const [download, setDownload] = useState(0);
+  // Faces stored before Eyes and Teeth have no eyes or mouth: once an Eyes
+  // or Teeth slider moves on them, the faces are found again (no download)
+  // and their eyes and mouth filled in; opening the tool alone runs nothing.
+  const needsEyes = Boolean(current?.faces.some((f) => f.eyes === undefined));
+  const [eyesWanted, setEyesWanted] = useState<string | null>(null);
+  const fillEyes = needsEyes && eyesWanted === key;
   useEffect(() => {
-    if (!path || !ready || current) return;
+    if (!path || !ready || (current && !fillEyes)) return;
     let live = true;
     analyse(path, geometry, download > 0)
       .then((analysis) => {
@@ -268,6 +341,9 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
         // protected areas the photo.
         setAdjustments((prev: Adjustments) => {
           const old = prev.faceRetouch;
+          if (old && faceRetouchIsCurrent(old, prev) && old.faces.some((f) => f.eyes === undefined)) {
+            return { ...prev, faceRetouch: { ...old, faces: withEyesAndMouth(old.faces, analysis.faces) } };
+          }
           if (!old || faceRetouchIsCurrent(old, prev)) return prev;
           const { width, height } = useEditorStore.getState().selectedImage ?? {};
           const protect = reframeProtection(old.protect, old.geometry, prev, width, height);
@@ -296,7 +372,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, ready, geometry, Boolean(current), download]);
+  }, [path, ready, geometry, Boolean(current), fillEyes, download]);
 
   const analysis = found?.key === key ? found.analysis : undefined;
   const faces = current?.faces ?? analysis?.faces ?? [];
@@ -318,16 +394,31 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
             : null;
       return base ? { ...prev, faceRetouch: change(base) } : prev;
     });
-  const set = <K extends keyof FaceRetouchSettings>(key: K, value: FaceRetouchSettings[K]) =>
-    update((r) =>
-      face
+  const set = <K extends keyof FaceRetouchSettings>(name: K, value: FaceRetouchSettings[K]) => {
+    if (EYE_KEYS.has(name) && needsEyes && !analysis) setEyesWanted(key);
+    setValue(name, value);
+  };
+  const setValue = <K extends keyof FaceRetouchSettings>(key: K, value: FaceRetouchSettings[K]) =>
+    update((before) => {
+      // Eyes and Teeth: record their response, and give faces found before
+      // them their eyes and mouth.
+      const r = EYE_KEYS.has(key)
+        ? {
+            ...before,
+            eyesTeethVersion: before.eyesTeethVersion ?? EYES_TEETH_VERSION,
+            faces: analysis ? withEyesAndMouth(before.faces, analysis.faces) : before.faces
+          }
+        : before;
+      return face
         ? {
             ...r,
             faces: r.faces.map((f) => (f.id === face.id ? { ...f, settings: { ...f.settings, [key]: value } } : f))
           }
-        : { ...r, settings: { ...r.settings, [key]: value } }
-    );
+        : { ...r, settings: { ...r.settings, [key]: value } };
+    });
   const valueOf = (key: SliderKey, initial: number) => face?.settings[key] ?? settings[key] ?? initial;
+  const get = (key: SliderKey) => face?.settings[key] ?? settings[key];
+  const [eyeSide, setEyeSide] = useState<EyeSide>('both');
   const busy = !current && !analysis && !(found?.key === key && found.error);
   const failure = found?.key === key ? found.error : undefined;
   const modelsMissing = found?.key === key && Boolean(found.modelsMissing);
@@ -417,6 +508,65 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
           />
           {t('studio.faceRetouch.includeNeck')}
         </label>
+      )}
+      {faces.length > 0 && (
+        <>
+          <div className="studio-subheading">{t('studio.faceRetouch.eyes.title')}</div>
+          <div className="studio-segments" role="radiogroup" aria-label={t('studio.faceRetouch.eyes.sideAria')}>
+            {(['both', 'left', 'right'] as const).map((side) => (
+              <button
+                key={side}
+                type="button"
+                role="radio"
+                aria-checked={eyeSide === side}
+                title={t(`studio.faceRetouch.eyes.sideHint.${side}`)}
+                onClick={() => setEyeSide(side)}
+              >
+                {t(`studio.faceRetouch.eyes.sides.${side}`)}
+              </button>
+            ))}
+          </div>
+          {(['iris', 'sclera'] as const).map((part) => (
+            <AdjustmentControl
+              key={`${part}-${eyeSide}`}
+              label={t(`studio.faceRetouch.sliders.${part}`)}
+              ariaLabel={t(`studio.faceRetouch.aria.${part}`, {
+                side: t(`studio.faceRetouch.eyes.sides.${eyeSide}`)
+              })}
+              min={0}
+              max={100}
+              value={eyeValue(get, part, eyeSide)}
+              defaultValue={eyeSide === 'both' ? 0 : eyeValue(get, part, 'both')}
+              onInteraction={onInteraction}
+              onChange={(value) => {
+                if (eyeSide === 'both') set(part, value);
+                else {
+                  const change = eyeChange(get, part, eyeSide, value);
+                  set(change.key, change.value);
+                }
+              }}
+            />
+          ))}
+          <div className="studio-subheading">{t('studio.faceRetouch.teeth.title')}</div>
+          {(['teethBrightness', 'teethWhiten'] as const).map((key) => (
+            <AdjustmentControl
+              key={key}
+              label={t(`studio.faceRetouch.sliders.${key}`)}
+              ariaLabel={t(`studio.faceRetouch.aria.${key}`)}
+              min={0}
+              max={100}
+              value={valueOf(key, 0)}
+              defaultValue={0}
+              onInteraction={onInteraction}
+              onChange={(value) => set(key, value)}
+            />
+          ))}
+          {face?.eyes?.length === 0 && !face.mouth && (
+            <p className="studio-hint" role="note">
+              {t('studio.faceRetouch.eyes.none')}
+            </p>
+          )}
+        </>
       )}
       {faces.length > 0 && (
         <label className="studio-check">

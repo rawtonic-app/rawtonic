@@ -3687,10 +3687,29 @@
         "darkCircles": "顔: 目の下のクマ",
         "evenSkin": "顔: 肌を均一に",
         "impact": "顔: 適用度",
+        "iris": "虹彩（{{side}}）",
+        "sclera": "白目（{{side}}）",
         "shine": "顔: テカリ",
+        "teethBrightness": "歯の明るさ",
+        "teethWhiten": "歯のホワイトニング",
         "texture": "顔: テクスチャ"
       },
       "downloadModels": "顔モデルをダウンロード",
+      "eyes": {
+        "none": "この顔には目または開いた口が見つかりません。",
+        "sideAria": "目",
+        "sideHint": {
+          "both": "両目",
+          "left": "写真の左側の目",
+          "right": "写真の右側の目"
+        },
+        "sides": {
+          "both": "両方",
+          "left": "左",
+          "right": "右"
+        },
+        "title": "目"
+      },
       "face": "顔 {{n}}",
       "faceOwn": "顔 {{n}}（個別設定）",
       "facesAria": "顔",
@@ -3721,8 +3740,15 @@
         "darkCircles": "目の下のクマ",
         "evenSkin": "肌を均一に",
         "impact": "適用度",
+        "iris": "虹彩",
+        "sclera": "白目",
         "shine": "テカリ",
+        "teethBrightness": "明るさ",
+        "teethWhiten": "ホワイトニング",
         "texture": "テクスチャ"
+      },
+      "teeth": {
+        "title": "歯"
       },
       "useAll": "すべての顔の値を使用"
     },

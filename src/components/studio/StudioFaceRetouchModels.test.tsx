@@ -77,3 +77,45 @@ describe('face retouch frames', () => {
     expect(faceRetouchIsCurrent(faceRetouch, { ...adjustments, rotation: 3 })).toBe(false);
   });
 });
+
+describe('eyes and teeth on faces found before them', () => {
+  it('finds the faces again only when an Eyes slider moves, then fills in eyes and mouth', async () => {
+    const eyes = [
+      {
+        iris: [5, 5, 2],
+        lid: [
+          [0, 0],
+          [9, 0],
+          [9, 9]
+        ]
+      },
+      null
+    ];
+    invoke.mockResolvedValue({ frame: '2:{}', faces: [{ id: 'face-1', box: [0, 0, 10, 10], eyes, mouth: null }] });
+    const adjustments = { ...INITIAL_ADJUSTMENTS };
+    const faceRetouch = {
+      settings: { blemishes: 40 },
+      faces: [{ id: 'face-1', kept: [3], settings: {}, blemishes: [], box: [1, 0, 10, 10], enabled: true }],
+      frame: '2:{}',
+      geometry: JSON.stringify(faceRetouchGeometry(adjustments))
+    } as unknown as FaceRetouch;
+    useEditorStore.setState({
+      selectedImage: { path: '/s/b.CR3', isReady: true } as never,
+      adjustments: { ...adjustments, faceRetouch }
+    });
+    render(<StudioFaceRetouch onInteraction={() => {}} />);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(invoke).not.toHaveBeenCalled();
+
+    const iris = screen.getByRole('slider', { name: 'Iris (Both)' });
+    fireEvent.change(iris, { target: { value: '30' } });
+    await waitFor(() => expect(useEditorStore.getState().adjustments.faceRetouch?.faces[0].eyes).toEqual(eyes));
+    const stored = useEditorStore.getState().adjustments.faceRetouch!;
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke.mock.calls[0][1]).toMatchObject({ download: false });
+    expect(stored.settings).toMatchObject({ blemishes: 40, iris: 30 });
+    expect(stored.eyesTeethVersion).toBe(1);
+    // The face's own data stays.
+    expect(stored.faces[0]).toMatchObject({ kept: [3], mouth: null });
+  });
+});

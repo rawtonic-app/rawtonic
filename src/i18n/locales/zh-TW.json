@@ -3687,10 +3687,29 @@
         "darkCircles": "臉孔黑眼圈",
         "evenSkin": "臉孔均勻膚色",
         "impact": "臉孔強度",
+        "iris": "虹膜（{{side}}）",
+        "sclera": "眼白（{{side}}）",
         "shine": "臉孔油光",
+        "teethBrightness": "牙齒亮度",
+        "teethWhiten": "牙齒美白",
         "texture": "臉孔紋理"
       },
       "downloadModels": "下載臉部模型",
+      "eyes": {
+        "none": "在此臉孔上找不到眼睛或張開的嘴。",
+        "sideAria": "眼睛",
+        "sideHint": {
+          "both": "雙眼",
+          "left": "照片左側的眼睛",
+          "right": "照片右側的眼睛"
+        },
+        "sides": {
+          "both": "雙眼",
+          "left": "左",
+          "right": "右"
+        },
+        "title": "眼睛"
+      },
       "face": "臉孔 {{n}}",
       "faceOwn": "臉孔 {{n}}（個別設定）",
       "facesAria": "臉孔",
@@ -3721,8 +3740,15 @@
         "darkCircles": "黑眼圈",
         "evenSkin": "均勻膚色",
         "impact": "強度",
+        "iris": "虹膜",
+        "sclera": "眼白",
         "shine": "油光",
+        "teethBrightness": "亮度",
+        "teethWhiten": "美白",
         "texture": "紋理"
+      },
+      "teeth": {
+        "title": "牙齒"
       },
       "useAll": "使用所有臉孔的值"
     },
