@@ -414,10 +414,14 @@ fn plan_move(
             session.file_name().unwrap_or_default().to_string_lossy()
         ));
     }
+    let renamed = crate::file_operations::xmp_targets(&images, dest_path);
     let steps = crate::file_operations::associated_files(&images)?
         .into_iter()
         .map(|file| {
-            let target = dest_path.join(file.file_name().unwrap_or_default());
+            let target = renamed
+                .get(&file)
+                .cloned()
+                .unwrap_or_else(|| dest_path.join(file.file_name().unwrap_or_default()));
             rawtonic_fileops::Step::moving(file, target).map_err(|e| format!("{e:#}"))
         })
         .collect::<Result<_, _>>()?;

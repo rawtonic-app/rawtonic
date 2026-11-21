@@ -387,7 +387,8 @@ fn plan_xmp(
 ) {
     let old_stem = stem(&planned[members[0]].from);
     let Some(xmp) = entries.iter().map(|e| folder.join(e)).find(|p| {
-        stem(p) == old_stem && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
+        stem(p).eq_ignore_ascii_case(&old_stem)
+            && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
     }) else {
         return;
     };
@@ -396,7 +397,9 @@ fn plan_xmp(
     let named: Vec<PathBuf> = entries
         .iter()
         .map(|e| folder.join(e))
-        .filter(|p| stem(p) == old_stem && is_supported_image_file(p))
+        // Letter case ignored, as the sidecar rule does (`img.NEF` and
+        // `IMG.JPG` are a pair on a case-insensitive volume).
+        .filter(|p| stem(p).eq_ignore_ascii_case(&old_stem) && is_supported_image_file(p))
         .collect();
     let hidden: Vec<PathBuf> = named
         .iter()

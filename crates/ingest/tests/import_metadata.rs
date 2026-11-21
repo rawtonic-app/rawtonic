@@ -268,6 +268,14 @@ fn add_keeps_sidecar_digest_for_the_normal_later_sync() {
 
 #[test]
 fn independent_same_stem_photos_each_write_their_own_xmp() {
+    for jpeg_first in [false, true] {
+        same_stem_import(jpeg_first);
+    }
+}
+
+/// The RAW is copied first whatever the order chosen, so the JPEG's XMP
+/// never takes the name the RAW's has.
+fn same_stem_import(jpeg_first: bool) {
     let d = tempfile::tempdir().unwrap();
     let raw = d.path().join("source.NEF");
     let jpeg = d.path().join("source.JPG");
@@ -288,14 +296,8 @@ fn independent_same_stem_photos_each_write_their_own_xmp() {
         album: None,
         metadata: Some(&preset),
     };
-    let results = import_batch(
-        &lib,
-        &[raw, jpeg],
-        &options,
-        &AtomicBool::new(false),
-        |_| {},
-    )
-    .unwrap();
+    let sources = if jpeg_first { [jpeg, raw] } else { [raw, jpeg] };
+    let results = import_batch(&lib, &sources, &options, &AtomicBool::new(false), |_| {}).unwrap();
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|r| r.error.is_none()));
     for result in &results {

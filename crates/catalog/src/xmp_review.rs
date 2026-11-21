@@ -245,6 +245,9 @@ impl Library {
         );
         let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
         let path = sidecars.path(&a.path);
+        if let Ok(bytes) = rawtonic_metadata::read_xmp_bytes(&path) {
+            self.release_partner_digests(asset, &a.path, &path, &bytes, &sidecars)?;
+        }
         if !path.exists() {
             let (hash, publishing): (Option<String>, Option<String>) = self.conn.query_row(
                 "SELECT xmp_hash,xmp_publishing FROM metadata WHERE asset_id=?",
@@ -266,6 +269,34 @@ impl Library {
             }
         }
         Ok(path)
+    }
+
+    /// Before `photo` (a RAW) writes its stem sidecar `sidecar` (now
+    /// `bytes`): a JPEG or HEIF partner whose digest is that sidecar's read
+    /// it for itself before the pair rule (`rawtonic_metadata::sidecars`).
+    /// It forgets that digest, so the RAW's write is not taken for its own
+    /// sidecar going missing; its own is written on its next edit.
+    fn release_partner_digests(
+        &self,
+        asset: &str,
+        photo: &Path,
+        sidecar: &Path,
+        bytes: &[u8],
+        sidecars: &rawtonic_metadata::sidecars::Sidecars,
+    ) -> Result<()> {
+        let digest = rawtonic_fs::sha256_hex(bytes);
+        for (partner, path) in self.same_stem_assets(photo)? {
+            if partner == asset || sidecars.path(&path) == sidecar {
+                continue;
+            }
+            self.conn.execute(
+                "UPDATE metadata SET xmp_hash=CASE WHEN xmp_hash=?1 THEN NULL ELSE xmp_hash END,
+                     xmp_publishing=CASE WHEN xmp_publishing=?1 THEN NULL ELSE xmp_publishing END
+                 WHERE asset_id=?2 AND (xmp_hash=?1 OR xmp_publishing=?1)",
+                params![digest, partner],
+            )?;
+        }
+        Ok(())
     }
 
     /// Writes the library's metadata and recipe over a sidecar whose digest

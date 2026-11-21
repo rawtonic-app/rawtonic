@@ -218,3 +218,30 @@ fn a_jpeg_holding_its_raws_digest_from_before_the_pair_rule_moves_to_its_own() {
     let raw = add(&lib, &capture.join("D.RAF"));
     assert_eq!(lib.metadata(&raw).unwrap().rating, 5);
 }
+
+/// Both photos of a pair hold the stem sidecar's digest (a JPEG added
+/// alone before the pair rule, its RAW added later); the RAW writes first.
+/// The JPEG is not taken for having lost a sidecar, and writes its own.
+#[test]
+fn a_raw_writing_first_releases_the_digest_its_jpeg_held_from_before_the_pair_rule() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, capture) = session(
+        d.path(),
+        &[("E.JPG", b"jpg"), ("E.xmp", LR_RAW_XMP.as_bytes())],
+    );
+    let jpg = add(&lib, &capture.join("E.JPG"));
+    fs::write(capture.join("E.ARW"), b"raw").unwrap();
+    let raw = add(&lib, &capture.join("E.ARW"));
+    rate(&lib, &raw, 2);
+    lib.sync_xmp(&raw).unwrap();
+    assert_eq!(rating_in(&capture.join("E.xmp")), 2);
+    let check = lib
+        .check_xmp_sidecars(None, &mut SidecarStamps::default())
+        .unwrap();
+    assert!(check.changed.is_empty(), "{check:?}");
+    rate(&lib, &jpg, 4);
+    let retry = lib.write_pending_xmp().unwrap();
+    assert_eq!((retry.written, retry.unsaved.len()), (1, 0), "{retry:?}");
+    assert_eq!(rating_in(&capture.join("E.JPG.xmp")), 4);
+    assert_eq!(rating_in(&capture.join("E.xmp")), 2);
+}
