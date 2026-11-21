@@ -1740,6 +1740,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "照片已移回，但文件夹角色保持不变：{{error}}",
       "selectsUnavailable": "Selects 文件夹 {{folder}} 不可用（其驱动器是否已连接？）。未移动任何内容；请在“会话文件夹”中选择其他 Selects 文件夹。",
       "title": "会话文件夹",
       "unavailable": "不可用：文件夹不存在或其驱动器未连接。",

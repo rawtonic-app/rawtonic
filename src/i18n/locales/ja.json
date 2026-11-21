@@ -1740,6 +1740,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "写真は元に戻りましたが、フォルダの役割はそのままです: {{error}}",
       "selectsUnavailable": "Selects フォルダ {{folder}} を使用できません (ドライブは接続されていますか?)。何も移動していません。「セッションフォルダ」で別の Selects フォルダを選んでください。",
       "title": "セッションフォルダ",
       "unavailable": "使用できません: フォルダがないか、ドライブが接続されていません。",
