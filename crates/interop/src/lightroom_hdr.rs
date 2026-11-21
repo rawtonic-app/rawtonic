@@ -24,11 +24,11 @@ pub use rawtonic_metadata::LIGHTROOM_HDR_KEY;
 /// settings) is read inside one that declares the usual prefixes.
 pub fn hdr_settings(xmp: &str) -> BTreeMap<String, String> {
     let wrapped;
-    let doc = match roxmltree::Document::parse_with_options(xmp, parse_options()) {
+    let doc = match roxmltree::Document::parse(xmp) {
         Ok(doc) => doc,
         Err(_) => {
             wrapped = format!("<x xmlns:rdf=\"{RDF}\" xmlns:crs=\"{CRS}\">{xmp}</x>");
-            match roxmltree::Document::parse_with_options(&wrapped, parse_options()) {
+            match roxmltree::Document::parse(&wrapped) {
                 Ok(doc) => doc,
                 Err(_) => return BTreeMap::new(),
             }
@@ -68,14 +68,6 @@ pub fn hdr_settings(xmp: &str) -> BTreeMap<String, String> {
         }
     }
     found
-}
-
-fn parse_options() -> roxmltree::ParsingOptions<'static> {
-    // The packet is read, never expanded: no DTDs.
-    roxmltree::ParsingOptions {
-        allow_dtd: false,
-        ..Default::default()
-    }
 }
 
 const RDF: &str = rawtonic_metadata::RDF;
