@@ -158,6 +158,12 @@ export const CREDITS: Credit[] = [
     license: 'Apache-2.0'
   },
   {
+    name: 'EasyPortrait face parsing (FPN + ResNet-50)',
+    url: 'https://github.com/hukenovs/easyportrait',
+    what: 'Eye openings and teeth for the face retouch (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Changed: converted to ONNX and Core ML, published under CC BY-SA 4.0.',
+    license: 'CC BY-SA 4.0'
+  },
+  {
     name: 'SigLIP 2',
     url: 'https://huggingface.co/google/siglip2-base-patch16-224',
     what: 'Automatic keywords (Google).',

@@ -45,13 +45,26 @@ use crate::spot_removal::to_base;
 /// outlines alone.
 const TINY_IRIS: f32 = 6.0;
 
+/// Closed outlines, mask-frame pixels; inside where an odd number of them
+/// surround a point.
+pub type Loops = Vec<Vec<[f64; 2]>>;
+
 /// An eye as the app found it, mask-frame pixels.
 #[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Eye {
     /// Iris centre and radius.
     pub iris: [f64; 3],
     /// Lid opening.
     pub lid: Vec<[f64; 2]>,
+    /// The eye and teeth parser's eye opening (rawtonic-faces `portrait`);
+    /// absent in eyes found before it or where it was implausible: the
+    /// masks then come from `lid` and the colour models.
+    #[serde(default)]
+    pub parsed_eye: Option<Loops>,
+    /// The parser's wider opening, within which the iris circle is iris.
+    #[serde(default)]
+    pub parsed_iris: Option<Loops>,
 }
 
 /// The strengths at 100. A later change to them that would alter saved
@@ -169,6 +182,62 @@ impl Outline {
     }
 }
 
+/// Several closed outlines in base pixels, inside by the even-odd rule.
+struct Region {
+    outlines: Vec<Outline>,
+}
+
+impl Region {
+    fn new(loops: &[Vec<[f64; 2]>], place: &Placement) -> Option<Self> {
+        let outlines: Vec<Outline> = loops
+            .iter()
+            .filter_map(|l| Outline::new(l.iter().map(|&p| place.point(p)).collect()))
+            .collect();
+        (!outlines.is_empty()).then_some(Self { outlines })
+    }
+
+    /// Box (x0, y0, x1, y1) around all outlines grown by `pad`.
+    fn pixel_box(&self, pad: f32, size: (u32, u32)) -> Option<(u32, u32, u32, u32)> {
+        self.outlines
+            .iter()
+            .filter_map(|o| o.pixel_box(pad, size))
+            .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)))
+    }
+
+    /// Coverage 0–1: a ramp `feather` wide centred on the outlines.
+    fn coverage(&self, x: f32, y: f32, feather: f32) -> f32 {
+        let mut inside = false;
+        let mut best = f32::INFINITY;
+        for o in &self.outlines {
+            if x < o.min[0] - feather
+                || y < o.min[1] - feather
+                || x > o.max[0] + feather
+                || y > o.max[1] + feather
+            {
+                continue;
+            }
+            let d = o.signed_distance(x, y);
+            inside ^= d < 0.0;
+            best = best.min(d.abs());
+        }
+        if !best.is_finite() {
+            return 0.0;
+        }
+        let sd = if inside { -best } else { best };
+        (0.5 - sd / feather).clamp(0.0, 1.0)
+    }
+}
+
+fn union_box(
+    a: Option<(u32, u32, u32, u32)>,
+    b: Option<(u32, u32, u32, u32)>,
+) -> Option<(u32, u32, u32, u32)> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some((a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3))),
+        (a, b) => a.or(b),
+    }
+}
+
 fn lum(p: [f32; 3]) -> f32 {
     0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]
 }
@@ -223,11 +292,13 @@ pub(super) fn active(amounts: &Amounts) -> bool {
         || amounts.teeth_whiten > 0.0
 }
 
-/// Eyes and Teeth of one face.
+/// Eyes and Teeth of one face. `parsed_teeth`: the eye and teeth parser's
+/// teeth outlines, used in place of `mouth` when there are any.
 pub(super) fn retouch(
     image: &mut Rgb32FImage,
     eyes: &[Option<Eye>],
     mouth: Option<&[[f64; 2]]>,
+    parsed_teeth: Option<&[Vec<[f64; 2]>]>,
     place: &Placement,
     amounts: &Amounts,
 ) {
@@ -240,10 +311,15 @@ pub(super) fn retouch(
             retouch_eye(image, eye, place, iris, sclera, &tune);
         }
     }
-    if let Some(mouth) = mouth
-        && (amounts.teeth_brightness > 0.0 || amounts.teeth_whiten > 0.0)
-    {
-        retouch_teeth(image, mouth, place, amounts, &tune);
+    if amounts.teeth_brightness > 0.0 || amounts.teeth_whiten > 0.0 {
+        match parsed_teeth.and_then(|loops| Region::new(loops, place)) {
+            Some(teeth) => retouch_parsed_teeth(image, &teeth, place, amounts, &tune),
+            None => {
+                if let Some(mouth) = mouth {
+                    retouch_teeth(image, mouth, place, amounts, &tune);
+                }
+            }
+        }
     }
 }
 
@@ -539,6 +615,33 @@ fn eye_masks(patch: &Patch, lid: &Outline, (cx, cy, r): (f32, f32, f32)) -> (Vec
     (iris_w, white_w)
 }
 
+/// The masks of one eye from the eye and teeth parser (rawtonic-faces
+/// `portrait`): Sclera is its eye opening outside the iris circle at 0.9 of
+/// its radius, Iris the circle within its wider opening (the circle's 0.9
+/// leaves the limbal ring to both; EYE3's settings).
+fn parsed_eye_masks(
+    patch: &Patch,
+    opening: &Region,
+    wide: &Region,
+    (cx, cy, r): (f32, f32, f32),
+) -> (Vec<f32>, Vec<f32>) {
+    let feather = (0.08 * r).max(1.0);
+    let iris_feather = (0.1 * r).max(1.0);
+    (0..patch.w * patch.h)
+        .into_par_iter()
+        .map(|k| {
+            let (x, y) = patch.centre(k);
+            let d = (x - cx).hypot(y - cy);
+            let disk = (0.5 - (d - r) / iris_feather).clamp(0.0, 1.0);
+            let inner = (0.5 - (d - 0.9 * r) / iris_feather).clamp(0.0, 1.0);
+            (
+                wide.coverage(x, y, feather) * disk,
+                opening.coverage(x, y, feather) * (1.0 - inner),
+            )
+        })
+        .unzip()
+}
+
 /// 1 where a 4-connected path of `candidate` pixels leads from a seed
 /// (itself a candidate), else 0.
 fn flood(w: usize, h: usize, seeds: &[usize], candidate: &dyn Fn(usize) -> bool) -> Vec<f32> {
@@ -591,11 +694,24 @@ fn retouch_eye(
     let Some(lid) = Outline::new(eye.lid.iter().map(|&p| place.point(p)).collect()) else {
         return;
     };
-    let Some(bounds) = lid.pixel_box(0.6 * r + 2.0, image.dimensions()) else {
+    let parsed = match (&eye.parsed_eye, &eye.parsed_iris) {
+        (Some(e), Some(i)) => Region::new(e, place).zip(Region::new(i, place)),
+        _ => None,
+    };
+    let pad = 0.6 * r + 2.0;
+    let lid_box = lid.pixel_box(pad, image.dimensions());
+    let bounds = match &parsed {
+        Some((_, wide)) => union_box(lid_box, wide.pixel_box(pad, image.dimensions())),
+        None => lid_box,
+    };
+    let Some(bounds) = bounds else {
         return;
     };
     let patch = Patch::new(image, bounds);
-    let (iris_w, white_w) = eye_masks(&patch, &lid, (cx, cy, r));
+    let (iris_w, white_w) = match &parsed {
+        Some((opening, wide)) => parsed_eye_masks(&patch, opening, wide, (cx, cy, r)),
+        None => eye_masks(&patch, &lid, (cx, cy, r)),
+    };
     let n = patch.w * patch.h;
     // The iris's mean lightness and the eye white's, for the iris's
     // contrast and its ceiling.
@@ -771,6 +887,41 @@ fn retouch_teeth(
     };
     let patch = Patch::new(image, bounds);
     let mask = teeth_mask(&patch, &outline, grow, feather, reach);
+    whiten_teeth(image, &patch, &mask, amounts, tune);
+}
+
+/// Teeth from the eye and teeth parser's outlines (rawtonic-faces
+/// `portrait`): inside them, with the colour models' soft edge.
+fn retouch_parsed_teeth(
+    image: &mut Rgb32FImage,
+    teeth: &Region,
+    place: &Placement,
+    amounts: &Amounts,
+    tune: &Tuning,
+) {
+    let feather = (0.01 * place.eye_distance).max(1.0);
+    let Some(bounds) = teeth.pixel_box(feather + 1.0, image.dimensions()) else {
+        return;
+    };
+    let patch = Patch::new(image, bounds);
+    let mask: Vec<f32> = (0..patch.w * patch.h)
+        .into_par_iter()
+        .map(|k| {
+            let (x, y) = patch.centre(k);
+            teeth.coverage(x, y, feather)
+        })
+        .collect();
+    whiten_teeth(image, &patch, &mask, amounts, tune);
+}
+
+/// Teeth Brightness and Whiten on `patch` by `mask`.
+fn whiten_teeth(
+    image: &mut Rgb32FImage,
+    patch: &Patch,
+    mask: &[f32],
+    amounts: &Amounts,
+    tune: &Tuning,
+) {
     let (b, wh) = (amounts.teeth_brightness, amounts.teeth_whiten);
     let out: Vec<Option<[f32; 3]>> = (0..patch.w * patch.h)
         .into_par_iter()
@@ -1014,6 +1165,77 @@ mod tests {
                 "lips or mouth at ({x}, {y})"
             );
         }
+    }
+
+    #[test]
+    fn the_parsers_eye_opening_replaces_the_lid_outline() {
+        // The right eye's Face Mesh outline is too large; the parser's is
+        // the eye itself.
+        let (before, mut recipe) = face();
+        let opening = json!([ellipse(280.0, 100.0, 30.0, 12.0, 48)]);
+        let eye = &mut recipe["faceRetouch"]["faces"][0]["eyes"][1];
+        eye["parsedEye"] = opening.clone();
+        eye["parsedIris"] = opening;
+        let mut image = before.clone();
+        assert!(apply_face_retouch(
+            &mut image,
+            &with(recipe, json!({"iris": 100, "sclera": 100}))
+        ));
+        let (w0, w1) = (before.get_pixel(302, 100).0, image.get_pixel(302, 100).0);
+        assert!(lum(w1) > lum(w0) * 1.1, "white {w0:?} → {w1:?}");
+        let (i0, i1) = (before.get_pixel(287, 100).0, image.get_pixel(287, 100).0);
+        assert!(lum(i1) > lum(i0), "iris {i0:?} → {i1:?}");
+        // (280, 86): inside the iris circle, above the opening.
+        for (x, y) in [(280, 116), (300, 114), (250, 115), (316, 104), (280, 86)] {
+            assert!(!changed(&before, &image, x, y), "skin at ({x}, {y})");
+        }
+    }
+
+    #[test]
+    fn the_parsers_teeth_replace_the_inner_lip_outline() {
+        let (before, mut recipe) = face();
+        let entry = &mut recipe["faceRetouch"]["faces"][0];
+        // No Face Mesh mouth (it took the mouth for closed): the parser's
+        // teeth alone.
+        entry["mouth"] = Value::Null;
+        entry["parsedTeeth"] = json!([[
+            [170.0, 210.0],
+            [230.0, 210.0],
+            [230.0, 224.0],
+            [170.0, 224.0]
+        ]]);
+        let mut image = before.clone();
+        assert!(apply_face_retouch(
+            &mut image,
+            &with(recipe.clone(), json!({"teethBrightness": 100}))
+        ));
+        assert!(lum(image.get_pixel(200, 216).0) > lum(before.get_pixel(200, 216).0));
+        for (x, y) in [(200, 230), (160, 216), (200, 200), (145, 220)] {
+            assert!(
+                !changed(&before, &image, x, y),
+                "outside the teeth at ({x}, {y})"
+            );
+        }
+        // Parsed, no teeth found: the Face Mesh outline and colour models.
+        let (_, mut fallback) = face();
+        fallback["faceRetouch"]["faces"][0]["parsedTeeth"] = json!([]);
+        let (mut a, mut b) = (before.clone(), before.clone());
+        let settings = json!({"teethBrightness": 100});
+        apply_face_retouch(&mut a, &with(fallback, settings.clone()));
+        apply_face_retouch(&mut b, &with(face().1, settings));
+        assert!(a == b && changed(&before, &a, 200, 216));
+    }
+
+    #[test]
+    fn a_reduced_copy_gets_the_parsers_outlines_scaled() {
+        let (_, mut recipe) = face();
+        let face = &mut recipe["faceRetouch"]["faces"][0];
+        face["eyes"][0]["parsedEye"] = json!([[[10.0, 20.0], [30.0, 20.0], [30.0, 40.0]]]);
+        face["parsedTeeth"] = json!([[[100.0, 200.0], [140.0, 200.0], [140.0, 220.0]]]);
+        let scaled = crate::face_retouch::scaled_recipe(&recipe, 0.5);
+        let face = &scaled["faceRetouch"]["faces"][0];
+        assert_eq!(face["eyes"][0]["parsedEye"][0][2], json!([15.0, 20.0]));
+        assert_eq!(face["parsedTeeth"][0][1], json!([70.0, 100.0]));
     }
 
     #[test]
