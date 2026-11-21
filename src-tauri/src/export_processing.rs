@@ -1654,9 +1654,14 @@ fn plan_output_path(
 /// the same mask. Only components still as the export found them, in the
 /// same geometry, take it. Returns whether the recipe changed. The photo open in Develop is left
 /// to the editor, which computes and saves its own.
+///
+/// Only into a stored recipe that `accepts` (read in the same turn as the
+/// write: a recipe changed since the detection began, e.g. given AI Denoise,
+/// is checked as it is now).
 pub(crate) fn keep_detected_selections(
     path: &str,
     detected: &[rawtonic_engine::ai_selections::Detected],
+    accepts: impl Fn(&Value) -> bool,
 ) -> Result<bool, String> {
     if detected.is_empty() {
         return Ok(false);
@@ -1664,6 +1669,9 @@ pub(crate) fn keep_detected_selections(
     let (source_path, sidecar_path) = parse_virtual_path(path);
     let _turn = crate::file_management::sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
+    if !accepts(&metadata.adjustments) {
+        return Ok(false);
+    }
     // An edit still to be moved from a camera TIFF's thumbnail to its full
     // frame (`recipe_frame::conform`, done when the user saves): a bitmap of
     // the full frame in it would read as made on the full frame, so nothing
@@ -1671,16 +1679,7 @@ pub(crate) fn keep_detected_selections(
     if needs_frame_migration(&metadata.adjustments, &source_path) {
         return Ok(false);
     }
-    // Its geometry as the detection saw it: prepared for a render as the
-    // export and the queue prepare it (version keys, the resolved lens),
-    // which a never-opened recipe may not hold yet.
-    let mut frame = metadata.adjustments.clone();
-    let _ = rawtonic_export::normalize::normalize(
-        &mut frame,
-        &rawtonic_export::normalize::RecipeSource::file(&source_path),
-        rawtonic_export::normalize::Bitmaps::None,
-        rawtonic_export::normalize::Defaults::Render,
-    );
+    let frame = detection_frame(&metadata.adjustments, &source_path);
     if !rawtonic_engine::ai_selections::keep_detected_in(
         &mut metadata.adjustments,
         &frame,
@@ -1692,6 +1691,20 @@ pub(crate) fn keep_detected_selections(
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json)
         .map_err(|e| format!("the selections could not be kept: {e}"))?;
     Ok(true)
+}
+
+/// The geometry of `adjustments` as a detection saw it: prepared for a
+/// render as the export and the selection queue prepare it (version keys,
+/// the resolved lens), which a never-opened recipe may not hold yet.
+pub(crate) fn detection_frame(adjustments: &Value, source_path: &Path) -> Value {
+    let mut frame = adjustments.clone();
+    let _ = rawtonic_export::normalize::normalize(
+        &mut frame,
+        &rawtonic_export::normalize::RecipeSource::file(source_path),
+        rawtonic_export::normalize::Bitmaps::None,
+        rawtonic_export::normalize::Defaults::Render,
+    );
+    frame
 }
 
 /// Whether `adjustments` is an edit of a camera TIFF still made on its
@@ -2004,7 +2017,15 @@ fn export_photo(
         )
         .map_err(|e| format!("{source_path_str}: not exported, {e}"))?;
         ensure_export_not_cancelled(cancellation_token)?;
-        if !is_current_edit && let Err(e) = keep_detected_selections(image_path_str, &detected) {
+        // Only into a recipe still developed with the AI Denoise the
+        // selections were computed on (one pasted onto it while this export
+        // waited detects again on its own decode).
+        let detected_with = rawtonic_engine::image_loader::ai_denoise_settings(&js_adjustments);
+        if !is_current_edit
+            && let Err(e) = keep_detected_selections(image_path_str, &detected, |now| {
+                rawtonic_engine::image_loader::ai_denoise_settings(now) == detected_with
+            })
+        {
             // The export stands; its next export computes them again.
             log::warn!("Export: keeping the AI selections of {image_path_str} failed: {e}");
         }
