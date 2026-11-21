@@ -267,7 +267,7 @@ fn add_keeps_sidecar_digest_for_the_normal_later_sync() {
 }
 
 #[test]
-fn independent_same_stem_photos_keep_metadata_pending_and_report_xmp_conflict() {
+fn independent_same_stem_photos_each_write_their_own_xmp() {
     let d = tempfile::tempdir().unwrap();
     let raw = d.path().join("source.NEF");
     let jpeg = d.path().join("source.JPG");
@@ -306,14 +306,16 @@ fn independent_same_stem_photos_keep_metadata_pending_and_report_xmp_conflict() 
             "Creator"
         );
     }
-    assert!(
-        results[1]
-            .warning
-            .as_ref()
-            .unwrap()
-            .contains("pair resolution")
-    );
-    assert_eq!(lib.summary().unwrap().xmp_pending, 1);
+    // The RAW's is `source.xmp`, the JPEG's `source.JPG.xmp`: neither
+    // takes the other's.
+    assert!(results.iter().all(|r| r.warning.is_none()), "{results:?}");
+    let sidecars: Vec<_> = results
+        .iter()
+        .map(|r| r.sidecar.clone().unwrap().file_name().unwrap().to_owned())
+        .collect();
+    assert_eq!(sidecars, ["source.xmp", "source.JPG.xmp"]);
+    assert!(results.iter().all(|r| r.sidecar.as_ref().unwrap().is_file()));
+    assert_eq!(lib.summary().unwrap().xmp_pending, 0);
 }
 
 #[test]
