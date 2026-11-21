@@ -192,9 +192,9 @@ const EFFECT_TERMS_DECLARATIONS: &str = "override EFFECT_TERMS: bool = false;\n\
      @group(0) @binding(30) var halation_terms_out: texture_storage_2d<rgba32float, write>;\n\
      @group(0) @binding(31) var glow_terms: texture_2d<f32>;\n\
      @group(0) @binding(32) var halation_terms: texture_2d<f32>;\n\
-     // A drag's frame (detail_cache.z, G76/GRN3): the terms once per 2 x 2\n\
-     // pixels of the photo (blocks of absolute coordinates), stored and read\n\
-     // at the block's index in the tile.\n\
+     // A drag's frame (detail_cache.z, G76/GRN3, GRN4): the terms once per\n\
+     // block of 2 x 2 or 4 x 4 pixels of the photo (z is the shift; blocks of\n\
+     // absolute coordinates), stored and read at the block's index in the tile.\n\
      // The grain field pass and the finish pass that reads it (`FILM_GRAIN_EDITS`).\n\
      override GRAIN_FIELD_PASS: bool = false;\n\
      override GRAIN_FROM_FIELD: bool = false;\n\
@@ -205,18 +205,27 @@ const EFFECT_TERMS_DECLARATIONS: &str = "override EFFECT_TERMS: bool = false;\n\
      // The 2 x 2 block (of absolute coordinates) of tile pixel `p`, at its\n\
      // index in the tile.\n\
      fn block_index(p: vec2<u32>) -> vec2<u32> {\n    \
-     return ((p + tile_offset()) >> vec2<u32>(1u)) - (tile_offset() >> vec2<u32>(1u));\n}\n\
+     return block_index_of(p, 1u);\n}\n\
+     // The same for blocks of `1 << shift` pixels.\n\
+     fn block_index_of(p: vec2<u32>, shift: u32) -> vec2<u32> {\n    \
+     return ((p + tile_offset()) >> vec2<u32>(shift)) - (tile_offset() >> vec2<u32>(shift));\n}\n\
      fn terms_half() -> bool {\n    \
      return adjustments.detail_cache.z != 0u;\n}\n\
      fn terms_index(p: vec2<u32>) -> vec2<u32> {\n    \
      if (!terms_half()) { return p; }\n    \
-     return block_index(p);\n}\n\
-     // A pass over 2 x 2 blocks: invocation `p` is the block at that index\n\
+     return block_index_of(p, adjustments.detail_cache.z);\n}\n\
+     // A pass over blocks: invocation `p` is the block at that index\n\
      // in the tile, at its first pixel in the tile.\n\
      fn terms_pixel(p: vec2<u32>) -> vec3<u32> {\n    \
      if (!((EFFECT_TERMS_PASS && terms_half()) || GRAIN_FIELD_PASS)) { return vec3<u32>(p, 0u); }\n    \
-     let first = (p + (tile_offset() >> vec2<u32>(1u))) * 2u;\n    \
-     return vec3<u32>(max(first, tile_offset()) - tile_offset(), 0u);\n}\n";
+     // The grain field's blocks are 2 x 2.\n    \
+     let shift = select(adjustments.detail_cache.z, 1u, GRAIN_FIELD_PASS);\n    \
+     let first = (p + (tile_offset() >> vec2<u32>(shift))) << vec2<u32>(shift);\n    \
+     // A 4 x 4 block's terms at its pixel (1, 1), the nearest to its centre\n    \
+     // (G76/GRN4; from the first pixel the drag frame's mean shift doubled),\n    \
+     // within the photo. The terms read no pixel the main pass renders.\n    \
+     let at = min(first + vec2<u32>(select(0u, 1u, shift > 1u)), vec2<u32>(input_dims()) - vec2<u32>(1u));\n    \
+     return vec3<u32>(max(at, tile_offset()) - tile_offset(), 0u);\n}\n";
 
 /// shader.wgsl's text (after `with_effects_apart`) and what the display
 /// source of a processor with effect passes writes instead, each found
@@ -227,7 +236,7 @@ const EFFECT_TERMS_DECLARATIONS: &str = "override EFFECT_TERMS: bool = false;\n\
 /// are, so the terms pass and a main pass reading its Rgba32Float textures
 /// compute what one pass did.
 const EFFECT_TERMS_EDITS: [(&str, &str); 5] = [
-    // The terms pass of a drag's frame (`terms_pixel`) works on 2 x 2
+    // The terms pass of a drag's frame (`terms_pixel`) works on
     // blocks: each invocation is one block, at the block's first pixel in
     // the tile.
     (
