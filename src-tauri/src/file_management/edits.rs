@@ -624,6 +624,7 @@ fn cloud_gate(
 /// `base` (a photograph's recipe) with `adjustments` pasted as
 /// `apply_adjustments_to_paths` pastes them (`pasted_metadata`); the editor's
 /// `pasteInto` pastes onto the open photograph by the same rules.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn pasted_into(
     base: Value,
