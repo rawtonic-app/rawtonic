@@ -2596,15 +2596,33 @@ mod decode_identity_tests {
         let image = Arc::new(DynamicImage::new_rgb32f(2, 2));
         let settle = |denoise: Option<&_>, settings: &AppSettings, key: &str| {
             let stands_in = skipped_stands_in(settings);
-            settle_decode(&develop, denoise, stands_in, key, &image, &HashMap::new(), None)
+            settle_decode(
+                &develop,
+                denoise,
+                stands_in,
+                key,
+                &image,
+                &HashMap::new(),
+                None,
+            )
         };
-        let cached = |key: &str| develop.decoded_image_cache.lock().unwrap().get(key).is_some();
+        let cached = |key: &str| {
+            develop
+                .decoded_image_cache
+                .lock()
+                .unwrap()
+                .get(key)
+                .is_some()
+        };
 
         let skipped = denoise();
         let off = AppSettings::default();
         let outcome = settle(Some(&skipped), &off, "skipped").unwrap();
         assert_eq!(outcome.error, NOT_BAYER);
-        assert!(!outcome.stands_in, "without Apple RAW 9 rawler is the plain decode");
+        assert!(
+            !outcome.stands_in,
+            "without Apple RAW 9 rawler is the plain decode"
+        );
         assert!(!cached("skipped"));
 
         let apple = settings_with(|s| s.use_apple_raw9 = Some(true));

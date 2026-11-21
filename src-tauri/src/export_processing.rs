@@ -170,7 +170,8 @@ fn reusable_for_export(
     settings: &crate::app_settings::AppSettings,
 ) -> bool {
     loaded.decode == Some(crate::image_loader::decode_variant(adjustments, source))
-        && loaded.decoder.as_deref() == Some(crate::image_loader::decode_preferences(settings).as_str())
+        && loaded.decoder.as_deref()
+            == Some(crate::image_loader::decode_preferences(settings).as_str())
         && loaded.ai_denoise
             == rawtonic_engine::image_loader::ai_denoise_settings(adjustments)
                 .filter(|_| loaded.is_raw)
@@ -1915,7 +1916,9 @@ fn export_photo(
                 // Developed for the decode variant and the AI Denoise
                 // exported: the open photograph's may have changed since
                 // this export was queued.
-                .filter(|loaded| reusable_for_export(loaded, &js_adjustments, &source_path_str, settings))
+                .filter(|loaded| {
+                    reusable_for_export(loaded, &js_adjustments, &source_path_str, settings)
+                })
                 .map(|loaded| (Arc::clone(&loaded.image), loaded.measures))
         } else {
             None
@@ -2975,7 +2978,12 @@ mod tests {
             measures: None,
         };
         let queued = recipe(50.0, 4);
-        assert!(reusable_for_export(&open(&queued, true), &queued, source, &settings));
+        assert!(reusable_for_export(
+            &open(&queued, true),
+            &queued,
+            source,
+            &settings
+        ));
         for changed in [
             recipe(0.0, 4),
             recipe(30.0, 4),
@@ -2986,7 +2994,12 @@ mod tests {
                 !reusable_for_export(&open(&changed, true), &queued, source, &settings),
                 "open at {changed}, export queued at {queued}"
             );
-            assert!(!reusable_for_export(&open(&queued, true), &changed, source, &settings));
+            assert!(!reusable_for_export(
+                &open(&queued, true),
+                &changed,
+                source,
+                &settings
+            ));
         }
         // An export develops the stored amount whether the photograph is
         // open or not: an old fine drag's 50.4 is not the open 50.
@@ -3003,17 +3016,32 @@ mod tests {
             decoder: None,
             ..open(&queued, true)
         };
-        assert!(!reusable_for_export(&undenoised, &queued, source, &settings));
+        assert!(!reusable_for_export(
+            &undenoised,
+            &queued,
+            source,
+            &settings
+        ));
         // Without AI Denoise either way the pixels are the same.
         let off = recipe(0.0, 4);
-        assert!(reusable_for_export(&open(&off, true), &off, source, &settings));
+        assert!(reusable_for_export(
+            &open(&off, true),
+            &off,
+            source,
+            &settings
+        ));
         // Other formats never run it: the slider does not matter.
         let tiff = LoadedImage {
             path: "/no-such-dir/open.tif".to_string(),
             decode: Some(decode_variant(&queued, "/no-such-dir/open.tif")),
             ..open(&queued, false)
         };
-        assert!(reusable_for_export(&tiff, &queued, "/no-such-dir/open.tif", &settings));
+        assert!(reusable_for_export(
+            &tiff,
+            &queued,
+            "/no-such-dir/open.tif",
+            &settings
+        ));
         // The open pixels were decoded under other preferences (linear RAW
         // mode, preprocessing, Apple RAW 9): the export decodes afresh.
         let open_now = open(&queued, true);

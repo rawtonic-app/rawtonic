@@ -357,6 +357,8 @@ describe('a sensor AI Denoise skipped, with Apple RAW 9 on', () => {
 
   it('is developed again for another amount, then plain once developed', () => {
     expect(aiDenoiseToApply(skipped, { aiDenoise: 70, aiDenoiseVersion: 4 }, false)).toBe(70);
-    expect(aiDenoiseToApply({ ...skipped, aiDenoiseStandIn: false }, { aiDenoise: 0, aiDenoiseVersion: 4 }, false)).toBeNull();
+    expect(
+      aiDenoiseToApply({ ...skipped, aiDenoiseStandIn: false }, { aiDenoise: 0, aiDenoiseVersion: 4 }, false)
+    ).toBeNull();
   });
 });
