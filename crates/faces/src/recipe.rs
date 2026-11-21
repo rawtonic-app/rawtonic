@@ -9,6 +9,8 @@ use image::{DynamicImage, GrayImage, ImageFormat, RgbImage};
 use rayon::prelude::*;
 
 use crate::FaceAnalysis;
+use crate::eye_teeth::EyeTeeth;
+use crate::portrait::{Parsed, PortraitModel};
 
 /// The photo as displayed, 8-bit sRGB: what the networks were trained on.
 /// `linear`: the image is a linear RAW decode.
@@ -52,11 +54,30 @@ fn png_data_url(image: &GrayImage) -> Result<String, String> {
 /// mask frame (oriented, straightened, geometry corrected, not cropped):
 /// crop, weights, eye distance, blemishes, eyes and mouth for the render
 /// (rawtonic-engine `face_retouch`), and the face box and a small thumbnail
-/// for the panel.
+/// for the panel. With `portrait` the eye and teeth parser's outlines too
+/// (`parsedEye`, `parsedIris` per eye it found, `parsedTeeth` on every face,
+/// empty where Face Mesh's outlines stay; `portrait`).
 pub fn retouch_faces(
     image: &RgbImage,
     analysis: &FaceAnalysis,
+    portrait: Option<&PortraitModel>,
 ) -> Result<Vec<serde_json::Value>, String> {
+    let features: Vec<EyeTeeth> = analysis
+        .faces
+        .par_iter()
+        .map(|face| crate::eye_teeth::eye_teeth(image, face))
+        .collect();
+    // One face at a time: the network is large and runs on all cores.
+    let parsed: Vec<Option<Parsed>> = match portrait {
+        Some(model) => analysis
+            .faces
+            .iter()
+            .zip(&features)
+            .map(|(face, features)| crate::portrait::parse(model, image, face, features).map(Some))
+            .collect::<anyhow::Result<_>>()
+            .map_err(|e| format!("{e:#}"))?,
+        None => vec![None; analysis.faces.len()],
+    };
     (0..analysis.faces.len())
         .into_par_iter()
         .map(|index| {
@@ -76,8 +97,32 @@ pub fn retouch_faces(
                     .map(|q| [round(q[0]), round(q[1])])
                     .collect::<Vec<_>>()
             };
-            let features = crate::eye_teeth::eye_teeth(image, face);
-            Ok(Some(serde_json::json!({
+            let features = &features[index];
+            let parsed = parsed[index].as_ref();
+            let loops = |l: &[Vec<[f32; 2]>]| l.iter().map(|p| points(p)).collect::<Vec<_>>();
+            let eyes: Vec<serde_json::Value> = features
+                .eyes
+                .iter()
+                .enumerate()
+                .map(|(side, e)| {
+                    let Some(e) = e else {
+                        return serde_json::Value::Null;
+                    };
+                    let mut eye = serde_json::json!({
+                        "iris": e.iris.map(round),
+                        "lid": points(&e.lid),
+                    });
+                    if let Some(p) = parsed
+                        .and_then(|p| p.eyes.get(side))
+                        .and_then(Option::as_ref)
+                    {
+                        eye["parsedEye"] = serde_json::json!(loops(&p.eye));
+                        eye["parsedIris"] = serde_json::json!(loops(&p.iris));
+                    }
+                    eye
+                })
+                .collect();
+            let mut entry = serde_json::json!({
                 "id": format!("face-{}", index + 1),
                 "crop": [c.a as f64, c.b as f64, c.c as f64, c.d as f64, c.e as f64, c.f as f64],
                 "size": crate::retouch::WEIGHT_SIZE,
@@ -90,10 +135,7 @@ pub fn retouch_faces(
                     "score": (b.score as f64 * 1000.0).round() / 1000.0,
                     "neck": b.neck,
                 })).collect::<Vec<_>>(),
-                "eyes": features.eyes.iter().map(|e| e.as_ref().map(|e| serde_json::json!({
-                    "iris": e.iris.map(round),
-                    "lid": points(&e.lid),
-                }))).collect::<Vec<_>>(),
+                "eyes": eyes,
                 "mouth": features.mouth.as_deref().map(points),
                 "kept": [],
                 "added": [],
@@ -101,7 +143,11 @@ pub fn retouch_faces(
                 "enabled": true,
                 "box": face.detection.bbox.map(round),
                 "thumbnail": data_url(jpeg.get_ref(), "image/jpeg"),
-            })))
+            });
+            if let Some(p) = parsed {
+                entry["parsedTeeth"] = serde_json::json!(loops(&p.teeth));
+            }
+            Ok(Some(entry))
         })
         .collect::<Result<Vec<_>, String>>()
         .map(|faces| faces.into_iter().flatten().collect())

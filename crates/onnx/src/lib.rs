@@ -146,6 +146,8 @@ pub enum ModelKind {
     FaceMesh,
     /// MediaPipe multiclass selfie segmentation.
     FaceParser,
+    /// EasyPortrait FPN face parsing (the face retouch's eyes and teeth).
+    EyesTeeth,
     /// Moebius's UNet (large-hole removal).
     MoebiusUnet,
     /// The SDXL VAE's encoder (Moebius).
@@ -157,7 +159,7 @@ pub enum ModelKind {
 }
 
 impl ModelKind {
-    pub const ALL: [ModelKind; 19] = [
+    pub const ALL: [ModelKind; 20] = [
         ModelKind::Subject,
         ModelKind::SamEncoder,
         ModelKind::SamDecoder,
@@ -173,6 +175,7 @@ impl ModelKind {
         ModelKind::FaceDetector,
         ModelKind::FaceMesh,
         ModelKind::FaceParser,
+        ModelKind::EyesTeeth,
         ModelKind::MoebiusUnet,
         ModelKind::MoebiusEncoder,
         ModelKind::MoebiusDecoder,
@@ -196,6 +199,7 @@ impl ModelKind {
             ModelKind::FaceDetector => "face-detector",
             ModelKind::FaceMesh => "face-mesh",
             ModelKind::FaceParser => "face-parser",
+            ModelKind::EyesTeeth => "eyes-teeth",
             ModelKind::MoebiusUnet => "moebius-unet",
             ModelKind::MoebiusEncoder => "moebius-encoder",
             ModelKind::MoebiusDecoder => "moebius-decoder",
@@ -211,7 +215,7 @@ impl ModelKind {
 
     /// The model a file of the model pack holds, by its name.
     pub fn from_file_name(name: &str) -> Option<Self> {
-        const PREFIXES: [(&str, ModelKind); 19] = [
+        const PREFIXES: [(&str, ModelKind); 20] = [
             ("birefnet", ModelKind::Subject),
             ("sam2.1_tiny_encoder", ModelKind::SamEncoder),
             ("sam2.1_tiny_decoder", ModelKind::SamDecoder),
@@ -227,6 +231,7 @@ impl ModelKind {
             ("face_detection", ModelKind::FaceDetector),
             ("face_mesh", ModelKind::FaceMesh),
             ("selfie_multiclass", ModelKind::FaceParser),
+            ("easyportrait", ModelKind::EyesTeeth),
             ("moebius_unet", ModelKind::MoebiusUnet),
             ("sdxl_vae_encoder", ModelKind::MoebiusEncoder),
             ("sdxl_vae_decoder", ModelKind::MoebiusDecoder),

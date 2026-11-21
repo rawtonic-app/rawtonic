@@ -2176,6 +2176,7 @@
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "얼굴 리터치용 눈 영역과 치아(SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). 변경: ONNX와 Core ML로 변환, CC BY-SA 4.0으로 공개.",
         "Jiff / Unicode CLDR": "Windows 표준 시간대 이름과 IANA 식별자의 매핑.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -3795,9 +3796,11 @@
       },
       "downloadModels": "얼굴 모델 다운로드",
       "eyes": {
+        "downloadModel": "눈·치아 모델 다운로드",
         "find": "눈과 치아 찾기",
         "finding": "눈과 치아 찾는 중…",
         "missing": "눈과 치아 도구에는 이 도구가 생기기 전에 찾은 얼굴의 눈과 입이 필요합니다.",
+        "modelMissing": "눈과 치아에는 눈·치아 모델(57MB)이 필요합니다. GitHub의 Rawtonic 모델 팩에서 한 번 내려받으며 이 컴퓨터에서 실행됩니다.",
         "none": "이 얼굴에서 눈이나 벌린 입을 찾지 못했습니다.",
         "sideAria": "눈",
         "sideHint": {

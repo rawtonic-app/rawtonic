@@ -2405,6 +2405,7 @@
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Ouvertures des yeux et dents pour la retouche du visage (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Modifié : converti en ONNX et Core ML, publié sous CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Correspondance entre les noms de fuseaux horaires Windows et les identifiants IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -4069,9 +4070,11 @@
       },
       "downloadModels": "Télécharger les modèles de visage",
       "eyes": {
+        "downloadModel": "Télécharger le modèle des yeux et des dents",
         "find": "Trouver les yeux et les dents",
         "finding": "Recherche des yeux et des dents…",
         "missing": "Yeux et Dents ont besoin des yeux et de la bouche de ces visages, trouvés avant l’existence de ces outils.",
+        "modelMissing": "Yeux et Dents utilisent un modèle des yeux et des dents (57 Mo). Il est téléchargé une fois depuis le pack de modèles de Rawtonic sur GitHub et s'exécute sur cet ordinateur.",
         "none": "Aucun œil ni bouche ouverte trouvé sur ce visage.",
         "sideAria": "Œil",
         "sideHint": {
