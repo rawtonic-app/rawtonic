@@ -58,7 +58,7 @@ pub use rawtonic_metadata::provenance::{
 /// The AI Denoise version new edits get (`aiDenoiseVersion`; recipes
 /// without the key are version 1): 5, the mixed-precision model (in the
 /// model pack since pack-2026-10-18) with the sensor's local means kept and
-/// slider 50 at Camera Raw Denoise 50's strength.
+/// a stronger slider 50 (`V5_SCALE_AT_50`).
 pub const AI_DENOISE_VERSION: u8 = 5;
 
 /// How a recipe's AI Denoise develops the mosaic.
@@ -95,9 +95,7 @@ const V2_SCALE_AT_100: f32 = 1.25;
 /// scale fitted on five of them (sharpening 0 and 40). On the five held
 /// out: flat-area noise 1.30× / 1.13× Camera Raw's at sharpening 0 / 40
 /// (version 4: 2.42× / 2.02×), lightness error 1.29× / 1.15× (1.71× /
-/// 1.68×), finest detail kept 0.97× / 0.99×; on seven other scenes against
-/// Camera Raw 18.7 Denoise 50 (sharpening 40): flat noise 1.03 vs 1.30,
-/// lightness error 2.01 vs 2.05, finest detail 0.739 vs 0.778 (notes:
+/// 1.68×), finest detail kept 0.97× / 0.99× (notes:
 /// benchmark-results/dnz1-2026-11-19). Slider 100 stays at
 /// `V2_SCALE_AT_100`, about Capture One Enhanced Denoise 50's strength.
 const V5_SCALE_AT_50: f32 = 0.955;

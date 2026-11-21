@@ -1112,10 +1112,7 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   (sharpening 0 and 40). Held out (five frames, sharpening 0 / 40, medians
   of Rawtonic / Camera Raw): flat-area noise 1.30 / 1.13 (version 4 2.42 /
   2.02), lightness error 1.29 / 1.15 (1.71 / 1.68), finest detail 0.97 /
-  0.99, colour error 0.92. Seven other RawNIND scenes against Camera Raw
-  18.7 Denoise 50 (sharpening 40, geometric means): flat noise 1.03 vs
-  1.30, lightness error 2.01 vs 2.05, finest detail 0.739 vs 0.778 (version
-  4: 1.72 / 2.65 / 0.763). Capture One 16.9.1 Enhanced Denoise 50 is
+  0.99, colour error 0.92. Capture One 16.9.1 Enhanced Denoise 50 is
   stronger still (flat noise 0.51 at sharpening 0; equal for Rawtonic at a
   scale of about 1.2, i.e. slider ≈ 95). At equal flat noise Rawtonic's
   lightness error stays +6 % / +4 % above Camera Raw's, finest detail
