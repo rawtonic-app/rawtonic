@@ -3798,6 +3798,9 @@
       },
       "downloadModels": "Download face models",
       "eyes": {
+        "find": "Find eyes and teeth",
+        "finding": "Finding eyes and teeth…",
+        "missing": "Eyes and Teeth need the eyes and mouth of these faces, which were found before these tools existed.",
         "none": "No eyes or open mouth found on this face.",
         "sideAria": "Eye",
         "sideHint": {

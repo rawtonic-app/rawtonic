@@ -3798,6 +3798,9 @@
       },
       "downloadModels": "Gesichtsmodelle laden",
       "eyes": {
+        "find": "Augen und Zähne finden",
+        "finding": "Augen und Zähne werden gefunden…",
+        "missing": "Augen und Zähne brauchen Augen und Mund dieser Gesichter; sie wurden gefunden, bevor es diese Werkzeuge gab.",
         "none": "Auf diesem Gesicht wurden keine Augen und kein offener Mund gefunden.",
         "sideAria": "Auge",
         "sideHint": {

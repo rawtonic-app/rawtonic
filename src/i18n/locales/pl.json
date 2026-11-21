@@ -4123,6 +4123,9 @@
       },
       "downloadModels": "Pobierz modele twarzy",
       "eyes": {
+        "find": "Znajdź oczy i zęby",
+        "finding": "Szukanie oczu i zębów…",
+        "missing": "Oczy i Zęby wymagają oczu i ust tych twarzy, znalezionych, zanim te narzędzia istniały.",
         "none": "Na tej twarzy nie znaleziono oczu ani otwartych ust.",
         "sideAria": "Oko",
         "sideHint": {

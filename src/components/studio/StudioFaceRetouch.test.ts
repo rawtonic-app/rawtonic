@@ -9,6 +9,8 @@ import {
   blemishThreshold,
   eyeChange,
   eyeValue,
+  eyesSwapped,
+  swapSides,
   faceRetouchGeometry,
   removedBlemishes,
   withEyesAndMouth
@@ -119,5 +121,35 @@ describe('eyes and teeth', () => {
     expect(String(EYES_TEETH_VERSION)).toBe(
       eyeTeeth.match(/pub const EYES_TEETH_VERSION: u64 = (\d+);/)?.[1] ?? 'missing'
     );
+  });
+});
+
+describe('eye sides through a flip', () => {
+  const face = (left: number, right: number): RetouchFace =>
+    ({
+      id: 'f',
+      box: [0, 0, 100, 100],
+      settings: {},
+      eyes: [
+        { iris: [left, 50, 5], lid: [] },
+        { iris: [right, 50, 5], lid: [] }
+      ]
+    }) as unknown as RetouchFace;
+  const plain = { rotation: 0, flipHorizontal: false, flipVertical: false, orientationSteps: 0 };
+
+  it('finds the eye on the left on the right after a horizontal flip', () => {
+    const sides = { from: plain, to: { ...plain, flipHorizontal: true }, width: 200, height: 100 };
+    // Mirrored: the eye at x 40 is at 160, the one at 80 at 120.
+    expect(eyesSwapped(face(40, 80), face(120, 160), sides)).toBe(true);
+    expect(eyesSwapped(face(40, 80), face(40, 80), { ...sides, to: plain })).toBe(false);
+  });
+
+  it('exchanges only the left and right values', () => {
+    expect(swapSides({ iris: 20, irisLeft: 30, scleraRight: -10, teethWhiten: 5 })).toEqual({
+      iris: 20,
+      irisRight: 30,
+      scleraLeft: -10,
+      teethWhiten: 5
+    });
   });
 });

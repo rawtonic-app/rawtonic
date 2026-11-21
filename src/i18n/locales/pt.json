@@ -3961,6 +3961,9 @@
       },
       "downloadModels": "Transferir modelos de rosto",
       "eyes": {
+        "find": "Encontrar olhos e dentes",
+        "finding": "A encontrar olhos e dentes…",
+        "missing": "Olhos e Dentes precisam dos olhos e da boca destes rostos, encontrados antes de estas ferramentas existirem.",
         "none": "Nenhum olho ou boca aberta encontrado neste rosto.",
         "sideAria": "Olho",
         "sideHint": {

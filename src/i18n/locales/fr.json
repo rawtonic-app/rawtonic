@@ -3961,6 +3961,9 @@
       },
       "downloadModels": "Télécharger les modèles de visage",
       "eyes": {
+        "find": "Trouver les yeux et les dents",
+        "finding": "Recherche des yeux et des dents…",
+        "missing": "Yeux et Dents ont besoin des yeux et de la bouche de ces visages, trouvés avant l’existence de ces outils.",
         "none": "Aucun œil ni bouche ouverte trouvé sur ce visage.",
         "sideAria": "Œil",
         "sideHint": {

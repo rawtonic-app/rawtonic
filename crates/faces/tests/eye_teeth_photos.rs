@@ -2,8 +2,9 @@
 //! Writes what the face retouch's Eyes and Teeth act on in real photos: per
 //! photo a JSON file with each face's eyes (lid opening, Face Mesh's iris
 //! circle and the fitted one) and mouth outline, in photo pixels, for the
-//! measurement scripts. Ignored: needs `FACE_MODELS`, `FACE_PHOTOS`,
-//! `FACE_OUT` and `ORT_DYLIB_PATH` (see real_photos.rs).
+//! measurement scripts (never overwriting a file there). Ignored: needs
+//! `FACE_MODELS`, `FACE_PHOTOS`, `FACE_OUT` and `ORT_DYLIB_PATH` (see
+//! real_photos.rs).
 //!
 //! cargo test -p rawtonic-faces --release --test eye_teeth_photos -- --ignored --nocapture
 
@@ -77,13 +78,23 @@ fn writes_eye_teeth_geometry_of_real_photos() {
             })
             .collect();
         println!("{name}: {} face(s)", faces.len());
-        std::fs::write(
-            out.join(format!("{name}.json")),
-            serde_json::to_string(&serde_json::json!({
+        // Published without overwriting: an earlier run's file (or another
+        // photo with the same name) stays, and the run says so.
+        let path = out.join(format!("{name}.json"));
+        let mut temp = tempfile::NamedTempFile::new_in(&out).unwrap();
+        serde_json::to_writer(
+            &mut temp,
+            &serde_json::json!({
                 "width": image.width(), "height": image.height(), "faces": faces,
-            }))
-            .unwrap(),
+            }),
         )
         .unwrap();
+        temp.as_file().sync_all().unwrap();
+        if let Err(error) = rawtonic_fs::no_clobber::persist(temp, &path) {
+            panic!(
+                "{}: not written ({error}); use an empty FACE_OUT",
+                path.display()
+            );
+        }
     }
 }

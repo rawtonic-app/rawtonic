@@ -3961,6 +3961,9 @@
       },
       "downloadModels": "Descargar modelos de rostro",
       "eyes": {
+        "find": "Buscar ojos y dientes",
+        "finding": "Buscando ojos y dientes…",
+        "missing": "Ojos y Dientes necesitan los ojos y la boca de estas caras, encontradas antes de que existieran estas herramientas.",
         "none": "No se han encontrado ojos ni boca abierta en esta cara.",
         "sideAria": "Ojo",
         "sideHint": {

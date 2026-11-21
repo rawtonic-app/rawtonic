@@ -119,6 +119,22 @@ impl Outline {
         Some(Self { points, min, max })
     }
 
+    /// Unit vector between the outline's two farthest points (an eye's
+    /// corners); (1, 0) for a degenerate outline.
+    fn axis(&self) -> [f32; 2] {
+        let mut best = (0.0f32, [1.0f32, 0.0]);
+        for (i, a) in self.points.iter().enumerate() {
+            for b in &self.points[i + 1..] {
+                let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+                let d = dx.hypot(dy);
+                if d > best.0 {
+                    best = (d, [dx / d, dy / d]);
+                }
+            }
+        }
+        best.1
+    }
+
     fn centroid(&self) -> [f32; 2] {
         let n = self.points.len() as f32;
         let (sx, sy) = self
@@ -406,6 +422,7 @@ fn blend(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 /// skin by colour models sampled from this eye: the white beside the iris
 /// at its height, the iris ring, and the skin just outside the outline.
 fn eye_masks(patch: &Patch, lid: &Outline, (cx, cy, r): (f32, f32, f32)) -> (Vec<f32>, Vec<f32>) {
+    let [ux, uy] = lid.axis();
     let n = patch.w * patch.h;
     let feature: Vec<[f32; 3]> = patch.rgb.par_iter().map(|&p| features(p)).collect();
     let sd: Vec<f32> = (0..n)
@@ -425,11 +442,13 @@ fn eye_masks(patch: &Patch, lid: &Outline, (cx, cy, r): (f32, f32, f32)) -> (Vec
     let pick =
         |test: &dyn Fn(usize) -> bool| -> Vec<usize> { (0..n).filter(|&k| test(k)).collect() };
     let of = |seeds: &[usize]| Class::of(&seeds.iter().map(|&k| feature[k]).collect::<Vec<_>>());
-    // Beside the iris at its height, well inside the outline: mostly eye
+    // Beside the iris along the eye (corner to corner, so a tilted head or
+    // a turned photo is the same), well inside the outline: mostly eye
     // white; its lighter half (no lashes or corner shadow).
     let mut white_seeds = pick(&|k| {
-        let (_, y) = patch.centre(k);
-        sd[k] < -0.08 * r && dc[k] > 1.15 * r && dc[k] < 1.9 * r && (y - cy).abs() < 0.35 * r
+        let (x, y) = patch.centre(k);
+        let across = ((x - cx) * uy - (y - cy) * ux).abs();
+        sd[k] < -0.08 * r && dc[k] > 1.15 * r && dc[k] < 1.9 * r && across < 0.35 * r
     });
     white_seeds.sort_by(|&a, &b| feature[a][0].total_cmp(&feature[b][0]));
     let white_seeds = white_seeds.split_off(white_seeds.len() / 2);
@@ -899,6 +918,51 @@ mod tests {
         for (x, y) in [(280, 116), (300, 114), (250, 115), (316, 104)] {
             assert!(!changed(&before, &image, x, y), "skin at ({x}, {y})");
         }
+    }
+
+    /// `face()` turned a quarter: the eyes one above the other.
+    fn turned_face() -> (Rgb32FImage, Value) {
+        let (image, mut recipe) = face();
+        let turned = Rgb32FImage::from_fn(300, 400, |x, y| *image.get_pixel(y, x));
+        let swap = |v: &mut Value| {
+            if let Some(p) = v.as_array_mut()
+                && p.len() >= 2
+            {
+                p.swap(0, 1);
+            }
+        };
+        let face = &mut recipe["faceRetouch"]["faces"][0];
+        for eye in face["eyes"].as_array_mut().unwrap() {
+            swap(&mut eye["iris"]);
+            for p in eye["lid"].as_array_mut().unwrap() {
+                swap(p);
+            }
+        }
+        for p in face["mouth"].as_array_mut().unwrap() {
+            swap(p);
+        }
+        (turned, recipe)
+    }
+
+    #[test]
+    fn a_turned_face_gets_its_eye_whites() {
+        let (before, recipe) = turned_face();
+        let mut image = before.clone();
+        apply_face_retouch(&mut image, &with(recipe, json!({"sclera": 100})));
+        for cy in [120, 280] {
+            let (w0, w1) = (
+                before.get_pixel(100, cy + 22).0,
+                image.get_pixel(100, cy + 22).0,
+            );
+            assert!(
+                lum(w1) > lum(w0) * 1.1,
+                "white beside the iris at y {cy}: {w0:?} → {w1:?}"
+            );
+        }
+        assert!(
+            !changed(&before, &image, 116, 280),
+            "skin beside the lower eye"
+        );
     }
 
     #[test]

@@ -3961,6 +3961,9 @@
       },
       "downloadModels": "Scarica i modelli del viso",
       "eyes": {
+        "find": "Trova occhi e denti",
+        "finding": "Ricerca di occhi e denti…",
+        "missing": "Occhi e Denti richiedono occhi e bocca di questi volti, trovati prima che esistessero questi strumenti.",
         "none": "Nessun occhio né bocca aperta trovati in questo volto.",
         "sideAria": "Occhio",
         "sideHint": {

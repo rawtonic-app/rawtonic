@@ -79,7 +79,7 @@ describe('face retouch frames', () => {
 });
 
 describe('eyes and teeth on faces found before them', () => {
-  it('finds the faces again only when an Eyes slider moves, then fills in eyes and mouth', async () => {
+  it('waits for the user to find the eyes and mouth, then stores them with the faces', async () => {
     const eyes = [
       {
         iris: [5, 5, 2],
@@ -105,50 +105,20 @@ describe('eyes and teeth on faces found before them', () => {
     });
     render(<StudioFaceRetouch onInteraction={() => {}} />);
     await new Promise((resolve) => setTimeout(resolve, 20));
+    // Opening the tool runs nothing; the sliders wait.
     expect(invoke).not.toHaveBeenCalled();
+    expect((screen.getByRole('slider', { name: 'Iris (Both)' }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole('slider', { name: 'Teeth whiten' }) as HTMLInputElement).disabled).toBe(true);
 
-    const iris = screen.getByRole('slider', { name: 'Iris (Both)' });
-    fireEvent.change(iris, { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Find eyes and teeth' }));
     await waitFor(() => expect(useEditorStore.getState().adjustments.faceRetouch?.faces[0].eyes).toEqual(eyes));
-    const stored = useEditorStore.getState().adjustments.faceRetouch!;
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(invoke.mock.calls[0][1]).toMatchObject({ download: false });
-    expect(stored.settings).toMatchObject({ blemishes: 40, iris: 30 });
-    expect(stored.eyesTeethVersion).toBe(1);
-    // The face's own data stays.
+    const stored = useEditorStore.getState().adjustments.faceRetouch!;
     expect(stored.faces[0]).toMatchObject({ kept: [3], mouth: null });
-  });
-});
-
-describe('eyes and teeth set before the faces were found again', () => {
-  it('fills in eyes and mouth when the tool opens on such a retouch', async () => {
-    const eyes = [
-      {
-        iris: [5, 5, 2],
-        lid: [
-          [0, 0],
-          [9, 0],
-          [9, 9]
-        ]
-      },
-      null
-    ];
-    invoke.mockResolvedValue({ frame: '2:{}', faces: [{ id: 'face-1', box: [0, 0, 10, 10], eyes, mouth: null }] });
-    const adjustments = { ...INITIAL_ADJUSTMENTS };
-    const faceRetouch = {
-      settings: {},
-      faces: [
-        { id: 'face-1', kept: [], settings: { teethWhiten: 40 }, blemishes: [], box: [1, 0, 10, 10], enabled: true }
-      ],
-      frame: '2:{}',
-      geometry: JSON.stringify(faceRetouchGeometry(adjustments))
-    } as unknown as FaceRetouch;
-    useEditorStore.setState({
-      selectedImage: { path: '/s/c.CR3', isReady: true } as never,
-      adjustments: { ...adjustments, faceRetouch }
-    });
-    render(<StudioFaceRetouch onInteraction={() => {}} />);
-    await waitFor(() => expect(useEditorStore.getState().adjustments.faceRetouch?.faces[0].eyes).toEqual(eyes));
-    expect(useEditorStore.getState().adjustments.faceRetouch?.faces[0].settings).toEqual({ teethWhiten: 40 });
+    expect(stored.settings).toEqual({ blemishes: 40 });
+    await waitFor(() =>
+      expect((screen.getByRole('slider', { name: 'Iris (Both)' }) as HTMLInputElement).disabled).toBe(false)
+    );
   });
 });

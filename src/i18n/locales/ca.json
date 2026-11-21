@@ -3961,6 +3961,9 @@
       },
       "downloadModels": "Baixa els models de cara",
       "eyes": {
+        "find": "Troba ulls i dents",
+        "finding": "S’estan trobant ulls i dents…",
+        "missing": "Ulls i Dents necessiten els ulls i la boca d’aquestes cares, trobades abans que existissin aquestes eines.",
         "none": "No s’han trobat ulls ni boca oberta en aquesta cara.",
         "sideAria": "Ull",
         "sideHint": {
