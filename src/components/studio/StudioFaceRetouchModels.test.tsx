@@ -77,3 +77,71 @@ describe('face retouch frames', () => {
     expect(faceRetouchIsCurrent(faceRetouch, { ...adjustments, rotation: 3 })).toBe(false);
   });
 });
+
+describe('eyes and teeth on faces found before them', () => {
+  it('waits for the user to find the eyes and mouth, then stores them with the faces', async () => {
+    const eyes = [
+      {
+        iris: [5, 5, 2],
+        lid: [
+          [0, 0],
+          [9, 0],
+          [9, 9]
+        ]
+      },
+      null
+    ];
+    invoke.mockResolvedValue({ frame: '2:{}', faces: [{ id: 'face-1', box: [0, 0, 10, 10], eyes, mouth: null }] });
+    const adjustments = { ...INITIAL_ADJUSTMENTS };
+    const faceRetouch = {
+      settings: { blemishes: 40 },
+      faces: [{ id: 'face-1', kept: [3], settings: {}, blemishes: [], box: [1, 0, 10, 10], enabled: true }],
+      frame: '2:{}',
+      geometry: JSON.stringify(faceRetouchGeometry(adjustments))
+    } as unknown as FaceRetouch;
+    useEditorStore.setState({
+      selectedImage: { path: '/s/b.CR3', isReady: true } as never,
+      adjustments: { ...adjustments, faceRetouch }
+    });
+    render(<StudioFaceRetouch onInteraction={() => {}} />);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Opening the tool runs nothing; the sliders wait.
+    expect(invoke).not.toHaveBeenCalled();
+    expect((screen.getByRole('slider', { name: 'Iris (Both)' }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole('slider', { name: 'Teeth whiten' }) as HTMLInputElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Find eyes and teeth' }));
+    await waitFor(() => expect(useEditorStore.getState().adjustments.faceRetouch?.faces[0].eyes).toEqual(eyes));
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke.mock.calls[0][1]).toMatchObject({ download: false });
+    const stored = useEditorStore.getState().adjustments.faceRetouch!;
+    expect(stored.faces[0]).toMatchObject({ kept: [3], mouth: null });
+    expect(stored.settings).toEqual({ blemishes: 40 });
+    await waitFor(() =>
+      expect((screen.getByRole('slider', { name: 'Iris (Both)' }) as HTMLInputElement).disabled).toBe(false)
+    );
+  });
+});
+
+describe('a failed search for eyes and teeth', () => {
+  it('shows the error and offers the search again', async () => {
+    invoke.mockRejectedValue({ code: 'needs_original', message: 'The original is offline.' });
+    const adjustments = { ...INITIAL_ADJUSTMENTS };
+    const faceRetouch = {
+      settings: {},
+      faces: [{ id: 'face-1', kept: [], settings: {}, blemishes: [], box: [1, 0, 10, 10], enabled: true }],
+      frame: '2:{}',
+      geometry: JSON.stringify(faceRetouchGeometry(adjustments))
+    } as unknown as FaceRetouch;
+    useEditorStore.setState({
+      selectedImage: { path: '/s/d.CR3', isReady: true } as never,
+      adjustments: { ...adjustments, faceRetouch }
+    });
+    render(<StudioFaceRetouch onInteraction={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Find eyes and teeth' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    const again = await screen.findByRole('button', { name: 'Find eyes and teeth' });
+    fireEvent.click(again);
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+  });
+});

@@ -8,7 +8,7 @@ import AdjustmentControl from './AdjustmentControl';
 import { DEFAULT_BRUSH_SIZE } from '../../utils/brushSize';
 import { createSubMask, DEFAULT_LUMA_RANGE } from '../../utils/maskUtils';
 import { replaceLumaRange } from '../../utils/lumaSample';
-import { MASK_VERSION } from '../../utils/adjustments';
+import { REFINE_EDGE_MASK_VERSION } from '../../utils/adjustments';
 import { Mask } from '../panel/right/Masks';
 import { warnIfComponentStartsLayer } from './layerLimitToast';
 import { keepWithinLayerLimit } from '../../utils/layerLimit';
@@ -104,8 +104,9 @@ export default function StudioLayerControls({
       {!brushOnly && (
         // Capture One's Refine Mask: near its edge the layer follows the
         // photo's own edges (notes: reference/local-masks-baseline.md "WP5").
-        // It needs the 16-bit mask, so it moves the layer to the current
-        // mask version (MASK_VERSION).
+        // It needs the 16-bit mask, so it moves an older layer to
+        // REFINE_EDGE_MASK_VERSION, which leaves how its components combine
+        // as it was; a newer layer keeps its version.
         <div title={t('studio.layers.refineEdgeTitle')}>
           <AdjustmentControl
             label={t('studio.layers.refineEdge')}
@@ -121,7 +122,13 @@ export default function StudioLayerControls({
                 masks: prev.masks.map((m) => {
                   if (m.id !== layer.id) return m;
                   const { refineEdge: _old, ...rest } = m;
-                  return radius > 0 ? { ...rest, maskVersion: MASK_VERSION, refineEdge: radius } : rest;
+                  return radius > 0
+                    ? {
+                        ...rest,
+                        maskVersion: Math.max(m.maskVersion ?? 0, REFINE_EDGE_MASK_VERSION),
+                        refineEdge: radius
+                      }
+                    : rest;
                 })
               }))
             }

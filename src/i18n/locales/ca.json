@@ -3160,6 +3160,42 @@
           "pickTitle": "Agafa la pell a la foto"
         },
         "smoothness": "Suavitat",
+        "target": {
+          "blueAria": "Blau objectiu (sRGB 0–255)",
+          "chromaAria": "Croma objectiu C* (CIELAB D50)",
+          "distance": "A ΔE00 {{value}} de l'objectiu.",
+          "greenAria": "Verd objectiu (sRGB 0–255)",
+          "grey": "Aquest interval és massa gris per prendre un color.",
+          "heading": "Objectiu",
+          "hexAria": "Color objectiu en hexadecimal sRGB",
+          "hueAria": "To objectiu h° (CIELAB D50)",
+          "layerPredicted": "Amb la capa a plena intensitat, l'interval queda a ΔE00 {{value}} de l'objectiu; on la màscara s'esvaeix, el color canvia menys.",
+          "layerStrength": "Previsió amb la capa a plena intensitat; on la màscara s'esvaeix, el color canvia menys.",
+          "lch": "L*C*h°",
+          "lightnessAria": "Lluminositat objectiu L* (CIELAB D50)",
+          "limit": {
+            "hue": "to (±50°)",
+            "lightness": "lluminositat (×0,6–1,4)",
+            "saturation": "saturació (0–200 %)"
+          },
+          "outOfReach": "Fora d'abast: queden ΔE00 {{value}}; {{limits}} al límit.",
+          "outsideSrgb": "L'objectiu és fora de sRGB; una exportació sRGB porta el color dins de sRGB.",
+          "outsideWorkingGamut": "L'objectiu és fora dels colors de treball de la foto (ProPhoto): cap color de la foto no hi pot arribar, l'interval s'hi acosta tant com pot.",
+          "pickAria": "Agafar el color objectiu",
+          "pickedThrough": "Previst a ΔE00 {{value}} de l'objectiu, però aquest color s'ha agafat a través del fort canvi del mateix interval: comprova el resultat a la foto o torna'l a agafar amb els controls a 0.",
+          "pickTitle": "Agafa el color objectiu a la foto; aquest interval s'hi desplaça",
+          "reached": "Objectiu assolit (ΔE00 {{value}}).",
+          "readoutTitle": "Previsió per al color agafat de l'interval, abans d'eines posteriors com les corbes i la gradació de color",
+          "redAria": "Vermell objectiu (sRGB 0–255)",
+          "sampleAria": "Agafar un color objectiu",
+          "sampleTitle": "Agafa un color objectiu en aquesta foto, per a un interval aquí o en una altra foto",
+          "sourceClipped": "El color agafat és a la vora de sRGB: comprova el resultat a la foto.",
+          "srgb": "sRGB",
+          "swatchAria": "Resultat de l'interval {{result}}, objectiu {{target}}",
+          "uncovered": "La màscara de la capa ja no cobreix el punt triat: els controls de l'interval es queden com estan.",
+          "useSampled": "Fes servir l'objectiu de {{name}}",
+          "useSampledTitle": "Desplaça aquest interval al color agafat a {{name}}"
+        },
         "title": "Editor de color",
         "uniformity": "Uniformitat",
         "wheel": {
@@ -3952,10 +3988,32 @@
         "darkCircles": "Cara: ulleres",
         "evenSkin": "Cara: pell uniforme",
         "impact": "Cara: intensitat",
+        "iris": "Iris ({{side}})",
+        "sclera": "Escleròtica ({{side}})",
         "shine": "Cara: brillantor",
+        "teethBrightness": "Brillantor de les dents",
+        "teethWhiten": "Blanquejar les dents",
         "texture": "Cara: textura"
       },
       "downloadModels": "Baixa els models de cara",
+      "eyes": {
+        "find": "Troba ulls i dents",
+        "finding": "S’estan trobant ulls i dents…",
+        "missing": "Ulls i Dents necessiten els ulls i la boca d’aquestes cares, trobades abans que existissin aquestes eines.",
+        "none": "No s’han trobat ulls ni boca oberta en aquesta cara.",
+        "sideAria": "Ull",
+        "sideHint": {
+          "both": "Tots dos ulls",
+          "left": "L’ull a l’esquerra de la foto",
+          "right": "L’ull a la dreta de la foto"
+        },
+        "sides": {
+          "both": "Tots dos",
+          "left": "Esquerre",
+          "right": "Dret"
+        },
+        "title": "Ulls"
+      },
       "face": "Cara {{n}}",
       "faceOwn": "Cara {{n}} (valors propis)",
       "facesAria": "Cares",
@@ -3988,8 +4046,15 @@
         "darkCircles": "Ulleres",
         "evenSkin": "Pell uniforme",
         "impact": "Intensitat",
+        "iris": "Iris",
+        "sclera": "Escleròtica",
         "shine": "Brillantor",
+        "teethBrightness": "Brillantor",
+        "teethWhiten": "Blanquejar",
         "texture": "Textura"
+      },
+      "teeth": {
+        "title": "Dents"
       },
       "useAll": "Fes servir els valors de totes les cares"
     },

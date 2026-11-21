@@ -1,4 +1,4 @@
-use rawtonic_engine::recipe_versions::gradient;
+use rawtonic_engine::recipe_versions::{gradient, mask};
 use rawtonic_recipe::color as recipe_color;
 use rawtonic_recipe::detail;
 use rawtonic_recipe::effects;
@@ -1774,26 +1774,33 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                     break;
                 }
             };
-            let mode = match mattr("MaskBlendMode") {
-                Some("1") => "subtractive",
-                Some("2") => "intersect",
-                _ => "additive",
-            };
+            let blend = mattr("MaskBlendMode");
+            let inverted = mattr("MaskInverted") == Some("true");
             let mut value = mattr("MaskValue")
                 .and_then(|v| v.parse::<f64>().ok())
                 .unwrap_or(1.0);
-            // Lightroom's eraser paints MaskValue 0 strokes.
-            let mode = if kind == "brush" && value <= 0.0 {
-                value = 1.0;
-                "subtractive"
-            } else {
-                mode
+            // Lightroom writes Intersect as subtraction of the inverted
+            // component: a · (1 − (1 − b)) = a · b. Zero is the subtract
+            // marker in this encoding, so restore full component opacity.
+            let (mode, invert) = match (blend, inverted, value) {
+                (Some("1"), true, 0.0 | 1.0) => {
+                    value = 1.0;
+                    ("intersect", false)
+                }
+                // Lightroom's eraser paints MaskValue 0 strokes.
+                _ if kind == "brush" && value <= 0.0 => {
+                    value = 1.0;
+                    ("subtractive", inverted)
+                }
+                (Some("1"), _, _) => ("subtractive", inverted),
+                (Some("2"), _, _) => ("intersect", inverted),
+                _ => ("additive", inverted),
             };
             sub_masks.push(json!({
                 "id": format!("lr-{index}-{m_index}-{}", Uuid::new_v4()),
                 "type": kind,
                 masks::VISIBLE.name(): group_active && mattr("MaskActive") != Some("false"),
-                masks::INVERT.name(): mattr("MaskInverted") == Some("true"),
+                masks::INVERT.name(): invert,
                 masks::OPACITY.name(): (value * group_value * 100.0).clamp(0.0, 100.0),
                 "mode": mode,
                 // AI masks are computed, geometry placed, when a photo opens.
@@ -1909,11 +1916,32 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             masks::VISIBLE.name(): attr("CorrectionActive") != Some("false"),
             masks::INVERT.name(): false,
             masks::OPACITY.name(): 100.0,
+            masks::MASK_VERSION.name(): mask::SOFT_FOLD,
             masks::ADJUSTMENTS.name(): Value::Object(adjustments),
             masks::SUB_MASKS.name(): sub_masks,
         }));
     }
     (layers, skipped)
+}
+
+pub fn lightroom_subtract_warning(xmp: &str) -> Option<&'static str> {
+    if !xmp.contains("MaskGroupBasedCorrections") {
+        return None;
+    }
+    lightroom_masks(xmp)
+        .0
+        .iter()
+        .filter(|layer| layer[masks::VISIBLE.name()] == true)
+        .filter_map(|layer| layer[masks::SUB_MASKS.name()].as_array())
+        .any(|subs| {
+            subs.iter()
+                .filter(|sub| sub[masks::VISIBLE.name()] == true)
+                .skip(1)
+                .any(|sub| sub["mode"] == "subtractive")
+        })
+        .then_some(
+            "Subtract can differ where soft mask edges overlap. Rawtonic uses max(a − b, 0); Lightroom and Camera Raw use a × (1 − b).",
+        )
 }
 
 /// The profile or creative look a preset sets (`crs:Look`, else
@@ -2808,6 +2836,96 @@ mod tests {
         assert!(merged.contains(&mask));
         assert!(merged.contains(&attributes));
         assert_eq!(rawtonic_metadata::read_xmp(&merged).unwrap().0.rating, 3);
+    }
+
+    #[test]
+    fn imported_gradients_fold_with_screen_and_product() {
+        use rawtonic_engine::mask_generation::{PhotoGeometry, generate_layer_mask};
+        use rawtonic_engine::masks::{MaskDefinition, SubMaskMode};
+        use serde_json::json;
+
+        for (blend, inverted, value, mode) in [
+            (0, false, 1, "additive"),
+            (1, true, 0, "intersect"),
+            (1, true, 1, "intersect"),
+            (1, false, 1, "subtractive"),
+        ] {
+            let xmp = format!(
+                r#"<rdf:RDF xmlns:rdf="{rdf}" xmlns:crs="{crs}"><rdf:Description>
+ <crs:MaskGroupBasedCorrections><rdf:Seq><rdf:li rdf:parseType="Resource">
+  <crs:CorrectionMasks><rdf:Seq>
+   <rdf:li crs:What="Mask/Gradient" crs:FullX="0.2" crs:FullY="0.5" crs:ZeroX="0.8" crs:ZeroY="0.5"/>
+   <rdf:li crs:What="Mask/Gradient" crs:FullX="0.5" crs:FullY="0.2" crs:ZeroX="0.5" crs:ZeroY="0.8"
+      crs:MaskBlendMode="{blend}" crs:MaskInverted="{inverted}" crs:MaskValue="{value}"/>
+  </rdf:Seq></crs:CorrectionMasks>
+ </rdf:li></rdf:Seq></crs:MaskGroupBasedCorrections>
+</rdf:Description></rdf:RDF>"#,
+                rdf = rawtonic_metadata::RDF,
+                crs = super::CRS_NS,
+            );
+            let mut adjustments = super::convert_xmp_to_preset(&xmp).unwrap().adjustments;
+            assert!(super::place_lightroom_geometry(
+                &mut adjustments,
+                64.0,
+                64.0,
+                1
+            ));
+            let layer: MaskDefinition =
+                serde_json::from_value(adjustments["masks"][0].clone()).unwrap();
+            assert_eq!(layer.mask_version, Some(5));
+            assert_eq!(adjustments["masks"][0]["subMasks"][1]["mode"], json!(mode));
+            assert_eq!(
+                super::lightroom_subtract_warning(&xmp).is_some(),
+                mode == "subtractive"
+            );
+
+            let sample = |layer: &MaskDefinition| {
+                let bitmap = generate_layer_mask(
+                    layer,
+                    64,
+                    64,
+                    1.0,
+                    (0.0, 0.0),
+                    &PhotoGeometry::default(),
+                    None,
+                )
+                .unwrap();
+                f32::from(bitmap.wide().unwrap()[32 * 64 + 32]) / 65535.0
+            };
+            let actual = sample(&layer);
+            let mut single = layer.clone();
+            single.sub_masks.truncate(1);
+            let a = sample(&single);
+            single.sub_masks[0] = layer.sub_masks[1].clone();
+            single.sub_masks[0].mode = SubMaskMode::Additive;
+            let b = sample(&single);
+            assert!((0.4..0.6).contains(&a) && (0.4..0.6).contains(&b));
+            let expected = match mode {
+                "additive" => a + b - a * b,
+                "intersect" => a * b,
+                _ => (a - b).max(0.0),
+            };
+            assert!(
+                (actual - expected).abs() <= 2.0 / 65535.0,
+                "{mode}: {actual} vs {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn rawtonic_xmp_recipe_round_trip_preserves_older_mask_versions() {
+        let recipe = serde_json::json!({
+            "schema_version": 1,
+            "adjustments": {"masks": [{"maskVersion": 4}, {}]}
+        });
+        let xmp = rawtonic_metadata::merge_xmp(
+            None,
+            &rawtonic_metadata::Metadata::default(),
+            Some(&recipe),
+        )
+        .unwrap();
+        let (_, imported) = rawtonic_metadata::read_xmp(&xmp).unwrap();
+        assert_eq!(imported, Some(recipe));
     }
 
     #[test]

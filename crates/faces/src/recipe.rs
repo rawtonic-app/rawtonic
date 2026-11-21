@@ -50,7 +50,7 @@ fn png_data_url(image: &GrayImage) -> Result<String, String> {
 
 /// The recipe entries for the faces of `image`, which is the photo in the
 /// mask frame (oriented, straightened, geometry corrected, not cropped):
-/// crop, weights, eye distance and blemishes for the render
+/// crop, weights, eye distance, blemishes, eyes and mouth for the render
 /// (rawtonic-engine `face_retouch`), and the face box and a small thumbnail
 /// for the panel.
 pub fn retouch_faces(
@@ -71,6 +71,12 @@ pub fn retouch_faces(
                 .map_err(|e| e.to_string())?;
             let c = data.crop;
             let round = |v: f32| (v as f64 * 100.0).round() / 100.0;
+            let points = |p: &[[f32; 2]]| {
+                p.iter()
+                    .map(|q| [round(q[0]), round(q[1])])
+                    .collect::<Vec<_>>()
+            };
+            let features = crate::eye_teeth::eye_teeth(image, face);
             Ok(Some(serde_json::json!({
                 "id": format!("face-{}", index + 1),
                 "crop": [c.a as f64, c.b as f64, c.c as f64, c.d as f64, c.e as f64, c.f as f64],
@@ -84,6 +90,11 @@ pub fn retouch_faces(
                     "score": (b.score as f64 * 1000.0).round() / 1000.0,
                     "neck": b.neck,
                 })).collect::<Vec<_>>(),
+                "eyes": features.eyes.iter().map(|e| e.as_ref().map(|e| serde_json::json!({
+                    "iris": e.iris.map(round),
+                    "lid": points(&e.lid),
+                }))).collect::<Vec<_>>(),
+                "mouth": features.mouth.as_deref().map(points),
                 "kept": [],
                 "added": [],
                 "settings": {},

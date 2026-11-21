@@ -1,5 +1,5 @@
 import '../../i18n';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,6 +7,11 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 import { newColorRange, type Adjustments, type ColorRange } from '../../utils/adjustments';
 import { useEditorStore } from '../../store/useEditorStore';
+import { srgbToOklch } from '../../utils/oklab';
+import { invoke } from '@tauri-apps/api/core';
+import { Invokes } from '../ui/AppProperties';
+import { geometryKeyOf } from '../../utils/colorRanges';
+import { deltaE00, linearToLab, oklabToLinear, rangeCentre, renderedLab, srgb8ToLinear } from '../../utils/colorTarget';
 import StudioColorEditor from './StudioColorEditor';
 import StudioColorRangeWheel, { chromaOf, radiusOf, rangeBand, wheelPoint } from './StudioColorRangeWheel';
 
@@ -20,13 +25,14 @@ const at = (hue: number, chroma: number) => {
 let changes: Partial<Adjustments>[] = [];
 const interaction = vi.fn();
 
-function Harness({ initial }: { initial: ColorRange[] }) {
+function Harness({ initial, layerId }: { initial: ColorRange[]; layerId?: string }) {
   const [values, setValues] = useState<Partial<Adjustments>>({
     colorRanges: initial
   });
   return (
     <StudioColorEditor
       values={values}
+      layerId={layerId}
       disabled={false}
       onInteraction={interaction}
       change={(patch) => {
@@ -420,5 +426,220 @@ describe('skin tone mode', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Pick the skin tone' }));
     expect(useEditorStore.getState().colorPickerTarget).toBe('skin');
     expect(screen.getByText('Click skin in the photo.')).toBeTruthy();
+  });
+});
+
+describe('target colour', () => {
+  const photo = { path: '/a.cr3', isReady: true } as never;
+  const red = () => {
+    const { hue, chroma, lightness } = srgbToOklch([200, 60, 50]);
+    return newColorRange(hue, chroma, lightness);
+  };
+  beforeEach(() => useEditorStore.setState({ selectedImage: photo, colorTarget: null, colorPicksThroughRanges: [] }));
+
+  const typeInto = (name: string, text: string) => {
+    const field = screen.getByRole('textbox', { name });
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: text } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+  };
+
+  it('a typed hex target moves the range in one edit and says it was reached', () => {
+    const range = red();
+    render(<Harness initial={[range]} />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    expect(changes).toHaveLength(1);
+    const [moved] = lastRanges();
+    expect(moved.hueShift).not.toBe(0);
+    expect({ ...moved, hueShift: 0, saturation: 0, lightnessShift: 0 }).toEqual(range);
+    expect(screen.getByRole('status').textContent).toMatch(/^Target reached \(ΔE00 0\.\d\)\./);
+    // The fields now show the target.
+    expect((screen.getByRole('textbox', { name: 'Target color as sRGB hex' }) as HTMLInputElement).value).toBe(
+      '#C81E2D'
+    );
+    // An invalid entry changes nothing and the field shows the target again.
+    typeInto('Target color as sRGB hex', '#12');
+    expect(changes).toHaveLength(1);
+  });
+
+  it('says which shift ran out for a target beyond reach', () => {
+    render(<Harness initial={[red()]} />);
+    openTool();
+    typeInto('Target hue h° (CIELAB D50)', '250');
+    expect(changes).toHaveLength(1);
+    const [moved] = lastRanges();
+    expect(moved.hueShift).toBe(-100);
+    // Every slider the result leaves at its end is named.
+    expect(Math.abs(moved.saturation)).toBe(100);
+    expect(screen.getByRole('status').textContent).toMatch(
+      /^Out of reach: ΔE00 [\d.]+ left; hue \(±50°\), saturation \(0–200 %\) at its limit\./
+    );
+  });
+
+  it('solves a typed target on a range picked in the photo at the renderer’s sample there, sampled again', async () => {
+    const range = red();
+    const centre = rangeCentre(range);
+    // Picked on a feathered layer: half its strength at the pick.
+    const pick = {
+      point: [0.3, 0.7] as [number, number],
+      centre,
+      geometry: geometryKeyOf(useEditorStore.getState().adjustments),
+      input: { pixels: [centre], influence: [0.5] }
+    };
+    useEditorStore.setState({ colorRangeInputs: { [`/a.cr3|L1|${range.id}`]: pick } });
+    vi.mocked(invoke).mockResolvedValue({ pixels: [oklabToLinear(centre)], influence: [0.5] });
+    render(<Harness initial={[range]} layerId="L1" />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    await waitFor(() => expect(changes).toHaveLength(1));
+    expect(invoke).toHaveBeenCalledWith(
+      Invokes.SampleColorRangeInput,
+      expect.objectContaining({ path: '/a.cr3', normalizedX: 0.3, normalizedY: 0.7, layer: 'L1' })
+    );
+    const [moved] = lastRanges();
+    const lab = linearToLab(srgb8ToLinear([0xc8, 0x1e, 0x2d]));
+    expect(deltaE00(lab, renderedLab([moved], { pixels: [centre], influence: [0.5] }))).toBeLessThan(1);
+    // The readout predicts at the layer's strength, not at full strength.
+    expect(screen.getByRole('status').textContent).toMatch(/^Target reached \(ΔE00 0\.\d\)\./);
+    useEditorStore.setState({ colorRangeInputs: {} });
+  });
+
+  it('applies only the latest typed target when samples return in reverse order', async () => {
+    const range = red();
+    const centre = rangeCentre(range);
+    const pick = {
+      point: [0.3, 0.7] as [number, number],
+      centre,
+      geometry: geometryKeyOf(useEditorStore.getState().adjustments),
+      input: { pixels: [centre], influence: [1] }
+    };
+    useEditorStore.setState({ colorRangeInputs: { [`/a.cr3||${range.id}`]: pick } });
+    const answers: ((value: unknown) => void)[] = [];
+    vi.mocked(invoke).mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+    render(<Harness initial={[range]} />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    typeInto('Target color as sRGB hex', '#b4283c');
+    await waitFor(() => expect(answers.length).toBeGreaterThanOrEqual(2));
+    const sample = { pixels: [oklabToLinear(centre)], influence: [1] };
+    // The later request's sample first, then the earlier one's.
+    answers[1](sample);
+    await waitFor(() => expect(changes).toHaveLength(1));
+    answers[0](sample);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(changes).toHaveLength(1);
+    const lab = linearToLab(srgb8ToLinear([0xb4, 0x28, 0x3c]));
+    expect(deltaE00(lab, renderedLab(lastRanges(), { pixels: [centre], influence: [1] }))).toBeLessThan(1);
+    useEditorStore.setState({ colorRangeInputs: {} });
+  });
+
+  it('flags a typed target outside sRGB', () => {
+    render(<Harness initial={[red()]} />);
+    openTool();
+    typeInto('Target chroma C* (CIELAB D50)', '130');
+    expect(screen.getByRole('status').textContent).toContain(
+      'The target is outside sRGB; an sRGB export maps the color into sRGB.'
+    );
+  });
+
+  it('Escape restores the field without applying; Return applies and leaves the field', () => {
+    render(<Harness initial={[red()]} />);
+    openTool();
+    const field = screen.getByRole('textbox', { name: 'Target color as sRGB hex' }) as HTMLInputElement;
+    const shown = field.value;
+    field.focus();
+    fireEvent.change(field, { target: { value: '#c81e2d' } });
+    fireEvent.keyDown(field, { key: 'Escape' });
+    expect(changes).toHaveLength(0);
+    expect(field.value).toBe(shown);
+    expect(document.activeElement).not.toBe(field);
+    field.focus();
+    fireEvent.change(field, { target: { value: '#c81e2d' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(changes).toHaveLength(1);
+    expect(document.activeElement).not.toBe(field);
+  });
+
+  it('selecting another range ends a pick armed for the first', () => {
+    const a = red();
+    const b = newColorRange(240, 0.1, 0.5);
+    render(<Harness initial={[a, b]} />);
+    openTool();
+    fireEvent.click(screen.getByRole('button', { name: 'Pick the target color' }));
+    expect(useEditorStore.getState().colorPickerTarget).toBe(`target:${a.id}`);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Color range \d+°$/ })[1]);
+    expect(useEditorStore.getState().activeColorRangeId).toBe(b.id);
+    expect(useEditorStore.getState().colorPickerTarget).toBeNull();
+    // A pick that adds a range stays armed.
+    fireEvent.click(screen.getByRole('button', { name: 'Pick a color range' }));
+    fireEvent.click(screen.getAllByRole('button', { name: /^Color range \d+°$/ })[0]);
+    expect(useEditorStore.getState().colorPickerTarget).toBe('new');
+  });
+
+  it('a layer range is predicted at full layer strength, never claimed as reached', () => {
+    render(<Harness initial={[red()]} layerId="L1" />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    const text = screen.getByRole('status').textContent!;
+    expect(text).toMatch(/^At full layer strength the range lands ΔE00 0\.\d from the target/);
+    expect(text).not.toContain('Target reached');
+  });
+
+  it('does not claim a target reached for a range picked through its own strong change', () => {
+    const range = red();
+    useEditorStore.setState({ colorPicksThroughRanges: [`/a.cr3||${range.id}`] });
+    render(<Harness initial={[range]} />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    expect(screen.getByRole('status').textContent).toMatch(
+      /^Predicted ΔE00 0\.\d from the target, but this color was picked through/
+    );
+  });
+
+  it('a pick armed for a layer ends when the tool turns to another layer', () => {
+    const range = red();
+    const { rerender } = render(<Harness initial={[range]} layerId="L1" />);
+    openTool();
+    fireEvent.click(screen.getByRole('button', { name: 'Pick the target color' }));
+    expect(useEditorStore.getState()).toMatchObject({
+      colorPickerTarget: `target:${range.id}`,
+      colorPickerLayer: 'L1'
+    });
+    rerender(<Harness initial={[range]} layerId="L2" />);
+    expect(useEditorStore.getState()).toMatchObject({ colorPickerTarget: null, colorPickerLayer: null });
+    // Sampling a target edits nothing and stays armed.
+    fireEvent.click(screen.getByRole('button', { name: 'Sample a target color' }));
+    rerender(<Harness initial={[range]} layerId="L1" />);
+    expect(useEditorStore.getState().colorPickerTarget).toBe('target');
+  });
+
+  it('arms the target pickers', () => {
+    const range = red();
+    render(<Harness initial={[range]} />);
+    openTool();
+    fireEvent.click(screen.getByRole('button', { name: 'Pick the target color' }));
+    expect(useEditorStore.getState().colorPickerTarget).toBe(`target:${range.id}`);
+    fireEvent.click(screen.getByRole('button', { name: 'Sample a target color' }));
+    expect(useEditorStore.getState().colorPickerTarget).toBe('target');
+    expect(changes).toHaveLength(0);
+  });
+
+  it('uses a target sampled in another photo on a click', () => {
+    const range = red();
+    const lab = [45, 62, 38] as [number, number, number];
+    useEditorStore.setState({ colorTarget: { lab, sampledIn: '/b/ref.nef', appliedTo: null } });
+    render(<Harness initial={[range]} />);
+    openTool();
+    expect(screen.queryByRole('status')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Use target from ref\.nef/ }));
+    expect(changes).toHaveLength(1);
+    expect(useEditorStore.getState().colorTarget).toEqual({
+      lab,
+      sampledIn: '/b/ref.nef',
+      appliedTo: { photo: '/a.cr3', layer: null, rangeId: range.id }
+    });
+    expect(screen.queryByRole('button', { name: /Use target from/ })).toBeNull();
+    expect(screen.getByRole('status')).toBeTruthy();
   });
 });

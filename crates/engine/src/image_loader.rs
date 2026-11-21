@@ -788,7 +788,35 @@ pub fn tiff_jpeg_candidates(buf: &[u8]) -> Option<Vec<&[u8]>> {
 pub fn largest_tiff_jpeg_preview(buf: &[u8]) -> Option<DynamicImage> {
     tiff_jpeg_candidates(buf)?
         .into_iter()
+        .filter(|bytes| !lossless_jpeg(bytes))
         .find_map(|bytes| image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok())
+}
+
+/// Whether `data`'s first frame header is a lossless JPEG's (SOF3, 7, 11,
+/// 15), as a CR2's or DNG's raw image data is: the image decoder cannot
+/// decode it, but copies all of it (megabytes of a cold file) before it
+/// fails. Reads only the marker segments up to that header.
+fn lossless_jpeg(data: &[u8]) -> bool {
+    if data.get(..2) != Some(&[0xFF, 0xD8]) {
+        return false;
+    }
+    let mut at = 2;
+    while let Some(&[0xFF, marker]) = data.get(at..at + 2) {
+        match marker {
+            0xFF => at += 1,
+            0xC3 | 0xC7 | 0xCB | 0xCF => return true,
+            0xC0..=0xCF if !matches!(marker, 0xC4 | 0xC8 | 0xCC) => return false,
+            0xD8 | 0x01 | 0xD0..=0xD7 => at += 2,
+            0xD9 | 0xDA => return false,
+            _ => {
+                let Some(len) = data.get(at + 2..at + 4) else {
+                    return false;
+                };
+                at += 2 + u16::from_be_bytes([len[0], len[1]]) as usize;
+            }
+        }
+    }
+    false
 }
 
 /// The EXIF orientation (1–8) a photo is decoded with: for RAWs as the raw
@@ -2345,5 +2373,29 @@ mod decode_variant_tests {
         // The colour noise filter is decided as before.
         assert!(decode_variant(&json!({}), "/p/A.NEF").multiscale);
         assert!(!decode_variant(&json!({ "colorNoiseReduction": 25 }), "/p/A.NEF").multiscale);
+    }
+}
+
+#[cfg(test)]
+mod lossless_jpeg_tests {
+    use super::lossless_jpeg;
+
+    /// A CR2's raw image data (lossless JPEG, SOF3) is told from a preview
+    /// (baseline SOF0, progressive SOF2) by its frame header, past the
+    /// tables before it.
+    #[test]
+    fn only_a_lossless_frame_header_is_lossless() {
+        let with = |sof: u8| {
+            let mut jpeg = vec![0xFF, 0xD8, 0xFF, 0xC4, 0x00, 0x04, 0x00, 0x00];
+            jpeg.extend([0xFF, sof, 0x00, 0x02]);
+            jpeg
+        };
+        assert!(lossless_jpeg(&with(0xC3)));
+        assert!(lossless_jpeg(&with(0xC7)));
+        assert!(!lossless_jpeg(&with(0xC0)));
+        assert!(!lossless_jpeg(&with(0xC2)));
+        assert!(!lossless_jpeg(&[0xFF, 0xD8, 0xFF, 0xDA, 0x00, 0x02]));
+        assert!(!lossless_jpeg(&[0x49, 0x49, 0x2A, 0x00]));
+        assert!(!lossless_jpeg(&[0xFF, 0xD8, 0xFF]));
     }
 }

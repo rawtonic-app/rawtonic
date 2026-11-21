@@ -21,6 +21,7 @@ use std::sync::{Arc, Weak};
 
 pub use crate::masks::{MaskDefinition, SubMask, SubMaskMode, default_opacity};
 
+mod fold;
 mod precise;
 
 /// Image before orientation, flip, rotation and crop, sampled in original-image
@@ -5553,6 +5554,7 @@ fn eight_bit_mask(
     // Starts empty: an additive first sub-mask is the result itself, while
     // subtracting from or intersecting with zero coverage stays zero.
     let mut final_mask: Option<GrayImage> = None;
+    let law = fold::FoldLaw::of(mask_def);
 
     for sub_mask in &mask_def.sub_masks {
         if let Some(mut sub_bitmap) = generate_sub_mask_bitmap(
@@ -5578,18 +5580,7 @@ fn eight_bit_mask(
                 });
                 continue;
             };
-            let pixels = target.as_mut().iter_mut().zip(sub_bitmap.as_raw());
-            match sub_mask.mode {
-                SubMaskMode::Additive => {
-                    pixels.for_each(|(pixel, sub)| *pixel = (*pixel).max(*sub))
-                }
-                SubMaskMode::Subtractive => {
-                    pixels.for_each(|(pixel, sub)| *pixel = pixel.saturating_sub(*sub))
-                }
-                SubMaskMode::Intersect => {
-                    pixels.for_each(|(pixel, sub)| *pixel = (*pixel).min(*sub))
-                }
-            }
+            law.fold_bytes(sub_mask.mode, target.as_mut(), sub_bitmap.as_raw());
         }
     }
     let mut final_mask = final_mask.unwrap_or_else(|| GrayImage::new(width, height));

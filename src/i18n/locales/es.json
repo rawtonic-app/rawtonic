@@ -3160,6 +3160,42 @@
           "pickTitle": "Tomar la piel en la foto"
         },
         "smoothness": "Suavidad",
+        "target": {
+          "blueAria": "Azul objetivo (sRGB 0–255)",
+          "chromaAria": "Croma objetivo C* (CIELAB D50)",
+          "distance": "A ΔE00 {{value}} del objetivo.",
+          "greenAria": "Verde objetivo (sRGB 0–255)",
+          "grey": "Este rango es demasiado gris para tomar un color.",
+          "heading": "Objetivo",
+          "hexAria": "Color objetivo en hexadecimal sRGB",
+          "hueAria": "Tono objetivo h° (CIELAB D50)",
+          "layerPredicted": "Con la capa a plena intensidad, el rango queda a ΔE00 {{value}} del objetivo; donde la máscara se difumina, el color cambia menos.",
+          "layerStrength": "Previsión con la capa a plena intensidad; donde la máscara se difumina, el color cambia menos.",
+          "lch": "L*C*h°",
+          "lightnessAria": "Luminosidad objetivo L* (CIELAB D50)",
+          "limit": {
+            "hue": "tono (±50°)",
+            "lightness": "luminosidad (×0,6–1,4)",
+            "saturation": "saturación (0–200 %)"
+          },
+          "outOfReach": "Fuera de alcance: quedan ΔE00 {{value}}; {{limits}} en su límite.",
+          "outsideSrgb": "El objetivo está fuera de sRGB; una exportación sRGB lleva el color dentro de sRGB.",
+          "outsideWorkingGamut": "El objetivo está más allá de los colores de trabajo de la foto (ProPhoto): ningún color de la foto puede serlo, el rango se acerca todo lo que puede.",
+          "pickAria": "Tomar el color objetivo",
+          "pickedThrough": "Previsto a ΔE00 {{value}} del objetivo, pero este color se tomó a través del fuerte cambio del propio rango: comprueba el resultado en la foto o vuelve a tomarlo con los controles en 0.",
+          "pickTitle": "Toma el color objetivo en la foto; este rango se mueve hacia él",
+          "reached": "Objetivo alcanzado (ΔE00 {{value}}).",
+          "readoutTitle": "Previsión para el color tomado del rango, antes de herramientas posteriores como curvas y gradación de color",
+          "redAria": "Rojo objetivo (sRGB 0–255)",
+          "sampleAria": "Tomar un color objetivo",
+          "sampleTitle": "Toma un color objetivo en esta foto, para un rango aquí o en otra foto",
+          "sourceClipped": "El color tomado está en el borde de sRGB: comprueba el resultado en la foto.",
+          "srgb": "sRGB",
+          "swatchAria": "Resultado del rango {{result}}, objetivo {{target}}",
+          "uncovered": "La máscara de la capa ya no cubre el punto tomado: los controles del rango se quedan como están.",
+          "useSampled": "Usar el objetivo de {{name}}",
+          "useSampledTitle": "Mover este rango al color tomado en {{name}}"
+        },
         "title": "Editor de color",
         "uniformity": "Uniformidad",
         "wheel": {
@@ -3952,10 +3988,32 @@
         "darkCircles": "Cara: ojeras",
         "evenSkin": "Cara: piel uniforme",
         "impact": "Cara: intensidad",
+        "iris": "Iris ({{side}})",
+        "sclera": "Esclerótica ({{side}})",
         "shine": "Cara: brillo",
+        "teethBrightness": "Brillo de los dientes",
+        "teethWhiten": "Blanquear dientes",
         "texture": "Cara: textura"
       },
       "downloadModels": "Descargar modelos de rostro",
+      "eyes": {
+        "find": "Buscar ojos y dientes",
+        "finding": "Buscando ojos y dientes…",
+        "missing": "Ojos y Dientes necesitan los ojos y la boca de estas caras, encontradas antes de que existieran estas herramientas.",
+        "none": "No se han encontrado ojos ni boca abierta en esta cara.",
+        "sideAria": "Ojo",
+        "sideHint": {
+          "both": "Ambos ojos",
+          "left": "El ojo a la izquierda de la foto",
+          "right": "El ojo a la derecha de la foto"
+        },
+        "sides": {
+          "both": "Ambos",
+          "left": "Izquierdo",
+          "right": "Derecho"
+        },
+        "title": "Ojos"
+      },
       "face": "Cara {{n}}",
       "faceOwn": "Cara {{n}} (valores propios)",
       "facesAria": "Caras",
@@ -3988,8 +4046,15 @@
         "darkCircles": "Ojeras",
         "evenSkin": "Piel uniforme",
         "impact": "Intensidad",
+        "iris": "Iris",
+        "sclera": "Esclerótica",
         "shine": "Brillo",
+        "teethBrightness": "Brillo",
+        "teethWhiten": "Blanquear",
         "texture": "Textura"
+      },
+      "teeth": {
+        "title": "Dientes"
       },
       "useAll": "Usar los valores de todas las caras"
     },

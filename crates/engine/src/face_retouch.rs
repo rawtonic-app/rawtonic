@@ -22,6 +22,9 @@
 //!   surroundings and pull its colour towards theirs.
 //! - **Shine** lowers specular highlights on the skin.
 //!
+//! - **Eyes** (Iris, Sclera; both eyes or the one on the left or right of
+//!   the photo) and **Teeth** (Brightness, Whiten): see `eye_teeth`.
+//!
 //! - **Protect** (`protect`): areas the user paints keep their pixels from
 //!   before the retouch (freckles, moles, beauty marks).
 //!
@@ -39,7 +42,9 @@ use serde_json::Value;
 
 use crate::spot_removal::{mask_frame, to_base};
 
+mod eye_teeth;
 mod protect;
+pub use eye_teeth::Eye;
 pub use protect::ProtectStroke;
 
 /// Slider values, 0–100 (Texture −100–100); unset values of a face take
@@ -56,6 +61,17 @@ pub struct Settings {
     pub contouring: Option<f32>,
     /// Blemishes, even skin and texture on the neck too (below the chin).
     pub include_neck: Option<bool>,
+    /// Eyes, 0–100: both eyes; `*_left`/`*_right` (−100–100) are added to
+    /// it for the eye on the left or right of the photo.
+    pub iris: Option<f32>,
+    pub sclera: Option<f32>,
+    pub iris_left: Option<f32>,
+    pub iris_right: Option<f32>,
+    pub sclera_left: Option<f32>,
+    pub sclera_right: Option<f32>,
+    /// Teeth, 0–100.
+    pub teeth_brightness: Option<f32>,
+    pub teeth_whiten: Option<f32>,
 }
 
 /// Effective strengths: 0–1 (Texture −1–1), Impact already applied.
@@ -68,6 +84,11 @@ pub struct Amounts {
     pub shine: f32,
     pub contouring: f32,
     pub include_neck: bool,
+    /// Eye on the left, on the right of the photo.
+    pub iris: [f32; 2],
+    pub sclera: [f32; 2],
+    pub teeth_brightness: f32,
+    pub teeth_whiten: f32,
 }
 
 impl Settings {
@@ -82,12 +103,24 @@ impl Settings {
             shine: self.shine.or(all.shine),
             contouring: self.contouring.or(all.contouring),
             include_neck: self.include_neck.or(all.include_neck),
+            iris: self.iris.or(all.iris),
+            sclera: self.sclera.or(all.sclera),
+            iris_left: self.iris_left.or(all.iris_left),
+            iris_right: self.iris_right.or(all.iris_right),
+            sclera_left: self.sclera_left.or(all.sclera_left),
+            sclera_right: self.sclera_right.or(all.sclera_right),
+            teeth_brightness: self.teeth_brightness.or(all.teeth_brightness),
+            teeth_whiten: self.teeth_whiten.or(all.teeth_whiten),
         }
     }
 
     pub fn amounts(self) -> Amounts {
         let impact = self.impact.unwrap_or(100.0).clamp(0.0, 100.0) / 100.0;
         let unit = |v: Option<f32>| v.unwrap_or(0.0).clamp(0.0, 100.0) / 100.0 * impact;
+        let eye = |both: Option<f32>, side: Option<f32>| {
+            let side = side.unwrap_or(0.0).clamp(-100.0, 100.0);
+            unit(Some(both.unwrap_or(0.0).clamp(0.0, 100.0) + side))
+        };
         Amounts {
             blemishes: unit(self.blemishes),
             even_skin: unit(self.even_skin),
@@ -96,6 +129,16 @@ impl Settings {
             shine: unit(self.shine),
             contouring: unit(self.contouring),
             include_neck: self.include_neck.unwrap_or(false),
+            iris: [
+                eye(self.iris, self.iris_left),
+                eye(self.iris, self.iris_right),
+            ],
+            sclera: [
+                eye(self.sclera, self.sclera_left),
+                eye(self.sclera, self.sclera_right),
+            ],
+            teeth_brightness: unit(self.teeth_brightness),
+            teeth_whiten: unit(self.teeth_whiten),
         }
     }
 }
@@ -108,6 +151,7 @@ impl Amounts {
             && self.dark_circles <= 0.0
             && self.shine <= 0.0
             && self.contouring <= 0.0
+            && !eye_teeth::active(self)
     }
 }
 
@@ -147,6 +191,14 @@ pub struct RetouchFace {
     pub neck: Option<String>,
     #[serde(default)]
     pub blemishes: Vec<Blemish>,
+    /// The eyes on the left and on the right of the photo (`None`: not
+    /// seen); empty for faces found before Eyes and Teeth or without
+    /// landmarks.
+    #[serde(default)]
+    pub eyes: Vec<Option<Eye>>,
+    /// Inner lip outline of an open mouth, mask-frame pixels.
+    #[serde(default)]
+    pub mouth: Option<Vec<[f64; 2]>>,
     /// Blemishes (ids) the user keeps.
     #[serde(default)]
     pub kept: Vec<u32>,
@@ -166,12 +218,19 @@ pub struct FaceRetouch {
     pub faces: Vec<RetouchFace>,
     #[serde(default = "enabled")]
     pub enabled: bool,
-    /// `frame_key` of the geometry the faces were found in. Faces of
-    /// another geometry are not applied: their crops would be misplaced.
+    /// `frame_key` of the geometry the faces were found in. Faces stay in
+    /// that frame when the geometry changes later (flip, turn, straighten,
+    /// lens or perspective corrections): they are placed through it
+    /// (`placement`), so they stay on the same pixels of the photo.
     pub frame: Option<String>,
     /// Set by the app for the quick preview while a control is dragged:
     /// crowded blemishes are healed once, not three times. Never stored.
     pub draft: bool,
+    /// Set by `scaled_recipe`: the reduced image's pixels per full-size
+    /// pixel, so what depends on a feature's full size (the small-eye fade
+    /// of Eyes) stays as in the export. Never stored.
+    #[serde(rename = "previewScale")]
+    pub preview_scale: Option<f64>,
     /// The protection brush's strokes (mask-frame pixels), for every face.
     #[serde(deserialize_with = "protect::deserialize_strokes")]
     pub protect: Vec<ProtectStroke>,
@@ -191,7 +250,8 @@ const COLOUR_ONLY_KEYS: [&str; 9] = [
     "fringeVersion",
 ];
 
-/// The `frame` written since faces became stale only when they move.
+/// The `frame` written since colour-only corrections stopped counting as
+/// another frame.
 const FRAME_VERSION_2: &str = "2:";
 
 /// Identifies the mask frame the faces are found in: orientation, flips,
@@ -199,35 +259,28 @@ const FRAME_VERSION_2: &str = "2:";
 /// geometry keys without `COLOUR_ONLY_KEYS`), as canonical JSON after
 /// `FRAME_VERSION_2`.
 pub fn frame_key(adjustments: &Value) -> String {
-    let placement = crate::cache_utils::GEOMETRY_KEYS
-        .iter()
-        .filter(|key| !COLOUR_ONLY_KEYS.contains(key));
-    format!("{FRAME_VERSION_2}{}", keys_json(adjustments, placement))
+    format!(
+        "{FRAME_VERSION_2}{}",
+        keys_json(adjustments, frame_keys(true))
+    )
 }
 
 /// The frame faces found before `FRAME_VERSION_2` carry: every geometry key,
-/// so a vignetting or CA change still makes them stale (their recipes render
-/// as before).
+/// colour corrections included.
 fn first_frame_key(adjustments: &Value) -> String {
-    keys_json(adjustments, crate::cache_utils::GEOMETRY_KEYS.iter())
+    keys_json(adjustments, frame_keys(false))
 }
 
-fn keys_json<'a>(adjustments: &Value, extra: impl Iterator<Item = &'a &'a str>) -> String {
-    let mut keys: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
-    for key in [
-        geometry::ORIENTATION_STEPS.name(),
-        geometry::FLIP_HORIZONTAL.name(),
-        geometry::FLIP_VERTICAL.name(),
-        geometry::ROTATION.name(),
-    ]
-    .into_iter()
-    .chain(extra.copied())
-    {
-        if let Some(v) = adjustments.get(key).filter(|v| !v.is_null()) {
-            keys.insert(key, v);
-        }
-    }
-    serde_json::to_string(&keys).unwrap_or_default()
+fn keys_json(adjustments: &Value, keys: impl Iterator<Item = &'static str>) -> String {
+    let listed: std::collections::BTreeMap<&str, &Value> = keys
+        .filter_map(|key| {
+            adjustments
+                .get(key)
+                .filter(|v| !v.is_null())
+                .map(|v| (key, v))
+        })
+        .collect();
+    serde_json::to_string(&listed).unwrap_or_default()
 }
 
 /// Whether faces found in `frame` belong to the geometry of `adjustments`.
@@ -236,6 +289,77 @@ pub fn frame_matches(frame: &str, adjustments: &Value) -> bool {
         frame == frame_key(adjustments)
     } else {
         frame == first_frame_key(adjustments)
+    }
+}
+
+/// The geometry keys a frame lists: those of `frame_key` for a frame of
+/// `FRAME_VERSION_2`, every geometry key before it.
+fn frame_keys(version_2: bool) -> impl Iterator<Item = &'static str> {
+    [
+        geometry::ORIENTATION_STEPS.name(),
+        geometry::FLIP_HORIZONTAL.name(),
+        geometry::FLIP_VERTICAL.name(),
+        geometry::ROTATION.name(),
+    ]
+    .into_iter()
+    .chain(
+        crate::cache_utils::GEOMETRY_KEYS
+            .iter()
+            .copied()
+            .filter(move |key| !version_2 || !COLOUR_ONLY_KEYS.contains(key)),
+    )
+}
+
+/// Recipe keys that never place a pixel and may be large (the faces'
+/// weights, patches, masks): left out of a frame's geometry.
+const NOT_PLACEMENT: [&str; 3] = ["faceRetouch", "aiPatches", "masks"];
+
+/// The geometry the faces of `frame` were found in: `adjustments` with the
+/// frame's geometry keys as `frame` lists them (a key it does not list is
+/// unset). `None` when `frame` is not one `frame_key` writes: not a JSON
+/// object, or listing a key its version does not list. (Its numbers are
+/// not checked by writing them out again: parsing may round a written
+/// decimal by an ulp, which places nothing visibly elsewhere.)
+fn frame_geometry(frame: &str, adjustments: &Value) -> Option<Value> {
+    let (version_2, listed) = match frame.strip_prefix(FRAME_VERSION_2) {
+        Some(rest) => (true, rest),
+        None => (false, frame),
+    };
+    let listed: serde_json::Map<String, Value> = serde_json::from_str(listed).ok()?;
+    if listed
+        .keys()
+        .any(|key| !frame_keys(version_2).any(|k| k == key))
+    {
+        return None;
+    }
+    let mut geometry: serde_json::Map<String, Value> = adjustments
+        .as_object()?
+        .iter()
+        .filter(|(key, _)| !NOT_PLACEMENT.contains(&key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    for key in frame_keys(version_2) {
+        match listed.get(key) {
+            Some(value) => geometry.insert(key.to_owned(), value.clone()),
+            None => geometry.remove(key),
+        };
+    }
+    Some(Value::Object(geometry))
+}
+
+/// The geometry that places `retouch`'s faces (their crops, blemishes,
+/// eyes, mouths and protection strokes, all in its mask frame): the
+/// recipe's own while the faces belong to it, else the geometry they were
+/// found in. `None` when the stored frame cannot be read.
+fn placement<'a>(
+    retouch: &FaceRetouch,
+    adjustments: &'a Value,
+) -> Option<std::borrow::Cow<'a, Value>> {
+    match &retouch.frame {
+        Some(frame) if !frame_matches(frame, adjustments) => {
+            frame_geometry(frame, adjustments).map(std::borrow::Cow::Owned)
+        }
+        _ => Some(std::borrow::Cow::Borrowed(adjustments)),
     }
 }
 
@@ -249,11 +373,10 @@ pub fn from_adjustments(adjustments: &Value) -> Option<FaceRetouch> {
     let retouch: FaceRetouch = serde_json::from_value(value.clone()).ok()?;
     if let Some(frame) = &retouch.frame
         && !frame_matches(frame, adjustments)
+        && frame_geometry(frame, adjustments).is_none()
     {
-        log::warn!(
-            "Face retouch skipped: its faces belong to another geometry ({frame} vs {})",
-            frame_key(adjustments)
-        );
+        // Only a frame no version of the app writes (an edited sidecar).
+        log::warn!("Face retouch skipped: its frame cannot be read ({frame})");
         return None;
     }
     let active = retouch.enabled
@@ -270,6 +393,13 @@ pub fn from_adjustments(adjustments: &Value) -> Option<FaceRetouch> {
 /// pixels, scaled; the geometry stays, so the frame key still matches.
 pub fn scaled_recipe(adjustments: &Value, scale: f64) -> Value {
     let mut recipe = adjustments.clone();
+    if let Some(retouch) = recipe.get_mut("faceRetouch").and_then(Value::as_object_mut) {
+        let before = retouch
+            .get("previewScale")
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0);
+        retouch.insert("previewScale".into(), serde_json::json!(before * scale));
+    }
     let Some(faces) = recipe
         .get_mut("faceRetouch")
         .and_then(|r| r.get_mut("faces"))
@@ -291,6 +421,39 @@ pub fn scaled_recipe(adjustments: &Value, scale: f64) -> Value {
             }
         }
         scale_value(face, "eyeDistance");
+        let scale_point = |p: &mut Value| {
+            for v in p.as_array_mut().into_iter().flatten() {
+                if let Some(x) = v.as_f64() {
+                    *v = serde_json::json!(x * scale);
+                }
+            }
+        };
+        for eye in face
+            .get_mut("eyes")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(iris) = eye.get_mut("iris") {
+                scale_point(iris);
+            }
+            for p in eye
+                .get_mut("lid")
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                scale_point(p);
+            }
+        }
+        for p in face
+            .get_mut("mouth")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            scale_point(p);
+        }
         if let Some(blemishes) = face.get_mut("blemishes").and_then(Value::as_array_mut) {
             for b in blemishes {
                 for key in ["x", "y", "r"] {
@@ -1274,6 +1437,10 @@ pub fn apply_face_retouch(image: &mut Rgb32FImage, adjustments: &Value) -> bool 
     let Some(retouch) = from_adjustments(adjustments) else {
         return false;
     };
+    let Some(placement) = placement(&retouch, adjustments) else {
+        return false;
+    };
+    let adjustments = placement.as_ref();
     let frame = mask_frame(adjustments, image.width(), image.height());
     let protection = protect::Protection::new(image, &retouch.protect, adjustments, frame);
     let mut changed = false;
@@ -1307,6 +1474,21 @@ pub fn apply_face_retouch(image: &mut Rgb32FImage, adjustments: &Value) -> bool 
             (face.eye_distance * base_per_mask) as f32,
             amounts,
         );
+        if eye_teeth::active(&amounts) {
+            eye_teeth::retouch(
+                image,
+                &face.eyes,
+                face.mouth.as_deref(),
+                &eye_teeth::Placement {
+                    adjustments,
+                    frame,
+                    scale: base_per_mask,
+                    full_size: 1.0 / retouch.preview_scale.filter(|&s| s > 0.0).unwrap_or(1.0),
+                    eye_distance: (face.eye_distance * base_per_mask) as f32,
+                },
+                &amounts,
+            );
+        }
         changed = true;
     }
     if changed && let Some(protection) = protection {
@@ -1350,6 +1532,8 @@ mod tests {
             under_eyes: None,
             neck: None,
             blemishes,
+            eyes: vec![],
+            mouth: None,
             kept: vec![],
             added: vec![],
             settings,
@@ -1434,7 +1618,7 @@ mod tests {
     }
 
     #[test]
-    fn faces_of_another_geometry_are_not_applied() {
+    fn faces_of_another_geometry_stay_applied() {
         let mut r = recipe(
             vec![face(vec![], Settings::default())],
             json!({"evenSkin": 30}),
@@ -1442,40 +1626,236 @@ mod tests {
         r["rotation"] = json!(2.0);
         r["faceRetouch"]["frame"] = json!(frame_key(&r));
         assert!(is_active(&r));
+        // Placed through the geometry they were found in.
         r["rotation"] = json!(3.5);
-        assert!(!is_active(&r));
-        // Exposure is not geometry.
-        r["rotation"] = json!(2.0);
-        r["exposure"] = json!(1.0);
-        assert!(is_active(&r));
-        // Nor are vignetting, CA and fringe corrections: the faces stay.
-        for (key, value) in [
-            ("lensVignetteAmount", json!(40)),
-            ("lensTcaAmount", json!(80)),
-            ("autoCaVersion", json!(3)),
-            ("fringeVersion", json!(1)),
-        ] {
-            let mut changed = r.clone();
-            changed[key] = value;
-            assert!(is_active(&changed), "{key}");
-        }
         r["lensDistortionAmount"] = json!(60);
+        assert!(is_active(&r));
+        let retouch = from_adjustments(&r).unwrap();
+        let found_in = placement(&retouch, &r).unwrap();
+        assert_eq!(found_in["rotation"], json!(2.0));
+        assert!(found_in.get("lensDistortionAmount").is_none());
+        assert!(found_in.get("faceRetouch").is_none());
+        assert!(frame_matches(
+            r["faceRetouch"]["frame"].as_str().unwrap(),
+            &found_in
+        ));
+        // A frame no version writes cannot be placed: not applied.
+        r["faceRetouch"]["frame"] = json!("2:{not json");
         assert!(!is_active(&r));
+        r["faceRetouch"]["frame"] = json!("2:{\"exposure\":1}");
+        assert!(!is_active(&r));
+    }
+
+    /// A dark spot of radius 5 at (60, 70) on skin; the recipe heals it,
+    /// evens the skin and protects a stroke over (130, 120)–(150, 140).
+    fn retouched_skin() -> (Rgb32FImage, Value) {
+        let mut image = skin_image(200, 160);
+        for (x, y, p) in image.enumerate_pixels_mut() {
+            let d = ((x as f32 - 60.0).powi(2) + (y as f32 - 70.0).powi(2)).sqrt();
+            if d < 5.0 {
+                p[0] -= 0.05;
+                p[1] -= 0.07;
+                p[2] -= 0.06;
+            }
+            // Blotches for Even skin.
+            p[0] += 0.02 * ((x as f32 / 9.0).sin() * (y as f32 / 7.0).cos());
+        }
+        let mut f = face(
+            vec![Blemish {
+                id: 1,
+                x: 60.0,
+                y: 70.0,
+                r: 5.0,
+                score: 0.4,
+                neck: false,
+            }],
+            Settings::default(),
+        );
+        f.crop = [2.0, 0.0, 0.0, 0.0, 1.6, 0.0];
+        let mut r = recipe(vec![f], json!({"blemishes": 60, "evenSkin": 70}));
+        r["faceRetouch"]["protect"] = json!([{
+            "points": [{"x": 130.0, "y": 120.0}, {"x": 150.0, "y": 140.0}],
+            "radius": 6.0, "feather": 0.0,
+        }]);
+        (image, r)
+    }
+
+    /// Geometry changes made after the faces were found, as Crop makes them.
+    pub(super) fn later_geometry() -> Vec<(&'static str, Value)> {
+        vec![
+            ("flip horizontal", json!({"flipHorizontal": true})),
+            ("flip vertical", json!({"flipVertical": true})),
+            ("rotate 90", json!({"orientationSteps": 1})),
+            ("rotate 270", json!({"orientationSteps": 3})),
+            ("straighten", json!({"rotation": -4.5})),
+            (
+                "crop",
+                json!({"crop": {"x": 20, "y": 10, "width": 120, "height": 90, "unit": "px"}}),
+            ),
+            (
+                "perspective",
+                json!({"transformVertical": 25, "transformScale": 90}),
+            ),
+            ("lens distortion", json!({"transformDistortion": 30})),
+            (
+                "all at once",
+                json!({"flipHorizontal": true, "orientationSteps": 1, "rotation": 3.0,
+                       "transformHorizontal": -15,
+                       "crop": {"x": 5, "y": 5, "width": 100, "height": 80, "unit": "px"}}),
+            ),
+        ]
+    }
+
+    pub(super) fn with_geometry(recipe: &Value, change: &Value) -> Value {
+        let mut changed = recipe.clone();
+        for (key, value) in change.as_object().unwrap() {
+            changed[key] = value.clone();
+        }
+        changed
+    }
+
+    #[test]
+    fn retouch_follows_its_faces_through_later_geometry_changes() {
+        // The base image is retouched before any geometry: a later flip,
+        // turn, straightening, crop, lens or perspective correction leaves
+        // its retouch exactly as it was.
+        let (original, mut r) = retouched_skin();
+        r["faceRetouch"]["frame"] = json!(frame_key(&r));
+        let mut expected = original.clone();
+        assert!(apply_face_retouch(&mut expected, &r));
+        assert_ne!(expected, original);
+        for (name, change) in later_geometry() {
+            let changed = with_geometry(&r, &change);
+            let mut image = original.clone();
+            assert!(apply_face_retouch(&mut image, &changed), "{name}");
+            assert!(image == expected, "{name}: retouch moved or was skipped");
+            // Reduced previews too.
+            let small = scaled_recipe(&changed, 0.5);
+            assert!(is_active(&small), "{name}: preview");
+        }
+    }
+
+    #[test]
+    fn reduced_previews_place_faces_found_in_a_warped_frame() {
+        // Faces found with straightening, perspective and distortion whose
+        // values are decimals Rust writes with 17 digits (0.1 + 0.2 …),
+        // rendered on a half-size copy after the geometry changed: as on
+        // the unchanged geometry.
+        let (original, mut r) = retouched_skin();
+        r["rotation"] = json!(1.1 + 2.2);
+        r["transformVertical"] = json!(0.1 + 0.2);
+        r["transformDistortion"] = json!(0.7 + 0.1);
+        r["lensDistortionAmount"] = json!(33.0 + 0.3);
+        r["lensDistortionParams"] =
+            json!({"k1": -(0.1 + 0.2) / 3.0, "k2": 0.02 + 0.001, "k3": 0.0, "model": 0});
+        r["faceRetouch"]["frame"] = json!(frame_key(&r));
+        let small = image::imageops::resize(
+            &original,
+            original.width() / 2,
+            original.height() / 2,
+            image::imageops::FilterType::Triangle,
+        );
+        let mut expected = small.clone();
+        assert!(apply_face_retouch(&mut expected, &scaled_recipe(&r, 0.5)));
+        assert_ne!(expected, small);
+        for (name, change) in later_geometry() {
+            let mut changed = with_geometry(&r, &change);
+            // The values as a saved sidecar gives them back.
+            changed = serde_json::from_str(&changed.to_string()).unwrap();
+            let mut image = small.clone();
+            assert!(
+                apply_face_retouch(&mut image, &scaled_recipe(&changed, 0.5)),
+                "{name}"
+            );
+            let worst = image
+                .pixels()
+                .zip(expected.pixels())
+                .flat_map(|(p, q)| (0..3).map(move |c| (p[c] - q[c]).abs()))
+                .fold(0.0f32, f32::max);
+            assert!(worst < 1e-5, "{name}: largest difference {worst}");
+        }
+        // The stored lens profile places them: without it they land elsewhere.
+        let mut without_lens = r.clone();
+        without_lens
+            .as_object_mut()
+            .unwrap()
+            .remove("lensDistortionParams");
+        let mut other = with_geometry(&without_lens, &json!({"flipHorizontal": true}));
+        other["faceRetouch"]["frame"] = json!(frame_key(&without_lens));
+        let mut image = small.clone();
+        apply_face_retouch(&mut image, &scaled_recipe(&other, 0.5));
+        let worst = image
+            .pixels()
+            .zip(expected.pixels())
+            .flat_map(|(p, q)| (0..3).map(move |c| (p[c] - q[c]).abs()))
+            .fold(0.0f32, f32::max);
+        assert!(worst > 1e-3, "the lens profile moved nothing ({worst})");
+    }
+
+    #[test]
+    fn faces_found_in_a_turned_frame_land_where_they_were_found() {
+        // The same face found in the photo turned 90° (its crop, blemish
+        // and strokes in that frame) and rendered after the turn is undone
+        // retouches the pixels the unturned find does.
+        let (original, mut r) = retouched_skin();
+        r["faceRetouch"]["frame"] = json!(frame_key(&r));
+        let mut expected = original.clone();
+        apply_face_retouch(&mut expected, &r);
+        // Turned once clockwise: base (x, y) → mask (H − y, x), H = 160.
+        let turn = |x: f64, y: f64| (160.0 - y, x);
+        let mut t = r.clone();
+        t["orientationSteps"] = json!(1);
+        let [a, b, c, d, e, f] = [2.0, 0.0, 0.0, 0.0, 1.6, 0.0];
+        // x' = 160 − (d·u + e·v + f), y' = a·u + b·v + c.
+        t["faceRetouch"]["faces"][0]["crop"] = json!([-d, -e, 160.0 - f, a, b, c]);
+        let (bx, by) = turn(60.0, 70.0);
+        t["faceRetouch"]["faces"][0]["blemishes"][0]["x"] = json!(bx);
+        t["faceRetouch"]["faces"][0]["blemishes"][0]["y"] = json!(by);
+        let points: Vec<Value> = [(130.0, 120.0), (150.0, 140.0)]
+            .iter()
+            .map(|&(x, y)| {
+                let (x, y) = turn(x, y);
+                json!({"x": x, "y": y})
+            })
+            .collect();
+        t["faceRetouch"]["protect"][0]["points"] = json!(points);
+        t["faceRetouch"]["frame"] = json!(frame_key(&t));
+        t["orientationSteps"] = json!(0);
+        let mut image = original.clone();
+        assert!(apply_face_retouch(&mut image, &t));
+        let worst = image
+            .pixels()
+            .zip(expected.pixels())
+            .flat_map(|(p, q)| (0..3).map(move |c| (p[c] - q[c]).abs()))
+            .fold(0.0f32, f32::max);
+        assert!(worst < 2e-3, "largest difference {worst}");
     }
 
     #[test]
     fn faces_found_before_frame_version_2_keep_their_rule() {
-        // Their frame lists every geometry key, colour corrections included:
-        // they render as before.
+        // Their frame lists every geometry key, colour corrections included,
+        // and is read by that rule.
         let mut r = recipe(
             vec![face(vec![], Settings::default())],
             json!({"evenSkin": 30}),
         );
         r["fringeVersion"] = json!(1);
+        r["rotation"] = json!(2.0);
         r["faceRetouch"]["frame"] = json!(first_frame_key(&r));
         assert!(is_active(&r));
+        let retouch = from_adjustments(&r).unwrap();
+        assert!(matches!(
+            placement(&retouch, &r),
+            Some(std::borrow::Cow::Borrowed(_))
+        ));
         r["fringeVersion"] = json!(2);
-        assert!(!is_active(&r));
+        r["rotation"] = json!(5.0);
+        assert!(is_active(&r));
+        let found_in = placement(&retouch, &r).unwrap();
+        assert_eq!(
+            (&found_in["fringeVersion"], &found_in["rotation"]),
+            (&json!(1), &json!(2.0))
+        );
     }
 
     #[test]

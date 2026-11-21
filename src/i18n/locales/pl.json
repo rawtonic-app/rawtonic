@@ -3313,6 +3313,42 @@
           "pickTitle": "Pobierz skórę ze zdjęcia"
         },
         "smoothness": "Wygładzenie",
+        "target": {
+          "blueAria": "Niebieski docelowy (sRGB 0–255)",
+          "chromaAria": "Chroma docelowa C* (CIELAB D50)",
+          "distance": "ΔE00 {{value}} od celu.",
+          "greenAria": "Zielony docelowy (sRGB 0–255)",
+          "grey": "Ten zakres jest zbyt szary, by przyjąć kolor.",
+          "heading": "Kolor docelowy",
+          "hexAria": "Kolor docelowy jako hex sRGB",
+          "hueAria": "Odcień docelowy h° (CIELAB D50)",
+          "layerPredicted": "Przy pełnej sile warstwy zakres trafia ΔE00 {{value}} od celu; tam, gdzie maska jest wtapiana, kolor zmienia się mniej.",
+          "layerStrength": "Prognoza przy pełnej sile warstwy; tam, gdzie maska jest wtapiana, kolor zmienia się mniej.",
+          "lch": "L*C*h°",
+          "lightnessAria": "Jasność docelowa L* (CIELAB D50)",
+          "limit": {
+            "hue": "odcień (±50°)",
+            "lightness": "jasność (×0,6–1,4)",
+            "saturation": "nasycenie (0–200 %)"
+          },
+          "outOfReach": "Poza zasięgiem: zostaje ΔE00 {{value}}; {{limits}} na granicy.",
+          "outsideSrgb": "Cel leży poza sRGB; eksport sRGB odwzorowuje kolor w sRGB.",
+          "outsideWorkingGamut": "Cel leży poza kolorami roboczymi zdjęcia (ProPhoto): żaden kolor zdjęcia nie może nim być, zakres zbliża się tak, jak może.",
+          "pickAria": "Pobierz kolor docelowy",
+          "pickedThrough": "Prognoza: ΔE00 {{value}} od celu, ale ten kolor pobrano przez silną zmianę samego zakresu: sprawdź wynik na zdjęciu albo pobierz go ponownie z suwakami na 0.",
+          "pickTitle": "Pobierz kolor docelowy ze zdjęcia; ten zakres zostanie na niego przesunięty",
+          "reached": "Cel osiągnięty (ΔE00 {{value}}).",
+          "readoutTitle": "Prognoza dla pobranego koloru zakresu, przed dalszymi narzędziami, takimi jak krzywe i gradacja kolorów",
+          "redAria": "Czerwony docelowy (sRGB 0–255)",
+          "sampleAria": "Pobierz kolor docelowy",
+          "sampleTitle": "Pobierz kolor docelowy z tego zdjęcia, dla zakresu tutaj lub na innym zdjęciu",
+          "sourceClipped": "Pobrany kolor jest na granicy sRGB: sprawdź wynik na zdjęciu.",
+          "srgb": "sRGB",
+          "swatchAria": "Wynik zakresu {{result}}, cel {{target}}",
+          "uncovered": "Maska warstwy nie obejmuje już pobranego punktu: suwaki zakresu pozostają bez zmian.",
+          "useSampled": "Użyj celu z {{name}}",
+          "useSampledTitle": "Przesuń ten zakres na kolor pobrany z {{name}}"
+        },
         "title": "Edytor kolorów",
         "uniformity": "Jednolitość",
         "wheel": {
@@ -4114,10 +4150,32 @@
         "darkCircles": "Twarz: cienie pod oczami",
         "evenSkin": "Twarz: wyrównanie skóry",
         "impact": "Twarz: siła",
+        "iris": "Tęczówka ({{side}})",
+        "sclera": "Twardówka ({{side}})",
         "shine": "Twarz: połysk",
+        "teethBrightness": "Jasność zębów",
+        "teethWhiten": "Wybielanie zębów",
         "texture": "Twarz: tekstura"
       },
       "downloadModels": "Pobierz modele twarzy",
+      "eyes": {
+        "find": "Znajdź oczy i zęby",
+        "finding": "Szukanie oczu i zębów…",
+        "missing": "Oczy i Zęby wymagają oczu i ust tych twarzy, znalezionych, zanim te narzędzia istniały.",
+        "none": "Na tej twarzy nie znaleziono oczu ani otwartych ust.",
+        "sideAria": "Oko",
+        "sideHint": {
+          "both": "Oboje oczu",
+          "left": "Oko po lewej stronie zdjęcia",
+          "right": "Oko po prawej stronie zdjęcia"
+        },
+        "sides": {
+          "both": "Oba",
+          "left": "Lewe",
+          "right": "Prawe"
+        },
+        "title": "Oczy"
+      },
       "face": "Twarz {{n}}",
       "faceOwn": "Twarz {{n}} (własne wartości)",
       "facesAria": "Twarze",
@@ -4151,8 +4209,15 @@
         "darkCircles": "Cienie pod oczami",
         "evenSkin": "Wyrównanie skóry",
         "impact": "Siła",
+        "iris": "Tęczówka",
+        "sclera": "Twardówka",
         "shine": "Połysk",
+        "teethBrightness": "Jasność",
+        "teethWhiten": "Wybielanie",
         "texture": "Tekstura"
+      },
+      "teeth": {
+        "title": "Zęby"
       },
       "useAll": "Użyj wartości wszystkich twarzy"
     },

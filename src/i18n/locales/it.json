@@ -3160,6 +3160,42 @@
           "pickTitle": "Preleva la pelle nella foto"
         },
         "smoothness": "Morbidezza",
+        "target": {
+          "blueAria": "Blu obiettivo (sRGB 0–255)",
+          "chromaAria": "Croma obiettivo C* (CIELAB D50)",
+          "distance": "A ΔE00 {{value}} dall'obiettivo.",
+          "greenAria": "Verde obiettivo (sRGB 0–255)",
+          "grey": "Questo intervallo è troppo grigio per prendere un colore.",
+          "heading": "Obiettivo",
+          "hexAria": "Colore obiettivo in esadecimale sRGB",
+          "hueAria": "Tinta obiettivo h° (CIELAB D50)",
+          "layerPredicted": "Con il livello a piena intensità l'intervallo arriva a ΔE00 {{value}} dall'obiettivo; dove la maschera sfuma, il colore cambia meno.",
+          "layerStrength": "Previsione con il livello a piena intensità; dove la maschera sfuma, il colore cambia meno.",
+          "lch": "L*C*h°",
+          "lightnessAria": "Luminosità obiettivo L* (CIELAB D50)",
+          "limit": {
+            "hue": "tinta (±50°)",
+            "lightness": "luminosità (×0,6–1,4)",
+            "saturation": "saturazione (0–200 %)"
+          },
+          "outOfReach": "Fuori portata: restano ΔE00 {{value}}; {{limits}} al limite.",
+          "outsideSrgb": "L'obiettivo è fuori da sRGB; un'esportazione sRGB riporta il colore dentro sRGB.",
+          "outsideWorkingGamut": "L'obiettivo è oltre i colori di lavoro della foto (ProPhoto): nessun colore della foto può esserlo, l'intervallo si avvicina quanto può.",
+          "pickAria": "Preleva il colore obiettivo",
+          "pickedThrough": "Previsto a ΔE00 {{value}} dall'obiettivo, ma questo colore è stato prelevato attraverso la forte modifica dell'intervallo stesso: controlla il risultato nella foto o prelevalo di nuovo con i cursori a 0.",
+          "pickTitle": "Preleva il colore obiettivo nella foto; questo intervallo vi si sposta",
+          "reached": "Obiettivo raggiunto (ΔE00 {{value}}).",
+          "readoutTitle": "Previsione per il colore prelevato dell'intervallo, prima degli strumenti successivi come curve e color grading",
+          "redAria": "Rosso obiettivo (sRGB 0–255)",
+          "sampleAria": "Preleva un colore obiettivo",
+          "sampleTitle": "Preleva un colore obiettivo in questa foto, per un intervallo qui o in un'altra foto",
+          "sourceClipped": "Il colore prelevato è al limite di sRGB: controlla il risultato nella foto.",
+          "srgb": "sRGB",
+          "swatchAria": "Risultato dell'intervallo {{result}}, obiettivo {{target}}",
+          "uncovered": "La maschera del livello non copre più il punto prelevato: i cursori dell'intervallo restano come sono.",
+          "useSampled": "Usa l'obiettivo da {{name}}",
+          "useSampledTitle": "Sposta questo intervallo sul colore prelevato in {{name}}"
+        },
         "title": "Editor colore",
         "uniformity": "Uniformità",
         "wheel": {
@@ -3952,10 +3988,32 @@
         "darkCircles": "Volto: occhiaie",
         "evenSkin": "Volto: pelle uniforme",
         "impact": "Volto: intensità",
+        "iris": "Iride ({{side}})",
+        "sclera": "Sclera ({{side}})",
         "shine": "Volto: lucidità",
+        "teethBrightness": "Luminosità dei denti",
+        "teethWhiten": "Sbiancare i denti",
         "texture": "Volto: texture"
       },
       "downloadModels": "Scarica i modelli del viso",
+      "eyes": {
+        "find": "Trova occhi e denti",
+        "finding": "Ricerca di occhi e denti…",
+        "missing": "Occhi e Denti richiedono occhi e bocca di questi volti, trovati prima che esistessero questi strumenti.",
+        "none": "Nessun occhio né bocca aperta trovati in questo volto.",
+        "sideAria": "Occhio",
+        "sideHint": {
+          "both": "Entrambi gli occhi",
+          "left": "L’occhio a sinistra nella foto",
+          "right": "L’occhio a destra nella foto"
+        },
+        "sides": {
+          "both": "Entrambi",
+          "left": "Sinistro",
+          "right": "Destro"
+        },
+        "title": "Occhi"
+      },
       "face": "Volto {{n}}",
       "faceOwn": "Volto {{n}} (valori propri)",
       "facesAria": "Volti",
@@ -3988,8 +4046,15 @@
         "darkCircles": "Occhiaie",
         "evenSkin": "Pelle uniforme",
         "impact": "Intensità",
+        "iris": "Iride",
+        "sclera": "Sclera",
         "shine": "Lucidità",
+        "teethBrightness": "Luminosità",
+        "teethWhiten": "Sbiancare",
         "texture": "Texture"
+      },
+      "teeth": {
+        "title": "Denti"
       },
       "useAll": "Usa i valori di tutti i volti"
     },

@@ -5,7 +5,13 @@ import StudioLayerControls from './StudioLayerControls';
 import { useStudioTools } from './useStudioTools';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useUIStore } from '../../store/useUIStore';
-import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, MASK_VERSION, type Adjustments } from '../../utils/adjustments';
+import {
+  INITIAL_ADJUSTMENTS,
+  INITIAL_MASK_CONTAINER,
+  MASK_VERSION,
+  REFINE_EDGE_MASK_VERSION,
+  type Adjustments
+} from '../../utils/adjustments';
 import { addComponentBeforeLumaRange, createSubMask } from '../../utils/maskUtils';
 import { Mask, SubMaskMode } from '../panel/right/Masks';
 import { Panel } from '../ui/AppProperties';
@@ -143,10 +149,24 @@ describe('refine edge', () => {
       fireEvent.blur(field);
     };
     type('40');
-    expect(layerOf()).toMatchObject({ refineEdge: 40, maskVersion: MASK_VERSION });
+    // An older layer gets the 16-bit mask but keeps how its components
+    // combine (max / min before version 5).
+    expect(layerOf()).toMatchObject({ refineEdge: 40, maskVersion: REFINE_EDGE_MASK_VERSION });
     type('0');
     expect(layerOf().refineEdge).toBeUndefined();
-    expect(layerOf().maskVersion).toBe(MASK_VERSION);
+    expect(layerOf().maskVersion).toBe(REFINE_EDGE_MASK_VERSION);
+  });
+
+  it('leaves a newer layer at its own version', () => {
+    useEditorStore.setState((s) => ({
+      adjustments: { ...s.adjustments, masks: [{ ...s.adjustments.masks[0], maskVersion: MASK_VERSION }] }
+    }));
+    render(<StudioLayerControls />);
+    const field = screen.getByTitle(/layer's edge follows the photo's own edge/).querySelector('input[type=text]')!;
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '40' } });
+    fireEvent.blur(field);
+    expect(layerOf()).toMatchObject({ refineEdge: 40, maskVersion: MASK_VERSION });
   });
 
   it('gives new layers the 16-bit mask and leaves older ones alone', () => {

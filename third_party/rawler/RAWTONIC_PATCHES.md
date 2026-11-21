@@ -603,6 +603,16 @@ suite allows 120 seconds without progress and 600 seconds total.
   RGB TIFFs while listing folders, where `RawSource::new` would read every
   TIFF in full on Linux. Evidence: notes benchmark-results/rawc2-2026-11-18/.
 
+## Shared buffers (2026-11-20, CRD1, G55)
+
+- `src/rawsource.rs` (`RawSource::new_from_shared`, `RawSourceImpl::Shared`):
+  wraps a buffer the caller already holds (Rawtonic's own mapping of the
+  file) without copying it. `new_from_slice` copies every byte, so reading a
+  RAF's metadata from a mapping read all 33-56 MB of it from disk or a
+  network share. `rawtonic-export::exif_processing::read_exif_data_from_shared`
+  uses it for the Library's metadata pass. Evidence: notes
+  benchmark-results/crd1-2026-11-20/.
+
 ## Canon CR3 white level (2026-11-19, RAWL3, G01)
 
 - `src/decoders/cr2/colordata.rs`: ColorData version 48 (R6 II, R7, R8,
