@@ -267,6 +267,23 @@ it('shows a model download with its progress', async () => {
   expect(entry('download:ai-model')).toBeUndefined();
 });
 
+it("titles a model download in the UI's language, not the backend's English name", async () => {
+  await act(async () => {});
+  handlers.get('ai-model-download-start')!({ payload: 'Eye and teeth model' });
+  expect(entry('download:ai-model')?.title).toBe('Downloading eye and teeth model');
+  handlers.get('ai-model-download-finish')!({ payload: 'Eye and teeth model' });
+  await i18n.changeLanguage('de');
+  try {
+    handlers.get('ai-model-download-start')!({ payload: 'Eye and teeth model' });
+    expect(entry('download:ai-model')?.title).toBe('Wird geladen: Augen- und Zahnmodell');
+    handlers.get('ai-model-download-finish')!({ payload: 'Eye and teeth model' });
+    handlers.get('ai-model-download-start')!({ payload: 'Face models' });
+    expect(entry('download:ai-model')?.title).toBe('Wird geladen: Gesichtsmodelle');
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
+
 it('shows a batch command photo by photo', async () => {
   let release!: () => void;
   const written = submitPhotoWrite(

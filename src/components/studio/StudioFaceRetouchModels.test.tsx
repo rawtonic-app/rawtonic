@@ -1,5 +1,5 @@
 import '../../i18n';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
@@ -7,6 +7,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 
 import StudioFaceRetouch, { faceRetouchGeometry, faceRetouchIsCurrent } from './StudioFaceRetouch';
 import { useEditorStore } from '../../store/useEditorStore';
+import { resetActivityStore, useActivityStore } from '../../store/useActivityStore';
 import { INITIAL_ADJUSTMENTS, type FaceRetouch } from '../../utils/adjustments';
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../../utils/geometryKeys';
 
@@ -279,5 +280,87 @@ describe('the eye and teeth parser', () => {
     );
     await screen.findByRole('button', { name: 'Download eye and teeth model' });
     expect(useEditorStore.getState().adjustments.faceRetouch).toBe(faceRetouch);
+  });
+});
+
+describe('model downloads in the Retouch tab', () => {
+  // The download's own error, as the backend gives it (EYE5's QA).
+  const raw =
+    'error sending request for url (https://github.com/rawtonic-app/models/releases/download/x/easyportrait_fpn_1024.onnx): client error (Connect): tunnel error: Connection refused (os error 61)';
+  const failed = { code: 'download_failed', message: raw };
+  const sentence = 'The model could not be downloaded. Check the internet connection and try again.';
+  const analysed = {
+    id: 'face-1',
+    box: [0, 0, 10, 10],
+    eyes: [null, null],
+    mouth: null,
+    settings: {},
+    kept: [],
+    blemishes: []
+  };
+
+  afterEach(() => resetActivityStore());
+
+  it('says why the face models failed to download and offers them again in place', async () => {
+    let attempts = 0;
+    invoke.mockImplementation((_command: string, args: { download?: boolean }) => {
+      if (!args.download) return Promise.reject({ code: 'models_missing', message: 'face-models-missing' });
+      attempts += 1;
+      return attempts === 1 ? Promise.reject(failed) : Promise.resolve({ frame: 'f', faces: [] });
+    });
+    useEditorStore.setState({
+      selectedImage: { path: '/s/m1.CR3', isReady: true } as never,
+      adjustments: { ...INITIAL_ADJUSTMENTS, faceRetouch: undefined }
+    });
+    render(<StudioFaceRetouch onInteraction={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Download face models' }));
+    expect(await screen.findByText(sentence)).toBeTruthy();
+    expect(screen.queryByText(raw)).toBeNull();
+    // The retry stays where it was, without leaving the tab.
+    fireEvent.click(screen.getByRole('button', { name: 'Download face models' }));
+    await waitFor(() => expect(screen.getByText('No faces found in this photo.')).toBeTruthy());
+    expect(attempts).toBe(2);
+  });
+
+  it('says why the eye and teeth model failed to download, without the technical error', async () => {
+    invoke.mockImplementation((_command: string, args: { eyesTeeth?: boolean; downloadEyesTeeth?: boolean }) => {
+      if (!args.eyesTeeth) return Promise.resolve({ frame: '2:{}', faces: [analysed] });
+      if (!args.downloadEyesTeeth) return Promise.resolve({ frame: '2:{}', faces: [analysed], eyesTeethMissing: true });
+      return Promise.reject(failed);
+    });
+    useEditorStore.setState({
+      selectedImage: { path: '/s/m2.CR3', isReady: true } as never,
+      adjustments: { ...INITIAL_ADJUSTMENTS, faceRetouch: undefined }
+    });
+    render(<StudioFaceRetouch onInteraction={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Download eye and teeth model' }));
+    expect(await screen.findByText(sentence)).toBeTruthy();
+    expect(screen.queryByText(raw)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Download eye and teeth model' })).toBeTruthy();
+  });
+
+  it('shows the download progress in place of the button while it runs', async () => {
+    let finish!: (value: unknown) => void;
+    invoke.mockImplementation((_command: string, args: { eyesTeeth?: boolean; downloadEyesTeeth?: boolean }) => {
+      if (!args.eyesTeeth) return Promise.resolve({ frame: '2:{}', faces: [analysed] });
+      if (!args.downloadEyesTeeth) return Promise.resolve({ frame: '2:{}', faces: [analysed], eyesTeethMissing: true });
+      return new Promise((resolve) => (finish = resolve));
+    });
+    useEditorStore.setState({
+      selectedImage: { path: '/s/m3.CR3', isReady: true } as never,
+      adjustments: { ...INITIAL_ADJUSTMENTS, faceRetouch: undefined }
+    });
+    render(<StudioFaceRetouch onInteraction={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Download eye and teeth model' }));
+    expect(await screen.findByText('Preparing the model…')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Download eye and teeth model' })).toBeNull();
+    act(() => {
+      useActivityStore.getState().start({ id: 'download:ai-model', source: 'download', title: 'x' });
+      useActivityStore.getState().update('download:ai-model', { progress: { done: 25, total: 100 } });
+    });
+    expect(await screen.findByText('Downloading… 25%')).toBeTruthy();
+    act(() => useActivityStore.getState().finish('download:ai-model'));
+    finish({ frame: '2:{}', faces: [analysed] });
+    await waitFor(() => expect(screen.queryByText('Preparing the model…')).toBeNull());
   });
 });

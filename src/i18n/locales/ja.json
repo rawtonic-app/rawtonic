@@ -36,7 +36,21 @@
     "dismiss": "閉じる: {{title}}",
     "dismissShort": "閉じる",
     "download": {
-      "model": "ダウンロード中: {{name}}"
+      "model": "ダウンロード中: {{name}}",
+      "names": {
+        "denoise": "AI ノイズ除去モデル",
+        "depth": "奥行きモデル",
+        "eyesTeeth": "目と歯のモデル",
+        "faces": "顔モデル",
+        "fill": "塗りつぶしモデル",
+        "landscape": "風景モデル",
+        "objectRemoval": "オブジェクト除去モデル",
+        "relight": "再ライティングモデル",
+        "search": "検索モデル",
+        "sky": "空モデル",
+        "subject": "被写体モデル",
+        "superResolution": "超解像モデル"
+      }
     },
     "duplicates": {
       "failed": "重複の検索に失敗しました",
@@ -854,6 +868,7 @@
         "upgradeRequired": "アップグレードが必要です"
       },
       "createNewTitle": "新しい生成編集を作成",
+      "downloadFailed": "モデルをダウンロードできませんでした。インターネット接続を確認して、もう一度お試しください。",
       "generatingDepthMap": "AI深度マップを計算中...",
       "params": {
         "feather": "ぼかし",
@@ -3795,6 +3810,10 @@
         "teethBrightness": "歯の明るさ",
         "teethWhiten": "歯のホワイトニング",
         "texture": "顔: テクスチャ"
+      },
+      "download": {
+        "preparing": "モデルを準備しています…",
+        "progress": "ダウンロード中… {{percent}}%"
       },
       "downloadModels": "顔モデルをダウンロード",
       "eyes": {

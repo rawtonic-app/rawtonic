@@ -40,7 +40,21 @@
     "dismiss": "Ausblenden: {{title}}",
     "dismissShort": "Ausblenden",
     "download": {
-      "model": "{{name}} wird geladen"
+      "model": "Wird geladen: {{name}}",
+      "names": {
+        "denoise": "KI-Entrauschungsmodell",
+        "depth": "Tiefenmodell",
+        "eyesTeeth": "Augen- und Zahnmodell",
+        "faces": "Gesichtsmodelle",
+        "fill": "Füllmodell",
+        "landscape": "Landschaftsmodell",
+        "objectRemoval": "Modell zum Entfernen von Objekten",
+        "relight": "Relight-Modell",
+        "search": "Suchmodell",
+        "sky": "Himmelsmodell",
+        "subject": "Motivmodell",
+        "superResolution": "Super-Resolution-Modell"
+      }
     },
     "duplicates": {
       "failed": "Duplikatsuche fehlgeschlagen",
@@ -868,6 +882,7 @@
         "upgradeRequired": "Upgrade erforderlich"
       },
       "createNewTitle": "Neue generative Bearbeitung erstellen",
+      "downloadFailed": "Das Modell konnte nicht geladen werden. Prüfe die Internetverbindung und versuche es erneut.",
       "generatingDepthMap": "KI-Tiefenkarte wird berechnet...",
       "params": {
         "feather": "Weiche Kante",
@@ -3904,6 +3919,10 @@
         "teethBrightness": "Zähne Helligkeit",
         "teethWhiten": "Zähne aufhellen",
         "texture": "Gesicht: Textur"
+      },
+      "download": {
+        "preparing": "Modell wird vorbereitet…",
+        "progress": "Wird geladen… {{percent}} %"
       },
       "downloadModels": "Gesichtsmodelle laden",
       "eyes": {

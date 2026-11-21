@@ -77,6 +77,11 @@ struct Tuning {
     iris_contrast: f32,
     iris_light: f32,
     iris_colour: f32,
+    /// Iris on the parser's eyes: `lighten` strength towards the eye white
+    /// (instead of `iris_light`'s gain), set to Capture One 16.9.1's
+    /// lightening at its maximum on EYE2's tuning portraits (notes
+    /// benchmark-results/eye7-2026-11-21).
+    parsed_iris_light: f32,
     /// Sclera at 100: share of the way to white, share of colour removed.
     sclera_light: f32,
     sclera_colour: f32,
@@ -85,18 +90,31 @@ struct Tuning {
     teeth_light: f32,
     teeth_yellow: f32,
     teeth_whiten_light: f32,
+    /// The lift of the parser's teeth, as a multiple of the above: their
+    /// mask is weighed by `ToothGate`, so shaded tooth pixels get less.
+    parsed_teeth_light: f32,
 }
 
 const TUNE: Tuning = Tuning {
     iris_contrast: 0.35,
     iris_light: 0.1,
     iris_colour: 0.1,
+    parsed_iris_light: 1.0,
     sclera_light: 0.6,
     sclera_colour: 0.7,
     teeth_light: 0.6,
     teeth_yellow: 0.85,
     teeth_whiten_light: 0.15,
+    parsed_teeth_light: 1.4,
 };
+
+/// Insets of the parser's outlines (EYE7, tuning portraits): the eye
+/// opening for Sclera and the wider opening for Iris, as shares of the iris
+/// radius; the teeth, as a share of the eye distance. They keep the lift
+/// off the lid rims and lips (halo).
+const SCLERA_INSET: f32 = 0.07;
+const IRIS_INSET: f32 = 0.05;
+const TEETH_INSET: f32 = 0.005;
 
 /// A closed outline in base pixels.
 struct Outline {
@@ -204,8 +222,9 @@ impl Region {
             .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)))
     }
 
-    /// Coverage 0–1: a ramp `feather` wide centred on the outlines.
-    fn coverage(&self, x: f32, y: f32, feather: f32) -> f32 {
+    /// Coverage 0–1: a ramp `feather` wide centred on the outlines pulled
+    /// in by `inset`.
+    fn coverage(&self, x: f32, y: f32, feather: f32, inset: f32) -> f32 {
         let mut inside = false;
         let mut best = f32::INFINITY;
         for o in &self.outlines {
@@ -224,7 +243,7 @@ impl Region {
             return 0.0;
         }
         let sd = if inside { -best } else { best };
-        (0.5 - sd / feather).clamp(0.0, 1.0)
+        (0.5 - (sd + inset) / feather).clamp(0.0, 1.0)
     }
 }
 
@@ -635,8 +654,8 @@ fn parsed_eye_masks(
             let disk = (0.5 - (d - r) / iris_feather).clamp(0.0, 1.0);
             let inner = (0.5 - (d - 0.9 * r) / iris_feather).clamp(0.0, 1.0);
             (
-                wide.coverage(x, y, feather) * disk,
-                opening.coverage(x, y, feather) * (1.0 - inner),
+                wide.coverage(x, y, feather, IRIS_INSET * r) * disk,
+                opening.coverage(x, y, feather, SCLERA_INSET * r) * (1.0 - inner),
             )
         })
         .unzip()
@@ -749,11 +768,22 @@ fn retouch_eye(
             {
                 let a = iris_amount;
                 let contrast = (mean + (e - mean) * (1.0 + tune.iris_contrast * a)).max(0.0);
-                let lighter = contrast * (1.0 + tune.iris_light * a);
                 // Never lighter than the eye white (catchlights keep theirs).
                 let ceiling = white.map_or(1.0, |wv| (0.95 * wv).max(e));
+                let y = match white {
+                    // The parser's eyes: lighter towards the eye white with
+                    // a roll-off, so a pale iris keeps its texture instead of
+                    // being clipped flat against the white, and a mid-tone
+                    // one is not lifted past what the white leaves room for.
+                    Some(wv) if parsed.is_some() && contrast < 0.95 * wv => {
+                        let c = 0.95 * wv;
+                        c * lighten(contrast / c, tune.parsed_iris_light * a)
+                    }
+                    _ if parsed.is_some() => contrast.min(ceiling),
+                    _ => (contrast * (1.0 + tune.iris_light * a)).min(ceiling),
+                };
                 let gain = 1.0 + tune.iris_colour * a;
-                let new = recolour(rgb, y_in, decode(lighter.min(ceiling)), |_, d| d * gain);
+                let new = recolour(rgb, y_in, decode(y), |_, d| d * gain);
                 out = blend(out, new, wi);
             }
             if sclera_amount > 0.0 && ww > 0.0 {
@@ -887,11 +917,43 @@ fn retouch_teeth(
     };
     let patch = Patch::new(image, bounds);
     let mask = teeth_mask(&patch, &outline, grow, feather, reach);
-    whiten_teeth(image, &patch, &mask, amounts, tune);
+    whiten_teeth(image, &patch, &mask, amounts, tune, 1.0);
 }
 
+/// How tooth-like a pixel inside the parser's teeth is. The parser's teeth
+/// class takes in the dark gaps between teeth, the mouth's dark interior
+/// and gum shadows; lifting those lightens and reddens the black of the
+/// mouth (notes benchmark-results/eye5-2026-11-21, defect 1). Fixed on
+/// EYE2's tuning portraits only (notes benchmark-results/eye7-2026-11-21).
+#[derive(Clone, Copy, Debug)]
+struct ToothGate {
+    /// The teeth's own lightness: this quantile of the square-root
+    /// lightness of the pixels well inside and not red.
+    reference: f32,
+    /// Lightness ramp, as shares of that reference.
+    light_lo: f32,
+    light_hi: f32,
+    /// Redness ramp (`redness`; yellow teeth reach about 0.15, lips over
+    /// 1): gums, tongue and lips stay.
+    red_lo: f32,
+    red_hi: f32,
+    /// Smoothing radius of the gate, as a share of the eye distance.
+    smooth: f32,
+}
+
+const TOOTH_GATE: ToothGate = ToothGate {
+    reference: 0.8,
+    light_lo: 0.45,
+    light_hi: 0.7,
+    red_lo: 0.4,
+    red_hi: 0.8,
+    smooth: 0.004,
+};
+
 /// Teeth from the eye and teeth parser's outlines (rawtonic-faces
-/// `portrait`): inside them, with the colour models' soft edge.
+/// `portrait`): inside them pulled in by `TEETH_INSET`, with the colour
+/// models' soft edge, weighed by how tooth-like each pixel is
+/// (`ToothGate`).
 fn retouch_parsed_teeth(
     image: &mut Rgb32FImage,
     teeth: &Region,
@@ -900,27 +962,52 @@ fn retouch_parsed_teeth(
     tune: &Tuning,
 ) {
     let feather = (0.01 * place.eye_distance).max(1.0);
+    let inset = TEETH_INSET * place.eye_distance;
     let Some(bounds) = teeth.pixel_box(feather + 1.0, image.dimensions()) else {
         return;
     };
     let patch = Patch::new(image, bounds);
-    let mask: Vec<f32> = (0..patch.w * patch.h)
+    let cover: Vec<f32> = (0..patch.w * patch.h)
         .into_par_iter()
         .map(|k| {
             let (x, y) = patch.centre(k);
-            teeth.coverage(x, y, feather)
+            teeth.coverage(x, y, feather, inset)
         })
         .collect();
-    whiten_teeth(image, &patch, &mask, amounts, tune);
+    let gate = tooth_gate(&patch, &cover, place.eye_distance, &TOOTH_GATE);
+    let mask: Vec<f32> = cover.iter().zip(&gate).map(|(c, g)| c * g).collect();
+    whiten_teeth(image, &patch, &mask, amounts, tune, tune.parsed_teeth_light);
 }
 
-/// Teeth Brightness and Whiten on `patch` by `mask`.
+/// `gate` per pixel of `patch`, 0–1, by the teeth within `cover`.
+fn tooth_gate(patch: &Patch, cover: &[f32], eye_distance: f32, gate: &ToothGate) -> Vec<f32> {
+    let feature: Vec<[f32; 3]> = patch.rgb.par_iter().map(|&p| features(p)).collect();
+    let red = |f: [f32; 3]| smoothstep(gate.red_lo, gate.red_hi, redness(f));
+    let mut light: Vec<f32> = (0..cover.len())
+        .filter(|&k| cover[k] > 0.5 && red(feature[k]) < 0.5)
+        .map(|k| feature[k][0])
+        .collect();
+    let Some(reference) = quantile(&mut light, gate.reference).filter(|&r| r > 1e-4) else {
+        return vec![0.0; cover.len()];
+    };
+    let raw: Vec<f32> = feature
+        .par_iter()
+        .map(|&f| {
+            smoothstep(gate.light_lo * reference, gate.light_hi * reference, f[0]) * (1.0 - red(f))
+        })
+        .collect();
+    box_mean(&raw, patch.w, (gate.smooth * eye_distance).round() as usize)
+}
+
+/// Teeth Brightness and Whiten on `patch` by `mask`, their lift times
+/// `gain`.
 fn whiten_teeth(
     image: &mut Rgb32FImage,
     patch: &Patch,
     mask: &[f32],
     amounts: &Amounts,
     tune: &Tuning,
+    gain: f32,
 ) {
     let (b, wh) = (amounts.teeth_brightness, amounts.teeth_whiten);
     let out: Vec<Option<[f32; 3]>> = (0..patch.w * patch.h)
@@ -932,7 +1019,7 @@ fn whiten_teeth(
             let rgb = patch.rgb[k];
             let y_in = lum(rgb);
             let e = encode(y_in);
-            let light = tune.teeth_light * b + tune.teeth_whiten_light * wh;
+            let light = gain * (tune.teeth_light * b + tune.teeth_whiten_light * wh);
             // Yellow: red and green above blue (colour against neutral).
             let ratio = |c: usize| {
                 if y_in > 1e-9 {
@@ -1224,6 +1311,97 @@ mod tests {
         apply_face_retouch(&mut a, &with(fallback, settings.clone()));
         apply_face_retouch(&mut b, &with(face().1, settings));
         assert!(a == b && changed(&before, &a, 200, 216));
+    }
+
+    /// An open mouth as the parser sees it: its teeth outline takes in the
+    /// whole opening, the dark gaps between the teeth, the gum line above
+    /// them and the black of the mouth below.
+    fn parsed_mouth() -> (Rgb32FImage, Value) {
+        const GUM: [f32; 3] = [0.32, 0.11, 0.11];
+        let image = Rgb32FImage::from_fn(400, 300, |x, y| {
+            let (xf, yf) = (x as f32 + 0.5, y as f32 + 0.5);
+            let opening = ((xf - 200.0) / 50.0).powi(2) + ((yf - 220.0) / 16.0).powi(2) <= 1.0;
+            let rgb = if !opening {
+                SKIN
+            } else if yf < 209.0 {
+                GUM
+            } else if yf < 226.0 {
+                if x % 14 < 4 { DARK } else { TEETH }
+            } else {
+                DARK
+            };
+            image::Rgb(rgb)
+        });
+        let recipe = json!({"faceRetouch": {"settings": {}, "faces": [{
+            "crop": [4.0, 0.0, 0.0, 0.0, 4.0, 0.0], "size": 100, "eyeDistance": 160.0,
+            "skin": "", "blemishes": [], "kept": [], "eyes": [], "mouth": null,
+            "parsedTeeth": [ellipse(200.0, 220.0, 50.0, 16.0, 32)],
+        }]}});
+        (image, recipe)
+    }
+
+    #[test]
+    fn the_parsers_teeth_leave_the_dark_mouth_and_gums() {
+        let (before, recipe) = parsed_mouth();
+        let mut image = before.clone();
+        let settings = json!({"teethBrightness": 100, "teethWhiten": 100});
+        assert!(apply_face_retouch(&mut image, &with(recipe, settings)));
+        // The teeth are lighter, and less yellow.
+        let (t0, t1) = (before.get_pixel(205, 217).0, image.get_pixel(205, 217).0);
+        assert!(lum(t1) > 1.2 * lum(t0), "{t0:?} -> {t1:?}");
+        // The black of the mouth, the gaps between the teeth (4 px; a gap
+        // as narrow as the gate's smoothing is lifted a little) and the
+        // gums are not lifted.
+        for (x, y) in [
+            (200, 230),
+            (180, 232),
+            (220, 229),
+            (197, 217),
+            (211, 217),
+            (200, 206),
+        ] {
+            let (a, b) = (lum(before.get_pixel(x, y).0), lum(image.get_pixel(x, y).0));
+            assert!(
+                encode(b) - encode(a) < 0.02,
+                "({x}, {y}) lifted from {a} to {b}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_light_iris_keeps_its_texture() {
+        // A pale iris of two tones close to the eye white: lighter, but not
+        // clipped flat into one tone against the white.
+        const PALE: [[f32; 3]; 2] = [[0.32, 0.34, 0.38], [0.27, 0.29, 0.33]];
+        let image = Rgb32FImage::from_fn(400, 300, |x, y| {
+            let (xf, yf) = (x as f32 + 0.5, y as f32 + 0.5);
+            let eye = ((xf - 120.0) / 30.0).powi(2) + ((yf - 100.0) / 12.0).powi(2) <= 1.0;
+            let rgb = if !eye {
+                SKIN
+            } else if (xf - 120.0).hypot(yf - 100.0) <= 14.0 {
+                PALE[(x / 2 % 2) as usize]
+            } else {
+                WHITE
+            };
+            image::Rgb(rgb)
+        });
+        let opening = ellipse(120.0, 100.0, 30.0, 12.0, 32);
+        let recipe = json!({"faceRetouch": {"settings": {"iris": 100}, "faces": [{
+            "crop": [4.0, 0.0, 0.0, 0.0, 4.0, 0.0], "size": 100, "eyeDistance": 160.0,
+            "skin": "", "blemishes": [], "kept": [],
+            "eyes": [{"iris": [120.0, 100.0, 14.0], "lid": opening,
+                      "parsedEye": [opening], "parsedIris": [opening]}],
+        }]}});
+        let mut after = image.clone();
+        assert!(apply_face_retouch(&mut after, &recipe));
+        let (a, b) = (after.get_pixel(124, 100).0, after.get_pixel(126, 100).0);
+        let (a0, b0) = (image.get_pixel(124, 100).0, image.get_pixel(126, 100).0);
+        assert!(lum(a) > lum(a0) && lum(b) > lum(b0), "lighter");
+        assert!(
+            (encode(lum(a)) - encode(lum(b))).abs()
+                > 0.5 * (encode(lum(a0)) - encode(lum(b0))).abs(),
+            "texture kept: {a0:?}/{b0:?} -> {a:?}/{b:?}"
+        );
     }
 
     #[test]

@@ -131,9 +131,10 @@ pub(crate) async fn models(
                 FACE_MODELS_MISSING,
             ));
         }
+        // A failed download keeps its code: the panel offers it again.
         crate::ai_processing::download_verified(app_handle, &dir, file, sha, "Face models")
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(CommandError::chain)?;
     }
     let models = tokio::task::spawn_blocking(move || FaceModels::load(&dir))
         .await
@@ -197,7 +198,7 @@ pub(crate) async fn portrait_model(
                     "Eye and teeth model",
                 )
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(CommandError::chain)?;
             } else if crate::ai_processing::ensure_runtime().is_err()
                 || !crate::ai_processing::verify_sha256(&path, portrait::SHA256).unwrap_or(false)
             {

@@ -44,7 +44,21 @@
     "dismiss": "Descarta: {{title}}",
     "dismissShort": "Descarta",
     "download": {
-      "model": "S’està baixant {{name}}"
+      "model": "S’està baixant {{name}}",
+      "names": {
+        "denoise": "el model de reducció de soroll IA",
+        "depth": "el model de profunditat",
+        "eyesTeeth": "el model d’ulls i dents",
+        "faces": "els models de cara",
+        "fill": "el model d’emplenament",
+        "landscape": "el model de paisatge",
+        "objectRemoval": "el model d’eliminació d’objectes",
+        "relight": "el model de reil·luminació",
+        "search": "el model de cerca",
+        "sky": "el model de cel",
+        "subject": "el model de subjecte",
+        "superResolution": "el model de superresolució"
+      }
     },
     "duplicates": {
       "failed": "La cerca de duplicats ha fallat",
@@ -916,6 +930,7 @@
         "upgradeRequired": "Cal actualitzar"
       },
       "createNewTitle": "Crear nova edició generativa",
+      "downloadFailed": "No s’ha pogut baixar el model. Comprova la connexió a internet i torna-ho a provar.",
       "generatingDepthMap": "S'està calculant el mapa de profunditat d'IA...",
       "params": {
         "feather": "Esvaïment",
@@ -4071,6 +4086,10 @@
         "teethBrightness": "Brillantor de les dents",
         "teethWhiten": "Blanquejar les dents",
         "texture": "Cara: textura"
+      },
+      "download": {
+        "preparing": "S’està preparant el model…",
+        "progress": "S’està baixant… {{percent}} %"
       },
       "downloadModels": "Baixa els models de cara",
       "eyes": {

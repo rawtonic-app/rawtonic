@@ -47,6 +47,45 @@ const act = (command: Invokes, args: Record<string, unknown>) =>
  * after the user dismissed its failure) reports nothing new. */
 const exportReported = new Map<string, string>();
 
+/** The backend's model names (`download_verified`'s English labels, also
+ * in its log) as the UI's language names them; an unknown one as it is. */
+type ModelId =
+  | 'faces'
+  | 'eyesTeeth'
+  | 'denoise'
+  | 'depth'
+  | 'fill'
+  | 'landscape'
+  | 'objectRemoval'
+  | 'sky'
+  | 'subject'
+  | 'superResolution'
+  | 'search'
+  | 'relight';
+
+const MODEL_NAMES: Record<string, ModelId | undefined> = {
+  'Face models': 'faces',
+  'Eye and teeth model': 'eyesTeeth',
+  'AI Denoise model': 'denoise',
+  'Depth Model': 'depth',
+  'Inpainting Model': 'fill',
+  'Landscape Model': 'landscape',
+  'Object removal model': 'objectRemoval',
+  'Sky Model': 'sky',
+  'Subject Model': 'subject',
+  'Super Resolution Model': 'superResolution',
+  'Super Resolution CPU Model': 'superResolution',
+  'Super Resolution GPU Model': 'superResolution',
+  'Search model': 'search',
+  'Relight geometry': 'relight',
+  'Relight people normals': 'relight'
+};
+
+export function modelName(model: string): string {
+  const key = MODEL_NAMES[model];
+  return key ? i18n.t(`activity.download.names.${key}`) : model;
+}
+
 export function syncExportJobs(jobs: ExportJob[], held: boolean) {
   const activity = useActivityStore.getState();
   const ids = new Set(jobs.map((job) => job.id));
@@ -519,7 +558,7 @@ export function startActivityBridges(): () => void {
       useActivityStore.getState().start({
         id: 'download:ai-model',
         source: 'download',
-        title: i18n.t('activity.download.model', { name: model })
+        title: i18n.t('activity.download.model', { name: modelName(model) })
       });
     }),
     listenSafely<DownloadProgress>('ai-model-download-progress', (payload) => {

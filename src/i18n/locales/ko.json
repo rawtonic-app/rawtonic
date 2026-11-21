@@ -36,7 +36,21 @@
     "dismiss": "닫기: {{title}}",
     "dismissShort": "닫기",
     "download": {
-      "model": "다운로드 중: {{name}}"
+      "model": "다운로드 중: {{name}}",
+      "names": {
+        "denoise": "AI 노이즈 제거 모델",
+        "depth": "심도 모델",
+        "eyesTeeth": "눈·치아 모델",
+        "faces": "얼굴 모델",
+        "fill": "채우기 모델",
+        "landscape": "풍경 모델",
+        "objectRemoval": "개체 제거 모델",
+        "relight": "재조명 모델",
+        "search": "검색 모델",
+        "sky": "하늘 모델",
+        "subject": "피사체 모델",
+        "superResolution": "초해상도 모델"
+      }
     },
     "duplicates": {
       "failed": "중복 찾기 실패",
@@ -854,6 +868,7 @@
         "upgradeRequired": "업그레이드 필요"
       },
       "createNewTitle": "새 생성형 편집 만들기",
+      "downloadFailed": "모델을 다운로드할 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요.",
       "generatingDepthMap": "AI 심도 맵 계산 중...",
       "params": {
         "feather": "페더",
@@ -3795,6 +3810,10 @@
         "teethBrightness": "치아 밝기",
         "teethWhiten": "치아 미백",
         "texture": "얼굴 텍스처"
+      },
+      "download": {
+        "preparing": "모델 준비 중…",
+        "progress": "다운로드 중… {{percent}}%"
       },
       "downloadModels": "얼굴 모델 다운로드",
       "eyes": {

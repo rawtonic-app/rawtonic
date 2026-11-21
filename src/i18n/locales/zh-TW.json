@@ -36,7 +36,21 @@
     "dismiss": "關閉：{{title}}",
     "dismissShort": "關閉",
     "download": {
-      "model": "正在下載 {{name}}"
+      "model": "正在下載 {{name}}",
+      "names": {
+        "denoise": "AI 降噪模型",
+        "depth": "深度模型",
+        "eyesTeeth": "眼睛與牙齒模型",
+        "faces": "臉部模型",
+        "fill": "填補模型",
+        "landscape": "風景模型",
+        "objectRemoval": "物件移除模型",
+        "relight": "重新打光模型",
+        "search": "搜尋模型",
+        "sky": "天空模型",
+        "subject": "主體模型",
+        "superResolution": "超解析度模型"
+      }
     },
     "duplicates": {
       "failed": "尋找重複項目失敗",
@@ -854,6 +868,7 @@
         "upgradeRequired": "需要升級"
       },
       "createNewTitle": "建立新的生成式編輯",
+      "downloadFailed": "無法下載模型。請檢查網路連線後再試一次。",
       "generatingDepthMap": "正在計算 AI 深度圖...",
       "params": {
         "feather": "羽化",
@@ -3795,6 +3810,10 @@
         "teethBrightness": "牙齒亮度",
         "teethWhiten": "牙齒美白",
         "texture": "臉孔紋理"
+      },
+      "download": {
+        "preparing": "正在準備模型…",
+        "progress": "正在下載… {{percent}}%"
       },
       "downloadModels": "下載臉部模型",
       "eyes": {

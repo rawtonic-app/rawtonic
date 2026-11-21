@@ -48,7 +48,21 @@
     "dismiss": "Odrzuć: {{title}}",
     "dismissShort": "Odrzuć",
     "download": {
-      "model": "Pobieranie: {{name}}"
+      "model": "Pobieranie: {{name}}",
+      "names": {
+        "denoise": "model odszumiania AI",
+        "depth": "model głębi",
+        "eyesTeeth": "model oczu i zębów",
+        "faces": "modele twarzy",
+        "fill": "model wypełniania",
+        "landscape": "model krajobrazu",
+        "objectRemoval": "model usuwania obiektów",
+        "relight": "model zmiany oświetlenia",
+        "search": "model wyszukiwania",
+        "sky": "model nieba",
+        "subject": "model tematu",
+        "superResolution": "model superrozdzielczości"
+      }
     },
     "duplicates": {
       "failed": "Wyszukiwanie duplikatów nie powiodło się",
@@ -964,6 +978,7 @@
         "upgradeRequired": "Wymagane ulepszenie"
       },
       "createNewTitle": "Utwórz nową edycję generatywną",
+      "downloadFailed": "Nie udało się pobrać modelu. Sprawdź połączenie z internetem i spróbuj ponownie.",
       "generatingDepthMap": "Obliczanie mapy głębi AI...",
       "params": {
         "feather": "Wtapianie",
@@ -4237,6 +4252,10 @@
         "teethBrightness": "Jasność zębów",
         "teethWhiten": "Wybielanie zębów",
         "texture": "Twarz: tekstura"
+      },
+      "download": {
+        "preparing": "Przygotowywanie modelu…",
+        "progress": "Pobieranie… {{percent}}%"
       },
       "downloadModels": "Pobierz modele twarzy",
       "eyes": {

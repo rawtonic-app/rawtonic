@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
+import { useActivityStore } from '../../store/useActivityStore';
 import { recipeWrite, useEditorActions } from '../../hooks/useEditorActions';
 import { Invokes } from '../ui/AppProperties';
 import type {
@@ -391,6 +392,25 @@ const SLIDERS = [
  * texture), Even skin, Texture, Dark circles and Shine. Faces are found
  * when the tool shows; the recipe keeps them only once a slider moves.
  */
+
+/** In place of a model's download button while the download the user
+ * clicked runs: its percent from the Activity entry, else "Preparing" (the
+ * request starting, or the model loading after the download). */
+function ModelDownloadStatus() {
+  const { t } = useTranslation();
+  const percent = useActivityStore((state) => {
+    const progress = state.entries.find((e) => e.id === 'download:ai-model' && e.status === 'running')?.progress;
+    return progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : null;
+  });
+  return (
+    <p role="status">
+      {percent === null
+        ? t('studio.faceRetouch.download.preparing')
+        : t('studio.faceRetouch.download.progress', { percent })}
+    </p>
+  );
+}
+
 export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dragging: boolean): void }) {
   const { t } = useTranslation();
   const osPlatform = useSettingsStore((s) => s.osPlatform);
@@ -409,6 +429,9 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
     analysis?: Analysis;
     error?: string;
     modelsMissing?: boolean;
+    /** The face models' download failed (offline): the prompt stays, with
+     * the reason, so it can be tried again in place. */
+    downloadFailed?: boolean;
     /** A retouch with the parser's outlines was found again without the
      * parser installed: it stays as stored until the parser is there. */
     eyesTeethMissing?: boolean;
@@ -485,6 +508,15 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   // one offers the button again.
   const [eyesDownload, setEyesDownload] = useState<string | null>(null);
   const downloadNow = eyesDownload === key;
+  // A download the user clicked runs (for this photo and geometry): its
+  // progress replaces the button until the request that carries it settles
+  // (the faces' search for the face models or a stored parser retouch, the
+  // parser's own run otherwise; the other one may answer from its cache).
+  const [fetching, setFetching] = useState<string | null>(null);
+  const isFetching = fetching === key;
+  // Which download that is: a failure of the face models' download asks
+  // for them again, one of the parser's for the parser.
+  const fetchingFaces = useRef(false);
   useEffect(() => {
     if (!path || !ready || (current && !findEyes)) return;
     let live = true;
@@ -494,6 +526,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
     (reparse ? analyseEyesTeeth(path, geometry, downloadNow, downloadFaces) : analyse(path, geometry, downloadFaces))
       .then((analysis) => {
         if (!live) return;
+        if (reparse || fetchingFaces.current) setFetching(null);
         if (reparse && analysis.eyesTeethMissing) {
           setFound({ key: `${path}\n${geometry}`, eyesTeethMissing: true });
           return;
@@ -528,11 +561,17 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
         // A failed search for eyes and teeth can be asked again, a failed
         // parser download too.
         setEyesAsked(null);
+        if (reparse || fetchingFaces.current) setFetching(null);
+        const code = errorCode(error);
+        // A failed face model download asks again in place; with the face
+        // models there, a failed parser download is the parser's.
+        const facesFailed = code === 'download_failed' && (!reparse || fetchingFaces.current);
         setFound({
           key: `${path}\n${geometry}`,
           error: aiErrorMessage(error),
-          modelsMissing: errorCode(error) === 'models_missing',
-          ...(reparse && errorCode(error) !== 'models_missing' && { eyesTeethMissing: true })
+          modelsMissing: code === 'models_missing' || facesFailed,
+          downloadFailed: code === 'download_failed',
+          ...(reparse && code !== 'models_missing' && !facesFailed && { eyesTeethMissing: true })
         });
       });
     return () => {
@@ -558,7 +597,8 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
     if (downloadNow) setEyesDownload(null);
     analyseEyesTeeth(path, geometry, downloadNow)
       .then((analysis) => live && setParse({ key: at, analysis }))
-      .catch((error) => live && setParse({ key: at, error: aiErrorMessage(error) }));
+      .catch((error) => live && setParse({ key: at, error: aiErrorMessage(error) }))
+      .finally(() => live && !fetchingFaces.current && setFetching(null));
     return () => {
       live = false;
     };
@@ -614,7 +654,13 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   const busy = !current && !analysis && !(found?.key === key && (found.error || found.eyesTeethMissing));
   const failure = found?.key === key ? found.error : undefined;
   const modelsMissing = found?.key === key && Boolean(found.modelsMissing);
-  const error = modelsMissing ? undefined : failure;
+  const downloadFailure = found?.key === key && found.downloadFailed ? found.error : undefined;
+  const error = modelsMissing || reparseMissing ? undefined : failure;
+  const downloadEyesTeeth = () => {
+    fetchingFaces.current = false;
+    setEyesDownload(key);
+    setFetching(key);
+  };
 
   return (
     <div className="studio-face-retouch">
@@ -653,25 +699,34 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       {busy && <p className="studio-hint">{t('studio.faceRetouch.finding')}</p>}
       {reparseMissing && (
         <div className="studio-hint" role="note">
-          <p>{t('studio.faceRetouch.eyes.modelMissing')}</p>
-          <button type="button" className="studio-text-button" onClick={() => setEyesDownload(key)}>
-            {t('studio.faceRetouch.eyes.downloadModel')}
-          </button>
+          {downloadFailure ? <p role="alert">{downloadFailure}</p> : <p>{t('studio.faceRetouch.eyes.modelMissing')}</p>}
+          {isFetching ? (
+            <ModelDownloadStatus />
+          ) : (
+            <button type="button" className="studio-text-button" onClick={downloadEyesTeeth}>
+              {t('studio.faceRetouch.eyes.downloadModel')}
+            </button>
+          )}
         </div>
       )}
       {modelsMissing && (
         <div className="studio-hint" role="note">
-          <p>{t('studio.faceRetouch.modelsMissing')}</p>
-          <button
-            type="button"
-            className="studio-text-button"
-            onClick={() => {
-              setFound(null);
-              setDownload(key);
-            }}
-          >
-            {t('studio.faceRetouch.downloadModels')}
-          </button>
+          {downloadFailure ? <p role="alert">{downloadFailure}</p> : <p>{t('studio.faceRetouch.modelsMissing')}</p>}
+          {isFetching ? (
+            <ModelDownloadStatus />
+          ) : (
+            <button
+              type="button"
+              className="studio-text-button"
+              onClick={() => {
+                fetchingFaces.current = true;
+                setDownload(key);
+                setFetching(key);
+              }}
+            >
+              {t('studio.faceRetouch.downloadModels')}
+            </button>
+          )}
         </div>
       )}
       {error && (
@@ -727,9 +782,13 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
           {!eyesMissing && (parseMissing || parseError) && (
             <div className="studio-hint" role="note">
               {parseError ? <p role="alert">{parseError}</p> : <p>{t('studio.faceRetouch.eyes.modelMissing')}</p>}
-              <button type="button" className="studio-text-button" onClick={() => setEyesDownload(key)}>
-                {t('studio.faceRetouch.eyes.downloadModel')}
-              </button>
+              {isFetching ? (
+                <ModelDownloadStatus />
+              ) : (
+                <button type="button" className="studio-text-button" onClick={downloadEyesTeeth}>
+                  {t('studio.faceRetouch.eyes.downloadModel')}
+                </button>
+              )}
             </div>
           )}
           {!eyesMissing && parseWaiting && !parseMissing && !parseError && (

@@ -36,7 +36,21 @@
     "dismiss": "关闭：{{title}}",
     "dismissShort": "关闭",
     "download": {
-      "model": "正在下载 {{name}}"
+      "model": "正在下载 {{name}}",
+      "names": {
+        "denoise": "AI 降噪模型",
+        "depth": "深度模型",
+        "eyesTeeth": "眼睛与牙齿模型",
+        "faces": "面部模型",
+        "fill": "填充模型",
+        "landscape": "风景模型",
+        "objectRemoval": "对象移除模型",
+        "relight": "重新布光模型",
+        "search": "搜索模型",
+        "sky": "天空模型",
+        "subject": "主体模型",
+        "superResolution": "超分辨率模型"
+      }
     },
     "duplicates": {
       "failed": "查找重复项失败",
@@ -854,6 +868,7 @@
         "upgradeRequired": "需要升级"
       },
       "createNewTitle": "创建新的生成式编辑",
+      "downloadFailed": "无法下载模型。请检查网络连接后重试。",
       "generatingDepthMap": "正在计算 AI 深度图...",
       "params": {
         "feather": "羽化",
@@ -3795,6 +3810,10 @@
         "teethBrightness": "牙齿亮度",
         "teethWhiten": "牙齿美白",
         "texture": "人脸纹理"
+      },
+      "download": {
+        "preparing": "正在准备模型…",
+        "progress": "正在下载… {{percent}}%"
       },
       "downloadModels": "下载面部模型",
       "eyes": {
