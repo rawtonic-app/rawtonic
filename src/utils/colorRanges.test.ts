@@ -1,6 +1,14 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { applyColorPick, invalidatePendingColorPicks, pickColorRange } from './colorRanges';
+import { applyColorPick, invalidatePendingColorPicks, pickColorRange, TARGET_PICK, targetPickFor } from './colorRanges';
+import {
+  applyColorRanges,
+  labToLinear,
+  linearToSrgb8,
+  oklabToLinear,
+  rangeCentre,
+  solveColorTarget
+} from './colorTarget';
 import { INITIAL_ADJUSTMENTS, MAX_COLOR_RANGES, type MaskContainer } from './adjustments';
 import { useEditorStore } from '../store/useEditorStore';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
@@ -25,7 +33,9 @@ beforeEach(() => {
     adjustments: { ...INITIAL_ADJUSTMENTS, masks: [layer] },
     colorPickerTarget: 'new',
     colorPickerLayer: null,
-    activeColorRangeId: null
+    activeColorRangeId: null,
+    colorTarget: null,
+    colorPicksThroughRanges: []
   });
   vi.mocked(invoke).mockReset();
 });
@@ -121,4 +131,103 @@ it('drops a sample of a pick finished and re-armed for the same range meanwhile'
   expect(await pending).toBe(false);
   expect(useEditorStore.getState().adjustments.colorRanges ?? []).toHaveLength(0);
   expect(useEditorStore.getState().colorPickerTarget).toBe('skin');
+});
+
+describe('target colour picks', () => {
+  const redRange = () => {
+    useEditorStore.setState({ colorPickerTarget: 'new' });
+    return pickColorRange('/a.cr3', 'new', 0.5, 0.5);
+  };
+
+  it('moves the armed range onto the sampled target in one edit and keeps the target', async () => {
+    vi.mocked(invoke).mockResolvedValue([200, 60, 50]);
+    await redRange();
+    const before = useEditorStore.getState().adjustments.colorRanges![0];
+    vi.mocked(invoke).mockResolvedValue([200, 20, 40]);
+    const target = targetPickFor(before.id);
+    useEditorStore.setState({ colorPickerTarget: target });
+    let updates = 0;
+    const stop = useEditorStore.subscribe((s, p) => {
+      if (s.adjustments !== p.adjustments) updates += 1;
+    });
+    expect(await pickColorRange('/a.cr3', target, 0.2, 0.2)).toBe(true);
+    stop();
+    expect(updates).toBe(1);
+    const state = useEditorStore.getState();
+    const [after] = state.adjustments.colorRanges!;
+    // Only the shifts change; the range keeps its sampled colour and shape.
+    expect({ ...after, hueShift: 0, saturation: 0, lightnessShift: 0 }).toEqual(before);
+    expect(after.hueShift).toBeLessThan(0);
+    const reached = solveColorTarget([after], after.id, state.colorTarget!.lab)!;
+    expect(reached.deltaE).toBeLessThan(0.5);
+    expect(state.colorTarget).toMatchObject({
+      sampledIn: '/a.cr3',
+      appliedTo: { photo: '/a.cr3', layer: null, rangeId: before.id }
+    });
+    expect(state.colorPickerTarget).toBeNull();
+  });
+
+  it('a range picked again on its own shifted colour keeps selecting the colour before the shift', async () => {
+    vi.mocked(invoke).mockResolvedValue([190, 100, 120]);
+    await redRange();
+    const picked = useEditorStore.getState().adjustments.colorRanges![0];
+    const shifted = { ...picked, hueShift: 100 };
+    useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, colorRanges: [shifted] } });
+    // The photo now shows the shifted colour there.
+    const shown = linearToSrgb8(oklabToLinear(applyColorRanges([shifted], rangeCentre(picked))));
+    vi.mocked(invoke).mockResolvedValue(shown);
+    useEditorStore.setState({ colorPickerTarget: picked.id });
+    await pickColorRange('/a.cr3', picked.id, 0.5, 0.5);
+    const [again] = useEditorStore.getState().adjustments.colorRanges!;
+    expect(again.hue).toBeCloseTo(picked.hue, 4);
+    expect(again.chroma).toBeCloseTo(picked.chroma, 6);
+    expect(again.lightness).toBeCloseTo(picked.lightness, 6);
+    expect(again.hueShift).toBe(100);
+  });
+
+  it('marks a range picked again through its own strong change as uncertain, and clears it on a clean pick', async () => {
+    vi.mocked(invoke).mockResolvedValue([180, 85, 55]);
+    await redRange();
+    const picked = useEditorStore.getState().adjustments.colorRanges![0];
+    const drained = { ...picked, saturation: -90 };
+    useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, colorRanges: [drained] } });
+    const shown = linearToSrgb8(oklabToLinear(applyColorRanges([drained], rangeCentre(picked)))).map(Math.round);
+    vi.mocked(invoke).mockResolvedValue(shown);
+    useEditorStore.setState({ colorPickerTarget: picked.id });
+    await pickColorRange('/a.cr3', picked.id, 0.5, 0.5);
+    expect(useEditorStore.getState().colorPicksThroughRanges).toEqual([`/a.cr3||${picked.id}`]);
+    // Picked again on a colour the range does not touch: certain again.
+    vi.mocked(invoke).mockResolvedValue([40, 160, 60]);
+    useEditorStore.setState({ colorPickerTarget: picked.id });
+    await pickColorRange('/a.cr3', picked.id, 0.5, 0.5);
+    expect(useEditorStore.getState().colorPicksThroughRanges).toEqual([]);
+  });
+
+  it('only keeps a target sampled without a range (for another photo)', async () => {
+    vi.mocked(invoke).mockResolvedValue([200, 60, 50]);
+    await redRange();
+    const recipe = useEditorStore.getState().adjustments;
+    vi.mocked(invoke).mockResolvedValue([10, 120, 200]);
+    useEditorStore.setState({ colorPickerTarget: TARGET_PICK });
+    expect(await pickColorRange('/a.cr3', TARGET_PICK, 0.3, 0.3)).toBe(true);
+    const state = useEditorStore.getState();
+    expect(state.adjustments).toBe(recipe);
+    expect(state.colorTarget).toMatchObject({ sampledIn: '/a.cr3', appliedTo: null });
+    expect(linearToSrgb8(labToLinear(state.colorTarget!.lab)).map(Math.round)).toEqual([10, 120, 200]);
+  });
+
+  it('solves a layer range with the layer’s own ranges', async () => {
+    useEditorStore.setState({ colorPickerLayer: 'L1' });
+    vi.mocked(invoke).mockResolvedValue([60, 160, 80]);
+    await pickColorRange('/a.cr3', 'new', 0.5, 0.5);
+    const id = useEditorStore.getState().adjustments.masks[0].adjustments.colorRanges![0].id;
+    vi.mocked(invoke).mockResolvedValue([40, 170, 120]);
+    useEditorStore.setState({ colorPickerTarget: targetPickFor(id), colorPickerLayer: 'L1' });
+    await pickColorRange('/a.cr3', targetPickFor(id), 0.5, 0.5);
+    const state = useEditorStore.getState();
+    const [moved] = state.adjustments.masks[0].adjustments.colorRanges!;
+    expect(moved.hueShift).toBeGreaterThan(0);
+    expect(state.adjustments.colorRanges ?? []).toHaveLength(0);
+    expect(state.colorTarget!.appliedTo).toEqual({ photo: '/a.cr3', layer: 'L1', rangeId: id });
+  });
 });
