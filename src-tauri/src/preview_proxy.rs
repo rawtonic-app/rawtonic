@@ -247,6 +247,8 @@ pub struct Proxy {
     pub key: ProxyKey,
     /// The measures of the decode it was made from (its facts).
     pub measures: Option<DecodeMeasures>,
+    /// Reduced before reductions kept colours beyond sRGB (`DISPLAY_COPY`).
+    pub clamped: bool,
 }
 
 /// The measures a proxy's facts keep of the decode it was made from.
@@ -856,6 +858,7 @@ fn decode_checked(bytes: &[u8], accept: impl FnOnce(&Header) -> bool) -> Option<
         full_width: header.full_width,
         full_height: header.full_height,
         measures: measures_of(header.facts.as_ref()),
+        clamped: header.display_copy_is_stale(),
         key: header.key,
     })
 }
@@ -1183,6 +1186,7 @@ pub fn write(
         full_height,
         key,
         measures,
+        clamped: false,
     })
 }
 

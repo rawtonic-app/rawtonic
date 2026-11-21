@@ -161,12 +161,13 @@ fn cache_label(path_str: &str, source: &Path) -> String {
         .unwrap_or_else(|| path_str.to_string())
 }
 
-/// Whether a tile developed for `adjustments` comes from a Standard proxy
-/// that still holds the clamp (`preview_proxy::DISPLAY_COPY`): one a recipe
-/// with another decode variant cannot use does not count.
-fn display_copy_clamps(source: &Path, adjustments: &serde_json::Value) -> bool {
+/// Whether a tile of `source` is developed from a Standard proxy that still
+/// holds the clamp (`preview_proxy::DISPLAY_COPY`): until the proxy is
+/// renewed its tile keeps its old key. (A virtual copy of another decode
+/// variant renders from the RAW and keeps it too; the key is renewed with the
+/// proxy.)
+fn display_copy_clamps(source: &Path) -> bool {
     crate::preview_proxy::standard_display_copy_is_stale(source)
-        && crate::preview_proxy::stands_for(source, adjustments)
 }
 
 pub(crate) fn compute_thumbnail_cache_hash(
@@ -256,12 +257,7 @@ fn thumbnail_hash_with(
         // display copy, `preview_proxy::DISPLAY_COPY`): tiles are made again.
         // A tile developed from a preview proxy that still holds the clamp
         // shows it, so it keeps its key until the proxy is renewed.
-        if refreshed
-            && !display_copy_clamps(
-                &source_path,
-                adjustments.as_ref().unwrap_or(&serde_json::Value::Null),
-            )
-        {
+        if refreshed && !display_copy_clamps(&source_path) {
             hasher.update(b"\0display-copy-keeps-beyond-srgb-v1\0");
         }
         // A face retouch drawn on a reduced base (a preview proxy or a fast
@@ -596,6 +592,9 @@ fn develop_thumbnail_with_source(
         (proxy, input) => (proxy, input),
     };
     let preloaded_image = preloaded_image.filter(|_| color_noise.is_none());
+    // Read from the proxy that supplies the pixels, not from the file again
+    // (a build may replace it meanwhile).
+    let proxy_clamps = proxy.as_ref().is_some_and(|proxy| proxy.clamped);
     if is_raw
         && adjustments.is_null()
         && preloaded_image.is_none()
@@ -616,7 +615,7 @@ fn develop_thumbnail_with_source(
 
         let base_cache_hash = crate::cache_utils::calculate_thumbnail_base_hash(&meta.adjustments);
         // The base a proxy that clamps made is not the one its renewal makes.
-        let base_cache_hash = if is_raw && display_copy_clamps(&source_path, &meta.adjustments) {
+        let base_cache_hash = if proxy_clamps {
             let mut hasher = DefaultHasher::new();
             base_cache_hash.hash(&mut hasher);
             "display-copy-clamps".hash(&mut hasher);
@@ -3417,11 +3416,10 @@ mod face_retouch_thumbnail_tests {
             compute_thumbnail_cache_hash(path, new_edit),
             thumbnail_hash_before_refreshes(path, new_edit)
         );
-        // A recipe that asks for another decode variant cannot use it: its
-        // tile is developed from the RAW and is made again.
-        assert_ne!(
+        assert_eq!(
             compute_thumbnail_cache_hash(path, &bytes),
-            thumbnail_hash_before_refreshes(path, &bytes)
+            thumbnail_hash_before_refreshes(path, &bytes),
+            "a stale proxy holds the key of every recipe of the file until it is renewed"
         );
     }
 
