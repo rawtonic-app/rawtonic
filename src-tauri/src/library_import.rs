@@ -161,6 +161,16 @@ pub fn smart_rule(rules: &SmartRules) -> Option<Rule> {
     Some(Rule::Group { combine, rules })
 }
 
+/// Whether a smart collection's rules look at a camera or lens name: the
+/// catalog finds a word anywhere in the name the file states, Lightroom
+/// whole words in the name from its own tables, so the members can differ.
+fn smart_rule_names_text(rules: &SmartRules) -> bool {
+    rules.rules.iter().any(|rule| match rule {
+        SmartRule::Group(group) => smart_rule_names_text(group),
+        SmartRule::Condition { criteria, .. } => matches!(criteria.as_str(), "camera" | "lens"),
+    })
+}
+
 /// What stops a smart collection's rules from translating: the first
 /// criterion (or combination) without a counterpart, named as Lightroom
 /// names it.
@@ -299,6 +309,11 @@ fn smart_condition(
             };
             (field, op, value)
         }
+        "isoSpeedRating" if operation == "in" => (
+            Field::Iso,
+            Op::Between,
+            json!([number(value)?, number(value2)?]),
+        ),
         "isoSpeedRating" => (Field::Iso, compare(operation)?, json!(number(value)?)),
         "keywords" => {
             let op = match operation {
@@ -539,6 +554,13 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                 },
                 None => None,
             };
+            if smart.is_some() && album.smart.as_ref().is_some_and(smart_rule_names_text) {
+                report.warnings.push(format!(
+                    "{}: camera and lens words are looked for anywhere in the name the file states; \
+                     Lightroom matches whole words in names from its own tables, so the members can differ",
+                    album.name
+                ));
+            }
             let kind = if album.is_group {
                 GROUP
             } else if smart.is_some() {
@@ -2578,6 +2600,21 @@ mod tests {
                 "{criteria} {operation}"
             );
         }
+        let range = smart_rule(&SmartRules {
+            combine: "intersect".into(),
+            rules: vec![SmartRule::Condition {
+                criteria: "isoSpeedRating".into(),
+                operation: "in".into(),
+                value: SmartValue::Number(800.0),
+                value2: SmartValue::Number(1600.0),
+                units: None,
+            }],
+        })
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&range).unwrap()["rules"][0],
+            json!({"field": "iso", "op": "between", "value": [800.0, 1600.0]})
+        );
         // Not Lightroom's id (it ignores it) and values the field cannot hold.
         assert!(one("iso", ">=", SmartValue::Number(800.0)).is_none());
         assert!(one("isoSpeedRating", ">=", text("800")).is_none());
@@ -2621,7 +2658,37 @@ mod tests {
             stacks: vec![],
             not_read: NotRead::default(),
         };
-        import_into(&catalog, &source).unwrap();
+        let album =
+            |key: &str, criteria: &str, operation: &str, word: &str| rawtonic_interop::Album {
+                key: key.into(),
+                name: format!("{criteria} {word}"),
+                parent: None,
+                is_group: false,
+                photos: vec![],
+                smart: Some(SmartRules {
+                    combine: "intersect".into(),
+                    rules: vec![condition(
+                        criteria,
+                        operation,
+                        SmartValue::Text(word.into()),
+                    )],
+                }),
+            };
+        let source = Source {
+            albums: vec![
+                album("a", "lens", "words", "TAMRON"),
+                album("b", "filename", "beginsWith", "1"),
+            ],
+            ..source
+        };
+        let report = import_into(&catalog, &source).unwrap();
+        // A lens or camera name is matched by text, not as Lightroom does:
+        // said in the report, for that album only.
+        assert_eq!(report.warnings.len(), 1, "{report:?}");
+        assert!(
+            report.warnings[0].starts_with("lens TAMRON: "),
+            "{report:?}"
+        );
         for (name, model, lens, iso) in rows {
             let id = catalog.asset_at(&photos.join(name)).unwrap().unwrap().id;
             let make = if model.starts_with("EOS") {
