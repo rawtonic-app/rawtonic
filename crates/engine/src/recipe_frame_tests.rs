@@ -302,7 +302,8 @@ fn some_recipes_cannot_tell_their_frame() {
 
 /// A migrated Sky, Subject, People or depth range selection waits to be
 /// computed again on the full frame (`DETECT_AGAIN`), keeping its
-/// stretched bitmap until then; an Object selection keeps its bitmap.
+/// stretched bitmap until then; an Object selection and a People selection
+/// of one person keep their bitmap.
 #[test]
 fn semantic_ai_selections_are_detected_again() {
     let mut recipe = json!({"masks": [{"subMasks": [
@@ -312,7 +313,8 @@ fn semantic_ai_selections_are_detected_again() {
         {"type": "ai-people", "parameters": {"maskDataBase64": "data:x", "parts": []}},
         {"type": "ai-depth", "parameters": {"maskDataBase64": "data:x", "minDepth": 30}},
         {"type": "ai-subject", "parameters": {"maskDataBase64": "data:x", "prompts": [{"type": "point", "x": 5.0, "y": 6.0}]}},
-        {"type": "ai-sky", "parameters": {"maskDataBase64": null}}
+        {"type": "ai-sky", "parameters": {"maskDataBase64": null}},
+        {"type": "ai-people", "parameters": {"maskDataBase64": "data:x", "parts": ["hair"], "person": 1}}
     ]}]});
     scale_geometry(&mut recipe, FRAMES.thumbnail, FRAMES.full);
     let subs = recipe["masks"][0]["subMasks"].as_array().unwrap();
@@ -320,7 +322,7 @@ fn semantic_ai_selections_are_detected_again() {
         .iter()
         .map(|s| s["parameters"].get(DETECT_AGAIN) == Some(&json!(true)))
         .collect();
-    assert_eq!(again, [true, true, true, false, true, false, false]);
+    assert_eq!(again, [true, true, true, false, true, false, false, false]);
     // Refinements and the stand-in bitmap stay.
     assert_eq!(subs[0]["parameters"]["grow"], json!(5));
     assert_eq!(subs[0]["parameters"]["maskDataBase64"], json!("data:x"));

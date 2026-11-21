@@ -432,7 +432,12 @@ describe('automatic AI masks from imported presets', () => {
   });
 
   it('computes migrated thumbnail selections again on the full frame as one undo step', async () => {
-    const pending = deferredMasks();
+    const pending: ((value: unknown) => void)[] = [];
+    invoke.mockImplementation((command: string) =>
+      String(command).startsWith('generate_')
+        ? new Promise((resolve) => pending.push(resolve))
+        : Promise.resolve(command === 'installed_selection_models' ? ['ai-sky', 'ai-foreground'] : null)
+    );
     const stand_in = { maskDataBase64: 'data:thumb', bitmapFrame: { width: 288, height: 192 }, detectAgain: true };
     const initial = {
       ...structuredClone(INITIAL_ADJUSTMENTS),
@@ -460,8 +465,11 @@ describe('automatic AI masks from imported presets', () => {
     expect(useEditorStore.getState().history).toHaveLength(1);
     await act(async () => pending[1]({ maskDataBase64: 'data:subject' }));
     await waitFor(() => expect(useEditorStore.getState().history).toHaveLength(2));
-    expect(subOf('sub-ai-sky')?.parameters).toEqual({ maskDataBase64: 'data:sky', grow: 7 });
-    expect(subOf('sub-ai-foreground')?.parameters).toEqual({ maskDataBase64: 'data:subject', subjectVersion: 2 });
+    // Under new ids: the native side keeps bitmaps by component id.
+    const subs = () => useEditorStore.getState().adjustments.masks.map((m) => m.subMasks[0]);
+    expect(subs()[0].id).not.toBe('sub-ai-sky');
+    expect(subs()[0].parameters).toEqual({ maskDataBase64: 'data:sky', grow: 7 });
+    expect(subs()[1].parameters).toEqual({ maskDataBase64: 'data:subject', subjectVersion: 2 });
     expect(subOf('sub-ai-subject')?.parameters.maskDataBase64).toBe('data:thumb');
     expect(toast.info).toHaveBeenCalledWith(expect.stringContaining('2 layers'));
     // One undo: the stretched thumbnail bitmaps, no longer waiting.
@@ -473,6 +481,29 @@ describe('automatic AI masks from imported presets', () => {
     });
     rerender();
     expect(generated()).toHaveLength(2);
+  });
+
+  it('leaves migrated selections whose model is not installed as they are, downloading nothing', async () => {
+    invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === 'installed_selection_models' ? [] : { maskDataBase64: 'data:x' })
+    );
+    const initial = {
+      ...structuredClone(INITIAL_ADJUSTMENTS),
+      masks: [
+        layer('ai-sky', { maskDataBase64: 'data:thumb', bitmapFrame: { width: 2, height: 1 }, detectAgain: true })
+      ] as never
+    };
+    useEditorStore.setState({
+      selectedImage: { path: '/s/b.tif', isReady: true, isRaw: true } as never,
+      adjustments: initial,
+      history: [initial],
+      historyIndex: 0
+    });
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('installed_selection_models'));
+    await act(async () => {});
+    expect(invoke.mock.calls.filter((c) => String(c[0]).startsWith('generate_'))).toEqual([]);
+    expect(subOf('sub-ai-sky')?.parameters.maskDataBase64).toBe('data:thumb');
   });
 
   it('applies an Object answer after a slider draft commits, as its own undo step', async () => {

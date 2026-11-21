@@ -505,9 +505,12 @@ pub fn scale_geometry(adjustments: &mut Value, from: (u32, u32), to: (u32, u32))
             parameters[crate::mask_generation::BITMAP_FRAME] =
                 json!({"width": from.0, "height": from.1});
             // (A mask layer's: an AI patch keeps the area it was filled in.)
+            // (One person of several, by their order from the left: the full
+            // frame may find another face first, so it keeps its bitmap.)
             if layer
                 && crate::ai_selections::AutoSelection::of(kind).is_some()
                 && !crate::masks::nothing_to_detect(parameters)
+                && crate::ai_selections::people_person(parameters).is_none()
             {
                 parameters[DETECT_AGAIN] = json!(true);
             }
@@ -523,7 +526,11 @@ pub fn scale_geometry(adjustments: &mut Value, from: (u32, u32), to: (u32, u32))
 /// (`ai_selections::undetected`) — keeping their refinements (Grow,
 /// Feather, Invert; brush strokes are components of their own). Object
 /// selections keep their stretched bitmap: their prompts were made on the
-/// thumbnail, and an export cannot point at an object.
+/// thumbnail, and an export cannot point at an object; so do People
+/// selections of one person (`person`, counted from the left: the full frame
+/// may find another face before them). Where the selection cannot be
+/// computed (no model installed: nothing is downloaded for it) the stretched
+/// bitmap stays.
 pub const DETECT_AGAIN: &str = "detectAgain";
 
 /// `visit(in a mask layer, type, parameters)` for every AI component

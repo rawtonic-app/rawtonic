@@ -87,6 +87,16 @@ pub struct PersonSummary {
 /// asked to download them (the frontend offers the download).
 pub(crate) const FACE_MODELS_MISSING: &str = "face-models-missing";
 
+/// Whether the face models are installed (verified), so a request that may
+/// not download them can load them.
+pub(crate) fn face_models_installed(app_handle: &tauri::AppHandle) -> bool {
+    crate::ai_processing::models_dir(app_handle).is_ok_and(|dir| {
+        MODEL_FILES.iter().all(|(file, sha)| {
+            crate::ai_processing::verify_sha256(&dir.join(file), sha).unwrap_or(false)
+        })
+    })
+}
+
 /// The face models, loaded once. `download`: fetch missing files from the
 /// model pack (an explicit request, PRIVACY.md); otherwise a missing file
 /// gives `FACE_MODELS_MISSING`.

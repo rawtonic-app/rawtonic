@@ -261,9 +261,17 @@ fn edit_sidecars(
         .filter_map(|path| {
             let _turn = sidecar_field_edit();
             let (source_path, sidecar_path) = parse_virtual_path(path);
-            let saved = conform_frame(path, &source_path, &sidecar_path)
-                .and_then(|()| edit(path, &source_path, &sidecar_path))
-                .and_then(|metadata| save_sidecar(path, &metadata).map(|()| metadata));
+            let saved = conform_frame(path, &source_path, &sidecar_path).and_then(|original| {
+                let saved = edit(path, &source_path, &sidecar_path)
+                    .and_then(|metadata| save_sidecar(path, &metadata).map(|()| metadata));
+                // A refused edit leaves the sidecar as it was.
+                if saved.is_err()
+                    && let Some(original) = original
+                {
+                    let _ = save_sidecar(path, &original);
+                }
+                saved
+            });
             match saved {
                 Ok(metadata) => {
                     if let Some(create_if_missing) = xmp {
@@ -281,16 +289,23 @@ fn edit_sidecars(
 /// frame (`recipe_frame::conform`) and written before a batch edit changes
 /// it: settings pasted from a RAW (its processing versions) would otherwise
 /// make it read as made on the full frame, and the move is the user's next
-/// save anyway. Other files are not read.
-fn conform_frame(path: &str, source_path: &Path, sidecar_path: &Path) -> Result<(), String> {
+/// save anyway. Returns the sidecar as it was when it wrote one, for the
+/// caller to put back if the edit is refused. Other files are not read.
+fn conform_frame(
+    path: &str,
+    source_path: &Path,
+    sidecar_path: &Path,
+) -> Result<Option<ImageMetadata>, String> {
     if rawtonic_engine::recipe_frame::tiff_frames(source_path).is_none() {
-        return Ok(());
+        return Ok(None);
     }
-    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
-    if rawtonic_engine::recipe_frame::conform(&mut metadata.adjustments, source_path) {
-        save_sidecar(path, &metadata)?;
+    let original = crate::exif_processing::load_sidecar(sidecar_path);
+    let mut metadata = original.clone();
+    if !rawtonic_engine::recipe_frame::conform(&mut metadata.adjustments, source_path) {
+        return Ok(None);
     }
-    Ok(())
+    save_sidecar(path, &metadata)?;
+    Ok(Some(original))
 }
 
 /// Runs the blocking `work` (which writes the recipes of `paths` and returns
@@ -3070,6 +3085,13 @@ mod tests {
         assert_eq!(recipe_frame::stamped(&saved), Some((2496.0, 1662.0)));
         let width = saved["crop"]["width"].as_f64().unwrap();
         assert!((width - 100.0 * 2496.0 / 288.0).abs() < 1e-6, "{width}");
+        // A refused edit leaves the sidecar as it was, not moved.
+        crate::session_bridge::write_editor_sidecar(&sidecar, serde_json::to_vec(&legacy).unwrap())
+            .unwrap();
+        let failed = edit_sidecars(&paths, None, |_, _, _| Err("too many layers".to_string()));
+        assert_eq!(failed.len(), 1);
+        let kept = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert_eq!(kept, legacy["adjustments"]);
     }
 
     #[test]

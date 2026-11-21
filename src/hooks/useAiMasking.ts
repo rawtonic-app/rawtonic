@@ -1002,8 +1002,16 @@ export function useAiMasking() {
         unregisterAiTask(sub.id);
       }
     };
-    void Promise.all(waiting.map(ask))
+    // Only with installed models: opening a photo downloads nothing
+    // (PRIVACY.md); the others keep their stretched bitmap and are asked
+    // again when the photo opens again.
+    void invoke<string[] | null>(Invokes.InstalledSelectionModels)
+      .then((installed) => {
+        const runnable = waiting.filter(({ sub }) => installed?.includes(sub.type));
+        return runnable.length ? Promise.all(runnable.map(ask)) : null;
+      })
       .then(async (found) => {
+        if (!found) return;
         const results = new Map(found);
         if (useEditorStore.getState().isSliderDragging) {
           await new Promise<void>((resolve) => {

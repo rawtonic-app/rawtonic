@@ -69,7 +69,8 @@ const PEOPLE_CHOICE = (parameters: Record<string, unknown> | undefined) =>
  * (`results`, the detection's parameters by component id, each with the
  * component's parameters it was asked with) put into the components that
  * still wait for them: a People selection whose parts or person changed
- * since is left (its panel asks again). `depthLimits` names the result
+ * since is left (its panel asks again). Each computed component gets a new
+ * id. `depthLimits` names the result
  * fields a depth range's own values win over. Returns the recipe and how
  * many layers changed.
  */
@@ -99,7 +100,9 @@ export function withDetectedAgain(
           ...merged
         } = { ...parameters, ...found.result, ...own };
         changed.add(layer.id);
-        return { ...sub, parameters: merged } as SubMask;
+        // An id of its own: the native side keeps bitmaps by component id,
+        // so the stretched one (one undo back) and this one both show.
+        return { ...sub, id: crypto.randomUUID(), parameters: merged } as SubMask;
       })
     }))
   };

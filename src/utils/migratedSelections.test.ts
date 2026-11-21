@@ -53,6 +53,8 @@ describe('migrated selections', () => {
     expect(params(adjustments, 0, 0)).toEqual({ maskDataBase64: 'data:full', rotation: 0, grow: 5 });
     expect(params(adjustments, 1, 0).maskDataBase64).toBe('data:people');
     expect(params(adjustments, 1, 1).maskDataBase64).toBe('data:thumb');
+    expect(adjustments.masks[0].subMasks[0].id).not.toBe('s');
+    expect(adjustments.masks[1].subMasks[1].id).toBe('o');
     expect(selectionsToDetectAgain(adjustments)).toEqual([]);
   });
 

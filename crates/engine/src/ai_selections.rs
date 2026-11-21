@@ -269,30 +269,48 @@ pub fn detect_missing(
     if wanted.is_empty() {
         return Ok(Vec::new());
     }
+    // A bitmap migrated from a camera TIFF's thumbnail renders as it is
+    // where its selection cannot be computed here (no model on this
+    // computer); the others have nothing to render without it.
+    let stands_in = |l: usize, s: usize| {
+        let parameters = &adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s]
+            [masks::PARAMETERS.name()];
+        detects_again(parameters) && has_bitmap(parameters)
+    };
     let fail = |error: &str| {
         let layers: Vec<String> = wanted
             .iter()
+            .filter(|&&(l, s, _)| !stands_in(l, s))
             .map(|&(l, _, selection)| undetected_message(adjustments, l, selection))
             .collect();
         format!("{}: {error}", layers.join("; "))
     };
+    let required = wanted.iter().any(|&(l, s, _)| !stands_in(l, s));
     let Some(detector) = detector else {
-        return Err(fail("no AI model to compute it here"));
+        return if required {
+            Err(fail("no AI model to compute it here"))
+        } else {
+            Ok(Vec::new())
+        };
     };
     started();
     let geometry = mask_warp(adjustments);
     let warped = prepare_shared_warped_mask_image(source, is_raw, &geometry)?;
     let mut masks: Map<String, Value> = Map::new();
     let mut detected = Vec::new();
+    let mut placed = Vec::new();
     for &(l, s, selection) in &wanted {
         let sub = &adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s];
         let parameters = &sub[masks::PARAMETERS.name()];
         let key = run_key(selection, parameters);
         if !masks.contains_key(&key) {
-            let data = detector
-                .detect(selection, parameters, &warped, is_raw)
-                .map_err(|e| fail(&e))?;
-            masks.insert(key.clone(), Value::String(data));
+            match detector.detect(selection, parameters, &warped, is_raw) {
+                Ok(data) => {
+                    masks.insert(key.clone(), Value::String(data));
+                }
+                Err(_) if stands_in(l, s) => continue,
+                Err(e) => return Err(fail(&e)),
+            }
         }
         let data = masks[&key].as_str().unwrap_or_default().to_string();
         detected.push(Detected {
@@ -307,8 +325,9 @@ pub fn detect_missing(
             selection,
             parameters: detected_parameters(&sub[masks::PARAMETERS.name()], adjustments, data),
         });
+        placed.push((l, s));
     }
-    for (&(l, s, _), found) in wanted.iter().zip(&detected) {
+    for (&(l, s), found) in placed.iter().zip(&detected) {
         adjustments[masks::MASKS.name()][l][masks::SUB_MASKS.name()][s][masks::PARAMETERS.name()] =
             found.parameters.clone();
     }
@@ -540,6 +559,38 @@ mod tests {
         let object = &adjustments["masks"][0]["subMasks"][2]["parameters"];
         assert_eq!(object["maskDataBase64"], "data:thumb");
         assert!(undetected(&adjustments).is_empty());
+    }
+
+    /// Without a model here a migrated bitmap renders as it is: the export
+    /// keeps it instead of failing (a selection without a bitmap still
+    /// fails, as before).
+    #[test]
+    fn a_migrated_selection_without_a_model_keeps_its_bitmap() {
+        struct Failing;
+        impl SelectionDetector for Failing {
+            fn detect(
+                &self,
+                _: AutoSelection,
+                _: &Value,
+                _: &DynamicImage,
+                _: bool,
+            ) -> Result<String, String> {
+                Err("the sky model is not installed".into())
+            }
+        }
+        let migrated = json!({"masks": [{"id": "a", "name": "Sky", "visible": true, "subMasks": [
+            {"id": "s", "type": "ai-sky", "visible": true, "parameters": {"maskDataBase64": "data:thumb",
+             "bitmapFrame": {"width": 288, "height": 192}, "detectAgain": true}}]}]});
+        let source = Arc::new(DynamicImage::new_rgb8(6, 4));
+        for detector in [None, Some(&Failing as &dyn SelectionDetector)] {
+            let mut adjustments = migrated.clone();
+            let found = detect_missing(&mut adjustments, &source, false, detector, &mut || {});
+            assert_eq!(found, Ok(Vec::new()));
+            assert_eq!(adjustments, migrated);
+        }
+        let mut missing = migrated.clone();
+        missing["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"] = Value::Null;
+        assert!(detect_missing(&mut missing, &source, false, Some(&Failing), &mut || {}).is_err());
     }
 
     #[test]

@@ -1040,6 +1040,7 @@ fn start(args: Vec<String>) {
             lut_processing::load_and_parse_lut,
             camera_profile::import_camera_profile,
             recipe_frame::undecided_frame_move,
+            recipe_frame::installed_selection_models,
             camera_profile::list_camera_profiles,
             camera_profile::white_balance_info,
             develop_defaults::develop_defaults_for,

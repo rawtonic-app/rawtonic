@@ -30,13 +30,20 @@ export function useUndecidedFrame() {
     const moved = (adjustments: Adjustments) =>
       invoke<Adjustments | null>(Invokes.UndecidedFrameMove, { path, adjustments });
     const move = async () => {
-      const now = useEditorStore.getState();
-      if (now.selectedImage?.path !== path) return;
-      const result = await moved(now.adjustments);
-      if (!result || useEditorStore.getState().selectedImage?.path !== path) return;
-      debouncedSetHistory.flush();
-      setAdjustments(result);
-      debouncedSetHistory.flush();
+      // Moved from the recipe on screen: an edit made while the answer was
+      // on its way is asked about again rather than undone.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        debouncedSetHistory.flush();
+        const sent = useEditorStore.getState();
+        if (sent.selectedImage?.path !== path) return;
+        const result = await moved(sent.adjustments);
+        const now = useEditorStore.getState();
+        if (!result || now.selectedImage?.path !== path) return;
+        if (now.adjustments !== sent.adjustments) continue;
+        setAdjustments(result);
+        debouncedSetHistory.flush();
+        return;
+      }
     };
     moved(useEditorStore.getState().adjustments)
       .then((result) => {
