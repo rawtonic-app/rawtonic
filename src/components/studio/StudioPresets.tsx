@@ -11,8 +11,7 @@ import { usePresets, type UserPreset } from '../../hooks/usePresets';
 import { useContextMenu } from '../../context/ContextMenuContext';
 import type { Preset } from '../ui/AppProperties';
 import { ToolGroup } from './StudioDevelop';
-import { blendPreset } from '../../utils/presetAmount';
-import { joinedLayers } from '../../utils/settingsClipboard';
+import { amountLayers, blendPreset } from '../../utils/presetAmount';
 import type { MaskContainer } from '../../utils/adjustments';
 import { loadBuiltinPresets, presetName, useBuiltinPresets } from '../../utils/builtinPresets';
 import {
@@ -57,7 +56,7 @@ export function groupPresets(
     }
   }
   if (builtins?.presets.length) {
-    const presets = builtins.presets.filter((preset) => preset.presetType === 'style' && match(preset));
+    const presets = builtins.presets.filter((preset) => listedBuiltin(preset) && match(preset));
     if (presets.length || !needle)
       folders.push({ folder: { id: BUILTIN_FOLDER, name: builtins.folderName, builtin: true }, presets });
   }
@@ -75,7 +74,10 @@ export function groupPresets(
 
 /** Styles replace one another and a click on the applied one removes it;
  * presets of one tool's settings add to the photo's settings. */
-const isStyle = (preset: Preset) => preset.presetType !== 'tool';
+const isStyle = (preset: Preset) => preset.presetType !== 'tool' && preset.presetType !== 'adaptive';
+/** Built-ins the panel lists: styles and adaptive presets (tool presets
+ * are in their tools' menus). */
+const listedBuiltin = (preset: Preset) => preset.presetType === 'style' || preset.presetType === 'adaptive';
 
 /** The photographs a click applies to: the selection (Capture One), else the open photo. */
 function applyTargets() {
@@ -250,7 +252,7 @@ export default function StudioPresets() {
   // Rawtonic's own presets, unless hidden in Preferences.
   const showBuiltins = useSettingsStore((s) => s.appSettings?.showBuiltinPresets !== false);
   const builtins = useBuiltinPresets((s) => s.presets);
-  const builtinStyles = builtins.filter((preset) => preset.presetType === 'style').length;
+  const builtinStyles = builtins.filter(listedBuiltin).length;
   useEffect(() => {
     void loadBuiltinPresets();
   }, []);
@@ -351,15 +353,22 @@ export default function StudioPresets() {
       isRaw: Boolean(selectedImage?.isRaw),
       replaceLayers: false
     });
-    // Above half strength the preset's mask is already on this photo.
-    // Keep its pending/completed detection across Amount moves; returning
-    // from the base masks below half strength starts a fresh detection.
-    // The preset's layers join the photo's own (`joinedLayers`).
-    if (amount.value >= 50 && values.masks) values.masks = currentAdjustments().masks;
-    else if (values.masks)
-      values.masks = joinedLayers((amount.base as { masks?: MaskContainer[] }).masks, values.masks);
+    // The preset's layers stay on the photo, joined to its own
+    // (`joinedLayers`), with their detections; Amount scales each layer's
+    // settings from neutral (Lightroom's adaptive Amount).
+    const layers = values.masks
+      ? amountLayers(
+          (amount.base as { masks?: MaskContainer[] }).masks,
+          currentAdjustments().masks,
+          values.masks,
+          value / 100
+        )
+      : null;
+    delete values.masks;
     const blended = blendPreset(amount.base, values as unknown as Record<string, unknown>, value / 100);
-    setAdjustments((current) => ({ ...current, ...amount.base, ...blended }) as typeof current);
+    setAdjustments(
+      (current) => ({ ...current, ...amount.base, ...blended, ...(layers ? { masks: layers } : {}) }) as typeof current
+    );
   };
   const exportPreset = async (preset: Preset) => {
     const path = await saveDialog({
@@ -381,6 +390,8 @@ export default function StudioPresets() {
     endPreview();
     // Built-ins are read-only; they can be a develop default.
     if (preset.builtin) {
+      // An adaptive preset is AI layers only, which a default never holds.
+      if (preset.presetType === 'adaptive') return;
       showContextMenu(e.clientX, e.clientY, presetDefaultItems(preset, presetName(t, preset)).slice(1));
       return;
     }
@@ -806,7 +817,7 @@ export default function StudioPresets() {
                         onMouseEnter={() => startPreview(preset)}
                         onMouseLeave={endPreview}
                       >
-                        {preset.presetType !== 'tool' && <Sparkles size={10} aria-label={t('studio.presets.style')} />}
+                        {isStyle(preset) && <Sparkles size={10} aria-label={t('studio.presets.style')} />}
                         <span>{presetName(t, preset)}</span>
                         {isStyle(preset) && appliedStyle?.id === preset.id && (
                           <Check size={11} className="studio-preset-applied-mark" data-applied-mark aria-hidden />

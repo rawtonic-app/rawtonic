@@ -189,10 +189,22 @@ fn run(app: &AppHandle) {
 /// it has none (left by an edit, or computed when it was opened).
 fn detect_photo(app: &AppHandle, path: &str) -> Result<(), String> {
     let (source_path, sidecar_path) = rawtonic_export::sidecars::parse_virtual_path(path);
-    let mut recipe =
-        crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path).adjustments;
+    // The recipe without touching the original (no EXIF read yet).
+    let mut recipe = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
     if !wants_detection(&recipe) {
         return Ok(());
+    }
+    // An original that is not here is never fetched for a preset (a cloud
+    // download, a drive to connect): reported, computed when the photo is
+    // opened or exported.
+    if let Some(missing) = crate::export_processing::missing_source(&source_path) {
+        return Err(missing);
+    }
+    if crate::file_management::is_cloud_placeholder(&source_path) {
+        return Err(
+            "the original is in the cloud, not on this computer; its selections are computed when it is opened or exported"
+                .into(),
+        );
     }
     rawtonic_export::file_export::require_local_tiff(&source_path)?;
     // As the export prepares it: the lens correction resolved for the photo
@@ -230,6 +242,16 @@ fn detect_photo(app: &AppHandle, path: &str) -> Result<(), String> {
     )?;
     if crate::export_processing::keep_detected_selections(path, &detected)? {
         crate::file_management::refresh_thumbnail(app, path);
+        return Ok(());
+    }
+    // Not kept: the photo changed meanwhile (its geometry, the layer). Still
+    // waiting is reported, never taken for done.
+    let now = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
+    if wants_detection(&now) {
+        return Err(
+            "the photo was changed while its selections were computed; they are computed when it is opened or exported"
+                .into(),
+        );
     }
     Ok(())
 }

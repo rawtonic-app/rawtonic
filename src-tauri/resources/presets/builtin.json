@@ -921,7 +921,7 @@
       "id": "adaptive-sky-deeper",
       "version": 1,
       "name": "Sky: deeper",
-      "presetType": "style",
+      "presetType": "adaptive",
       "adjustments": {
         "masks": [
           {
@@ -960,7 +960,7 @@
       "id": "adaptive-subject-lift",
       "version": 1,
       "name": "Subject: lift",
-      "presetType": "style",
+      "presetType": "adaptive",
       "adjustments": {
         "masks": [
           {
@@ -1000,7 +1000,7 @@
       "id": "adaptive-background-darker",
       "version": 1,
       "name": "Background: darker",
-      "presetType": "style",
+      "presetType": "adaptive",
       "adjustments": {
         "masks": [
           {
@@ -1038,7 +1038,7 @@
       "id": "adaptive-skin-smoother",
       "version": 1,
       "name": "Portrait: smoother skin",
-      "presetType": "style",
+      "presetType": "adaptive",
       "adjustments": {
         "masks": [
           {
@@ -1080,7 +1080,7 @@
       "id": "adaptive-eyes-brighter",
       "version": 1,
       "name": "Portrait: brighter eyes",
-      "presetType": "style",
+      "presetType": "adaptive",
       "adjustments": {
         "masks": [
           {

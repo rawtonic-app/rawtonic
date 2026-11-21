@@ -1645,8 +1645,8 @@ fn plan_output_path(
 /// Keeps the selections an export (or the selection queue) computed in the
 /// photo's stored recipe, as opening it in Develop would
 /// (`ai_selections::keep_detected`), so the next export or the editor uses
-/// the same mask. Only components still as the export found them take it.
-/// Returns whether the recipe changed. The photo open in Develop is left
+/// the same mask. Only components still as the export found them, in the
+/// same geometry, take it. Returns whether the recipe changed. The photo open in Develop is left
 /// to the editor, which computes and saves its own.
 pub(crate) fn keep_detected_selections(
     path: &str,
@@ -1658,7 +1658,21 @@ pub(crate) fn keep_detected_selections(
     let (source_path, sidecar_path) = parse_virtual_path(path);
     let _turn = crate::file_management::sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
-    if !rawtonic_engine::ai_selections::keep_detected(&mut metadata.adjustments, detected) {
+    // Its geometry as the detection saw it: prepared for a render as the
+    // export and the queue prepare it (version keys, the resolved lens),
+    // which a never-opened recipe may not hold yet.
+    let mut frame = metadata.adjustments.clone();
+    let _ = rawtonic_export::normalize::normalize(
+        &mut frame,
+        &rawtonic_export::normalize::RecipeSource::file(&source_path),
+        rawtonic_export::normalize::Bitmaps::None,
+        rawtonic_export::normalize::Defaults::Render,
+    );
+    if !rawtonic_engine::ai_selections::keep_detected_in(
+        &mut metadata.adjustments,
+        &frame,
+        detected,
+    ) {
         return Ok(false);
     }
     let json = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;

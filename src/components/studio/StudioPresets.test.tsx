@@ -241,7 +241,7 @@ describe('importing presets and styles', () => {
 });
 
 describe('preset amount', () => {
-  it("keeps the target detection while changing a tool preset's Amount and recomputes after restoring the base masks", async () => {
+  it("keeps the preset's layer and the target's detection at every Amount, its settings scaled", async () => {
     await renderTool();
     const sky = (id: string, bitmap: string | null) =>
       [{ id: 'sky', subMasks: [{ id, type: 'ai-sky', parameters: { maskDataBase64: bitmap, grow: 10 } }] }] as never;
@@ -263,18 +263,16 @@ describe('preset amount', () => {
     const target = { ...INITIAL_ADJUSTMENTS, masks: sky('target', 'data:target') };
     act(() => useEditorStore.setState({ adjustments: target }));
     const slider = screen.getByLabelText('Preset amount');
-    fireEvent.change(slider, { target: { value: '80' } });
-    let next = setAdjustments.mock.lastCall![0](target);
-    expect(next.masks).toEqual(target.masks);
-    act(() => useEditorStore.setState({ adjustments: next }));
-    fireEvent.change(slider, { target: { value: '20' } });
-    next = setAdjustments.mock.lastCall![0](next);
-    expect(next.masks).toEqual(INITIAL_ADJUSTMENTS.masks);
-    act(() => useEditorStore.setState({ adjustments: next }));
-    fireEvent.change(slider, { target: { value: '80' } });
-    next = setAdjustments.mock.lastCall![0](next);
-    expect(next.masks[0].subMasks[0].id).not.toBe('source');
-    expect(next.masks[0].subMasks[0].parameters).toMatchObject({ maskDataBase64: null, detectPending: true });
+    for (const value of ['80', '20', '0', '80']) {
+      fireEvent.change(slider, { target: { value } });
+      const next = setAdjustments.mock.lastCall![0](useEditorStore.getState().adjustments);
+      // Joined once, as the photo shows it: its own detection, never the source's.
+      expect(next.masks.map((layer: { id: string }) => layer.id)).toEqual(['sky']);
+      expect(next.masks[0].subMasks).toEqual([
+        { id: 'target', type: 'ai-sky', parameters: { maskDataBase64: 'data:target', grow: 10 } }
+      ]);
+      act(() => useEditorStore.setState({ adjustments: next }));
+    }
   });
 
   it('blends the last tool preset applied to the open photo with its settings before', async () => {

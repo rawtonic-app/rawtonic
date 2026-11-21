@@ -515,9 +515,15 @@ pub async fn apply_adjustments_to_paths(
         )
     })
     .await;
-    // AI selections the written photos now wait for (a preset's Sky or
-    // People layer) are computed in the background, as opening each photo
-    // would (`selection_queue`); the open photo is not among `paths`.
+    // The open photo is not among `paths`: the editor computes its own.
+    queue_selections(&batch);
+    Ok(batch)
+}
+
+/// AI selections the written photos now wait for (a preset's Sky or People
+/// layer, a recipe an undo or redo brings back) are computed in the
+/// background, as opening each photo would (`selection_queue`).
+fn queue_selections(batch: &RecipeBatch) {
     crate::selection_queue::enqueue(
         batch
             .changes
@@ -525,7 +531,6 @@ pub async fn apply_adjustments_to_paths(
             .filter(|change| crate::selection_queue::wants_detection(&change.after))
             .map(|change| change.path.clone()),
     );
-    Ok(batch)
 }
 
 /// The editor sidecar of `path` with `adjustments` applied
@@ -825,14 +830,18 @@ pub async fn replace_recipes(
         .into_iter()
         .map(|c| (c.path, c.adjustments))
         .collect();
-    Ok(recorded_batch(app_handle, paths, move |app_handle, paths| {
+    let batch = recorded_batch(app_handle, paths, move |app_handle, paths| {
         edit_sidecars_recorded(paths, xmp_sync(app_handle), |path, _, sidecar_path| {
             let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
             metadata.adjustments = by_path.get(path).ok_or("no recipe")?.clone();
             Ok(metadata)
         })
     })
-    .await)
+    .await;
+    // An undo or redo of a batch apply brings back recipes from before
+    // their selections were computed: computed again.
+    queue_selections(&batch);
+    Ok(batch)
 }
 
 #[tauri::command]

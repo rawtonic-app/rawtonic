@@ -2,13 +2,20 @@
 //! that was never opened (a Lightroom or Capture One import, a preset,
 //! settings pasted or synced onto it, a capture given a preset): the recipe
 //! holds the selection but not its bitmap, which the editor computes when
-//! the photo opens. The app's selection queue (after a batch apply or a
-//! capture) and every export compute it the way the editor does — the same
-//! warped photo, the same network, the same parameters merged into the
-//! component — so a photo exports the same pixels whether it was opened
-//! first or not. The networks run behind `SelectionDetector` (the app's
-//! loaded models, the CLI's model folder). Object selections are not among
-//! them: they need the user to point at the object on each photo.
+//! the photo opens. Every export computes it with the editor's inputs — the
+//! same warped photo, the same network, the same parameters merged into the
+//! component — and the app's selection queue (after a batch apply or a
+//! capture) computes it the same way, from a decode without AI Denoise. An
+//! export of a never-opened photo is byte-identical to the export of the
+//! recipe holding the masks it computed (`crates/export/tests/
+//! ai_selections_export.rs`); Develop and the queue are not compared there.
+//! The networks run behind `SelectionDetector` (the app's loaded models, the
+//! CLI's model folder). Object selections are not among them: they need the
+//! user to point at the object on each photo. People and depth range
+//! components are computed only when they wait for this photo's detection
+//! (`DETECT_PENDING`: a preset, paste, sync or capture); one saved without
+//! its bitmap otherwise (an edit left before its detection finished) exports
+//! as it always did, without it.
 
 use rawtonic_recipe::masks;
 use std::sync::Arc;
@@ -134,7 +141,8 @@ fn shown(value: &Value) -> bool {
 /// The shown Sky, Subject, People and depth range components of shown
 /// layers without their bitmap (`layer`, `component` indices): rendered as
 /// they are, their layers would apply nowhere. A People component without
-/// parts has nothing to detect.
+/// parts has nothing to detect; People and depth ranges count only while
+/// they wait for this photo's detection (`DETECT_PENDING`).
 pub fn undetected(adjustments: &Value) -> Vec<(usize, usize, AutoSelection)> {
     let mut found = Vec::new();
     let Some(layers) = adjustments
@@ -158,7 +166,11 @@ pub fn undetected(adjustments: &Value) -> Vec<(usize, usize, AutoSelection)> {
             let parameters = sub.get(masks::PARAMETERS.name()).unwrap_or(&Value::Null);
             let no_parts =
                 selection == AutoSelection::People && people_parts(parameters).is_empty();
-            if !has_bitmap(parameters) && !nothing_to_detect(parameters) && !no_parts {
+            // People and depth ranges only where they wait for this photo
+            // (see the module): older saved recipes export as before.
+            let waits = matches!(selection, AutoSelection::Sky | AutoSelection::Subject)
+                || parameters.get(DETECT_PENDING).and_then(Value::as_bool) == Some(true);
+            if waits && !has_bitmap(parameters) && !nothing_to_detect(parameters) && !no_parts {
                 found.push((l, s, selection));
             }
         }
@@ -288,8 +300,17 @@ pub fn detect_missing(
 /// geometry is still the one the selection was computed in. Returns
 /// whether anything changed.
 pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
-    let warp = mask_warp(stored);
-    let frame = |a: &Value| {
+    let frame = stored.clone();
+    keep_detected_in(stored, &frame, detected)
+}
+
+/// `keep_detected` with the photo's geometry read from `frame`: the stored
+/// recipe prepared as the detection's was (`normalize` for a render adds
+/// version keys and resolves the lens, which the stored recipe may not hold
+/// yet: a capture, a recipe never opened).
+pub fn keep_detected_in(stored: &mut Value, frame: &Value, detected: &[Detected]) -> bool {
+    let warp = mask_warp(frame);
+    let frame_of = |a: &Value| {
         [
             a[geometry::ROTATION.name()].as_f64().unwrap_or(0.0) as f32 as f64,
             a[geometry::FLIP_HORIZONTAL.name()]
@@ -299,7 +320,7 @@ pub fn keep_detected(stored: &mut Value, detected: &[Detected]) -> bool {
             a[geometry::ORIENTATION_STEPS.name()].as_u64().unwrap_or(0) as f64,
         ]
     };
-    let stored_frame = frame(stored);
+    let stored_frame = frame_of(frame);
     let mut changed = false;
     for found in detected {
         let p = &found.parameters;
@@ -498,8 +519,12 @@ mod tests {
                 {"id": "p", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null, "detectPending": true, "parts": ["faceSkin", "bodySkin"], "person": null}},
                 {"id": "q", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null, "detectPending": true, "parts": ["faceSkin", "bodySkin"], "person": null}}]},
             {"id": "b", "name": "None", "visible": true, "subMasks": [
-                {"id": "n", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null, "parts": []}},
-                {"id": "o", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null}}]},
+                {"id": "n", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null, "detectPending": true, "parts": []}},
+                {"id": "o", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null}},
+                // Saved without its bitmap, not waiting (left before its
+                // detection finished): exported without it, as before.
+                {"id": "s", "type": "ai-people", "visible": true, "parameters": {"maskDataBase64": null, "parts": ["hair"]}},
+                {"id": "t", "type": "ai-depth", "visible": true, "parameters": {"maskDataBase64": null, "minDepth": 10}}]},
             {"id": "c", "name": "Far", "visible": true, "subMasks": [
                 {"id": "d", "type": "ai-depth", "visible": true, "parameters": {"maskDataBase64": null, "detectPending": true, "minDepth": 60, "maxDepth": 100, "minFade": 10, "maxFade": 0, "feather": 5}}]}]});
         let source = Arc::new(DynamicImage::new_rgb8(6, 4));
@@ -559,6 +584,38 @@ mod tests {
             .unwrap_err();
         assert!(error.ends_with("the Sky model is not installed"), "{error}");
         assert_eq!(adjustments, before);
+    }
+
+    #[test]
+    fn a_detection_on_the_prepared_recipe_is_kept_in_the_stored_one() {
+        // A capture's stored recipe holds only the preset's layers; the
+        // detection ran on it prepared for a render (lens resolved), so the
+        // geometry is compared in that frame, and the stored recipe gets the
+        // bitmap with the frame it was computed in.
+        let stored = json!({"masks": [{"id": "a", "name": "Sky", "visible": true, "subMasks": [
+            {"id": "s", "type": "ai-sky", "visible": true, "parameters": {"maskDataBase64": null, "detectPending": true}}]}]});
+        let mut prepared = stored.clone();
+        prepared["lensDistortionAmount"] = json!(100.0);
+        prepared["lensDistortionParams"] = json!({"k1": 0.01});
+        let found = detect_missing(
+            &mut prepared,
+            &Arc::new(DynamicImage::new_rgb8(6, 4)),
+            false,
+            Some(&Fixed(Default::default())),
+            &mut || {},
+        )
+        .unwrap();
+        assert!(!keep_detected(&mut stored.clone(), &found), "another frame");
+        let mut kept = stored.clone();
+        assert!(keep_detected_in(&mut kept, &prepared, &found));
+        assert_eq!(
+            kept["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"],
+            "data:Sky:6x4"
+        );
+        assert!(
+            kept.get("lensDistortionParams").is_none(),
+            "only the masks change"
+        );
     }
 
     #[test]

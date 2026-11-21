@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
-import { blendPreset } from './presetAmount';
+import { amountLayers, blendPreset } from './presetAmount';
+import { INITIAL_MASK_ADJUSTMENTS, INITIAL_MASK_CONTAINER, type MaskContainer } from './adjustments';
 
 it('moves numbers part of the way and blends nested settings per value', () => {
   const base = {
@@ -76,4 +77,36 @@ it('keeps curves whole with their version', () => {
     });
   }
   expect(blendPreset(base, { curves: legacy }, 0.25)).toEqual(base);
+});
+
+it('scales an adaptive preset’s layers from neutral and keeps the photo’s own layers and detections', () => {
+  const layer = (id: string, adjustments: Record<string, unknown>, bitmap: string | null) =>
+    ({
+      ...INITIAL_MASK_CONTAINER,
+      id,
+      adjustments: { ...INITIAL_MASK_ADJUSTMENTS, ...adjustments },
+      subMasks: [
+        {
+          id: `${id}-c`,
+          type: 'ai-sky',
+          visible: true,
+          invert: false,
+          opacity: 100,
+          mode: 'additive',
+          parameters: { maskDataBase64: bitmap }
+        }
+      ]
+    }) as unknown as MaskContainer;
+  const own = layer('brush', { exposure: 1 }, 'data:own');
+  const preset = [
+    { ...layer('sky', {}, null), adjustments: { exposure: -0.4, saturation: 20 } } as unknown as MaskContainer
+  ];
+  // As shown now: the preset's layer with its detection.
+  const current = [own, layer('sky', { exposure: -0.4, saturation: 20 }, 'data:sky')];
+  const half = amountLayers([own], current, preset, 0.5);
+  expect(half.map((l) => l.id)).toEqual(['brush', 'sky']);
+  expect(half[0]).toBe(own);
+  expect(half[1].adjustments).toMatchObject({ exposure: -0.2, saturation: 10, contrast: 0 });
+  expect(half[1].subMasks[0].parameters).toMatchObject({ maskDataBase64: 'data:sky' });
+  expect(amountLayers([own], current, preset, 0)[1].adjustments).toMatchObject({ exposure: 0, saturation: 0 });
 });

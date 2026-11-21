@@ -1,3 +1,6 @@
+import { INITIAL_MASK_ADJUSTMENTS, type MaskContainer } from './adjustments';
+import { joinedLayers } from './settingsClipboard';
+
 /**
  * Lightroom's preset Amount: a preset applied at less than full strength
  * blends each of its settings with the photo's settings before it was
@@ -37,4 +40,29 @@ export function blendPreset(
       key.endsWith('Version') || key === 'curves' ? (a >= 0.5 ? value : base[key]) : blend(base[key], value)
     ])
   );
+}
+
+/** A preset's layers (`preset`) at `amount` (0 … 1) on a photo: the
+ * photo's layers before it (`base`) with the preset's joined
+ * (`joinedLayers`), each preset layer as the photo shows it now (`current`:
+ * its detection kept) and its settings blended from neutral to the
+ * preset's, as Lightroom's Amount scales an adaptive preset's masks. */
+export function amountLayers(
+  base: MaskContainer[] | undefined,
+  current: MaskContainer[] | undefined,
+  preset: MaskContainer[],
+  amount: number
+): MaskContainer[] {
+  const shown = new Map((current ?? []).map((layer) => [layer.id, layer]));
+  return joinedLayers(base, preset).map((layer) => {
+    const own = preset.find((p) => p.id === layer.id);
+    if (!own) return layer;
+    const now = shown.get(layer.id) ?? layer;
+    const scaled = blendPreset(
+      INITIAL_MASK_ADJUSTMENTS as unknown as Record<string, unknown>,
+      (own.adjustments ?? {}) as unknown as Record<string, unknown>,
+      amount
+    );
+    return { ...now, adjustments: { ...now.adjustments, ...scaled } as MaskContainer['adjustments'] };
+  });
 }
