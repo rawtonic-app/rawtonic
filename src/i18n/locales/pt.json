@@ -3203,6 +3203,7 @@
           "srgb": "sRGB",
           "swatchAria": "Resultado do intervalo {{result}}, alvo {{target}}",
           "uncovered": "A máscara da camada já não cobre o ponto recolhido: os controlos do intervalo ficam como estão.",
+          "unmeasured": "Previsto a ΔE00 {{value}} do alvo; não foi possível medir o resultado no ponto escolhido.",
           "useSampled": "Usar o alvo de {{name}}",
           "useSampledTitle": "Mover este intervalo para a cor recolhida em {{name}}"
         },

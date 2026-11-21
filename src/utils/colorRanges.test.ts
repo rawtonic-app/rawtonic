@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import {
   applyColorPick,
+  binned,
+  eyedropperBlock,
   invalidatePendingColorPicks,
   pickColorRange,
   rangeInputFor,
@@ -39,6 +41,15 @@ const photo: SelectedImage = {
   thumbnailUrl: '',
   thumbnailSource: 'embedded'
 };
+/** The renderer showing `shown` (display sRGB) wherever it is sampled: the
+ * eyedropper's patch (its mean, on a 100 × 100 frame), else the value as is. */
+const shows = (shown: unknown) =>
+  vi
+    .mocked(invoke)
+    .mockImplementation(async (command: string) =>
+      command === Invokes.SamplePreviewPatch ? shown && { mean: shown, frame: [100, 100] } : shown
+    );
+
 const layer = { id: 'L1', name: 'L', adjustments: { colorRanges: [] }, subMasks: [] } as unknown as MaskContainer;
 
 beforeEach(() => {
@@ -56,9 +67,9 @@ beforeEach(() => {
 });
 
 it('adds a range for the sampled display colour and ends the picker', async () => {
-  vi.mocked(invoke).mockResolvedValue([255, 0, 0]);
+  shows([255, 0, 0]);
   expect(await pickColorRange('/a.cr3', 'new', 0.5, 0.5)).toBe(true);
-  expect(invoke).toHaveBeenCalledWith(Invokes.SamplePreviewColor, {
+  expect(invoke).toHaveBeenCalledWith(Invokes.SamplePreviewPatch, {
     path: '/a.cr3',
     normalizedX: 0.5,
     normalizedY: 0.5
@@ -72,10 +83,10 @@ it('adds a range for the sampled display colour and ends the picker', async () =
 });
 
 it('re-samples an existing range in place', async () => {
-  vi.mocked(invoke).mockResolvedValue([255, 0, 0]);
+  shows([255, 0, 0]);
   await pickColorRange('/a.cr3', 'new', 0.5, 0.5);
   const id = useEditorStore.getState().adjustments.colorRanges![0].id;
-  vi.mocked(invoke).mockResolvedValue([0, 0, 255]);
+  shows([0, 0, 255]);
   await pickColorRange('/a.cr3', id, 0.1, 0.1);
   const ranges = useEditorStore.getState().adjustments.colorRanges!;
   expect(ranges).toHaveLength(1);
@@ -84,7 +95,7 @@ it('re-samples an existing range in place', async () => {
 
 it('edits the layer the picker was started on, up to its limit', async () => {
   useEditorStore.setState({ colorPickerLayer: 'L1' });
-  vi.mocked(invoke).mockResolvedValue([20, 200, 40]);
+  shows([20, 200, 40]);
   for (let i = 0; i < MAX_COLOR_RANGES + 2; i++) {
     useEditorStore.setState({ colorPickerLayer: 'L1' });
     await pickColorRange('/a.cr3', 'new', 0.5, 0.5);
@@ -96,19 +107,19 @@ it('edits the layer the picker was started on, up to its limit', async () => {
 });
 
 it('ignores samples for another photograph', async () => {
-  vi.mocked(invoke).mockResolvedValue([255, 0, 0]);
+  shows([255, 0, 0]);
   expect(await pickColorRange('/other.cr3', 'new', 0.5, 0.5)).toBe(false);
   expect(useEditorStore.getState().adjustments.colorRanges ?? []).toHaveLength(0);
 });
 
 it('picks skin into one skin tone range and moves it on the next pick', async () => {
-  vi.mocked(invoke).mockResolvedValue([200, 150, 120]);
+  shows([200, 150, 120]);
   useEditorStore.setState({ colorPickerTarget: 'skin' });
   expect(await pickColorRange('/a.cr3', 'skin', 0.5, 0.5)).toBe(true);
   const [skin] = useEditorStore.getState().adjustments.colorRanges!;
   expect(skin.kind).toBe('skin');
   expect(useEditorStore.getState().activeColorRangeId).toBe(skin.id);
-  vi.mocked(invoke).mockResolvedValue([120, 80, 60]);
+  shows([120, 80, 60]);
   await pickColorRange('/a.cr3', 'skin', 0.2, 0.2);
   const ranges = useEditorStore.getState().adjustments.colorRanges!;
   expect(ranges).toHaveLength(1);
@@ -122,12 +133,12 @@ it('adds no range beyond the limit', () => {
 });
 
 it('drops a sample whose pick was finished meanwhile (e.g. on the range wheel)', async () => {
-  let resolve!: (rgb: [number, number, number]) => void;
+  let resolve!: (patch: { mean: [number, number, number]; frame: [number, number] }) => void;
   vi.mocked(invoke).mockReturnValue(new Promise((r) => (resolve = r)));
   useEditorStore.setState({ colorPickerTarget: 'skin', colorPickerLayer: 'L1' });
   const pending = pickColorRange('/a.cr3', 'skin', 0.5, 0.5);
   useEditorStore.setState({ colorPickerTarget: null, colorPickerLayer: null });
-  resolve([200, 150, 120]);
+  resolve({ mean: [200, 150, 120], frame: [100, 100] });
   expect(await pending).toBe(false);
   const state = useEditorStore.getState();
   expect(state.adjustments.colorRanges ?? []).toHaveLength(0);
@@ -135,14 +146,14 @@ it('drops a sample whose pick was finished meanwhile (e.g. on the range wheel)',
 });
 
 it('drops a sample of a pick finished and re-armed for the same range meanwhile', async () => {
-  let resolve!: (rgb: [number, number, number]) => void;
+  let resolve!: (patch: { mean: [number, number, number]; frame: [number, number] }) => void;
   vi.mocked(invoke).mockReturnValue(new Promise((r) => (resolve = r)));
   useEditorStore.setState({ colorPickerTarget: 'skin' });
   const pending = pickColorRange('/a.cr3', 'skin', 0.5, 0.5);
   // Finished on the wheel, then armed again for the same target.
   invalidatePendingColorPicks();
   useEditorStore.setState({ colorPickerTarget: 'skin' });
-  resolve([200, 150, 120]);
+  resolve({ mean: [200, 150, 120], frame: [100, 100] });
   expect(await pending).toBe(false);
   expect(useEditorStore.getState().adjustments.colorRanges ?? []).toHaveLength(0);
   expect(useEditorStore.getState().colorPickerTarget).toBe('skin');
@@ -155,10 +166,10 @@ describe('target colour picks', () => {
   };
 
   it('moves the armed range onto the sampled target in one edit and keeps the target', async () => {
-    vi.mocked(invoke).mockResolvedValue([200, 60, 50]);
+    shows([200, 60, 50]);
     await redRange();
     const before = useEditorStore.getState().adjustments.colorRanges![0];
-    vi.mocked(invoke).mockResolvedValue([200, 20, 40]);
+    shows([200, 20, 40]);
     const target = targetPickFor(before.id);
     useEditorStore.setState({ colorPickerTarget: target });
     let updates = 0;
@@ -183,14 +194,14 @@ describe('target colour picks', () => {
   });
 
   it('a range picked again on its own shifted colour keeps selecting the colour before the shift', async () => {
-    vi.mocked(invoke).mockResolvedValue([190, 100, 120]);
+    shows([190, 100, 120]);
     await redRange();
     const picked = useEditorStore.getState().adjustments.colorRanges![0];
     const shifted = { ...picked, hueShift: 100 };
     useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, colorRanges: [shifted] } });
     // The photo now shows the shifted colour there.
     const shown = linearToSrgb8(oklabToLinear(applyColorRanges([shifted], rangeCentre(picked))));
-    vi.mocked(invoke).mockResolvedValue(shown);
+    shows(shown);
     useEditorStore.setState({ colorPickerTarget: picked.id });
     await pickColorRange('/a.cr3', picked.id, 0.5, 0.5);
     const [again] = useEditorStore.getState().adjustments.colorRanges!;
@@ -201,28 +212,28 @@ describe('target colour picks', () => {
   });
 
   it('marks a range picked again through its own strong change as uncertain, and clears it on a clean pick', async () => {
-    vi.mocked(invoke).mockResolvedValue([180, 85, 55]);
+    shows([180, 85, 55]);
     await redRange();
     const picked = useEditorStore.getState().adjustments.colorRanges![0];
     const drained = { ...picked, saturation: -90 };
     useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, colorRanges: [drained] } });
     const shown = linearToSrgb8(oklabToLinear(applyColorRanges([drained], rangeCentre(picked)))).map(Math.round);
-    vi.mocked(invoke).mockResolvedValue(shown);
+    shows(shown);
     useEditorStore.setState({ colorPickerTarget: picked.id });
     await pickColorRange('/a.cr3', picked.id, 0.5, 0.5);
     expect(useEditorStore.getState().colorPicksThroughRanges).toEqual([`/a.cr3||${picked.id}`]);
     // Picked again on a colour the range does not touch: certain again.
-    vi.mocked(invoke).mockResolvedValue([40, 160, 60]);
+    shows([40, 160, 60]);
     useEditorStore.setState({ colorPickerTarget: picked.id });
     await pickColorRange('/a.cr3', picked.id, 0.5, 0.5);
     expect(useEditorStore.getState().colorPicksThroughRanges).toEqual([]);
   });
 
   it('only keeps a target sampled without a range (for another photo)', async () => {
-    vi.mocked(invoke).mockResolvedValue([200, 60, 50]);
+    shows([200, 60, 50]);
     await redRange();
     const recipe = useEditorStore.getState().adjustments;
-    vi.mocked(invoke).mockResolvedValue([10, 120, 200]);
+    shows([10, 120, 200]);
     useEditorStore.setState({ colorPickerTarget: TARGET_PICK });
     expect(await pickColorRange('/a.cr3', TARGET_PICK, 0.3, 0.3)).toBe(true);
     const state = useEditorStore.getState();
@@ -233,10 +244,10 @@ describe('target colour picks', () => {
 
   it('solves a layer range with the layer’s own ranges', async () => {
     useEditorStore.setState({ colorPickerLayer: 'L1' });
-    vi.mocked(invoke).mockResolvedValue([60, 160, 80]);
+    shows([60, 160, 80]);
     await pickColorRange('/a.cr3', 'new', 0.5, 0.5);
     const id = useEditorStore.getState().adjustments.masks[0].adjustments.colorRanges![0].id;
-    vi.mocked(invoke).mockResolvedValue([40, 170, 120]);
+    shows([40, 170, 120]);
     useEditorStore.setState({ colorPickerTarget: targetPickFor(id), colorPickerLayer: 'L1' });
     await pickColorRange('/a.cr3', targetPickFor(id), 0.5, 0.5);
     const state = useEditorStore.getState();
@@ -259,7 +270,9 @@ describe('the renderer probe at a pick', () => {
       .mockImplementation(async (command: string) =>
         command === Invokes.SampleColorRangeInput
           ? { pixels: entering, influence: entering.map(() => influence) }
-          : shown
+          : command === Invokes.SamplePreviewPatch
+            ? { mean: shown, frame: [100, 100] }
+            : shown
       );
 
   it('sets the range to the unclipped colour entering the colour editor, also through a strong change', async () => {
@@ -269,7 +282,8 @@ describe('the renderer probe at a pick', () => {
       path: '/a.cr3',
       normalizedX: 0.4,
       normalizedY: 0.6,
-      block: null,
+      // The eyedropper's 11 × 11 block on the 100 × 100 frame around (40, 60).
+      block: [0.35, 0.55, 0.11, 0.11],
       adjustments: expect.anything(),
       layer: null
     });
@@ -315,7 +329,7 @@ describe('the renderer probe at a pick', () => {
     const range = useEditorStore.getState().adjustments.masks[0].adjustments.colorRanges![0];
     expect(rangePickOf('/a.cr3', 'L1', range)!.input).not.toBeNull();
     // Hidden: no sample, the point stays.
-    vi.mocked(invoke).mockResolvedValue(null);
+    shows(null);
     expect(await rangeInputFor('/a.cr3', 'L1', range)).toBeNull();
     expect(rangePickOf('/a.cr3', 'L1', range)).toMatchObject({ point: [0.4, 0.6], input: null });
     // Shown again: the next sample at the same point.
@@ -349,5 +363,39 @@ describe('the renderer probe at a pick', () => {
     const lab = linearToLab(srgb8ToLinear(target));
     expect(deltaE00(lab, renderedLab([solved], input))).toBeLessThan(1);
     expect(deltaE00(lab, renderedLab([solved], { ...input, influence: [1, 1] }))).toBeGreaterThan(1);
+  });
+});
+
+describe('the pick’s block at full resolution', () => {
+  it('is the eyedropper’s 11 × 11 block on the shown frame, cut at the edges', () => {
+    expect(eyedropperBlock(0.5, 0.25, [1000, 500])).toEqual([0.495, 0.24, 0.011, 0.022]);
+    expect(eyedropperBlock(0, 0, [1000, 500])).toEqual([0, 0, 0.006, 0.012]);
+    expect(eyedropperBlock(0.5, 0.5, [0, 0])).toBeNull();
+  });
+
+  it('gives the solve 11 × 11 cell means, so a fine stripe cannot stand for the block', () => {
+    // 44 × 44 pixels: every fourth column a red stripe, the rest green.
+    const red = linearToOklab(srgb8ToLinear([220, 30, 40]));
+    const green = linearToOklab(srgb8ToLinear([40, 160, 60]));
+    const pixels = Array.from({ length: 44 * 44 }, (_, i) => (i % 4 === 0 ? red : green));
+    const cells = binned(
+      pixels,
+      pixels.map(() => 1),
+      [44, 44]
+    );
+    expect(cells.pixels).toHaveLength(121);
+    const whole = meanOklab(pixels);
+    for (const cell of cells.pixels) {
+      // Every cell holds the stripe and its ground, as the whole block does.
+      expect(Math.hypot(...cell.map((v, k) => v - whole[k]))).toBeLessThan(1e-6);
+    }
+    // Small blocks (the preview's own) stay as they are.
+    expect(
+      binned(
+        pixels.slice(0, 121),
+        pixels.slice(0, 121).map(() => 1),
+        [11, 11]
+      ).pixels
+    ).toHaveLength(121);
   });
 });

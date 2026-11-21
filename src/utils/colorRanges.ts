@@ -119,36 +119,61 @@ export async function sampleRangeInput(
   y: number,
   layer: string | null,
   adjustments: Adjustments,
-  block: RangeInput['block'] = null
+  block: PickBlock | null = null
 ): Promise<RangeInput | null> {
-  const sample = await invoke<{
-    pixels: Vec3[];
-    influence: number[];
-    block?: [number, number, number, number] | null;
-  } | null>(Invokes.SampleColorRangeInput, {
-    path,
-    normalizedX: x,
-    normalizedY: y,
-    block,
-    adjustments,
-    layer
-  }).catch(() => null);
+  const sample = await invoke<{ pixels: Vec3[]; influence: number[]; size?: [number, number] | null } | null>(
+    Invokes.SampleColorRangeInput,
+    { path, normalizedX: x, normalizedY: y, block, adjustments, layer }
+  ).catch(() => null);
   if (!sample?.pixels?.length || sample.influence?.length !== sample.pixels.length) return null;
-  // The block at full resolution holds up to a few thousand pixels; the
-  // model's solve runs on every pixel of its input on each step, so it gets
-  // about as many as the picker's 11 × 11 preview pixels, spread over the
-  // block (the measured corrections see every pixel).
-  const every = Math.max(1, Math.ceil(sample.pixels.length / MODEL_PIXELS));
-  const kept = (_: unknown, i: number) => i % every === 0;
-  return {
-    pixels: sample.pixels.filter(kept).map((p) => linearToOklab(p)),
-    influence: sample.influence.filter(kept),
-    block: sample.block ?? block ?? null
-  };
+  const pixels = sample.pixels.map((p) => linearToOklab(p));
+  return { ...binned(pixels, sample.influence, sample.size ?? null), mean: meanOklab(pixels) };
 }
 
-/** About the picker's 11 × 11 pixels: what the model's solve reads of a pick. */
-const MODEL_PIXELS = 121;
+/** A pick's block: x, y, w, h normalised to the shown photograph. */
+export type PickBlock = [number, number, number, number];
+
+/** The eyedropper's block around a normalised point on a `frame`-sized
+ * display frame (the GPU's `preview_sample_roi`: 11 × 11 pixels, cut at
+ * the edges), normalised. */
+export function eyedropperBlock(x: number, y: number, [w, h]: [number, number]): PickBlock | null {
+  if (!(w > 0 && h > 0) || !(x >= 0 && x <= 1 && y >= 0 && y <= 1)) return null;
+  const cx = Math.floor(x * w);
+  const cy = Math.floor(y * h);
+  const left = Math.max(cx - 5, 0);
+  const top = Math.max(cy - 5, 0);
+  return [left / w, top / h, (Math.min(cx + 6, w) - left) / w, (Math.min(cy + 6, h) - top) / h];
+}
+
+/** Bins per side the model's solve reads of a block: the picker's 11 × 11. */
+const MODEL_BINS = 11;
+
+/**
+ * A full-resolution block (`size` columns × rows, row-major) as at most
+ * 11 × 11 cells, each the mean of its pixels' display values (as a preview
+ * pixel is the mean of the photo's pixels under it) with its mean
+ * influence: the model's solve runs on every input pixel at each step, so
+ * it reads about as many as the picker's preview pixels; the measured
+ * corrections see every pixel.
+ */
+export function binned(pixels: Vec3[], influence: number[], size: [number, number] | null): RangeInput {
+  if (!size || size[0] * size[1] !== pixels.length || size[0] * size[1] <= MODEL_BINS * MODEL_BINS)
+    return { pixels, influence };
+  const [w, h] = size;
+  const bw = Math.ceil(w / MODEL_BINS);
+  const bh = Math.ceil(h / MODEL_BINS);
+  const cells = new Map<number, number[]>();
+  for (let i = 0; i < pixels.length; i += 1) {
+    const cell = Math.floor(Math.floor(i / w) / bh) * MODEL_BINS + Math.floor((i % w) / bw);
+    (cells.get(cell) ?? cells.set(cell, []).get(cell)!).push(i);
+  }
+  const out: RangeInput = { pixels: [], influence: [] };
+  for (const members of cells.values()) {
+    out.pixels.push(meanOklab(members.map((i) => pixels[i])));
+    out.influence.push(members.reduce((sum, i) => sum + influence[i], 0) / members.length);
+  }
+  return out;
+}
 
 const sameColour = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6;
 
@@ -191,7 +216,7 @@ export async function rangeInputFor(
     pick.point[1],
     layer,
     useEditorStore.getState().adjustments,
-    pick.input?.block ?? null
+    pick.block ?? null
   );
   const state = useEditorStore.getState();
   const key = rangePickKey(photo, layer, range.id);
@@ -228,14 +253,16 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   // A range pick reads the colour entering the colour editor (unclipped,
   // before the ranges' own change); the shown colour is the fallback and
   // a target pick's colour.
-  const [rgb, input] = await Promise.all([
-    invoke<[number, number, number] | null>(Invokes.SamplePreviewColor, {
-      path,
-      normalizedX: x,
-      normalizedY: y
-    }),
-    targetPick ? Promise.resolve(null) : sampleRangeInput(path, x, y, layer, asked.adjustments)
-  ]);
+  // The eyedropper's block on the shown frame: its mean, and where it lies
+  // (the range's later samples and the target's measurements read the same
+  // block at full resolution).
+  const patch = await invoke<{ mean: [number, number, number] | null; frame: [number, number] } | null>(
+    Invokes.SamplePreviewPatch,
+    { path, normalizedX: x, normalizedY: y }
+  ).catch(() => null);
+  const rgb = patch?.mean ?? null;
+  const block = patch?.frame ? eyedropperBlock(x, y, patch.frame) : null;
+  const input = targetPick || !rgb ? null : await sampleRangeInput(path, x, y, layer, asked.adjustments, block);
   const stillArmed = () => {
     const state = useEditorStore.getState();
     return (
@@ -259,8 +286,8 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   }
   if (input) {
     // The renderer's colour at the pick: the range's colour as it is, no
-    // undoing of the ranges from the shown colour.
-    const [lightness, a, b] = meanOklab(input.pixels);
+    // undoing of the ranges from the shown colour (the whole block's mean).
+    const [lightness, a, b] = input.mean ?? meanOklab(input.pixels);
     const hue = ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
     const chroma = Math.hypot(a, b);
     let activeId: string | null = null;
@@ -283,7 +310,13 @@ export async function pickColorRange(path: string, target: string, x: number, y:
         key && picked
           ? {
               ...after.colorRangeInputs,
-              [key]: { point: [x, y], centre: rangeCentre(picked), geometry: geometryKeyOf(asked.adjustments), input }
+              [key]: {
+                point: [x, y],
+                centre: rangeCentre(picked),
+                geometry: geometryKeyOf(asked.adjustments),
+                block,
+                input
+              }
             }
           : after.colorRangeInputs
     });
@@ -335,21 +368,34 @@ async function measureRanges(
   layer: string | null,
   pick: ColorRangePick,
   ranges: ColorRange[]
-): Promise<{ lab: Vec3 | null; recipe: Adjustments }> {
+): Promise<{ lab: Vec3 | null; unmeasured: string | null; recipe: Adjustments }> {
   const recipe = withRanges(shownRecipe(photo), layer, () => ranges);
-  const pixels = await invoke<Vec3[] | null>(Invokes.SampleColorRangeResult, {
+  const result = await invoke<{ pixels: Vec3[]; unmeasured: string | null } | null>(Invokes.SampleColorRangeResult, {
     path: photo,
     normalizedX: pick.point[0],
     normalizedY: pick.point[1],
-    block: pick.input?.block ?? null,
+    block: pick.block ?? null,
     adjustments: recipe
   }).catch(() => null);
-  return { lab: pixels?.length ? meanDisplayLab(pixels) : null, recipe };
+  const lab = result?.pixels?.length ? meanDisplayLab(result.pixels) : null;
+  return { lab, unmeasured: lab ? null : (result?.unmeasured ?? 'unavailable'), recipe };
 }
 
-const remember = (photo: string, layer: string | null, rangeId: string, recipe: Adjustments, lab: Vec3 | null) =>
+const remember = (
+  photo: string,
+  layer: string | null,
+  rangeId: string,
+  recipe: Adjustments,
+  lab: Vec3 | null,
+  unmeasured: string | null = null
+) =>
   useEditorStore.getState().setEditor({
-    colorTargetMeasure: { key: rangePickKey(photo, layer, rangeId), recipe: JSON.stringify(recipe), lab }
+    colorTargetMeasure: {
+      key: rangePickKey(photo, layer, rangeId),
+      recipe: JSON.stringify(recipe),
+      lab,
+      unmeasured: lab ? null : (unmeasured ?? 'unavailable')
+    }
   });
 
 /** Measures the target range's result for the recipe as it is (after a
@@ -361,7 +407,7 @@ export async function measureColorTarget(photo: string, layer: string | null, ra
   const measured = await measureRanges(photo, layer, pick, ranges);
   // Also when nothing came back: the readout then says it is not measured
   // instead of waiting.
-  if (!live) remember(photo, layer, range.id, measured.recipe, measured.lab);
+  if (!live) remember(photo, layer, range.id, measured.recipe, measured.lab, measured.unmeasured);
 }
 
 /** A target being typed (or being solved): one interaction, as a slider
@@ -491,10 +537,12 @@ export async function applyColorTarget(
   const current = io.ranges();
   if (!current.some((r) => r.id === rangeId)) return drop();
   const recipes = new Map<ColorRange[], Adjustments>();
+  let unmeasured: string | null = null;
   const loop = await solveColorTargetMeasured(current, rangeId, lab, fresh, async (ranges) => {
     if (stale()) return null;
-    const measured = await measureRanges(photo, layer, fresh ? { ...pick, input: fresh } : pick, ranges);
+    const measured = await measureRanges(photo, layer, pick, ranges);
     recipes.set(ranges, measured.recipe);
+    unmeasured = measured.unmeasured;
     return measured.lab;
   });
   if (stale() || !loop) return drop();
@@ -504,7 +552,7 @@ export async function applyColorTarget(
   const recipe = recipes.get(loop.ranges);
   if (loop.measured && recipe) remember(photo, layer, rangeId, recipe, loop.measured.lab);
   // Not measurable: the readout says so for the recipe as it is now.
-  else remember(photo, layer, rangeId, shownRecipe(photo), null);
+  else remember(photo, layer, rangeId, shownRecipe(photo), null, unmeasured);
   endLive();
 }
 

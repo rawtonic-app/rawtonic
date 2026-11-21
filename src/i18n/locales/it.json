@@ -3203,6 +3203,7 @@
           "srgb": "sRGB",
           "swatchAria": "Risultato dell'intervallo {{result}}, obiettivo {{target}}",
           "uncovered": "La maschera del livello non copre più il punto prelevato: i cursori dell'intervallo restano come sono.",
+          "unmeasured": "Previsto a ΔE00 {{value}} dall'obiettivo; non è stato possibile misurare il risultato nel punto scelto.",
           "useSampled": "Usa l'obiettivo da {{name}}",
           "useSampledTitle": "Sposta questo intervallo sul colore prelevato in {{name}}"
         },

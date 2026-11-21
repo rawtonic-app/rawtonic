@@ -422,9 +422,9 @@ export const rangeCentre = (range: ColorRange): Vec3 => {
 export interface RangeInput {
   pixels: Vec3[];
   influence: number[];
-  /** The block the renderer read (x, y, w, h, full-resolution px of the
-   * shown photograph): the target's later measurements read the same one. */
-  block?: [number, number, number, number] | null;
+  /** The mean (Oklab, display values averaged) of every pixel the renderer
+   * read; `pixels` may be cells of that block (utils/colorRanges `binned`). */
+  mean?: Vec3;
 }
 
 /** A range picked in the photo: the normalised point, the range's colour
@@ -434,6 +434,9 @@ export interface ColorRangePick {
   centre: Vec3;
   /** The framing the point belongs to (utils/colorRanges `geometryKeyOf`). */
   geometry: string;
+  /** The eyedropper's block (x, y, w, h normalised to the shown photograph):
+   * the range's later samples and the target's measurements read it. */
+  block?: [number, number, number, number] | null;
   /** Null while the renderer has no sample there (a hidden layer). */
   input: RangeInput | null;
 }
@@ -738,9 +741,11 @@ export function meanDisplayLab(pixels: Vec3[]): Vec3 | null {
 export interface ColorTargetMeasure {
   key: string;
   recipe: string;
-  /** Null when the renderer could not measure this recipe there (AI Denoise:
-   * its region source is not the export's). */
+  /** Null when the renderer could not measure this recipe there. */
   lab: Vec3 | null;
+  /** Why not: 'notTheExport' (AI Denoise: a region's source is not the
+   * export's) or 'unavailable'; null with `lab`. */
+  unmeasured?: string | null;
 }
 
 /** What the renderer leaves at the pick, in its sRGB render with every tool. */

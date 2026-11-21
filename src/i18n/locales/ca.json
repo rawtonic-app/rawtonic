@@ -3203,6 +3203,7 @@
           "srgb": "sRGB",
           "swatchAria": "Resultat de l'interval {{result}}, objectiu {{target}}",
           "uncovered": "La màscara de la capa ja no cobreix el punt triat: els controls de l'interval es queden com estan.",
+          "unmeasured": "Previst a ΔE00 {{value}} de l'objectiu; no s'ha pogut mesurar el resultat al punt triat.",
           "useSampled": "Fes servir l'objectiu de {{name}}",
           "useSampledTitle": "Desplaça aquest interval al color agafat a {{name}}"
         },

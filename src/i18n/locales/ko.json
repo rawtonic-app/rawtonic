@@ -2956,6 +2956,7 @@
           "srgb": "sRGB",
           "swatchAria": "범위 결과 {{result}}, 목표 {{target}}",
           "uncovered": "레이어 마스크가 더 이상 선택한 지점을 덮지 않습니다. 범위 슬라이더는 그대로 유지됩니다.",
+          "unmeasured": "목표에서 예측된 ΔE00 {{value}}; 선택한 지점의 결과를 측정할 수 없었습니다.",
           "useSampled": "{{name}}의 목표 사용",
           "useSampledTitle": "이 범위를 {{name}}에서 찍은 색으로 이동"
         },

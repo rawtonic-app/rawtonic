@@ -3356,6 +3356,7 @@
           "srgb": "sRGB",
           "swatchAria": "Wynik zakresu {{result}}, cel {{target}}",
           "uncovered": "Maska warstwy nie obejmuje już pobranego punktu: suwaki zakresu pozostają bez zmian.",
+          "unmeasured": "Przewidywane ΔE00 {{value}} od celu; nie udało się zmierzyć wyniku w wybranym punkcie.",
           "useSampled": "Użyj celu z {{name}}",
           "useSampledTitle": "Przesuń ten zakres na kolor pobrany z {{name}}"
         },

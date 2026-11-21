@@ -3329,7 +3329,7 @@ pub(crate) fn develop_target_block(
     recipe: serde_json::Value,
     space: rawtonic_engine::output_color_space::OutputColorSpace,
     probe: Option<u32>,
-) -> Result<Option<Vec<[u8; 4]>>, String> {
+) -> Result<Option<TargetPixels>, String> {
     if rawtonic_engine::image_loader::ai_denoise_settings(&recipe).is_some() {
         return Ok(None);
     }
@@ -3380,11 +3380,12 @@ pub(crate) fn develop_target_block(
     Ok(Some(block_pixels(&region.rgba, covered, block)))
 }
 
-/// The pixels of `rgba` (covering `region`, shown px) inside `wanted` (shown px).
-fn block_pixels(rgba: &image::RgbaImage, region: [f32; 4], wanted: [f32; 4]) -> Vec<[u8; 4]> {
+/// The pixels of `rgba` (covering `region`, shown px) inside `wanted` (shown
+/// px), row-major, and how many columns and rows they are.
+fn block_pixels(rgba: &image::RgbaImage, region: [f32; 4], wanted: [f32; 4]) -> TargetPixels {
     let (w, h) = rgba.dimensions();
     if w == 0 || h == 0 || region[2] <= 0.0 || region[3] <= 0.0 {
-        return Vec::new();
+        return (Vec::new(), [0, 0]);
     }
     let (sx, sy) = (w as f32 / region[2], h as f32 / region[3]);
     let span = |start: f32, len: f32, origin: f32, s: f32, max: u32| {
@@ -3394,10 +3395,16 @@ fn block_pixels(rgba: &image::RgbaImage, region: [f32; 4], wanted: [f32; 4]) -> 
     };
     let xs = span(wanted[0], wanted[2], region[0], sx, w);
     let ys = span(wanted[1], wanted[3], region[1], sy, h);
-    ys.flat_map(|y| xs.clone().map(move |x| (x, y)))
+    let size = [xs.len() as u32, ys.len() as u32];
+    let pixels = ys
+        .flat_map(|y| xs.clone().map(move |x| (x, y)))
         .map(|(x, y)| rgba.get_pixel(x, y).0)
-        .collect()
+        .collect();
+    (pixels, size)
 }
+
+/// A target block's RGBA8 pixels (row-major) and its columns and rows.
+pub(crate) type TargetPixels = (Vec<[u8; 4]>, [u32; 2]);
 
 /// Whether the cell of `path` is a secondary shown at magnification `scale`
 /// with the recipe a region of render key `key` was developed with
@@ -4965,13 +4972,17 @@ mod tests {
         // A 4 × 2 region covering shown px 10..14 × 20..22, one px per shown px.
         let rgba = image::RgbaImage::from_fn(4, 2, |x, y| image::Rgba([x as u8, y as u8, 0, 255]));
         let px = block_pixels(&rgba, [10.0, 20.0, 4.0, 2.0], [11.0, 20.0, 2.0, 1.0]);
-        assert_eq!(px, vec![[1, 0, 0, 255], [2, 0, 0, 255]]);
+        assert_eq!(px, (vec![[1, 0, 0, 255], [2, 0, 0, 255]], [2, 1]));
         // Clipped to the region; nothing outside it.
         assert_eq!(
             block_pixels(&rgba, [10.0, 20.0, 4.0, 2.0], [13.0, 21.0, 5.0, 5.0]),
-            vec![[3, 1, 0, 255]]
+            (vec![[3, 1, 0, 255]], [1, 1])
         );
-        assert!(block_pixels(&rgba, [10.0, 20.0, 4.0, 2.0], [30.0, 30.0, 2.0, 2.0]).is_empty());
+        assert!(
+            block_pixels(&rgba, [10.0, 20.0, 4.0, 2.0], [30.0, 30.0, 2.0, 2.0])
+                .0
+                .is_empty()
+        );
     }
 
     #[test]

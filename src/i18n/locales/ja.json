@@ -2956,6 +2956,7 @@
           "srgb": "sRGB",
           "swatchAria": "範囲の結果 {{result}}、ターゲット {{target}}",
           "uncovered": "レイヤーのマスクが拾った位置を覆っていません。範囲のスライダーはそのままです。",
+          "unmeasured": "ターゲットから予測 ΔE00 {{value}}。選択した点の結果は測定できませんでした。",
           "useSampled": "{{name}} のターゲットを使用",
           "useSampledTitle": "この範囲を {{name}} で取得した色へ移動"
         },

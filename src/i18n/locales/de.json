@@ -3049,6 +3049,7 @@
           "srgb": "sRGB",
           "swatchAria": "Ergebnis des Bereichs {{result}}, Ziel {{target}}",
           "uncovered": "Die Maske der Ebene deckt die aufgenommene Stelle nicht mehr ab: Die Regler des Bereichs bleiben, wie sie sind.",
+          "unmeasured": "Vorhergesagt ΔE00 {{value}} vom Ziel; das Ergebnis am gewählten Punkt ließ sich nicht messen.",
           "useSampled": "Zielfarbe aus {{name}} verwenden",
           "useSampledTitle": "Diesen Bereich auf die in {{name}} aufgenommene Farbe verschieben"
         },

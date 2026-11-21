@@ -3203,6 +3203,7 @@
           "srgb": "sRVB",
           "swatchAria": "Résultat de la plage {{result}}, cible {{target}}",
           "uncovered": "Le masque du calque ne couvre plus le point prélevé : les curseurs de la plage restent tels quels.",
+          "unmeasured": "Prévu à ΔE00 {{value}} de la cible ; le résultat au point choisi n'a pas pu être mesuré.",
           "useSampled": "Utiliser la cible de {{name}}",
           "useSampledTitle": "Déplacer cette plage vers la couleur prélevée dans {{name}}"
         },

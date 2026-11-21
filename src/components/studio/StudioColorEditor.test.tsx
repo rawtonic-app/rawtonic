@@ -500,23 +500,22 @@ describe('target colour', () => {
     );
   });
 
+  /** The eyedropper's block of the picks below (normalised). */
+  const BLOCK: [number, number, number, number] = [0.295, 0.695, 0.011, 0.011];
   /** A pick of `range` in the photo (or layer L1) and a renderer for it: the
    * input probe returns `input`, the result probe renders the recipe's ranges
    * by the model plus `offset` in Lab (what the model leaves out: texture,
    * later tools), as sRGB display values. */
   const pickedRenderer = (range: ColorRange, influence: number, offset: Vec3, layer?: string) => {
     const centre = rangeCentre(range);
-    const input = {
-      pixels: [centre],
-      influence: [influence],
-      block: [1980, 480, 44, 44] as [number, number, number, number]
-    };
+    const input = { pixels: [centre], influence: [influence] };
     useEditorStore.setState({
       colorRangeInputs: {
         [`/a.cr3|${layer ?? ''}|${range.id}`]: {
           point: [0.3, 0.7],
           centre,
           geometry: geometryKeyOf(useEditorStore.getState().adjustments),
+          block: BLOCK,
           input
         }
       }
@@ -528,7 +527,7 @@ describe('target colour', () => {
       const lab = renderedLab(ranges, input).map((v, k) => v + offset[k]) as Vec3;
       results.push(lab);
       // An sRGB output: display values clip at 0 and 255.
-      return [linearToSrgb8(labToLinear(lab)).map((v) => Math.min(255, Math.max(0, v)))];
+      return { pixels: [linearToSrgb8(labToLinear(lab)).map((v) => Math.min(255, Math.max(0, v)))], unmeasured: null };
     };
     vi.mocked(invoke).mockImplementation(async (command, args) => {
       if (command === Invokes.SampleColorRangeInput)
@@ -536,7 +535,7 @@ describe('target colour', () => {
           // A full-resolution block: many pixels, all of the range's colour.
           pixels: Array.from({ length: 44 * 44 }, () => oklabToLinear(centre)),
           influence: Array.from({ length: 44 * 44 }, () => influence),
-          block: [1980, 480, 44, 44]
+          size: [44, 44]
         };
       if (command === Invokes.SampleColorRangeResult) return render((args as { adjustments: Adjustments }).adjustments);
       return null;
@@ -623,33 +622,36 @@ describe('target colour', () => {
     await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/measured/));
     const results = vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.SampleColorRangeResult);
     expect(results.length).toBeGreaterThan(0);
-    for (const [, args] of results) expect(args).toMatchObject({ block: [1980, 480, 44, 44] });
+    for (const [, args] of results) expect(args).toMatchObject({ block: BLOCK });
     // The input sample taken again for the solve keeps the pick's block.
     expect(vi.mocked(invoke)).toHaveBeenCalledWith(
       Invokes.SampleColorRangeInput,
-      expect.objectContaining({ block: [1980, 480, 44, 44] })
+      expect.objectContaining({ block: BLOCK })
     );
-    const input = Object.values(useEditorStore.getState().colorRangeInputs)[0].input!;
-    expect(input.pixels.length).toBeLessThanOrEqual(121);
-    expect(input.block).toEqual([1980, 480, 44, 44]);
+    const pick = Object.values(useEditorStore.getState().colorRangeInputs)[0];
+    // 44 × 44 pixels as 11 × 11 cells of 4 × 4.
+    expect(pick.input!.pixels).toHaveLength(121);
+    expect(pick.block).toEqual(BLOCK);
     cleanStore();
   });
 
-  it('says the result is not measured when the renderer cannot measure it, instead of waiting', async () => {
+  it.each([
+    [null, /^Predicted ΔE00 [\d.]+ from the target; the result at the picked point could not be measured\.$/],
+    [
+      { pixels: [], unmeasured: 'notTheExport' },
+      /^Predicted ΔE00 [\d.]+ from the target; the result at the picked point cannot be measured with AI Denoise on\.$/
+    ]
+  ])('says why the result is not measured (%o), instead of waiting', async (answer, text) => {
     const range = red();
     pickedRenderer(range, 1, [0, 0, 0]);
     const render0 = vi.mocked(invoke).getMockImplementation()!;
     vi.mocked(invoke).mockImplementation(async (command, args) =>
-      command === Invokes.SampleColorRangeResult ? null : render0(command, args)
+      command === Invokes.SampleColorRangeResult ? answer : render0(command, args)
     );
     render(<Harness initial={[range]} store />);
     openTool();
     typeInto('Target color as sRGB hex', '#c81e2d');
-    await waitFor(() =>
-      expect(screen.getByRole('status').textContent).toMatch(
-        /^Predicted ΔE00 [\d.]+ from the target; the result at the picked point cannot be measured/
-      )
-    );
+    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(text));
     expect(useEditorStore.getState().isSliderDragging).toBe(false);
     cleanStore();
   });

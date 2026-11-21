@@ -3203,6 +3203,7 @@
           "srgb": "sRGB",
           "swatchAria": "Resultado del rango {{result}}, objetivo {{target}}",
           "uncovered": "La máscara de la capa ya no cubre el punto tomado: los controles del rango se quedan como están.",
+          "unmeasured": "Previsto a ΔE00 {{value}} del objetivo; no se pudo medir el resultado en el punto elegido.",
           "useSampled": "Usar el objetivo de {{name}}",
           "useSampledTitle": "Mover este rango al color tomado en {{name}}"
         },

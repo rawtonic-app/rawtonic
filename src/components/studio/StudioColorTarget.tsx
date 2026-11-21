@@ -196,7 +196,7 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
       : null;
   const measuredLab = measured?.lab ?? null;
   // The renderer answered for this recipe but could not measure it (AI
-  // Denoise): the readout is the model's prediction, and says so.
+  // Denoise, or no render): the readout is the model's prediction, and says so.
   const unmeasurable = !!measured && !measuredLab;
   const measuring = followed && !measured;
   // Edits before the colour editor or of the layer's mask change what it
@@ -316,7 +316,10 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
         return t('studio.color.editor.target.measuredOutOfReach', { value, limits: limits.join(', ') });
       return t('studio.color.editor.target.measuredDistance', { value });
     }
-    if (unmeasurable) return t('studio.color.editor.target.notMeasured', { value });
+    if (unmeasurable)
+      return measured?.unmeasured === 'notTheExport'
+        ? t('studio.color.editor.target.notMeasured', { value })
+        : t('studio.color.editor.target.unmeasured', { value });
     if (pickedThrough) return t('studio.color.editor.target.pickedThrough', { value });
     if (deltaE <= TARGET_REACHED && fullStrength) return t('studio.color.editor.target.layerPredicted', { value });
     if (limits.length && deltaE > TARGET_REACHED)

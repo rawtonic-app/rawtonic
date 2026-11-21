@@ -2956,6 +2956,7 @@
           "srgb": "sRGB",
           "swatchAria": "範圍結果 {{result}},目標 {{target}}",
           "uncovered": "圖層的蒙版已不覆蓋取樣點:範圍的滑桿保持不變。",
+          "unmeasured": "預測距目標 ΔE00 {{value}}；無法測量所選點的結果。",
           "useSampled": "使用來自 {{name}} 的目標",
           "useSampledTitle": "將此範圍移到在 {{name}} 中擷取的顏色"
         },
