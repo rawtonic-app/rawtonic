@@ -158,6 +158,21 @@ where
     true
 }
 
+/// Whether the open photograph's source `loaded` holds the pixels an
+/// export of `adjustments` on `source` develops: the same decode variant
+/// and the same AI Denoise (amount, version and so model). Anything else
+/// is decoded afresh.
+fn reusable_for_export(
+    loaded: &crate::state::source::LoadedImage,
+    adjustments: &Value,
+    source: &str,
+) -> bool {
+    loaded.decode == Some(crate::image_loader::decode_variant(adjustments, source))
+        && loaded.ai_denoise
+            == rawtonic_engine::image_loader::ai_denoise_settings(adjustments)
+                .filter(|_| loaded.is_raw)
+}
+
 /// The pristine source of a full-resolution render, read from disk: RAWs
 /// develop with the recipe's AI Denoise. Every export path (single images,
 /// collages) loads its photos here so the same recipe develops alike; the
@@ -1894,14 +1909,10 @@ fn export_photo(
                 .as_ref()
                 .filter(|loaded| parse_virtual_path(&loaded.path).0 == source_path)
                 .filter(|loaded| offline_source.as_deref() != Some(loaded.path.as_str()))
-                // Developed for the decode variant exported.
-                .filter(|loaded| {
-                    loaded.decode
-                        == Some(crate::image_loader::decode_variant(
-                            &js_adjustments,
-                            &source_path_str,
-                        ))
-                })
+                // Developed for the decode variant and the AI Denoise
+                // exported: the open photograph's may have changed since
+                // this export was queued.
+                .filter(|loaded| reusable_for_export(loaded, &js_adjustments, &source_path_str))
                 .map(|loaded| (Arc::clone(&loaded.image), loaded.measures))
         } else {
             None
@@ -2938,6 +2949,65 @@ mod tests {
         ExportTarget, PhotoItem, PlannedFiles, crashed_export_error, export_in_turn, is_open_edit,
         plan_output_path, render_groups_for_streaming_tiffs,
     };
+
+    /// A queued export of the open photograph reuses its pixels only when
+    /// they were developed with the export's AI Denoise: after the user
+    /// turned it off, moved the slider or changed its version, the export
+    /// decodes afresh (an export queued at 50 is denoised at 50).
+    #[test]
+    fn open_source_is_reused_only_for_its_own_ai_denoise() {
+        use super::reusable_for_export;
+        use crate::state::source::LoadedImage;
+        use rawtonic_engine::image_loader::{ai_denoise_settings, decode_variant};
+        let source = "/no-such-dir/open.raf";
+        let recipe = |amount: f64, version: u8| serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": version });
+        let open = |recipe: &serde_json::Value, is_raw: bool| LoadedImage {
+            path: source.to_string(),
+            image: std::sync::Arc::new(image::DynamicImage::new_rgb8(2, 1)),
+            is_raw,
+            decode: Some(decode_variant(recipe, source)),
+            ai_denoise: ai_denoise_settings(recipe).filter(|_| is_raw),
+            measures: None,
+        };
+        let queued = recipe(50.0, 4);
+        assert!(reusable_for_export(&open(&queued, true), &queued, source));
+        for changed in [
+            recipe(0.0, 4),
+            recipe(30.0, 4),
+            recipe(50.0, 3),
+            recipe(50.0, 1),
+        ] {
+            assert!(
+                !reusable_for_export(&open(&changed, true), &queued, source),
+                "open at {changed}, export queued at {queued}"
+            );
+            assert!(!reusable_for_export(&open(&queued, true), &changed, source));
+        }
+        // An export develops the stored amount whether the photograph is
+        // open or not: an old fine drag's 50.4 is not the open 50.
+        assert!(!reusable_for_export(
+            &open(&queued, true),
+            &recipe(50.4, 4),
+            source
+        ));
+        // The model could not be had when the photograph opened: its
+        // pixels are undenoised, so an export with AI Denoise decodes.
+        let undenoised = LoadedImage {
+            ai_denoise: None,
+            ..open(&queued, true)
+        };
+        assert!(!reusable_for_export(&undenoised, &queued, source));
+        // Without AI Denoise either way the pixels are the same.
+        let off = recipe(0.0, 4);
+        assert!(reusable_for_export(&open(&off, true), &off, source));
+        // Other formats never run it: the slider does not matter.
+        let tiff = LoadedImage {
+            path: "/no-such-dir/open.tif".to_string(),
+            decode: Some(decode_variant(&queued, "/no-such-dir/open.tif")),
+            ..open(&queued, false)
+        };
+        assert!(reusable_for_export(&tiff, &queued, "/no-such-dir/open.tif"));
+    }
 
     /// Exercise the app's layer export, including real PNG encoding and
     /// no-clobber file publication, with an upscaler accepted by production.
