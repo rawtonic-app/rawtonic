@@ -3723,10 +3723,32 @@
         "darkCircles": "얼굴 다크서클",
         "evenSkin": "얼굴 피부 균일화",
         "impact": "얼굴 강도",
+        "iris": "홍채 ({{side}})",
+        "sclera": "흰자위 ({{side}})",
         "shine": "얼굴 번들거림",
+        "teethBrightness": "치아 밝기",
+        "teethWhiten": "치아 미백",
         "texture": "얼굴 텍스처"
       },
       "downloadModels": "얼굴 모델 다운로드",
+      "eyes": {
+        "find": "눈과 치아 찾기",
+        "finding": "눈과 치아 찾는 중…",
+        "missing": "눈과 치아 도구에는 이 도구가 생기기 전에 찾은 얼굴의 눈과 입이 필요합니다.",
+        "none": "이 얼굴에서 눈이나 벌린 입을 찾지 못했습니다.",
+        "sideAria": "눈",
+        "sideHint": {
+          "both": "양쪽 눈",
+          "left": "사진 왼쪽에 있는 눈",
+          "right": "사진 오른쪽에 있는 눈"
+        },
+        "sides": {
+          "both": "양쪽",
+          "left": "왼쪽",
+          "right": "오른쪽"
+        },
+        "title": "눈"
+      },
       "face": "얼굴 {{n}}",
       "faceOwn": "얼굴 {{n}}(개별 설정)",
       "facesAria": "얼굴",
@@ -3757,8 +3779,15 @@
         "darkCircles": "다크서클",
         "evenSkin": "피부 균일화",
         "impact": "강도",
+        "iris": "홍채",
+        "sclera": "흰자위",
         "shine": "번들거림",
+        "teethBrightness": "밝기",
+        "teethWhiten": "미백",
         "texture": "텍스처"
+      },
+      "teeth": {
+        "title": "치아"
       },
       "useAll": "모든 얼굴의 값 사용"
     },

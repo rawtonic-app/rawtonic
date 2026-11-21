@@ -4150,10 +4150,32 @@
         "darkCircles": "Twarz: cienie pod oczami",
         "evenSkin": "Twarz: wyrównanie skóry",
         "impact": "Twarz: siła",
+        "iris": "Tęczówka ({{side}})",
+        "sclera": "Twardówka ({{side}})",
         "shine": "Twarz: połysk",
+        "teethBrightness": "Jasność zębów",
+        "teethWhiten": "Wybielanie zębów",
         "texture": "Twarz: tekstura"
       },
       "downloadModels": "Pobierz modele twarzy",
+      "eyes": {
+        "find": "Znajdź oczy i zęby",
+        "finding": "Szukanie oczu i zębów…",
+        "missing": "Oczy i Zęby wymagają oczu i ust tych twarzy, znalezionych, zanim te narzędzia istniały.",
+        "none": "Na tej twarzy nie znaleziono oczu ani otwartych ust.",
+        "sideAria": "Oko",
+        "sideHint": {
+          "both": "Oboje oczu",
+          "left": "Oko po lewej stronie zdjęcia",
+          "right": "Oko po prawej stronie zdjęcia"
+        },
+        "sides": {
+          "both": "Oba",
+          "left": "Lewe",
+          "right": "Prawe"
+        },
+        "title": "Oczy"
+      },
       "face": "Twarz {{n}}",
       "faceOwn": "Twarz {{n}} (własne wartości)",
       "facesAria": "Twarze",
@@ -4187,8 +4209,15 @@
         "darkCircles": "Cienie pod oczami",
         "evenSkin": "Wyrównanie skóry",
         "impact": "Siła",
+        "iris": "Tęczówka",
+        "sclera": "Twardówka",
         "shine": "Połysk",
+        "teethBrightness": "Jasność",
+        "teethWhiten": "Wybielanie",
         "texture": "Tekstura"
+      },
+      "teeth": {
+        "title": "Zęby"
       },
       "useAll": "Użyj wartości wszystkich twarzy"
     },

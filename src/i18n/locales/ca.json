@@ -3988,10 +3988,32 @@
         "darkCircles": "Cara: ulleres",
         "evenSkin": "Cara: pell uniforme",
         "impact": "Cara: intensitat",
+        "iris": "Iris ({{side}})",
+        "sclera": "Escleròtica ({{side}})",
         "shine": "Cara: brillantor",
+        "teethBrightness": "Brillantor de les dents",
+        "teethWhiten": "Blanquejar les dents",
         "texture": "Cara: textura"
       },
       "downloadModels": "Baixa els models de cara",
+      "eyes": {
+        "find": "Troba ulls i dents",
+        "finding": "S’estan trobant ulls i dents…",
+        "missing": "Ulls i Dents necessiten els ulls i la boca d’aquestes cares, trobades abans que existissin aquestes eines.",
+        "none": "No s’han trobat ulls ni boca oberta en aquesta cara.",
+        "sideAria": "Ull",
+        "sideHint": {
+          "both": "Tots dos ulls",
+          "left": "L’ull a l’esquerra de la foto",
+          "right": "L’ull a la dreta de la foto"
+        },
+        "sides": {
+          "both": "Tots dos",
+          "left": "Esquerre",
+          "right": "Dret"
+        },
+        "title": "Ulls"
+      },
       "face": "Cara {{n}}",
       "faceOwn": "Cara {{n}} (valors propis)",
       "facesAria": "Cares",
@@ -4024,8 +4046,15 @@
         "darkCircles": "Ulleres",
         "evenSkin": "Pell uniforme",
         "impact": "Intensitat",
+        "iris": "Iris",
+        "sclera": "Escleròtica",
         "shine": "Brillantor",
+        "teethBrightness": "Brillantor",
+        "teethWhiten": "Blanquejar",
         "texture": "Textura"
+      },
+      "teeth": {
+        "title": "Dents"
       },
       "useAll": "Fes servir els valors de totes les cares"
     },

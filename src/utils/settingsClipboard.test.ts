@@ -3,6 +3,7 @@ import {
   GRAIN_VERSION,
   INITIAL_ADJUSTMENTS,
   INITIAL_MASK_CONTAINER,
+  MASK_VERSION,
   withGrainStructure,
   type Adjustments,
   type MaskContainer
@@ -15,6 +16,7 @@ import {
   detectionPending,
   newEditResponses,
   pasteInto,
+  presetToSave,
   groupModified
 } from './settingsClipboard';
 
@@ -140,6 +142,17 @@ describe('settings clipboard', () => {
       'sky',
       'vignette'
     ]);
+  });
+
+  it('carries each layer’s mask version into pastes and presets', () => {
+    // Version 5 adds and intersects components as screen and product; older
+    // layers keep max and min, so the version must travel with the layer.
+    const pasted = {
+      masks: [{ ...layer('old') }, { ...layer('new'), maskVersion: MASK_VERSION }]
+    } as unknown as Partial<Adjustments>;
+    const merged = pasteInto(recipe({}), pasted, { samePhoto: false, replaceLayers: false })!;
+    expect(merged.masks.map((l) => l.maskVersion)).toEqual([undefined, MASK_VERSION]);
+    expect(presetToSave(pasted).masks!.map((l) => l.maskVersion)).toEqual([undefined, MASK_VERSION]);
   });
 
   it('never pastes another photo’s AI bitmap; a virtual copy of the same keeps it', () => {

@@ -12,8 +12,10 @@ const AI_GROW_FEATHER: [&str; 4] = ["ai-subject", "ai-foreground", "ai-sky", "ai
 
 /// Whether a version 2 layer's coverage at full opacity is finer than 8
 /// bits: a gradient, a sub-mask opacity, an AI mask's grow or feather, or
-/// Refine edge. Otherwise its mask is the 8-bit one (every step on bytes is
-/// then exact), which also keeps brush layers on the byte path while painting.
+/// Refine edge. Otherwise its mask is the 8-bit one, which also keeps brush
+/// layers on the byte path while painting: every step on bytes is exact
+/// before version 5; from version 5 each screen or product fold of two soft
+/// components is rounded to the nearest byte (`fold::FoldLaw::fold_bytes`).
 fn full_needs_wide(def: &MaskDefinition) -> bool {
     def.refine_radius().is_some()
         || def.sub_masks.iter().filter(|sub| sub.visible).any(|sub| {
@@ -85,8 +87,10 @@ pub(super) fn layer_mask(
     }
 }
 
-/// The layer's sub-masks combined as `eight_bit_mask` does (add = max,
-/// subtract, intersect = min, each with its invert and opacity), in 0–1.
+/// The layer's sub-masks combined as `eight_bit_mask` does, each with its
+/// invert and opacity, by the layer version's law (`fold::FoldLaw`: max /
+/// difference / min before version 5, screen / difference / product from
+/// it), in 0–1.
 fn combined_coverage(
     def: &MaskDefinition,
     width: u32,
@@ -98,6 +102,7 @@ fn combined_coverage(
 ) -> Vec<f32> {
     let len = width as usize * height as usize;
     let mut combined: Option<Vec<f32>> = None;
+    let law = super::fold::FoldLaw::of(def);
     for sub in &def.sub_masks {
         let Some(mut coverage) = sub_mask_coverage(
             sub,
@@ -124,14 +129,7 @@ fn combined_coverage(
             });
             continue;
         };
-        let pixels = target.par_iter_mut().zip(coverage.par_iter());
-        match sub.mode {
-            SubMaskMode::Additive => pixels.for_each(|(pixel, sub)| *pixel = pixel.max(*sub)),
-            SubMaskMode::Subtractive => {
-                pixels.for_each(|(pixel, sub)| *pixel = (*pixel - *sub).max(0.0))
-            }
-            SubMaskMode::Intersect => pixels.for_each(|(pixel, sub)| *pixel = pixel.min(*sub)),
-        }
+        law.fold_coverage(sub.mode, target, &coverage);
     }
     combined.unwrap_or_else(|| vec![0.0; len])
 }
@@ -1524,6 +1522,195 @@ mod tests {
         let mut flat = vec![0.25; width * height];
         gaussian_blur(&mut flat, width, height, 1.5);
         assert!(flat.iter().all(|v| (v - 0.25).abs() < 1e-6));
+    }
+}
+
+/// `maskVersion` 5: components add as screen and intersect as product, on
+/// the 16-bit and the 8-bit mask; older layers keep max and min.
+#[cfg(test)]
+mod fold_law_tests {
+    use super::*;
+    use serde_json::json;
+
+    const MODES: [&str; 3] = ["additive", "subtractive", "intersect"];
+
+    fn layer(version: Option<u32>, subs: Vec<Value>) -> MaskDefinition {
+        serde_json::from_value(json!({
+            "id": "l", "name": "l", "visible": true, "invert": false, "opacity": 100.0,
+            "adjustments": {}, "subMasks": subs, "maskVersion": version,
+        }))
+        .unwrap()
+    }
+
+    /// Two radials whose soft edges cross in the middle of the frame.
+    fn radial(id: &str, x: f32, mode: &str) -> Value {
+        json!({"id": id, "type": "radial", "visible": true, "mode": mode,
+            "parameters": {"centerX": x, "centerY": 30.0, "radiusX": 28.0, "radiusY": 24.0,
+                           "rotation": 0.0, "feather": 0.9}})
+    }
+
+    /// Two soft brush strokes that cross (8-bit components).
+    fn brush(id: &str, from: (f32, f32), to: (f32, f32), mode: &str) -> Value {
+        json!({"id": id, "type": "brush", "visible": true, "mode": mode,
+            "parameters": {"lines": [{"tool": "brush", "brushSize": 30.0, "feather": 0.9,
+                "points": [{"x": from.0, "y": from.1}, {"x": to.0, "y": to.1}]}]}})
+    }
+
+    fn coverage(def: &MaskDefinition) -> (Vec<f32>, bool) {
+        let mask = generate_layer_mask(
+            def,
+            100,
+            60,
+            1.0,
+            (0.0, 0.0),
+            &PhotoGeometry::default(),
+            None,
+        )
+        .unwrap();
+        match mask.wide() {
+            Some(wide) => (wide.iter().map(|v| *v as f32 / 65535.0).collect(), true),
+            None => (
+                mask.as_raw().iter().map(|v| *v as f32 / 255.0).collect(),
+                false,
+            ),
+        }
+    }
+
+    fn law(version: Option<u32>, mode: &str, a: f32, b: f32) -> f32 {
+        let soft = version.is_some_and(|v| v >= 5);
+        match (mode, soft) {
+            ("additive", false) => a.max(b),
+            ("additive", true) => a + b - a * b,
+            ("intersect", false) => a.min(b),
+            ("intersect", true) => a * b,
+            _ => (a - b).max(0.0),
+        }
+    }
+
+    /// The layer of `a` and `b` (folded by `b`'s mode) against the law on
+    /// each one's own mask; returns the mean coverage where both are soft.
+    fn check(version: Option<u32>, a: Value, b: Value, mode: &str) -> (f32, bool) {
+        let (alone_a, wide) = coverage(&layer(version, vec![a.clone()]));
+        let mut b_alone = b.clone();
+        b_alone["mode"] = json!("additive");
+        let (alone_b, _) = coverage(&layer(version, vec![b_alone]));
+        let (both, both_wide) = coverage(&layer(version, vec![a, b]));
+        assert_eq!(wide, both_wide);
+        // One step of the stored precision on each input and the result.
+        let tolerance = if wide { 3.0 / 65535.0 } else { 1.5 / 255.0 };
+        let (mut sum, mut count) = (0.0, 0);
+        for ((x, y), got) in alone_a.iter().zip(&alone_b).zip(&both) {
+            let want = law(version, mode, *x, *y);
+            assert!(
+                (got - want).abs() <= tolerance,
+                "{version:?} {mode}: {got} vs {want} from {x}, {y}"
+            );
+            if (0.1..0.9).contains(x) && (0.1..0.9).contains(y) {
+                sum += got;
+                count += 1;
+            }
+        }
+        assert!(count > 50, "{count} soft pixels");
+        (sum / count as f32, wide)
+    }
+
+    #[test]
+    fn each_version_folds_soft_gradients_by_its_law() {
+        for mode in MODES {
+            let mut means = Vec::new();
+            for version in [None, Some(2), Some(4), Some(5)] {
+                let (mean, wide) = check(
+                    version,
+                    radial("a", 38.0, "additive"),
+                    radial("b", 62.0, mode),
+                    mode,
+                );
+                assert_eq!(wide, version.is_some());
+                means.push(mean);
+            }
+            // Where both are soft, screen covers more than max and the product
+            // less than min; the difference is the same under both laws.
+            match mode {
+                "additive" => assert!(means[3] > means[2] + 0.05, "{means:?}"),
+                "intersect" => assert!(means[3] < means[2] - 0.05, "{means:?}"),
+                _ => assert!((means[3] - means[2]).abs() < 1e-6, "{means:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn each_version_folds_soft_brushes_by_its_law_on_the_byte_mask() {
+        for mode in MODES {
+            for version in [None, Some(4), Some(5)] {
+                let (_, wide) = check(
+                    version,
+                    brush("a", (20.0, 30.0), (80.0, 30.0), "additive"),
+                    brush("b", (50.0, 5.0), (50.0, 55.0), mode),
+                    mode,
+                );
+                assert!(!wide);
+            }
+        }
+    }
+
+    #[test]
+    fn version_four_layers_keep_their_bytes() {
+        // max / min / difference of the 16-bit and 8-bit masks, as before
+        // version 5: the old fold, written out.
+        for mode in MODES {
+            for (a, b) in [
+                (radial("a", 38.0, "additive"), radial("b", 62.0, mode)),
+                (
+                    brush("a", (20.0, 30.0), (80.0, 30.0), "additive"),
+                    brush("b", (50.0, 5.0), (50.0, 55.0), mode),
+                ),
+            ] {
+                for version in [None, Some(4)] {
+                    let mask = |subs| {
+                        generate_layer_mask(
+                            &layer(version, subs),
+                            100,
+                            60,
+                            1.0,
+                            (0.0, 0.0),
+                            &PhotoGeometry::default(),
+                            None,
+                        )
+                        .unwrap()
+                    };
+                    let mut b_alone = b.clone();
+                    b_alone["mode"] = json!("additive");
+                    let (ma, mb, both) = (
+                        mask(vec![a.clone()]),
+                        mask(vec![b_alone]),
+                        mask(vec![a.clone(), b.clone()]),
+                    );
+                    let fold = |x: u16, y: u16| match mode {
+                        "additive" => x.max(y),
+                        "intersect" => x.min(y),
+                        _ => x.saturating_sub(y),
+                    };
+                    match (ma.wide(), mb.wide(), both.wide()) {
+                        (Some(x), Some(y), Some(got)) => {
+                            // Folded in f32 and quantised once: max and min
+                            // commute with the rounding, the difference is
+                            // within one step.
+                            for ((x, y), got) in x.iter().zip(y).zip(got) {
+                                assert!(fold(*x, *y).abs_diff(*got) <= 1);
+                            }
+                        }
+                        (None, None, None) => {
+                            for ((x, y), got) in
+                                ma.as_raw().iter().zip(mb.as_raw()).zip(both.as_raw())
+                            {
+                                assert_eq!(fold(*x as u16, *y as u16), *got as u16);
+                            }
+                        }
+                        other => panic!("mixed precision {:?}", other.2.is_some()),
+                    }
+                }
+            }
+        }
     }
 }
 
