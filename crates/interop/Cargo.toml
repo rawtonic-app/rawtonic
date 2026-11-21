@@ -19,9 +19,9 @@ flate2 = { workspace = true }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
 rawtonic-fs = { path = "../fs", version = "0.1.0" }
 anyhow = { workspace = true }
+roxmltree = { workspace = true }
 serde = { workspace = true }
 tempfile = { workspace = true }
 
 [dev-dependencies]
-roxmltree = { workspace = true }
 tempfile = { workspace = true }

@@ -5813,6 +5813,7 @@
         "moveToolsLeft": "Mou les eines de Revelatge a l'esquerra",
         "moveToolsRight": "Mou les eines de Revelatge a la dreta"
       },
+      "lightroomHdr": "Edició HDR del Lightroom: es mostra i s'exporta com a SDR",
       "loupe": {
         "adjust": "Revelatge",
         "adjustTitle": "Ajusta a Revelatge",

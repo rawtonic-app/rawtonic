@@ -5813,6 +5813,7 @@
         "moveToolsLeft": "Sposta gli strumenti di Sviluppo a sinistra",
         "moveToolsRight": "Sposta gli strumenti di Sviluppo a destra"
       },
+      "lightroomHdr": "Modifica HDR di Lightroom — mostrata ed esportata come SDR",
       "loupe": {
         "adjust": "Sviluppo",
         "adjustTitle": "Regola in Sviluppo",

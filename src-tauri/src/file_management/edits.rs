@@ -427,13 +427,13 @@ pub struct RecipeBatch {
     pub changes: Vec<RecipeChange>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure: Option<SaveFailure>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub unwritten: Option<String>,
     /// Photographs whose first edit was written without the camera's crop
     /// because their original is in the cloud and nothing cached it
     /// (`missing_camera_crops`).
     #[serde(rename = "cropMissing", skip_serializing_if = "Vec::is_empty")]
     pub crop_missing: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unwritten: Option<String>,
 }
 
 /// The photographs among `changes` that were never edited and whose original

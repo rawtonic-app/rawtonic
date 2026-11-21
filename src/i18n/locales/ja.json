@@ -5450,6 +5450,7 @@
         "moveToolsLeft": "現像ツールを左へ移動",
         "moveToolsRight": "現像ツールを右へ移動"
       },
+      "lightroomHdr": "Lightroom の HDR 編集 — SDR として表示・書き出しされます",
       "loupe": {
         "adjust": "現像",
         "adjustTitle": "現像で調整",
