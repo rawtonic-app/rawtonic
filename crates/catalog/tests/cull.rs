@@ -1,0 +1,363 @@
+//! Assisted culling (schema 30, G35): misfire and document scores from the
+//! content embeddings, scored once per file, model and prompt set; the
+//! panel's suggestions, the photographer's dismissals, the search rules,
+//! and Auto-Stack's similarity with capture-time fractions.
+use rawtonic_catalog::content::DIM;
+use rawtonic_catalog::cull::{DOCUMENT_THRESHOLD, MISFIRE_THRESHOLD, PromptSet};
+use rawtonic_catalog::face_eyes::EyeFace;
+use rawtonic_catalog::facts::CaptureFacts;
+use rawtonic_catalog::query::Rule;
+use rawtonic_catalog::stacks::{AutoStackOptions, Member};
+use rawtonic_catalog::{Library, Mode};
+use serde_json::json;
+use std::{fs, path::Path, path::PathBuf};
+
+const MODEL: &str = "vision-a";
+const SCALE: f32 = 112.6689;
+const BIAS: f32 = -16.771725;
+
+/// A unit vector with `cos` to axis 0 and the rest along `axis`.
+fn toward(cos: f32, axis: usize) -> Vec<f32> {
+    let mut v = vec![0.0f32; DIM];
+    v[0] = cos;
+    v[axis] = (1.0 - cos * cos).sqrt();
+    v
+}
+
+fn axis(n: usize) -> Vec<f32> {
+    let mut v = vec![0.0f32; DIM];
+    v[n] = 1.0;
+    v
+}
+
+/// Misfire prompt along axis 0, document prompt along axis 1.
+fn prompts(id: &str) -> PromptSet {
+    PromptSet {
+        id: id.into(),
+        misfire: vec![axis(0), axis(5)],
+        document: vec![axis(1)],
+        logit_scale: SCALE,
+        logit_bias: BIAS,
+    }
+}
+
+/// The cosine whose tag score is `score`.
+fn cos_of(score: f32) -> f32 {
+    ((score / (1.0 - score)).ln() - BIAS) / SCALE
+}
+
+fn library(dir: &Path, names: &[&str]) -> (Library, Vec<String>) {
+    let lib = Library::create(&dir.join("Job"), "Job", Mode::Session).unwrap();
+    let capture = lib.directory.join("Capture");
+    let ids = names
+        .iter()
+        .map(|name| {
+            fs::write(capture.join(name), name).unwrap();
+            lib.add_asset(&capture.join(name)).unwrap().id
+        })
+        .collect();
+    (lib, ids)
+}
+
+fn embed(lib: &Library, id: &str, values: &[f32]) {
+    let fingerprint = lib.asset(id).unwrap().fingerprint;
+    lib.record_content(id, MODEL, &fingerprint, Ok(values))
+        .unwrap();
+}
+
+fn rule(value: serde_json::Value) -> Rule {
+    serde_json::from_value(value).unwrap()
+}
+
+fn names(found: Vec<PathBuf>) -> Vec<String> {
+    let mut names: Vec<_> = found
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn a_new_library_has_the_culling_tables() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, _) = library(d.path(), &[]);
+    drop(lib);
+    let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
+    let version: u32 = db
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 30);
+    for table in ["cull_scores", "cull_dismissed"] {
+        let n: i64 = db
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?",
+                [table],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "{table}");
+    }
+}
+
+#[test]
+fn an_older_library_takes_the_tables_and_keeps_its_embeddings() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path(), &["a.jpg"]);
+    embed(&lib, &ids[0], &toward(0.5, 3));
+    drop(lib);
+    let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
+    db.execute_batch(include_str!("undo_0030.sql")).unwrap();
+    drop(db);
+    let lib = Library::open(&d.path().join("Job")).unwrap();
+    assert_eq!(lib.cull_backlog_count(MODEL, "p1").unwrap(), 1);
+    assert_eq!(lib.score_cull(MODEL, &prompts("p1"), 10).unwrap(), 1);
+}
+
+#[test]
+fn scores_follow_the_embedding_once_per_file_model_and_prompt_set() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(
+        d.path(),
+        &["cap.jpg", "page.jpg", "people.jpg", "unread.jpg"],
+    );
+    let misfire = cos_of(MISFIRE_THRESHOLD * 2.0);
+    let document = cos_of(DOCUMENT_THRESHOLD * 2.0);
+    embed(&lib, &ids[0], &toward(misfire, 7));
+    let mut page = vec![0.0; DIM];
+    page[1] = document;
+    page[8] = (1.0 - document * document).sqrt();
+    embed(&lib, &ids[1], &page);
+    embed(&lib, &ids[2], &axis(9));
+    // An embedding of another model is not scored.
+    let fp = lib.asset(&ids[3]).unwrap().fingerprint;
+    lib.record_content(&ids[3], "vision-b", &fp, Ok(&axis(0)))
+        .unwrap();
+
+    assert_eq!(lib.cull_backlog_count(MODEL, "p1").unwrap(), 3);
+    // In batches: two, then the last one, then nothing.
+    assert_eq!(lib.score_cull(MODEL, &prompts("p1"), 2).unwrap(), 2);
+    assert_eq!(lib.score_cull(MODEL, &prompts("p1"), 10).unwrap(), 1);
+    assert_eq!(lib.score_cull(MODEL, &prompts("p1"), 10).unwrap(), 0);
+    let (m, doc) = lib.cull_scores(&ids[0]).unwrap().unwrap();
+    // Stored as bytes: the steep calibration (×112) moves a two-axis test
+    // vector's score by up to a third; real embeddings spread over 768
+    // values move it by a few per cent.
+    assert!((m / (MISFIRE_THRESHOLD * 2.0) - 1.0).abs() < 0.35, "{m}");
+    assert!(doc < DOCUMENT_THRESHOLD);
+    let (m, doc) = lib.cull_scores(&ids[1]).unwrap().unwrap();
+    assert!(
+        m < MISFIRE_THRESHOLD && doc > DOCUMENT_THRESHOLD,
+        "{m} {doc}"
+    );
+    assert!(lib.cull_scores(&ids[3]).unwrap().is_none());
+
+    // Another prompt set scores all again.
+    assert_eq!(lib.cull_backlog_count(MODEL, "p2").unwrap(), 3);
+    assert_eq!(lib.score_cull(MODEL, &prompts("p2"), 10).unwrap(), 3);
+    // A changed file has no current score until it is read and scored again.
+    let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
+    db.execute(
+        "UPDATE assets SET fingerprint='xxh3:changed' WHERE id=?",
+        [&ids[0]],
+    )
+    .unwrap();
+    assert!(lib.cull_scores(&ids[0]).unwrap().is_none());
+    assert_eq!(lib.cull_backlog_count(MODEL, "p2").unwrap(), 0);
+    embed(&lib, &ids[0], &toward(misfire, 7));
+    assert_eq!(lib.cull_backlog_count(MODEL, "p2").unwrap(), 1);
+
+    // A bad prompt set is refused, nothing written.
+    let mut bad = prompts("p3");
+    bad.document = vec![vec![1.0; 3]];
+    assert!(lib.score_cull(MODEL, &bad, 10).is_err());
+}
+
+#[test]
+fn suggestions_dismissals_and_search_rules() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(
+        d.path(),
+        &["cap.jpg", "page.jpg", "people.jpg", "blink.jpg"],
+    );
+    embed(&lib, &ids[0], &toward(cos_of(0.05), 7));
+    embed(&lib, &ids[1], &{
+        let mut v = toward(cos_of(0.05), 1);
+        // Also very much a document.
+        v[1] = 0.6;
+        let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        v.iter().map(|x| x / n).collect::<Vec<_>>()
+    });
+    embed(&lib, &ids[2], &axis(9));
+    lib.score_cull(MODEL, &prompts("p1"), 10).unwrap();
+    // Closed eyes on blink.jpg, read by the eye check.
+    let fp = lib.asset(&ids[3]).unwrap().fingerprint;
+    lib.record_eyes(
+        &ids[3],
+        1,
+        &fp,
+        Ok(&[EyeFace {
+            bbox: [0.4, 0.2, 0.1, 0.15],
+            state: "closed".into(),
+            ear: Some(0.1),
+            accessories: Some(0.0),
+        }]),
+    )
+    .unwrap();
+
+    let photos = lib.cull_photos(&ids).unwrap();
+    assert_eq!(photos[&ids[0]].suggested, ["misfire"]);
+    assert_eq!(photos[&ids[1]].suggested, ["misfire", "document"]);
+    assert!(photos[&ids[2]].suggested.is_empty() && photos[&ids[2]].scored);
+    assert_eq!(photos[&ids[3]].suggested, ["eyesClosed"]);
+    assert!(!photos[&ids[3]].scored);
+
+    let suggestion = |value: serde_json::Value| {
+        names(
+            lib.search(&rule(
+                json!({"field": "suggestion", "op": "is", "value": value}),
+            ))
+            .unwrap(),
+        )
+    };
+    assert_eq!(suggestion(json!("misfire")), ["cap.jpg", "page.jpg"]);
+    assert_eq!(suggestion(json!("document")), ["page.jpg"]);
+    assert_eq!(
+        suggestion(json!(["document", "eyesClosed"])),
+        ["blink.jpg", "page.jpg"]
+    );
+    assert!(
+        lib.search(&rule(
+            json!({"field": "suggestion", "op": "is", "value": "exposure"})
+        ))
+        .is_err()
+    );
+
+    // Dismissed stays dismissed, also when the photograph is scored again.
+    let changed = lib
+        .set_cull_dismissed(&[ids[0].clone(), ids[2].clone()], "misfire", true)
+        .unwrap();
+    assert_eq!(changed, [ids[0].clone(), ids[2].clone()]);
+    assert!(
+        lib.set_cull_dismissed(&[ids[0].clone()], "misfire", true)
+            .unwrap()
+            .is_empty()
+    );
+    lib.score_cull(MODEL, &prompts("p2"), 10).unwrap();
+    let photos = lib.cull_photos(&ids).unwrap();
+    assert!(photos[&ids[0]].suggested.is_empty());
+    assert_eq!(photos[&ids[0]].dismissed, ["misfire"]);
+    assert_eq!(suggestion(json!("misfire")), ["page.jpg"]);
+    assert_eq!(
+        names(
+            lib.search(&rule(
+                json!({"field": "suggestion", "op": "isNot", "value": "misfire"})
+            ))
+            .unwrap()
+        ),
+        ["blink.jpg", "cap.jpg", "people.jpg"]
+    );
+    // Brought back.
+    lib.set_cull_dismissed(&[ids[0].clone()], "misfire", false)
+        .unwrap();
+    assert_eq!(suggestion(json!("misfire")), ["cap.jpg", "page.jpg"]);
+    assert!(
+        lib.set_cull_dismissed(&[ids[0].clone()], "focus", true)
+            .is_err()
+    );
+    // A suggestion never flags anything.
+    assert!(
+        lib.search(&rule(
+            json!({"field": "flag", "op": "is", "value": "rejected"})
+        ))
+        .unwrap()
+        .is_empty()
+    );
+
+    // Stacked.
+    lib.group_stack(&[Member::photo(ids[0].clone()), Member::photo(ids[1].clone())])
+        .unwrap();
+    let stacked = |value: bool| {
+        names(
+            lib.search(&rule(
+                json!({"field": "stacked", "op": "is", "value": value}),
+            ))
+            .unwrap(),
+        )
+    };
+    assert_eq!(stacked(true), ["cap.jpg", "page.jpg"]);
+    assert_eq!(stacked(false), ["blink.jpg", "people.jpg"]);
+}
+
+fn at(time: &str, subsec: Option<&str>) -> CaptureFacts {
+    CaptureFacts {
+        captured: Some(time.into()),
+        captured_subsec: subsec.map(str::to_string),
+        make: Some("Maker".into()),
+        model: Some("Body".into()),
+        exposure: Some(0.004),
+        ..CaptureFacts::default()
+    }
+}
+
+#[test]
+fn auto_stack_compares_embeddings_and_fractions_of_a_second() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(
+        d.path(),
+        &["01.ARW", "02.ARW", "03.ARW", "04.ARW", "05.ARW", "06.ARW"],
+    );
+    let rows = [
+        at("2026-11-21 10:00:00", Some("100")),
+        at("2026-11-21 10:00:01", Some("500")),
+        // Another subject 0.3 s later.
+        at("2026-11-21 10:00:01", Some("800")),
+        at("2026-11-21 10:00:03", Some("000")),
+        // 2.1 s after the one before: beyond a 2 s interval.
+        at("2026-11-21 10:00:05", Some("100")),
+        at("2026-11-21 10:00:06", None),
+    ];
+    for (id, facts) in ids.iter().zip(&rows) {
+        assert!(lib.record_facts(id, facts).unwrap());
+    }
+    let looks = [toward(0.99, 3), toward(0.98, 3), axis(4), toward(0.1, 4)];
+    for (id, look) in ids.iter().zip(&looks) {
+        embed(&lib, id, look);
+    }
+    let options = AutoStackOptions {
+        interval_secs: 2,
+        use_camera_data: false,
+        similarity: Some(0.78),
+    };
+    let runs = |plan: rawtonic_catalog::stacks::AutoPlan| -> Vec<Vec<usize>> {
+        plan.groups
+            .iter()
+            .map(|g| {
+                g.assets
+                    .iter()
+                    .map(|a| ids.iter().position(|i| i == a).unwrap())
+                    .collect()
+            })
+            .collect()
+    };
+    let plan = lib
+        .auto_stack_plan_with(&ids, options, Some(MODEL))
+        .unwrap();
+    assert_eq!(plan.unread, 2);
+    assert_eq!(runs(plan), [vec![0, 1], vec![2, 3], vec![4, 5]]);
+    // Without a model (or similarity) time alone: 4 joins 5, 0–3 are one.
+    let plan = lib.auto_stack_plan_with(&ids, options, None).unwrap();
+    assert_eq!(plan.unread, 0);
+    assert_eq!(runs(plan), [vec![0, 1, 2, 3], vec![4, 5]]);
+    let plan = lib
+        .auto_stack_plan_with(
+            &ids,
+            AutoStackOptions {
+                similarity: None,
+                ..options
+            },
+            Some(MODEL),
+        )
+        .unwrap();
+    assert_eq!(runs(plan), [vec![0, 1, 2, 3], vec![4, 5]]);
+}
