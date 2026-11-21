@@ -1976,7 +1976,7 @@ pub fn lightroom_subtract_warning(xmp: &str) -> Option<&'static str> {
                 .any(|sub| sub["mode"] == "subtractive")
         })
         .then_some(
-            "A Subtract (below full strength, or a brush eraser) is imported as max(a − b, 0) and can differ from Lightroom and Camera Raw where soft mask edges overlap.",
+            "A Subtract of a brush stroke or a computed mask below full strength is imported as max(a − b, 0) and can differ from Lightroom and Camera Raw where soft mask edges overlap.",
         )
 }
 
