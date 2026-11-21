@@ -161,6 +161,14 @@ fn cache_label(path_str: &str, source: &Path) -> String {
         .unwrap_or_else(|| path_str.to_string())
 }
 
+/// Whether a tile developed for `adjustments` comes from a Standard proxy
+/// that still holds the clamp (`preview_proxy::DISPLAY_COPY`): one a recipe
+/// with another decode variant cannot use does not count.
+fn display_copy_clamps(source: &Path, adjustments: &serde_json::Value) -> bool {
+    crate::preview_proxy::standard_display_copy_is_stale(source)
+        && crate::preview_proxy::stands_for(source, adjustments)
+}
+
 pub(crate) fn compute_thumbnail_cache_hash(
     path_str: &str,
     adjustments_bytes: &[u8],
@@ -248,7 +256,12 @@ fn thumbnail_hash_with(
         // display copy, `preview_proxy::DISPLAY_COPY`): tiles are made again.
         // A tile developed from a preview proxy that still holds the clamp
         // shows it, so it keeps its key until the proxy is renewed.
-        if refreshed && !crate::preview_proxy::standard_display_copy_is_stale(&source_path) {
+        if refreshed
+            && !display_copy_clamps(
+                &source_path,
+                adjustments.as_ref().unwrap_or(&serde_json::Value::Null),
+            )
+        {
             hasher.update(b"\0display-copy-keeps-beyond-srgb-v1\0");
         }
         // A face retouch drawn on a reduced base (a preview proxy or a fast
@@ -602,6 +615,15 @@ fn develop_thumbnail_with_source(
         let target_res = settings.medium_thumbnail_resolution.unwrap_or(1280);
 
         let base_cache_hash = crate::cache_utils::calculate_thumbnail_base_hash(&meta.adjustments);
+        // The base a proxy that clamps made is not the one its renewal makes.
+        let base_cache_hash = if is_raw && display_copy_clamps(&source_path, &meta.adjustments) {
+            let mut hasher = DefaultHasher::new();
+            base_cache_hash.hash(&mut hasher);
+            "display-copy-clamps".hash(&mut hasher);
+            hasher.finish()
+        } else {
+            base_cache_hash
+        };
         let base_cache_hash = match &color_noise {
             Some(input) => {
                 let mut hasher = DefaultHasher::new();
@@ -1436,7 +1458,7 @@ fn keep_tile_of_unavailable_original(
     new: String,
     old: impl FnOnce() -> Option<String>,
 ) -> String {
-    if source.exists()
+    if crate::preview_proxy::source_available(source)
         || crate::preview_proxy::proxy_path(source).is_some_and(|p| p.is_file())
         || thumbnail_files_exist(directory, &new)
     {
@@ -3416,6 +3438,22 @@ mod face_retouch_thumbnail_tests {
         put(&old);
         assert_eq!(key(&gone), old, "offline: the old tile stays");
         assert_eq!(key(&present), new, "online: made again");
+        #[cfg(unix)]
+        {
+            // Present but not readable (a cloud placeholder, a locked file):
+            // nothing to develop from either.
+            use std::os::unix::fs::PermissionsExt;
+            let locked = temp.path().join("locked.jpg");
+            std::fs::write(&locked, b"photo").unwrap();
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+            if std::fs::File::open(&locked).is_err() {
+                assert_eq!(
+                    key(&locked),
+                    old,
+                    "an unreadable original keeps the old tile"
+                );
+            }
+        }
         put(&new);
         assert_eq!(key(&gone), new, "the new tile wins once it exists");
     }
