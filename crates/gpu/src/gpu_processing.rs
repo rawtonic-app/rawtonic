@@ -4159,7 +4159,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 1 << 27;
+const PREVIEW_PIPELINE_COUNT: usize = 1 << 28;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -4179,7 +4179,8 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// Clarity or Structure version 3 524288, lowered Dehaze of dehaze version 2
 /// 1048576, glow 2097152, Dehaze of dehaze version 3 4194304, tone version
 /// 5 or older 8388608, halation 16777216, grain 33554432, raised Shadows'
-/// level of tone version 19 67108864.
+/// level of tone version 19 67108864, raised Shadows' bounds of tone
+/// version 20 134217728.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -4287,12 +4288,19 @@ const TONE_V5_FEATURE: usize = 8388608;
 /// `shadows_v19_level`), compiled only for recipes that use it, so older
 /// recipes' pipelines keep the code they had.
 const SHADOWS_V19_FEATURE: usize = 67108864;
+/// Raised Shadows' bounds of tone version 20 (`SHADOWS_V20`, shader
+/// `shadows_v20_gain`), compiled only for recipes that use them:
+/// behind version 19's bit, Metal compiled version 19's recipes differently
+/// (one 16-bit code in 31 of 108 M samples of an export with Shadows and
+/// Blacks raised; notes: reference/preservation-run.md, PRV44).
+const SHADOWS_V20_FEATURE: usize = 134217728;
 
 /// Slots per page of a [`VariantTable`]: features that differ only in the
 /// low bits (detail, noise reduction, tone, relight, sharpening responses)
 /// share a page. 2^15 pages, as at 2^24 variants with 2^9 slots: the page
-/// array stays the size it was when the effects got a bit each (G76/WCC8).
-const VARIANT_PAGE_BITS: u32 = 12;
+/// array stays the size it was when the effects got a bit each (G76/WCC8)
+/// and when tone version 20's raised Shadows got one (2^13 slots).
+const VARIANT_PAGE_BITS: u32 = 13;
 const VARIANT_PAGE_SLOTS: usize = 1 << VARIANT_PAGE_BITS;
 const VARIANT_PAGES: usize = PREVIEW_PIPELINE_COUNT / VARIANT_PAGE_SLOTS;
 
@@ -5677,6 +5685,13 @@ fn shadows_v19(adjustments: &AllAdjustments) -> bool {
                 .any(|m| m.shadows > 0.0))
 }
 
+/// Whether the recipe raises Shadows with tone version 20's bounds, on the
+/// photo or a layer (`SHADOWS_V20`).
+fn shadows_v20(adjustments: &AllAdjustments) -> bool {
+    ToneVersion::from_uniform(adjustments.global.tone_version).shadows_light_gaps()
+        && shadows_v19(adjustments)
+}
+
 /// Whether the recipe uses Clarity version 3 or Structure version 3, on the
 /// photo or a layer (`PRESENCE_V3`).
 fn presence_v3(adjustments: &AllAdjustments) -> bool {
@@ -5722,17 +5737,18 @@ fn dehaze_v3(adjustments: &AllAdjustments) -> bool {
 /// The tone code a feature pipeline compiles, one bit each: lowered Whites
 /// of version 12 (1), raised Shadows of version 13 (2), lowered Highlights
 /// of version 14 (4), lowered Blacks of version 16 (8), raised Shadows'
-/// level of version 19 (16).
+/// level of version 19 (16), raised Shadows' bounds of version 20 (32).
 fn tone_level(adjustments: &AllAdjustments) -> usize {
     usize::from(whites_v12(adjustments))
         | (usize::from(shadows_v13(adjustments)) << 1)
         | (usize::from(highlights_v14(adjustments)) << 2)
         | (usize::from(blacks_v16(adjustments)) << 3)
         | (usize::from(shadows_v19(adjustments)) << 4)
+        | (usize::from(shadows_v20(adjustments)) << 5)
 }
 
 /// `tone_level`'s values (`Range2Pipelines`, `MIXER_FEATURE_SLOTS`).
-const TONE_LEVELS: usize = 32;
+const TONE_LEVELS: usize = 64;
 
 /// Whether lowered Whites of tone version 10 reads the small blur's mean log
 /// luminance (shader.wgsl whites_v10_offset), on the photo or a layer.
@@ -5941,6 +5957,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let vibrance_v2 = vibrance_v2(adjustments);
     let blacks_v16 = blacks_v16(adjustments);
     let shadows_v19 = shadows_v19(adjustments);
+    let shadows_v20 = shadows_v20(adjustments);
     let hsl_v2 = hsl_v2(adjustments);
     let presence_v3 = presence_v3(adjustments);
     let dehaze_v2 = dehaze_v2(adjustments);
@@ -5986,6 +6003,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if vibrance_v2 { VIBRANCE_V2_FEATURE } else { 0 }
         | if blacks_v16 { BLACKS_V16_FEATURE } else { 0 }
         | if shadows_v19 { SHADOWS_V19_FEATURE } else { 0 }
+        | if shadows_v20 { SHADOWS_V20_FEATURE } else { 0 }
         | if hsl_v2 { HSL_V2_FEATURE } else { 0 }
         | if presence_v3 { PRESENCE_V3_FEATURE } else { 0 }
         | if dehaze_v2 { DEHAZE_V2_FEATURE } else { 0 }
@@ -6242,10 +6260,12 @@ fn export_variant(
 
 /// `GpuProcessor::range2_pipelines`, one table per main output on the heap:
 /// inline, the tables of all outputs made `GpuProcessor` too large for a
-/// test thread's stack once the tone levels doubled to 32.
+/// test thread's stack once the tone levels doubled to 32. The tone levels
+/// are a `Vec` of `TONE_LEVELS` entries (64 since tone version 20: more
+/// than an array builds by default, and built on the heap).
 type Range2Pipelines = Vec<Range2OutputPipelines>;
 type Range2OutputPipelines =
-    [[[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3]; TONE_LEVELS]; 2];
+    [Vec<[[[[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2]; 4]; 3]>; 2];
 
 /// `GpuProcessor::range2_pipelines` for colour mixer response 2 or 3 (`HSL_V2`)
 /// Clarity or Structure version 3 (`PRESENCE_V3`), lowered Dehaze of
@@ -7578,6 +7598,7 @@ fn variant_constants(
         ("DEHAZE_V3", ((features >> 22) & 1) as f64),
         ("TONE_V5", ((features >> 23) & 1) as f64),
         ("SHADOWS_V19", ((features >> 26) & 1) as f64),
+        ("SHADOWS_V20", ((features >> 27) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -8689,7 +8710,11 @@ impl GpuProcessor {
             edge_pipelines: Default::default(),
             profile_pipelines: Default::default(),
             long_curve_pipelines: Default::default(),
-            range2_pipelines: (0..MAIN_OUTPUTS).map(|_| Default::default()).collect(),
+            range2_pipelines: (0..MAIN_OUTPUTS)
+                .map(|_| {
+                    std::array::from_fn(|_| (0..TONE_LEVELS).map(|_| Default::default()).collect())
+                })
+                .collect(),
             mixer_feature_pipelines: (0..MIXER_FEATURE_SLOTS)
                 .map(|_| std::sync::OnceLock::new())
                 .collect(),
@@ -10836,6 +10861,7 @@ impl GpuProcessor {
                         ("VIBRANCE_V2", on(vibrance)),
                         ("BLACKS_V16", on(tone & 8 != 0)),
                         ("SHADOWS_V19", on(tone & 16 != 0)),
+                        ("SHADOWS_V20", on(tone & 32 != 0)),
                         ("HSL_V2", on(hsl)),
                         ("PRESENCE_V3", on(presence)),
                         ("DEHAZE_V2", on(dehaze)),
@@ -11533,6 +11559,13 @@ impl GpuProcessor {
         };
         // A drag's frame: the terms once per 2 x 2 pixels (G76/GRN3).
         let half_terms = terms_pass.is_some() && request.adjustments.drag_effects.half_terms;
+        // Its blocks: 4 x 4 pixels in a large frame (G76/GRN4), as a shift
+        // (0: per pixel).
+        let terms_shift = if half_terms {
+            effect_passes::terms_block_shift(width, height, adjustments)
+        } else {
+            0
+        };
         if let Some(passes) = passes.filter(|_| output_to_display) {
             passes.compile_ahead(device, export_display_features(&request.adjustments));
         }
@@ -11551,6 +11584,8 @@ impl GpuProcessor {
             && !deferred
             && adjustments.global.grain_version >= 3
             && request.adjustments.drag_effects.half_grain;
+        // The largest block of the frame, in which the smaller nest.
+        let block_shift = terms_shift.max(u32::from(half_grain));
         let finish_pass = match passes {
             Some(passes) if grain || deferred => Some((
                 passes.finish_pipeline(device, grain, deferred, half_grain)?,
@@ -11829,12 +11864,14 @@ impl GpuProcessor {
                     None => vec![tile_rect],
                     Some(regions) => regions
                         .iter()
-                        // A drag's frame re-renders whole 2 x 2 blocks: a
-                        // changed pixel changes its block's terms and grain
+                        // A drag's frame re-renders whole blocks: a changed
+                        // pixel changes its block's terms and grain
                         // (G76/GRN3).
-                        .map(|region| match half_terms || half_grain {
-                            true => intersect_roi(effect_passes::whole_blocks(*region), bounds),
-                            false => Some(*region),
+                        .map(|region| match block_shift {
+                            0 => Some(*region),
+                            shift => {
+                                intersect_roi(effect_passes::whole_blocks(*region, shift), bounds)
+                            }
                         })
                         .filter_map(|region| intersect_roi(region?, tile_rect))
                         .collect(),
@@ -12373,7 +12410,7 @@ impl GpuProcessor {
                         });
                         let grain_field = if let Some(field_tile) = field_tile {
                             let mut field_entries = entries;
-                            field_entries.extend(with(passes.terms_regions(), passes.no_colour()));
+                            field_entries.extend(with(passes.field_regions(), passes.no_colour()));
                             field_entries.push(wgpu::BindGroupEntry {
                                 binding: effect_passes::GRAIN_FIELD_OUTPUT_BINDING,
                                 resource: wgpu::BindingResource::TextureView(field_tile),
@@ -12563,13 +12600,15 @@ impl GpuProcessor {
                 }
                 // A drag's frame renders the first pixel of every block a
                 // region touches, which the passes over the blocks read: a
-                // region starting on an odd column or row starts a pixel
-                // earlier (in the tile; that pixel is rendered, not kept).
-                if half_terms || half_grain {
+                // region not starting on a block's first column or row
+                // starts earlier (in the tile; those pixels are rendered, not
+                // kept).
+                if block_shift > 0 {
                     for region in &mut regions {
                         *region = effect_passes::with_block_starts(
                             *region,
                             [input_x_start, input_y_start],
+                            block_shift,
                         );
                     }
                 }
@@ -12593,24 +12632,31 @@ impl GpuProcessor {
                     bytemuck::cast_slice(&region_data),
                 );
                 // A drag's terms pass and grain field pass cover the
-                // regions' 2 x 2 blocks.
-                let half_workgroups = match passes {
-                    Some(passes) if half_terms || half_grain => {
-                        let half =
-                            effect_passes::half_regions(&regions, [input_x_start, input_y_start]);
-                        let mut data = vec![region_data[0]];
-                        data.extend_from_slice(&half);
-                        queue.write_buffer(passes.terms_regions(), 0, bytemuck::cast_slice(&data));
-                        half.iter()
-                            .map(|region| region[2].div_ceil(8) * region[3].div_ceil(8))
-                            .sum()
+                // regions' blocks (4 x 4 or 2 x 2 for the terms, 2 x 2 for
+                // the grain).
+                let block_workgroups = |shift: u32, buffer: &wgpu::Buffer| -> u32 {
+                    let blocks = effect_passes::block_regions(
+                        &regions,
+                        [input_x_start, input_y_start],
+                        shift,
+                    );
+                    let mut data = vec![region_data[0]];
+                    data.extend_from_slice(&blocks);
+                    queue.write_buffer(buffer, 0, bytemuck::cast_slice(&data));
+                    blocks
+                        .iter()
+                        .map(|region| region[2].div_ceil(8) * region[3].div_ceil(8))
+                        .sum()
+                };
+                let terms_workgroups = match passes {
+                    Some(passes) if half_terms => {
+                        block_workgroups(terms_shift, passes.terms_regions())
                     }
                     _ => workgroups,
                 };
-                let terms_workgroups = if half_terms {
-                    half_workgroups
-                } else {
-                    workgroups
+                let field_workgroups = match passes {
+                    Some(passes) if half_grain => block_workgroups(1, passes.field_regions()),
+                    _ => workgroups,
                 };
                 let mut tile_adjustments = boxed_uniforms(adjustments);
                 tile_adjustments.tile_offset_x = input_x_start;
@@ -12621,7 +12667,8 @@ impl GpuProcessor {
                 tile_adjustments.detail_cache = [
                     u32::from(detail_view.is_some()),
                     u32::from(finish_pass.is_some()),
-                    u32::from(half_terms),
+                    // z: the terms' block shift (`terms_shift`).
+                    terms_shift,
                     0,
                 ];
                 tile_adjustments.source_window = source_window;
@@ -12667,7 +12714,7 @@ impl GpuProcessor {
                     pass.set_bind_group(0, bind_group, &[]);
                     pass.dispatch_workgroups(
                         RENDER_REGION_GROUPS_X,
-                        half_workgroups.div_ceil(RENDER_REGION_GROUPS_X),
+                        field_workgroups.div_ceil(RENDER_REGION_GROUPS_X),
                         1,
                     );
                 }

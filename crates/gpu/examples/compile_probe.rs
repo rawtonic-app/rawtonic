@@ -280,6 +280,7 @@ fn constants(spec: &Spec) -> naga::back::PipelineConstants {
         ("DEHAZE_V3", ((f >> 22) & 1) as f64),
         ("TONE_V5", ((f >> 23) & 1) as f64),
         ("SHADOWS_V19", ((f >> 26) & 1) as f64),
+        ("SHADOWS_V20", ((f >> 27) & 1) as f64),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
