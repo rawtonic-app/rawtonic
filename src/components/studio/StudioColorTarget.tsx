@@ -294,7 +294,11 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
                 : limits.length
                   ? t('studio.color.editor.target.outOfReach', { value, limits: limits.join(', ') })
                   : t('studio.color.editor.target.distance', { value })}
-          {!insideSrgb(shownLinear) && <> {t('studio.color.editor.target.outsideSrgb')}</>}
+          {solve?.targetOutsideWorkingGamut ? (
+            <> {t('studio.color.editor.target.outsideWorkingGamut')}</>
+          ) : (
+            !insideSrgb(shownLinear) && <> {t('studio.color.editor.target.outsideSrgb')}</>
+          )}
           {fullStrength && !grey && !(deltaE <= TARGET_REACHED && !pickedThrough) && (
             <> {t('studio.color.editor.target.layerStrength')}</>
           )}

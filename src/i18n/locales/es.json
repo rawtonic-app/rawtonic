@@ -3180,6 +3180,7 @@
           },
           "outOfReach": "Fuera de alcance: quedan ΔE00 {{value}}; {{limits}} en su límite.",
           "outsideSrgb": "El objetivo está fuera de sRGB: la foto lo conserva, una exportación sRGB muestra el color más cercano que sRGB puede contener.",
+          "outsideWorkingGamut": "El objetivo está más allá de los colores de trabajo de la foto (ProPhoto): ningún color de la foto puede serlo, el rango se acerca todo lo que puede.",
           "pickAria": "Tomar el color objetivo",
           "pickedThrough": "Previsto a ΔE00 {{value}} del objetivo, pero este color se tomó a través del fuerte cambio del propio rango: comprueba el resultado en la foto o vuelve a tomarlo con los controles en 0.",
           "pickTitle": "Toma el color objetivo en la foto; este rango se mueve hacia él",

@@ -3180,6 +3180,7 @@
           },
           "outOfReach": "Hors de portée : il reste ΔE00 {{value}} ; {{limits}} en butée.",
           "outsideSrgb": "La cible est hors du gamut sRVB : la photo la conserve, un export sRVB affiche la couleur la plus proche que sRVB peut contenir.",
+          "outsideWorkingGamut": "La cible est au-delà des couleurs de travail de la photo (ProPhoto) : aucune couleur de la photo ne peut l'être, la plage s'en approche autant qu'elle peut.",
           "pickAria": "Prélever la couleur cible",
           "pickedThrough": "Prévu à ΔE00 {{value}} de la cible, mais cette couleur a été prélevée à travers la forte modification de la plage elle-même : vérifiez le résultat dans la photo, ou prélevez-la de nouveau avec les curseurs à 0.",
           "pickTitle": "Prélever la couleur cible dans la photo ; cette plage s'y déplace",

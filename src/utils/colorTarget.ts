@@ -480,6 +480,8 @@ export interface TargetSolve {
   limited: { hue: boolean; saturation: boolean; lightness: boolean };
   /** The target lies outside sRGB: the photo holds it, an sRGB output shows the nearest colour it can. */
   targetOutsideSrgb: boolean;
+  /** The target lies beyond the working gamut (the ProPhoto cube): no colour of the photo is it. */
+  targetOutsideWorkingGamut: boolean;
   /** False for a range too grey for its own selection (nothing moves). */
   movable: boolean;
 }
@@ -638,6 +640,7 @@ export function solveColorTarget(
     deltaE: bestFit.deltaE,
     limited,
     targetOutsideSrgb,
+    targetOutsideWorkingGamut: !insideWorkingGamut(targetLinear),
     movable: w > 1e-6
   };
 }

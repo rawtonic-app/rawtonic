@@ -223,6 +223,7 @@ for (const p of picks) {
       sourceInSrgb: insideSrgb(labToLinear(srcLab)),
       targetHex: hexOf(linearToSrgb8(labToLinear(t.lab))),
       targetInSrgb: insideSrgb(labToLinear(t.lab)),
+      targetInWorkingGamut: !solve.targetOutsideWorkingGamut,
       shifts: solve.shifts,
       limited: solve.limited,
       predictedDE: +solve.deltaE.toFixed(2),

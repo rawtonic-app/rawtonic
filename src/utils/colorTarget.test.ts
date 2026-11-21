@@ -147,6 +147,8 @@ describe('solveColorTarget', () => {
     const green = rangeAt([33, 225, 55]);
     // Far beyond ProPhoto in chroma: the sliders find the nearest it holds.
     const solve = solveColorTarget([green], green.id, lchToLab([80, 400, 140]))!;
+    expect(solve.targetOutsideWorkingGamut).toBe(true);
+    expect(solveColorTarget([green], green.id, labOfSrgb([30, 170, 70]))!.targetOutsideWorkingGamut).toBe(false);
     const closed = renderedLab([{ ...green, saturation: 100 }], centreInput(green));
     expect(solve.deltaE).toBeLessThanOrEqual(deltaE00(lchToLab([80, 400, 140]), closed) + 1e-9);
   });

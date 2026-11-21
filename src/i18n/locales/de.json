@@ -3026,6 +3026,7 @@
           },
           "outOfReach": "Nicht erreichbar: ΔE00 {{value}} bleiben; {{limits}} am Anschlag.",
           "outsideSrgb": "Das Ziel liegt außerhalb von sRGB: Das Foto hält es, ein sRGB-Export zeigt die nächste Farbe, die sRGB fassen kann.",
+          "outsideWorkingGamut": "Das Ziel liegt außerhalb der Arbeitsfarben des Fotos (ProPhoto): Keine Farbe des Fotos kann es sein, der Bereich geht so nah heran, wie er kann.",
           "pickAria": "Zielfarbe aufnehmen",
           "pickedThrough": "Vorhergesagt ΔE00 {{value}} vom Ziel, aber diese Farbe wurde durch die starke Änderung des Bereichs selbst aufgenommen: Ergebnis im Foto prüfen oder mit Reglern auf 0 neu aufnehmen.",
           "pickTitle": "Zielfarbe im Foto aufnehmen; dieser Bereich wird darauf verschoben",
