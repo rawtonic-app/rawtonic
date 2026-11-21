@@ -728,6 +728,10 @@ export function useImageProcessing(
             aiDenoise: applied,
             aiDenoiseVersion: applied > 0 ? (version ?? 1) : 1,
             aiDenoiseStandIn: false,
+            // This source settles the stale preferences and the amount that
+            // failed before (undo to it develops again).
+            decoderStale: false,
+            ...(changesAiDenoise ? { aiDenoiseFailed: undefined, aiDenoiseFailedVersion: undefined } : {}),
             ...(multiscale === undefined ? {} : { colorNoiseMultiscale: multiscale }),
             ...(deadPixelAdjacent === undefined ? {} : { deadPixelAdjacent }),
             ...(unbiasedBlack === undefined ? {} : { unbiasedBlack }),
@@ -757,6 +761,8 @@ export function useImageProcessing(
                 // Not retried: the source stays as it is.
                 selectedImage: {
                   ...editor.selectedImage,
+                  // Not retried either way (a stale decode stays as it is).
+                  decoderStale: false,
                   ...(changesAiDenoise ? { aiDenoiseFailed: amount, aiDenoiseFailedVersion: version ?? 1 } : {}),
                   ...(!changesAiDenoise && changesFilter ? { colorNoiseMultiscaleFailed: multiscale } : {}),
                   ...(!changesAiDenoise && changesDeadTest ? { deadPixelAdjacentFailed: deadPixelAdjacent } : {}),

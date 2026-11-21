@@ -774,11 +774,12 @@ fn decoded_cache_key_for(
         key.push_str(preferences);
     }
     if let Some(d) = denoise {
-        key.push_str(&format!("\u{1}ai-denoise {:.3}", d.amount));
+        // The amounts' own precision: 40 and 40.02 are other decodes.
+        key.push_str(&format!("\u{1}ai-denoise {}", d.amount));
         // Versions differ in the noise scale, the model and whether the
         // sensor's local means are kept (versions 3 and 4 only in that).
         if d.noise_scale != 1.0 {
-            key.push_str(&format!(" ×{:.4}", d.noise_scale));
+            key.push_str(&format!(" ×{}", d.noise_scale));
         }
         if d.sensor_means {
             key.push_str(" means");
@@ -934,6 +935,10 @@ pub async fn apply_ai_denoise(
     };
     let recipe =
         serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": version.unwrap_or(1) });
+    // One snapshot of the preferences for the decode, its key and the source
+    // it becomes (the model may take a while to load).
+    let settings = crate::state::settings::current(&app_handle);
+    let decoder = decode_preferences(&settings);
     let denoise = crate::ai_denoise::option_for(&app_handle, &recipe).await?;
     let applied_ai = ai_denoise_settings(&recipe).filter(|_| denoise.is_some());
     let applied = if denoise.is_some() {
@@ -947,7 +952,6 @@ pub async fn apply_ai_denoise(
         .fetch_add(1, Ordering::SeqCst)
         + 1;
     let tracker = state.source.load_image_generation.clone();
-    let decoder = current_decode_preferences();
     let key = decoded_cache_key_for(&source, denoise.as_ref(), variant, &decoder);
     let cached = develop
         .decoded_image_cache
@@ -957,7 +961,6 @@ pub async fn apply_ai_denoise(
     let (image, measures) = match cached {
         Some((image, _, measures)) => (image, measures),
         None => {
-            let settings = crate::state::settings::current(&app_handle);
             let cancel_token = Some(rawtonic_runtime::CancelToken::new(tracker, my_generation));
             let decode_source = source.clone();
             let ((image, measures), exif) = tokio::task::spawn_blocking(move || {
@@ -1263,7 +1266,7 @@ pub async fn load_image(
             .as_ref()
             .is_none_or(|p| p.path != path))
     .then(|| draft_sink(&app_handle, &path, my_generation));
-    let cache_key = decoded_cache_key(&source_path_str, denoise.as_ref(), variant);
+    let cache_key = decoded_cache_key_for(&source_path_str, denoise.as_ref(), variant, &decoder);
     let decode_denoise = denoise.clone();
 
     let cached_data = {
@@ -2029,10 +2032,7 @@ mod activation_tests {
         assert_eq!(key(50, 4), key(50, 4));
         assert_ne!(key(50, 4), key(60, 4));
         // Version 3's key is the one it had before version 4.
-        assert!(key(50, 3).ends_with(&format!(
-            " ×0.8000 {:p}",
-            Arc::as_ptr(&denoiser) as *const ()
-        )));
+        assert!(key(50, 3).ends_with(&format!(" ×0.8 {:p}", Arc::as_ptr(&denoiser) as *const ())));
     }
 
     #[test]
@@ -2551,6 +2551,24 @@ mod decode_identity_tests {
             plain,
             key(&settings_with(|s| s.raw_preprocessing_color_nr = Some(0.5)))
         );
+    }
+
+    /// AI Denoise amounts a Preset Amount makes (40 → 40.02) are other
+    /// decodes than the whole step: the key keeps the amounts' precision.
+    #[test]
+    fn ai_denoise_fractions_never_share_a_decoded_base() {
+        let denoiser: Arc<dyn MosaicDenoiser> = Arc::new(Same);
+        let key = |amount: f64| {
+            let recipe = serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": 4 });
+            let denoise = rawtonic_engine::image_loader::ai_denoise_settings(&recipe)
+                .unwrap()
+                .mosaic_denoise(denoiser.clone());
+            decoded_cache_key_for("/p/A.NEF", Some(&denoise), DecodeVariant::default(), "")
+        };
+        assert_ne!(key(40.0), key(40.02));
+        assert_ne!(key(40.0), key(40.01));
+        assert_ne!(key(50.0), key(50.4));
+        assert_eq!(key(50.4), key(50.4));
     }
 
     /// The preview proxies' key keeps what it was (stored proxies stay valid).

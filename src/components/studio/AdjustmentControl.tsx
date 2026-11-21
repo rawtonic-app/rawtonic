@@ -30,6 +30,10 @@ export interface AdjustmentControlProps {
    * as if the track were this long (HSL, as Lightroom's 200 pt). */
   minTravel?: number;
   disabled?: boolean;
+  /** The field and slider show whole steps of a stored fraction (an old
+   * recipe's 50.4 reads 50); the stored value stays until the control is
+   * moved or reset. */
+  wholeSteps?: boolean;
   /** Option (Alt) held during a drag shows a view of this control's effect
    * (the sharpening view, utils/sharpenView): called with true when it
    * should show and false when it ends (Option let go, or the drag). Option
@@ -105,6 +109,7 @@ export default memo(function AdjustmentControl({
   keys: keyOverride,
   minTravel = 0,
   disabled = false,
+  wholeSteps = false,
   optionView,
   onChange,
   onInteraction
@@ -112,7 +117,8 @@ export default memo(function AdjustmentControl({
   const { t } = useTranslation();
   const id = useId();
   const [local, setLocal] = useState(value);
-  const [text, setText] = useState(shownValue(value, step));
+  const shown = (v: number) => shownValue(wholeSteps ? Math.round(v) : v, step);
+  const [text, setText] = useState(shown(value));
   // A slider or label drag in progress: the row shows its pressed state.
   const [dragging, setDragging] = useState(false);
   // The pointer is over the row: Up/Down step the slider without a click.
@@ -162,11 +168,12 @@ export default memo(function AdjustmentControl({
   useEffect(() => {
     if (!active.current) {
       setLocal(value);
-      setText(shownValue(value, step));
+      setText(shown(value));
       pending.current = value;
       lastSent.current = value;
     }
-  }, [value, step]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `shown` follows wholeSteps
+  }, [value, step, wholeSteps]);
   // Option pressed or let go while the drag holds still.
   useEffect(() => {
     if (!dragging || !optionView) return;

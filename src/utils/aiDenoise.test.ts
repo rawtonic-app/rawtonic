@@ -4,7 +4,6 @@ import {
   aiDenoiseAmount,
   aiDenoiseToApply,
   developmentSignature,
-  shownSliderValue,
   sourceDevelopToApply,
   storedSliderValue,
   warpPlanesMatter
@@ -329,10 +328,14 @@ describe('old fractional AI Denoise amounts', () => {
     expect(developmentSignature(recipe, true)).not.toBe(developmentSignature({ ...recipe, aiDenoise: 50 }, true));
   });
 
-  it('shows the slider rounded but writes nothing until it is moved', () => {
-    expect(shownSliderValue('aiDenoise', 50.4)).toBe(50);
-    expect(shownSliderValue('aiDenoise', 50.5)).toBe(51);
-    expect(shownSliderValue('exposure', 0.37)).toBe(0.37);
+  it('tells Preset Amount fractions apart (40 and 40.01 are other decodes)', () => {
+    expect(
+      aiDenoiseToApply(
+        { ...decoded, aiDenoise: 40, aiDenoiseVersion: 4 },
+        { aiDenoise: 40.01, aiDenoiseVersion: 4 },
+        false
+      )
+    ).toBe(40.01);
   });
 
   it('is copied as stored by a paste', () => {
@@ -360,5 +363,22 @@ describe('a sensor AI Denoise skipped, with Apple RAW 9 on', () => {
     expect(
       aiDenoiseToApply({ ...skipped, aiDenoiseStandIn: false }, { aiDenoise: 0, aiDenoiseVersion: 4 }, false)
     ).toBeNull();
+  });
+});
+
+describe('decode preferences changed since the source was developed', () => {
+  const stale = { ...decoded, aiDenoise: 40, aiDenoiseVersion: 4, decoderStale: true };
+
+  it('develops the source again at the recipe amount, once', () => {
+    expect(aiDenoiseToApply(stale, { aiDenoise: 40, aiDenoiseVersion: 4 }, false)).toBe(40);
+    expect(aiDenoiseToApply(stale, { aiDenoise: 0 }, false)).toBe(0);
+    expect(
+      aiDenoiseToApply({ ...stale, decoderStale: false }, { aiDenoise: 40, aiDenoiseVersion: 4 }, false)
+    ).toBeNull();
+    expect(sourceDevelopToApply(stale, { aiDenoise: 40, aiDenoiseVersion: 4 }, false)).toMatchObject({ aiDenoise: 40 });
+  });
+
+  it('waits for a slider drag', () => {
+    expect(aiDenoiseToApply(stale, { aiDenoise: 40, aiDenoiseVersion: 4 }, true)).toBeNull();
   });
 });

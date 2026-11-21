@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::state::develop::DevelopSession;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -1342,24 +1342,29 @@ fn save_settings_snapshot(settings: AppSettings, app_handle: &AppHandle) -> Resu
     let develop = app_handle.state::<DevelopSession>();
     crate::state::lock::lock_recover(&develop.decoded_image_cache).set_capacity(cache_size);
     let after = crate::state::settings::current(app_handle);
-    forget_decodes_of_other_preferences(&develop, &before, &after);
+    if forget_decodes_of_other_preferences(&develop, &before, &after) {
+        // The open photograph's pixels are of the old preferences: the
+        // editor develops it again (`decoderStale`).
+        let _ = app_handle.emit("decode-preferences-changed", ());
+    }
     Ok(())
 }
 
 /// A change of the decode preferences (`image_loader::decode_preferences`:
 /// linear RAW mode, preprocessing, Apple RAW 9, whichever way it was made)
 /// makes every decode held, ahead or kept for the multi view another
-/// decode: they are let go, and decoded again on demand.
+/// decode: they are let go, and decoded again on demand. Whether they were.
 fn forget_decodes_of_other_preferences(
     develop: &DevelopSession,
     before: &AppSettings,
     after: &AppSettings,
-) {
-    if crate::image_loader::decode_preferences(before)
-        != crate::image_loader::decode_preferences(after)
-    {
+) -> bool {
+    let changed = crate::image_loader::decode_preferences(before)
+        != crate::image_loader::decode_preferences(after);
+    if changed {
         develop.invalidate(crate::state::develop::Scope::Decoder);
     }
+    changed
 }
 
 /// Frontend snapshots must never roll back the backend's throttle timestamp,
@@ -2173,7 +2178,9 @@ mod decoder_preferences_tests {
         };
         for (name, after) in &changes {
             let develop = fill();
-            forget_decodes_of_other_preferences(&develop, &before, after);
+            assert!(forget_decodes_of_other_preferences(
+                &develop, &before, after
+            ));
             assert!(!cached(&develop), "{name} kept the decoded images");
         }
         let develop = fill();
@@ -2181,7 +2188,9 @@ mod decoder_preferences_tests {
             image_cache_size: Some(9),
             ..before.clone()
         };
-        forget_decodes_of_other_preferences(&develop, &before, &other);
+        assert!(!forget_decodes_of_other_preferences(
+            &develop, &before, &other
+        ));
         assert!(cached(&develop), "an unrelated setting cleared them");
     }
 }

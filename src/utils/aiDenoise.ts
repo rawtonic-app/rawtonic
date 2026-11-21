@@ -21,16 +21,10 @@ export function aiDenoiseAmount(
 }
 
 /** Whether two AI Denoise amounts are one: the backend reports its f32. */
-export const sameAiDenoiseAmount = (a: number, b: number): boolean => Math.abs(a - b) < 0.01;
+export const sameAiDenoiseAmount = (a: number, b: number): boolean => Math.abs(a - b) < 0.001;
 
 /** The amount `aiDenoiseAmount` returns is the stored one, as every export
  * reads it: an old recipe's fraction (50.4) develops at 50.4, not 50. */
-
-/** The value the Develop slider shows for `key`: AI Denoise in whole steps;
- * the recipe keeps its stored amount until the slider is moved. */
-export function shownSliderValue(key: string, value: number): number {
-  return key === 'aiDenoise' ? Math.round(value) : value;
-}
 
 /** The value a Develop slider stores for `key`: AI Denoise in whole steps
  * (drags, fine Option drags, typed values), the amount Develop develops and
@@ -56,6 +50,7 @@ export function aiDenoiseToApply(
     | 'aiDenoiseFailed'
     | 'aiDenoiseFailedVersion'
     | 'aiDenoiseStandIn'
+    | 'decoderStale'
   > | null,
   adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> & {
     sectionVisibility?: Record<string, boolean | undefined>;
@@ -65,6 +60,9 @@ export function aiDenoiseToApply(
   if (!image?.isDecoded || !image.isRaw || dragging) return null;
   const wanted = aiDenoiseAmount(adjustments);
   const have = image.aiDenoise ?? 0;
+  // Decoded under other decode preferences (Preferences changed since): the
+  // source is developed again, whatever its amount.
+  if (image.decoderStale) return wanted;
   // The pixels of a sensor AI Denoise skipped stand in for its amount (they
   // are not Apple's engine's): without AI Denoise they are developed again,
   // once (a failure marks the amount).
@@ -125,6 +123,7 @@ export function sourceDevelopToApply(
     | 'aiDenoiseFailed'
     | 'aiDenoiseFailedVersion'
     | 'aiDenoiseStandIn'
+    | 'decoderStale'
     | 'colorNoiseMultiscale'
     | 'colorNoiseMultiscaleFailed'
     | 'deadPixelAdjacent'
