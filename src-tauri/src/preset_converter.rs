@@ -1684,9 +1684,15 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                 // commutes), measured in Camera Raw.
                 let after_additive = items.iter().all(|(item, _, _)| {
                     let attr = |n: &str| item.attribute((CRS_NS, n));
+                    // A stroke with value 0 (an eraser) is not additive: an
+                    // earlier aggregate's erasers would cut this one's brush.
+                    let eraser = attr("MaskValue")
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .is_some_and(|v| v <= 0.0);
                     item.attribute((CRS_NS, "What")) != Some("Mask/Aggregate")
                         && matches!(attr("MaskBlendMode"), None | Some("0"))
                         && attr("MaskInverted") != Some("true")
+                        && !eraser
                 });
                 if matches!(attr("MaskBlendMode"), None | Some("0"))
                     && attr("MaskInverted") != Some("true")
@@ -1809,6 +1815,10 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             // Lightroom writes Intersect as subtraction of the inverted
             // component: a · (1 − (1 − b)) = a · b. Zero is the subtract
             // marker in this encoding, so restore full component opacity.
+            // An eraser keeps its full strength whatever its aggregate's
+            // value is: the strength scales the inverted coverage that
+            // multiplies everything before it.
+            let mut eraser = false;
             let (mode, invert) = match (blend, inverted, value) {
                 (Some("1"), true, 0.0 | 1.0) => {
                     value = 1.0;
@@ -1819,6 +1829,7 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                 // eraser after a stroke leaves the strokes after it alone).
                 _ if kind == "brush" && value <= 0.0 => {
                     value = 1.0;
+                    eraser = true;
                     ("intersect", !inverted)
                 }
                 // Lightroom's Subtract is a · (1 − b), Intersect with the
@@ -1837,7 +1848,11 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                 "type": kind,
                 masks::VISIBLE.name(): group_active && mattr("MaskActive") != Some("false"),
                 masks::INVERT.name(): invert,
-                masks::OPACITY.name(): (value * group_value * 100.0).clamp(0.0, 100.0),
+                masks::OPACITY.name(): if eraser {
+                    100.0
+                } else {
+                    (value * group_value * 100.0).clamp(0.0, 100.0)
+                },
                 "mode": mode,
                 // AI masks are computed, geometry placed, when a photo opens.
                 masks::PARAMETERS.name(): parameters,
@@ -2622,7 +2637,21 @@ mod tests {
             let mut adjustments = json!({ "masks": layers });
             let (w, h) = (item["w"].as_f64().unwrap(), item["h"].as_f64().unwrap());
             super::place_lightroom_geometry(&mut adjustments, w, h, 1);
-            std::fs::write(item["out"].as_str().unwrap(), adjustments.to_string()).unwrap();
+            // Never overwrites: a mistaken `out` must not truncate a file.
+            let out = std::path::Path::new(item["out"].as_str().unwrap());
+            assert!(
+                out.extension().is_some_and(|e| e == "json"),
+                "{out:?}: not a .json"
+            );
+            std::io::Write::write_all(
+                &mut std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(out)
+                    .unwrap(),
+                adjustments.to_string().as_bytes(),
+            )
+            .unwrap();
         }
     }
 
@@ -3080,10 +3109,39 @@ mod tests {
             r#"crs:MaskInverted="false" crs:MaskValue="0.5" crs:MaskActive="false""#,
         );
         let (off_layers, _) = super::lightroom_masks(&off);
-        for sub in off_layers[0]["subMasks"].as_array().unwrap() {
-            assert_eq!(sub["visible"], json!(false));
-            assert_eq!(sub["opacity"], json!(50.0));
-        }
+        let off_subs = off_layers[0]["subMasks"].as_array().unwrap();
+        assert!(off_subs.iter().all(|sub| sub["visible"] == json!(false)));
+        assert_eq!(off_subs[0]["opacity"], json!(50.0));
+        // An active aggregate below full value scales its strokes; its
+        // eraser keeps full strength (it multiplies everything before it).
+        let half = brush("0", "false").replace(
+            r#"crs:MaskInverted="false" crs:MaskValue="1""#,
+            r#"crs:MaskInverted="false" crs:MaskValue="0.5""#,
+        );
+        let (half_layers, _) = super::lightroom_masks(&half);
+        let half_subs = half_layers[0]["subMasks"].as_array().unwrap();
+        assert_eq!(half_subs[0]["opacity"], json!(50.0));
+        assert_eq!(half_subs[1]["opacity"], json!(100.0));
+        // Two aggregates with erasers: the second goes after the first's
+        // eraser, which would cut it: left out.
+        let single = brush("0", "false");
+        let aggregate = single
+            .split(r#"<rdf:li><rdf:Description crs:What="Mask/Aggregate""#)
+            .nth(1)
+            .unwrap()
+            .split("</crs:Masks>")
+            .next()
+            .unwrap();
+        let doubled = single.replacen(
+            "</crs:Masks>\n     </rdf:Description></rdf:li>",
+            &format!(
+                "</crs:Masks>\n     </rdf:Description></rdf:li>\n     <rdf:li><rdf:Description crs:What=\"Mask/Aggregate\"{aggregate}</crs:Masks>\n     </rdf:Description></rdf:li>"
+            ),
+            1,
+        );
+        assert_eq!(doubled.matches("Mask/Aggregate").count(), 2);
+        let (doubled_layers, doubled_skipped) = super::lightroom_masks(&doubled);
+        assert!(doubled_layers.is_empty() && doubled_skipped == vec!["Brush".to_string()]);
         let subs = layers[0]["subMasks"].as_array().unwrap();
         assert_eq!(subs.len(), 2);
         assert_eq!(
