@@ -102,6 +102,8 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     ),
     // Keywords without photographs, kept until deleted.
     Migration::sql(29, include_str!("../migrations/0029.sql")),
+    // Assisted culling's scores and the photographer's dismissals.
+    Migration::sql(30, include_str!("../migrations/0030.sql")),
 ];
 
 /// The newest schema: the last migration's.

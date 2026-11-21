@@ -4,6 +4,7 @@
 //! AGPL-3.0); no Tauri dependencies.
 
 pub mod avif_container;
+pub mod c2pa;
 pub mod exif_processing;
 pub mod export_processing;
 pub mod file_export;
@@ -14,6 +15,7 @@ pub mod proof_sheet;
 pub mod queue;
 pub mod render_inputs;
 pub mod sidecars;
+mod signed_tiff;
 pub mod text_watermark;
 pub mod tiff_exif;
 pub mod webp_container;

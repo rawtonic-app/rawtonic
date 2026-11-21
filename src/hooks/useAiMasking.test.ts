@@ -14,11 +14,12 @@ const { invoke, listen, listeners } = vi.hoisted(() => {
 });
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen }));
-const { toast } = vi.hoisted(() => ({ toast: { error: vi.fn() } }));
+const { toast } = vi.hoisted(() => ({ toast: { error: vi.fn(), info: vi.fn() } }));
 vi.mock('../activity/notify', () => ({ notify: toast }));
 
 import '../i18n';
 import {
+  noteLandscapeModelReady,
   AI_MASKING_RECENT_MS,
   AI_MASKS_AHEAD_DELAY_MS,
   AI_MODELS_UNLOADED_EVENT,
@@ -431,6 +432,83 @@ describe('automatic AI masks from imported presets', () => {
     expect(subOf('sub-ai-subject')?.parameters.maskDataBase64).toBe('data:image/png;base64,AAAA');
   });
 
+  it('computes migrated thumbnail selections again on the full frame as one undo step', async () => {
+    const pending: ((value: unknown) => void)[] = [];
+    invoke.mockImplementation((command: string) =>
+      String(command).startsWith('generate_')
+        ? new Promise((resolve) => pending.push(resolve))
+        : Promise.resolve(command === 'installed_selection_models' ? ['ai-sky', 'ai-foreground'] : null)
+    );
+    const stand_in = { maskDataBase64: 'data:thumb', bitmapFrame: { width: 288, height: 192 }, detectAgain: true };
+    const initial = {
+      ...structuredClone(INITIAL_ADJUSTMENTS),
+      masks: [
+        layer('ai-sky', { ...stand_in, grow: 7 }),
+        layer('ai-foreground', { ...stand_in, subjectVersion: 2 }),
+        layer('ai-subject', { maskDataBase64: 'data:thumb', bitmapFrame: { width: 288, height: 192 } })
+      ] as never
+    };
+    useEditorStore.setState({
+      selectedImage: { path: '/s/a.tif', isReady: true, isRaw: true } as never,
+      adjustments: initial,
+      history: [initial],
+      historyIndex: 0
+    });
+    const generated = () => invoke.mock.calls.map((c) => c[0]).filter((c) => String(c).startsWith('generate_'));
+    const { rerender } = renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(2));
+    expect(generated()).toEqual(['generate_ai_sky_mask', 'generate_ai_foreground_mask']);
+    // Never a download: only installed models are asked.
+    expect(invoke.mock.calls.find((c) => c[0] === 'generate_ai_foreground_mask')?.[1]).toMatchObject({
+      subjectVersion: 2,
+      download: false
+    });
+    // Nothing changes until every selection is back.
+    await act(async () => pending[0]({ maskDataBase64: 'data:sky' }));
+    expect(useEditorStore.getState().history).toHaveLength(1);
+    await act(async () => pending[1]({ maskDataBase64: 'data:subject' }));
+    await waitFor(() => expect(useEditorStore.getState().history).toHaveLength(2));
+    // Under their ids (the preview sends a bitmap changed under its id again).
+    const subs = () => useEditorStore.getState().adjustments.masks.map((m) => m.subMasks[0]);
+    expect(subs()[0].id).toBe('sub-ai-sky');
+    expect(subs()[0].parameters).toEqual({ maskDataBase64: 'data:sky', grow: 7 });
+    expect(subs()[1].parameters).toEqual({ maskDataBase64: 'data:subject', subjectVersion: 2 });
+    expect(subOf('sub-ai-subject')?.parameters.maskDataBase64).toBe('data:thumb');
+    expect(toast.info).toHaveBeenCalledWith(expect.stringContaining('2 layers'));
+    // One undo: the stretched thumbnail bitmaps, no longer waiting.
+    act(() => useEditorStore.getState().undo());
+    expect(subOf('sub-ai-sky')?.parameters).toEqual({
+      maskDataBase64: 'data:thumb',
+      bitmapFrame: { width: 288, height: 192 },
+      grow: 7
+    });
+    rerender();
+    expect(generated()).toHaveLength(2);
+  });
+
+  it('leaves migrated selections whose model is not installed as they are, downloading nothing', async () => {
+    invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === 'installed_selection_models' ? [] : { maskDataBase64: 'data:x' })
+    );
+    const initial = {
+      ...structuredClone(INITIAL_ADJUSTMENTS),
+      masks: [
+        layer('ai-sky', { maskDataBase64: 'data:thumb', bitmapFrame: { width: 2, height: 1 }, detectAgain: true })
+      ] as never
+    };
+    useEditorStore.setState({
+      selectedImage: { path: '/s/b.tif', isReady: true, isRaw: true } as never,
+      adjustments: initial,
+      history: [initial],
+      historyIndex: 0
+    });
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('installed_selection_models'));
+    await act(async () => {});
+    expect(invoke.mock.calls.filter((c) => String(c[0]).startsWith('generate_'))).toEqual([]);
+    expect(subOf('sub-ai-sky')?.parameters.maskDataBase64).toBe('data:thumb');
+  });
+
   it('applies an Object answer after a slider draft commits, as its own undo step', async () => {
     const pending = deferredMasks();
     const initial = {
@@ -686,6 +764,107 @@ describe('automatic AI masks from imported presets', () => {
     }));
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
     expect(invoke.mock.calls[1][1]).toMatchObject({ parts: ['faceSkin', 'lips'], person: 1 });
+  });
+
+  it('fills a Landscape mask into the step that chose its parts, and waits while it is hidden', async () => {
+    let answer: (value: unknown) => void = () => {};
+    invoke.mockImplementation(
+      (command: string) =>
+        new Promise((resolve) => (command === 'generate_ai_landscape_mask' ? (answer = resolve) : resolve(null)))
+    );
+    // An edit an earlier test left waiting settles before this history.
+    debouncedSetHistory.flush();
+    const before = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [] as never };
+    const hidden = { ...layer('ai-landscape', { maskDataBase64: null, parts: ['water'] }), visible: false };
+    useEditorStore.setState({
+      selectedImage: { path: '/s/a.NEF', isReady: true, isRaw: true } as never,
+      adjustments: { ...before, masks: [hidden] as never },
+      history: [before, { ...before, masks: [hidden] as never }],
+      historyIndex: 1
+    });
+    const generated = () => invoke.mock.calls.filter((c) => c[0] === 'generate_ai_landscape_mask');
+    renderHook(() => useAiMasking());
+    // Hidden: no detection, so no model download for it.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(generated()).toHaveLength(0);
+    // Shown with Mountains ticked: the edit is a step of its own.
+    const ticked = {
+      ...before,
+      masks: [layer('ai-landscape', { maskDataBase64: null, parts: ['mountains'] })] as never
+    };
+    useEditorStore.setState((state) => ({
+      adjustments: ticked,
+      history: [...state.history, ticked],
+      historyIndex: state.history.length
+    }));
+    await waitFor(() => expect(generated()).toHaveLength(1));
+    expect(generated()[0][1]).toMatchObject({ path: '/s/a.NEF', parts: ['mountains'], download: false });
+    // A slow answer arrives after the edit settled: no step of its own.
+    await act(async () => answer({ maskDataBase64: 'data:image/png;base64,MMMM' }));
+    const state = useEditorStore.getState();
+    const bitmap = (a: { masks: { subMasks: { parameters: { maskDataBase64?: string } }[] }[] }) =>
+      a.masks[0]?.subMasks[0].parameters.maskDataBase64;
+    expect(bitmap(state.adjustments as never)).toBe('data:image/png;base64,MMMM');
+    expect(state.history).toHaveLength(3);
+    expect(bitmap(state.history[2] as never)).toBe('data:image/png;base64,MMMM');
+    expect(state.historyIndex).toBe(2);
+    // Undo goes back to before the tick, and Redo brings the mask with it.
+    act(() => useEditorStore.getState().undo());
+    expect(useEditorStore.getState().historyIndex).toBe(1);
+    act(() => useEditorStore.getState().redo());
+    expect(bitmap(useEditorStore.getState().adjustments as never)).toBe('data:image/png;base64,MMMM');
+    expect(generated()).toHaveLength(1);
+  });
+
+  it('a Landscape mask waits for its model, and a failed one is asked again when its parts are ticked again', async () => {
+    debouncedSetHistory.flush();
+    const outcomes: unknown[] = [
+      { code: 'models_missing', message: 'not installed' },
+      { maskDataBase64: 'data:image/png;base64,WWWW' },
+      { code: 'internal', message: 'offline' },
+      { maskDataBase64: 'data:image/png;base64,MMMM' }
+    ];
+    invoke.mockImplementation(async (command: string) => {
+      if (command !== 'generate_ai_landscape_mask') return null;
+      const next = outcomes.shift();
+      if (next && typeof next === 'object' && 'code' in next) throw next;
+      return next;
+    });
+    const recipe = (parts: string[]) => ({
+      ...structuredClone(INITIAL_ADJUSTMENTS),
+      masks: [layer('ai-landscape', { maskDataBase64: null, parts })] as never
+    });
+    useEditorStore.setState({
+      selectedImage: { path: '/s/a.NEF', isReady: true, isRaw: true } as never,
+      adjustments: recipe(['water'])
+    });
+    const generated = () => invoke.mock.calls.filter((c) => c[0] === 'generate_ai_landscape_mask');
+    const bitmap = () =>
+      (useEditorStore.getState().adjustments.masks[0].subMasks[0].parameters as { maskDataBase64?: string })
+        .maskDataBase64;
+    const { rerender } = renderHook(() => useAiMasking());
+    await waitFor(() => expect(generated()).toHaveLength(1));
+    // Not installed: quiet, and not asked again by other edits.
+    act(() => useEditorStore.setState({ adjustments: { ...recipe(['water']), exposure: 0.5 } }));
+    rerender();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(generated()).toHaveLength(1);
+    expect(toast.error).not.toHaveBeenCalled();
+    // A Landscape mask's settings installed the model: asked again.
+    act(() => noteLandscapeModelReady());
+    await waitFor(() => expect(bitmap()).toBe('data:image/png;base64,WWWW'));
+    expect(generated()).toHaveLength(2);
+    // Mountains fails (offline): not retried by itself …
+    act(() => useEditorStore.setState({ adjustments: recipe(['mountains']) }));
+    await waitFor(() => expect(generated()).toHaveLength(3));
+    act(() => useEditorStore.setState({ adjustments: { ...recipe(['mountains']), exposure: 1 } }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(generated()).toHaveLength(3);
+    // … but unticked and ticked again, it is.
+    act(() => useEditorStore.setState({ adjustments: recipe([]) }));
+    act(() => useEditorStore.setState({ adjustments: recipe(['mountains']) }));
+    await waitFor(() => expect(bitmap()).toBe('data:image/png;base64,MMMM'));
+    expect(generated()).toHaveLength(4);
   });
 
   it('has the backend place imported Lightroom geometry once, on the full decode', async () => {

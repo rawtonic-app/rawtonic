@@ -321,10 +321,52 @@ pub(crate) fn file_replaced_since_open(source: &Path) -> Option<&'static str> {
         .unwrap_or_else(|e| e.into_inner())
         .get(source)
         .cloned()?;
+    // An evicted original is not read to be compared (macOS would download it).
+    if crate::file_management::is_cloud_placeholder(source) {
+        return None;
+    }
     let now = rawtonic_catalog::fingerprint(source).ok()?;
     (now != recorded).then_some(FILE_REPLACED)
 }
 
+/// The error of an editor sidecar write of a library photograph (not a
+/// virtual copy) the library committed but whose derived sidecar beside
+/// the photograph could not be written (a write-protected folder): the
+/// library is what its recipe is read from (`read_editor_sidecar`), so the
+/// edit is saved and its undo holds; the file follows on the next save. Tell it from other errors with
+/// [`saved_in_library`].
+#[derive(Debug)]
+pub struct DerivedSidecarUnwritten(io::Error);
+
+impl std::fmt::Display for DerivedSidecarUnwritten {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "saved in the library; the sidecar file next to the photo could not be written: {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for DerivedSidecarUnwritten {}
+
+fn derived_unwritten(e: io::Error) -> io::Error {
+    io::Error::other(DerivedSidecarUnwritten(e))
+}
+
+/// Why only the derived sidecar was not written, when `error` (of
+/// [`write_editor_sidecar`]) left the edit saved in the library.
+pub fn saved_in_library(error: &io::Error) -> Option<&io::Error> {
+    error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<DerivedSidecarUnwritten>())
+        .map(|unwritten| &unwritten.0)
+}
+
+/// Writes an editor sidecar: through the library that holds the photograph
+/// (committed first), then the sidecar beside it. An error after the
+/// library committed a photograph's own recipe is a
+/// [`DerivedSidecarUnwritten`].
 pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> {
     let _lock = WRITE_LOCK.lock().map_err(io_error)?;
     let path = path.as_ref();
@@ -345,12 +387,17 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
         let lib = Library::open(&dir).map_err(io_error)?;
         let state: Value = serde_json::from_slice(bytes).map_err(io_error)?;
         let online = source.is_file();
-        let asset = if online {
+        let asset = if online && !crate::file_management::is_cloud_placeholder(&source) {
             lib.add_asset(&source).ok()
         } else {
             lib.asset_at(&source).map_err(io_error)?
         };
         if let Some(asset) = &asset {
+            let previous = if online {
+                lib.copy_state(&asset.id, &copy).map_err(io_error)?
+            } else {
+                None
+            };
             crate::library_search::announcing_ai_facts(&lib, &asset.id, || {
                 lib.save_copy_state(&asset.id, &copy, &state)
             })
@@ -358,9 +405,50 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             if !online {
                 return Ok(());
             }
-            let version = lib.version_for(&asset.id, Some(&copy)).map_err(io_error)?;
-            let bytes = with_library_snapshots(&lib, version.as_deref(), bytes, &state)?;
-            return rawtonic_fs::atomic_write(path, &*bytes).map_err(io_error);
+            // Not a `DerivedSidecarUnwritten`: while the photograph is there
+            // its copy is read from this file (`read_editor_sidecar`), so
+            // an edit the file did not get is not saved, and the library
+            // goes back to what it held (a relink writes that out).
+            let derived = lib
+                .version_for(&asset.id, Some(&copy))
+                .map_err(io_error)
+                .and_then(|version| {
+                    with_library_snapshots(&lib, version.as_deref(), bytes, &state)
+                        .map(std::borrow::Cow::into_owned)
+                });
+            let written = derived.and_then(|derived| {
+                rawtonic_fs::atomic_write(path, &derived)
+                    .map_err(io_error)
+                    .or_else(|e| {
+                        // Replaced, but the folder could not be synced after
+                        // it (a folder that cannot be read): the file holds
+                        // the edit, so it is saved; the library keeps it.
+                        if std::fs::read(path).is_ok_and(|now| now == derived) {
+                            log::warn!("{} written, its folder not synced: {e}", path.display());
+                            Ok(())
+                        } else {
+                            Err(e)
+                        }
+                    })
+            });
+            if written.is_err() {
+                let restored = match &previous {
+                    Some(previous) => {
+                        crate::library_search::announcing_ai_facts(&lib, &asset.id, || {
+                            lib.save_copy_state(&asset.id, &copy, previous)
+                        })
+                        .map(|_| ())
+                    }
+                    None => lib.remove_copy(&asset.id, &copy).map(|_| ()),
+                };
+                if let Err(e) = restored {
+                    log::warn!(
+                        "Virtual copy {copy} of {} keeps an edit its sidecar did not get: {e}",
+                        source.display()
+                    );
+                }
+            }
+            return written;
         }
         return rawtonic_fs::atomic_write(path, bytes).map_err(io_error);
     }
@@ -386,17 +474,31 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
     {
         let lib = Library::open(&dir).map_err(io_error)?;
         let state: Value = serde_json::from_slice(bytes).map_err(io_error)?;
-        let asset = lib.add_asset(&source).map_err(io_error)?;
+        // An evicted original is not fingerprinted (macOS would download it):
+        // only a photograph the library already has is saved for it.
+        let asset = if crate::file_management::is_cloud_placeholder(&source) {
+            lib.asset_at(&source).map_err(io_error)?.ok_or_else(|| {
+                io::Error::other("original is in the cloud — download it to apply settings")
+            })?
+        } else {
+            lib.add_asset(&source).map_err(io_error)?
+        };
         // The first save of a photograph whose sidecar the library has not
         // adopted takes over that sidecar's snapshots (`save_editor_state`).
         crate::library_search::announcing_ai_facts(&lib, &asset.id, || {
             lib.save_editor_state(&asset.id, &state)
         })
         .map_err(io_error)?;
-        let version = lib.primary_version(&asset.id).map_err(io_error)?;
-        let bytes = with_library_snapshots(&lib, Some(&version), bytes, &state)?;
+        let version = lib
+            .primary_version(&asset.id)
+            .map_err(io_error)
+            .map_err(derived_unwritten)?;
+        let bytes = with_library_snapshots(&lib, Some(&version), bytes, &state)
+            .map_err(derived_unwritten)?;
         // SQLite committed first. A failed derived write can be retried without losing edits.
-        rawtonic_fs::atomic_write(path, &*bytes).map_err(io_error)?;
+        rawtonic_fs::atomic_write(path, &*bytes)
+            .map_err(io_error)
+            .map_err(derived_unwritten)?;
         if let Err(e) = lib.sync_xmp(&asset.id) {
             log::warn!(
                 "Edit saved in database; XMP pending for {}: {e}",

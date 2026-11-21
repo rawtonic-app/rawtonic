@@ -247,61 +247,151 @@ pub(crate) fn xmp_sync(app_handle: &AppHandle) -> Option<bool> {
         .then(|| settings.create_xmp_if_missing.unwrap_or(false))
 }
 
+/// What a batch sidecar edit (`edit_sidecars`) wrote.
+#[derive(Debug, Default)]
+pub(crate) struct SidecarEdits {
+    /// The photos not saved, with the reason (an `edit` error counts).
+    pub failures: Vec<(String, String)>,
+    /// The photos saved in their library whose sidecar beside the photo
+    /// could not be written (a write-protected folder), with the reason:
+    /// their edit holds (and its undo step), the file follows on the next
+    /// save (`session_bridge::DerivedSidecarUnwritten`).
+    pub unwritten: Vec<(String, String)>,
+}
+
+impl SidecarEdits {
+    /// The note for the user about `unwritten` of `total` photos, if any.
+    pub fn unwritten_note(&self, total: usize) -> Option<String> {
+        if self.unwritten.is_empty() {
+            return None;
+        }
+        let mut unwritten = self.unwritten.clone();
+        unwritten.sort();
+        let what = if total == 1 {
+            "the photo".to_string()
+        } else {
+            format!("{} of {total} photos", unwritten.len())
+        };
+        Some(format!(
+            "Saved in the library; the sidecar file next to {what} could not be written: {}",
+            listed_errors(&unwritten)
+        ))
+    }
+}
+
+/// The first few of `errors` (path: error), sorted, and how many more.
+fn listed_errors(errors: &[(String, String)]) -> String {
+    const SHOWN: usize = 3;
+    let mut listed: Vec<String> = errors
+        .iter()
+        .take(SHOWN)
+        .map(|(path, error)| format!("{path}: {error}"))
+        .collect();
+    if errors.len() > SHOWN {
+        listed.push(format!("and {} more", errors.len() - SHOWN));
+    }
+    listed.join("; ")
+}
+
 /// Writes the editor sidecar of each of `paths` as `edit` changes its
-/// metadata (in parallel), and its XMP when `xmp` (`xmp_sync`). Returns
-/// the photos whose sidecar could not be written, with the reason; an
-/// `edit` error counts as one.
+/// metadata (in parallel), and its XMP when `xmp` (`xmp_sync`).
 fn edit_sidecars(
     paths: &[String],
     xmp: Option<bool>,
     edit: impl Fn(&str, &Path, &Path) -> Result<ImageMetadata, String> + Sync,
-) -> Vec<(String, String)> {
-    paths
+) -> SidecarEdits {
+    enum Outcome {
+        Saved,
+        Failed(String),
+        Unwritten(String),
+    }
+    let outcomes: Vec<(String, Outcome)> = paths
         .par_iter()
-        .filter_map(|path| {
+        .map(|path| {
             let _turn = sidecar_field_edit();
             let (source_path, sidecar_path) = parse_virtual_path(path);
-            let saved = edit(path, &source_path, &sidecar_path)
-                .and_then(|metadata| save_sidecar(path, &metadata).map(|()| metadata));
-            match saved {
+            let edited = match conformed_frame(&source_path, &sidecar_path) {
+                Some(metadata) => {
+                    crate::exif_processing::reading_conformed(&sidecar_path, metadata, || {
+                        edit(path, &source_path, &sidecar_path)
+                    })
+                }
+                None => edit(path, &source_path, &sidecar_path),
+            };
+            let outcome = match edited {
+                Err(e) => Outcome::Failed(e),
                 Ok(metadata) => {
-                    if let Some(create_if_missing) = xmp {
+                    let outcome = match write_sidecar(path, &metadata) {
+                        Ok(()) => Outcome::Saved,
+                        Err(e) => match crate::session_bridge::saved_in_library(&e) {
+                            Some(unwritten) => Outcome::Unwritten(unwritten.to_string()),
+                            None => Outcome::Failed(e.to_string()),
+                        },
+                    };
+                    if let (Some(create_if_missing), false) =
+                        (xmp, matches!(outcome, Outcome::Failed(_)))
+                    {
                         sync_metadata_to_xmp(&source_path, &metadata, create_if_missing);
                     }
-                    None
+                    outcome
                 }
-                Err(e) => Some((path.clone(), e)),
-            }
+            };
+            (path.clone(), outcome)
         })
-        .collect()
+        .collect();
+    let mut edits = SidecarEdits::default();
+    for (path, outcome) in outcomes {
+        match outcome {
+            Outcome::Saved => {}
+            Outcome::Failed(e) => edits.failures.push((path, e)),
+            Outcome::Unwritten(e) => edits.unwritten.push((path, e)),
+        }
+    }
+    edits
 }
 
-/// Runs the blocking `work` (which writes the recipes of `paths` and returns
-/// the failures), then regenerates the thumbnails in the background. The
-/// command finishes once every recipe is written, so the webview reads the
-/// new recipes afterwards and hears about the ones not saved.
+/// A camera TIFF's edit made on its embedded thumbnail, moved to the full
+/// frame (`recipe_frame::conform`), for a batch edit to change: settings
+/// pasted from a RAW (its processing versions) would otherwise make it read
+/// as made on the full frame. The edit reads it in memory and writes it once
+/// (`exif_processing::reading_conformed`); a refused edit writes nothing.
+/// None for other recipes; other files are not read.
+fn conformed_frame(source_path: &Path, sidecar_path: &Path) -> Option<ImageMetadata> {
+    rawtonic_engine::recipe_frame::tiff_frames(source_path)?;
+    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+    rawtonic_engine::recipe_frame::conform(&mut metadata.adjustments, source_path)
+        .then_some(metadata)
+}
+
+/// Runs the blocking `work` (which writes the recipes of `paths`), then
+/// regenerates the thumbnails in the background. The command finishes once
+/// every recipe is written, so the webview reads the new recipes afterwards
+/// and hears about the ones not saved, and (the note) about the ones saved
+/// in their library whose sidecar beside the photo could not be written.
 async fn save_then_regenerate(
     app_handle: AppHandle,
     paths: Vec<String>,
-    work: impl FnOnce(&AppHandle, &[String]) -> Vec<(String, String)> + Send + 'static,
-) -> Result<(), SaveFailure> {
+    work: impl FnOnce(&AppHandle, &[String]) -> SidecarEdits + Send + 'static,
+) -> (Result<(), SaveFailure>, Option<String>) {
     add_to_thumbnail_queue(
         &app_handle.state::<ThumbnailState>(),
         paths.len(),
         &app_handle,
     );
     let (app, batch) = (app_handle.clone(), paths.clone());
-    let failures = tauri::async_runtime::spawn_blocking(move || work(&app, &batch))
+    let edits = tauri::async_runtime::spawn_blocking(move || work(&app, &batch))
         .await
-        .unwrap_or_else(|e| {
-            paths
+        .unwrap_or_else(|e| SidecarEdits {
+            failures: paths
                 .iter()
                 .map(|path| (path.clone(), format!("Saving failed: {e}")))
-                .collect()
+                .collect(),
+            unwritten: Vec::new(),
         });
     let total = paths.len();
     regenerate_thumbnails(app_handle, paths);
-    SaveFailure::check(total, failures)
+    let note = edits.unwritten_note(total);
+    (SaveFailure::check(total, edits.failures), note)
 }
 
 /// One photograph's whole recipe before and after a batch edit: its part of
@@ -314,12 +404,16 @@ pub struct RecipeChange {
 }
 
 /// What a batch recipe edit wrote: each written photograph's recipe before
-/// and after, and the photographs not written with the first errors.
+/// and after, the photographs not written with the first errors, and the
+/// note about those saved in their library whose sidecar beside the photo
+/// could not be written (they are among `changes`: their undo step holds).
 #[derive(serde::Serialize, Debug, Default)]
 pub struct RecipeBatch {
     pub changes: Vec<RecipeChange>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure: Option<SaveFailure>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unwritten: Option<String>,
 }
 
 /// `edit_sidecars` that also returns the recipe changes of the photographs
@@ -328,9 +422,9 @@ pub(crate) fn edit_sidecars_recorded(
     paths: &[String],
     xmp: Option<bool>,
     edit: impl Fn(&str, &Path, &Path) -> Result<ImageMetadata, String> + Sync,
-) -> (Vec<RecipeChange>, Vec<(String, String)>) {
+) -> (Vec<RecipeChange>, SidecarEdits) {
     let changes = std::sync::Mutex::new(Vec::new());
-    let failures = edit_sidecars(paths, xmp, |path, source_path, sidecar_path| {
+    let edits = edit_sidecars(paths, xmp, |path, source_path, sidecar_path| {
         let before = crate::exif_processing::load_sidecar(sidecar_path).adjustments;
         let metadata = edit(path, source_path, sidecar_path)?;
         changes.lock().unwrap().push(RecipeChange {
@@ -341,31 +435,31 @@ pub(crate) fn edit_sidecars_recorded(
         Ok(metadata)
     });
     let mut changes = changes.into_inner().unwrap();
-    // An edit whose save failed was not written.
-    changes.retain(|change| !failures.iter().any(|(path, _)| *path == change.path));
-    (changes, failures)
+    // An edit whose save failed was not written (one saved in its library
+    // only was: its undo step holds).
+    changes.retain(|change| !edits.failures.iter().any(|(path, _)| *path == change.path));
+    (changes, edits)
 }
 
 /// `save_then_regenerate` for a recorded batch edit (`edit_sidecars_recorded`).
 pub(crate) async fn recorded_batch(
     app_handle: AppHandle,
     paths: Vec<String>,
-    work: impl FnOnce(&AppHandle, &[String]) -> (Vec<RecipeChange>, Vec<(String, String)>)
-    + Send
-    + 'static,
+    work: impl FnOnce(&AppHandle, &[String]) -> (Vec<RecipeChange>, SidecarEdits) + Send + 'static,
 ) -> RecipeBatch {
     let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let sink = recorded.clone();
-    let result = save_then_regenerate(app_handle, paths, move |app_handle, paths| {
-        let (changes, failures) = work(app_handle, paths);
+    let (result, unwritten) = save_then_regenerate(app_handle, paths, move |app_handle, paths| {
+        let (changes, edits) = work(app_handle, paths);
         *sink.lock().unwrap() = changes;
-        failures
+        edits
     })
     .await;
     let changes = std::mem::take(&mut *recorded.lock().unwrap());
     RecipeBatch {
         changes,
         failure: result.err(),
+        unwritten,
     }
 }
 
@@ -423,7 +517,7 @@ pub async fn apply_adjustments_to_paths(
     open: Option<String>,
     app_handle: AppHandle,
 ) -> Result<RecipeBatch, String> {
-    Ok(recorded_batch(app_handle, paths, move |app_handle, paths| {
+    let batch = recorded_batch(app_handle, paths, move |app_handle, paths| {
         // A kill before every photograph is written is offered at the next
         // open (crate::batch_journal).
         let batch = if style.is_some() {
@@ -461,6 +555,11 @@ pub async fn apply_adjustments_to_paths(
                 .iter()
                 .filter_map(|path| {
                     let (source_path, _) = parse_virtual_path(path);
+                    // An evicted original is never downloaded for this
+                    // (`pasted_metadata` reports the photo).
+                    if crate::file_management::is_cloud_placeholder(&source_path) {
+                        return None;
+                    }
                     let bytes = fs::read(&source_path).ok()?;
                     let name = source_path.to_string_lossy();
                     let image = crate::image_loader::load_base_image_from_bytes(
@@ -514,7 +613,23 @@ pub async fn apply_adjustments_to_paths(
             },
         )
     })
-    .await)
+    .await;
+    // The open photo is not among `paths`: the editor computes its own.
+    queue_selections(&batch);
+    Ok(batch)
+}
+
+/// AI selections the written photos now wait for (a preset's Sky or People
+/// layer, a recipe an undo or redo brings back) are computed in the
+/// background, as opening each photo would (`selection_queue`).
+fn queue_selections(batch: &RecipeBatch) {
+    crate::selection_queue::enqueue(
+        batch
+            .changes
+            .iter()
+            .filter(|change| crate::selection_queue::wants_detection(&change.after))
+            .map(|change| change.path.clone()),
+    );
 }
 
 /// The editor sidecar of `path` with `adjustments` applied
@@ -535,7 +650,11 @@ fn pasted_metadata(
 ) -> Result<ImageMetadata, String> {
     let mut existing_metadata =
         crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
-    existing_metadata.adjustments = pasted_into(
+    let in_cloud = crate::file_management::is_cloud_placeholder(source_path);
+    if in_cloud {
+        cloud_gate(path, source_path, &existing_metadata, adjustments, size)?;
+    }
+    existing_metadata.adjustments = pasted_into_with(
         std::mem::take(&mut existing_metadata.adjustments),
         &existing_metadata.exif,
         path,
@@ -545,13 +664,54 @@ fn pasted_metadata(
         style,
         size,
         lens_db,
+        in_cloud,
     )?;
     Ok(existing_metadata)
+}
+
+/// What a batch edit of a photograph whose original is only in the cloud
+/// (an evicted placeholder; reading it makes macOS download it) cannot do
+/// without the file: Err naming it, so the photograph is left as it is and
+/// the photographer downloads it and applies again. (A lens choice the paste
+/// changes is checked once the settings are merged, `pasted_into_with`.)
+fn cloud_gate(
+    path: &str,
+    source_path: &Path,
+    metadata: &ImageMetadata,
+    adjustments: &Value,
+    size: Option<(f64, f64)>,
+) -> Result<(), String> {
+    // The camera's crop and the camera's develop defaults come from the file.
+    if crate::image_processing::is_new_recipe(&metadata.adjustments) {
+        return Err(cloud_refusal(
+            path,
+            "the camera's crop and defaults of its first edit",
+        ));
+    }
+    // Lightroom gradients and brushes are placed in the photo's pixels.
+    if size.is_none() && adjustments.to_string().contains("lrNormalized") {
+        return Err(cloud_refusal(path, "a preset's gradients and brushes"));
+    }
+    // Whether a TIFF is a camera's RAW is read from the file; the tone
+    // settings pasted into it depend on that.
+    if source_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("tif") || e.eq_ignore_ascii_case("tiff"))
+    {
+        return Err(cloud_refusal(path, "settings to a TIFF"));
+    }
+    Ok(())
+}
+
+fn cloud_refusal(path: &str, what: &str) -> String {
+    format!("{path}: original is in the cloud — download it to apply {what}")
 }
 
 /// `base` (a photograph's recipe) with `adjustments` pasted as
 /// `apply_adjustments_to_paths` pastes them (`pasted_metadata`); the editor's
 /// `pasteInto` pastes onto the open photograph by the same rules.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn pasted_into(
     base: Value,
@@ -563,6 +723,35 @@ fn pasted_into(
     style: Option<&StyleOp>,
     size: Option<(f64, f64)>,
     lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
+) -> Result<Value, String> {
+    pasted_into_with(
+        base,
+        exif,
+        path,
+        source_path,
+        adjustments,
+        paste,
+        style,
+        size,
+        lens_db,
+        false,
+    )
+}
+
+/// `pasted_into`; `in_cloud`: the original cannot be read (`cloud_gate`), so
+/// a lens choice the paste changes is resolved from cached EXIF only.
+#[allow(clippy::too_many_arguments)]
+fn pasted_into_with(
+    base: Value,
+    exif: &Option<HashMap<String, String>>,
+    path: &str,
+    source_path: &Path,
+    adjustments: &Value,
+    paste: Option<&PasteFrom>,
+    style: Option<&StyleOp>,
+    size: Option<(f64, f64)>,
+    lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
+    in_cloud: bool,
 ) -> Result<Value, String> {
     use rawtonic_engine::applied_style;
     // Taking back a style the photograph does not have as its last: unchanged.
@@ -622,7 +811,8 @@ fn pasted_into(
                 recipe: &new_adjustments,
                 is_new: new_edit,
                 is_raw: is_raw_file(source_path),
-                replace_layers: paste.is_none_or(|from| from.replace_layers),
+                // A preset's layers join the photograph's own.
+                replace_layers: paste.is_some_and(|from| from.replace_layers),
                 merge_groups: style.is_some(),
             },
         );
@@ -650,13 +840,18 @@ fn pasted_into(
                     from.replace_layers,
                     &mut || uuid::Uuid::new_v4().to_string(),
                 ),
-                None if k == masks::MASKS.name() => {
-                    let mut layers = v.clone();
-                    rawtonic_engine::masks::prepare_layers_for_photo(&mut layers, &mut || {
-                        uuid::Uuid::new_v4().to_string()
-                    });
-                    layers
-                }
+                // A preset's or style's layers join the photograph's own
+                // (as Lightroom adds a preset's masks; coordinator decision
+                // APR1 2026-11-21): a layer of the same id replaces its
+                // earlier copy (applied again: updated, not doubled); their
+                // AI detections wait for this photograph's.
+                None if k == masks::MASKS.name() => rawtonic_engine::masks::paste_layers(
+                    new_map.get(masks::MASKS.name()).unwrap_or(&Value::Null),
+                    v,
+                    false,
+                    false,
+                    &mut || uuid::Uuid::new_v4().to_string(),
+                ),
                 // A style's groups join the photograph's own settings.
                 _ if style.is_some() => {
                     applied_style::merged(&mut vec![k.clone()], new_map.get(k), v)
@@ -682,15 +877,42 @@ fn pasted_into(
     // masks stay on its content.
     crate::mask_generation::keep_drawn_masks_on_photo(&previous, &mut new_adjustments, size);
 
-    resolve_lens_params_in_adjustments(
-        &mut new_adjustments,
-        LensLookup::Keep {
-            previous: Some(&previous),
-        },
-        exif,
-        lens_db,
-        source_path,
-    );
+    // An evicted original is not read for its lens: a lens choice that stays
+    // is kept, a changed one needs cached EXIF (and not the camera's own
+    // data, which is in the file).
+    let lens_changed = rawtonic_engine::lens_recipe::lens_profile_stamp(&previous)
+        != rawtonic_engine::lens_recipe::lens_profile_stamp(&new_adjustments);
+    if in_cloud && lens_changed {
+        let mode = new_adjustments
+            .get(lens::CORRECTION_MODE.name())
+            .and_then(Value::as_str);
+        let named = |key: &str| {
+            new_adjustments
+                .get(key)
+                .and_then(Value::as_str)
+                .is_some_and(|name| !name.is_empty())
+        };
+        // Looked up (auto, or a named lens) needs the EXIF; the camera's own
+        // data needs the file; turning the correction off or manual with
+        // no lens only clears.
+        let camera_data = mode == Some(rawtonic_engine::embedded_lens::CAMERA_MODE);
+        let lookup =
+            mode == Some("auto") || (named(lens::MAKER.name()) && named(lens::MODEL.name()));
+        if camera_data || (lookup && exif.is_none()) {
+            return Err(cloud_refusal(path, "the lens correction"));
+        }
+    }
+    if !in_cloud || lens_changed {
+        resolve_lens_params_in_adjustments(
+            &mut new_adjustments,
+            LensLookup::Keep {
+                previous: Some(&previous),
+            },
+            exif,
+            lens_db,
+            source_path,
+        );
+    }
     if let (Some(op), Some(reverted)) = (style.filter(|op| !op.remove), reverted.as_ref()) {
         applied_style::record(reverted, &mut new_adjustments, adjustments, &op.id, 100.0);
     }
@@ -808,14 +1030,18 @@ pub async fn replace_recipes(
         .into_iter()
         .map(|c| (c.path, c.adjustments))
         .collect();
-    Ok(recorded_batch(app_handle, paths, move |app_handle, paths| {
+    let batch = recorded_batch(app_handle, paths, move |app_handle, paths| {
         edit_sidecars_recorded(paths, xmp_sync(app_handle), |path, _, sidecar_path| {
             let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
             metadata.adjustments = by_path.get(path).ok_or("no recipe")?.clone();
             Ok(metadata)
         })
     })
-    .await)
+    .await;
+    // An undo or redo of a batch apply brings back recipes from before
+    // their selections were computed: computed again.
+    queue_selections(&batch);
+    Ok(batch)
 }
 
 #[tauri::command]
@@ -889,6 +1115,9 @@ pub struct RecipeWrite {
     pub before: Vec<RecipeValues>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure: Option<SaveFailure>,
+    /// As [`RecipeBatch::unwritten`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unwritten: Option<String>,
 }
 
 /// Sets per photo its own top-level recipe values (series match, and the
@@ -904,7 +1133,7 @@ pub async fn set_recipe_values(
         changes.into_iter().map(|c| (c.path, c.values)).collect();
     let before = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let written = before.clone();
-    let result = save_then_regenerate(app_handle, paths, move |app_handle, paths| {
+    let (result, unwritten) = save_then_regenerate(app_handle, paths, move |app_handle, paths| {
         edit_sidecars(
             paths,
             xmp_sync(app_handle),
@@ -928,7 +1157,11 @@ pub async fn set_recipe_values(
     if let Some(failure) = &failure {
         before.retain(|b| !failure.failed.contains(&b.path));
     }
-    Ok(RecipeWrite { before, failure })
+    Ok(RecipeWrite {
+        before,
+        failure,
+        unwritten,
+    })
 }
 
 /// Sets `values` in `recipe` (`null` removes a key) and returns the values
@@ -1217,22 +1450,14 @@ impl SaveFailure {
             return Ok(());
         }
         failures.sort();
-        const SHOWN: usize = 3;
-        let mut listed: Vec<String> = failures
-            .iter()
-            .take(SHOWN)
-            .map(|(path, error)| format!("{path}: {error}"))
-            .collect();
-        if failures.len() > SHOWN {
-            listed.push(format!("and {} more", failures.len() - SHOWN));
-        }
+        let listed = listed_errors(&failures);
         let what = if total == 1 {
             "the photo".to_string()
         } else {
             format!("{} of {total} photos", failures.len())
         };
         Err(SaveFailure {
-            message: format!("Could not save {what}: {}", listed.join("; ")),
+            message: format!("Could not save {what}: {listed}"),
             failed: failures.into_iter().map(|(path, _)| path).collect(),
             culling: Vec::new(),
             keywords: Vec::new(),
@@ -1242,10 +1467,14 @@ impl SaveFailure {
 
 /// Writes `metadata` as the editor sidecar of the virtual path `path`.
 fn save_sidecar(path: &str, metadata: &ImageMetadata) -> Result<(), String> {
+    write_sidecar(path, metadata).map_err(|e| e.to_string())
+}
+
+/// `save_sidecar` with the write's error as it is (`saved_in_library`).
+fn write_sidecar(path: &str, metadata: &ImageMetadata) -> std::io::Result<()> {
     let (_, sidecar_path) = parse_virtual_path(path);
-    let json_string = serde_json::to_string_pretty(metadata).map_err(|e| e.to_string())?;
+    let json_string = serde_json::to_string_pretty(metadata).map_err(std::io::Error::other)?;
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json_string)
-        .map_err(|e| e.to_string())
 }
 
 static SIDECAR_FIELD_EDITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -1819,11 +2048,11 @@ mod tests {
                 Ok(metadata)
             }
         };
-        let (first, failures) = edit_sidecars_recorded(&paths, None, edited(0.5));
-        assert!(failures.is_empty(), "{failures:?}");
+        let (first, edits) = edit_sidecars_recorded(&paths, None, edited(0.5));
+        assert!(edits.failures.is_empty(), "{edits:?}");
         assert_eq!(first.len(), 2);
-        let (changes, failures) = edit_sidecars_recorded(&paths, None, edited(1.5));
-        assert_eq!(failures.len(), 1);
+        let (changes, edits) = edit_sidecars_recorded(&paths, None, edited(1.5));
+        assert_eq!(edits.failures.len(), 1);
         assert_eq!(changes.len(), 1);
         let change = &changes[0];
         assert_eq!(change.path, paths[0]);
@@ -1835,19 +2064,176 @@ mod tests {
             change.after,
             serde_json::json!({"exposure": 1.5, "contrast": 5})
         );
-        let (restored, failures) =
-            edit_sidecars_recorded(&paths[..1], None, |_, _, sidecar_path| {
-                let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
-                metadata.adjustments = change.before.clone();
-                Ok(metadata)
-            });
-        assert!(failures.is_empty());
+        let (restored, edits) = edit_sidecars_recorded(&paths[..1], None, |_, _, sidecar_path| {
+            let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+            metadata.adjustments = change.before.clone();
+            Ok(metadata)
+        });
+        assert!(edits.failures.is_empty());
         assert_eq!(restored[0].after, change.before);
         let (_, sidecar_path) = parse_virtual_path(&paths[0]);
         assert_eq!(
             crate::exif_processing::load_sidecar(&sidecar_path).adjustments,
             change.before
         );
+    }
+
+    /// A batch edit (a Library reset or paste on a closed photo) in a
+    /// library whose photo folder is write-protected: the library commits
+    /// it, the sidecar beside the photo cannot be written. The edit is
+    /// saved, so it keeps its undo step and is reported as saved with the
+    /// sidecar unwritten, not as a failure; the original is untouched.
+    #[cfg(unix)]
+    #[test]
+    fn a_batch_edit_saved_in_the_library_keeps_its_undo_when_the_folder_is_write_protected() {
+        use rawtonic_catalog::{Library, Mode};
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Write-protected", Mode::Session).unwrap();
+        let capture = temp.path().join("Capture");
+        let source = capture.join("a.jpg");
+        fs::write(&source, b"synthetic original").unwrap();
+        let path = source.to_string_lossy().into_owned();
+        let paths = vec![path.clone()];
+        let edited = |exposure: f64| {
+            move |_: &str, _: &Path, sidecar: &Path| {
+                let mut metadata = crate::exif_processing::load_sidecar(sidecar);
+                metadata.adjustments = serde_json::json!({"exposure": exposure});
+                Ok(metadata)
+            }
+        };
+        let (_, edits) = edit_sidecars_recorded(&paths, None, edited(0.5));
+        assert!(
+            edits.failures.is_empty() && edits.unwritten.is_empty(),
+            "{edits:?}"
+        );
+        let (_, sidecar) = parse_virtual_path(&path);
+        let sidecar_before = fs::read(&sidecar).unwrap();
+
+        fs::set_permissions(&capture, fs::Permissions::from_mode(0o555)).unwrap();
+        let (changes, edits) = edit_sidecars_recorded(&paths, None, edited(1.5));
+        fs::set_permissions(&capture, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(edits.failures.is_empty(), "{edits:?}");
+        assert_eq!(edits.unwritten.len(), 1, "{edits:?}");
+        assert_eq!(changes.len(), 1, "its undo step");
+        assert_eq!(changes[0].before["exposure"], 0.5);
+        assert_eq!(changes[0].after["exposure"], 1.5);
+        let asset = lib.asset_at(&source).unwrap().unwrap();
+        assert_eq!(
+            lib.editor_state(&asset.id).unwrap().unwrap()["adjustments"]["exposure"],
+            1.5
+        );
+        let note = edits.unwritten_note(1).unwrap();
+        assert!(
+            note.starts_with(
+                "Saved in the library; the sidecar file next to the photo could not be written: "
+            ),
+            "{note}"
+        );
+        assert_eq!(fs::read(&source).unwrap(), b"synthetic original");
+        assert_eq!(fs::read(&sidecar).unwrap(), sidecar_before);
+    }
+
+    /// A virtual copy in a write-protected folder: while the photograph is
+    /// there its recipe is read from its sidecar file (`read_editor_sidecar`),
+    /// so an edit the file did not get is not saved, whatever the library
+    /// holds: it fails and records no undo step; what export reads stays
+    /// the recipe before.
+    #[cfg(unix)]
+    #[test]
+    fn a_batch_edit_of_a_virtual_copy_the_folder_refuses_is_not_saved() {
+        use rawtonic_catalog::{Library, Mode};
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Write-protected copy", Mode::Session).unwrap();
+        let capture = temp.path().join("Capture");
+        let source = capture.join("a.jpg");
+        fs::write(&source, b"synthetic original").unwrap();
+        let copy = format!("{}?vc=c0ffee", source.to_string_lossy());
+        let paths = vec![copy.clone()];
+        let edited = |exposure: f64| {
+            move |_: &str, _: &Path, sidecar: &Path| {
+                let mut metadata = crate::exif_processing::load_sidecar(sidecar);
+                metadata.adjustments = serde_json::json!({"exposure": exposure});
+                Ok(metadata)
+            }
+        };
+        let (_, edits) = edit_sidecars_recorded(&paths, None, edited(0.5));
+        assert!(
+            edits.failures.is_empty() && edits.unwritten.is_empty(),
+            "{edits:?}"
+        );
+
+        fs::set_permissions(&capture, fs::Permissions::from_mode(0o555)).unwrap();
+        let (changes, edits) = edit_sidecars_recorded(&paths, None, edited(1.5));
+        fs::set_permissions(&capture, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(edits.failures.len(), 1, "{edits:?}");
+        assert!(edits.unwritten.is_empty(), "{edits:?}");
+        assert!(changes.is_empty(), "no undo step for an edit not saved");
+        let (_, sidecar) = parse_virtual_path(&copy);
+        assert_eq!(
+            crate::exif_processing::load_sidecar(&sidecar).adjustments["exposure"],
+            0.5
+        );
+        // The library holds the recipe before too: a relink writes the
+        // copy's sidecar from it (`rederive_copies`).
+        let asset = lib.asset_at(&source).unwrap().unwrap();
+        assert_eq!(
+            lib.copy_state(&asset.id, "c0ffee").unwrap().unwrap()["adjustments"]["exposure"],
+            0.5
+        );
+        assert_eq!(fs::read(&source).unwrap(), b"synthetic original");
+    }
+
+    /// A virtual copy in a folder that takes writes but cannot be read (so
+    /// it cannot be synced after the replace): the sidecar holds the edit,
+    /// which export reads, so it is saved, with its undo step, and the
+    /// library keeps the same recipe for a relink.
+    #[cfg(unix)]
+    #[test]
+    fn a_virtual_copy_written_into_a_folder_that_cannot_be_read_is_saved() {
+        use rawtonic_catalog::{Library, Mode};
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Unreadable folder", Mode::Session).unwrap();
+        let capture = temp.path().join("Capture");
+        let source = capture.join("a.jpg");
+        fs::write(&source, b"synthetic original").unwrap();
+        let copy = format!("{}?vc=c0ffee", source.to_string_lossy());
+        let paths = vec![copy.clone()];
+        let edited = |exposure: f64| {
+            move |_: &str, _: &Path, sidecar: &Path| {
+                let mut metadata = crate::exif_processing::load_sidecar(sidecar);
+                metadata.adjustments = serde_json::json!({"exposure": exposure});
+                Ok(metadata)
+            }
+        };
+        let (_, edits) = edit_sidecars_recorded(&paths, None, edited(0.5));
+        assert!(
+            edits.failures.is_empty() && edits.unwritten.is_empty(),
+            "{edits:?}"
+        );
+
+        fs::set_permissions(&capture, fs::Permissions::from_mode(0o300)).unwrap();
+        let (changes, edits) = edit_sidecars_recorded(&paths, None, edited(1.5));
+        fs::set_permissions(&capture, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (_, sidecar) = parse_virtual_path(&copy);
+        let asset = lib.asset_at(&source).unwrap().unwrap();
+        let file = crate::exif_processing::load_sidecar(&sidecar).adjustments["exposure"].clone();
+        let library =
+            lib.copy_state(&asset.id, "c0ffee").unwrap().unwrap()["adjustments"]["exposure"]
+                .clone();
+        assert_eq!(
+            file, library,
+            "the file and the library hold the same recipe"
+        );
+        assert!(edits.failures.is_empty(), "{edits:?}");
+        assert_eq!(file, 1.5);
+        assert_eq!(changes.len(), 1, "its undo step");
+        assert_eq!(fs::read(&source).unwrap(), b"synthetic original");
     }
 
     fn successful_targets(
@@ -2730,7 +3116,8 @@ mod tests {
             let mut metadata = crate::exif_processing::load_sidecar(sidecar);
             metadata.adjustments = serde_json::json!({"exposure": 0.5});
             Ok(metadata)
-        });
+        })
+        .failures;
         assert!(failures.is_empty(), "{failures:?}");
         let written = read(&sidecar);
         assert_eq!(written["tags"], serde_json::json!(["user:b"]));
@@ -2890,6 +3277,49 @@ mod tests {
         (temp, paths)
     }
 
+    /// A camera TIFF's edit made on its thumbnail is moved to the full frame
+    /// when a batch edit changes it: Processing Versions pasted from a RAW
+    /// would otherwise make it read as made on the full frame (TIFR2 open
+    /// case 2). A refused edit writes nothing.
+    #[test]
+    fn a_batch_edit_moves_a_thumbnail_edit_first() {
+        use rawtonic_engine::recipe_frame;
+        let (_temp, paths) = session_with_photos(1);
+        let (source, sidecar) = parse_virtual_path(&paths[0]);
+        recipe_frame::pretend_frames(
+            &source,
+            recipe_frame::TiffFrames {
+                thumbnail: (288, 192),
+                full: (2496, 1662),
+            },
+        );
+        let legacy = serde_json::json!({"version": 1, "rating": 0, "tags": [], "adjustments": {
+            "exposure": 0.1, "crop": {"x": 10.0, "y": 10.0, "width": 100.0, "height": 80.0}}});
+        crate::session_bridge::write_editor_sidecar(&sidecar, serde_json::to_vec(&legacy).unwrap())
+            .unwrap();
+        let failed = edit_sidecars(&paths, None, |_, _, sidecar| {
+            let mut metadata = crate::exif_processing::load_sidecar(sidecar);
+            metadata.adjustments["fringeVersion"] = serde_json::json!(6);
+            Ok(metadata)
+        })
+        .failures;
+        assert!(failed.is_empty(), "{failed:?}");
+        let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert_eq!(saved["fringeVersion"], 6);
+        assert_eq!(recipe_frame::stamped(&saved), Some((2496.0, 1662.0)));
+        let width = saved["crop"]["width"].as_f64().unwrap();
+        assert!((width - 100.0 * 2496.0 / 288.0).abs() < 1e-6, "{width}");
+        // A refused edit leaves the sidecar as it was, not moved.
+        crate::session_bridge::write_editor_sidecar(&sidecar, serde_json::to_vec(&legacy).unwrap())
+            .unwrap();
+        let failed =
+            edit_sidecars(&paths, None, |_, _, _| Err("too many layers".to_string())).failures;
+        assert_eq!(failed.len(), 1);
+        let kept = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert_eq!(kept["crop"], legacy["adjustments"]["crop"]);
+        assert_eq!(recipe_frame::stamped(&kept), None);
+    }
+
     #[test]
     fn synced_layers_join_each_photographs_own_with_their_own_detection() {
         let (_temp, paths) = session_with_photos(2);
@@ -2912,7 +3342,8 @@ mod tests {
                 None,
                 None,
             )
-        });
+        })
+        .failures;
         assert!(failed.is_empty(), "{failed:?}");
         let (_, sidecar) = parse_virtual_path(&paths[1]);
         let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
@@ -2943,7 +3374,8 @@ mod tests {
                     None,
                 )
             },
-        );
+        )
+        .failures;
         assert!(failed.is_empty(), "{failed:?}");
         let (_, sidecar) = parse_virtual_path(&copy);
         let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
@@ -2990,7 +3422,8 @@ mod tests {
                 None,
                 None,
             )
-        });
+        })
+        .failures;
         assert!(failed.is_empty(), "{failed:?}");
         let new = crate::exif_processing::load_sidecar(&sidecar).adjustments;
         assert_eq!(
@@ -3039,7 +3472,8 @@ mod tests {
                 None,
                 None,
             )
-        });
+        })
+        .failures;
         assert!(failed.is_empty(), "{failed:?}");
         let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
         assert!(saved.get("whiteBalance").is_none());
@@ -3072,7 +3506,8 @@ mod tests {
                 None,
                 None,
             )
-        });
+        })
+        .failures;
         assert_eq!(failed.len(), 1);
         assert!(failed[0].1.contains("at most 32"), "{failed:?}");
         let (_, sidecar) = parse_virtual_path(&paths[0]);
@@ -3095,8 +3530,157 @@ mod tests {
                 None,
                 None,
             )
-        });
+        })
+        .failures;
         assert!(failed.is_empty(), "{failed:?}");
+    }
+
+    /// A JPEG whose only EXIF is Make "Cloud", for the EXIF reads of a photo.
+    fn jpeg_with_make() -> Vec<u8> {
+        let mut tiff = b"II*\0\x08\0\0\0\x01\0".to_vec();
+        tiff.extend([0x0f, 0x01, 2, 0, 6, 0, 0, 0, 0x1a, 0, 0, 0, 0, 0, 0, 0]);
+        tiff.extend(b"Cloud\0");
+        let mut app1 = b"Exif\0\0".to_vec();
+        app1.extend(tiff);
+        let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
+        jpeg.extend(((app1.len() + 2) as u16).to_be_bytes());
+        jpeg.extend(app1);
+        jpeg.extend([0xff, 0xd9]);
+        jpeg
+    }
+
+    fn in_cloud(path: &str) {
+        crate::file_management::simulate_cloud_placeholder(&parse_virtual_path(path).0);
+    }
+
+    #[test]
+    fn batch_apply_reads_the_exif_of_an_online_original_but_not_of_an_evicted_one() {
+        let (_temp, paths) = session_with_photos(2);
+        for path in &paths {
+            let (source, _) = parse_virtual_path(path);
+            fs::write(&source, jpeg_with_make()).unwrap();
+        }
+        in_cloud(&paths[1]);
+        let preset = serde_json::json!({"exposure": 1});
+        let apply = |path: &String| {
+            let (source, sidecar) = parse_virtual_path(path);
+            pasted_metadata(path, &source, &sidecar, &preset, None, None, None, None).unwrap()
+        };
+        let online = apply(&paths[0]);
+        assert_eq!(
+            online
+                .exif
+                .as_ref()
+                .and_then(|e| e.get("Make"))
+                .map(String::as_str),
+            Some("Cloud"),
+            "fixture has no readable EXIF: {:?}",
+            online.exif
+        );
+        // The evicted one is written with its recipe, without opening the file.
+        let evicted = apply(&paths[1]);
+        assert!(evicted.exif.is_none(), "{:?}", evicted.exif);
+        assert_eq!(evicted.adjustments["exposure"], 1);
+    }
+
+    #[test]
+    fn batch_apply_reports_what_needs_an_evicted_original_instead_of_downloading_it() {
+        let (_temp, paths) = session_with_photos(1);
+        let (source, sidecar) = parse_virtual_path(&paths[0]);
+        in_cloud(&paths[0]);
+        // Lightroom geometry is placed in the photo's pixels.
+        let gradient = serde_json::json!({"exposure": 1, "lrNormalized": true});
+        let error = pasted_metadata(
+            &paths[0], &source, &sidecar, &gradient, None, None, None, None,
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("original is in the cloud — download it to apply"),
+            "{error}"
+        );
+        assert!(error.contains("gradients"), "{error}");
+        // A camera's own lens data comes from the file.
+        let lens = serde_json::json!({"lensCorrectionMode": "camera"});
+        let error = pasted_metadata(&paths[0], &source, &sidecar, &lens, None, None, None, None)
+            .unwrap_err();
+        assert!(error.contains("original is in the cloud"), "{error}");
+        assert!(error.contains("lens"), "{error}");
+        // A first edit starts with the camera's crop, read from the file.
+        let fresh = ImageMetadata::default();
+        save_sidecar(&paths[0], &fresh).unwrap();
+        let error = pasted_metadata(
+            &paths[0],
+            &source,
+            &sidecar,
+            &serde_json::json!({"exposure": 1}),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(error.contains("original is in the cloud"), "{error}");
+        // Nothing was written for the photo.
+        assert!(
+            crate::exif_processing::load_sidecar(&sidecar)
+                .adjustments
+                .is_null()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn evicted_original_is_kept_open_for_a_lens_amount_a_saved_choice_and_a_batch_save() {
+        let (_temp, paths) = session_with_photos(1);
+        let (source, sidecar) = parse_virtual_path(&paths[0]);
+        // An edited photo with the camera's lens data resolved and stamped.
+        let mut lens = serde_json::json!({"exposure": 0.1, "lensCorrectionMode": "camera",
+            "lensDistortionParams": {"k1": 0.1}});
+        lens[LENS_PROFILE_FOR] = serde_json::json!(lens_profile_stamp(&lens));
+        let mut saved = crate::exif_processing::load_sidecar(&sidecar);
+        saved.adjustments = lens.clone();
+        save_sidecar(&paths[0], &saved).unwrap();
+        // Opened before (its fingerprint is remembered), evicted since.
+        assert!(!crate::session_bridge::note_file_opened(&source));
+        in_cloud(&paths[0]);
+        // Unreadable: any open of the original would fail the batch.
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o000)).unwrap();
+        let amount =
+            serde_json::json!({"lensCorrectionMode": "camera", "lensDistortionAmount": 50});
+        let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
+            pasted_metadata(path, source, sidecar, &amount, None, None, None, None)
+        })
+        .failures;
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(failed.is_empty(), "{failed:?}");
+        let after = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert_eq!(after["lensDistortionAmount"], 50);
+        // Lens correction off (manual, no lens) only clears: no EXIF needed.
+        let off = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": null, "lensModel": null});
+        let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
+            pasted_metadata(path, source, sidecar, &off, None, None, None, None)
+        })
+        .failures;
+        assert!(failed.is_empty(), "{failed:?}");
+        assert_eq!(after[LENS_PROFILE_FOR], lens[LENS_PROFILE_FOR]);
+    }
+
+    #[test]
+    fn evicted_camera_tiff_is_reported_for_a_paste() {
+        let metadata = ImageMetadata {
+            adjustments: serde_json::json!({"exposure": 0.1}),
+            ..Default::default()
+        };
+        let error = cloud_gate(
+            "/p/a.tif",
+            Path::new("/p/a.tif"),
+            &metadata,
+            &serde_json::json!({"blacks": -20}),
+            None,
+        )
+        .unwrap_err();
+        assert!(error.contains("original is in the cloud"), "{error}");
     }
 
     #[test]
@@ -3128,7 +3712,8 @@ mod tests {
                 serde_json::json!({"masks": [sky], "lutPath": null, "lutData": null, "crop": null});
             let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
                 pasted_metadata(path, source, sidecar, &preset, None, None, None, None)
-            });
+            })
+            .failures;
             assert!(failed.is_empty(), "{failed:?}");
             let mut ids = Vec::new();
             for path in &paths {
@@ -3137,7 +3722,15 @@ mod tests {
                 assert_eq!(saved.get("lutPath"), Some(&Value::Null));
                 assert_eq!(saved.get("lutData"), Some(&Value::Null));
                 assert_eq!(saved.get("crop"), Some(&Value::Null));
-                let sub = &saved["masks"][0]["subMasks"][0];
+                // Joined to the photo's own layers, once (applied again: replaced).
+                let preset_layers: Vec<&Value> = saved["masks"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|layer| layer["id"] == "preset-sky")
+                    .collect();
+                assert_eq!(preset_layers.len(), 1);
+                let sub = &preset_layers[0]["subMasks"][0];
                 assert!(sub["parameters"]["maskDataBase64"].is_null());
                 assert_eq!(sub["parameters"]["detectPending"], true);
                 assert_ne!(sub["id"], "preset-sky-c");
@@ -3146,6 +3739,54 @@ mod tests {
             assert_ne!(ids[0], ids[1]);
             assert_eq!(preset["masks"][0]["subMasks"][0]["id"], "preset-sky-c");
         }
+    }
+
+    #[test]
+    fn preset_layers_join_the_photos_own_and_replace_their_earlier_copy() {
+        // A built-in adaptive style on a photo with its own layer, twice:
+        // the photo keeps its layer, the style's layer is there once and
+        // waits for this photo's Sky selection (the selection queue).
+        let (_temp, paths) = session_with_photos(1);
+        let (_, sidecar) = parse_virtual_path(&paths[0]);
+        let own = crate::exif_processing::load_sidecar(&sidecar).adjustments["masks"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(!own.is_empty(), "the fixture photo has a layer of its own");
+        let builtins = super::super::presets::parse_builtin_presets(include_str!(
+            "../../resources/presets/builtin.json"
+        ))
+        .unwrap();
+        let sky = builtins
+            .iter()
+            .find(|p| p.id == "adaptive-sky-deeper")
+            .unwrap();
+        for _ in 0..2 {
+            let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
+                pasted_metadata(
+                    path,
+                    source,
+                    sidecar,
+                    &sky.adjustments,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            })
+            .failures;
+            assert!(failed.is_empty(), "{failed:?}");
+        }
+        let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        let masks = saved["masks"].as_array().unwrap();
+        assert_eq!(masks.len(), own.len() + 1);
+        assert_eq!(&masks[..own.len()], own.as_slice());
+        assert_eq!(masks[own.len()]["id"], "adaptive-sky");
+        assert_eq!(
+            masks[own.len()]["subMasks"][0]["parameters"]["detectPending"],
+            true
+        );
+        assert!(crate::selection_queue::wants_detection(&saved));
     }
 
     /// Timing of a sync of 100 library photographs (the recipe writes
@@ -3191,7 +3832,8 @@ mod tests {
                     None,
                     None,
                 )
-            });
+            })
+            .failures;
             assert!(failed.is_empty());
             runs.push(start.elapsed().as_secs_f64() * 1000.0);
         }
@@ -3707,7 +4349,8 @@ mod tests {
             let mut metadata = crate::exif_processing::load_sidecar(sidecar);
             metadata.adjustments = serde_json::json!({ "exposure": 1.5 });
             Ok(metadata)
-        });
+        })
+        .failures;
         assert_eq!(failures.len(), 1, "{failures:?}");
         assert_eq!(failures[0].0, paths[1]);
         let written = crate::exif_processing::load_sidecar(&tmp.path().join("A.jpg.rrdata"));
@@ -3840,7 +4483,8 @@ mod tests {
                 );
                 let failures = edit_sidecars(std::slice::from_ref(path), None, |_, _, sidecar| {
                     Ok(crate::exif_processing::load_sidecar(sidecar))
-                });
+                })
+                .failures;
                 assert!(failures.is_empty(), "{name} {place}: {failures:?}");
                 let loaded = crate::exif_processing::load_sidecar(&sidecar);
                 assert_eq!(loaded.adjustments, read, "{name} {place}: loaded");
@@ -3855,6 +4499,7 @@ mod tests {
                         metadata.adjustments = recipe.clone();
                         Ok(metadata)
                     });
+                let failures = failures.failures;
                 assert!(failures.is_empty(), "{name} {place}: {failures:?}");
                 assert_eq!(changes[0].before, read, "{name} {place}: before");
                 assert_eq!(changes[0].after, recipe, "{name} {place}: after");

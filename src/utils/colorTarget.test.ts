@@ -19,7 +19,10 @@ import {
   rangeCentre,
   renderedLab,
   solveColorTarget,
+  solveColorTargetMeasured,
   srgb8ToLinear,
+  MAX_CORRECTIONS,
+  meanDisplayLab,
   type Vec3
 } from './colorTarget';
 import { srgbToOklch } from './oklab';
@@ -303,5 +306,94 @@ describe('solveColorTarget', () => {
 
   it('returns null for an unknown range', () => {
     expect(solveColorTarget([rangeAt([1, 2, 3])], 'missing', [50, 0, 0])).toBeNull();
+  });
+});
+
+describe('closed loop on the measured result', () => {
+  const skin = rangeAt([160, 110, 95]);
+  const target = labOfSrgb([161, 105, 105]);
+  // The renderer as the model sees it, plus what the model leaves out (texture
+  // at the pick, a later tool): a constant offset in Lab.
+  const offsetRender =
+    (offset: Vec3, calls: ColorRange[][] = []) =>
+    async (ranges: ColorRange[]) => {
+      calls.push(ranges);
+      const lab = renderedLab(ranges, centreInput(skin));
+      return lab.map((v, k) => v + offset[k]) as Vec3;
+    };
+
+  it('corrects the sliders until the measured result reaches the target', async () => {
+    const calls: ColorRange[][] = [];
+    const open = solveColorTarget([skin], skin.id, target)!;
+    const render = offsetRender([2.5, -2, 1.5], calls);
+    const openMeasured = deltaE00(target, (await render([{ ...skin, ...open.shifts }]))!);
+    calls.length = 0;
+    const loop = (await solveColorTargetMeasured([skin], skin.id, target, null, render))!;
+    expect(openMeasured).toBeGreaterThan(2);
+    expect(loop.measured!.deltaE).toBeLessThan(0.5);
+    expect(loop.corrections).toBeGreaterThanOrEqual(1);
+    // The returned ranges are the ones measured, and their measurement is the one reported.
+    expect(calls).toContainEqual(loop.ranges);
+    expect(loop.measured!.deltaE).toBeCloseTo(deltaE00(target, (await render(loop.ranges))!), 6);
+  });
+
+  it('is bounded: at most the model solve and MAX_CORRECTIONS probes, fewer once the corrections’ time budget is used', async () => {
+    const calls: ColorRange[][] = [];
+    // A render that never comes near: each correction gets a little closer.
+    let n = 0;
+    const far = async (ranges: ColorRange[]) => {
+      calls.push(ranges);
+      n += 1;
+      const lab = renderedLab(ranges, centreInput(skin));
+      return [lab[0] + 20 - n, lab[1], lab[2]] as Vec3;
+    };
+    await solveColorTargetMeasured([skin], skin.id, target, null, far);
+    expect(calls.length).toBeLessThanOrEqual(MAX_CORRECTIONS + 1);
+    calls.length = 0;
+    n = 0;
+    let clock = 0;
+    await solveColorTargetMeasured(
+      [skin],
+      skin.id,
+      target,
+      null,
+      async (r) => {
+        clock += 100;
+        return far(r);
+      },
+      { now: () => clock }
+    );
+    // The budget runs from the first measurement (100 ms: the source may
+    // have had to load): the second probe ends within 120 ms of it, the
+    // third past it, so no fourth.
+    expect(calls.length).toBe(3);
+  });
+
+  it('keeps the best measured sliders when a correction measures worse', async () => {
+    let n = 0;
+    const loop = (await solveColorTargetMeasured([skin], skin.id, target, null, async (ranges) => {
+      n += 1;
+      const lab = renderedLab(ranges, centreInput(skin));
+      return (n === 1 ? [lab[0] + 1, lab[1], lab[2]] : [lab[0] + 9, lab[1], lab[2]]) as Vec3;
+    }))!;
+    expect(n).toBe(2);
+    expect(loop.corrections).toBe(0);
+    expect(loop.ranges[0].hueShift).toBe(solveColorTarget([skin], skin.id, target)!.shifts.hueShift);
+  });
+
+  it('falls back to the model solve, unmeasured, when the renderer cannot measure', async () => {
+    const loop = (await solveColorTargetMeasured([skin], skin.id, target, null, async () => null))!;
+    const model = solveColorTarget([skin], skin.id, target)!;
+    expect(loop.measured).toBeNull();
+    expect(loop.ranges[0]).toEqual({ ...skin, ...model.shifts });
+  });
+
+  it('averages display values as the pickers do', () => {
+    expect(meanDisplayLab([])).toBeNull();
+    const mean = meanDisplayLab([
+      [100, 100, 100],
+      [200, 200, 200]
+    ])!;
+    mean.forEach((v, k) => expect(v).toBeCloseTo(labOfSrgb([150, 150, 150])[k], 6));
   });
 });

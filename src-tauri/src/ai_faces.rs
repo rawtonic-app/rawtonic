@@ -87,6 +87,16 @@ pub struct PersonSummary {
 /// asked to download them (the frontend offers the download).
 pub(crate) const FACE_MODELS_MISSING: &str = "face-models-missing";
 
+/// Whether the face models are installed (verified), so a request that may
+/// not download them can load them.
+pub(crate) fn face_models_installed(app_handle: &tauri::AppHandle) -> bool {
+    crate::ai_processing::models_dir(app_handle).is_ok_and(|dir| {
+        MODEL_FILES.iter().all(|(file, sha)| {
+            crate::ai_processing::verify_sha256(&dir.join(file), sha).unwrap_or(false)
+        })
+    })
+}
+
 /// The face models, loaded once. `download`: fetch missing files from the
 /// model pack (an explicit request, PRIVACY.md); otherwise a missing file
 /// gives `FACE_MODELS_MISSING`.
@@ -141,6 +151,7 @@ async fn analysis(
     ai_state: &AiState,
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
+    download: bool,
 ) -> Result<(Arc<RgbImage>, Arc<FaceAnalysis>), CommandError> {
     // Keyed by the photo actually loaded, taken before the models load: a
     // photo switch meanwhile cannot file one photo's faces under another.
@@ -151,7 +162,7 @@ async fn analysis(
     {
         return Ok((c.image.clone(), c.analysis.clone()));
     }
-    let models = models(app_handle, true).await?;
+    let models = models(app_handle, download).await?;
     let is_raw = loaded.is_raw;
     let (app, adjustments) = (app_handle.clone(), js_adjustments.clone());
     let (image, analysis) = tokio::task::spawn_blocking(move || {
@@ -191,7 +202,7 @@ pub async fn detect_people(
     let ai_state = app_handle.state::<AiState>();
     ai_state.lifecycle.touch();
     let _running = ai_state.lifecycle.run();
-    let (image, analysis) = analysis(&state, &ai_state, &app_handle, &js_adjustments).await?;
+    let (image, analysis) = analysis(&state, &ai_state, &app_handle, &js_adjustments, true).await?;
     tokio::task::spawn_blocking(move || {
         let (w, h) = (analysis.width as f32, analysis.height as f32);
         analysis
@@ -231,6 +242,7 @@ pub async fn generate_ai_people_mask(
     flip_vertical: bool,
     orientation_steps: u8,
     task_id: Option<String>,
+    download: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AiPeopleMaskParameters, CommandError> {
@@ -245,7 +257,14 @@ pub async fn generate_ai_people_mask(
     if selected.is_empty() {
         return Err("No person parts selected".into());
     }
-    let (image, analysis) = analysis(&state, &ai_state, &app_handle, &js_adjustments).await?;
+    let (image, analysis) = analysis(
+        &state,
+        &ai_state,
+        &app_handle,
+        &js_adjustments,
+        download.unwrap_or(true),
+    )
+    .await?;
     if cancelled() {
         return Err(crate::ai_commands::task_cancelled());
     }
@@ -463,19 +482,7 @@ pub async fn apply_face_retouch_to_paths(
                     (image.width() as f64, image.height() as f64),
                 );
                 let frame = rawtonic_engine::face_retouch::frame_key(&recipe);
-                // The photo's own protection brush strokes stay (in the
-                // geometry they were painted in).
-                let protect = recipe
-                    .get("faceRetouch")
-                    .filter(|r| {
-                        r.get("frame")
-                            .and_then(serde_json::Value::as_str)
-                            .is_some_and(|stored| {
-                                rawtonic_engine::face_retouch::frame_matches(stored, &recipe)
-                            })
-                    })
-                    .and_then(|r| r.get("protect"))
-                    .cloned();
+                let protect = own_protection(&recipe)?;
                 let mut value = serde_json::json!({
                     "settings": settings,
                     "faces": faces,
@@ -550,10 +557,60 @@ pub async fn apply_face_retouch_to_paths(
     }
 }
 
+/// The target photo's own protection brush strokes, which stay through an
+/// apply. Strokes are one photo's face geometry: they are never taken from
+/// the source photo, and the target's own are kept only where they sit in
+/// its current geometry. Strokes painted in an earlier geometry cannot be
+/// carried here (the faces are found again in the current one), so the
+/// photo is not written rather than losing them. (The Retouch tab
+/// follows them through flips, turns and straightening only, so the user
+/// clears and paints them again rather than carrying a misplaced stroke.)
+fn own_protection(recipe: &serde_json::Value) -> Result<Option<serde_json::Value>, String> {
+    let Some(retouch) = recipe.get("faceRetouch") else {
+        return Ok(None);
+    };
+    let strokes = retouch
+        .get("protect")
+        .filter(|p| p.as_array().is_none_or(|strokes| !strokes.is_empty()));
+    let Some(strokes) = strokes.filter(|p| !p.is_null()) else {
+        return Ok(None);
+    };
+    let current = retouch
+        .get("frame")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|stored| rawtonic_engine::face_retouch::frame_matches(stored, recipe));
+    if current {
+        Ok(Some(strokes.clone()))
+    } else {
+        Err(
+            "its protection strokes were painted before its geometry changed; \
+             clear them in its Retouch tab (Clear under the protection brush) and \
+             paint them again if needed, then apply again"
+                .to_string(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use image::DynamicImage;
+
+    #[test]
+    fn own_protection_strokes_are_kept_only_in_the_geometry_they_were_painted_in() {
+        let strokes = serde_json::json!([{"points": [{"x": 1.0, "y": 2.0}], "radius": 4.0}]);
+        let mut recipe = serde_json::json!({"faceRetouch": {"protect": strokes}});
+        let frame = rawtonic_engine::face_retouch::frame_key(&recipe);
+        recipe["faceRetouch"]["frame"] = serde_json::json!(frame);
+        assert_eq!(own_protection(&recipe), Ok(Some(strokes)));
+        // A later flip: the strokes are not silently dropped.
+        recipe["flipHorizontal"] = serde_json::json!(true);
+        assert!(own_protection(&recipe).is_err());
+        // No strokes, nothing to keep or lose; the source's are never read.
+        recipe["faceRetouch"]["protect"] = serde_json::json!([]);
+        assert_eq!(own_protection(&recipe), Ok(None));
+        assert_eq!(own_protection(&serde_json::json!({})), Ok(None));
+    }
 
     #[test]
     fn face_settings_go_to_the_face_at_the_same_place() {

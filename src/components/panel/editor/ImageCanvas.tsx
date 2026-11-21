@@ -1816,6 +1816,7 @@ const ImageCanvas = memo(
     // on-screen rect maps the pointer as the pickers' clicks do.
     const imageRectRef = useRef<SVGSVGElement>(null);
     const splitView = useEditorStore((state) => state.splitView);
+    const whiteBalancePicker = useEditorStore((state) => state.isWbPickerActive && state.colorPickerTarget === null);
     // isWbPickerActive also covers the colour editor's picker (Editor.tsx).
     const pickerActive = isWbPickerActive || isLumaPickerActive || (!!tatTarget && isLevelsPicker(tatTarget));
     const pointerReadout = appSettings?.pointerReadout ?? false;
@@ -1831,7 +1832,27 @@ const ImageCanvas = memo(
       !showOriginal &&
       !splitView &&
       (pickerActive || pointerReadout);
-    usePointerSampling(canvasRootRef, imageRectRef, selectedImage.path, sampling, browserPreview, browserRegion);
+    usePointerSampling(
+      canvasRootRef,
+      imageRectRef,
+      selectedImage.path,
+      sampling,
+      browserPreview,
+      browserRegion,
+      whiteBalancePicker
+        ? (normalizedX, normalizedY, browserMean) =>
+            whiteBalanceForCurrentPreview({
+              image: selectedImage,
+              adjustments,
+              normalizedX,
+              normalizedY,
+              useWgpu: isWgpuActive,
+              finalPreviewUrl,
+              finalRegion: browserRegion,
+              browserMean
+            })
+        : undefined
+    );
     const brushGesture = useBrushGesture(
       canvasRootRef,
       Boolean(isBrushActive),
@@ -3477,7 +3498,13 @@ const ImageCanvas = memo(
             ))}
           </div>
         )}
-        {sampling && pickerActive && <PickerLoupe unit={readoutUnit} anchorRef={canvasRootRef} />}
+        {sampling && pickerActive && (
+          <PickerLoupe
+            unit={whiteBalancePicker ? 'percent' : readoutUnit}
+            anchorRef={canvasRootRef}
+            whiteBalance={whiteBalancePicker}
+          />
+        )}
         <div
           className="absolute inset-0 w-full h-full transition-opacity duration-200 flex items-center justify-center"
           style={{

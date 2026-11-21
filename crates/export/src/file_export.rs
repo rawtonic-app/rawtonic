@@ -147,6 +147,7 @@ pub struct FileExporter {
     render_inputs: Option<Arc<RenderInputs>>,
     /// Super Resolution's model; without it such exports fail.
     enlarger: Option<Arc<dyn Enlarger>>,
+    provenance: Option<Arc<crate::c2pa::SigningIdentity>>,
 }
 
 impl FileExporter {
@@ -171,6 +172,7 @@ impl FileExporter {
             selections: None,
             render_inputs: None,
             enlarger: None,
+            provenance: None,
         })
     }
 
@@ -190,6 +192,13 @@ impl FileExporter {
     }
 
     /// The model for exports with Super Resolution (`superResolution`).
+    /// Signs provenance manifests with `identity` for recipes that ask
+    /// for them (`ExportSettings::provenance`).
+    pub fn with_provenance(mut self, identity: Arc<crate::c2pa::SigningIdentity>) -> Self {
+        self.provenance = Some(identity);
+        self
+    }
+
     pub fn with_enlarger(mut self, enlarger: Arc<dyn Enlarger>) -> Self {
         self.enlarger = Some(enlarger);
         self
@@ -352,6 +361,7 @@ impl FileExporter {
                     catalog: &catalog,
                     write: &write,
                     enlarger: self.enlarger.as_deref(),
+                    provenance: self.provenance.as_deref(),
                 },
                 &|| Ok(()),
             )

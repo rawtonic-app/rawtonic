@@ -161,13 +161,17 @@ where
 /// Whether the open photograph's source `loaded` holds the pixels an
 /// export of `adjustments` on `source` develops: the same decode variant
 /// and the same AI Denoise (amount, version and so model). Anything else
-/// is decoded afresh.
+/// is decoded afresh, and so is anything developed under other decode
+/// preferences (linear RAW mode, preprocessing, Apple RAW 9).
 fn reusable_for_export(
     loaded: &crate::state::source::LoadedImage,
     adjustments: &Value,
     source: &str,
+    settings: &crate::app_settings::AppSettings,
 ) -> bool {
     loaded.decode == Some(crate::image_loader::decode_variant(adjustments, source))
+        && loaded.decoder.as_deref()
+            == Some(crate::image_loader::decode_preferences(settings).as_str())
         && loaded.ai_denoise
             == rawtonic_engine::image_loader::ai_denoise_settings(adjustments)
                 .filter(|_| loaded.is_raw)
@@ -696,6 +700,8 @@ fn save_image_with_metadata(
             catalog: &catalog,
             write: &write_export_bytes,
             enlarger: None,
+            // Mask images carry no manifest.
+            provenance: None,
         },
     )
 }
@@ -1642,28 +1648,57 @@ fn plan_output_path(
     Ok(output_path)
 }
 
-/// Keeps the selections an export computed in the photo's stored recipe,
-/// as opening it in Develop would (`ai_selections::keep_detected`), so the
-/// next export or the editor uses the same mask. Only components still as
-/// the export found them take it; a failure is logged, the export stands.
-/// The photo open in Develop is left to the editor, which computes and
-/// saves its own.
-fn keep_detected_selections(path: &str, detected: &[rawtonic_engine::ai_selections::Detected]) {
+/// Keeps the selections an export (or the selection queue) computed in the
+/// photo's stored recipe, as opening it in Develop would
+/// (`ai_selections::keep_detected`), so the next export or the editor uses
+/// the same mask. Only components still as the export found them, in the
+/// same geometry, take it. Returns whether the recipe changed. The photo open in Develop is left
+/// to the editor, which computes and saves its own.
+pub(crate) fn keep_detected_selections(
+    path: &str,
+    detected: &[rawtonic_engine::ai_selections::Detected],
+) -> Result<bool, String> {
+    if detected.is_empty() {
+        return Ok(false);
+    }
     let (source_path, sidecar_path) = parse_virtual_path(path);
     let _turn = crate::file_management::sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
-    if !rawtonic_engine::ai_selections::keep_detected(&mut metadata.adjustments, detected) {
-        return;
+    // An edit still to be moved from a camera TIFF's thumbnail to its full
+    // frame (`recipe_frame::conform`, done when the user saves): a bitmap of
+    // the full frame in it would read as made on the full frame, so nothing
+    // is kept; its export computes the selections again.
+    if needs_frame_migration(&metadata.adjustments, &source_path) {
+        return Ok(false);
     }
-    let written = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| e.to_string())
-        .and_then(|json| {
-            crate::session_bridge::write_editor_sidecar(&sidecar_path, json)
-                .map_err(|e| e.to_string())
-        });
-    if let Err(e) = written {
-        log::warn!("Export: keeping the AI selections of {path} failed: {e}");
+    // Its geometry as the detection saw it: prepared for a render as the
+    // export and the queue prepare it (version keys, the resolved lens),
+    // which a never-opened recipe may not hold yet.
+    let mut frame = metadata.adjustments.clone();
+    let _ = rawtonic_export::normalize::normalize(
+        &mut frame,
+        &rawtonic_export::normalize::RecipeSource::file(&source_path),
+        rawtonic_export::normalize::Bitmaps::None,
+        rawtonic_export::normalize::Defaults::Render,
+    );
+    if !rawtonic_engine::ai_selections::keep_detected_in(
+        &mut metadata.adjustments,
+        &frame,
+        detected,
+    ) {
+        return Ok(false);
     }
+    let json = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
+    crate::session_bridge::write_editor_sidecar(&sidecar_path, json)
+        .map_err(|e| format!("the selections could not be kept: {e}"))?;
+    Ok(true)
+}
+
+/// Whether `adjustments` is an edit of a camera TIFF still made on its
+/// thumbnail, which opening or rendering moves to the full frame
+/// (`recipe_frame::conform`) without writing it.
+pub(crate) fn needs_frame_migration(adjustments: &Value, source: &Path) -> bool {
+    rawtonic_engine::recipe_frame::conform(&mut adjustments.clone(), source)
 }
 
 /// What the naming tokens read about `original` for its export and rename
@@ -1817,7 +1852,7 @@ fn export_photo(
     let normalized = rawtonic_export::normalize::normalize(
         &mut js_adjustments,
         &rawtonic_export::normalize::RecipeSource::file(&source_path),
-        rawtonic_export::normalize::Bitmaps::Shared(&develop.patch_cache),
+        rawtonic_export::normalize::Bitmaps::Queued(&develop.patch_cache),
         rawtonic_export::normalize::Defaults::Render,
     );
     let versions = normalized.file_versions();
@@ -1912,7 +1947,9 @@ fn export_photo(
                 // Developed for the decode variant and the AI Denoise
                 // exported: the open photograph's may have changed since
                 // this export was queued.
-                .filter(|loaded| reusable_for_export(loaded, &js_adjustments, &source_path_str))
+                .filter(|loaded| {
+                    reusable_for_export(loaded, &js_adjustments, &source_path_str, settings)
+                })
                 .map(|loaded| (Arc::clone(&loaded.image), loaded.measures))
         } else {
             None
@@ -1945,8 +1982,8 @@ fn export_photo(
         drop(source_stage);
         Ok((pristine_source, measures))
     })();
-    // Sky and Subject selections the photo holds without their bitmap (it
-    // was never opened: an import, pasted settings) are computed as the
+    // AI selections the photo holds without their bitmap (it was never
+    // opened: an import, a preset, pasted settings) are computed as the
     // editor computes them when it opens, and kept in its recipe.
     let source = source.and_then(|(pristine_source, measures)| {
         let detected = rawtonic_engine::ai_selections::detect_missing(
@@ -1967,8 +2004,9 @@ fn export_photo(
         )
         .map_err(|e| format!("{source_path_str}: not exported, {e}"))?;
         ensure_export_not_cancelled(cancellation_token)?;
-        if !detected.is_empty() && !is_current_edit {
-            keep_detected_selections(image_path_str, &detected);
+        if !is_current_edit && let Err(e) = keep_detected_selections(image_path_str, &detected) {
+            // The export stands; its next export computes them again.
+            log::warn!("Export: keeping the AI selections of {image_path_str} failed: {e}");
         }
         let source =
             prepare_export_source(&source_path_str, pristine_source, measures, &js_adjustments)?
@@ -1997,6 +2035,12 @@ fn export_photo(
         render_inputs: None,
     };
     let enlarger = crate::super_resolution::ExportEnlarger { app_handle };
+    // Loaded only when a recipe of this photo asks for a manifest.
+    let provenance = targets
+        .iter()
+        .any(|target| target.export_settings.provenance.is_some())
+        .then(|| crate::provenance::identity_for_export(app_handle))
+        .flatten();
     // The develop of each kind of main file the recipes want: with its
     // mask layers, or without them when they go to separate files.
     let with_mask_files = |target: usize| targets[target].export_settings.export_masks;
@@ -2096,6 +2140,7 @@ fn export_photo(
                 catalog: &catalog,
                 write: &write_export_bytes,
                 enlarger: Some(&enlarger),
+                provenance: provenance.as_deref(),
             };
             let cancelled = || ensure_export_not_cancelled(cancellation_token);
             // A group renders at the first of its recipes still to be
@@ -2430,6 +2475,7 @@ pub async fn run_headless_export(
         subfolder: None,
         output_sharpening: None,
         super_resolution: false,
+        provenance: None,
     };
 
     let mut custom_adjustments = None;
@@ -2960,6 +3006,7 @@ mod tests {
         use crate::state::source::LoadedImage;
         use rawtonic_engine::image_loader::{ai_denoise_settings, decode_variant};
         let source = "/no-such-dir/open.raf";
+        let settings = crate::app_settings::AppSettings::default();
         let recipe = |amount: f64, version: u8| serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": version });
         let open = |recipe: &serde_json::Value, is_raw: bool| LoadedImage {
             path: source.to_string(),
@@ -2967,10 +3014,16 @@ mod tests {
             is_raw,
             decode: Some(decode_variant(recipe, source)),
             ai_denoise: ai_denoise_settings(recipe).filter(|_| is_raw),
+            decoder: Some(crate::image_loader::decode_preferences(&settings)),
             measures: None,
         };
         let queued = recipe(50.0, 4);
-        assert!(reusable_for_export(&open(&queued, true), &queued, source));
+        assert!(reusable_for_export(
+            &open(&queued, true),
+            &queued,
+            source,
+            &settings
+        ));
         for changed in [
             recipe(0.0, 4),
             recipe(30.0, 4),
@@ -2978,35 +3031,94 @@ mod tests {
             recipe(50.0, 1),
         ] {
             assert!(
-                !reusable_for_export(&open(&changed, true), &queued, source),
+                !reusable_for_export(&open(&changed, true), &queued, source, &settings),
                 "open at {changed}, export queued at {queued}"
             );
-            assert!(!reusable_for_export(&open(&queued, true), &changed, source));
+            assert!(!reusable_for_export(
+                &open(&queued, true),
+                &changed,
+                source,
+                &settings
+            ));
         }
         // An export develops the stored amount whether the photograph is
         // open or not: an old fine drag's 50.4 is not the open 50.
         assert!(!reusable_for_export(
             &open(&queued, true),
             &recipe(50.4, 4),
-            source
+            source,
+            &settings
         ));
         // The model could not be had when the photograph opened: its
         // pixels are undenoised, so an export with AI Denoise decodes.
         let undenoised = LoadedImage {
             ai_denoise: None,
+            decoder: None,
             ..open(&queued, true)
         };
-        assert!(!reusable_for_export(&undenoised, &queued, source));
+        assert!(!reusable_for_export(
+            &undenoised,
+            &queued,
+            source,
+            &settings
+        ));
         // Without AI Denoise either way the pixels are the same.
         let off = recipe(0.0, 4);
-        assert!(reusable_for_export(&open(&off, true), &off, source));
+        assert!(reusable_for_export(
+            &open(&off, true),
+            &off,
+            source,
+            &settings
+        ));
         // Other formats never run it: the slider does not matter.
         let tiff = LoadedImage {
             path: "/no-such-dir/open.tif".to_string(),
             decode: Some(decode_variant(&queued, "/no-such-dir/open.tif")),
             ..open(&queued, false)
         };
-        assert!(reusable_for_export(&tiff, &queued, "/no-such-dir/open.tif"));
+        assert!(reusable_for_export(
+            &tiff,
+            &queued,
+            "/no-such-dir/open.tif",
+            &settings
+        ));
+        // The open pixels were decoded under other preferences (linear RAW
+        // mode, preprocessing, Apple RAW 9): the export decodes afresh.
+        let open_now = open(&queued, true);
+        for changed in [
+            crate::app_settings::AppSettings {
+                linear_raw_mode: "linear".to_string(),
+                ..settings.clone()
+            },
+            crate::app_settings::AppSettings {
+                raw_preprocessing_sharpening: Some(0.9),
+                ..settings.clone()
+            },
+            crate::app_settings::AppSettings {
+                use_apple_raw9: Some(true),
+                ..settings.clone()
+            },
+        ] {
+            assert!(!reusable_for_export(&open_now, &queued, source, &changed));
+            // Of every format: the export never depends on which photo is open.
+            let tiff_open = LoadedImage {
+                path: "/no-such-dir/open.tif".to_string(),
+                decode: Some(decode_variant(&queued, "/no-such-dir/open.tif")),
+                ..open(&queued, false)
+            };
+            assert!(!reusable_for_export(
+                &tiff_open,
+                &queued,
+                "/no-such-dir/open.tif",
+                &changed
+            ));
+        }
+        // Preview data carries no preferences.
+        let preview = LoadedImage {
+            decoder: None,
+            ..open(&queued, true)
+        };
+        assert!(!reusable_for_export(&preview, &queued, source, &settings));
     }
 
     /// Exercise the app's layer export, including real PNG encoding and

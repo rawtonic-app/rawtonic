@@ -58,6 +58,7 @@ fn output<'a>(path: &'a Path, format: &'a str) -> ExportOutput<'a> {
         catalog: &no_catalog,
         enlarger: None,
         write: &write,
+        provenance: None,
     }
 }
 
@@ -301,4 +302,63 @@ fn a_group_writes_each_tiff_while_it_renders_with_the_bytes_of_its_render() {
     }
     assert!(!paths_of[0].exists());
     assert_eq!(files(&out), 2);
+}
+
+/// A TIFF recipe asking for a provenance manifest that cannot be signed (no
+/// signing identity) fails alone, before anything is rendered for it: the
+/// unsigned JPEG beside it still gets its render and its file.
+#[test]
+#[ignore = "needs a GPU"]
+fn an_unsignable_streaming_member_fails_alone() {
+    let context = GpuContext::headless().unwrap();
+    let processor = GpuProcessorSlot::new(None);
+    let cache = Mutex::new(None);
+    let tonemapper = |_raw: bool| None;
+    let lut = |_path: &str| None;
+    let env = RenderEnv {
+        context: &context,
+        processor: &processor,
+        image_cache: &cache,
+        tonemapper_override: &tonemapper,
+        load_lut: &lut,
+        render_inputs: None,
+    };
+    let adjustments = serde_json::json!({"exposure": 0.4});
+    let versions = rawtonic_engine::recipe_versions::RecipeVersions::of(&adjustments, false);
+    let source = ExportSource {
+        pristine: photo(),
+        patched: None,
+        measures: None,
+        library: None,
+    };
+    let prepared =
+        prepare_export_render(SOURCE, source, &adjustments, &versions, &env, false).unwrap();
+    let fixture = Fixture {
+        prepared,
+        recipe: adjustments,
+    };
+    use OutputColorSpace::Srgb;
+    use TiffBitDepth::{Eight, Sixteen};
+    let mut signed = recipe("tif", Srgb, Sixteen);
+    signed.settings.provenance = Some(Default::default());
+    let recipes = [signed, recipe("jpg", Srgb, Eight)];
+    let dir = tempfile::tempdir().unwrap();
+    let paths: Vec<PathBuf> = recipes
+        .iter()
+        .enumerate()
+        .map(|(index, recipe)| dir.path().join(format!("{index}.{}", recipe.format)))
+        .collect();
+    let renders = group(&env, &fixture, &recipes, &paths, 0);
+    assert_eq!(
+        renders.iter().map(kind).collect::<Vec<_>>(),
+        ["failed", "image"]
+    );
+    let mut renders = renders.into_iter();
+    let Some(GroupRender::Failed(error)) = renders.next() else {
+        unreachable!()
+    };
+    assert!(error.contains("no signing certificate"), "{error}");
+    assert!(!paths[0].exists());
+    let jpeg = file_of(renders.next().unwrap(), &fixture, &recipes[1], &paths[1]);
+    image::load_from_memory(&jpeg).unwrap();
 }

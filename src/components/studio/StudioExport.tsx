@@ -13,6 +13,7 @@ import { renderErrorMessage } from '../../utils/renderErrors';
 import OperationError from '../ui/OperationError';
 import { formatFileSize } from '../../utils/formatFileSize';
 import { ExportQueueJobs } from './StudioExportQueue';
+import StudioExportProvenance, { provenanceReady, useProvenanceIdentity } from './StudioExportProvenance';
 import { Invokes } from '../ui/AppProperties';
 import {
   BorderBasis,
@@ -184,6 +185,12 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       ? checked.map((recipe) => ({ recipe, draft: recipeDraft(recipe) }))
       : [{ recipe: editedRecipe, draft: form }]
   ).map((job) => ({ ...job, ...exportSettingsFromDraft(job.draft) }));
+
+  // Provenance (C2PA): every planned export that asks for a manifest needs a
+  // usable signing certificate and a format that carries one (the queue
+  // checks again for exports started elsewhere).
+  const provenance = useProvenanceIdentity(draft.provenance || planned.some((job) => job.draft.provenance));
+  const unsignable = planned.filter((job) => !provenanceReady(job.draft, provenance.identity));
 
   // Super Resolution's AI model, fetched once when an export would use it,
   // so the export itself downloads nothing.
@@ -416,10 +423,18 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   };
 
   const run = async () => {
-    if (!paths.length || choosing || (!checked.length && formInvalid)) return;
+    if (!paths.length || choosing || (!checked.length && formInvalid) || unsignable.length) return;
     setChoosing(true);
     try {
-      if (await runExportJobs(planned, paths)) onStarted?.();
+      // Signed with the certificate the panel showed: the queue refuses
+      // another one (replaced meanwhile).
+      const signer = provenance.identity?.fingerprint;
+      const jobs = planned.map((job) =>
+        job.settings.provenance && signer
+          ? { ...job, settings: { ...job.settings, provenance: { ...job.settings.provenance, signer } } }
+          : job
+      );
+      if (await runExportJobs(jobs, paths)) onStarted?.();
     } finally {
       setChoosing(false);
     }
@@ -457,7 +472,8 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       format ? formatLabel(format) : job.format,
       QUALITY_FORMATS.includes(job.format) && t('studio.export.plan.quality', { quality: job.quality }),
       job.resize ? `${t(`studio.export.sizing.modes.${job.resizeMode}`)} ${size}` : t('studio.export.plan.fullSize'),
-      subfolder ? `${where} / ${subfolder}` : where
+      subfolder ? `${where} / ${subfolder}` : where,
+      job.provenance && t('studio.export.provenance.planSigned')
     ]
       .filter(Boolean)
       .join(' · ');
@@ -961,6 +977,24 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
               </label>
             </fieldset>
           </details>
+          <StudioExportProvenance
+            draft={draft}
+            set={set}
+            disabled={choosing}
+            path={paths[0] ?? null}
+            signed={planned
+              .filter((job) => job.draft.provenance)
+              .map((job) => ({
+                key: job.recipe?.id ?? 'current',
+                label: job.recipe?.name ?? t('studio.export.recipes.current'),
+                settings: job.settings,
+                outputFormat: job.outputFormat
+              }))}
+            library={submittedFrom(session)}
+            identity={provenance.identity}
+            setIdentity={provenance.setIdentity}
+            loadError={provenance.error}
+          />
           <details className="studio-export-section">
             <summary>{t('studio.export.watermark.legend')}</summary>
             <fieldset disabled={choosing}>
@@ -1262,6 +1296,13 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             </p>
           )}
           {state.status === Status.Success && <p role="status">{t('studio.export.progress.complete')}</p>}
+          {unsignable.length > 0 && (
+            <p className="studio-export-error" role="alert">
+              {t('studio.export.provenance.blocked', {
+                recipes: unsignable.map((job) => job.recipe?.name ?? t('studio.export.recipes.current')).join(', ')
+              })}
+            </p>
+          )}
           <ExportQueueJobs />
         </div>
       </div>
@@ -1284,7 +1325,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
         )}
         <button
           type="submit"
-          disabled={!paths.length || choosing || (!checked.length && formInvalid)}
+          disabled={!paths.length || choosing || (!checked.length && formInvalid) || unsignable.length > 0}
           className="studio-export-submit"
         >
           {choosing

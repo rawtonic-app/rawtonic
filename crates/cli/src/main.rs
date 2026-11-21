@@ -337,6 +337,14 @@ struct ExportArgs {
     /// before any resize and output sharpening, as the app's export option.
     #[arg(long)]
     super_resolution: bool,
+    /// Sign a provenance manifest (C2PA) into each JPEG, PNG or TIFF with the
+    /// signing identity in DIR, as the app keeps it (its data folder's
+    /// `provenance/`, holding `signing-identity.json`).
+    #[arg(long, value_name = "DIR")]
+    provenance_identity: Option<PathBuf>,
+    /// With --provenance-identity: name the photo's creator as author.
+    #[arg(long, requires = "provenance_identity")]
+    provenance_author: bool,
     /// Face retouch for every photo: the sliders for all faces as JSON
     /// (`{"blemishes":60,"evenSkin":50}`, see docs/RECIPE_SCHEMA.md). The
     /// faces are found with the face models in --models (ONNX Runtime from
@@ -529,29 +537,102 @@ impl rawtonic_export::export_processing::Enlarger for SuperResolution {
     }
 }
 
-/// The Sky and Subject networks of the app's model folder, for selections
-/// an export computes (`ai_selections::detect_missing`).
-struct SelectionModels(rawtonic_segment::Models);
+/// The Sky, Subject, People and landscape networks of the app's model folder, for
+/// selections an export computes (`ai_selections::detect_missing`). Depth
+/// ranges are computed by the app only (its depth network is not in the
+/// CLI); a photo needing one fails, naming the layer.
+struct SelectionModels {
+    segment: rawtonic_segment::Models,
+    dir: PathBuf,
+    faces: std::sync::OnceLock<Result<rawtonic_faces::FaceModels, String>>,
+}
+
+impl SelectionModels {
+    fn new(dir: PathBuf) -> Self {
+        Self {
+            segment: rawtonic_segment::Models::new(&dir),
+            dir,
+            faces: std::sync::OnceLock::new(),
+        }
+    }
+}
 
 impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
     fn detect(
         &self,
         selection: rawtonic_engine::ai_selections::AutoSelection,
-        version: u32,
+        parameters: &serde_json::Value,
         warped: &image::DynamicImage,
         linear: bool,
     ) -> Result<String, String> {
-        use rawtonic_engine::ai_selections::AutoSelection;
+        use rawtonic_engine::ai_selections::{self as sel, AutoSelection};
         let mask = match selection {
-            AutoSelection::Sky => self.0.sky().and_then(|model| {
+            AutoSelection::Sky => self.segment.sky().and_then(|model| {
                 rawtonic_segment::run_sky_seg_model(warped, &model, linear, None)
             }),
-            AutoSelection::Subject => self.0.subject().and_then(|model| {
-                rawtonic_segment::subject_selection(warped, &model, linear, None, version)
+            AutoSelection::Subject => self.segment.subject().and_then(|model| {
+                rawtonic_segment::subject_selection(
+                    warped,
+                    &model,
+                    linear,
+                    None,
+                    sel::subject_version(parameters),
+                )
             }),
+            AutoSelection::People => {
+                let models = self
+                    .faces
+                    .get_or_init(|| {
+                        rawtonic_faces::FaceModels::load(&self.dir).map_err(|e| format!("{e:#}"))
+                    })
+                    .as_ref()
+                    .map_err(|e| format!("the face models are not available: {e}"))?;
+                let mask = rawtonic_faces::recipe::people_selection(
+                    warped,
+                    linear,
+                    models,
+                    &sel::people_parts(parameters),
+                    sel::people_person(parameters),
+                )?;
+                return rawtonic_segment::mask_data_url(&mask);
+            }
+            AutoSelection::Depth => {
+                return Err(
+                    "depth ranges are computed by the app (export the photo from the app)".into(),
+                );
+            }
+            AutoSelection::Landscape => {
+                let parts = sel::landscape_parts(parameters)
+                    .ok_or_else(|| "a Landscape selection without known parts".to_string())?;
+                return self
+                    .detect_landscape(&[parts], warped, linear)
+                    .map(|mut masks| masks.remove(0));
+            }
         }
         .map_err(|e| format!("{e:#}"))?;
         rawtonic_segment::mask_data_url(&mask)
+    }
+
+    fn detect_landscape(
+        &self,
+        sets: &[rawtonic_engine::ai_selections::LandscapeParts],
+        warped: &image::DynamicImage,
+        linear: bool,
+    ) -> Result<Vec<String>, String> {
+        let model = self.segment.landscape().map_err(|e| format!("{e:#}"))?;
+        let probabilities = rawtonic_segment::landscape_probabilities(warped, &model, linear, None)
+            .map_err(|e| format!("{e:#}"))?;
+        sets.iter()
+            .map(|set| {
+                let parts =
+                    rawtonic_segment::landscape_parts(&set.keys()).map_err(|e| format!("{e:#}"))?;
+                rawtonic_segment::mask_data_url(&rawtonic_segment::landscape_mask(
+                    (warped.width(), warped.height()),
+                    &probabilities,
+                    &parts,
+                ))
+            })
+            .collect()
     }
 }
 
@@ -1119,6 +1200,8 @@ fn export(args: ExportArgs) -> Result<()> {
         models,
         output_sharpening,
         super_resolution,
+        provenance_identity,
+        provenance_author,
         face_retouch,
         render_inputs,
         jobs: max_jobs,
@@ -1167,6 +1250,12 @@ fn export(args: ExportArgs) -> Result<()> {
         subfolder: None,
         output_sharpening,
         super_resolution,
+        provenance: provenance_identity.as_ref().map(|_| {
+            rawtonic_export::export_processing::ProvenanceSettings {
+                include_author: provenance_author,
+                signer: None,
+            }
+        }),
     };
 
     // (photo path, output) pairs. A folder exports every supported image below
@@ -1296,7 +1385,20 @@ fn export(args: ExportArgs) -> Result<()> {
     } else {
         exporter
     };
-    let exporter = with_recipe_models(exporter, models, &recipes);
+    let exporter = match &provenance_identity {
+        Some(dir) => {
+            let identity = rawtonic_export::c2pa::identity::load(dir)
+                .map_err(anyhow::Error::msg)?
+                .with_context(|| format!("No signing identity in {}", dir.display()))?;
+            exporter.with_provenance(std::sync::Arc::new(identity))
+        }
+        None => exporter,
+    };
+    let sources: Vec<PathBuf> = jobs
+        .iter()
+        .map(|(photo, _)| rawtonic_export::sidecars::parse_virtual_path(photo).0)
+        .collect();
+    let exporter = with_recipe_models(exporter, models, &recipes, &sources);
     let inputs = render_inputs
         .as_ref()
         .map(|_| rawtonic_export::render_inputs::RenderInputs::new());
@@ -1460,7 +1562,11 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
     let exporter =
         rawtonic_export::file_export::FileExporter::new(&lensfun_folder(args.lensfun_db)?)
             .map_err(anyhow::Error::msg)?;
-    let exporter = with_recipe_models(exporter, args.models, &recipes);
+    let sources: Vec<PathBuf> = photos
+        .iter()
+        .map(|photo| parse_virtual_path(photo).0)
+        .collect();
+    let exporter = with_recipe_models(exporter, args.models, &recipes, &sources);
     let cells_dir = tempfile::tempdir()?;
     let total = photos.len();
     let mut cells = Vec::with_capacity(total);
@@ -1558,6 +1664,7 @@ fn with_recipe_models(
     mut exporter: rawtonic_export::file_export::FileExporter,
     models: Option<PathBuf>,
     recipes: &[Option<serde_json::Value>],
+    sources: &[PathBuf],
 ) -> rawtonic_export::file_export::FileExporter {
     let ai_models: std::collections::BTreeSet<usize> = recipes
         .iter()
@@ -1571,20 +1678,22 @@ fn with_recipe_models(
             Err(e) => eprintln!("AI Denoise model {model} unavailable: {e:#}"),
         }
     }
-    // Sky and Subject selections a never-opened photo holds without their
-    // bitmap are computed with the app's models, as the app's export does;
-    // without the models those photos fail.
-    if recipes
-        .iter()
-        .flatten()
-        .any(|r| !rawtonic_engine::ai_selections::undetected(r).is_empty())
-    {
+    // Automatic selections a never-opened photo holds without their bitmap
+    // are computed with the app's models, as the app's export does; without
+    // the models those photos fail. So are those of a camera TIFF's edit made
+    // on its thumbnail, once moved to the full frame (`recipe_frame`).
+    if recipes.iter().zip(sources).any(|(recipe, source)| {
+        recipe.as_ref().is_some_and(|recipe| {
+            let mut recipe = recipe.clone();
+            rawtonic_engine::recipe_frame::conform(&mut recipe, source);
+            !rawtonic_engine::ai_selections::undetected(&recipe).is_empty()
+        })
+    }) {
         match models_dir(models.clone()) {
             Ok(dir) => {
                 ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);
-                exporter = exporter.with_selection_detector(std::sync::Arc::new(SelectionModels(
-                    rawtonic_segment::Models::new(dir),
-                )));
+                exporter = exporter
+                    .with_selection_detector(std::sync::Arc::new(SelectionModels::new(dir)));
             }
             Err(e) => eprintln!("AI selections unavailable: {e:#}"),
         }

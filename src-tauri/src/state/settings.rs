@@ -80,6 +80,7 @@ impl SettingsStore {
         migrate_settings(&mut next);
         persist_settings_file(&path, &next)?;
         publish_develop_defaults(&next);
+        crate::image_loader::publish_decode_preferences(&next);
         *write_recover(&self.current) = Some(Arc::new(next));
         Ok(Some(result))
     }
@@ -98,6 +99,7 @@ impl SettingsStore {
         self.file_loads.fetch_add(1, Ordering::Relaxed);
         let settings = Arc::new(load_settings_file(path)?);
         publish_develop_defaults(&settings);
+        crate::image_loader::publish_decode_preferences(&settings);
         *write_recover(&self.current) = Some(settings.clone());
         Ok(settings)
     }

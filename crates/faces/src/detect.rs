@@ -120,24 +120,40 @@ pub fn iou(a: &[f32; 4], b: &[f32; 4]) -> f32 {
 /// filling a portrait is found in the smaller pass.
 const PASSES: [f32; 2] = [1.0, 0.45];
 
-/// Faces in `image` (display-encoded sRGB), best first.
-pub fn detect(session: &mut Session, image: &RgbImage) -> Result<Vec<Detection>> {
+/// Faces in a photo `width` pixels wide (display-encoded sRGB), best
+/// first, from `inputs`, the photo made small for each of `PASSES`
+/// (`pass_inputs`).
+pub fn detect(session: &mut Session, width: u32, inputs: &[RgbImage; 2]) -> Result<Vec<Detection>> {
     let mut found = Vec::new();
-    for share in PASSES {
-        found.extend(pass(session, image, share)?);
+    for small in inputs {
+        found.extend(pass(session, width, small)?);
     }
     Ok(suppress(found))
 }
 
-fn pass(session: &mut Session, image: &RgbImage, share: f32) -> Result<Vec<Detection>> {
-    let (w, h) = image.dimensions();
-    let fit = (INPUT as f32 * share).round();
-    let scale = fit / w.max(h) as f32;
-    let (sw, sh) = (
-        ((w as f32 * scale).round() as u32).clamp(1, INPUT),
-        ((h as f32 * scale).round() as u32).clamp(1, INPUT),
-    );
-    let small = imageops::resize(image, sw, sh, FilterType::Triangle);
+/// The photo made small for each of `PASSES`. Both are made at once: each
+/// reads the whole photo (a third of the eye check's time per photo on a
+/// 33 MP camera JPEG), and they do not depend on each other. Made before
+/// the detector's session is taken: a thread waiting for Rayon while it
+/// holds the session could be given another photo's detection, which
+/// would wait for that session too.
+pub fn pass_inputs(image: &RgbImage) -> [RgbImage; 2] {
+    let small = |share: f32| {
+        let (w, h) = image.dimensions();
+        let fit = (INPUT as f32 * share).round();
+        let scale = fit / w.max(h) as f32;
+        let (sw, sh) = (
+            ((w as f32 * scale).round() as u32).clamp(1, INPUT),
+            ((h as f32 * scale).round() as u32).clamp(1, INPUT),
+        );
+        imageops::resize(image, sw, sh, FilterType::Triangle)
+    };
+    let (whole, part) = rayon::join(|| small(PASSES[0]), || small(PASSES[1]));
+    [whole, part]
+}
+
+fn pass(session: &mut Session, w: u32, small: &RgbImage) -> Result<Vec<Detection>> {
+    let sw = small.width();
     let n = INPUT as usize;
     let mut input = Array4::<f32>::zeros((1, 3, n, n));
     for (x, y, p) in small.enumerate_pixels() {
@@ -174,6 +190,22 @@ fn pass(session: &mut Session, image: &RgbImage, share: f32) -> Result<Vec<Detec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_pass_reads_the_photo_made_small_for_it() {
+        let image = RgbImage::from_fn(1500, 1000, |x, y| {
+            image::Rgb([(x % 251) as u8, (y % 241) as u8, ((x * y) % 239) as u8])
+        });
+        let [whole, part] = pass_inputs(&image);
+        assert_eq!(
+            whole,
+            imageops::resize(&image, 640, 427, FilterType::Triangle)
+        );
+        assert_eq!(
+            part,
+            imageops::resize(&image, 288, 192, FilterType::Triangle)
+        );
+    }
 
     #[test]
     fn decodes_a_cell_and_suppresses_its_neighbour() {

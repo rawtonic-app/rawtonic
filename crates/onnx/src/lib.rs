@@ -124,6 +124,8 @@ pub enum ModelKind {
     SamDecoder,
     /// UperNet + ConvNeXt-T sky segmentation.
     Sky,
+    /// The same network's landscape parts (mountains, water, …).
+    Landscape,
     /// Depth Anything V2 Small.
     Depth,
     /// Camera-aware relative geometry for Relight (DA3 Base).
@@ -155,11 +157,12 @@ pub enum ModelKind {
 }
 
 impl ModelKind {
-    pub const ALL: [ModelKind; 18] = [
+    pub const ALL: [ModelKind; 19] = [
         ModelKind::Subject,
         ModelKind::SamEncoder,
         ModelKind::SamDecoder,
         ModelKind::Sky,
+        ModelKind::Landscape,
         ModelKind::Depth,
         ModelKind::Relight,
         ModelKind::PeopleNormals,
@@ -182,6 +185,7 @@ impl ModelKind {
             ModelKind::SamEncoder => "sam-encoder",
             ModelKind::SamDecoder => "sam-decoder",
             ModelKind::Sky => "sky",
+            ModelKind::Landscape => "landscape",
             ModelKind::Depth => "depth",
             ModelKind::Relight => "relight",
             ModelKind::PeopleNormals => "people-normals",
@@ -207,11 +211,12 @@ impl ModelKind {
 
     /// The model a file of the model pack holds, by its name.
     pub fn from_file_name(name: &str) -> Option<Self> {
-        const PREFIXES: [(&str, ModelKind); 18] = [
+        const PREFIXES: [(&str, ModelKind); 19] = [
             ("birefnet", ModelKind::Subject),
             ("sam2.1_tiny_encoder", ModelKind::SamEncoder),
             ("sam2.1_tiny_decoder", ModelKind::SamDecoder),
             ("skyseg", ModelKind::Sky),
+            ("landscape_upernet", ModelKind::Landscape),
             ("depth_anything", ModelKind::Depth),
             ("relight_geometry", ModelKind::Relight),
             ("relight_people_normals", ModelKind::PeopleNormals),

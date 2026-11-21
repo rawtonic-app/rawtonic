@@ -904,3 +904,29 @@ it('adopts the library destination of the open loose photograph after ingest', a
   expect(handleImageSelect).toHaveBeenCalledWith('/library/Photos/a.dng', true);
   expect(useLibraryStore.getState().libraryActivePath).toBe('/library/Photos/a.dng');
 });
+
+it("marks the open RAW's source stale when decode preferences change", async () => {
+  renderHook(() =>
+    useTauriListeners({
+      refreshAllFolderTrees: vi.fn(),
+      handleSelectSubfolder: vi.fn(),
+      refreshImageList: vi.fn(),
+      markGenerated: vi.fn()
+    })
+  );
+  await vi.waitFor(() => expect(callbacks.has('decode-preferences-changed')).toBe(true));
+  const send = () => act(() => callbacks.get('decode-preferences-changed')!({ payload: null }));
+  useEditorStore.getState().setEditor({ selectedImage: { path: '/a.RAF', isRaw: true } as never });
+  send();
+  expect(useEditorStore.getState().selectedImage?.decoderStale).toBe(1);
+  // Each change is another revision (a develop under way is for the earlier one).
+  send();
+  expect(useEditorStore.getState().selectedImage?.decoderStale).toBe(2);
+  // Nothing to develop again for a photograph that is not a RAW, or none.
+  useEditorStore.getState().setEditor({ selectedImage: { path: '/a.jpg', isRaw: false } as never });
+  send();
+  expect(useEditorStore.getState().selectedImage?.decoderStale).toBeUndefined();
+  useEditorStore.getState().setEditor({ selectedImage: null });
+  send();
+  expect(useEditorStore.getState().selectedImage).toBeNull();
+});

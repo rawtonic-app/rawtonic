@@ -49,7 +49,7 @@ def err(a, b):
 def inputs_for(name, img, rng):
     if name == "birefnet_subject":
         return {"pixel_values": imagenet(img, 1024)}
-    if name == "skyseg_upernet_convnext_t":
+    if name in ("skyseg_upernet_convnext_t", "landscape_upernet_convnext_t"):
         return {"pixel_values": imagenet(img, 512)}
     if name == "depth_anything_v2_vits":
         return {"l_x_": imagenet(img, 518)}
@@ -86,7 +86,7 @@ def inputs_for(name, img, rng):
 
 
 def metrics(name, cpu, gpu, feeds):
-    if name in ("birefnet_subject", "skyseg_upernet_convnext_t"):
+    if name in ("birefnet_subject", "skyseg_upernet_convnext_t", "landscape_upernet_convnext_t"):
         return {"iou_0.5": iou(cpu[0] > 0.5, gpu[0] > 0.5), **err(cpu[0], gpu[0])}
     if name == "selfie_multiclass_256":
         return {"argmax_agree": float((cpu[0].argmax(-1) == gpu[0].argmax(-1)).mean()), **err(cpu[0], gpu[0])}

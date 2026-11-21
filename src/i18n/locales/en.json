@@ -5,11 +5,17 @@
       "depth": "AI mask: Depth",
       "foreground": "AI mask: Foreground",
       "inpaint": "Generative fill",
+      "landscape": "AI mask: Landscape",
       "object": "AI mask: Object",
       "other": "AI task",
       "people": "AI mask: People",
       "sky": "AI mask: Sky",
       "subject": "AI mask: Subject"
+    },
+    "aiSelections": {
+      "done": "AI selections computed for closed photos ({{total}})",
+      "failed": "AI selections not computed for {{failed}} of {{total}} photos",
+      "running": "Computing AI selections: {{done}} of {{total}} photos"
     },
     "batch": {
       "auto_one": "Auto adjustments: {{count}} photo",
@@ -491,7 +497,6 @@
       "confirmReset": "Confirm reset",
       "convertNegative": "Convert negative",
       "copyAdjustments": "Copy adjustments",
-      "cullImage": "Cull photo",
       "editImage": "Open in Develop",
       "exportImage": "Export photo",
       "frameImage": "Frame photo",
@@ -563,8 +568,6 @@
       "convertNegative_other": "Convert negatives",
       "copyImage_one": "Copy photo",
       "copyImage_other": "Copy {{count}} photos",
-      "cullImage_one": "Cull photo",
-      "cullImage_other": "Cull photos",
       "deleteAssociated": "Move associated files too",
       "deleteImage_one": "Move photo to Trash",
       "deleteImage_other": "Move {{count}} photos to Trash",
@@ -877,6 +880,10 @@
       "exporting": "Exporting…",
       "savesTo": "External edit — saves to"
     },
+    "frameMove": {
+      "action": "Move to full image",
+      "undecided": "This edit may have been made on the small preview this TIFF file showed before Rawtonic 0.1.0-alpha.17.1. If its crop and spots are in the wrong place, move them to the full image."
+    },
     "guided": {
       "cancel": "Cancel",
       "drawingActive": "Drawing Active",
@@ -950,6 +957,8 @@
         "maskName_other": "Mask {{count}}"
       },
       "rangeTitle": "Ranges & Global",
+      "recomputedFullFrame_one": "AI masks on {{count}} layer were recomputed for the full-resolution image. Undo brings back the earlier ones.",
+      "recomputedFullFrame_other": "AI masks on {{count}} layers were recomputed for the full-resolution image. Undo brings back the earlier ones.",
       "resetMaskingTooltip": "Reset Masking",
       "settings": {
         "aiModelDownloading": "AI Model Downloading: ",
@@ -1046,6 +1055,7 @@
       "flow": "Flow",
       "foreground": "Foreground",
       "heal": "Heal",
+      "landscape": "Landscape",
       "linear": "Linear",
       "liquify": "Liquify",
       "luminance": "Luminance",
@@ -1127,38 +1137,6 @@
       "create": "Create",
       "placeholder": "Enter folder name...",
       "title": "Create New Folder"
-    },
-    "culling": {
-      "actionDelete": "Move to Trash",
-      "actionRateZero": "Set Rating to 1 Stars",
-      "actionReject": "Mark as Rejected (Red Label)",
-      "applyButton_one": "Apply to 1 photo",
-      "applyButton_other": "Apply to {{count}} photos",
-      "bestImage": "Best Photo",
-      "blurryImagesTab": "Blurry Photos",
-      "blurThreshold": "Blur Threshold",
-      "blurThresholdDesc": "Photos with a sharpness score below this value are flagged. Higher is stricter.",
-      "cancel": "Cancel",
-      "close": "Close",
-      "cullingFailed": "Culling Failed",
-      "cullingSuggestions": "Culling Suggestions",
-      "done": "Done",
-      "duplicatesHeader": "Duplicates ({{count}})",
-      "duplicatesHeader_one": "Duplicates ({{count}})",
-      "duplicatesHeader_other": "Duplicates ({{count}})",
-      "filterBlurry": "Filter Blurry Photos",
-      "groupHeader": "Group {{index}}",
-      "groupSimilar": "Group Similar Photos",
-      "noIssuesDesc": "All photos seem to be unique and sharp.",
-      "noIssuesFound": "No issues found!",
-      "score": "Score: {{score}}",
-      "sharpness": "Sharpness: {{sharpness}}",
-      "similarGroupsTab": "Similar Groups",
-      "similarityThreshold": "Similarity Threshold",
-      "similarityThresholdDesc": "Lower is stricter (exact duplicates). Higher is looser (near duplicates). A value of 24-32 is recommended.",
-      "startCulling": "Start Culling",
-      "starting": "Starting...",
-      "title": "Cull Photos"
     },
     "merge": {
       "align": "Align photos",
@@ -2284,7 +2262,8 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
@@ -2305,9 +2284,11 @@
         "NegPy": "Inspiration for the negative conversion.",
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
         "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
+        "p12-keystore / RustCrypto": "Opening the PKCS#12 certificate file a provenance signing certificate is imported from.",
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "ring": "Signing of provenance (C2PA) manifests in exports: ECDSA, RSA-PSS and Ed25519 signatures, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
@@ -2315,6 +2296,7 @@
         "SQLite / rusqlite": "Library database, with a Rawtonic Windows WAL locking correction.",
         "Tauri bundler": "Windows NSIS installer template, adapted for side-by-side per-user and all-users installs.",
         "Tauri updater plugin": "Install update: fetches the release manifest and package, checks its signature and replaces the macOS app.",
+        "x509-parser": "Reading signing certificates (signer, validity, allowed uses).",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
         "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
@@ -2819,7 +2801,7 @@
       "done_one": "{{count}} stack made",
       "done_other": "{{count}} stacks made",
       "interval": "Time between photos",
-      "intro": "Photos taken at most this long after the one before share a stack. Photos already in a stack stay as they are.",
+      "intro": "Photos taken at most this long after the one before share a stack; with “Only photos that look alike” they must also show the same scene. Photos already in a stack stay as they are.",
       "kind": {
         "bracket_one": "{{count}} bracket",
         "bracket_other": "{{count}} brackets",
@@ -2836,9 +2818,13 @@
       "reading": "Counting…",
       "seconds_one": "{{count}} second",
       "seconds_other": "{{count}} seconds",
+      "similar": "Only photos that look alike",
+      "similarity": "Look alike at least",
       "single_one": "{{count}} photo stays single",
       "single_other": "{{count}} photos stay single",
       "title": "Auto-Stack by Capture Time",
+      "unread_one": "{{count}} photo not read yet is grouped by time alone",
+      "unread_other": "{{count}} photos not read yet are grouped by time alone",
       "useCameraData": "Use camera burst and bracket data when available"
     },
     "badge": {
@@ -3009,7 +2995,6 @@
         "target": {
           "blueAria": "Target blue (sRGB 0–255)",
           "chromaAria": "Target chroma C* (CIELAB D50)",
-          "distance": "ΔE00 {{value}} from the target.",
           "greenAria": "Target green (sRGB 0–255)",
           "grey": "This range is too gray to take a color.",
           "heading": "Target",
@@ -3024,14 +3009,20 @@
             "lightness": "lightness (×0.6–1.4)",
             "saturation": "saturation (0–200 %)"
           },
-          "outOfReach": "Out of reach: ΔE00 {{value}} left; {{limits}} at its limit.",
+          "measuredDistance": "ΔE00 {{value}} from the target, measured at the picked point.",
+          "measuredOutOfReach": "Out of reach: ΔE00 {{value}} left, measured at the picked point; {{limits}} at its limit.",
+          "measuredOutsideSrgb": "The target is outside sRGB: the sRGB result at the picked point stays ΔE00 {{value}} from it (measured).",
+          "measuredReached": "Target reached: ΔE00 {{value}}, measured at the picked point.",
+          "measuring": "Measuring the result at the picked point…",
+          "notMeasured": "Predicted ΔE00 {{value}} from the target; the result at the picked point cannot be measured with AI Denoise on.",
           "outsideSrgb": "The target is outside sRGB; an sRGB export maps the color into sRGB.",
           "outsideWorkingGamut": "The target is beyond the photo's working colours (ProPhoto): no colour of the photo can be it, the range goes as close as it can.",
           "pickAria": "Pick the target color",
           "pickedThrough": "Predicted ΔE00 {{value}} from the target, but this color was picked through the range's own strong change: check the result in the photo, or pick it again with the sliders at 0.",
           "pickTitle": "Pick the target color in the photo; this range moves onto it",
-          "reached": "Target reached (ΔE00 {{value}}).",
-          "readoutTitle": "Predicted for the range's picked color, before later tools such as curves and color grading",
+          "predicted": "Predicted ΔE00 {{value}} from the target for the range's color, not measured: pick the range in the photo to measure it.",
+          "predictedOutOfReach": "Predicted out of reach: ΔE00 {{value}} left; {{limits}} at its limit (not measured: pick the range in the photo to measure it).",
+          "readoutTitle": "Measured in the photo's sRGB render with every tool, over the picker's 11 × 11 preview pixels at the picked point; a range not picked in the photo is predicted for its color",
           "redAria": "Target red (sRGB 0–255)",
           "sampleAria": "Sample a target color",
           "sampleTitle": "Sample a target color in this photo, for a range here or in another photo",
@@ -3039,6 +3030,7 @@
           "srgb": "sRGB",
           "swatchAria": "Range result {{result}}, target {{target}}",
           "uncovered": "The layer's mask no longer covers the picked point: the range's sliders stay as they are.",
+          "unmeasured": "Predicted ΔE00 {{value}} from the target; the result at the picked point could not be measured.",
           "useSampled": "Use target from {{name}}",
           "useSampledTitle": "Move this range onto the color sampled in {{name}}"
         },
@@ -3178,6 +3170,37 @@
       "swapOrientation": "Swap portrait and landscape",
       "turnOverlay": "Turn the overlay"
     },
+    "culling": {
+      "analyse": "Find misfires and documents",
+      "analyseDownload": "Find misfires and documents (download {{size}})",
+      "autoStack": "Auto-Stack…",
+      "badge": "Suggested: {{names}}",
+      "checkEyes": "Check eyes…",
+      "checkTitle": "Reject takes the checked suggestions",
+      "criteria": {
+        "document": "Documents",
+        "eyesClosed": "Eyes closed",
+        "misfire": "Misfires"
+      },
+      "criteriaLabel": "Suggestions",
+      "dismiss_one": "Not a problem ({{n}} selected)",
+      "dismiss_other": "Not a problem ({{n}} selected)",
+      "dismissTitle": "The checked suggestions of the selected photos are not shown again",
+      "failed": "Culling suggestions not saved: {{error}}",
+      "gridOnly": "Reject works on the photos the grid shows: press G for the grid.",
+      "needsModel": "Finding misfires and documents reads each photo with the search model.",
+      "reading": "Read {{scored}} of {{total}} photos",
+      "reject_one": "Reject {{n}} suggested photo",
+      "reject_other": "Reject {{n}} suggested photos",
+      "rejectTitle": "Flags the checked suggestions among the photos shown as rejected, in one undo step; nothing is moved or deleted",
+      "showAgain_one": "Show suggestions again ({{n}} selected)",
+      "showAgain_other": "Show suggestions again ({{n}} selected)",
+      "showOnly": "Show only {{name}} ({{n}})",
+      "suggestionOnly": "Suggestions only: nothing is rejected until you click Reject, and Undo takes it back.",
+      "title": "Culling",
+      "unreadable_one": "{{n}} photo could not be read for suggestions; it is tried again when the library is opened.",
+      "unreadable_other": "{{n}} photos could not be read for suggestions; they are tried again when the library is opened."
+    },
     "develop": {
       "auto": {
         "label": "Auto",
@@ -3303,6 +3326,7 @@
           "brush": "Brush",
           "color": "Color",
           "depth": "Depth",
+          "landscape": "Landscape",
           "linear": "Linear",
           "luminance": "Luminance",
           "object": "Object",
@@ -3332,6 +3356,7 @@
           "brush": "New brush layer",
           "color": "New color range layer",
           "depth": "New depth range layer",
+          "landscape": "New landscape layer",
           "linear": "New linear gradient layer",
           "luminance": "New luminance range layer",
           "object": "New object layer",
@@ -3358,7 +3383,7 @@
         "expandAll": "Expand All Tools",
         "moveDown": "Move Down",
         "moveUp": "Move Up",
-        "oneOpen": "One Tool Open at a Time",
+        "oneOpen": "Solo Mode",
         "restoreOrder": "Restore default tool order",
         "restoreOrderMenu": "Restore Default Tool Order",
         "restoreOrderTitle": "Put the tools back in their original order"
@@ -3489,9 +3514,9 @@
       },
       "toolGroup": {
         "isOn": "{{tool}} on",
+        "openOnlyHint": "Alt/Option-click to open only this tool",
         "reset": "Reset {{tool}}",
         "resetGroup": "Reset group",
-        "resetHint": "Alt/Option-click the name to reset {{tool}}",
         "resetOrHold": "Reset {{tool}} (hold, or Alt/Option-press: show the photo without it)",
         "turnOff": "Turn {{tool}} off",
         "turnOn": "Turn {{tool}} on"
@@ -3620,6 +3645,49 @@
         "complete": "Export complete.",
         "exporting": "Exporting {{current}} of {{total}}"
       },
+      "provenance": {
+        "about": "Records the photograph each file was developed from, the kinds of edits and every area a generative model made, signed with your certificate. JPEG, PNG, TIFF, WebP and AVIF. Nothing is sent anywhere.",
+        "add": "Sign a provenance manifest into each file",
+        "author": "Name the photo's creator as author",
+        "blocked": "Provenance (C2PA) cannot sign {{recipes}}: set up a valid signing certificate and export JPEG, PNG, TIFF, WebP or AVIF.",
+        "certificateFilter": "PKCS#12 certificate",
+        "expired": "This certificate is not valid now (valid until {{until}}): exports cannot be signed with it. Import a renewed certificate or make a new one.",
+        "formatUnsupported": "{{format}} files cannot carry a provenance manifest yet. Choose JPEG, PNG, TIFF, WebP or AVIF, or turn the option off.",
+        "generate": "Make a certificate on this computer",
+        "import": "Import your certificate (.p12)…",
+        "importConfirm": "Import",
+        "importTitle": "Choose your signing certificate",
+        "keyStored": "The password opens the file once and is not kept. The private key is copied to Rawtonic's data folder, readable only by your user account.",
+        "legend": "Provenance (C2PA)",
+        "none": "No signing certificate is set up.",
+        "password": "Certificate password",
+        "planSigned": "signed (C2PA)",
+        "remove": "Remove signing certificate",
+        "removeConfirm": "Remove the certificate and its private key from this computer? Exports with this option fail until another is set up. An imported certificate's own file is not touched.",
+        "removeNo": "Cancel",
+        "removeYes": "Remove",
+        "review": {
+          "actions": "Edits",
+          "author": "Author",
+          "certificate": "Certificate (in every file, readable by recipients)",
+          "generated": "made by a generative model ({{type}})",
+          "generator": "Made with",
+          "ingredient": "Developed from",
+          "noAuthor": "Not named",
+          "noSigner": "No certificate yet",
+          "notIncluded": "Not included from the photo",
+          "notIncludedList": "No thumbnail or pixels of the original, no edit values, no location, no account, no time-stamp service.",
+          "signer": "Signed by"
+        },
+        "reviewHint": "Shown for the first photo; each photo gets its own file name and edits.",
+        "reviewLegend": "What goes into the manifest",
+        "reviewLegendFor": "What goes into the manifest: {{recipe}}",
+        "signedImported": "Signed as “{{signer}}”; certificate issued by {{issuer}}, valid until {{until}}.",
+        "signedLocal": "Signed as “{{signer}}” with a certificate made on this computer.",
+        "signerName": "Signer name",
+        "signerPlaceholder": "Your name or studio",
+        "unknownSigner": "Verifiers show a certificate made on this computer as an unknown signer: no certificate authority vouches for it. Import your own certificate for a signer they recognise."
+      },
       "queue": {
         "button": "Queue",
         "buttonActive_one": "Queue ({{count}})",
@@ -3740,6 +3808,7 @@
         "valueLabel": "{{name}} ({{unit}})"
       },
       "toasts": {
+        "notQueued": "Nothing was exported: {{error}}",
         "queuedMany_one": "{{count}} export added to the queue.",
         "queuedMany_other": "{{count}} exports added to the queue.",
         "queuedOne": "Added to the export queue.",
@@ -3911,6 +3980,23 @@
       "shadowClippingLit": "Shadow clipping, clipped",
       "shadowClippingTitle": "Shadow clipping warning (blue in the photo; {{shortcut}} switches both)",
       "title": "Histogram"
+    },
+    "landscape": {
+      "aria": "Landscape mask",
+      "choose": "Choose the parts to select.",
+      "finding": "Finding the parts of the landscape…",
+      "noneFound": "None of these parts was found in this photo.",
+      "notFound": "(not found)",
+      "parts": {
+        "architecture": "Architecture",
+        "artificialGround": "Artificial ground",
+        "mountains": "Mountains",
+        "naturalGround": "Natural ground",
+        "sky": "Sky",
+        "vegetation": "Vegetation",
+        "water": "Water"
+      },
+      "partsAria": "Parts of the landscape"
     },
     "layers": {
       "bandWidth": "Band width",
@@ -4417,6 +4503,11 @@
             "purple": "Purple",
             "red": "Red",
             "yellow": "Yellow"
+          },
+          "suggestion": {
+            "document": "Document",
+            "eyesClosed": "Eyes closed",
+            "misfire": "Misfire"
           }
         },
         "combine": {
@@ -4454,6 +4545,8 @@
           "previousImport": "In the previous import",
           "rating": "Rating",
           "sourceType": "Digital source type (in the file)",
+          "stacked": "In a stack",
+          "suggestion": "Culling suggestion",
           "text": "Any searchable text"
         },
         "folderPlaceholder": "Folder path",
@@ -4655,6 +4748,7 @@
         "brush": "Brush",
         "color": "Color range",
         "depth": "Depth range",
+        "landscape": "Landscape",
         "linear": "Linear",
         "luminance": "Luminance range",
         "object": "Object",
@@ -4846,6 +4940,11 @@
       "appliesToSelection_one": "A click applies to {{count}} selected photo.",
       "appliesToSelection_other": "A click applies to {{count}} selected photos.",
       "builtin": {
+        "adaptive-background-darker": "Background: darker",
+        "adaptive-eyes-brighter": "Portrait: brighter eyes",
+        "adaptive-skin-smoother": "Portrait: smoother skin",
+        "adaptive-sky-deeper": "Sky: deeper",
+        "adaptive-subject-lift": "Subject: lift",
         "bw-darker-skies": "B&W darker skies",
         "bw-high-contrast": "B&W high contrast",
         "bw-lighter-skin": "B&W lighter skin tones",

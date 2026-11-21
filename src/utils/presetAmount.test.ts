@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
-import { blendPreset } from './presetAmount';
+import { amountLayers, blendPreset } from './presetAmount';
+import { INITIAL_MASK_ADJUSTMENTS, INITIAL_MASK_CONTAINER, type MaskContainer } from './adjustments';
 
 it('moves numbers part of the way and blends nested settings per value', () => {
   const base = {
@@ -76,4 +77,50 @@ it('keeps curves whole with their version', () => {
     });
   }
   expect(blendPreset(base, { curves: legacy }, 0.25)).toEqual(base);
+});
+
+it('scales an adaptive preset’s layers from neutral and keeps the photo’s other layers and detections', () => {
+  const layer = (id: string, adjustments: Record<string, unknown>, bitmap: string | null) =>
+    ({
+      ...INITIAL_MASK_CONTAINER,
+      id,
+      adjustments: { ...INITIAL_MASK_ADJUSTMENTS, ...adjustments },
+      subMasks: [
+        {
+          id: `${id}-c`,
+          type: 'ai-sky',
+          visible: true,
+          invert: false,
+          opacity: 100,
+          mode: 'additive',
+          parameters: { maskDataBase64: bitmap }
+        }
+      ]
+    }) as unknown as MaskContainer;
+  const own = layer('brush', { exposure: 1 }, 'data:own');
+  // A brush added after the preset was applied.
+  const later = layer('later', { exposure: 0.3 }, 'data:later');
+  const preset = [
+    { ...layer('sky', {}, null), adjustments: { exposure: -0.4, saturation: 20 } } as unknown as MaskContainer
+  ];
+  // As shown now: the preset's layer with its detection.
+  const current = [own, layer('sky', { exposure: -0.4, saturation: 20 }, 'data:sky'), later];
+  const { layers: half } = amountLayers(current, preset, 0.5);
+  expect(half.map((l) => l.id)).toEqual(['brush', 'sky', 'later']);
+  expect(half[0]).toBe(own);
+  expect(half[2]).toBe(later);
+  expect(half[1].adjustments).toMatchObject({ exposure: -0.2, saturation: 10, contrast: 0 });
+  expect(half[1].subMasks[0].parameters).toMatchObject({ maskDataBase64: 'data:sky' });
+  expect(half[1].visible).toBe(true);
+  // At 0: hidden, so no export waits for its detection; shown again above.
+  const none = amountLayers(current, preset, 0);
+  expect(none.layers[1]).toMatchObject({ visible: false, adjustments: { exposure: 0, saturation: 0 } });
+  expect([...none.hidden]).toEqual(['sky']);
+  expect(amountLayers(none.layers, preset, 0.2, none.hidden).layers[1].visible).toBe(true);
+  // A layer the photographer hid stays hidden at any Amount.
+  const hiddenByUser = current.map((l) => (l.id === 'sky' ? { ...l, visible: false } : l));
+  expect(amountLayers(hiddenByUser, preset, 0.5).layers[1].visible).toBe(false);
+  const zero = amountLayers(hiddenByUser, preset, 0);
+  expect(zero.hidden.size).toBe(0);
+  expect(amountLayers(zero.layers, preset, 0.5, zero.hidden).layers[1].visible).toBe(false);
 });

@@ -51,6 +51,7 @@ import {
   RESPONSES_CHOSEN,
   RESPONSE_KEYS,
   chosenSettings,
+  joinedLayers,
   newEditResponses,
   pasteInto,
   samePhotograph
@@ -344,11 +345,14 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string, qu
   );
 }
 
-type RecipeBatch = { changes: RecipeSnapshot[]; failure?: { message: string; failed: string[] } };
+/** `unwritten`: the photographs saved in their library whose sidecar beside
+ * the photo could not be written (among `changes`: their undo step holds). */
+type RecipeBatch = { changes: RecipeSnapshot[]; failure?: { message: string; failed: string[] }; unwritten?: string };
 
 /** A batch recipe command that returns what it wrote (`RecipeBatch` in
- * edits.rs): tells the user what was not saved and resolves with those
- * photos and the recipe changes of the others (their undo step). */
+ * edits.rs): tells the user what was not saved (and which saved photos'
+ * sidecars could not be written) and resolves with those not saved and
+ * the recipe changes of the others (their undo step). */
 function recordedBatch(
   command: Promise<RecipeBatch>,
   paths: string[],
@@ -356,10 +360,14 @@ function recordedBatch(
   quiet = false
 ): Promise<{ failed: string[]; changes: RecipeSnapshot[] }> {
   return command.then(
-    ({ changes, failure }) => {
+    ({ changes, failure, unwritten }) => {
       if (failure) {
         console.error(`Failed to ${what}:`, failure);
         if (!quiet) noteWriteError(`Failed to ${what}: ${failure.message}`);
+      }
+      if (unwritten) {
+        console.warn(`${what}:`, unwritten);
+        if (!quiet) notify.warning(unwritten);
       }
       return { failed: failure?.failed ?? [], changes };
     },
@@ -516,14 +524,14 @@ export function pastedOpen(
         ...target,
         recipe: target.isNew ? current : target.recipe,
         isRaw: open.isRaw,
-        replaceLayers: paste?.replaceLayers ?? true,
+        replaceLayers: paste?.replaceLayers ?? false,
         mergeGroups: Boolean(style)
       });
   let merged = style?.remove
     ? base
     : pasteInto(base, styleGroupsJoined(base, here, style), {
         samePhoto: Boolean(paste && samePhotograph(paste.source, open.path)),
-        replaceLayers: paste?.replaceLayers ?? true,
+        replaceLayers: paste?.replaceLayers ?? false,
         keepNulls: !paste,
         // A never-edited (or Reset) photo takes a new edit's versions first,
         // whatever brings the settings (a preset too), as the backend's
@@ -940,12 +948,14 @@ async function writeRecipeValues(values: RecipeValues[], shown?: RecipeShown): P
   const result = await recipeWrite(
     paths,
     () =>
-      invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] } }>(Invokes.SetRecipeValues, {
-        changes: values
-      }),
+      invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] }; unwritten?: string }>(
+        Invokes.SetRecipeValues,
+        { changes: values }
+      ),
     { kind: 'recipeValues', failedOf: (written) => written.failure?.failed ?? [], step: shown?.order }
   );
   if (result.failure) notify.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
+  if (result.unwritten) notify.warning(result.unwritten);
   const written = result.before.map((before) => before.path);
   written.forEach((path) => unsavedRecipes.delete(path));
   for (const value of values) if (written.includes(value.path)) recipeWritten([value.path], Object.keys(value.values));
@@ -1659,7 +1669,7 @@ export function useEditorActions() {
               ? expressPastedSettings(adjustmentsToApply, {
                   ...openPasteTarget(open.path, without!, true),
                   isRaw: open.isRaw,
-                  replaceLayers: true,
+                  replaceLayers: false,
                   mergeGroups: true
                 })
               : null;
@@ -1680,14 +1690,14 @@ export function useEditorActions() {
           if (unresolved !== merged) void resolvePastedLens(open.path, pastedStep);
         }
       } else if (open) {
-        setAdjustments({
-          ...adjustments,
-          ...expressPastedSettings(adjustmentsToApply, {
-            ...openPasteTarget(open.path, adjustments),
-            isRaw: open.isRaw,
-            replaceLayers: true
-          })
+        const values = expressPastedSettings(adjustmentsToApply, {
+          ...openPasteTarget(open.path, adjustments),
+          isRaw: open.isRaw,
+          replaceLayers: false
         });
+        // A preset's layers join the photo's own (`joinedLayers`).
+        if (values.masks) values.masks = joinedLayers(adjustments.masks, values.masks);
+        setAdjustments({ ...adjustments, ...values });
         // Its History entry now, so it is the open photograph's part of the
         // batch's undo step (not a later step of its own).
         debouncedSetHistory.flush();

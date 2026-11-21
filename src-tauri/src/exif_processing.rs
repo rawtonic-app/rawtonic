@@ -10,7 +10,42 @@ use std::path::Path;
 use crate::image_processing::ImageMetadata;
 use jiff::Timestamp;
 
+thread_local! {
+    /// A sidecar a batch edit on this thread reads as moved to the full
+    /// frame (`reading_conformed`).
+    static CONFORMED: std::cell::RefCell<Option<(std::path::PathBuf, ImageMetadata)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `edit` with `sidecar_path` read as `metadata` on this thread: a
+/// camera TIFF's edit moved from its thumbnail to the full frame in memory
+/// (`file_management::edits::edit_sidecars`), written once with the edit
+/// and not at all when the edit is refused.
+pub(crate) fn reading_conformed<T>(
+    sidecar_path: &Path,
+    metadata: ImageMetadata,
+    edit: impl FnOnce() -> T,
+) -> T {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            CONFORMED.with(|c| *c.borrow_mut() = None);
+        }
+    }
+    CONFORMED.with(|c| *c.borrow_mut() = Some((sidecar_path.to_path_buf(), metadata)));
+    let _reset = Reset;
+    edit()
+}
+
 pub fn load_sidecar(sidecar_path: &Path) -> ImageMetadata {
+    if let Some(metadata) = CONFORMED.with(|c| {
+        c.borrow()
+            .as_ref()
+            .filter(|(path, _)| path == sidecar_path)
+            .map(|(_, metadata)| metadata.clone())
+    }) {
+        return metadata;
+    }
     if let Some(value) = crate::session_bridge::read_editor_sidecar(sidecar_path)
         && let Ok(meta) = serde_json::from_value(value)
     {
@@ -40,6 +75,9 @@ pub fn load_sidecar_with_exif(sidecar_path: &Path, source_path: &Path) -> ImageM
     if meta.exif.is_none() {
         if let Some(cached_exif) = read_rrexif_sidecar(source_path) {
             meta.exif = Some(cached_exif);
+        } else if crate::file_management::is_cloud_placeholder(source_path) {
+            // An original that is only in the cloud is never opened for its
+            // EXIF (macOS would download it): None, as for a missing file.
         } else {
             let source_path_str = source_path.to_string_lossy();
             let extracted_exif =

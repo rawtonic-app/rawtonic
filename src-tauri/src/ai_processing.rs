@@ -31,18 +31,19 @@ use rawtonic_segment::{
     SUBJECT_CORE_ML_PACKAGE,
 };
 use rawtonic_segment::{
-    SKYSEG_FILENAME, SKYSEG_SHA256, SUBJECT_FILENAME, SUBJECT_SHA256, box_filter_opt, display_rgb8,
-    fast_guided_filter, file_has_sha256, run_single,
+    LANDSCAPE_FILENAME, LANDSCAPE_SHA256, SKYSEG_FILENAME, SKYSEG_SHA256, SUBJECT_FILENAME,
+    SUBJECT_SHA256, box_filter_opt, display_rgb8, fast_guided_filter, file_has_sha256, run_single,
 };
 pub use rawtonic_segment::{
-    SkyModel, SubjectModel, run_sky_seg_model, run_subject_model, subject_selection,
+    LandscapeModel, LandscapeProbabilities, SkyModel, SubjectModel, run_sky_seg_model,
+    run_subject_model, subject_selection,
 };
 
 /// Rawtonic's model pack: files rebuilt from their authors' releases, with
 /// licenses (docs/MODELS.md, scripts/models/build_model_pack.py);
 /// `scripts/models/install_models.sh` installs them ahead with `gh`.
 const MODEL_PACK_URL: &str =
-    "https://github.com/rawtonic-app/models/releases/download/pack-2026-11-20";
+    "https://github.com/rawtonic-app/models/releases/download/pack-2026-11-21";
 
 // SAM 2.1 Hiera-T (Meta, Apache-2.0 weights), exported by
 // scripts/models/export_sam2.py: the photo stretched to 1024 x 1024 in,
@@ -157,6 +158,22 @@ pub struct AiModels {
     pub subject_masks: Vec<CachedMask>,
     /// Finished Sky masks, newest last (`AI_MASKS_KEPT`).
     pub sky_masks: Vec<CachedMask>,
+    /// UperNet with the landscape-parts head, loaded on its own (119 MB).
+    pub landscape_model: Option<Arc<LandscapeModel>>,
+    /// The landscape model's part probabilities of the photos last worked
+    /// on, newest last (`AI_MASKS_KEPT`; 6 × at most 512² bytes each): every
+    /// part of a photo comes from one run.
+    pub landscape_runs: Vec<CachedLandscape>,
+}
+
+/// One run of the landscape model on a photo with its geometry.
+#[derive(Clone)]
+pub struct CachedLandscape {
+    /// The photo and its geometry (`ai_commands::geometry_key`).
+    pub key: String,
+    /// The size of the photo with its geometry (the masks' size).
+    pub size: (u32, u32),
+    pub probabilities: Arc<LandscapeProbabilities>,
 }
 
 /// Puts a freshly loaded model into the state with `store`, unless the
@@ -788,6 +805,68 @@ pub async fn get_or_init_sky_model(
         ai.sky_model = Some(model.clone())
     });
     Ok(Some(model))
+}
+
+/// The landscape-parts model (UperNet, ONNX Runtime), loaded on its own and
+/// downloaded on first use. With `download` false (an export) only an
+/// installed model is loaded: `None` when it is not installed or the runtime
+/// is missing.
+pub async fn get_or_init_landscape_model(
+    app_handle: &tauri::AppHandle,
+    ai_state: &AiState,
+    download: bool,
+) -> Result<Option<Arc<LandscapeModel>>> {
+    let loaded = || {
+        lock_recover(&ai_state.models)
+            .as_ref()
+            .and_then(|state| state.landscape_model.clone())
+    };
+    if let Some(model) = loaded() {
+        return Ok(Some(model));
+    }
+    let _guard = ai_state.landscape_init_lock.lock().await;
+    if let Some(model) = loaded() {
+        return Ok(Some(model));
+    }
+    let generation = ai_state.lifecycle.generation();
+    let models_dir = get_models_dir(app_handle)?;
+    let path = models_dir.join(LANDSCAPE_FILENAME);
+    let start = std::time::Instant::now();
+    if download {
+        ensure_local_runtime()?;
+        download_verified(
+            app_handle,
+            &models_dir,
+            LANDSCAPE_FILENAME,
+            LANDSCAPE_SHA256,
+            "Landscape Model",
+        )
+        .await?;
+    } else if let Some(reason) = mask_model_skip(ensure_local_runtime().is_ok(), || {
+        verify_sha256(&path, LANDSCAPE_SHA256)
+    })? {
+        log_mask_model_skip("landscape", reason);
+        return Ok(None);
+    }
+    let model = tokio::task::spawn_blocking(move || LandscapeModel::onnx(&path)).await??;
+    log::info!(
+        "AI landscape mask: model loaded on {} in {} ms",
+        model.backend_name(),
+        start.elapsed().as_millis()
+    );
+    crate::register_exit_handler();
+    let model = Arc::new(model);
+    keep_model(ai_state, generation, |ai| {
+        ai.landscape_model = Some(model.clone())
+    });
+    Ok(Some(model))
+}
+
+/// Whether Depth Anything V2 is installed (verified): exports and the
+/// selection queue download nothing.
+pub fn depth_model_installed(app_handle: &tauri::AppHandle) -> bool {
+    get_models_dir(app_handle)
+        .is_ok_and(|dir| verify_sha256(&dir.join(DEPTH_FILENAME), DEPTH_SHA256).unwrap_or(false))
 }
 
 /// Depth Anything V2 for depth masks, downloaded and loaded on first use.

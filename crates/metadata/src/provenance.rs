@@ -8,13 +8,15 @@ use rawtonic_recipe::masks;
 use serde_json::Value;
 
 /// Mask component types the AI detects on each photograph: Subject, Sky,
-/// depth range and People (detected again when the photograph is opened) and
+/// landscape parts, depth range and People (detected again when the
+/// photograph is opened) and
 /// an Object selection (pointed at again by the user). Pasted or synced onto
 /// another photograph they never keep the source's bitmap.
-pub const DETECTED_TYPES: [&str; 5] = [
+pub const DETECTED_TYPES: [&str; 6] = [
     "ai-subject",
     "ai-foreground",
     "ai-sky",
+    "ai-landscape",
     "ai-depth",
     "ai-people",
 ];
@@ -167,6 +169,33 @@ fn shown_model_patches(adjustments: &Value) -> impl Iterator<Item = &Value> {
 /// `"generated": false` (Fill edges' patch-based completion).
 pub fn has_generated_areas(adjustments: &Value) -> bool {
     shown_model_patches(adjustments).any(has_pixels)
+}
+
+/// The areas a generative model made, one per shown AI patch with pixels
+/// (those [`has_generated_areas`] counts), each with the model that filled
+/// it when the recipe records one (`fill_model`): an export's provenance
+/// manifest names each.
+pub fn generated_fills(adjustments: &Value) -> Vec<Option<&str>> {
+    shown_model_patches(adjustments)
+        .filter(|patch| has_pixels(patch))
+        .map(|patch| {
+            patch
+                .get("patchData")
+                .and_then(|data| data.get("model"))
+                .and_then(Value::as_str)
+        })
+        .collect()
+}
+
+/// Whether the recipe shows retouching no model made: clone, heal, liquify
+/// or retouch patches.
+pub fn has_hand_made_patches(adjustments: &Value) -> bool {
+    adjustments
+        .get("aiPatches")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|patch| shown(patch) && !model_patch(patch))
 }
 
 /// The model that filled a patch, as Remove records it in the patch's
@@ -369,6 +398,23 @@ mod tests {
             let facts = ai_facts(&json!({"aiPatches": [patch(model)]}));
             assert_eq!(facts, GENERATED | bit, "{model:?}");
         }
+    }
+
+    #[test]
+    fn generated_fills_are_the_marked_areas_with_their_models() {
+        let recipe = json!({"aiPatches": [
+            {"patchData": {"color": "A", "model": "mi-gan"}},
+            {"patchData": {"color": "A"}},
+            {"patchData": {"color": ""}},
+            {"visible": false, "patchData": {"color": "A"}},
+            {"subMasks": [{"type": "clone"}], "patchData": {"color": "A"}},
+        ]});
+        assert_eq!(generated_fills(&recipe), vec![Some("mi-gan"), None]);
+        assert!(has_hand_made_patches(&recipe));
+        assert!(!has_hand_made_patches(
+            &json!({"aiPatches": [{"patchData": {"color": "A"}}]})
+        ));
+        assert!(generated_fills(&json!({})).is_empty());
     }
 
     #[test]

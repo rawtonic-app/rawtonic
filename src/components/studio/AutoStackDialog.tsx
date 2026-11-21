@@ -20,13 +20,33 @@ interface AutoPlan {
   groups: AutoGroup[];
   photos: number;
   considered: number;
+  /** Grouped by time alone: no embedding to compare yet. */
+  unread: number;
 }
 
 /** Interval stops of the slider, in seconds: 1 s to 60 min, finer where
  * bursts and brackets lie (Lightroom's slider goes to an hour too). */
 export const INTERVALS = [1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300, 420, 600, 900, 1200, 1800, 2700, 3600];
-const DEFAULT_INTERVAL = INTERVALS.indexOf(60);
+/** 2 s with the look compared (CUL1, tuning half: pairs P 0.88 R 0.90 held
+ * out; notes: benchmark-results/cul1-2026-11-21/REPORT.md). */
+const DEFAULT_INTERVAL = INTERVALS.indexOf(2);
 const REMEMBERED = 'rawtonic.autoStack.interval';
+/** Least likeness of two consecutive photos to share a stack: the cosine of
+ * their content embeddings (`cull::STACK_SIMILARITY`). */
+export const DEFAULT_SIMILARITY = 0.78;
+const REMEMBERED_SIMILARITY = 'rawtonic.autoStack.similarity';
+
+/** The likeness last used, `null` when it was off; the default else. */
+function rememberedSimilarity(): number | null {
+  try {
+    const stored = localStorage.getItem(REMEMBERED_SIMILARITY);
+    if (stored === 'off') return null;
+    const value = Number(stored);
+    return stored !== null && value >= 0.5 && value <= 0.99 ? value : DEFAULT_SIMILARITY;
+  } catch {
+    return DEFAULT_SIMILARITY;
+  }
+}
 
 /** The interval last used (Lightroom remembers it), else a minute. */
 function rememberedStop(): number {
@@ -66,11 +86,13 @@ function AutoStackDialog({ paths }: { paths: string[] }) {
   const dialog = useRef<HTMLFormElement>(null);
   const [stop, setStop] = useState(rememberedStop);
   const [useCameraData, setUseCameraData] = useState(true);
+  const [similarity, setSimilarity] = useState<number | null>(rememberedSimilarity);
+  const [lastSimilarity, setLastSimilarity] = useState(similarity ?? DEFAULT_SIMILARITY);
   const [plan, setPlan] = useState<{ key: string; plan: AutoPlan } | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const seconds = INTERVALS[stop];
-  const key = `${seconds}:${useCameraData}`;
+  const key = `${seconds}:${useCameraData}:${similarity}`;
 
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
@@ -82,14 +104,14 @@ function AutoStackDialog({ paths }: { paths: string[] }) {
     let current = true;
     invoke<AutoPlan>(Invokes.StacksAutoPlan, {
       paths,
-      options: { intervalSecs: seconds, useCameraData }
+      options: { intervalSecs: seconds, useCameraData, similarity }
     })
       .then((next) => current && setPlan({ key, plan: next }))
       .catch((error) => current && setFailure(t('stacks.failed', { error: errorMessage(error) })));
     return () => {
       current = false;
     };
-  }, [paths, seconds, useCameraData, key, t]);
+  }, [paths, seconds, useCameraData, similarity, key, t]);
 
   const shown = plan?.key === key ? plan.plan : null;
   const apply = async (e: FormEvent) => {
@@ -103,6 +125,7 @@ function AutoStackDialog({ paths }: { paths: string[] }) {
       });
       try {
         localStorage.setItem(REMEMBERED, String(seconds));
+        localStorage.setItem(REMEMBERED_SIMILARITY, similarity === null ? 'off' : String(similarity));
       } catch {
         // A remembered interval is a convenience only.
       }
@@ -153,6 +176,32 @@ function AutoStackDialog({ paths }: { paths: string[] }) {
           <output>{intervalText(seconds, t)}</output>
         </label>
         <label className="studio-auto-stack-camera">
+          <input
+            type="checkbox"
+            checked={similarity !== null}
+            onChange={(e) => setSimilarity(e.target.checked ? lastSimilarity : null)}
+          />
+          <span>{t('stacks.auto.similar')}</span>
+        </label>
+        {similarity !== null && (
+          <label className="studio-auto-stack-interval">
+            <span>{t('stacks.auto.similarity')}</span>
+            <input
+              type="range"
+              min={0.5}
+              max={0.95}
+              step={0.01}
+              value={similarity}
+              aria-valuetext={similarity.toFixed(2)}
+              onChange={(e) => {
+                setSimilarity(Number(e.target.value));
+                setLastSimilarity(Number(e.target.value));
+              }}
+            />
+            <output>{similarity.toFixed(2)}</output>
+          </label>
+        )}
+        <label className="studio-auto-stack-camera">
           <input type="checkbox" checked={useCameraData} onChange={(e) => setUseCameraData(e.target.checked)} />
           <span>{t('stacks.auto.useCameraData')}</span>
         </label>
@@ -166,6 +215,7 @@ function AutoStackDialog({ paths }: { paths: string[] }) {
                   {kinds.map(([kind, n]) => t(`stacks.auto.kind.${kind}`, { count: n })).join(' · ')}
                 </p>
               )}
+              {shown.unread > 0 && <p className="studio-help">{t('stacks.auto.unread', { count: shown.unread })}</p>}
               {shown.considered < paths.length && (
                 <p className="studio-help">{t('stacks.auto.leftOut', { count: paths.length - shown.considered })}</p>
               )}

@@ -48,7 +48,8 @@ pub const MODEL_ID: &str = SIGLIP_VISION_SHA256;
 /// SigLIP 2's text encoder saved as ONNX external data
 /// (scripts/models/external_data.py; same weights as `siglip2_text.onnx`).
 const TEXT_FILENAME: &str = "siglip2_text_ext.onnx";
-const TEXT_SHA256: &str = "8850287083d7a450ec8112162ccc82c0c830432aee4f7814bcc090de65218dba";
+pub(crate) const TEXT_SHA256: &str =
+    "8850287083d7a450ec8112162ccc82c0c830432aee4f7814bcc090de65218dba";
 const TEXT_DATA_FILENAME: &str = "siglip2_text_ext.onnx.data";
 const TEXT_DATA_SHA256: &str = "d7721a55cb0242769a6d4b1031ef14c48df21609757a63b856cb00c21e502348";
 
@@ -169,6 +170,16 @@ fn run_pass(
         app,
     )
     .ok();
+    // The culling panel's prompts (made once with the text encoder when not
+    // kept yet): with them the pass also reads photographs that have an
+    // embedding but no scores, and scores each one it reads.
+    let culling = crate::culling::prompt_set(app).unwrap_or_else(|e| {
+        log::warn!("Culling scores not made: {e:#}");
+        None
+    });
+    if let Some(set) = &culling {
+        Library::open(directory)?.forget_other_cull_scores(MODEL_ID, &set.id)?;
+    }
     let mut status = Library::open(directory)?.content_status(MODEL_ID)?;
     emit(
         PROGRESS,
@@ -184,12 +195,15 @@ fn run_pass(
     let mut read = 0usize;
     'pass: while !cancel.load(Ordering::Acquire) {
         let lib = Library::open(directory)?;
-        let work: Vec<_> = lib
-            .content_backlog(MODEL_ID, PASS_BATCH + skipped.len())?
-            .into_iter()
-            .filter(|w| !skipped.contains(&w.id))
-            .take(PASS_BATCH)
-            .collect();
+        let asked = PASS_BATCH + skipped.len();
+        let work: Vec<_> = match &culling {
+            Some(set) => lib.cull_backlog(MODEL_ID, &set.id, asked)?,
+            None => lib.content_backlog(MODEL_ID, asked)?,
+        }
+        .into_iter()
+        .filter(|w| !skipped.contains(&w.id))
+        .take(PASS_BATCH)
+        .collect();
         if work.is_empty() {
             break;
         }
@@ -204,9 +218,16 @@ fn run_pass(
                 break 'pass;
             }
             // The auto tags may have read it meanwhile.
-            if lib.has_content(&item.id, MODEL_ID)? {
+            let done = match &culling {
+                Some(set) => lib.has_cull(&item.id, MODEL_ID, &set.id)?,
+                None => lib.has_content(&item.id, MODEL_ID)?,
+            };
+            if done {
                 continue;
             }
+            // Read again only for its culling scores: its search embedding is
+            // kept whatever this reading gives.
+            let rescore = culling.is_some() && lib.has_embedding(&item.id, MODEL_ID)?;
             let path = item.path.to_string_lossy();
             // A cloud file not on this computer is left unread (nothing of it
             // is touched, not even its sidecar): the pass never makes the
@@ -224,11 +245,25 @@ fn run_pass(
             .map_err(|e| format!("{e:#}"));
             match &embedding {
                 Ok(values) => {
-                    lib.record_content(&item.id, MODEL_ID, &item.fingerprint, Ok(values))?
+                    lib.record_content(&item.id, MODEL_ID, &item.fingerprint, Ok(values))?;
+                    if let Some(set) = &culling {
+                        lib.record_cull(&item.id, MODEL_ID, set, &item.fingerprint, values)?;
+                    }
                 }
                 Err(error) => {
                     log::warn!("Content search could not read {path}: {error}");
-                    lib.record_content(&item.id, MODEL_ID, &item.fingerprint, Err(error))?;
+                    match &culling {
+                        Some(set) if rescore => lib.record_cull_failure(
+                            &item.id,
+                            MODEL_ID,
+                            &set.id,
+                            &item.fingerprint,
+                            error,
+                        )?,
+                        _ => {
+                            lib.record_content(&item.id, MODEL_ID, &item.fingerprint, Err(error))?
+                        }
+                    }
                 }
             }
             read += 1;
@@ -243,6 +278,12 @@ fn run_pass(
             );
             std::thread::sleep(PASS_PAUSE);
         }
+        if culling.is_some() {
+            crate::culling::announce(app, directory);
+        }
+    }
+    if read > 0 && culling.is_some() {
+        crate::culling::announce(app, directory);
     }
     if read > 0 {
         log::info!(
@@ -350,17 +391,33 @@ pub async fn start_content_index(
     }
     let models = crate::ai_processing::models_dir(&app_handle).map_err(|e| e.to_string())?;
     let vision = models.join(SIGLIP_VISION_FILENAME);
-    let installed = tauri::async_runtime::spawn_blocking(move || {
-        crate::ai_processing::verify_sha256(&vision, SIGLIP_VISION_SHA256).unwrap_or(false)
+    // The text model too: then the culling panel's scores can be made.
+    let (installed, culling) = tauri::async_runtime::spawn_blocking(move || {
+        (
+            crate::ai_processing::verify_sha256(&vision, SIGLIP_VISION_SHA256).unwrap_or(false),
+            missing_files(&models).is_empty(),
+        )
     })
     .await
     .map_err(|e| e.to_string())?;
     if !installed || crate::ai_processing::ensure_runtime().is_err() {
         return Ok(());
     }
-    let backlog = with_library(directory.clone(), false, |lib| {
-        lib.content_backlog_count(MODEL_ID)
-            .map_err(|e| e.to_string())
+    // Photographs to read; with the text model also read ones the culling
+    // panel has no scores of (a library from before schema 30, a new prompt
+    // set), which the pass reads again.
+    let backlog = with_library(directory.clone(), false, move |lib| {
+        // Opened (or turned on): photographs that could not be read again
+        // for their culling scores are tried once more.
+        if culling && resume {
+            lib.clear_cull_failures().map_err(|e| e.to_string())?;
+        }
+        if culling {
+            lib.cull_backlog_count(MODEL_ID, &crate::culling::prompt_set_id())
+        } else {
+            lib.content_backlog_count(MODEL_ID)
+        }
+        .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -520,7 +577,7 @@ fn watch_idle_text() {
 
 /// The text encoder, loaded on first use (never downloaded here: without
 /// its files `ModelsMissing`).
-async fn text_encoder(app: &tauri::AppHandle) -> Result<Arc<TextEncoder>, CommandError> {
+pub(crate) async fn text_encoder(app: &tauri::AppHandle) -> Result<Arc<TextEncoder>, CommandError> {
     let cached = || {
         lock_recover(&TEXT).as_mut().map(|loaded| {
             loaded.used = Instant::now();
@@ -654,6 +711,13 @@ pub fn share_embedding(app: &tauri::AppHandle, path: &str, embedding: &[f32]) {
         };
         if !lib.has_content(&asset.id, MODEL_ID)? {
             lib.record_content(&asset.id, MODEL_ID, &asset.fingerprint, Ok(embedding))?;
+        }
+        // Its culling scores from the same values, when the prompts are at
+        // hand (else the pass reads it again for them).
+        if let Some(set) = crate::culling::cached_prompt_set()
+            && lib.cull_scores(&asset.id)?.is_none()
+        {
+            lib.record_cull(&asset.id, MODEL_ID, &set, &asset.fingerprint, embedding)?;
         }
         Ok(())
     });

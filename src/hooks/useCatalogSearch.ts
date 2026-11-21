@@ -16,6 +16,8 @@ export const FACTS_RECORDED = 'library-facts-recorded';
 export const AI_FACTS_CHANGED = 'library-ai-facts-changed';
 /** Eyes were read or called (`face_eyes::EYES_CHANGED`). */
 export const EYES_CHANGED = 'library-eyes-changed';
+/** Culling suggestions were scored or dismissed (`culling::CULLING_CHANGED`). */
+export const CULLING_CHANGED = 'library-culling-changed';
 
 /**
  * Keeps `catalogMatches` to what the library's catalog finds for the search
@@ -31,6 +33,7 @@ export function useCatalogSearch() {
   const text = useLibraryStore(searchTextFilter);
   const selection = useLibraryStore((s) => s.filterCriteria.metadata);
   const eyes = useLibraryStore((s) => s.filterCriteria.eyes);
+  const suggestion = useLibraryStore((s) => s.filterCriteria.suggestion);
   // A new list (a folder refreshed after a rename, move or background
   // tagging) is asked about again: its paths or keywords may have changed.
   const imageList = useLibraryStore((s) => s.imageList);
@@ -43,7 +46,7 @@ export function useCatalogSearch() {
     if (!directory) return;
     const stops: (() => void)[] = [];
     let gone = false;
-    for (const event of [FACTS_RECORDED, AI_FACTS_CHANGED, EYES_CHANGED])
+    for (const event of [FACTS_RECORDED, AI_FACTS_CHANGED, EYES_CHANGED, CULLING_CHANGED])
       listen(event, () => catalogChanged())
         .then((unlisten) => (gone ? unlisten() : stops.push(unlisten)))
         .catch(() => {});
@@ -54,7 +57,7 @@ export function useCatalogSearch() {
   }, [directory]);
 
   useEffect(() => {
-    const rule = directory ? searchRule(text, selection, eyes) : null;
+    const rule = directory ? searchRule(text, selection, eyes, suggestion) : null;
     const { setLibrary } = useLibraryStore.getState();
     if (!directory || !rule) {
       setLibrary({ catalogMatches: null, catalogKnown: null });
@@ -102,5 +105,5 @@ export function useCatalogSearch() {
       clearTimeout(timer);
       stop();
     };
-  }, [directory, text, selection, eyes, imageList]);
+  }, [directory, text, selection, eyes, suggestion, imageList]);
 }

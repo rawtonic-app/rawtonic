@@ -95,15 +95,18 @@ mod preview_slot;
 mod privacy_notice;
 mod profile_thumbnails;
 mod proof_sheet;
+mod provenance;
 mod proxy_worker;
 #[cfg(feature = "qa-control")]
 mod qa_control;
 #[cfg(feature = "qa-control")]
 mod qa_crash;
+mod recipe_frame;
 mod red_eye;
 mod scope_analytics;
 mod scope_images;
 mod second_window;
+mod selection_queue;
 mod series_match;
 mod session_bridge;
 mod session_folders;
@@ -381,6 +384,7 @@ fn start(args: Vec<String>) {
         .setup(move |app| {
             // Before anything reads settings or user content (see the module).
             let carried_over = identity_migration::carry_over(app.handle());
+            selection_queue::install(app.handle());
             gpu_processing::notify_sharpen_view_ready(app.handle());
             gpu_processing::notify_compile_activity(app.handle());
             gpu_processing::hold_ai_checks_during_compiles();
@@ -1004,6 +1008,7 @@ fn start(args: Vec<String>) {
             editor_preview::sample_curve_input,
             editor_preview::sample_mixer_input,
             editor_preview::sample_color_range_input,
+            editor_preview::sample_color_range_result,
             editor_preview::levels_input_histogram,
             profile_thumbnails::profile_thumbnails,
             profile_thumbnails::cancel_profile_thumbnails,
@@ -1035,6 +1040,8 @@ fn start(args: Vec<String>) {
             keyboard_layout::keyboard_layout,
             lut_processing::load_and_parse_lut,
             camera_profile::import_camera_profile,
+            recipe_frame::undecided_frame_move,
+            recipe_frame::installed_selection_models,
             camera_profile::list_camera_profiles,
             camera_profile::white_balance_info,
             develop_defaults::develop_defaults_for,
@@ -1107,6 +1114,8 @@ fn start(args: Vec<String>) {
             ai_lifecycle::note_ai_mask_use,
             ai_commands::generate_ai_foreground_mask,
             ai_commands::generate_ai_sky_mask,
+            ai_commands::generate_ai_landscape_mask,
+            ai_commands::detect_landscape_parts,
             ai_commands::generate_relight_depth,
             ai_commands::load_relight_pattern,
             ai_commands::cancel_ai_task,
@@ -1133,6 +1142,11 @@ fn start(args: Vec<String>) {
             export_processing::export_images,
             export_processing::export_images_batch,
             export_processing::export_naming_preview,
+            provenance::provenance_identity,
+            provenance::generate_provenance_identity,
+            provenance::import_provenance_certificate,
+            provenance::remove_provenance_identity,
+            provenance::export_provenance_preview,
             export_processing::cancel_export,
             export_processing::estimate_export_sizes,
             export_processing::list_font_families,
@@ -1259,7 +1273,8 @@ fn start(args: Vec<String>) {
             tagging::rename_keyword_for_paths,
             tagging::delete_keyword_for_paths,
             tagging::restore_keywords,
-            culling::cull_images,
+            culling::cull_suggestions,
+            culling::cull_dismiss,
             lens_correction::get_lensfun_makers,
             embedded_lens::get_camera_lens_profile,
             camera_crop::get_camera_crops,

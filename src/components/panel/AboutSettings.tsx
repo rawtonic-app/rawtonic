@@ -44,6 +44,12 @@ export const CREDITS: Credit[] = [
     license: 'SQLite: public domain; bindings: MIT; Rawtonic correction: AGPL-3.0-or-later'
   },
   {
+    name: 'cyrb53',
+    url: 'https://github.com/bryc/code/blob/master/jshash/experimental/cyrb53.js',
+    what: "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
+    license: 'Public domain'
+  },
+  {
     name: 'RapidRAW',
     url: 'https://github.com/CyberTimon/RapidRAW',
     what: "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
@@ -60,6 +66,24 @@ export const CREDITS: Credit[] = [
     url: 'https://github.com/BurntSushi/jiff',
     what: 'Windows time zone names mapped to IANA identifiers.',
     license: 'Jiff table: MIT, CLDR data: Unicode-3.0'
+  },
+  {
+    name: 'ring',
+    url: 'https://github.com/briansmith/ring',
+    what: 'Signing of provenance (C2PA) manifests in exports: ECDSA, RSA-PSS and Ed25519 signatures, SHA-256.',
+    license: 'Apache-2.0 AND ISC'
+  },
+  {
+    name: 'p12-keystore / RustCrypto',
+    url: 'https://github.com/ancwrd1/p12-keystore',
+    what: 'Opening the PKCS#12 certificate file a provenance signing certificate is imported from.',
+    license: 'MIT OR Apache-2.0'
+  },
+  {
+    name: 'x509-parser',
+    url: 'https://github.com/rusticata/x509-parser',
+    what: 'Reading signing certificates (signer, validity, allowed uses).',
+    license: 'MIT OR Apache-2.0'
   },
   {
     name: 'Lensfun database',
@@ -100,7 +124,7 @@ export const CREDITS: Credit[] = [
   {
     name: 'ConvNeXt UperNet',
     url: 'https://github.com/facebookresearch/ConvNeXt',
-    what: 'Sky masks (Meta, ADE20K).',
+    what: 'Sky and Landscape masks (Meta, ADE20K).',
     license: 'MIT'
   },
   {

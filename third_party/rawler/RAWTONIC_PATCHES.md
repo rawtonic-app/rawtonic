@@ -613,6 +613,28 @@ suite allows 120 seconds without progress and 600 seconds total.
   uses it for the Library's metadata pass. Evidence: notes
   benchmark-results/crd1-2026-11-20/.
 
+## Dummy decodes without strip copies (2026-11-21, CRD2, G55)
+
+- `src/rawsource.rs` (`subview_padded_for`, `subview_until_eof_padded_for`):
+  a dummy `raw_image` (sizes and metadata, no samples) gets a zeroed buffer
+  of the same length where `subview_padded` / `subview_until_eof_padded`
+  copy the strip (it ends within 16 bytes of EOF, as the raw data of most
+  RAWs does). Used in `decoders/{raf,nef,orf,rw2,srw}.rs`; other decoders
+  (no sample files here) keep the copying calls. Test:
+  `rawtonic_dummy_view_tests`.
+- `src/decoders/arw.rs` (`decode_ljpeg`, `get_params`, the SR2 sub-IFD
+  reader): borrow the file (`buf()`) instead of copying all of it
+  (`as_vec()`); the SR2 decryption and the LJPEG tiles read the same bytes.
+- The camera-crop step of the Library's never-edited thumbnail
+  (`source_frame::frame` per frame version) read every byte of RAF, NEF,
+  ORF, RW2, SRW and ARW files through these copies. Measured on the
+  `raw_image(dummy = true)` call alone (after `get_decoder`; pages made
+  resident, readahead off) for the 334 files of a 363-RAW corpus that rawler
+  decodes (one file could not be opened, 28 Nikon HE NEFs are refused as
+  before): 7.3 GB before, 6 MB after. Old and new builds gave identical dummy
+  images, `raw_metadata`, frames and camera crops on all 363 files. Evidence:
+  notes benchmark-results/crd2-2026-11-21/.
+
 ## Canon CR3 white level (2026-11-19, RAWL3, G01)
 
 - `src/decoders/cr2/colordata.rs`: ColorData version 48 (R6 II, R7, R8,

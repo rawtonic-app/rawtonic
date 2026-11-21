@@ -177,6 +177,30 @@ fn thumbnail_hash_for_engine(
     adjustments_bytes: &[u8],
     engine: u32,
 ) -> Option<String> {
+    thumbnail_hash_with(path_str, adjustments_bytes, engine, true)
+}
+
+/// The key a thumbnail was cached under before face retouch tiles were made
+/// again (2026-11-21): while the original is unavailable, a tile cached
+/// then is better than none (`ThumbnailCacheEntry::of`).
+fn thumbnail_hash_before_face_retouch_refresh(
+    path_str: &str,
+    adjustments_bytes: &[u8],
+) -> Option<String> {
+    thumbnail_hash_with(
+        path_str,
+        adjustments_bytes,
+        crate::preview_proxy::ENGINE_VERSION,
+        false,
+    )
+}
+
+fn thumbnail_hash_with(
+    path_str: &str,
+    adjustments_bytes: &[u8],
+    engine: u32,
+    face_retouch_refresh: bool,
+) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
     let img_mod_time = source_mtime(&source_path)?;
@@ -221,6 +245,15 @@ fn thumbnail_hash_for_engine(
         // camera JPEG), so a new proxy makes a new thumbnail.
         if crate::preview_proxy::proxy_path(&source_path).is_some_and(|p| p.is_file()) {
             hasher.update(b"\0developed-from-proxy-v1");
+        }
+        // A face retouch drawn on a reduced base (a preview proxy or a fast
+        // decode) was placed with full-size positions until 2026-11-21.
+        if face_retouch_refresh
+            && adjustments
+                .as_ref()
+                .is_some_and(rawtonic_engine::face_retouch::is_active)
+        {
+            hasher.update(b"\0face-retouch-on-reduced-base-v1\0");
         }
         // A never-edited RAW renders with the defaults of its time
         // (`embedded_lens::apply_default`: lens profile, render version).
@@ -281,12 +314,47 @@ fn thumbnail_hash_for_engine(
         // editor source or shifted layer adjustments. Preserve unmasked entries.
         hasher.update(b"\0masked-thumbnail-source-and-alignment-v1");
     }
+    // A face retouch found before a later flip, turn, straightening or lens
+    // change is placed through its stored frame; it was skipped before
+    // (2026-11-21), so thumbnails cached then show it missing.
+    if face_retouch_refresh
+        && adjustments
+            .as_ref()
+            .is_some_and(rawtonic_engine::face_retouch::follows_stored_frame)
+    {
+        hasher.update(b"\0face-retouch-by-stored-frame\0");
+    }
     Some(hasher.finalize().to_hex().to_string())
+}
+
+/// The decoded base with the recipe's base retouch, for a source at
+/// `scale` (its pixels per full-resolution pixel; below 1 for a preview
+/// proxy or a fast decode).
+fn retouched_base<'a>(
+    pristine_source: &'a DynamicImage,
+    adjustments: &serde_json::Value,
+    scale: f32,
+) -> anyhow::Result<Cow<'a, DynamicImage>> {
+    if scale == 1.0 {
+        return image_loader::composite_patches_for_render(pristine_source, adjustments);
+    }
+    // A reduced source leaves Lightroom's spots and red eyes not yet placed
+    // out, and places patches, spots and faces (in full-resolution pixels)
+    // at its scale, as reduced copies do.
+    if image_loader::has_base_retouch(adjustments) {
+        image_loader::composite_patches_on_scaled_image(pristine_source, adjustments, scale)
+            .map(Cow::Owned)
+    } else {
+        Ok(Cow::Borrowed(pristine_source))
+    }
 }
 
 pub(crate) fn try_load_embedded_raw_preview(source_path: &Path) -> Option<DynamicImage> {
     let mmap = read_file_mapped(source_path).ok()?;
-    image_loader::safe_embedded_preview_fallback(&mmap, &source_path.to_string_lossy())
+    image_loader::safe_embedded_preview_fallback_shared(
+        Arc::new(mmap),
+        &source_path.to_string_lossy(),
+    )
 }
 
 pub fn generate_thumbnail_data(
@@ -643,16 +711,7 @@ fn develop_thumbnail_with_source(
                 Cow::Owned(img)
             };
 
-            // A reduced source (proxy, fast decode) leaves Lightroom's spots
-            // and red eyes not yet placed out, as reduced copies do
-            // (`composite_patches_on_scaled_image`).
-            let retouch = if raw_scale_factor == 1.0 {
-                std::borrow::Cow::Borrowed(&adjustments)
-            } else {
-                rawtonic_engine::lightroom_retouch::without_pending(&adjustments)
-            };
-            let composite_image =
-                image_loader::composite_patches_for_render(&pristine_source, &retouch)?;
+            let composite_image = retouched_base(&pristine_source, &adjustments, raw_scale_factor)?;
             // A full decode's size places Lightroom masks still in their
             // imported form, as for exports (`lightroom_masks`).
             let decoded_size = (raw_scale_factor == 1.0).then(|| pristine_source.dimensions());
@@ -721,7 +780,7 @@ fn develop_thumbnail_with_source(
                 )
                 .map_err(anyhow::Error::msg)?;
                 if source.image.width().max(source.image.height()) > target_res {
-                    let reduced = crate::image_processing::downscale_f32_image(
+                    let reduced = crate::image_processing::downscale_f32_image_signed(
                         &source.image,
                         target_res,
                         target_res,
@@ -1363,6 +1422,32 @@ fn preferred_thumbnail_hash<'a>(
         .unwrap_or(developed)
 }
 
+/// A face retouch tile is made again (a new key). A disconnected original
+/// without a preview proxy cannot be developed again, so the tile cached
+/// under `old` stays until the original is back (a blank grid is worse).
+fn keep_tile_of_unavailable_original(
+    directory: &Path,
+    source: &Path,
+    new: String,
+    old: impl FnOnce() -> Option<String>,
+) -> String {
+    if source.exists()
+        || crate::preview_proxy::proxy_path(source).is_some_and(|p| p.is_file())
+        || thumbnail_files_exist(directory, &new)
+    {
+        return new;
+    }
+    match old() {
+        Some(old) if old != new && thumbnail_files_exist(directory, &old) => old,
+        _ => new,
+    }
+}
+
+fn thumbnail_files_exist(directory: &Path, hash: &str) -> bool {
+    directory.join(format!("{hash}_small.jpg")).is_file()
+        && directory.join(format!("{hash}_medium.jpg")).is_file()
+}
+
 fn embedded_thumbnail_allowed(path_str: &str, adjustments: &[u8], settings: &AppSettings) -> bool {
     let (source, _) = parse_virtual_path(path_str);
     (adjustments.is_empty() || adjustments == b"null")
@@ -1452,6 +1537,10 @@ impl ThumbnailCacheEntry {
         };
 
         let cache_hash = compute_thumbnail_cache_hash(path_str, &adjustments_bytes)?;
+        let cache_hash =
+            keep_tile_of_unavailable_original(thumb_cache_dir, &source_path, cache_hash, || {
+                thumbnail_hash_before_face_retouch_refresh(path_str, &adjustments_bytes)
+            });
         let embedded_hash = embedded_thumbnail_hash(path_str);
         let selected = preferred_thumbnail_hash(
             thumb_cache_dir,
@@ -1566,6 +1655,11 @@ pub(crate) fn generate_single_thumbnail_and_cache(
     app_handle: &AppHandle,
     settings: &AppSettings,
 ) -> Option<CachedThumbnails> {
+    // Developing again needs the file; an evicted original is not downloaded
+    // for it (and the cache entry itself would open it for its camera).
+    if force_regenerate && is_cloud_placeholder(&parse_virtual_path(path_str).0) {
+        return None;
+    }
     let mut entry = ThumbnailCacheEntry::of(path_str, thumb_cache_dir, app_handle, settings)?;
 
     if !force_regenerate && let Some(cached) = entry.cached() {
@@ -2055,11 +2149,50 @@ pub fn get_cached_or_generate_thumbnail_image(
     if let Err(error) = entry.save(path_str, &image, embedded, &settings) {
         log::warn!("Thumbnail of {path_str} not cached: {error:#}");
     }
-    Ok(image)
+    let medium = settings.medium_thumbnail_resolution.unwrap_or(1280);
+    Ok(as_cached(path_str, image, medium))
+}
+
+/// The thumbnail as its cached medium file gives it (`medium` pixels wide,
+/// compressed; the same bytes `ThumbnailCacheEntry::save` writes), also when
+/// that file could not be written: the photograph is read from the same
+/// pixels the first time and every later time, so its content embedding and
+/// culling scores do not depend on whether the pass or the grid made its
+/// thumbnail (notes: benchmark-results/cul3-2026-11-21/REPORT.md). The
+/// `generated` image only if it cannot be encoded.
+fn as_cached(path_str: &str, generated: DynamicImage, medium: u32) -> DynamicImage {
+    match encode_thumbnail(&generated, medium).and_then(|jpeg| {
+        Ok(image::load_from_memory_with_format(
+            &jpeg,
+            image::ImageFormat::Jpeg,
+        )?)
+    }) {
+        Ok(cached) => cached,
+        Err(error) => {
+            log::warn!("Thumbnail of {path_str} not read as cached: {error:#}");
+            generated
+        }
+    }
 }
 
 #[cfg(test)]
 mod source_preview_tests {
+    #[test]
+    fn a_thumbnail_just_made_is_read_as_its_cached_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let medium = temp.path().join("hash_medium.jpg");
+        let generated =
+            image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(1600, 1000, |x, y| {
+                image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x ^ y) % 256) as u8])
+            }));
+        // What a later reading opens: the cached file.
+        std::fs::write(&medium, super::encode_thumbnail(&generated, 1280).unwrap()).unwrap();
+        let later = image::open(&medium).unwrap();
+        assert_ne!(later, generated);
+        // The first reading, whether or not that file was written.
+        assert_eq!(super::as_cached("photo.jpg", generated, 1280), later);
+    }
+
     #[test]
     fn an_announced_medium_thumbnail_is_found_while_its_file_is_cached() {
         let temp = tempfile::tempdir().unwrap();
@@ -3113,5 +3246,162 @@ mod thumbnail_queue_tests {
         queue.replace(names(&["b"]));
         assert_eq!(queue.take(Decode), None);
         assert!(queue.has(Lookup));
+    }
+}
+
+#[cfg(test)]
+mod face_retouch_thumbnail_tests {
+    use super::*;
+    use base64::{Engine, engine::general_purpose};
+    use serde_json::json;
+    use std::io::Cursor;
+
+    /// A 200 × 160 skin image with one dark spot at (60, 70), and a recipe
+    /// that heals it (the face's 100 px crop covers the photo, found at
+    /// full resolution).
+    fn skin_and_recipe() -> (DynamicImage, serde_json::Value) {
+        let image = image::Rgb32FImage::from_fn(200, 160, |x, y| {
+            let t = (((x * 7 + y * 13) % 5) as f32 - 2.0) * 0.004;
+            let d = ((x as f32 - 60.0).powi(2) + (y as f32 - 70.0).powi(2)).sqrt();
+            let dark = if d < 5.0 { 0.07 } else { 0.0 };
+            image::Rgb([0.24 + t - dark, 0.18 + t - dark, 0.15 + t - dark])
+        });
+        let mut png = Cursor::new(Vec::new());
+        DynamicImage::ImageLuma8(image::GrayImage::from_pixel(100, 100, image::Luma([255])))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let skin = format!(
+            "data:image/png;base64,{}",
+            general_purpose::STANDARD.encode(png.into_inner())
+        );
+        let recipe = json!({"faceRetouch": {
+            "settings": {"blemishes": 100},
+            "faces": [{
+                "crop": [2.0, 0.0, 0.0, 0.0, 1.6, 0.0], "size": 100, "eyeDistance": 80.0,
+                "skin": skin,
+                "blemishes": [{"id": 1, "x": 60.0, "y": 70.0, "r": 5.0, "score": 0.4, "neck": false}],
+                "kept": [],
+            }],
+        }});
+        (DynamicImage::ImageRgb32F(image), recipe)
+    }
+
+    fn luma_at(image: &DynamicImage, x: u32, y: u32) -> f32 {
+        image.to_rgb32f().get_pixel(x, y)[0]
+    }
+
+    #[test]
+    fn a_reduced_proxy_places_the_face_retouch_where_the_full_render_does() {
+        let (full, recipe) = skin_and_recipe();
+        let on_full = retouched_base(&full, &recipe, 1.0).unwrap();
+        assert!(
+            luma_at(&on_full, 60, 70) > 0.2,
+            "the full render heals the spot"
+        );
+
+        let proxy = full.resize_exact(100, 80, image::imageops::FilterType::Triangle);
+        let spot = luma_at(&proxy, 30, 35);
+        assert!(spot < 0.2, "the proxy shows the spot ({spot})");
+        let on_proxy = retouched_base(&proxy, &recipe, 0.5).unwrap();
+        let healed = luma_at(&on_proxy, 30, 35);
+        assert!(healed > 0.2, "the proxy heals the same spot ({healed})");
+        // Nothing is retouched where the full render leaves the skin alone.
+        for (x, y) in [(10, 10), (80, 60), (40, 70)] {
+            assert!((luma_at(&on_proxy, x, y) - luma_at(&proxy, x, y)).abs() < 0.03);
+        }
+    }
+
+    #[test]
+    fn a_retouch_whose_frame_is_stale_is_keyed_apart_from_the_unretouched_render() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.jpg");
+        std::fs::write(&source, b"source unchanged").unwrap();
+        let path = source.to_str().unwrap();
+        let modified = source_mtime(&source).unwrap();
+        // The key a thumbnail was cached under before such a retouch was
+        // placed through its stored frame (it was skipped).
+        let skipped = |bytes: &[u8]| {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(cache_label(path, &source).as_bytes());
+            hasher.update(&modified.to_le_bytes());
+            hasher.update(bytes);
+            hasher.finalize().to_hex().to_string()
+        };
+        let (_, mut recipe) = skin_and_recipe();
+        recipe["faceRetouch"]["frame"] = json!(rawtonic_engine::face_retouch::frame_key(&recipe));
+        let current = serde_json::to_vec(&recipe).unwrap();
+        assert_eq!(
+            compute_thumbnail_cache_hash(path, &current).unwrap(),
+            skipped(&current),
+            "faces found in the photo's geometry keep their thumbnails"
+        );
+        recipe["flipHorizontal"] = json!(true);
+        let stale = serde_json::to_vec(&recipe).unwrap();
+        assert_ne!(
+            compute_thumbnail_cache_hash(path, &stale).unwrap(),
+            skipped(&stale),
+            "a thumbnail cached while the retouch was skipped is made again"
+        );
+    }
+
+    #[test]
+    fn retouched_raw_tiles_on_a_reduced_base_are_made_again() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("session.json"),
+            br#"{"id":"retouch-proxy"}"#,
+        )
+        .unwrap();
+        let source = temp.path().join("Capture/photo.RAF");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, b"source unchanged").unwrap();
+        let path = source.to_str().unwrap();
+        let (_, mut recipe) = skin_and_recipe();
+        recipe["lensCorrectionMode"] = json!("manual");
+        recipe["faceRetouch"]["frame"] = json!(rawtonic_engine::face_retouch::frame_key(&recipe));
+        let bytes = serde_json::to_vec(&recipe).unwrap();
+        // A fast decode is a reduced base too: the tile is made again.
+        assert_ne!(
+            compute_thumbnail_cache_hash(path, &bytes),
+            thumbnail_hash_before_face_retouch_refresh(path, &bytes)
+        );
+        let proxy = crate::preview_proxy::proxy_path(&source).expect("proxy location");
+        std::fs::create_dir_all(proxy.parent().unwrap()).unwrap();
+        std::fs::write(&proxy, b"proxy").unwrap();
+        assert_ne!(
+            compute_thumbnail_cache_hash(path, &bytes),
+            thumbnail_hash_before_face_retouch_refresh(path, &bytes)
+        );
+        // A recipe without face retouch keeps its key.
+        let plain = serde_json::to_vec(&json!({"lensCorrectionMode": "manual"})).unwrap();
+        assert_eq!(
+            compute_thumbnail_cache_hash(path, &plain),
+            thumbnail_hash_before_face_retouch_refresh(path, &plain)
+        );
+    }
+
+    #[test]
+    fn a_disconnected_original_keeps_the_tile_cached_before_the_refresh() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache = temp.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        let (old, new) = ("a".repeat(64), "b".repeat(64));
+        let put = |hash: &str| {
+            for size in ["small", "medium"] {
+                std::fs::write(cache.join(format!("{hash}_{size}.jpg")), b"tile").unwrap();
+            }
+        };
+        let gone = temp.path().join("drive/photo.jpg");
+        let present = temp.path().join("photo.jpg");
+        std::fs::write(&present, b"photo").unwrap();
+        let key = |source: &Path| {
+            keep_tile_of_unavailable_original(&cache, source, new.clone(), || Some(old.clone()))
+        };
+        assert_eq!(key(&gone), new, "no old tile: nothing to keep");
+        put(&old);
+        assert_eq!(key(&gone), old, "offline: the old tile stays");
+        assert_eq!(key(&present), new, "online: made again");
+        put(&new);
+        assert_eq!(key(&gone), new, "the new tile wins once it exists");
     }
 }

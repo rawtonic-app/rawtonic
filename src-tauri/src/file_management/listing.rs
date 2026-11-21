@@ -10,7 +10,6 @@ use crate::state::library::{LibraryState, PendingMetadata};
 use crate::state::lock::lock_recover;
 use crate::state::thumbnails::ThumbnailState;
 use rawtonic_fs::Canonical;
-pub use rawtonic_fs::is_cloud_placeholder;
 use rawtonic_metadata::photo_ref::{self, CopyId, PhotoRef};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -23,6 +22,37 @@ use std::thread;
 use sysinfo::Disks;
 use tauri::AppHandle;
 use tauri::{Emitter, Manager};
+
+/// Whether `path` is an evicted cloud file (`rawtonic_fs::is_cloud_placeholder`),
+/// without opening it. Tests simulate one with `simulate_cloud_placeholder`.
+pub fn is_cloud_placeholder(path: &Path) -> bool {
+    #[cfg(test)]
+    if simulated_placeholders()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains(path)
+    {
+        return true;
+    }
+    rawtonic_fs::is_cloud_placeholder(path)
+}
+
+#[cfg(test)]
+fn simulated_placeholders() -> &'static std::sync::Mutex<std::collections::HashSet<PathBuf>> {
+    static SET: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<PathBuf>>> =
+        std::sync::OnceLock::new();
+    SET.get_or_init(Default::default)
+}
+
+/// Test hook: `path` counts as an evicted cloud file from now on (use unique
+/// temporary paths; the set is shared by parallel tests).
+#[cfg(test)]
+pub(crate) fn simulate_cloud_placeholder(path: &Path) {
+    simulated_placeholders()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(path.to_path_buf());
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ImageFileMetadata {

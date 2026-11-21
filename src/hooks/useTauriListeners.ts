@@ -3,7 +3,7 @@ import { UnlistenFn, listen } from '@tauri-apps/api/event';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { notify } from '../activity/notify';
 import i18n from 'i18next';
-import { CullingSuggestions, ImageFile, Invokes, Progress } from '../components/ui/AppProperties';
+import { ImageFile, Invokes, Progress } from '../components/ui/AppProperties';
 import { Status } from '../components/ui/ExportImportProperties';
 import {
   ExportItemProgress,
@@ -673,6 +673,18 @@ export function useTauriListeners({
             selecting: [...(state.selecting ?? []), event.payload]
           }));
       }),
+      // Preferences that change a decode changed (linear RAW mode,
+      // preprocessing, Apple RAW 9): the open RAW is developed again.
+      listen('decode-preferences-changed', () => {
+        if (!isEffectActive) return;
+        useEditorStore
+          .getState()
+          .setEditor((state) =>
+            state.selectedImage?.isRaw
+              ? { selectedImage: { ...state.selectedImage, decoderStale: (state.selectedImage.decoderStale ?? 0) + 1 } }
+              : {}
+          );
+      }),
       listen<string>('export-denoising', (event) => {
         if (isEffectActive)
           useProcessStore.getState().setExportState((state) => ({
@@ -851,40 +863,6 @@ export function useTauriListeners({
             isProcessing: false,
             previewBase64: null,
             progressMessage: null
-          }));
-        }
-      }),
-      listen<number>('culling-start', (event) => {
-        if (isEffectActive) {
-          useUIStore.getState().setUI((state) => ({
-            cullingModalState: {
-              ...state.cullingModalState,
-              isOpen: true,
-              progress: { current: 0, total: event.payload, stage: 'Initializing...' },
-              suggestions: null,
-              error: null
-            }
-          }));
-        }
-      }),
-      listen<{ current: number; total: number; stage: string }>('culling-progress', (event) => {
-        if (isEffectActive) {
-          useUIStore
-            .getState()
-            .setUI((state) => ({ cullingModalState: { ...state.cullingModalState, progress: event.payload } }));
-        }
-      }),
-      listen<CullingSuggestions>('culling-complete', (event) => {
-        if (isEffectActive) {
-          useUIStore.getState().setUI((state) => ({
-            cullingModalState: { ...state.cullingModalState, progress: null, suggestions: event.payload }
-          }));
-        }
-      }),
-      listen<unknown>('culling-error', (event) => {
-        if (isEffectActive) {
-          useUIStore.getState().setUI((state) => ({
-            cullingModalState: { ...state.cullingModalState, progress: null, error: String(event.payload) }
           }));
         }
       }),

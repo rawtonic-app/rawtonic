@@ -202,6 +202,7 @@ fn take_unloaded(ai: &mut AiModels, reason: UnloadReason) -> AiModels {
     if reason != UnloadReason::MemoryPressure {
         ai.subject_masks = std::mem::take(&mut taken.subject_masks);
         ai.sky_masks = std::mem::take(&mut taken.sky_masks);
+        ai.landscape_runs = std::mem::take(&mut taken.landscape_runs);
         ai.tag_models = taken.tag_models.take();
     }
     taken
@@ -212,6 +213,7 @@ fn names(taken: &AiModels) -> Vec<&'static str> {
     [
         ("subject", taken.subject_model.is_some()),
         ("sky", taken.sky_model.is_some()),
+        ("landscape", taken.landscape_model.is_some()),
         ("SAM 2.1", taken.sam_models.is_some()),
         ("SAM embedding", taken.embeddings.is_some()),
         ("depth", taken.depth_model.is_some()),
@@ -223,6 +225,7 @@ fn names(taken: &AiModels) -> Vec<&'static str> {
         ("tagging", taken.tag_models.is_some()),
         ("subject masks", !taken.subject_masks.is_empty()),
         ("sky masks", !taken.sky_masks.is_empty()),
+        ("landscape parts", !taken.landscape_runs.is_empty()),
     ]
     .into_iter()
     .filter_map(|(name, present)| present.then_some(name))
@@ -235,6 +238,7 @@ fn models_loaded(ai_state: &AiState) -> bool {
     let ai_models = ai.as_ref().is_some_and(|ai| {
         ai.subject_model.is_some()
             || ai.sky_model.is_some()
+            || ai.landscape_model.is_some()
             || ai.sam_models.is_some()
             || ai.depth_model.is_some()
             || ai.relight_model.is_some()
