@@ -120,19 +120,24 @@ pub fn iou(a: &[f32; 4], b: &[f32; 4]) -> f32 {
 /// filling a portrait is found in the smaller pass.
 const PASSES: [f32; 2] = [1.0, 0.45];
 
-/// Faces in `image` (display-encoded sRGB), best first.
-pub fn detect(session: &mut Session, image: &RgbImage) -> Result<Vec<Detection>> {
+/// Faces in a photo `width` pixels wide (display-encoded sRGB), best
+/// first, from `inputs`, the photo made small for each of `PASSES`
+/// (`pass_inputs`).
+pub fn detect(session: &mut Session, width: u32, inputs: &[RgbImage; 2]) -> Result<Vec<Detection>> {
     let mut found = Vec::new();
-    for small in pass_inputs(image) {
-        found.extend(pass(session, image.width(), &small)?);
+    for small in inputs {
+        found.extend(pass(session, width, small)?);
     }
     Ok(suppress(found))
 }
 
 /// The photo made small for each of `PASSES`. Both are made at once: each
 /// reads the whole photo (a third of the eye check's time per photo on a
-/// 33 MP camera JPEG), and they do not depend on each other.
-fn pass_inputs(image: &RgbImage) -> [RgbImage; 2] {
+/// 33 MP camera JPEG), and they do not depend on each other. Made before
+/// the detector's session is taken: a thread waiting for Rayon while it
+/// holds the session could be given another photo's detection, which
+/// would wait for that session too.
+pub fn pass_inputs(image: &RgbImage) -> [RgbImage; 2] {
     let small = |share: f32| {
         let (w, h) = image.dimensions();
         let fit = (INPUT as f32 * share).round();
