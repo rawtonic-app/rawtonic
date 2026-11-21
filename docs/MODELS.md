@@ -949,8 +949,12 @@ The [pack-2026-11-21b release](https://github.com/rawtonic-app/models/releases/t
 was built with `build_model_pack.py --previous` (pack-2026-11-21) and adds only
 the eye and teeth parser (`easyportrait_fpn_1024.onnx` and the three
 `easyportrait_coreml_*` files, CC BY-SA 4.0 with both licence texts). All
-prior files are byte-identical and keep their manifest entries. The app,
-`src-tauri/build.rs` and `install_models.sh` point to pack-2026-11-21b.
+prior files are byte-identical and keep their manifest entries. All 92
+uploaded assets (86 files, `models.json`, five license texts) were verified
+against GitHub's SHA-256 digests before the draft was published.
+[Model repository PR #10](https://github.com/rawtonic-app/models/pull/10)
+records the published manifest and adds the two EasyPortrait license texts.
+The app, `src-tauri/build.rs` and `install_models.sh` point to pack-2026-11-21b.
 
 On an Apple M5 Pro laptop (24 GiB RAM, macOS 27.0.1), forced CPU inference
 on the same 117 tiles of a 6000×4000 float32 image took 460.896 → 145.915 s
