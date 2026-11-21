@@ -230,8 +230,6 @@ fn smart_condition(
             let op = compare(operation).filter(|op| matches!(op, Op::Is | Op::IsNot))?;
             (Field::Label, op, json!(label))
         }
-        // Text of the photograph's own facts: Lightroom's word search
-        // ("words", every word) and its comparisons, as the catalog's.
         // Lightroom's camera name is the maker and the model ("Canon EOS
         // 600D"); the catalog keeps them apart, so a word is looked for in
         // either. A whole name has no column to compare with.
@@ -262,59 +260,6 @@ fn smart_condition(
                 "noneOf" => Some(Rule::Group {
                     combine: Combine::None,
                     rules: in_either(Op::ContainsAny, &text(value)?),
-                }),
-                "empty" | "notEmpty" => Some(Rule::Condition {
-                    field: Field::Camera,
-                    op: if operation == "empty" {
-                        Op::Empty
-                    } else {
-                        Op::NotEmpty
-                    },
-                    value: Value::Null,
-                }),
-                _ => None,
-            };
-        }
-        // Text of the photograph's own facts: Lightroom's word search
-        // ("words", every word) and its comparisons, as the catalog's.
-        // Lightroom's camera name is the maker and the model ("Canon EOS
-        // 600D"); the catalog keeps them apart, so a word is looked for in
-        // either. A whole name has no column to compare with.
-        "camera" => {
-            let words = |op: Op, field: Field| Rule::Condition {
-                field,
-                op,
-                value: json!(text(value).unwrap_or_default()),
-            };
-            let either = |op: Op, word: Option<&str>| Rule::Group {
-                combine: Combine::Any,
-                rules: [Field::Camera, Field::Make]
-                    .into_iter()
-                    .map(|field| match word {
-                        Some(word) => Rule::Condition {
-                            field,
-                            op,
-                            value: json!(word),
-                        },
-                        None => words(op, field),
-                    })
-                    .collect(),
-            };
-            return match operation {
-                "words" | "all" => {
-                    let rules = text(value)?
-                        .split_whitespace()
-                        .map(|word| either(Op::Contains, Some(word)))
-                        .collect();
-                    Some(Rule::Group {
-                        combine: Combine::All,
-                        rules,
-                    })
-                }
-                "any" => Some(either(Op::ContainsAny, None)),
-                "noneOf" => Some(Rule::Group {
-                    combine: Combine::None,
-                    rules: vec![either(Op::ContainsAny, None)],
                 }),
                 "empty" | "notEmpty" => Some(Rule::Condition {
                     field: Field::Camera,
