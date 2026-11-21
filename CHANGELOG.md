@@ -51,7 +51,14 @@
   - Brush, Linear and Radial masks, which record the size they were drawn on, and edits of all other files render exactly as before.
   - Rawtonic now saves the photo size each edit was made on with it.
   - Snapshots, Object selection prompts and Library thumbnails move with the edit.
-  - An edit begun at full size since 0.1.0-alpha.17.1 is recognised by its RAW settings and geometry and left as it is.
+  - No version number marks an edit as made before 0.1.0-alpha.17.1, so the edit itself decides. An edit is left as it is when any of these hold:
+    - it carries RAW-only processing settings, which every edit begun on a RAW has and an ordinary TIFF's never had;
+    - it has a drawn mask or AI mask of the full size;
+    - it has a crop or spot reaching beyond the thumbnail's size.
+  - Otherwise it is moved.
+  - Two rare cases are decided wrongly:
+    - An older edit that got a new full-size crop or spot entirely within the thumbnail-sized top-left corner, during the two days 0.1.0-alpha.17.1 and alpha.18 were current, is moved too.
+    - An older edit onto which processing versions of a RAW were pasted is not moved: it stays as it rendered in 0.1.0-alpha.18.
 - **JPEG-to-DNG and iPhone ProRAW photos with clipped highlights** render those highlights white where some pixels were near black before, also in saved edits: a wrapped lookup is a decoding defect, and decoder fixes apply to all photos. Measured with the CLI, before and after: in a synthetic JPEG-to-DNG exported as 8-bit JPEG (default settings), 3,987 of 12,482 pure-white source pixels had a channel below 200 of 255 before; after, none do (lowest channel 242 of 255, at the white area's JPEG edges). On the public iPhone 12 Pro ProRAW sample from raw.pixls.us, 2 samples decoded as 0 instead of 65535; in its 16-bit TIFF export, 818 pixels change by at most 765 of 65535. Every other decoded value is unchanged. 17 other files whose decoders use these tables export byte for byte as before: Adobe DNG Converter lossy DNGs, Leica M8/M9, Sigma fp, Autel, Nikon curves including small NEF, Sony curves, Leaf. The method and results are in `third_party/rawler/RAWTONIC_PATCHES.md`.
 
 ## 0.1.0-alpha.18 — 2026-11-19
