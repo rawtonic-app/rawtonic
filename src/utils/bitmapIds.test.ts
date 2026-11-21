@@ -28,3 +28,17 @@ it('refers to a sent bitmap, sends a new one whole and keeps a component without
   expect(referToSentMaskBitmaps(ticked, sent)).toEqual(['lips']);
   expect(ticked[0].parameters.maskDataBase64).toBe('data:teeth');
 });
+
+it('sends a bitmap whole again when it changed under its id (computed again, undo, redo)', () => {
+  const sent = new Set<string>();
+  const send = (bitmap: string) => {
+    const subs = [sub('sky-again', bitmap)];
+    referToSentMaskBitmaps(subs, sent).forEach((id) => sent.add(id));
+    return subs[0].parameters.maskDataBase64;
+  };
+  expect(send('data:thumb')).toBe('data:thumb');
+  expect(send('data:thumb')).toBe(CACHED_BITMAP);
+  expect(send('data:full')).toBe('data:full');
+  expect(send('data:full')).toBe(CACHED_BITMAP);
+  expect(send('data:thumb')).toBe('data:thumb');
+});

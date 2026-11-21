@@ -65,6 +65,7 @@ pub async fn generate_ai_foreground_mask(
     orientation_steps: u8,
     subject_version: Option<u32>,
     task_id: Option<String>,
+    download: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AiForegroundMaskParameters, CommandError> {
@@ -90,6 +91,7 @@ pub async fn generate_ai_foreground_mask(
         &js_adjustments,
         version,
         &path,
+        download.unwrap_or(true),
         cancel_flag,
     )
     .await?
@@ -119,6 +121,7 @@ pub async fn generate_ai_sky_mask(
     flip_vertical: bool,
     orientation_steps: u8,
     task_id: Option<String>,
+    download: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AiSkyMaskParameters, CommandError> {
@@ -140,6 +143,7 @@ pub async fn generate_ai_sky_mask(
         &app_handle,
         &js_adjustments,
         &path,
+        download.unwrap_or(true),
         cancel_flag,
     )
     .await?
@@ -847,10 +851,11 @@ async fn network(
 /// The Subject or Sky mask (PNG data URL at the photo's size) of the photo
 /// that is loaded, with the caller's geometry: cached per photo and
 /// geometry, else computed and cached. `asked`: the photo a click asked
-/// for (`PHOTO_CHANGED` when another is loaded), which may download the
-/// model; `None` for background requests, which use an installed model only
-/// (`Ok(None)` without one). Cancelling `cancel` stops a run of ONNX Runtime
-/// at once.
+/// for (`PHOTO_CHANGED` when another is loaded); `None` for background
+/// requests. `download`: the model may be downloaded (a click); otherwise
+/// only an installed model is used (`Ok(None)` without one: background
+/// requests, a camera TIFF's migrated selection computed again on opening).
+/// Cancelling `cancel` stops a run of ONNX Runtime at once.
 #[allow(clippy::too_many_arguments)]
 async fn auto_mask(
     state: &tauri::State<'_, AppState>,
@@ -860,9 +865,9 @@ async fn auto_mask(
     kind: AutoMask,
     subject_version: u32,
     asked: Option<&str>,
+    download: bool,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, CommandError> {
-    let download = asked.is_some();
     let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
     // Counts as running from here, so an idle unload waits for the load too.
     let _running = ai_state.lifecycle.run();
@@ -1115,6 +1120,7 @@ impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> 
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn subject_mask(
     state: &tauri::State<'_, AppState>,
     ai_state: &AiState,
@@ -1122,6 +1128,7 @@ async fn subject_mask(
     js_adjustments: &serde_json::Value,
     version: u32,
     asked: &str,
+    download: bool,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, CommandError> {
     auto_mask(
@@ -1132,6 +1139,7 @@ async fn subject_mask(
         AutoMask::Subject,
         version,
         Some(asked),
+        download,
         cancel,
     )
     .await
@@ -1143,6 +1151,7 @@ async fn sky_mask(
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
     asked: &str,
+    download: bool,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, CommandError> {
     auto_mask(
@@ -1153,6 +1162,7 @@ async fn sky_mask(
         AutoMask::Sky,
         1,
         Some(asked),
+        download,
         cancel,
     )
     .await
@@ -1212,6 +1222,7 @@ async fn precompute(
         kind,
         version,
         None,
+        false,
         cancel,
     )
     .await

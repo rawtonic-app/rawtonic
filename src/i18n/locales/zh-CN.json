@@ -866,6 +866,10 @@
       "exporting": "正在导出…",
       "savesTo": "外部编辑 — 保存至"
     },
+    "frameMove": {
+      "action": "移到完整图像",
+      "undecided": "此编辑可能是在 Rawtonic 0.1.0-alpha.17.1 之前此 TIFF 文件显示的小预览图上完成的。如果裁剪和污点修复位置不对，请将其移到完整图像上。"
+    },
     "guided": {
       "cancel": "取消",
       "drawingActive": "绘图中",
@@ -939,6 +943,7 @@
         "maskName_other": "蒙版 {{count}}"
       },
       "rangeTitle": "范围与全局",
+      "recomputedFullFrame_other": "已为全分辨率图像重新计算 {{count}} 个图层的 AI 蒙版。撤销可恢复之前的蒙版。",
       "resetMaskingTooltip": "重置蒙版",
       "settings": {
         "aiModelDownloading": "AI 模型下载中：",

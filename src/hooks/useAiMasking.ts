@@ -4,6 +4,15 @@ import { listen } from '@tauri-apps/api/event';
 import { isPhotoChanged, noteBackgroundAiError, toastAiError } from '../utils/aiErrors';
 import { errorMessage } from '../shared/ipc/errors';
 import { DETECT_PENDING } from '../utils/settingsClipboard';
+import {
+  selectionsToDetectAgain,
+  settleMigrated,
+  withDetectedAgain,
+  type MigratedKind,
+  type MigratedSelection
+} from '../utils/migratedSelections';
+import i18n from 'i18next';
+import { notify } from '../activity/notify';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
@@ -337,6 +346,34 @@ interface AiDepthMaskSettings {
   minFade?: number;
   maxFade?: number;
   feather?: number;
+}
+
+/** The command and task of each migrated selection (`useAiMasking` above
+ * the same requests: handleGenerateAiSkyMask and the others). */
+const AGAIN_COMMANDS: Record<MigratedKind, Invokes> = {
+  'ai-sky': Invokes.GenerateAiSkyMask,
+  'ai-foreground': Invokes.GenerateAiForegroundMask,
+  'ai-people': Invokes.GenerateAiPeopleMask
+};
+const AGAIN_TASKS: Record<MigratedKind, 'sky' | 'foreground' | 'people'> = {
+  'ai-sky': 'sky',
+  'ai-foreground': 'foreground',
+  'ai-people': 'people'
+};
+
+/** A migrated selection's own arguments, as its handler asks them. */
+function againArguments(kind: MigratedKind, p: Record<string, unknown>): Record<string, unknown> {
+  switch (kind) {
+    case 'ai-foreground':
+      return { subjectVersion: (p.subjectVersion as number | undefined) ?? 1 };
+    case 'ai-people':
+      return {
+        parts: (p.parts as string[] | undefined) ?? [],
+        person: (p.person as number | null | undefined) ?? null
+      };
+    default:
+      return {};
+  }
 }
 
 export function useAiMasking() {
@@ -915,6 +952,106 @@ export function useAiMasking() {
     console.info('AI masks: not requested ahead, masking is inactive for this photo');
   }, [masksPanelOpen, selectedImagePathKey, selectedImageReady]);
   useEffect(() => () => cancelAiMaskPrecompute(), [selectedImagePathKey]);
+
+  // Sky, Subject, People and depth range selections migrated from a camera
+  // TIFF's thumbnail (src/utils/migratedSelections.ts) are computed again on
+  // the full frame when the photo is ready: all of them, then one History
+  // step, so one undo brings back the stretched thumbnail bitmaps.
+  const requestedAgain = useRef(new Set<string>());
+  // A failure is asked again when a photo opens again.
+  useEffect(() => requestedAgain.current.clear(), [selectedImagePathKey]);
+  useEffect(() => {
+    if (!selectedImageReady) return;
+    const { selectedImage, adjustments } = useEditorStore.getState();
+    if (!selectedImage) return;
+    const path = selectedImage.path;
+    const waiting = selectionsToDetectAgain(adjustments);
+    const key = `${path}:${waiting.map(({ sub }) => sub.id).join(',')}`;
+    if (!waiting.length || requestedAgain.current.has(key)) return;
+    requestedAgain.current.add(key);
+    const geometry = {
+      jsAdjustments: getTransformAdjustments(adjustments),
+      path,
+      flipHorizontal: adjustments.flipHorizontal,
+      flipVertical: adjustments.flipVertical,
+      orientationSteps: adjustments.orientationSteps,
+      rotation: adjustments.rotation
+    };
+    const ask = async ({ sub }: MigratedSelection) => {
+      const asked = { ...((sub.parameters ?? {}) as Record<string, unknown>) };
+      const kind = sub.type as MigratedKind;
+      registerAiTask(sub.id, AGAIN_TASKS[kind]);
+      try {
+        const result = await invoke<Record<string, unknown>>(AGAIN_COMMANDS[kind], {
+          ...geometry,
+          ...againArguments(kind, asked),
+          taskId: sub.id,
+          download: false
+        });
+        return [sub.id, { asked, result }] as const;
+      } catch (error) {
+        if (isPhotoChanged(error)) throw error;
+        // Not computed here (its model does not load): the stretched bitmap
+        // stays, asked again when the photo opens again.
+        console.warn(`Migrated ${sub.type} selection not computed again:`, errorMessage(error));
+        return null;
+      } finally {
+        unregisterAiTask(sub.id);
+      }
+    };
+    // Only with installed models: opening a photo downloads nothing
+    // (PRIVACY.md); the others keep their stretched bitmap and are asked
+    // again when the photo opens again.
+    void invoke<string[] | null>(Invokes.InstalledSelectionModels)
+      .then((installed) => {
+        const runnable = waiting.filter(({ sub }) => installed?.includes(sub.type));
+        return runnable.length ? Promise.all(runnable.map(ask)) : null;
+      })
+      .then(async (answers) => {
+        const found = (answers ?? []).filter((answer) => answer !== null);
+        if (!found.length) return;
+        const results = new Map(found);
+        if (useEditorStore.getState().isSliderDragging) {
+          await new Promise<void>((resolve) => {
+            const unsubscribe = useEditorStore.subscribe((state) => {
+              if (state.isSliderDragging && state.selectedImage?.path === path) return;
+              unsubscribe();
+              resolve();
+            });
+          });
+        }
+        const now = useEditorStore.getState();
+        if (now.selectedImage?.path !== path || !now.selectedImage.isReady) {
+          requestedAgain.current.delete(key);
+          return;
+        }
+        const ids = new Set(results.keys());
+        let layers = 0;
+        // The steps so far keep the thumbnail bitmaps without the mark (an
+        // undo leaves them), and the new step holds the full-frame ones.
+        debouncedSetHistory.flush();
+        now.setEditor((state) =>
+          state.selectedImage?.path !== path
+            ? state
+            : {
+                history: state.history.map((step: Adjustments) => settleMigrated(step, ids))
+              }
+        );
+        setAdjustments((prev: Adjustments) => {
+          const next = withDetectedAgain(prev, results);
+          layers = next.layers;
+          return settleMigrated(next.adjustments, ids);
+        });
+        debouncedSetHistory.flush();
+        if (layers > 0) notify.info(i18n.t('editor.masks.recomputedFullFrame', { count: layers }));
+      })
+      .catch((error) => {
+        // The stretched bitmaps stay; asked again when the photo opens again.
+        if (isPhotoChanged(error)) requestedAgain.current.delete(key);
+        else console.warn('Migrated selections not computed again:', errorMessage(error));
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedImageReady, masksKey]);
 
   return { handleGenerateAiMask };
 }

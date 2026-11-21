@@ -866,6 +866,10 @@
       "exporting": "내보내는 중…",
       "savesTo": "외부 편집 — 저장 위치:"
     },
+    "frameMove": {
+      "action": "전체 이미지로 옮기기",
+      "undecided": "이 편집은 Rawtonic 0.1.0-alpha.17.1 이전에 이 TIFF 파일이 보여 주던 작은 미리 보기에서 만들어졌을 수 있습니다. 자르기와 스팟 보정 위치가 틀리면 전체 이미지로 옮기세요."
+    },
     "guided": {
       "cancel": "취소",
       "drawingActive": "그리기 활성화",
@@ -939,6 +943,7 @@
         "maskName_other": "마스크 {{count}}"
       },
       "rangeTitle": "범위 및 글로벌",
+      "recomputedFullFrame_other": "레이어 {{count}}개의 AI 마스크를 전체 해상도 이미지에 맞게 다시 계산했습니다. 실행 취소하면 이전 마스크로 돌아갑니다.",
       "resetMaskingTooltip": "마스킹 초기화",
       "settings": {
         "aiModelDownloading": "AI 모델 다운로드 중: ",

@@ -101,6 +101,7 @@ mod proxy_worker;
 mod qa_control;
 #[cfg(feature = "qa-control")]
 mod qa_crash;
+mod recipe_frame;
 mod red_eye;
 mod scope_analytics;
 mod scope_images;
@@ -1038,6 +1039,8 @@ fn start(args: Vec<String>) {
             keyboard_layout::keyboard_layout,
             lut_processing::load_and_parse_lut,
             camera_profile::import_camera_profile,
+            recipe_frame::undecided_frame_move,
+            recipe_frame::installed_selection_models,
             camera_profile::list_camera_profiles,
             camera_profile::white_balance_info,
             develop_defaults::develop_defaults_for,

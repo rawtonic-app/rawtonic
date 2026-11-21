@@ -866,6 +866,10 @@
       "exporting": "正在匯出…",
       "savesTo": "外部編輯 — 儲存至"
     },
+    "frameMove": {
+      "action": "移到完整影像",
+      "undecided": "此編輯可能是在 Rawtonic 0.1.0-alpha.17.1 之前此 TIFF 檔案顯示的小預覽圖上完成的。如果裁切和污點修復位置不對，請將其移到完整影像上。"
+    },
     "guided": {
       "cancel": "取消",
       "drawingActive": "繪圖中",
@@ -939,6 +943,7 @@
         "maskName_other": "遮色片 {{count}}"
       },
       "rangeTitle": "範圍與全域",
+      "recomputedFullFrame_other": "已為全解析度影像重新計算 {{count}} 個圖層的 AI 遮罩。復原可恢復先前的遮罩。",
       "resetMaskingTooltip": "重置遮色片",
       "settings": {
         "aiModelDownloading": "AI 模型下載中：",
