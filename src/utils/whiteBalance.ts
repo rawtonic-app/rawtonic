@@ -15,7 +15,13 @@ interface PreviewSample {
   finalPreviewUrl: string | null;
   /** Linux at 100 %: the region frame over the whole frame. */
   finalRegion?: SampleRegion | null;
+  /** The loupe already read this browser patch. Undefined for a click. */
+  browserMean?: Rgb | null;
 }
+
+export type WhiteBalancePick =
+  | { temperature: number; tint: number }
+  | { whiteBalance: 'custom'; wbTemperature: number; wbTint: number; temperature: 0; tint: 0 };
 
 function sampleRenderedImage(url: string, x: number, y: number): Promise<Rgb | null> {
   return new Promise((resolve, reject) => {
@@ -121,7 +127,7 @@ export async function autoWhiteBalance(
   return grey && neutralSliders(grey, versions);
 }
 
-export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
+export async function whiteBalanceForCurrentPreview(request: PreviewSample): Promise<WhiteBalancePick | null> {
   const stillCurrent = () => {
     const current = useEditorStore.getState();
     return (
@@ -158,7 +164,8 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
         imagePath: request.image.path,
         rgb: linear
       }).catch(() => null);
-      if (kelvin && Number.isFinite(kelvin.temperature) && Number.isFinite(kelvin.tint) && stillCurrent()) {
+      if (!stillCurrent()) return null;
+      if (kelvin && Number.isFinite(kelvin.temperature) && Number.isFinite(kelvin.tint)) {
         return {
           whiteBalance: 'custom' as const,
           wbTemperature: kelvin.temperature,
@@ -179,7 +186,12 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
     request.normalizedX,
     request.normalizedY
   );
-  const rgb = target ? await sampleRenderedImage(target.url, target.x, target.y) : null;
+  const rgb =
+    request.browserMean !== undefined
+      ? request.browserMean
+      : target
+        ? await sampleRenderedImage(target.url, target.x, target.y)
+        : null;
   if (!rgb || !stillCurrent()) return null;
   const correction = neutralWhiteBalance(
     rgb.map((channel) => Math.pow(channel / 255, 2.2)) as Rgb,

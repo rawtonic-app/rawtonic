@@ -655,9 +655,10 @@
   height: 100%;
   padding-bottom: 10px;
 }
-/* The layer the tools act on, in tabs without the layer list. */
+/* The layer the tools act on, above the scrolling tools. */
 .studio-target {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
@@ -1172,12 +1173,21 @@
 .curve-histogram-line[data-channel='blue'] {
   stroke: #789fc7;
 }
-/* Crosshair through the point being dragged. */
-.curve-crosshair {
+/* Crosshair through the point being dragged or the hovered curve input. */
+.curve-crosshair,
+.curve-hover-line {
   pointer-events: none;
   stroke: var(--studio-shade-text, #c9ccd0);
   stroke-width: 0.6;
   stroke-dasharray: 2 2;
+}
+.curve-hover-values {
+  display: flex;
+  justify-content: space-between;
+  min-height: 1.5em;
+  color: var(--studio-shade-muted, #aeb1b6);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 /* Region split handles in a strip under the plot (D4): the number shows on
    hover, focus and while dragging. */
@@ -3512,6 +3522,17 @@
 }
 .picker-loupe-values > span > span {
   color: var(--studio-shade-muted, #b2b5ba);
+}
+.picker-loupe-balance {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 0 6px;
+  height: 40px;
+  border-top: 1px solid var(--studio-line);
+}
+.picker-loupe-balance > span:nth-child(even) {
+  text-align: right;
 }
 /* The viewer bar's pointer readout: fixed-width values so nothing shifts. */
 .studio-pointer-readout {
