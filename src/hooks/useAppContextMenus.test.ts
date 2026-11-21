@@ -109,7 +109,13 @@ it('lists the built-in styles and adaptive presets and applies an adaptive one w
   usePresetStore.setState({ presets: [], isLoading: false });
   useBuiltinPresets.setState({
     presets: [
-      { id: 'adaptive-sky-deeper', name: 'Sky: deeper', presetType: 'adaptive', builtin: true, adjustments: { masks: [] } },
+      {
+        id: 'adaptive-sky-deeper',
+        name: 'Sky: deeper',
+        presetType: 'adaptive',
+        builtin: true,
+        adjustments: { masks: [] }
+      },
       { id: 'bw', name: 'B&W', presetType: 'style', builtin: true, adjustments: { saturation: -100 } },
       { id: 'tone', name: 'Tone', presetType: 'tool', builtin: true, adjustments: { exposure: 1 } }
     ] as never
