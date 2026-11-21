@@ -2940,6 +2940,7 @@
           "measuredOutsideSrgb": "ターゲットは sRGB の外側です：選択した点の sRGB の結果は ΔE00 {{value}} 離れたままです（測定値）。",
           "measuredReached": "ターゲットに到達：ΔE00 {{value}}（選択した点で測定）。",
           "measuring": "選択した点で結果を測定中…",
+          "notMeasured": "ターゲットから予測 ΔE00 {{value}}。AI ノイズ除去がオンのため、選択した点の結果は測定できません。",
           "outsideSrgb": "ターゲットは sRGB の範囲外です。sRGB の書き出しでは色が sRGB 内にマッピングされます。",
           "outsideWorkingGamut": "ターゲットは写真の作業色域(ProPhoto)の外です。写真のどの色もその色にはなれないため、範囲はできるだけ近づけます。",
           "pickAria": "ターゲットカラーを取得",

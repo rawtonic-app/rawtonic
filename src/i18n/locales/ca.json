@@ -3187,6 +3187,7 @@
           "measuredOutsideSrgb": "L'objectiu és fora de sRGB: el resultat sRGB al punt triat queda a ΔE00 {{value}} (mesurat).",
           "measuredReached": "Objectiu assolit: ΔE00 {{value}}, mesurat al punt triat.",
           "measuring": "S'està mesurant el resultat al punt triat…",
+          "notMeasured": "Previst a ΔE00 {{value}} de l'objectiu; amb la reducció de soroll IA no es pot mesurar el resultat al punt triat.",
           "outsideSrgb": "L'objectiu és fora de sRGB; una exportació sRGB porta el color dins de sRGB.",
           "outsideWorkingGamut": "L'objectiu és fora dels colors de treball de la foto (ProPhoto): cap color de la foto no hi pot arribar, l'interval s'hi acosta tant com pot.",
           "pickAria": "Agafar el color objectiu",

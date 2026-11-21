@@ -3340,6 +3340,7 @@
           "measuredOutsideSrgb": "Cel leży poza sRGB: wynik sRGB w wybranym punkcie pozostaje ΔE00 {{value}} od niego (zmierzone).",
           "measuredReached": "Cel osiągnięty: ΔE00 {{value}}, zmierzone w wybranym punkcie.",
           "measuring": "Mierzenie wyniku w wybranym punkcie…",
+          "notMeasured": "Przewidywane ΔE00 {{value}} od celu; przy odszumianiu AI wyniku w wybranym punkcie nie można zmierzyć.",
           "outsideSrgb": "Cel leży poza sRGB; eksport sRGB odwzorowuje kolor w sRGB.",
           "outsideWorkingGamut": "Cel leży poza kolorami roboczymi zdjęcia (ProPhoto): żaden kolor zdjęcia nie może nim być, zakres zbliża się tak, jak może.",
           "pickAria": "Pobierz kolor docelowy",

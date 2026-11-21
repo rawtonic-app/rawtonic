@@ -2940,6 +2940,7 @@
           "measuredOutsideSrgb": "목표가 sRGB 밖에 있습니다: 선택한 지점의 sRGB 결과는 ΔE00 {{value}} 떨어져 있습니다(측정값).",
           "measuredReached": "목표 도달: ΔE00 {{value}}, 선택한 지점에서 측정.",
           "measuring": "선택한 지점에서 결과 측정 중…",
+          "notMeasured": "목표에서 예측된 ΔE00 {{value}}; AI 노이즈 제거가 켜져 있어 선택한 지점의 결과를 측정할 수 없습니다.",
           "outsideSrgb": "목표가 sRGB 밖에 있습니다. sRGB 내보내기는 색을 sRGB 안으로 매핑합니다.",
           "outsideWorkingGamut": "목표가 사진의 작업 색역(ProPhoto) 밖에 있습니다. 사진의 어떤 색도 그 색이 될 수 없으며, 범위는 최대한 가까이 갑니다.",
           "pickAria": "목표 색상 찍기",

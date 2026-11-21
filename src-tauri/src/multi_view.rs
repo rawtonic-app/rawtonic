@@ -3310,36 +3310,37 @@ fn target_bases() -> &'static RegionBases {
     BASES.get_or_init(Default::default)
 }
 
-/// The colour target's measurement (`sample_color_range_result`): the
-/// pixels of `recipe` in a `block` × `block` full-resolution px square of
-/// `path` centred on `center` (normalised to the shown photograph),
-/// developed as a zoomed region at 100 % (the whole photograph's pixels
-/// around it within the render's reach, as the export develops them) and
-/// encoded in `space` (or the shader's `probe` there), as RGBA8 per pixel.
-/// The region's base is kept
-/// across calls, so the target's corrections and readouts after the first
-/// cut it in milliseconds; the first may wait for the full-resolution
-/// source.
+/// The colour target's measurement (`sample_color_range_result`, and the
+/// colour editor's input with a `probe`): the pixels of `recipe` in `block`
+/// (x, y, w, h in full-resolution px of the shown photograph, `shown` wide
+/// and high), developed as
+/// a zoomed region at 100 % (the whole photograph's pixels around it within
+/// the render's reach, as the export develops them) and encoded in `space`
+/// (or the shader's `probe` there), as RGBA8 per pixel. The region's base
+/// is kept across calls, so the target's corrections and readouts after the
+/// first cut it in milliseconds; the first may wait for the full-resolution
+/// source. None for a recipe with AI Denoise: a region's source is the
+/// decode without it, so it would not show the export's pixels.
 pub(crate) fn develop_target_block(
     app_handle: &tauri::AppHandle,
     path: &str,
-    center: [f32; 2],
-    block: f32,
+    block: [f32; 4],
+    (shown_w, shown_h): (f32, f32),
     recipe: serde_json::Value,
     space: rawtonic_engine::output_color_space::OutputColorSpace,
     probe: Option<u32>,
-) -> Result<Vec<[u8; 4]>, String> {
+) -> Result<Option<Vec<[u8; 4]>>, String> {
+    if rawtonic_engine::image_loader::ai_denoise_settings(&recipe).is_some() {
+        return Ok(None);
+    }
     let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     let context = gpu_processing::get_or_init_gpu_context(&gpu, app_handle)?;
-    let block = block.max(1.0).round();
-    let zoom = CellZoom { scale: 1.0, center };
-    let area = [0.0, 0.0, block, block];
+    let [bx, by, bw, bh] = block;
     let key = {
         let mut hash = DefaultHasher::new();
         file_stamp(path).hash(&mut hash);
         recipe.to_string().hash(&mut hash);
-        center.map(f32::to_bits).hash(&mut hash);
-        block.to_bits().hash(&mut hash);
+        block.map(f32::to_bits).hash(&mut hash);
         space.shader_code().hash(&mut hash);
         probe.hash(&mut hash);
         hash.finish() | 1
@@ -3349,12 +3350,20 @@ pub(crate) fn develop_target_block(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .retain(|kept, _| kept == path);
+    // The zoom's centre is normalised to the shown photograph.
+    let zoom = CellZoom {
+        scale: 1.0,
+        center: [
+            (bx + bw / 2.0) / shown_w.max(1.0),
+            (by + bh / 2.0) / shown_h.max(1.0),
+        ],
+    };
     let region = develop_region_in(
         app_handle,
         &context,
         target_bases(),
         path,
-        area,
+        [0.0, 0.0, bw.max(1.0), bh.max(1.0)],
         zoom,
         0.0,
         recipe,
@@ -3363,21 +3372,12 @@ pub(crate) fn develop_target_block(
         Some(space),
         probe,
     )?;
-    let [rx, ry, rw, rh] =
+    let covered =
         region
             .extent
             .region
             .unwrap_or([0.0, 0.0, region.extent.shown[0], region.extent.shown[1]]);
-    Ok(block_pixels(
-        &region.rgba,
-        [rx, ry, rw, rh],
-        [
-            center[0] * region.extent.shown[0] - block / 2.0,
-            center[1] * region.extent.shown[1] - block / 2.0,
-            block,
-            block,
-        ],
-    ))
+    Ok(Some(block_pixels(&region.rgba, covered, block)))
 }
 
 /// The pixels of `rgba` (covering `region`, shown px) inside `wanted` (shown px).

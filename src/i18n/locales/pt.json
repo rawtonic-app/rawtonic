@@ -3187,6 +3187,7 @@
           "measuredOutsideSrgb": "O alvo está fora de sRGB: o resultado sRGB no ponto escolhido fica a ΔE00 {{value}} (medido).",
           "measuredReached": "Alvo atingido: ΔE00 {{value}}, medido no ponto escolhido.",
           "measuring": "A medir o resultado no ponto escolhido…",
+          "notMeasured": "Previsto a ΔE00 {{value}} do alvo; com a redução de ruído IA o resultado no ponto escolhido não pode ser medido.",
           "outsideSrgb": "O alvo está fora de sRGB; uma exportação sRGB mapeia a cor para dentro de sRGB.",
           "outsideWorkingGamut": "O alvo está além das cores de trabalho da foto (ProPhoto): nenhuma cor da foto pode sê-lo, o intervalo aproxima-se o mais que pode.",
           "pickAria": "Recolher a cor alvo",

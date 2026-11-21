@@ -269,6 +269,7 @@ describe('the renderer probe at a pick', () => {
       path: '/a.cr3',
       normalizedX: 0.4,
       normalizedY: 0.6,
+      block: null,
       adjustments: expect.anything(),
       layer: null
     });

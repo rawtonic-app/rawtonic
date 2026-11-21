@@ -422,6 +422,9 @@ export const rangeCentre = (range: ColorRange): Vec3 => {
 export interface RangeInput {
   pixels: Vec3[];
   influence: number[];
+  /** The block the renderer read (x, y, w, h, full-resolution px of the
+   * shown photograph): the target's later measurements read the same one. */
+  block?: [number, number, number, number] | null;
 }
 
 /** A range picked in the photo: the normalised point, the range's colour
@@ -731,11 +734,13 @@ export function meanDisplayLab(pixels: Vec3[]): Vec3 | null {
 
 /** The measured result of a range's target (`useEditorStore.colorTargetMeasure`):
  * the range (`photo|layer|range id`), the recipe measured (JSON) and the
- * CIELAB D50 the renderer left at the pick. */
+ * CIELAB D50 the renderer left at the pick, or null when it could not be measured. */
 export interface ColorTargetMeasure {
   key: string;
   recipe: string;
-  lab: Vec3;
+  /** Null when the renderer could not measure this recipe there (AI Denoise:
+   * its region source is not the export's). */
+  lab: Vec3 | null;
 }
 
 /** What the renderer leaves at the pick, in its sRGB render with every tool. */

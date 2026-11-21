@@ -118,18 +118,37 @@ export async function sampleRangeInput(
   x: number,
   y: number,
   layer: string | null,
-  adjustments: Adjustments
+  adjustments: Adjustments,
+  block: RangeInput['block'] = null
 ): Promise<RangeInput | null> {
-  const sample = await invoke<{ pixels: Vec3[]; influence: number[] } | null>(Invokes.SampleColorRangeInput, {
+  const sample = await invoke<{
+    pixels: Vec3[];
+    influence: number[];
+    block?: [number, number, number, number] | null;
+  } | null>(Invokes.SampleColorRangeInput, {
     path,
     normalizedX: x,
     normalizedY: y,
+    block,
     adjustments,
     layer
   }).catch(() => null);
   if (!sample?.pixels?.length || sample.influence?.length !== sample.pixels.length) return null;
-  return { pixels: sample.pixels.map((p) => linearToOklab(p)), influence: sample.influence };
+  // The block at full resolution holds up to a few thousand pixels; the
+  // model's solve runs on every pixel of its input on each step, so it gets
+  // about as many as the picker's 11 × 11 preview pixels, spread over the
+  // block (the measured corrections see every pixel).
+  const every = Math.max(1, Math.ceil(sample.pixels.length / MODEL_PIXELS));
+  const kept = (_: unknown, i: number) => i % every === 0;
+  return {
+    pixels: sample.pixels.filter(kept).map((p) => linearToOklab(p)),
+    influence: sample.influence.filter(kept),
+    block: sample.block ?? block ?? null
+  };
 }
+
+/** About the picker's 11 × 11 pixels: what the model's solve reads of a pick. */
+const MODEL_PIXELS = 121;
 
 const sameColour = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6;
 
@@ -171,7 +190,8 @@ export async function rangeInputFor(
     pick.point[0],
     pick.point[1],
     layer,
-    useEditorStore.getState().adjustments
+    useEditorStore.getState().adjustments,
+    pick.input?.block ?? null
   );
   const state = useEditorStore.getState();
   const key = rangePickKey(photo, layer, range.id);
@@ -313,21 +333,21 @@ const shownRecipe = (photo: string) => draftFor(photo) ?? useEditorStore.getStat
 async function measureRanges(
   photo: string,
   layer: string | null,
-  point: [number, number],
+  pick: ColorRangePick,
   ranges: ColorRange[]
-): Promise<{ lab: Vec3; recipe: Adjustments } | null> {
+): Promise<{ lab: Vec3 | null; recipe: Adjustments }> {
   const recipe = withRanges(shownRecipe(photo), layer, () => ranges);
   const pixels = await invoke<Vec3[] | null>(Invokes.SampleColorRangeResult, {
     path: photo,
-    normalizedX: point[0],
-    normalizedY: point[1],
+    normalizedX: pick.point[0],
+    normalizedY: pick.point[1],
+    block: pick.input?.block ?? null,
     adjustments: recipe
   }).catch(() => null);
-  const lab = pixels?.length ? meanDisplayLab(pixels) : null;
-  return lab ? { lab, recipe } : null;
+  return { lab: pixels?.length ? meanDisplayLab(pixels) : null, recipe };
 }
 
-const remember = (photo: string, layer: string | null, rangeId: string, recipe: Adjustments, lab: Vec3) =>
+const remember = (photo: string, layer: string | null, rangeId: string, recipe: Adjustments, lab: Vec3 | null) =>
   useEditorStore.getState().setEditor({
     colorTargetMeasure: { key: rangePickKey(photo, layer, rangeId), recipe: JSON.stringify(recipe), lab }
   });
@@ -338,8 +358,10 @@ export async function measureColorTarget(photo: string, layer: string | null, ra
   const pick = rangePickOf(photo, layer, range);
   if (!pick || live) return;
   const ranges = colorRangesOfLayer(shownRecipe(photo), layer);
-  const measured = await measureRanges(photo, layer, pick.point, ranges);
-  if (measured && !live) remember(photo, layer, range.id, measured.recipe, measured.lab);
+  const measured = await measureRanges(photo, layer, pick, ranges);
+  // Also when nothing came back: the readout then says it is not measured
+  // instead of waiting.
+  if (!live) remember(photo, layer, range.id, measured.recipe, measured.lab);
 }
 
 /** A target being typed (or being solved): one interaction, as a slider
@@ -445,11 +467,16 @@ export async function applyColorTarget(
   beginLive(photo);
   // The photo follows at once with the model's solve.
   solveNow(pick.input);
+  // An undo or redo meanwhile moves the history: the correction then
+  // belongs to an edit that is gone.
+  const { history, historyIndex } = useEditorStore.getState();
   const stale = () => {
     const now = useEditorStore.getState();
     const applied = now.colorTarget?.appliedTo;
     return (
       mine !== targetRequest ||
+      now.history !== history ||
+      now.historyIndex !== historyIndex ||
       now.selectedImage?.path !== photo ||
       applied?.rangeId !== rangeId ||
       applied.layer !== layer
@@ -466,9 +493,9 @@ export async function applyColorTarget(
   const recipes = new Map<ColorRange[], Adjustments>();
   const loop = await solveColorTargetMeasured(current, rangeId, lab, fresh, async (ranges) => {
     if (stale()) return null;
-    const measured = await measureRanges(photo, layer, pick.point, ranges);
-    if (measured) recipes.set(ranges, measured.recipe);
-    return measured?.lab ?? null;
+    const measured = await measureRanges(photo, layer, fresh ? { ...pick, input: fresh } : pick, ranges);
+    recipes.set(ranges, measured.recipe);
+    return measured.lab;
   });
   if (stale() || !loop) return drop();
   const solved = loop.ranges.find((r) => r.id === rangeId)!;
@@ -476,6 +503,8 @@ export async function applyColorTarget(
   io.apply(io.ranges().map((x) => (x.id === rangeId ? { ...x, ...shiftsOf(solved) } : x)));
   const recipe = recipes.get(loop.ranges);
   if (loop.measured && recipe) remember(photo, layer, rangeId, recipe, loop.measured.lab);
+  // Not measurable: the readout says so for the recipe as it is now.
+  else remember(photo, layer, rangeId, shownRecipe(photo), null);
   endLive();
 }
 

@@ -2940,6 +2940,7 @@
           "measuredOutsideSrgb": "目标在 sRGB 之外：所选点的 sRGB 结果与其相差 ΔE00 {{value}}（测得）。",
           "measuredReached": "已达到目标：ΔE00 {{value}}，在所选点测得。",
           "measuring": "正在测量所选点的结果…",
+          "notMeasured": "预测距目标 ΔE00 {{value}}；开启 AI 降噪时无法测量所选点的结果。",
           "outsideSrgb": "目标超出 sRGB;sRGB 输出会将颜色映射到 sRGB 内。",
           "outsideWorkingGamut": "目标超出照片的工作色彩(ProPhoto):照片中没有颜色能成为它,范围会尽可能接近。",
           "pickAria": "拾取目标颜色",

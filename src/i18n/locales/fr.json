@@ -3187,6 +3187,7 @@
           "measuredOutsideSrgb": "La cible est hors sRGB : le résultat sRGB au point choisi reste à ΔE00 {{value}} (mesuré).",
           "measuredReached": "Cible atteinte : ΔE00 {{value}}, mesuré au point choisi.",
           "measuring": "Mesure du résultat au point choisi…",
+          "notMeasured": "Prévu à ΔE00 {{value}} de la cible ; avec la réduction du bruit IA, le résultat au point choisi ne peut pas être mesuré.",
           "outsideSrgb": "La cible est hors du gamut sRVB ; un export sRVB ramène la couleur dans sRVB.",
           "outsideWorkingGamut": "La cible est au-delà des couleurs de travail de la photo (ProPhoto) : aucune couleur de la photo ne peut l'être, la plage s'en approche autant qu'elle peut.",
           "pickAria": "Prélever la couleur cible",

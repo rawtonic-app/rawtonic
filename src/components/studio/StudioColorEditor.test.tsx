@@ -506,7 +506,11 @@ describe('target colour', () => {
    * later tools), as sRGB display values. */
   const pickedRenderer = (range: ColorRange, influence: number, offset: Vec3, layer?: string) => {
     const centre = rangeCentre(range);
-    const input = { pixels: [centre], influence: [influence] };
+    const input = {
+      pixels: [centre],
+      influence: [influence],
+      block: [1980, 480, 44, 44] as [number, number, number, number]
+    };
     useEditorStore.setState({
       colorRangeInputs: {
         [`/a.cr3|${layer ?? ''}|${range.id}`]: {
@@ -527,7 +531,13 @@ describe('target colour', () => {
       return [linearToSrgb8(labToLinear(lab)).map((v) => Math.min(255, Math.max(0, v)))];
     };
     vi.mocked(invoke).mockImplementation(async (command, args) => {
-      if (command === Invokes.SampleColorRangeInput) return { pixels: [oklabToLinear(centre)], influence: [influence] };
+      if (command === Invokes.SampleColorRangeInput)
+        return {
+          // A full-resolution block: many pixels, all of the range's colour.
+          pixels: Array.from({ length: 44 * 44 }, () => oklabToLinear(centre)),
+          influence: Array.from({ length: 44 * 44 }, () => influence),
+          block: [1980, 480, 44, 44]
+        };
       if (command === Invokes.SampleColorRangeResult) return render((args as { adjustments: Adjustments }).adjustments);
       return null;
     });
@@ -601,6 +611,69 @@ describe('target colour', () => {
     await waitFor(() =>
       expect(screen.getByRole('status').textContent).toMatch(/^ΔE00 [\d.]+ from the target, measured/)
     );
+    cleanStore();
+  });
+
+  it('measures the block the pick read, and solves on about the picker’s number of its pixels', async () => {
+    const range = red();
+    pickedRenderer(range, 1, [0, 0, 0]);
+    render(<Harness initial={[range]} store />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/measured/));
+    const results = vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.SampleColorRangeResult);
+    expect(results.length).toBeGreaterThan(0);
+    for (const [, args] of results) expect(args).toMatchObject({ block: [1980, 480, 44, 44] });
+    // The input sample taken again for the solve keeps the pick's block.
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith(
+      Invokes.SampleColorRangeInput,
+      expect.objectContaining({ block: [1980, 480, 44, 44] })
+    );
+    const input = Object.values(useEditorStore.getState().colorRangeInputs)[0].input!;
+    expect(input.pixels.length).toBeLessThanOrEqual(121);
+    expect(input.block).toEqual([1980, 480, 44, 44]);
+    cleanStore();
+  });
+
+  it('says the result is not measured when the renderer cannot measure it, instead of waiting', async () => {
+    const range = red();
+    pickedRenderer(range, 1, [0, 0, 0]);
+    const render0 = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === Invokes.SampleColorRangeResult ? null : render0(command, args)
+    );
+    render(<Harness initial={[range]} store />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toMatch(
+        /^Predicted ΔE00 [\d.]+ from the target; the result at the picked point cannot be measured/
+      )
+    );
+    expect(useEditorStore.getState().isSliderDragging).toBe(false);
+    cleanStore();
+  });
+
+  it('drops a pending correction when Undo moves the history meanwhile', async () => {
+    const range = red();
+    pickedRenderer(range, 1, [3, 0, 0]);
+    const render0 = vi.mocked(invoke).getMockImplementation()!;
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === Invokes.SampleColorRangeResult) await held;
+      return render0(command, args);
+    });
+    render(<Harness initial={[range]} store />);
+    openTool();
+    typeInto('Target color as sRGB hex', '#c81e2d');
+    await waitFor(() => expect(changes).toHaveLength(1));
+    // Undo while the measurement is on its way: the history moves.
+    act(() => useEditorStore.setState((s) => ({ history: [...s.history], historyIndex: s.historyIndex })));
+    release();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(changes).toHaveLength(1);
+    expect(useEditorStore.getState().isSliderDragging).toBe(false);
     cleanStore();
   });
 

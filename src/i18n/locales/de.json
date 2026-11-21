@@ -3033,6 +3033,7 @@
           "measuredOutsideSrgb": "Das Ziel liegt außerhalb von sRGB: Das sRGB-Ergebnis am gewählten Punkt bleibt ΔE00 {{value}} davon entfernt (gemessen).",
           "measuredReached": "Ziel erreicht: ΔE00 {{value}}, gemessen am gewählten Punkt.",
           "measuring": "Ergebnis am gewählten Punkt wird gemessen …",
+          "notMeasured": "Vorhergesagt ΔE00 {{value}} vom Ziel; mit KI-Entrauschen lässt sich das Ergebnis am gewählten Punkt nicht messen.",
           "outsideSrgb": "Das Ziel liegt außerhalb von sRGB; ein sRGB-Export bildet die Farbe in sRGB ab.",
           "outsideWorkingGamut": "Das Ziel liegt außerhalb der Arbeitsfarben des Fotos (ProPhoto): Keine Farbe des Fotos kann es sein, der Bereich geht so nah heran, wie er kann.",
           "pickAria": "Zielfarbe aufnehmen",

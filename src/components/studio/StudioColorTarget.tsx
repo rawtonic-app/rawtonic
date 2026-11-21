@@ -190,11 +190,15 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
   // states it, never the model's prediction.
   const followed = !!own && !!pick;
   const recipe = useMemo(() => (followed ? JSON.stringify(adjustments) : null), [followed, adjustments]);
-  const measuredLab =
+  const measured =
     followed && photo && measure?.key === rangePickKey(photo, layer, active.id) && measure.recipe === recipe
-      ? measure.lab
+      ? measure
       : null;
-  const measuring = followed && !measuredLab;
+  const measuredLab = measured?.lab ?? null;
+  // The renderer answered for this recipe but could not measure it (AI
+  // Denoise): the readout is the model's prediction, and says so.
+  const unmeasurable = !!measured && !measuredLab;
+  const measuring = followed && !measured;
   // Edits before the colour editor or of the layer's mask change what it
   // receives at the pick, and any edit what it leaves there: sample both
   // again once they settle, so the readout follows them.
@@ -312,6 +316,7 @@ export default function StudioColorTarget({ ranges, active, layerId, disabled, a
         return t('studio.color.editor.target.measuredOutOfReach', { value, limits: limits.join(', ') });
       return t('studio.color.editor.target.measuredDistance', { value });
     }
+    if (unmeasurable) return t('studio.color.editor.target.notMeasured', { value });
     if (pickedThrough) return t('studio.color.editor.target.pickedThrough', { value });
     if (deltaE <= TARGET_REACHED && fullStrength) return t('studio.color.editor.target.layerPredicted', { value });
     if (limits.length && deltaE > TARGET_REACHED)
