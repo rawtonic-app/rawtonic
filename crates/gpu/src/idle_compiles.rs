@@ -1234,8 +1234,12 @@ mod tests {
         effect_passes::FORCED.with(|forced| forced.set(Some(true)));
         let at_start = new_raw_edit_at_start(None);
         let features = preview_features(&at_start);
-        let serving =
-            5238847 | SHADOWS_V19_FEATURE | SHADOWS_V20_FEATURE | WHITES_V22_FEATURE | GLOW_FEATURE | HALATION_FEATURE;
+        let serving = 5238847
+            | SHADOWS_V19_FEATURE
+            | SHADOWS_V20_FEATURE
+            | WHITES_V22_FEATURE
+            | GLOW_FEATURE
+            | HALATION_FEATURE;
         assert_eq!(
             planned_jobs(features, &at_start),
             (vec![serving, features], features)
@@ -1389,7 +1393,8 @@ mod tests {
         // before raised Shadows' newer response plan no bit for it.
         let other_look = adjustments(crate::image_processing::TONE_VERSION as f32, 0);
         let (sh, wh, bl) = (SHADOWS_V13_FEATURE, WHITES_V12_FEATURE, BLACKS_V16_FEATURE);
-        let basic = 46 | sh | wh | bl | SHADOWS_V19_FEATURE | SHADOWS_V20_FEATURE | WHITES_V22_FEATURE;
+        let basic =
+            46 | sh | wh | bl | SHADOWS_V19_FEATURE | SHADOWS_V20_FEATURE | WHITES_V22_FEATURE;
         assert_eq!(idle_plan(0, &other_look), vec![basic]);
         assert_eq!(idle_plan(34, &other_look), vec![basic]);
         // A photo already shown with it plans nothing.
