@@ -19,7 +19,6 @@ pub struct FusionConfig {
     pub guided_eps: f32,
     pub median_radius: usize,
     pub median_sigma: f32,
-    pub consistency_threshold: f32,
     pub detail_gamma: f32,
 }
 
@@ -33,7 +32,6 @@ impl Default for FusionConfig {
             guided_eps: 1e-4,
             median_radius: 5,
             median_sigma: 0.08,
-            consistency_threshold: 0.10,
             detail_gamma: 8.0,
         }
     }
@@ -137,40 +135,9 @@ pub fn decide_labels(
         }
     }
 
-    {
-        let mut median = vec![0f32; npx];
-        let mut buf = vec![0f32; n];
-        for (p, med) in median.iter_mut().enumerate() {
-            let mut cnt = 0usize;
-            for (i, mask_i) in masks.iter().enumerate().take(n) {
-                if mask_i.data[p] > 0.5 {
-                    buf[cnt] = base[i].data[p];
-                    cnt += 1;
-                }
-            }
-            if cnt == 0 {
-                continue;
-            }
-            let slice = &mut buf[..cnt];
-            slice.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            *med = slice[cnt / 2];
-        }
-        let thr = cfg.consistency_threshold.max(1e-4);
-        for i in 0..n {
-            let b = &base[i];
-            combined[i]
-                .data
-                .par_iter_mut()
-                .enumerate()
-                .for_each(|(p, c)| {
-                    let scale = median[p].abs().max(0.02);
-                    let dev = (b.data[p] - median[p]).abs() / scale;
-                    let t = dev / thr;
-                    *c *= (-t * t).exp();
-                });
-        }
-    }
-
+    // No penalty for differing from the stack's median brightness: at a
+    // small detail sharp in one frame only, the blurred frames agree with
+    // each other and the penalty handed the detail to them.
     let mut guide = Plane::new(w, h);
     guide.data.par_iter_mut().enumerate().for_each(|(p, g)| {
         let mut best = f32::NEG_INFINITY;
@@ -1012,4 +979,52 @@ pub fn stack(
         color,
         metadata,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A small bright detail (text, a stamen) sharp in one frame of three:
+    /// the other two show it blurred, so their base brightness there is
+    /// alike and the sharp frame's differs from it. The sharp frame must
+    /// win the detail; a penalty for differing from the stack's median
+    /// brightness gave it to a blurred frame (notes:
+    /// benchmark-results/mrg1-2026-11-22).
+    #[test]
+    fn small_detail_comes_from_its_sharp_frame() {
+        let (w, h) = (64, 64);
+        let inside = |x: usize, y: usize| (24..40).contains(&x) && (24..40).contains(&y);
+        let plane = |f: &dyn Fn(usize, usize) -> f32| {
+            let mut p = Plane::new(w, h);
+            for y in 0..h {
+                for x in 0..w {
+                    p.data[y * w + x] = f(x, y);
+                }
+            }
+            p
+        };
+        let sharp_score = plane(&|x, y| if inside(x, y) { 1.0 } else { 0.1 });
+        let soft_score = plane(&|x, y| if inside(x, y) { 0.2 } else { 0.1 });
+        let sharp_base = plane(&|x, y| if inside(x, y) { 1.0 } else { 0.2 });
+        let soft_base = plane(&|x, y| if inside(x, y) { 0.5 } else { 0.25 });
+        let scores = vec![
+            vec![soft_score.clone()],
+            vec![sharp_score],
+            vec![soft_score],
+        ];
+        let bases = vec![soft_base.clone(), sharp_base, soft_base];
+        let masks = vec![Plane::filled(w, h, 1.0); 3];
+        let d = decide_labels(&scores, &bases, &masks, &FusionConfig::default());
+        assert_eq!(
+            d.labels[32 * w + 32],
+            1,
+            "detail taken from a blurred frame"
+        );
+        assert!(
+            d.weights[1].at(32, 32) > 0.9,
+            "sharp weight {}",
+            d.weights[1].at(32, 32)
+        );
+    }
 }
