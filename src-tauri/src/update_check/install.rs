@@ -431,7 +431,10 @@ mod tests {
             .next()
             .unwrap();
         assert!(hook.contains("$UpdateMode = 1"));
-        assert!(hook.contains("nsis_tauri_utils::FindProcess"));
+        // Only plugin functions the template itself uses exist; the program
+        // file opens for writing only once no process runs it.
+        assert!(!hook.contains("nsis_tauri_utils::"));
+        assert!(hook.contains("FileOpen $R9 \"$INSTDIR\\${MAINBINARYNAME}.exe\" a"));
         assert!(hook.contains("Sleep"));
         // The template runs the hook right before its running-app check.
         let section = setup.split("Section Install").nth(1).unwrap();

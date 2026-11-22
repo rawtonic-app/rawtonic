@@ -80,21 +80,27 @@ Function RawtonicMachineInstallNotice
 FunctionEnd
 
 ; Update from inside Rawtonic ("Restart now"): the app starts this setup and then
-; ends, which takes a second or two (webview and GPU teardown). The template's
-; check for a running Rawtonic, right after this hook, kills whatever it still
-; finds, and its kill fails on a process that is just exiting ("Failed to kill
-; Rawtonic ... close it first": 3 of 3 restarts on a Radeon 680M, Windows 11,
-; UPDX2). So an update waits here, up to 20 s, until the old process is gone;
-; only a Rawtonic that does not end is left to the template's kill.
+; ends, which takes a few seconds (webview and GPU/export teardown). The
+; template's check for a running Rawtonic, right after this hook, shuts down
+; whatever it still finds through the Windows Restart Manager, and that fails
+; on a process that is just exiting ("Failed to kill Rawtonic ... close it
+; first": 3 of 3 restarts on a Radeon 680M under Windows 11, and again after
+; Restart Anyway with an export running; UPDX2). So an update waits here, up
+; to 20 s, until the installed program can be opened for writing, which
+; Windows refuses while a process runs it. A Rawtonic that does not end is left
+; to the template's shutdown, as before. (An existing file is only opened, in
+; append mode, and closed again; nothing is created or changed.)
 !macro NSIS_HOOK_PREINSTALL
   ${If} $UpdateMode = 1
+  ${AndIf} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
     Push $R8
     Push $R9
     StrCpy $R8 0
     rawtonic_wait_for_exit:
-      nsis_tauri_utils::FindProcess "$INSTDIR\${MAINBINARYNAME}.exe"
-      Pop $R9
-      ${If} $R9 <> 0
+      ClearErrors
+      FileOpen $R9 "$INSTDIR\${MAINBINARYNAME}.exe" a
+      ${IfNot} ${Errors}
+        FileClose $R9
         Goto rawtonic_exit_done
       ${EndIf}
       IntOp $R8 $R8 + 1
