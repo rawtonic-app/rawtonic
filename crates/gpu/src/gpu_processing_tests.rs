@@ -11587,6 +11587,13 @@ fn levels_precise_probe_decode(high: &[u8], low: &[u8]) -> Option<Vec<[u16; 3]>>
     if high.iter().any(|p| p[3] != 0) {
         return None;
     }
+    // The low render's alpha: the check byte of the high bytes.
+    let check =
+        |h: &[u8; 4]| ((u32::from(h[0]) + 7 * u32::from(h[1]) + 31 * u32::from(h[2])) & 255) as u8;
+    assert!(
+        high.iter().zip(low).all(|(h, l)| l[3] == check(h)),
+        "the low render carries the high bytes' check"
+    );
     Some(
         high.iter()
             .zip(low)

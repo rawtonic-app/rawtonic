@@ -436,6 +436,35 @@ pub(crate) fn corrected_base(
     }
 }
 
+/// The corrected base a settled fit frame of `base` shows for this colour
+/// noise setting (`corrected_base` built it), if there is one: what probes
+/// of the shown frame (the Levels pickers) render from, at Color 0. Looks
+/// up only; never wants or builds one.
+pub(crate) fn shown_corrected_base(
+    view: &ColorNoiseView,
+    adjustments: &AllAdjustments,
+    recipe: &serde_json::Value,
+    source: &Arc<DynamicImage>,
+    is_raw: bool,
+    base: &Arc<DynamicImage>,
+) -> Option<Arc<DynamicImage>> {
+    if !enabled() || !applies(adjustments, recipe, is_raw) {
+        return None;
+    }
+    let key = Key::of(&adjustments.global, recipe, is_raw);
+    let source = Arc::downgrade(source);
+    let inputs: Vec<Weak<Rgb32FImage>> = lock_recover(&view.inputs)
+        .iter()
+        .filter(|c| Weak::ptr_eq(&c.source, &source) && c.key == key)
+        .map(|c| Arc::downgrade(&c.input))
+        .collect();
+    let base = Arc::downgrade(base);
+    lock_recover(&view.corrected)
+        .iter()
+        .find(|c| Weak::ptr_eq(&c.base, &base) && inputs.iter().any(|i| Weak::ptr_eq(&c.input, i)))
+        .map(|c| Arc::clone(&c.image))
+}
+
 /// The preview worker after a final frame: when a render input is wanted and
 /// no request comes within [`BUILD_IDLE`], it is built in the background;
 /// a request that comes is returned (the next final frame wants again).
@@ -876,6 +905,51 @@ mod tests {
         let other = image(600, 400);
         assert!(frame_of(&other, (300, 200), 25).is_none());
         assert!(lock_recover(&view.inputs).is_empty());
+    }
+
+    /// The Levels pickers sample the base a settled fit frame showed, for
+    /// its setting only, and never ask for one to be built.
+    #[test]
+    fn probes_find_the_corrected_base_the_fit_frame_shows() {
+        let view = ColorNoiseView::default();
+        let (source, base) = (image(600, 400), image(200, 133));
+        let corrected = image(200, 133);
+        let shown = |amount| {
+            shown_corrected_base(&view, &all(amount), &recipe(amount), &source, true, &base)
+        };
+        assert!(shown(25).is_none(), "no frame showed one yet");
+        assert!(
+            lock_recover(&view.builds).wanted.is_empty(),
+            "a probe wants none"
+        );
+        let frame = || {
+            corrected_base(
+                &view,
+                &global(25),
+                FitFrame {
+                    number: Some(view.note_frame()),
+                    source: &source,
+                    path: "a.raw",
+                    recipe: &recipe(25),
+                    is_raw: true,
+                    base: &base,
+                    reduced_dims: (300, 200),
+                },
+                |_| Ok(Arc::clone(&corrected)),
+                refresh,
+            )
+        };
+        assert!(frame().is_none());
+        let wanted = lock_recover(&view.builds).wanted.pop().unwrap();
+        view.store(&wanted, Rgb32FImage::new(300, 200));
+        assert!(frame().is_some());
+        assert!(Arc::ptr_eq(&shown(25).unwrap(), &corrected));
+        // Another setting or base: the frame would not show it.
+        assert!(shown(50).is_none());
+        let other = image(200, 133);
+        assert!(
+            shown_corrected_base(&view, &all(25), &recipe(25), &source, true, &other).is_none()
+        );
     }
 
     /// A frame nobody sees (the drag-draft warm-up) keeps the frame before

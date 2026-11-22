@@ -4752,14 +4752,17 @@ fn color_range_probe_pixel(display: vec3<f32>, influence: f32) -> vec4<f32> {
 // The Levels pickers' probe pixel: the colour Levels receive (clipped to
 // the sRGB cube) as 16-bit codes rounded half up, split over two renders of
 // the 8-bit display path: part 0 the high bytes with alpha 0 (which marks
-// the probe; photos have alpha above 0), part 1 the low bytes (src-tauri
-// editor_preview.rs `levels_input_codes`).
+// the probe; photos have alpha above 0), part 1 the low bytes with a check
+// byte of the high ones in alpha, so a pair from two different renders is
+// found (src-tauri editor_preview.rs `levels_input_codes`).
 fn levels_precise_probe_pixel(clipped: vec3<f32>) -> vec4<f32> {
     let code = vec3<u32>(floor(clipped * 65535.0 + 0.5));
+    let high = code >> vec3<u32>(8u);
     if (((adjustments.global.output_space.w >> 4u) & 1u) == 0u) {
-        return vec4<f32>(vec3<f32>(code >> vec3<u32>(8u)) / 255.0, 0.0);
+        return vec4<f32>(vec3<f32>(high) / 255.0, 0.0);
     }
-    return vec4<f32>(vec3<f32>(code & vec3<u32>(255u)) / 255.0, 1.0);
+    let check = (high.x + 7u * high.y + 31u * high.z) & 255u;
+    return vec4<f32>(vec3<f32>(code & vec3<u32>(255u)) / 255.0, f32(check) / 255.0);
 }
 
 fn apply_hsl_panel(color: vec3<f32>, hsl_adjustments: array<HslColor, 8>, coords_i: vec2<i32>) -> vec3<f32> {
