@@ -5086,6 +5086,7 @@
         "profile": "Profil",
         "profileNamed": "Profil „{{name}}“",
         "Shadows": "Tiefen",
+        "shadowsBeyondReach": "Tiefen über die Reichweite von Rawtonics Tiefen hinaus (auf ±100 gesetzt)",
         "toneCurveMissingPoints": "Gradationskurve in Lightroom benannt, aber ohne Punkte",
         "upright": "Upright",
         "whiteBalance": "Weißabgleich"

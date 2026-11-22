@@ -18,11 +18,15 @@ import {
   ADJUSTMENT_GROUPS,
   initialAdjustmentsFor,
   NON_COPYABLE_ADJUSTMENT_KEYS,
+  SHADOWS_TRAVEL_TONE_VERSION,
   sameAdjustmentValue,
+  shadowsAmountV21,
+  shadowsValueV21,
+  TONE_VERSION,
   type Adjustments
 } from './adjustments';
 import { withStyleValues } from './appliedStyle';
-import { effectiveVersions, expressPastedSettings, versionKeysUsing } from './pastedVersions';
+import { effectiveVersions, expressPastedSettings, toneSliderIn, versionKeysUsing } from './pastedVersions';
 
 /** The recipe key recording the levels a new edit started with (`develop_defaults::KEY`). */
 export const DEVELOP_DEFAULTS_KEY = 'developDefaults';
@@ -124,7 +128,25 @@ export function defaultSettingsOf(full: Partial<Adjustments>, base: Partial<Adju
     if (sameAdjustmentValue(record[key] as never, neutral[key] as never)) continue;
     out[key] = structuredClone(record[key]);
   }
+  // Without its own tone version a default holds Shadows as the amount it
+  // renders (version 20's slider value), as the engine's `resolve` reads it.
+  if (
+    !('toneVersion' in out) &&
+    typeof out.shadows === 'number' &&
+    (full.toneVersion ?? 1) >= SHADOWS_TRAVEL_TONE_VERSION
+  )
+    out.shadows = shadowsAmountV21(out.shadows);
   return out;
+}
+
+/** One level's saved settings as the engine's `develop_defaults::resolve`
+ * hands them to a new edit: without their own tone version their Shadows
+ * are an amount (`defaultSettingsOf`), re-expressed as the new edit's slider
+ * value. */
+export function resolvedDefaultSettings(settings: Record<string, unknown>): Record<string, unknown> {
+  if ('toneVersion' in settings || typeof settings.shadows !== 'number') return settings;
+  const shadows = TONE_VERSION >= SHADOWS_TRAVEL_TONE_VERSION ? shadowsValueV21(settings.shadows) : settings.shadows;
+  return { ...settings, shadows, toneVersion: TONE_VERSION };
 }
 
 /** A preset's or style's settings as a default: applied to a neutral new
@@ -216,6 +238,19 @@ export function withCameraDefault(
   return { ...defaults, cameras };
 }
 
+/** A default's `own` settings with a tool's `settings` saved over them: when
+ * the tool names a tone version, Shadows it does not set keep the amount
+ * they render (`own`'s version, version 20's value without one). */
+function withKeptShadows(own: Record<string, unknown>, settings: Record<string, unknown>): Record<string, unknown> {
+  const merged = { ...own, ...settings };
+  const to = settings.toneVersion;
+  if (typeof to === 'number' && !('shadows' in settings) && typeof own.shadows === 'number') {
+    const from = typeof own.toneVersion === 'number' ? own.toneVersion : SHADOWS_TRAVEL_TONE_VERSION - 1;
+    merged.shadows = toneSliderIn('shadows', own.shadows, from, to);
+  }
+  return merged;
+}
+
 /** `defaults` with a tool's `settings` saved into the camera's (body's)
  * default, key by key (Capture One's per-tool camera defaults); a new
  * entry joins the more general defaults. */
@@ -233,7 +268,7 @@ export function withCameraToolDefault(
     model: camera.model,
     ...(level === 'body' && camera.serial ? { serial: camera.serial } : {}),
     ...(own?.name ? { name: own.name } : {}),
-    settings: { ...(own?.settings ?? {}), ...structuredClone(settings) },
+    settings: withKeptShadows(own?.settings ?? {}, structuredClone(settings)),
     inherit: own ? own.inherit : true
   };
   if (at >= 0) cameras[at] = entry;

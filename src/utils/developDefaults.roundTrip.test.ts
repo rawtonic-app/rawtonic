@@ -13,7 +13,13 @@ import {
   sameAdjustmentValue,
   type Adjustments
 } from './adjustments';
-import { isDefaultKey, presetDefaultSettings, toolDefaultSettings, withDevelopDefaults } from './developDefaults';
+import {
+  isDefaultKey,
+  presetDefaultSettings,
+  resolvedDefaultSettings,
+  toolDefaultSettings,
+  withDevelopDefaults
+} from './developDefaults';
 import { effectiveVersions, PASTED_VERSION_KEYS, versionKeysUsing } from './pastedVersions';
 import { collectPresetAdjustments } from '../hooks/usePresets';
 import { photoDefaultSettings, withToolResetToDefaults } from '../hooks/developDefaultsActions';
@@ -103,7 +109,8 @@ describe('develop defaults round trip', () => {
             )
           );
         for (const [way, settings] of Object.entries(ways)) {
-          const resolved = { levels: ['camera' as const], settings };
+          // As the engine resolves a saved level for a new edit.
+          const resolved = { levels: ['camera' as const], settings: resolvedDefaultSettings(settings) };
           const applied = withDevelopDefaults(base, resolved);
           const reset = withToolResetToDefaults(
             { ...applied, [key]: structuredClone(base[key as keyof Adjustments]) } as Adjustments,

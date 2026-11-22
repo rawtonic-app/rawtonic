@@ -21,8 +21,11 @@ import {
   TINT_VERSION,
   TONE_VERSION,
   VIBRANCE_VERSION,
+  SHADOWS_TRAVEL_TONE_VERSION,
   WHITES_TRAVEL_TONE_VERSION,
   isNewRecipe,
+  shadowsAmountV21,
+  shadowsValueV21,
   whitesAmountV17,
   whitesValueV17,
   withCarriedBlacksFor,
@@ -45,7 +48,7 @@ export interface PasteTarget {
   mergeGroups?: boolean;
 }
 
-type Translate = (value: number, from: number, to: number) => number;
+type Translate = (value: number, from: number, to: number, slider: string) => number;
 
 interface VersionKey {
   key: string;
@@ -88,10 +91,14 @@ const translateStructure: Translate = (value, from, to) => {
   return to <= 1 ? strength : structureValueV2(strength);
 };
 
-/** Whites: the amount version `from` renders, as `to`'s slider value.
- * (Blacks travel as amounts, expressed once the keys are decided:
+/** Whites and Shadows: the amount version `from` renders, as `to`'s slider
+ * value. (Blacks travel as amounts, expressed once the keys are decided:
  * `withCarriedBlacksFor`.) */
-const translateWhites: Translate = (value, from, to) => {
+const translateTone: Translate = (value, from, to, slider) => {
+  if (slider === 'shadows') {
+    const amount = from >= SHADOWS_TRAVEL_TONE_VERSION ? shadowsAmountV21(value) : value;
+    return to >= SHADOWS_TRAVEL_TONE_VERSION ? shadowsValueV21(amount) : amount;
+  }
   const amount = from >= WHITES_TRAVEL_TONE_VERSION ? whitesAmountV17(value) : value;
   return to >= WHITES_TRAVEL_TONE_VERSION ? whitesValueV17(amount) : amount;
 };
@@ -116,8 +123,8 @@ const KEYS: VersionKey[] = [
     key: 'toneVersion',
     newest: TONE_VERSION,
     users: 'always',
-    translated: ['whites'],
-    translate: translateWhites
+    translated: ['whites', 'shadows'],
+    translate: translateTone
   },
   { key: 'colorNoiseVersion', newest: COLOR_NOISE_VERSION, users: 'always', translated: [] },
   { key: 'clarityVersion', newest: CLARITY_VERSION, users: sliders('clarity'), translated: [] },
@@ -149,6 +156,47 @@ const KEYS: VersionKey[] = [
     translated: []
   }
 ];
+
+/** The tone version a reset of the photo's tone group leaves the photo
+ * with: a new edit's `to`, unless a layer uses a tone slider whose response
+ * differs between the two (versions 20 and 21 differ only in Shadows' travel,
+ * which `layersInToneVersion` re-expresses exactly): then the layers keep
+ * rendering as they did under the photo's own version `from`. */
+export function toneVersionAfterReset(masks: { adjustments?: object }[], from: number, to: number): number {
+  if (from === to || Math.min(from, to) >= 20) return to;
+  const usesTone = masks.some((mask) => {
+    const values = mask?.adjustments as Record<string, unknown> | undefined;
+    return ['shadows', 'highlights', 'whites', 'blacks', 'clarity'].some(
+      (slider) => typeof values?.[slider] === 'number' && values[slider] !== 0
+    );
+  });
+  return usesTone ? from : to;
+}
+
+/** `value` of `slider` (Whites or Shadows) at tone version `from` as the
+ * slider value of version `to` that renders the same amount. */
+export const toneSliderIn = (slider: 'whites' | 'shadows', value: number, from: number, to: number): number =>
+  from === to ? value : translateTone(value, from, to, slider);
+
+/** `masks` (a photo's layers) with their Whites and Shadows re-expressed from
+ * tone version `from` to `to` (exact: the travel versions render the same
+ * amount), so a layer renders as it did when the photo's `toneVersion`
+ * changes under it (a reset of the photo's tone group). */
+export function layersInToneVersion<T extends { adjustments?: object }>(masks: T[], from: number, to: number): T[] {
+  if (from === to) return masks;
+  return masks.map((mask) => {
+    const values = mask?.adjustments as Record<string, unknown> | undefined;
+    if (!values) return mask;
+    let out = values;
+    for (const slider of ['whites', 'shadows']) {
+      const value = out[slider];
+      if (typeof value !== 'number') continue;
+      const expressed = translateTone(value, from, to, slider);
+      if (expressed !== value) out = { ...out, [slider]: expressed };
+    }
+    return out === values ? mask : { ...mask, adjustments: out };
+  });
+}
 
 /** The version keys a paste may keep as the photograph has them. */
 export const PASTED_VERSION_KEYS: readonly string[] = KEYS.map((key) => key.key);
@@ -266,7 +314,7 @@ const usedByKept = (key: VersionKey, pasted: Values, recipe: Values, target: Pas
 
 /**
  * `settings` (carried from another photograph, a preset, Edit all selected)
- * as `target` takes them: Whites carried as their amount in its tone-slider
+ * as `target` takes them: Whites and Shadows carried as their amount in its tone-slider
  * response (`withCarriedWhitesFor`), and every version key that something
  * `target` keeps renders with stated as `target` renders it, the pasted
  * values re-expressed in that response; then Blacks (always carried as
@@ -289,8 +337,8 @@ export function expressPastedSettings<T extends Partial<Adjustments>>(settings: 
     out = { ...out, [key.key]: to };
     const translate = key.translate;
     if (!translate) continue;
-    const express = (value: unknown) => (typeof value === 'number' ? translate(value, from, to) : value);
     for (const slider of key.translated) {
+      const express = (value: unknown) => (typeof value === 'number' ? translate(value, from, to, slider) : value);
       if (has(out, slider)) out = { ...out, [slider]: express(out[slider]) };
       if (Array.isArray(out.masks))
         out = {

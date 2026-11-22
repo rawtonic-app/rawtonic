@@ -5503,6 +5503,7 @@
         "profile": "profil",
         "profileNamed": "profil „{{name}}”",
         "Shadows": "cienie",
+        "shadowsBeyondReach": "cienie poza zasięgiem Cieni Rawtonic (ustawione na ±100)",
         "toneCurveMissingPoints": "krzywa tonalna nazwana w Lightroomie, ale bez punktów",
         "upright": "Upright",
         "whiteBalance": "balans bieli"
