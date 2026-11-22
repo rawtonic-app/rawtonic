@@ -1408,8 +1408,7 @@ fn levels_input_codes(high: &[[u8; 4]], low: &[u8]) -> Option<Vec<[f64; 3]>> {
             .zip(low)
             .map(|(h, l)| {
                 [0, 1, 2].map(|c| {
-                    f64::from(u16::from(h[c]) << 8 | u16::from(l[c])) * 255.0
-                        / f64::from(u16::MAX)
+                    f64::from(u16::from(h[c]) << 8 | u16::from(l[c])) * 255.0 / f64::from(u16::MAX)
                 })
             })
             .collect()

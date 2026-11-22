@@ -11607,8 +11607,12 @@ fn levels_precise_probe_on_the_display_path_matches_the_sixteen_bit_export_probe
         .flat_map(|y| (0..width).map(move |x| (x, y)))
         .flat_map(|(x, y)| {
             let t = (x as f32 + y as f32 / height as f32) / width as f32;
-            let hue = [[1.0, 0.6, 0.3], [0.2, 0.5, 1.1], [0.9, 0.9, 0.9], [-0.05, 0.7, 0.2]]
-                [(y / 8) as usize];
+            let hue = [
+                [1.0, 0.6, 0.3],
+                [0.2, 0.5, 1.1],
+                [0.9, 0.9, 0.9],
+                [-0.05, 0.7, 0.2],
+            ][(y / 8) as usize];
             hue.map(|v| f16::from_f32(v * t * 1.1))
                 .into_iter()
                 .chain([f16::ONE])
@@ -11710,7 +11714,10 @@ fn levels_precise_probe_on_the_display_path_matches_the_sixteen_bit_export_probe
                     fractional += usize::from(g[c] % 257 != 0);
                 }
             }
-            assert!(fractional > got.len(), "{recipe}: codes between 8-bit levels");
+            assert!(
+                fractional > got.len(),
+                "{recipe}: codes between 8-bit levels"
+            );
         }
     }
     // Export pipelines keep their code: no split there.
