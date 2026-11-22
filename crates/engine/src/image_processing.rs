@@ -8168,9 +8168,17 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// against 14.3); the slider now maps +25 / +50 / +75 to version 20's
 /// +35.4 / +61 / +83 and keeps +100 (`shadows_amount_v21`; notes:
 /// benchmark-results/shg4-2026-11-22).
+/// 22 (2026-11-22) leaves less of a light rim beside strong edges at
+/// lowered Whites: a pixel's offset above its edge-aware base counts at
+/// most about 0.25 EV (a smooth cap), so the bright side of an edge
+/// darkens nearly as a broad bright area does instead of keeping the
+/// dark side's level (slider atlas, Whites −100 at equal effect: light rim
+/// 0.72 L* above Camera Raw's, 0.39 on the held-out half; bright detail
+/// still between Camera Raw's and Capture One's; notes:
+/// benchmark-results/whl2-2026-11-22).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 21;
+pub const TONE_VERSION: u64 = 22;
 
 /// Whites up to tone version 16: the slider value is the amount.
 pub fn whites_amount_v1(value: f64) -> f64 {

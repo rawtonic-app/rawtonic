@@ -1454,7 +1454,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 21;
+export const TONE_VERSION = 22;
 
 /** The tone-slider response from which raised Whites move at the reference
  * editors' pace (`whites_amount_v17` in crates/engine/src/image_processing.rs). */
