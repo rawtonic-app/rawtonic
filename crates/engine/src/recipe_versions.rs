@@ -201,6 +201,9 @@ pub const SHADOWS_EDGE_STOP_TONE_VERSION: u64 = 19;
 /// The tone-slider response from which raised Shadows do not lift light
 /// tones among thin dark detail (`toneVersion` 20).
 pub const SHADOWS_LIGHT_GAPS_TONE_VERSION: u64 = 20;
+/// The tone-slider response from which raised Shadows move at Camera Raw's
+/// pace (`toneVersion` 21, `image_processing::shadows_amount_v21`).
+pub const SHADOWS_TRAVEL_TONE_VERSION: u64 = 21;
 
 /// `toneVersion` (`image_processing::TONE_VERSION`): 1 when missing, never
 /// newer than this renderer knows.
@@ -283,6 +286,27 @@ impl ToneVersion {
     pub fn whites_value(self, amount: f64) -> f64 {
         if self.0 >= WHITES_TRAVEL_TONE_VERSION {
             ip::whites_value_v17(amount)
+        } else {
+            amount
+        }
+    }
+
+    /// The Shadows amount (recipe units, version 20's slider value) the
+    /// renderer applies for the slider value `value`: from version 21 raised
+    /// Shadows follow Camera Raw's travel.
+    pub fn shadows_amount(self, value: f64) -> f64 {
+        if self.0 >= SHADOWS_TRAVEL_TONE_VERSION {
+            ip::shadows_amount_v21(value)
+        } else {
+            value
+        }
+    }
+
+    /// The slider value that renders the Shadows amount `amount` (the
+    /// inverse of [`Self::shadows_amount`]).
+    pub fn shadows_value(self, amount: f64) -> f64 {
+        if self.0 >= SHADOWS_TRAVEL_TONE_VERSION {
+            ip::shadows_value_v21(amount)
         } else {
             amount
         }

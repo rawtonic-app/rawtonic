@@ -27991,3 +27991,90 @@ fn drag_terms_in_4x4_blocks_stay_close_and_masked_edges_keep_2x2() {
         edge_strip[1]
     );
 }
+
+#[test]
+#[ignore = "requires a native GPU; raised Shadows of tone version 21 against version 20 on a ramp and a grating"]
+fn tone_version_21_shadows_moves_at_camera_raws_pace() {
+    let context = context();
+    // 1080 rows: the blurs at their reference size.
+    let (width, height) = (1024u32, 1080u32);
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    let grating = grey_texture(&context, width, height, &shadows_v20_grating(width, height));
+    let ramp = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let render_version = new_edit_render_version();
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe["renderVersion"] = json!(render_version);
+        recipe
+    };
+    for view in [&grating, &ramp] {
+        for look in [(3, 2.0), (0, 2.0)] {
+            let render = |recipe: &serde_json::Value, version: u64| {
+                render_raw_look(
+                    &processor,
+                    view,
+                    (width, height),
+                    &with(recipe, version),
+                    look,
+                )
+            };
+            // Without raised Shadows, and at +100, version 21 renders as 20.
+            for recipe in [
+                json!({}),
+                json!({ "shadows": -60 }),
+                json!({ "shadows": 100 }),
+                json!({ "shadows": 100, "blacks": 30, "whites": -40, "contrast": 20 }),
+            ] {
+                assert!(
+                    render(&recipe, 20) == render(&recipe, 21),
+                    "{recipe} under {look:?} differs"
+                );
+            }
+            // Raised Shadows travel: version 21's +25 / +50 / +75 are
+            // version 20's +35.4 / +61 / +83 (`shadows_amount_v21`).
+            for (value, amount) in [(25.0, 35.4), (50.0, 61.0), (75.0, 83.0)] {
+                assert!(
+                    render(&json!({ "shadows": value }), 21)
+                        == render(&json!({ "shadows": amount }), 20),
+                    "Shadows {value} under {look:?}"
+                );
+            }
+        }
+    }
+    // Version 21's +50 lifts the ramp's shadows further than version 20's.
+    let look = (3, 2.0);
+    let render = |shadows: f64, version: u64| {
+        render_raw_look(
+            &processor,
+            &ramp,
+            (width, height),
+            &with(&json!({ "shadows": shadows }), version),
+            look,
+        )
+    };
+    let (old, new, neutral) = (render(50.0, 20), render(50.0, 21), render(0.0, 21));
+    let row = (height / 2 * width) as usize;
+    let (mut lifted, mut darker) = (0, 0);
+    for x in 0..width as usize {
+        let (base, a, b) = (
+            lstar_of_codes(&neutral[row + x]),
+            lstar_of_codes(&old[row + x]),
+            lstar_of_codes(&new[row + x]),
+        );
+        if (10.0..40.0).contains(&base) && b > a + 0.2 {
+            lifted += 1;
+        }
+        if b < a - 0.02 {
+            darker += 1;
+        }
+    }
+    assert!(lifted > 0, "no shadow lifted further");
+    assert_eq!(darker, 0, "columns rendered darker than version 20's +50");
+}

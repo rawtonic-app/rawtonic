@@ -4947,6 +4947,7 @@
         "profile": "配置文件",
         "profileNamed": "配置文件“{{name}}”",
         "Shadows": "阴影",
+        "shadowsBeyondReach": "超出 Rawtonic 阴影范围的阴影（设为 ±100）",
         "toneCurveMissingPoints": "Lightroom 中仅记录名称、没有控制点的色调曲线",
         "upright": "Upright",
         "whiteBalance": "白平衡"

@@ -4947,6 +4947,7 @@
         "profile": "描述檔",
         "profileNamed": "描述檔「{{name}}」",
         "Shadows": "陰影",
+        "shadowsBeyondReach": "超出 Rawtonic 陰影範圍的陰影（設為 ±100）",
         "toneCurveMissingPoints": "Lightroom 中僅有名稱、沒有控制點的色調曲線",
         "upright": "Upright",
         "whiteBalance": "白平衡"

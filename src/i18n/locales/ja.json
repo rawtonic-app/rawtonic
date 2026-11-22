@@ -4947,6 +4947,7 @@
         "profile": "プロファイル",
         "profileNamed": "プロファイル「{{name}}」",
         "Shadows": "シャドウ",
+        "shadowsBeyondReach": "Rawtonic のシャドウの範囲を超えるシャドウ（±100 に設定）",
         "toneCurveMissingPoints": "Lightroom で名前だけのトーンカーブ（ポイントなし）",
         "upright": "Upright",
         "whiteBalance": "ホワイトバランス"

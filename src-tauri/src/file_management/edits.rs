@@ -3508,7 +3508,9 @@ mod tests {
         // (useEditorActions.test.ts: "expresses carried Blacks … Reset photo").
         let blacks = new["blacks"].as_f64().unwrap();
         assert!((blacks - -71.551_724).abs() < 1e-5, "{blacks}");
-        assert_eq!(new["shadows"], 80);
+        // Carried Shadows are amounts too: version 20's +80 is 21's +71.2.
+        let shadows = new["shadows"].as_f64().unwrap();
+        assert!((shadows - 71.211_231).abs() < 1e-5, "{shadows}");
         // An edited photograph keeps its own (here none: an older edit).
         let (_, edited) = parse_virtual_path(&paths[0]);
         let old = crate::exif_processing::load_sidecar(&edited).adjustments;

@@ -4947,6 +4947,7 @@
         "profile": "프로필",
         "profileNamed": "프로필 “{{name}}”",
         "Shadows": "그림자",
+        "shadowsBeyondReach": "Rawtonic 그림자 범위를 넘는 그림자(±100으로 설정)",
         "toneCurveMissingPoints": "Lightroom에서 이름만 있고 점이 없는 톤 커브",
         "upright": "Upright",
         "whiteBalance": "화이트 밸런스"

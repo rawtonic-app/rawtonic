@@ -5295,6 +5295,7 @@
         "profile": "perfil",
         "profileNamed": "perfil «{{name}}»",
         "Shadows": "ombres",
+        "shadowsBeyondReach": "ombres més enllà de l'abast de les Ombres de Rawtonic (posades a ±100)",
         "toneCurveMissingPoints": "corba de to amb nom del Lightroom però sense punts",
         "upright": "Upright",
         "whiteBalance": "balanç de blancs"

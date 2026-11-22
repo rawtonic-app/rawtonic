@@ -5503,6 +5503,7 @@
         "profile": "профиль",
         "profileNamed": "профиль «{{name}}»",
         "Shadows": "тени",
+        "shadowsBeyondReach": "тени за пределами диапазона Теней Rawtonic (установлено ±100)",
         "toneCurveMissingPoints": "тональная кривая с именем из Lightroom, но без точек",
         "upright": "Upright",
         "whiteBalance": "баланс белого"

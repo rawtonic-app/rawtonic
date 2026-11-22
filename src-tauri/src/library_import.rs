@@ -426,7 +426,10 @@ pub fn translate(develop: &Develop) -> Option<Value> {
 
 fn import_warnings(photo: &Photo) -> Vec<String> {
     let mut layers = match &photo.develop {
-        Develop::CaptureOne(entries) => capture_one_lens_report(entries),
+        Develop::CaptureOne(entries) => capture_one_shadows_report(entries)
+            .into_iter()
+            .chain(capture_one_lens_report(entries))
+            .collect(),
         _ => Vec::new(),
     };
     layers.extend(crate::capture_one_layers::report(&photo.capture_one_layers));
@@ -845,6 +848,12 @@ fn recipe_for_with(
             *entry = Value::Array(layers);
         }
     }
+    // Capture One's Shadow comes over as the amount that lifts as far
+    // (`costyle::shadows_amount`, the unit of carried settings), the photo's
+    // and its layers'; the recipe holds it as its tone version's slider value.
+    if matches!(develop, Develop::CaptureOne(_)) {
+        rawtonic_engine::image_processing::express_shadows_amounts(&mut adjustments);
+    }
     let mut clipped = false;
     if let Develop::LightroomXmp(xmp) = develop {
         // An HDR edit is not rendered (SDR only) but kept for the sidecar
@@ -1043,6 +1052,19 @@ fn capture_one_entry<'a>(entries: &'a [(String, String)], key: &str) -> Option<&
         .iter()
         .find(|(k, _)| k == key)
         .map(|(_, v)| v.trim())
+}
+
+/// The import report's line for a Capture One Shadow that lifts (or
+/// darkens) further than Rawtonic's Shadows reach (`costyle::shadows_amount`).
+fn capture_one_shadows_report(entries: &[(String, String)]) -> Option<String> {
+    let shadow = capture_one_entry(entries, "ShadowRecovery")?
+        .parse::<f64>()
+        .ok()
+        .filter(|v| crate::costyle::shadows_beyond_reach(*v))?;
+    let end = if shadow > 0.0 { "+100" } else { "-100" };
+    Some(format!(
+        "Capture One's Shadow {shadow:+} reaches further than Rawtonic's Shadows: set to {end}"
+    ))
 }
 
 /// The import report's lines for Capture One's lens settings Rawtonic does
@@ -1909,6 +1931,63 @@ mod tests {
         assert_eq!(c1["exposure"], 0.7);
         assert!(c1["highlights"].as_f64().unwrap() < -40.0, "{c1}");
         assert!(translate(&Develop::None).is_none());
+    }
+
+    /// Capture One's Shadow comes over as the Shadows value that lifts the
+    /// darkest quarter as far (notes: benchmark-results/shg4-2026-11-22), in
+    /// the new edit's tone response, the photo's and its layers'; beyond
+    /// Rawtonic's reach it is +100 with a report line. Lightroom's Shadows
+    /// stays the same value (tone version 21 moves at Camera Raw's pace).
+    #[test]
+    fn capture_one_shadow_lifts_as_far_and_lightroom_shadows_stays() {
+        let none = |_: &Value, _: &Path| None;
+        let path = Path::new("missing/a.NEF");
+        let c1 = |shadow: &str| {
+            recipe_for_with(
+                &Develop::CaptureOne(vec![("ShadowRecovery".into(), shadow.into())]),
+                &[],
+                path,
+                &none,
+            )
+            .unwrap()
+            .0
+        };
+        let tone = rawtonic_engine::recipe_versions::ToneVersion::of(
+            &json!({"toneVersion": rawtonic_engine::image_processing::TONE_VERSION}),
+        );
+        for (shadow, amount) in [("20", 59.0), ("-30", -48.6), ("50", 92.6)] {
+            let recipe = c1(shadow);
+            assert_eq!(
+                recipe["toneVersion"].as_u64(),
+                Some(rawtonic_engine::image_processing::TONE_VERSION)
+            );
+            let value = recipe["shadows"].as_f64().unwrap();
+            assert!(
+                (tone.shadows_amount(value) - amount).abs() < 1e-6,
+                "{shadow}: {value}"
+            );
+        }
+        // Capture One's +20 is about Rawtonic's +48 (version 20's +59).
+        assert!((c1("20")["shadows"].as_f64().unwrap() - 47.9).abs() < 0.1);
+        assert_eq!(c1("80")["shadows"], json!(100.0));
+        assert_eq!(c1("-60")["shadows"], json!(-100.0));
+        let report = |shadow: &str| {
+            capture_one_shadows_report(&[("ShadowRecovery".to_string(), shadow.to_string())])
+        };
+        assert!(report("80").is_some_and(|line| line.contains("+80") && line.contains("+100")));
+        assert!(report("-60").is_some_and(|line| line.contains("-100")));
+        assert!(report("60").is_none() && report("-40").is_none());
+        let lr = recipe_for_with(
+            &Develop::LightroomXmp(
+                r#"<rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Shadows2012="+50"/>"#.into(),
+            ),
+            &[],
+            path,
+            &none,
+        )
+        .unwrap()
+        .0;
+        assert_eq!(lr["shadows"].as_f64(), Some(50.0));
     }
 
     /// A Lightroom HDR edit keeps its `crs:HDR…`/`crs:SDR…` settings in the
