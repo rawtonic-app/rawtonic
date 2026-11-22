@@ -368,9 +368,11 @@ fn retouched_base<'a>(
 /// (`embedded_in_camera_crop`) to read the same file through it instead of
 /// opening it again.
 fn embedded_raw_preview_and_file(source_path: &Path) -> Option<(DynamicImage, MappedRaw)> {
-    // Stamped before it is mapped (`camera_crop::crops_in`).
-    let stamp = rawtonic_engine::camera_crop::stamp(&source_path.to_string_lossy());
-    let file: image_loader::SharedBytes = Arc::new(read_file_mapped(source_path).ok()?);
+    let (mmap, metadata) =
+        rawtonic_engine::file_io::read_file_mapped_with_metadata(source_path).ok()?;
+    // The mapped file's own size and time (`camera_crop::crops_in`).
+    let stamp = metadata.modified().ok().map(|time| (metadata.len(), time));
+    let file: image_loader::SharedBytes = Arc::new(mmap);
     let preview = image_loader::safe_embedded_preview_fallback_shared(
         file.clone(),
         &source_path.to_string_lossy(),
@@ -378,7 +380,7 @@ fn embedded_raw_preview_and_file(source_path: &Path) -> Option<(DynamicImage, Ma
     Some((preview, MappedRaw { file, stamp }))
 }
 
-/// A RAW's mapping and its `camera_crop::stamp` from before it was mapped.
+/// A RAW's mapping and the `camera_crop::FileStamp` of the file mapped.
 struct MappedRaw {
     file: image_loader::SharedBytes,
     stamp: Option<rawtonic_engine::camera_crop::FileStamp>,
@@ -453,12 +455,17 @@ fn cut_to_camera_crop(
     recipe: &serde_json::Value,
     source: &str,
 ) -> DynamicImage {
-    let Some(crop) = rawtonic_engine::camera_crop::initial_crop(
+    match rawtonic_engine::camera_crop::initial_crop(
         recipe,
         &rawtonic_engine::camera_crop::crops(source),
-    ) else {
-        return image;
-    };
+    ) {
+        Some(crop) => cut_to(image, crop),
+        None => image,
+    }
+}
+
+/// `image` cut to `crop`'s share of each side, centred.
+fn cut_to(image: DynamicImage, crop: rawtonic_engine::camera_crop::CameraCrop) -> DynamicImage {
     let share = |part: u32, margin: u32| part as f64 / (2 * margin + part) as f64;
     let (width, height) = (image.width(), image.height());
     let cut_width = ((width as f64 * share(crop.width, crop.x)).round() as u32).clamp(1, width);
@@ -490,7 +497,7 @@ fn embedded_in_camera_crop(
         Some(crop)
             if !rawtonic_engine::camera_crop::shows_crop(crop, image.width(), image.height()) =>
         {
-            cut_to_camera_crop(image, &never_edited, source)
+            cut_to(image, crop)
         }
         _ => image,
     }

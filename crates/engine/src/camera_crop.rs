@@ -48,9 +48,9 @@ pub fn stamp(path: &str) -> Option<FileStamp> {
 /// FUSE share client without keep-cache, as KDE's kio-fuse), so the crop
 /// tags were read from the share once more: the Library's never-edited
 /// thumbnail reads the preview, then the crops, from one mapping. `stamp`
-/// is the file's [`stamp`] taken before `file` was mapped: a file replaced
-/// after that keeps a stamp of its own, so crops of the mapped content are
-/// never cached under the replacement's.
+/// is the size and time of the file `file` maps (its open descriptor's, not
+/// the path's now), so a file replaced meanwhile never gets the mapped
+/// content's crops cached under its own stamp, nor answers for it.
 pub fn crops_in(
     path: &str,
     file: &crate::image_loader::SharedBytes,
