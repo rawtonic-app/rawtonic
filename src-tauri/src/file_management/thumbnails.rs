@@ -101,24 +101,6 @@ fn thumbnail_metadata(source: &Path, sidecar: &Path) -> Option<ImageMetadata> {
 
 /// The modification time of `source` in seconds; for an offline photograph
 /// the one the library registered (its cached thumbnails stay valid).
-/// A LUT file's presence, size and modification time, for tile keys.
-fn lut_file_state(lut: &Path) -> [u8; 17] {
-    let mut state = [0u8; 17];
-    if let Ok(meta) = fs::metadata(lut)
-        && meta.is_file()
-    {
-        let modified = meta
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0, |since| since.as_nanos() as u64);
-        state[0] = 1;
-        state[1..9].copy_from_slice(&meta.len().to_le_bytes());
-        state[9..].copy_from_slice(&modified.to_le_bytes());
-    }
-    state
-}
-
 fn source_mtime(source: &Path) -> Option<u64> {
     match fs::metadata(source) {
         Ok(meta) => meta
@@ -259,16 +241,16 @@ fn thumbnail_hash_with(
     {
         hasher.update(b"\0relight-defaults-v1");
     }
-    // A recipe's LUT renders only while its file loads (black before
-    // 2026-11-22 when it did not): the tile follows the file's state, so
-    // one made while the LUT was missing is made again once it is back.
+    // A recipe whose LUT file did not load rendered black until 2026-11-22:
+    // tiles of recipes with a LUT are made again once. Tiles made while the
+    // LUT does not load are kept under a key of their own
+    // (`ThumbnailCacheEntry::save`), so no file is probed here.
     if refreshed
-        && let Some(lut) = adjustments
+        && adjustments
             .as_ref()
-            .and_then(|adjustments| adjustments[effects::LUT_PATH.into_name()].as_str())
+            .is_some_and(|adjustments| adjustments[effects::LUT_PATH.into_name()].is_string())
     {
-        hasher.update(b"\0lut-file-v1\0");
-        hasher.update(&lut_file_state(Path::new(lut)));
+        hasher.update(b"\0lut-renders-when-missing-v1\0");
     }
     if is_raw_file(&source_path) {
         // Old embedded RAW previews could omit camera orientation for non-TIFF
@@ -1572,6 +1554,17 @@ struct ThumbnailCacheEntry {
     medium: PathBuf,
     rating: Option<u8>,
     is_edited: Option<bool>,
+    /// The LUT the recipe names (`lutPath`).
+    lut: Option<String>,
+    /// The tile was developed while that LUT did not load: it is saved
+    /// under `lut_missing_hash`, which no lookup asks for, so the next
+    /// lookup develops it again (with the LUT once it loads).
+    lut_missing: bool,
+}
+
+/// The key of a tile developed while its recipe's LUT did not load.
+fn lut_missing_hash(developed: &str) -> String {
+    format!("{developed}-lut-missing")
 }
 
 /// A photo's cached thumbnails: small path, medium path, rating, edited.
@@ -1589,6 +1582,7 @@ impl ThumbnailCacheEntry {
         // Rating and edit state only when a sidecar was read: without one they
         // are unknown here (the listing has them), and an event saying 0 could
         // arrive after the photograph was registered with its rating.
+        let mut lut = None;
         let (rating, is_edited, adjustments_bytes) = if is_cloud_placeholder(&sidecar_path) {
             enqueue_metadata(
                 app_handle,
@@ -1599,6 +1593,9 @@ impl ThumbnailCacheEntry {
             (None, None, Vec::new())
         } else if let Some(meta) = thumbnail_metadata(&source_path, &sidecar_path) {
             {
+                lut = meta.adjustments[effects::LUT_PATH.into_name()]
+                    .as_str()
+                    .map(str::to_string);
                 let is_raw = crate::formats::is_raw_file(path_str);
                 let tm = crate::image_processing::resolve_tonemapper_override(settings, is_raw);
                 (
@@ -1634,6 +1631,8 @@ impl ThumbnailCacheEntry {
             medium: thumb_cache_dir.join(format!("{}_medium.jpg", selected)),
             rating,
             is_edited,
+            lut,
+            lut_missing: false,
         })
     }
 
@@ -1649,10 +1648,12 @@ impl ThumbnailCacheEntry {
             .parent()
             .ok_or_else(|| anyhow::anyhow!("No cache directory"))?
             .to_path_buf();
+        let lut_missing =
+            (!embedded && self.lut_missing).then(|| lut_missing_hash(&self.developed_hash));
         let hash = if embedded {
             self.embedded_hash.as_ref().unwrap_or(&self.developed_hash)
         } else {
-            &self.developed_hash
+            lut_missing.as_ref().unwrap_or(&self.developed_hash)
         };
         self.small = directory.join(format!("{hash}_small.jpg"));
         self.medium = directory.join(format!("{hash}_medium.jpg"));
@@ -1674,6 +1675,7 @@ impl ThumbnailCacheEntry {
             }
         }
         if (!embedded || backfill)
+            && lut_missing.is_none()
             && let Err(error) = supersede_thumbnail(&directory, path_str, &self.developed_hash)
         {
             log::warn!("Superseded thumbnail of {path_str} not removed: {error:#}");
@@ -1746,8 +1748,16 @@ pub(crate) fn generate_single_thumbnail_and_cache(
         preloaded_image,
         app_handle,
         &mut embedded,
-    )
-    .and_then(|image| entry.save(path_str, &image, embedded, settings));
+    );
+    // The render took the recipe's LUT from the same cache.
+    entry.lut_missing = entry.lut.as_deref().is_some_and(|lut| {
+        crate::lut_processing::get_or_load_lut(
+            &app_handle.state::<crate::state::luts::LutState>(),
+            lut,
+        )
+        .is_err()
+    });
+    let made = made.and_then(|image| entry.save(path_str, &image, embedded, settings));
     if let Err(error) = made {
         log::warn!("Thumbnail of {path_str} not made: {error:#}");
         return None;
@@ -2279,7 +2289,7 @@ mod source_preview_tests {
     }
 
     #[test]
-    fn a_tile_follows_whether_its_lut_file_loads() {
+    fn a_tile_developed_without_its_lut_is_kept_apart_and_made_again() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("photo.jpg");
         std::fs::write(&source, b"source unchanged").unwrap();
@@ -2290,23 +2300,45 @@ mod source_preview_tests {
         }))
         .unwrap();
         let key = || super::thumbnail_hash_for_engine(path, &recipe, 1).unwrap();
-        let offline_key = || super::thumbnail_hash_before_refreshes(path, &recipe).unwrap();
-        let (missing, missing_offline) = (key(), offline_key());
+        // The key probes no file: the same with the LUT there or not.
+        let missing = key();
         std::fs::write(&lut, b"LUT_3D_SIZE 2\n").unwrap();
-        let present = key();
-        assert_ne!(missing, present, "a LUT that is back makes a new tile");
-        assert_eq!(present, key());
-        std::fs::write(&lut, b"LUT_3D_SIZE 2\n# edited\n").unwrap();
-        assert_ne!(present, key(), "an edited LUT makes a new tile");
-        // The key an offline original's older tile is found by stays.
-        assert_eq!(missing_offline, offline_key());
-        // A recipe without a LUT keeps its key.
-        let plain = super::thumbnail_hash_for_engine(path, b"{\"exposure\":1}", 1).unwrap();
-        std::fs::remove_file(&lut).unwrap();
+        assert_eq!(missing, key());
+        // Tiles made before 2026-11-22 (black without their LUT) are made
+        // again; an offline original still finds its older tile.
+        let before = super::thumbnail_hash_before_refreshes(path, &recipe).unwrap();
+        assert_ne!(before, key());
+        let plain = b"{\"exposure\":1}";
         assert_eq!(
-            plain,
-            super::thumbnail_hash_for_engine(path, b"{\"exposure\":1}", 1).unwrap()
+            super::thumbnail_hash_for_engine(path, plain, 1),
+            super::thumbnail_hash_before_refreshes(path, plain)
         );
+
+        let cache = temp.path().join("thumbnails");
+        std::fs::create_dir(&cache).unwrap();
+        let mut entry = super::ThumbnailCacheEntry {
+            developed_hash: key(),
+            embedded_hash: None,
+            small: cache.join("unused"),
+            medium: cache.join("unused"),
+            rating: None,
+            is_edited: None,
+            lut: Some(lut.to_str().unwrap().to_string()),
+            lut_missing: true,
+        };
+        let image = image::DynamicImage::new_rgb8(8, 8);
+        let settings = crate::AppSettings::default();
+        entry.save(path, &image, false, &settings).unwrap();
+        // Shown now, but not found by the next lookup, which develops again.
+        assert!(entry.small.is_file());
+        assert!(super::thumbnail_files_exist(
+            &cache,
+            &super::lut_missing_hash(&key())
+        ));
+        assert!(!super::thumbnail_files_exist(&cache, &key()));
+        entry.lut_missing = false;
+        entry.save(path, &image, false, &settings).unwrap();
+        assert!(super::thumbnail_files_exist(&cache, &key()));
     }
 
     #[test]
@@ -2330,6 +2362,8 @@ mod source_preview_tests {
             medium: cache.join("unused"),
             rating: None,
             is_edited: None,
+            lut: None,
+            lut_missing: false,
         };
         let image = image::DynamicImage::new_rgb8(8, 8);
         let settings = crate::AppSettings::default();
@@ -2390,6 +2424,8 @@ mod source_preview_tests {
             medium: cache.join("unused"),
             rating: None,
             is_edited: None,
+            lut: None,
+            lut_missing: false,
         };
         entry
             .save(path, &image::DynamicImage::new_rgb8(8, 8), true, &settings)
