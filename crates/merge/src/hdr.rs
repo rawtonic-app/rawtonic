@@ -103,6 +103,9 @@ const SATURATION_START: f32 = 0.80;
 const SATURATION_END: f32 = 0.95;
 /// Working-space floor for log comparisons, per unit exposure.
 const NOISE_FLOOR: f32 = 0.004;
+/// Share of a pixel's luminance below which a colour channel's difference
+/// does not count as a ghost (`ghost_map`).
+const CHANNEL_FLOOR: f32 = 0.1;
 const LOW_RES_TARGET: usize = 1500;
 const ALIGN_TARGET: usize = 2400;
 
@@ -190,8 +193,12 @@ fn low_res(view: &View, to_camera: &Matrix3<f32>, f: usize) -> LowRes {
 /// Timon Käch, AGPL-3.0): a moving object of another colour but similar
 /// brightness (a red coat on green grass) differs strongly in one channel
 /// while luminance alone half-passed it as the same scene (notes:
-/// benchmark-results/mrg1-2026-11-22). `cons_rgb` are the consensus sums
-/// over `cons_den`; `ratio` is the frame's exposure against the reference.
+/// benchmark-results/mrg1-2026-11-22). A channel near black in a saturated
+/// colour (red in deep green foliage) is mostly noise, so each channel's
+/// floor also includes a share of the pixel's luminance (`CHANNEL_FLOOR`):
+/// a colour change counts once it is a sizeable part of the brightness.
+/// `cons_rgb` are the consensus sums over `cons_den`; `ratio` is the
+/// frame's exposure against the reference.
 fn ghost_map(
     frame: &LowRes,
     cons_rgb: &[Plane; 3],
@@ -206,11 +213,12 @@ fn ghost_map(
         if frame.u.data[i] < 0.9 || cd <= 0.0 {
             return;
         }
+        let k: [f32; 3] = std::array::from_fn(|c| (cons_rgb[c].data[i] / cd).max(0.0));
+        let floor = eps + CHANNEL_FLOOR * luma(&k);
         let e = (0..3)
             .map(|c| {
                 let v = frame.rgb[c].data[i].max(0.0) / ratio;
-                let k = (cons_rgb[c].data[i] / cd).max(0.0);
-                ((v + eps) / (k + eps)).log2().abs()
+                ((v + floor) / (k[c] + floor)).log2().abs()
             })
             .fold(0.0f32, f32::max);
         *g = smoothstep(threshold_ev, 2.0 * threshold_ev, e);
@@ -865,6 +873,25 @@ mod tests {
         );
         assert!(g.at(24, 24) > 0.95, "mover kept: ghost {}", g.at(24, 24));
         assert!(g.at(2, 2) < 0.01, "ground dropped: ghost {}", g.at(2, 2));
+    }
+
+    /// A still, saturated subject (deep green leaves) whose weak red channel
+    /// reads 0.002 in one frame and 0 in the other is no ghost, even at High.
+    #[test]
+    fn noise_in_a_weak_channel_is_no_ghost() {
+        let (w, h) = (32, 32);
+        let cons = [0.002f32, 0.18, 0.01];
+        let cons_rgb = cons.map(|v| Plane::filled(w, h, v));
+        let cons_den = Plane::filled(w, h, 1.0);
+        let frame = flat(w, h, [0.0, 0.18, 0.012]);
+        let g = ghost_map(
+            &frame,
+            &cons_rgb,
+            &cons_den,
+            1.0,
+            Deghost::High.threshold_ev().unwrap(),
+        );
+        assert!(g.data.iter().all(|&v| v < 0.01), "ghost {}", g.at(16, 16));
     }
 
     /// The same scene seen at another exposure is no ghost in any channel.
