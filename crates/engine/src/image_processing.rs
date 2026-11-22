@@ -597,25 +597,38 @@ pub fn resample_display_image(image: &DynamicImage, nwidth: u32, nheight: u32) -
 
 /// The grid's two tiles of `image` ([`resample_display_image`] to fit
 /// `large` and `small` pixels square), the small one reduced from the large
-/// one when that is at least twice its size. The Lanczos passes cost the
-/// same for any output size of one source (6 × the reduction taps per source
-/// pixel and channel): reducing a 24 MP camera JPEG twice took 180 ms of CPU
-/// per photo, the small tile from the large one 10 ms. From twice the size
-/// and more the large tile keeps what the small one shows (all detail up to
-/// a quarter of its sampling rate; the small tile keeps 1.00–1.01 of the
-/// direct reduction's contrast up to its own limit, notes:
-/// benchmark-results/adf2-2026-11-22).
+/// one (to the size the direct fit gives) when that is at least 2.5 times
+/// its size. Most of a reduction's work is its pass over the full source,
+/// of a similar size for both tiles: reducing a 24 MP camera JPEG to both
+/// took 147–176 ms of CPU per photo, the small tile from the large one
+/// 10 ms. Measured at the default sizes (480 from 1280): stripes of 0.1–0.45
+/// cycles per small-tile pixel keep 1.00–1.01 of the direct reduction's
+/// contrast (notes: benchmark-results/adf2-2026-11-22); at a ratio of 2
+/// (640 from 1280) about 0.96 at 0.45 cycles, so smaller ratios reduce the
+/// source directly.
 pub fn resample_display_pair(
     image: &DynamicImage,
     large: u32,
     small: u32,
 ) -> (DynamicImage, DynamicImage) {
     let large_tile = resample_display_image(image, large, large);
-    let (w, h) = large_tile.dimensions();
-    let small_tile = if w.max(h) >= small.saturating_mul(2) {
-        resample_display_image(&large_tile, small, small)
-    } else {
-        resample_display_image(image, small, small)
+    let cascade = match (&large_tile, reduced_size(image.dimensions(), small, small)) {
+        (DynamicImage::ImageRgb8(tile), Some(size))
+            if tile.dimensions() != image.dimensions()
+                && u64::from(tile.width().max(tile.height())) * 2 >= u64::from(small) * 5 =>
+        {
+            Some((tile, size))
+        }
+        _ => None,
+    };
+    let small_tile = match cascade {
+        Some((tile, (w, h))) => {
+            let mut reduced =
+                crate::lanczos::resize_mapped_rgb8_linear(tile, srgb8_linear_table(), w, h);
+            reduced.iter_mut().for_each(|v| *v = v.max(0.0));
+            srgb8_of_linear(&reduced)
+        }
+        None => resample_display_image(image, small, small),
     };
     (large_tile, small_tile)
 }
@@ -11371,12 +11384,25 @@ mod resample_tests {
             println!("{cycles} cycles per pixel: the cascade keeps {kept:.3}");
             assert!((0.98..1.02).contains(&kept), "{cycles}: {kept:.3}");
         }
-        // A source under twice the small tile's size is reduced directly.
+        // A large tile under 2.5 times the small one: the small one is
+        // reduced from the source (640 from 1280, or a source under 1200 px).
+        let source = DynamicImage::ImageRgb8(RgbImage::from_fn(3000, 2000, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x * y) % 256) as u8])
+        }));
+        let (_, small) = super::resample_display_pair(&source, 1280, 640);
+        assert!(small.as_bytes() == resample_display_image(&source, 640, 640).as_bytes());
         let source = DynamicImage::ImageRgb8(RgbImage::new(900, 600));
         let (_, small) = super::resample_display_pair(&source, 1280, 480);
+        assert!(small.as_bytes() == resample_display_image(&source, 480, 480).as_bytes());
+        // The small tile has the direct fit's size: 6000 x 3992 fits 480 x 319
+        // (the 1280 tile's 852 rows would round to 320).
+        let source = DynamicImage::ImageRgb8(RgbImage::new(6000, 3992));
+        let (large, small) = super::resample_display_pair(&source, 1280, 480);
+        assert_eq!(large.dimensions(), (1280, 852));
+        assert_eq!(small.dimensions(), (480, 319));
         assert_eq!(
-            small.as_bytes(),
-            resample_display_image(&source, 480, 480).as_bytes()
+            small.dimensions(),
+            resample_display_image(&source, 480, 480).dimensions()
         );
     }
 
