@@ -352,6 +352,10 @@ export interface RetouchEye {
    * from `lid` (eyes found before the parser, or an eye it missed). */
   parsedEye?: number[][][];
   parsedIris?: number[][][];
+  /** The share of the iris radius the Iris mask's disk reaches on the
+   * parser's eyes (0.9 since 2026-11-22); missing on eyes found before,
+   * which keep the full circle. */
+  irisDisk?: number;
 }
 
 /** A blemish found on a face (mask-frame pixels; `score`: prominence). */
