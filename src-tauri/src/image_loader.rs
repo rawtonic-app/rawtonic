@@ -869,8 +869,8 @@ fn publish_cancelled() -> CommandError {
 /// DNG lens warp moves (`camera_plane_warp`: `WarpPlanes::Camera`; None: its
 /// stored recipe's), and makes
 /// that the source; returns the AI Denoise amount it was developed with.
-/// The editor calls it when the recipe's AI Denoise amount or colour noise
-/// filter differs from the source's (src/utils/aiDenoise.ts). The frame
+/// The editor also calls it after decode preferences change, including for
+/// non-RAWs (at zero AI Denoise). The frame
 /// stays the open source's: a source of another frame (another size) is
 /// opened again instead (`load_image`), and a develop that would change the
 /// size fails rather than replace the source under the editor's overlays.
@@ -894,7 +894,8 @@ pub async fn apply_ai_denoise(
     let merges = tauri::Manager::state::<MergeState>(&app_handle);
     let (source_path, _) = parse_virtual_path(&path);
     let source = source_path.to_string_lossy().to_string();
-    if !is_raw_file(&source) {
+    let is_raw = is_raw_file(&source);
+    if !is_raw && amount != 0.0 {
         return Err("AI Denoise works on RAW files only".into());
     }
     let stored = stored_decode_variant(&path);
@@ -1028,7 +1029,7 @@ pub async fn apply_ai_denoise(
         LoadedImage {
             path,
             image,
-            is_raw: true,
+            is_raw,
             decode: Some(variant),
             ai_denoise: applied_ai,
             decoder: Some(decoder),
@@ -1248,14 +1249,14 @@ pub async fn load_image(
     } else {
         (None, None)
     };
-    let mut ai_denoise = if denoise.is_some() {
-        rawtonic_engine::image_loader::ai_denoise_amount(&metadata.adjustments) * 100.0
-    } else {
-        0.0
-    };
     // The AI Denoise the photograph is developed with.
     let applied_ai = rawtonic_engine::image_loader::ai_denoise_settings(&metadata.adjustments)
         .filter(|_| denoise.is_some());
+    // Report the same f32 percentage the decoder read from the recipe.
+    // Multiplying its normalized amount by 100 can lose another bit.
+    let mut ai_denoise = applied_ai.map_or(0.0, |_| {
+        (metadata.adjustments["aiDenoise"].as_f64().unwrap_or(0.0) as f32).clamp(0.0, 100.0)
+    });
     let ai_denoise_version = applied_ai.map_or(1, |ai| ai.version);
     let mut ai_denoise_stand_in = false;
     // The opened recipe decides the decode-time chroma clean-up, the
@@ -2522,6 +2523,64 @@ mod decode_identity_tests {
         let mut settings = AppSettings::default();
         change(&mut settings);
         settings
+    }
+
+    #[test]
+    fn raster_redevelopment_decodes_the_same_pixels_as_export() {
+        use image::{ImageFormat, Rgb, RgbImage};
+
+        let dir = tempfile::tempdir().unwrap();
+        let original = DynamicImage::ImageRgb8(RgbImage::from_fn(32, 32, |x, y| {
+            let v = if (8..24).contains(&x) { 145 } else { 65 };
+            Rgb([v + (x * 19 % 29) as u8, v, v + (y * 17 % 23) as u8])
+        }));
+        let ai = crate::state::ai::AiState::default();
+        let disabled = AppSettings::default();
+        let enabled = settings_with(|s| s.apply_preprocessing_to_non_raws = Some(true));
+        let stronger = AppSettings {
+            raw_preprocessing_sharpening: Some(0.9),
+            ..enabled.clone()
+        };
+        for (name, format) in [
+            ("photo.jpg", ImageFormat::Jpeg),
+            ("photo.tiff", ImageFormat::Tiff),
+        ] {
+            let mut encoded = std::io::Cursor::new(Vec::new());
+            original.write_to(&mut encoded, format).unwrap();
+            let bytes = encoded.into_inner();
+            let path = dir.path().join(name);
+            rawtonic_fs::atomic_write(&path, &bytes).unwrap();
+            let source = path.to_str().unwrap();
+            let variant = stored_decode_variant(source);
+            let mut previous: Option<DynamicImage> = None;
+            for settings in [&disabled, &enabled, &stronger] {
+                let (developed, _) = load_base_image_measured_for(
+                    &bytes,
+                    source,
+                    false,
+                    settings,
+                    None,
+                    None,
+                    None,
+                    Some(variant),
+                )
+                .unwrap();
+                let (export, _) = crate::export_processing::load_export_base_image(
+                    &ai,
+                    source,
+                    false,
+                    &Value::Null,
+                    settings,
+                    None,
+                )
+                .unwrap();
+                assert_eq!(developed.as_bytes(), export.as_bytes(), "{name}");
+                if let Some(previous) = previous {
+                    assert_ne!(developed.as_bytes(), previous.as_bytes(), "{name}");
+                }
+                previous = Some(developed);
+            }
+        }
     }
 
     /// Decodes made under other preferences (linear RAW mode, preprocessing
