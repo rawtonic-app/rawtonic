@@ -235,7 +235,8 @@ pub(crate) fn find_all_associated_files(source_image_path: &Path) -> Result<Vec<
         .ok_or("Could not get source filename")?
         .to_string_lossy();
 
-    let xmp = rawtonic_metadata::existing_sidecar(source_image_path);
+    let xmp = rawtonic_metadata::existing_sidecar(source_image_path)
+        .and_then(|path| rawtonic_fs::canonicalize(path).ok());
     if let Ok(entries) = fs::read_dir(parent_dir) {
         for entry in entries.filter_map(Result::ok) {
             let entry_path = entry.path();
@@ -250,7 +251,9 @@ pub(crate) fn find_all_associated_files(source_image_path: &Path) -> Result<Vec<
             );
             if role.is_some_and(|r| match r {
                 super::rename_plan::FileRole::ExifCache => false,
-                super::rename_plan::FileRole::Xmp => xmp.as_ref() == Some(&entry_path),
+                super::rename_plan::FileRole::Xmp => xmp.as_ref().is_some_and(|path| {
+                    rawtonic_fs::canonicalize(&entry_path).is_ok_and(|entry| entry == *path)
+                }),
                 _ => true,
             }) {
                 associated_files.push(entry_path);
@@ -1599,6 +1602,24 @@ mod tests {
                     root.join("A/photo_copy_2.jpg.rrdata")
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn copying_a_jpeg_keeps_the_actual_spelling_of_its_own_xmp() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonical().unwrap();
+        let jpeg = root.join("Source/A.JPG");
+        let packet = jpeg.with_file_name("A.JPG.XMP");
+        write(&jpeg, "jpeg");
+        write(&packet, "jpeg packet");
+        write(&jpeg.with_file_name("A.NEF"), "raw");
+        write(&jpeg.with_file_name("A.xmp"), "raw packet");
+        let to = root.join("Copies");
+        let plan = plan_copies(std::slice::from_ref(&jpeg), &to).unwrap();
+        assert_eq!(
+            plan,
+            [(jpeg, to.join("A.JPG")), (packet, to.join("A.JPG.XMP"))]
         );
     }
 }
