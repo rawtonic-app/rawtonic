@@ -88,15 +88,19 @@ FunctionEnd
 ; Restart Anyway with an export running; UPDX2). So an update waits here, up
 ; to 20 s, until the installed program can be opened for writing, which
 ; Windows refuses while a process runs it. A Rawtonic that does not end is left
-; to the template's shutdown, as before. (An existing file is only opened, in
-; append mode, and closed again; nothing is created or changed.)
+; to the template's shutdown, as before. The file is only opened (append mode,
+; nothing written) and closed again, and only while it exists, checked on every
+; poll: NSIS has no open-existing-only mode, so a file removed between the check
+; and the open could be created empty (a concurrent uninstall; not seen).
 !macro NSIS_HOOK_PREINSTALL
   ${If} $UpdateMode = 1
-  ${AndIf} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
     Push $R8
     Push $R9
     StrCpy $R8 0
     rawtonic_wait_for_exit:
+      ${IfNot} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
+        Goto rawtonic_exit_done
+      ${EndIf}
       ClearErrors
       FileOpen $R9 "$INSTDIR\${MAINBINARYNAME}.exe" a
       ${IfNot} ${Errors}
