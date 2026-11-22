@@ -86,6 +86,7 @@
 
 ### Fixes
 
+- **Exports with Super Resolution no longer wait while the app retries the optional fp16 model download.** Opening Export again during a batch, after that 1.2 MB download had failed, held the model until the download finished or timed out, so the running export paused on a slow link; exports now keep using the loaded model meanwhile. Photos switch to the fp16 model only after its GPU check has passed, as before. The enlarged pixels of each graph are unchanged (measured byte-identical on CUDA for the fp32 and the fp16 graph).
 - **RAW and JPEG sidecars stay with their own photos when names overlap.** On the same drive, moving a RAW with XMP beside a JPEG with its own XMP keeps both packets, including through Undo and Redo. Import uses a numbered copy name when a RAW would take an existing stem sidecar. Ambiguous dotted names leave the shared XMP untouched, and camera RAWs saved as TIFF keep the RAW sidecar naming rule.
 
 - **Develop updates open JPEG and TIFF photos when their preprocessing preferences change.** The photo refreshes in place with its current edits and the same preprocessing as the export. Small changes from a preset's Amount control also refresh AI Denoise when they change its stored strength.
