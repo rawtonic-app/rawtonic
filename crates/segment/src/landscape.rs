@@ -186,8 +186,8 @@ pub fn landscape_mask(
 /// (`FITTED_SKY_REACH`): the fitted edge's colour step had taken snowfields,
 /// a glacier and a pale roof beside the sky for sky where the network was
 /// sure of ground. On 12 COCO-Stuff scenes against human labels the sky
-/// part went from IoU 0.926 / boundary F 0.734 to 0.937 / 0.811 (Lightroom
-/// Classic 15: 0.931 / 0.798; 0.884 / 0.622 → 0.904 / 0.718 on the half not
+/// part went from IoU 0.926 / boundary F 0.734 to 0.937 / 0.808 (Lightroom
+/// Classic 15: 0.931 / 0.798; 0.884 / 0.622 → 0.903 / 0.713 on the half not
 /// used to choose the rule, Lightroom 0.888 / 0.700), the ground parts cut
 /// off it along with it (notes: benchmark-results/lsm4-2026-11-22/REPORT.md).
 pub const LANDSCAPE_VERSION: u32 = 2;
