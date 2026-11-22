@@ -235,7 +235,10 @@ pub(super) fn basic_features(features: usize, adjustments: &AllAdjustments) -> u
         | bit(tone.blacks_reach(), BLACKS_V16_FEATURE)
         | bit(tone.shadows_edge_stop(), SHADOWS_V19_FEATURE)
         | bit(tone.shadows_light_gaps(), SHADOWS_V20_FEATURE)
-        | bit(tone.whites_edge_cap(), WHITES_V22_FEATURE)
+        | bit(
+            g.tonemapper_mode == 3 && tone.whites_edge_cap(),
+            WHITES_V22_FEATURE,
+        )
         | bit(
             ClarityVersion::from_uniform(g.clarity_version).get() >= 3
                 || StructureVersion::from_uniform(g.structure_version).edge_aware(),
@@ -1389,12 +1392,13 @@ mod tests {
 
     #[test]
     fn plan_keeps_older_responses_and_skips_the_photos_own_variant() {
-        // Another look: Highlights keeps the version-13 code; versions
-        // before raised Shadows' newer response plan no bit for it.
+        // Another look: Highlights keeps the version-13 code and lowered
+        // Whites' cap is not compiled (it runs only under the Camera Raw
+        // look); versions before raised Shadows' newer response plan no
+        // bit for it.
         let other_look = adjustments(crate::image_processing::TONE_VERSION as f32, 0);
         let (sh, wh, bl) = (SHADOWS_V13_FEATURE, WHITES_V12_FEATURE, BLACKS_V16_FEATURE);
-        let basic =
-            46 | sh | wh | bl | SHADOWS_V19_FEATURE | SHADOWS_V20_FEATURE | WHITES_V22_FEATURE;
+        let basic = 46 | sh | wh | bl | SHADOWS_V19_FEATURE | SHADOWS_V20_FEATURE;
         assert_eq!(idle_plan(0, &other_look), vec![basic]);
         assert_eq!(idle_plan(34, &other_look), vec![basic]);
         // A photo already shown with it plans nothing.
