@@ -615,7 +615,11 @@ fn develop_thumbnail_with_source(
         && let Some((preview, file)) = embedded_raw_preview_and_file(&source_path)
     {
         *embedded = true;
-        return Ok(embedded_in_camera_crop(preview, &source_path_str, Some(&file)));
+        return Ok(embedded_in_camera_crop(
+            preview,
+            &source_path_str,
+            Some(&file),
+        ));
     }
 
     if let (Some(context), Some(meta)) = (gpu_context, metadata)
@@ -1339,10 +1343,8 @@ pub(crate) fn source_capture_info(path: &Path) -> SourceCaptureInfo {
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let file = read_import_source(path)?.into_shared();
-        let exif = crate::exif_processing::read_exif_data_from_shared(
-            &path.to_string_lossy(),
-            file,
-        );
+        let exif =
+            crate::exif_processing::read_exif_data_from_shared(&path.to_string_lossy(), file);
         let field = |keys: &[&str]| {
             keys.iter()
                 .filter_map(|key| exif.get(*key))

@@ -2481,7 +2481,9 @@ mod lossless_jpeg_tests {
     fn lossless_raw_data_is_no_preview_candidate() {
         let image = image::DynamicImage::new_rgb8(8, 6);
         let mut preview = std::io::Cursor::new(Vec::new());
-        image.write_to(&mut preview, image::ImageFormat::Jpeg).unwrap();
+        image
+            .write_to(&mut preview, image::ImageFormat::Jpeg)
+            .unwrap();
         let preview = preview.into_inner();
         // SOI, SOF3 (lossless), then the "raw data": larger than the preview.
         let mut raw = vec![0xFF, 0xD8, 0xFF, 0xC3, 0x00, 0x02];
@@ -2518,9 +2520,13 @@ mod lossless_jpeg_tests {
         );
         let previews = || super::tiff_jpeg_previews(&tiff).unwrap();
         assert_eq!(previews().collect::<Vec<_>>(), vec![preview.as_slice()]);
-        assert_eq!(previews().rev().collect::<Vec<_>>(), vec![preview.as_slice()]);
         assert_eq!(
-            super::priority_embedded_jpeg(&tiff).map(|jpeg| image::load_from_memory(&jpeg).unwrap().to_rgb8()),
+            previews().rev().collect::<Vec<_>>(),
+            vec![preview.as_slice()]
+        );
+        assert_eq!(
+            super::priority_embedded_jpeg(&tiff)
+                .map(|jpeg| image::load_from_memory(&jpeg).unwrap().to_rgb8()),
             Some(image.to_rgb8())
         );
     }

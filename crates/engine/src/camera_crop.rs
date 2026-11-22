@@ -444,7 +444,11 @@ mod tests {
     fn crops_through_the_callers_mapping_are_the_files_crops() {
         let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
         let mut checked = 0;
-        for path in std::fs::read_dir(dir).unwrap().flatten().map(|entry| entry.path()) {
+        for path in std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+        {
             let name = path.to_string_lossy().into_owned();
             if !crate::formats::is_raw_file(&name) {
                 continue;
