@@ -1001,38 +1001,57 @@ fn kick(app: &AppHandle) {
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let exports = app.state::<ExportState>();
-        let mut queue_available = true;
-        loop {
-            if exports.is_held() {
-                break;
-            }
-            let Some(jobs) = with_queue(&exports, |q| {
-                q.start_next_with(|a, b| same_photos(&a.request, &b.request))
-            }) else {
-                // A queue-wide failure can leave all jobs queued. Avoid a tight
-                // restart loop until a new export or resume starts the runner.
-                queue_available = false;
-                break;
-            };
-            if jobs.is_empty() {
-                // Admission can fail the last queued job without a render.
-                notify(&app);
-                break;
-            }
-            run_jobs(&app, &jobs).await;
-            with_queue(&exports, prune_finished);
-            notify(&app);
-        }
-        exports.runner_active.store(false, Ordering::SeqCst);
-        // An export queued while the runner was finishing.
-        if queue_available
-            && !exports.is_held()
-            && with_queue(&exports, ExportQueue::has_queued_jobs) == Some(true)
+        let handle = &app;
+        if drain_queue(
+            &app.state::<ExportState>(),
+            |jobs| async move { run_jobs(handle, &jobs).await },
+            || notify(&app),
+        )
+        .await
         {
             kick(&app);
         }
     });
+}
+
+/// Runs admitted groups, returning whether to start another pass.
+async fn drain_queue<F: Future<Output = ()>>(
+    exports: &ExportState,
+    run: impl Fn(Vec<Job>) -> F,
+    refresh: impl Fn(),
+) -> bool {
+    while !exports.is_held() {
+        let Some(jobs) = with_queue(exports, |q| {
+            q.start_next_with(|a, b| same_photos(&a.request, &b.request))
+        }) else {
+            // A queue-wide failure can leave all jobs queued. Avoid a tight
+            // restart loop until a new export or resume starts the runner.
+            exports.runner_active.store(false, Ordering::SeqCst);
+            return false;
+        };
+        if jobs.is_empty() {
+            // Admission can fail the last queued job without a render.
+            refresh();
+            break;
+        }
+        run(jobs).await;
+        with_queue(exports, prune_finished);
+        refresh();
+    }
+    exports.runner_active.store(false, Ordering::SeqCst);
+    // An export queued while the runner was finishing.
+    !exports.is_held() && with_queue(exports, ExportQueue::has_queued_jobs) == Some(true)
+}
+
+fn runnable_or_fail(exports: &ExportState, job: &Job) -> Option<ExportRequest> {
+    match runnable(&job.request) {
+        Ok(request) => Some(request),
+        Err(e) => {
+            log::error!("Export '{}' cannot run: {e}", job.label);
+            with_queue(exports, |q| q.fail(&job.id, &e));
+            None
+        }
+    }
 }
 
 /// Runs queued jobs over the same photos as one export (`same_photos`).
@@ -1043,13 +1062,8 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let mut first: Option<ExportRequest> = None;
     let mut sheets: Vec<(String, crate::proof_sheet::ProofJob, PathBuf)> = Vec::new();
     for job in jobs {
-        let request = match runnable(&job.request) {
-            Ok(request) => request,
-            Err(e) => {
-                log::error!("Export '{}' cannot run: {e}", job.label);
-                with_queue(&exports, |q| q.fail(&job.id, &e));
-                continue;
-            }
+        let Some(request) = runnable_or_fail(&exports, job) else {
+            continue;
         };
         let Some(items) = with_queue(&exports, |q| match q.items(&job.id) {
             Ok(items) => Ok(Some(items)),
@@ -1392,6 +1406,121 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let queue = ExportQueue::open(&tmp.path().join("export-queue.sqlite")).unwrap();
         (tmp, Arc::new(Mutex::new(Some(queue))))
+    }
+
+    #[tokio::test]
+    async fn the_runner_stops_after_a_queue_wide_error_even_with_work_waiting() {
+        let (dir, exports, id) = runner_with_waiting_job(&json!({}));
+        rusqlite::Connection::open(dir.path().join("export-queue.sqlite"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER fail_admission BEFORE UPDATE OF state ON jobs
+                 WHEN NEW.state='running'
+                 BEGIN SELECT RAISE(ROLLBACK, 'queue-wide admission error'); END;",
+            )
+            .unwrap();
+
+        let restart = drain_queue(
+            &exports,
+            |_| async { panic!("no job should render") },
+            || panic!("no job changed"),
+        )
+        .await;
+        assert!(!restart);
+        assert!(!exports.runner_active.load(Ordering::SeqCst));
+        assert_eq!(
+            with_queue(&exports, ExportQueue::has_queued_jobs),
+            Some(true)
+        );
+        assert_eq!(
+            with_queue(&exports, |q| q.job(&id)).unwrap().state,
+            JobState::Queued
+        );
+    }
+
+    #[tokio::test]
+    async fn the_runner_refreshes_when_admission_fails_its_last_job() {
+        let (dir, exports, id) = runner_with_waiting_job(&json!({}));
+        rusqlite::Connection::open(dir.path().join("export-queue.sqlite"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER fail_admission BEFORE UPDATE OF state ON jobs
+                 WHEN NEW.state='running'
+                 BEGIN SELECT RAISE(ABORT, 'job admission error'); END;",
+            )
+            .unwrap();
+        let refreshes = std::cell::RefCell::new(Vec::new());
+
+        let restart = drain_queue(
+            &exports,
+            |_| async { panic!("no job should render") },
+            || refreshes.borrow_mut().push(snapshot(&exports)),
+        )
+        .await;
+
+        assert!(!restart);
+        assert!(!exports.runner_active.load(Ordering::SeqCst));
+        let refreshes = refreshes.into_inner();
+        assert_eq!(refreshes.len(), 1);
+        let jobs = &refreshes[0].jobs;
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, id);
+        assert_eq!(jobs[0].state, JobState::Failed);
+        assert_eq!(jobs[0].failed, 1);
+        assert!(jobs[0].failures[0].error.contains("job admission error"));
+    }
+
+    #[test]
+    fn an_unrunnable_proof_sheet_can_fail_with_every_photo_already_done() {
+        // An old stored sheet has its staged render but no pinned request.
+        let mut stored = serde_json::to_value(request(&["/photos/a.NEF".into()], None)).unwrap();
+        stored["proofSheet"] = json!({
+            "sheet": {"pageWidthMm": 210, "pageHeightMm": 297, "marginsMm": [10, 10, 10, 10],
+                      "columns": 1, "rows": 1, "gapMm": 0},
+            "destination": "/out", "stem": "Sheet",
+            "values": rawtonic_export::proof_sheet::PageValues::default(),
+            "captions": [""], "generated": false,
+        });
+        let (dir, exports, id) = runner_with_waiting_job(&stored);
+        let rendered = dir.path().join("rendered.jpg");
+        std::fs::write(&rendered, b"staged render").unwrap();
+        let job = with_queue(&exports, |q| {
+            let job = q.start_next()?.unwrap();
+            let request: ExportRequest = serde_json::from_value(job.request.clone()).unwrap();
+            assert!(request.proof_sheet.is_some());
+            assert!(request.pinned.is_none());
+            q.item_started(&id, 0, &rendered)?;
+            q.item_done(&id, 0)?;
+            Ok(job)
+        })
+        .unwrap();
+
+        assert!(runnable_or_fail(&exports, &job).is_none());
+        let jobs = snapshot(&exports).jobs;
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(
+            (jobs[0].state, jobs[0].done, jobs[0].failed),
+            (JobState::Failed, 1, 0)
+        );
+        assert!(jobs[0].failures.is_empty());
+        let item = with_queue(&exports, |q| q.item(&id, 0)).unwrap();
+        assert_eq!(item.state, ItemState::Done);
+        assert_eq!(item.output.as_deref(), Some(rendered.as_path()));
+        assert_eq!(std::fs::read(&rendered).unwrap(), b"staged render");
+    }
+
+    fn runner_with_waiting_job(request: &Value) -> (tempfile::TempDir, ExportState, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let queue = ExportQueue::open(&dir.path().join("export-queue.sqlite")).unwrap();
+        let id = queue
+            .enqueue("Export", request, &["/photos/a.NEF".into()])
+            .unwrap();
+        let exports = ExportState {
+            queue: Mutex::new(Some(queue)),
+            runner_active: AtomicBool::new(true),
+            ..Default::default()
+        };
+        (dir, exports, id)
     }
 
     /// A request queued as `enqueue_all` queues it (`queue_pinned`).
