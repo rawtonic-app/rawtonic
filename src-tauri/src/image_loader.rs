@@ -2036,12 +2036,18 @@ mod activation_tests {
         }
         // One denoiser for both, as versions 3 and 4 have one model.
         let denoiser: Arc<dyn MosaicDenoiser> = Arc::new(Same);
+        let preferences = decode_preferences(&AppSettings::default());
         let key = |amount: u32, version: u32| {
             let recipe = serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": version });
             let denoise = ai_denoise_settings(&recipe)
                 .unwrap()
                 .mosaic_denoise(denoiser.clone());
-            decoded_cache_key("/p/A.NEF", Some(&denoise), DecodeVariant::default())
+            decoded_cache_key_for(
+                "/p/A.NEF",
+                Some(&denoise),
+                DecodeVariant::default(),
+                &preferences,
+            )
         };
         // Version 4 at the same amount is version 3's network result with
         // the sensor's means kept: other pixels, another base.
@@ -2056,6 +2062,9 @@ mod activation_tests {
 
     #[test]
     fn bases_of_different_decode_variants_never_share_a_cache_entry() {
+        // Settings-store tests can publish other preferences in parallel.
+        let preferences = decode_preferences(&AppSettings::default());
+        let key = |path, variant| decoded_cache_key_for(path, None, variant, &preferences);
         let ms = |multiscale, dead_test| DecodeVariant {
             multiscale,
             dead_test,
@@ -2064,10 +2073,10 @@ mod activation_tests {
             highlights: HighlightRebuild::Offsets,
             warp_planes: WarpPlanes::Output,
         };
-        let plain = decoded_cache_key("/p/A.NEF", None, DecodeVariant::default());
-        let multiscale = decoded_cache_key("/p/A.NEF", None, ms(true, DeadTest::SameColour));
-        let adjacent = decoded_cache_key("/p/A.NEF", None, ms(true, DeadTest::Adjacent));
-        let isolated = decoded_cache_key("/p/A.NEF", None, ms(true, DeadTest::Isolated));
+        let plain = key("/p/A.NEF", DecodeVariant::default());
+        let multiscale = key("/p/A.NEF", ms(true, DeadTest::SameColour));
+        let adjacent = key("/p/A.NEF", ms(true, DeadTest::Adjacent));
+        let isolated = key("/p/A.NEF", ms(true, DeadTest::Isolated));
         // The default variant's base keeps the key it always had, the
         // multi-scale one too.
         assert_eq!(plain, "/p/A.NEF");
@@ -2075,58 +2084,39 @@ mod activation_tests {
         assert_ne!(adjacent, multiscale);
         assert_ne!(isolated, multiscale);
         assert_ne!(isolated, adjacent);
-        assert_ne!(
-            decoded_cache_key("/p/A.NEF", None, ms(false, DeadTest::Adjacent)),
-            plain
-        );
+        assert_ne!(key("/p/A.NEF", ms(false, DeadTest::Adjacent)), plain);
         assert!(adjacent.starts_with("/p/A.NEF\u{1}"));
-        assert_ne!(
-            decoded_cache_key("/p/B.NEF", None, ms(true, DeadTest::SameColour)),
-            multiscale
-        );
+        assert_ne!(key("/p/B.NEF", ms(true, DeadTest::SameColour)), multiscale);
         // Another frame of the RAW is another base.
-        let framed = decoded_cache_key(
+        let framed = key(
             "/p/A.CR3",
-            None,
             DecodeVariant {
                 frame: 1,
                 ..ms(true, DeadTest::Adjacent)
             },
         );
-        assert_ne!(
-            framed,
-            decoded_cache_key("/p/A.CR3", None, ms(true, DeadTest::Adjacent))
-        );
+        assert_ne!(framed, key("/p/A.CR3", ms(true, DeadTest::Adjacent)));
         let unbiased = DecodeVariant {
             black: BlackLevels::Unbiased,
             ..ms(true, DeadTest::Adjacent)
         };
-        assert_ne!(decoded_cache_key("/p/A.NEF", None, unbiased), adjacent);
+        assert_ne!(key("/p/A.NEF", unbiased), adjacent);
         let ratios = DecodeVariant {
             highlights: HighlightRebuild::Ratios,
             warp_planes: WarpPlanes::Output,
             ..unbiased
         };
-        assert_ne!(
-            decoded_cache_key("/p/A.NEF", None, ratios),
-            decoded_cache_key("/p/A.NEF", None, unbiased)
-        );
+        assert_ne!(key("/p/A.NEF", ratios), key("/p/A.NEF", unbiased));
         let border = DecodeVariant {
             black: BlackLevels::UnbiasedBorder,
             ..ratios
         };
-        assert_ne!(
-            decoded_cache_key("/p/A.NEF", None, border),
-            decoded_cache_key("/p/A.NEF", None, ratios)
-        );
+        assert_ne!(key("/p/A.NEF", border), key("/p/A.NEF", ratios));
         let camera_planes = DecodeVariant {
             warp_planes: WarpPlanes::Camera,
             ..border
         };
-        assert_ne!(
-            decoded_cache_key("/p/A.DNG", None, camera_planes),
-            decoded_cache_key("/p/A.DNG", None, border)
-        );
+        assert_ne!(key("/p/A.DNG", camera_planes), key("/p/A.DNG", border));
     }
 
     #[test]
@@ -2358,7 +2348,12 @@ mod develop_cache_scenarios {
             if other {
                 clear_source_caches(&self.state.source, self.develop, self.merges);
             }
-            let key = decoded_cache_key(path, None, DecodeVariant::default());
+            let key = decoded_cache_key_for(
+                path,
+                None,
+                DecodeVariant::default(),
+                &decode_preferences(&AppSettings::default()),
+            );
             let cached = self.develop.decoded_image_cache.lock().unwrap().get(&key);
             let image = match cached {
                 Some((image, _)) => image,

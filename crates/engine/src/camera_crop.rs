@@ -38,13 +38,57 @@ pub fn crops(path: &str) -> Vec<Option<CameraCrop>> {
 /// Camera crops read from a local RAW, bypassing registered proxy facts.
 /// The caller checks that opening the file will not download a cloud placeholder.
 pub fn crops_from_raw_file(path: &str) -> Vec<Option<CameraCrop>> {
+    // Mapped without read-ahead: the crop tags are a few kilobytes, and
+    // `RawSource::new` would read the whole file (on a share, every byte).
+    cached(path, stamp(path), || {
+        rawler::rawsource::RawSource::new_lazy(std::path::Path::new(path)).ok()
+    })
+}
+
+/// A file's size and modification time, which key the crops' cache.
+pub type FileStamp = (u64, std::time::SystemTime);
+
+/// The [`FileStamp`] of the file at `path` now.
+pub fn stamp(path: &str) -> Option<FileStamp> {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| Some((m.len(), m.modified().ok()?)))
+}
+
+/// Crops from `file`, the caller's buffer of the readable RAW at `path`,
+/// even if offline proxy facts are still registered for that path. A
+/// second open of the file can drop the pages the caller has just read (a
+/// FUSE share client without keep-cache, as KDE's kio-fuse), so the crop
+/// tags were read from the share once more: the Library's never-edited
+/// thumbnail reads the preview, then the crops, from one mapping. `stamp`
+/// is the size and time of the file `file` maps (its open descriptor's, not
+/// the path's now), so a file replaced meanwhile never gets the mapped
+/// content's crops cached under its own stamp, nor answers for it.
+pub fn crops_in(
+    path: &str,
+    file: &crate::image_loader::SharedBytes,
+    stamp: Option<FileStamp>,
+) -> Vec<Option<CameraCrop>> {
+    let versions = crate::source_frame::VERSION as usize + 1;
+    if !crate::formats::is_raw_file(path) {
+        return vec![None; versions];
+    }
+    cached(path, stamp, || {
+        Some(rawler::rawsource::RawSource::new_from_shared(file.clone()).with_path(path))
+    })
+}
+
+/// The crops of the file stamped `stamp` at `path`: cached per path and
+/// stamp, else read from `source`.
+fn cached(
+    path: &str,
+    stamp: Option<FileStamp>,
+    source: impl FnOnce() -> Option<rawler::rawsource::RawSource>,
+) -> Vec<Option<CameraCrop>> {
     type Cache = Mutex<HashMap<String, (u64, std::time::SystemTime, Vec<Option<CameraCrop>>)>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
-    let Some((len, modified)) = std::fs::metadata(path)
-        .ok()
-        .and_then(|m| Some((m.len(), m.modified().ok()?)))
-    else {
+    let Some((len, modified)) = stamp else {
         return Vec::new();
     };
     if let Some((l, m, found)) = cache
@@ -57,9 +101,7 @@ pub fn crops_from_raw_file(path: &str) -> Vec<Option<CameraCrop>> {
     {
         return found;
     }
-    // Mapped without read-ahead: the crop tags are a few kilobytes, and
-    // `RawSource::new` would read the whole file (on a share, every byte).
-    let Ok(source) = rawler::rawsource::RawSource::new_lazy(std::path::Path::new(path)) else {
+    let Some(source) = source() else {
         return Vec::new();
     };
     let found: Vec<_> = (0..=crate::source_frame::VERSION)
@@ -412,5 +454,62 @@ mod tests {
         );
         // Other makes kept their crop from version 15 on.
         assert!(crops_from_facts(&facts(22), "/p/a.CR3").is_some());
+    }
+
+    #[test]
+    fn mapped_crops_use_the_file_even_when_offline_facts_are_still_registered() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("reconnected.RAF");
+        let name = path.to_str().unwrap();
+        // An old proxy knew the frames but did not record a camera crop.
+        crate::source_facts::register(
+            name,
+            crate::source_facts::SourceFacts {
+                frames: Some(vec![0; crate::source_frame::VERSION as usize + 1]),
+                ..Default::default()
+            },
+        );
+        // Use an unrecognised header to exercise the no-crop result of the
+        // decoder. Each frame has an answer once the file is accessible.
+        rawtonic_fs::atomic_write(&path, [0; 128]).unwrap();
+        let file: crate::image_loader::SharedBytes =
+            std::sync::Arc::new(crate::file_io::read_file_mapped(&path).unwrap());
+        assert!(crops(name).is_empty());
+        let mapped = crops_in(name, &file, stamp(name));
+        crate::source_facts::forget(name);
+        assert_eq!(
+            mapped,
+            vec![None; crate::source_frame::VERSION as usize + 1]
+        );
+    }
+
+    /// The crops read through the caller's mapping (`crops_in`, the
+    /// Library's never-edited thumbnail) are those of the file itself.
+    #[test]
+    #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory"]
+    fn crops_through_the_callers_mapping_are_the_files_crops() {
+        let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
+        let mut checked = 0;
+        for path in std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+        {
+            let name = path.to_string_lossy().into_owned();
+            if !crate::formats::is_raw_file(&name) {
+                continue;
+            }
+            let file: crate::image_loader::SharedBytes =
+                std::sync::Arc::new(crate::file_io::read_file_mapped(&path).unwrap());
+            let through = crops_in(&name, &file, stamp(&name));
+            // Not `crops`: it would answer from the cache `crops_in` filled.
+            let source = rawler::rawsource::RawSource::new_lazy(&path).unwrap();
+            let own: Vec<_> = (0..=crate::source_frame::VERSION)
+                .map(|version| rawtonic_rawdecode::camera_crop::camera_crop(&source, version))
+                .collect();
+            assert_eq!(through, own, "{name}");
+            checked += 1;
+        }
+        assert!(checked > 0, "no RAW files in the fixture directory");
     }
 }
