@@ -447,6 +447,33 @@ fn shadows_version_20_compiles_only_for_its_recipes() {
 }
 
 #[test]
+fn whites_version_22_compiles_only_for_its_recipes() {
+    let adjustments =
+        |profile: serde_json::Value| get_all_adjustments_from_json(&profile, true, Some(1));
+    let features =
+        |profile: serde_json::Value| preview_features(&adjustments(profile)) & WHITES_V22_FEATURE;
+    assert_eq!(
+        features(json!({"whites": -30, "toneVersion": 22})),
+        WHITES_V22_FEATURE
+    );
+    let mut layer = local_profile(json!({"whites": -30}));
+    layer["toneVersion"] = json!(22);
+    assert_eq!(features(layer), WHITES_V22_FEATURE);
+    // Version 21's recipes, raised Whites and the key alone keep the
+    // shader without it: saved edits compile the code they had.
+    assert_eq!(features(json!({"whites": -30, "toneVersion": 21})), 0);
+    assert_eq!(features(json!({"whites": 30, "toneVersion": 22})), 0);
+    assert_eq!(features(json!({"toneVersion": 22})), 0);
+    // Its feature pipeline is version 12's plus the cap.
+    let lowered = adjustments(json!({"whites": -30, "toneVersion": 22}));
+    assert_eq!(tone_level(&lowered), 1 | 64);
+    assert_eq!(
+        tone_level(&adjustments(json!({"whites": -30, "toneVersion": 21}))),
+        1
+    );
+}
+
+#[test]
 fn shadows_version_19_compiles_only_where_shadows_are_raised() {
     let adjustments =
         |profile: serde_json::Value| get_all_adjustments_from_json(&profile, true, Some(1));
@@ -621,6 +648,11 @@ fn preview_features_preserve_global_and_local_effects() {
         // Raised Shadows' bounds of version 20 likewise
         // (`shadows_version_20_compiles_only_for_its_recipes`).
         if expected & SHADOWS_V20_FEATURE != 0 {
+            continue;
+        }
+        // Lowered Whites' offset cap of version 22 likewise
+        // (`whites_version_22_compiles_only_for_its_recipes`).
+        if expected & WHITES_V22_FEATURE != 0 {
             continue;
         }
         // Lowered Dehaze of version 2 likewise
