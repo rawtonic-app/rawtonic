@@ -28,6 +28,15 @@ pub fn is_developed_image(extension: &str) -> bool {
         .any(|known| extension.eq_ignore_ascii_case(known))
 }
 
+/// Whether the filename can be a photo in the app or on an import card.
+pub fn is_photo_name(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            rawtonic_raw_format::extensions::is_image_extension(ext) || is_developed_image(ext)
+        })
+}
+
 type Stems = HashMap<String, Vec<PathBuf>>;
 
 /// Looks sidecars up, listing each folder at most once (one batch: an
@@ -70,9 +79,12 @@ impl Sidecars {
     pub fn is_ambiguous(&self, sidecar: &Path) -> bool {
         sidecar.file_stem().is_some_and(|stem| {
             let full_name_owner = sidecar.with_file_name(stem);
-            full_name_owner.extension().is_some()
+            is_photo_name(&full_name_owner)
                 && full_name_owner.is_file()
-                && !self.same_stem(sidecar).is_empty()
+                && self
+                    .same_stem(sidecar)
+                    .iter()
+                    .any(|path| is_photo_name(path))
         })
     }
 
@@ -81,13 +93,17 @@ impl Sidecars {
     /// photographer, even when the packet itself is left untouched.
     pub fn ambiguous_packet(&self, photo: &Path) -> Option<PathBuf> {
         let short = photo.with_file_name(photo.file_stem()?);
-        if short.extension().is_some()
+        if is_photo_name(&short)
             && short.is_file()
             && let Some(packet) = existing_spelling(&stem_form(photo))
         {
             return Some(packet);
         }
-        existing_spelling(&full_form(photo)).filter(|packet| !self.same_stem(packet).is_empty())
+        existing_spelling(&full_form(photo)).filter(|packet| {
+            self.same_stem(packet)
+                .iter()
+                .any(|path| is_photo_name(path))
+        })
     }
 
     /// Regular files (excluding XMP) whose stem matches, ignoring ASCII
@@ -290,5 +306,23 @@ mod tests {
         let d = folder(&["A.NEF"]);
         assert!(Sidecars::new().has_partner(&d.path().join("A.JPG")));
         assert!(!Sidecars::new().has_partner(&d.path().join("A.NEF")));
+    }
+
+    #[test]
+    fn sidecars_from_other_editors_cannot_claim_photo_xmp_names() {
+        let d = folder(&[
+            "A.NEF",
+            "A.NEF.pp3",
+            "A.JPG",
+            "A.JPG.dop",
+            "A.JPG.xmp",
+            "A.NEF.xmp",
+        ]);
+        let sidecars = Sidecars::new();
+        let jpeg = d.path().join("A.JPG");
+        let raw = d.path().join("A.NEF");
+        assert_eq!(sidecars.existing(&jpeg), Some(d.path().join("A.JPG.xmp")));
+        assert!(sidecars.ambiguous_packet(&jpeg).is_none());
+        assert!(sidecars.ambiguous_packet(&raw).is_none());
     }
 }

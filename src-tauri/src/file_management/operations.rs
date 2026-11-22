@@ -1613,6 +1613,7 @@ mod tests {
         let packet = jpeg.with_file_name("A.JPG.XMP");
         write(&jpeg, "jpeg");
         write(&packet, "jpeg packet");
+        write(&jpeg.with_file_name("A.JPG.dop"), "editor settings");
         write(&jpeg.with_file_name("A.NEF"), "raw");
         write(&jpeg.with_file_name("A.xmp"), "raw packet");
         let to = root.join("Copies");

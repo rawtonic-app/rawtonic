@@ -29,6 +29,7 @@ mod order_statistic;
 pub mod orientation;
 pub mod raw_processing;
 pub use rawtonic_raw_format as raw_tiff;
+pub use rawtonic_raw_format::extensions as format_extensions;
 pub mod source_frame;
 pub mod unit_calibration;
 pub mod unit_calibration_table;
