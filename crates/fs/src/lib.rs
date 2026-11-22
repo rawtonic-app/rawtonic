@@ -313,24 +313,40 @@ pub fn atomic_write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
 
 /// Publishes the finished temporary file `temp` (created beside `path`,
 /// written and synced by the caller) over the existing regular file at
-/// `path` in one atomic rename, after `still_expected` confirmed, right
-/// before the rename, that `path` is still the file the caller means to
-/// replace. The new file keeps the replaced one's permissions. Refuses a
-/// missing file, a symlink or a non-file (nothing is created), and on
-/// Windows a read-only file; on any refusal or failure `temp` is removed and
-/// `path` is untouched.
+/// `path` in one atomic rename, after `still_expected` confirmed that
+/// `path` is the file the caller means to replace (e.g. by its digest).
+/// Right before each rename attempt the file at `path` must still be that
+/// same file, unchanged since it was confirmed (same size, modification
+/// time and, on Unix, device and inode): a file put there meanwhile (a
+/// sync client's copy) is not replaced. The new file keeps the replaced
+/// one's permissions. Refuses a missing file, a symlink or a non-file
+/// (nothing is created), and on Windows a read-only file; on any refusal or
+/// failure `temp` is removed and `path` is untouched.
+///
+/// The check and the rename are two steps: no portable call replaces a
+/// file only if it is still a given one, so a program writing `path`
+/// between them (microseconds) is not caught.
 pub fn replace_existing(
     temp: tempfile::NamedTempFile,
     path: &Path,
     still_expected: impl FnOnce(&Path) -> bool,
 ) -> Result<()> {
-    let parent = path.parent().context("File needs a parent directory")?;
-    let meta = fs::symlink_metadata(path)
-        .with_context(|| format!("{} is not there to be replaced", path.display()))?;
-    ensure!(
-        meta.is_file() && !meta.file_type().is_symlink(),
-        "Refusing to replace a symlink or non-file"
-    );
+    let parent = match path.parent() {
+        Some(parent) if parent.as_os_str().is_empty() => Path::new("."),
+        Some(parent) => parent,
+        None => anyhow::bail!("File needs a parent directory"),
+    };
+    let stamp = |path: &Path| -> Result<(fs::Metadata, FileStamp)> {
+        let meta = fs::symlink_metadata(path)
+            .with_context(|| format!("{} is not there to be replaced", path.display()))?;
+        ensure!(
+            meta.is_file() && !meta.file_type().is_symlink(),
+            "Refusing to replace a symlink or non-file"
+        );
+        let stamp = FileStamp::of(&meta);
+        Ok((meta, stamp))
+    };
+    let (meta, before) = stamp(path)?;
     #[cfg(windows)]
     ensure!(
         !meta.permissions().readonly(),
@@ -342,21 +358,63 @@ pub fn replace_existing(
         "{} changed since it was checked; it is not replaced",
         path.display()
     );
+    let unchanged = || -> Result<()> {
+        let (_, now) = stamp(path)?;
+        ensure!(
+            now == before && stamp(path)?.1 == before,
+            "{} changed while it was checked; it is not replaced",
+            path.display()
+        );
+        Ok(())
+    };
+    unchanged()?;
     temp.as_file().set_permissions(meta.permissions())?;
-    replace(temp, path)?;
+    replace_checked(temp, path, &unchanged)?;
     sync_dir(parent)?;
     Ok(())
+}
+
+/// What tells a file at a path from one put there in its place.
+#[derive(PartialEq, Eq)]
+struct FileStamp {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    #[cfg(unix)]
+    id: (u64, u64),
+}
+
+impl FileStamp {
+    fn of(meta: &fs::Metadata) -> Self {
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        Self {
+            len: meta.len(),
+            modified: meta.modified().ok(),
+            #[cfg(unix)]
+            id: (meta.dev(), meta.ino()),
+        }
+    }
 }
 
 /// Renames `file` over `path`; on Windows retried while another program
 /// holds `path` open (see [`atomic_write`]).
 fn replace(file: tempfile::NamedTempFile, path: &Path) -> Result<()> {
+    replace_checked(file, path, &|| Ok(()))
+}
+
+/// [`replace`] with `check` passing right before each rename attempt.
+fn replace_checked(
+    file: tempfile::NamedTempFile,
+    path: &Path,
+    check: &dyn Fn() -> Result<()>,
+) -> Result<()> {
     #[cfg(windows)]
     {
         let mut file = file;
         // About 3 s in all: a scanner's or indexer's read of a sidecar
         // takes milliseconds; a program that keeps it open will not let go.
         for wait_ms in [10, 20, 50, 100, 200, 400, 800, 1500] {
+            check()?;
             match file.persist(path) {
                 Ok(_) => return Ok(()),
                 Err(e) if in_use(&e.error) => {
@@ -366,6 +424,7 @@ fn replace(file: tempfile::NamedTempFile, path: &Path) -> Result<()> {
                 Err(e) => return Err(e.error.into()),
             }
         }
+        check()?;
         file.persist(path).map(drop).map_err(|e| {
             let in_use = in_use(&e.error);
             let error = anyhow::Error::from(e.error);
@@ -381,6 +440,7 @@ fn replace(file: tempfile::NamedTempFile, path: &Path) -> Result<()> {
     }
     #[cfg(not(windows))]
     {
+        check()?;
         file.persist(path).map_err(|e| e.error)?;
         Ok(())
     }
@@ -426,6 +486,22 @@ mod tests {
         // Changed since it was checked: untouched.
         assert!(replace_existing(temp_with(b"new"), &path, |_| false).is_err());
         assert_eq!(fs::read(&path).unwrap(), b"old");
+        // Another file put in its place while it was checked (a sync
+        // client's copy): untouched.
+        let swapped = replace_existing(temp_with(b"new"), &path, |path| {
+            let copy = path.with_extension("synced");
+            fs::write(&copy, b"retouched").unwrap();
+            fs::rename(&copy, path).unwrap();
+            true
+        });
+        assert!(swapped.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"retouched");
+        fs::write(&path, b"old").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        }
         replace_existing(temp_with(b"new"), &path, |_| true).unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"new");
         #[cfg(unix)]

@@ -128,6 +128,21 @@ pub(crate) fn library_dir_for(path: &Path) -> Option<PathBuf> {
     library_for(path)
 }
 
+/// Whether the file at `path` is a photograph by now: an asset of the
+/// session or catalog managing its folder, or a file with an editor
+/// sidecar beside it (edited as a photo). An export there is never
+/// replaced ("If a file exists": Replace if changed).
+pub(crate) fn is_library_photo(path: &Path) -> bool {
+    if crate::exif_processing::get_primary_sidecar_path(path).exists() {
+        return true;
+    }
+    library_for(path).is_some_and(|directory| match Library::open(&directory) {
+        Ok(lib) => !matches!(lib.asset_at(path), Ok(None)),
+        // A library that cannot be read: taken as holding it.
+        Err(_) => true,
+    })
+}
+
 pub fn is_managed_source(source: &Path) -> bool {
     library_for(source).is_some()
 }

@@ -1456,22 +1456,36 @@ fn export(args: ExportArgs) -> Result<()> {
         .zip(&recipes)
         .map(|((photo, _, _), recipe)| {
             let (path, sidecar) = parse_virtual_path(photo);
-            let file = std::fs::metadata(&path).ok().map(|meta| {
-                let modified = meta
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_nanos().to_string());
-                serde_json::json!({"size": meta.len(), "modified": modified})
-            });
-            existing_files::inputs_hash(&serde_json::json!({
-                "recipe": recipe,
-                "catalog": photo_metadata(photo, &path, &sidecar),
-                "capture": corrected_capture(&path),
-                "source": file,
-                "format": format.to_lowercase(),
-                "settings": existing_files::settings_for_hash(&settings),
-            }))
+            let lut_file = recipe
+                .as_ref()
+                .and_then(|recipe| recipe["lutPath"].as_str())
+                .filter(|lut| !lut.is_empty())
+                .map(|lut| existing_files::file_fingerprint(std::path::Path::new(lut)));
+            existing_files::inputs_hash(
+                env!("RAWTONIC_APP_VERSION"),
+                &serde_json::json!({
+                    "recipe": recipe,
+                    "catalog": photo_metadata(photo, &path, &sidecar),
+                    "capture": corrected_capture(&path),
+                    "source": rawtonic_catalog::fingerprint(&path).ok(),
+                    "lutFile": lut_file,
+                    "format": format.to_lowercase(),
+                    "settings": existing_files::settings_for_hash(&settings),
+                }),
+            )
+        })
+        .collect();
+    // Each photo as its exports are recorded: its path and its original's
+    // fingerprint, so another photo put at the same path is never taken for
+    // it.
+    let photo_keys: Vec<Option<String>> = named
+        .iter()
+        .map(|(photo, _, _)| {
+            let original = parse_virtual_path(photo).0;
+            existing_files::photo_key(
+                photo,
+                rawtonic_catalog::fingerprint(&original).ok().as_deref(),
+            )
         })
         .collect();
     // Decided before anything renders: written (its own or a numbered
@@ -1491,14 +1505,21 @@ fn export(args: ExportArgs) -> Result<()> {
     for (named_index, ((photo, own, may_number), inputs)) in
         named.iter().zip(&export_inputs).enumerate()
     {
+        let photo_key = photo_keys[named_index].as_deref();
         let decision = existing_files::decide(
             on_conflict,
             own,
             own.exists(),
             used.contains(own),
             false,
-            || records.as_ref().and_then(|r| r.get(own).ok().flatten()),
-            photo,
+            || {
+                // Never a file that is a photograph by now.
+                if photo_key.is_none() || is_library_photo(own) {
+                    return None;
+                }
+                records.as_ref().and_then(|r| r.get(own).ok().flatten())
+            },
+            photo_key.unwrap_or_default(),
             inputs,
         );
         let (path, replace, outcome) = match decision {
@@ -1511,16 +1532,21 @@ fn export(args: ExportArgs) -> Result<()> {
             Decision::Write => (own.clone(), None, Outcome::Written),
             Decision::Replace(previous) => (own.clone(), Some(previous), Outcome::Replaced),
             Decision::Number { reported } => {
+                // A file the user named is numbered only as Replace if
+                // changed's fallback; Keep both refuses it, as before.
                 anyhow::ensure!(
-                    *may_number,
-                    "Output exists and is not a previous export of this photo; Rawtonic never overwrites it: {}",
+                    *may_number || reported,
+                    "Output exists; Rawtonic never overwrites: {}",
                     own.display()
                 );
                 let stem = own.file_stem().unwrap_or_default().to_string_lossy();
+                let extension = own
+                    .extension()
+                    .map_or_else(|| format.clone(), |ext| ext.to_string_lossy().into_owned());
                 let mut target = own.clone();
                 let mut counter = 1;
                 while target.exists() || used.contains(&target) {
-                    target = own.with_file_name(format!("{stem}_{counter}.{format}"));
+                    target = own.with_file_name(format!("{stem}_{counter}.{extension}"));
                     counter += 1;
                 }
                 let outcome = if reported {
@@ -1597,21 +1623,23 @@ fn export(args: ExportArgs) -> Result<()> {
                     catalog: catalog.clone(),
                     capture: capture.clone(),
                     library: library.as_deref(),
-                    publish: match replace {
-                        Some(previous) => rawtonic_export::output::Publish::Replace {
-                            previous,
-                            source: photo,
-                        },
-                        None => rawtonic_export::output::Publish::New,
+                    publish: match (replace, &photo_keys[named_index]) {
+                        (Some(previous), Some(photo_key)) => {
+                            rawtonic_export::output::Publish::Replace {
+                                previous,
+                                source: photo_key,
+                            }
+                        }
+                        _ => rawtonic_export::output::Publish::New,
                     },
                 });
                 vec![((), result)]
             },
             // Before a replace the file is there: whether it is still the
             // previous export (the failed attempt published nothing).
-            |()| match replace {
-                Some(previous) => previous.is_export_of(output, photo),
-                None => !output.exists(),
+            |()| match (replace, &photo_keys[named_index]) {
+                (Some(previous), Some(photo_key)) => previous.is_export_of(output, photo_key),
+                _ => !output.exists(),
             },
             |_, wait| {
                 eprintln!(
@@ -1623,10 +1651,11 @@ fn export(args: ExportArgs) -> Result<()> {
         );
         match results.remove(0).1 {
             Ok(()) => {
-                if let Some(records) = &records_path {
+                if let (Some(records), Some(photo_key)) = (&records_path, &photo_keys[named_index])
+                {
                     // One connection per thread (SQLite).
                     let recorded = ExportRecords::open(records).and_then(|records| {
-                        records.record(output, photo, &export_inputs[named_index])
+                        records.record(output, photo_key, &export_inputs[named_index])
                     });
                     if let Err(e) = recorded {
                         eprintln!(
@@ -1932,6 +1961,18 @@ fn editor_recipe(sidecar: &std::path::Path) -> serde_json::Value {
 fn library_of(path: &std::path::Path) -> Option<std::path::PathBuf> {
     rawtonic_catalog::layout::LibraryLayout::holding(path)
         .map(rawtonic_catalog::layout::LibraryLayout::into_directory)
+}
+/// Whether the file at `path` is a photograph by now (an asset of its
+/// session, or edited as a photo: an editor sidecar beside it): an export
+/// there is never replaced.
+fn is_library_photo(path: &std::path::Path) -> bool {
+    if rawtonic_export::exif_processing::get_primary_sidecar_path(path).exists() {
+        return true;
+    }
+    rawtonic_catalog::session_for(path).is_some_and(|session| match Library::open(&session) {
+        Ok(lib) => !matches!(lib.asset_at(path), Ok(None)),
+        Err(_) => true,
+    })
 }
 /// The metadata an export of `photo` embeds, as the app's: its session's
 /// for the source, with a virtual copy's own rating, label and keywords

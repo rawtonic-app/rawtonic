@@ -88,10 +88,19 @@ impl Outcome {
     }
 }
 
+/// The photo an export is of, as its record names it: its path (a virtual
+/// copy's own) and the fingerprint of its original's file, so another
+/// photo put at the same path later (a reused camera file name) is never
+/// taken for it. `None` without a fingerprint: such an export is never
+/// replaced.
+pub fn photo_key(photo: &str, original_fingerprint: Option<&str>) -> Option<String> {
+    original_fingerprint.map(|fingerprint| format!("{photo}\n{fingerprint}"))
+}
+
 /// What was recorded for a file an export wrote.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recorded {
-    /// The photo it was exported from (a virtual copy's own path).
+    /// The photo it was exported from ([`photo_key`]).
     pub source: String,
     /// [`inputs_hash`] of the export.
     pub inputs: String,
@@ -120,13 +129,22 @@ impl Recorded {
 }
 
 /// The fingerprint of everything that decides an export's file: `parts`
-/// (the recipe, the library metadata and the export settings the caller
-/// passes, without the "If a file exists" choice) and the app version, so
-/// a new version re-exports once.
-pub fn inputs_hash(parts: &serde_json::Value) -> String {
-    let mut bytes = format!("rawtonic-export {}\n", env!("CARGO_PKG_VERSION")).into_bytes();
+/// (the recipe, the library metadata, the preferences the render reads, the
+/// files it reads besides the photo and the export settings the caller
+/// passes, without the "If a file exists" choice) and `app_version`, the
+/// released app's version, so an update re-exports once.
+pub fn inputs_hash(app_version: &str, parts: &serde_json::Value) -> String {
+    let mut bytes = format!("rawtonic-export {app_version}\n").into_bytes();
     bytes.extend(serde_json::to_vec(parts).unwrap_or_default());
     rawtonic_fs::sha256_hex(bytes)
+}
+
+/// The content fingerprint of a file an export reads besides the photo (a
+/// watermark image, a LUT), for [`inputs_hash`]: replaced in place, it
+/// changes the export. `None` for a file that cannot be read.
+pub fn file_fingerprint(path: &Path) -> Option<String> {
+    let mut file = std::fs::File::open(path).ok()?;
+    rawtonic_fs::sha256_hex_read(&mut file).ok()
 }
 
 /// The export settings as [`inputs_hash`] takes them: without the
@@ -195,6 +213,9 @@ pub fn decide(
 }
 
 const RECORDS_VERSION: u32 = 1;
+/// `PRAGMA application_id` of an export records file ("RTXR"): any other
+/// database is refused before anything is written to it.
+const RECORDS_APPLICATION_ID: i32 = 0x5254_5852;
 
 /// The record of the files exports wrote (output path → photo, inputs,
 /// size, SHA-256), for Replace if changed. One connection per thread.
@@ -223,25 +244,50 @@ impl ExportRecords {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        let not_ours = || format!("{} is not a Rawtonic export records file", path.display());
+        // An existing file must be an SQLite database: SQLite would take a
+        // short file of anything else (or an empty one) for an empty
+        // database and write over it.
+        if std::fs::symlink_metadata(path).is_ok() {
+            use std::io::Read;
+            let mut header = [0u8; 16];
+            let is_sqlite = std::fs::File::open(path)
+                .and_then(|mut file| file.read_exact(&mut header))
+                .is_ok_and(|()| &header == b"SQLite format 3\0");
+            ensure!(is_sqlite, not_ours());
+        }
         let conn = Connection::open(path)
             .with_context(|| format!("Cannot open the export records {}", path.display()))?;
         conn.busy_timeout(Duration::from_secs(5))?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+        // Read only, before anything is written: another program's database
+        // is left exactly as it is.
+        let id: i32 = conn
+            .query_row("PRAGMA application_id", [], |r| r.get(0))
+            .with_context(not_ours)?;
+        let tables: i64 = conn
+            .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
+            .with_context(not_ours)?;
+        ensure!(
+            id == RECORDS_APPLICATION_ID || (id == 0 && tables == 0),
+            not_ours()
+        );
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         ensure!(
             version <= RECORDS_VERSION,
             "The export records are from a newer Rawtonic (version {version})"
         );
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS records(
+        conn.execute_batch(&format!(
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
+             PRAGMA application_id={RECORDS_APPLICATION_ID};
+             CREATE TABLE IF NOT EXISTS records(
                output TEXT PRIMARY KEY,
                source TEXT NOT NULL,
                inputs TEXT NOT NULL,
                size INTEGER NOT NULL,
                sha256 TEXT NOT NULL,
                recorded_ms INTEGER NOT NULL);
-             PRAGMA user_version=1;",
-        )?;
+             PRAGMA user_version={RECORDS_VERSION};"
+        ))?;
         Ok(Self { conn })
     }
 
@@ -489,11 +535,63 @@ mod tests {
             }))
             .unwrap();
         assert_eq!(settings.existing_files, ExistingFiles::KeepBoth);
-        let keep = inputs_hash(&settings_for_hash(&settings));
+        let keep = inputs_hash("1.0", &settings_for_hash(&settings));
         settings.existing_files = ExistingFiles::ReplaceIfChanged;
-        assert_eq!(inputs_hash(&settings_for_hash(&settings)), keep);
+        assert_eq!(inputs_hash("1.0", &settings_for_hash(&settings)), keep);
+        assert_ne!(
+            inputs_hash("1.1", &settings_for_hash(&settings)),
+            keep,
+            "an update"
+        );
         settings.jpeg_quality = 80;
-        assert_ne!(inputs_hash(&settings_for_hash(&settings)), keep);
+        assert_ne!(inputs_hash("1.0", &settings_for_hash(&settings)), keep);
+    }
+
+    #[test]
+    fn another_photo_at_the_same_path_is_not_the_recorded_one() {
+        let first = photo_key("/card/DSC_0001.NEF", Some("aaa")).unwrap();
+        let reused = photo_key("/card/DSC_0001.NEF", Some("bbb")).unwrap();
+        assert_ne!(first, reused);
+        assert_eq!(photo_key("/card/DSC_0001.NEF", None), None);
+        let dir = tempfile::tempdir().unwrap();
+        let records = ExportRecords::open(&dir.path().join("records.sqlite")).unwrap();
+        let path = dir.path().join("DSC_0001.jpg");
+        fs::write(&path, b"export of the first").unwrap();
+        records.record(&path, &first, "v1").unwrap();
+        assert_eq!(
+            decide_for(
+                ExistingFiles::ReplaceIfChanged,
+                &records,
+                &path,
+                &reused,
+                "v2"
+            ),
+            Decision::Number { reported: true }
+        );
+    }
+
+    #[test]
+    fn another_database_is_refused_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = dir.path().join("other.sqlite");
+        let conn = Connection::open(&other).unwrap();
+        conn.execute_batch("CREATE TABLE notes(text TEXT); INSERT INTO notes VALUES('mine');")
+            .unwrap();
+        drop(conn);
+        let before = fs::read(&other).unwrap();
+        assert!(ExportRecords::open(&other).is_err());
+        assert_eq!(fs::read(&other).unwrap(), before);
+        assert!(!dir.path().join("other.sqlite-wal").exists());
+        for contents in [&b"not a database at all, just some text"[..], b"x", b""] {
+            let text = dir.path().join("notes.txt");
+            fs::write(&text, contents).unwrap();
+            assert!(ExportRecords::open(&text).is_err());
+            assert_eq!(fs::read(&text).unwrap(), contents);
+        }
+        // Its own file opens again.
+        let own = dir.path().join("records.sqlite");
+        drop(ExportRecords::open(&own).unwrap());
+        assert!(ExportRecords::open(&own).is_ok());
     }
 
     #[test]
