@@ -13684,15 +13684,25 @@ fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
 /// Develop view's preview worker between the primary's frames.
 pub const MULTI_VIEW_LIVE_CALLER: &str = "multi_view_live";
 
+/// The colour target's measurements at the pick (the app's
+/// `develop_target_block`): the result of the edit the user just made, read
+/// back for its correction and readout. As background renders the first of
+/// them waited out the pause after the edit's frame (~250 ms of a target's
+/// ~280 ms, notes: parity-gaps/G11 TGT5).
+pub const COLOR_TARGET_CALLER: &str = "color_target";
+
 /// Renders that take a foreground turn at the processor
-/// ([`processor_turns`]): the foreground renders, and the multi view's live
+/// ([`processor_turns`]): the foreground renders, the multi view's live
 /// cells, which as background renders waited out the pause after the
-/// primary's frame (~250 ms) before the first cell changed. They share the
-/// primary's worker, so they cannot hold up its frames; their sources stay
-/// out of the Develop view's image cache (each cell would evict the
+/// primary's frame (~250 ms) before the first cell changed (they share the
+/// primary's worker, so they cannot hold up its frames), and the colour
+/// target's measurements (a small block each, ~10–30 ms). Their sources
+/// stay out of the Develop view's image cache (each would evict the
 /// primary's).
 fn foreground_turn(caller_id: &str, output_to_display: bool) -> bool {
-    foreground_render(caller_id, output_to_display) || caller_id == MULTI_VIEW_LIVE_CALLER
+    foreground_render(caller_id, output_to_display)
+        || caller_id == MULTI_VIEW_LIVE_CALLER
+        || caller_id == COLOR_TARGET_CALLER
 }
 
 #[cfg(test)]
@@ -13705,6 +13715,9 @@ mod foreground_turn_tests {
         assert!(!foreground_render(MULTI_VIEW_LIVE_CALLER, false));
         // The cell worker's renders stay background renders.
         assert!(!foreground_turn("multi_view", false));
+        // The colour target's measurements: a foreground turn, not the cache.
+        assert!(foreground_turn(COLOR_TARGET_CALLER, false));
+        assert!(!foreground_render(COLOR_TARGET_CALLER, false));
         assert!(foreground_turn("apply_adjustments", false));
     }
 
