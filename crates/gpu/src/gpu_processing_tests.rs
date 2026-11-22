@@ -11603,6 +11603,35 @@ fn levels_precise_probe_decode(high: &[u8], low: &[u8]) -> Option<Vec<[u16; 3]>>
 }
 
 #[test]
+#[ignore = "requires a native GPU; a variant becomes available between Levels byte reads"]
+fn levels_byte_pair_keeps_the_first_preview_pipeline() {
+    let processor = GpuProcessor::new(context(), 64, 32).unwrap();
+    let mut adjustments = get_all_adjustments_from_json(&json!({"exposure": 0.5}), true, Some(1));
+    adjustments.global.output_space[3] = crate::image_processing::levels_precise_probe(false);
+    prepare_preview_pipeline(&processor, preview_features(&adjustments));
+    prepare_preview_pipeline(&processor, ALL_PREVIEW_FEATURES);
+
+    let pin = PreviewPipelinePin::default();
+    let shader = ReadbackShader::PreviewPinned(&pin);
+    let (high, _) = processor
+        .preview_readback_pipeline(&adjustments, false, shader)
+        .unwrap();
+    processor
+        .force_fallback_variant
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    adjustments.global.output_space[3] = crate::image_processing::levels_precise_probe(true);
+    let (unpinned, _) = processor.preview_pipeline(&adjustments, false).unwrap();
+    assert_ne!(
+        unpinned, high,
+        "the next selection would choose another pipeline"
+    );
+    let (low, _) = processor
+        .preview_readback_pipeline(&adjustments, false, shader)
+        .unwrap();
+    assert_eq!(high, low);
+}
+
+#[test]
 #[ignore = "requires a native GPU; the Levels pickers' 16-bit probe on the display path"]
 fn levels_precise_probe_on_the_display_path_matches_the_sixteen_bit_export_probe() {
     let context = context();

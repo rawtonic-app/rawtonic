@@ -240,10 +240,18 @@ it('clears a failed-save overlay after an explicit successful reset from Library
 
 it("tells the photographer when the editor's first edit of a photo in the cloud has no camera crop", async () => {
   resetActivityStore();
+  const image = { ...photo('/evicted.RAF'), cameraCrops: [] };
+  useEditorStore.setState({ selectedImage: image });
   const warnings = () => useActivityStore.getState().entries.filter((entry) => entry.id.startsWith('crop-missing'));
   debouncedSave('/evicted.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+  // The editor left this photo before its pending save flushed.
+  useEditorStore.setState({ selectedImage: photo('/first.dng') });
   void debouncedSave.flush();
   await finish(Invokes.SaveMetadataAndUpdateThumbnail, { cropMissing: true });
+  expect(invoke).toHaveBeenCalledWith(
+    Invokes.SaveMetadataAndUpdateThumbnail,
+    expect.objectContaining({ path: image.path, cameraCropKnown: false })
+  );
   expect(warnings()).toMatchObject([{ status: 'warning', paths: ['/evicted.RAF'] }]);
   // Later saves answer nothing to tell.
   debouncedSave('/evicted.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 2 });
