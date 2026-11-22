@@ -138,7 +138,8 @@ if [ "$RUST" = 1 ]; then
       --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
     # The crates with C dependencies (bundled SQLite, aws-lc; metadata reaches
     # libmimalloc-sys through raw-format -> rawler -> runtime) need a MinGW C
-    # compiler for the Windows target.
+    # compiler for the Windows target. Local hosts only: CI runs no Windows
+    # GNU clippy, so this needs the x86_64-pc-windows-gnu target and MinGW.
     if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
       run "rust: windows clippy (metadata, fileops, catalog, ingest, contribute)" \
         cargo clippy -p rawtonic-metadata -p rawtonic-fileops -p rawtonic-catalog -p rawtonic-ingest -p rawtonic-contribute \
