@@ -80,7 +80,7 @@ impl SelectionDetector for Models {
                 let set = sel::landscape_parts(parameters)
                     .ok_or_else(|| anyhow::anyhow!("no known landscape parts"))?;
                 let parts = rawtonic_segment::landscape_parts(&set.keys())?;
-                rawtonic_segment::run_landscape_model(warped, &m, &parts, linear, None)
+                rawtonic_segment::run_landscape_model(warped, &m, &parts, set.version, linear, None)
             }),
             other => return Err(format!("{} is not tested here", other.name())),
         }

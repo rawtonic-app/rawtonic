@@ -630,6 +630,7 @@ impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
                 rawtonic_segment::mask_data_url(&rawtonic_segment::landscape_mask_grid(
                     &probabilities,
                     &parts,
+                    set.version,
                 ))
             })
             .collect()

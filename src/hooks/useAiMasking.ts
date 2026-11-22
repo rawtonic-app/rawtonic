@@ -662,10 +662,12 @@ export function useAiMasking() {
   /** A Landscape mask of its stored parts (`generate_ai_landscape_mask`,
    * which does not download the model): `done` (filled, or its parts
    * changed meanwhile), `dropped` (the photo changed), `missing` (the model
-   * is not installed), `failed`. */
+   * is not installed), `failed`. `version`: the component's
+   * `landscapeVersion` (absent = 1). */
   const handleGenerateAiLandscapeMask = async (
     subMaskId: string,
-    parts: string[]
+    parts: string[],
+    version: number
   ): Promise<'done' | 'dropped' | 'missing' | 'failed'> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return 'dropped';
@@ -677,6 +679,7 @@ export function useAiMasking() {
         jsAdjustments: getTransformAdjustments(adjustments),
         path: selectedImage.path,
         parts,
+        version,
         download: false,
         flipHorizontal: adjustments.flipHorizontal,
         flipVertical: adjustments.flipVertical,
@@ -886,7 +889,11 @@ export function useAiMasking() {
       // one (layer or component) waits until it is shown, so a photo opened
       // with one does not download the model for it.
       if (sub.type === 'ai-landscape') {
-        const p = (sub.parameters ?? {}) as { parts?: string[]; maskDataBase64?: string | null };
+        const p = (sub.parameters ?? {}) as {
+          parts?: string[];
+          maskDataBase64?: string | null;
+          landscapeVersion?: number;
+        };
         const parts = p.parts ?? [];
         const key = `${selectedImage?.path}:${sub.id}:${JSON.stringify(parts)}`;
         // A failed selection is not asked again by itself (no retry loop),
@@ -903,7 +910,7 @@ export function useAiMasking() {
           continue;
         requestedAutoMasks.current.add(key);
         const asked = selectedImage?.path;
-        void handleGenerateAiLandscapeMask(sub.id, parts).then((outcome) => {
+        void handleGenerateAiLandscapeMask(sub.id, parts, p.landscapeVersion ?? 1).then((outcome) => {
           // Settled either way: the same parts may be asked for again (an
           // undo, a tick after an untick); a component that holds its mask
           // is skipped above.
