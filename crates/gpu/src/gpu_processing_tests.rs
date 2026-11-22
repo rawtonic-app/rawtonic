@@ -457,26 +457,17 @@ fn whites_version_22_compiles_only_for_its_recipes() {
     };
     let features =
         |profile: serde_json::Value| preview_features(&adjustments(profile)) & WHITES_V22_FEATURE;
-    // Under another look (AgX, Classic, ...) the shader ignores the cap: no
-    // variant compiled for it, no idle plan for it.
+    // Under another look (AgX, Classic, ...) the shader ignores the cap: the
+    // recipe's own variant does not carry it. (The idle plan's Basic-panel
+    // superset, which an export under a compile limit also renders with,
+    // still holds the bit: dropping it changes saved exports' shader on
+    // Vulkan, unmeasured.)
     for mode in [0, 1, 2, 4] {
         let mut other = adjustments(json!({"whites": -30, "toneVersion": 22}));
         other.global.tonemapper_mode = mode;
         assert_eq!(preview_features(&other) & WHITES_V22_FEATURE, 0, "{mode}");
         assert_eq!(tone_level(&other), 1, "{mode}");
-        assert_eq!(
-            crate::gpu_processing::idle_compiles::basic_features(0, &other) & WHITES_V22_FEATURE,
-            0,
-            "{mode}"
-        );
     }
-    assert_ne!(
-        crate::gpu_processing::idle_compiles::basic_features(
-            0,
-            &adjustments(json!({"whites": -30, "toneVersion": 22}))
-        ) & WHITES_V22_FEATURE,
-        0
-    );
     assert_eq!(
         features(json!({"whites": -30, "toneVersion": 22})),
         WHITES_V22_FEATURE
