@@ -3,7 +3,7 @@
 //! * **Keep both** (the default): the new file gets a free numbered name
 //!   (`photo_1.jpg`); nothing is ever written over.
 //! * **Skip**: the photo is not exported for that recipe; decided before
-//!   its source is read, and reported.
+//!   its source is decoded, and reported.
 //! * **Replace if changed**: the taken file is replaced only when it is a
 //!   previous Rawtonic export of the same photo at the same path, still
 //!   byte for byte as Rawtonic wrote it, and the export's inputs (recipe,

@@ -1,5 +1,5 @@
 //! `rawtonic export --on-conflict`: what happens when the output's name is
-//! taken. Skip is decided before anything is read or rendered (the source
+//! taken. Skip is decided before anything is decoded or rendered (the source
 //! here is no photo at all, and no graphics card is needed); no choice ever
 //! writes over a file that is not the photo's own recorded export.
 

@@ -908,6 +908,8 @@ fn mask_file_paths(output_path: &Path, layer: usize) -> [std::path::PathBuf; 2] 
     ]
 }
 
+/// `tm_override`: the non-RAW tone-mapper override of the run's settings
+/// snapshot (a LUT is the look on non-RAW pixels).
 fn export_adjustments_as_lut(
     js_adjustments: &Value,
     source_path_str: &str,
@@ -915,13 +917,13 @@ fn export_adjustments_as_lut(
     develop: &DevelopSession,
     app_handle: &tauri::AppHandle,
     cancellation_token: &AtomicBool,
+    tm_override: Option<u32>,
 ) -> Result<Vec<u8>, String> {
     let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     ensure_export_not_cancelled(cancellation_token)?;
     let lut_size = 33;
     let identity_image = generate_identity_lut_image(lut_size);
 
-    let tm_override = resolve_tonemapper_override_from_handle(app_handle, false);
     let mut all_adjustments = get_all_adjustments_from_json(js_adjustments, false, tm_override);
 
     all_adjustments.global.show_clipping = 0;
@@ -2084,7 +2086,11 @@ fn export_photo(
         "sourceIdentity": &pinned.source_identity,
         "lutFile": lut_file,
         "decode": crate::image_loader::decode_preferences(settings),
-        "toneMapper": crate::image_processing::resolve_tonemapper_override(settings, is_raw),
+        // The photo's own (RAW or not), and the non-RAW one a LUT export uses.
+        "toneMapper": [
+            crate::image_processing::resolve_tonemapper_override(settings, is_raw),
+            crate::image_processing::resolve_tonemapper_override(settings, false),
+        ],
     });
     // Once per recipe, before it renders: the render reads these inputs
     // (the watermark file included) after this, and its record names them.
@@ -2137,24 +2143,13 @@ fn export_photo(
             }
         })
     };
-    // A file evicted to the cloud is not read for its names (that would
-    // download it before Skip could pass it by): its snapshot's EXIF, else
-    // its file date names it.
-    let evicted = rawtonic_fs::is_cloud_placeholder(original_path);
-    let file_date = if evicted && pinned.exif.is_none() {
-        std::fs::metadata(original_path)
-            .ok()
-            .and_then(|meta| meta.created().ok())
-            .and_then(|time| jiff::Timestamp::try_from(time).ok())
-            .unwrap_or_else(jiff::Timestamp::now)
-    } else {
-        pinned.naming_date(original_path)
-    };
-    let capture = (!evicted
-        && wanted
-            .iter()
-            .any(|&t| targets[t].export_settings.naming_needs_capture()))
-    .then(|| naming_capture(original_path, pinned.metadata.as_ref()));
+    // Named as before for every choice: the name may need the capture date
+    // or facts (read from the original when the snapshot has none).
+    let file_date = pinned.naming_date(original_path);
+    let capture = wanted
+        .iter()
+        .any(|&t| targets[t].export_settings.naming_needs_capture())
+        .then(|| naming_capture(original_path, pinned.metadata.as_ref()));
 
     // Each recipe's file is named (and recorded) right before it is
     // written, as when each recipe was its own export.
@@ -2237,8 +2232,9 @@ fn export_photo(
         }
     };
     // Recipes that skip their photo are decided before its source is
-    // checked or read: a photo every recipe skips is not even opened (its
-    // drive may be offline).
+    // checked or decoded: a photo every recipe skips is not decoded (an
+    // offline drive does not fail it). Only its name may read the
+    // original's capture date or facts, as before.
     let mut results = Vec::new();
     let mut wanted = wanted.to_vec();
     wanted.retain(|&target| {
@@ -2304,6 +2300,7 @@ fn export_photo(
                 &develop,
                 app_handle,
                 cancellation_token,
+                crate::image_processing::resolve_tonemapper_override(settings, false),
             )?;
             ensure_export_not_cancelled(cancellation_token)?;
             let previous = replacing(target);

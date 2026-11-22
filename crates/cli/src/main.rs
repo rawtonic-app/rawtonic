@@ -1351,8 +1351,8 @@ fn export(args: ExportArgs) -> Result<()> {
         vec![(source.to_string_lossy().into_owned(), output.clone(), false)]
     };
     // Skip needs no recipe: the photos whose file exists are passed by
-    // before anything is read or rendered (no graphics card is even opened
-    // when every photo is skipped).
+    // before anything is decoded or rendered (no graphics card is even
+    // opened when every photo is skipped); only naming read their dates.
     let mut skipped = Vec::new();
     let named: Vec<(String, PathBuf, bool)> = named
         .into_iter()
