@@ -6310,8 +6310,11 @@ type Range2OutputPipelines =
 /// 22's tone level the flat table had 1.2 M slots per processor, though a
 /// session uses a few.
 struct MixerFeaturePipelines {
-    pages: Box<[std::sync::OnceLock<Box<[std::sync::OnceLock<Option<wgpu::ComputePipeline>>]>>]>,
+    pages: Box<[std::sync::OnceLock<Box<[MixerFeatureSlot]>>]>,
 }
+
+/// One pipeline of [`MixerFeaturePipelines`], compiled on first use.
+type MixerFeatureSlot = std::sync::OnceLock<Option<wgpu::ComputePipeline>>;
 
 /// Slots per page of [`MixerFeaturePipelines`].
 const MIXER_PAGE_SLOTS: usize = 4096;
@@ -6327,7 +6330,7 @@ impl MixerFeaturePipelines {
 }
 
 impl std::ops::Index<usize> for MixerFeaturePipelines {
-    type Output = std::sync::OnceLock<Option<wgpu::ComputePipeline>>;
+    type Output = MixerFeatureSlot;
 
     fn index(&self, slot: usize) -> &Self::Output {
         assert!(
