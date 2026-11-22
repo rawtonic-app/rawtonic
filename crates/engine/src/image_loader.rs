@@ -695,6 +695,11 @@ pub fn classify_raw_develop_error(path: &str, err: anyhow::Error) -> anyhow::Err
     err
 }
 
+/// The JPEG previews of a TIFF-based file, largest first: each IFD's JPEG
+/// strip or `JPEGInterchangeFormat`, without lossless JPEG raw image data
+/// (`lossless_jpeg`: a CR2's or DNG's raw strip, which no preview decoder
+/// reads and whose probe by an image decoder copies all of it). None when
+/// `buf` is no TIFF.
 pub fn tiff_jpeg_candidates(buf: &[u8]) -> Option<Vec<&[u8]>> {
     let le = match buf.get(..4)? {
         [0x49, 0x49, 0x2A, 0x00] => true,
@@ -781,6 +786,7 @@ pub fn tiff_jpeg_candidates(buf: &[u8]) -> Option<Vec<&[u8]>> {
         candidates
             .into_iter()
             .filter_map(|(off, len)| buf.get(off as usize..off.checked_add(len)? as usize))
+            .filter(|data| !lossless_jpeg(data))
             .collect(),
     )
 }
@@ -788,7 +794,6 @@ pub fn tiff_jpeg_candidates(buf: &[u8]) -> Option<Vec<&[u8]>> {
 pub fn largest_tiff_jpeg_preview(buf: &[u8]) -> Option<DynamicImage> {
     tiff_jpeg_candidates(buf)?
         .into_iter()
-        .filter(|bytes| !lossless_jpeg(bytes))
         .find_map(|bytes| image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok())
 }
 
@@ -2459,5 +2464,54 @@ mod lossless_jpeg_tests {
         assert!(!lossless_jpeg(&[0xFF, 0xD8, 0xFF, 0xDA, 0x00, 0x02]));
         assert!(!lossless_jpeg(&[0x49, 0x49, 0x2A, 0x00]));
         assert!(!lossless_jpeg(&[0xFF, 0xD8, 0xFF]));
+    }
+
+    /// A TIFF RAW's lossless raw strip is no preview candidate: the import
+    /// dialog's probes (`priority_embedded_jpeg`, the grid's size check)
+    /// would otherwise hand it to the image decoder, which copies the whole
+    /// strip, i.e. most of the file, before it fails on the frame header.
+    #[test]
+    fn lossless_raw_data_is_no_preview_candidate() {
+        let image = image::DynamicImage::new_rgb8(8, 6);
+        let mut preview = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut preview, image::ImageFormat::Jpeg).unwrap();
+        let preview = preview.into_inner();
+        // SOI, SOF3 (lossless), then the "raw data": larger than the preview.
+        let mut raw = vec![0xFF, 0xD8, 0xFF, 0xC3, 0x00, 0x02];
+        raw.resize(preview.len() * 4, 0x55);
+        // One IFD: Compression 6, a strip (the raw data) and an old-style
+        // JPEGInterchangeFormat (the preview).
+        let entries: [(u16, u16, u32); 5] = [
+            (259, 3, 6),
+            (273, 4, 0),
+            (279, 4, raw.len() as u32),
+            (513, 4, 0),
+            (514, 4, preview.len() as u32),
+        ];
+        let data_at = 8 + 2 + entries.len() * 12 + 4;
+        let mut tiff = vec![0x49, 0x49, 0x2A, 0x00, 8, 0, 0, 0];
+        tiff.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        for (tag, kind, value) in entries {
+            let value = match tag {
+                273 => data_at as u32,
+                513 => (data_at + raw.len()) as u32,
+                _ => value,
+            };
+            tiff.extend_from_slice(&tag.to_le_bytes());
+            tiff.extend_from_slice(&kind.to_le_bytes());
+            tiff.extend_from_slice(&1u32.to_le_bytes());
+            tiff.extend_from_slice(&value.to_le_bytes());
+        }
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        tiff.extend_from_slice(&raw);
+        tiff.extend_from_slice(&preview);
+        assert_eq!(
+            super::tiff_jpeg_candidates(&tiff).unwrap(),
+            vec![preview.as_slice()]
+        );
+        assert_eq!(
+            super::priority_embedded_jpeg(&tiff).map(|jpeg| image::load_from_memory(&jpeg).unwrap().to_rgb8()),
+            Some(image.to_rgb8())
+        );
     }
 }
