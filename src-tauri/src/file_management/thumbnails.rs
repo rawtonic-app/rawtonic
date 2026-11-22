@@ -1562,9 +1562,13 @@ struct ThumbnailCacheEntry {
     lut_missing: bool,
 }
 
-/// The key of a tile developed while its recipe's LUT did not load.
+/// The key of a tile developed while its recipe's LUT did not load: a hash
+/// like every tile key (the webview renews tiles by 64-hex names).
 fn lut_missing_hash(developed: &str) -> String {
-    format!("{developed}-lut-missing")
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(developed.as_bytes());
+    hasher.update(b"\0lut-missing-v1");
+    hasher.finalize().to_hex().to_string()
 }
 
 /// A photo's cached thumbnails: small path, medium path, rating, edited.
