@@ -79,6 +79,36 @@ Function RawtonicMachineInstallNotice
   nsDialogs::Show
 FunctionEnd
 
+; Update from inside Rawtonic ("Restart now"): the app starts this setup and then
+; ends, which takes a second or two (webview and GPU teardown). The template's
+; check for a running Rawtonic, right after this hook, kills whatever it still
+; finds, and its kill fails on a process that is just exiting ("Failed to kill
+; Rawtonic ... close it first": 3 of 3 restarts on a Radeon 680M, Windows 11,
+; UPDX2). So an update waits here, up to 20 s, until the old process is gone;
+; only a Rawtonic that does not end is left to the template's kill.
+!macro NSIS_HOOK_PREINSTALL
+  ${If} $UpdateMode = 1
+    Push $R8
+    Push $R9
+    StrCpy $R8 0
+    rawtonic_wait_for_exit:
+      nsis_tauri_utils::FindProcess "$INSTDIR\${MAINBINARYNAME}.exe"
+      Pop $R9
+      ${If} $R9 <> 0
+        Goto rawtonic_exit_done
+      ${EndIf}
+      IntOp $R8 $R8 + 1
+      ${If} $R8 > 80
+        Goto rawtonic_exit_done
+      ${EndIf}
+      Sleep 250
+      Goto rawtonic_wait_for_exit
+    rawtonic_exit_done:
+    Pop $R9
+    Pop $R8
+  ${EndIf}
+!macroend
+
 ; The install runs no GPU warm-up: on a Radeon 680M the MSI's took over two
 ; minutes behind a busy cursor (notes: parity-gaps/G76). The app's first start
 ; compiles the pipelines and shows that it does.
