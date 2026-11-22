@@ -19420,9 +19420,47 @@ fn render_region_source(
 fn region_differences(
     whole: &image::RgbaImage,
     region: &image::RgbaImage,
-    (x0, y0): (u32, u32),
+    at: (u32, u32),
     inset: u32,
 ) -> (i32, i32, f64) {
+    let mut diffs = region_difference_samples(whole, region, at, inset);
+    let mean = diffs.iter().map(|d| *d as f64).sum::<f64>() / diffs.len() as f64;
+    diffs.sort_unstable();
+    (
+        diffs[diffs.len() - 1],
+        diffs[(diffs.len() - 1) * 99 / 100],
+        mean,
+    )
+}
+
+/// The most samples that may differ by more than the dither's 1 code where
+/// the device's 8-bit store may round to the farther code
+/// ([`unorm8_store_slack`]): such a difference needs both renders' dither
+/// near opposite ends and a farther-code store, so it stays rare (RTX 3080
+/// on Vulkan: at most 1.6e-6 of the samples in each of the three region
+/// tests' 125 comparisons, NRR5), while a shift of the values or a broken
+/// dither moves far more samples by 2 codes.
+const STORE_SLACK_SHARE: f64 = 1e-4;
+
+/// Share of the samples [`region_differences`] compares that differ by more
+/// than 1 code.
+fn region_share_beyond_one_code(
+    whole: &image::RgbaImage,
+    region: &image::RgbaImage,
+    at: (u32, u32),
+    inset: u32,
+) -> f64 {
+    let diffs = region_difference_samples(whole, region, at, inset);
+    diffs.iter().filter(|d| **d > 1).count() as f64 / diffs.len() as f64
+}
+
+/// Per-sample differences (codes, RGB) behind [`region_differences`].
+fn region_difference_samples(
+    whole: &image::RgbaImage,
+    region: &image::RgbaImage,
+    (x0, y0): (u32, u32),
+    inset: u32,
+) -> Vec<i32> {
     let (w, h) = region.dimensions();
     let left = if x0 == 0 { 0 } else { inset };
     let top = if y0 == 0 { 0 } else { inset };
@@ -19445,13 +19483,7 @@ fn region_differences(
             }
         }
     }
-    let mean = diffs.iter().map(|d| *d as f64).sum::<f64>() / diffs.len() as f64;
-    diffs.sort_unstable();
-    (
-        diffs[diffs.len() - 1],
-        diffs[(diffs.len() - 1) * 99 / 100],
-        mean,
-    )
+    diffs
 }
 
 /// A noisy frame with a brightness ramp (the noise profile has several
@@ -19502,10 +19534,15 @@ fn regions_filter_colour_noise_as_the_whole_photograph() {
             let (max, p99, mean) = region_differences(&whole, &region, (x, y), margin);
             let own = render_region_source(&context, &crop, &profile, None);
             let (own_max, ..) = region_differences(&whole, &own, (x, y), margin);
+            let share = region_share_beyond_one_code(&whole, &region, (x, y), margin);
             println!(
-                "{profile} region {x},{y} {w}x{h}: max {max} p99 {p99} mean {mean:.3}; measured on its own max {own_max}"
+                "{profile} region {x},{y} {w}x{h}: max {max} p99 {p99} mean {mean:.3} beyond 1 code {share:.2e}; measured on its own max {own_max}"
             );
             assert!(max <= dither_bound, "{profile} region {x},{y}: max {max}");
+            assert!(
+                share <= STORE_SLACK_SHARE,
+                "{profile} region {x},{y}: {share:.2e} beyond 1 code"
+            );
         }
         // Off the grid, the coarse levels sample other pixels (8–9 codes).
         let (x, y, w, h) = (530, 333, 1408, 1088);
@@ -19700,17 +19737,22 @@ fn regions_render_as_windows_of_the_whole_photograph() {
             }
             let (d_max, d_p99, d_mean) =
                 region_differences(&whole_display, &display_region, (x, y), inset);
+            let d_share =
+                region_share_beyond_one_code(&whole_display, &display_region, (x, y), inset);
             println!(
-                "{name}: region {x},{y} {w}x{h}: window max {max} p99 {p99} mean {mean:.3}; display window max {d_max} p99 {d_p99} mean {d_mean:.3}; own image max {own_max} p99 {own_p99} mean {own_mean:.3}"
+                "{name}: region {x},{y} {w}x{h}: window max {max} p99 {p99} mean {mean:.3}; display window max {d_max} p99 {d_p99} mean {d_mean:.3} beyond 1 code {d_share:.2e}; own image max {own_max} p99 {own_p99} mean {own_mean:.3}"
             );
-            worst.push((name, x, y, max, d_max));
+            worst.push((name, x, y, max, d_max, d_share));
         }
     }
     // Byte for byte with the export shader; the display variants within
-    // 1 code (their 8-bit dither's phase) and the store's slack.
+    // 1 code (their 8-bit dither's phase) and the store's slack, which only
+    // a rare sample may use.
     let failed: Vec<_> = worst
         .iter()
-        .filter(|(.., max, d_max)| *max > 0 || *d_max > dither_bound)
+        .filter(|(.., max, d_max, d_share)| {
+            *max > 0 || *d_max > dither_bound || *d_share > STORE_SLACK_SHARE
+        })
         .collect();
     assert!(
         failed.is_empty(),
@@ -19930,6 +19972,7 @@ fn regions_with_the_render_reach_match_the_whole_photograph_to_their_edges() {
             let (max, p99, mean) = region_differences(&whole, &region, (x, y), 0);
             let display = render(ReadbackShader::Display);
             let (d_max, d_p99, d_mean) = region_differences(&whole_display, &display, (x, y), 0);
+            let d_share = region_share_beyond_one_code(&whole_display, &display, (x, y), 0);
             // Before: cut at what is shown (NR off) or with 160 px (NR
             // on); flare gathered from the cut.
             let before_reach = if measured.is_some() {
@@ -19950,10 +19993,10 @@ fn regions_with_the_render_reach_match_the_whole_photograph_to_their_edges() {
             );
             let (b_max, b_p99, b_mean) = region_differences(&whole, &before, (x, y), 0);
             println!(
-                "{name}: shown {x},{y} {w}x{h}, reach {reach}, cut {cx},{cy} {cw}x{ch}: export max {max} p99 {p99} mean {mean:.3}; display max {d_max} p99 {d_p99} mean {d_mean:.3}; before (reach {before_reach}) max {b_max} p99 {b_p99} mean {b_mean:.3}"
+                "{name}: shown {x},{y} {w}x{h}, reach {reach}, cut {cx},{cy} {cw}x{ch}: export max {max} p99 {p99} mean {mean:.3}; display max {d_max} p99 {d_p99} mean {d_mean:.3} beyond 1 code {d_share:.2e}; before (reach {before_reach}) max {b_max} p99 {b_p99} mean {b_mean:.3}"
             );
-            if max > 0 || d_max > dither_bound {
-                failed.push((name, x, y, max, d_max));
+            if max > 0 || d_max > dither_bound || d_share > STORE_SLACK_SHARE {
+                failed.push((name, x, y, max, d_max, d_share));
             }
         }
     }
