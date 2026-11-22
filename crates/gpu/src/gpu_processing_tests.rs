@@ -19423,35 +19423,37 @@ fn region_differences(
     at: (u32, u32),
     inset: u32,
 ) -> (i32, i32, f64) {
+    let (max, p99, mean, _) = region_difference_stats(whole, region, at, inset);
+    (max, p99, mean)
+}
+
+/// The most samples a region test lets differ by more than the dither's
+/// 1 code where the device's 8-bit store may round to the farther code
+/// ([`unorm8_store_slack`]). An empirical regression threshold, not a
+/// derived bound: on an RTX 3080 on Vulkan at most 1.6e-6 of the samples
+/// in each of the three region tests' 125 comparisons exceeded 1 code
+/// (NRR5); a shift of the display values would move far more.
+const STORE_SLACK_SHARE: f64 = 1e-4;
+
+/// [`region_differences`] and the share of the compared samples that
+/// differ by more than 1 code.
+fn region_difference_stats(
+    whole: &image::RgbaImage,
+    region: &image::RgbaImage,
+    at: (u32, u32),
+    inset: u32,
+) -> (i32, i32, f64, f64) {
     let mut diffs = region_difference_samples(whole, region, at, inset);
-    let mean = diffs.iter().map(|d| *d as f64).sum::<f64>() / diffs.len() as f64;
+    let n = diffs.len() as f64;
+    let mean = diffs.iter().map(|d| *d as f64).sum::<f64>() / n;
+    let share = diffs.iter().filter(|d| **d > 1).count() as f64 / n;
     diffs.sort_unstable();
     (
         diffs[diffs.len() - 1],
         diffs[(diffs.len() - 1) * 99 / 100],
         mean,
+        share,
     )
-}
-
-/// The most samples that may differ by more than the dither's 1 code where
-/// the device's 8-bit store may round to the farther code
-/// ([`unorm8_store_slack`]): such a difference needs both renders' dither
-/// near opposite ends and a farther-code store, so it stays rare (RTX 3080
-/// on Vulkan: at most 1.6e-6 of the samples in each of the three region
-/// tests' 125 comparisons, NRR5), while a shift of the values or a broken
-/// dither moves far more samples by 2 codes.
-const STORE_SLACK_SHARE: f64 = 1e-4;
-
-/// Share of the samples [`region_differences`] compares that differ by more
-/// than 1 code.
-fn region_share_beyond_one_code(
-    whole: &image::RgbaImage,
-    region: &image::RgbaImage,
-    at: (u32, u32),
-    inset: u32,
-) -> f64 {
-    let diffs = region_difference_samples(whole, region, at, inset);
-    diffs.iter().filter(|d| **d > 1).count() as f64 / diffs.len() as f64
 }
 
 /// Per-sample differences (codes, RGB) behind [`region_differences`].
@@ -19531,10 +19533,9 @@ fn regions_filter_colour_noise_as_the_whole_photograph() {
             assert_eq!((x % REGION_NOISE_GRID, y % REGION_NOISE_GRID), (0, 0));
             let crop = image.crop_imm(x, y, w, h);
             let region = render_region_source(&context, &crop, &profile, Some(measured));
-            let (max, p99, mean) = region_differences(&whole, &region, (x, y), margin);
+            let (max, p99, mean, share) = region_difference_stats(&whole, &region, (x, y), margin);
             let own = render_region_source(&context, &crop, &profile, None);
             let (own_max, ..) = region_differences(&whole, &own, (x, y), margin);
-            let share = region_share_beyond_one_code(&whole, &region, (x, y), margin);
             println!(
                 "{profile} region {x},{y} {w}x{h}: max {max} p99 {p99} mean {mean:.3} beyond 1 code {share:.2e}; measured on its own max {own_max}"
             );
@@ -19735,10 +19736,8 @@ fn regions_render_as_windows_of_the_whole_photograph() {
                     ReadbackShader::Display,
                 );
             }
-            let (d_max, d_p99, d_mean) =
-                region_differences(&whole_display, &display_region, (x, y), inset);
-            let d_share =
-                region_share_beyond_one_code(&whole_display, &display_region, (x, y), inset);
+            let (d_max, d_p99, d_mean, d_share) =
+                region_difference_stats(&whole_display, &display_region, (x, y), inset);
             println!(
                 "{name}: region {x},{y} {w}x{h}: window max {max} p99 {p99} mean {mean:.3}; display window max {d_max} p99 {d_p99} mean {d_mean:.3} beyond 1 code {d_share:.2e}; own image max {own_max} p99 {own_p99} mean {own_mean:.3}"
             );
@@ -19971,8 +19970,8 @@ fn regions_with_the_render_reach_match_the_whole_photograph_to_their_edges() {
             assert_eq!(region.dimensions(), (w, h));
             let (max, p99, mean) = region_differences(&whole, &region, (x, y), 0);
             let display = render(ReadbackShader::Display);
-            let (d_max, d_p99, d_mean) = region_differences(&whole_display, &display, (x, y), 0);
-            let d_share = region_share_beyond_one_code(&whole_display, &display, (x, y), 0);
+            let (d_max, d_p99, d_mean, d_share) =
+                region_difference_stats(&whole_display, &display, (x, y), 0);
             // Before: cut at what is shown (NR off) or with 160 px (NR
             // on); flare gathered from the cut.
             let before_reach = if measured.is_some() {
