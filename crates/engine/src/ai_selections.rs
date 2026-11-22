@@ -43,13 +43,17 @@ pub enum AutoSelection {
     Landscape,
 }
 
-/// A set of `masks::LANDSCAPE_PARTS` (bit `i`: the `i`-th part).
+/// A set of `masks::LANDSCAPE_PARTS` (bit `i` of `bits`: the `i`-th part)
+/// and the Landscape mask's version that computes it (`landscape_version`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct LandscapeParts(pub u8);
+pub struct LandscapeParts {
+    pub bits: u8,
+    pub version: u32,
+}
 
 impl LandscapeParts {
-    /// The set a component's `parts` name; `None` when one is not a known
-    /// part (made by a newer version) or none is named.
+    /// The set a component's `parts` name, at version 1; `None` when one is
+    /// not a known part (made by a newer version) or none is named.
     pub fn of(parts: &Value) -> Option<Self> {
         let mut bits = 0u8;
         for part in parts.as_array()? {
@@ -58,7 +62,7 @@ impl LandscapeParts {
                 .position(|&known| Some(known) == part.as_str())?;
             bits |= 1 << i;
         }
-        (bits != 0).then_some(Self(bits))
+        (bits != 0).then_some(Self { bits, version: 1 })
     }
 
     /// The parts' keys, in the model's order.
@@ -66,18 +70,40 @@ impl LandscapeParts {
         masks::LANDSCAPE_PARTS
             .iter()
             .enumerate()
-            .filter(|(i, _)| self.0 & (1 << i) != 0)
+            .filter(|(i, _)| self.bits & (1 << i) != 0)
             .map(|(_, &key)| key)
             .collect()
     }
 }
 
-/// The landscape parts a component's `parameters` select; `None` when it
-/// names none or one this version does not know (nothing to detect).
+/// The landscape parts a component's `parameters` select, at its version;
+/// `None` when it names none or one this version does not know (nothing to
+/// detect).
 pub fn landscape_parts(parameters: &Value) -> Option<LandscapeParts> {
     parameters
         .get(masks::PARTS.name())
         .and_then(LandscapeParts::of)
+        .map(|parts| LandscapeParts {
+            version: landscape_version(parameters),
+            ..parts
+        })
+}
+
+/// The `landscapeVersion` of a Landscape component's parameters: 1 when
+/// absent (selections saved before version 2 compute as they did),
+/// `rawtonic_segment::LANDSCAPE_VERSION` for new ones.
+pub fn landscape_version(parameters: &Value) -> u32 {
+    parameters
+        .get(crate::recipe_versions::LANDSCAPE_VERSION_KEY)
+        .and_then(Value::as_u64)
+        .map_or(1, |v| v.min(u32::MAX as u64) as u32)
+}
+
+/// The run key of a Landscape set (`run_key`).
+fn landscape_key(parts: Option<LandscapeParts>) -> String {
+    parts.map_or("Landscape".to_string(), |p| {
+        format!("Landscape {} v{}", p.bits, p.version)
+    })
 }
 
 impl AutoSelection {
@@ -136,10 +162,7 @@ fn run_key(selection: AutoSelection, parameters: &Value) -> String {
             people_parts(parameters),
             people_person(parameters)
         ),
-        AutoSelection::Landscape => format!(
-            "Landscape {}",
-            landscape_parts(parameters).map_or(0, |p| p.0)
-        ),
+        AutoSelection::Landscape => landscape_key(landscape_parts(parameters)),
     }
 }
 
@@ -170,7 +193,7 @@ pub trait SelectionDetector: Send + Sync {
     ) -> Result<String, String>;
 
     /// The masks of several landscape selections of `warped` (in the order
-    /// of `sets`), as `detect` gives each, or each at its network's grid
+    /// of `sets`, each at its `version`), as `detect` gives each, or each at its network's grid
     /// (smaller than `warped`; recorded as `BITMAP_GRID_OF`); an
     /// implementation runs the network once for all of them.
     fn detect_landscape(
@@ -181,7 +204,10 @@ pub trait SelectionDetector: Send + Sync {
     ) -> Result<Vec<String>, String> {
         sets.iter()
             .map(|set| {
-                let parameters = serde_json::json!({ masks::PARTS.name(): set.keys() });
+                let parameters = serde_json::json!({
+                    masks::PARTS.name(): set.keys(),
+                    crate::recipe_versions::LANDSCAPE_VERSION_KEY: set.version,
+                });
                 self.detect(AutoSelection::Landscape, &parameters, warped, linear)
             })
             .collect()
@@ -393,10 +419,7 @@ pub fn detect_missing(
         match detector.detect_landscape(&sets, &warped, is_raw) {
             Ok(found) if found.len() == sets.len() => {
                 for (parts, data) in sets.iter().zip(found) {
-                    let key = run_key(
-                        AutoSelection::Landscape,
-                        &serde_json::json!({ masks::PARTS.name(): parts.keys() }),
-                    );
+                    let key = landscape_key(Some(*parts));
                     masks.insert(key, Value::String(data));
                 }
             }
@@ -985,6 +1008,60 @@ mod tests {
         assert_eq!(params(1, 0)["maskDataBase64"], "data:water");
         assert!(params(2, 0)["maskDataBase64"].is_null());
         assert!(params(2, 1)["maskDataBase64"].is_null());
+    }
+
+    /// Names each set's parts and version.
+    struct VersionedLandscapes;
+    impl SelectionDetector for VersionedLandscapes {
+        fn detect(
+            &self,
+            _: AutoSelection,
+            _: &Value,
+            _: &DynamicImage,
+            _: bool,
+        ) -> Result<String, String> {
+            Err("one part at a time".into())
+        }
+        fn detect_landscape(
+            &self,
+            sets: &[LandscapeParts],
+            _: &DynamicImage,
+            _: bool,
+        ) -> Result<Vec<String>, String> {
+            Ok(sets
+                .iter()
+                .map(|s| format!("data:{}@{}", s.keys().join("+"), s.version))
+                .collect())
+        }
+    }
+
+    /// Each Landscape component computes at its own `landscapeVersion`
+    /// (absent = 1), also beside the same parts at another version.
+    #[test]
+    fn landscape_components_detect_at_their_own_version() {
+        let part = |id: &str, version: Option<u64>| {
+            let mut p = json!({"parts": ["sky"], "maskDataBase64": null, "detectPending": true});
+            if let Some(v) = version {
+                p["landscapeVersion"] = json!(v);
+            }
+            json!({"id": id, "type": "ai-landscape", "visible": true, "parameters": p})
+        };
+        let mut adjustments = json!({"masks": [{"id": "a", "name": "Land", "visible": true,
+            "subMasks": [part("old", None), part("new", Some(2)), part("one", Some(1))]}]});
+        detect_missing(
+            &mut adjustments,
+            &Arc::new(DynamicImage::new_rgb8(6, 4)),
+            false,
+            Some(&VersionedLandscapes),
+            &mut || {},
+        )
+        .unwrap();
+        let data = |s: usize| adjustments["masks"][0]["subMasks"][s]["parameters"].clone();
+        assert_eq!(data(0)["maskDataBase64"], "data:sky@1");
+        assert_eq!(data(1)["maskDataBase64"], "data:sky@2");
+        assert_eq!(data(1)["landscapeVersion"], 2);
+        assert_eq!(data(2)["maskDataBase64"], "data:sky@1");
+        assert!(data(0).get("landscapeVersion").is_none());
     }
 
     /// Answers every Landscape set with a PNG of `size`.
