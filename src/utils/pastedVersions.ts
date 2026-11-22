@@ -157,6 +157,27 @@ const KEYS: VersionKey[] = [
   }
 ];
 
+/** The tone version a reset of the photo's tone group leaves the photo
+ * with: a new edit's `to`, unless a layer uses a tone slider whose response
+ * differs between the two (versions 20 and 21 differ only in Shadows' travel,
+ * which `layersInToneVersion` re-expresses exactly): then the layers keep
+ * rendering as they did under the photo's own version `from`. */
+export function toneVersionAfterReset(masks: { adjustments?: object }[], from: number, to: number): number {
+  if (from === to || Math.min(from, to) >= 20) return to;
+  const usesTone = masks.some((mask) => {
+    const values = mask?.adjustments as Record<string, unknown> | undefined;
+    return ['shadows', 'highlights', 'whites', 'blacks', 'clarity'].some(
+      (slider) => typeof values?.[slider] === 'number' && values[slider] !== 0
+    );
+  });
+  return usesTone ? from : to;
+}
+
+/** `value` of `slider` (Whites or Shadows) at tone version `from` as the
+ * slider value of version `to` that renders the same amount. */
+export const toneSliderIn = (slider: 'whites' | 'shadows', value: number, from: number, to: number): number =>
+  from === to ? value : translateTone(value, from, to, slider);
+
 /** `masks` (a photo's layers) with their Whites and Shadows re-expressed from
  * tone version `from` to `to` (exact: the travel versions render the same
  * amount), so a layer renders as it did when the photo's `toneVersion`

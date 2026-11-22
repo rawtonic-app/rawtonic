@@ -210,11 +210,36 @@ pub fn resolve(
         return None;
     }
     let mut resolved = Resolved::default();
+    // A level without its own tone version holds Shadows as the amount it
+    // renders (version 20's slider value, as carried settings do; every
+    // default saved before version 21 is that already).
+    let mut shadows_amount = false;
     for (level, settings, _) in chain.into_iter().rev() {
         resolved.levels.push(level.to_string());
         for (key, value) in settings {
             if !NEVER_DEFAULTED.contains(&key.as_str()) {
                 resolved.settings.insert(key.clone(), value.clone());
+            }
+        }
+        if settings.contains_key("shadows") {
+            shadows_amount = !settings.contains_key(crate::image_processing::TONE_VERSION_KEY);
+        }
+    }
+    if shadows_amount {
+        // As the new edit's tone version (or the one a default names) renders it.
+        let tone = crate::recipe_versions::ToneVersion::of(&serde_json::json!({
+            crate::image_processing::TONE_VERSION_KEY: resolved
+                .settings
+                .get(crate::image_processing::TONE_VERSION_KEY)
+                .cloned()
+                .unwrap_or(serde_json::json!(crate::image_processing::TONE_VERSION))
+        }));
+        if let Some(value) = resolved.settings.get_mut("shadows")
+            && let Some(amount) = value.as_f64()
+        {
+            let expressed = tone.shadows_value(amount);
+            if expressed != amount {
+                *value = serde_json::json!(expressed);
             }
         }
     }
@@ -418,6 +443,39 @@ mod tests {
             model: "Z 9".into(),
             serial: serial.map(str::to_string),
         }
+    }
+
+    /// A default without its own tone version holds Shadows as the amount
+    /// (every default saved before tone version 21): a new edit gets the
+    /// slider value that renders it, so a saved +50 still renders +50's lift.
+    #[test]
+    fn a_keyless_defaults_shadows_render_as_they_were_saved() {
+        let global = |settings_value: Value| DevelopDefaults {
+            raw_only: false,
+            global: Some(DefaultSettings {
+                name: None,
+                settings: settings(settings_value),
+            }),
+            cameras: vec![],
+        };
+        let shadows = |defaults: &DevelopDefaults| {
+            resolve(defaults, true, None).unwrap().settings["shadows"].as_f64()
+        };
+        assert_eq!(shadows(&global(json!({"shadows": 61}))), Some(50.0));
+        assert_eq!(
+            shadows(&global(json!({"shadows": 50}))).map(|v| (v * 1e3).round()),
+            Some(38_554.0)
+        );
+        assert_eq!(shadows(&global(json!({"shadows": -40}))), Some(-40.0));
+        // A default that names its tone version keeps its values.
+        assert_eq!(
+            shadows(&global(json!({"shadows": 50, "toneVersion": 20}))),
+            Some(50.0)
+        );
+        assert_eq!(
+            shadows(&global(json!({"shadows": 61, "toneVersion": 21}))),
+            Some(61.0)
+        );
     }
 
     fn defaults() -> DevelopDefaults {

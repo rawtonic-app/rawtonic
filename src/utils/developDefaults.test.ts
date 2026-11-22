@@ -73,6 +73,14 @@ describe('develop defaults', () => {
       expect(settings, key).not.toHaveProperty(key);
   });
 
+  it("holds a new edit's Shadows as the amount, as the engine reads a default without a tone version", () => {
+    const base = initialAdjustmentsFor(true);
+    const photo = { ...base, shadows: 50 } as unknown as Adjustments;
+    expect(defaultSettingsOf(photo, base)).toEqual({ shadows: 61 });
+    const older = { ...base, shadows: 50, toneVersion: 20 } as unknown as Adjustments;
+    expect(defaultSettingsOf(older, base)).toEqual({ shadows: 50, toneVersion: 20 });
+  });
+
   it('keeps of a photo only what differs from a new edit; a tool keeps all of its settings', () => {
     const base = initialAdjustmentsFor(true);
     const photo = { ...base, exposure: 1, rotation: 5, crop: { x: 1 } } as unknown as Adjustments;

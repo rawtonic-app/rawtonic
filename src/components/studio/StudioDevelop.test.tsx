@@ -1937,14 +1937,11 @@ describe('Group reset', () => {
 
   it("the photo's Exposure reset takes a new edit's tone version and keeps its layers' Whites and Shadows", () => {
     const layerOf = (adjustments: Record<string, number>) => ({
-      ...structuredClone(useEditorStore.getState().adjustments.masks[0] ?? {}),
+      ...structuredClone(INITIAL_MASK_CONTAINER),
       id: 'l',
       name: 'l',
-      visible: true,
-      invert: false,
-      opacity: 100,
-      subMasks: [],
-      adjustments: { ...INITIAL_ADJUSTMENTS, ...adjustments }
+      subMasks: [createSubMask(Mask.Linear, { width: 6000, height: 4000 } as SelectedImage)],
+      adjustments: { ...structuredClone(INITIAL_MASK_CONTAINER.adjustments), ...adjustments }
     });
     setEdit({ toneVersion: 20, exposure: 0.5, shadows: 30, masks: [layerOf({ shadows: 61, whites: 40 })] });
     mount();
@@ -1956,6 +1953,27 @@ describe('Group reset', () => {
     // Version 20's +61 is version 21's +50; Whites travel alike in 20 and 21.
     expect(adjustments().masks[0].adjustments.shadows).toBe(50);
     expect(adjustments().masks[0].adjustments.whites).toBe(40);
+  });
+
+  it("the photo's Exposure reset keeps an older tone version its layers' Shadows render with", () => {
+    const layer = {
+      ...structuredClone(INITIAL_MASK_CONTAINER),
+      id: 'l',
+      name: 'l',
+      subMasks: [createSubMask(Mask.Linear, { width: 6000, height: 4000 } as SelectedImage)],
+      adjustments: { ...structuredClone(INITIAL_MASK_CONTAINER.adjustments), shadows: 60 }
+    };
+    setEdit({ toneVersion: 19, exposure: 0.5, masks: [layer] });
+    mount();
+    openGroups();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Exposure' }));
+    expect(adjustments().exposure).toBe(0);
+    expect(adjustments().toneVersion).toBe(19);
+    expect(adjustments().masks[0].adjustments.shadows).toBe(60);
+    // Without a layer that uses a tone slider it takes a new edit's.
+    setEdit({ toneVersion: 19, exposure: 0.5, masks: [] });
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Exposure' }));
+    expect(adjustments().toneVersion).toBe(TONE_VERSION);
   });
 
   it('a reset of values already at their defaults names no step', async () => {

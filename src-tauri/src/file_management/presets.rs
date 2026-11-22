@@ -309,9 +309,11 @@ pub(crate) fn parse_preset_file_reporting(
     };
 
     let mut converted_preset = preset_converter::convert_xmp_to_preset(&xmp_content)?;
-    // The preset carries no tone version, so its Shadows are amounts: as the
-    // amount Lightroom's value means (its Shadows move at tone version 21's
-    // pace), a photo of any version renders Lightroom's lift.
+    // The preset carries no tone version, so its Shadows are amounts: stored
+    // as the amount Lightroom's value means at tone version 21 (whose pace was
+    // fitted to Camera Raw's, an approximation), an edit of version 20 or 21
+    // renders it with that slider value's lift; older edits take the amount
+    // with their own Shadows response.
     rawtonic_engine::image_processing::shadows_as_amounts(
         &mut converted_preset.adjustments,
         rawtonic_engine::recipe_versions::SHADOWS_TRAVEL_TONE_VERSION,
