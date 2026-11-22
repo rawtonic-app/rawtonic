@@ -11578,6 +11578,159 @@ fn levels_input_probe_stores_the_clipped_base_not_the_hue_restored_output() {
     );
 }
 
+/// The Levels pickers' probe (`levels_precise_probe`, two 8-bit renders of
+/// the display path) as 16-bit codes per pixel, or None when a pixel of the
+/// first is no probe pixel (src-tauri `editor_preview::levels_input_codes`).
+fn levels_precise_probe_decode(high: &[u8], low: &[u8]) -> Option<Vec<[u16; 3]>> {
+    let high = high.as_chunks::<4>().0;
+    let low = low.as_chunks::<4>().0;
+    if high.iter().any(|p| p[3] != 0) {
+        return None;
+    }
+    // The low render's alpha: the check byte of the high bytes.
+    let check =
+        |h: &[u8; 4]| ((u32::from(h[0]) + 7 * u32::from(h[1]) + 31 * u32::from(h[2])) & 255) as u8;
+    assert!(
+        high.iter().zip(low).all(|(h, l)| l[3] == check(h)),
+        "the low render carries the high bytes' check"
+    );
+    Some(
+        high.iter()
+            .zip(low)
+            .map(|(h, l)| std::array::from_fn(|c| u16::from(h[c]) << 8 | u16::from(l[c])))
+            .collect(),
+    )
+}
+
+#[test]
+#[ignore = "requires a native GPU; the Levels pickers' 16-bit probe on the display path"]
+fn levels_precise_probe_on_the_display_path_matches_the_sixteen_bit_export_probe() {
+    let context = context();
+    let (width, height) = (64u32, 32u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // A fine ramp per row and colours of every hue, some beyond sRGB, so
+    // the codes take fractions of an 8-bit level.
+    let data: Vec<f16> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let t = (x as f32 + y as f32 / height as f32) / width as f32;
+            let hue = [
+                [1.0, 0.6, 0.3],
+                [0.2, 0.5, 1.1],
+                [0.9, 0.9, 0.9],
+                [-0.05, 0.7, 0.2],
+            ][(y / 8) as usize];
+            hue.map(|v| f16::from_f32(v * t * 1.1))
+                .into_iter()
+                .chain([f16::ONE])
+        })
+        .collect();
+    let view = input_from(&context, width, height, &data);
+    let mask = Arc::new(MaskBitmap::from_coverage(
+        width,
+        height,
+        &(0..width * height)
+            .map(|i| (i % width) as f32 / width as f32)
+            .collect::<Vec<_>>(),
+    ));
+    let prepared = |recipe: &serde_json::Value| {
+        let definitions = rawtonic_engine::image_processing::mask_definitions_from_json(recipe);
+        rawtonic_engine::image_processing::get_all_adjustments_with_masks(
+            recipe,
+            true,
+            Some(1),
+            &definitions,
+            &rawtonic_engine::recipe_versions::RecipeVersions::of(recipe, true),
+        )
+    };
+    let masks_of = |recipe: &serde_json::Value| -> Vec<Arc<MaskBitmap>> {
+        let n = recipe["masks"].as_array().map_or(0, Vec::len);
+        (0..n).map(|_| Arc::clone(&mask)).collect()
+    };
+    let precise = |recipe: &serde_json::Value, shader: ReadbackShader| {
+        let render = |low: bool| -> Vec<u8> {
+            let mut adjustments = prepared(recipe);
+            adjustments.global.output_space[3] =
+                rawtonic_engine::image_processing::levels_precise_probe(low);
+            if shader != ReadbackShader::Export {
+                prepare_preview_pipeline(&processor, preview_features(&adjustments));
+            }
+            let RenderedPixels::U8(pixels) = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &masks_of(recipe),
+                RenderOutputPrecision::EightBit,
+                shader,
+            ) else {
+                unreachable!()
+            };
+            pixels
+        };
+        levels_precise_probe_decode(&render(false), &render(true))
+    };
+    // What the export's arithmetic gives Levels: the histogram's probe
+    // through the 16-bit export shader.
+    let export = |recipe: &serde_json::Value| -> Vec<[u16; 3]> {
+        let mut adjustments = prepared(recipe);
+        adjustments.global.output_space[3] = crate::image_processing::LEVELS_INPUT_PROBE;
+        let RenderedPixels::U16(pixels) = readback_pixels(
+            &processor,
+            &view,
+            (width, height),
+            *adjustments,
+            &masks_of(recipe),
+            RenderOutputPrecision::SixteenBit,
+            ReadbackShader::Export,
+        ) else {
+            unreachable!()
+        };
+        pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| [p[0], p[1], p[2]])
+            .collect()
+    };
+    let layer = json!({"id": "L", "name": "L", "visible": true, "invert": false,
+        "subMasks": [{"id": "s", "type": "radial", "visible": true, "mode": "additive", "parameters": {}}],
+        "adjustments": {"exposure": 0.8, "contrast": 25, "saturation": 20}});
+    let recipes = [
+        json!({}),
+        json!({"exposure": 0.6, "contrast": 30, "highlights": -40, "shadows": 35,
+            "whites": 10, "blacks": -15, "saturation": 15, "vibrance": 20}),
+        json!({"exposure": -0.3, "clarity": 30, "structure": 20, "dehaze": 15}),
+        json!({"exposure": 0.2, "masks": [layer]}),
+    ];
+    for recipe in &recipes {
+        let want = export(recipe);
+        for shader in [ReadbackShader::Preview, ReadbackShader::Display] {
+            let got = precise(recipe, shader).expect("display variants hold the pickers' probe");
+            let mut fractional = 0;
+            for (i, (g, w)) in got.iter().zip(&want).enumerate() {
+                for c in 0..3 {
+                    // Within one 16-bit code (1/257 of an 8-bit level),
+                    // inside the bar of 1/256 level.
+                    assert!(
+                        (i32::from(g[c]) - i32::from(w[c])).abs() <= 1,
+                        "{recipe} {shader:?} pixel {i} channel {c}: display {} vs export {}",
+                        g[c],
+                        w[c]
+                    );
+                    fractional += usize::from(g[c] % 257 != 0);
+                }
+            }
+            assert!(
+                fractional > got.len(),
+                "{recipe}: codes between 8-bit levels"
+            );
+        }
+    }
+    // Export pipelines keep their code: no split there.
+    assert_eq!(precise(&recipes[0], ReadbackShader::Export), None);
+}
+
 #[test]
 #[ignore = "requires a native GPU; gamut mapping of renderVersion 4 along smooth gradients"]
 fn gamut_mapping_keeps_smooth_gradients_smooth() {

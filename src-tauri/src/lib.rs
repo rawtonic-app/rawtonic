@@ -1006,6 +1006,7 @@ fn start(args: Vec<String>) {
             gpu_processing::sample_preview_color,
             gpu_processing::sample_preview_patch,
             editor_preview::sample_curve_input,
+            editor_preview::sample_levels_input,
             editor_preview::sample_mixer_input,
             editor_preview::sample_color_range_input,
             editor_preview::sample_color_range_result,
