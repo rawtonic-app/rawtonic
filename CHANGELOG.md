@@ -86,6 +86,8 @@
 
 ### Fixes
 
+- Tone curve arrow edits still settle into Undo history if a key release is missed. When you drag a region split handle back to its starting position, the photo follows the handle.
+
 - Color Editor targets keep small corrections that reach the target and take a fresh sample after RAW processing preferences change. The Levels pickers retry if the graphics processor changes during sampling. When an older preview lacks camera-crop information, Develop reads it from the local RAW.
 
 - **A queued batch with an invalid record no longer blocks later exports.** The queue lists the failed photos with the reason and continues with the next batch. If the queue database itself cannot complete the update, the affected batches stay queued for the next start or resume.
