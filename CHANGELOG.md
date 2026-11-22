@@ -172,7 +172,7 @@ The nineteenth alpha. New: a Landscape mask (sky, mountains, water, vegetation, 
 
 These are measured shortfalls or open work; they stay open until they are closed by measurement.
 
-- **In-app update, Windows:** a photo opened on its own from the command line, without a library, is not reopened after **Restart now** (its edit is saved; tested on a Windows 11 laptop); a photo opened from Explorer's Open with was not tested (the test build had no file association) and is expected to behave the same. A library or session reopens.
+- **In-app update, Windows:** a photo opened on its own from the command line, without a library, is not reopened after **Restart now** (its edit is saved; tested on a Windows 11 laptop); a photo opened from Explorer's Open with was not tested (the test build had no file association). A library or session reopens.
 - **Upright Full** keeps less of the frame than Camera Raw: median share 0.754 against Camera Raw's estimated 0.859 on 25 photos; even the best solution chosen per photo against the reference reaches only 0.838 without stretching the photo, so nothing was changed.
 - **High-ISO colour edges** stay slightly below the better of Camera Raw and Capture One: 0.956 of it at ISO 6400 and 0.958 at ISO 12800 and above (27 frames); no candidate reached it without more colour specks.
 - **Library thumbnails:** scrolling through 1,000 new RAWs takes 37 s; Lightroom Classic builds its Minimal previews of the same folder in 24–29 s.
