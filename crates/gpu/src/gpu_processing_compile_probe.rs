@@ -42,6 +42,7 @@ fn pipeline_compilation_probe() {
             && (f & BLACKS_V16_FEATURE == 0 || f & TONE_PREVIEW_FEATURE != 0)
             && (f & SHADOWS_V19_FEATURE == 0 || f & TONE_PREVIEW_FEATURE != 0)
             && (f & SHADOWS_V20_FEATURE == 0 || f & SHADOWS_V19_FEATURE != 0)
+            && (f & WHITES_V22_FEATURE == 0 || f & WHITES_V12_FEATURE != 0)
     }) {
         let start = Instant::now();
         create_preview_pipeline(
