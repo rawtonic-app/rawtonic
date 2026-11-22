@@ -55,8 +55,8 @@ pub fn stamp(path: &str) -> Option<FileStamp> {
         .and_then(|m| Some((m.len(), m.modified().ok()?)))
 }
 
-/// [`crops`] read through `file`, the caller's buffer of the RAW at `path`
-/// (its mapping, `RawSource::new_from_shared`) instead of a new mapping. A
+/// Crops from `file`, the caller's buffer of the readable RAW at `path`,
+/// even if offline proxy facts are still registered for that path. A
 /// second open of the file can drop the pages the caller has just read (a
 /// FUSE share client without keep-cache, as KDE's kio-fuse), so the crop
 /// tags were read from the share once more: the Library's never-edited
@@ -72,9 +72,6 @@ pub fn crops_in(
     let versions = crate::source_frame::VERSION as usize + 1;
     if !crate::formats::is_raw_file(path) {
         return vec![None; versions];
-    }
-    if let Some(facts) = crate::source_facts::registered(path) {
-        return offline(&facts, &crate::source_frame::extension_of(path));
     }
     cached(path, stamp, || {
         Some(rawler::rawsource::RawSource::new_from_shared(file.clone()).with_path(path))
@@ -457,6 +454,33 @@ mod tests {
         );
         // Other makes kept their crop from version 15 on.
         assert!(crops_from_facts(&facts(22), "/p/a.CR3").is_some());
+    }
+
+    #[test]
+    fn mapped_crops_use_the_file_even_when_offline_facts_are_still_registered() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("reconnected.RAF");
+        let name = path.to_str().unwrap();
+        // An old proxy knew the frames but did not record a camera crop.
+        crate::source_facts::register(
+            name,
+            crate::source_facts::SourceFacts {
+                frames: Some(vec![0; crate::source_frame::VERSION as usize + 1]),
+                ..Default::default()
+            },
+        );
+        // Use an unrecognised header to exercise the no-crop result of the
+        // decoder. Each frame has an answer once the file is accessible.
+        rawtonic_fs::atomic_write(&path, [0; 128]).unwrap();
+        let file: crate::image_loader::SharedBytes =
+            std::sync::Arc::new(crate::file_io::read_file_mapped(&path).unwrap());
+        assert!(crops(name).is_empty());
+        let mapped = crops_in(name, &file, stamp(name));
+        crate::source_facts::forget(name);
+        assert_eq!(
+            mapped,
+            vec![None; crate::source_frame::VERSION as usize + 1]
+        );
     }
 
     /// The crops read through the caller's mapping (`crops_in`, the

@@ -87,6 +87,8 @@
 
 ### Fixes
 
+- When the Library rebuilds the thumbnail of an unedited RAW after reconnecting, it uses the camera crop from the original file.
+
 - **A photo whose LUT file is missing no longer renders black.** When the LUT an edit names could not be loaded (moved, deleted or on a disconnected drive), the preview, thumbnails and exports read an empty placeholder table instead and came out black at full LUT intensity. Such a photo now renders without the LUT, as RapidRAW 1.7.1 does (ported from RapidRAW); it comes back once the file is there again, and Library thumbnails made while it was missing (or black before this fix) are made again. Exports of photos whose LUT loads are unchanged byte for byte (6 of 6 16-bit TIFFs with display- and scene-referred LUTs compared); Library thumbnails of photos with a LUT are made once more after updating.
 - The first edit and batch edits use the camera's framing when a RAW reconnects. With the original still in the cloud, they use the latest cached crop for that photo. Batch commands report when a photo must be downloaded to apply its Develop defaults before saving a first edit.
 
