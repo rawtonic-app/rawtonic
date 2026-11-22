@@ -217,25 +217,32 @@ describe('eye sides through a flip', () => {
     ).toBe(false);
   });
 
-  it('keeps the full Iris disk of eyes analysed before it through a flip', () => {
+  it('keeps the Iris disk a retouch was analysed with through faces found again', () => {
     const sides = { from: plain, to: { ...plain, flipHorizontal: true }, width: 200, height: 100 };
-    const parsed = (left: number, right: number, disk?: number): RetouchFace => {
+    const straight = { ...sides, to: plain };
+    const parsed = (left: number, right: number, disk?: number, eyes = true): RetouchFace => {
       const f = face(left, right);
       return {
         ...f,
         box: [Math.min(left, right) - 30, 0, 100, 100],
-        eyes: f.eyes!.map((e) => ({ ...e!, parsedEye: [], parsedIris: [], ...(disk && { irisDisk: disk }) }))
+        eyes: eyes ? f.eyes!.map((e) => ({ ...e!, parsedEye: [], parsedIris: [] })) : f.eyes,
+        ...(disk !== undefined && { irisDisk: disk })
       } as RetouchFace;
     };
+    // Saved before the disk (0.1.0-alpha.19), Iris set.
     const saved = { ...parsed(40, 80), settings: { iris: 60 } } as RetouchFace;
-    const found = parsed(120, 160, 0.9);
-    const carried = carryOver([saved], [found], sides).faces[0];
-    expect(carried.settings).toEqual({ iris: 60 });
-    expect(carried.eyes!.map((e) => e!.irisDisk)).toEqual([undefined, undefined]);
-    expect(carried.eyes![0]!.iris).toEqual([120, 50, 5]);
-    // A retouch analysed with the disk keeps the new eyes as they are.
-    const withDisk = { ...parsed(40, 80, 0.9), settings: { iris: 60 } } as RetouchFace;
-    expect(carryOver([withDisk], [found], sides).faces[0].eyes!.map((e) => e!.irisDisk)).toEqual([0.9, 0.9]);
+    const flipped = carryOver([saved], [parsed(120, 160, 0.9)], sides).faces[0];
+    expect(flipped.settings).toEqual({ iris: 60 });
+    expect(flipped.irisDisk).toBeUndefined();
+    expect(flipped.eyes![0]!.iris).toEqual([120, 50, 5]);
+    // Found again in between without the parser's eyes, then back: still
+    // the full disk.
+    const between = carryOver([saved], [parsed(40, 80, 0.9, false)], straight).faces[0];
+    expect(between.irisDisk).toBeUndefined();
+    expect(carryOver([between], [parsed(40, 80, 0.9)], straight).faces[0].irisDisk).toBeUndefined();
+    // A retouch analysed with the disk keeps its own value.
+    const withDisk = { ...parsed(40, 80, 0.85), settings: { iris: 60 } } as RetouchFace;
+    expect(carryOver([withDisk], [parsed(120, 160, 0.9)], sides).faces[0].irisDisk).toBe(0.85);
   });
 
   it('exchanges only the left and right values', () => {

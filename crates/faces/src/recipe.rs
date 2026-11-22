@@ -118,7 +118,6 @@ pub fn retouch_faces(
                     {
                         eye["parsedEye"] = serde_json::json!(loops(&p.eye));
                         eye["parsedIris"] = serde_json::json!(loops(&p.iris));
-                        eye["irisDisk"] = serde_json::json!(crate::portrait::IRIS_DISK);
                     }
                     eye
                 })
@@ -147,6 +146,7 @@ pub fn retouch_faces(
             });
             if let Some(p) = parsed {
                 entry["parsedTeeth"] = serde_json::json!(loops(&p.teeth));
+                entry["irisDisk"] = serde_json::json!(crate::portrait::IRIS_DISK);
             }
             Ok(Some(entry))
         })

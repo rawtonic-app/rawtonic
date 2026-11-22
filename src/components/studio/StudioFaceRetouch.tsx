@@ -125,20 +125,13 @@ function analyseEyesTeeth(path: string, geometry: string, download = false, down
   return pending;
 }
 
-/** `face` found again for `old`: when `old`'s parser eyes were analysed
- * before the Iris disk (`irisDisk`, 2026-11-22) its Iris keeps the full
- * circle, so a saved Iris does not change with a flip or turn. */
+/** `face` found again for `old` with `old`'s Iris disk (`irisDisk`, set
+ * since 2026-11-22 when the parser looks at a face; missing on faces found
+ * before, which keep the full circle): the disk a retouch was analysed
+ * with stays through flips, turns and faces found again in between. */
 export function withIrisDiskOf(old: RetouchFace, face: RetouchFace): RetouchFace {
-  const fullDisk = old.eyes?.some((e) => e?.parsedIris !== undefined && e.irisDisk === undefined);
-  if (!fullDisk || !face.eyes) return face;
-  return {
-    ...face,
-    eyes: face.eyes.map((e) => {
-      if (!e) return e;
-      const { irisDisk: _, ...rest } = e;
-      return rest;
-    })
-  };
+  const { irisDisk: _, ...rest } = face;
+  return old.irisDisk === undefined ? rest : { ...rest, irisDisk: old.irisDisk };
 }
 
 /** Faces found again after a geometry change keep the settings of the
@@ -357,7 +350,8 @@ export function withEyesAndMouth(faces: RetouchFace[], analysed: RetouchFace[]):
           ...face,
           eyes: best.eyes ?? [],
           mouth: best.mouth ?? null,
-          ...(best.parsedTeeth !== undefined && { parsedTeeth: best.parsedTeeth })
+          ...(best.parsedTeeth !== undefined && { parsedTeeth: best.parsedTeeth }),
+          ...(best.irisDisk !== undefined && { irisDisk: best.irisDisk })
         }
       : face;
   });
@@ -393,7 +387,13 @@ export function withParsedEyesTeeth(faces: RetouchFace[], analysed: RetouchFace[
   return faces.map((face) => {
     const best = nearestFace(face, analysed);
     return best?.parsedTeeth !== undefined
-      ? { ...face, eyes: best.eyes ?? [], mouth: best.mouth ?? null, parsedTeeth: best.parsedTeeth }
+      ? {
+          ...face,
+          eyes: best.eyes ?? [],
+          mouth: best.mouth ?? null,
+          parsedTeeth: best.parsedTeeth,
+          ...(best.irisDisk !== undefined && { irisDisk: best.irisDisk })
+        }
       : face;
   });
 }

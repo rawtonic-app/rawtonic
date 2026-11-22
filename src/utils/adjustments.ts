@@ -352,10 +352,6 @@ export interface RetouchEye {
    * from `lid` (eyes found before the parser, or an eye it missed). */
   parsedEye?: number[][][];
   parsedIris?: number[][][];
-  /** The share of the iris radius the Iris mask's disk reaches on the
-   * parser's eyes (0.9 since 2026-11-22); missing on eyes found before,
-   * which keep the full circle. */
-  irisDisk?: number;
 }
 
 /** A blemish found on a face (mask-frame pixels; `score`: prominence). */
@@ -390,6 +386,11 @@ export interface RetouchFace {
    * faces it looked at, missing on faces whose Eyes and Teeth keep the
    * Face Mesh outlines (edits made before it). */
   parsedTeeth?: number[][][];
+  /** The share of the iris radius the Iris mask's disk reaches on the
+   * parser's eyes (0.9 since 2026-11-22), set when the parser looked at
+   * the face; missing on faces found before, which keep the full circle. A
+   * face found again keeps its value (`carryOver`). */
+  irisDisk?: number;
   /** Blemishes (ids) the user keeps. */
   kept: number[];
   /** Blemishes (ids) the user heals below the slider's reach. */
