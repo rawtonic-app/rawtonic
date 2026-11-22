@@ -1955,6 +1955,25 @@ describe('Group reset', () => {
     expect(adjustments().masks[0].adjustments.whites).toBe(40);
   });
 
+  it("a slider's develop default on an edit of another tone version keeps the default's amount", () => {
+    act(() =>
+      useEditorStore.setState((state) => ({
+        selectedImage: {
+          ...state.selectedImage!,
+          isRaw: true,
+          photoDefaults: { resolved: { levels: ['global'], settings: { shadows: 50, toneVersion: TONE_VERSION } } }
+        } as SelectedImage
+      }))
+    );
+    setEdit({ toneVersion: 20, shadows: 10 });
+    mount();
+    openGroups();
+    fireEvent.doubleClick(screen.getByRole('slider', { name: 'Shadows' }));
+    // The new edit's +50 is version 20's +61.
+    expect(adjustments().shadows).toBe(61);
+    expect(adjustments().toneVersion).toBe(20);
+  });
+
   it("the photo's Exposure reset keeps an older tone version its layers' Shadows render with", () => {
     const layer = {
       ...structuredClone(INITIAL_MASK_CONTAINER),

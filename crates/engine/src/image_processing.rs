@@ -8296,7 +8296,9 @@ pub fn express_shadows_amounts(recipe: &mut serde_json::Value) {
 /// Settings whose own and layers' Shadows are slider values of tone version
 /// `tone` (another editor's preset, whose Shadows move at that version's
 /// pace) with them as the amounts carried settings hold (version 20's slider
-/// value), so applying them renders that version's response on every photo.
+/// value). Applied to an edit of version 20 or later they render as that
+/// slider value does at `tone`; older edits keep the amount and render it
+/// with their own Shadows response.
 pub fn shadows_as_amounts(settings: &mut serde_json::Value, tone: u64) {
     let tone =
         crate::recipe_versions::ToneVersion::of(&serde_json::json!({ TONE_VERSION_KEY: tone }));

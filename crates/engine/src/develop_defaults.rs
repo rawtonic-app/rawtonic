@@ -227,13 +227,20 @@ pub fn resolve(
     }
     if shadows_amount {
         // As the new edit's tone version (or the one a default names) renders it.
+        let version = resolved
+            .settings
+            .get(crate::image_processing::TONE_VERSION_KEY)
+            .cloned()
+            .unwrap_or(serde_json::json!(crate::image_processing::TONE_VERSION));
         let tone = crate::recipe_versions::ToneVersion::of(&serde_json::json!({
-            crate::image_processing::TONE_VERSION_KEY: resolved
-                .settings
-                .get(crate::image_processing::TONE_VERSION_KEY)
-                .cloned()
-                .unwrap_or(serde_json::json!(crate::image_processing::TONE_VERSION))
+            crate::image_processing::TONE_VERSION_KEY: version.clone()
         }));
+        // Stated with the value, so the record of the defaults (the photo's
+        // Before) reads it in the response it was expressed for.
+        resolved.settings.insert(
+            crate::image_processing::TONE_VERSION_KEY.to_string(),
+            version,
+        );
         if let Some(value) = resolved.settings.get_mut("shadows")
             && let Some(amount) = value.as_f64()
         {
@@ -462,6 +469,12 @@ mod tests {
             resolve(defaults, true, None).unwrap().settings["shadows"].as_f64()
         };
         assert_eq!(shadows(&global(json!({"shadows": 61}))), Some(50.0));
+        // Stated with it, for the record of the defaults (the photo's Before).
+        let resolved = resolve(&global(json!({"shadows": 61})), true, None).unwrap();
+        assert_eq!(
+            resolved.settings["toneVersion"],
+            json!(crate::image_processing::TONE_VERSION)
+        );
         assert_eq!(
             shadows(&global(json!({"shadows": 50}))).map(|v| (v * 1e3).round()),
             Some(38_554.0)

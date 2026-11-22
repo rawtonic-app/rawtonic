@@ -1136,7 +1136,18 @@ export default function StudioDevelop() {
     () => withDevelopDefaults(initialAdjustmentsFor(photoIsRaw), userDefaults),
     [photoIsRaw, userDefaults]
   );
-  const defaults = layer ? INITIAL_ADJUSTMENTS : photoDefaults;
+  // A slider's default on an edit of another tone version: Whites and
+  // Shadows as the slider value that renders the default's amount there.
+  const editTone = adjustments.toneVersion ?? 1;
+  const photoDefaultsHere = useMemo(() => {
+    const from = (photoDefaults.toneVersion ?? 1) as number;
+    if (from === editTone) return photoDefaults;
+    const here = { ...photoDefaults };
+    for (const slider of ['whites', 'shadows'] as const)
+      if (typeof here[slider] === 'number') here[slider] = toneSliderIn(slider, here[slider], from, editTone);
+    return here;
+  }, [photoDefaults, editTone]);
+  const defaults = layer ? INITIAL_ADJUSTMENTS : photoDefaultsHere;
   const reset = (keys: string[]) =>
     change(Object.fromEntries(keys.map((key) => [key, structuredClone(defaults[key])])));
   const control = (
@@ -1643,12 +1654,12 @@ export default function StudioDevelop() {
                 // unless its layers render with the photo's own
                 // (`toneVersionAfterReset`); their Whites and Shadows keep the
                 // amount they render, and so do the defaults reset to.
-                const fresh = (defaults.toneVersion ?? 1) as number;
+                const fresh = (photoDefaults.toneVersion ?? 1) as number;
                 if (!selectedImage?.isReady) return;
                 setAdjustments((prev) => {
                   const from = prev.toneVersion ?? 1;
                   const to = toneVersionAfterReset(prev.masks, from, fresh);
-                  const reset = Object.fromEntries(keys.map((key) => [key, structuredClone(defaults[key])]));
+                  const reset = Object.fromEntries(keys.map((key) => [key, structuredClone(photoDefaults[key])]));
                   for (const slider of ['whites', 'shadows'] as const)
                     if (typeof reset[slider] === 'number')
                       reset[slider] = toneSliderIn(slider, reset[slider], fresh, to);

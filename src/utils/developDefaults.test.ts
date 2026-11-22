@@ -81,6 +81,17 @@ describe('develop defaults', () => {
     expect(defaultSettingsOf(older, base)).toEqual({ shadows: 50, toneVersion: 20 });
   });
 
+  it("keeps a camera default's Shadows amount when a tool saved over it names a tone version", () => {
+    const camera = { make: 'Nikon', model: 'Z 9' };
+    const keyless = withCameraToolDefault({ rawOnly: true }, camera, 'camera', { shadows: 50 });
+    const saved = withCameraToolDefault(keyless, camera, 'camera', { clarity: 10, toneVersion: 21 });
+    // Version 20's +50 (the keyless amount) is version 21's +38.55.
+    expect(saved.cameras![0].settings.shadows as number).toBeCloseTo(38.554107, 5);
+    expect(saved.cameras![0].settings.clarity).toBe(10);
+    const keyed = withCameraToolDefault({ rawOnly: true }, camera, 'camera', { shadows: 61, toneVersion: 20 });
+    expect(withCameraToolDefault(keyed, camera, 'camera', { toneVersion: 21 }).cameras![0].settings.shadows).toBe(50);
+  });
+
   it('keeps of a photo only what differs from a new edit; a tool keeps all of its settings', () => {
     const base = initialAdjustmentsFor(true);
     const photo = { ...base, exposure: 1, rotation: 5, crop: { x: 1 } } as unknown as Adjustments;
