@@ -879,6 +879,21 @@ mod tests {
         SLOW_BUILDS.store(0, Ordering::Relaxed);
     }
 
+    /// A background mask run's release keeps the fit view's render inputs
+    /// (and the kept upload with them); other releases drop them (TPX8).
+    #[test]
+    fn a_mask_runs_release_keeps_the_render_inputs() {
+        let develop = crate::state::develop::DevelopSession::default();
+        let source = image(8, 8);
+        let view = &develop.color_noise_view;
+        let wanted = wanted_for(&source, recipe(25), None, (4, 4));
+        view.store(&wanted, Rgb32FImage::new(4, 4));
+        develop.release_rebuildable(true);
+        assert_eq!(lock_recover(&view.inputs).len(), 1);
+        develop.release_rebuildable(false);
+        assert!(lock_recover(&view.inputs).is_empty());
+    }
+
     #[test]
     fn render_inputs_beyond_the_cap_are_not_built() {
         assert_eq!(build_dims((2588, 1725)), Some((2588, 1725)));
