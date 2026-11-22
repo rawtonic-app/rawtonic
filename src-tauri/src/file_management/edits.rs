@@ -4086,6 +4086,13 @@ mod tests {
         let mut neutral = serde_json::json!({(rawtonic_engine::develop_defaults::KEY): []});
         set_photo_values(&mut neutral, &source, &values).unwrap();
         assert_eq!(neutral["exposure"], 1.0);
+
+        let jpeg = source.with_extension("jpg");
+        fs::write(&jpeg, b"evicted JPEG").unwrap();
+        crate::file_management::simulate_cloud_placeholder(&jpeg);
+        let mut raster = Value::Null;
+        set_photo_values(&mut raster, &jpeg, &values).unwrap();
+        assert_eq!(raster["exposure"], 1.0);
     }
 
     #[test]

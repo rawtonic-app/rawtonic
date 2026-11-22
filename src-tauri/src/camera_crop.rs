@@ -47,12 +47,23 @@ pub(crate) fn start_edit(adjustments: &mut Value, source: &Path) -> Result<(), S
         return Ok(());
     }
     let placeholder = is_cloud_placeholder(source);
-    if placeholder && develop_defaults::follows_defaults(adjustments) && develop_defaults::any_set()
-    {
-        return Err(format!(
-            "{}: original is in the cloud — download it to apply the develop defaults of its first edit",
-            source.display()
-        ));
+    if placeholder && develop_defaults::follows_defaults(adjustments) {
+        let defaults = develop_defaults::current();
+        // A TIFF's RAW status needs the file. Formats such as JPEG can
+        // still start an edit offline while defaults are limited to RAWs.
+        let may_be_raw = || {
+            source
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(formats::is_tiff_extension)
+                || formats::is_raw_file(source)
+        };
+        if !defaults.is_empty() && (!defaults.raw_only || may_be_raw()) {
+            return Err(format!(
+                "{}: original is in the cloud — download it to apply the develop defaults of its first edit",
+                source.display()
+            ));
+        }
     }
     apply_new_edit(adjustments, source, placeholder);
     Ok(())
