@@ -6451,9 +6451,12 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// specification defines them, instead of each output channel
 /// (`image_loader::CAMERA_PLANE_WARP_RENDER_VERSION`): a lateral chromatic
 /// aberration correction in the file (a DJI Osmo Action) moves the camera
-/// colours as the specification defines; other files develop as 13.
+/// colours as the specification defines; other files develop as 13. 15
+/// (2026-11-22) finds hot and dead photosites by RapidRAW v1.7.1's
+/// isolation test (`image_loader::ISOLATED_DEFECT_RENDER_VERSION`), so the
+/// cores of sharp stars and thin lines keep their samples.
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 14;
+pub const RENDER_VERSION: u64 = 15;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the

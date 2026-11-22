@@ -18,6 +18,17 @@
 //! adjacent samples of the other colours, as the hot test does: a dark line
 //! darkens them too, a dead photosite does not (notes:
 //! reference/xtrans-fine-patterns.md).
+//!
+//! Both ratio tests still took the cores of sharp stars and the samples of
+//! thin dark lines on Bayer files for defects. `DeadTest::Isolated`
+//! (`renderVersion` 15) is the isolation test of RapidRAW v1.7.1
+//! (`src-tauri/src/decode/hot_pixels.rs`, commit `63b415758`, Copyright
+//! Timon Käch, AGPL-3.0-or-later), on this module's row prefilter: a sample
+//! is defective only when it stands out from every same-colour neighbour by
+//! more than their own spread, and its deviation from its neighbourhood's
+//! median is far larger than the summed deviations of all 24 samples around
+//! it, which a star's or a line's samples share with it (notes:
+//! benchmark-results/hot1-2026-11-22/).
 
 use rawler::CFA;
 use rayon::prelude::*;
@@ -35,6 +46,32 @@ const DEAD_NEIGHBOUR_RATIO: f32 = 0.6;
 const HOT_MARGIN: f32 = 0.01;
 const DEAD_MARGIN: f32 = 0.005;
 const DEAD_FLOOR: f32 = 0.02;
+/// `DeadTest::Isolated` (RapidRAW v1.7.1's constants): a defect deviates
+/// from the median of its neighbourhood by more than `ISOLATION` times the
+/// summed deviations of the 24 samples around it; it stands out from its
+/// same-colour neighbours by more than their spread, `CONTRAST` of the
+/// nearest one and `ISOLATED_FLOOR` of the range; its adjacent samples
+/// together deviate the same way by at most `SPILL` of its deviation; a
+/// bright one has no adjacent sample at `CLIP` of the range or above.
+const ISOLATION: f32 = 21.0 / 24.0;
+const ISOLATED_FLOOR: f32 = 1.0 / 256.0;
+const CONTRAST: f32 = 0.25;
+const SPILL: f32 = 0.25;
+const CLIP: f32 = 0.95;
+/// The 24 offsets (dy, dx) around a sample within two pixels, row by row.
+const WINDOW: [(isize, isize); 24] = {
+    let mut window = [(0, 0); 24];
+    let mut i = 0;
+    let mut k = 0;
+    while k < 25 {
+        if k != 12 {
+            window[i] = (k / 5 - 2, k % 5 - 2);
+            i += 1;
+        }
+        k += 1;
+    }
+    window
+};
 /// Rows of the mosaic one task tests (the rows of levels it converts are
 /// this plus four).
 const HOT_BAND: usize = 32;
@@ -49,6 +86,45 @@ pub enum DeadTest {
     /// Also darker than every adjacent sample of the other colours
     /// (white-balanced), so thin dark lines keep their colour.
     Adjacent,
+    /// Hot and dead alike: isolated from the 5 × 5 neighbourhood around it
+    /// (RapidRAW v1.7.1's test, `renderVersion` 15), so the cores of sharp
+    /// stars and thin lines keep their samples.
+    Isolated,
+}
+
+impl DeadTest {
+    /// Samples from the active area's edge the test cannot reach: the
+    /// isolation test takes medians around every sample within two pixels.
+    fn margin(self) -> usize {
+        if self == DeadTest::Isolated { 4 } else { 2 }
+    }
+}
+
+/// The median of `values` (sorted in place), the mean of the middle two for
+/// an even count.
+fn middle(values: &mut [f32]) -> f32 {
+    values.sort_unstable_by(f32::total_cmp);
+    let half = values.len() / 2;
+    if values.len().is_multiple_of(2) {
+        0.5 * (values[half - 1] + values[half])
+    } else {
+        values[half]
+    }
+}
+
+/// Whether a sample of level `v` whose same-colour neighbours span
+/// `lo..=hi` stands out from them by more than their spread: `Some(true)`
+/// hot, `Some(false)` dead. Needs only the extremes, so the row prefilter
+/// finds exactly these samples.
+fn isolated_candidate(v: f32, lo: f32, hi: f32) -> Option<bool> {
+    let spread = ISOLATED_FLOOR.max(hi - lo);
+    if v - hi > spread.max(hi * CONTRAST) {
+        Some(true)
+    } else if lo - v > spread.max(lo * CONTRAST) {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 /// Same-colour offsets within two pixels and adjacent other-colour offsets,
@@ -121,7 +197,8 @@ pub fn suppress<T: Copy + Send + Sync>(
         return 0;
     };
     let (left, top, aw, ah) = active;
-    if aw < 8 || ah < 8 || data.len() < (top + ah) * width {
+    let margin = dead_test.margin();
+    if aw < 8 || ah < 8 || aw <= 2 * margin || ah <= 2 * margin || data.len() < (top + ah) * width {
         return 0;
     }
     let wb: [f32; 3] = std::array::from_fn(|i| {
@@ -176,12 +253,85 @@ pub fn suppress<T: Copy + Send + Sync>(
             None
         }
     };
+    let at = |row: usize, col: usize| level(source[row * width + col]);
+    // The median of the same-colour samples within two pixels of
+    // (`row`, `col`), with `centre` among them when given.
+    let median_around = |row: usize, col: usize, centre: Option<f32>| -> f32 {
+        let phase = (row % neighbours.period) * neighbours.period + col % neighbours.period;
+        let mut values = [0f32; 25];
+        let mut n = 0;
+        for &(dy, dx) in &neighbours.same[phase] {
+            values[n] = at((row as isize + dy) as usize, (col as isize + dx) as usize);
+            n += 1;
+        }
+        if let Some(centre) = centre {
+            values[n] = centre;
+            n += 1;
+        }
+        middle(&mut values[..n])
+    };
+    // The isolation test of a sample the prefilter found hot (`hot`) or
+    // dead (RapidRAW v1.7.1, `repair`).
+    let isolated = |row: usize, col: usize, v: f32, hot: bool| -> Option<T> {
+        let phase = (row % neighbours.period) * neighbours.period + col % neighbours.period;
+        let sign = if hot { 1.0 } else { -1.0 };
+        if !neighbours.same[phase].iter().all(|&(dy, dx)| {
+            let s = at((row as isize + dy) as usize, (col as isize + dx) as usize);
+            sign * (v - s) > ISOLATED_FLOOR.max(s * CONTRAST)
+        }) {
+            return None;
+        }
+        let deviation = v - median_around(row, col, Some(v));
+        // Each sample's deviation from its own neighbourhood, adjacent ones
+        // first: a clipped or co-deviating neighbour rejects at once, and
+        // so do deviations around it already too large to be isolated from
+        // (the sums are then taken in RapidRAW's order, so the decision is
+        // its own to the last bit).
+        let mut d = [0f32; 24];
+        let deviation_at = |dy: isize, dx: isize| {
+            let (r, c) = ((row as isize + dy) as usize, (col as isize + dx) as usize);
+            let value = at(r, c);
+            (value, value - median_around(r, c, Some(value)))
+        };
+        let mut spill = 0.0f32;
+        let mut partial = 0.0f32;
+        for (i, &(dy, dx)) in WINDOW.iter().enumerate() {
+            if dy.abs() > 1 || dx.abs() > 1 {
+                continue;
+            }
+            let (value, deviation_here) = deviation_at(dy, dx);
+            if deviation > 0.0 && value >= CLIP {
+                return None;
+            }
+            d[i] = deviation_here;
+            spill += deviation_here;
+            partial += deviation_here.abs();
+            // Rounding cannot make the full sum (24 terms) smaller than
+            // this part of it by 1e-4.
+            if ISOLATION * partial * (1.0 - 1e-4) >= deviation.abs() {
+                return None;
+            }
+        }
+        if spill * deviation.signum() > SPILL * deviation.abs() {
+            return None;
+        }
+        for (i, &(dy, dx)) in WINDOW.iter().enumerate() {
+            if dy.abs() > 1 || dx.abs() > 1 {
+                d[i] = deviation_at(dy, dx).1;
+            }
+        }
+        let surround: f32 = d.iter().fold(0.0, |sum, d| sum + d.abs());
+        if deviation.abs() <= ISOLATION * surround {
+            return None;
+        }
+        Some(store(median_around(row, col, None)))
+    };
     // Only samples brighter than twice their brightest same-colour
     // neighbour or darker than 0.4 of their darkest can be defective, and
     // the brightest and darkest do not depend on the order they are taken
     // in: they are found for whole rows at once, on rows of levels each
     // converted once per band, and only those samples are tested.
-    let rows: Vec<usize> = (top + 2..top + ah - 2).collect();
+    let rows: Vec<usize> = (top + margin..top + ah - margin).collect();
     let fixes: Vec<(usize, T)> = rows
         .par_chunks(HOT_BAND)
         .flat_map_iter(|band| {
@@ -204,11 +354,11 @@ pub fn suppress<T: Copy + Send + Sync>(
                 lo.fill(f32::INFINITY);
                 for pc in 0..period {
                     let phase = (row % period) * period + pc;
-                    // Active columns 2..aw - 2 of this phase.
-                    let first = 2 + (pc + period - (left + 2) % period) % period;
+                    // Active columns margin..aw - margin of this phase.
+                    let first = margin + (pc + period - (left + margin) % period) % period;
                     for &(dy, dx) in &neighbours.same[phase] {
                         let from = &ring[(row as isize + dy) as usize % 5];
-                        for col in (first..aw - 2).step_by(period) {
+                        for col in (first..aw - margin).step_by(period) {
                             let n = from[(col as isize + dx) as usize];
                             hi[col] = hi[col].max(n);
                             lo[col] = lo[col].min(n);
@@ -216,11 +366,20 @@ pub fn suppress<T: Copy + Send + Sync>(
                     }
                 }
                 let own = &ring[row % 5];
-                for col in 2..aw - 2 {
+                for col in margin..aw - margin {
                     let v = own[col];
-                    let candidate = v > HOT_RATIO * hi[col].max(0.0) + HOT_MARGIN
-                        || lo[col] > DEAD_FLOOR && v < DEAD_RATIO * lo[col] - DEAD_MARGIN;
-                    if candidate && let Some(value) = check(row, left + col, &mut values) {
+                    let fix = if dead_test == DeadTest::Isolated {
+                        isolated_candidate(v, lo[col], hi[col])
+                            .filter(|_| cfa.color_at(row, left + col) < 3)
+                            .and_then(|hot| isolated(row, left + col, v, hot))
+                    } else if v > HOT_RATIO * hi[col].max(0.0) + HOT_MARGIN
+                        || lo[col] > DEAD_FLOOR && v < DEAD_RATIO * lo[col] - DEAD_MARGIN
+                    {
+                        check(row, left + col, &mut values)
+                    } else {
+                        None
+                    };
+                    if let Some(value) = fix {
                         out.push((row * width + left + col, value));
                     }
                 }
@@ -246,8 +405,29 @@ mod tests {
         CFA::new("RGGB")
     }
 
+    /// The per-sample reference of `dead_test`.
+    #[allow(clippy::too_many_arguments)]
+    fn reference<T: Copy + Send + Sync>(
+        data: &mut [T],
+        width: usize,
+        active: (usize, usize, usize, usize),
+        cfa: &CFA,
+        wb: [f32; 4],
+        dead_test: DeadTest,
+        level: impl Fn(T) -> f32 + Sync,
+        store: impl Fn(f32) -> T + Sync,
+    ) -> usize {
+        if dead_test == DeadTest::Isolated {
+            super::hot_pixels_reference::isolated(data, width, active, cfa, level, store)
+        } else {
+            super::hot_pixels_reference::suppress(
+                data, width, active, cfa, wb, dead_test, level, store,
+            )
+        }
+    }
+
     /// The row prefilter repairs exactly what the per-sample test did:
-    /// u16 and f32 mosaics, Bayer and X-Trans, both dead tests, an active
+    /// u16 and f32 mosaics, Bayer and X-Trans, every dead test, an active
     /// area off the origin, defects of every kind among noise and edges.
     #[test]
     fn the_row_prefilter_repairs_what_the_reference_repairs() {
@@ -258,7 +438,7 @@ mod tests {
         };
         let xtrans = CFA::new("GGRGGBGGBGGRBRGRBGGGBGGRGGRGGBRBGBRG");
         for cfa in [bayer(), CFA::new("GBRG"), xtrans] {
-            for dead_test in [DeadTest::SameColour, DeadTest::Adjacent] {
+            for dead_test in [DeadTest::SameColour, DeadTest::Adjacent, DeadTest::Isolated] {
                 let (w, h) = (203usize, 150usize);
                 let active = (5, 3, 190, 141);
                 let levels: Vec<f32> = (0..w * h)
@@ -284,16 +464,7 @@ mod tests {
                 let mut new = levels.clone();
                 let mut old = levels.clone();
                 let a = suppress(&mut new, w, active, &cfa, wb, dead_test, |v| v, |v| v);
-                let b = super::hot_pixels_reference::suppress(
-                    &mut old,
-                    w,
-                    active,
-                    &cfa,
-                    wb,
-                    dead_test,
-                    |v| v,
-                    |v| v,
-                );
+                let b = reference(&mut old, w, active, &cfa, wb, dead_test, |v| v, |v| v);
                 assert!(a > 10, "{a}");
                 assert_eq!(a, b);
                 assert!(
@@ -306,9 +477,7 @@ mod tests {
                 let level = |v: u16| (v as f32 - 600.0) / 4000.0;
                 let store = |l: f32| (l * 4000.0 + 600.0).round().clamp(0.0, 65535.0) as u16;
                 let a = suppress(&mut new, w, active, &cfa, wb, dead_test, level, store);
-                let b = super::hot_pixels_reference::suppress(
-                    &mut old, w, active, &cfa, wb, dead_test, level, store,
-                );
+                let b = reference(&mut old, w, active, &cfa, wb, dead_test, level, store);
                 assert_eq!(a, b);
                 assert_eq!(new, old);
             }
@@ -427,5 +596,69 @@ mod tests {
             1
         );
         assert!(data[24 * w + 30] > 0.1);
+    }
+
+    /// A sharp star (σ 0.6 photosites) and a one-photosite dark line of
+    /// slope ½ on a Bayer file: the ratio tests take the star's core and the
+    /// line's samples for defects, the isolation test keeps both and still
+    /// repairs a hot and a dead photosite.
+    #[test]
+    fn the_isolation_test_keeps_sharp_stars_and_thin_lines() {
+        let cfa = bayer();
+        let (w, h) = (64, 64);
+        let mut mosaic = vec![0.0f32; w * h];
+        // The star: a Gaussian integrated over each photosite, red and blue
+        // tinted 0.7.
+        let (cx, cy, sigma, peak) = (20.5f32, 20.5f32, 0.6f32, 0.8f32);
+        for y in 0..h {
+            for x in 0..w {
+                let mut g = 0.0;
+                for sy in 0..4 {
+                    for sx in 0..4 {
+                        let dx = x as f32 + (sx as f32 + 0.5) / 4.0 - cx;
+                        let dy = y as f32 + (sy as f32 + 0.5) / 4.0 - cy;
+                        g += (-(dx * dx + dy * dy) / (2.0 * sigma * sigma)).exp() / 16.0;
+                    }
+                }
+                let tint = if cfa.color_at(y, x) == 1 { 1.0 } else { 0.7 };
+                let line = x >= 32 && (x as i64 - 2 * y as i64).rem_euclid(48) == 0;
+                mosaic[y * w + x] = if line { 0.05 } else { 0.02 + peak * tint * g };
+                if x >= 32 && !line {
+                    mosaic[y * w + x] = 0.6;
+                }
+            }
+        }
+        let fixed = |test: DeadTest, data: &mut Vec<f32>| {
+            suppress(data, w, (0, 0, w, h), &cfa, [1.0; 4], test, |v| v, |v| v)
+        };
+        let star = |data: &[f32]| {
+            (18..23)
+                .flat_map(|y| (18..23).map(move |x| y * w + x))
+                .filter(|&i| data[i] != mosaic[i])
+                .count()
+        };
+        let line = |data: &[f32]| {
+            (0..w * h)
+                .filter(|&i| i % w >= 32 && data[i] != mosaic[i])
+                .count()
+        };
+        let mut adjacent = mosaic.clone();
+        fixed(DeadTest::Adjacent, &mut adjacent);
+        assert!(
+            star(&adjacent) > 0 && line(&adjacent) > 0,
+            "{} {}",
+            star(&adjacent),
+            line(&adjacent)
+        );
+        let mut isolated = mosaic.clone();
+        assert_eq!(fixed(DeadTest::Isolated, &mut isolated), 0);
+        assert_eq!(isolated, mosaic);
+        // Defects on the flat sky and the bright field.
+        let mut data = mosaic.clone();
+        data[40 * w + 10] = 0.9;
+        data[10 * w + 50] = 0.0;
+        assert_eq!(fixed(DeadTest::Isolated, &mut data), 2);
+        assert!((data[40 * w + 10] - 0.02).abs() < 1e-6);
+        assert!((data[10 * w + 50] - 0.6).abs() < 1e-6);
     }
 }

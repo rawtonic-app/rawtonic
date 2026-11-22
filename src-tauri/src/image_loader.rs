@@ -52,9 +52,12 @@ pub struct LoadImageResult {
     /// The source was developed for the multi-scale colour noise filter
     /// (without the decode-time chroma clean-up); None for preview data.
     pub color_noise_multiscale: Option<bool>,
-    /// The source was developed with `DeadTest::Adjacent` (`renderVersion`
-    /// 3); None for preview data.
+    /// The source was developed with `DeadTest::Adjacent` or `Isolated`
+    /// (`renderVersion` 3); None for preview data.
     pub dead_pixel_adjacent: Option<bool>,
+    /// ... with `DeadTest::Isolated` (`renderVersion` 15); None for preview
+    /// data.
+    pub defects_isolated: Option<bool>,
     /// The `sourceFrameVersion` a first edit made on what is shown carries
     /// when it is not the newest (`new_edit_frame`); None otherwise.
     pub new_edit_frame: Option<u32>,
@@ -789,8 +792,10 @@ fn decoded_cache_key_for(
     if variant.multiscale {
         key.push_str("\u{1}cnr-ms");
     }
-    if variant.dead_test == DeadTest::Adjacent {
-        key.push_str("\u{1}dead-adjacent");
+    match variant.dead_test {
+        DeadTest::SameColour => {}
+        DeadTest::Adjacent => key.push_str("\u{1}dead-adjacent"),
+        DeadTest::Isolated => key.push_str("\u{1}defects-isolated"),
     }
     if variant.frame > 0 {
         key.push_str(&format!("\u{1}frame {}", variant.frame));
@@ -861,8 +866,8 @@ fn publish_cancelled() -> CommandError {
 /// of `version` (`aiDenoiseVersion`, None: 1), for the colour noise filter
 /// of its recipe (`multiscale`, see `load_base_image_from_bytes_for`; None:
 /// its stored recipe's) and for its dead-photosite test
-/// (`dead_pixel_adjacent`: `DeadTest::Adjacent`; None: its stored
-/// recipe's), black handling (`unbiased_black`: `BlackLevels::Unbiased`,
+/// (`dead_pixel_adjacent`: `DeadTest::Adjacent`, with `defects_isolated`
+/// `Isolated`; None: its stored recipe's), black handling (`unbiased_black`: `BlackLevels::Unbiased`,
 /// with `border_black` `UnbiasedBorder`; None: its stored recipe's) and
 /// highlight rebuild (`highlight_ratios`:
 /// `HighlightRebuild::Ratios`; None: its stored recipe's) and the planes a
@@ -882,6 +887,7 @@ pub async fn apply_ai_denoise(
     version: Option<u8>,
     multiscale: Option<bool>,
     dead_pixel_adjacent: Option<bool>,
+    defects_isolated: Option<bool>,
     unbiased_black: Option<bool>,
     border_black: Option<bool>,
     highlight_ratios: Option<bool>,
@@ -909,10 +915,13 @@ pub async fn apply_ai_denoise(
         .map(|o| (o.decode.map(|d| d.frame), o.image.dimensions()));
     let variant = DecodeVariant {
         multiscale: multiscale.unwrap_or(stored.multiscale),
-        dead_test: match dead_pixel_adjacent {
-            Some(true) => DeadTest::Adjacent,
-            Some(false) => DeadTest::SameColour,
-            None => stored.dead_test,
+        dead_test: match (
+            dead_pixel_adjacent.unwrap_or(stored.dead_test != DeadTest::SameColour),
+            defects_isolated.unwrap_or(stored.dead_test == DeadTest::Isolated),
+        ) {
+            (_, true) => DeadTest::Isolated,
+            (true, false) => DeadTest::Adjacent,
+            (false, false) => DeadTest::SameColour,
         },
         frame: open.and_then(|(frame, _)| frame).unwrap_or(stored.frame),
         black: match (
@@ -1578,7 +1587,8 @@ pub async fn load_image(
         ai_denoise_stand_in,
         offline: None,
         color_noise_multiscale: Some(variant.multiscale),
-        dead_pixel_adjacent: Some(variant.dead_test == DeadTest::Adjacent),
+        dead_pixel_adjacent: Some(variant.dead_test != DeadTest::SameColour),
+        defects_isolated: Some(variant.dead_test == DeadTest::Isolated),
         new_edit_frame: is_raw
             .then(|| new_edit_frame(&source_path_str, variant.frame))
             .flatten(),
@@ -1798,6 +1808,7 @@ async fn open_offline(
             offline: Some("full"),
             color_noise_multiscale: None,
             dead_pixel_adjacent: None,
+            defects_isolated: None,
             new_edit_frame: new_edit_frame(&source.to_string_lossy(), proxy_frame),
             unbiased_black: None,
             border_black: None,
@@ -1866,6 +1877,7 @@ async fn open_offline(
         offline: Some("standard"),
         color_noise_multiscale: None,
         dead_pixel_adjacent: None,
+        defects_isolated: None,
         new_edit_frame: new_edit_frame(&source.to_string_lossy(), proxy_frame),
         unbiased_black: None,
         border_black: None,
@@ -2055,11 +2067,14 @@ mod activation_tests {
         let plain = decoded_cache_key("/p/A.NEF", None, DecodeVariant::default());
         let multiscale = decoded_cache_key("/p/A.NEF", None, ms(true, DeadTest::SameColour));
         let adjacent = decoded_cache_key("/p/A.NEF", None, ms(true, DeadTest::Adjacent));
+        let isolated = decoded_cache_key("/p/A.NEF", None, ms(true, DeadTest::Isolated));
         // The default variant's base keeps the key it always had, the
         // multi-scale one too.
         assert_eq!(plain, "/p/A.NEF");
         assert_eq!(multiscale, "/p/A.NEF\u{1}cnr-ms");
         assert_ne!(adjacent, multiscale);
+        assert_ne!(isolated, multiscale);
+        assert_ne!(isolated, adjacent);
         assert_ne!(
             decoded_cache_key("/p/A.NEF", None, ms(false, DeadTest::Adjacent)),
             plain
@@ -2121,12 +2136,12 @@ mod activation_tests {
         std::fs::write(&raw, b"raw").unwrap();
         let raw_str = raw.to_string_lossy().to_string();
         // Never edited: the multi-scale filter, no clean-up, and the
-        // second dead test (a new edit's render version).
+        // isolation test (a new edit's render version).
         assert_eq!(
             stored_decode_variant(&raw_str),
             DecodeVariant {
                 multiscale: true,
-                dead_test: DeadTest::Adjacent,
+                dead_test: DeadTest::Isolated,
                 frame: 0,
                 black: BlackLevels::UnbiasedBorder,
                 highlights: HighlightRebuild::Ratios,

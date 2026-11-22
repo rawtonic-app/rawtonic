@@ -1,6 +1,10 @@
 //! Hot and dead pixel suppression as it was before its row prefilter
 //! (2026-11-15), kept verbatim as the reference the faster `suppress` must
 //! match exactly (tests in `hot_pixels`). Only the `super::` imports differ.
+//! `isolated` is the reference of `DeadTest::Isolated`: RapidRAW v1.7.1's
+//! `repair_hot_pixels` (`src-tauri/src/decode/hot_pixels.rs`, commit
+//! `63b415758`, Copyright Timon Käch, AGPL-3.0-or-later), every sample
+//! tested on its own, adapted to `suppress`'s levels, active area and CFA.
 
 use super::*;
 
@@ -80,6 +84,120 @@ pub fn suppress<T: Copy + Send + Sync>(
                 }
             }
             out
+        })
+        .collect();
+    for (index, value) in &fixes {
+        data[*index] = *value;
+    }
+    fixes.len()
+}
+
+/// RapidRAW v1.7.1's per-sample test (`Sensor::repair`) on the levels
+/// `suppress` takes: black 0, white 1.
+pub fn isolated<T: Copy + Send + Sync>(
+    data: &mut [T],
+    width: usize,
+    active: (usize, usize, usize, usize),
+    cfa: &CFA,
+    level: impl Fn(T) -> f32 + Sync,
+    store: impl Fn(f32) -> T + Sync,
+) -> usize {
+    const REACH: isize = 2;
+    let period = if cfa.width == 6 || cfa.height == 6 {
+        6
+    } else {
+        2
+    };
+    let mut offsets: Vec<(isize, isize)> = (-REACH..=REACH)
+        .flat_map(|dy| (-REACH..=REACH).map(move |dx| (dx, dy)))
+        .filter(|&(dx, dy)| dx != 0 || dy != 0)
+        .collect();
+    offsets.sort_by_key(|&(dx, dy)| dx * dx + dy * dy);
+    // Same-colour offsets per phase, nearest first.
+    let same: Vec<Vec<(isize, isize)>> = (0..period * period)
+        .map(|k| {
+            let (x, y) = (k % period + period, k / period + period);
+            let colour = cfa.color_at(y, x);
+            offsets
+                .iter()
+                .filter(|&&(dx, dy)| {
+                    cfa.color_at((y as isize + dy) as usize, (x as isize + dx) as usize) == colour
+                })
+                .map(|&(dx, dy)| (dy, dx))
+                .collect()
+        })
+        .collect();
+    let source: &[T] = data;
+    let value = |x: usize, y: usize| level(source[y * width + x]);
+    let site = |x: usize, y: usize| &same[(y % period) * period + x % period];
+    let neighbours = |x: usize, y: usize| {
+        site(x, y)
+            .iter()
+            .map(move |&(dy, dx)| value((x as isize + dx) as usize, (y as isize + dy) as usize))
+    };
+    let median = |x: usize, y: usize, centre: Option<f32>| {
+        let mut samples: Vec<f32> = neighbours(x, y).chain(centre).collect();
+        samples.sort_unstable_by(f32::total_cmp);
+        let half = samples.len() / 2;
+        if samples.len().is_multiple_of(2) {
+            (samples[half - 1] + samples[half]) * 0.5
+        } else {
+            samples[half]
+        }
+    };
+    let repair = |x: usize, y: usize| -> Option<T> {
+        if cfa.color_at(y, x) >= 3 {
+            return None;
+        }
+        let v = value(x, y);
+        let first = neighbours(x, y).next()?;
+        let sign = if v > first { 1.0 } else { -1.0 };
+        if !neighbours(x, y).all(|s| sign * (v - s) > ISOLATED_FLOOR.max(s * CONTRAST)) {
+            return None;
+        }
+        let (lo, hi) =
+            neighbours(x, y).fold((f32::MAX, f32::MIN), |(lo, hi), s| (lo.min(s), hi.max(s)));
+        let spread = ISOLATED_FLOOR.max(hi - lo);
+        let hot = v - hi > spread.max(hi * CONTRAST);
+        let dead = lo - v > spread.max(lo * CONTRAST);
+        if !hot && !dead {
+            return None;
+        }
+        let deviation = v - median(x, y, Some(v));
+        let mut surround = 0.0;
+        let mut spill = 0.0;
+        for dy in -REACH..=REACH {
+            for dx in -REACH..=REACH {
+                if dx != 0 || dy != 0 {
+                    let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
+                    let value = value(nx, ny);
+                    let d = value - median(nx, ny, Some(value));
+                    surround += d.abs();
+                    if dx.abs() <= 1 && dy.abs() <= 1 {
+                        if deviation > 0.0 && value >= CLIP {
+                            return None;
+                        }
+                        spill += d;
+                    }
+                }
+            }
+        }
+        if deviation.abs() <= ISOLATION * surround
+            || spill * deviation.signum() > SPILL * deviation.abs()
+        {
+            return None;
+        }
+        Some(store(median(x, y, None)))
+    };
+    let (left, top, aw, ah) = active;
+    let margin = 2 * REACH as usize;
+    let repair = &repair;
+    let fixes: Vec<(usize, T)> = (top + margin..top + ah - margin)
+        .into_par_iter()
+        .flat_map_iter(|y| {
+            (left + margin..left + aw - margin)
+                .filter_map(move |x| repair(x, y).map(|v| (y * width + x, v)))
+                .collect::<Vec<_>>()
         })
         .collect();
     for (index, value) in &fixes {

@@ -143,6 +143,41 @@ describe('sourceDevelopToApply', () => {
     expect(sourceDevelopToApply(multiscaleBase, { ...v2, renderVersion: 3 }, false)).toBeNull();
   });
 
+  it('develops again when the isolation test for hot and dead photosites flips with the render version', () => {
+    const base = { ...multiscaleBase, deadPixelAdjacent: true, unbiasedBlack: true, highlightRatios: true };
+    const ratioTest = { ...base, defectsIsolated: false };
+    const isolationTest = { ...base, defectsIsolated: true };
+    // Saved edits before render version 15 keep the ratio tests.
+    expect(sourceDevelopToApply(ratioTest, { ...v2, renderVersion: 14 }, false)).toBeNull();
+    expect(sourceDevelopToApply(isolationTest, { ...v2, renderVersion: 15 }, false)).toBeNull();
+    // Reset of an older edit (render version 15), and undo back.
+    expect(sourceDevelopToApply(ratioTest, { ...v2, renderVersion: 15 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+      defectsIsolated: true,
+      unbiasedBlack: true,
+      highlightRatios: true
+    });
+    expect(sourceDevelopToApply(isolationTest, { ...v2, renderVersion: 14 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+      defectsIsolated: false,
+      unbiasedBlack: true,
+      highlightRatios: true
+    });
+    // Failed before: not retried; unknown (preview data) waits.
+    expect(
+      sourceDevelopToApply({ ...ratioTest, defectsIsolatedFailed: true }, { ...v2, renderVersion: 15 }, false)
+    ).toBeNull();
+    expect(sourceDevelopToApply(base, { ...v2, renderVersion: 15 }, false)).toBeNull();
+    // Recipes of either test never share a source.
+    expect(developmentSignature({ ...v2, renderVersion: 14 }, true)).not.toBe(
+      developmentSignature({ ...v2, renderVersion: 15 }, true)
+    );
+  });
+
   it('develops again when the black handling flips with the render version', () => {
     const clipped = { ...multiscaleBase, deadPixelAdjacent: true, unbiasedBlack: false };
     const unbiased = { ...multiscaleBase, deadPixelAdjacent: true, unbiasedBlack: true };

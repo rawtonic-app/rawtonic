@@ -431,8 +431,8 @@ pub fn current_key(
 /// The decoder settings that change the decoded pixels, and the decode
 /// variant (`image_loader::load_base_image_from_bytes_for`): the multi-scale
 /// colour noise filter (no decode-time chroma clean-up) and, appended only
-/// when set so earlier proxies keep their key, the second dead-photosite
-/// test, a frame other than version 0's (`source_frame`), the unbiased
+/// when set so earlier proxies keep their key, the second or isolation
+/// dead-photosite test, a frame other than version 0's (`source_frame`), the unbiased
 /// blacks (`BlackLevels::Unbiased`, `UnbiasedBorder`), the ratio
 /// highlight rebuild (`HighlightRebuild::Ratios`) and a DNG lens warp of
 /// the camera planes (`WarpPlanes::Camera`).
@@ -442,10 +442,10 @@ fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
         crate::image_loader::decode_preferences(settings),
         u8::from(variant.multiscale),
     );
-    let key = if variant.dead_test == DeadTest::Adjacent {
-        key + ";dead=adjacent"
-    } else {
-        key
+    let key = match variant.dead_test {
+        DeadTest::SameColour => key,
+        DeadTest::Adjacent => key + ";dead=adjacent",
+        DeadTest::Isolated => key + ";dead=isolated",
     };
     let key = if variant.frame > 0 {
         format!("{key};frame={}", variant.frame)
@@ -480,7 +480,9 @@ fn decoder_settings(decoder: &str) -> &str {
 pub(crate) fn variant_of_key(decoder: &str) -> DecodeVariant {
     DecodeVariant {
         multiscale: decoder.contains(";cnrms=1"),
-        dead_test: if decoder.contains(";dead=adjacent") {
+        dead_test: if decoder.contains(";dead=isolated") {
+            DeadTest::Isolated
+        } else if decoder.contains(";dead=adjacent") {
             DeadTest::Adjacent
         } else {
             DeadTest::SameColour
@@ -1692,7 +1694,7 @@ pub(crate) mod frame_fixture {
 pub(crate) fn write_for_test(source: &Path, image: &DynamicImage, size: u32) {
     let variant = DecodeVariant {
         multiscale: true,
-        dead_test: DeadTest::Adjacent,
+        dead_test: DeadTest::Isolated,
         frame: 0,
         black: BlackLevels::UnbiasedBorder,
         highlights: HighlightRebuild::Ratios,
@@ -1722,7 +1724,7 @@ pub(crate) mod tests {
     /// What a never-edited RAW's decode is made for.
     const NEW_EDIT: DecodeVariant = DecodeVariant {
         multiscale: true,
-        dead_test: DeadTest::Adjacent,
+        dead_test: DeadTest::Isolated,
         frame: 0,
         black: BlackLevels::UnbiasedBorder,
         highlights: HighlightRebuild::Ratios,
@@ -2131,7 +2133,7 @@ pub(crate) mod tests {
         // The key's variant fields read back as written.
         let settings = AppSettings::default();
         for multiscale in [false, true] {
-            for dead_test in [DeadTest::SameColour, DeadTest::Adjacent] {
+            for dead_test in [DeadTest::SameColour, DeadTest::Adjacent, DeadTest::Isolated] {
                 for frame in [0, 1] {
                     for black in [
                         BlackLevels::Clipped,
