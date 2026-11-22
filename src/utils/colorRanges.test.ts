@@ -35,6 +35,7 @@ import {
   type MaskContainer
 } from './adjustments';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -375,6 +376,18 @@ describe('the renderer probe at a pick', () => {
     // …and kept for that recipe.
     await rangeInputFor('/a.cr3', null, shifted);
     expect(probes()).toBe(2);
+    // A setting the renderer applies on top of the recipe (Preferences'
+    // tone mapper override) and a new source (a reload, a new decode): sampled again.
+    const settings = useSettingsStore.getState().appSettings;
+    useSettingsStore.setState({ appSettings: { ...(settings ?? {}), tonemapperOverrideEnabled: true } as never });
+    await rangeInputFor('/a.cr3', null, shifted);
+    expect(probes()).toBe(3);
+    useEditorStore.setState({ selectedImage: { ...photo } });
+    await rangeInputFor('/a.cr3', null, shifted);
+    expect(probes()).toBe(4);
+    await rangeInputFor('/a.cr3', null, shifted);
+    expect(probes()).toBe(4);
+    useSettingsStore.setState({ appSettings: settings });
   });
 
   it('solves a target on a feathered layer at the mask influence of the pick', async () => {

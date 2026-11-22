@@ -439,9 +439,13 @@ export interface ColorRangePick {
   block?: [number, number, number, number] | null;
   /** Null while the renderer has no sample there (a hidden layer). */
   input: RangeInput | null;
-  /** The recipe `input` was sampled from, without the ranges it enters
-   * (utils/colorRanges `inputKeyOf`): while it stands, the sample does too. */
+  /** The recipe `input` was sampled from, without the ranges it enters, and
+   * the app settings it was rendered with (utils/colorRanges `inputKeyOf`):
+   * while they and `inputSource` stand, the sample does too. */
   inputKey?: string;
+  /** The editor's photograph (`selectedImage`) the sample was rendered from:
+   * a new decode, AI Denoise result or reload replaces it. */
+  inputSource?: unknown;
 }
 
 /** The input a range stands for without a probe: its sampled colour at full strength. */
@@ -784,13 +788,15 @@ export const FAR_MISS = 1;
  * slope, the rest for its steps). */
 export const MAX_SEARCH_MEASURES = 8;
 /** No search probe starts once this much time has passed since the first
- * measurement came back (a probe took 25–300 ms on an M5 Pro with the
+ * measurement came back: a cutoff for starting probes, one started just
+ * before it still finishes (a probe took 25–300 ms on an M5 Pro with the
  * region kept; only far misses search, a reachable target never waits). */
 export const SEARCH_BUDGET_MS = 1000;
-/** The search's result replaces the corrections' only when it at least
- * halves their measured miss: a target the sliders can approach, not one
- * out of reach whose colour would only be drained to shave the distance
- * (as `solveColorTarget` keeps such a target's own direction). */
+/** The search's result replaces the corrections' when it reaches the target
+ * (`TARGET_REACHED`) or at least halves their measured miss: a target the
+ * sliders can approach, not one out of reach whose colour would only be
+ * drained to shave the distance (as `solveColorTarget` keeps such a
+ * target's own direction). */
 const SEARCH_GAIN = 0.5;
 /** Slider steps of the search's first slope (finite differences): wide
  * enough to step over the output's small-scale wiggles. */
@@ -853,7 +859,9 @@ export async function solveColorTargetMeasured(
     measure,
     () => now() - (started ?? now()) > SEARCH_BUDGET_MS
   );
-  return searched && searched.measured!.deltaE <= SEARCH_GAIN * best.measured.deltaE ? searched : best;
+  if (!searched) return best;
+  const gained = searched.measured!.deltaE;
+  return gained <= TARGET_REACHED || gained <= SEARCH_GAIN * best.measured.deltaE ? searched : best;
 }
 
 /**

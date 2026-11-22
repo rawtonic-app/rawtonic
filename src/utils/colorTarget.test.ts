@@ -418,6 +418,31 @@ describe('closed loop on the measured result', () => {
     expect(loop.measured!.deltaE).toBeGreaterThan(5);
   });
 
+  it('takes a search result that reaches the target even when it does not halve the miss', async () => {
+    // The output turns the hue (the corrections stop at ΔE00 1.4) and caps
+    // lightness 0.7 below the target: the search reaches ΔE00 1, not half.
+    const target = labOfSrgb([0, 90, 190]);
+    const calls: ColorRange[][] = [];
+    const turningCapped = async (ranges: ColorRange[]) => {
+      calls.push(ranges);
+      const [L, a, b] = renderedLab(ranges, centreInput(blue));
+      const chroma = Math.hypot(a, b);
+      const hue = Math.atan2(b, a) + ((25 * Math.PI) / 180) * (chroma / 60);
+      return [
+        Math.min(L * 0.9 + 3, target[0] - 0.7),
+        0.9 * chroma * Math.cos(hue),
+        0.9 * chroma * Math.sin(hue)
+      ] as Vec3;
+    };
+    const loop = (await solveColorTargetMeasured([blue], blue.id, target, null, turningCapped, { now: () => 0 }))!;
+    const corrections = calls.slice(0, MAX_CORRECTIONS + 1);
+    const alone: number[] = [];
+    for (const r of corrections) alone.push(deltaE00(target, (await turningCapped(r))!));
+    expect(Math.min(...alone)).toBeGreaterThan(1);
+    expect(loop.measured!.deltaE).toBeLessThanOrEqual(1);
+    expect(loop.measured!.deltaE).toBeGreaterThan(Math.min(...alone) / 2);
+  });
+
   it('keeps the best measured sliders when a correction measures worse', async () => {
     let n = 0;
     const loop = (await solveColorTargetMeasured([skin], skin.id, target, null, async (ranges) => {

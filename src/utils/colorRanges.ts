@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
 import { amendHistoryStep, debouncedSetHistory } from '../store/useEditorStore';
 import { draftFor, flushSliderDraft } from './sliderDraft';
@@ -216,11 +217,13 @@ export function geometryKeyOf(adjustments: Adjustments): string {
 
 /**
  * What the colour entering the ranges of the photo (`layer` null) or of a
- * mask layer depends on: the recipe without those ranges (their own shifts,
- * a target, a new range change nothing before them).
+ * mask layer depends on besides the photograph itself: the recipe without
+ * those ranges (their own shifts, a target, a new range change nothing
+ * before them) and the app settings the renderer applies on top of the
+ * recipe (e.g. Preferences' tone mapper override).
  */
 export const inputKeyOf = (adjustments: Adjustments, layer: string | null): string =>
-  JSON.stringify(withRanges(adjustments, layer, () => []));
+  JSON.stringify([withRanges(adjustments, layer, () => []), useSettingsStore.getState().appSettings]);
 
 /**
  * The renderer's sample at range `range`'s pick: the one kept while nothing
@@ -237,11 +240,12 @@ export async function rangeInputFor(
 ): Promise<RangeInput | null> {
   const pick = rangePickOf(photo, layer, range);
   if (!pick) return null;
-  const adjustments = useEditorStore.getState().adjustments;
+  const { adjustments, selectedImage } = useEditorStore.getState();
   const inputKey = inputKeyOf(adjustments, layer);
   // A full-resolution probe of the block (two renders) is most of a
-  // target's time: only an edit before the ranges asks for it again.
-  if (pick.input && pick.inputKey === inputKey) return pick.input;
+  // target's time: only an edit before the ranges, another setting or a
+  // new source asks for it again.
+  if (pick.input && pick.inputKey === inputKey && pick.inputSource === selectedImage) return pick.input;
   const input = await sampleRangeInput(photo, pick.point[0], pick.point[1], layer, adjustments, pick.block ?? null);
   const state = useEditorStore.getState();
   const key = rangePickKey(photo, layer, range.id);
@@ -250,7 +254,10 @@ export async function rangeInputFor(
   // old one no longer stands for the photo, but the point stays, so the
   // next sample (the layer shown again) picks it up.
   state.setEditor({
-    colorRangeInputs: { ...state.colorRangeInputs, [key]: { ...pick, input, inputKey: input ? inputKey : undefined } }
+    colorRangeInputs: {
+      ...state.colorRangeInputs,
+      [key]: { ...pick, input, inputKey: input ? inputKey : undefined, inputSource: input ? selectedImage : undefined }
+    }
   });
   return input;
 }
@@ -343,7 +350,8 @@ export async function pickColorRange(path: string, target: string, x: number, y:
                 geometry: geometryKeyOf(asked.adjustments),
                 block,
                 input,
-                inputKey: inputKeyOf(asked.adjustments, layer)
+                inputKey: inputKeyOf(asked.adjustments, layer),
+                inputSource: asked.selectedImage
               }
             }
           : after.colorRangeInputs
