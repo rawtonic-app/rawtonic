@@ -110,6 +110,16 @@ async function matched(path: string, recipes: readonly Adjustments[]): Promise<M
 /** Asked again when the recipe changed while the backend matched it. */
 const ATTEMPTS = 5;
 
+// The loader can publish a reopened photo as soon as a match already in flight
+// has updated its kept History. Matches waiting for the photo to load are
+// excluded so publication can make those matches ready.
+const keptMatches = new Map<string, Set<Promise<boolean | null>>>();
+
+export function keptSelectionMatchesSettled(path: string): Promise<void> | undefined {
+  const matches = keptMatches.get(path);
+  return matches && Promise.allSettled(matches).then(() => undefined);
+}
+
 /** The queue computed the selections of `path`: if it is the open
  * photograph, its recipe and every History entry take them into the
  * components still waiting for them (same layer and component, no bitmap,
@@ -128,16 +138,21 @@ export async function adoptQueuedSelections(path: string): Promise<boolean> {
     if (selectedImage?.path !== path) {
       const was = keptHistory(path);
       if (!was) return false;
-      const filled = await matched(path, was);
-      if (!filled) return false;
-      if (
-        replaceKeptHistory(
-          path,
-          was,
-          was.map((recipe) => filled.get(recipe) ?? recipe)
-        )
-      )
-        return true;
+      const matches = keptMatches.get(path) ?? new Set<Promise<boolean | null>>();
+      keptMatches.set(path, matches);
+      const update = matched(path, was).then((filled) => {
+        if (!filled) return false;
+        const history = was.map((recipe) => filled.get(recipe) ?? recipe);
+        return replaceKeptHistory(path, was, history) ? true : null;
+      });
+      matches.add(update);
+      try {
+        const adopted = await update;
+        if (adopted !== null) return adopted;
+      } finally {
+        matches.delete(update);
+        if (!matches.size) keptMatches.delete(path);
+      }
       continue;
     }
     if (!selectedImage.isReady) continue;

@@ -11603,6 +11603,35 @@ fn levels_precise_probe_decode(high: &[u8], low: &[u8]) -> Option<Vec<[u16; 3]>>
 }
 
 #[test]
+#[ignore = "requires a native GPU; a variant becomes available between Levels byte reads"]
+fn levels_byte_pair_keeps_the_first_preview_pipeline() {
+    let processor = GpuProcessor::new(context(), 64, 32).unwrap();
+    let mut adjustments = get_all_adjustments_from_json(&json!({"exposure": 0.5}), true, Some(1));
+    adjustments.global.output_space[3] = crate::image_processing::levels_precise_probe(false);
+    prepare_preview_pipeline(&processor, preview_features(&adjustments));
+    prepare_preview_pipeline(&processor, ALL_PREVIEW_FEATURES);
+
+    let pin = PreviewPipelinePin::default();
+    let shader = ReadbackShader::PreviewPinned(&pin);
+    let (high, _) = processor
+        .preview_readback_pipeline(&adjustments, false, shader)
+        .unwrap();
+    processor
+        .force_fallback_variant
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    adjustments.global.output_space[3] = crate::image_processing::levels_precise_probe(true);
+    let (unpinned, _) = processor.preview_pipeline(&adjustments, false).unwrap();
+    assert_ne!(
+        unpinned, high,
+        "the next selection would choose another pipeline"
+    );
+    let (low, _) = processor
+        .preview_readback_pipeline(&adjustments, false, shader)
+        .unwrap();
+    assert_eq!(high, low);
+}
+
+#[test]
 #[ignore = "requires a native GPU; the Levels pickers' 16-bit probe on the display path"]
 fn levels_precise_probe_on_the_display_path_matches_the_sixteen_bit_export_probe() {
     let context = context();
@@ -19793,9 +19822,51 @@ fn render_region_source(
 fn region_differences(
     whole: &image::RgbaImage,
     region: &image::RgbaImage,
-    (x0, y0): (u32, u32),
+    at: (u32, u32),
     inset: u32,
 ) -> (i32, i32, f64) {
+    let (max, p99, mean, _) = region_difference_stats(whole, region, at, inset);
+    (max, p99, mean)
+}
+
+/// The most samples a region test lets differ by more than the dither's
+/// 1 code where the device's 8-bit store may round to the farther code
+/// ([`unorm8_store_slack`]). An empirical regression threshold, not a
+/// derived bound: on an RTX 3080 on Vulkan at most 1.6e-6 of the samples
+/// in each of the three region tests' 125 comparisons exceeded 1 code
+/// (NRR5). It only keeps the extra code to as rare a use as measured; it
+/// detects no particular shift of the display values (a shift within the
+/// dither's 1 code passed before the slack too).
+const STORE_SLACK_SHARE: f64 = 1e-4;
+
+/// [`region_differences`] and the share of the compared samples that
+/// differ by more than 1 code.
+fn region_difference_stats(
+    whole: &image::RgbaImage,
+    region: &image::RgbaImage,
+    at: (u32, u32),
+    inset: u32,
+) -> (i32, i32, f64, f64) {
+    let mut diffs = region_difference_samples(whole, region, at, inset);
+    let n = diffs.len() as f64;
+    let mean = diffs.iter().map(|d| *d as f64).sum::<f64>() / n;
+    let share = diffs.iter().filter(|d| **d > 1).count() as f64 / n;
+    diffs.sort_unstable();
+    (
+        diffs[diffs.len() - 1],
+        diffs[(diffs.len() - 1) * 99 / 100],
+        mean,
+        share,
+    )
+}
+
+/// Per-sample differences (codes, RGB) behind [`region_differences`].
+fn region_difference_samples(
+    whole: &image::RgbaImage,
+    region: &image::RgbaImage,
+    (x0, y0): (u32, u32),
+    inset: u32,
+) -> Vec<i32> {
     let (w, h) = region.dimensions();
     let left = if x0 == 0 { 0 } else { inset };
     let top = if y0 == 0 { 0 } else { inset };
@@ -19818,13 +19889,7 @@ fn region_differences(
             }
         }
     }
-    let mean = diffs.iter().map(|d| *d as f64).sum::<f64>() / diffs.len() as f64;
-    diffs.sort_unstable();
-    (
-        diffs[diffs.len() - 1],
-        diffs[(diffs.len() - 1) * 99 / 100],
-        mean,
-    )
+    diffs
 }
 
 /// A noisy frame with a brightness ramp (the noise profile has several
@@ -19841,13 +19906,16 @@ fn ramped_chroma_noise_frame(width: u32, height: u32) -> DynamicImage {
 /// zoomed in) renders as the same pixels of the whole photograph with the
 /// colour noise reduction on when it is given the whole photograph's
 /// measurement, its origin lies on `REGION_NOISE_GRID` and it reaches
-/// `REGION_NOISE_MARGIN` beyond what is compared: within 1 code, as without
-/// the filter. Measured on its own (the region's measurement) or off the
-/// grid, it differed by up to 6–10 codes (NRR1).
+/// `REGION_NOISE_MARGIN` beyond what is compared: within 1 code (the 8-bit
+/// dither's phase; 2 where the device's 8-bit store may round to the
+/// farther code, [`unorm8_store_slack`]), as without the filter. Measured
+/// on its own (the region's measurement) or off the grid, it differed by
+/// up to 6–10 codes (NRR1).
 #[test]
 #[ignore = "requires a native GPU"]
 fn regions_filter_colour_noise_as_the_whole_photograph() {
     let context = context();
+    let dither_bound = 1 + unorm8_store_slack(&context);
     let (fw, fh) = (2400, 1800);
     let image = ramped_chroma_noise_frame(fw, fh);
     let margin = REGION_NOISE_MARGIN;
@@ -19869,13 +19937,17 @@ fn regions_filter_colour_noise_as_the_whole_photograph() {
             assert_eq!((x % REGION_NOISE_GRID, y % REGION_NOISE_GRID), (0, 0));
             let crop = image.crop_imm(x, y, w, h);
             let region = render_region_source(&context, &crop, &profile, Some(measured));
-            let (max, p99, mean) = region_differences(&whole, &region, (x, y), margin);
+            let (max, p99, mean, share) = region_difference_stats(&whole, &region, (x, y), margin);
             let own = render_region_source(&context, &crop, &profile, None);
             let (own_max, ..) = region_differences(&whole, &own, (x, y), margin);
             println!(
-                "{profile} region {x},{y} {w}x{h}: max {max} p99 {p99} mean {mean:.3}; measured on its own max {own_max}"
+                "{profile} region {x},{y} {w}x{h}: max {max} p99 {p99} mean {mean:.3} beyond 1 code {share:.2e}; measured on its own max {own_max}"
             );
-            assert!(max <= 1, "{profile} region {x},{y}: max {max}");
+            assert!(max <= dither_bound, "{profile} region {x},{y}: max {max}");
+            assert!(
+                share <= STORE_SLACK_SHARE,
+                "{profile} region {x},{y}: {share:.2e} beyond 1 code"
+            );
         }
         // Off the grid, the coarse levels sample other pixels (8–9 codes).
         let (x, y, w, h) = (530, 333, 1408, 1088);
@@ -19887,7 +19959,7 @@ fn regions_filter_colour_noise_as_the_whole_photograph() {
         );
         let (max, ..) = region_differences(&whole, &region, (x, y), margin);
         println!("{profile} region off the grid {x},{y}: max {max}");
-        assert!(max > 1, "off the grid the test no longer tells");
+        assert!(max > dither_bound, "off the grid the test no longer tells");
     }
     // Without a noise reduction nothing is measured.
     let off = get_all_adjustments_from_json(&json!({ "colorNoiseReduction": 0 }), true, Some(1));
@@ -19999,14 +20071,17 @@ fn size_dependent_recipes() -> Vec<(&'static str, serde_json::Value)> {
 /// on (luminance noise reduction, sharpening, Clarity, Structure, Texture,
 /// Dehaze, Centré, Vignette, grain, Glow, Halation) when it renders as a
 /// window of the photograph (`photo_placement`): byte for byte with the
-/// export shader, within 1 code with the display variants (8-bit dither),
-/// `REGION_NOISE_MARGIN` inside the region's cut edges. Rendered as an
+/// export shader, within 1 code with the display variants (8-bit dither;
+/// 2 where the device's 8-bit store may round to the farther code,
+/// [`unorm8_store_slack`]), `REGION_NOISE_MARGIN` inside the region's cut
+/// edges. Rendered as an
 /// image of its own it differed by up to 8–26 codes
 /// with luminance noise reduction (NRR1; numbers in NRR2's report).
 #[test]
 #[ignore = "requires a native GPU"]
 fn regions_render_as_windows_of_the_whole_photograph() {
     let context = context();
+    let dither_bound = 1 + unorm8_store_slack(&context);
     let (fw, fh) = (2400, 1800);
     let image = ramped_chroma_noise_frame(fw, fh);
     let inset = REGION_NOISE_MARGIN;
@@ -20065,21 +20140,27 @@ fn regions_render_as_windows_of_the_whole_photograph() {
                     ReadbackShader::Display,
                 );
             }
-            let (d_max, d_p99, d_mean) =
-                region_differences(&whole_display, &display_region, (x, y), inset);
+            let (d_max, d_p99, d_mean, d_share) =
+                region_difference_stats(&whole_display, &display_region, (x, y), inset);
             println!(
-                "{name}: region {x},{y} {w}x{h}: window max {max} p99 {p99} mean {mean:.3}; display window max {d_max} p99 {d_p99} mean {d_mean:.3}; own image max {own_max} p99 {own_p99} mean {own_mean:.3}"
+                "{name}: region {x},{y} {w}x{h}: window max {max} p99 {p99} mean {mean:.3}; display window max {d_max} p99 {d_p99} mean {d_mean:.3} beyond 1 code {d_share:.2e}; own image max {own_max} p99 {own_p99} mean {own_mean:.3}"
             );
-            worst.push((name, x, y, max, d_max));
+            worst.push((name, x, y, max, d_max, d_share));
         }
     }
     // Byte for byte with the export shader; the display variants within
-    // 1 code (their 8-bit dither's phase).
+    // 1 code (their 8-bit dither's phase) and the store's slack, used by no
+    // more samples than `STORE_SLACK_SHARE`.
     let failed: Vec<_> = worst
         .iter()
-        .filter(|(.., max, d_max)| *max > 0 || *d_max > 1)
+        .filter(|(.., max, d_max, d_share)| {
+            *max > 0 || *d_max > dither_bound || *d_share > STORE_SLACK_SHARE
+        })
         .collect();
-    assert!(failed.is_empty(), "regions beyond 0 / 1 code: {failed:?}");
+    assert!(
+        failed.is_empty(),
+        "regions beyond 0 / {dither_bound} codes: {failed:?}"
+    );
 }
 
 /// Timing of a 100 % region (1167 x 894, a multi-view cell with its reach)
@@ -20209,7 +20290,9 @@ fn spotted_frame(width: u32, height: u32) -> DynamicImage {
 /// Regions cut with the render's reach of real pixels around what is shown
 /// (`region_reach`) render as the whole photograph's pixels up to the shown
 /// part's edges, with and without a noise reduction: byte for byte with the
-/// export shader, within 1 code with the display variants; Light flare with
+/// export shader, within 1 code with the display variants (2 where the
+/// device's 8-bit store may round to the farther code,
+/// [`unorm8_store_slack`]); Light flare with
 /// the whole photograph's samples (`whole_flare_samples`). Cut at what is
 /// shown (before NRR3, without a noise reduction), the pixels near the cut
 /// read repeated edge pixels (numbers in NRR3's report).
@@ -20217,6 +20300,7 @@ fn spotted_frame(width: u32, height: u32) -> DynamicImage {
 #[ignore = "requires a native GPU"]
 fn regions_with_the_render_reach_match_the_whole_photograph_to_their_edges() {
     let context = context();
+    let dither_bound = 1 + unorm8_store_slack(&context);
     let (fw, fh) = (2400, 1800);
     let image = spotted_frame(fw, fh);
     let flare = Arc::new(whole_flare_samples(&image, (fw, fh)));
@@ -20290,7 +20374,8 @@ fn regions_with_the_render_reach_match_the_whole_photograph_to_their_edges() {
             assert_eq!(region.dimensions(), (w, h));
             let (max, p99, mean) = region_differences(&whole, &region, (x, y), 0);
             let display = render(ReadbackShader::Display);
-            let (d_max, d_p99, d_mean) = region_differences(&whole_display, &display, (x, y), 0);
+            let (d_max, d_p99, d_mean, d_share) =
+                region_difference_stats(&whole_display, &display, (x, y), 0);
             // Before: cut at what is shown (NR off) or with 160 px (NR
             // on); flare gathered from the cut.
             let before_reach = if measured.is_some() {
@@ -20311,14 +20396,17 @@ fn regions_with_the_render_reach_match_the_whole_photograph_to_their_edges() {
             );
             let (b_max, b_p99, b_mean) = region_differences(&whole, &before, (x, y), 0);
             println!(
-                "{name}: shown {x},{y} {w}x{h}, reach {reach}, cut {cx},{cy} {cw}x{ch}: export max {max} p99 {p99} mean {mean:.3}; display max {d_max} p99 {d_p99} mean {d_mean:.3}; before (reach {before_reach}) max {b_max} p99 {b_p99} mean {b_mean:.3}"
+                "{name}: shown {x},{y} {w}x{h}, reach {reach}, cut {cx},{cy} {cw}x{ch}: export max {max} p99 {p99} mean {mean:.3}; display max {d_max} p99 {d_p99} mean {d_mean:.3} beyond 1 code {d_share:.2e}; before (reach {before_reach}) max {b_max} p99 {b_p99} mean {b_mean:.3}"
             );
-            if max > 0 || d_max > 1 {
-                failed.push((name, x, y, max, d_max));
+            if max > 0 || d_max > dither_bound || d_share > STORE_SLACK_SHARE {
+                failed.push((name, x, y, max, d_max, d_share));
             }
         }
     }
-    assert!(failed.is_empty(), "regions beyond 0 / 1 code: {failed:?}");
+    assert!(
+        failed.is_empty(),
+        "regions beyond 0 / {dither_bound} codes: {failed:?}"
+    );
 }
 
 /// Display cost of a 100 % multi-view region (1167 x 894 shown with
@@ -25961,6 +26049,17 @@ fn color_range_probe_stores_the_unclipped_colour_entering_each_colour_editor_and
             );
         }
     };
+    // The layer's mask covers 0.5 (exact in the half-float mask texture),
+    // which lies halfway between the 8-bit codes 127 and 128: the store may
+    // give either (Vulkan stores one of the two nearest codes and NVIDIA
+    // gives 127, Metal 128), so the probe's influence is one of those two.
+    let at_half_coverage = |influence: f64| {
+        let code = influence * 255.0;
+        assert!(
+            (code - code.round()).abs() < 1e-9 && (code - 127.5).abs() <= 0.5 + 1e-9,
+            "influence {influence}"
+        );
+    };
     // The photo's ranges: their input whatever they do (a strong
     // desaturation and turn change nothing), unclipped beyond sRGB.
     let plain = probe(json!({}), 0, display).expect("display variants hold the probe");
@@ -25979,10 +26078,7 @@ fn color_range_probe_stores_the_unclipped_colour_entering_each_colour_editor_and
         json!({"colorRanges": [range(80, -60)], "masks": [layer(json!([range(-40, 50)]))]});
     let at_layer = probe(layered.clone(), 1, display).unwrap();
     let (colour, influence) = at_layer[0];
-    assert!(
-        (influence - 128.0 / 255.0).abs() < 1e-9,
-        "influence {influence}"
-    );
+    at_half_coverage(influence);
     close(
         colour,
         export(json!({"colorRanges": [range(80, -60)]})),
@@ -26001,10 +26097,7 @@ fn color_range_probe_stores_the_unclipped_colour_entering_each_colour_editor_and
     upper["id"] = json!("U");
     let stacked = json!({"colorRanges": [range(80, -60)], "masks": [lower.clone(), upper]});
     let (colour, influence) = probe(stacked, 2, display).unwrap()[0];
-    assert!(
-        (influence - 128.0 / 255.0).abs() < 1e-9,
-        "influence {influence}"
-    );
+    at_half_coverage(influence);
     close(
         colour,
         export(json!({"colorRanges": [range(80, -60)], "masks": [lower]})),
@@ -27990,4 +28083,223 @@ fn drag_terms_in_4x4_blocks_stay_close_and_masked_edges_keep_2x2() {
         mask_edge[1],
         edge_strip[1]
     );
+}
+
+/// The codes the device's `rgba8unorm` storage write gives for
+/// `(code + k / 256) / 255`, codes 0–255 (x) and k 0–255 (y), row-major.
+fn unorm8_store_codes(context: &GpuContext) -> Vec<u8> {
+    let device = &context.device;
+    let source = r#"
+@group(0) @binding(0) var stored: texture_storage_2d<rgba8unorm, write>;
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let v = (f32(id.x) + f32(id.y) / 256.0) / 255.0;
+    textureStore(stored, id.xy, vec4<f32>(v, v, v, 1.0));
+}
+"#;
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("unorm8 store probe"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let size = wgpu::Extent3d {
+        width: 256,
+        height: 256,
+        depth_or_array_layers: 1,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("unorm8 store probe"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("unorm8 store probe"),
+        layout: None,
+        module: &module,
+        entry_point: Some("main"),
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("unorm8 store probe"),
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&texture.create_view(&Default::default())),
+        }],
+    });
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("unorm8 store probe"),
+        size: 256 * 256 * 4,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(32, 32, 1);
+    }
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(256 * 4),
+                rows_per_image: None,
+            },
+        },
+        size,
+    );
+    context.queue.submit([encoder.finish()]);
+    buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, |result| result.unwrap());
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let bytes = buffer.slice(..).get_mapped_range().unwrap();
+    bytes.iter().step_by(4).copied().collect()
+}
+
+/// How many codes beyond the nearest the device's 8-bit storage write may
+/// round: 0 when it rounds every value of [`unorm8_store_codes`] to the
+/// nearest code, 1 when it gives the farther of the two nearest codes for
+/// some (Vulkan allows either; an RTX 3080 on Vulkan rounds up only from
+/// 0.50–0.56 of a code depending on the code, 1905 of these 65025 values).
+/// Two dithered renders of the same values (dither within half a code each
+/// way) then differ by up to 1 + this many codes.
+fn unorm8_store_slack(context: &GpuContext) -> i32 {
+    let codes = unorm8_store_codes(context);
+    let farther = (0..256u32)
+        .flat_map(|k| (0..255u32).map(move |code| (code, k)))
+        .any(|(code, k)| {
+            // Ties (k = 128) may round either way under any rule.
+            let nearest = code + u32::from(k > 128);
+            k != 128 && u32::from(codes[(k * 256 + code) as usize]) != nearest
+        });
+    i32::from(farther)
+}
+
+/// The device's 8-bit storage write gives one of the two codes nearest to a
+/// value and a code's own value exactly, as Vulkan, Metal and D3D require;
+/// the region tests' display bounds rest on that.
+#[test]
+#[ignore = "requires a native GPU"]
+fn unorm8_stores_give_one_of_the_two_nearest_codes() {
+    let context = context();
+    let codes = unorm8_store_codes(&context);
+    let mut farther = 0;
+    for k in 0..256u32 {
+        for code in 0..256u32 {
+            let got = u32::from(codes[(k * 256 + code) as usize]);
+            if k == 0 || code == 255 {
+                assert_eq!(got, code, "code {code} + {k}/256 stored as {got}");
+                continue;
+            }
+            assert!(
+                got == code || got == code + 1,
+                "code {code} + {k}/256 stored as {got}"
+            );
+            if k != 128 && got != code + u32::from(k > 128) {
+                farther += 1;
+            }
+        }
+    }
+    println!(
+        "values stored as the farther code: {farther} of {}; slack {}",
+        255 * 255,
+        unorm8_store_slack(&context)
+    );
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Shadows of tone version 21 against version 20 on a ramp and a grating"]
+fn tone_version_21_shadows_moves_at_camera_raws_pace() {
+    let context = context();
+    // 1080 rows: the blurs at their reference size.
+    let (width, height) = (1024u32, 1080u32);
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    let grating = grey_texture(&context, width, height, &shadows_v20_grating(width, height));
+    let ramp = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let render_version = new_edit_render_version();
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe["renderVersion"] = json!(render_version);
+        recipe
+    };
+    for view in [&grating, &ramp] {
+        for look in [(3, 2.0), (0, 2.0)] {
+            let render = |recipe: &serde_json::Value, version: u64| {
+                render_raw_look(
+                    &processor,
+                    view,
+                    (width, height),
+                    &with(recipe, version),
+                    look,
+                )
+            };
+            // Without raised Shadows, and at +100, version 21 renders as 20.
+            for recipe in [
+                json!({}),
+                json!({ "shadows": -60 }),
+                json!({ "shadows": 100 }),
+                json!({ "shadows": 100, "blacks": 30, "whites": -40, "contrast": 20 }),
+            ] {
+                assert!(
+                    render(&recipe, 20) == render(&recipe, 21),
+                    "{recipe} under {look:?} differs"
+                );
+            }
+            // Raised Shadows travel: version 21's +25 / +50 / +75 are
+            // version 20's +35.4 / +61 / +83 (`shadows_amount_v21`).
+            for (value, amount) in [(25.0, 35.4), (50.0, 61.0), (75.0, 83.0)] {
+                assert!(
+                    render(&json!({ "shadows": value }), 21)
+                        == render(&json!({ "shadows": amount }), 20),
+                    "Shadows {value} under {look:?}"
+                );
+            }
+        }
+    }
+    // Version 21's +50 lifts the ramp's shadows further than version 20's.
+    let look = (3, 2.0);
+    let render = |shadows: f64, version: u64| {
+        render_raw_look(
+            &processor,
+            &ramp,
+            (width, height),
+            &with(&json!({ "shadows": shadows }), version),
+            look,
+        )
+    };
+    let (old, new, neutral) = (render(50.0, 20), render(50.0, 21), render(0.0, 21));
+    let row = (height / 2 * width) as usize;
+    let (mut lifted, mut darker) = (0, 0);
+    for x in 0..width as usize {
+        let (base, a, b) = (
+            lstar_of_codes(&neutral[row + x]),
+            lstar_of_codes(&old[row + x]),
+            lstar_of_codes(&new[row + x]),
+        );
+        if (10.0..40.0).contains(&base) && b > a + 0.2 {
+            lifted += 1;
+        }
+        if b < a - 0.02 {
+            darker += 1;
+        }
+    }
+    assert!(lifted > 0, "no shadow lifted further");
+    assert_eq!(darker, 0, "columns rendered darker than version 20's +50");
 }

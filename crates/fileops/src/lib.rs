@@ -901,7 +901,8 @@ impl Journal {
             self.seq(id)? > self.barrier()?,
             "The Trash was emptied after this change; it can no longer be undone"
         );
-        for step in &op.steps {
+        let mut vacated = HashSet::new();
+        for step in op.steps.iter().rev() {
             match &step.to {
                 Target::Path { path } => {
                     ensure!(
@@ -910,10 +911,15 @@ impl Journal {
                         path.display()
                     );
                     ensure!(
-                        !exists(&step.from) || same_file(&step.from, path),
+                        !exists(&step.from)
+                            || same_file(&step.from, path)
+                            || vacated.contains(&stored_path(&step.from)),
                         "{} exists again; nothing was undone",
                         step.from.display()
                     );
+                    if path.is_file() {
+                        vacated.insert(stored_path(path));
+                    }
                 }
                 Target::SystemTrash { item } => {
                     let item = item.as_deref().context("Trashed item was not recorded")?;
@@ -1926,9 +1932,19 @@ pub fn refuse_shared_photos(sources: &[PathBuf], registered: &[PathBuf]) -> Resu
     Ok(())
 }
 
+/// Resolve case aliases using the entry's stored spelling. Hard link
+/// names still name different directory entries.
+fn stored_path(path: &Path) -> PathBuf {
+    if fs::symlink_metadata(path).is_ok_and(|meta| meta.is_file()) {
+        return rawtonic_fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    }
+    path.to_path_buf()
+}
+
 fn validate(steps: &[Step]) -> Result<()> {
     let mut sources = HashSet::new();
     let mut targets = HashSet::new();
+    let mut vacated = HashSet::new();
     for step in steps {
         ensure!(
             step.from.is_absolute(),
@@ -1941,6 +1957,11 @@ fn validate(steps: &[Step]) -> Result<()> {
             step.from.display()
         );
         ensure!(exists(&step.from), "{} was not found", step.from.display());
+        ensure!(
+            !targets.contains(&stored_path(&step.from)),
+            "{} would be replaced before it could move",
+            step.from.display()
+        );
         if let Some(path) = step.target() {
             ensure!(
                 path.is_absolute(),
@@ -1948,7 +1969,7 @@ fn validate(steps: &[Step]) -> Result<()> {
                 path.display()
             );
             ensure!(
-                targets.insert(path.to_path_buf()),
+                targets.insert(stored_path(path)),
                 "Two files would be named {}",
                 path.display()
             );
@@ -1964,7 +1985,9 @@ fn validate(steps: &[Step]) -> Result<()> {
                     ensure!(!exists(path), "{} already exists", path.display())
                 }
                 _ => ensure!(
-                    !exists(path) || same_file(&step.from, path),
+                    !exists(path)
+                        || same_file(&step.from, path)
+                        || vacated.contains(&stored_path(path)),
                     "{} already exists",
                     path.display()
                 ),
@@ -1978,6 +2001,14 @@ fn validate(steps: &[Step]) -> Result<()> {
                 );
             }
         }
+        // An ordered rename may make room for another rename (a JPEG's
+        // old stem XMP, then the incoming RAW's). Copy moves require a
+        // free path throughout staging and undo.
+        if matches!(&step.to, Target::Path { .. })
+            && fs::symlink_metadata(&step.from).is_ok_and(|m| m.is_file())
+        {
+            vacated.insert(stored_path(&step.from));
+        }
     }
     // A folder copied to another volume moves on its own: what keeps its
     // published copy (see `unpublish`) need not care for other steps.
@@ -1988,14 +2019,6 @@ fn validate(steps: &[Step]) -> Result<()> {
                 .any(|s| matches!(&s.to, Target::OtherVolume { copy, .. } if copy.folder)),
         "A folder moves to another drive in an operation of its own"
     );
-    // A target that is another step's source would depend on step order.
-    for target in &targets {
-        ensure!(
-            !sources.contains(target),
-            "{} is both moved and replaced in one operation",
-            target.display()
-        );
-    }
     Ok(())
 }
 
@@ -3136,6 +3159,30 @@ mod tests {
         let op = journal.operation(&id).unwrap();
         assert_eq!(op.state, State::RolledBack);
         assert!(op.synced);
+    }
+
+    #[test]
+    fn recovery_restores_both_packets_in_an_ordered_rename() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonical().unwrap();
+        let raw = root.join("source.xmp");
+        let stem = root.join("A.xmp");
+        let full = root.join("A.JPG.xmp");
+        fs::write(&raw, "raw").unwrap();
+        fs::write(&stem, "jpeg").unwrap();
+        let (journal, id) = journal_with(
+            &root,
+            State::Applying,
+            vec![Step::rename(&stem, &full), Step::rename(&raw, &stem)],
+        );
+        // The process was interrupted just after the second rename.
+        rawtonic_fs::rename_no_clobber(&stem, &full).unwrap();
+        rawtonic_fs::rename_no_clobber(&raw, &stem).unwrap();
+        assert!(journal.recover(&NoSystemTrash).unwrap().is_empty());
+        assert_eq!(journal.operation(&id).unwrap().state, State::RolledBack);
+        assert_eq!(fs::read_to_string(&raw).unwrap(), "raw");
+        assert_eq!(fs::read_to_string(&stem).unwrap(), "jpeg");
+        assert!(!full.exists());
     }
 
     #[test]

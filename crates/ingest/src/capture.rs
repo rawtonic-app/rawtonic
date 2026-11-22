@@ -14,6 +14,7 @@
 //! modification time → the time of the import. A rating the camera wrote
 //! into the file (its XMP packet, or the EXIF Rating tag) is the rating
 //! when no sidecar gives one.
+use rawtonic_metadata::sidecars::is_photo_name;
 use rawtonic_naming::{Capture, DateSource};
 use std::{
     collections::HashMap,
@@ -1168,20 +1169,41 @@ pub fn card_sidecar(photo: &Path) -> Result<Option<PathBuf>, String> {
             )),
         }
     };
-    let full = one(&format!("{name}.xmp"))?;
-    if full.is_some() || extension.is_none() {
-        return Ok(full);
+    let ambiguous = || {
+        format!(
+            "An XMP name could belong to two photos beside {}; the packet was not copied",
+            photo.display()
+        )
+    };
+    if let Some(full) = one(&format!("{name}.xmp"))? {
+        let other_photo = folder
+            .stems
+            .get(&name.to_ascii_lowercase())
+            .is_some_and(|stem| stem.has_photo);
+        return if is_photo_name(photo) && other_photo {
+            Err(ambiguous())
+        } else {
+            Ok(Some(full))
+        };
+    }
+    if extension.is_none() {
+        return Ok(None);
     }
     let Some(short) = one(&format!("{stem}.xmp"))? else {
         return Ok(None);
     };
-    if extension.is_some_and(is_developed_image) {
+    if is_photo_name(photo)
+        && is_photo_name(Path::new(stem))
+        && folder.by_name.contains_key(&stem.to_ascii_lowercase())
+    {
+        return Err(ambiguous());
+    }
+    if rawtonic_metadata::sidecars::is_developed(photo) {
         // Another file of its name (not a sidecar) besides itself.
         let named = folder
             .stems
             .get(&stem.to_ascii_lowercase())
-            .copied()
-            .unwrap_or(0);
+            .map_or(0, |stem| stem.count);
         let itself = usize::from(folder.by_name.contains_key(&name.to_ascii_lowercase()));
         if named > itself {
             return Ok(None);
@@ -1196,8 +1218,15 @@ pub fn card_sidecar(photo: &Path) -> Result<Option<PathBuf>, String> {
 struct FolderFiles {
     /// Lower-cased name → the names of that spelling.
     by_name: HashMap<String, Vec<String>>,
-    /// Lower-cased stem → how many files (not `.xmp`) have it.
-    stems: HashMap<String, usize>,
+    /// Lower-cased stem → the files that are not sidecars.
+    stems: HashMap<String, StemFiles>,
+}
+
+#[derive(Default)]
+struct StemFiles {
+    count: usize,
+    /// Only photos can claim an XMP under different naming conventions.
+    has_photo: bool,
 }
 
 type ListedFolders = HashMap<PathBuf, Arc<FolderFiles>>;
@@ -1252,12 +1281,15 @@ fn folder_files(folder: &Path) -> Option<Arc<FolderFiles>> {
             continue;
         };
         let path = Path::new(&name);
-        let sidecar = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("xmp"));
+        let sidecar = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+            ["xmp", "rrdata", "rrexif"]
+                .iter()
+                .any(|ext| e.eq_ignore_ascii_case(ext))
+        });
         if !sidecar && let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-            *files.stems.entry(stem.to_ascii_lowercase()).or_default() += 1;
+            let files = files.stems.entry(stem.to_ascii_lowercase()).or_default();
+            files.count += 1;
+            files.has_photo |= is_photo_name(path);
         }
         files
             .by_name
@@ -2315,6 +2347,17 @@ pub(crate) mod tests {
             None,
             "a folder is no sidecar"
         );
+    }
+
+    #[test]
+    fn an_editor_sidecar_does_not_claim_the_full_name_xmp_on_a_card() {
+        let d = tempfile::tempdir().unwrap();
+        let photo = d.path().join("A.NEF");
+        let packet = d.path().join("A.NEF.xmp");
+        for path in [&photo, &packet, &d.path().join("A.NEF.pp3")] {
+            fs::write(path, b"fixture").unwrap();
+        }
+        assert_eq!(card_sidecar(&photo).unwrap(), Some(packet));
     }
 
     #[test]

@@ -798,7 +798,8 @@ describe('automatic AI masks from imported presets', () => {
       historyIndex: state.history.length
     }));
     await waitFor(() => expect(generated()).toHaveLength(1));
-    expect(generated()[0][1]).toMatchObject({ path: '/s/a.NEF', parts: ['mountains'], download: false });
+    // Without `landscapeVersion` (a selection saved before version 2): 1.
+    expect(generated()[0][1]).toMatchObject({ path: '/s/a.NEF', parts: ['mountains'], version: 1, download: false });
     // A slow answer arrives after the edit settled: no step of its own.
     await act(async () => answer({ maskDataBase64: 'data:image/png;base64,MMMM' }));
     const state = useEditorStore.getState();
@@ -832,7 +833,7 @@ describe('automatic AI masks from imported presets', () => {
     });
     const recipe = (parts: string[]) => ({
       ...structuredClone(INITIAL_ADJUSTMENTS),
-      masks: [layer('ai-landscape', { maskDataBase64: null, parts })] as never
+      masks: [layer('ai-landscape', { maskDataBase64: null, parts, landscapeVersion: 2 })] as never
     });
     useEditorStore.setState({
       selectedImage: { path: '/s/a.NEF', isReady: true, isRaw: true } as never,
@@ -844,6 +845,8 @@ describe('automatic AI masks from imported presets', () => {
         .maskDataBase64;
     const { rerender } = renderHook(() => useAiMasking());
     await waitFor(() => expect(generated()).toHaveLength(1));
+    // At the component's own Landscape version.
+    expect(generated()[0][1]).toMatchObject({ parts: ['water'], version: 2 });
     // Not installed: quiet, and not asked again by other edits.
     act(() => useEditorStore.setState({ adjustments: { ...recipe(['water']), exposure: 0.5 } }));
     rerender();

@@ -2389,9 +2389,9 @@
         "pending_one": "{{count}} fichier XMP peut être réécrit.",
         "pending_many": "{{count}} fichiers XMP peuvent être réécrits.",
         "pending_other": "{{count}} fichiers XMP peuvent être réécrits.",
-        "sharedName_one": "{{count}} photo porte le même nom qu’une autre (deux fichiers RAW, par exemple CR3 et DNG) : les deux écriraient le même fichier XMP.",
-        "sharedName_many": "{{count}} photos portent le même nom qu’une autre (deux fichiers RAW, par exemple CR3 et DNG) : les deux écriraient le même fichier XMP.",
-        "sharedName_other": "{{count}} photos portent le même nom qu’une autre (deux fichiers RAW, par exemple CR3 et DNG) : les deux écriraient le même fichier XMP."
+        "sharedName_one": "{{count}} photo utiliserait le même fichier XMP qu’une autre photo.",
+        "sharedName_many": "{{count}} photos utiliseraient le même fichier XMP qu’une autre photo.",
+        "sharedName_other": "{{count}} photos utiliseraient le même fichier XMP qu’une autre photo."
       },
       "resolved_one": "Conflit XMP résolu pour {{count}} photo",
       "resolved_many": "Conflits XMP résolus pour {{count}} photos",
@@ -5295,6 +5295,7 @@
         "profile": "profil",
         "profileNamed": "profil « {{name}} »",
         "Shadows": "ombres",
+        "shadowsBeyondReach": "ombres au-delà de la portée des Ombres de Rawtonic (réglées sur ±100)",
         "toneCurveMissingPoints": "courbe de tons nommée dans Lightroom mais sans points",
         "upright": "Upright",
         "whiteBalance": "balance des blancs"

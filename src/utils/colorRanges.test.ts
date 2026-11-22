@@ -35,6 +35,7 @@ import {
   type MaskContainer
 } from './adjustments';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -337,10 +338,13 @@ describe('the renderer probe at a pick', () => {
     const range = useEditorStore.getState().adjustments.masks[0].adjustments.colorRanges![0];
     expect(rangePickOf('/a.cr3', 'L1', range)!.input).not.toBeNull();
     // Hidden: no sample, the point stays.
+    const shown = useEditorStore.getState().adjustments;
+    useEditorStore.setState({ adjustments: { ...shown, masks: shown.masks.map((m) => ({ ...m, visible: false })) } });
     shows(null);
     expect(await rangeInputFor('/a.cr3', 'L1', range)).toBeNull();
     expect(rangePickOf('/a.cr3', 'L1', range)).toMatchObject({ point: [0.4, 0.6], input: null });
     // Shown again: the next sample at the same point.
+    useEditorStore.setState({ adjustments: shown });
     probeWith(0.25);
     expect((await rangeInputFor('/a.cr3', 'L1', range))!.influence[0]).toBe(0.25);
     expect(invoke).toHaveBeenLastCalledWith(
@@ -348,6 +352,42 @@ describe('the renderer probe at a pick', () => {
       expect.objectContaining({ normalizedX: 0.4, normalizedY: 0.6, layer: 'L1' })
     );
     expect(rangePickOf('/a.cr3', 'L1', range)!.input!.influence[0]).toBe(0.25);
+  });
+
+  it('keeps the sample while nothing before the ranges changes, and takes it again after such an edit', async () => {
+    probeWith(1);
+    await pickColorRange('/a.cr3', 'new', 0.4, 0.6);
+    const probes = () => vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.SampleColorRangeInput).length;
+    expect(probes()).toBe(1);
+    const state = useEditorStore.getState();
+    const range = state.adjustments.colorRanges![0];
+    // The range's own shifts and another range: no new probe.
+    const shifted = { ...range, hueShift: 30, saturation: -20 };
+    useEditorStore.setState({
+      adjustments: { ...state.adjustments, colorRanges: [shifted, newColorRange(100, 0.1, 0.5)] }
+    });
+    expect(await rangeInputFor('/a.cr3', null, shifted)).toBe(rangePickOf('/a.cr3', null, shifted)!.input);
+    expect(probes()).toBe(1);
+    // An edit before the ranges (exposure): sampled again.
+    useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, exposure: 1 } });
+    probeWith(0.5);
+    expect((await rangeInputFor('/a.cr3', null, shifted))!.influence[0]).toBe(0.5);
+    expect(probes()).toBe(2);
+    // …and kept for that recipe.
+    await rangeInputFor('/a.cr3', null, shifted);
+    expect(probes()).toBe(2);
+    // A setting the renderer applies on top of the recipe (Preferences'
+    // tone mapper override) and a new source (a reload, a new decode): sampled again.
+    const settings = useSettingsStore.getState().appSettings;
+    useSettingsStore.setState({ appSettings: { ...(settings ?? {}), tonemapperOverrideEnabled: true } as never });
+    await rangeInputFor('/a.cr3', null, shifted);
+    expect(probes()).toBe(3);
+    useEditorStore.setState({ selectedImage: { ...photo } });
+    await rangeInputFor('/a.cr3', null, shifted);
+    expect(probes()).toBe(4);
+    await rangeInputFor('/a.cr3', null, shifted);
+    expect(probes()).toBe(4);
+    useSettingsStore.setState({ appSettings: settings });
   });
 
   it('solves a target on a feathered layer at the mask influence of the pick', async () => {

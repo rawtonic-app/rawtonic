@@ -5766,7 +5766,7 @@ fn get_global_adjustments_resolved(
         brightness: tone.brightness.get() as f32 / SCALES.brightness,
         contrast: tone.contrast.get() as f32 / SCALES.contrast,
         highlights: tone.highlights.get() as f32 / SCALES.highlights,
-        shadows: tone.shadows.get() as f32 / SCALES.shadows,
+        shadows: versions.tone.shadows_amount(tone.shadows.get()) as f32 / SCALES.shadows,
         whites: versions.tone.whites_amount(tone.whites.get()) as f32 / SCALES.whites,
         blacks: tone.blacks.get() as f32 / SCALES.blacks,
 
@@ -7058,9 +7058,11 @@ fn get_all_adjustments_with_locals<'a>(
         // A layer's Structure follows the photo's Structure travel.
         mask_adjustments[i].structure =
             versions.structure.amount(local.structure.get()) as f32 / SCALES.structure;
-        // A layer's Whites follow the photo's Whites travel.
+        // A layer's Whites and Shadows follow the photo's travel.
         mask_adjustments[i].whites =
             versions.tone.whites_amount(local.whites.get()) as f32 / SCALES.whites;
+        mask_adjustments[i].shadows =
+            versions.tone.shadows_amount(local.shadows.get()) as f32 / SCALES.shadows;
         // A layer's Blacks follow the photo's Blacks travel.
         if blacks_set_the_black_point(&global) {
             mask_adjustments[i].blacks =
@@ -8160,9 +8162,15 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// +100, where Camera Raw and Capture One lift them < 0.1 L*) and a
 /// brighter pixel in the same surroundings is never rendered darker
 /// (notes: benchmark-results/shg1-2026-11-18, shg2-2026-11-20).
+/// 21 (2026-11-22) moves raised Shadows at Camera Raw's pace: version 20's
+/// +50 lifted the darkest quarter 4.0 L* where Camera Raw's Shadows +50
+/// lifts it 5.7 (median, slider atlas), while +100 already matched (14.4
+/// against 14.3); the slider now maps +25 / +50 / +75 to version 20's
+/// +35.4 / +61 / +83 and keeps +100 (`shadows_amount_v21`; notes:
+/// benchmark-results/shg4-2026-11-22).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 20;
+pub const TONE_VERSION: u64 = 21;
 
 /// Whites up to tone version 16: the slider value is the amount.
 pub fn whites_amount_v1(value: f64) -> f64 {
@@ -8216,6 +8224,65 @@ pub fn whites_value_v17(amount: f64) -> f64 {
     let value = 0.5 * (lo + hi);
     let rounded = (value * 1e6).round() / 1e6;
     if (whites_amount_v17(rounded) - target).abs() <= 1e-9 {
+        rounded
+    } else {
+        value
+    }
+}
+
+/// Shadows from tone version 21: lowered Shadows as before; raised Shadows
+/// through a monotone cubic (Hermite) through (0, 0), (25, 35.4),
+/// (50, 61), (75, 83), (100, 100) with the slopes of a monotone fit (1.61,
+/// 1.19, 0.95, 0.77, 0.58), so the slider has no kink and keeps version
+/// 20's +100. The knots are the version-20 Shadows whose lift of the
+/// darkest quarter (median over 24 of the slider atlas's 48 frames, the
+/// even rows of its sources) equals Camera Raw's Shadows +25 / +50 / +75;
+/// on the other 24 frames they land at 1.08 / 1.00 / 1.04 times Camera
+/// Raw's lift (notes: benchmark-results/shg4-2026-11-22).
+pub fn shadows_amount_v21(value: f64) -> f64 {
+    const KNOTS: [(f64, f64, f64); 5] = [
+        (0.0, 0.0, 1.61),
+        (25.0, 35.4, 1.19),
+        (50.0, 61.0, 0.95),
+        (75.0, 83.0, 0.77),
+        (100.0, 100.0, 0.58),
+    ];
+    if value <= 0.0 {
+        return value;
+    }
+    let v = value.min(100.0);
+    let i = ((v / 25.0) as usize).min(3);
+    let ((x0, y0, m0), (x1, y1, m1)) = (KNOTS[i], KNOTS[i + 1]);
+    let h = x1 - x0;
+    let t = (v - x0) / h;
+    let (t2, t3) = (t * t, t * t * t);
+    (2.0 * t3 - 3.0 * t2 + 1.0) * y0
+        + (t3 - 2.0 * t2 + t) * h * m0
+        + (-2.0 * t3 + 3.0 * t2) * y1
+        + (t3 - t2) * h * m1
+}
+
+/// The version-21 Shadows slider value that renders `amount` (the inverse of
+/// [`shadows_amount_v21`], a monotone bijection of 0..=100; lowered Shadows
+/// unchanged), to 1e-9 of a slider step.
+pub fn shadows_value_v21(amount: f64) -> f64 {
+    if amount <= 0.0 {
+        return amount;
+    }
+    let target = amount.min(100.0);
+    let (mut lo, mut hi) = (0.0, 100.0);
+    for _ in 0..64 {
+        let mid = 0.5 * (lo + hi);
+        if shadows_amount_v21(mid) < target {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    // A slider value copied back onto its own response comes back exactly.
+    let value = 0.5 * (lo + hi);
+    let rounded = (value * 1e6).round() / 1e6;
+    if (shadows_amount_v21(rounded) - target).abs() <= 1e-9 {
         rounded
     } else {
         value
@@ -8295,11 +8362,12 @@ fn blacks_set_the_black_point(global: &GlobalAdjustments) -> bool {
 }
 
 /// Settings that travel between photographs (copy, presets, Edit all
-/// selected) without their own `toneVersion` carry Whites as the amount they
-/// render (version 16's slider value; presets from before version 17 are
-/// that already). `destination` is the photograph's recipe: its own and its
-/// layers' Whites in `pasted` are re-expressed in its tone-slider response,
-/// so the paste changes no photo-wide key and renders the copied amount.
+/// selected) without their own `toneVersion` carry Whites and Shadows as
+/// the amount they render (version 16's / version 20's slider value;
+/// presets from before versions 17 / 21 are that already). `destination` is
+/// the photograph's recipe: its own and its layers' Whites and Shadows in
+/// `pasted` are re-expressed in its tone-slider response, so the paste
+/// changes no photo-wide key and renders the copied amount.
 pub fn express_pasted_whites(pasted: &mut serde_json::Value, destination: &serde_json::Value) {
     let tone = crate::recipe_versions::ToneVersion::of(destination);
     let Some(map) = pasted.as_object_mut() else {
@@ -8309,6 +8377,31 @@ pub fn express_pasted_whites(pasted: &mut serde_json::Value, destination: &serde
         return;
     }
     express_slider(map, "whites", |amount| tone.whites_value(amount));
+    express_slider(map, "shadows", |amount| tone.shadows_value(amount));
+}
+
+/// A recipe whose own and layers' Shadows are amounts (version 20's slider
+/// value, as carried settings and Capture One's translated Shadow hold them)
+/// with them re-expressed as the slider values of its own tone version.
+pub fn express_shadows_amounts(recipe: &mut serde_json::Value) {
+    let tone = crate::recipe_versions::ToneVersion::of(recipe);
+    if let Some(map) = recipe.as_object_mut() {
+        express_slider(map, "shadows", |amount| tone.shadows_value(amount));
+    }
+}
+
+/// Settings whose own and layers' Shadows are slider values of tone version
+/// `tone` (another editor's preset, whose Shadows move at that version's
+/// pace) with them as the amounts carried settings hold (version 20's slider
+/// value). Applied to an edit of version 20 or later they render as that
+/// slider value does at `tone`; older edits keep the amount and render it
+/// with their own Shadows response.
+pub fn shadows_as_amounts(settings: &mut serde_json::Value, tone: u64) {
+    let tone =
+        crate::recipe_versions::ToneVersion::of(&serde_json::json!({ TONE_VERSION_KEY: tone }));
+    if let Some(map) = settings.as_object_mut() {
+        express_slider(map, "shadows", |value| tone.shadows_amount(value));
+    }
 }
 
 /// `map`'s own and its layers' `slider` passed through `express`.
@@ -11666,5 +11759,109 @@ mod temperature_version_tests {
         );
         assert_eq!(uniform(json!({"temperatureVersion": 2})), 0x102);
         assert_eq!(uniform(json!({"tintVersion": 9})) >> 8, TINT_VERSION as u32);
+    }
+}
+
+#[cfg(test)]
+mod shadows_travel_tests {
+    use super::{
+        SCALES, express_pasted_whites, get_all_adjustments_from_json, shadows_amount_v21,
+        shadows_value_v21,
+    };
+    use serde_json::json;
+
+    fn amounts(shadows: f64, tone: Option<u64>) -> (f32, f32) {
+        let mut recipe = json!({
+            "shadows": shadows,
+            "masks": [{"id": "m", "name": "m", "visible": true, "invert": false, "opacity": 100,
+                       "subMasks": [{"id": "s", "type": "all", "mode": "additive", "visible": true, "invert": false, "opacity": 100, "parameters": {}}],
+                       "adjustments": {"shadows": shadows}}]
+        });
+        if let Some(v) = tone {
+            recipe["toneVersion"] = json!(v);
+        }
+        let prepared = get_all_adjustments_from_json(&recipe, true, None);
+        (
+            prepared.global.shadows,
+            prepared.mask_adjustments[0].shadows,
+        )
+    }
+
+    #[test]
+    fn tone_versions_before_21_keep_the_slider_value_as_amount() {
+        for tone in [None, Some(13), Some(19), Some(20)] {
+            for shadows in [-60.0, 25.0, 50.0, 100.0] {
+                let (global, layer) = amounts(shadows, tone);
+                assert_eq!(
+                    global.to_bits(),
+                    (shadows as f32 / SCALES.shadows).to_bits()
+                );
+                assert_eq!(layer.to_bits(), global.to_bits());
+            }
+        }
+    }
+
+    #[test]
+    fn version_21_moves_raised_shadows_at_camera_raws_pace() {
+        // Version 20's Shadows that lift the darkest quarter as Camera Raw's
+        // +25 / +50 / +75 do (notes: benchmark-results/shg4-2026-11-22);
+        // +100 stays where it was.
+        for (value, amount) in [
+            (25.0, 35.4),
+            (50.0, 61.0),
+            (75.0, 83.0),
+            (100.0, 100.0),
+            (150.0, 100.0),
+            (-60.0, -60.0),
+            (0.0, 0.0),
+        ] {
+            assert!((shadows_amount_v21(value) - amount).abs() < 1e-9, "{value}");
+            let (global, layer) = amounts(value, Some(21));
+            assert_eq!(global.to_bits(), (amount as f32 / SCALES.shadows).to_bits());
+            assert_eq!(layer.to_bits(), global.to_bits());
+        }
+        // Rises over the whole raised range, ahead of version 20, without a
+        // dead end.
+        let mut last = 0.0;
+        for i in 1..=100 {
+            let value = f64::from(i);
+            let next = shadows_amount_v21(value);
+            assert!(next > last + 0.5, "{i}");
+            assert!(i == 100 || next > value, "{i}");
+            last = next;
+        }
+    }
+
+    #[test]
+    fn a_copied_shadows_amount_comes_back_as_the_slider_value_it_was() {
+        for value in -100..=100 {
+            let value = f64::from(value);
+            assert_eq!(
+                shadows_value_v21(shadows_amount_v21(value)),
+                value,
+                "{value}"
+            );
+        }
+        assert!((shadows_amount_v21(shadows_value_v21(90.0)) - 90.0).abs() < 1e-9);
+        assert_eq!(shadows_value_v21(61.0), 50.0);
+    }
+
+    #[test]
+    fn pasted_shadows_are_expressed_in_the_destinations_response() {
+        let pasted = || json!({"shadows": 61.0, "masks": [{"adjustments": {"shadows": 61.0}}, {"adjustments": {}}]});
+        let mut onto_21 = pasted();
+        express_pasted_whites(&mut onto_21, &json!({"toneVersion": 21}));
+        assert_eq!(onto_21["shadows"], 50.0);
+        assert_eq!(onto_21["masks"][0]["adjustments"]["shadows"], 50.0);
+        assert_eq!(onto_21["masks"][1]["adjustments"], json!({}));
+        for destination in [json!({}), json!({"toneVersion": 20})] {
+            let mut onto = pasted();
+            express_pasted_whites(&mut onto, &destination);
+            assert_eq!(onto, pasted(), "{destination}");
+        }
+        // Settings that name their tone version keep its values.
+        let mut named = json!({"shadows": 61.0, "toneVersion": 20});
+        express_pasted_whites(&mut named, &json!({"toneVersion": 21}));
+        assert_eq!(named["shadows"], 61.0);
     }
 }

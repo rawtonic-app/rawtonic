@@ -117,7 +117,9 @@ pub fn sync_metadata_to_xmp(source_path: &Path, metadata: &ImageMetadata, create
     if crate::session_bridge::is_managed_source(source_path) {
         return;
     }
-    let path = rawtonic_metadata::sidecar_path(source_path);
+    let Some(path) = rawtonic_metadata::sidecar_path(source_path) else {
+        return;
+    };
     if !path.exists() && !create_if_missing {
         return;
     }

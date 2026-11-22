@@ -2164,7 +2164,7 @@
         "failed_other": "{{count}} 件の XMP ファイルを書き込めませんでした: {{error}}",
         "offline_other": "{{count}} 枚の写真がオフラインです。ドライブを再接続すると XMP ファイルが更新されます。",
         "pending_other": "{{count}} 件の XMP ファイルを再度書き込めます。",
-        "sharedName_other": "{{count}} 枚の写真がほかの写真と同じ名前です (CR3 と DNG など 2 つの RAW ファイル)。両方が同じ XMP ファイルに書き込むことになります。"
+        "sharedName_other": "{{count}} 枚の写真が、別の写真と同じ XMP ファイルを使用することになります。"
       },
       "resolved_other": "{{count}} 枚の写真の XMP の競合を解決しました",
       "retry": "再試行",
@@ -4947,6 +4947,7 @@
         "profile": "プロファイル",
         "profileNamed": "プロファイル「{{name}}」",
         "Shadows": "シャドウ",
+        "shadowsBeyondReach": "Rawtonic のシャドウの範囲を超えるシャドウ（±100 に設定）",
         "toneCurveMissingPoints": "Lightroom で名前だけのトーンカーブ（ポイントなし）",
         "upright": "Upright",
         "whiteBalance": "ホワイトバランス"

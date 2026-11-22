@@ -1358,8 +1358,7 @@ pub async fn sample_levels_input(
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("sample_levels_input");
         let recipe = levels_input_probe(&adjustments);
-        // A pair from two different renders (the source or shader changed
-        // between them) fails the checksum: sampled again.
+        // Re-sample if the bytes fail their consistency check.
         for _ in 0..3 {
             let Some(images) = render_probes(
                 &app_handle,
@@ -1906,7 +1905,7 @@ fn render_probe(
 }
 
 /// [`render_probe`] for each of `outputs`, all from the same preview base
-/// and masks (the Levels pickers' two byte renders pair up). The pickers'
+/// and masks. Paired renders also pin their first preview pipeline. The pickers'
 /// renders (`sample_levels_input`) take the base the last preview frame
 /// rendered from when that was one with its colour noise reduction
 /// applied at full resolution (`color_noise_view::shown_corrected_base`),
@@ -2005,6 +2004,8 @@ fn render_probes(
         transform_hash = hasher.finish();
         base = corrected;
     }
+    let pipeline_pin = gpu_processing::PreviewPipelinePin::default();
+    let pipeline_pin = (outputs.len() > 1).then_some(&pipeline_pin);
     outputs
         .iter()
         .map(|output| {
@@ -2023,6 +2024,7 @@ fn render_probes(
                     roi,
                 },
                 caller_id,
+                pipeline_pin,
             )
         })
         .collect::<Result<Vec<_>, _>>()

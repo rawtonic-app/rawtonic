@@ -178,6 +178,7 @@ pub async fn generate_ai_landscape_mask(
     js_adjustments: serde_json::Value,
     path: String,
     parts: Vec<String>,
+    version: Option<u32>,
     download: Option<bool>,
     rotation: f32,
     flip_horizontal: bool,
@@ -217,7 +218,9 @@ pub async fn generate_ai_landscape_mask(
     // took ~50 ms to make and ~80 ms to decode for each part.
     let size = run.size;
     let data = tokio::task::spawn_blocking(move || {
-        let mask = rawtonic_segment::landscape_mask_grid(&run.probabilities, &parts);
+        // Absent: version 1, as a component without `landscapeVersion`.
+        let mask =
+            rawtonic_segment::landscape_mask_grid(&run.probabilities, &parts, version.unwrap_or(1));
         encode_to_base64_png(&mask)
     })
     .await
@@ -1357,7 +1360,9 @@ impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> 
         let ai_state = self.app_handle.state::<AiState>();
         let sets = sets
             .iter()
-            .map(|set| rawtonic_segment::landscape_parts(&set.keys()))
+            .map(|set| {
+                rawtonic_segment::landscape_parts(&set.keys()).map(|parts| (parts, set.version))
+            })
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
         ai_state.lifecycle.touch();
@@ -1380,10 +1385,11 @@ impl rawtonic_engine::ai_selections::SelectionDetector for ExportSelections<'_> 
             started.elapsed().as_millis()
         );
         sets.iter()
-            .map(|parts| {
+            .map(|(parts, version)| {
                 encode_to_base64_png(&rawtonic_segment::landscape_mask_grid(
                     &probabilities,
                     parts,
+                    *version,
                 ))
             })
             .collect()

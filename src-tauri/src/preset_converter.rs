@@ -1777,7 +1777,8 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                         Some(part) => (
                             "ai-landscape",
                             json!({masks::MASK_DATA_BASE64.into_name(): null,
-                                masks::PARTS.name(): [part], "grow": 0, "feather": 0}),
+                                masks::PARTS.name(): [part], "grow": 0, "feather": 0,
+                                "landscapeVersion": rawtonic_segment::LANDSCAPE_VERSION}),
                         ),
                         None => {
                             supported = false;
@@ -2739,6 +2740,12 @@ mod tests {
                     assert_eq!(sub["type"], "ai-landscape", "{sub}");
                     // Detected for the photo when it is opened or exported.
                     assert!(sub["parameters"]["maskDataBase64"].is_null(), "{sub}");
+                    // A new edit: the current Landscape mask.
+                    assert_eq!(
+                        sub["parameters"]["landscapeVersion"],
+                        rawtonic_segment::LANDSCAPE_VERSION,
+                        "{sub}"
+                    );
                     (
                         sub["mode"].as_str().unwrap().to_string(),
                         sub["parameters"]["parts"].clone(),

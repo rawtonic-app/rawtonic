@@ -2256,8 +2256,8 @@
         "offline_other": "{{count}} Fotos sind offline. Ihre XMP-Dateien werden aktualisiert, sobald das Laufwerk wieder verbunden ist.",
         "pending_one": "{{count}} XMP-Datei kann erneut geschrieben werden.",
         "pending_other": "{{count}} XMP-Dateien können erneut geschrieben werden.",
-        "sharedName_one": "{{count}} Foto heißt genauso wie ein anderes (zwei RAW-Dateien, etwa CR3 und DNG), daher würden beide dieselbe XMP-Datei schreiben.",
-        "sharedName_other": "{{count}} Fotos heißen genauso wie ein anderes (zwei RAW-Dateien, etwa CR3 und DNG), daher würden beide dieselbe XMP-Datei schreiben."
+        "sharedName_one": "{{count}} Foto würde dieselbe XMP-Datei wie ein anderes Foto verwenden.",
+        "sharedName_other": "{{count}} Fotos würden jeweils dieselbe XMP-Datei wie ein anderes Foto verwenden."
       },
       "resolved_one": "XMP-Konflikt für {{count}} Foto gelöst",
       "resolved_other": "XMP-Konflikte für {{count}} Fotos gelöst",
@@ -5086,6 +5086,7 @@
         "profile": "Profil",
         "profileNamed": "Profil „{{name}}“",
         "Shadows": "Tiefen",
+        "shadowsBeyondReach": "Tiefen über die Reichweite von Rawtonics Tiefen hinaus (auf ±100 gesetzt)",
         "toneCurveMissingPoints": "Gradationskurve in Lightroom benannt, aber ohne Punkte",
         "upright": "Upright",
         "whiteBalance": "Weißabgleich"

@@ -14,7 +14,8 @@ import {
   GRAIN_VERSION,
   INITIAL_ADJUSTMENTS,
   initialAdjustmentsFor,
-  normalizeLoadedAdjustments
+  normalizeLoadedAdjustments,
+  TONE_VERSION
 } from '../../utils/adjustments';
 import { Panel, type AppSettings, type SelectedImage } from '../ui/AppProperties';
 import { Mask, SubMaskMode } from '../panel/right/Masks';
@@ -1932,6 +1933,69 @@ describe('Group reset', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset Exposure' }));
     expect(adjustments().masks[0].adjustments.brightness).toBe(0);
     expect(historyStepName(step(), i18n.t.bind(i18n))).toBe('Reset Exposure');
+  });
+
+  it("the photo's Exposure reset takes a new edit's tone version and keeps its layers' Whites and Shadows", () => {
+    const layerOf = (adjustments: Record<string, number>) => ({
+      ...structuredClone(INITIAL_MASK_CONTAINER),
+      id: 'l',
+      name: 'l',
+      subMasks: [createSubMask(Mask.Linear, { width: 6000, height: 4000 } as SelectedImage)],
+      adjustments: { ...structuredClone(INITIAL_MASK_CONTAINER.adjustments), ...adjustments }
+    });
+    setEdit({ toneVersion: 20, exposure: 0.5, shadows: 30, masks: [layerOf({ shadows: 61, whites: 40 })] });
+    mount();
+    openGroups();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Exposure' }));
+    expect(adjustments().toneVersion).toBe(TONE_VERSION);
+    expect(adjustments().exposure).toBe(0);
+    expect(adjustments().shadows).toBe(0);
+    // Version 20's +61 is version 21's +50; Whites travel alike in 20 and 21.
+    expect(adjustments().masks[0].adjustments.shadows).toBe(50);
+    expect(adjustments().masks[0].adjustments.whites).toBe(40);
+  });
+
+  it("a slider's develop default on an edit of another tone version keeps the default's amount", () => {
+    act(() =>
+      useEditorStore.setState((state) => ({
+        selectedImage: {
+          ...state.selectedImage!,
+          isRaw: true,
+          photoDefaults: {
+            camera: null,
+            resolved: { levels: ['global'], settings: { shadows: 50, toneVersion: TONE_VERSION } }
+          }
+        } as SelectedImage
+      }))
+    );
+    setEdit({ toneVersion: 20, shadows: 10 });
+    mount();
+    openGroups();
+    fireEvent.doubleClick(screen.getByRole('slider', { name: 'Shadows' }));
+    // The new edit's +50 is version 20's +61.
+    expect(adjustments().shadows).toBe(61);
+    expect(adjustments().toneVersion).toBe(20);
+  });
+
+  it("the photo's Exposure reset keeps an older tone version its layers' Shadows render with", () => {
+    const layer = {
+      ...structuredClone(INITIAL_MASK_CONTAINER),
+      id: 'l',
+      name: 'l',
+      subMasks: [createSubMask(Mask.Linear, { width: 6000, height: 4000 } as SelectedImage)],
+      adjustments: { ...structuredClone(INITIAL_MASK_CONTAINER.adjustments), shadows: 60 }
+    };
+    setEdit({ toneVersion: 19, exposure: 0.5, masks: [layer] });
+    mount();
+    openGroups();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Exposure' }));
+    expect(adjustments().exposure).toBe(0);
+    expect(adjustments().toneVersion).toBe(19);
+    expect(adjustments().masks[0].adjustments.shadows).toBe(60);
+    // Without a layer that uses a tone slider it takes a new edit's.
+    setEdit({ toneVersion: 19, exposure: 0.5, masks: [] });
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Exposure' }));
+    expect(adjustments().toneVersion).toBe(TONE_VERSION);
   });
 
   it('a reset of values already at their defaults names no step', async () => {
