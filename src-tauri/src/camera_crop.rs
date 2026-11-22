@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use rawtonic_engine::{camera_crop, formats, source_facts};
+use rawtonic_engine::{camera_crop, develop_defaults, formats, source_facts};
 use serde_json::Value;
 
 use crate::{file_management::is_cloud_placeholder, preview_proxy};
@@ -33,12 +33,32 @@ pub(crate) fn crops(source: &Path) -> Vec<Option<camera_crop::CameraCrop>> {
     }
 }
 
-/// Apply the same crop as Develop when a desktop action starts a new edit.
+/// Prepare the framing of a new recipe for a thumbnail or preview.
 pub(crate) fn apply_default(adjustments: &mut Value, source: &Path) {
     if !rawtonic_engine::image_processing::is_new_recipe(adjustments) {
         return;
     }
+    apply_new_edit(adjustments, source, is_cloud_placeholder(source));
+}
+
+/// Start a saved edit only when its Develop defaults can be resolved.
+pub(crate) fn start_edit(adjustments: &mut Value, source: &Path) -> Result<(), String> {
+    if !rawtonic_engine::image_processing::is_new_recipe(adjustments) {
+        return Ok(());
+    }
     let placeholder = is_cloud_placeholder(source);
+    if placeholder && develop_defaults::follows_defaults(adjustments) && develop_defaults::any_set()
+    {
+        return Err(format!(
+            "{}: original is in the cloud — download it to apply the develop defaults of its first edit",
+            source.display()
+        ));
+    }
+    apply_new_edit(adjustments, source, placeholder);
+    Ok(())
+}
+
+fn apply_new_edit(adjustments: &mut Value, source: &Path, placeholder: bool) {
     camera_crop::apply_default_with(adjustments, source, !placeholder, |is_raw| {
         if is_raw {
             raw_crops(source, placeholder)

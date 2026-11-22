@@ -270,8 +270,8 @@ mod tests {
             Defaults::Render => {
                 let _ = crate::exif_processing::prepare_recipe_lens(&mut recipe, path);
             }
-            Defaults::NewEdit(_) => {
-                rawtonic_engine::camera_crop::apply_default(&mut recipe, path);
+            Defaults::NewEdit(apply_camera_default) => {
+                apply_camera_default(&mut recipe, path);
                 rawtonic_engine::embedded_lens::apply_default(&mut recipe, path);
             }
             Defaults::None => {}

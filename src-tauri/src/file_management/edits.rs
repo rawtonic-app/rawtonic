@@ -756,18 +756,6 @@ fn cloud_gate(
     adjustments: &Value,
     size: Option<(f64, f64)>,
 ) -> Result<(), String> {
-    // The user's develop defaults are looked up by the camera as its file
-    // names it: not known without the file.
-    if rawtonic_engine::develop_defaults::any_set()
-        && rawtonic_engine::image_processing::is_new_recipe(
-            &crate::exif_processing::load_sidecar(&parse_virtual_path(path).1).adjustments,
-        )
-    {
-        return Err(cloud_refusal(
-            path,
-            "the develop defaults of its first edit",
-        ));
-    }
     // A first edit starts with the camera's crop:
     // from what its previews and EXIF cached (`pasted_into_with`); without a
     // cached crop the edit is written and the crop reported as not applied
@@ -851,7 +839,7 @@ fn pasted_into_with(
     // version of the editor's new edit, so the paste renders as on the
     // photo opened first (a pasted crop replaces the crop; pasted versions
     // the photo's: it has nothing else that uses them).
-    crate::camera_crop::apply_default(&mut new_adjustments, source_path);
+    crate::camera_crop::start_edit(&mut new_adjustments, source_path)?;
     // The versions chosen in the picker come with the editor's new edit,
     // which adds those left to the camera's data.
     if new_edit
@@ -1142,7 +1130,7 @@ pub async fn apply_auto_lens_correction_to_paths(
                 let mut existing_metadata =
                     crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
 
-                crate::camera_crop::apply_default(&mut existing_metadata.adjustments, source_path);
+                crate::camera_crop::start_edit(&mut existing_metadata.adjustments, source_path)?;
 
                 if let Some(obj) = existing_metadata.adjustments.as_object_mut() {
                     obj.insert(
@@ -1221,8 +1209,7 @@ pub async fn set_recipe_values(
             |path, source_path, sidecar_path| {
                 let values = by_path.get(path).ok_or("no values")?;
                 let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
-                crate::camera_crop::apply_default(&mut metadata.adjustments, source_path);
-                let old = set_values(&mut metadata.adjustments, values)?;
+                let old = set_photo_values(&mut metadata.adjustments, source_path, values)?;
                 written.lock().unwrap().push(RecipeValues {
                     path: path.to_string(),
                     values: old,
@@ -1243,6 +1230,15 @@ pub async fn set_recipe_values(
         failure,
         unwritten,
     })
+}
+
+fn set_photo_values(
+    recipe: &mut Value,
+    source: &Path,
+    values: &serde_json::Map<String, Value>,
+) -> Result<serde_json::Map<String, Value>, String> {
+    crate::camera_crop::start_edit(recipe, source)?;
+    set_values(recipe, values)
 }
 
 /// Sets `values` in `recipe` (`null` removes a key) and returns the values
@@ -1392,10 +1388,10 @@ pub async fn apply_auto_adjustments_to_paths(
                     // edited or tagged while it was decoded and measured.
                     let _turn = sidecar_field_edit();
                     let mut existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
-                    crate::camera_crop::apply_default(
+                    crate::camera_crop::start_edit(
                         &mut existing_metadata.adjustments,
                         &source_path,
-                    );
+                    )?;
                     let previous = existing_metadata.adjustments.clone();
                     crate::auto_adjust::merge_auto_adjustments(
                         &mut existing_metadata.adjustments,
@@ -4042,6 +4038,54 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn series_match_refuses_a_first_edit_when_cloud_hides_its_develop_defaults() {
+        // The defaults are process-wide, so keep this fixture out of
+        // concurrent tests in a regular cargo test run.
+        const CHILD: &str = "RAWTONIC_CLOUD_SERIES_MATCH_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let test = concat!(
+                "file_management::edits::tests::",
+                "series_match_refuses_a_first_edit_when_cloud_hides_its_develop_defaults"
+            );
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", test])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            return;
+        }
+        rawtonic_engine::develop_defaults::set_current(
+            serde_json::from_value(serde_json::json!({
+                "global": {"settings": {"exposure": 0.5}}
+            }))
+            .unwrap(),
+        );
+        let (_temp, paths) = session_with_photos(1);
+        let (source, _) = parse_virtual_path(&paths[0]);
+        in_cloud(&paths[0]);
+        let mut recipe = Value::Null;
+        let values = serde_json::Map::from_iter([("exposure".into(), serde_json::json!(1.0))]);
+        let error = set_photo_values(&mut recipe, &source, &values).unwrap_err();
+        assert!(error.contains("download it to apply"), "{error}");
+        assert!(recipe.is_null());
+
+        // An edit already has its defaults and can keep working offline.
+        let mut edited = serde_json::json!({"exposure": 0.5, "renderVersion": 5});
+        let old = set_photo_values(&mut edited, &source, &values).unwrap();
+        assert_eq!(old["exposure"], 0.5);
+        assert_eq!(edited["exposure"], 1.0);
+
+        let mut neutral = serde_json::json!({(rawtonic_engine::develop_defaults::KEY): []});
+        set_photo_values(&mut neutral, &source, &values).unwrap();
+        assert_eq!(neutral["exposure"], 1.0);
     }
 
     #[test]

@@ -531,7 +531,10 @@ pub async fn sync_dust_spots(
                 |_, source_path, sidecar_path| {
                     let mut metadata =
                         crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
-                    started_recipe(&mut metadata.adjustments, source_path);
+                    if !metadata.adjustments.is_object() {
+                        metadata.adjustments = serde_json::json!({});
+                    }
+                    crate::camera_crop::start_edit(&mut metadata.adjustments, source_path)?;
                     let bytes = std::fs::read(source_path).map_err(|e| e.to_string())?;
                     let orientation = crate::image_loader::source_orientation(
                         &bytes,
