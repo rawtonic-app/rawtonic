@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.19 — 2026-11-22
+
 The nineteenth alpha. New: a Landscape mask (sky, mountains, water, vegetation, ground and architecture), Eyes and Teeth in the face retouch, a Culling panel in the Library, adaptive presets whose AI layers work on photos you never opened, target colours in the color editor, and signed provenance (C2PA) in exports, off by default. On new edits raised Shadows move at Camera Raw's pace and lowered Whites leave less of a light rim; saved edits keep their Shadows and Whites. Adding a folder to the Library needs about half the memory, the Library and the import dialog read far less of each RAW from a network share, and **Restart now** for an update on Windows no longer stops at "Failed to kill Rawtonic".
 
 ### Highlights
@@ -183,7 +185,6 @@ These are measured shortfalls or open work; they stay open until they are closed
 - **HDR edits from Lightroom** keep their settings but are shown and exported as SDR.
 - **Radeon 680M:** in a render probe on synthetic 1024 × 682 frames (Vulkan), Glow, Halation and film grain together still add +1.27 ms per drag frame, over the +1 ms goal; their cost in the app's own drags was not measured.
 - The known gaps of alpha.18 and earlier that this release does not close remain (closed in this release, for example: photos with AI selections pasted, synced or from a preset now export without being opened in Develop first).
-
 
 ## 0.1.0-alpha.18 — 2026-11-19
 
