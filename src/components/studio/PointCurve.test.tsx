@@ -150,6 +150,29 @@ describe('point curve keyboard', () => {
     expect(useEditorStore.getState().adjustments).toEqual(INITIAL_ADJUSTMENTS);
   });
 
+  it.each([
+    ['point', 'button', /Point 1,/, 'ArrowUp'],
+    ['split handle', 'slider', 'Region curve shadow split', 'ArrowRight']
+  ])('settles a %s nudge after inactivity if key-up is lost', (_kind, role, name, key) => {
+    mountHistory();
+    const control = screen.getByRole(role, { name });
+    act(() => control.focus());
+    fireEvent.keyDown(control, { key });
+    act(() => vi.advanceTimersByTime(1500));
+    fireEvent.keyDown(control, { key, repeat: true });
+    act(() => vi.advanceTimersByTime(1500));
+    const state = useEditorStore.getState;
+    expect(state().historyPending).toBe(true);
+    act(() => vi.advanceTimersByTime(500));
+    expect(state().historyPending).toBe(false);
+    const firstRun = state().adjustments;
+    fireEvent.keyDown(control, { key });
+    act(() => state().undo());
+    expect(state().adjustments).toEqual(firstRun);
+    act(() => state().undo());
+    expect(state().adjustments).toEqual(INITIAL_ADJUSTMENTS);
+  });
+
   it('keeps different controls in separate steps even without a pause', () => {
     mountHistory();
     const first = screen.getByRole('button', { name: /Point 1,/ });
@@ -478,12 +501,13 @@ describe('region curve split handles under the curve (UXR1 D4)', () => {
   describe('a drag against a committed value that lags', () => {
     const setup = () => {
       const onInteraction = vi.fn();
+      const onRegionChange = vi.fn();
       // The parent never updates `region`: the 250 ms draft has not committed.
       const view = render(
         <PointCurve
           curves={INITIAL_ADJUSTMENTS.curves}
           region={region}
-          onRegionChange={() => {}}
+          onRegionChange={onRegionChange}
           onChange={() => {}}
           disabled={false}
           onInteraction={onInteraction}
@@ -493,13 +517,21 @@ describe('region curve split handles under the curve (UXR1 D4)', () => {
       const midtone = stubPointerCapture(handle('Region curve midtone split'));
       fireEvent.pointerDown(midtone, { button: 0, clientX: 127.5, clientY: 265 });
       fireEvent.pointerMove(midtone, { buttons: 1, clientX: 102, clientY: 265 });
-      return { ...view, midtone, onInteraction };
+      return { ...view, midtone, onInteraction, onRegionChange };
     };
 
     it('draws the handle at the pointer, not at the committed value', () => {
       const { midtone } = setup();
       expect(midtone.getAttribute('aria-valuenow')).toBe('40');
       expect(midtone.textContent).toContain('40');
+    });
+
+    it('sends the starting value again when the handle returns before the draft commits', () => {
+      const { midtone, onRegionChange } = setup();
+      fireEvent.pointerMove(midtone, { buttons: 1, clientX: 127.5, clientY: 265 });
+      expect(midtone.getAttribute('aria-valuenow')).toBe('50');
+      fireEvent.pointerUp(midtone);
+      expect(onRegionChange.mock.calls).toEqual([[{ ...region, midtoneSplit: 40 }], [region]]);
     });
 
     it('gives the interaction back on pointercancel', () => {

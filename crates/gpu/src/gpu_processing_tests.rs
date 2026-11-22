@@ -447,6 +447,33 @@ fn shadows_version_20_compiles_only_for_its_recipes() {
 }
 
 #[test]
+fn whites_version_22_compiles_only_for_its_recipes() {
+    let adjustments =
+        |profile: serde_json::Value| get_all_adjustments_from_json(&profile, true, Some(1));
+    let features =
+        |profile: serde_json::Value| preview_features(&adjustments(profile)) & WHITES_V22_FEATURE;
+    assert_eq!(
+        features(json!({"whites": -30, "toneVersion": 22})),
+        WHITES_V22_FEATURE
+    );
+    let mut layer = local_profile(json!({"whites": -30}));
+    layer["toneVersion"] = json!(22);
+    assert_eq!(features(layer), WHITES_V22_FEATURE);
+    // Version 21's recipes, raised Whites and the key alone keep the
+    // shader without it: saved edits compile the code they had.
+    assert_eq!(features(json!({"whites": -30, "toneVersion": 21})), 0);
+    assert_eq!(features(json!({"whites": 30, "toneVersion": 22})), 0);
+    assert_eq!(features(json!({"toneVersion": 22})), 0);
+    // Its feature pipeline is version 12's plus the cap.
+    let lowered = adjustments(json!({"whites": -30, "toneVersion": 22}));
+    assert_eq!(tone_level(&lowered), 1 | 64);
+    assert_eq!(
+        tone_level(&adjustments(json!({"whites": -30, "toneVersion": 21}))),
+        1
+    );
+}
+
+#[test]
 fn shadows_version_19_compiles_only_where_shadows_are_raised() {
     let adjustments =
         |profile: serde_json::Value| get_all_adjustments_from_json(&profile, true, Some(1));
@@ -621,6 +648,11 @@ fn preview_features_preserve_global_and_local_effects() {
         // Raised Shadows' bounds of version 20 likewise
         // (`shadows_version_20_compiles_only_for_its_recipes`).
         if expected & SHADOWS_V20_FEATURE != 0 {
+            continue;
+        }
+        // Lowered Whites' offset cap of version 22 likewise
+        // (`whites_version_22_compiles_only_for_its_recipes`).
+        if expected & WHITES_V22_FEATURE != 0 {
             continue;
         }
         // Lowered Dehaze of version 2 likewise
@@ -12503,6 +12535,18 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
         .collect();
     assert!(!fifteenth.is_empty());
     recipes.extend(fifteenth);
+    // Tone version 22 changes lowered Whites only (its offset cap).
+    let twenty_second: Vec<serde_json::Value> = recipes
+        .iter()
+        .filter(|recipe| recipe["whites"].as_i64().is_some_and(|w| w < 0))
+        .map(|recipe| {
+            let mut recipe = recipe.clone();
+            recipe["toneVersion"] = json!(22);
+            recipe
+        })
+        .collect();
+    assert!(!twenty_second.is_empty());
+    recipes.extend(twenty_second);
     // Away from the image borders (the blur clamps there). Over up to 24
     // steps (0.1 EV of scene) no channel falls by more than 0.01 EV or two
     // 16-bit codes, whichever is more: Shadows and Blacks read the f16
@@ -15509,6 +15553,132 @@ fn tone_version_19_shadows_no_light_rim() {
         assert!(
             det_19 > 0.95 * det_18,
             "Shadows +{amount}: texture {det_19:.3} (version 18 {det_18:.3})"
+        );
+    }
+}
+
+/// Bands 128 px wide: flat dark bands (−5 EV) between bright textured
+/// plateaus (about −0.4 EV, ±0.15 EV of texture), more than 30 L* apart
+/// once displayed, as a bright sky beside dark branches or a roofline.
+fn whites_v22_edges(width: u32, height: u32) -> Vec<f32> {
+    (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            if (x / 128) % 2 == 1 {
+                (2.0f32).powf(-0.4 + 0.15 * ((x as f32 * 0.37).sin() * (y as f32 * 0.23).cos()))
+            } else {
+                (2.0f32).powf(-5.0)
+            }
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "requires a native GPU; lowered Whites of tone version 22 leaves less of a light rim at strong edges"]
+fn tone_version_22_whites_less_light_rim() {
+    let context = context();
+    // 1080 rows: the blurs at their reference size.
+    let (width, height) = (1024u32, 1080u32);
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    let edges = grey_texture(&context, width, height, &whites_v22_edges(width, height));
+    let textured = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // Without lowered Whites version 22 renders as version 21.
+    for recipe in [
+        json!({}),
+        json!({ "whites": 60 }),
+        json!({ "shadows": 70, "blacks": -40, "highlights": -50, "contrast": 30 }),
+    ] {
+        for view in [&edges, &textured] {
+            for look in [(3, 2.0), (0, 2.0)] {
+                assert!(
+                    render_raw_look(&processor, view, (width, height), &with(&recipe, 21), look)
+                        == render_raw_look(
+                            &processor,
+                            view,
+                            (width, height),
+                            &with(&recipe, 22),
+                            look
+                        ),
+                    "{recipe} under {look:?} differs"
+                );
+            }
+        }
+    }
+    let look = (3, 2.0);
+    let render = |recipe: serde_json::Value| {
+        render_raw_look(&processor, &edges, (width, height), &recipe, look)
+    };
+    let neutral = render(with(&json!({}), 22));
+    let w = width as usize;
+    for amount in [-50, -100] {
+        let before = render(with(&json!({ "whites": amount }), 21));
+        let after = render(with(&json!({ "whites": amount }), 22));
+        // On the bright plateaus: mean dL* within 4 px of an edge minus
+        // the mean dL* 40 px and more from it, the far mean, and the
+        // texture there (std of L* minus the row's 9-pixel mean) against
+        // the neutral render's.
+        let measure = |img: &[[u16; 3]]| {
+            let (mut near, mut far, mut nn, mut nf) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+            let mut det = [0.0f64; 2];
+            for y in (64..height as usize - 64).step_by(4) {
+                for x in 128..w - 128 {
+                    if (x / 128) % 2 == 0 {
+                        continue;
+                    }
+                    let i = y * w + x;
+                    let edge = (x % 128).min(127 - x % 128);
+                    let d = lstar_of_codes(&img[i]) - lstar_of_codes(&neutral[i]);
+                    if edge < 4 {
+                        near += d;
+                        nn += 1.0;
+                    } else if edge >= 40 {
+                        far += d;
+                        nf += 1.0;
+                        let local = |p: &[[u16; 3]]| {
+                            let mean = (x - 4..=x + 4)
+                                .map(|k| lstar_of_codes(&p[y * w + k]))
+                                .sum::<f64>()
+                                / 9.0;
+                            (lstar_of_codes(&p[i]) - mean).powi(2)
+                        };
+                        det[0] += local(&neutral);
+                        det[1] += local(img);
+                    }
+                }
+            }
+            (near / nn - far / nf, far / nf, (det[1] / det[0]).sqrt())
+        };
+        let (rim_21, far_21, det_21) = measure(&before);
+        let (rim_22, far_22, det_22) = measure(&after);
+        eprintln!(
+            "Whites {amount}: light rim {rim_21:.2} → {rim_22:.2} L*, plateau dL* {far_21:.2} → {far_22:.2}, texture {det_21:.3} → {det_22:.3}"
+        );
+        // Measured on Metal: −50 2.90 → 2.36, −100 3.74 → 2.80 L* (texture
+        // 0.97× version 21's; offsets below the cap still rim a little on
+        // this plateau close to white).
+        assert!(
+            rim_21 > 0.0 && rim_22 < 0.9 * rim_21,
+            "Whites {amount}: light rim {rim_22:.2} (version 21 {rim_21:.2})"
+        );
+        // The open plateau darkens a little more, never less.
+        assert!(
+            far_22 <= far_21 + 0.05 && far_22 > far_21 - 1.0,
+            "Whites {amount}: plateau dL* {far_22:.2} (version 21 {far_21:.2})"
+        );
+        assert!(
+            det_22 > 0.9 * det_21,
+            "Whites {amount}: texture {det_22:.3} (version 21 {det_21:.3})"
         );
     }
 }

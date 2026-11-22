@@ -455,17 +455,19 @@ fn cut_to_camera_crop(
     recipe: &serde_json::Value,
     source: &str,
 ) -> DynamicImage {
-    match rawtonic_engine::camera_crop::initial_crop(
+    let Some(crop) = rawtonic_engine::camera_crop::initial_crop(
         recipe,
-        &rawtonic_engine::camera_crop::crops(source),
-    ) {
-        Some(crop) => cut_to(image, crop),
-        None => image,
-    }
+        &crate::camera_crop::crops(Path::new(source)),
+    ) else {
+        return image;
+    };
+    cut_to_camera_frame(image, crop)
 }
 
-/// `image` cut to `crop`'s share of each side, centred.
-fn cut_to(image: DynamicImage, crop: rawtonic_engine::camera_crop::CameraCrop) -> DynamicImage {
+fn cut_to_camera_frame(
+    image: DynamicImage,
+    crop: rawtonic_engine::camera_crop::CameraCrop,
+) -> DynamicImage {
     let share = |part: u32, margin: u32| part as f64 / (2 * margin + part) as f64;
     let (width, height) = (image.width(), image.height());
     let cut_width = ((width as f64 * share(crop.width, crop.x)).round() as u32).clamp(1, width);
@@ -491,13 +493,13 @@ fn embedded_in_camera_crop(
     let never_edited = serde_json::Value::Null;
     let crops = match file {
         Some(raw) => rawtonic_engine::camera_crop::crops_in(source, &raw.file, raw.stamp),
-        None => rawtonic_engine::camera_crop::crops(source),
+        None => crate::camera_crop::crops(Path::new(source)),
     };
     match rawtonic_engine::camera_crop::initial_crop(&never_edited, &crops) {
         Some(crop)
             if !rawtonic_engine::camera_crop::shows_crop(crop, image.width(), image.height()) =>
         {
-            cut_to(image, crop)
+            cut_to_camera_frame(image, crop)
         }
         _ => image,
     }
@@ -581,7 +583,7 @@ fn develop_thumbnail_with_source(
                 &mut recipe,
                 &rawtonic_export::normalize::RecipeSource::file(&source_path),
                 rawtonic_export::normalize::Bitmaps::None,
-                rawtonic_export::normalize::Defaults::NewEdit,
+                rawtonic_export::normalize::Defaults::NewEdit(crate::camera_crop::apply_default),
             );
             let mut meta = metadata.unwrap_or_default();
             meta.adjustments = recipe.clone();

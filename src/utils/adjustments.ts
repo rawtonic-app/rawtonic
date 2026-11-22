@@ -1454,7 +1454,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 21;
+export const TONE_VERSION = 22;
 
 /** The tone-slider response from which raised Whites move at the reference
  * editors' pace (`whites_amount_v17` in crates/engine/src/image_processing.rs). */
@@ -1495,6 +1495,11 @@ export function whitesValueV17(amount: number): number {
 /** The tone-slider response from which raised Shadows move at Camera Raw's
  * pace (`shadows_amount_v21` in crates/engine/src/image_processing.rs). */
 export const SHADOWS_TRAVEL_TONE_VERSION = 21;
+
+/** The tone-slider response from which lowered Whites cap a pixel's offset
+ * above its base (`WHITES_EDGE_CAP_TONE_VERSION` in
+ * crates/engine/src/recipe_versions.rs). */
+export const WHITES_EDGE_CAP_TONE_VERSION = 22;
 
 const SHADOWS_V21_KNOTS: [number, number, number][] = [
   [0, 0, 1.61],

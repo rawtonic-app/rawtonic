@@ -72,6 +72,10 @@ override SHADOWS_V19: bool = false;
 // Raised Shadows' bounds of tone version 20 (`shadows_v20_gain`), for
 // recipes of that version that raise Shadows.
 override SHADOWS_V20: bool = false;
+// Lowered Whites' offset cap of tone version 22 (`whites_v22_offset`), for
+// recipes of that version that lower Whites (gpu_processing.rs
+// `WHITES_V22_FEATURE`).
+override WHITES_V22: bool = false;
 // Colour mixer response 2 or 3 (`apply_hsl_panel_v2`, `apply_hsl_panel_v3`)
 // with a slider moved, for the same reason (gpu_processing.rs
 // `HSL_V2_FEATURE`).
@@ -2568,6 +2572,27 @@ fn whites_v12_lower(rgb: vec3<f32>, amount: f32, offset_log: f32) -> vec3<f32> {
     let h = u - over * over / (2.0 * (1.0 - WHITES_V12_KNEE));
     let weight = WHITES_V12_STRENGTH * h * h;
     return rgb * exp2(weight * WHITES_V10_POWER * log2(gain));
+}
+
+// Tone version 22: lowered Whites leaves less of a light rim beside strong
+// edges. Beside a dark edge the base (`whites_v10_offset`) still takes some
+// of the dark side, so a bright pixel there lay up to an EV above it and
+// darkened less than the open bright area: at Whites −100 the slider
+// atlas's light rim was 0.72 L* above Camera Raw's at equal effect (48
+// photos; Capture One rims more). Version 22 caps the offset above the base
+// smoothly at WHITES_V22_CAP EV (softness WHITES_V22_SOFT): texture well
+// below it is nearly unchanged, an edge's bright side darkens nearly as a
+// broad bright area. The cap was chosen on 24 of the atlas's frames (0.5 /
+// 0.25 / 0.1 EV tried; the largest that brings the rim within the atlas's
+// 0.5 L* of Camera Raw's); held out on the other 24: rim 0.69 → 0.39 L*
+// above Camera Raw's, bright detail still between Camera Raw's and Capture
+// One's (notes: benchmark-results/whl2-2026-11-22).
+const WHITES_V22_CAP: f32 = 0.25;
+const WHITES_V22_SOFT: f32 = 0.1;
+
+fn whites_v22_offset(offset_log: f32) -> f32 {
+    let d = offset_log - WHITES_V22_CAP;
+    return 0.5 * (offset_log + WHITES_V22_CAP - sqrt(d * d + WHITES_V22_SOFT * WHITES_V22_SOFT));
 }
 
 fn cr_whites(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
@@ -11792,6 +11817,11 @@ fn main(
         var whites_offset = 0.0;
         if (t_whites < 0.0 && adjustments.global.tone_version > 9.5 && base_look_is_camera_raw()) {
             whites_offset = whites_v10_offset(vec2<i32>(id.xy), initial_linear_rgb, scale);
+        }
+        // Apart from the lines above, so pipelines without WHITES_V22
+        // compile the code they always had.
+        if (WHITES_V22 && t_whites < 0.0 && adjustments.global.tone_version > 21.5 && base_look_is_camera_raw()) {
+            whites_offset = whites_v22_offset(whites_offset);
         }
         // Version 18 gives the RAW look's black point Blacks amounts beyond
         // version 17's −100 (image_processing.rs `blacks_amount_v18`, for a

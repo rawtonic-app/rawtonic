@@ -204,6 +204,10 @@ pub const SHADOWS_LIGHT_GAPS_TONE_VERSION: u64 = 20;
 /// The tone-slider response from which raised Shadows move at Camera Raw's
 /// pace (`toneVersion` 21, `image_processing::shadows_amount_v21`).
 pub const SHADOWS_TRAVEL_TONE_VERSION: u64 = 21;
+/// The tone-slider response from which lowered Whites cap a pixel's offset
+/// above its base, so strong edges keep less of a light rim (`toneVersion`
+/// 22).
+pub const WHITES_EDGE_CAP_TONE_VERSION: u64 = 22;
 
 /// `toneVersion` (`image_processing::TONE_VERSION`): 1 when missing, never
 /// newer than this renderer knows.
@@ -268,6 +272,12 @@ impl ToneVersion {
     /// Raised Shadows leave light tones among thin dark detail as they are.
     pub fn shadows_light_gaps(self) -> bool {
         self.0 >= SHADOWS_LIGHT_GAPS_TONE_VERSION
+    }
+
+    /// Lowered Whites cap a pixel's offset above its base (light rims at
+    /// strong edges).
+    pub fn whites_edge_cap(self) -> bool {
+        self.0 >= WHITES_EDGE_CAP_TONE_VERSION
     }
 
     /// The Whites amount (recipe units) the renderer applies for the slider
