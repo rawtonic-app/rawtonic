@@ -363,12 +363,19 @@ fn retouched_base<'a>(
     }
 }
 
-pub(crate) fn try_load_embedded_raw_preview(source_path: &Path) -> Option<DynamicImage> {
-    let mmap = read_file_mapped(source_path).ok()?;
-    image_loader::safe_embedded_preview_fallback_shared(
-        Arc::new(mmap),
+/// A RAW's embedded preview (`safe_embedded_preview_fallback_shared`) and
+/// the mapping it was read from, for the steps after it
+/// (`embedded_in_camera_crop`) to read the same file through it instead of
+/// opening it again.
+fn embedded_raw_preview_and_file(
+    source_path: &Path,
+) -> Option<(DynamicImage, image_loader::SharedBytes)> {
+    let file: image_loader::SharedBytes = Arc::new(read_file_mapped(source_path).ok()?);
+    let preview = image_loader::safe_embedded_preview_fallback_shared(
+        file.clone(),
         &source_path.to_string_lossy(),
-    )
+    )?;
+    Some((preview, file))
 }
 
 pub fn generate_thumbnail_data(
@@ -461,13 +468,19 @@ fn cut_to_camera_crop(
 /// A never-edited RAW's embedded JPEG framed as its export frames it: cut
 /// to the camera's crop where the JPEG shows the whole frame
 /// (`camera_crop::shows_crop`: a Fujifilm RAF's 3:2 JPEG of a 16:9 or 5:4
-/// photo); Canon's and the EX2F's JPEGs are their crop already.
-fn embedded_in_camera_crop(image: DynamicImage, source: &str) -> DynamicImage {
+/// photo); Canon's and the EX2F's JPEGs are their crop already. The crops
+/// are read through `file`, the mapping the JPEG came from, when given.
+fn embedded_in_camera_crop(
+    image: DynamicImage,
+    source: &str,
+    file: Option<&image_loader::SharedBytes>,
+) -> DynamicImage {
     let never_edited = serde_json::Value::Null;
-    match rawtonic_engine::camera_crop::initial_crop(
-        &never_edited,
-        &rawtonic_engine::camera_crop::crops(source),
-    ) {
+    let crops = match file {
+        Some(file) => rawtonic_engine::camera_crop::crops_in(source, file),
+        None => rawtonic_engine::camera_crop::crops(source),
+    };
+    match rawtonic_engine::camera_crop::initial_crop(&never_edited, &crops) {
         Some(crop)
             if !rawtonic_engine::camera_crop::shows_crop(crop, image.width(), image.height()) =>
         {
@@ -599,10 +612,10 @@ fn develop_thumbnail_with_source(
         && adjustments.is_null()
         && preloaded_image.is_none()
         && !always_decode_raw
-        && let Some(preview) = try_load_embedded_raw_preview(&source_path)
+        && let Some((preview, file)) = embedded_raw_preview_and_file(&source_path)
     {
         *embedded = true;
-        return Ok(embedded_in_camera_crop(preview, &source_path_str));
+        return Ok(embedded_in_camera_crop(preview, &source_path_str, Some(&file)));
     }
 
     if let (Some(context), Some(meta)) = (gpu_context, metadata)
@@ -2867,7 +2880,7 @@ mod thumbnail_queue_tests {
             },
         );
         let size = |width, height| {
-            let cut = embedded_in_camera_crop(DynamicImage::new_rgb8(width, height), path);
+            let cut = embedded_in_camera_crop(DynamicImage::new_rgb8(width, height), path, None);
             (cut.width(), cut.height())
         };
         assert_eq!(size(1920, 1280), (1920, 1080));
