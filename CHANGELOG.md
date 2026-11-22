@@ -86,6 +86,8 @@
 
 ### Fixes
 
+- The first edit and batch edits use the camera's framing when a RAW reconnects. With the original still in the cloud, they use the latest cached crop for that photo.
+
 - Tone curve arrow edits still settle into Undo history if a key release is missed. When you drag a region split handle back to its starting position, the photo follows the handle.
 
 - Color Editor targets keep small corrections that reach the target and take a fresh sample after RAW processing preferences change. The Levels pickers retry if the graphics processor changes during sampling. When an older preview lacks camera-crop information, Develop reads it from the local RAW.

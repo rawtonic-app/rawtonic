@@ -483,7 +483,7 @@ fn first_edit_without_camera_crop_from(
     rawtonic_engine::formats::is_raw_file(&source)
         && crate::file_management::is_cloud_placeholder(&source)
         && !camera_crop_known
-            .unwrap_or_else(|| crate::preview_proxy::cached_camera(&source).0.is_some())
+            .unwrap_or_else(|| !crate::camera_crop::raw_crops(&source, true).is_empty())
 }
 
 /// `edit_sidecars` that also returns the recipe changes of the photographs
@@ -851,17 +851,7 @@ fn pasted_into_with(
     // version of the editor's new edit, so the paste renders as on the
     // photo opened first (a pasted crop replaces the crop; pasted versions
     // the photo's: it has nothing else that uses them).
-    if in_cloud {
-        // Not read (macOS would download it): the crop its previews cached,
-        // the camera from its cached EXIF.
-        rawtonic_engine::camera_crop::apply_default_cached(
-            &mut new_adjustments,
-            source_path,
-            crate::preview_proxy::cached_camera(source_path).0,
-        );
-    } else {
-        rawtonic_engine::camera_crop::apply_default(&mut new_adjustments, source_path);
-    }
+    crate::camera_crop::apply_default(&mut new_adjustments, source_path);
     // The versions chosen in the picker come with the editor's new edit,
     // which adds those left to the camera's data.
     if new_edit
@@ -1152,10 +1142,7 @@ pub async fn apply_auto_lens_correction_to_paths(
                 let mut existing_metadata =
                     crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
 
-                rawtonic_engine::camera_crop::apply_default(
-                    &mut existing_metadata.adjustments,
-                    source_path,
-                );
+                crate::camera_crop::apply_default(&mut existing_metadata.adjustments, source_path);
 
                 if let Some(obj) = existing_metadata.adjustments.as_object_mut() {
                     obj.insert(
@@ -1234,7 +1221,7 @@ pub async fn set_recipe_values(
             |path, source_path, sidecar_path| {
                 let values = by_path.get(path).ok_or("no values")?;
                 let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
-                rawtonic_engine::camera_crop::apply_default(&mut metadata.adjustments, source_path);
+                crate::camera_crop::apply_default(&mut metadata.adjustments, source_path);
                 let old = set_values(&mut metadata.adjustments, values)?;
                 written.lock().unwrap().push(RecipeValues {
                     path: path.to_string(),
@@ -1405,7 +1392,7 @@ pub async fn apply_auto_adjustments_to_paths(
                     // edited or tagged while it was decoded and measured.
                     let _turn = sidecar_field_edit();
                     let mut existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
-                    rawtonic_engine::camera_crop::apply_default(
+                    crate::camera_crop::apply_default(
                         &mut existing_metadata.adjustments,
                         &source_path,
                     );
@@ -2450,7 +2437,7 @@ mod tests {
     /// frame with the new edit's versions, as the editor's first edit does.
     #[test]
     fn a_batch_edit_starts_a_new_recipe_with_the_cameras_crop_and_versions() {
-        use rawtonic_engine::source_facts::{SourceFacts, VERSION, register};
+        use rawtonic_engine::source_facts::{SourceFacts, VERSION, forget, register};
         use rawtonic_engine::source_frame::KEY;
         let path = "/offline/batch-camera-crop.CR3";
         register(
@@ -2497,11 +2484,51 @@ mod tests {
         let own = serde_json::json!({"exposure": 0.2, "renderVersion": 4});
         assert!(paste(own).get("crop").is_none());
         let mut values = Value::Null;
-        rawtonic_engine::camera_crop::apply_default(&mut values, Path::new(path));
+        crate::camera_crop::apply_default(&mut values, Path::new(path));
         assert_eq!(values["crop"]["height"], 2248);
         let before = values.clone();
-        rawtonic_engine::camera_crop::apply_default(&mut values, Path::new(path));
+        crate::camera_crop::apply_default(&mut values, Path::new(path));
         assert_eq!(values, before, "applied once");
+        forget(path);
+    }
+
+    #[test]
+    fn shared_camera_crop_ignores_obsolete_registered_framing_when_the_raw_is_local() {
+        use rawtonic_engine::source_facts::{SourceFacts, VERSION, forget, register};
+
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("camera.dng");
+        fs::write(
+            &source,
+            include_bytes!("../../../third_party/rawler/src/decoders/dng_lossy_jpeg_test.dng"),
+        )
+        .unwrap();
+        let path = source.to_str().unwrap();
+        register(
+            path,
+            SourceFacts {
+                version: VERSION - 1,
+                camera_crop: Some(vec![0, 376, 4000, 2248]),
+                ..Default::default()
+            },
+        );
+        let recipe = pasted_into(
+            Value::Null,
+            &None,
+            path,
+            &source,
+            &serde_json::json!({"exposure": 1}),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        forget(path);
+        // DNG develops its own default frame. A registered preview crop
+        // from an earlier original at this path must not be saved.
+        assert!(recipe["crop"].is_null(), "{recipe}");
+        assert_eq!(recipe["exposure"], 1);
     }
 
     /// A batch edit of a photograph never opened (Edit all selected, paste,

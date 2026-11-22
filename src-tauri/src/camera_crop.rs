@@ -1,5 +1,11 @@
-//! Desktop glue for `rawtonic_engine::camera_crop` (ADR 0020, option C): the
-//! Tauri command; the rule lives in the engine and rawdecode crates.
+//! Camera framing for the desktop's first edits and thumbnails (ADR 0020).
+
+use std::path::Path;
+
+use rawtonic_engine::{camera_crop, formats, source_facts};
+use serde_json::Value;
+
+use crate::{file_management::is_cloud_placeholder, preview_proxy};
 
 /// The camera's crop of a RAW for each frame version (index), as recipe
 /// `crop` values (`camera_crop::recipe_values`); None where the camera set
@@ -7,50 +13,99 @@
 /// previews tell it. The editor gives it to new recipes
 /// (src/utils/neverEdited.ts).
 #[tauri::command]
-pub async fn get_camera_crops(path: String) -> Result<Vec<Option<serde_json::Value>>, String> {
+pub async fn get_camera_crops(path: String) -> Result<Vec<Option<Value>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let (source, _) = crate::file_management::parse_virtual_path(&path);
-        let source_str = source.to_string_lossy();
-        // Offline: what its previews keep (registered on its first read).
-        if rawtonic_engine::source_facts::registered(&source_str).is_none() {
-            crate::preview_proxy::prepare_offline(&source);
-        }
-        let crops = editor_camera_crops(
-            &source_str,
-            crate::file_management::is_cloud_placeholder(&source),
-        );
-        crops
+        crops(&source)
             .into_iter()
-            .map(|crop| crop.map(|crop| rawtonic_engine::camera_crop::recipe_values(crop).0))
+            .map(|crop| crop.map(|crop| camera_crop::recipe_values(crop).0))
             .collect()
     })
     .await
     .map_err(|e| e.to_string())
 }
 
-fn editor_camera_crops(
-    source: &str,
-    placeholder: bool,
-) -> Vec<Option<rawtonic_engine::camera_crop::CameraCrop>> {
-    // The editor's proxy can be older than the newest cached header.
-    // Facts from before RAF aspect ratios were read cannot answer it.
-    use rawtonic_engine::camera_crop;
-    let cached = rawtonic_engine::source_facts::registered(source)
-        .and_then(|facts| camera_crop::crops_from_facts(&facts, source));
-    if let Some(crops) = cached {
-        crops
-    } else if placeholder {
-        Vec::new()
-    } else if rawtonic_engine::formats::is_raw_file(source) {
-        camera_crop::crops_from_raw_file(source)
+pub(crate) fn crops(source: &Path) -> Vec<Option<camera_crop::CameraCrop>> {
+    if formats::is_raw_file(source) {
+        raw_crops(source, is_cloud_placeholder(source))
     } else {
-        camera_crop::crops(source)
+        vec![None; rawtonic_engine::source_frame::VERSION as usize + 1]
     }
+}
+
+/// Apply the same crop as Develop when a desktop action starts a new edit.
+pub(crate) fn apply_default(adjustments: &mut Value, source: &Path) {
+    if !rawtonic_engine::image_processing::is_new_recipe(adjustments) {
+        return;
+    }
+    let placeholder = is_cloud_placeholder(source);
+    camera_crop::apply_default_with(adjustments, source, !placeholder, |is_raw| {
+        if is_raw {
+            raw_crops(source, placeholder)
+        } else {
+            Vec::new()
+        }
+    });
+}
+
+pub(crate) fn raw_crops(source: &Path, placeholder: bool) -> Vec<Option<camera_crop::CameraCrop>> {
+    // Preview facts can outlive a reconnect. A local file's header gives
+    // the crops of all its frames and is cached by file size and mtime.
+    let path = source.to_string_lossy();
+    if !placeholder {
+        let crops = camera_crop::crops_from_raw_file(&path);
+        if !crops.is_empty() {
+            return crops;
+        }
+    }
+    // For an evicted original, only a preview of the same file can answer.
+    // A rebuilt Standard may know more than the proxy that Develop opened.
+    if let Some(crops) = preview_proxy::cached_camera(source).0 {
+        return crops;
+    }
+    if placeholder {
+        return Vec::new();
+    }
+    // A disconnected file may have no metadata to match against the proxy.
+    // Keep the framing available from its offline preview.
+    if source_facts::registered(&path).is_none() {
+        preview_proxy::prepare_offline(source);
+    }
+    source_facts::registered(&path)
+        .and_then(|facts| camera_crop::crops_from_facts(&facts, &path))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_camera_crop_uses_rebuilt_standard_for_an_evicted_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let session =
+            rawtonic_catalog::Library::create(dir.path(), "Crop", rawtonic_catalog::Mode::Session)
+                .unwrap();
+        let source = session.directory.join("Capture").join("camera.RAF");
+        std::fs::write(&source, b"evicted RAF").unwrap();
+        crate::preview_proxy::tests::cache_camera_crop(&source, vec![0, 376, 4000, 2248]);
+        crate::file_management::simulate_cloud_placeholder(&source);
+        let path = source.to_str().unwrap();
+        rawtonic_engine::source_facts::register(
+            path,
+            rawtonic_engine::source_facts::SourceFacts {
+                version: rawtonic_engine::source_facts::RAF_CROP_VERSION - 1,
+                camera_crop: Some(Vec::new()),
+                ..Default::default()
+            },
+        );
+        let crops = tauri::async_runtime::block_on(get_camera_crops(path.to_owned())).unwrap();
+        rawtonic_engine::source_facts::forget(path);
+        assert_eq!(
+            crops.last().and_then(Option::as_ref).map(|c| &c["height"]),
+            Some(&serde_json::json!(2248)),
+        );
+    }
 
     #[test]
     fn obsolete_camera_facts_do_not_hide_the_answer_of_a_local_raw() {
@@ -62,14 +117,14 @@ mod tests {
         )
         .unwrap();
         let source = path.to_str().unwrap();
-        let expected = editor_camera_crops(source, false);
+        let expected = raw_crops(&path, false);
         assert!(!expected.is_empty());
         rawtonic_engine::source_facts::register(
             source,
             rawtonic_engine::source_facts::SourceFacts::default(),
         );
-        assert!(editor_camera_crops(source, true).is_empty());
-        assert_eq!(editor_camera_crops(source, false), expected);
+        assert!(raw_crops(&path, true).is_empty());
+        assert_eq!(raw_crops(&path, false), expected);
         rawtonic_engine::source_facts::forget(source);
     }
 }

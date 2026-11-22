@@ -126,12 +126,25 @@ pub fn recipe_values(crop: CameraCrop) -> (Value, Value) {
 /// versions. Then the user's develop defaults for the photograph's camera
 /// (`develop_defaults`), unless the recipe has its defaults decided.
 pub fn apply_default(adjustments: &mut Value, source: &std::path::Path) {
+    apply_default_with(adjustments, source, true, |_| {
+        crops(&source.to_string_lossy())
+    });
+}
+
+/// Starts a new edit with the caller's camera-crop lookup. A desktop caller
+/// can leave Develop defaults out when the camera identity cannot be read.
+pub fn apply_default_with(
+    adjustments: &mut Value,
+    source: &std::path::Path,
+    use_develop_defaults: bool,
+    lookup: impl FnOnce(bool) -> Vec<Option<CameraCrop>>,
+) {
     if !crate::image_processing::is_new_recipe(adjustments) {
         return;
     }
-    let follows = crate::develop_defaults::follows_defaults(adjustments);
+    let follows = use_develop_defaults && crate::develop_defaults::follows_defaults(adjustments);
     let is_raw = crate::formats::is_raw_file(source);
-    start_new_edit(adjustments, &crops(&source.to_string_lossy()), is_raw);
+    start_new_edit(adjustments, &lookup(is_raw), is_raw);
     // The user's defaults for its camera (none set: nothing read).
     if follows {
         crate::develop_defaults::apply_current(adjustments, is_raw, || {
@@ -159,27 +172,6 @@ pub fn crops_from_facts(
         .camera_crop
         .as_ref()
         .map(|_| offline(facts, &extension))
-}
-
-/// `apply_default` for an original that must not be read (a cloud file not
-/// downloaded: opening it downloads it): the camera's crop from `crops`
-/// (`crops_from_facts`; None: not cached). The user's develop defaults need
-/// the camera as the file names it, so the caller refuses a photograph while
-/// any is set (`develop_defaults::any_set`). Without a cached crop the edit
-/// starts with the versions only; returns whether the crop was known, so that the
-/// caller can tell the photographer it is missing.
-pub fn apply_default_cached(
-    adjustments: &mut Value,
-    source: &std::path::Path,
-    crops: Option<Vec<Option<CameraCrop>>>,
-) -> bool {
-    if !crate::image_processing::is_new_recipe(adjustments) {
-        return true;
-    }
-    let known = crops.is_some();
-    let is_raw = crate::formats::is_raw_file(source);
-    start_new_edit(adjustments, &crops.unwrap_or_default(), is_raw);
-    known || !is_raw
 }
 
 /// Starts a new edit from already-read RAW bytes, without reopening its path.
