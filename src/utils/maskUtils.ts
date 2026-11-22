@@ -10,6 +10,11 @@ export const DEFAULT_LUMA_RANGE = { rangeLow: 0, rangeHigh: 100, falloff: 20 };
  * far out of focus left out: `rawtonic_segment::SUBJECT_VERSION`). */
 export const SUBJECT_VERSION = 2;
 
+/** Landscape mask version of new components (`landscapeVersion`; absent =
+ * 1; 2 = the fitted sky only where the network sees some sky, so snowfields
+ * beside the sky stay ground: `rawtonic_segment::LANDSCAPE_VERSION`). */
+export const LANDSCAPE_VERSION = 2;
+
 /** Falloff version of new radial and linear gradients (`gradientVersion`;
  * absent = 1, a straight ramp; 2 = a radial bell that runs out just beyond
  * the ellipse and a linear eased at both lines:

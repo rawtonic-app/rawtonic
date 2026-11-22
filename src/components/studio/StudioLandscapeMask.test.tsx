@@ -6,6 +6,7 @@ import StudioLandscapeMask from './StudioLandscapeMask';
 import { useEditorStore } from '../../store/useEditorStore';
 import type { SubMask } from '../panel/right/Masks';
 import { createComponents, kindOf, type LandscapePart } from '../../utils/maskKinds';
+import { LANDSCAPE_VERSION } from '../../utils/maskUtils';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(async () => [
@@ -36,7 +37,8 @@ function sub(parts: LandscapePart[]) {
 it('a new landscape component selects nothing until parts are chosen', () => {
   const [component] = createComponents('landscape', { width: 100, height: 80 });
   expect(component.type).toBe('ai-landscape');
-  expect(component.parameters).toMatchObject({ parts: [], maskDataBase64: null });
+  expect(component.parameters).toMatchObject({ parts: [], maskDataBase64: null, landscapeVersion: LANDSCAPE_VERSION });
+  expect(LANDSCAPE_VERSION).toBe(2);
   expect(kindOf(component)).toBe('landscape');
 });
 
