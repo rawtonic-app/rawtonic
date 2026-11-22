@@ -176,7 +176,8 @@ function saveEditorRecipe(
   path: string,
   edited: Adjustments,
   epoch: number,
-  updateThumbnail: boolean
+  updateThumbnail: boolean,
+  cameraCropKnown: boolean | undefined
 ): Promise<Adjustments | undefined> {
   scheduledSave = null;
   // With the size of the photo it was edited on (utils/frameSize.ts).
@@ -195,6 +196,7 @@ function saveEditorRecipe(
       invoke<EditorSave | null>(Invokes.SaveMetadataAndUpdateThumbnail, {
         path,
         adjustments: adjustmentsToSave,
+        ...(cameraCropKnown === undefined ? {} : { cameraCropKnown }),
         ...(updateThumbnail ? {} : { updateThumbnail: false })
       }).then(
         (saved) => {
@@ -230,7 +232,14 @@ let scheduledSave: string | null = null;
 export const debouncedSave = Object.assign(
   (path: string, adjustmentsToSave: Adjustments, updateThumbnail = true) => {
     scheduledSave = path;
-    return debouncedEditorSave(path, adjustmentsToSave, libraryEpoch, updateThumbnail);
+    // Use the facts the edited frame opened with, even if a cached preview
+    // is rebuilt before this save runs.
+    const image = useEditorStore.getState().selectedImage;
+    const cameraCropKnown =
+      image?.path === path && image.isRaw && image.cameraCrops !== undefined
+        ? Boolean(image.cameraCrops?.length)
+        : undefined;
+    return debouncedEditorSave(path, adjustmentsToSave, libraryEpoch, updateThumbnail, cameraCropKnown);
   },
   {
     flush: () => debouncedEditorSave.flush(),

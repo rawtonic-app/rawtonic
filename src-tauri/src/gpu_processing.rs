@@ -680,6 +680,7 @@ pub fn process_and_get_dynamic_image_with_display_shader(
 /// CPU readback with the display arithmetic and the foreground preview's
 /// retained intermediates (blurs, masks); see [`ReadbackShader::Preview`].
 /// For small samples of the shown preview's base, never for exports.
+#[allow(clippy::too_many_arguments)]
 pub fn process_and_get_dynamic_image_with_preview_shader(
     context: &GpuContext,
     gpu: &GpuState,
@@ -688,6 +689,7 @@ pub fn process_and_get_dynamic_image_with_preview_shader(
     transform_hash: u64,
     request: RenderRequest,
     caller_id: &str,
+    pipeline_pin: Option<&PreviewPipelinePin>,
 ) -> Result<DynamicImage, String> {
     process_and_get_dynamic_image_inner(
         context,
@@ -703,7 +705,7 @@ pub fn process_and_get_dynamic_image_with_preview_shader(
         false,
         None,
         None,
-        ReadbackShader::Preview,
+        pipeline_pin.map_or(ReadbackShader::Preview, ReadbackShader::PreviewPinned),
     )
 }
 

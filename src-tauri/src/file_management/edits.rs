@@ -46,15 +46,21 @@ pub async fn save_metadata_and_update_thumbnail(
     path: String,
     adjustments: Value,
     update_thumbnail: Option<bool>,
+    camera_crop_known: Option<bool>,
     app_handle: AppHandle,
 ) -> Result<EditorSave, String> {
     tauri::async_runtime::spawn_blocking(move || {
         // A caller whose loaded decode is stale (an Edit With render another
         // program saved) asks for the recipe alone.
         if update_thumbnail == Some(false) {
-            return save_metadata_blocking(&path, adjustments, &app_handle);
+            return save_metadata_blocking(&path, adjustments, camera_crop_known, &app_handle);
         }
-        save_metadata_and_update_thumbnail_blocking(path, adjustments, app_handle)
+        save_metadata_and_update_thumbnail_blocking(
+            path,
+            adjustments,
+            camera_crop_known,
+            app_handle,
+        )
     })
     .await
     .map_err(|e| format!("Saving metadata failed: {e}"))?
@@ -75,6 +81,7 @@ pub struct EditorSave {
 fn save_metadata_blocking(
     path: &str,
     adjustments: Value,
+    camera_crop_known: Option<bool>,
     app_handle: &AppHandle,
 ) -> Result<EditorSave, String> {
     let (source_path, sidecar_path) = parse_virtual_path(path);
@@ -99,8 +106,12 @@ fn save_metadata_blocking(
     // The editor starts a never-edited photograph's first edit with the
     // camera crop it was given (`get_camera_crops`); for an original in the
     // cloud without a cached crop it had none to give.
-    let crop_missing =
-        first_edit_without_camera_crop(path, &metadata.adjustments, &final_adjustments);
+    let crop_missing = first_edit_without_camera_crop_from(
+        path,
+        &metadata.adjustments,
+        &final_adjustments,
+        camera_crop_known,
+    );
     metadata.adjustments = final_adjustments;
 
     let json_string = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
@@ -121,9 +132,10 @@ fn save_metadata_blocking(
 pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     path: String,
     adjustments: Value,
+    camera_crop_known: Option<bool>,
     app_handle: AppHandle,
 ) -> Result<EditorSave, String> {
-    let saved = save_metadata_blocking(&path, adjustments, &app_handle)?;
+    let saved = save_metadata_blocking(&path, adjustments, camera_crop_known, &app_handle)?;
     let state = app_handle.state::<AppState>();
 
     let loaded_image_lock = state.source.original_image.lock().unwrap();
@@ -454,6 +466,15 @@ fn missing_camera_crops(changes: &[RecipeChange]) -> Vec<String> {
 /// (`before`) whose original is only in the cloud with no cached camera
 /// crop: written without the crop the camera's aspect ratio gives.
 fn first_edit_without_camera_crop(path: &str, before: &Value, after: &Value) -> bool {
+    first_edit_without_camera_crop_from(path, before, after, None)
+}
+
+fn first_edit_without_camera_crop_from(
+    path: &str,
+    before: &Value,
+    after: &Value,
+    camera_crop_known: Option<bool>,
+) -> bool {
     use rawtonic_engine::image_processing::is_new_recipe;
     if !is_new_recipe(before) || is_new_recipe(after) {
         return false;
@@ -461,7 +482,8 @@ fn first_edit_without_camera_crop(path: &str, before: &Value, after: &Value) -> 
     let (source, _) = parse_virtual_path(path);
     rawtonic_engine::formats::is_raw_file(&source)
         && crate::file_management::is_cloud_placeholder(&source)
-        && crate::preview_proxy::cached_camera(&source).0.is_none()
+        && !camera_crop_known
+            .unwrap_or_else(|| crate::preview_proxy::cached_camera(&source).0.is_some())
 }
 
 /// `edit_sidecars` that also returns the recipe changes of the photographs
@@ -3924,6 +3946,73 @@ mod tests {
             &serde_json::Value::Null,
             &edited
         ));
+        // The editor opened on an older preview. Rebuilding Standard has
+        // since supplied newer facts the editor did not open with.
+        crate::preview_proxy::tests::cache_camera_crop(&source, vec![0, 376, 4000, 2248]);
+        assert!(first_edit_without_camera_crop_from(
+            &paths[0],
+            &serde_json::Value::Null,
+            &edited,
+            Some(false),
+        ));
+        assert!(!first_edit_without_camera_crop_from(
+            &paths[0],
+            &serde_json::Value::Null,
+            &edited,
+            Some(true),
+        ));
+    }
+
+    #[test]
+    fn export_selections_stay_with_the_effective_amount_and_model_used_on_export() {
+        use rawtonic_engine::ai_selections::{AutoSelection, Detected, detected_parameters};
+        let (_temp, paths) = session_with_photos(1);
+        let path = &paths[0];
+        let (source, sidecar) = parse_virtual_path(path);
+        let exported = serde_json::json!({"aiDenoise": 60, "aiDenoiseVersion": 3, "masks": [{
+            "id": "l", "visible": true, "subMasks": [{"id": "s", "type": "ai-sky", "visible": true,
+                "parameters": {"maskDataBase64": null, "detectPending": true}}]}]});
+        let frame = crate::export_processing::detection_frame(&exported, &source);
+        let detected = [Detected {
+            layer_id: "l".into(),
+            component_id: "s".into(),
+            selection: AutoSelection::Sky,
+            parameters: detected_parameters(
+                &exported["masks"][0]["subMasks"][0]["parameters"],
+                &frame,
+                "data:sky".into(),
+            ),
+        }];
+        for (amount, model, accepted) in [(70, 3, false), (60, 4, false), (60, 3, true)] {
+            let mut saved = exported.clone();
+            saved["aiDenoise"] = serde_json::json!(amount);
+            saved["aiDenoiseVersion"] = serde_json::json!(model);
+            save_sidecar(
+                path,
+                &ImageMetadata {
+                    adjustments: saved,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                crate::export_processing::keep_export_detected_selections(
+                    path, &detected, &exported
+                )
+                .unwrap(),
+                accepted
+            );
+            let stored = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+            let expected = if accepted {
+                serde_json::json!("data:sky")
+            } else {
+                Value::Null
+            };
+            assert_eq!(
+                stored["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"],
+                expected
+            );
+        }
     }
 
     #[test]

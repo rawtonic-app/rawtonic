@@ -86,6 +86,9 @@
 
 ### Fixes
 
+- Reopening a photograph while its queued AI selections finish keeps its existing Undo steps. Reusing an AI selection from the saved edit requires the same source decode. A first edit of a cloud-only photograph reports when the camera crop was unavailable to the editor.
+- The Levels black and white point pickers keep both parts of a precise color sample on the same graphics pipeline while preview variants compile.
+
 - **Exports with Super Resolution no longer wait while the app retries the optional fp16 model download.** Opening Export again during a batch, after that 1.2 MB download had failed, held the model until the download finished or timed out, so the running export paused on a slow link; exports now keep using the loaded model meanwhile. Photos switch to the fp16 model only after its GPU check has passed, as before. The enlarged pixels of each graph are unchanged (measured byte-identical on CUDA for the fp32 and the fp16 graph).
 - **RAW and JPEG sidecars stay with their own photos when names overlap.** On the same drive, moving a RAW with XMP beside a JPEG with its own XMP keeps both packets, including through Undo and Redo. Import uses a numbered copy name when a RAW would take an existing stem sidecar. Ambiguous dotted names leave the shared XMP untouched, and camera RAWs saved as TIFF keep the RAW sidecar naming rule.
 

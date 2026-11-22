@@ -16,6 +16,7 @@ import { hasDevelopDefaults, type PhotoDefaults } from '../utils/developDefaults
 import { rememberOpenedRecipe, waitForPendingMetadataSave } from './useEditorActions';
 import { editorRecipe, neverEdited, newSaved, savedSourceFrame, type CameraLens } from '../utils/neverEdited';
 import { historyFor, keptSince } from '../utils/photoHistory';
+import { keptSelectionMatchesSettled } from '../utils/queuedSelections';
 import { recipeStepsSince } from '../utils/appUndo';
 import { globalImageCache, type ImageCacheEntry } from '../utils/ImageLRUCache';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
@@ -364,6 +365,8 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           ]).then(async ([proxy, metadata]) => {
             if (!proxy || !stillCurrent() || useEditorStore.getState().selectedImage?.isDecoded) return;
             const recipe = await recipeFor(metadata, proxy.isRaw, proxy.width, proxy.height, proxy.newEditFrame);
+            const keptMatch = keptSelectionMatchesSettled(selectedImage.path);
+            if (keptMatch) await keptMatch;
             mark('loader_proxy_recipe');
             if (!stillCurrent() || useEditorStore.getState().selectedImage?.isDecoded) return;
             published.proxy = { width: proxy.width, height: proxy.height };
@@ -438,6 +441,12 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           if (loadImageResult.developed_from_preview && !loadImageResult.unsupported_nikon_high_efficiency) {
             warnPreviewFallback(selectedImage.path, loadImageResult.camera_help ?? false);
           }
+          const initialAdjusts = published.proxy
+            ? null
+            : await recipeFor(storedMetadata, loadImageResult.is_raw, width, height, loadImageResult.new_edit_frame);
+          const keptMatch = !published.proxy && keptSelectionMatchesSettled(selectedImage.path);
+          if (keptMatch) await keptMatch;
+          if (!stillCurrent()) return;
           if (published.proxy) {
             // The recipe and history stay, with any edits made on the proxy;
             // only the source becomes the decode. A fast draft decode may
@@ -457,15 +466,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                 selectedImage: { ...state.selectedImage, ...fullSource, height, width }
               };
             });
-          } else {
-            const initialAdjusts = await recipeFor(
-              storedMetadata,
-              loadImageResult.is_raw,
-              width,
-              height,
-              loadImageResult.new_edit_frame
-            );
-            if (!stillCurrent()) return;
+          } else if (initialAdjusts) {
             publishSource(initialAdjusts, width, height, fullSource);
           }
         } catch (err) {
