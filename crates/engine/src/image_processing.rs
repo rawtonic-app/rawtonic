@@ -8173,8 +8173,9 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// most about 0.25 EV (a smooth cap), so the bright side of an edge
 /// darkens nearly as a broad bright area does instead of keeping the
 /// dark side's level (slider atlas, Whites −100 at equal effect: light rim
-/// 0.72 L* above Camera Raw's, 0.39 on the held-out half; bright detail
-/// still between Camera Raw's and Capture One's; notes:
+/// above Camera Raw's 0.72 → 0.45 L* on all 48 frames, 0.69 → 0.39 on the
+/// held-out half; bright detail still between Camera Raw's and Capture
+/// One's; notes:
 /// benchmark-results/whl2-2026-11-22).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.

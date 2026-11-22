@@ -22,6 +22,7 @@ import {
   TONE_VERSION,
   VIBRANCE_VERSION,
   SHADOWS_TRAVEL_TONE_VERSION,
+  WHITES_EDGE_CAP_TONE_VERSION,
   WHITES_TRAVEL_TONE_VERSION,
   isNewRecipe,
   shadowsAmountV21,
@@ -160,17 +161,25 @@ const KEYS: VersionKey[] = [
 /** The tone version a reset of the photo's tone group leaves the photo
  * with: a new edit's `to`, unless a layer uses a tone slider whose response
  * differs between the two (versions 20 and 21 differ only in Shadows' travel,
- * which `layersInToneVersion` re-expresses exactly): then the layers keep
+ * which `layersInToneVersion` re-expresses exactly; version 22 changes
+ * lowered Whites, which no value re-expresses): then the layers keep
  * rendering as they did under the photo's own version `from`. */
 export function toneVersionAfterReset(masks: { adjustments?: object }[], from: number, to: number): number {
-  if (from === to || Math.min(from, to) >= 20) return to;
-  const usesTone = masks.some((mask) => {
-    const values = mask?.adjustments as Record<string, unknown> | undefined;
-    return ['shadows', 'highlights', 'whites', 'blacks', 'clarity'].some(
-      (slider) => typeof values?.[slider] === 'number' && values[slider] !== 0
-    );
-  });
-  return usesTone ? from : to;
+  if (from === to) return to;
+  const layerUses = (used: (slider: string, value: number) => boolean) =>
+    masks.some((mask) => {
+      const values = mask?.adjustments as Record<string, unknown> | undefined;
+      return ['shadows', 'highlights', 'whites', 'blacks', 'clarity'].some(
+        (slider) =>
+          typeof values?.[slider] === 'number' && values[slider] !== 0 && used(slider, values[slider] as number)
+      );
+    });
+  if (Math.min(from, to) >= 20) {
+    const acrossWhitesCap =
+      Math.min(from, to) < WHITES_EDGE_CAP_TONE_VERSION && Math.max(from, to) >= WHITES_EDGE_CAP_TONE_VERSION;
+    return acrossWhitesCap && layerUses((slider, value) => slider === 'whites' && value < 0) ? from : to;
+  }
+  return layerUses(() => true) ? from : to;
 }
 
 /** `value` of `slider` (Whites or Shadows) at tone version `from` as the

@@ -202,7 +202,6 @@ pub(super) const TERMS_FEATURES: usize = 8
     | BLACKS_V16_FEATURE
     | SHADOWS_V19_FEATURE
     | SHADOWS_V20_FEATURE
-    | WHITES_V22_FEATURE
     | TONE_V5_FEATURE;
 
 pub(super) fn float_texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
@@ -931,7 +930,7 @@ mod tests {
         for layer_sums in [false, true] {
             for base in [0, TERMS_FEATURES] {
                 let own = module(base, layer_sums);
-                for bit in (0..26).map(|bit| 1usize << bit) {
+                for bit in (0..29).map(|bit| 1usize << bit) {
                     if bit & TERMS_FEATURES == 0 {
                         let other = module(base | bit, layer_sums);
                         assert!(

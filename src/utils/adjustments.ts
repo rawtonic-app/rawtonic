@@ -1496,6 +1496,11 @@ export function whitesValueV17(amount: number): number {
  * pace (`shadows_amount_v21` in crates/engine/src/image_processing.rs). */
 export const SHADOWS_TRAVEL_TONE_VERSION = 21;
 
+/** The tone-slider response from which lowered Whites cap a pixel's offset
+ * above its base (`WHITES_EDGE_CAP_TONE_VERSION` in
+ * crates/engine/src/recipe_versions.rs). */
+export const WHITES_EDGE_CAP_TONE_VERSION = 22;
+
 const SHADOWS_V21_KNOTS: [number, number, number][] = [
   [0, 0, 1.61],
   [25, 35.4, 1.19],

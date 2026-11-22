@@ -6305,8 +6305,42 @@ type Range2OutputPipelines =
 /// dehaze version 2 (`DEHAZE_V2`) and Dehaze of dehaze version 3
 /// (`DEHAZE_V3`), one flat table on the
 /// heap: a further dimension of the inline table made
-/// `GpuProcessor` too large for a test thread's stack.
-type MixerFeaturePipelines = Box<[std::sync::OnceLock<Option<wgpu::ComputePipeline>>]>;
+/// `GpuProcessor` too large for a test thread's stack. Its slots come in
+/// pages of `MIXER_PAGE_SLOTS` allocated on first use: since tone version
+/// 22's tone level the flat table had 1.2 M slots per processor, though a
+/// session uses a few.
+struct MixerFeaturePipelines {
+    pages: Box<[std::sync::OnceLock<Box<[std::sync::OnceLock<Option<wgpu::ComputePipeline>>]>>]>,
+}
+
+/// Slots per page of [`MixerFeaturePipelines`].
+const MIXER_PAGE_SLOTS: usize = 4096;
+
+impl MixerFeaturePipelines {
+    fn new() -> Self {
+        Self {
+            pages: (0..MIXER_FEATURE_SLOTS.div_ceil(MIXER_PAGE_SLOTS))
+                .map(|_| std::sync::OnceLock::new())
+                .collect(),
+        }
+    }
+}
+
+impl std::ops::Index<usize> for MixerFeaturePipelines {
+    type Output = std::sync::OnceLock<Option<wgpu::ComputePipeline>>;
+
+    fn index(&self, slot: usize) -> &Self::Output {
+        assert!(
+            slot < MIXER_FEATURE_SLOTS,
+            "mixer feature slot {slot} out of range"
+        );
+        &self.pages[slot / MIXER_PAGE_SLOTS].get_or_init(|| {
+            (0..MIXER_PAGE_SLOTS)
+                .map(|_| std::sync::OnceLock::new())
+                .collect()
+        })[slot % MIXER_PAGE_SLOTS]
+    }
+}
 
 /// The slots of `MixerFeaturePipelines`, one per index of `Range2Pipelines`.
 const MIXER_FEATURE_SLOTS: usize =
@@ -8749,9 +8783,7 @@ impl GpuProcessor {
                     std::array::from_fn(|_| (0..TONE_LEVELS).map(|_| Default::default()).collect())
                 })
                 .collect(),
-            mixer_feature_pipelines: (0..MIXER_FEATURE_SLOTS)
-                .map(|_| std::sync::OnceLock::new())
-                .collect(),
+            mixer_feature_pipelines: MixerFeaturePipelines::new(),
             curve_table_loaded: Mutex::new(None),
             detail_bgl,
             detail_layout,
