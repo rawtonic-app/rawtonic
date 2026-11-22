@@ -168,11 +168,7 @@ pub fn run_job_in_turn(
         path.file_stem()
             .map(|s| s.to_string_lossy().to_ascii_lowercase())
     };
-    let developed = |path: &Path| {
-        path.extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(rawtonic_metadata::sidecars::is_developed_image)
-    };
+    let developed = rawtonic_metadata::sidecars::is_developed;
     let raw_stems: std::collections::HashSet<_> = items
         .iter()
         .filter(|item| !developed(&item.source.path))

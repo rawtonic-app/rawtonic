@@ -269,3 +269,76 @@ fn identical_sidecars_of_a_pair_stay_each_their_own() {
     assert_eq!(rating_in(&capture.join("F.xmp")), 5);
     assert_eq!(rating_in(&capture.join("F.JPG.xmp")), 1);
 }
+
+#[test]
+fn a_dotted_raw_stem_and_a_jpeg_full_name_never_claim_the_ambiguous_packet() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, capture) = session(
+        d.path(),
+        &[
+            ("A.JPG.NEF", b"raw"),
+            ("A.JPG", b"jpg"),
+            ("A.JPG.xmp", JPEG_XMP.as_bytes()),
+        ],
+    );
+    for name in ["A.JPG.NEF", "A.JPG"] {
+        let id = add(&lib, &capture.join(name));
+        assert_eq!(lib.metadata(&id).unwrap().rating, 0, "{name}");
+        rate(&lib, &id, 3);
+        assert!(lib.sync_xmp(&id).is_err(), "{name}");
+    }
+    assert_eq!(
+        fs::read_to_string(capture.join("A.JPG.xmp")).unwrap(),
+        JPEG_XMP
+    );
+}
+
+#[test]
+fn mixed_case_partners_release_the_legacy_digest_when_the_raw_writes() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, capture) = session(
+        d.path(),
+        &[("IMG.JPG", b"jpg"), ("IMG.xmp", LR_RAW_XMP.as_bytes())],
+    );
+    let jpg = add(&lib, &capture.join("IMG.JPG"));
+    // On a case-sensitive volume the two spellings may be separate XMP
+    // names. Model the identical legacy packet the pair held in either case.
+    if !capture.join("img.xmp").exists() {
+        fs::rename(capture.join("IMG.xmp"), capture.join("img.xmp")).unwrap();
+    }
+    fs::write(capture.join("img.NEF"), b"raw").unwrap();
+    let raw = add(&lib, &capture.join("img.NEF"));
+    assert_eq!(lib.metadata(&raw).unwrap().rating, 5);
+    rate(&lib, &raw, 2);
+    lib.sync_xmp(&raw).unwrap();
+    rate(&lib, &jpg, 4);
+    lib.sync_xmp(&jpg).unwrap();
+    assert_eq!(rating_in(&capture.join("IMG.JPG.xmp")), 4);
+    assert_eq!(rating_in(&capture.join("img.xmp")), 2);
+}
+
+#[test]
+fn a_cfa_tiff_owns_the_stem_sidecar_beside_a_jpeg() {
+    let d = tempfile::tempdir().unwrap();
+    // TIFF with an IFD containing PhotometricInterpretation = CFA (32803).
+    let cfa = b"II\x2a\0\x08\0\0\0\x01\0\x06\x01\x03\0\x01\0\0\0\x23\x80\0\0\0\0\0\0";
+    let (lib, capture) = session(
+        d.path(),
+        &[
+            ("A.TIF", cfa),
+            ("A.JPG", b"jpg"),
+            ("A.xmp", LR_RAW_XMP.as_bytes()),
+        ],
+    );
+    let raw = add(&lib, &capture.join("A.TIF"));
+    let jpg = add(&lib, &capture.join("A.JPG"));
+    assert_eq!(lib.metadata(&raw).unwrap().rating, 5);
+    assert_eq!(lib.metadata(&jpg).unwrap().rating, 0);
+    rate(&lib, &raw, 2);
+    rate(&lib, &jpg, 4);
+    lib.sync_xmp(&raw).unwrap();
+    lib.sync_xmp(&jpg).unwrap();
+    assert_eq!(rating_in(&capture.join("A.xmp")), 2);
+    assert_eq!(rating_in(&capture.join("A.JPG.xmp")), 4);
+    assert_eq!(fs::read(capture.join("A.TIF")).unwrap(), cfa);
+}

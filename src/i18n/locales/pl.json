@@ -2521,10 +2521,10 @@
         "pending_few": "{{count}} pliki XMP można zapisać ponownie.",
         "pending_many": "{{count}} plików XMP można zapisać ponownie.",
         "pending_other": "{{count}} pliku XMP można zapisać ponownie.",
-        "sharedName_one": "{{count}} zdjęcie ma tę samą nazwę co inne (dwa pliki RAW, np. CR3 i DNG), więc oba zapisałyby ten sam plik XMP.",
-        "sharedName_few": "{{count}} zdjęcia mają tę samą nazwę co inne (dwa pliki RAW, np. CR3 i DNG), więc oba zapisałyby ten sam plik XMP.",
-        "sharedName_many": "{{count}} zdjęć ma tę samą nazwę co inne (dwa pliki RAW, np. CR3 i DNG), więc oba zapisałyby ten sam plik XMP.",
-        "sharedName_other": "{{count}} zdjęć ma tę samą nazwę co inne (dwa pliki RAW, np. CR3 i DNG), więc oba zapisałyby ten sam plik XMP."
+        "sharedName_one": "{{count}} zdjęcie użyłoby tego samego pliku XMP co inne zdjęcie.",
+        "sharedName_few": "{{count}} zdjęcia użyłyby tego samego pliku XMP co inne zdjęcie.",
+        "sharedName_many": "{{count}} zdjęć użyłoby tego samego pliku XMP co inne zdjęcie.",
+        "sharedName_other": "{{count}} zdjęcia użyłyby tego samego pliku XMP co inne zdjęcie."
       },
       "resolved_one": "Konflikt XMP rozwiązany dla {{count}} zdjęcia",
       "resolved_few": "Konflikty XMP rozwiązane dla {{count}} zdjęć",
