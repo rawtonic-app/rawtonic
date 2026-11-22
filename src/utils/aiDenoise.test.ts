@@ -319,23 +319,24 @@ describe('old fractional AI Denoise amounts', () => {
   });
 
   it('keeps a source developed at the stored amount (no endless develop, f32 round trip)', () => {
-    const source = { ...decoded, aiDenoise: 50.400002, aiDenoiseVersion: 4 };
+    // Tauri serializes a Rust f32 as the shortest decimal that round-trips.
+    const source = { ...decoded, aiDenoise: 50.4, aiDenoiseVersion: 4 };
     expect(aiDenoiseToApply(source, recipe, false)).toBeNull();
-    expect(aiDenoiseToApply({ ...source, aiDenoise: 50.4 }, recipe, false)).toBeNull();
+    expect(aiDenoiseToApply({ ...source, aiDenoise: Math.fround(recipe.aiDenoise) }, recipe, false)).toBeNull();
   });
 
   it('tells the signature of 50 and 50.4 apart: their sources differ', () => {
     expect(developmentSignature(recipe, true)).not.toBe(developmentSignature({ ...recipe, aiDenoise: 50 }, true));
   });
 
-  it('tells Preset Amount fractions apart (40 and 40.01 are other decodes)', () => {
+  it('tells Preset Amount fractions apart even below the former tolerance', () => {
     expect(
       aiDenoiseToApply(
         { ...decoded, aiDenoise: 40, aiDenoiseVersion: 4 },
-        { aiDenoise: 40.01, aiDenoiseVersion: 4 },
+        { aiDenoise: 40.00008, aiDenoiseVersion: 4 },
         false
       )
-    ).toBe(40.01);
+    ).toBe(40.00008);
   });
 
   it('is copied as stored by a paste', () => {
@@ -378,5 +379,13 @@ describe('decode preferences changed since the source was developed', () => {
 
   it('waits for a slider drag', () => {
     expect(aiDenoiseToApply(stale, { aiDenoise: 40, aiDenoiseVersion: 4 }, true)).toBeNull();
+  });
+
+  it.each(['/a.jpg', '/a.tiff'])('develops %s again without AI Denoise', (path) => {
+    const raster = { ...stale, path, isRaw: false };
+    const recipe = { aiDenoise: 40, aiDenoiseVersion: 4 };
+    expect(sourceDevelopToApply(raster, recipe, false)).toEqual({ aiDenoise: 0 });
+    expect(sourceDevelopToApply({ ...raster, decoderStale: 0 }, recipe, false)).toBeNull();
+    expect(sourceDevelopToApply(raster, recipe, true)).toBeNull();
   });
 });

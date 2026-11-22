@@ -598,6 +598,33 @@ it('reports a split view before the renderer could not make, by its code', async
   useEditorStore.setState({ splitView: false, hasRenderedFirstFrame: false });
 });
 
+it('develops an open TIFF again under new preferences and renders with its current recipe', async () => {
+  const adjustments = { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: 0.7, aiDenoise: 50 };
+  useEditorStore.setState({
+    selectedImage: { ...photo('/first.tiff'), isRaw: false, isDecoded: true },
+    adjustments,
+    aiDenoiseBusy: false
+  });
+  mount();
+  await finish();
+  act(() => {
+    const { selectedImage } = useEditorStore.getState();
+    useEditorStore.setState({ selectedImage: { ...selectedImage!, decoderStale: 1 } });
+  });
+  const invocations = vi.mocked(invoke).mock.calls;
+  expect(invocations).toContainEqual([
+    Invokes.ApplyAiDenoise,
+    expect.objectContaining({ path: '/first.tiff', amount: 0 })
+  ]);
+  expect(useEditorStore.getState().aiDenoiseBusy).toBe(false);
+  await act(async () => (complete.shift() as unknown as (value: number) => void)(0));
+  expect(useEditorStore.getState().selectedImage?.decoderStale).toBe(0);
+  expect(useEditorStore.getState().adjustments).toBe(adjustments);
+  expect(invocations.filter(([name]) => name === Invokes.ApplyAiDenoise)).toHaveLength(1);
+  expect(calls()).toHaveLength(2);
+  expect(args(1).jsAdjustments.exposure).toBe(0.7);
+});
+
 describe('AI Denoise busy note', () => {
   const decoded = (path: string) => ({ ...photo(path), isDecoded: true });
   /** Starts a develop request for AI Denoise and returns how to end it. */
