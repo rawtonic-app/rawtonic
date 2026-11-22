@@ -181,7 +181,7 @@ These are measured shortfalls or open work; they stay open until they are closed
 - **Eyes and Teeth:** the glow around Iris and Sclera is larger than Capture One's; deeply shadowed teeth and narrowed or hair-covered eyes are still missed in places.
 - **Colour targets:** a colour far beyond sRGB may stay short of its target (a blue toy robot: ΔE00 1.13 left, Capture One 1.37); the readout says so.
 - **HDR edits from Lightroom** keep their settings but are shown and exported as SDR.
-- **Radeon 680M:** Glow, Halation and film grain together still add more than 1 ms per drag frame (+1.27 ms at 1024 × 682, measured on synthetic frames with a render probe, not in the app).
+- **Radeon 680M:** in a render probe on synthetic 1024 × 682 frames (Vulkan), Glow, Halation and film grain together still add +1.27 ms per drag frame, over the +1 ms goal; their cost in the app's own drags was not measured.
 - The known gaps of alpha.18 and earlier that this release does not close remain (closed in this release, for example: photos with AI selections pasted, synced or from a preset now export without being opened in Develop first).
 
 
