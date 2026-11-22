@@ -1402,8 +1402,25 @@ fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicI
 }
 
 pub(crate) fn encode_thumbnail(image: &DynamicImage, target_width: u32) -> Result<Vec<u8>> {
-    let thumbnail =
-        crate::image_processing::resample_display_image(image, target_width, target_width);
+    encode_tile(&crate::image_processing::resample_display_image(
+        image,
+        target_width,
+        target_width,
+    ))
+}
+
+/// The grid's small and medium tiles of `image` as JPEGs (the small one
+/// reduced from the medium one, `resample_display_pair`).
+fn encode_tiles(image: &DynamicImage, settings: &AppSettings) -> Result<(Vec<u8>, Vec<u8>)> {
+    let (medium, small) = crate::image_processing::resample_display_pair(
+        image,
+        settings.medium_thumbnail_resolution.unwrap_or(1280),
+        settings.small_thumbnail_resolution.unwrap_or(480),
+    );
+    Ok((encode_tile(&small)?, encode_tile(&medium)?))
+}
+
+fn encode_tile(thumbnail: &DynamicImage) -> Result<Vec<u8>> {
     let mut buf = Cursor::new(Vec::new());
     let mut encoder = JpegEncoder::new_with_quality(&mut buf, 75);
     encoder.encode_image(&thumbnail.to_rgb8())?;
@@ -1605,29 +1622,18 @@ impl ThumbnailCacheEntry {
         self.medium = directory.join(format!("{hash}_medium.jpg"));
         let _small_use = crate::storage_fs::pin_file(&self.small);
         let _medium_use = crate::storage_fs::pin_file(&self.medium);
-        cache_thumbnail(
-            &self.small,
-            &encode_thumbnail(image, settings.small_thumbnail_resolution.unwrap_or(480))?,
-        )?;
-        cache_thumbnail(
-            &self.medium,
-            &encode_thumbnail(image, settings.medium_thumbnail_resolution.unwrap_or(1280))?,
-        )?;
+        let (small, medium) = encode_tiles(image, settings)?;
+        cache_thumbnail(&self.small, &small)?;
+        cache_thumbnail(&self.medium, &medium)?;
         // If a current-looking proxy could not actually be used (no GPU or
         // damaged payload), lookup may request the developed key. Backfill it
         // from the actual fallback pixels, so subsequent requests still hit.
         let backfill = embedded && !embedded_thumbnail_allowed(path_str, b"null", settings);
         if backfill {
-            for (size, width) in [
-                ("small", settings.small_thumbnail_resolution.unwrap_or(480)),
-                (
-                    "medium",
-                    settings.medium_thumbnail_resolution.unwrap_or(1280),
-                ),
-            ] {
+            for (size, bytes) in [("small", &small), ("medium", &medium)] {
                 cache_thumbnail(
                     &directory.join(format!("{}_{size}.jpg", self.developed_hash)),
-                    &encode_thumbnail(image, width)?,
+                    bytes,
                 )?;
             }
         }

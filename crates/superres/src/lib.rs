@@ -199,16 +199,18 @@ impl Model {
             #[cfg(target_os = "macos")]
             Backend::CoreMl(_) => return None,
         };
-        let on_cpu = model.provider() == rawtonic_onnx::Provider::Cpu;
-        if is_gpu_graph(model)
-            && (on_cpu || gpu_failed.load(Ordering::Relaxed))
-            && let Some(fp32) = fp32_cpu
-                .get_or_init(|| Self::fp32_on_cpu(model.path()))
-                .as_ref()
-        {
-            return Some(fp32);
-        }
-        Some(active_graph(model, cpu.as_ref(), on_cpu))
+        Some(graph_now(
+            model,
+            cpu.as_ref(),
+            || {
+                fp32_cpu
+                    .get_or_init(|| Self::fp32_on_cpu(model.path()))
+                    .as_ref()
+            },
+            is_gpu_graph(model),
+            model.provider() == rawtonic_onnx::Provider::Cpu,
+            gpu_failed.load(Ordering::Relaxed),
+        ))
     }
 
     /// Loads a known CPU conversion directly, without probing GPU providers
@@ -326,9 +328,7 @@ impl Model {
                 if is_gpu_graph(graph) && graph.provider() != rawtonic_onnx::Provider::Cpu {
                     // No retry of the fp16 graph on the CPU: the photo
                     // starts again on the fp32 CPU graph (`enlarge`).
-                    graph
-                        .run_without_fallback(run)
-                        .inspect_err(|_| gpu_failed.store(true, Ordering::Relaxed))?
+                    recording_failure(graph.run_without_fallback(run), gpu_failed)?
                 } else {
                     graph.run(run)?
                 }
@@ -403,6 +403,34 @@ fn on_one_path<P: PartialEq, T>(
     }
     drop(first);
     pass()
+}
+
+/// The graph that runs a tile now (`Model::onnx_graph`): the fp16 graph
+/// (`gpu_graph`) on its GPU until a run there failed or ONNX Runtime moved
+/// it to the CPU, then the fp32 CPU graph (`fp32_cpu`, loaded on first
+/// call; the fp16 graph only when no fp32 graph loads); the original graph
+/// as in [`active_graph`].
+fn graph_now<'a, T>(
+    model: &'a T,
+    cpu: Option<&'a T>,
+    fp32_cpu: impl FnOnce() -> Option<&'a T>,
+    gpu_graph: bool,
+    on_cpu: bool,
+    gpu_failed: bool,
+) -> &'a T {
+    if gpu_graph
+        && (on_cpu || gpu_failed)
+        && let Some(fp32) = fp32_cpu()
+    {
+        return fp32;
+    }
+    active_graph(model, cpu, on_cpu)
+}
+
+/// `result` of a run of the fp16 graph on its GPU; a failure is recorded
+/// in `gpu_failed`, which moves the model to the fp32 CPU graph for good.
+fn recording_failure<T>(result: Result<T>, gpu_failed: &AtomicBool) -> Result<T> {
+    result.inspect_err(|_| gpu_failed.store(true, Ordering::Relaxed))
 }
 
 /// The graph that runs a tile: the CPU conversion while the original graph
@@ -789,6 +817,69 @@ mod tests {
         })
         .unwrap_err();
         assert_eq!((passes, err.as_str()), (1, "Export cancelled"));
+    }
+
+    /// The production selection (`graph_now`, `recording_failure`, as in
+    /// `Model::onnx_graph` and `enlarge_tile`) inside the restart helper: an
+    /// fp16 graph whose GPU fails at the third tile hands the photo to the
+    /// fp32 CPU graph, which enlarges all of it in a second pass; without
+    /// an fp32 graph the fp16 graph's error stays.
+    #[test]
+    fn a_failed_fp16_tile_moves_the_photo_to_the_fp32_cpu_graph() {
+        use std::cell::Cell;
+        #[derive(Debug, PartialEq)]
+        enum G {
+            Fp16,
+            Fp32Cpu,
+        }
+        let source = DynamicImage::ImageRgb32F(gradient(1200, 900));
+        for fp32_installed in [true, false] {
+            let gpu_failed = AtomicBool::new(false);
+            let fp32 = G::Fp32Cpu;
+            let loads = Cell::new(0);
+            let now = || {
+                graph_now(
+                    &G::Fp16,
+                    None,
+                    || {
+                        loads.set(loads.get() + 1);
+                        fp32_installed.then_some(&fp32)
+                    },
+                    true,
+                    false,
+                    gpu_failed.load(Ordering::Relaxed),
+                )
+            };
+            assert_eq!(now(), &G::Fp16);
+            assert_eq!(loads.get(), 0, "the fp32 graph loads only after a failure");
+            let (fp16_tiles, cpu_tiles) = (Cell::new(0), Cell::new(0));
+            let mut tile = |input: &[f32]| -> Result<Vec<f32>> {
+                if now() == &G::Fp16 {
+                    fp16_tiles.set(fp16_tiles.get() + 1);
+                    let result = if fp16_tiles.get() == 3 {
+                        Err(anyhow::anyhow!("GPU device lost"))
+                    } else {
+                        nearest(input)
+                    };
+                    recording_failure(result, &gpu_failed)
+                } else {
+                    cpu_tiles.set(cpu_tiles.get() + 1);
+                    nearest(input)
+                }
+            };
+            let out = on_one_path(&|| now() == &G::Fp16, &mut || {
+                enlarge_ref(&source, &mut tile, &|| Ok(()))
+            });
+            assert!(gpu_failed.load(Ordering::Relaxed));
+            if fp32_installed {
+                assert_eq!(out.expect("the CPU pass finishes").width(), 2400);
+                assert_eq!(fp16_tiles.get(), 3);
+                assert!(cpu_tiles.get() >= 6, "{} CPU tiles", cpu_tiles.get());
+            } else {
+                assert!(out.unwrap_err().contains("GPU device lost"));
+                assert_eq!(cpu_tiles.get(), 0);
+            }
+        }
     }
 
     #[test]

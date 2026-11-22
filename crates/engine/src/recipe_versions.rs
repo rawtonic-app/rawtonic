@@ -1170,6 +1170,9 @@ pub mod light_range {
 /// The key of a Select Subject component's version (`subjectVersion`).
 pub const SUBJECT_VERSION_KEY: &str = "subjectVersion";
 
+/// The key of a Landscape component's version (`landscapeVersion`).
+pub const LANDSCAPE_VERSION_KEY: &str = "landscapeVersion";
+
 #[cfg(test)]
 mod tests {
     use super::*;

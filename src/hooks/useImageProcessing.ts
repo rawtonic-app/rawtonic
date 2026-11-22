@@ -662,9 +662,8 @@ export function useImageProcessing(
     [previewQueue, currentResRef]
   );
 
-  // AI Denoise, the colour noise filter's base, the dead-photosite test, the
-  // black handling, the highlight rebuild and a DNG's lens warp live in the decode: develop the RAW again when the recipe's differ from
-  // the source's (src/utils/aiDenoise.ts), then render.
+  // Develop the source again when decode preferences or the recipe's RAW
+  // development change (src/utils/aiDenoise.ts), then render.
   const sourceDevelop = sourceDevelopToApply(selectedImage, adjustments, isSliderDragging);
   const developAiDenoise = sourceDevelop?.aiDenoise ?? null;
   const developAiDenoiseVersion = sourceDevelop?.aiDenoiseVersion;
@@ -677,12 +676,14 @@ export function useImageProcessing(
   // The preferences' revision a develop is for: a change while it runs asks
   // for another one (`decode-preferences-changed`).
   const staleRevision = selectedImage?.decoderStale ?? 0;
+  const developPath = selectedImage?.path;
   // The newest develop request: it alone clears the busy note, on every way
   // it ends (done, failed, cancelled, photograph switched).
   const sourceDevelopRequestRef = useRef(0);
   useEffect(() => {
-    const path = useEditorStore.getState().selectedImage?.path;
-    if (developAiDenoise === null || !path) return;
+    const path = developPath;
+    const current = useEditorStore.getState().selectedImage;
+    if (developAiDenoise === null || !path || current?.path !== path) return;
     const amount = developAiDenoise;
     const version = developAiDenoiseVersion;
     const multiscale = developMultiscale;
@@ -691,18 +692,17 @@ export function useImageProcessing(
     const borderBlack = developBorderBlack;
     const highlightRatios = developHighlightRatios;
     const cameraPlaneWarp = developCameraPlaneWarp;
-    const current = useEditorStore.getState().selectedImage;
-    const revision = current?.decoderStale ?? 0;
+    const revision = current.decoderStale ?? 0;
     const changesAiDenoise =
-      !sameAiDenoiseAmount(amount, current?.aiDenoise ?? 0) ||
-      (amount === 0 && current?.aiDenoiseStandIn === true) ||
-      (amount > 0 && (version ?? 1) !== (current?.aiDenoiseVersion ?? 1));
-    const changesFilter = multiscale !== current?.colorNoiseMultiscale;
-    const changesDeadTest = deadPixelAdjacent !== current?.deadPixelAdjacent;
-    const changesBlack = unbiasedBlack !== current?.unbiasedBlack;
-    const changesBorderBlack = borderBlack !== current?.borderBlack;
-    const changesHighlights = highlightRatios !== current?.highlightRatios;
-    const changesWarp = cameraPlaneWarp !== current?.cameraPlaneWarp;
+      !sameAiDenoiseAmount(amount, current.aiDenoise ?? 0) ||
+      (amount === 0 && current.aiDenoiseStandIn === true) ||
+      (amount > 0 && (version ?? 1) !== (current.aiDenoiseVersion ?? 1));
+    const changesFilter = multiscale !== current.colorNoiseMultiscale;
+    const changesDeadTest = deadPixelAdjacent !== current.deadPixelAdjacent;
+    const changesBlack = unbiasedBlack !== current.unbiasedBlack;
+    const changesBorderBlack = borderBlack !== current.borderBlack;
+    const changesHighlights = highlightRatios !== current.highlightRatios;
+    const changesWarp = cameraPlaneWarp !== current.cameraPlaneWarp;
     const request = ++sourceDevelopRequestRef.current;
     const settleBusy = () => {
       if (request === sourceDevelopRequestRef.current && useEditorStore.getState().aiDenoiseBusy)
@@ -799,6 +799,7 @@ export function useImageProcessing(
         else console.error('Developing the source again failed:', err);
       });
   }, [
+    developPath,
     developAiDenoise,
     developAiDenoiseVersion,
     developMultiscale,
