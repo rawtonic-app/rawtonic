@@ -80,6 +80,7 @@
       "running": "Nichts läuft gerade."
     },
     "export": {
+      "done": "{{label}} exportiert ({{existing}})",
       "failed_one": "{{count}} Foto nicht exportiert: {{label}}",
       "failed_other": "{{count}} Fotos nicht exportiert: {{label}}",
       "interrupted": "Export unterbrochen: {{label}}",
@@ -3593,6 +3594,17 @@
           "outside": "Der Unterordner muss innerhalb des Zielordners liegen.",
           "tokens": "Nur verfügbare Platzhalter und Ordnernamen ohne reservierte Zeichen verwenden."
         },
+        "existing": "Wenn eine Datei existiert",
+        "existingChoice": {
+          "keepBoth": "Beide behalten (neuer Name)",
+          "replaceIfChanged": "Ersetzen, wenn geändert",
+          "skip": "Überspringen"
+        },
+        "existingHint": {
+          "keepBoth": "Die neue Datei bekommt einen nummerierten Namen; nichts wird überschrieben.",
+          "replaceIfChanged": "Ersetzt den eigenen früheren Rawtonic-Export eines Fotos unter diesem Namen nur, wenn sich Bearbeitung oder Einstellungen geändert haben; unveränderte Fotos werden übersprungen. Jede andere Datei (Originale, Kamera-JPEGs, anderswo bearbeitete Dateien) bleibt erhalten, und die neue Datei bekommt einen nummerierten Namen.",
+          "skip": "Fotos, deren Datei schon existiert, werden nicht exportiert."
+        },
         "exportTo": "Exportieren nach",
         "keepStructure": "Ordnerstruktur beibehalten",
         "legend": "Ziel",
@@ -3726,6 +3738,14 @@
           "minutes": "noch etwa {{minutes}} min",
           "seconds": "noch etwa {{seconds}} s"
         },
+        "existing": {
+          "keptBoth_one": "{{count}} unter neuem Namen",
+          "keptBoth_other": "{{count}} unter neuen Namen",
+          "replaced_one": "{{count}} ersetzt",
+          "replaced_other": "{{count}} ersetzt",
+          "skipped_one": "{{count}} übersprungen",
+          "skipped_other": "{{count}} übersprungen"
+        },
         "exportedTo": "Exportiert nach:",
         "failed": "{{failed}} von {{total}} fehlgeschlagen",
         "failures": "Nicht exportierte Fotos",
@@ -3741,10 +3761,15 @@
           "denoiseProgress": "Fortschritt KI-Entrauschen",
           "denoising": "KI-Entrauschen {{percent}} %",
           "doneIn": "Fertig in {{seconds}} s",
+          "keptBoth": "Unter neuem Namen exportiert: Die vorhandene Datei ist nicht sein eigener Export",
+          "keptOriginal": "Unter neuem Namen exportiert: Die vorhandene Datei ist ein Foto in einer Bibliothek",
           "loading": "Foto wird gelesen…",
           "masks": "Masken werden geschrieben…",
           "rendering": "Wird gerendert und geschrieben…",
+          "replaced": "Früheren Export ersetzt",
           "selecting": "KI-Auswahlen werden berechnet …",
+          "skippedExists": "Übersprungen: Eine Datei dieses Namens existiert",
+          "skippedUnchanged": "Übersprungen: seit dem letzten Export unverändert",
           "waiting": "Wartet"
         },
         "photos_one": "{{count}} Foto",

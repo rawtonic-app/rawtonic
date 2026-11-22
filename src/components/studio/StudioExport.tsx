@@ -19,6 +19,7 @@ import {
   BorderBasis,
   Status,
   WatermarkAnchor,
+  type ExistingFiles,
   type ExportPreset,
   type OutputColorSpace
 } from '../ui/ExportImportProperties';
@@ -38,7 +39,8 @@ import {
   type RecipeDraft,
   type ResizeMode,
   COLOR_SPACES,
-  COLOR_SPACE_NAMES
+  COLOR_SPACE_NAMES,
+  EXISTING_FILES
 } from '../../utils/exportRecipes';
 import { selectOnFocus } from '../../utils/selectOnFocus';
 
@@ -644,6 +646,23 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
                 />
                 {t('studio.export.destination.keepStructure')}
               </label>
+            )}
+            <label title={t(`studio.export.destination.existingHint.${draft.existingFiles}`)}>
+              {t('studio.export.destination.existing')}
+              <select
+                aria-label={t('studio.export.destination.existing')}
+                value={draft.existingFiles}
+                onChange={(e) => set({ existingFiles: e.target.value as ExistingFiles })}
+              >
+                {EXISTING_FILES.map((choice) => (
+                  <option key={choice} value={choice}>
+                    {t(`studio.export.destination.existingChoice.${choice}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {draft.existingFiles !== 'keepBoth' && (
+              <small>{t(`studio.export.destination.existingHint.${draft.existingFiles}`)}</small>
             )}
           </fieldset>
           <fieldset disabled={choosing}>

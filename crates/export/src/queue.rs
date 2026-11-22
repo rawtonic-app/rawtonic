@@ -112,6 +112,9 @@ pub struct Item {
     pub output: Option<PathBuf>,
     pub error: Option<String>,
     pub attempts: u32,
+    /// How its file ended when it was not simply written ("If a file
+    /// exists": skipped, replaced, kept both); None for a plain write.
+    pub outcome: Option<crate::existing_files::Outcome>,
     /// When the last attempt started and ended (Unix ms), for durations.
     pub started_ms: Option<i64>,
     pub finished_ms: Option<i64>,
@@ -139,11 +142,20 @@ pub struct Job {
     pub total: usize,
     pub done: usize,
     pub failed: usize,
+    /// Of `done`: photos not exported because their file existed or was
+    /// unchanged ("If a file exists": Skip, Replace if changed).
+    pub skipped: usize,
+    /// Of `done`: previous exports replaced (Replace if changed).
+    pub replaced: usize,
+    /// Of `done`: exported under a numbered name because the file at their
+    /// name was not a previous export of the photo or is a photo of a
+    /// library (Replace if changed).
+    pub kept_both: usize,
     /// The failed photos in job order, for the interface to list.
     pub failures: Vec<Failure>,
 }
 
-const QUEUE_VERSION: u32 = 3;
+const QUEUE_VERSION: u32 = 4;
 
 pub struct ExportQueue {
     conn: Connection,
@@ -184,6 +196,7 @@ impl ExportQueue {
                started_ms INTEGER,
                finished_ms INTEGER,
                snapshot TEXT,
+               outcome TEXT,
                PRIMARY KEY(job_id, idx));",
         )?;
         if version < 2 {
@@ -215,6 +228,20 @@ impl ExportQueue {
                 tx.execute_batch("ALTER TABLE items ADD COLUMN snapshot TEXT;")?;
             }
             tx.execute_batch("PRAGMA user_version=3;")?;
+            tx.commit()?;
+        }
+        if version < 4 {
+            // Versions 1 to 3 had no "If a file exists" outcomes.
+            let tx = conn.unchecked_transaction()?;
+            let has_outcome: bool = tx.query_row(
+                "SELECT count(*) FROM pragma_table_info('items') WHERE name='outcome'",
+                [],
+                |r| r.get(0),
+            )?;
+            if !has_outcome {
+                tx.execute_batch("ALTER TABLE items ADD COLUMN outcome TEXT;")?;
+            }
+            tx.execute_batch("PRAGMA user_version=4;")?;
             tx.commit()?;
         }
         Ok(Self { conn })
@@ -437,8 +464,8 @@ impl ExportQueue {
     /// from now, without an output until `item_started` plans one.
     pub fn item_began(&self, job: &str, index: usize) -> Result<()> {
         self.conn.execute(
-            "UPDATE items SET state=?, output=NULL, attempts=attempts+1, started_ms=?,
-               finished_ms=NULL WHERE job_id=? AND idx=?",
+            "UPDATE items SET state=?, output=NULL, outcome=NULL, attempts=attempts+1,
+               started_ms=?, finished_ms=NULL WHERE job_id=? AND idx=?",
             params![ItemState::Running.as_str(), now_ms(), job, index as i64],
         )?;
         Ok(())
@@ -457,6 +484,28 @@ impl ExportQueue {
                 ItemState::Running.as_str(),
                 output.to_string_lossy(),
                 now_ms(),
+                job,
+                index as i64
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// How a photo in progress ended when its file was not simply written
+    /// (skipped, replaced, kept both), with the file it concerns; kept when
+    /// it is done.
+    pub fn item_outcome(
+        &self,
+        job: &str,
+        index: usize,
+        outcome: crate::existing_files::Outcome,
+        output: &Path,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE items SET outcome=?, output=? WHERE job_id=? AND idx=?",
+            params![
+                outcome.as_str(),
+                output.to_string_lossy(),
                 job,
                 index as i64
             ],
@@ -701,6 +750,14 @@ impl ExportQueue {
             [id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
+        let (skipped, replaced, kept_both): (i64, i64, i64) = self.conn.query_row(
+            "SELECT coalesce(sum(outcome IN ('skippedExists','skippedUnchanged')),0),
+               coalesce(sum(outcome='replaced'),0),
+               coalesce(sum(outcome IN ('keptBoth','keptOriginal')),0)
+             FROM items WHERE job_id=? AND state='done'",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
         let mut q = self.conn.prepare_cached(
             "SELECT path, coalesce(error,'') FROM items WHERE job_id=? AND state='failed' ORDER BY idx",
         )?;
@@ -728,6 +785,9 @@ impl ExportQueue {
             total: total as usize,
             done: done as usize,
             failed: failed as usize,
+            skipped: skipped as usize,
+            replaced: replaced as usize,
+            kept_both: kept_both as usize,
             failures,
         })
     }
@@ -746,7 +806,7 @@ impl ExportQueue {
     /// The photos of `job` in order, or only photo `index`.
     fn read_items(&self, job: &str, index: Option<usize>) -> Result<Vec<Item>> {
         let mut q = self.conn.prepare_cached(
-            "SELECT idx,path,state,output,error,attempts,started_ms,finished_ms
+            "SELECT idx,path,state,output,error,attempts,started_ms,finished_ms,outcome
              FROM items WHERE job_id=?1 AND (?2 IS NULL OR idx=?2) ORDER BY idx",
         )?;
         let rows = q.query_map(params![job, index.map(|i| i as i64)], |r| {
@@ -760,10 +820,12 @@ impl ExportQueue {
                 r.get::<_, Option<String>>(4)?,
                 r.get::<_, i64>(5)?,
                 (r.get::<_, Option<i64>>(6)?, r.get::<_, Option<i64>>(7)?),
+                r.get::<_, Option<String>>(8)?,
             ))
         })?;
         rows.map(|row| {
-            let ((index, path, state), output, error, attempts, (started_ms, finished_ms)) = row?;
+            let ((index, path, state), output, error, attempts, (started_ms, finished_ms), outcome) =
+                row?;
             Ok(Item {
                 index: index as usize,
                 path,
@@ -771,6 +833,7 @@ impl ExportQueue {
                 output: output.map(PathBuf::from),
                 error,
                 attempts: attempts as u32,
+                outcome: outcome.as_deref().and_then(crate::existing_files::Outcome::parse),
                 started_ms,
                 finished_ms,
             })
@@ -1069,6 +1132,45 @@ mod tests {
         );
         assert!(q.recover().unwrap().is_empty(), "recovery runs once");
         assert_eq!(q.retry(&job).unwrap(), 2);
+    }
+
+    #[test]
+    fn skipped_replaced_and_kept_photos_are_counted_and_a_new_attempt_forgets_them() {
+        use crate::existing_files::Outcome;
+        let (dir, q) = queue();
+        let job = q.enqueue("Export 4", &json!({}), &paths(4)).unwrap();
+        q.start_next().unwrap();
+        let file = |i: usize| dir.path().join(format!("{i}.jpg"));
+        for (index, outcome) in [
+            (0, Some(Outcome::SkippedExists)),
+            (1, Some(Outcome::SkippedUnchanged)),
+            (2, Some(Outcome::Replaced)),
+            (3, None),
+        ] {
+            q.item_began(&job, index).unwrap();
+            if let Some(outcome) = outcome {
+                q.item_outcome(&job, index, outcome, &file(index)).unwrap();
+            } else {
+                q.item_started(&job, index, &file(index)).unwrap();
+            }
+            q.item_done(&job, index).unwrap();
+        }
+        let counted = q.job(&job).unwrap();
+        assert_eq!(
+            (
+                counted.done,
+                counted.skipped,
+                counted.replaced,
+                counted.kept_both
+            ),
+            (4, 2, 1, 0)
+        );
+        let items = q.items(&job).unwrap();
+        assert_eq!(items[1].outcome, Some(Outcome::SkippedUnchanged));
+        assert_eq!(items[1].output.as_deref(), Some(file(1).as_path()));
+        assert_eq!(items[3].outcome, None);
+        q.item_began(&job, 0).unwrap();
+        assert_eq!(q.item(&job, 0).unwrap().outcome, None);
     }
 
     #[test]

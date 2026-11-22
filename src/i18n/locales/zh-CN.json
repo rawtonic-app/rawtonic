@@ -74,6 +74,7 @@
       "running": "没有进行中的任务。"
     },
     "export": {
+      "done": "已导出 {{label}}（{{existing}}）",
       "failed_other": "{{count}} 张照片未能导出：{{label}}",
       "interrupted": "导出已中断：{{label}}",
       "running": "正在导出 {{label}}",
@@ -3491,6 +3492,17 @@
           "outside": "子文件夹必须位于目标文件夹内。",
           "tokens": "请使用可用的标记和不含保留字符的文件夹名称。"
         },
+        "existing": "如果文件已存在",
+        "existingChoice": {
+          "keepBoth": "保留两者（新名称）",
+          "replaceIfChanged": "有更改时替换",
+          "skip": "跳过"
+        },
+        "existingHint": {
+          "keepBoth": "新文件使用带编号的名称；绝不覆盖任何文件。",
+          "replaceIfChanged": "仅当照片的编辑或设置有更改时，才替换该名称下这张照片自己之前的 Rawtonic 导出；未更改的照片将被跳过。其他任何文件（原片、相机 JPEG、在别处编辑过的文件）都会保留，新文件使用带编号的名称。",
+          "skip": "文件已存在的照片不会导出。"
+        },
         "exportTo": "导出到",
         "keepStructure": "保留文件夹结构",
         "legend": "目标位置",
@@ -3622,6 +3634,11 @@
           "minutes": "约剩 {{minutes}} 分钟",
           "seconds": "约剩 {{seconds}} 秒"
         },
+        "existing": {
+          "keptBoth_other": "{{count}} 张使用新名称",
+          "replaced_other": "已替换 {{count}} 张",
+          "skipped_other": "已跳过 {{count}} 张"
+        },
         "exportedTo": "导出到：",
         "failed": "{{failed}}/{{total}} 失败",
         "failures": "未导出的照片",
@@ -3637,10 +3654,15 @@
           "denoiseProgress": "AI 降噪进度",
           "denoising": "AI 降噪 {{percent}}%",
           "doneIn": "{{seconds}} 秒完成",
+          "keptBoth": "以新名称导出：现有文件不是它自己的导出",
+          "keptOriginal": "以新名称导出：现有文件是图库中的照片",
           "loading": "正在读取照片…",
           "masks": "正在写入蒙版…",
           "rendering": "正在渲染并写入…",
+          "replaced": "已替换之前的导出",
           "selecting": "正在计算 AI 选区…",
+          "skippedExists": "已跳过：已有同名文件",
+          "skippedUnchanged": "已跳过：自上次导出后未更改",
           "waiting": "等待中"
         },
         "photos_other": "{{count}} 张照片",

@@ -89,6 +89,7 @@
       "running": "Aucune tâche en cours."
     },
     "export": {
+      "done": "{{label}} exporté ({{existing}})",
       "failed_one": "{{count}} photo non exportée : {{label}}",
       "failed_many": "{{count}} photos non exportées : {{label}}",
       "failed_other": "{{count}} photos non exportées : {{label}}",
@@ -3753,6 +3754,17 @@
           "outside": "Le sous-dossier doit rester dans le dossier de destination.",
           "tokens": "Utilisez les jetons disponibles et des noms de dossier sans caractères réservés."
         },
+        "existing": "Si un fichier existe",
+        "existingChoice": {
+          "keepBoth": "Conserver les deux (nouveau nom)",
+          "replaceIfChanged": "Remplacer si modifié",
+          "skip": "Ignorer"
+        },
+        "existingHint": {
+          "keepBoth": "Le nouveau fichier reçoit un nom numéroté ; rien n'est jamais écrasé.",
+          "replaceIfChanged": "Remplace l'export Rawtonic précédent d'une photo sous ce nom uniquement si sa retouche ou ses réglages ont changé ; les photos inchangées sont ignorées. Tout autre fichier (originaux, JPEG de l'appareil, fichiers retouchés ailleurs) est conservé et le nouveau fichier reçoit un nom numéroté.",
+          "skip": "Les photos dont le fichier existe déjà ne sont pas exportées."
+        },
         "exportTo": "Exporter vers",
         "keepStructure": "Conserver l'arborescence des dossiers",
         "legend": "Destination",
@@ -3888,6 +3900,17 @@
           "minutes": "environ {{minutes}} min restantes",
           "seconds": "environ {{seconds}} s restantes"
         },
+        "existing": {
+          "keptBoth_one": "{{count}} sous un nouveau nom",
+          "keptBoth_many": "{{count}} sous de nouveaux noms",
+          "keptBoth_other": "{{count}} sous de nouveaux noms",
+          "replaced_one": "{{count}} remplacée",
+          "replaced_many": "{{count}} remplacées",
+          "replaced_other": "{{count}} remplacées",
+          "skipped_one": "{{count}} ignorée",
+          "skipped_many": "{{count}} ignorées",
+          "skipped_other": "{{count}} ignorées"
+        },
         "exportedTo": "Exporté vers :",
         "failed": "{{failed}} sur {{total}} en échec",
         "failures": "Photos non exportées",
@@ -3903,10 +3926,15 @@
           "denoiseProgress": "Progression du débruitage IA",
           "denoising": "Débruitage IA {{percent}} %",
           "doneIn": "Terminé en {{seconds}} s",
+          "keptBoth": "Exportée sous un nouveau nom : le fichier existant n'est pas son propre export",
+          "keptOriginal": "Exportée sous un nouveau nom : le fichier existant est une photo d'une bibliothèque",
           "loading": "Lecture de la photo…",
           "masks": "Écriture des masques…",
           "rendering": "Rendu et écriture…",
+          "replaced": "Export précédent remplacé",
           "selecting": "Calcul des sélections IA…",
+          "skippedExists": "Ignorée : un fichier de ce nom existe",
+          "skippedUnchanged": "Ignorée : inchangée depuis son dernier export",
           "waiting": "En attente"
         },
         "photos_one": "{{count}} photo",

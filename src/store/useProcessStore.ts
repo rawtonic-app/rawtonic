@@ -18,6 +18,12 @@ export interface ExportJob {
   total: number;
   done: number;
   failed: number;
+  /** Of `done` ("If a file exists"): not exported because the file existed
+   * or was unchanged; previous exports replaced; exported under a numbered
+   * name because the file at the name was not the photo's own export. */
+  skipped?: number;
+  replaced?: number;
+  keptBoth?: number;
   /** The photos that did not export and the reasons (export_queue.rs). */
   failures: ExportFailure[];
   /** An Edit With render: never resumed (Edit With is chosen again). */
@@ -37,10 +43,15 @@ export interface ExportItem {
   output: string | null;
   error: string | null;
   attempts: number;
+  /** How its file ended when it was not simply written ("If a file exists"). */
+  outcome?: ExportOutcome | null;
   /** When its last attempt started and ended (Unix ms). */
   startedMs: number | null;
   finishedMs: number | null;
 }
+
+/** Mirrors `rawtonic_export::existing_files::Outcome`. */
+export type ExportOutcome = 'written' | 'skippedExists' | 'skippedUnchanged' | 'replaced' | 'keptBoth' | 'keptOriginal';
 
 /** What a photo in progress is doing (`export_queue::Stage`). */
 export type ExportStage = 'loading' | 'denoising' | 'selecting' | 'rendering' | 'masks';

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Highlights
+
+- **Export: "If a file exists" — Keep both, Skip or Replace if changed.** A new choice in the Export panel's Destination, saved with each export recipe (and `rawtonic export --on-conflict keep-both|skip|replace-if-changed`).
+  - **Keep both** (the default) works as before: the new file gets a numbered name (`photo_1.jpg`) and nothing is written over.
+  - **Skip** leaves out every photo whose file already exists. This is decided before the photo is decoded or rendered, so re-exporting a folder only renders the new photos. The queue and Activity say how many were skipped.
+  - **Replace if changed** re-exports a photo only when its edit, its keywords or other metadata, the recipe's settings, its LUT or watermark image file, or the decoding and tone-mapper preferences changed since Rawtonic last exported it to that file (or when Rawtonic was updated); unchanged photos are skipped. Handy for a folder that syncs to a client gallery or the web: only changed photos are uploaded again. The old file is replaced in one step, so a crash or full disk never leaves half a file.
+  - Rawtonic only ever replaces **its own earlier export of the same photo at the same path**, and only if that file is still exactly as Rawtonic wrote it. An original, a camera JPEG next to the RAW, a file any library Rawtonic knows lists as a photo (even an earlier export you added to a catalog), a file from another program, an export retouched elsewhere, or the export of another photo that later took the same file name is never replaced: the new file gets a numbered name and the queue says why. Rawtonic keeps that record in its own data folder, not next to your exports. Exports made before this version are not in the record, so the first Replace if changed run keeps both for them.
+  - Not covered yet: with separate mask files on, a changed photo is kept both instead of replaced. There is no "Ask each time" choice.
+
 ### Fixes
 
 - **Photo merges: fewer dropped panorama frames, sharper focus stacks, cleaner HDR ghosts** (new merges; merged files you saved stay as they are). Measured against RapidRAW 1.7.1's rewritten merge engine on test sets with a known answer and on real brackets and panoramas; each change takes the better of the two approaches.

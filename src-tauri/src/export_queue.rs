@@ -469,6 +469,19 @@ impl Tracking {
         with_queue(&exports, |q| q.item_started(&self.job, index, output));
         self.report(index, Some(Stage::Rendering), None);
     }
+    /// How a photo's file ended when it was not simply written ("If a file
+    /// exists": skipped, replaced, kept both), and the file it concerns.
+    pub fn outcome(
+        &self,
+        index: usize,
+        outcome: rawtonic_export::existing_files::Outcome,
+        output: &Path,
+    ) {
+        let exports = self.app.state::<ExportState>();
+        with_queue(&exports, |q| {
+            q.item_outcome(&self.job, index, outcome, output)
+        });
+    }
     /// A photo in progress moved on to `stage`.
     pub fn stage(&self, index: usize, stage: Stage, fraction: Option<f32>) {
         self.report(index, Some(stage), fraction);
@@ -1278,6 +1291,8 @@ fn new_outputs(items: Vec<Item>, pending: &HashSet<usize>) -> Vec<PathBuf> {
     items
         .into_iter()
         .filter(|item| pending.contains(&item.index) && item.state == ItemState::Done)
+        // A skipped photo wrote nothing ("If a file exists").
+        .filter(|item| !item.outcome.is_some_and(|outcome| outcome.is_skip()))
         .filter_map(|item| item.output)
         .collect()
 }
@@ -2179,6 +2194,7 @@ mod tests {
             output: output.map(PathBuf::from),
             error: None,
             attempts: 1,
+            outcome: None,
             started_ms: None,
             finished_ms: None,
         };

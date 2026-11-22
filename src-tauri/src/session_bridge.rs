@@ -128,6 +128,46 @@ pub(crate) fn library_dir_for(path: &Path) -> Option<PathBuf> {
     library_for(path)
 }
 
+/// Whether the file at `path` is a photograph by now: an asset of the
+/// session or catalog managing its folder, or a file with an editor
+/// sidecar beside it (edited as a photo). An export there is never
+/// replaced ("If a file exists": Replace if changed). `known`: the other
+/// libraries the app knows (its recent libraries).
+pub(crate) fn is_library_photo(path: &Path, known: &[PathBuf]) -> bool {
+    if crate::exif_processing::get_primary_sidecar_path(path).exists() {
+        return true;
+    }
+    // The library managing the file's folder, found from the file itself
+    // (not from the library an export runs under), else the open one.
+    let owner = culling_library_for(path, active_library_directory().as_deref());
+    if let Some(owner) = &owner {
+        match Library::open(owner) {
+            Ok(lib) => {
+                if !matches!(lib.asset_at(path), Ok(None)) {
+                    return true;
+                }
+            }
+            // The library of its folder cannot be read: taken as holding it.
+            Err(_) => return true,
+        }
+    }
+    // Every other library the app knows (a catalog registers files
+    // anywhere). One that is gone or unreadable lists nothing.
+    let mut seen: Vec<&Path> = owner.iter().map(PathBuf::as_path).collect();
+    for directory in known {
+        if seen.contains(&directory.as_path()) || !directory.is_dir() {
+            continue;
+        }
+        seen.push(directory);
+        if let Ok(lib) = Library::open(directory)
+            && !matches!(lib.asset_at(path), Ok(None))
+        {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn is_managed_source(source: &Path) -> bool {
     library_for(source).is_some()
 }
@@ -2637,6 +2677,37 @@ pub fn save_new_image(image: &image::DynamicImage, path: &Path) -> anyhow::Resul
 
 #[cfg(test)]
 mod tests {
+    /// A delivered JPEG some library known to the app lists as a photo
+    /// (registered in place in a catalog elsewhere) is someone's original:
+    /// Replace if changed never replaces it, whichever library the export
+    /// runs under.
+    #[test]
+    fn a_file_a_known_library_lists_is_a_photo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog_dir = tmp.path().join("Catalog");
+        let catalog = rawtonic_catalog::Library::create(
+            &catalog_dir,
+            "Main",
+            rawtonic_catalog::Mode::Catalog,
+        )
+        .unwrap();
+        let delivery = tmp.path().join("Delivery");
+        std::fs::create_dir_all(&delivery).unwrap();
+        let jpg = delivery.join("a.jpg");
+        image::RgbImage::new(4, 4).save(&jpg).unwrap();
+        let known = vec![catalog_dir.clone()];
+        assert!(!super::is_library_photo(&jpg, &known), "not listed yet");
+        catalog.add_asset(&jpg).unwrap();
+        assert!(super::is_library_photo(&jpg, &known));
+        // Also under another library's write scope (an export from it).
+        let other = tmp.path().join("Other");
+        rawtonic_catalog::Library::create(&other, "Other", rawtonic_catalog::Mode::Catalog)
+            .unwrap();
+        assert!(super::with_culling_owner(other.to_str(), || {
+            super::is_library_photo(&jpg, &known)
+        }));
+    }
+
     use super::*;
 
     #[test]

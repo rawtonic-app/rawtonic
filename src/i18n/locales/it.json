@@ -89,6 +89,7 @@
       "running": "Nulla in corso."
     },
     "export": {
+      "done": "{{label}} esportato ({{existing}})",
       "failed_one": "{{count}} foto non esportata: {{label}}",
       "failed_many": "{{count}} foto non esportate: {{label}}",
       "failed_other": "{{count}} foto non esportate: {{label}}",
@@ -3753,6 +3754,17 @@
           "outside": "La sottocartella deve restare nella cartella di destinazione.",
           "tokens": "Usa i segnaposto disponibili e nomi di cartella senza caratteri riservati."
         },
+        "existing": "Se un file esiste",
+        "existingChoice": {
+          "keepBoth": "Mantieni entrambi (nuovo nome)",
+          "replaceIfChanged": "Sostituisci se modificato",
+          "skip": "Salta"
+        },
+        "existingHint": {
+          "keepBoth": "Il nuovo file riceve un nome numerato; nulla viene mai sovrascritto.",
+          "replaceIfChanged": "Sostituisce la precedente esportazione Rawtonic di una foto con questo nome solo se la modifica o le impostazioni sono cambiate; le foto invariate vengono saltate. Ogni altro file (originali, JPEG della fotocamera, file modificati altrove) viene mantenuto e il nuovo file riceve un nome numerato.",
+          "skip": "Le foto il cui file esiste già non vengono esportate."
+        },
         "exportTo": "Esporta in",
         "keepStructure": "Mantieni la struttura delle cartelle",
         "legend": "Destinazione",
@@ -3888,6 +3900,17 @@
           "minutes": "circa {{minutes}} min rimanenti",
           "seconds": "circa {{seconds}} s rimanenti"
         },
+        "existing": {
+          "keptBoth_one": "{{count}} con un nuovo nome",
+          "keptBoth_many": "{{count}} con nuovi nomi",
+          "keptBoth_other": "{{count}} con nuovi nomi",
+          "replaced_one": "{{count}} sostituita",
+          "replaced_many": "{{count}} sostituite",
+          "replaced_other": "{{count}} sostituite",
+          "skipped_one": "{{count}} saltata",
+          "skipped_many": "{{count}} saltate",
+          "skipped_other": "{{count}} saltate"
+        },
         "exportedTo": "Esportato in:",
         "failed": "{{failed}} di {{total}} non riuscite",
         "failures": "Foto non esportate",
@@ -3903,10 +3926,15 @@
           "denoiseProgress": "Avanzamento riduzione rumore IA",
           "denoising": "Riduzione rumore IA {{percent}} %",
           "doneIn": "Completata in {{seconds}} s",
+          "keptBoth": "Esportata con un nuovo nome: il file esistente non è la sua esportazione",
+          "keptOriginal": "Esportata con un nuovo nome: il file esistente è una foto di una libreria",
           "loading": "Lettura della foto…",
           "masks": "Scrittura delle maschere…",
           "rendering": "Rendering e scrittura…",
+          "replaced": "Esportazione precedente sostituita",
           "selecting": "Calcolo delle selezioni IA…",
+          "skippedExists": "Saltata: esiste un file con questo nome",
+          "skippedUnchanged": "Saltata: invariata dall'ultima esportazione",
           "waiting": "In attesa"
         },
         "photos_one": "{{count}} foto",

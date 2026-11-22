@@ -12,7 +12,7 @@ import {
   type ExportItemLive,
   type ExportJob
 } from '../../store/useProcessStore';
-import { outputFolder } from '../../utils/exportFeedback';
+import { describeExistingFiles, outputFolder } from '../../utils/exportFeedback';
 import { renderErrorMessage } from '../../utils/renderErrors';
 import { exportTimeLeft, splitTimeLeft } from '../../utils/exportTimeLeft';
 import { Invokes } from '../ui/AppProperties';
@@ -21,6 +21,12 @@ import { sourceOf } from '../../entities/photo/photoRef';
 
 /** What a queued job's state means for the photographer. */
 export function describeExportJob(job: ExportJob): string {
+  const existing = describeExistingFiles(job);
+  const described = describeJobState(job);
+  return existing && (job.state === 'done' || job.state === 'failed') ? `${described} · ${existing}` : described;
+}
+
+function describeJobState(job: ExportJob): string {
   const counts = { done: job.done, total: job.total };
   switch (job.state) {
     case 'queued':
@@ -51,6 +57,14 @@ export function describeExportItem(item: ExportItemLive): string {
     case 'failed':
       return renderErrorMessage(item.error ?? '');
     case 'done':
+      if (
+        item.outcome === 'skippedExists' ||
+        item.outcome === 'skippedUnchanged' ||
+        item.outcome === 'keptBoth' ||
+        item.outcome === 'keptOriginal'
+      )
+        return i18n.t(`studio.export.queue.photo.${item.outcome}`);
+      if (item.outcome === 'replaced') return i18n.t('studio.export.queue.photo.replaced');
       return item.startedMs != null && item.finishedMs != null
         ? i18n.t('studio.export.queue.photo.doneIn', {
             seconds: ((item.finishedMs - item.startedMs) / 1000).toFixed(1)

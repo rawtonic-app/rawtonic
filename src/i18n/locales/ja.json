@@ -74,6 +74,7 @@
       "running": "実行中の処理はありません。"
     },
     "export": {
+      "done": "{{label}} を書き出しました（{{existing}}）",
       "failed_other": "{{count}} 枚の写真を書き出せませんでした: {{label}}",
       "interrupted": "書き出しが中断されました: {{label}}",
       "running": "書き出し中: {{label}}",
@@ -3491,6 +3492,17 @@
           "outside": "サブフォルダは書き出し先フォルダ内に置く必要があります。",
           "tokens": "使用できるトークンと、予約文字を含まないフォルダー名を使ってください。"
         },
+        "existing": "ファイルが存在する場合",
+        "existingChoice": {
+          "keepBoth": "両方を残す（新しい名前）",
+          "replaceIfChanged": "変更時に置き換え",
+          "skip": "スキップ"
+        },
+        "existingHint": {
+          "keepBoth": "新しいファイルには番号付きの名前が付きます。上書きは一切しません。",
+          "replaceIfChanged": "この名前にある写真自身の以前の Rawtonic 書き出しを、編集または設定が変わった場合にのみ置き換えます。変更のない写真はスキップします。その他のファイル（元画像、カメラの JPEG、他で編集したファイル）は残し、新しいファイルには番号付きの名前が付きます。",
+          "skip": "ファイルが既に存在する写真は書き出しません。"
+        },
         "exportTo": "書き出し先",
         "keepStructure": "フォルダ構造を維持",
         "legend": "書き出し先",
@@ -3622,6 +3634,11 @@
           "minutes": "残り約 {{minutes}} 分",
           "seconds": "残り約 {{seconds}} 秒"
         },
+        "existing": {
+          "keptBoth_other": "{{count}} 件を新しい名前で",
+          "replaced_other": "{{count}} 件置き換え",
+          "skipped_other": "{{count}} 件スキップ"
+        },
         "exportedTo": "書き出し先:",
         "failed": "{{total}} 枚中 {{failed}} 枚が失敗",
         "failures": "書き出されなかった写真",
@@ -3637,10 +3654,15 @@
           "denoiseProgress": "AI ノイズ除去の進行状況",
           "denoising": "AI ノイズ除去 {{percent}} %",
           "doneIn": "{{seconds}} 秒で完了",
+          "keptBoth": "新しい名前で書き出し：既存のファイルはこの写真の書き出しではありません",
+          "keptOriginal": "新しい名前で書き出し：既存のファイルはライブラリ内の写真です",
           "loading": "写真を読み込み中…",
           "masks": "マスクを書き込み中…",
           "rendering": "レンダリングと書き込み中…",
+          "replaced": "以前の書き出しを置き換えました",
           "selecting": "AI 選択範囲を計算中…",
+          "skippedExists": "スキップ：同名のファイルがあります",
+          "skippedUnchanged": "スキップ：前回の書き出しから変更なし",
           "waiting": "待機中"
         },
         "photos_other": "{{count}} 枚の写真",
