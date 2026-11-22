@@ -365,22 +365,56 @@ impl ExportQueue {
 
     /// The oldest queued job and the queued jobs right behind it that
     /// `joins` it (the same photos with other recipes), marked running to
-    /// run together.
+    /// run together. A job that cannot be read or started fails on its own.
     pub fn start_next_with(&self, joins: impl Fn(&Job, &Job) -> bool) -> Result<Vec<Job>> {
+        let tx = self.conn.unchecked_transaction()?;
         let queued = self.ids("SELECT id FROM jobs WHERE state='queued' ORDER BY seq")?;
         let mut group: Vec<Job> = Vec::new();
         for id in queued {
-            let job = self.job(&id)?;
+            let mut job = match self.job(&id) {
+                Ok(job) => job,
+                Err(err) => {
+                    self.mark_failed(&id, &format!("Cannot read queued export: {err:#}"))?;
+                    continue;
+                }
+            };
             if group.first().is_some_and(|first| !joins(first, &job)) {
                 break;
             }
+            if let Err(err) = self.set_state(&id, JobState::Running) {
+                self.mark_failed(&id, &format!("Cannot start queued export: {err:#}"))?;
+                continue;
+            }
+            job.state = JobState::Running;
             group.push(job);
         }
-        for job in &mut group {
-            self.set_state(&job.id, JobState::Running)?;
-            job.state = JobState::Running;
-        }
+        tx.commit()?;
         Ok(group)
+    }
+
+    pub fn has_queued_jobs(&self) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM jobs WHERE state='queued')",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// Fails the batch before rendering, keeping completed photos and recipes for retry.
+    pub fn fail(&self, job: &str, error: &str) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        self.mark_failed(job, error)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn mark_failed(&self, job: &str, error: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE items SET state='failed', error=?, finished_ms=?
+             WHERE job_id=? AND state!='done'",
+            params![error, now_ms(), job],
+        )?;
+        self.set_state(job, JobState::Failed)
     }
 
     /// A photo's attempt begins (before its source is read): running, timed
@@ -662,11 +696,18 @@ impl ExportQueue {
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
+        let state = JobState::parse(&state)?;
+        let request = match serde_json::from_str(&request) {
+            Ok(request) => request,
+            // A malformed request can still appear in history with its failure reason.
+            Err(_) if state == JobState::Failed => serde_json::Value::Null,
+            Err(err) => return Err(err).context("Unreadable export request"),
+        };
         Ok(Job {
             id: id.to_string(),
             label,
-            state: JobState::parse(&state)?,
-            request: serde_json::from_str(&request)?,
+            state,
+            request,
             created_at,
             total: total as usize,
             done: done as usize,
@@ -815,6 +856,59 @@ mod tests {
             q.finish(&second, RunEnd::Completed).unwrap().state,
             JobState::Done
         );
+    }
+
+    #[test]
+    fn admission_failure_marks_the_batch_failed_and_starts_the_next_export() {
+        let (_dir, q) = queue();
+        let blocked = q.enqueue("Blocked", &json!({}), &paths(2)).unwrap();
+        let next = q.enqueue("Next", &json!({}), &paths(1)).unwrap();
+        q.item_done(&blocked, 0).unwrap();
+        q.conn
+            .execute_batch(
+                "CREATE TRIGGER reject_start BEFORE UPDATE OF state ON jobs
+                 WHEN OLD.label='Blocked' AND NEW.state='running'
+                 BEGIN SELECT RAISE(ABORT, 'could not start blocked export'); END;",
+            )
+            .unwrap();
+
+        assert_eq!(q.start_next().unwrap().unwrap().id, next);
+        let failed = q.job(&blocked).unwrap();
+        assert_eq!(
+            (failed.state, failed.done, failed.failed),
+            (JobState::Failed, 1, 1)
+        );
+        assert_eq!(failed.failures[0].path, "/photos/1.RAF");
+        assert!(
+            failed.failures[0]
+                .error
+                .contains("could not start blocked export")
+        );
+        q.item_done(&next, 0).unwrap();
+        assert_eq!(
+            q.finish(&next, RunEnd::Completed).unwrap().state,
+            JobState::Done
+        );
+    }
+
+    #[test]
+    fn an_unreadable_export_request_fails_without_hiding_the_rest_of_the_queue() {
+        let (_dir, q) = queue();
+        let broken = q.enqueue("Unreadable", &json!({}), &paths(1)).unwrap();
+        let next = q.enqueue("Next", &json!({}), &paths(1)).unwrap();
+        q.conn
+            .execute("UPDATE jobs SET request='{' WHERE id=?", [&broken])
+            .unwrap();
+
+        assert_eq!(q.start_next().unwrap().unwrap().id, next);
+        let jobs = q.jobs().unwrap();
+        assert_eq!(jobs[0].state, JobState::Failed);
+        assert!(
+            jobs[0].failures[0]
+                .error
+                .contains("Unreadable export request")
+        );
+        assert_eq!(jobs[1].state, JobState::Running);
     }
 
     #[test]

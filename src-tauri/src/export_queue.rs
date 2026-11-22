@@ -1002,27 +1002,34 @@ fn kick(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let exports = app.state::<ExportState>();
+        let mut queue_available = true;
         loop {
             if exports.is_held() {
                 break;
             }
             let Some(jobs) = with_queue(&exports, |q| {
                 q.start_next_with(|a, b| same_photos(&a.request, &b.request))
-            })
-            .filter(|jobs| !jobs.is_empty()) else {
+            }) else {
+                // A queue-wide failure can leave all jobs queued. Avoid a tight
+                // restart loop until a new export or resume starts the runner.
+                queue_available = false;
                 break;
             };
+            if jobs.is_empty() {
+                // Admission can fail the last queued job without a render.
+                notify(&app);
+                break;
+            }
             run_jobs(&app, &jobs).await;
             with_queue(&exports, prune_finished);
             notify(&app);
         }
         exports.runner_active.store(false, Ordering::SeqCst);
         // An export queued while the runner was finishing.
-        let queued = with_queue(&exports, |q| q.jobs())
-            .unwrap_or_default()
-            .iter()
-            .any(|j| j.state == JobState::Queued);
-        if queued && !exports.is_held() {
+        if queue_available
+            && !exports.is_held()
+            && with_queue(&exports, ExportQueue::has_queued_jobs) == Some(true)
+        {
             kick(&app);
         }
     });
@@ -1036,18 +1043,23 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let mut first: Option<ExportRequest> = None;
     let mut sheets: Vec<(String, crate::proof_sheet::ProofJob, PathBuf)> = Vec::new();
     for job in jobs {
-        let items = with_queue(&exports, |q| q.items(&job.id)).unwrap_or_default();
         let request = match runnable(&job.request) {
             Ok(request) => request,
             Err(e) => {
                 log::error!("Export '{}' cannot run: {e}", job.label);
-                // Its entries stay, failed, so it can be exported again.
-                for item in items.iter().filter(|i| i.state != ItemState::Done) {
-                    with_queue(&exports, |q| q.item_failed(&job.id, item.index, &e));
-                }
-                with_queue(&exports, |q| q.finish(&job.id, RunEnd::Completed));
+                with_queue(&exports, |q| q.fail(&job.id, &e));
                 continue;
             }
+        };
+        let Some(items) = with_queue(&exports, |q| match q.items(&job.id) {
+            Ok(items) => Ok(Some(items)),
+            Err(err) => {
+                q.fail(&job.id, &format!("Cannot read queued photos: {err:#}"))?;
+                Ok(None)
+            }
+        })
+        .flatten() else {
+            continue;
         };
         // A sheet photo whose render is still in the sheet's folder and whose
         // recipe was let go (it rendered) needs no new render: a retry of a
