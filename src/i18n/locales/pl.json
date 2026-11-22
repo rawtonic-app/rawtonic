@@ -98,6 +98,7 @@
       "running": "Nic nie jest w toku."
     },
     "export": {
+      "done": "Wyeksportowano {{label}} ({{existing}})",
       "failed_one": "{{count}} zdjęcie nie zostało wyeksportowane: {{label}}",
       "failed_few": "{{count}} zdjęcia nie zostały wyeksportowane: {{label}}",
       "failed_many": "{{count}} zdjęć nie zostało wyeksportowanych: {{label}}",
@@ -3912,6 +3913,17 @@
           "outside": "Podfolder musi znajdować się w folderze docelowym.",
           "tokens": "Używaj dostępnych znaczników i nazw folderów bez znaków zastrzeżonych."
         },
+        "existing": "Jeśli plik istnieje",
+        "existingChoice": {
+          "keepBoth": "Zachowaj oba (nowa nazwa)",
+          "replaceIfChanged": "Zastąp, jeśli zmieniono",
+          "skip": "Pomiń"
+        },
+        "existingHint": {
+          "keepBoth": "Nowy plik otrzymuje numerowaną nazwę; nic nie zostaje nadpisane.",
+          "replaceIfChanged": "Zastępuje wcześniejszy eksport Rawtonic danego zdjęcia pod tą nazwą tylko wtedy, gdy zmieniła się jego edycja lub ustawienia; niezmienione zdjęcia są pomijane. Każdy inny plik (oryginały, pliki JPEG z aparatu, pliki edytowane gdzie indziej) zostaje zachowany, a nowy plik otrzymuje numerowaną nazwę.",
+          "skip": "Zdjęcia, których plik już istnieje, nie są eksportowane."
+        },
         "exportTo": "Eksportuj do",
         "keepStructure": "Zachowaj strukturę folderów",
         "legend": "Miejsce docelowe",
@@ -4049,6 +4061,20 @@
           "minutes": "zostało około {{minutes}} min",
           "seconds": "zostało około {{seconds}} s"
         },
+        "existing": {
+          "keptBoth_one": "{{count}} pod nową nazwą",
+          "keptBoth_few": "{{count}} pod nowymi nazwami",
+          "keptBoth_many": "{{count}} pod nowymi nazwami",
+          "keptBoth_other": "{{count}} pod nowymi nazwami",
+          "replaced_one": "{{count}} zastąpione",
+          "replaced_few": "{{count}} zastąpione",
+          "replaced_many": "{{count}} zastąpionych",
+          "replaced_other": "{{count}} zastąpionych",
+          "skipped_one": "{{count}} pominięte",
+          "skipped_few": "{{count}} pominięte",
+          "skipped_many": "{{count}} pominiętych",
+          "skipped_other": "{{count}} pominiętych"
+        },
         "exportedTo": "Wyeksportowano do:",
         "failed": "Niepowodzenie: {{failed}} z {{total}}",
         "failures": "Zdjęcia, których nie wyeksportowano",
@@ -4064,10 +4090,14 @@
           "denoiseProgress": "Postęp odszumiania AI",
           "denoising": "Odszumianie AI {{percent}} %",
           "doneIn": "Gotowe w {{seconds}} s",
+          "keptBoth": "Wyeksportowano pod nową nazwą: istniejący plik nie jest jego eksportem",
           "loading": "Odczyt zdjęcia…",
           "masks": "Zapis masek…",
           "rendering": "Renderowanie i zapis…",
+          "replaced": "Zastąpiono wcześniejszy eksport",
           "selecting": "Obliczanie zaznaczeń AI…",
+          "skippedExists": "Pominięte: istnieje plik o tej nazwie",
+          "skippedUnchanged": "Pominięte: bez zmian od ostatniego eksportu",
           "waiting": "Oczekuje"
         },
         "photos_one": "{{count}} zdjęcie",

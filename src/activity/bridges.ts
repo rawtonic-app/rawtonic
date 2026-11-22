@@ -11,6 +11,7 @@ import { listen } from '@tauri-apps/api/event';
 import i18n from 'i18next';
 import { Invokes } from '../components/ui/AppProperties';
 import { renderErrorMessage } from '../utils/renderErrors';
+import { describeExistingFiles } from '../utils/exportFeedback';
 import { formatBytes } from '../utils/previews';
 import { useActivityStore } from '../store/useActivityStore';
 import { useEditorStore } from '../store/useEditorStore';
@@ -158,8 +159,11 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
       });
     } else if (job.state === 'done') {
       // The written files are reported once per run with Show in Finder
-      // (`notifyExportOutputs`); the task just ends.
-      activity.finish(id);
+      // (`notifyExportOutputs`); the task just ends, saying what "If a
+      // file exists" skipped or replaced when it did.
+      const existing = describeExistingFiles(job);
+      if (existing) activity.finish(id, { title: i18n.t('activity.export.done', { label: job.label, existing }) });
+      else activity.finish(id);
     } else {
       // Cancelled or paused by the user, or waiting while the queue is held.
       activity.resolve(id);

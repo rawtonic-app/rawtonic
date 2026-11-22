@@ -74,6 +74,7 @@
       "running": "실행 중인 작업이 없습니다."
     },
     "export": {
+      "done": "{{label}} 내보냄({{existing}})",
       "failed_other": "사진 {{count}}장을 내보내지 못했습니다: {{label}}",
       "interrupted": "내보내기 중단됨: {{label}}",
       "running": "내보내는 중: {{label}}",
@@ -3491,6 +3492,17 @@
           "outside": "하위 폴더는 대상 폴더 안에 있어야 합니다.",
           "tokens": "사용 가능한 토큰과 예약 문자가 없는 폴더 이름을 사용하세요."
         },
+        "existing": "파일이 있는 경우",
+        "existingChoice": {
+          "keepBoth": "둘 다 유지(새 이름)",
+          "replaceIfChanged": "변경된 경우 바꾸기",
+          "skip": "건너뛰기"
+        },
+        "existingHint": {
+          "keepBoth": "새 파일에 번호가 붙은 이름을 붙입니다. 아무것도 덮어쓰지 않습니다.",
+          "replaceIfChanged": "이 이름에 있는 사진 자신의 이전 Rawtonic 내보내기를 편집이나 설정이 바뀐 경우에만 바꿉니다. 바뀌지 않은 사진은 건너뜁니다. 다른 파일(원본, 카메라 JPEG, 다른 곳에서 편집한 파일)은 그대로 두고 새 파일에 번호가 붙은 이름을 붙입니다.",
+          "skip": "파일이 이미 있는 사진은 내보내지 않습니다."
+        },
         "exportTo": "내보낼 위치",
         "keepStructure": "폴더 구조 유지",
         "legend": "대상 위치",
@@ -3622,6 +3634,11 @@
           "minutes": "약 {{minutes}}분 남음",
           "seconds": "약 {{seconds}}초 남음"
         },
+        "existing": {
+          "keptBoth_other": "{{count}}개 새 이름으로",
+          "replaced_other": "{{count}}개 바꿈",
+          "skipped_other": "{{count}}개 건너뜀"
+        },
         "exportedTo": "내보낸 위치:",
         "failed": "{{total}}장 중 {{failed}}장 실패",
         "failures": "내보내지 못한 사진",
@@ -3637,10 +3654,14 @@
           "denoiseProgress": "AI 노이즈 제거 진행률",
           "denoising": "AI 노이즈 제거 {{percent}}%",
           "doneIn": "{{seconds}}초 만에 완료",
+          "keptBoth": "새 이름으로 내보냄: 기존 파일은 이 사진의 내보내기가 아닙니다",
           "loading": "사진 읽는 중…",
           "masks": "마스크 쓰는 중…",
           "rendering": "렌더링 및 쓰는 중…",
+          "replaced": "이전 내보내기를 바꿨습니다",
           "selecting": "AI 선택 영역 계산 중…",
+          "skippedExists": "건너뜀: 같은 이름의 파일이 있습니다",
+          "skippedUnchanged": "건너뜀: 마지막 내보내기 이후 변경 없음",
           "waiting": "대기 중"
         },
         "photos_other": "사진 {{count}}장",

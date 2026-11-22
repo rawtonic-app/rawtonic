@@ -619,7 +619,11 @@ take turns (`src-tauri/src/ai_lifecycle.rs` `turn`, `export_turn`).
 
 `export` (render pipeline with an explicit `RenderEnv`, resize/border/watermark, encoders, EXIF/XMP export metadata,
 no-clobber output, single-file export used by `rawtonic export`, and the persistent export queue's state in `queue`:
-jobs and their photos with state, output, error and timing; pause, cancel, resume, retry, recovery after a crash).
+jobs and their photos with state, output, error, timing and "If a file exists" outcome; pause, cancel, resume, retry,
+recovery after a crash). `existing_files` holds the "If a file exists" choice (Keep both, Skip, Replace if changed),
+the decision made before a photo renders (`decide`), the inputs fingerprint and the export records
+(`export-records.sqlite` in the app data folder: output path → photo, inputs, size, SHA-256); `output::Publish` writes
+a new file or replaces only the recorded, unchanged previous export (`rawtonic_fs::replace_existing`).
 
 `export` (export settings/geometry/encoders, render pipeline with `RenderEnv`, exif_processing/tiff_exif/xmp_embed with
 `export_metadata_with` + `encode_with_metadata`, `sidecars` (virtual paths, `.rrdata` reading, library walk, export

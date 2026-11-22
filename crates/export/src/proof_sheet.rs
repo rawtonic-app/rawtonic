@@ -991,6 +991,7 @@ pub fn cell_settings(
         output_sharpening,
         super_resolution: false,
         provenance: None,
+        existing_files: Default::default(),
     }
 }
 

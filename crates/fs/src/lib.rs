@@ -311,6 +311,43 @@ pub fn atomic_write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
     Ok(())
 }
 
+/// Publishes the finished temporary file `temp` (created beside `path`,
+/// written and synced by the caller) over the existing regular file at
+/// `path` in one atomic rename, after `still_expected` confirmed, right
+/// before the rename, that `path` is still the file the caller means to
+/// replace. The new file keeps the replaced one's permissions. Refuses a
+/// missing file, a symlink or a non-file (nothing is created), and on
+/// Windows a read-only file; on any refusal or failure `temp` is removed and
+/// `path` is untouched.
+pub fn replace_existing(
+    temp: tempfile::NamedTempFile,
+    path: &Path,
+    still_expected: impl FnOnce(&Path) -> bool,
+) -> Result<()> {
+    let parent = path.parent().context("File needs a parent directory")?;
+    let meta = fs::symlink_metadata(path)
+        .with_context(|| format!("{} is not there to be replaced", path.display()))?;
+    ensure!(
+        meta.is_file() && !meta.file_type().is_symlink(),
+        "Refusing to replace a symlink or non-file"
+    );
+    #[cfg(windows)]
+    ensure!(
+        !meta.permissions().readonly(),
+        "{} is read-only; it is not replaced",
+        path.display()
+    );
+    ensure!(
+        still_expected(path),
+        "{} changed since it was checked; it is not replaced",
+        path.display()
+    );
+    temp.as_file().set_permissions(meta.permissions())?;
+    replace(temp, path)?;
+    sync_dir(parent)?;
+    Ok(())
+}
+
 /// Renames `file` over `path`; on Windows retried while another program
 /// holds `path` open (see [`atomic_write`]).
 fn replace(file: tempfile::NamedTempFile, path: &Path) -> Result<()> {
@@ -366,6 +403,53 @@ fn in_use(error: &io::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replace_existing_replaces_only_a_file_still_as_expected() {
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.jpg");
+        let temp_with = |bytes: &[u8]| {
+            let mut temp = temp::file_for(&path).unwrap();
+            temp.write_all(bytes).unwrap();
+            temp
+        };
+        // Nothing there: nothing is created.
+        assert!(replace_existing(temp_with(b"new"), &path, |_| true).is_err());
+        assert!(!path.exists());
+        fs::write(&path, b"old").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        }
+        // Changed since it was checked: untouched.
+        assert!(replace_existing(temp_with(b"new"), &path, |_| false).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"old");
+        replace_existing(temp_with(b"new"), &path, |_| true).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o640
+            );
+            let link = dir.path().join("link.jpg");
+            std::os::unix::fs::symlink(&path, &link).unwrap();
+            let mut temp = temp::file_for(&link).unwrap();
+            temp.write_all(b"via link").unwrap();
+            assert!(replace_existing(temp, &link, |_| true).is_err());
+            assert_eq!(fs::read(&path).unwrap(), b"new");
+        }
+        // Only the published file is left in the folder (no temporary files).
+        let names: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .filter(|n| temp::is_temp_name(n))
+            .collect();
+        assert!(names.is_empty(), "{names:?}");
+    }
 
     /// The digests stored in catalogs, sidecars and manifests are this
     /// lowercase form (FIPS 180-2 test vector).

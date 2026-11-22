@@ -89,6 +89,7 @@
       "running": "Nada em curso."
     },
     "export": {
+      "done": "{{label}} exportado ({{existing}})",
       "failed_one": "{{count}} foto não exportada: {{label}}",
       "failed_many": "{{count}} fotos não exportadas: {{label}}",
       "failed_other": "{{count}} fotos não exportadas: {{label}}",
@@ -3753,6 +3754,17 @@
           "outside": "A subpasta deve ficar dentro da pasta de destino.",
           "tokens": "Use os marcadores disponíveis e nomes de pasta sem caracteres reservados."
         },
+        "existing": "Se um arquivo existir",
+        "existingChoice": {
+          "keepBoth": "Manter ambos (novo nome)",
+          "replaceIfChanged": "Substituir se alterado",
+          "skip": "Pular"
+        },
+        "existingHint": {
+          "keepBoth": "O novo arquivo recebe um nome numerado; nada é sobrescrito.",
+          "replaceIfChanged": "Substitui a exportação anterior do Rawtonic de uma foto com este nome somente se a edição ou as configurações mudaram; fotos sem alterações são puladas. Qualquer outro arquivo (originais, JPEGs da câmera, arquivos editados em outro lugar) é mantido e o novo arquivo recebe um nome numerado.",
+          "skip": "Fotos cujo arquivo já existe não são exportadas."
+        },
         "exportTo": "Exportar para",
         "keepStructure": "Manter a estrutura de pastas",
         "legend": "Destino",
@@ -3888,6 +3900,17 @@
           "minutes": "faltam cerca de {{minutes}} min",
           "seconds": "faltam cerca de {{seconds}} s"
         },
+        "existing": {
+          "keptBoth_one": "{{count}} com novo nome",
+          "keptBoth_many": "{{count}} com novos nomes",
+          "keptBoth_other": "{{count}} com novos nomes",
+          "replaced_one": "{{count}} substituída",
+          "replaced_many": "{{count}} substituídas",
+          "replaced_other": "{{count}} substituídas",
+          "skipped_one": "{{count}} pulada",
+          "skipped_many": "{{count}} puladas",
+          "skipped_other": "{{count}} puladas"
+        },
         "exportedTo": "Exportado para:",
         "failed": "{{failed}} de {{total}} falharam",
         "failures": "Fotos que não foram exportadas",
@@ -3903,10 +3926,14 @@
           "denoiseProgress": "Progresso da redução de ruído com IA",
           "denoising": "Redução de ruído com IA {{percent}} %",
           "doneIn": "Concluída em {{seconds}} s",
+          "keptBoth": "Exportada com novo nome: o arquivo existente não é a sua própria exportação",
           "loading": "Lendo a foto…",
           "masks": "Gravando máscaras…",
           "rendering": "Renderizando e gravando…",
+          "replaced": "Exportação anterior substituída",
           "selecting": "Calculando as seleções com IA…",
+          "skippedExists": "Pulada: existe um arquivo com este nome",
+          "skippedUnchanged": "Pulada: sem alterações desde a última exportação",
           "waiting": "Aguardando"
         },
         "photos_one": "{{count}} foto",

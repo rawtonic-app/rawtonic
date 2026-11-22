@@ -1,5 +1,10 @@
 import { Progress } from './AppProperties';
 
+/** "If a file exists": a numbered name (never over a file), skip the
+ * photo, or replace only the photo's own previous export when its edit or
+ * settings changed (`rawtonic_export::existing_files`). */
+export type ExistingFiles = 'keepBoth' | 'skip' | 'replaceIfChanged';
+
 export enum FileFormats {
   Jpeg = 'jpeg',
   Png = 'png',
@@ -49,6 +54,8 @@ export interface ExportSettings {
   colorSpace?: OutputColorSpace;
   keepMetadata: boolean;
   preserveTimestamps: boolean;
+  /** What happens when a file of the name exists (absent: keep both). */
+  existingFiles?: ExistingFiles;
   resize: {
     mode: string;
     value: number;
@@ -182,6 +189,8 @@ export interface ExportPreset {
   provenanceAuthor?: boolean;
   exportMasks?: boolean;
   preserveFolders?: boolean;
+  /** "If a file exists" (absent: keep both). */
+  existingFiles?: ExistingFiles;
   /** The first export tokens; recipes saved since hold `nameTemplate`. */
   filenameTemplate: string;
   nameTemplate?: string;

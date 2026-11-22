@@ -61,6 +61,7 @@ fn export(
             catalog: None,
             capture: None,
             library,
+            publish: rawtonic_export::output::Publish::New,
         })
         .unwrap();
     fs::read(output).unwrap()

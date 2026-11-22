@@ -3,12 +3,15 @@ import {
   BorderBasis,
   FILE_FORMATS,
   WatermarkAnchor,
+  type ExistingFiles,
   type ExportPreset,
   type ExportSettings,
   type OutputColorSpace,
   type OutputSharpeningRecipe,
   type TiffBitDepth
 } from '../components/ui/ExportImportProperties';
+
+export const EXISTING_FILES: ExistingFiles[] = ['keepBoth', 'skip', 'replaceIfChanged'];
 
 export const COLOR_SPACES: OutputColorSpace[] = ['srgb', 'displayP3', 'adobeRgb', 'proPhoto'];
 
@@ -69,6 +72,8 @@ export interface RecipeDraft {
   preserveFolders: boolean;
   /** Set the files' dates to the capture date. */
   preserveTimestamps: boolean;
+  /** "If a file exists": keep both (default), skip, or replace if changed. */
+  existingFiles: ExistingFiles;
   /** Also write each mask as an image and an alpha PNG. */
   exportMasks: boolean;
   watermark: boolean;
@@ -130,6 +135,7 @@ export const DEFAULT_RECIPE_DRAFT: RecipeDraft = {
   subfolder: '',
   preserveFolders: false,
   preserveTimestamps: true,
+  existingFiles: 'keepBoth',
   exportMasks: false,
   watermark: false,
   watermarkPath: null,
@@ -236,6 +242,8 @@ export function presetFromDraft(draft: RecipeDraft, id: string, name: string, ba
     subfolder: subfolderName(draft.subfolder),
     preserveFolders: draft.preserveFolders,
     preserveTimestamps: draft.preserveTimestamps,
+    // Saved only when not the default, so recipes without it stay as they were.
+    existingFiles: draft.existingFiles === 'keepBoth' ? undefined : draft.existingFiles,
     exportMasks: draft.exportMasks,
     enableWatermark: draft.watermark,
     watermarkPath: draft.watermarkPath,
@@ -302,6 +310,7 @@ export function draftFromPreset(preset: ExportPreset): RecipeDraft {
     subfolder: preset.subfolder ?? d.subfolder,
     preserveFolders: preset.preserveFolders ?? d.preserveFolders,
     preserveTimestamps: preset.preserveTimestamps ?? d.preserveTimestamps,
+    existingFiles: pick(preset.existingFiles, EXISTING_FILES, d.existingFiles),
     exportMasks: preset.exportMasks ?? d.exportMasks,
     watermark: !!preset.enableWatermark,
     watermarkPath: preset.watermarkPath ?? null,
@@ -347,6 +356,7 @@ export function exportSettingsFromDraft(draft: RecipeDraft): { settings: ExportS
       colorSpace: draft.colorSpace,
       keepMetadata: draft.metadata,
       preserveTimestamps: draft.preserveTimestamps,
+      existingFiles: draft.existingFiles,
       stripGps: draft.stripGps,
       keepCreatorContact: !!draft.keepCreatorContact,
       superResolution: draft.superResolution,

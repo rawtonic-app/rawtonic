@@ -1,6 +1,9 @@
 //! Desktop glue for `rawtonic_export::export_processing` (ADR 0009): the export
 //! queue, its Tauri commands and events, sidecar and session access and the
 //! metadata embedding stay here; the render and encoders live in the crate.
+use rawtonic_export::existing_files::{
+    self, Decision, ExistingFiles, ExportRecords, Outcome, Recorded,
+};
 pub use rawtonic_export::export_processing::*;
 use rawtonic_export::file_export::require_local_tiff;
 use rawtonic_recipe::masks;
@@ -711,6 +714,32 @@ fn save_image_with_metadata(
             provenance: None,
         },
     )
+}
+
+/// How a recipe's file is published: new, or over `previous`, the
+/// recorded previous export of `source` (Replace if changed).
+fn publish_with<'a>(
+    previous: Option<&'a Recorded>,
+    source: &'a str,
+) -> rawtonic_export::output::Publish<'a> {
+    match previous {
+        Some(previous) => rawtonic_export::output::Publish::Replace { previous, source },
+        None => rawtonic_export::output::Publish::New,
+    }
+}
+
+/// The app's record of the files its exports wrote (for Replace if
+/// changed); None when it cannot be opened (exports then go on without it:
+/// Replace if changed keeps both).
+fn open_export_records(app_handle: &tauri::AppHandle) -> Option<ExportRecords> {
+    let dir = app_handle.path().app_data_dir().ok()?;
+    match ExportRecords::open(&existing_files::records_path(&dir)) {
+        Ok(records) => Some(records),
+        Err(e) => {
+            log::warn!("Export records: {e:#}");
+            None
+        }
+    }
 }
 
 /// Writes an export to a new file (never over an existing one).
@@ -1493,32 +1522,59 @@ struct PhotoItem<'a> {
 /// photo exports into the same ones instead of reserving new names (which
 /// would be `_1` files, its own reservation taken).
 #[derive(Default)]
-struct PlannedFiles(Mutex<std::collections::HashMap<usize, std::path::PathBuf>>);
+struct PlannedFiles(Mutex<PlannedState>);
+
+#[derive(Default)]
+struct PlannedState {
+    planned: std::collections::HashMap<usize, Planned>,
+    /// Recipes whose file was published (a replaced file existed before).
+    published: std::collections::HashSet<usize>,
+}
 
 impl PlannedFiles {
-    /// The file of `target`: the one planned before, or `plan`'s.
+    /// The plan of `target`: the one made before, or `plan`'s.
     fn once(
         &self,
         target: usize,
-        plan: impl FnOnce() -> Result<std::path::PathBuf, String>,
-    ) -> Result<std::path::PathBuf, String> {
-        if let Some(path) = self.0.lock().unwrap().get(&target) {
-            return Ok(path.clone());
+        plan: impl FnOnce() -> Result<Planned, String>,
+    ) -> Result<Planned, String> {
+        if let Some(planned) = self.0.lock().unwrap().planned.get(&target) {
+            return Ok(planned.clone());
         }
-        let path = plan()?;
-        self.0.lock().unwrap().insert(target, path.clone());
-        Ok(path)
+        let planned = plan()?;
+        self.0
+            .lock()
+            .unwrap()
+            .planned
+            .insert(target, planned.clone());
+        Ok(planned)
+    }
+
+    fn get(&self, target: usize) -> Option<Planned> {
+        self.0.lock().unwrap().planned.get(&target).cloned()
+    }
+
+    fn published(&self, target: usize) {
+        self.0.lock().unwrap().published.insert(target);
     }
 
     /// Whether `target`'s file is not published (or not planned yet): only
     /// then can the recipe be exported again. Once its file is there its
-    /// mask files may have failed; that stays a failure as before.
+    /// mask files may have failed; that stays a failure as before. A
+    /// skipped recipe is never exported again.
     fn unpublished(&self, target: usize) -> bool {
-        self.0
-            .lock()
-            .unwrap()
-            .get(&target)
-            .is_none_or(|path| !path.exists())
+        let state = self.0.lock().unwrap();
+        if state.published.contains(&target) {
+            return false;
+        }
+        match state.planned.get(&target) {
+            None => true,
+            Some(Planned::Skip { .. }) => false,
+            Some(Planned::Write {
+                replace: Some(_), ..
+            }) => true,
+            Some(Planned::Write { path, .. }) => !path.exists(),
+        }
     }
 }
 
@@ -1562,12 +1618,57 @@ fn wait_unless_cancelled(wait: std::time::Duration, cancellation_token: &AtomicB
     !cancellation_token.load(Ordering::SeqCst)
 }
 
+/// What a recipe does for a photo, decided before anything is rendered
+/// (the recipe's "If a file exists" choice, `rawtonic_export::existing_files`).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Planned {
+    /// Write the file at `path`: a new one, or over the previous export of
+    /// the photo recorded as `replace`. `kept_both`: Replace if changed
+    /// found another file at the recipe's name and numbered this one.
+    Write {
+        path: std::path::PathBuf,
+        replace: Option<Recorded>,
+        kept_both: bool,
+    },
+    /// Not exported: the file at `path` stays as it is.
+    Skip {
+        path: std::path::PathBuf,
+        outcome: Outcome,
+    },
+}
+
+impl Planned {
+    pub(crate) fn path(&self) -> &Path {
+        match self {
+            Planned::Write { path, .. } | Planned::Skip { path, .. } => path,
+        }
+    }
+    /// How a successful export of this plan is reported.
+    pub(crate) fn outcome(&self) -> Outcome {
+        match self {
+            Planned::Skip { outcome, .. } => *outcome,
+            Planned::Write {
+                replace: Some(_), ..
+            } => Outcome::Replaced,
+            Planned::Write {
+                kept_both: true, ..
+            } => Outcome::KeptBoth,
+            Planned::Write { .. } => Outcome::Written,
+        }
+    }
+}
+
 /// The file a recipe writes for a photo: its name from the recipe's
-/// template, in the recipe's folder, never over an existing file or another
-/// output of this run. With separate mask files the name holds for its
-/// `mask_layers` layers' files too, which are reserved with it: recipes of
-/// photos exported side by side would otherwise take the name of a mask
-/// file not written yet.
+/// template, in the recipe's folder, never over another output of this run
+/// and over an existing file only as the recipe's "If a file exists"
+/// choice allows (`existing_files::decide`: by default a numbered name).
+/// With separate mask files the name holds for its `mask_layers` layers'
+/// files too, which are reserved with it: recipes of photos exported side
+/// by side would otherwise take the name of a mask file not written yet.
+/// `source` is the photo (a virtual copy's path), `inputs` this export's
+/// `existing_files::inputs_hash`, `previous` reads what was recorded for a
+/// file.
+#[allow(clippy::too_many_arguments)]
 fn plan_output_path(
     target: &ExportTarget,
     item: &PhotoItem,
@@ -1576,7 +1677,10 @@ fn plan_output_path(
     capture: Option<&rawtonic_naming::Capture>,
     mask_layers: usize,
     used_paths: &Mutex<std::collections::HashSet<std::path::PathBuf>>,
-) -> Result<std::path::PathBuf, String> {
+    source: &str,
+    inputs: &str,
+    previous: &dyn Fn(&Path) -> Option<Recorded>,
+) -> Result<Planned, String> {
     let export_settings = &target.export_settings;
     let output_folder_path = Path::new(&target.output_folder_or_file);
     let total_paths = item.total_paths;
@@ -1623,36 +1727,95 @@ fn plan_output_path(
     };
 
     let extension = target.output_format.to_lowercase();
+    let policy = export_settings.existing_files;
+    let mask_layers = if export_settings.export_masks {
+        mask_layers
+    } else {
+        0
+    };
+    let family = |output_path: &Path| {
+        std::iter::once(output_path.to_path_buf())
+            .chain((0..mask_layers).flat_map(|layer| mask_file_paths(output_path, layer)))
+            .collect::<Vec<_>>()
+    };
 
-    if !(target.is_explicit_file_path && total_paths == 1) {
-        let mut used = used_paths.lock().unwrap();
-        let parent_dir = output_path
-            .parent()
-            .unwrap_or(std::path::Path::new(""))
-            .to_path_buf();
-        let mut counter = 1;
-        let mask_layers = if export_settings.export_masks {
-            mask_layers
-        } else {
-            0
-        };
-        let family = |output_path: &Path| {
-            std::iter::once(output_path.to_path_buf())
-                .chain((0..mask_layers).flat_map(|layer| mask_file_paths(output_path, layer)))
-                .collect::<Vec<_>>()
-        };
-
-        while family(&output_path)
-            .iter()
-            .any(|path| path.exists() || used.contains(path))
-        {
-            let incremented_filename = format!("{}_{}.{}", new_stem, counter, extension);
-            output_path = parent_dir.join(&incremented_filename);
-            counter += 1;
-        }
-        used.extend(family(&output_path));
+    // A file the user named: no other name is chosen for it (taken, its
+    // write fails, as before), unless the choice skips or replaces it.
+    if target.is_explicit_file_path && total_paths == 1 {
+        let exists = output_path.exists();
+        return Ok(
+            match existing_files::decide(
+                policy,
+                &output_path,
+                exists,
+                false,
+                mask_layers > 0,
+                || previous(&output_path),
+                source,
+                inputs,
+            ) {
+                Decision::Skip(outcome) => Planned::Skip {
+                    path: output_path,
+                    outcome,
+                },
+                Decision::Replace(recorded) => Planned::Write {
+                    path: output_path,
+                    replace: Some(recorded),
+                    kept_both: false,
+                },
+                Decision::Write | Decision::Number { .. } => Planned::Write {
+                    path: output_path,
+                    replace: None,
+                    kept_both: false,
+                },
+            },
+        );
     }
-    Ok(output_path)
+
+    let mut used = used_paths.lock().unwrap();
+    let exists = family(&output_path).iter().any(|path| path.exists());
+    let taken = family(&output_path).iter().any(|path| used.contains(path));
+    let (replace, kept_both) = match existing_files::decide(
+        policy,
+        &output_path,
+        exists,
+        taken,
+        mask_layers > 0,
+        || previous(&output_path),
+        source,
+        inputs,
+    ) {
+        Decision::Skip(outcome) => {
+            return Ok(Planned::Skip {
+                path: output_path,
+                outcome,
+            });
+        }
+        Decision::Write => (None, false),
+        Decision::Replace(recorded) => (Some(recorded), false),
+        Decision::Number { reported } => {
+            let parent_dir = output_path
+                .parent()
+                .unwrap_or(std::path::Path::new(""))
+                .to_path_buf();
+            let mut counter = 1;
+            while family(&output_path)
+                .iter()
+                .any(|path| path.exists() || used.contains(path))
+            {
+                let incremented_filename = format!("{}_{}.{}", new_stem, counter, extension);
+                output_path = parent_dir.join(&incremented_filename);
+                counter += 1;
+            }
+            (None, reported)
+        }
+    };
+    used.extend(family(&output_path));
+    Ok(Planned::Write {
+        path: output_path,
+        replace,
+        kept_both,
+    })
 }
 
 /// Keeps the selections an export (or the selection queue) computed in the
@@ -1804,12 +1967,19 @@ fn render_groups_for_streaming_tiffs(
 /// files too), as when each recipe was an export of its own.
 fn export_in_turn(
     targets: impl IntoIterator<Item = usize>,
-    mut plan: impl FnMut(usize) -> Result<std::path::PathBuf, String>,
+    mut plan: impl FnMut(usize) -> Result<Option<std::path::PathBuf>, String>,
     mut export: impl FnMut(usize, &Path) -> Result<(), String>,
 ) -> Vec<(usize, Result<(), String>)> {
     targets
         .into_iter()
-        .map(|target| (target, plan(target).and_then(|path| export(target, &path))))
+        .map(|target| {
+            let result = plan(target).and_then(|path| match path {
+                Some(path) => export(target, &path),
+                // Skipped: nothing to write.
+                None => Ok(()),
+            });
+            (target, result)
+        })
         .collect()
 }
 
@@ -1877,6 +2047,39 @@ fn export_photo(
     {
         return fail_all(crate::session_bridge::FILE_REPLACED.to_string());
     }
+    // What decides each recipe's file, for Replace if changed: the photo as
+    // queued (its recipe, library metadata, corrected capture time and the
+    // original's file), with the recipe's settings. Not the EXIF cache: it
+    // is the original's own EXIF (the file is in `sourceIdentity`), cached
+    // only after a first decode, which would count as a change.
+    let pinned_inputs = serde_json::json!({
+        "adjustments": &pinned.adjustments,
+        "metadata": &pinned.metadata,
+        "capture": &pinned.capture,
+        "sourceIdentity": &pinned.source_identity,
+    });
+    let inputs = |target: usize| {
+        existing_files::inputs_hash(&serde_json::json!({
+            "photo": &pinned_inputs,
+            "format": targets[target].output_format.to_lowercase(),
+            "settings": existing_files::settings_for_hash(&targets[target].export_settings),
+        }))
+    };
+    let records = std::cell::OnceCell::new();
+    let records = || {
+        records
+            .get_or_init(|| open_export_records(app_handle))
+            .as_ref()
+    };
+    let previous = |path: &Path| {
+        records().and_then(|records| match records.get(path) {
+            Ok(recorded) => recorded,
+            Err(e) => {
+                log::warn!("Export records: reading {} failed: {e}", path.display());
+                None
+            }
+        })
+    };
     let mut js_adjustments = std::mem::take(&mut pinned.adjustments);
 
     // A never-edited photo exports with the camera's lens data,
@@ -1907,8 +2110,8 @@ fn export_photo(
             .filter(|definition| definition.produces_bitmap())
             .take(crate::image_processing::MAX_MASKS)
             .count();
-    let plan = |target: usize| {
-        let output_path = planned.once(target, || {
+    let plan_target = |target: usize| {
+        planned.once(target, || {
             plan_output_path(
                 &targets[target],
                 &item,
@@ -1917,18 +2120,91 @@ fn export_photo(
                 capture.as_ref(),
                 mask_layers,
                 used_paths,
+                image_path_str,
+                &inputs(target),
+                &previous,
             )
-        })?;
-        if let Some(tracking) = &targets[target].tracking {
-            tracking.started(item.global_index, &output_path);
-        }
-        Ok(output_path)
+        })
     };
+    let plan = |target: usize| {
+        let planned = plan_target(target)?;
+        let tracking = targets[target].tracking.as_ref();
+        match &planned {
+            Planned::Skip { path, outcome } => {
+                if let Some(tracking) = tracking {
+                    tracking.outcome(item.global_index, *outcome, path);
+                }
+                return Ok(None);
+            }
+            // The queue records the file only once it is replaced: a
+            // restart before that must not take the old file for this
+            // export's (`ExportQueue::recover`).
+            Planned::Write {
+                replace: Some(_), ..
+            } => {
+                if let Some(tracking) = tracking {
+                    tracking.stage(item.global_index, Stage::Rendering, None);
+                }
+            }
+            Planned::Write { path, .. } => {
+                if let Some(tracking) = tracking {
+                    tracking.started(item.global_index, path);
+                }
+            }
+        }
+        Ok(Some(planned.path().to_path_buf()))
+    };
+    // The previous export a recipe's file replaces, as planned.
+    let replacing = |target: usize| match planned.get(target) {
+        Some(Planned::Write { replace, .. }) => replace,
+        _ => None,
+    };
+    // After a recipe's file is published: recorded for a later Replace if
+    // changed, and how it ended reported.
+    let published = |target: usize, output_path: &Path| {
+        planned.published(target);
+        if let Some(records) = records()
+            && let Err(e) = records.record(output_path, image_path_str, &inputs(target))
+        {
+            log::warn!(
+                "Export records: recording {} failed: {e}",
+                output_path.display()
+            );
+        }
+        let outcome = planned
+            .get(target)
+            .map_or(Outcome::Written, |planned| planned.outcome());
+        if outcome != Outcome::Written
+            && let Some(tracking) = &targets[target].tracking
+        {
+            tracking.outcome(item.global_index, outcome, output_path);
+        }
+    };
+    // Recipes that skip their photo are decided before its source is read:
+    // a photo every recipe skips is not even decoded.
+    let mut results = Vec::new();
+    let mut wanted = wanted.to_vec();
+    wanted.retain(|&target| {
+        if targets[target].export_settings.existing_files == ExistingFiles::KeepBoth {
+            return true;
+        }
+        match plan_target(target) {
+            Ok(Planned::Skip { .. }) => {
+                results.push((target, plan(target).map(|_| ())));
+                false
+            }
+            Ok(Planned::Write { .. }) => true,
+            Err(e) => {
+                results.push((target, Err(e)));
+                false
+            }
+        }
+    });
     let is_cube = |target: usize| targets[target].output_format.to_lowercase() == "cube";
-    let mut results = export_in_turn(
+    results.extend(export_in_turn(
         wanted.iter().copied().filter(|&t| is_cube(t)),
         plan,
-        |_, output_path| {
+        |target, output_path| {
             let cube_bytes = export_adjustments_as_lut(
                 &js_adjustments,
                 &source_path_str,
@@ -1938,10 +2214,16 @@ fn export_photo(
                 cancellation_token,
             )?;
             ensure_export_not_cancelled(cancellation_token)?;
-            crate::session_bridge::write_new_output(output_path, cube_bytes)
-                .map_err(|e| e.to_string())
+            let previous = replacing(target);
+            publish_with(previous.as_ref(), image_path_str)
+                .write_with(output_path, |file| {
+                    std::io::Write::write_all(file, &cube_bytes)
+                })
+                .map_err(|e| e.to_string())?;
+            published(target, output_path);
+            Ok(())
         },
-    );
+    ));
     let images: Vec<usize> = wanted.iter().copied().filter(|&t| !is_cube(t)).collect();
     if images.is_empty() {
         return results;
@@ -2162,6 +2444,13 @@ fn export_photo(
     let catalog = || pinned.metadata.clone();
     results.extend(export_in_turn(images, plan, |target, output_path| {
         let export_settings = &targets[target].export_settings;
+        let previous = replacing(target);
+        let write_export =
+            |path: &Path,
+             _extension: &str,
+             encoded: rawtonic_export::export_processing::EncodedExport| {
+                publish_with(previous.as_ref(), image_path_str).write_export(path, encoded)
+            };
         {
             let prepared = prepared[export_settings.export_masks as usize]
                 .as_ref()
@@ -2176,7 +2465,7 @@ fn export_photo(
                 format: targets[target].output_format.as_str(),
                 exif_sidecar: &exif_sidecar,
                 catalog: &catalog,
-                write: &write_export_bytes,
+                write: &write_export,
                 enlarger: Some(&enlarger),
                 provenance: provenance.as_deref(),
             };
@@ -2246,6 +2535,7 @@ fn export_photo(
             if export_settings.preserve_timestamps {
                 set_capture_file_times(output_path, pinned.capture_date(original_path));
             }
+            published(target, output_path);
 
             if export_settings.export_masks
                 && let Some(source) = mask_source.as_ref()
@@ -2514,6 +2804,7 @@ pub async fn run_headless_export(
         output_sharpening: None,
         super_resolution: false,
         provenance: None,
+        existing_files: Default::default(),
     };
 
     let mut custom_adjustments = None;
@@ -3031,8 +3322,34 @@ fn estimate_sizes(
 mod tests {
     use super::{
         ExportTarget, PhotoItem, PlannedFiles, crashed_export_error, export_in_turn, is_open_edit,
-        plan_output_path, render_groups_for_streaming_tiffs,
+        render_groups_for_streaming_tiffs,
     };
+
+    /// The file `plan_output_path` names for a recipe whose choice writes
+    /// (Keep both, or nothing recorded).
+    fn plan_output_path(
+        target: &ExportTarget,
+        item: &PhotoItem,
+        source: &std::path::Path,
+        date: &jiff::Timestamp,
+        capture: Option<&rawtonic_naming::Capture>,
+        mask_layers: usize,
+        used: &std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>,
+    ) -> Result<std::path::PathBuf, String> {
+        super::plan_output_path(
+            target,
+            item,
+            source,
+            date,
+            capture,
+            mask_layers,
+            used,
+            item.image_path_str,
+            "inputs",
+            &|_| None,
+        )
+        .map(|planned| planned.path().to_path_buf())
+    }
 
     /// A queued export of the open photograph reuses its pixels only when
     /// they were developed with the export's AI Denoise: after the user
@@ -3717,6 +4034,7 @@ mod tests {
                     0,
                     &used,
                 )
+                .map(Some)
             },
             |_, path| {
                 std::fs::OpenOptions::new()
@@ -3778,6 +4096,7 @@ mod tests {
                     1,
                     &used,
                 )
+                .map(Some)
             },
             |t, path| {
                 let mut files = vec![path.to_path_buf()];
@@ -3832,10 +4151,24 @@ mod tests {
         };
         let date = jiff::Timestamp::now();
         let planned = PlannedFiles::default();
-        let plan = || plan_output_path(&target, &item, &source, &date, None, 0, &used);
+        let plan = || {
+            super::plan_output_path(
+                &target,
+                &item,
+                &source,
+                &date,
+                None,
+                0,
+                &used,
+                "a.CR3",
+                "inputs",
+                &|_| None,
+            )
+        };
         let first = planned.once(0, plan).unwrap();
         let again = planned.once(0, plan).unwrap();
         assert_eq!(first, again, "no _1 name for the retry");
+        let first = first.path().to_path_buf();
         assert_eq!(first.file_name().unwrap(), "a_edited.jpg");
         assert!(planned.unpublished(0) && planned.unpublished(1));
         std::fs::write(&first, b"published").unwrap();
@@ -3921,6 +4254,120 @@ mod tests {
         for (path, contents) in originals {
             assert_eq!(std::fs::read(path).unwrap(), contents);
         }
+    }
+
+    /// "If a file exists": Skip is decided from the folder alone; Replace
+    /// if changed replaces only the recorded, unchanged export of the same
+    /// photo, and never an original, its camera JPEG or another file.
+    #[test]
+    fn existing_files_skip_or_replace_only_the_photos_own_previous_export() {
+        use super::{Planned, plan_output_path as plan_with};
+        use rawtonic_export::existing_files::{ExportRecords, Outcome};
+
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.CR3");
+        let partner = dir.path().join("a.jpg");
+        let other_raw = dir.path().join("b.CR3");
+        for (path, contents) in [
+            (&raw, &b"original RAW"[..]),
+            (&partner, b"camera JPEG"),
+            (&other_raw, b"other RAW"),
+        ] {
+            rawtonic_fs::atomic_write(path, contents).unwrap();
+        }
+        let records = ExportRecords::open(&dir.path().join("records.sqlite")).unwrap();
+        let target = |choice: &str, template: &str| ExportTarget {
+            output_folder_or_file: dir.path().to_string_lossy().into_owned(),
+            is_explicit_file_path: false,
+            base_origin_folders: Vec::new(),
+            export_settings: serde_json::from_value(serde_json::json!({
+                "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
+                "nameTemplate": template, "destinationType": "originalFolder",
+                "existingFiles": choice,
+            }))
+            .unwrap(),
+            output_format: "jpg".to_string(),
+            tracking: None,
+        };
+        let date = jiff::Timestamp::now();
+        let plan = |target: &ExportTarget, source: &Path, inputs: &str| {
+            let used = std::sync::Mutex::new(std::collections::HashSet::new());
+            let item = PhotoItem {
+                global_index: 0,
+                image_path_str: source.to_str().unwrap(),
+                appearance_count: 1,
+                explicit_vc: None,
+                total_paths: 1,
+            };
+            let previous = |path: &Path| records.get(path).unwrap();
+            plan_with(
+                target,
+                &item,
+                source,
+                &date,
+                None,
+                0,
+                &used,
+                item.image_path_str,
+                inputs,
+                &previous,
+            )
+            .unwrap()
+        };
+        let raw_key = raw.to_str().unwrap();
+
+        // Skip: the camera JPEG at the name is left alone, nothing rendered.
+        assert_eq!(
+            plan(&target("skip", "{orig_base}"), &raw, "v1"),
+            Planned::Skip {
+                path: partner.clone(),
+                outcome: Outcome::SkippedExists
+            }
+        );
+        // Replace if changed: the camera JPEG is no export of ours.
+        let replace = target("replaceIfChanged", "{orig_base}");
+        let planned = plan(&replace, &raw, "v1");
+        assert_eq!(planned.outcome(), Outcome::KeptBoth);
+        assert_eq!(planned.path(), dir.path().join("a_1.jpg"));
+
+        // Our own export, recorded: unchanged → skipped, changed → replaced.
+        let export = target("replaceIfChanged", "{orig_base}-edited");
+        let own = dir.path().join("a-edited.jpg");
+        assert_eq!(
+            plan(&export, &raw, "v1"),
+            Planned::Write {
+                path: own.clone(),
+                replace: None,
+                kept_both: false
+            }
+        );
+        rawtonic_fs::atomic_write(&own, b"export v1").unwrap();
+        records.record(&own, raw_key, "v1").unwrap();
+        assert_eq!(
+            plan(&export, &raw, "v1"),
+            Planned::Skip {
+                path: own.clone(),
+                outcome: Outcome::SkippedUnchanged
+            }
+        );
+        let planned = plan(&export, &raw, "v2");
+        assert_eq!(planned.outcome(), Outcome::Replaced);
+        assert_eq!(planned.path(), own);
+        // Another photo named onto it: kept both.
+        let planned = plan(&target("replaceIfChanged", "a-edited"), &other_raw, "v2");
+        assert_eq!(planned.outcome(), Outcome::KeptBoth);
+        assert_eq!(planned.path(), dir.path().join("a-edited_1.jpg"));
+        // Retouched in another program since: kept both.
+        rawtonic_fs::atomic_write(&own, b"retouched").unwrap();
+        assert_eq!(plan(&export, &raw, "v2").outcome(), Outcome::KeptBoth);
+        // Keep both (the default) as before: numbered, never read records.
+        let keep = target("keepBoth", "{orig_base}-edited");
+        assert_eq!(
+            plan(&keep, &raw, "v2").path(),
+            dir.path().join("a-edited_1.jpg")
+        );
+        assert_eq!(std::fs::read(&raw).unwrap(), b"original RAW");
+        assert_eq!(std::fs::read(&partner).unwrap(), b"camera JPEG");
     }
 
     #[test]

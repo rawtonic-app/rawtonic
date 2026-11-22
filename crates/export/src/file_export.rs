@@ -16,7 +16,6 @@ use crate::export_processing::{
     set_capture_file_times,
 };
 use crate::gpu_processing::{GpuContext, GpuImageCache, GpuProcessorSlot, RenderOutputPrecision};
-use crate::output::write_new_export;
 use crate::render_inputs::RenderInputs;
 use rawtonic_engine::ai_selections::{SelectionDetector, detect_missing};
 use rawtonic_engine::file_io::read_file_mapped;
@@ -45,8 +44,8 @@ pub fn require_local_tiff(source: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// One export: `output` must not exist; its extension, else `format`,
-/// chooses the encoder.
+/// One export: `output` must not exist (unless `publish` replaces it); its
+/// extension, else `format`, chooses the encoder.
 pub struct FileExport<'a> {
     pub source: &'a Path,
     pub output: &'a Path,
@@ -67,6 +66,9 @@ pub struct FileExport<'a> {
     /// camera profile (`profiles/…dcp`) is named; None for a photo of no
     /// library.
     pub library: Option<&'a Path>,
+    /// How the file is published: new (`output` must not exist), or over
+    /// the previous export of the photo (Replace if changed).
+    pub publish: crate::output::Publish<'a>,
 }
 
 /// The capture time an app correction left in the source's `.rrdata` EXIF
@@ -343,8 +345,9 @@ impl FileExporter {
         let developed = self.develop(job)?;
         let source_path_str = developed.path.as_str();
         let catalog = || job.catalog.clone();
-        let write =
-            |path: &Path, _extension: &str, encoded: EncodedExport| write_new_export(path, encoded);
+        let write = |path: &Path, _extension: &str, encoded: EncodedExport| {
+            job.publish.write_export(path, encoded)
+        };
         self.with_env(|env| {
             render_and_save(
                 source_path_str,

@@ -2,7 +2,7 @@ import '../../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
-import { ExportQueuePanel, describeExportItem } from './StudioExportQueue';
+import { ExportQueuePanel, describeExportItem, describeExportJob } from './StudioExportQueue';
 import { useProcessStore, type ExportItem, type ExportJob } from '../../store/useProcessStore';
 
 let items: ExportItem[] = [];
@@ -53,6 +53,20 @@ it('says what each photo is doing, AI Denoise with its share done', () => {
   expect(describeExportItem(item(0, { state: 'done', startedMs: 1000, finishedMs: 4250 }))).toBe('Done in 3.3 s');
   expect(describeExportItem(item(0, { state: 'failed', error: 'Decoder said no' }))).toBe('Decoder said no');
   expect(describeExportItem(item(0, {}))).toBe('Waiting');
+});
+
+it('says what "If a file exists" skipped, replaced or kept, per job and per photo', () => {
+  expect(describeExportJob(job({ state: 'done', done: 4 }))).toBe('Done');
+  expect(describeExportJob(job({ state: 'done', done: 4, skipped: 2, replaced: 1, keptBoth: 1 }))).toBe(
+    'Done · 2 skipped · 1 replaced · 1 kept as a new name'
+  );
+  expect(describeExportItem(item(0, { state: 'done', outcome: 'skippedUnchanged' }))).toBe(
+    'Skipped: unchanged since its last export'
+  );
+  expect(describeExportItem(item(0, { state: 'done', outcome: 'skippedExists' }))).toBe(
+    'Skipped: a file of its name exists'
+  );
+  expect(describeExportItem(item(0, { state: 'done', outcome: 'replaced' }))).toBe('Replaced its earlier export');
 });
 
 it('lists every job newest first, empty or not, and acts on single jobs', () => {

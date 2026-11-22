@@ -183,7 +183,8 @@ enum Command {
         fast: bool,
     },
     /// Export photos at full resolution without the desktop app, as the
-    /// app's export renders them with default preferences. Never overwrites.
+    /// app's export renders them with default preferences. Never writes over
+    /// a file other than its own previous export (--on-conflict).
     Export(ExportArgs),
     /// Make a proof sheet (contact sheet) of photos as the app's Proof
     /// Sheet does: each photo rendered with its recipe at its cell's size,
@@ -294,6 +295,19 @@ struct ExportArgs {
     /// folder the output folder.
     #[arg(long)]
     output: PathBuf,
+    /// If a file of an output's name exists: keep-both (a numbered name;
+    /// for a single output file: fail), skip (decided before rendering), or
+    /// replace-if-changed (only a previous export of the same photo recorded
+    /// in --export-records and unchanged since, and only when its recipe,
+    /// metadata or settings changed; unchanged it is skipped; any other
+    /// file is kept as keep-both does).
+    #[arg(long, default_value = "keep-both", value_parser = rawtonic_export::existing_files::ExistingFiles::parse)]
+    on_conflict: rawtonic_export::existing_files::ExistingFiles,
+    /// The record of the files exports wrote (an SQLite file; created when
+    /// missing): every written file is recorded there. Needed by
+    /// --on-conflict replace-if-changed.
+    #[arg(long, value_name = "FILE")]
+    export_records: Option<PathBuf>,
     /// File format and extension for folder exports (jpeg, jpg, png, tiff, tif, webp, jxl, avif).
     #[arg(long, default_value = "jpeg")]
     format: String,
@@ -1189,6 +1203,8 @@ fn export(args: ExportArgs) -> Result<()> {
     let ExportArgs {
         source,
         output,
+        on_conflict,
+        export_records,
         adjustments,
         format,
         quality,
@@ -1218,6 +1234,13 @@ fn export(args: ExportArgs) -> Result<()> {
             path.display()
         );
     }
+    use rawtonic_export::existing_files::{self, Decision, ExistingFiles, ExportRecords, Outcome};
+    anyhow::ensure!(
+        on_conflict != ExistingFiles::ReplaceIfChanged || export_records.is_some(),
+        "--on-conflict replace-if-changed needs --export-records FILE (the record of earlier exports)"
+    );
+    let records_path = export_records;
+    let started_at = Instant::now();
     let lensfun_db = lensfun_folder(lensfun_db)?;
     let recipe = adjustments
         .as_deref()
@@ -1257,6 +1280,7 @@ fn export(args: ExportArgs) -> Result<()> {
                 signer: None,
             }
         }),
+        existing_files: Default::default(),
     };
 
     // (photo path, output) pairs. A folder exports every supported image below
@@ -1266,7 +1290,9 @@ fn export(args: ExportArgs) -> Result<()> {
     use rawtonic_export::sidecars::{
         export_stem, parse_virtual_path, plan_export_items, sources_with_copies, virtual_path,
     };
-    let jobs: Vec<(String, PathBuf)> = if source.is_dir() {
+    // Each photo with its output's own name and whether another name may
+    // be chosen for it (a folder export) or not (a file the user named).
+    let named: Vec<(String, PathBuf, bool)> = if source.is_dir() {
         let photos: Vec<String> = sources_with_copies(&source)
             .into_iter()
             .flat_map(|(image, copies)| {
@@ -1282,11 +1308,10 @@ fn export(args: ExportArgs) -> Result<()> {
         );
         let origin = vec![source.to_string_lossy().into_owned()];
         let total = photos.len();
-        let mut planned = std::collections::HashSet::new();
         plan_export_items(photos)
             .into_iter()
             .map(
-                |(index, photo, appearance, explicit_vc)| -> Result<(String, PathBuf)> {
+                |(index, photo, appearance, explicit_vc)| -> Result<(String, PathBuf, bool)> {
                     let (path, _) = parse_virtual_path(&photo);
                     // Naming must not fetch a TIFF that its export will skip.
                     let capture = if rawtonic_export::file_export::require_local_tiff(&path).is_ok()
@@ -1308,14 +1333,7 @@ fn export(args: ExportArgs) -> Result<()> {
                         .map_or_else(|| output.clone(), |rel| output.join(rel));
                     std::fs::create_dir_all(&dir)
                         .with_context(|| format!("Create {}", dir.display()))?;
-                    let mut target = dir.join(format!("{stem}.{format}"));
-                    let mut counter = 1;
-                    while target.exists() || planned.contains(&target) {
-                        target = dir.join(format!("{stem}_{counter}.{format}"));
-                        counter += 1;
-                    }
-                    planned.insert(target.clone());
-                    Ok((photo, target))
+                    Ok((photo, dir.join(format!("{stem}.{format}")), true))
                 },
             )
             .collect::<Result<_>>()?
@@ -1326,12 +1344,34 @@ fn export(args: ExportArgs) -> Result<()> {
             "The output file needs an extension (jpg, png, tif, webp, jxl, avif)"
         );
         anyhow::ensure!(
-            !output.exists(),
+            on_conflict != ExistingFiles::KeepBoth || !output.exists(),
             "Output exists; Rawtonic never overwrites: {}",
             output.display()
         );
-        vec![(source.to_string_lossy().into_owned(), output.clone())]
+        vec![(source.to_string_lossy().into_owned(), output.clone(), false)]
     };
+    // Skip needs no recipe: the photos whose file exists are passed by
+    // before anything is read or rendered (no graphics card is even opened
+    // when every photo is skipped).
+    let mut skipped = Vec::new();
+    let named: Vec<(String, PathBuf, bool)> = named
+        .into_iter()
+        .filter(|(photo, own, _)| {
+            let skip = on_conflict == ExistingFiles::Skip && own.exists();
+            if skip {
+                skipped.push(serde_json::json!({
+                    "source": photo, "output": own, "reason": Outcome::SkippedExists.as_str()
+                }));
+            }
+            !skip
+        })
+        .collect();
+    if named.is_empty() {
+        return print(serde_json::json!({
+            "written": [], "skipped": skipped, "replaced": [], "keptBoth": [], "failed": [],
+            "seconds": started_at.elapsed().as_secs_f64(),
+        }));
+    }
 
     let started = Instant::now();
     // First: it loads the Lensfun database, which preparing the recipes
@@ -1341,9 +1381,9 @@ fn export(args: ExportArgs) -> Result<()> {
         rawtonic_export::file_export::FileExporter::new(&lensfun_db).map_err(anyhow::Error::msg)?;
     // --adjustments overrides every photo; otherwise each photo's own
     // recipe, as the app's export reads it.
-    let recipes: Vec<Option<serde_json::Value>> = jobs
+    let recipes: Vec<Option<serde_json::Value>> = named
         .iter()
-        .map(|(photo, _)| match &recipe {
+        .map(|(photo, _, _)| match &recipe {
             Some(recipe) => Some(recipe.clone()),
             None => Some(editor_recipe(&parse_virtual_path(photo).1)),
         })
@@ -1361,10 +1401,10 @@ fn export(args: ExportArgs) -> Result<()> {
                         .context("Eyes and Teeth")
                 })
                 .transpose()?;
-            let recipes = jobs
+            let recipes = named
                 .iter()
                 .zip(recipes)
-                .map(|((photo, _), recipe)| {
+                .map(|((photo, _, _), recipe)| {
                     let source = parse_virtual_path(photo).0;
                     rawtonic_export::file_export::require_local_tiff(&source)
                         .map_err(anyhow::Error::msg)?;
@@ -1404,10 +1444,96 @@ fn export(args: ExportArgs) -> Result<()> {
         }
         None => exporter,
     };
-    let sources: Vec<PathBuf> = jobs
+    let sources: Vec<PathBuf> = named
         .iter()
-        .map(|(photo, _)| rawtonic_export::sidecars::parse_virtual_path(photo).0)
+        .map(|(photo, _, _)| rawtonic_export::sidecars::parse_virtual_path(photo).0)
         .collect();
+    // What decides each photo's file (for --on-conflict replace-if-changed):
+    // its recipe, metadata, corrected capture time and source file, with
+    // the export's settings and format.
+    let export_inputs: Vec<String> = named
+        .iter()
+        .zip(&recipes)
+        .map(|((photo, _, _), recipe)| {
+            let (path, sidecar) = parse_virtual_path(photo);
+            let file = std::fs::metadata(&path).ok().map(|meta| {
+                let modified = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_nanos().to_string());
+                serde_json::json!({"size": meta.len(), "modified": modified})
+            });
+            existing_files::inputs_hash(&serde_json::json!({
+                "recipe": recipe,
+                "catalog": photo_metadata(photo, &path, &sidecar),
+                "capture": corrected_capture(&path),
+                "source": file,
+                "format": format.to_lowercase(),
+                "settings": existing_files::settings_for_hash(&settings),
+            }))
+        })
+        .collect();
+    // Decided before anything renders: written (its own or a numbered
+    // name), replaced, or skipped.
+    let records = records_path
+        .as_deref()
+        .map(ExportRecords::open)
+        .transpose()?;
+    let mut used = std::collections::HashSet::new();
+    let mut jobs: Vec<(
+        String,
+        PathBuf,
+        Option<existing_files::Recorded>,
+        Outcome,
+        usize,
+    )> = Vec::new();
+    for (named_index, ((photo, own, may_number), inputs)) in
+        named.iter().zip(&export_inputs).enumerate()
+    {
+        let decision = existing_files::decide(
+            on_conflict,
+            own,
+            own.exists(),
+            used.contains(own),
+            false,
+            || records.as_ref().and_then(|r| r.get(own).ok().flatten()),
+            photo,
+            inputs,
+        );
+        let (path, replace, outcome) = match decision {
+            Decision::Skip(outcome) => {
+                skipped.push(serde_json::json!({
+                    "source": photo, "output": own, "reason": outcome.as_str()
+                }));
+                continue;
+            }
+            Decision::Write => (own.clone(), None, Outcome::Written),
+            Decision::Replace(previous) => (own.clone(), Some(previous), Outcome::Replaced),
+            Decision::Number { reported } => {
+                anyhow::ensure!(
+                    *may_number,
+                    "Output exists and is not a previous export of this photo; Rawtonic never overwrites it: {}",
+                    own.display()
+                );
+                let stem = own.file_stem().unwrap_or_default().to_string_lossy();
+                let mut target = own.clone();
+                let mut counter = 1;
+                while target.exists() || used.contains(&target) {
+                    target = own.with_file_name(format!("{stem}_{counter}.{format}"));
+                    counter += 1;
+                }
+                let outcome = if reported {
+                    Outcome::KeptBoth
+                } else {
+                    Outcome::Written
+                };
+                (target, None, outcome)
+            }
+        };
+        used.insert(path.clone());
+        jobs.push((photo.clone(), path, replace, outcome, named_index));
+    }
     let exporter = with_recipe_models(exporter, models, &recipes, &sources);
     let inputs = render_inputs
         .as_ref()
@@ -1438,8 +1564,9 @@ fn export(args: ExportArgs) -> Result<()> {
     );
     let exporter = &exporter;
     let outcomes = rawtonic_export::workers::run_in_lanes(&pools, jobs.len(), |i| {
-        let (photo, output) = &jobs[i];
-        let recipe = &recipes[i];
+        let (photo, output, replace, _, named_index) = &jobs[i];
+        let named_index = *named_index;
+        let recipe = &recipes[named_index];
         let (source, sidecar) = parse_virtual_path(photo);
         if let Err(error) = rawtonic_export::file_export::require_local_tiff(&source) {
             return Err(serde_json::json!({"source": photo, "error": error}));
@@ -1470,10 +1597,22 @@ fn export(args: ExportArgs) -> Result<()> {
                     catalog: catalog.clone(),
                     capture: capture.clone(),
                     library: library.as_deref(),
+                    publish: match replace {
+                        Some(previous) => rawtonic_export::output::Publish::Replace {
+                            previous,
+                            source: photo,
+                        },
+                        None => rawtonic_export::output::Publish::New,
+                    },
                 });
                 vec![((), result)]
             },
-            |()| !output.exists(),
+            // Before a replace the file is there: whether it is still the
+            // previous export (the failed attempt published nothing).
+            |()| match replace {
+                Some(previous) => previous.is_export_of(output, photo),
+                None => !output.exists(),
+            },
             |_, wait| {
                 eprintln!(
                     "Rawtonic: the graphics card ran out of memory for {photo}; again in {wait:?}"
@@ -1483,15 +1622,38 @@ fn export(args: ExportArgs) -> Result<()> {
             },
         );
         match results.remove(0).1 {
-            Ok(()) => Ok(output.clone()),
+            Ok(()) => {
+                if let Some(records) = &records_path {
+                    // One connection per thread (SQLite).
+                    let recorded = ExportRecords::open(records).and_then(|records| {
+                        records.record(output, photo, &export_inputs[named_index])
+                    });
+                    if let Err(e) = recorded {
+                        eprintln!(
+                            "Rawtonic: recording {} in the export records failed: {e:#}",
+                            output.display()
+                        );
+                    }
+                }
+                Ok(output.clone())
+            }
             Err(error) => Err(serde_json::json!({"source": photo, "error": error})),
         }
     });
     let mut written = Vec::new();
+    let mut replaced = Vec::new();
+    let mut kept_both = Vec::new();
     let mut failed = Vec::new();
-    for outcome in outcomes {
+    for (outcome, (_, _, _, planned, _)) in outcomes.into_iter().zip(&jobs) {
         match outcome {
-            Ok(path) => written.push(path),
+            Ok(path) => {
+                match planned {
+                    Outcome::Replaced => replaced.push(path.clone()),
+                    Outcome::KeptBoth => kept_both.push(path.clone()),
+                    _ => {}
+                }
+                written.push(path);
+            }
             Err(failure) => failed.push(failure),
         }
     }
@@ -1505,6 +1667,9 @@ fn export(args: ExportArgs) -> Result<()> {
     }
     print(serde_json::json!({
         "written": written,
+        "skipped": skipped,
+        "replaced": replaced,
+        "keptBoth": kept_both,
         "failed": failed,
         "seconds": started.elapsed().as_secs_f64(),
         "metadata": if keep_metadata { "source EXIF and session catalog metadata" } else if keep_creator_contact { "creator, copyright, creator contact details and usage terms" } else { "creator, copyright and usage terms" },
@@ -1628,6 +1793,7 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
             catalog: metadata,
             capture: corrected_capture(&source),
             library: library.as_deref(),
+            publish: rawtonic_export::output::Publish::New,
         });
         match result.and_then(|()| std::fs::read(&output).map_err(|e| e.to_string())) {
             Ok(jpeg) => cells.push(Some(CellImage { jpeg })),

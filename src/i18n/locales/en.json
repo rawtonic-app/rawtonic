@@ -80,6 +80,7 @@
       "running": "Nothing is running."
     },
     "export": {
+      "done": "Exported {{label}} ({{existing}})",
       "failed_one": "{{count}} photo did not export: {{label}}",
       "failed_other": "{{count}} photos did not export: {{label}}",
       "interrupted": "Export interrupted: {{label}}",
@@ -3593,6 +3594,17 @@
           "outside": "The subfolder must stay inside the destination folder.",
           "tokens": "Use the available tokens and folder names without reserved characters."
         },
+        "existing": "If a file exists",
+        "existingChoice": {
+          "keepBoth": "Keep both (new name)",
+          "replaceIfChanged": "Replace if changed",
+          "skip": "Skip"
+        },
+        "existingHint": {
+          "keepBoth": "The new file gets a numbered name; nothing is ever written over.",
+          "replaceIfChanged": "Replaces a photo's own earlier Rawtonic export at this name only when its edit or settings changed; unchanged photos are skipped. Any other file (originals, camera JPEGs, files edited elsewhere) is kept and the new file gets a numbered name.",
+          "skip": "Photos whose file already exists are not exported."
+        },
         "exportTo": "Export to",
         "keepStructure": "Keep the folder structure",
         "legend": "Destination",
@@ -3726,6 +3738,14 @@
           "minutes": "about {{minutes}} min left",
           "seconds": "about {{seconds}} s left"
         },
+        "existing": {
+          "keptBoth_one": "{{count}} kept as a new name",
+          "keptBoth_other": "{{count}} kept as new names",
+          "replaced_one": "{{count}} replaced",
+          "replaced_other": "{{count}} replaced",
+          "skipped_one": "{{count}} skipped",
+          "skipped_other": "{{count}} skipped"
+        },
         "exportedTo": "Exported to:",
         "failed": "{{failed}} of {{total}} failed",
         "failures": "Photos that did not export",
@@ -3741,10 +3761,14 @@
           "denoiseProgress": "AI Denoise progress",
           "denoising": "AI Denoise {{percent}} %",
           "doneIn": "Done in {{seconds}} s",
+          "keptBoth": "Exported under a new name: the existing file is not its own export",
           "loading": "Reading the photo…",
           "masks": "Writing masks…",
           "rendering": "Rendering and writing…",
+          "replaced": "Replaced its earlier export",
           "selecting": "Computing AI selections…",
+          "skippedExists": "Skipped: a file of its name exists",
+          "skippedUnchanged": "Skipped: unchanged since its last export",
           "waiting": "Waiting"
         },
         "photos_one": "{{count}} photo",

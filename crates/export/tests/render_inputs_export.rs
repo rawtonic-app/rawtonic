@@ -66,6 +66,7 @@ fn export(exporter: &FileExporter, source: &Path, output: &Path, recipe: &Value)
             catalog: None,
             capture: None,
             library: None,
+            publish: rawtonic_export::output::Publish::New,
         })
         .unwrap();
 }

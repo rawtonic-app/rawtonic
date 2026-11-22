@@ -74,6 +74,7 @@
       "running": "沒有進行中的工作。"
     },
     "export": {
+      "done": "已匯出 {{label}}（{{existing}}）",
       "failed_other": "{{count}} 張照片未能輸出：{{label}}",
       "interrupted": "輸出已中斷：{{label}}",
       "running": "正在輸出 {{label}}",
@@ -3491,6 +3492,17 @@
           "outside": "子資料夾必須位於目標資料夾內。",
           "tokens": "請使用可用的標記和不含保留字元的資料夾名稱。"
         },
+        "existing": "如果檔案已存在",
+        "existingChoice": {
+          "keepBoth": "保留兩者（新名稱）",
+          "replaceIfChanged": "有變更時取代",
+          "skip": "略過"
+        },
+        "existingHint": {
+          "keepBoth": "新檔案使用帶編號的名稱；絕不覆寫任何檔案。",
+          "replaceIfChanged": "僅當照片的編輯或設定有變更時，才取代該名稱下這張照片自己先前的 Rawtonic 匯出；未變更的照片會被略過。其他任何檔案（原始檔、相機 JPEG、在別處編輯過的檔案）都會保留，新檔案使用帶編號的名稱。",
+          "skip": "檔案已存在的照片不會匯出。"
+        },
         "exportTo": "匯出至",
         "keepStructure": "保留資料夾結構",
         "legend": "目標位置",
@@ -3622,6 +3634,11 @@
           "minutes": "約剩 {{minutes}} 分鐘",
           "seconds": "約剩 {{seconds}} 秒"
         },
+        "existing": {
+          "keptBoth_other": "{{count}} 張使用新名稱",
+          "replaced_other": "已取代 {{count}} 張",
+          "skipped_other": "已略過 {{count}} 張"
+        },
         "exportedTo": "匯出至：",
         "failed": "{{failed}}/{{total}} 失敗",
         "failures": "未輸出的照片",
@@ -3637,10 +3654,14 @@
           "denoiseProgress": "AI 降噪進度",
           "denoising": "AI 降噪 {{percent}}%",
           "doneIn": "{{seconds}} 秒完成",
+          "keptBoth": "以新名稱匯出：現有檔案不是它自己的匯出",
           "loading": "正在讀取照片…",
           "masks": "正在寫入遮罩…",
           "rendering": "正在算繪並寫入…",
+          "replaced": "已取代先前的匯出",
           "selecting": "正在計算 AI 選取範圍…",
+          "skippedExists": "已略過：已有同名檔案",
+          "skippedUnchanged": "已略過：自上次匯出後未變更",
           "waiting": "等待中"
         },
         "photos_other": "{{count}} 張照片",

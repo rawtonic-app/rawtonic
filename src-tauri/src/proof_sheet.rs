@@ -318,6 +318,7 @@ mod tests {
             output,
             error: None,
             attempts: 1,
+            outcome: None,
             started_ms: None,
             finished_ms: None,
         }
