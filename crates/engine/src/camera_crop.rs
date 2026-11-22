@@ -32,6 +32,12 @@ pub fn crops(path: &str) -> Vec<Option<CameraCrop>> {
     if let Some(facts) = crate::source_facts::registered(path) {
         return offline(&facts, &crate::source_frame::extension_of(path));
     }
+    crops_from_raw_file(path)
+}
+
+/// Camera crops read from a local RAW, bypassing registered proxy facts.
+/// The caller checks that opening the file will not download a cloud placeholder.
+pub fn crops_from_raw_file(path: &str) -> Vec<Option<CameraCrop>> {
     type Cache = Mutex<HashMap<String, (u64, std::time::SystemTime, Vec<Option<CameraCrop>>)>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);

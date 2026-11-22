@@ -2323,6 +2323,10 @@ pub enum ReadbackShader<'a> {
     PreviewPinned(&'a PreviewPipelinePin),
 }
 
+/// A pinned preview read reached a replacement processor. The caller can
+/// discard the incomplete pair and sample again.
+pub const PREVIEW_PROCESSOR_CHANGED: &str = "The preview processor changed while sampling.";
+
 /// Pipeline selection for one set of probes of the same preview recipe.
 #[derive(Debug, Default)]
 pub struct PreviewPipelinePin {
@@ -9956,7 +9960,7 @@ impl GpuProcessor {
         };
         if let Some((layout, pipeline, variant)) = pin.selected.get() {
             if layout != &self.main_bgl {
-                return Err("The preview processor changed while sampling.".to_string());
+                return Err(PREVIEW_PROCESSOR_CHANGED.to_string());
             }
             return Ok((pipeline, *variant));
         }
