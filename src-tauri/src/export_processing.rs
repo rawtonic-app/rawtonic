@@ -2123,6 +2123,15 @@ fn export_photo(
     let photo_key = existing_files::photo_key(image_path_str, pinned.source_identity.as_deref());
     // A replacement is planned only with a key (`plan_target`).
     let photo = photo_key.as_deref().unwrap_or_default();
+    // The libraries the app knows besides the one managing a folder: a file
+    // any of them lists is a photo, never replaced.
+    let known_libraries: Vec<std::path::PathBuf> = settings
+        .recent_libraries
+        .iter()
+        .flatten()
+        .map(std::path::PathBuf::from)
+        .chain(crate::session_bridge::active_library_directory())
+        .collect();
     let records = std::cell::OnceCell::new();
     let records = || {
         records
@@ -2132,7 +2141,7 @@ fn export_photo(
     // The previous export recorded at `path`, unless the file there is an
     // original by now (added to a library, or edited as a photo).
     let previous = |path: &Path| {
-        if crate::session_bridge::is_library_photo(path) {
+        if crate::session_bridge::is_library_photo(path, &known_libraries) {
             return None;
         }
         records().and_then(|records| match records.get(path) {
