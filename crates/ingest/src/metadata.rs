@@ -268,7 +268,7 @@ pub(crate) fn apply_to_copy(
         warn(result, note);
     }
     match library.sync_xmp(id) {
-        Ok(()) => result.sidecar = Some(rawtonic_metadata::sidecar_path(&asset.path)),
+        Ok(()) => result.sidecar = rawtonic_metadata::sidecar_path(&asset.path),
         Err(error) => warn(
             result,
             format!("Import metadata is saved in the catalog; XMP was not synced: {error}"),

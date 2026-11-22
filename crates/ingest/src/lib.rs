@@ -235,17 +235,21 @@ fn copy_sidecar(sidecar: &Path, photo: &Path, barrier: &mut Barrier) -> Result<P
         .and_then(|e| e.to_str())
         .zip(extension)
         .is_some_and(|(of_sidecar, of_photo)| of_sidecar.eq_ignore_ascii_case(of_photo));
-    let target =
-        if full_name && extension.is_some_and(rawtonic_metadata::sidecars::is_developed_image) {
-            let mut name = photo
-                .file_name()
-                .context("Photo has no filename")?
-                .to_os_string();
-            name.push(".xmp");
-            photo.with_file_name(name)
-        } else {
-            rawtonic_metadata::sidecar_path(photo)
-        };
+    let target = if full_name && rawtonic_metadata::sidecars::is_developed(photo) {
+        let mut name = photo
+            .file_name()
+            .context("Photo has no filename")?
+            .to_os_string();
+        name.push(".xmp");
+        photo.with_file_name(name)
+    } else {
+        rawtonic_metadata::sidecar_path(photo).context("Ambiguous XMP sidecar name")?
+    };
+    ensure!(
+        !rawtonic_metadata::sidecars::Sidecars::new().is_ambiguous(&target),
+        "Ambiguous XMP sidecar name: {}",
+        target.display()
+    );
     copy_beside_all(
         sidecar,
         &[target],
@@ -1220,6 +1224,17 @@ pub(crate) fn import_pair(
         }
         _ => identical_file(&folder, &name, source, companion, &reserved, unrecorded)?,
     };
+    // A new RAW cannot take a stem packet already at the destination.
+    // This includes a rendered image imported earlier under the same
+    // template, and also applies to backups. Keep the normal numbered
+    // collision suffix; verified copies from an interrupted import keep
+    // their recorded names.
+    let raw = !rawtonic_metadata::sidecars::is_developed(source);
+    let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
+    let xmp_taken = |path: &Path| {
+        (raw && fs::symlink_metadata(rawtonic_metadata::sidecars::stem_sidecar(path)).is_ok())
+            || sidecars.ambiguous_packet(path).is_some()
+    };
     // The backup: one an earlier, cut-off import made (also when it got no
     // further than the backup) is kept rather than made again.
     let backup_plan = match options.backup {
@@ -1244,7 +1259,7 @@ pub(crate) fn import_pair(
                         backup_folder,
                         &name,
                         companion,
-                        &|_| false,
+                        &xmp_taken,
                         CollisionPolicy::Suffix,
                     )?
                     .context("No backup destination")?,
@@ -1259,7 +1274,7 @@ pub(crate) fn import_pair(
                 &folder,
                 &name,
                 companion,
-                &reserved,
+                &|path| reserved(path) || xmp_taken(path),
                 CollisionPolicy::Suffix,
             )?
             .context("No destination")?,

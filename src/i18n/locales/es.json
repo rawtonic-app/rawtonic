@@ -2389,9 +2389,9 @@
         "pending_one": "{{count}} archivo XMP puede volver a escribirse.",
         "pending_many": "{{count}} archivos XMP pueden volver a escribirse.",
         "pending_other": "{{count}} archivos XMP pueden volver a escribirse.",
-        "sharedName_one": "{{count}} foto tiene el mismo nombre que otra (dos archivos RAW, como CR3 y DNG), así que ambas escribirían el mismo archivo XMP.",
-        "sharedName_many": "{{count}} fotos tienen el mismo nombre que otra (dos archivos RAW, como CR3 y DNG), así que ambas escribirían el mismo archivo XMP.",
-        "sharedName_other": "{{count}} fotos tienen el mismo nombre que otra (dos archivos RAW, como CR3 y DNG), así que ambas escribirían el mismo archivo XMP."
+        "sharedName_one": "{{count}} foto usaría el mismo archivo XMP que otra foto.",
+        "sharedName_many": "{{count}} fotos usarían el mismo archivo XMP que otra foto.",
+        "sharedName_other": "{{count}} fotos usarían el mismo archivo XMP que otra foto."
       },
       "resolved_one": "Conflicto XMP resuelto en {{count}} foto",
       "resolved_many": "Conflictos XMP resueltos en {{count}} fotos",

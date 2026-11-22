@@ -7,7 +7,7 @@
 use super::parse_virtual_path;
 use crate::formats::{is_raw_file, is_supported_image_file};
 use jiff::Timestamp;
-use rawtonic_metadata::photo_ref::PhotoRef;
+use rawtonic_metadata::{photo_ref::PhotoRef, sidecars::is_developed};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -146,13 +146,6 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned()
-}
-
-/// A JPEG, HEIF, TIFF, … rather than a RAW (`rawtonic_metadata::sidecars`).
-fn is_developed(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(rawtonic_metadata::sidecars::is_developed_image)
 }
 
 fn stem(path: &Path) -> String {
@@ -355,8 +348,12 @@ pub fn plan_rename_with(
                 to: p.to.clone(),
                 role: FileRole::Photo,
             });
+            let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
             for entry in &entries {
-                if let Some(role) = own_file_role(&old_name, entry) {
+                if let Some(role) = own_file_role(&old_name, entry)
+                    && (role != FileRole::Xmp
+                        || (is_developed(&p.from) && !sidecars.is_ambiguous(&folder.join(entry))))
+                {
                     p.files.push(PlannedFile {
                         from: folder.join(entry),
                         to: folder.join(format!("{new_name}{}", &entry[old_name.len()..])),
@@ -435,6 +432,9 @@ fn plan_xmp(
     else {
         return;
     };
+    if rawtonic_metadata::sidecars::Sidecars::new().is_ambiguous(&xmp) {
+        return;
+    }
     let selected: Vec<&PathBuf> = members.iter().map(|&i| &planned[i].from).collect();
     // Photos of that name; a RAW's companion is no photo of its own.
     let named: Vec<PathBuf> = entries
@@ -538,11 +538,19 @@ fn plan_xmp(
 /// rename) or by two files of this rename.
 fn find_conflicts(planned: &mut [PlannedPhoto]) {
     let mut count: HashMap<PathBuf, usize> = HashMap::new();
+    let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
     for file in planned.iter().flat_map(|p| &p.files) {
         *count.entry(file.to.clone()).or_default() += 1;
     }
     for photo in planned.iter_mut() {
         let mut problems = Vec::new();
+        if photo.from != photo.to
+            && let Some(path) = sidecars
+                .ambiguous_packet(&photo.from)
+                .or_else(|| sidecars.ambiguous_packet(&photo.to))
+        {
+            problems.push(Problem::Occupied { path });
+        }
         for file in &photo.files {
             if count[&file.to] > 1 {
                 problems.push(Problem::SameTarget {

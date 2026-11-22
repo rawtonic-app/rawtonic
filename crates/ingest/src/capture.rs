@@ -1169,13 +1169,23 @@ pub fn card_sidecar(photo: &Path) -> Result<Option<PathBuf>, String> {
         }
     };
     let full = one(&format!("{name}.xmp"))?;
+    if (full.is_some() && folder.stems.contains_key(&name.to_ascii_lowercase()))
+        || (folder.by_name.contains_key(&stem.to_ascii_lowercase())
+            && Path::new(stem).extension().is_some()
+            && one(&format!("{stem}.xmp"))?.is_some())
+    {
+        return Err(format!(
+            "An XMP name could belong to two files beside {}; the packet was not copied",
+            photo.display()
+        ));
+    }
     if full.is_some() || extension.is_none() {
         return Ok(full);
     }
     let Some(short) = one(&format!("{stem}.xmp"))? else {
         return Ok(None);
     };
-    if extension.is_some_and(is_developed_image) {
+    if rawtonic_metadata::sidecars::is_developed(photo) {
         // Another file of its name (not a sidecar) besides itself.
         let named = folder
             .stems
@@ -1252,10 +1262,11 @@ fn folder_files(folder: &Path) -> Option<Arc<FolderFiles>> {
             continue;
         };
         let path = Path::new(&name);
-        let sidecar = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("xmp"));
+        let sidecar = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+            ["xmp", "rrdata", "rrexif"]
+                .iter()
+                .any(|ext| e.eq_ignore_ascii_case(ext))
+        });
         if !sidecar && let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
             *files.stems.entry(stem.to_ascii_lowercase()).or_default() += 1;
         }

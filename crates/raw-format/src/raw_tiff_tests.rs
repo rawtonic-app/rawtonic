@@ -392,7 +392,7 @@ fn a_cfa_image_behind_a_thumbnail_routes_as_raw() {
 /// Classifies every `.tif`/`.tiff` in `RAWTONIC_TIFF_SAMPLES` and prints its
 /// kind and the time the check took (cold, without the cache), for checking
 /// real raw and RGB TIFFs that stay out of git:
-/// `RAWTONIC_TIFF_SAMPLES=DIR cargo test -p rawtonic-rawdecode --release --lib raw_tiff -- --ignored --nocapture`
+/// `RAWTONIC_TIFF_SAMPLES=DIR cargo test -p rawtonic-raw-format --release --lib -- --ignored --nocapture`
 #[test]
 #[ignore = "needs RAWTONIC_TIFF_SAMPLES"]
 fn classify_sample_folder() {

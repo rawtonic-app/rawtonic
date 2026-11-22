@@ -235,6 +235,7 @@ pub(crate) fn find_all_associated_files(source_image_path: &Path) -> Result<Vec<
         .ok_or("Could not get source filename")?
         .to_string_lossy();
 
+    let xmp = rawtonic_metadata::existing_sidecar(source_image_path);
     if let Ok(entries) = fs::read_dir(parent_dir) {
         for entry in entries.filter_map(Result::ok) {
             let entry_path = entry.path();
@@ -247,7 +248,11 @@ pub(crate) fn find_all_associated_files(source_image_path: &Path) -> Result<Vec<
                 &source_filename,
                 &entry.file_name().to_string_lossy(),
             );
-            if role.is_some_and(|r| r != super::rename_plan::FileRole::ExifCache) {
+            if role.is_some_and(|r| match r {
+                super::rename_plan::FileRole::ExifCache => false,
+                super::rename_plan::FileRole::Xmp => xmp.as_ref() == Some(&entry_path),
+                _ => true,
+            }) {
                 associated_files.push(entry_path);
             }
         }
@@ -285,7 +290,19 @@ fn copy_files_blocking(
             images.push(image);
         }
     }
-    for (source, dest) in plan_copies(&images, dest_path)? {
+    let plan = plan_copies(&images, dest_path)?;
+    let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
+    for (source, target) in &plan {
+        if images.contains(source)
+            && let Some(packet) = sidecars.ambiguous_packet(target)
+        {
+            return Err(format!(
+                "Copy would make XMP ownership ambiguous at {}",
+                packet.display()
+            ));
+        }
+    }
+    for (source, dest) in plan {
         copy_to_new(&source, &dest)?;
     }
     Ok(())
@@ -413,6 +430,17 @@ fn plan_move(
             "This moves the photos out of the session {}, where they would go offline; nothing was moved. Move the whole session to the drive, or add the drive's folder to a catalog.",
             session.file_name().unwrap_or_default().to_string_lossy()
         ));
+    }
+    let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
+    for image in &images {
+        if let Some(packet) =
+            sidecars.ambiguous_packet(&dest_path.join(image.file_name().unwrap_or_default()))
+        {
+            return Err(format!(
+                "Move blocked by ambiguous XMP ownership at {}",
+                packet.display()
+            ));
+        }
     }
     let renamed = crate::file_operations::xmp_targets(&images, dest_path);
     // A JPEG there alone keeps its XMP under its own name first, before a
@@ -1193,6 +1221,38 @@ mod tests {
     /// offline there): such a move is refused before anything moves, also
     /// through a link and into another session. Within the session, into
     /// it and anything a catalog holds move.
+    #[test]
+    fn moving_a_raw_with_xmp_beside_a_lone_jpeg_preserves_both_packets_through_undo_and_redo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonical().unwrap();
+        let from = root.join("From");
+        let to = root.join("To");
+        let raw = from.join("A.NEF");
+        write(&raw, "raw");
+        write(&from.join("A.xmp"), "raw packet");
+        write(&to.join("A.JPG"), "jpeg");
+        write(&to.join("A.xmp"), "jpeg packet");
+        let (steps, ..) =
+            plan_move(&[raw.to_string_lossy().into_owned()], &to.to_string_lossy()).unwrap();
+        let journal = rawtonic_fileops::Journal::open(&root.join("journal.sqlite")).unwrap();
+        let trash = rawtonic_fileops::NoSystemTrash;
+        let op = journal.execute("move", "Move", steps, &trash).unwrap();
+        let moved = || {
+            assert_eq!(read(&to.join("A.NEF")), "raw");
+            assert_eq!(read(&to.join("A.xmp")), "raw packet");
+            assert_eq!(read(&to.join("A.JPG.xmp")), "jpeg packet");
+            assert_eq!(read(&to.join("A.JPG")), "jpeg");
+        };
+        moved();
+        journal.undo(&op.id, &trash).unwrap();
+        assert_eq!(read(&from.join("A.NEF")), "raw");
+        assert_eq!(read(&from.join("A.xmp")), "raw packet");
+        assert_eq!(read(&to.join("A.xmp")), "jpeg packet");
+        assert!(!to.join("A.JPG.xmp").exists());
+        journal.redo(&op.id, &trash).unwrap();
+        moved();
+    }
+
     #[test]
     fn photos_are_never_moved_out_of_their_session() {
         let tmp = tempfile::tempdir().unwrap();
