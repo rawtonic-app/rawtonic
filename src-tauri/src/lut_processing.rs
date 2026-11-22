@@ -455,6 +455,8 @@ pub struct LutCache(std::collections::HashMap<String, (FileStamp, Arc<Lut>)>);
 
 impl LutCache {
     pub fn get_or_load(&mut self, path: &str) -> Result<Arc<Lut>, String> {
+        // Checked before the file is probed (no stat of a UNC or device path).
+        rawtonic_engine::lut::validate_lut_path(path).map_err(|e| e.to_string())?;
         let now = stamp(path);
         if let Some((read, lut)) = self.0.get(path)
             && now.is_some()

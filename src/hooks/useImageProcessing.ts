@@ -669,6 +669,7 @@ export function useImageProcessing(
   const developAiDenoiseVersion = sourceDevelop?.aiDenoiseVersion;
   const developMultiscale = sourceDevelop?.multiscale;
   const developDeadPixel = sourceDevelop?.deadPixelAdjacent;
+  const developDefectsIsolated = sourceDevelop?.defectsIsolated;
   const developUnbiasedBlack = sourceDevelop?.unbiasedBlack;
   const developBorderBlack = sourceDevelop?.borderBlack;
   const developHighlightRatios = sourceDevelop?.highlightRatios;
@@ -688,6 +689,7 @@ export function useImageProcessing(
     const version = developAiDenoiseVersion;
     const multiscale = developMultiscale;
     const deadPixelAdjacent = developDeadPixel;
+    const defectsIsolated = developDefectsIsolated;
     const unbiasedBlack = developUnbiasedBlack;
     const borderBlack = developBorderBlack;
     const highlightRatios = developHighlightRatios;
@@ -699,6 +701,7 @@ export function useImageProcessing(
       (amount > 0 && (version ?? 1) !== (current.aiDenoiseVersion ?? 1));
     const changesFilter = multiscale !== current.colorNoiseMultiscale;
     const changesDeadTest = deadPixelAdjacent !== current.deadPixelAdjacent;
+    const changesDefectTest = defectsIsolated !== current.defectsIsolated;
     const changesBlack = unbiasedBlack !== current.unbiasedBlack;
     const changesBorderBlack = borderBlack !== current.borderBlack;
     const changesHighlights = highlightRatios !== current.highlightRatios;
@@ -715,6 +718,7 @@ export function useImageProcessing(
       version,
       multiscale,
       deadPixelAdjacent,
+      defectsIsolated,
       unbiasedBlack,
       borderBlack,
       highlightRatios,
@@ -738,6 +742,7 @@ export function useImageProcessing(
             ...(changesAiDenoise ? { aiDenoiseFailed: undefined, aiDenoiseFailedVersion: undefined } : {}),
             ...(multiscale === undefined ? {} : { colorNoiseMultiscale: multiscale }),
             ...(deadPixelAdjacent === undefined ? {} : { deadPixelAdjacent }),
+            ...(defectsIsolated === undefined ? {} : { defectsIsolated }),
             ...(unbiasedBlack === undefined ? {} : { unbiasedBlack }),
             ...(borderBlack === undefined ? {} : { borderBlack }),
             ...(highlightRatios === undefined ? {} : { highlightRatios }),
@@ -777,6 +782,7 @@ export function useImageProcessing(
                   ...(changesAiDenoise ? { aiDenoiseFailed: amount, aiDenoiseFailedVersion: version ?? 1 } : {}),
                   ...(!changesAiDenoise && changesFilter ? { colorNoiseMultiscaleFailed: multiscale } : {}),
                   ...(!changesAiDenoise && changesDeadTest ? { deadPixelAdjacentFailed: deadPixelAdjacent } : {}),
+                  ...(!changesAiDenoise && changesDefectTest ? { defectsIsolatedFailed: defectsIsolated } : {}),
                   ...(!changesAiDenoise && changesBlack ? { unbiasedBlackFailed: unbiasedBlack } : {}),
                   ...(!changesAiDenoise && changesBorderBlack ? { borderBlackFailed: borderBlack } : {}),
                   ...(!changesAiDenoise && changesHighlights ? { highlightRatiosFailed: highlightRatios } : {}),
@@ -804,6 +810,7 @@ export function useImageProcessing(
     developAiDenoiseVersion,
     developMultiscale,
     developDeadPixel,
+    developDefectsIsolated,
     developUnbiasedBlack,
     developBorderBlack,
     developHighlightRatios,

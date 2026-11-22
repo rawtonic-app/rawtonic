@@ -873,6 +873,9 @@ export interface LoadImageResult {
   /** The source was developed with the second dead-photosite test
    * (`renderVersion` 3); null for preview data. */
   dead_pixel_adjacent?: boolean | null;
+  /** ... with the isolation test (`renderVersion` 15); null for preview
+   * data. */
+  defects_isolated?: boolean | null;
   /** The `sourceFrameVersion` a first edit on what is shown carries when it
    * is not the newest (image_loader.rs `new_edit_frame`: offline, on
    * previews of an older frame); null otherwise. */
@@ -961,6 +964,12 @@ export interface SelectedImage {
   deadPixelAdjacent?: boolean;
   /** A dead-photosite test the source failed to develop for (not retried). */
   deadPixelAdjacentFailed?: boolean;
+  /** The decoded source was developed with the isolation test for hot and
+   * dead photosites (`defectsIsolated` in src/utils/adjustments.ts); unknown
+   * for preview data. */
+  defectsIsolated?: boolean;
+  /** An isolation test the source failed to develop for (not retried). */
+  defectsIsolatedFailed?: boolean;
   /** The decoded source was developed with unbiased blacks (`unbiasedBlack`
    * in src/utils/adjustments.ts); unknown for preview data. */
   unbiasedBlack?: boolean;

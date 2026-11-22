@@ -1733,7 +1733,7 @@ export const SHARPEN_VERSION = 8;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 14;
+export const RENDER_VERSION = 15;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
@@ -1749,6 +1749,16 @@ export const DEAD_PIXEL_RENDER_VERSION = 3;
  * recipe of a never-edited photo already carries `RENDER_VERSION`). */
 export const deadPixelAdjacent = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
   (adjustments.renderVersion ?? 1) >= DEAD_PIXEL_RENDER_VERSION;
+
+/** The render version from which a RAW's hot and dead photosites are found
+ * by their isolation from the 5 × 5 neighbourhood
+ * (crates/engine/src/image_loader.rs `ISOLATED_DEFECT_RENDER_VERSION`). */
+export const ISOLATED_DEFECT_RENDER_VERSION = 15;
+
+/** Whether a recipe's RAW is developed with that isolation test, as the
+ * backend decides (`image_loader::decode_variant`). */
+export const defectsIsolated = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
+  (adjustments.renderVersion ?? 1) >= ISOLATED_DEFECT_RENDER_VERSION;
 
 /** The render version from which a RAW's shadows keep their means through
  * the black clip and the demosaic (crates/engine/src/image_loader.rs

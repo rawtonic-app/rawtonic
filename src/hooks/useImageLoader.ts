@@ -419,6 +419,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             aiDenoiseVersion: loadImageResult.ai_denoise_version,
             colorNoiseMultiscale: loadImageResult.color_noise_multiscale ?? undefined,
             deadPixelAdjacent: loadImageResult.dead_pixel_adjacent ?? undefined,
+            defectsIsolated: loadImageResult.defects_isolated ?? undefined,
             unbiasedBlack: loadImageResult.unbiased_black ?? undefined,
             borderBlack: loadImageResult.border_black ?? undefined,
             highlightRatios: loadImageResult.highlight_ratios ?? undefined,

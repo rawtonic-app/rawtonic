@@ -241,6 +241,17 @@ fn thumbnail_hash_with(
     {
         hasher.update(b"\0relight-defaults-v1");
     }
+    // A recipe whose LUT file did not load rendered black until 2026-11-22:
+    // tiles of recipes with a LUT are made again once. Tiles made while the
+    // LUT does not load are kept under a key of their own
+    // (`ThumbnailCacheEntry::save`), so no file is probed here.
+    if refreshed
+        && adjustments
+            .as_ref()
+            .is_some_and(|adjustments| adjustments[effects::LUT_PATH.into_name()].is_string())
+    {
+        hasher.update(b"\0lut-renders-when-missing-v1\0");
+    }
     if is_raw_file(&source_path) {
         // Old embedded RAW previews could omit camera orientation for non-TIFF
         // containers (notably RAF). Their pixels must not survive this fix.
@@ -363,12 +374,27 @@ fn retouched_base<'a>(
     }
 }
 
-pub(crate) fn try_load_embedded_raw_preview(source_path: &Path) -> Option<DynamicImage> {
-    let mmap = read_file_mapped(source_path).ok()?;
-    image_loader::safe_embedded_preview_fallback_shared(
-        Arc::new(mmap),
+/// A RAW's embedded preview (`safe_embedded_preview_fallback_shared`) and
+/// the mapping it was read from, for the steps after it
+/// (`embedded_in_camera_crop`) to read the same file through it instead of
+/// opening it again.
+fn embedded_raw_preview_and_file(source_path: &Path) -> Option<(DynamicImage, MappedRaw)> {
+    let (mmap, metadata) =
+        rawtonic_engine::file_io::read_file_mapped_with_metadata(source_path).ok()?;
+    // The mapped file's own size and time (`camera_crop::crops_in`).
+    let stamp = metadata.modified().ok().map(|time| (metadata.len(), time));
+    let file: image_loader::SharedBytes = Arc::new(mmap);
+    let preview = image_loader::safe_embedded_preview_fallback_shared(
+        file.clone(),
         &source_path.to_string_lossy(),
-    )
+    )?;
+    Some((preview, MappedRaw { file, stamp }))
+}
+
+/// A RAW's mapping and the `camera_crop::FileStamp` of the file mapped.
+struct MappedRaw {
+    file: image_loader::SharedBytes,
+    stamp: Option<rawtonic_engine::camera_crop::FileStamp>,
 }
 
 pub fn generate_thumbnail_data(
@@ -468,13 +494,19 @@ fn cut_to_camera_frame(
 /// A never-edited RAW's embedded JPEG framed as its export frames it: cut
 /// to the camera's crop where the JPEG shows the whole frame
 /// (`camera_crop::shows_crop`: a Fujifilm RAF's 3:2 JPEG of a 16:9 or 5:4
-/// photo); Canon's and the EX2F's JPEGs are their crop already.
-fn embedded_in_camera_crop(image: DynamicImage, source: &str) -> DynamicImage {
+/// photo); Canon's and the EX2F's JPEGs are their crop already. The crops
+/// are read through `file`, the mapping the JPEG came from, when given.
+fn embedded_in_camera_crop(
+    image: DynamicImage,
+    source: &str,
+    file: Option<&MappedRaw>,
+) -> DynamicImage {
     let never_edited = serde_json::Value::Null;
-    match rawtonic_engine::camera_crop::initial_crop(
-        &never_edited,
-        &crate::camera_crop::crops(Path::new(source)),
-    ) {
+    let crops = match file {
+        Some(raw) => rawtonic_engine::camera_crop::crops_in(source, &raw.file, raw.stamp),
+        None => crate::camera_crop::crops(Path::new(source)),
+    };
+    match rawtonic_engine::camera_crop::initial_crop(&never_edited, &crops) {
         Some(crop)
             if !rawtonic_engine::camera_crop::shows_crop(crop, image.width(), image.height()) =>
         {
@@ -606,10 +638,14 @@ fn develop_thumbnail_with_source(
         && adjustments.is_null()
         && preloaded_image.is_none()
         && !always_decode_raw
-        && let Some(preview) = try_load_embedded_raw_preview(&source_path)
+        && let Some((preview, file)) = embedded_raw_preview_and_file(&source_path)
     {
         *embedded = true;
-        return Ok(embedded_in_camera_crop(preview, &source_path_str));
+        return Ok(embedded_in_camera_crop(
+            preview,
+            &source_path_str,
+            Some(&file),
+        ));
     }
 
     if let (Some(context), Some(meta)) = (gpu_context, metadata)
@@ -1044,6 +1080,18 @@ enum ImportSource {
     Read(Vec<u8>),
 }
 
+impl ImportSource {
+    /// The file as a buffer rawler reads in place
+    /// (`RawSource::new_from_shared`): mapped, only the parts a step looks at
+    /// are read from the disk or share, not a copy of every byte.
+    fn into_shared(self) -> image_loader::SharedBytes {
+        match self {
+            Self::Mapped(map) => std::sync::Arc::new(map),
+            Self::Read(bytes) => std::sync::Arc::new(bytes),
+        }
+    }
+}
+
 impl std::ops::Deref for ImportSource {
     type Target = [u8];
 
@@ -1085,11 +1133,11 @@ fn source_preview_image(path: &Path, size: u32) -> Option<DynamicImage> {
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_import_source(path)?;
-        quick_source_preview(&bytes, path, size).or_else(|| {
+        let file = read_import_source(path)?.into_shared();
+        quick_source_preview(&file, path, size).or_else(|| {
             let path_str = path.to_string_lossy();
             let mut image = image_loader::load_and_composite(
-                &bytes,
+                (*file).as_ref(),
                 &path_str,
                 &serde_json::Value::Null,
                 true,
@@ -1182,15 +1230,16 @@ pub(crate) fn source_full_size_jpeg(
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_import_source(path)?;
+        let file = read_import_source(path)?.into_shared();
+        let bytes: &[u8] = (*file).as_ref();
         if !is_raw_file(path) {
             if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
                 return Some((bytes.to_vec(), FullSizeSource::File));
             }
-            let image = quick_source_preview(&bytes, path, u32::MAX)?;
+            let image = quick_source_preview(&file, path, u32::MAX)?;
             return Some((encode_full_size(&image)?, FullSizeSource::File));
         }
-        let source = rawler::rawsource::RawSource::new_from_slice(&bytes);
+        let source = rawler::rawsource::RawSource::new_from_shared(file.clone());
         let params = rawler::decoders::RawDecodeParams::default();
         let decoder = rawler::get_decoder(&source).ok();
         // The sensor's size and orientation, from the RAW's header only.
@@ -1203,7 +1252,7 @@ pub(crate) fn source_full_size_jpeg(
                 .map_or((raw.width, raw.height), |area| (area.d.w, area.d.h));
             u32::try_from(w.max(h)).unwrap_or(u32::MAX)
         });
-        if let Some(jpeg) = image_loader::priority_embedded_jpeg(&bytes)
+        if let Some(jpeg) = image_loader::priority_embedded_jpeg(bytes)
             && let Ok((w, h)) =
                 image::ImageReader::with_format(Cursor::new(&jpeg), image::ImageFormat::Jpeg)
                     .into_dimensions()
@@ -1221,7 +1270,7 @@ pub(crate) fn source_full_size_jpeg(
             return Some((encode_full_size(&image)?, FullSizeSource::Embedded));
         }
         let started = std::time::Instant::now();
-        let image = render(&bytes)?;
+        let image = render(bytes)?;
         let rendered = started.elapsed();
         let jpeg = encode_full_size(&image)?;
         log::info!(
@@ -1236,8 +1285,9 @@ pub(crate) fn source_full_size_jpeg(
     .flatten()
 }
 
-/// The width and height of a photograph from its bytes, if they tell.
-pub(crate) type SizeOfBytes<'a> = dyn Fn(&[u8]) -> Option<(u32, u32)> + 'a;
+/// The width and height of a photograph from its file (read in place), if
+/// it tells.
+pub(crate) type SizeOfBytes<'a> = dyn Fn(&image_loader::SharedBytes) -> Option<(u32, u32)> + 'a;
 
 /// The size of a RAW's import 100 % view (`source_full_size_jpeg`), from
 /// its header and embedded JPEG only, without decoding it: a full-size
@@ -1254,8 +1304,8 @@ pub(crate) fn source_full_size_dimensions(
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_import_source(path)?;
-        let source = rawler::rawsource::RawSource::new_from_slice(&bytes);
+        let file = read_import_source(path)?.into_shared();
+        let source = rawler::rawsource::RawSource::new_from_shared(file.clone());
         let params = rawler::decoders::RawDecodeParams::default();
         let sensor_long = rawler::get_decoder(&source)
             .ok()
@@ -1266,7 +1316,7 @@ pub(crate) fn source_full_size_dimensions(
                     .map_or((raw.width, raw.height), |area| (area.d.w, area.d.h));
                 u32::try_from(w.max(h)).unwrap_or(u32::MAX)
             });
-        if let Some(jpeg) = image_loader::priority_embedded_jpeg(&bytes)
+        if let Some(jpeg) = image_loader::priority_embedded_jpeg((*file).as_ref())
             && let Ok((w, h)) =
                 image::ImageReader::with_format(Cursor::new(&jpeg), image::ImageFormat::Jpeg)
                     .into_dimensions()
@@ -1274,7 +1324,7 @@ pub(crate) fn source_full_size_dimensions(
         {
             return Some((w, h));
         }
-        render_size(&bytes)
+        render_size(&file)
     }))
     .ok()
     .flatten()
@@ -1318,9 +1368,9 @@ pub(crate) fn source_capture_info(path: &Path) -> SourceCaptureInfo {
         return SourceCaptureInfo::default();
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_import_source(path)?;
+        let file = read_import_source(path)?.into_shared();
         let exif =
-            crate::exif_processing::read_exif_data_from_bytes(&path.to_string_lossy(), &bytes);
+            crate::exif_processing::read_exif_data_from_shared(&path.to_string_lossy(), file);
         let field = |keys: &[&str]| {
             keys.iter()
                 .filter_map(|key| exif.get(*key))
@@ -1360,7 +1410,12 @@ pub(crate) fn source_capture_info(path: &Path) -> SourceCaptureInfo {
 }
 
 /// `source_preview_jpeg`'s previews that need no develop.
-fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicImage> {
+fn quick_source_preview(
+    file: &image_loader::SharedBytes,
+    path: &Path,
+    size: u32,
+) -> Option<DynamicImage> {
+    let bytes: &[u8] = (**file).as_ref();
     let orient = |image: DynamicImage, orientation: Option<u16>| match orientation {
         Some(o) if o > 1 => rawtonic_rawdecode::orientation::apply_orientation(
             image,
@@ -1384,8 +1439,8 @@ fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicI
             .is_ok_and(|(w, h)| w.min(h) >= size / 2)
     };
     // Candidates come largest first: take the smallest that suffices.
-    if let Some(image) = image_loader::tiff_jpeg_candidates(bytes)
-        .and_then(|candidates| candidates.into_iter().rev().find(small_enough))
+    if let Some(image) = image_loader::tiff_jpeg_previews(bytes)
+        .and_then(|mut previews| previews.rfind(small_enough))
         .and_then(jpeg)
     {
         return Some(orient(image, image_loader::exif_orientation(bytes)));
@@ -1405,7 +1460,7 @@ fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicI
     {
         return Some(orient(image, image_loader::exif_orientation(bytes)));
     }
-    image_loader::safe_embedded_preview_fallback(bytes, &path.to_string_lossy())
+    image_loader::safe_embedded_preview_fallback_shared(file.clone(), &path.to_string_lossy())
 }
 
 pub(crate) fn encode_thumbnail(image: &DynamicImage, target_width: u32) -> Result<Vec<u8>> {
@@ -1543,6 +1598,21 @@ struct ThumbnailCacheEntry {
     medium: PathBuf,
     rating: Option<u8>,
     is_edited: Option<bool>,
+    /// The LUT the recipe names (`lutPath`).
+    lut: Option<String>,
+    /// The tile was developed while that LUT did not load: it is saved
+    /// under `lut_missing_hash`, which no lookup asks for, so the next
+    /// lookup develops it again (with the LUT once it loads).
+    lut_missing: bool,
+}
+
+/// The key of a tile developed while its recipe's LUT did not load: a hash
+/// like every tile key (the webview renews tiles by 64-hex names).
+fn lut_missing_hash(developed: &str) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(developed.as_bytes());
+    hasher.update(b"\0lut-missing-v1");
+    hasher.finalize().to_hex().to_string()
 }
 
 /// A photo's cached thumbnails: small path, medium path, rating, edited.
@@ -1560,6 +1630,7 @@ impl ThumbnailCacheEntry {
         // Rating and edit state only when a sidecar was read: without one they
         // are unknown here (the listing has them), and an event saying 0 could
         // arrive after the photograph was registered with its rating.
+        let mut lut = None;
         let (rating, is_edited, adjustments_bytes) = if is_cloud_placeholder(&sidecar_path) {
             enqueue_metadata(
                 app_handle,
@@ -1570,6 +1641,9 @@ impl ThumbnailCacheEntry {
             (None, None, Vec::new())
         } else if let Some(meta) = thumbnail_metadata(&source_path, &sidecar_path) {
             {
+                lut = meta.adjustments[effects::LUT_PATH.into_name()]
+                    .as_str()
+                    .map(str::to_string);
                 let is_raw = crate::formats::is_raw_file(path_str);
                 let tm = crate::image_processing::resolve_tonemapper_override(settings, is_raw);
                 (
@@ -1605,6 +1679,8 @@ impl ThumbnailCacheEntry {
             medium: thumb_cache_dir.join(format!("{}_medium.jpg", selected)),
             rating,
             is_edited,
+            lut,
+            lut_missing: false,
         })
     }
 
@@ -1620,10 +1696,12 @@ impl ThumbnailCacheEntry {
             .parent()
             .ok_or_else(|| anyhow::anyhow!("No cache directory"))?
             .to_path_buf();
+        let lut_missing =
+            (!embedded && self.lut_missing).then(|| lut_missing_hash(&self.developed_hash));
         let hash = if embedded {
             self.embedded_hash.as_ref().unwrap_or(&self.developed_hash)
         } else {
-            &self.developed_hash
+            lut_missing.as_ref().unwrap_or(&self.developed_hash)
         };
         self.small = directory.join(format!("{hash}_small.jpg"));
         self.medium = directory.join(format!("{hash}_medium.jpg"));
@@ -1645,6 +1723,7 @@ impl ThumbnailCacheEntry {
             }
         }
         if (!embedded || backfill)
+            && lut_missing.is_none()
             && let Err(error) = supersede_thumbnail(&directory, path_str, &self.developed_hash)
         {
             log::warn!("Superseded thumbnail of {path_str} not removed: {error:#}");
@@ -1717,8 +1796,16 @@ pub(crate) fn generate_single_thumbnail_and_cache(
         preloaded_image,
         app_handle,
         &mut embedded,
-    )
-    .and_then(|image| entry.save(path_str, &image, embedded, settings));
+    );
+    // The render took the recipe's LUT from the same cache.
+    entry.lut_missing = entry.lut.as_deref().is_some_and(|lut| {
+        crate::lut_processing::get_or_load_lut(
+            &app_handle.state::<crate::state::luts::LutState>(),
+            lut,
+        )
+        .is_err()
+    });
+    let made = made.and_then(|image| entry.save(path_str, &image, embedded, settings));
     if let Err(error) = made {
         log::warn!("Thumbnail of {path_str} not made: {error:#}");
         return None;
@@ -2250,6 +2337,59 @@ mod source_preview_tests {
     }
 
     #[test]
+    fn a_tile_developed_without_its_lut_is_kept_apart_and_made_again() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.jpg");
+        std::fs::write(&source, b"source unchanged").unwrap();
+        let path = source.to_str().unwrap();
+        let lut = temp.path().join("look.cube");
+        let recipe = serde_json::to_vec(&serde_json::json!({
+            "lutPath": lut.to_str().unwrap(), "lutIntensity": 100
+        }))
+        .unwrap();
+        let key = || super::thumbnail_hash_for_engine(path, &recipe, 1).unwrap();
+        // The key probes no file: the same with the LUT there or not.
+        let missing = key();
+        std::fs::write(&lut, b"LUT_3D_SIZE 2\n").unwrap();
+        assert_eq!(missing, key());
+        // Tiles made before 2026-11-22 (black without their LUT) are made
+        // again; an offline original still finds its older tile.
+        let before = super::thumbnail_hash_before_refreshes(path, &recipe).unwrap();
+        assert_ne!(before, key());
+        let plain = b"{\"exposure\":1}";
+        assert_eq!(
+            super::thumbnail_hash_for_engine(path, plain, 1),
+            super::thumbnail_hash_before_refreshes(path, plain)
+        );
+
+        let cache = temp.path().join("thumbnails");
+        std::fs::create_dir(&cache).unwrap();
+        let mut entry = super::ThumbnailCacheEntry {
+            developed_hash: key(),
+            embedded_hash: None,
+            small: cache.join("unused"),
+            medium: cache.join("unused"),
+            rating: None,
+            is_edited: None,
+            lut: Some(lut.to_str().unwrap().to_string()),
+            lut_missing: true,
+        };
+        let image = image::DynamicImage::new_rgb8(8, 8);
+        let settings = crate::AppSettings::default();
+        entry.save(path, &image, false, &settings).unwrap();
+        // Shown now, but not found by the next lookup, which develops again.
+        assert!(entry.small.is_file());
+        assert!(super::thumbnail_files_exist(
+            &cache,
+            &super::lut_missing_hash(&key())
+        ));
+        assert!(!super::thumbnail_files_exist(&cache, &key()));
+        entry.lut_missing = false;
+        entry.save(path, &image, false, &settings).unwrap();
+        assert!(super::thumbnail_files_exist(&cache, &key()));
+    }
+
+    #[test]
     fn embedded_pixels_survive_an_engine_upgrade_but_decoded_pixels_do_not() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("photo.ARW");
@@ -2270,6 +2410,8 @@ mod source_preview_tests {
             medium: cache.join("unused"),
             rating: None,
             is_edited: None,
+            lut: None,
+            lut_missing: false,
         };
         let image = image::DynamicImage::new_rgb8(8, 8);
         let settings = crate::AppSettings::default();
@@ -2330,6 +2472,8 @@ mod source_preview_tests {
             medium: cache.join("unused"),
             rating: None,
             is_edited: None,
+            lut: None,
+            lut_missing: false,
         };
         entry
             .save(path, &image::DynamicImage::new_rgb8(8, 8), true, &settings)
@@ -2853,7 +2997,7 @@ mod thumbnail_queue_tests {
             },
         );
         let size = |width, height| {
-            let cut = embedded_in_camera_crop(DynamicImage::new_rgb8(width, height), path);
+            let cut = embedded_in_camera_crop(DynamicImage::new_rgb8(width, height), path, None);
             (cut.width(), cut.height())
         };
         assert_eq!(size(1920, 1280), (1920, 1080));

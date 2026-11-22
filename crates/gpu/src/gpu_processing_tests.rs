@@ -1423,6 +1423,51 @@ fn a_profile_tile_on_the_small_base_matches_the_full_render_downscaled() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; a recipe's LUT file that did not load"]
+fn a_recipe_whose_lut_did_not_load_renders_without_the_lut() {
+    // Ported from RapidRAW e814aa962 (Timon Käch, AGPL-3.0): a recipe whose
+    // LUT file is missing rendered with the empty placeholder table, black
+    // at full intensity, display-referred or scene-referred.
+    let context = context();
+    let (width, height) = (128, 64);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 11);
+    let render = |recipe: serde_json::Value| {
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(&recipe, true, Some(3)),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(pixels) = pixels else {
+            unreachable!()
+        };
+        pixels
+    };
+    let without = render(json!({"exposure": 0.3}));
+    assert!(without.iter().any(|&v| v > 1000), "the input renders dark");
+    for scene in [false, true] {
+        let missing = render(json!({
+            "exposure": 0.3, "lutPath": "/gone/look.cube",
+            "lutIntensity": 100.0, "lutIsSceneReferred": scene,
+        }));
+        assert!(
+            missing == without,
+            "scene-referred {scene}: differs from the render without a LUT"
+        );
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; LUT shaper stage"]
 fn a_lut_shaper_reads_on_the_gpu_as_the_engine_reads_it() {
     let context = context();
