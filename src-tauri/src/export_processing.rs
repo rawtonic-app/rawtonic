@@ -1693,6 +1693,18 @@ pub(crate) fn keep_detected_selections(
     Ok(true)
 }
 
+/// Keeps an export's selections only while the saved recipe still asks for
+/// the same effective AI Denoise settings as the decode used by the export.
+pub(crate) fn keep_export_detected_selections(
+    path: &str,
+    detected: &[rawtonic_engine::ai_selections::Detected],
+    exported_recipe: &Value,
+) -> Result<bool, String> {
+    use rawtonic_engine::image_loader::ai_denoise_settings;
+    let denoise = ai_denoise_settings(exported_recipe);
+    keep_detected_selections(path, detected, |now| ai_denoise_settings(now) == denoise)
+}
+
 /// The geometry of `adjustments` as a detection saw it: prepared for a
 /// render as the export and the selection queue prepare it (version keys,
 /// the resolved lens), which a never-opened recipe may not hold yet.
@@ -2020,11 +2032,9 @@ fn export_photo(
         // Only into a recipe still developed with the AI Denoise the
         // selections were computed on (one pasted onto it while this export
         // waited detects again on its own decode).
-        let detected_with = rawtonic_engine::image_loader::ai_denoise_settings(&js_adjustments);
         if !is_current_edit
-            && let Err(e) = keep_detected_selections(image_path_str, &detected, |now| {
-                rawtonic_engine::image_loader::ai_denoise_settings(now) == detected_with
-            })
+            && let Err(e) =
+                keep_export_detected_selections(image_path_str, &detected, &js_adjustments)
         {
             // The export stands; its next export computes them again.
             log::warn!("Export: keeping the AI selections of {image_path_str} failed: {e}");

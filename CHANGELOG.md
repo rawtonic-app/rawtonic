@@ -76,6 +76,9 @@
 
 ### Fixes
 
+- Reopening a photograph while its queued AI selections finish keeps its existing Undo steps. Reusing an AI selection from the saved edit requires the same source decode. A first edit of a cloud-only photograph reports when the camera crop was unavailable to the editor.
+- The Levels black and white point pickers keep both parts of a precise color sample on the same graphics pipeline while preview variants compile.
+
 - **RAW and JPEG sidecars stay with their own photos when names overlap.** On the same drive, moving a RAW with XMP beside a JPEG with its own XMP keeps both packets, including through Undo and Redo. Import uses a numbered copy name when a RAW would take an existing stem sidecar. Ambiguous dotted names leave the shared XMP untouched, and camera RAWs saved as TIFF keep the RAW sidecar naming rule.
 
 - **Develop updates open JPEG and TIFF photos when their preprocessing preferences change.** The photo refreshes in place with its current edits and the same preprocessing as the export. Small changes from a preset's Amount control also refresh AI Denoise when they change its stored strength.
