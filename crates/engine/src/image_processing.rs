@@ -576,18 +576,115 @@ pub fn resample_display_image(image: &DynamicImage, nwidth: u32, nheight: u32) -
     if nwidth == 0 || nheight == 0 || (nwidth >= width && nheight >= height) {
         return image.clone();
     }
+    let Some((new_w, new_h)) = reduced_size(image.dimensions(), nwidth, nheight) else {
+        return resample_display_image_via_float(image, nwidth, nheight);
+    };
+    // 8-bit sources (a camera's JPEG: every never-edited RAW's tile) are
+    // read through a table of their linear values instead of a float copy
+    // of the whole image first: the same values, without 12 bytes per source
+    // pixel for every tile made (notes: benchmark-results/adf2-2026-11-22).
+    let rgb = match image {
+        DynamicImage::ImageRgb8(buffer) => std::borrow::Cow::Borrowed(buffer),
+        DynamicImage::ImageRgba8(_) => std::borrow::Cow::Owned(image.to_rgb8()),
+        _ => return resample_display_image_via_float(image, nwidth, nheight),
+    };
+    let mut reduced =
+        crate::lanczos::resize_mapped_rgb8_linear(&rgb, srgb8_linear_table(), new_w, new_h);
+    // `resize_wide_gamut` of a source without negative values.
+    reduced.iter_mut().for_each(|v| *v = v.max(0.0));
+    srgb8_of_linear(&reduced)
+}
+
+/// The grid's two tiles of `image` ([`resample_display_image`] to fit
+/// `large` and `small` pixels square), the small one reduced from the large
+/// one (to the size the direct fit gives) when that is at least 2.5 times
+/// its size. Most of a reduction's work is its pass over the full source,
+/// of a similar size for both tiles, so the small tile from the large one
+/// costs a fraction of a second direct reduction (single-thread timings in
+/// notes: benchmark-results/adf2-2026-11-22). Measured at the default sizes (480 from 1280): stripes of 0.1–0.45
+/// cycles per small-tile pixel keep 1.00–1.01 of the direct reduction's
+/// contrast (notes: benchmark-results/adf2-2026-11-22); at a ratio of 2
+/// (640 from 1280) about 0.96 at 0.45 cycles, so smaller ratios reduce the
+/// source directly.
+pub fn resample_display_pair(
+    image: &DynamicImage,
+    large: u32,
+    small: u32,
+) -> (DynamicImage, DynamicImage) {
+    let large_tile = resample_display_image(image, large, large);
+    let cascade = match (&large_tile, reduced_size(image.dimensions(), small, small)) {
+        (DynamicImage::ImageRgb8(tile), Some(size))
+            if tile.dimensions() != image.dimensions()
+                && u64::from(tile.width().max(tile.height())) * 2 >= u64::from(small) * 5 =>
+        {
+            Some((tile, size))
+        }
+        _ => None,
+    };
+    let small_tile = match cascade {
+        Some((tile, (w, h))) => {
+            let mut reduced =
+                crate::lanczos::resize_mapped_rgb8_linear(tile, srgb8_linear_table(), w, h);
+            reduced.iter_mut().for_each(|v| *v = v.max(0.0));
+            srgb8_of_linear(&reduced)
+        }
+        None => resample_display_image(image, small, small),
+    };
+    (large_tile, small_tile)
+}
+
+/// The size [`resample_f32_image`] reduces `dimensions` to so it fits
+/// `nwidth` x `nheight`; `None` where it leaves the image as it is.
+fn reduced_size((width, height): (u32, u32), nwidth: u32, nheight: u32) -> Option<(u32, u32)> {
+    if nwidth == 0 || nheight == 0 || (nwidth >= width && nheight >= height) {
+        return None;
+    }
+    let ratio = (nwidth as f32 / width as f32).min(nheight as f32 / height as f32);
+    let new_w = (width as f32 * ratio).round() as u32;
+    let new_h = (height as f32 * ratio).round() as u32;
+    (new_w != 0 && new_h != 0 && (new_w, new_h) != (width, height)).then_some((new_w, new_h))
+}
+
+/// sRGB's decoding to linear light of a value in 0..=1.
+fn srgb_to_linear(v: f32) -> f32 {
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// The linear value of each 8-bit sRGB code, as [`resample_display_image`]
+/// computes it from the code's float value (`to_rgb32f`).
+fn srgb8_linear_table() -> &'static [f32; 256] {
+    static TABLE: std::sync::OnceLock<[f32; 256]> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        let codes = image::RgbImage::from_fn(256, 1, |x, _| image::Rgb([x as u8; 3]));
+        let floats = DynamicImage::ImageRgb8(codes).to_rgb32f();
+        std::array::from_fn(|code| srgb_to_linear(floats.get_pixel(code as u32, 0)[0]))
+    })
+}
+
+/// [`resample_display_image`] through a float copy of the whole image (its
+/// 16-bit sources).
+fn resample_display_image_via_float(
+    image: &DynamicImage,
+    nwidth: u32,
+    nheight: u32,
+) -> DynamicImage {
     let mut linear = image.to_rgb32f();
     for v in linear.iter_mut() {
-        *v = if *v <= 0.04045 {
-            *v / 12.92
-        } else {
-            ((*v + 0.055) / 1.055).powf(2.4)
-        };
+        *v = srgb_to_linear(*v);
     }
     let reduced = resample_f32_image(&DynamicImage::ImageRgb32F(linear), nwidth, nheight);
     let reduced = reduced
         .as_rgb32f()
         .expect("resample_f32_image returns RGB f32");
+    srgb8_of_linear(reduced)
+}
+
+/// A linear-light float image encoded as 8-bit sRGB (clamped to 0..=1).
+fn srgb8_of_linear(reduced: &image::Rgb32FImage) -> DynamicImage {
     let mut out = image::RgbImage::new(reduced.width(), reduced.height());
     for (o, p) in out.pixels_mut().zip(reduced.pixels()) {
         *o = image::Rgb(p.0.map(|v| {
@@ -5669,7 +5766,7 @@ fn get_global_adjustments_resolved(
         brightness: tone.brightness.get() as f32 / SCALES.brightness,
         contrast: tone.contrast.get() as f32 / SCALES.contrast,
         highlights: tone.highlights.get() as f32 / SCALES.highlights,
-        shadows: tone.shadows.get() as f32 / SCALES.shadows,
+        shadows: versions.tone.shadows_amount(tone.shadows.get()) as f32 / SCALES.shadows,
         whites: versions.tone.whites_amount(tone.whites.get()) as f32 / SCALES.whites,
         blacks: tone.blacks.get() as f32 / SCALES.blacks,
 
@@ -6961,9 +7058,11 @@ fn get_all_adjustments_with_locals<'a>(
         // A layer's Structure follows the photo's Structure travel.
         mask_adjustments[i].structure =
             versions.structure.amount(local.structure.get()) as f32 / SCALES.structure;
-        // A layer's Whites follow the photo's Whites travel.
+        // A layer's Whites and Shadows follow the photo's travel.
         mask_adjustments[i].whites =
             versions.tone.whites_amount(local.whites.get()) as f32 / SCALES.whites;
+        mask_adjustments[i].shadows =
+            versions.tone.shadows_amount(local.shadows.get()) as f32 / SCALES.shadows;
         // A layer's Blacks follow the photo's Blacks travel.
         if blacks_set_the_black_point(&global) {
             mask_adjustments[i].blacks =
@@ -8063,9 +8162,15 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// +100, where Camera Raw and Capture One lift them < 0.1 L*) and a
 /// brighter pixel in the same surroundings is never rendered darker
 /// (notes: benchmark-results/shg1-2026-11-18, shg2-2026-11-20).
+/// 21 (2026-11-22) moves raised Shadows at Camera Raw's pace: version 20's
+/// +50 lifted the darkest quarter 4.0 L* where Camera Raw's Shadows +50
+/// lifts it 5.7 (median, slider atlas), while +100 already matched (14.4
+/// against 14.3); the slider now maps +25 / +50 / +75 to version 20's
+/// +35.4 / +61 / +83 and keeps +100 (`shadows_amount_v21`; notes:
+/// benchmark-results/shg4-2026-11-22).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 20;
+pub const TONE_VERSION: u64 = 21;
 
 /// Whites up to tone version 16: the slider value is the amount.
 pub fn whites_amount_v1(value: f64) -> f64 {
@@ -8119,6 +8224,65 @@ pub fn whites_value_v17(amount: f64) -> f64 {
     let value = 0.5 * (lo + hi);
     let rounded = (value * 1e6).round() / 1e6;
     if (whites_amount_v17(rounded) - target).abs() <= 1e-9 {
+        rounded
+    } else {
+        value
+    }
+}
+
+/// Shadows from tone version 21: lowered Shadows as before; raised Shadows
+/// through a monotone cubic (Hermite) through (0, 0), (25, 35.4),
+/// (50, 61), (75, 83), (100, 100) with the slopes of a monotone fit (1.61,
+/// 1.19, 0.95, 0.77, 0.58), so the slider has no kink and keeps version
+/// 20's +100. The knots are the version-20 Shadows whose lift of the
+/// darkest quarter (median over 24 of the slider atlas's 48 frames, the
+/// even rows of its sources) equals Camera Raw's Shadows +25 / +50 / +75;
+/// on the other 24 frames they land at 1.08 / 1.00 / 1.04 times Camera
+/// Raw's lift (notes: benchmark-results/shg4-2026-11-22).
+pub fn shadows_amount_v21(value: f64) -> f64 {
+    const KNOTS: [(f64, f64, f64); 5] = [
+        (0.0, 0.0, 1.61),
+        (25.0, 35.4, 1.19),
+        (50.0, 61.0, 0.95),
+        (75.0, 83.0, 0.77),
+        (100.0, 100.0, 0.58),
+    ];
+    if value <= 0.0 {
+        return value;
+    }
+    let v = value.min(100.0);
+    let i = ((v / 25.0) as usize).min(3);
+    let ((x0, y0, m0), (x1, y1, m1)) = (KNOTS[i], KNOTS[i + 1]);
+    let h = x1 - x0;
+    let t = (v - x0) / h;
+    let (t2, t3) = (t * t, t * t * t);
+    (2.0 * t3 - 3.0 * t2 + 1.0) * y0
+        + (t3 - 2.0 * t2 + t) * h * m0
+        + (-2.0 * t3 + 3.0 * t2) * y1
+        + (t3 - t2) * h * m1
+}
+
+/// The version-21 Shadows slider value that renders `amount` (the inverse of
+/// [`shadows_amount_v21`], a monotone bijection of 0..=100; lowered Shadows
+/// unchanged), to 1e-9 of a slider step.
+pub fn shadows_value_v21(amount: f64) -> f64 {
+    if amount <= 0.0 {
+        return amount;
+    }
+    let target = amount.min(100.0);
+    let (mut lo, mut hi) = (0.0, 100.0);
+    for _ in 0..64 {
+        let mid = 0.5 * (lo + hi);
+        if shadows_amount_v21(mid) < target {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    // A slider value copied back onto its own response comes back exactly.
+    let value = 0.5 * (lo + hi);
+    let rounded = (value * 1e6).round() / 1e6;
+    if (shadows_amount_v21(rounded) - target).abs() <= 1e-9 {
         rounded
     } else {
         value
@@ -8198,11 +8362,12 @@ fn blacks_set_the_black_point(global: &GlobalAdjustments) -> bool {
 }
 
 /// Settings that travel between photographs (copy, presets, Edit all
-/// selected) without their own `toneVersion` carry Whites as the amount they
-/// render (version 16's slider value; presets from before version 17 are
-/// that already). `destination` is the photograph's recipe: its own and its
-/// layers' Whites in `pasted` are re-expressed in its tone-slider response,
-/// so the paste changes no photo-wide key and renders the copied amount.
+/// selected) without their own `toneVersion` carry Whites and Shadows as
+/// the amount they render (version 16's / version 20's slider value;
+/// presets from before versions 17 / 21 are that already). `destination` is
+/// the photograph's recipe: its own and its layers' Whites and Shadows in
+/// `pasted` are re-expressed in its tone-slider response, so the paste
+/// changes no photo-wide key and renders the copied amount.
 pub fn express_pasted_whites(pasted: &mut serde_json::Value, destination: &serde_json::Value) {
     let tone = crate::recipe_versions::ToneVersion::of(destination);
     let Some(map) = pasted.as_object_mut() else {
@@ -8212,6 +8377,31 @@ pub fn express_pasted_whites(pasted: &mut serde_json::Value, destination: &serde
         return;
     }
     express_slider(map, "whites", |amount| tone.whites_value(amount));
+    express_slider(map, "shadows", |amount| tone.shadows_value(amount));
+}
+
+/// A recipe whose own and layers' Shadows are amounts (version 20's slider
+/// value, as carried settings and Capture One's translated Shadow hold them)
+/// with them re-expressed as the slider values of its own tone version.
+pub fn express_shadows_amounts(recipe: &mut serde_json::Value) {
+    let tone = crate::recipe_versions::ToneVersion::of(recipe);
+    if let Some(map) = recipe.as_object_mut() {
+        express_slider(map, "shadows", |amount| tone.shadows_value(amount));
+    }
+}
+
+/// Settings whose own and layers' Shadows are slider values of tone version
+/// `tone` (another editor's preset, whose Shadows move at that version's
+/// pace) with them as the amounts carried settings hold (version 20's slider
+/// value). Applied to an edit of version 20 or later they render as that
+/// slider value does at `tone`; older edits keep the amount and render it
+/// with their own Shadows response.
+pub fn shadows_as_amounts(settings: &mut serde_json::Value, tone: u64) {
+    let tone =
+        crate::recipe_versions::ToneVersion::of(&serde_json::json!({ TONE_VERSION_KEY: tone }));
+    if let Some(map) = settings.as_object_mut() {
+        express_slider(map, "shadows", |value| tone.shadows_amount(value));
+    }
 }
 
 /// `map`'s own and its layers' `slider` passed through `express`.
@@ -11258,6 +11448,106 @@ mod resample_tests {
     }
 
     #[test]
+    fn the_small_tile_from_the_large_one_keeps_the_direct_reductions_detail() {
+        // A 6000 px camera JPEG's tiles: 1280 and 480 px. Detail from a
+        // tenth to 0.45 cycles per small-tile pixel keeps nearly the contrast
+        // the direct reduction keeps.
+        let factor = 6000.0 / 480.0;
+        for cycles in [0.1, 0.25, 0.35, 0.45] {
+            let mut image = RgbImage::new(6000, 40);
+            for (x, _, p) in image.enumerate_pixels_mut() {
+                let v =
+                    0.5 + 0.35 * (2.0 * std::f32::consts::PI * cycles * x as f32 / factor).sin();
+                *p = image::Rgb([(v * 255.0).round() as u8; 3]);
+            }
+            let source = DynamicImage::ImageRgb8(image);
+            let direct = resample_display_image(&source, 480, 480);
+            let (large, small) = super::resample_display_pair(&source, 1280, 480);
+            assert_eq!(large.dimensions(), (1280, 9));
+            assert_eq!(small.dimensions(), direct.dimensions());
+            let spread = |image: &DynamicImage| {
+                let rgb = image.to_rgb32f();
+                let row: Vec<f32> = (8..rgb.width() - 8)
+                    .map(|x| rgb.get_pixel(x, 1)[1])
+                    .collect();
+                let mean = row.iter().sum::<f32>() / row.len() as f32;
+                (row.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / row.len() as f32).sqrt()
+            };
+            let kept = spread(&small) / spread(&direct);
+            println!("{cycles} cycles per pixel: the cascade keeps {kept:.3}");
+            assert!((0.98..1.02).contains(&kept), "{cycles}: {kept:.3}");
+        }
+        // At the default sizes the small tile is reduced from the large one
+        // (fine detail makes the two ways differ).
+        let source = DynamicImage::ImageRgb8(RgbImage::from_fn(6000, 4000, |x, y| {
+            let v = if (x + y / 3) % 3 == 0 { 255 } else { 0 };
+            image::Rgb([v, (x % 7 * 36) as u8, (y % 5 * 51) as u8])
+        }));
+        let (large, small) = super::resample_display_pair(&source, 1280, 480);
+        assert!(small.as_bytes() == resample_display_image(&large, 480, 480).as_bytes());
+        assert!(small.as_bytes() != resample_display_image(&source, 480, 480).as_bytes());
+        // A large tile under 2.5 times the small one: the small one is
+        // reduced from the source (640 from 1280, or a source under 1200 px).
+        let source = DynamicImage::ImageRgb8(RgbImage::from_fn(3000, 2000, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x * y) % 256) as u8])
+        }));
+        let (_, small) = super::resample_display_pair(&source, 1280, 640);
+        assert!(small.as_bytes() == resample_display_image(&source, 640, 640).as_bytes());
+        let source = DynamicImage::ImageRgb8(RgbImage::new(900, 600));
+        let (_, small) = super::resample_display_pair(&source, 1280, 480);
+        assert!(small.as_bytes() == resample_display_image(&source, 480, 480).as_bytes());
+        // The small tile has the direct fit's size: 6000 x 3992 fits 480 x 319
+        // (the 1280 tile's 852 rows would round to 320).
+        let source = DynamicImage::ImageRgb8(RgbImage::new(6000, 3992));
+        let (large, small) = super::resample_display_pair(&source, 1280, 480);
+        assert_eq!(large.dimensions(), (1280, 852));
+        assert_eq!(small.dimensions(), (480, 319));
+        assert_eq!(
+            small.dimensions(),
+            resample_display_image(&source, 480, 480).dimensions()
+        );
+    }
+
+    #[test]
+    fn eight_bit_tiles_match_the_float_reduction_bit_for_bit() {
+        // A camera JPEG's tile is read through the linear table, without a
+        // float copy of the whole image: the same bytes as through the copy.
+        let mut state = 0x2545_f491_u32;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state
+        };
+        let rgb = RgbImage::from_fn(613, 409, |x, y| {
+            let n = next();
+            // Smooth gradients with noise and hard edges (ringing).
+            let edge = if (x / 37 + y / 23) % 2 == 0 { 0 } else { 200 };
+            image::Rgb([
+                (n & 0xff) as u8,
+                ((x * 255 / 612) as u8).wrapping_add(edge),
+                ((y * 255 / 408) as u8) ^ ((n >> 8) as u8 & 0x0f),
+            ])
+        });
+        let images = [
+            DynamicImage::ImageRgb8(rgb.clone()),
+            DynamicImage::ImageRgba8(DynamicImage::ImageRgb8(rgb).to_rgba8()),
+        ];
+        for image in &images {
+            for (w, h) in [(480, 480), (100, 300), (612, 612), (37, 37)] {
+                let fast = resample_display_image(image, w, h);
+                let float = super::resample_display_image_via_float(image, w, h);
+                assert_eq!(fast.dimensions(), float.dimensions());
+                assert!(
+                    fast.as_bytes() == float.as_bytes(),
+                    "{:?} to {w}x{h}",
+                    image.color()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn display_tiles_are_reduced_in_linear_light() {
         // Alternating black and white columns reduced 2×: the linear-light
         // mean is 0.5, sRGB 188 (an sRGB-value average would give 128).
@@ -11469,5 +11759,109 @@ mod temperature_version_tests {
         );
         assert_eq!(uniform(json!({"temperatureVersion": 2})), 0x102);
         assert_eq!(uniform(json!({"tintVersion": 9})) >> 8, TINT_VERSION as u32);
+    }
+}
+
+#[cfg(test)]
+mod shadows_travel_tests {
+    use super::{
+        SCALES, express_pasted_whites, get_all_adjustments_from_json, shadows_amount_v21,
+        shadows_value_v21,
+    };
+    use serde_json::json;
+
+    fn amounts(shadows: f64, tone: Option<u64>) -> (f32, f32) {
+        let mut recipe = json!({
+            "shadows": shadows,
+            "masks": [{"id": "m", "name": "m", "visible": true, "invert": false, "opacity": 100,
+                       "subMasks": [{"id": "s", "type": "all", "mode": "additive", "visible": true, "invert": false, "opacity": 100, "parameters": {}}],
+                       "adjustments": {"shadows": shadows}}]
+        });
+        if let Some(v) = tone {
+            recipe["toneVersion"] = json!(v);
+        }
+        let prepared = get_all_adjustments_from_json(&recipe, true, None);
+        (
+            prepared.global.shadows,
+            prepared.mask_adjustments[0].shadows,
+        )
+    }
+
+    #[test]
+    fn tone_versions_before_21_keep_the_slider_value_as_amount() {
+        for tone in [None, Some(13), Some(19), Some(20)] {
+            for shadows in [-60.0, 25.0, 50.0, 100.0] {
+                let (global, layer) = amounts(shadows, tone);
+                assert_eq!(
+                    global.to_bits(),
+                    (shadows as f32 / SCALES.shadows).to_bits()
+                );
+                assert_eq!(layer.to_bits(), global.to_bits());
+            }
+        }
+    }
+
+    #[test]
+    fn version_21_moves_raised_shadows_at_camera_raws_pace() {
+        // Version 20's Shadows that lift the darkest quarter as Camera Raw's
+        // +25 / +50 / +75 do (notes: benchmark-results/shg4-2026-11-22);
+        // +100 stays where it was.
+        for (value, amount) in [
+            (25.0, 35.4),
+            (50.0, 61.0),
+            (75.0, 83.0),
+            (100.0, 100.0),
+            (150.0, 100.0),
+            (-60.0, -60.0),
+            (0.0, 0.0),
+        ] {
+            assert!((shadows_amount_v21(value) - amount).abs() < 1e-9, "{value}");
+            let (global, layer) = amounts(value, Some(21));
+            assert_eq!(global.to_bits(), (amount as f32 / SCALES.shadows).to_bits());
+            assert_eq!(layer.to_bits(), global.to_bits());
+        }
+        // Rises over the whole raised range, ahead of version 20, without a
+        // dead end.
+        let mut last = 0.0;
+        for i in 1..=100 {
+            let value = f64::from(i);
+            let next = shadows_amount_v21(value);
+            assert!(next > last + 0.5, "{i}");
+            assert!(i == 100 || next > value, "{i}");
+            last = next;
+        }
+    }
+
+    #[test]
+    fn a_copied_shadows_amount_comes_back_as_the_slider_value_it_was() {
+        for value in -100..=100 {
+            let value = f64::from(value);
+            assert_eq!(
+                shadows_value_v21(shadows_amount_v21(value)),
+                value,
+                "{value}"
+            );
+        }
+        assert!((shadows_amount_v21(shadows_value_v21(90.0)) - 90.0).abs() < 1e-9);
+        assert_eq!(shadows_value_v21(61.0), 50.0);
+    }
+
+    #[test]
+    fn pasted_shadows_are_expressed_in_the_destinations_response() {
+        let pasted = || json!({"shadows": 61.0, "masks": [{"adjustments": {"shadows": 61.0}}, {"adjustments": {}}]});
+        let mut onto_21 = pasted();
+        express_pasted_whites(&mut onto_21, &json!({"toneVersion": 21}));
+        assert_eq!(onto_21["shadows"], 50.0);
+        assert_eq!(onto_21["masks"][0]["adjustments"]["shadows"], 50.0);
+        assert_eq!(onto_21["masks"][1]["adjustments"], json!({}));
+        for destination in [json!({}), json!({"toneVersion": 20})] {
+            let mut onto = pasted();
+            express_pasted_whites(&mut onto, &destination);
+            assert_eq!(onto, pasted(), "{destination}");
+        }
+        // Settings that name their tone version keep its values.
+        let mut named = json!({"shadows": 61.0, "toneVersion": 20});
+        express_pasted_whites(&mut named, &json!({"toneVersion": 21}));
+        assert_eq!(named["shadows"], 61.0);
     }
 }

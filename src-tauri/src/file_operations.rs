@@ -24,6 +24,7 @@ use rawtonic_fileops::{
 };
 use rawtonic_fs::Canonical;
 use rawtonic_metadata::photo_ref::{self, PhotoRef};
+use rawtonic_metadata::sidecars::is_developed;
 use serde::Serialize;
 use std::{
     cell::Cell,
@@ -363,8 +364,8 @@ fn album_key(path: &Path) -> Option<String> {
 
 /// The XMP sidecar `image` has (`rawtonic_metadata::sidecars`): a RAW's
 /// is `<stem>.xmp`, a JPEG beside its RAW has `<name>.JPG.xmp`.
-fn xmp_for(image: &Path) -> PathBuf {
-    rawtonic_metadata::sidecar_path(image)
+fn xmp_for(image: &Path) -> Option<PathBuf> {
+    rawtonic_metadata::existing_sidecar(image)
 }
 
 /// The XMP sidecars of `images` that take another name in `dest`: a lone
@@ -435,13 +436,6 @@ pub fn partner_xmp_renames(images: &[PathBuf], dest: &Path) -> Vec<(PathBuf, Pat
     renames
 }
 
-fn is_developed(image: &Path) -> bool {
-    image
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(rawtonic_metadata::sidecars::is_developed_image)
-}
-
 /// `A.JPG.xmp` for `A.JPG`.
 fn full_name_sidecar(image: &Path) -> PathBuf {
     let mut name = image.file_name().unwrap_or_default().to_os_string();
@@ -456,8 +450,15 @@ fn full_name_sidecar(image: &Path) -> PathBuf {
 /// stem): then it stays with the remaining photo.
 pub fn associated_files(images: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
     let selected: HashSet<&PathBuf> = images.iter().collect();
+    let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
     let mut files = BTreeSet::new();
     for image in images {
+        if let Some(packet) = sidecars.ambiguous_packet(image) {
+            return Err(format!(
+                "File operation blocked by ambiguous XMP ownership at {}",
+                packet.display()
+            ));
+        }
         for file in crate::file_management::find_all_associated_files(image)? {
             files.insert(file);
         }
@@ -465,7 +466,9 @@ pub fn associated_files(images: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
         if let Some(companion) = &companion {
             files.insert(companion.clone());
         }
-        let xmp = xmp_for(image);
+        let Some(xmp) = sidecars.existing(image) else {
+            continue;
+        };
         // Listed already (a JPEG's own `A.JPG.xmp`), maybe under its stored
         // spelling (`A.JPG.XMP` on a case-insensitive volume, where the
         // name asked for is not in the folder's listing). On a
@@ -501,7 +504,7 @@ pub fn associated_files(images: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
                     && is_supported_image_file(&p)
                     && !selected.contains(&p)
                     && companion.as_ref() != Some(&p)
-                    && xmp_for(&p) == xmp
+                    && xmp_for(&p).as_ref() == Some(&xmp)
             });
         if !shared {
             files.insert(xmp);
@@ -1471,8 +1474,10 @@ pub fn trash_photos(
                 group.push(file);
             }
         }
-        let xmp = xmp_for(image);
-        if all.contains(&xmp) && assigned.insert(xmp.clone()) {
+        if let Some(xmp) = xmp_for(image)
+            && all.contains(&xmp)
+            && assigned.insert(xmp.clone())
+        {
             group.push(xmp);
         }
         groups.push(group);

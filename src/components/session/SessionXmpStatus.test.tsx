@@ -150,7 +150,7 @@ describe('SessionXmpStatus', () => {
     await waitFor(() => expect(reasonTexts()).toContain('1 XMP file could not be written: Read-only file system'));
     expect(reasonTexts()).toEqual([
       "1 XMP file differs from the library (changed by another program, or never read by Rawtonic). Rawtonic doesn't overwrite it unless you choose; the library keeps your version.",
-      '2 photos have the same name as another one (two RAW files, such as CR3 and DNG), so both would write the same XMP file.',
+      '2 photos would each use the same XMP file as another photo.',
       '1 XMP file could not be written: Read-only file system'
     ]);
     expect(toast.success).not.toHaveBeenCalled();

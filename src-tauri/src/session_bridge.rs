@@ -1005,6 +1005,18 @@ pub async fn session_create(
     .await
     .map_err(|e| e.to_string())?
 }
+fn open_workspace_library(directory: &Path) -> Result<Library, String> {
+    let lib = Library::open(directory).map_err(|e| e.to_string())?;
+    // Smart Albums and filters can read suggestions before the culling
+    // panel loads, including with the content pass paused.
+    lib.forget_other_cull_scores(
+        crate::content_search::MODEL_ID,
+        &crate::culling::prompt_set_id(),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(lib)
+}
+
 #[tauri::command]
 pub async fn session_open(directory: String, app: tauri::AppHandle) -> Result<Summary, String> {
     if IMPORT_RUNNING.load(Ordering::Acquire) {
@@ -1023,7 +1035,7 @@ pub async fn session_open(directory: String, app: tauri::AppHandle) -> Result<Su
         let lib = {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("session_db_open");
-            Library::open(Path::new(&directory)).map_err(|e| e.to_string())?
+            open_workspace_library(Path::new(&directory))?
         };
         report_merged_duplicates(&app, &lib);
         // Previews a catalog brought from another computer (G39).
@@ -2626,6 +2638,64 @@ pub fn save_new_image(image: &image::DynamicImage, path: &Path) -> anyhow::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opening_a_library_hides_obsolete_scores_from_saved_smart_albums() {
+        use rawtonic_catalog::{content::DIM, cull::PromptSet, query::Rule};
+
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(&temp.path().join("Job"), "Job", Mode::Session).unwrap();
+        let model = crate::content_search::MODEL_ID;
+        let current = crate::culling::prompt_set_id();
+        let unit = |axis| {
+            let mut embedding = vec![0.0; DIM];
+            embedding[axis] = 1.0;
+            embedding
+        };
+        let add = |name, prompt_set| {
+            let path = lib.directory.join("Capture").join(name);
+            fs::write(&path, name).unwrap();
+            let asset = lib.add_asset(&path).unwrap();
+            lib.record_cull(
+                &asset.id,
+                model,
+                &PromptSet {
+                    id: prompt_set,
+                    misfire: vec![unit(0)],
+                    document: vec![unit(1)],
+                    logit_scale: 10.0,
+                    logit_bias: -5.0,
+                },
+                &asset.fingerprint,
+                &unit(0),
+            )
+            .unwrap();
+            (path, asset.id)
+        };
+        let (old_path, old_id) = add("old.jpg", "old".into());
+        let (current_path, _) = add("current.jpg", current);
+        lib.set_cull_dismissed(std::slice::from_ref(&old_id), "document", true)
+            .unwrap();
+        let rule: Rule = serde_json::from_value(serde_json::json!({
+            "combine": "all",
+            "rules": [{"field": "suggestion", "op": "is", "value": "misfire"}]
+        }))
+        .unwrap();
+        let album = lib
+            .create_smart_collection("Misfires", None, &rule)
+            .unwrap();
+        let directory = lib.directory.clone();
+        assert!(lib.collection_paths(&album.id).unwrap().contains(&old_path));
+        drop(lib);
+
+        // Restoring the saved album asks before the panel or the content pass.
+        let lib = open_workspace_library(&directory).unwrap();
+        assert_eq!(lib.collection_paths(&album.id).unwrap(), [current_path]);
+        assert_eq!(
+            lib.cull_photos(std::slice::from_ref(&old_id)).unwrap()[&old_id].dismissed,
+            ["document"]
+        );
+    }
 
     /// The import dialog's calls of the IMPD commands, as the webview sends
     /// them (ingestReview.ts, IngestLoupe.tsx, SessionWorkspace.tsx): the

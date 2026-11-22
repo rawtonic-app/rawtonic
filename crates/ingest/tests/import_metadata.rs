@@ -273,6 +273,48 @@ fn independent_same_stem_photos_each_write_their_own_xmp() {
     }
 }
 
+#[test]
+fn a_template_giving_unrelated_photos_the_same_stem_keeps_both_sidecars() {
+    let d = tempfile::tempdir().unwrap();
+    let jpeg = d.path().join("first.JPG");
+    let raw = d.path().join("second.NEF");
+    fs::write(&jpeg, b"jpeg").unwrap();
+    fs::write(&raw, b"raw").unwrap();
+    let lib = Library::create(&d.path().join("Library"), "Library", Mode::Session).unwrap();
+    let mut preset = ImportMetadata::default();
+    preset.ratings.insert(jpeg.clone(), 2);
+    preset.ratings.insert(raw.clone(), 5);
+    let options = BatchOptions {
+        template: "Shoot",
+        ..preset_options(&preset)
+    };
+    let results = import_batch(
+        &lib,
+        &[jpeg.clone(), raw.clone()],
+        &options,
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(results.len(), 2);
+    assert!(
+        results
+            .iter()
+            .all(|r| r.error.is_none() && r.warning.is_none()),
+        "{results:?}"
+    );
+    for (name, rating) in [("Shoot_1.xmp", 5), ("Shoot.xmp", 2)] {
+        let packet = fs::read_to_string(lib.directory.join("Capture").join(name)).unwrap();
+        assert_eq!(
+            rawtonic_metadata::read_xmp(&packet).unwrap().0.rating,
+            rating
+        );
+    }
+    assert_eq!(lib.summary().unwrap().xmp_pending, 0);
+    assert_eq!(fs::read(jpeg).unwrap(), b"jpeg");
+    assert_eq!(fs::read(raw).unwrap(), b"raw");
+}
+
 /// The RAW is copied first whatever the order chosen, also from another
 /// folder (a camera writing RAW to one card and JPEG to the other), so the
 /// JPEG's XMP never takes the name the RAW's has.

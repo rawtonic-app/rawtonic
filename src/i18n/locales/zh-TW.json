@@ -2164,7 +2164,7 @@
         "failed_other": "無法寫入 {{count}} 個 XMP 檔案：{{error}}",
         "offline_other": "{{count}} 張照片處於離線狀態。重新連接磁碟後會更新其 XMP 檔案。",
         "pending_other": "{{count}} 個 XMP 檔案可以重新寫入。",
-        "sharedName_other": "{{count}} 張照片與另一張同名（兩個 RAW 檔案，例如 CR3 和 DNG），兩者會寫入同一個 XMP 檔案。"
+        "sharedName_other": "{{count}} 張照片將分別與另一張照片使用同一個 XMP 檔案。"
       },
       "resolved_other": "已為 {{count}} 張照片解決 XMP 衝突",
       "retry": "重試",
@@ -4947,6 +4947,7 @@
         "profile": "描述檔",
         "profileNamed": "描述檔「{{name}}」",
         "Shadows": "陰影",
+        "shadowsBeyondReach": "超出 Rawtonic 陰影範圍的陰影（設為 ±100）",
         "toneCurveMissingPoints": "Lightroom 中僅有名稱、沒有控制點的色調曲線",
         "upright": "Upright",
         "whiteBalance": "白平衡"

@@ -1479,7 +1479,12 @@ impl Library {
     /// Adopt an existing sidecar only as an explicit initialization/sync action.
     pub fn adopt_xmp(&self, asset: &str) -> Result<Metadata, CatalogError> {
         self.adopt_editor_sidecar(asset)?;
-        let path = rawtonic_metadata::sidecar_path(&self.asset(asset)?.path);
+        let photo = self.asset(asset)?.path;
+        ensure!(
+            !self.xmp_shared(&photo)?,
+            "Two photographs share this XMP sidecar name"
+        );
+        let path = rawtonic_metadata::sidecar_path(&photo).context("Ambiguous XMP sidecar name")?;
         let text = rawtonic_metadata::read_xmp_text(&path)?;
         let (metadata, _) = rawtonic_metadata::read_xmp(&text)?;
         let stated = rawtonic_metadata::read_capture_time(&text)?;
@@ -1495,14 +1500,18 @@ impl Library {
     /// How many photographs of the library have the sidecar `photo` has
     /// (itself included): only photographs of one stem can, and whose it is
     /// follows the pair rule (`rawtonic_metadata::sidecars`).
-    fn xmp_owners(&self, photo: &Path) -> Result<usize> {
+    fn xmp_shared(&self, photo: &Path) -> Result<bool> {
         let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
-        let sidecar = sidecars.path(photo);
+        let Some(sidecar) = sidecars.path(photo) else {
+            return Ok(true);
+        };
         Ok(self
             .same_stem_assets(photo)?
             .iter()
-            .filter(|(_, path)| sidecars.path(path) == sidecar)
-            .count())
+            .filter(|(_, path)| sidecars.path(path).as_ref() == Some(&sidecar))
+            .take(2)
+            .count()
+            > 1)
     }
 
     /// The photographs of the library with `photo`'s stem in its folder
@@ -2461,8 +2470,8 @@ fn forget_xmp_left_behind(tx: &Connection, id: &str, path: &Path) -> Result<()> 
     if hash.is_none() && publishing.is_none() {
         return Ok(());
     }
-    let here = rawtonic_metadata::read_xmp_bytes(&rawtonic_metadata::sidecar_path(path))
-        .ok()
+    let here = rawtonic_metadata::sidecar_path(path)
+        .and_then(|sidecar| rawtonic_metadata::read_xmp_bytes(&sidecar).ok())
         .map(|bytes| rawtonic_fs::sha256_hex(&bytes));
     if here.is_some() && here == publishing {
         // A publish a crash cut off, moved along: the library's own.

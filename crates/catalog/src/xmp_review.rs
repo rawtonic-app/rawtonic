@@ -11,7 +11,7 @@
 use crate::CatalogError;
 use crate::error::{bail, ensure};
 use crate::{Library, XmpProblem, search_text};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rawtonic_metadata::{Metadata, MetadataError};
 use rusqlite::{TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -240,12 +240,16 @@ impl Library {
         // one stem): refuse ambiguity rather than clobber. A RAW and its
         // JPEG have a sidecar each (`rawtonic_metadata::sidecars`).
         ensure!(
-            self.xmp_owners(&a.path)? == 1,
+            !self.xmp_shared(&a.path)?,
             "Two photographs share this XMP sidecar name; it is not written"
         );
         let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
-        let path = sidecars.path(&a.path);
-        if let Ok(bytes) = rawtonic_metadata::read_xmp_bytes(&path) {
+        let path = sidecars
+            .path(&a.path)
+            .context("Ambiguous XMP sidecar name")?;
+        if !rawtonic_metadata::sidecars::is_developed(&a.path)
+            && let Ok(bytes) = rawtonic_metadata::read_xmp_bytes(&path)
+        {
             self.release_partner_digests(asset, &a.path, &path, &bytes, &sidecars)?;
         }
         if !path.exists() {
@@ -285,18 +289,37 @@ impl Library {
         sidecars: &rawtonic_metadata::sidecars::Sidecars,
     ) -> Result<()> {
         let digest = rawtonic_fs::sha256_hex(bytes);
-        for (partner, path) in self.same_stem_assets(photo)? {
+        for path in sidecars.same_stem(photo) {
+            if !rawtonic_metadata::sidecars::is_developed(&path) {
+                continue;
+            }
             // A partner that has its own sidecar holds that one's digest,
             // even when its bytes are the same as the RAW's.
-            let own = sidecars.path(&path);
-            if partner == asset || own == sidecar || own.exists() {
+            let Some(own) = sidecars.path(&path) else {
+                continue;
+            };
+            if own == sidecar || own.exists() {
+                continue;
+            }
+            let previous = rawtonic_metadata::sidecars::stem_sidecar(&path);
+            if previous.exists()
+                && rawtonic_fs::canonicalize(&previous).ok()
+                    != rawtonic_fs::canonicalize(sidecar).ok()
+            {
+                // A case-sensitive volume can hold two stem spellings.
+                continue;
+            }
+            let Some(partner) = self.asset_at(&path)? else {
+                continue;
+            };
+            if partner.id == asset {
                 continue;
             }
             self.conn.execute(
                 "UPDATE metadata SET xmp_hash=CASE WHEN xmp_hash=?1 THEN NULL ELSE xmp_hash END,
                      xmp_publishing=CASE WHEN xmp_publishing=?1 THEN NULL ELSE xmp_publishing END
                  WHERE asset_id=?2 AND (xmp_hash=?1 OR xmp_publishing=?1)",
-                params![digest, partner],
+                params![digest, partner.id],
             )?;
         }
         Ok(())

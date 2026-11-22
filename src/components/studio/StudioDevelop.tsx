@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { debouncedSetHistory, panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { sharpenViewFor } from '../../utils/sharpenView';
+import { layersInToneVersion, toneSliderIn, toneVersionAfterReset } from '../../utils/pastedVersions';
 import { storedSliderValue } from '../../utils/aiDenoise';
 import { useUIStore } from '../../store/useUIStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -1135,7 +1136,18 @@ export default function StudioDevelop() {
     () => withDevelopDefaults(initialAdjustmentsFor(photoIsRaw), userDefaults),
     [photoIsRaw, userDefaults]
   );
-  const defaults = layer ? INITIAL_ADJUSTMENTS : photoDefaults;
+  // A slider's default on an edit of another tone version: Whites and
+  // Shadows as the slider value that renders the default's amount there.
+  const editTone = adjustments.toneVersion ?? 1;
+  const photoDefaultsHere = useMemo(() => {
+    const from = (photoDefaults.toneVersion ?? 1) as number;
+    if (from === editTone) return photoDefaults;
+    const here = { ...photoDefaults };
+    for (const slider of ['whites', 'shadows'] as const)
+      if (typeof here[slider] === 'number') here[slider] = toneSliderIn(slider, here[slider], from, editTone);
+    return here;
+  }, [photoDefaults, editTone]);
+  const defaults = layer ? INITIAL_ADJUSTMENTS : photoDefaultsHere;
   const reset = (keys: string[]) =>
     change(Object.fromEntries(keys.map((key) => [key, structuredClone(defaults[key])])));
   const control = (
@@ -1635,19 +1647,30 @@ export default function StudioDevelop() {
                 ['blacks', t('studio.develop.sliders.blacks')],
                 ['brightness', t('studio.develop.sliders.brightness')]
               ])}
-              onReset={() =>
-                reset([
-                  'exposure',
-                  'contrast',
-                  'brightness',
-                  'highlights',
-                  'shadows',
-                  'whites',
-                  'blacks',
-                  // The photo's tone-slider response goes back to a new edit's.
-                  ...(layer ? [] : ['toneVersion'])
-                ])
-              }
+              onReset={() => {
+                const keys = ['exposure', 'contrast', 'brightness', 'highlights', 'shadows', 'whites', 'blacks'];
+                if (layer) return reset(keys);
+                // The photo's tone-slider response goes back to a new edit's,
+                // unless its layers render with the photo's own
+                // (`toneVersionAfterReset`); their Whites and Shadows keep the
+                // amount they render, and so do the defaults reset to.
+                const fresh = (photoDefaults.toneVersion ?? 1) as number;
+                if (!selectedImage?.isReady) return;
+                setAdjustments((prev) => {
+                  const from = prev.toneVersion ?? 1;
+                  const to = toneVersionAfterReset(prev.masks, from, fresh);
+                  const reset = Object.fromEntries(keys.map((key) => [key, structuredClone(photoDefaults[key])]));
+                  for (const slider of ['whites', 'shadows'] as const)
+                    if (typeof reset[slider] === 'number')
+                      reset[slider] = toneSliderIn(slider, reset[slider], fresh, to);
+                  return withNewGrainStructure(prev, {
+                    ...prev,
+                    ...reset,
+                    toneVersion: to,
+                    masks: layersInToneVersion(prev.masks, from, to)
+                  });
+                });
+              }}
             >
               {control(t('studio.develop.sliders.exposure'), 'exposure', -5, 5, 0.01)}
               {control(t('studio.develop.sliders.contrast'), 'contrast')}

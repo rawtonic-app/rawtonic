@@ -340,8 +340,9 @@ pub fn export_catalog(
         );
         // Its XMP and its companion JPEG come along beside it.
         let mut sidecars = Vec::new();
-        let xmp = rawtonic_metadata::sidecar_path(from);
-        if xmp.try_exists()? {
+        if let Some(xmp) = rawtonic_metadata::sidecar_path(from)
+            && xmp.try_exists()?
+        {
             sidecars.push(xmp);
         }
         if let Some(record) = catalog.companion_record(asset)?

@@ -164,6 +164,53 @@ fn wheel(map: &WheelMap, region: Option<usize>, (hue, sat, light): (f32, f32, f3
 }
 
 /// Sets a non-zero value, clamped and rounded to two decimals.
+/// Capture One's Shadow (−100…100) → the Shadows amount (tone version 20's
+/// slider value, the unit carried settings use) whose median lift of the
+/// darkest quarter on the slider atlas's 48 photos equals Capture One's
+/// (notes: benchmark-results/shg4-2026-11-22). Capture One's Shadow reaches
+/// further at both ends: beyond +61.9 / −43.2 it lifts or darkens more than
+/// Rawtonic's ±100, which it then gets (`shadows_beyond_reach`).
+const C1_SHADOWS: [(f64, f64); 13] = [
+    (-43.2, -100.0),
+    (-40.0, -85.7),
+    (-30.0, -48.6),
+    (-20.0, -28.1),
+    (-10.0, -13.5),
+    (0.0, 0.0),
+    (10.0, 36.2),
+    (20.0, 59.0),
+    (30.0, 72.0),
+    (40.0, 82.7),
+    (50.0, 92.6),
+    (60.0, 98.7),
+    (61.9, 100.0),
+];
+
+/// Capture One's Shadow `value` as a Rawtonic Shadows amount (`C1_SHADOWS`,
+/// linear between its points, ±100 beyond them).
+pub fn shadows_amount(value: f64) -> f64 {
+    let (first, last) = (C1_SHADOWS[0], C1_SHADOWS[C1_SHADOWS.len() - 1]);
+    if value <= first.0 {
+        return first.1;
+    }
+    if value >= last.0 {
+        return last.1;
+    }
+    C1_SHADOWS
+        .windows(2)
+        .find(|w| value <= w[1].0)
+        .map_or(last.1, |w| {
+            let ((x0, y0), (x1, y1)) = (w[0], w[1]);
+            y0 + (value - x0) / (x1 - x0) * (y1 - y0)
+        })
+}
+
+/// Capture One's Shadow `value` lifts (or darkens) further than Rawtonic's
+/// Shadows reach: it comes over as +100 / −100.
+pub fn shadows_beyond_reach(value: f64) -> bool {
+    value > C1_SHADOWS[C1_SHADOWS.len() - 1].0 || value < C1_SHADOWS[0].0
+}
+
 fn put(adjustments: &mut Map<String, Value>, key: &str, value: f64, min: f64, max: f64) {
     if value != 0.0 {
         let rounded = (value.clamp(min, max) * 100.0).round() / 100.0;
@@ -486,7 +533,8 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     // Tone and presence, as Rawtonic values that reproduce Capture One's
     // measured change by lightness (three photos, notes: reference/
     // capture-one-tools.md): Highlight ×0.5 raising / ×0.56 lowering (the
-    // older HighlightRecovery recovers, i.e. lowers), Shadow ×2.5,
+    // older HighlightRecovery recovers, i.e. lowers), Shadow by
+    // `shadows_amount` (48 photos),
     // White ×0.69 / ×0.44, Black ×0.65 / ×0.79, Contrast ×2.25 / ×0.9,
     // Brightness ÷43.5, Saturation ×0.73, Dehaze ×0.78; Exposure 1:1.
     let signed = |v: f64, up: f64, down: f64| v * if v > 0.0 { up } else { down };
@@ -533,7 +581,7 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
         put(
             &mut adjustments,
             tone::SHADOWS.name(),
-            2.5 * v,
+            shadows_amount(v),
             -100.0,
             100.0,
         );
@@ -965,6 +1013,12 @@ pub fn untranslated_settings(content: &str) -> Vec<&'static str> {
     {
         out.push("curves");
     }
+    if s.get("ShadowRecovery")
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .is_some_and(shadows_beyond_reach)
+    {
+        out.push("shadowsBeyondReach");
+    }
     if [
         "GeometryKeystoneTiltX",
         "GeometryKeystoneTiltY",
@@ -982,6 +1036,32 @@ pub fn untranslated_settings(content: &str) -> Vec<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    /// Capture One's Shadow maps onto the Shadows amount with its lift
+    /// (notes: benchmark-results/shg4-2026-11-22): monotone, 0 at 0, ±100
+    /// where Capture One reaches further, and reported there.
+    #[test]
+    fn capture_one_shadow_maps_onto_the_amount_with_its_lift() {
+        use super::{shadows_amount, shadows_beyond_reach, untranslated_settings};
+        let mut last = -100.0;
+        for i in -1000..=1000 {
+            let value = f64::from(i) / 10.0;
+            let amount = shadows_amount(value);
+            assert!(amount >= last, "{value}");
+            assert!((-100.0..=100.0).contains(&amount));
+            last = amount;
+        }
+        assert_eq!(shadows_amount(0.0), 0.0);
+        assert_eq!(shadows_amount(20.0), 59.0);
+        assert!((shadows_amount(25.0) - 65.5).abs() < 1e-9);
+        assert_eq!(shadows_amount(70.0), 100.0);
+        assert_eq!(shadows_amount(-50.0), -100.0);
+        assert!(!shadows_beyond_reach(61.9) && shadows_beyond_reach(62.0));
+        assert!(!shadows_beyond_reach(-43.2) && shadows_beyond_reach(-44.0));
+        let style = |v: &str| format!(r#"<SL><E K="ShadowRecovery" V="{v}"/></SL>"#);
+        assert!(untranslated_settings(&style("80")).contains(&"shadowsBeyondReach"));
+        assert!(!untranslated_settings(&style("40")).contains(&"shadowsBeyondReach"));
+    }
+
     /// Converts every style and settings file listed in `COSTYLE_LIST` (one
     /// path per line) and prints what came over and what did not; checks
     /// that nothing fails on real files. `cargo test -p rawtonic-app --lib
@@ -1270,7 +1350,7 @@ mod tests {
         assert_eq!(a["exposure"], json!(0.37));
         assert_eq!(a["contrast"], json!(38.25));
         assert_eq!(a["highlights"], json!(11.5));
-        assert_eq!(a["shadows"], json!(72.5));
+        assert_eq!(a["shadows"], json!(70.7));
         assert_eq!(a["clarity"], json!(20.0));
         // Shadow wheel: green, lifted.
         let shadows = &a["colorGrading"]["shadows"];

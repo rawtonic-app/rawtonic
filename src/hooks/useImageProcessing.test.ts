@@ -304,6 +304,35 @@ it('asks for the visible region first when a held before starts or ends zoomed i
   await finish();
 });
 
+it('gives the scopes the before while a before is shown, and the edit again after it', async () => {
+  // Least surprise (notes: parity-gaps/G23-analysis.md, SCP6): the
+  // histogram and the scopes describe the image on screen, so a held or
+  // toggled before (and a per-tool before) asks for its own analytics, and
+  // its end asks for the edit's again.
+  useEditorStore.setState({
+    adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: 2 },
+    isWaveformVisible: true,
+    activeWaveformChannel: 'rgb'
+  } as never);
+  mount();
+  await finish();
+  const scopes = { requestAnalytics: true, computeWaveform: true, activeWaveformChannel: 'rgb', isInteractive: false };
+  act(() => useEditorStore.setState({ showOriginal: true, previewOverride: { ...INITIAL_ADJUSTMENTS } }));
+  expect(calls()[1][1]).toMatchObject({ ...scopes, jsAdjustments: { exposure: 0 } });
+  await finish();
+  act(() => useEditorStore.setState({ showOriginal: false, previewOverride: null }));
+  expect(calls()[2][1]).toMatchObject({ ...scopes, jsAdjustments: { exposure: 2 } });
+  await finish();
+  act(() =>
+    useEditorStore.setState({ toolBefore: 'exposure', previewOverride: { ...INITIAL_ADJUSTMENTS, exposure: 0 } })
+  );
+  expect(calls()[3][1]).toMatchObject({ ...scopes, jsAdjustments: { exposure: 0 } });
+  await finish();
+  act(() => useEditorStore.setState({ toolBefore: null, previewOverride: null }));
+  expect(calls()[4][1]).toMatchObject({ ...scopes, jsAdjustments: { exposure: 2 } });
+  await finish();
+});
+
 /** A Linux settled region frame's reply: its magic, the drag frames' six
  * dimensions (x, y, w, h of 1000 × 1000) and a PNG signature. */
 function regionReply([x, y, w, h]: number[]) {
@@ -596,6 +625,33 @@ it('reports a split view before the renderer could not make, by its code', async
   await act(async () => fail[index]({ code: 'render_failed', message: error }));
   expect(toast.error).toHaveBeenCalledExactlyOnceWith(error, { toastId: 'Preview rendering failed' });
   useEditorStore.setState({ splitView: false, hasRenderedFirstFrame: false });
+});
+
+it('develops an open TIFF again under new preferences and renders with its current recipe', async () => {
+  const adjustments = { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: 0.7, aiDenoise: 50 };
+  useEditorStore.setState({
+    selectedImage: { ...photo('/first.tiff'), isRaw: false, isDecoded: true },
+    adjustments,
+    aiDenoiseBusy: false
+  });
+  mount();
+  await finish();
+  act(() => {
+    const { selectedImage } = useEditorStore.getState();
+    useEditorStore.setState({ selectedImage: { ...selectedImage!, decoderStale: 1 } });
+  });
+  const invocations = vi.mocked(invoke).mock.calls;
+  expect(invocations).toContainEqual([
+    Invokes.ApplyAiDenoise,
+    expect.objectContaining({ path: '/first.tiff', amount: 0 })
+  ]);
+  expect(useEditorStore.getState().aiDenoiseBusy).toBe(false);
+  await act(async () => (complete.shift() as unknown as (value: number) => void)(0));
+  expect(useEditorStore.getState().selectedImage?.decoderStale).toBe(0);
+  expect(useEditorStore.getState().adjustments).toBe(adjustments);
+  expect(invocations.filter(([name]) => name === Invokes.ApplyAiDenoise)).toHaveLength(1);
+  expect(calls()).toHaveLength(2);
+  expect(args(1).jsAdjustments.exposure).toBe(0.7);
 });
 
 describe('AI Denoise busy note', () => {

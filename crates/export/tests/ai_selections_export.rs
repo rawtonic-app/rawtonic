@@ -1,14 +1,17 @@
-//! A never-opened photo whose recipe holds Sky, Subject and People
+//! A never-opened photo whose recipe holds Sky, Subject, People or Landscape
 //! selections without their bitmap (a Lightroom import, an adaptive preset
 //! applied in the Library) exports with the selections
 //! computed, byte-identical to the export of the recipe that holds the
 //! masks this export path computed (as the app keeps them after an export;
 //! Develop's and the selection queue's masks are not compared here);
 //! without the models the export fails and writes nothing. Opt-in, as it
-//! needs a RAW, a GPU and the app's Sky, Subject and face models:
+//! needs a RAW, a GPU and the selection models:
 //!
 //! RAWTONIC_RAW=/path/photo.ORF RAWTONIC_MODELS=~/Library/Application\ Support/cc.rawtonic.qa/models \
-//!   cargo test -p rawtonic-export --release --test ai_selections_export -- --ignored
+//!   cargo test -p rawtonic-export --release --test ai_selections_export -- a_never_opened --ignored
+//!
+//! For Landscape, use a RAW with sky and replace `a_never_opened` with `landscape`.
+//! Set ORT_DYLIB_PATH if ONNX Runtime is outside the loader's search path.
 //!
 //! The lensfun database is the checkout's `src-tauri/lensfun_db` unless
 //! RAWTONIC_LENSFUN_DB names one.
@@ -18,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rawtonic_engine::ai_selections::{
-    AutoSelection, SelectionDetector, detect_missing, undetected,
+    AutoSelection, LandscapeParts, SelectionDetector, detect_missing, undetected,
 };
 use rawtonic_engine::image_loader::{BaseImageOptions, load_base_image_measured};
 use rawtonic_export::export_processing::ExportSettings;
@@ -76,16 +79,32 @@ impl SelectionDetector for Models {
                 )?;
                 return rawtonic_segment::mask_data_url(&mask);
             }
-            AutoSelection::Landscape => self.segment.landscape().and_then(|m| {
-                let set = sel::landscape_parts(parameters)
-                    .ok_or_else(|| anyhow::anyhow!("no known landscape parts"))?;
-                let parts = rawtonic_segment::landscape_parts(&set.keys())?;
-                rawtonic_segment::run_landscape_model(warped, &m, &parts, linear, None)
-            }),
             other => return Err(format!("{} is not tested here", other.name())),
         }
         .map_err(|e| format!("{e:#}"))?;
         rawtonic_segment::mask_data_url(&mask)
+    }
+
+    fn detect_landscape(
+        &self,
+        sets: &[LandscapeParts],
+        warped: &image::DynamicImage,
+        linear: bool,
+    ) -> Result<Vec<String>, String> {
+        let model = self.segment.landscape().map_err(|e| format!("{e:#}"))?;
+        let probabilities = rawtonic_segment::landscape_probabilities(warped, &model, linear, None)
+            .map_err(|e| format!("{e:#}"))?;
+        sets.iter()
+            .map(|set| {
+                let parts =
+                    rawtonic_segment::landscape_parts(&set.keys()).map_err(|e| format!("{e:#}"))?;
+                rawtonic_segment::mask_data_url(&rawtonic_segment::landscape_mask_grid(
+                    &probabilities,
+                    &parts,
+                    set.version,
+                ))
+            })
+            .collect()
     }
 }
 
@@ -149,11 +168,7 @@ fn a_never_opened_photo_exports_as_the_recipe_holding_its_selections() {
 fn never_opened_as_kept() {
     let raw = PathBuf::from(std::env::var_os("RAWTONIC_RAW").expect("RAWTONIC_RAW"));
     let models = PathBuf::from(std::env::var_os("RAWTONIC_MODELS").expect("RAWTONIC_MODELS"));
-    let lensfun = std::env::var_os("RAWTONIC_LENSFUN_DB")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/lensfun_db")
-        });
+    let lensfun = lensfun_dir();
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join(raw.file_name().unwrap());
     fs::copy(&raw, &source).unwrap();
@@ -171,20 +186,95 @@ fn never_opened_as_kept() {
     assert!(error.contains("is not installed"), "{error}");
     assert!(!dir.path().join("missing.tif").exists());
 
-    // With them: the selections are computed at export.
-    let detector = Arc::new(Models::new(&models));
-    let exporter = FileExporter::new(&lensfun)
+    compare_pending_and_kept(&source, dir.path(), &lensfun, &recipe, &models);
+}
+
+#[test]
+#[ignore = "needs RAWTONIC_RAW with sky, the Landscape model and a GPU"]
+fn landscape_grid_exports_match_saved_bitmaps_for_both_versions() {
+    let Some(models) = std::env::var_os("RAWTONIC_MODELS").map(PathBuf::from) else {
+        eprintln!("SKIP: set RAWTONIC_MODELS to the model directory");
+        return;
+    };
+    if !models.join(rawtonic_segment::LANDSCAPE_FILENAME).is_file() {
+        eprintln!("SKIP: the Landscape model is not installed");
+        return;
+    }
+    let raw = PathBuf::from(std::env::var_os("RAWTONIC_RAW").expect("RAWTONIC_RAW with sky"));
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(move || {
+            let dir = tempfile::tempdir().unwrap();
+            let source = dir.path().join(raw.file_name().unwrap());
+            fs::copy(&raw, &source).unwrap();
+            let layer = |id: &str, parameters: Value| {
+                json!({
+                    "id": id, "name": id, "visible": true, "opacity": 100.0, "invert": false,
+                    "adjustments": {"exposure": -0.75},
+                    "subMasks": [{
+                        "id": format!("{id}-sky"), "type": "ai-landscape", "visible": true,
+                        "opacity": 100.0, "invert": false, "mode": "additive",
+                        "parameters": parameters,
+                    }],
+                })
+            };
+            let legacy = json!({"parts": ["sky"], "maskDataBase64": null, "grow": 0, "feather": 0});
+            let mut current = legacy.clone();
+            current["landscapeVersion"] = json!(2);
+            let recipe = json!({"rotation": 1.2, "transformVertical": 8.0, "masks": [
+                layer("Legacy landscape", legacy), layer("Current landscape", current),
+            ]});
+            let kept =
+                compare_pending_and_kept(&source, dir.path(), &lensfun_dir(), &recipe, &models);
+            let parameters = |layer: usize| &kept["masks"][layer]["subMasks"][0]["parameters"];
+            for layer in 0..2 {
+                let params = parameters(layer);
+                let grid = &params[rawtonic_engine::mask_generation::BITMAP_GRID_OF];
+                let (w, h) = rawtonic_engine::mask_generation::ai_bitmap_dimensions(
+                    params["maskDataBase64"].as_str().unwrap(),
+                )
+                .unwrap();
+                let width = grid["width"].as_u64().expect("recorded photo width");
+                let height = grid["height"].as_u64().expect("recorded photo height");
+                assert!(u64::from(w) < width || u64::from(h) < height);
+            }
+            assert!(parameters(0).get("landscapeVersion").is_none());
+            assert_eq!(parameters(1)["landscapeVersion"], 2);
+            println!(
+                "Both Landscape versions used saved grids and matched pending exports byte for byte"
+            );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+fn lensfun_dir() -> PathBuf {
+    std::env::var_os("RAWTONIC_LENSFUN_DB")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/lensfun_db"))
+}
+
+fn compare_pending_and_kept(
+    source: &Path,
+    dir: &Path,
+    lensfun: &Path,
+    recipe: &Value,
+    models: &Path,
+) -> Value {
+    let detector = Arc::new(Models::new(models));
+    let exporter = FileExporter::new(lensfun)
         .unwrap()
         .with_selection_detector(detector.clone());
-    let never_opened = export(&exporter, &source, &dir.path().join("never.tif"), &recipe).unwrap();
+    let never_opened = export(&exporter, source, &dir.join("never.tif"), recipe).unwrap();
 
     // The recipe as kept afterwards (or as the editor saves it on open):
     // the same decode, the same detection, stored in its components.
     let mut kept = recipe.clone();
-    rawtonic_export::exif_processing::prepare_recipe_lens(&mut kept, &source).unwrap();
+    rawtonic_export::exif_processing::prepare_recipe_lens(&mut kept, source).unwrap();
     let path = source.to_string_lossy().to_string();
     let base = BaseImageOptions::default().for_recipe(&kept, &path);
-    let bytes = fs::read(&source).unwrap();
+    let bytes = fs::read(source).unwrap();
     let (pristine, _) = load_base_image_measured(&bytes, &path, false, &base, None).unwrap();
     let detected = detect_missing(
         &mut kept,
@@ -194,7 +284,7 @@ fn never_opened_as_kept() {
         &mut || {},
     )
     .unwrap();
-    assert_eq!(detected.len(), 3);
+    assert_eq!(detected.len(), recipe["masks"].as_array().unwrap().len());
     assert!(undetected(&kept).is_empty());
     for layer in kept["masks"].as_array().unwrap() {
         let data = layer["subMasks"][0]["parameters"]["maskDataBase64"]
@@ -202,13 +292,8 @@ fn never_opened_as_kept() {
             .unwrap();
         assert!(data.starts_with("data:image/png;base64,"));
     }
-    let opened = export(
-        &FileExporter::new(&lensfun).unwrap(),
-        &source,
-        &dir.path().join("kept.tif"),
-        &kept,
-    )
-    .unwrap();
+    let bare = FileExporter::new(lensfun).unwrap();
+    let opened = export(&bare, source, &dir.join("kept.tif"), &kept).unwrap();
     assert!(
         never_opened == opened,
         "never opened and opened must export the same bytes"
@@ -219,9 +304,10 @@ fn never_opened_as_kept() {
     for layer in without["masks"].as_array_mut().unwrap() {
         layer["visible"] = json!(false);
     }
-    let plain = export(&bare, &source, &dir.path().join("plain.tif"), &without).unwrap();
+    let plain = export(&bare, source, &dir.join("plain.tif"), &without).unwrap();
     assert!(
         plain != never_opened,
         "the selections must change the render"
     );
+    kept
 }
