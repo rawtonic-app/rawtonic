@@ -898,7 +898,9 @@ async function searchMeasured(
     const measured = await measure(next);
     if (!measured || !measured.every(Number.isFinite)) return null;
     const deltaE = deltaE00(targetLab, measured);
-    if (deltaE < (found ?? best).measured!.deltaE - 0.01)
+    // Any measured gain counts (a probe just past the reach threshold
+    // must not be dropped as too small a step).
+    if (deltaE < (found ?? best).measured!.deltaE)
       found = { ranges: next, measured: { lab: measured, deltaE }, corrections: best.corrections + probes };
     return measured;
   };

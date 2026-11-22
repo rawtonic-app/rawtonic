@@ -3311,6 +3311,15 @@ fn target_bases() -> &'static RegionBases {
     BASES.get_or_init(Default::default)
 }
 
+/// Drops every base of `bases` but `path`'s, and `path`'s too when it was
+/// cut from another version of the file (`stamp`: its [`file_stamp`] now).
+fn keep_current_base(bases: &RegionBases, path: &str, stamp: u64) {
+    bases
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|kept, base| kept == path && base.file_stamp == stamp);
+}
+
 /// The colour target's measurement (`sample_color_range_result`, and the
 /// colour editor's input with a `probe`): the pixels of `recipe` in `block`
 /// (x, y, w, h in full-resolution px of the shown photograph, `shown` wide
@@ -3346,11 +3355,10 @@ pub(crate) fn develop_target_block(
         probe.hash(&mut hash);
         hash.finish() | 1
     };
-    // Only the photograph being edited keeps its base.
-    target_bases()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .retain(|kept, _| kept == path);
+    // Only the photograph being edited keeps its base, and only while its
+    // file is the one the base was cut from (an Edit With file saved
+    // outside and reloaded).
+    keep_current_base(target_bases(), path, file_stamp(path));
     // The zoom's centre is normalised to the shown photograph.
     let zoom = CellZoom {
         scale: 1.0,
@@ -4293,6 +4301,36 @@ mod tests {
             whole_base_key("portrait", &first),
             whole_base_key("portrait", &second)
         );
+    }
+
+    #[test]
+    fn target_bases_keep_only_the_current_file_of_the_edited_photo() {
+        let base = |stamp| RegionBase {
+            preparation_key: 1,
+            file_stamp: stamp,
+            zoom_scale: 1.0,
+            region: [0.0, 0.0, 1.0, 1.0],
+            image: Arc::new(DynamicImage::new_rgb32f(1, 1)),
+            scale: 1.0,
+            whole_size: (1, 1),
+            crop_offset: (0.0, 0.0),
+            facts: Facts {
+                full_width: 1,
+                full_height: 1,
+                is_raw: false,
+                measures: None,
+            },
+            mask_source: None,
+        };
+        let bases = RegionBases::default();
+        bases.lock().unwrap().insert("a.tif".into(), base(7));
+        bases.lock().unwrap().insert("b.tif".into(), base(7));
+        keep_current_base(&bases, "a.tif", 7);
+        assert_eq!(bases.lock().unwrap().len(), 1);
+        assert!(bases.lock().unwrap().contains_key("a.tif"));
+        // The file was saved again outside (another stamp): its base goes too.
+        keep_current_base(&bases, "a.tif", 8);
+        assert!(bases.lock().unwrap().is_empty());
     }
 
     #[test]

@@ -443,6 +443,29 @@ describe('closed loop on the measured result', () => {
     expect(loop.measured!.deltaE).toBeGreaterThan(Math.min(...alone) / 2);
   });
 
+  it('keeps a search probe that crosses into reach by less than 0.01', async () => {
+    // Scripted measurements (ΔE00 along lightness): the model's solve 1.53,
+    // its correction worse, the slope's probes worse, then 1.003 and 0.994.
+    const target = labOfSrgb([0, 90, 190]);
+    const at = (deltaE: number): Vec3 => {
+      let lo = 0;
+      let hi = 20;
+      for (let i = 0; i < 60; i += 1) {
+        const mid = (lo + hi) / 2;
+        if (deltaE00(target, [target[0] - mid, target[1], target[2]]) < deltaE) lo = mid;
+        else hi = mid;
+      }
+      return [target[0] - lo, target[1], target[2]];
+    };
+    const script = [1.534, 1.6, 2.4, 2.2, 2.0, 1.003, 0.994];
+    let n = 0;
+    const loop = (await solveColorTargetMeasured([blue], blue.id, target, null, async () => at(script[n++] ?? 3), {
+      now: () => 0
+    }))!;
+    expect(n).toBeGreaterThanOrEqual(7);
+    expect(loop.measured!.deltaE).toBeCloseTo(0.994, 3);
+  });
+
   it('keeps the best measured sliders when a correction measures worse', async () => {
     let n = 0;
     const loop = (await solveColorTargetMeasured([skin], skin.id, target, null, async (ranges) => {
