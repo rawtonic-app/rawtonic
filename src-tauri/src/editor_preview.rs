@@ -1358,60 +1358,65 @@ pub async fn sample_levels_input(
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("sample_levels_input");
         let recipe = levels_input_probe(&adjustments);
-        // Re-sample if the bytes fail their consistency check.
-        for _ in 0..3 {
-            let Some(images) = render_probes(
+        sample_levels_with(|outputs| {
+            render_probes(
                 &app_handle,
                 &path,
                 recipe.clone(),
                 ProbeArea::Point(normalized_x, normalized_y),
-                &[
-                    ProbeOutput::LevelsPrecise { low: false },
-                    ProbeOutput::LevelsPrecise { low: true },
-                ],
+                outputs,
                 "sample_levels_input",
-            )?
-            else {
-                return Ok(None);
-            };
-            let [first, low] =
-                <[_; 2]>::try_from(images).map_err(|_| "Expected two Levels picker renders")?;
-            let first = first.to_rgba8();
-            let Some(marked) = levels_probe_marked(first.as_raw()) else {
-                break;
-            };
-            if let Some(values) = levels_input_codes(marked, low.to_rgba8().as_raw()) {
-                return Ok(Some(values));
-            }
-            log::warn!("Levels picker: the two renders do not pair; sampled again");
-        }
-        // No 16-bit pair (a variant without the probe stood in, or the
-        // pairs kept failing their check): the histogram's 8-bit probe.
-        log::warn!("Levels picker: no 16-bit probe pair; 8-bit sample");
-        let Some(image) = render_probe(
-            &app_handle,
-            &path,
-            recipe,
-            ProbeArea::Point(normalized_x, normalized_y),
-            ProbeOutput::LevelsInput,
-            "sample_levels_input",
-        )?
-        else {
-            return Ok(None);
-        };
-        Ok(Some(
-            image
-                .to_rgba8()
-                .as_raw()
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .map(|p| [0, 1, 2].map(|c| f64::from(p[c])))
-                .collect(),
-        ))
+            )
+        })
     })
     .await
     .map_err(|error| format!("Levels input sampling task failed: {error}"))?
+}
+
+fn sample_levels_with(
+    mut render: impl FnMut(&[ProbeOutput]) -> Result<Option<Vec<image::DynamicImage>>, String>,
+) -> Result<Option<Vec<[f64; 3]>>, String> {
+    for _ in 0..3 {
+        let images = match render(&[
+            ProbeOutput::LevelsPrecise { low: false },
+            ProbeOutput::LevelsPrecise { low: true },
+        ]) {
+            Ok(Some(images)) => images,
+            Ok(None) => return Ok(None),
+            Err(error) if error == gpu_processing::PREVIEW_PROCESSOR_CHANGED => {
+                log::warn!("Levels picker: preview processor changed; sampled again");
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        let [first, low] =
+            <[_; 2]>::try_from(images).map_err(|_| "Expected two Levels picker renders")?;
+        let first = first.to_rgba8();
+        let Some(marked) = levels_probe_marked(first.as_raw()) else {
+            break;
+        };
+        if let Some(values) = levels_input_codes(marked, low.to_rgba8().as_raw()) {
+            return Ok(Some(values));
+        }
+        log::warn!("Levels picker: the two renders do not pair; sampled again");
+    }
+    // No consistent 16-bit pair: use the histogram's 8-bit probe.
+    log::warn!("Levels picker: no 16-bit probe pair; 8-bit sample");
+    let Some(image) =
+        render(&[ProbeOutput::LevelsInput])?.and_then(|images| images.into_iter().next())
+    else {
+        return Ok(None);
+    };
+    Ok(Some(
+        image
+            .to_rgba8()
+            .as_raw()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| [0, 1, 2].map(|c| f64::from(p[c])))
+            .collect(),
+    ))
 }
 
 /// The high bytes of the Levels pickers' probe, when every pixel carries
@@ -6311,7 +6316,56 @@ mod mixer_input_tests {
 
 #[cfg(test)]
 mod levels_picker_tests {
-    use super::{levels_input_codes, levels_probe_check, levels_probe_marked};
+    use super::{
+        ProbeOutput, levels_input_codes, levels_probe_check, levels_probe_marked,
+        sample_levels_with,
+    };
+
+    #[test]
+    fn replacing_the_levels_processor_retries_then_falls_back() {
+        let image = |pixel| image::RgbaImage::from_pixel(1, 1, image::Rgba(pixel)).into();
+        let high = [129, 0, 255, 0];
+        let low = [1, 0, 255, levels_probe_check(&high)];
+        for replacements in [1, 3] {
+            let mut calls = 0;
+            let values = sample_levels_with(|outputs| {
+                calls += 1;
+                match outputs {
+                    [
+                        ProbeOutput::LevelsPrecise { low: false },
+                        ProbeOutput::LevelsPrecise { low: true },
+                    ] if calls <= replacements => {
+                        Err(crate::gpu_processing::PREVIEW_PROCESSOR_CHANGED.into())
+                    }
+                    [
+                        ProbeOutput::LevelsPrecise { low: false },
+                        ProbeOutput::LevelsPrecise { low: true },
+                    ] => Ok(Some(vec![image(high), image(low)])),
+                    [ProbeOutput::LevelsInput] => Ok(Some(vec![image([128, 0, 255, 255])])),
+                    _ => panic!("Unexpected probe"),
+                }
+            })
+            .unwrap()
+            .unwrap();
+            assert_eq!(calls, replacements + 1);
+            assert_eq!(
+                values,
+                vec![[
+                    if replacements == 1 {
+                        33_025.0 / 257.0
+                    } else {
+                        128.0
+                    },
+                    0.0,
+                    255.0
+                ]]
+            );
+        }
+        assert_eq!(
+            sample_levels_with(|_| Err("GPU device lost".into())).unwrap_err(),
+            "GPU device lost"
+        );
+    }
 
     #[test]
     fn the_levels_probe_reads_sixteen_bit_codes_from_its_two_renders() {

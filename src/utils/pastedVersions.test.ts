@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import cases from '../../crates/engine/tests/data/pasted_versions.json';
-import { expressPastedSettings, structureAmountV2, structureValueV2 } from './pastedVersions';
+import { expressPastedSettings, structureAmountV2, structureValueV2, toneVersionAfterReset } from './pastedVersions';
 import type { Adjustments } from './adjustments';
 
 /** `got` equals `want`, numbers to 1e-6 (as the engine's test compares). */
@@ -37,5 +37,25 @@ describe('expressPastedSettings', () => {
       const amount = structureAmountV2(i / 10);
       expect(Math.fround(structureAmountV2(structureValueV2(amount)))).toBe(Math.fround(amount));
     }
+  });
+});
+
+describe('toneVersionAfterReset', () => {
+  const layer = (adjustments: object) => ({ adjustments });
+  it("keeps the photo's version where a layer lowers Whites across version 22", () => {
+    // Version 22 changes lowered Whites, which no slider value re-expresses.
+    expect(toneVersionAfterReset([layer({ whites: -40 })], 21, 22)).toBe(21);
+    expect(toneVersionAfterReset([layer({ whites: -40 })], 20, 22)).toBe(20);
+    expect(toneVersionAfterReset([layer({ whites: -40 })], 22, 22)).toBe(22);
+  });
+  it("takes a new edit's version where the layers render the same in both", () => {
+    expect(toneVersionAfterReset([layer({ whites: 40 })], 21, 22)).toBe(22);
+    expect(toneVersionAfterReset([layer({ shadows: 50 })], 20, 22)).toBe(22);
+    expect(toneVersionAfterReset([layer({ whites: -40 })], 20, 21)).toBe(21);
+    expect(toneVersionAfterReset([layer({ exposure: 1 })], 12, 22)).toBe(22);
+    expect(toneVersionAfterReset([], 21, 22)).toBe(22);
+  });
+  it("keeps an older version a layer's tone sliders depend on", () => {
+    expect(toneVersionAfterReset([layer({ shadows: 50 })], 19, 22)).toBe(19);
   });
 });

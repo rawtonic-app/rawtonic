@@ -2046,6 +2046,48 @@ mod tests {
     }
 
     #[test]
+    fn trashing_a_jpeg_takes_its_xmp_beside_other_editors_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let capture = dir.join("Capture");
+        let jpeg = capture.join("A.JPG");
+        for (name, contents) in [
+            ("A.JPG", "jpeg"),
+            ("A.NEF", "raw"),
+            ("A.JPG.xmp", "jpeg packet"),
+            ("A.xmp", "raw packet"),
+            ("A.JPG.dop", "jpeg editor settings"),
+            ("A.NEF.pp3", "raw editor settings"),
+        ] {
+            fs::write(capture.join(name), contents).unwrap();
+        }
+        let files = associated_files(std::slice::from_ref(&jpeg)).unwrap();
+        let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+        let trash = rawtonic_fileops::NoSystemTrash;
+        let op = journal
+            .execute("trash", "Delete 1 photo", plan_trash(&[files]), &trash)
+            .unwrap();
+        let in_trash = dir.join("Trash/Capture");
+        assert!(in_trash.join("A.JPG").is_file());
+        assert_eq!(
+            fs::read_to_string(in_trash.join("A.JPG.xmp")).unwrap(),
+            "jpeg packet"
+        );
+        assert_eq!(
+            fs::read_to_string(capture.join("A.xmp")).unwrap(),
+            "raw packet"
+        );
+        assert!(capture.join("A.JPG.dop").is_file());
+        assert!(capture.join("A.NEF.pp3").is_file());
+        journal.undo(&op.id, &trash).unwrap();
+        assert!(jpeg.is_file());
+        assert_eq!(
+            fs::read_to_string(capture.join("A.JPG.xmp")).unwrap(),
+            "jpeg packet"
+        );
+    }
+
+    #[test]
     fn trash_and_undo_keep_the_catalog_record_and_its_edits() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = session(tmp.path());

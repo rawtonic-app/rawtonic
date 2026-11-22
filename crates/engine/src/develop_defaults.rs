@@ -357,12 +357,6 @@ fn camera_of_exif(path: &Path) -> Option<CameraIdentity> {
     )
 }
 
-/// Whether the user has set any develop default (none: a first edit reads
-/// nothing of the photograph's camera).
-pub fn any_set() -> bool {
-    !current().is_empty()
-}
-
 fn identity(make: &str, model: &str, serial: Option<&str>) -> Option<CameraIdentity> {
     let (make, model) = (make.trim(), model.trim());
     if make.is_empty() && model.is_empty() {

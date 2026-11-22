@@ -342,3 +342,35 @@ fn a_cfa_tiff_owns_the_stem_sidecar_beside_a_jpeg() {
     assert_eq!(rating_in(&capture.join("A.JPG.xmp")), 4);
     assert_eq!(fs::read(capture.join("A.TIF")).unwrap(), cfa);
 }
+
+#[test]
+fn syncing_xmp_beside_other_editors_settings_preserves_both_packets() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, capture) = session(
+        d.path(),
+        &[
+            ("A.NEF", b"raw"),
+            ("A.JPG", b"jpeg"),
+            ("A.xmp", LR_RAW_XMP.as_bytes()),
+            ("A.JPG.xmp", JPEG_XMP.as_bytes()),
+            ("A.JPG.dop", b"jpeg settings"),
+            ("A.NEF.pp3", b"raw settings"),
+        ],
+    );
+    let raw = add(&lib, &capture.join("A.NEF"));
+    let jpg = add(&lib, &capture.join("A.JPG"));
+    rate(&lib, &raw, 4);
+    rate(&lib, &jpg, 3);
+    lib.sync_xmp(&raw).unwrap();
+    lib.sync_xmp(&jpg).unwrap();
+    assert_eq!(rating_in(&capture.join("A.xmp")), 4);
+    assert_eq!(rating_in(&capture.join("A.JPG.xmp")), 3);
+    assert_eq!(
+        fs::read(capture.join("A.JPG.dop")).unwrap(),
+        b"jpeg settings"
+    );
+    assert_eq!(
+        fs::read(capture.join("A.NEF.pp3")).unwrap(),
+        b"raw settings"
+    );
+}

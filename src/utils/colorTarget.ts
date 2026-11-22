@@ -841,7 +841,11 @@ export async function solveColorTargetMeasured(
     const lab = await measure(next);
     if (!lab || !lab.every(Number.isFinite)) break;
     const deltaE = deltaE00(targetLab, lab);
-    if (best.measured && deltaE >= best.measured.deltaE - 0.01) break;
+    if (best.measured) {
+      // Keep even a small improvement when it changes the reach result.
+      const newlyReached = best.measured.deltaE > TARGET_REACHED && deltaE <= TARGET_REACHED;
+      if (!newlyReached && deltaE >= best.measured.deltaE - 0.01) break;
+    }
     best = { ranges: next, measured: { lab, deltaE }, corrections: step };
     started ??= now();
     if (deltaE <= GOOD_ENOUGH || now() - started > budgetMs) break;

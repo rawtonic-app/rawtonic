@@ -954,6 +954,40 @@ mod tests {
     /// (still paired) and undo restores every name. A plan that changed
     /// since the preview renames nothing.
     #[test]
+    fn renaming_a_jpeg_takes_its_xmp_beside_other_editors_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, capture) = session(tmp.path());
+        let jpeg = capture.join("A.JPG");
+        write(&capture, &["A.JPG", "A.NEF", "A.JPG.dop", "A.NEF.pp3"]);
+        fs::write(capture.join("A.xmp"), "raw packet").unwrap();
+        fs::write(capture.join("A.JPG.xmp"), "jpeg packet").unwrap();
+        let paths = [arg(&jpeg)];
+        let preview = plan_rename(&paths, "B");
+        let (_, steps, label) =
+            crate::file_management::checked_rename_steps(&paths, "B", 1, &preview.files())
+                .unwrap()
+                .unwrap();
+        let journal = rawtonic_fileops::Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+        let op = journal.execute("rename", &label, steps, &NoTrash).unwrap();
+        assert!(capture.join("B.JPG").is_file());
+        assert_eq!(
+            fs::read_to_string(capture.join("B.JPG.xmp")).unwrap(),
+            "jpeg packet"
+        );
+        assert_eq!(
+            fs::read_to_string(capture.join("A.xmp")).unwrap(),
+            "raw packet"
+        );
+        assert!(capture.join("A.JPG.dop").is_file());
+        assert!(capture.join("A.NEF.pp3").is_file());
+        journal.undo(&op.id, &NoTrash).unwrap();
+        assert_eq!(
+            fs::read_to_string(capture.join("A.JPG.xmp")).unwrap(),
+            "jpeg packet"
+        );
+    }
+
+    #[test]
     fn the_rename_runs_the_previewed_plan_and_undo_restores_every_name() {
         let tmp = tempfile::tempdir().unwrap();
         let (lib, capture) = session(tmp.path());
