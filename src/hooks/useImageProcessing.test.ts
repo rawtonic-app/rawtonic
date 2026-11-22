@@ -304,6 +304,35 @@ it('asks for the visible region first when a held before starts or ends zoomed i
   await finish();
 });
 
+it('gives the scopes the before while a before is shown, and the edit again after it', async () => {
+  // Least surprise (notes: parity-gaps/G23-analysis.md, SCP6): the
+  // histogram and the scopes describe the image on screen, so a held or
+  // toggled before (and a per-tool before) asks for its own analytics, and
+  // its end asks for the edit's again.
+  useEditorStore.setState({
+    adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: 2 },
+    isWaveformVisible: true,
+    activeWaveformChannel: 'rgb'
+  } as never);
+  mount();
+  await finish();
+  const scopes = { requestAnalytics: true, computeWaveform: true, activeWaveformChannel: 'rgb', isInteractive: false };
+  act(() => useEditorStore.setState({ showOriginal: true, previewOverride: { ...INITIAL_ADJUSTMENTS } }));
+  expect(calls()[1][1]).toMatchObject({ ...scopes, jsAdjustments: { exposure: 0 } });
+  await finish();
+  act(() => useEditorStore.setState({ showOriginal: false, previewOverride: null }));
+  expect(calls()[2][1]).toMatchObject({ ...scopes, jsAdjustments: { exposure: 2 } });
+  await finish();
+  act(() =>
+    useEditorStore.setState({ toolBefore: 'exposure', previewOverride: { ...INITIAL_ADJUSTMENTS, exposure: 0 } })
+  );
+  expect(calls()[3][1]).toMatchObject({ ...scopes, jsAdjustments: { exposure: 0 } });
+  await finish();
+  act(() => useEditorStore.setState({ toolBefore: null, previewOverride: null }));
+  expect(calls()[4][1]).toMatchObject({ ...scopes, jsAdjustments: { exposure: 2 } });
+  await finish();
+});
+
 /** A Linux settled region frame's reply: its magic, the drag frames' six
  * dimensions (x, y, w, h of 1000 × 1000) and a PNG signature. */
 function regionReply([x, y, w, h]: number[]) {
