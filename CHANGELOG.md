@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Sharp stars, lamps, glints and thin lines keep their brightest photosites** (new edits; saved ones keep their look). The automatic hot and dead pixel repair now uses RapidRAW 1.7.1's isolation test: a photosite is repaired only when it stands apart from its whole neighbourhood, not when the photosites around it share its light. The old test darkened the cores of sharp stars and lamps (on a 15 s night frame 9 of the 12 photosites only it changed; the other 3 are faint single points that may be stars or hot photosites and now stay), left a dark dot in the middle of small specular glints (35 photosites on a daylight frame, now none), changed photosites along 1 px dark lines, and at ISO 204800 lifted 7,620 dark noise photosites per frame (now none). On a synthetic star field with 600 stars, none is dimmed by more than 20 % (the old test dimmed up to 195), and on 1 px dark lines 7 photosites change on Bayer and 123 on X-Trans sensors instead of 14,075 and 3,184. Hot photosites are found as before (36 of 400 injected into a 33 MP frame left, were 37). Dead (black) photosites in busy texture are left more often (82 of 150 left, were 43), where they barely show: 10 more visible spots among 550 defects. The repair takes 1–3 % longer (at most about 1 ms on the 40–81 MP files measured).
+
 ## 0.1.0-alpha.19 — 2026-11-22
 
 The nineteenth alpha. New: a Landscape mask (sky, mountains, water, vegetation, ground and architecture), Eyes and Teeth in the face retouch, a Culling panel in the Library, adaptive presets whose AI layers work on photos you never opened, target colours in the color editor, and signed provenance (C2PA) in exports, off by default. On new edits raised Shadows move at Camera Raw's pace and lowered Whites leave less of a light rim; saved edits keep their Shadows and Whites. Adding a folder to the Library needs about half the memory, the Library and the import dialog read far less of each RAW from a network share, and **Restart now** for an update on Windows no longer stops at "Failed to kill Rawtonic".
