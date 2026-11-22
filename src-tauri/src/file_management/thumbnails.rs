@@ -1398,8 +1398,8 @@ fn quick_source_preview(
             .is_ok_and(|(w, h)| w.min(h) >= size / 2)
     };
     // Candidates come largest first: take the smallest that suffices.
-    if let Some(image) = image_loader::tiff_jpeg_candidates(bytes)
-        .and_then(|candidates| candidates.into_iter().rev().find(small_enough))
+    if let Some(image) = image_loader::tiff_jpeg_previews(bytes)
+        .and_then(|mut previews| previews.rfind(small_enough))
         .and_then(jpeg)
     {
         return Some(orient(image, image_loader::exif_orientation(bytes)));

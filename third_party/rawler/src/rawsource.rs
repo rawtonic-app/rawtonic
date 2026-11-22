@@ -44,17 +44,9 @@ impl RawSource {
   /// Maps the file without reading it ahead (no `populate`, no
   /// read-ahead advice), for callers that only look at a file's headers,
   /// e.g. telling a raw TIFF from an RGB one while listing a folder.
-  // Rawtonic patch (CRD3): advised random access on Unix, so a header read
-  // makes only its own pages resident, not the kernel's read-around window
-  // (on Linux the 4 KB raw-data header of a CR2 read 2.6 MB around it).
   pub fn new_lazy(path: &Path) -> std::io::Result<Self> {
     let file = File::open(path)?;
     let mmap = unsafe { MmapOptions::new().map(&file)? };
-    #[cfg(unix)]
-    {
-      // Advice only: a kernel that refuses it reads as before.
-      let _ = mmap.advise(memmap2::Advice::Random);
-    }
     Ok(Self {
       path: path.to_owned(),
       inner: RawSourceImpl::Memmap(mmap),

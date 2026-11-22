@@ -695,11 +695,6 @@ pub fn classify_raw_develop_error(path: &str, err: anyhow::Error) -> anyhow::Err
     err
 }
 
-/// The JPEG previews of a TIFF-based file, largest first: each IFD's JPEG
-/// strip or `JPEGInterchangeFormat`, without lossless JPEG raw image data
-/// (`lossless_jpeg`: a CR2's or DNG's raw strip, which no preview decoder
-/// reads and whose probe by an image decoder copies all of it). None when
-/// `buf` is no TIFF.
 pub fn tiff_jpeg_candidates(buf: &[u8]) -> Option<Vec<&[u8]>> {
     let le = match buf.get(..4)? {
         [0x49, 0x49, 0x2A, 0x00] => true,
@@ -786,14 +781,26 @@ pub fn tiff_jpeg_candidates(buf: &[u8]) -> Option<Vec<&[u8]>> {
         candidates
             .into_iter()
             .filter_map(|(off, len)| buf.get(off as usize..off.checked_add(len)? as usize))
-            .filter(|data| !lossless_jpeg(data))
             .collect(),
     )
 }
 
+/// `tiff_jpeg_candidates` without lossless JPEG raw image data
+/// (`lossless_jpeg`: a CR2's or DNG's raw strip), largest first. No preview
+/// decoder reads it, and an image decoder's probe of it copies all of it,
+/// i.e. most of the file, before it fails. Filtered as the candidates are
+/// taken (from either end), so a probe that stops at a preview first never
+/// reads the raw strip's header.
+pub fn tiff_jpeg_previews(buf: &[u8]) -> Option<impl DoubleEndedIterator<Item = &[u8]>> {
+    Some(
+        tiff_jpeg_candidates(buf)?
+            .into_iter()
+            .filter(|data| !lossless_jpeg(data)),
+    )
+}
+
 pub fn largest_tiff_jpeg_preview(buf: &[u8]) -> Option<DynamicImage> {
-    tiff_jpeg_candidates(buf)?
-        .into_iter()
+    tiff_jpeg_previews(buf)?
         .find_map(|bytes| image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok())
 }
 
@@ -907,7 +914,7 @@ pub fn priority_embedded_jpeg(bytes: &[u8]) -> Option<Vec<u8>> {
     let (jpeg, orientation) = if let Some(jpeg) = raf_embedded_jpeg(bytes) {
         (jpeg, exif_orientation(jpeg).unwrap_or(1))
     } else {
-        let jpeg = tiff_jpeg_candidates(bytes)?.into_iter().find(|jpeg| {
+        let jpeg = tiff_jpeg_previews(bytes)?.find(|jpeg| {
             ImageReader::with_format(Cursor::new(*jpeg), image::ImageFormat::Jpeg)
                 .into_dimensions()
                 .is_ok()
@@ -2466,10 +2473,10 @@ mod lossless_jpeg_tests {
         assert!(!lossless_jpeg(&[0xFF, 0xD8, 0xFF]));
     }
 
-    /// A TIFF RAW's lossless raw strip is no preview candidate: the import
-    /// dialog's probes (`priority_embedded_jpeg`, the grid's size check)
-    /// would otherwise hand it to the image decoder, which copies the whole
-    /// strip, i.e. most of the file, before it fails on the frame header.
+    /// A TIFF RAW's lossless raw strip is no preview: the import dialog's
+    /// probes (`priority_embedded_jpeg`, the grid's size check) would
+    /// otherwise hand it to the image decoder, which copies the whole strip,
+    /// i.e. most of the file, before it fails on the frame header.
     #[test]
     fn lossless_raw_data_is_no_preview_candidate() {
         let image = image::DynamicImage::new_rgb8(8, 6);
@@ -2507,8 +2514,11 @@ mod lossless_jpeg_tests {
         tiff.extend_from_slice(&preview);
         assert_eq!(
             super::tiff_jpeg_candidates(&tiff).unwrap(),
-            vec![preview.as_slice()]
+            vec![raw.as_slice(), preview.as_slice()]
         );
+        let previews = || super::tiff_jpeg_previews(&tiff).unwrap();
+        assert_eq!(previews().collect::<Vec<_>>(), vec![preview.as_slice()]);
+        assert_eq!(previews().rev().collect::<Vec<_>>(), vec![preview.as_slice()]);
         assert_eq!(
             super::priority_embedded_jpeg(&tiff).map(|jpeg| image::load_from_memory(&jpeg).unwrap().to_rgb8()),
             Some(image.to_rgb8())
