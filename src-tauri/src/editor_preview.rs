@@ -1358,7 +1358,6 @@ pub async fn sample_levels_input(
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("sample_levels_input");
         let recipe = levels_input_probe(&adjustments);
-        let mut high = None;
         // A pair from two different renders (the source or shader changed
         // between them) fails the checksum: sampled again.
         for _ in 0..3 {
@@ -1380,19 +1379,31 @@ pub async fn sample_levels_input(
                 <[_; 2]>::try_from(images).map_err(|_| "Expected two Levels picker renders")?;
             let first = first.to_rgba8();
             let Some(marked) = levels_probe_marked(first.as_raw()) else {
-                high = Some(first);
                 break;
             };
             if let Some(values) = levels_input_codes(marked, low.to_rgba8().as_raw()) {
                 return Ok(Some(values));
             }
             log::warn!("Levels picker: the two renders do not pair; sampled again");
-            high = Some(first);
         }
-        let high = high.ok_or("No Levels picker render")?;
+        // No 16-bit pair (a variant without the probe stood in, or the
+        // pairs kept failing their check): the histogram's 8-bit probe.
         log::warn!("Levels picker: no 16-bit probe pair; 8-bit sample");
+        let Some(image) = render_probe(
+            &app_handle,
+            &path,
+            recipe,
+            ProbeArea::Point(normalized_x, normalized_y),
+            ProbeOutput::LevelsInput,
+            "sample_levels_input",
+        )?
+        else {
+            return Ok(None);
+        };
         Ok(Some(
-            high.as_raw()
+            image
+                .to_rgba8()
+                .as_raw()
                 .as_chunks::<4>()
                 .0
                 .iter()
@@ -1896,10 +1907,10 @@ fn render_probe(
 
 /// [`render_probe`] for each of `outputs`, all from the same preview base
 /// and masks (the Levels pickers' two byte renders pair up). The pickers'
-/// renders (`LevelsPrecise`) take the base a settled fit frame shows when
-/// its colour noise reduction was applied at full resolution
-/// (`color_noise_view::shown_corrected_base`), at Color 0, as that frame
-/// renders.
+/// renders (`sample_levels_input`) take the base the last preview frame
+/// rendered from when that was one with its colour noise reduction
+/// applied at full resolution (`color_noise_view::shown_corrected_base`),
+/// at Color 0, as that frame renders.
 fn render_probes(
     app_handle: &tauri::AppHandle,
     path: &str,
@@ -1975,9 +1986,7 @@ fn render_probes(
     // The pickers sample what the settled fit frame shows.
     let mut base = base;
     let mut transform_hash = transform_hash;
-    if outputs
-        .iter()
-        .any(|output| matches!(output, ProbeOutput::LevelsPrecise { .. }))
+    if caller_id == "sample_levels_input"
         && let Some(corrected) = crate::color_noise_view::shown_corrected_base(
             &develop.color_noise_view,
             &probe,
@@ -2637,7 +2646,7 @@ fn process_preview_job(
     // A final fit frame of the full decode shows the export's render input
     // reduced (warp, edge-fringe pass and colour noise reduction at full
     // resolution), rendered at Color 0 (`color_noise_view`).
-    let (processing_image, render_transform_hash) = match fit_color_noise_base(
+    let corrected_base = fit_color_noise_base(
         develop,
         &loaded_image,
         &final_adjustments,
@@ -2665,7 +2674,10 @@ fn process_preview_job(
             generation: render_generation,
             native: use_wgpu_renderer,
         },
-    ) {
+    );
+    // The Levels pickers sample what this frame renders from.
+    develop.color_noise_view.note_shown(corrected_base.as_ref());
+    let (processing_image, render_transform_hash) = match corrected_base {
         Some(corrected) => {
             final_adjustments.global.color_noise_reduction = 0.0;
             let mut hasher = DefaultHasher::new();

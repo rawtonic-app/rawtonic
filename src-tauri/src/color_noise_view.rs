@@ -209,6 +209,9 @@ pub struct ColorNoiseView {
     /// Changes with every render input stored or dropped (`revision`).
     revision: AtomicU64,
     split_before: Mutex<Option<SplitBeforeRequest>>,
+    /// The corrected base the last preview frame rendered from (`note_shown`),
+    /// None when it rendered from its own base.
+    shown: Mutex<Option<Weak<DynamicImage>>>,
 }
 
 /// Keeps `item` last in `list` of at most [`KEPT`], dropping the oldest.
@@ -287,6 +290,13 @@ impl ColorNoiseView {
     /// too) and returns its number.
     pub(crate) fn note_frame(&self) -> u64 {
         self.frames.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// What the preview frame being rendered now renders from: `corrected`
+    /// (from [`corrected_base`]) or its own base (None). Probes of the
+    /// shown frame follow it ([`shown_corrected_base`]).
+    pub(crate) fn note_shown(&self, corrected: Option<&Arc<DynamicImage>>) {
+        *lock_recover(&self.shown) = corrected.map(Arc::downgrade);
     }
 
     /// The number of the last frame noted.
@@ -436,10 +446,11 @@ pub(crate) fn corrected_base(
     }
 }
 
-/// The corrected base a settled fit frame of `base` shows for this colour
-/// noise setting (`corrected_base` built it), if there is one: what probes
-/// of the shown frame (the Levels pickers) render from, at Color 0. Looks
-/// up only; never wants or builds one.
+/// The corrected base the last preview frame of `base` rendered from for
+/// this colour noise setting (a settled fit frame; `note_shown`), if it
+/// did: what probes of the shown frame (the Levels pickers) render from,
+/// at Color 0. None after a frame from its own base (a zoomed region, a
+/// drag). Looks up only; never wants or builds one.
 pub(crate) fn shown_corrected_base(
     view: &ColorNoiseView,
     adjustments: &AllAdjustments,
@@ -458,10 +469,15 @@ pub(crate) fn shown_corrected_base(
         .filter(|c| Weak::ptr_eq(&c.source, &source) && c.key == key)
         .map(|c| Arc::downgrade(&c.input))
         .collect();
+    let shown = lock_recover(&view.shown).clone()?;
     let base = Arc::downgrade(base);
     lock_recover(&view.corrected)
         .iter()
-        .find(|c| Weak::ptr_eq(&c.base, &base) && inputs.iter().any(|i| Weak::ptr_eq(&c.input, i)))
+        .find(|c| {
+            Weak::ptr_eq(&c.base, &base)
+                && inputs.iter().any(|i| Weak::ptr_eq(&c.input, i))
+                && Weak::ptr_eq(&Arc::downgrade(&c.image), &shown)
+        })
         .map(|c| Arc::clone(&c.image))
 }
 
@@ -940,10 +956,20 @@ mod tests {
             )
         };
         assert!(frame().is_none());
+        view.note_shown(None);
         let wanted = lock_recover(&view.builds).wanted.pop().unwrap();
         view.store(&wanted, Rgb32FImage::new(300, 200));
-        assert!(frame().is_some());
+        let used = frame().unwrap();
+        assert!(
+            shown(25).is_none(),
+            "built, but no frame rendered from it yet"
+        );
+        view.note_shown(Some(&used));
         assert!(Arc::ptr_eq(&shown(25).unwrap(), &corrected));
+        // A zoomed or dragged frame after it renders from its own base.
+        view.note_shown(None);
+        assert!(shown(25).is_none());
+        view.note_shown(Some(&used));
         // Another setting or base: the frame would not show it.
         assert!(shown(50).is_none());
         let other = image(200, 133);
