@@ -3836,6 +3836,85 @@ mod tests {
     }
 
     #[test]
+    fn exports_with_colliding_templates_preserve_other_originals_and_raw_jpeg_partners() {
+        use rawtonic_export::export_processing::encode_export;
+
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.CR3");
+        let partner = dir.path().join("a.jpg");
+        let other = dir.path().join("b.jpg");
+        let originals: [(&Path, &[u8]); 3] = [
+            (&raw, b"original RAW"),
+            (&partner, b"camera JPEG"),
+            (&other, b"another JPEG"),
+        ];
+        for (path, contents) in originals {
+            rawtonic_fs::atomic_write(path, contents).unwrap();
+        }
+
+        let mut target = ExportTarget {
+            output_folder_or_file: dir.path().to_string_lossy().into_owned(),
+            is_explicit_file_path: false,
+            base_origin_folders: Vec::new(),
+            export_settings: serde_json::from_value(serde_json::json!({
+                "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
+                "filenameTemplate": "b", "destinationType": "originalFolder",
+            }))
+            .unwrap(),
+            output_format: "jpg".to_string(),
+            tracking: None,
+        };
+        let used = std::sync::Mutex::new(std::collections::HashSet::new());
+        let date = jiff::Timestamp::now();
+        let plan = |target: &ExportTarget, source: &Path, global_index, total_paths| {
+            let item = PhotoItem {
+                global_index,
+                image_path_str: source.to_str().unwrap(),
+                appearance_count: 1,
+                explicit_vc: None,
+                total_paths,
+            };
+            plan_output_path(target, &item, source, &date, None, 0, &used).unwrap()
+        };
+        let write = |target: &ExportTarget, path: &Path| {
+            let image = image::DynamicImage::new_rgb8(2, 2);
+            let encoded = encode_export(image, "jpg", &target.export_settings, None).unwrap();
+            super::write_export_bytes(path, "jpg", encoded)
+        };
+        for (index, (source, expected)) in [(&raw, "b_1.jpg"), (&other, "b_2.jpg")]
+            .into_iter()
+            .enumerate()
+        {
+            let output = plan(&target, source, index, 2);
+            assert_eq!(output, dir.path().join(expected));
+            write(&target, &output).unwrap();
+        }
+
+        // With only the RAW selected, the camera JPEG in the same folder is also protected.
+        target.export_settings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
+            "filenameTemplate": "a", "destinationType": "originalFolder",
+        }))
+        .unwrap();
+        let output = plan(&target, &raw, 0, 1);
+        assert_eq!(output, dir.path().join("a_1.jpg"));
+        write(&target, &output).unwrap();
+
+        // An explicit single-file destination still hits no-clobber at publication.
+        target.is_explicit_file_path = true;
+        target.export_settings.destination_type = None;
+        for original in [&partner, &other] {
+            target.output_folder_or_file = original.to_str().unwrap().to_owned();
+            let output = plan(&target, &raw, 0, 1);
+            assert_eq!(&output, original);
+            assert!(write(&target, &output).is_err());
+        }
+        for (path, contents) in originals {
+            assert_eq!(std::fs::read(path).unwrap(), contents);
+        }
+    }
+
+    #[test]
     fn mask_file_names_are_reserved_with_their_main_file() {
         let dir = tempfile::tempdir().unwrap();
         let target = |template: &str, start: u32, masks: bool| ExportTarget {
