@@ -86,6 +86,7 @@
 
 ### Fixes
 
+- **A photo whose LUT file is missing no longer renders black.** When the LUT an edit names could not be loaded (moved, deleted or on a disconnected drive), the preview, thumbnails and exports read an empty placeholder table instead and came out black at full LUT intensity. Such a photo now renders without the LUT, as RapidRAW 1.7.1 does (ported from RapidRAW); it comes back once the file is there again. Photos whose LUT loads render exactly as before.
 - The first edit and batch edits use the camera's framing when a RAW reconnects. With the original still in the cloud, they use the latest cached crop for that photo. Batch commands report when a photo must be downloaded to apply its Develop defaults before saving a first edit.
 
 - Tone curve arrow edits still settle into Undo history if a key release is missed. When you drag a region split handle back to its starting position, the photo follows the handle.
