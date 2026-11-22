@@ -1444,7 +1444,10 @@ fn a_recipe_whose_lut_did_not_load_renders_without_the_lut() {
             "exposure": 0.3, "lutPath": "/gone/look.cube",
             "lutIntensity": 100.0, "lutIsSceneReferred": scene,
         }));
-        assert!(missing == without, "scene-referred {scene}: differs from the render without a LUT");
+        assert!(
+            missing == without,
+            "scene-referred {scene}: differs from the render without a LUT"
+        );
     }
 }
 
