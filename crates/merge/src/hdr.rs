@@ -103,6 +103,9 @@ const SATURATION_START: f32 = 0.80;
 const SATURATION_END: f32 = 0.95;
 /// Working-space floor for log comparisons, per unit exposure.
 const NOISE_FLOOR: f32 = 0.004;
+/// Share of a pixel's luminance below which a colour channel's difference
+/// does not count as a ghost (`ghost_map`).
+const CHANNEL_FLOOR: f32 = 0.1;
 const LOW_RES_TARGET: usize = 1500;
 const ALIGN_TARGET: usize = 2400;
 
@@ -129,40 +132,98 @@ fn usable(p: &[f32], to_camera: &Matrix3<f32>) -> f32 {
     1.0 - smoothstep(SATURATION_START, SATURATION_END, cam.max())
 }
 
-/// Box-averaged luminance and usability at 1/`f` size.
-fn low_res(view: &View, to_camera: &Matrix3<f32>, f: usize) -> (Plane, Plane) {
+/// Box averages at 1/`f` size: linear RGB, luminance and usability.
+struct LowRes {
+    rgb: [Plane; 3],
+    y: Plane,
+    u: Plane,
+}
+
+fn low_res(view: &View, to_camera: &Matrix3<f32>, f: usize) -> LowRes {
     let (w, h) = (view.w, view.h);
     let (lw, lh) = (w.div_ceil(f), h.div_ceil(f));
-    let rows: Vec<(Vec<f32>, Vec<f32>)> = (0..lh)
+    let rows: Vec<Vec<[f32; 4]>> = (0..lh)
         .into_par_iter()
         .map(|ly| {
-            let mut y_row = vec![0.0f32; lw];
-            let mut u_row = vec![0.0f32; lw];
-            for (lx, (yo, uo)) in y_row.iter_mut().zip(u_row.iter_mut()).enumerate() {
-                let (mut sy, mut su, mut n) = (0.0f32, 0.0f32, 0.0f32);
-                for y in ly * f..((ly + 1) * f).min(h) {
-                    for x in lx * f..((lx + 1) * f).min(w) {
-                        // Pixels without a source count as black, unusable.
-                        if let Some(p) = view.at(x, y) {
-                            sy += luma(&p);
-                            su += usable(&p, to_camera);
+            (0..lw)
+                .map(|lx| {
+                    let mut sum = [0.0f32; 4];
+                    let mut n = 0.0f32;
+                    for y in ly * f..((ly + 1) * f).min(h) {
+                        for x in lx * f..((lx + 1) * f).min(w) {
+                            // Pixels without a source count as black, unusable.
+                            if let Some(p) = view.at(x, y) {
+                                sum[0] += p[0];
+                                sum[1] += p[1];
+                                sum[2] += p[2];
+                                sum[3] += usable(&p, to_camera);
+                            }
+                            n += 1.0;
                         }
-                        n += 1.0;
                     }
-                }
-                *yo = sy / n;
-                *uo = su / n;
-            }
-            (y_row, u_row)
+                    sum.map(|v| v / n)
+                })
+                .collect()
         })
         .collect();
-    let mut y = Plane::new(lw, lh);
-    let mut u = Plane::new(lw, lh);
-    for (ly, (yr, ur)) in rows.into_iter().enumerate() {
-        y.data[ly * lw..(ly + 1) * lw].copy_from_slice(&yr);
-        u.data[ly * lw..(ly + 1) * lw].copy_from_slice(&ur);
+    let mut planes: [Plane; 4] = std::array::from_fn(|_| Plane::new(lw, lh));
+    for (ly, row) in rows.into_iter().enumerate() {
+        for (lx, v) in row.into_iter().enumerate() {
+            for (plane, value) in planes.iter_mut().zip(v) {
+                plane.data[ly * lw + lx] = value;
+            }
+        }
     }
-    (y, u)
+    let [r, g, b, u] = planes;
+    let mut y = Plane::new(lw, lh);
+    for (i, o) in y.data.iter_mut().enumerate() {
+        *o = luma(&[r.data[i], g.data[i], b.data[i]]);
+    }
+    LowRes {
+        rgb: [r, g, b],
+        y,
+        u,
+    }
+}
+
+/// Where a frame shows something else than the consensus of the frames
+/// merged before it (1 = a ghost, dropped): the largest disagreement of
+/// any colour channel, in EV, through a smooth step from `threshold_ev` to
+/// twice that. Each channel counts on its own (RapidRAW's ghost test,
+/// Timon Käch, AGPL-3.0): a moving object of another colour but similar
+/// brightness (a red coat on green grass) differs strongly in one channel
+/// while luminance alone half-passed it as the same scene (notes:
+/// benchmark-results/mrg1-2026-11-22). A channel near black in a saturated
+/// colour (red in deep green foliage) is mostly noise, so each channel's
+/// floor also includes a share of the pixel's luminance (`CHANNEL_FLOOR`):
+/// a colour change counts once it is a sizeable part of the brightness.
+/// `cons_rgb` are the consensus sums over `cons_den`; `ratio` is the
+/// frame's exposure against the reference.
+fn ghost_map(
+    frame: &LowRes,
+    cons_rgb: &[Plane; 3],
+    cons_den: &Plane,
+    ratio: f32,
+    threshold_ev: f32,
+) -> Plane {
+    let eps = NOISE_FLOOR * (1.0f32).max(1.0 / ratio);
+    let mut g = Plane::new(frame.u.w, frame.u.h);
+    g.data.par_iter_mut().enumerate().for_each(|(i, g)| {
+        let cd = cons_den.data[i];
+        if frame.u.data[i] < 0.9 || cd <= 0.0 {
+            return;
+        }
+        let k: [f32; 3] = std::array::from_fn(|c| (cons_rgb[c].data[i] / cd).max(0.0));
+        let floor = eps + CHANNEL_FLOOR * luma(&k);
+        let e = (0..3)
+            .map(|c| {
+                let v = frame.rgb[c].data[i].max(0.0) / ratio;
+                ((v + floor) / (k[c] + floor)).log2().abs()
+            })
+            .fold(0.0f32, f32::max);
+        *g = smoothstep(threshold_ev, 2.0 * threshold_ev, e);
+    });
+    gaussian_blur(&max_filter(&g, 3), 3.0).map(|v| v.clamp(0.0, 1.0))
 }
 
 fn max_filter(p: &Plane, radius: usize) -> Plane {
@@ -468,7 +529,8 @@ pub fn merge_hdr(
     let f = wu.max(hu).div_ceil(LOW_RES_TARGET).max(1);
     let align_f = wu.max(hu).div_ceil(ALIGN_TARGET).max(1);
 
-    let (ref_y, ref_u) = low_res(&View::new(&ref_frame.image, None), &to_camera, f);
+    let ref_low = low_res(&View::new(&ref_frame.image, None), &to_camera, f);
+    let (ref_y, ref_u) = (ref_low.y, ref_low.u);
     let ref_align = config
         .align
         .then(|| align_plane(&ref_frame.image, 1.0, align_f));
@@ -481,8 +543,8 @@ pub fn merge_hdr(
 
     let mut num = vec![0.0f32; wu * hu * 3];
     let mut den = vec![0.0f32; wu * hu];
-    // Low-res consensus luminance of the frames merged so far.
-    let mut cons_num = Plane::new(lw, lh);
+    // Low-res consensus colour of the frames merged so far.
+    let mut cons_rgb: [Plane; 3] = std::array::from_fn(|_| Plane::new(lw, lh));
     let mut cons_den = Plane::new(lw, lh);
     let mut ghost_union = config.deghost.threshold_ev().map(|_| Plane::new(lw, lh));
     // With ghost removal: where the reference is clipped (set after it is
@@ -534,8 +596,8 @@ pub fn merge_hdr(
             ratio = match exif_ratio {
                 Some(r) => r,
                 None => {
-                    let (y, u) = low_res(&View::new(&frame.image, None), &to_camera, f);
-                    measure_ratio(&y, &u, &ref_y, &ref_u).unwrap_or(1.0)
+                    let low = low_res(&View::new(&frame.image, None), &to_camera, f);
+                    measure_ratio(&low.y, &low.u, &ref_y, &ref_u).unwrap_or(1.0)
                 }
             };
             if let Some(ref_align) = &ref_align {
@@ -585,29 +647,14 @@ pub fn merge_hdr(
             }
         }
         let view = View::new(&frame.image, warp_used);
-        let (low_y, low_u) = low_res(&view, &to_camera, f);
-        if !is_ref && let Some(measured) = measure_ratio(&low_y, &low_u, &ref_y, &ref_u) {
+        let low = low_res(&view, &to_camera, f);
+        if !is_ref && let Some(measured) = measure_ratio(&low.y, &low.u, &ref_y, &ref_u) {
             ratio = measured;
         }
 
         // Ghosts: disagreement with the consensus where both are usable.
         let ghost = match (config.deghost.threshold_ev(), is_ref) {
-            (Some(t), false) => {
-                let (y, u) = (&low_y, &low_u);
-                let eps = NOISE_FLOOR * (1.0f32).max(1.0 / ratio);
-                let mut g = Plane::new(lw, lh);
-                g.data.par_iter_mut().enumerate().for_each(|(i, g)| {
-                    let cd = cons_den.data[i];
-                    if u.data[i] < 0.9 || cd <= 0.0 {
-                        return;
-                    }
-                    let c = cons_num.data[i] / cd;
-                    let e = ((y.data[i] / ratio + eps) / (c + eps)).log2().abs();
-                    *g = smoothstep(t, 2.0 * t, e);
-                });
-                let g = gaussian_blur(&max_filter(&g, 3), 3.0).map(|v| v.clamp(0.0, 1.0));
-                Some(g)
-            }
+            (Some(t), false) => Some(ghost_map(&low, &cons_rgb, &cons_den, ratio, t)),
             _ => None,
         };
         let ghost_fraction = ghost.as_ref().map(|g| g.mean()).unwrap_or(0.0);
@@ -668,14 +715,15 @@ pub fn merge_hdr(
                 }
             });
         // Consensus update at low resolution.
-        let (y, u) = (&low_y, &low_u);
         for i in 0..lw * lh {
-            let mut wgt = u.data[i];
+            let mut wgt = low.u.data[i];
             if let Some(g) = &ghost {
                 wgt *= 1.0 - g.data[i];
             }
             let wgt = ratio * wgt;
-            cons_num.data[i] += wgt * y.data[i] * inv_ratio;
+            for (cons, plane) in cons_rgb.iter_mut().zip(&low.rgb) {
+                cons.data[i] += wgt * plane.data[i] * inv_ratio;
+            }
             cons_den.data[i] += wgt;
         }
 
@@ -772,4 +820,90 @@ pub fn preview(image: &Rgb32FImage, max_dim: u32) -> RgbImage {
         *px = image::Rgb([tone(s[0]), tone(s[1]), tone(s[2])]);
     });
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A low-res frame of `w`×`h` filled with `rgb`, fully usable.
+    fn flat(w: usize, h: usize, rgb: [f32; 3]) -> LowRes {
+        frame_of(rgb.map(|v| Plane::filled(w, h, v)))
+    }
+
+    fn frame_of(rgb: [Plane; 3]) -> LowRes {
+        let (w, h) = (rgb[0].w, rgb[0].h);
+        let mut y = Plane::new(w, h);
+        for (i, o) in y.data.iter_mut().enumerate() {
+            *o = luma(&[rgb[0].data[i], rgb[1].data[i], rgb[2].data[i]]);
+        }
+        LowRes {
+            rgb,
+            y,
+            u: Plane::filled(w, h, 1.0),
+        }
+    }
+
+    /// A red object moving through a +2 EV frame over grey-green ground: in
+    /// the reference units it is 4.5× brighter in red but only 1.5× in
+    /// luminance (0.58 EV, between Medium's 0.4 and 0.8 EV steps). It must
+    /// be dropped whole, and the matching ground kept.
+    #[test]
+    fn coloured_mover_is_a_ghost_in_its_own_channel() {
+        let (w, h) = (48, 48);
+        let ground = [0.067f32, 0.069, 0.078];
+        let ratio = 4.0;
+        let cons_rgb = ground.map(|v| Plane::filled(w, h, v));
+        let cons_den = Plane::filled(w, h, 1.0);
+        let mut rgb = ground.map(|v| Plane::filled(w, h, v * ratio));
+        for y in 16..32 {
+            for x in 16..32 {
+                for (c, v) in [1.2f32, 0.2, 0.16].into_iter().enumerate() {
+                    rgb[c].data[y * w + x] = v;
+                }
+            }
+        }
+        let frame = frame_of(rgb);
+        let g = ghost_map(
+            &frame,
+            &cons_rgb,
+            &cons_den,
+            ratio,
+            Deghost::Medium.threshold_ev().unwrap(),
+        );
+        assert!(g.at(24, 24) > 0.95, "mover kept: ghost {}", g.at(24, 24));
+        assert!(g.at(2, 2) < 0.01, "ground dropped: ghost {}", g.at(2, 2));
+    }
+
+    /// A still, saturated subject (deep green leaves) whose weak red channel
+    /// reads 0.002 in one frame and 0 in the other is no ghost, even at High.
+    #[test]
+    fn noise_in_a_weak_channel_is_no_ghost() {
+        let (w, h) = (32, 32);
+        let cons = [0.002f32, 0.18, 0.01];
+        let cons_rgb = cons.map(|v| Plane::filled(w, h, v));
+        let cons_den = Plane::filled(w, h, 1.0);
+        let frame = flat(w, h, [0.0, 0.18, 0.012]);
+        let g = ghost_map(
+            &frame,
+            &cons_rgb,
+            &cons_den,
+            1.0,
+            Deghost::High.threshold_ev().unwrap(),
+        );
+        assert!(g.data.iter().all(|&v| v < 0.01), "ghost {}", g.at(16, 16));
+    }
+
+    /// The same scene seen at another exposure is no ghost in any channel.
+    #[test]
+    fn matching_frame_is_no_ghost() {
+        let (w, h) = (32, 32);
+        let scene = [0.30f32, 0.05, 0.04];
+        let ratio = 0.25;
+        let cons_rgb = scene.map(|v| Plane::filled(w, h, v));
+        let cons_den = Plane::filled(w, h, 1.0);
+        let frame = flat(w, h, scene.map(|v| v * ratio * 1.05));
+        let g = ghost_map(&frame, &cons_rgb, &cons_den, ratio, 0.22);
+        assert!(g.data.iter().all(|&v| v < 0.01));
+    }
 }

@@ -125,7 +125,7 @@ pub fn ransac_homography(
     let best = (0..iterations)
         .into_par_iter()
         .map(|it| {
-            let mut rng = Lcg(0x5DEECE66D ^ (it as u64 * 0x9E3779B97F4A7C15));
+            let mut rng = Lcg(0x5DEECE66D ^ (it as u64).wrapping_mul(0x9E3779B97F4A7C15));
             let mut idx = [0usize; 4];
             for k in 0..4 {
                 loop {
