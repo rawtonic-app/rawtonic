@@ -287,12 +287,19 @@ pub(crate) fn render_unedited_full_size(
     render_prepared_unedited(&prepared, None, &env)
 }
 
-/// The size `render_unedited_full_size` renders the RAW in `bytes` at, from
+/// The size `render_unedited_full_size` renders the RAW in `file` at, from
 /// its header: the new recipe's crop (the camera's) of the developed frame,
 /// which the decode turns upright. None where the header tells nothing.
-pub(crate) fn unedited_size(path: &str, bytes: &[u8]) -> Option<(u32, u32)> {
-    let (adjustments, _) = rawtonic_export::normalize::new_edit_from_bytes(Path::new(path), bytes);
-    let source = rawler::rawsource::RawSource::new_from_slice(bytes).with_path(path);
+/// Reads `file` in place (a mapping: only the metadata it needs).
+pub(crate) fn unedited_size(
+    path: &str,
+    file: &rawtonic_engine::image_loader::SharedBytes,
+) -> Option<(u32, u32)> {
+    let (adjustments, _) = rawtonic_export::normalize::new_edit_from_source(
+        Path::new(path),
+        &rawler::rawsource::RawSource::new_from_shared(file.clone()),
+    );
+    let source = rawler::rawsource::RawSource::new_from_shared(file.clone()).with_path(path);
     let version = rawtonic_rawdecode::source_frame::effective(
         &source,
         rawtonic_engine::source_frame::requested(&adjustments),
@@ -3403,7 +3410,9 @@ mod tests {
             let prepared = prepare_unedited(unedited, &env).unwrap();
             let prepare = ms(started);
             let (w, h) = prepared.size();
-            assert_eq!(super::unedited_size(path, &bytes), Some((w, h)), "{path}");
+            let shared: rawtonic_engine::image_loader::SharedBytes =
+                std::sync::Arc::new(bytes.clone());
+            assert_eq!(super::unedited_size(path, &shared), Some((w, h)), "{path}");
             let (rw, rh) = (vw.min(w), vh.min(h));
             let (rx, ry) = ((w - rw) / 2, (h - rh) / 2);
             let started = Instant::now();

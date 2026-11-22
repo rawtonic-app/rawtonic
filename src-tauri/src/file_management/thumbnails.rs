@@ -374,12 +374,27 @@ fn retouched_base<'a>(
     }
 }
 
-pub(crate) fn try_load_embedded_raw_preview(source_path: &Path) -> Option<DynamicImage> {
-    let mmap = read_file_mapped(source_path).ok()?;
-    image_loader::safe_embedded_preview_fallback_shared(
-        Arc::new(mmap),
+/// A RAW's embedded preview (`safe_embedded_preview_fallback_shared`) and
+/// the mapping it was read from, for the steps after it
+/// (`embedded_in_camera_crop`) to read the same file through it instead of
+/// opening it again.
+fn embedded_raw_preview_and_file(source_path: &Path) -> Option<(DynamicImage, MappedRaw)> {
+    let (mmap, metadata) =
+        rawtonic_engine::file_io::read_file_mapped_with_metadata(source_path).ok()?;
+    // The mapped file's own size and time (`camera_crop::crops_in`).
+    let stamp = metadata.modified().ok().map(|time| (metadata.len(), time));
+    let file: image_loader::SharedBytes = Arc::new(mmap);
+    let preview = image_loader::safe_embedded_preview_fallback_shared(
+        file.clone(),
         &source_path.to_string_lossy(),
-    )
+    )?;
+    Some((preview, MappedRaw { file, stamp }))
+}
+
+/// A RAW's mapping and the `camera_crop::FileStamp` of the file mapped.
+struct MappedRaw {
+    file: image_loader::SharedBytes,
+    stamp: Option<rawtonic_engine::camera_crop::FileStamp>,
 }
 
 pub fn generate_thumbnail_data(
@@ -479,13 +494,19 @@ fn cut_to_camera_frame(
 /// A never-edited RAW's embedded JPEG framed as its export frames it: cut
 /// to the camera's crop where the JPEG shows the whole frame
 /// (`camera_crop::shows_crop`: a Fujifilm RAF's 3:2 JPEG of a 16:9 or 5:4
-/// photo); Canon's and the EX2F's JPEGs are their crop already.
-fn embedded_in_camera_crop(image: DynamicImage, source: &str) -> DynamicImage {
+/// photo); Canon's and the EX2F's JPEGs are their crop already. The crops
+/// are read through `file`, the mapping the JPEG came from, when given.
+fn embedded_in_camera_crop(
+    image: DynamicImage,
+    source: &str,
+    file: Option<&MappedRaw>,
+) -> DynamicImage {
     let never_edited = serde_json::Value::Null;
-    match rawtonic_engine::camera_crop::initial_crop(
-        &never_edited,
-        &crate::camera_crop::crops(Path::new(source)),
-    ) {
+    let crops = match file {
+        Some(raw) => rawtonic_engine::camera_crop::crops_in(source, &raw.file, raw.stamp),
+        None => crate::camera_crop::crops(Path::new(source)),
+    };
+    match rawtonic_engine::camera_crop::initial_crop(&never_edited, &crops) {
         Some(crop)
             if !rawtonic_engine::camera_crop::shows_crop(crop, image.width(), image.height()) =>
         {
@@ -617,10 +638,14 @@ fn develop_thumbnail_with_source(
         && adjustments.is_null()
         && preloaded_image.is_none()
         && !always_decode_raw
-        && let Some(preview) = try_load_embedded_raw_preview(&source_path)
+        && let Some((preview, file)) = embedded_raw_preview_and_file(&source_path)
     {
         *embedded = true;
-        return Ok(embedded_in_camera_crop(preview, &source_path_str));
+        return Ok(embedded_in_camera_crop(
+            preview,
+            &source_path_str,
+            Some(&file),
+        ));
     }
 
     if let (Some(context), Some(meta)) = (gpu_context, metadata)
@@ -1055,6 +1080,18 @@ enum ImportSource {
     Read(Vec<u8>),
 }
 
+impl ImportSource {
+    /// The file as a buffer rawler reads in place
+    /// (`RawSource::new_from_shared`): mapped, only the parts a step looks at
+    /// are read from the disk or share, not a copy of every byte.
+    fn into_shared(self) -> image_loader::SharedBytes {
+        match self {
+            Self::Mapped(map) => std::sync::Arc::new(map),
+            Self::Read(bytes) => std::sync::Arc::new(bytes),
+        }
+    }
+}
+
 impl std::ops::Deref for ImportSource {
     type Target = [u8];
 
@@ -1096,11 +1133,11 @@ fn source_preview_image(path: &Path, size: u32) -> Option<DynamicImage> {
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_import_source(path)?;
-        quick_source_preview(&bytes, path, size).or_else(|| {
+        let file = read_import_source(path)?.into_shared();
+        quick_source_preview(&file, path, size).or_else(|| {
             let path_str = path.to_string_lossy();
             let mut image = image_loader::load_and_composite(
-                &bytes,
+                (*file).as_ref(),
                 &path_str,
                 &serde_json::Value::Null,
                 true,
@@ -1193,15 +1230,16 @@ pub(crate) fn source_full_size_jpeg(
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_import_source(path)?;
+        let file = read_import_source(path)?.into_shared();
+        let bytes: &[u8] = (*file).as_ref();
         if !is_raw_file(path) {
             if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
                 return Some((bytes.to_vec(), FullSizeSource::File));
             }
-            let image = quick_source_preview(&bytes, path, u32::MAX)?;
+            let image = quick_source_preview(&file, path, u32::MAX)?;
             return Some((encode_full_size(&image)?, FullSizeSource::File));
         }
-        let source = rawler::rawsource::RawSource::new_from_slice(&bytes);
+        let source = rawler::rawsource::RawSource::new_from_shared(file.clone());
         let params = rawler::decoders::RawDecodeParams::default();
         let decoder = rawler::get_decoder(&source).ok();
         // The sensor's size and orientation, from the RAW's header only.
@@ -1214,7 +1252,7 @@ pub(crate) fn source_full_size_jpeg(
                 .map_or((raw.width, raw.height), |area| (area.d.w, area.d.h));
             u32::try_from(w.max(h)).unwrap_or(u32::MAX)
         });
-        if let Some(jpeg) = image_loader::priority_embedded_jpeg(&bytes)
+        if let Some(jpeg) = image_loader::priority_embedded_jpeg(bytes)
             && let Ok((w, h)) =
                 image::ImageReader::with_format(Cursor::new(&jpeg), image::ImageFormat::Jpeg)
                     .into_dimensions()
@@ -1232,7 +1270,7 @@ pub(crate) fn source_full_size_jpeg(
             return Some((encode_full_size(&image)?, FullSizeSource::Embedded));
         }
         let started = std::time::Instant::now();
-        let image = render(&bytes)?;
+        let image = render(bytes)?;
         let rendered = started.elapsed();
         let jpeg = encode_full_size(&image)?;
         log::info!(
@@ -1247,8 +1285,9 @@ pub(crate) fn source_full_size_jpeg(
     .flatten()
 }
 
-/// The width and height of a photograph from its bytes, if they tell.
-pub(crate) type SizeOfBytes<'a> = dyn Fn(&[u8]) -> Option<(u32, u32)> + 'a;
+/// The width and height of a photograph from its file (read in place), if
+/// it tells.
+pub(crate) type SizeOfBytes<'a> = dyn Fn(&image_loader::SharedBytes) -> Option<(u32, u32)> + 'a;
 
 /// The size of a RAW's import 100 % view (`source_full_size_jpeg`), from
 /// its header and embedded JPEG only, without decoding it: a full-size
@@ -1265,8 +1304,8 @@ pub(crate) fn source_full_size_dimensions(
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_import_source(path)?;
-        let source = rawler::rawsource::RawSource::new_from_slice(&bytes);
+        let file = read_import_source(path)?.into_shared();
+        let source = rawler::rawsource::RawSource::new_from_shared(file.clone());
         let params = rawler::decoders::RawDecodeParams::default();
         let sensor_long = rawler::get_decoder(&source)
             .ok()
@@ -1277,7 +1316,7 @@ pub(crate) fn source_full_size_dimensions(
                     .map_or((raw.width, raw.height), |area| (area.d.w, area.d.h));
                 u32::try_from(w.max(h)).unwrap_or(u32::MAX)
             });
-        if let Some(jpeg) = image_loader::priority_embedded_jpeg(&bytes)
+        if let Some(jpeg) = image_loader::priority_embedded_jpeg((*file).as_ref())
             && let Ok((w, h)) =
                 image::ImageReader::with_format(Cursor::new(&jpeg), image::ImageFormat::Jpeg)
                     .into_dimensions()
@@ -1285,7 +1324,7 @@ pub(crate) fn source_full_size_dimensions(
         {
             return Some((w, h));
         }
-        render_size(&bytes)
+        render_size(&file)
     }))
     .ok()
     .flatten()
@@ -1329,9 +1368,9 @@ pub(crate) fn source_capture_info(path: &Path) -> SourceCaptureInfo {
         return SourceCaptureInfo::default();
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_import_source(path)?;
+        let file = read_import_source(path)?.into_shared();
         let exif =
-            crate::exif_processing::read_exif_data_from_bytes(&path.to_string_lossy(), &bytes);
+            crate::exif_processing::read_exif_data_from_shared(&path.to_string_lossy(), file);
         let field = |keys: &[&str]| {
             keys.iter()
                 .filter_map(|key| exif.get(*key))
@@ -1371,7 +1410,12 @@ pub(crate) fn source_capture_info(path: &Path) -> SourceCaptureInfo {
 }
 
 /// `source_preview_jpeg`'s previews that need no develop.
-fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicImage> {
+fn quick_source_preview(
+    file: &image_loader::SharedBytes,
+    path: &Path,
+    size: u32,
+) -> Option<DynamicImage> {
+    let bytes: &[u8] = (**file).as_ref();
     let orient = |image: DynamicImage, orientation: Option<u16>| match orientation {
         Some(o) if o > 1 => rawtonic_rawdecode::orientation::apply_orientation(
             image,
@@ -1395,8 +1439,8 @@ fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicI
             .is_ok_and(|(w, h)| w.min(h) >= size / 2)
     };
     // Candidates come largest first: take the smallest that suffices.
-    if let Some(image) = image_loader::tiff_jpeg_candidates(bytes)
-        .and_then(|candidates| candidates.into_iter().rev().find(small_enough))
+    if let Some(image) = image_loader::tiff_jpeg_previews(bytes)
+        .and_then(|mut previews| previews.rfind(small_enough))
         .and_then(jpeg)
     {
         return Some(orient(image, image_loader::exif_orientation(bytes)));
@@ -1416,7 +1460,7 @@ fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicI
     {
         return Some(orient(image, image_loader::exif_orientation(bytes)));
     }
-    image_loader::safe_embedded_preview_fallback(bytes, &path.to_string_lossy())
+    image_loader::safe_embedded_preview_fallback_shared(file.clone(), &path.to_string_lossy())
 }
 
 pub(crate) fn encode_thumbnail(image: &DynamicImage, target_width: u32) -> Result<Vec<u8>> {
@@ -2953,7 +2997,7 @@ mod thumbnail_queue_tests {
             },
         );
         let size = |width, height| {
-            let cut = embedded_in_camera_crop(DynamicImage::new_rgb8(width, height), path);
+            let cut = embedded_in_camera_crop(DynamicImage::new_rgb8(width, height), path, None);
             (cut.width(), cut.height())
         };
         assert_eq!(size(1920, 1280), (1920, 1080));

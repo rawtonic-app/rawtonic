@@ -182,12 +182,36 @@ pub fn normalize(
 /// The import view's new recipe from bytes already read from a card.
 /// The path identifies the format only; no file or sidecar is opened.
 pub fn new_edit_from_bytes(path: &Path, bytes: &[u8]) -> (Value, Normalized) {
+    new_edit_with(path, |recipe| {
+        raw_defaults(
+            recipe,
+            path,
+            &rawler::rawsource::RawSource::new_from_slice(bytes),
+        )
+    })
+}
+
+/// [`new_edit_from_bytes`] of a RAW rawler reads in place (e.g. a mapping of
+/// the file, `RawSource::new_from_shared`), so only the metadata the
+/// defaults need is read instead of a copy of every byte. `source` is used
+/// for a RAW `path` only.
+pub fn new_edit_from_source(
+    path: &Path,
+    source: &rawler::rawsource::RawSource,
+) -> (Value, Normalized) {
+    new_edit_with(path, |recipe| raw_defaults(recipe, path, source))
+}
+
+fn raw_defaults(recipe: &mut Value, path: &Path, source: &rawler::rawsource::RawSource) {
+    rawtonic_engine::camera_crop::apply_default_from_source(recipe, source);
+    rawtonic_engine::embedded_lens::apply_default_from_source(recipe, path, source);
+}
+
+fn new_edit_with(path: &Path, raw: impl FnOnce(&mut Value)) -> (Value, Normalized) {
     let mut recipe = serde_json::json!({});
     let is_raw = rawtonic_engine::formats::is_raw_file(path);
     if is_raw {
-        let source = rawler::rawsource::RawSource::new_from_slice(bytes);
-        rawtonic_engine::camera_crop::apply_default_from_source(&mut recipe, &source);
-        rawtonic_engine::embedded_lens::apply_default_from_source(&mut recipe, path, &source);
+        raw(&mut recipe);
     } else {
         rawtonic_engine::image_processing::apply_render_default(&mut recipe);
     }

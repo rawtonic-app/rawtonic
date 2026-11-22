@@ -1483,12 +1483,13 @@ fn read_source(
             // A 16:9, 4:3 or 1:1 frame reaches a smaller part of the 3:2
             // sensor's radius the data refer to; from frame version 2 such a
             // frame is a crop of the whole sensor, which develops.
-            let mut head = Vec::new();
-            source.reader().take(1 << 20).read_to_end(&mut head).ok()?;
+            // Borrowed, not read into a copy: only the pages the tags lie in
+            // are read from the file.
+            let head = &header[..header.len().min(1 << 20)];
             let uncut = frame_version != crate::recipe_versions::ORIGINAL_SOURCE_FRAME
                 && crate::raw_processing::sensor_and_frame(source, frame_version)
                     != crate::raw_processing::sensor_and_frame(source, 0);
-            let frame_reach = match crate::capture_info::aspect_crop(&head) {
+            let frame_reach = match crate::capture_info::aspect_crop(head) {
                 _ if uncut => 1.0,
                 Some(crate::capture_info::AspectCrop::Centered(w, h)) => {
                     let (w, h) = (w as f64, h as f64);
@@ -1598,9 +1599,7 @@ fn read_source(
                 .and_then(crate::capture_info::olympus_lens_correction_from)?;
             // The model's corner is the 4:3 sensor's; an aspect-ratio frame
             // (16:9, 3:2, 1:1) reaches a smaller part of its radius.
-            let mut head = Vec::new();
-            source.reader().take(8 << 20).read_to_end(&mut head).ok()?;
-            let reach = crate::capture_info::aspect_crop(&head)
+            let reach = crate::capture_info::aspect_crop(header)
                 .map(|crop| match crop {
                     crate::capture_info::AspectCrop::Relative(_, _, w, h)
                     | crate::capture_info::AspectCrop::Absolute(_, _, w, h)

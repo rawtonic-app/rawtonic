@@ -27,6 +27,12 @@ impl fmt::Display for ReadFileError {
 
 /// Maps a source file read-only, refusing empty, missing or locked files.
 pub fn read_file_mapped(path: &Path) -> Result<Mmap, ReadFileError> {
+    read_file_mapped_with_metadata(path).map(|(mmap, _)| mmap)
+}
+
+/// [`read_file_mapped`] and the metadata of the opened file the mapping
+/// is of (not of whatever the path names later).
+pub fn read_file_mapped_with_metadata(path: &Path) -> Result<(Mmap, fs::Metadata), ReadFileError> {
     if !path.is_file() {
         return Err(ReadFileError::Invalid);
     }
@@ -40,11 +46,12 @@ pub fn read_file_mapped(path: &Path) -> Result<Mmap, ReadFileError> {
     if file.try_lock_shared().is_err() {
         return Err(ReadFileError::Locked);
     }
+    let metadata = file.metadata().map_err(ReadFileError::Io)?;
     let mmap = unsafe {
         MmapOptions::new()
-            .len(file.metadata().map_err(ReadFileError::Io)?.len() as usize)
+            .len(metadata.len() as usize)
             .map(&file)
             .map_err(ReadFileError::Io)?
     };
-    Ok(mmap)
+    Ok((mmap, metadata))
 }
