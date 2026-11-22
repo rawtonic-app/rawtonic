@@ -2227,8 +2227,9 @@ pub(crate) struct Region {
 #[derive(Clone)]
 pub(crate) struct RegionBase {
     preparation_key: u64,
-    /// The file of the photograph when the base was begun (`file_stamp`).
+    /// The file and decoder preferences when the base was begun.
     file_stamp: u64,
+    decode_generation: usize,
     zoom_scale: f32,
     /// The region in full-resolution px of the shown photograph.
     region: [f32; 4],
@@ -2256,10 +2257,13 @@ fn prepare_region(
     zoom: CellZoom,
     recipe: &serde_json::Value,
 ) -> Result<(RegionBase, &'static str), String> {
-    // Before the source is read: a save after it makes this base stale.
+    // A save or decoder preference change during preparation makes this base stale.
     let stamp = file_stamp(path);
-    let (mut base, kind) = prepare_region_unstamped(app_handle, path, area, zoom, recipe)?;
+    let generation = crate::multi_view_prefetch::decodes_generation();
+    let (mut base, kind) =
+        prepare_region_unstamped(app_handle, path, area, zoom, recipe, generation)?;
     base.file_stamp = stamp;
+    base.decode_generation = generation;
     Ok((base, kind))
 }
 
@@ -2269,6 +2273,7 @@ fn prepare_region_unstamped(
     area: Option<[f32; 4]>,
     zoom: CellZoom,
     recipe: &serde_json::Value,
+    generation: usize,
 ) -> Result<(RegionBase, &'static str), String> {
     match prepare_region_from_rows(app_handle, path, area, zoom, recipe) {
         Ok(fast) => return Ok(fast),
@@ -2277,8 +2282,6 @@ fn prepare_region_unstamped(
         }
     }
     let loading = Instant::now();
-    // Before the settings: a change after makes a decode made now stale.
-    let generation = crate::multi_view_prefetch::decodes_generation();
     let settings = crate::state::settings::current(app_handle);
     let (source, source_scale, facts, source_kind, preview_key) =
         load_full_source(app_handle, path, recipe, &settings, generation)?;
@@ -2337,6 +2340,7 @@ fn prepare_region_unstamped(
         RegionBase {
             preparation_key: crate::preview_cache::preparation_key(recipe),
             file_stamp: 0,
+            decode_generation: 0,
             zoom_scale: zoom.scale,
             region: [x as f32 / s, y as f32 / s, w as f32 / s, h as f32 / s],
             image,
@@ -2711,7 +2715,7 @@ fn whole_base_key(path: &str, base: &RegionBase) -> u64 {
     base.scale.to_bits().hash(&mut hash);
     base.whole_size.hash(&mut hash);
     base.facts.is_raw.hash(&mut hash);
-    crate::multi_view_prefetch::decodes_generation().hash(&mut hash);
+    base.decode_generation.hash(&mut hash);
     hash.finish()
 }
 
@@ -2875,8 +2879,8 @@ fn whole_photo_measures(
     };
     let measured = prepare_region(app_handle, path, None, zoom, recipe).and_then(
         |(whole, kind)| {
-            if whole.file_stamp != base.file_stamp {
-                return Err(format!("{path} changed since its region was prepared"));
+            if whole.file_stamp != base.file_stamp || whole.decode_generation != base.decode_generation {
+                return Err(format!("The source of {path} changed since its region was prepared"));
             }
             if whole.scale != base.scale
                 || whole.image.dimensions() != base.whole_size
@@ -2965,6 +2969,7 @@ fn region_base(
     RegionBase {
         preparation_key: crate::preview_cache::preparation_key(recipe),
         file_stamp: 0,
+        decode_generation: 0,
         zoom_scale: zoom.scale,
         region: [rx as f32, ry as f32, rw as f32, rh as f32],
         image: Arc::new(image),
@@ -3070,7 +3075,7 @@ fn kept_base(
     zoom: CellZoom,
     recipe: &serde_json::Value,
 ) -> Option<RegionBase> {
-    kept_base_reaching(bases, path, area, zoom, recipe, true)
+    kept_base_reaching(bases, path, area, zoom, recipe, true, None)
 }
 
 /// [`kept_base`]; with `noise_reach` false, one that covers the visible
@@ -3083,11 +3088,14 @@ fn kept_base_reaching(
     zoom: CellZoom,
     recipe: &serde_json::Value,
     noise_reach: bool,
+    target_source: Option<(u64, usize)>,
 ) -> Option<RegionBase> {
     let preparation_key = crate::preview_cache::preparation_key(recipe);
+    let mut bases = bases.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((stamp, generation)) = target_source {
+        keep_current_base(&mut bases, path, stamp, generation);
+    }
     bases
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
         .get(path)
         .filter(|base| {
             let shown = shown_size(recipe, base.facts);
@@ -3175,11 +3183,18 @@ fn develop_region_in(
     // The live path never prepares a base (it would decode in the preview
     // worker): it takes one without the noise reach too, for a provisional
     // region (`live_region`).
-    let kept = kept_base(bases, path, area, zoom, &recipe).or_else(|| {
-        (caller == LIVE_RENDER)
-            .then(|| kept_base_reaching(bases, path, area, zoom, &recipe, false))
-            .flatten()
+    let target_source = (caller == gpu_processing::COLOR_TARGET_CALLER).then(|| {
+        (
+            file_stamp(path),
+            crate::multi_view_prefetch::decodes_generation(),
+        )
     });
+    let kept =
+        kept_base_reaching(bases, path, area, zoom, &recipe, true, target_source).or_else(|| {
+            (caller == LIVE_RENDER)
+                .then(|| kept_base_reaching(bases, path, area, zoom, &recipe, false, None))
+                .flatten()
+        });
     let (base, source_kind) = match kept {
         Some(base) => (base, "region-cache"),
         None => {
@@ -3311,13 +3326,17 @@ fn target_bases() -> &'static RegionBases {
     BASES.get_or_init(Default::default)
 }
 
-/// Drops every base of `bases` but `path`'s, and `path`'s too when it was
-/// cut from another version of the file (`stamp`: its [`file_stamp`] now).
-fn keep_current_base(bases: &RegionBases, path: &str, stamp: u64) {
-    bases
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .retain(|kept, base| kept == path && base.file_stamp == stamp);
+/// Retains the target base only for the edited photo, its current file and
+/// decoder preferences.
+fn keep_current_base(
+    bases: &mut HashMap<String, RegionBase>,
+    path: &str,
+    stamp: u64,
+    generation: usize,
+) {
+    bases.retain(|kept, base| {
+        kept == path && base.file_stamp == stamp && base.decode_generation == generation
+    });
 }
 
 /// The colour target's measurement (`sample_color_range_result`, and the
@@ -3355,10 +3374,6 @@ pub(crate) fn develop_target_block(
         probe.hash(&mut hash);
         hash.finish() | 1
     };
-    // Only the photograph being edited keeps its base, and only while its
-    // file is the one the base was cut from (an Edit With file saved
-    // outside and reloaded).
-    keep_current_base(target_bases(), path, file_stamp(path));
     // The zoom's centre is normalised to the shown photograph.
     let zoom = CellZoom {
         scale: 1.0,
@@ -4218,7 +4233,7 @@ fn live_region(
     // one covering the visible part only.
     let (base, reaching) = match kept_base(&regions.bases, path, area, zoom, recipe) {
         Some(base) => (base, true),
-        None => match kept_base_reaching(&regions.bases, path, area, zoom, recipe, false) {
+        None => match kept_base_reaching(&regions.bases, path, area, zoom, recipe, false, None) {
             Some(base) => (base, false),
             None => return LiveRegion::Unavailable,
         },
@@ -4278,6 +4293,7 @@ mod tests {
         let first = RegionBase {
             preparation_key: 1,
             file_stamp: 2,
+            decode_generation: 0,
             zoom_scale: 0.5002,
             region: [0.0, 0.0, 1.0, 1.0],
             image: Arc::new(DynamicImage::new_rgb32f(1, 1)),
@@ -4308,6 +4324,7 @@ mod tests {
         let base = |stamp| RegionBase {
             preparation_key: 1,
             file_stamp: stamp,
+            decode_generation: 0,
             zoom_scale: 1.0,
             region: [0.0, 0.0, 1.0, 1.0],
             image: Arc::new(DynamicImage::new_rgb32f(1, 1)),
@@ -4322,15 +4339,19 @@ mod tests {
             },
             mask_source: None,
         };
-        let bases = RegionBases::default();
-        bases.lock().unwrap().insert("a.tif".into(), base(7));
-        bases.lock().unwrap().insert("b.tif".into(), base(7));
-        keep_current_base(&bases, "a.tif", 7);
-        assert_eq!(bases.lock().unwrap().len(), 1);
-        assert!(bases.lock().unwrap().contains_key("a.tif"));
+        let mut bases = HashMap::new();
+        bases.insert("a.tif".into(), base(7));
+        bases.insert("b.tif".into(), base(7));
+        keep_current_base(&mut bases, "a.tif", 7, 0);
+        assert_eq!(bases.len(), 1);
+        assert!(bases.contains_key("a.tif"));
         // The file was saved again outside (another stamp): its base goes too.
-        keep_current_base(&bases, "a.tif", 8);
-        assert!(bases.lock().unwrap().is_empty());
+        keep_current_base(&mut bases, "a.tif", 8, 0);
+        assert!(bases.is_empty());
+        // The same source on disk, opened with a new decoder preference.
+        bases.insert("a.tif".into(), base(8));
+        keep_current_base(&mut bases, "a.tif", 8, 1);
+        assert!(bases.is_empty());
     }
 
     #[test]
@@ -4983,6 +5004,7 @@ mod tests {
             RegionBase {
                 preparation_key: 1,
                 file_stamp: 0,
+                decode_generation: 0,
                 zoom_scale: 1.0,
                 region: [0.0, 0.0, 10.0, 10.0],
                 image: Arc::new(DynamicImage::new_rgb32f(1, 1)),
@@ -5061,6 +5083,7 @@ mod tests {
             RegionBase {
                 preparation_key: crate::preview_cache::preparation_key(&recipe),
                 file_stamp: 0,
+                decode_generation: 0,
                 zoom_scale: 1.0,
                 region: [1200.0, 850.0, 1600.0, 1300.0],
                 image: Arc::new(DynamicImage::new_rgb32f(1, 1)),

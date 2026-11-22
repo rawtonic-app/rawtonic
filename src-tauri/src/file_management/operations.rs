@@ -1257,6 +1257,36 @@ mod tests {
     }
 
     #[test]
+    fn moving_a_jpeg_takes_its_xmp_beside_other_editors_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonical().unwrap();
+        let from = root.join("From");
+        let to = root.join("To");
+        fs::create_dir(&to).unwrap();
+        let jpg = from.join("A.JPG");
+        write(&jpg, "jpeg");
+        write(&from.join("A.NEF"), "raw");
+        write(&from.join("A.xmp"), "raw packet");
+        write(&from.join("A.JPG.xmp"), "jpeg packet");
+        write(&from.join("A.JPG.dop"), "jpeg editor settings");
+        write(&from.join("A.NEF.pp3"), "raw editor settings");
+        let (steps, ..) =
+            plan_move(&[jpg.to_string_lossy().into_owned()], &to.to_string_lossy()).unwrap();
+        let journal = rawtonic_fileops::Journal::open(&root.join("journal.sqlite")).unwrap();
+        let trash = rawtonic_fileops::NoSystemTrash;
+        let op = journal.execute("move", "Move", steps, &trash).unwrap();
+        // After the move the JPEG is alone, but its own full-name packet still belongs to it.
+        assert_eq!(read(&to.join("A.JPG")), "jpeg");
+        assert_eq!(read(&to.join("A.JPG.xmp")), "jpeg packet");
+        assert_eq!(read(&from.join("A.xmp")), "raw packet");
+        assert_eq!(read(&from.join("A.JPG.dop")), "jpeg editor settings");
+        assert_eq!(read(&from.join("A.NEF.pp3")), "raw editor settings");
+        journal.undo(&op.id, &trash).unwrap();
+        assert_eq!(read(&from.join("A.JPG.xmp")), "jpeg packet");
+        assert!(!to.join("A.JPG.xmp").exists());
+    }
+
+    #[test]
     fn photos_are_never_moved_out_of_their_session() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().canonical().unwrap();
