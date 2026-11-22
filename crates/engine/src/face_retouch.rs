@@ -225,13 +225,6 @@ pub struct RetouchFace {
     /// `mouth` stays); absent on faces found before it.
     #[serde(default)]
     pub parsed_teeth: Option<eye_teeth::Loops>,
-    /// The share of the iris radius the Iris mask's disk reaches on the
-    /// parser's eyes (rawtonic-faces `portrait::IRIS_DISK`), set when the
-    /// parser looked at the face; absent on faces found before it
-    /// (0.1.0-alpha.19 and earlier), which keep the full disk. The panel
-    /// keeps a face's value when it finds the face again.
-    #[serde(default)]
-    pub iris_disk: Option<f32>,
     /// Blemishes (ids) the user keeps.
     #[serde(default)]
     pub kept: Vec<u32>,
@@ -267,6 +260,13 @@ pub struct FaceRetouch {
     /// The protection brush's strokes (mask-frame pixels), for every face.
     #[serde(deserialize_with = "protect::deserialize_strokes")]
     pub protect: Vec<ProtectStroke>,
+    /// The share of the iris radius the Iris mask's disk reaches on the
+    /// parser's eyes (rawtonic-faces `portrait::IRIS_DISK`), set when the
+    /// retouch is made from faces the parser looked at; absent on retouches
+    /// made before it (0.1.0-alpha.19 and earlier), which keep the full
+    /// disk. Faces found again keep the retouch's value.
+    #[serde(rename = "irisDisk")]
+    pub iris_disk: Option<f32>,
 }
 
 /// Geometry keys (cache_utils) that correct colour, not where a pixel is:
@@ -1549,7 +1549,7 @@ pub fn apply_face_retouch(image: &mut Rgb32FImage, adjustments: &Value) -> bool 
                     eye_distance: (face.eye_distance * base_per_mask) as f32,
                     // A share outside 0.5–1 is not one the app writes (an
                     // edited sidecar): kept within it.
-                    iris_disk: face.iris_disk.map_or(1.0, |s| s.clamp(0.5, 1.0)),
+                    iris_disk: retouch.iris_disk.map_or(1.0, |s| s.clamp(0.5, 1.0)),
                 },
                 &amounts,
             );
@@ -1600,7 +1600,6 @@ mod tests {
             eyes: vec![],
             mouth: None,
             parsed_teeth: None,
-            iris_disk: None,
             kept: vec![],
             added: vec![],
             settings,

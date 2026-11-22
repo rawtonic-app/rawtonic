@@ -447,6 +447,9 @@ fn with_face_retouch(
         "frame": rawtonic_engine::face_retouch::frame_key(&recipe),
         "geometry": "",
     });
+    if let Some(disk) = rawtonic_faces::recipe::iris_disk(portrait) {
+        recipe["faceRetouch"]["irisDisk"] = serde_json::json!(disk);
+    }
     Ok(recipe)
 }
 

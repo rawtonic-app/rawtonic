@@ -296,7 +296,7 @@ pub(super) struct Placement<'a> {
     /// Eye distance, base pixels.
     pub eye_distance: f32,
     /// The share of the iris radius the Iris mask's disk reaches on the
-    /// parser's eyes (`Face::iris_disk`; 1 for faces without it).
+    /// parser's eyes (`FaceRetouch::iris_disk`; 1 without it).
     pub iris_disk: f32,
 }
 
@@ -667,7 +667,7 @@ fn eye_masks(patch: &Patch, lid: &Outline, (cx, cy, r): (f32, f32, f32)) -> (Vec
 /// `portrait`): Sclera is its eye opening outside the iris circle at 0.9 of
 /// its radius, Iris the circle at `disk_share` of its radius within its
 /// wider opening (the circle's 0.9 leaves the limbal ring to both; EYE3's
-/// settings; `Face::iris_disk`).
+/// settings; `FaceRetouch::iris_disk`).
 fn parsed_eye_masks(
     patch: &Patch,
     opening: &Region,
@@ -1400,7 +1400,7 @@ mod tests {
 
     /// A parser eye whose stored iris circle (radius 14) is larger than the
     /// real iris (radius 11), with a shaded eye white between them, before
-    /// and after Iris 100; `disk`: the face's `irisDisk`.
+    /// and after Iris 100; `disk`: the retouch's `irisDisk`.
     fn iris_beside_a_shaded_white(disk: Option<f32>) -> (Rgb32FImage, Rgb32FImage) {
         const SHADED: [f32; 3] = [0.2, 0.19, 0.17];
         let image = Rgb32FImage::from_fn(400, 300, |x, y| {
@@ -1426,7 +1426,7 @@ mod tests {
             "skin": "", "blemishes": [], "kept": [], "eyes": [eye],
         }]}});
         if let Some(d) = disk {
-            recipe["faceRetouch"]["faces"][0]["irisDisk"] = json!(d);
+            recipe["faceRetouch"]["irisDisk"] = json!(d);
         }
         let mut after = image.clone();
         assert!(apply_face_retouch(&mut after, &recipe));
@@ -1441,7 +1441,7 @@ mod tests {
         assert!(changed(&before, &after, 125, 100));
         assert!(!changed(&before, &after, 133, 100));
         assert!(!changed(&before, &after, 106, 100));
-        // Faces found before `irisDisk` keep the full disk, as they rendered.
+        // Retouches made before `irisDisk` keep the full disk, as they rendered.
         let (before, old) = iris_beside_a_shaded_white(None);
         assert!(changed(&before, &old, 133, 100));
         let (_, full) = iris_beside_a_shaded_white(Some(1.0));

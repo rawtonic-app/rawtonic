@@ -8,7 +8,7 @@ import {
   eyeChange,
   eyeValue,
   eyesSwapped,
-  carryOver,
+  foundAgain,
   swapSides,
   faceRetouchGeometry,
   removedBlemishes,
@@ -17,7 +17,7 @@ import {
   eyesTeethSet,
   withParsedEyesTeeth
 } from './StudioFaceRetouch';
-import type { RetouchFace } from '../../utils/adjustments';
+import type { FaceRetouch, RetouchFace } from '../../utils/adjustments';
 import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
 
 const rustList = (source: string, start: RegExp) => {
@@ -217,34 +217,6 @@ describe('eye sides through a flip', () => {
     ).toBe(false);
   });
 
-  it('keeps the Iris disk a retouch was analysed with through faces found again', () => {
-    const sides = { from: plain, to: { ...plain, flipHorizontal: true }, width: 200, height: 100 };
-    const straight = { ...sides, to: plain };
-    const parsed = (left: number, right: number, disk?: number, eyes = true): RetouchFace => {
-      const f = face(left, right);
-      return {
-        ...f,
-        box: [Math.min(left, right) - 30, 0, 100, 100],
-        eyes: eyes ? f.eyes!.map((e) => ({ ...e!, parsedEye: [], parsedIris: [] })) : f.eyes,
-        ...(disk !== undefined && { irisDisk: disk })
-      } as RetouchFace;
-    };
-    // Saved before the disk (0.1.0-alpha.19), Iris set.
-    const saved = { ...parsed(40, 80), settings: { iris: 60 } } as RetouchFace;
-    const flipped = carryOver([saved], [parsed(120, 160, 0.9)], sides).faces[0];
-    expect(flipped.settings).toEqual({ iris: 60 });
-    expect(flipped.irisDisk).toBeUndefined();
-    expect(flipped.eyes![0]!.iris).toEqual([120, 50, 5]);
-    // Found again in between without the parser's eyes, then back: still
-    // the full disk.
-    const between = carryOver([saved], [parsed(40, 80, 0.9, false)], straight).faces[0];
-    expect(between.irisDisk).toBeUndefined();
-    expect(carryOver([between], [parsed(40, 80, 0.9)], straight).faces[0].irisDisk).toBeUndefined();
-    // A retouch analysed with the disk keeps its own value.
-    const withDisk = { ...parsed(40, 80, 0.85), settings: { iris: 60 } } as RetouchFace;
-    expect(carryOver([withDisk], [parsed(120, 160, 0.9)], sides).faces[0].irisDisk).toBe(0.85);
-  });
-
   it('exchanges only the left and right values', () => {
     expect(swapSides({ iris: 20, irisLeft: 30, scleraRight: -10, teethWhiten: 5 })).toEqual({
       iris: 20,
@@ -252,5 +224,50 @@ describe('eye sides through a flip', () => {
       scleraLeft: -10,
       teethWhiten: 5
     });
+  });
+});
+
+describe('Iris disk through faces found again', () => {
+  const parsedFace = (id: string, x: number): RetouchFace =>
+    ({
+      id,
+      box: [x, 0, 100, 100],
+      settings: {},
+      parsedTeeth: [],
+      eyes: [
+        { iris: [x + 30, 50, 5], lid: [], parsedEye: [], parsedIris: [] },
+        { iris: [x + 70, 50, 5], lid: [], parsedEye: [], parsedIris: [] }
+      ]
+    }) as unknown as RetouchFace;
+  const straight = { ...INITIAL_ADJUSTMENTS };
+  const straightened = { ...INITIAL_ADJUSTMENTS, rotation: 3 };
+  const retouch = (irisDisk?: number): FaceRetouch => ({
+    settings: { iris: 60 },
+    faces: [parsedFace('a', 0), parsedFace('b', 300)],
+    frame: '2:straight',
+    geometry: JSON.stringify({}),
+    ...(irisDisk !== undefined && { irisDisk })
+  });
+  // Straightened so far that face b leaves the frame, then straight again:
+  // the parser's analyses carry the new disk.
+  const roundTrip = (saved: FaceRetouch) => {
+    const without = foundAgain(saved, { frame: '2:turned', faces: [parsedFace('a', 0)], irisDisk: 0.9 }, straightened);
+    expect(without.faces).toHaveLength(1);
+    return foundAgain(
+      without,
+      { frame: '2:straight', faces: [parsedFace('a', 0), parsedFace('b', 300)], irisDisk: 0.9 },
+      straight
+    );
+  };
+
+  it('keeps the full disk of a retouch made before it when a face leaves the frame and returns', () => {
+    const back = roundTrip(retouch());
+    expect(back.faces).toHaveLength(2);
+    expect(back.settings).toEqual({ iris: 60 });
+    expect(back.irisDisk).toBeUndefined();
+  });
+
+  it('keeps the disk a retouch was made with', () => {
+    expect(roundTrip(retouch(0.85)).irisDisk).toBe(0.85);
   });
 });

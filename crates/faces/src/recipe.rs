@@ -146,12 +146,18 @@ pub fn retouch_faces(
             });
             if let Some(p) = parsed {
                 entry["parsedTeeth"] = serde_json::json!(loops(&p.teeth));
-                entry["irisDisk"] = serde_json::json!(crate::portrait::IRIS_DISK);
             }
             Ok(Some(entry))
         })
         .collect::<Result<Vec<_>, String>>()
         .map(|faces| faces.into_iter().flatten().collect())
+}
+
+/// The face retouch's `irisDisk` for faces `retouch_faces` made with
+/// `portrait` (`portrait::IRIS_DISK`); none without it. A retouch keeps
+/// the value it was first made with when its faces are found again.
+pub fn iris_disk(portrait: Option<&PortraitModel>) -> Option<f32> {
+    portrait.map(|_| crate::portrait::IRIS_DISK)
 }
 
 /// A People selection (`ai-people`) of `parts` (`Part::name`) of everyone

@@ -75,11 +75,14 @@ function frameGeometry(adjustments: Adjustments, frame: string | undefined) {
   return JSON.stringify(faceRetouchGeometry(adjustments, keys));
 }
 
-interface Analysis {
+export interface Analysis {
   frame: string;
   faces: RetouchFace[];
   /** The eye and teeth parser was asked for but is not installed. */
   eyesTeethMissing?: boolean;
+  /** The Iris disk of a retouch made from these faces (the parser looked
+   * at them). */
+  irisDisk?: number;
 }
 
 /** Analyses of photos (path + geometry), so a photo's faces are found
@@ -125,19 +128,9 @@ function analyseEyesTeeth(path: string, geometry: string, download = false, down
   return pending;
 }
 
-/** `face` found again for `old` with `old`'s Iris disk (`irisDisk`, set
- * since 2026-11-22 when the parser looks at a face; missing on faces found
- * before, which keep the full circle): the disk a retouch was analysed
- * with stays through flips, turns and faces found again in between. */
-export function withIrisDiskOf(old: RetouchFace, face: RetouchFace): RetouchFace {
-  const { irisDisk: _, ...rest } = face;
-  return old.irisDisk === undefined ? rest : { ...rest, irisDisk: old.irisDisk };
-}
-
 /** Faces found again after a geometry change keep the settings of the
- * face nearest to them (within half a face), and their Iris disk
- * (`withIrisDiskOf`). */
-export function carryOver(
+ * face nearest to them (within half a face). */
+function carryOver(
   previous: RetouchFace[],
   next: RetouchFace[],
   sides?: Sides
@@ -168,13 +161,34 @@ export function carryOver(
     // eye may be on the left; its own values follow the eye.
     const turned = sides !== undefined && eyesSwapped(best, face, sides);
     swapped ||= turned;
-    return {
-      ...withIrisDiskOf(best, face),
-      settings: turned ? swapSides(best.settings) : { ...best.settings },
-      enabled: best.enabled
-    };
+    return { ...face, settings: turned ? swapSides(best.settings) : { ...best.settings }, enabled: best.enabled };
   });
   return { faces, swapped };
+}
+
+/** `old`, made in another geometry, with its faces found again in
+ * `analysis`: each keeps the settings of the face it was (`carryOver`),
+ * the protection follows the photo, and everything else of the retouch
+ * stays, its Iris disk (`irisDisk`) too, so a retouch renders its eyes
+ * with the disk it was made with however often its faces are found again
+ * (also after a face left the frame and came back). */
+export function foundAgain(
+  old: FaceRetouch,
+  analysis: Analysis,
+  prev: Adjustments,
+  width?: number,
+  height?: number
+): FaceRetouch {
+  const protect = reframeProtection(old.protect, old.geometry, prev, width, height);
+  const carried = carryOver(old.faces, analysis.faces, sidesOf(old.geometry, prev, width, height));
+  return {
+    ...old,
+    frame: analysis.frame,
+    geometry: frameGeometry(prev, analysis.frame),
+    faces: carried.faces,
+    settings: carried.swapped ? swapSides(old.settings) : old.settings,
+    ...(protect && { protect })
+  };
 }
 
 /** The geometry change faces are carried through, for the eyes' sides. */
@@ -350,8 +364,7 @@ export function withEyesAndMouth(faces: RetouchFace[], analysed: RetouchFace[]):
           ...face,
           eyes: best.eyes ?? [],
           mouth: best.mouth ?? null,
-          ...(best.parsedTeeth !== undefined && { parsedTeeth: best.parsedTeeth }),
-          ...(best.irisDisk !== undefined && { irisDisk: best.irisDisk })
+          ...(best.parsedTeeth !== undefined && { parsedTeeth: best.parsedTeeth })
         }
       : face;
   });
@@ -387,13 +400,7 @@ export function withParsedEyesTeeth(faces: RetouchFace[], analysed: RetouchFace[
   return faces.map((face) => {
     const best = nearestFace(face, analysed);
     return best?.parsedTeeth !== undefined
-      ? {
-          ...face,
-          eyes: best.eyes ?? [],
-          mouth: best.mouth ?? null,
-          parsedTeeth: best.parsedTeeth,
-          ...(best.irisDisk !== undefined && { irisDisk: best.irisDisk })
-        }
+      ? { ...face, eyes: best.eyes ?? [], mouth: best.mouth ?? null, parsedTeeth: best.parsedTeeth }
       : face;
   });
 }
@@ -568,23 +575,21 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
         setAdjustments((prev: Adjustments) => {
           const old = prev.faceRetouch;
           if (old && faceRetouchIsCurrent(old, prev) && old.faces.some((f) => f.eyes === undefined)) {
-            return { ...prev, faceRetouch: { ...old, faces: withEyesAndMouth(old.faces, analysis.faces) } };
+            return {
+              ...prev,
+              faceRetouch: {
+                ...old,
+                faces: withEyesAndMouth(old.faces, analysis.faces),
+                // No eye was rendered before: the disk of these faces.
+                ...(old.irisDisk === undefined &&
+                  !eyesTeethParsed(old.faces) &&
+                  analysis.irisDisk !== undefined && { irisDisk: analysis.irisDisk })
+              }
+            };
           }
           if (!old || faceRetouchIsCurrent(old, prev)) return prev;
           const { width, height } = useEditorStore.getState().selectedImage ?? {};
-          const protect = reframeProtection(old.protect, old.geometry, prev, width, height);
-          const carried = carryOver(old.faces, analysis.faces, sidesOf(old.geometry, prev, width, height));
-          return {
-            ...prev,
-            faceRetouch: {
-              ...old,
-              frame: analysis.frame,
-              geometry: frameGeometry(prev, analysis.frame),
-              faces: carried.faces,
-              settings: carried.swapped ? swapSides(old.settings) : old.settings,
-              ...(protect && { protect })
-            }
-          };
+          return { ...prev, faceRetouch: foundAgain(old, analysis, prev, width, height) };
         });
       })
       .catch((error) => {
@@ -653,7 +658,8 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
                 settings: {},
                 faces: analysis.faces,
                 frame: analysis.frame,
-                geometry: frameGeometry(prev, analysis.frame)
+                geometry: frameGeometry(prev, analysis.frame),
+                ...(analysis.irisDisk !== undefined && { irisDisk: analysis.irisDisk })
               }
             : null;
       return base ? { ...prev, faceRetouch: change(base) } : prev;
@@ -665,7 +671,12 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
         (EYES_TEETH_KEYS as readonly string[]).includes(key) &&
         !eyesTeethParsed(before.faces) &&
         !eyesTeethSet(before)
-          ? { ...before, faces: withParsedEyesTeeth(before.faces, parsedFaces) }
+          ? {
+              ...before,
+              faces: withParsedEyesTeeth(before.faces, parsedFaces),
+              // No parser eye was rendered before: the parser's disk.
+              ...(parse?.analysis?.irisDisk !== undefined && { irisDisk: parse.analysis.irisDisk })
+            }
           : before;
       return face
         ? {
