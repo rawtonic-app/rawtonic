@@ -442,10 +442,17 @@ fn cut_to_camera_crop(
 ) -> DynamicImage {
     let Some(crop) = rawtonic_engine::camera_crop::initial_crop(
         recipe,
-        &rawtonic_engine::camera_crop::crops(source),
+        &crate::camera_crop::crops(Path::new(source)),
     ) else {
         return image;
     };
+    cut_to_camera_frame(image, crop)
+}
+
+fn cut_to_camera_frame(
+    image: DynamicImage,
+    crop: rawtonic_engine::camera_crop::CameraCrop,
+) -> DynamicImage {
     let share = |part: u32, margin: u32| part as f64 / (2 * margin + part) as f64;
     let (width, height) = (image.width(), image.height());
     let cut_width = ((width as f64 * share(crop.width, crop.x)).round() as u32).clamp(1, width);
@@ -466,12 +473,12 @@ fn embedded_in_camera_crop(image: DynamicImage, source: &str) -> DynamicImage {
     let never_edited = serde_json::Value::Null;
     match rawtonic_engine::camera_crop::initial_crop(
         &never_edited,
-        &rawtonic_engine::camera_crop::crops(source),
+        &crate::camera_crop::crops(Path::new(source)),
     ) {
         Some(crop)
             if !rawtonic_engine::camera_crop::shows_crop(crop, image.width(), image.height()) =>
         {
-            cut_to_camera_crop(image, &never_edited, source)
+            cut_to_camera_frame(image, crop)
         }
         _ => image,
     }
@@ -555,7 +562,7 @@ fn develop_thumbnail_with_source(
                 &mut recipe,
                 &rawtonic_export::normalize::RecipeSource::file(&source_path),
                 rawtonic_export::normalize::Bitmaps::None,
-                rawtonic_export::normalize::Defaults::NewEdit,
+                rawtonic_export::normalize::Defaults::NewEdit(crate::camera_crop::apply_default),
             );
             let mut meta = metadata.unwrap_or_default();
             meta.adjustments = recipe.clone();
