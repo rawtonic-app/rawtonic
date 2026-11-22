@@ -8,6 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+rawtonic-raw-format = { path = "../raw-format", version = "0.1.0" }
 rawtonic-recipe = { path = "../recipe", version = "0.1.0" }
 rawtonic-fs = { path = "../fs", version = "0.1.0" }
 roxmltree = { workspace = true }

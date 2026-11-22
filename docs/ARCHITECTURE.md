@@ -27,7 +27,8 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 |---|---|---|---|---|
 | `catalog` | SQLite schema, sessions/catalogs, recipes, search | `fs`, `metadata` | `lib`, `query`, `add` | `core:test` |
 | `fs` | file-safety kernel: atomic write, no-clobber publish, temporary and staging files; volume detection | none | `lib`, `no_clobber`, `temp`, `staging`, `volume` | `core:test` |
-| `metadata` | XMP sidecars, provenance, labels, hierarchical keyword paths (levels joined by a pipe, TS twin `src/utils/keywordTree.ts`), photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs`, `recipe` | `lib`, `provenance`, `labels`, `keywords`, `photo_ref` | `core:test` |
+| `raw-format` | Photo extensions and camera RAW container classification shared by sidecar ownership and decode routing | `fs` | `classify_cached` | synthetic TIFFs and optional private samples |
+| `metadata` | XMP sidecars, provenance, labels, hierarchical keyword paths (levels joined by a pipe, TS twin `src/utils/keywordTree.ts`), photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs`, `raw-format`, `recipe` | `lib`, `provenance`, `labels`, `keywords`, `photo_ref` | `core:test` |
 | `fileops` | journaled rename/move/trash, `purge` | `fs` | `lib`, `volume`, `tree` | `core:test`; crash hooks |
 | `naming` | strict filename templates | runtime | `lib` | `core:test` |
 | `ingest` | verified no-clobber copy, queue | catalog, fs, metadata, naming | `copy`, `queue` | `core:test` |
@@ -254,9 +255,10 @@ notifications; the catalog builds volume identity from it, file operations plan 
 
 `metadata`: XMP sidecar IO (written through `rawtonic_fs::atomic_write`) and shared recipe provenance predicates
 (`provenance`, consumed by the renderer, export and catalog). `sidecars` decides which XMP belongs to which photo, from
-the files on disk: a RAW owns `<stem>.xmp`; a developed image (JPEG, HEIF, TIFF, …) that shares its stem with another
-file has `<name>.<ext>.xmp` and never reads the stem one; alone it keeps `<stem>.xmp`, and an existing full-name sidecar
-is always its own. Every reader and writer (catalog, folder mode, file moves/renames, ingest copies) asks it
+the files on disk: a RAW (including TIFF containers classified by their content) owns `<stem>.xmp`; a developed
+image that shares its stem with another file has `<name>.<ext>.xmp` and never reads the stem one. Alone it keeps
+`<stem>.xmp` unless it has a full-name sidecar. A packet that can spell both a file's full name and another
+file's stem is ambiguous and stays untouched. Every reader and writer (catalog, folder mode, file moves/renames, ingest copies) asks it
 (`sidecar_path`, `existing_sidecar`, `Sidecars` for batches); the catalog still refuses two photos whose sidecar has one
 name (two RAWs of one stem).
 

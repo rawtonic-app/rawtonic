@@ -7,6 +7,7 @@ import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
 import type { ImageFile, SelectedImage } from '../components/ui/AppProperties';
 import { invoke } from '@tauri-apps/api/core';
+import decodePreferencesChanged from '../contracts/decodePreferencesChanged.json';
 const callbacks = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn((name, callback) => {
@@ -905,7 +906,7 @@ it('adopts the library destination of the open loose photograph after ingest', a
   expect(useLibraryStore.getState().libraryActivePath).toBe('/library/Photos/a.dng');
 });
 
-it("marks the open RAW's source stale when decode preferences change", async () => {
+it('marks the open source stale when its decode preferences change', async () => {
   renderHook(() =>
     useTauriListeners({
       refreshAllFolderTrees: vi.fn(),
@@ -915,18 +916,26 @@ it("marks the open RAW's source stale when decode preferences change", async () 
     })
   );
   await vi.waitFor(() => expect(callbacks.has('decode-preferences-changed')).toBe(true));
-  const send = () => act(() => callbacks.get('decode-preferences-changed')!({ payload: null }));
-  useEditorStore.getState().setEditor({ selectedImage: { path: '/a.RAF', isRaw: true } as never });
-  send();
+  const { rawOnly, rawAndNonRaw } = decodePreferencesChanged;
+  const send = (payload: typeof rawOnly) => act(() => callbacks.get('decode-preferences-changed')!({ payload }));
+  useEditorStore.getState().setEditor({ selectedImage: { path: '/a.RAF', isRaw: true, isDecoded: true } as never });
+  send(rawOnly);
   expect(useEditorStore.getState().selectedImage?.decoderStale).toBe(1);
   // Each change is another revision (a develop under way is for the earlier one).
-  send();
+  send(rawAndNonRaw);
   expect(useEditorStore.getState().selectedImage?.decoderStale).toBe(2);
-  // Nothing to develop again for a photograph that is not a RAW, or none.
-  useEditorStore.getState().setEditor({ selectedImage: { path: '/a.jpg', isRaw: false } as never });
-  send();
-  expect(useEditorStore.getState().selectedImage?.decoderStale).toBeUndefined();
+  for (const path of ['/a.jpg', '/a.tiff']) {
+    useEditorStore.getState().setEditor({ selectedImage: { path, isRaw: false, isDecoded: true } as never });
+    send(rawOnly);
+    expect(useEditorStore.getState().selectedImage?.decoderStale).toBeUndefined();
+    send(rawAndNonRaw);
+    expect(useEditorStore.getState().selectedImage?.decoderStale).toBe(1);
+  }
+  // The decoder can classify a TIFF as a RAW after this event arrives.
+  useEditorStore.getState().setEditor({ selectedImage: { path: '/pending.tiff', isRaw: false } as never });
+  send(rawOnly);
+  expect(useEditorStore.getState().selectedImage?.decoderStale).toBe(1);
   useEditorStore.getState().setEditor({ selectedImage: null });
-  send();
+  send(rawAndNonRaw);
   expect(useEditorStore.getState().selectedImage).toBeNull();
 });

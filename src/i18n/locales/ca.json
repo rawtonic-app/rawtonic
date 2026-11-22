@@ -2389,9 +2389,9 @@
         "pending_one": "{{count}} fitxer XMP es pot tornar a escriure.",
         "pending_many": "{{count}} fitxers XMP es poden tornar a escriure.",
         "pending_other": "{{count}} fitxers XMP es poden tornar a escriure.",
-        "sharedName_one": "{{count}} foto té el mateix nom que una altra (dos fitxers RAW, com ara CR3 i DNG), així que totes dues escriurien el mateix fitxer XMP.",
-        "sharedName_many": "{{count}} fotos tenen el mateix nom que una altra (dos fitxers RAW, com ara CR3 i DNG), així que totes dues escriurien el mateix fitxer XMP.",
-        "sharedName_other": "{{count}} fotos tenen el mateix nom que una altra (dos fitxers RAW, com ara CR3 i DNG), així que totes dues escriurien el mateix fitxer XMP."
+        "sharedName_one": "{{count}} foto faria servir el mateix fitxer XMP que una altra foto.",
+        "sharedName_many": "{{count}} fotos farien servir el mateix fitxer XMP que una altra foto.",
+        "sharedName_other": "{{count}} fotos farien servir el mateix fitxer XMP que una altra foto."
       },
       "resolved_one": "Conflicte XMP resolt per a {{count}} foto",
       "resolved_many": "Conflictes XMP resolts per a {{count}} fotos",

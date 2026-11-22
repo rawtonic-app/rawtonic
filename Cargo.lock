@@ -6125,6 +6125,7 @@ dependencies = [
  "anyhow",
  "quick-xml",
  "rawtonic-fs",
+ "rawtonic-raw-format",
  "rawtonic-recipe",
  "roxmltree",
  "serde",
@@ -6161,6 +6162,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rawtonic-raw-format"
+version = "0.1.0"
+dependencies = [
+ "rawler",
+ "rawtonic-fs",
+]
+
+[[package]]
 name = "rawtonic-rawdecode"
 version = "0.1.0"
 dependencies = [
@@ -6173,6 +6182,7 @@ dependencies = [
  "pollster",
  "rawler",
  "rawtonic-fs",
+ "rawtonic-raw-format",
  "rawtonic-runtime",
  "rayon",
  "serde",

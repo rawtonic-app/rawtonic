@@ -20,11 +20,10 @@ export function aiDenoiseAmount(
   return switchedOff ? 0 : Math.min(100, Math.max(0, adjustments.aiDenoise ?? 0));
 }
 
-/** Whether two AI Denoise amounts are one: the backend reports its f32. */
-export const sameAiDenoiseAmount = (a: number, b: number): boolean => Math.abs(a - b) < 0.0001;
-
-/** The amount `aiDenoiseAmount` returns is the stored one, as every export
- * reads it: an old recipe's fraction (50.4) develops at 50.4, not 50. */
+// The decoder casts the stored percentage to f32 before dividing by 100
+// (metadata::provenance::ai_denoise_amount).
+const decoderAmount = (amount: number): number => Math.fround(Math.fround(amount) / 100);
+export const sameAiDenoiseAmount = (a: number, b: number): boolean => decoderAmount(a) === decoderAmount(b);
 
 /** The value a Develop slider stores for `key`: AI Denoise in whole steps
  * (drags, fine Option drags, typed values), the amount Develop develops and
@@ -66,9 +65,10 @@ export function aiDenoiseToApply(
   // The pixels of a sensor AI Denoise skipped stand in for its amount (they
   // are not Apple's engine's): without AI Denoise they are developed again,
   // once (a failure marks the amount).
-  if (wanted === 0 && image.aiDenoiseStandIn && image.aiDenoiseFailed !== 0) return 0;
+  const off = sameAiDenoiseAmount(wanted, 0);
+  if (off && image.aiDenoiseStandIn && image.aiDenoiseFailed !== 0) return 0;
   // The version only matters with AI Denoise on (reset or paste can change it).
-  const sameVersion = wanted === 0 || (adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseVersion ?? 1);
+  const sameVersion = off || (adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseVersion ?? 1);
   // An amount that failed is not retried with the same version.
   const failed =
     image.aiDenoiseFailed !== undefined &&
@@ -78,7 +78,7 @@ export function aiDenoiseToApply(
   return wanted;
 }
 
-/** How the open RAW's source must be developed again (`apply_ai_denoise`). */
+/** How the open source must be developed again (`apply_ai_denoise`). */
 export interface SourceDevelop {
   /** AI Denoise amount (0 … 100). */
   aiDenoise: number;
@@ -105,13 +105,14 @@ export interface SourceDevelop {
 }
 
 /**
- * How the open RAW must be developed again so its source matches the
+ * How the open source must be developed again so it matches Preferences and the
  * recipe, or null when it does: its AI Denoise amount (`aiDenoiseToApply`)
  * its colour noise filter (`colorNoiseMultiscale`: reset of a legacy
  * edit, paste or a preset can change `colorNoiseVersion`) or its
  * dead-photosite test (`deadPixelAdjacent`), its black handling
  * (`unbiasedBlack`, `borderBlack`), its highlight rebuild (`highlightRatios`)
- * or a DNG's lens warp (`cameraPlaneWarp`) differs from the source's. Only decoded RAWs on their file; never during a slider drag.
+ * or a DNG's lens warp (`cameraPlaneWarp`) differs from the source's. Other
+ * formats only develop again when their preprocessing preferences change.
  */
 export function sourceDevelopToApply(
   image: Pick<
@@ -144,7 +145,8 @@ export function sourceDevelopToApply(
     },
   dragging: boolean
 ): SourceDevelop | null {
-  if (!image?.isDecoded || !image.isRaw || dragging) return null;
+  if (!image?.isDecoded || dragging) return null;
+  if (!image.isRaw) return image.decoderStale ? { aiDenoise: 0 } : null;
   const aiDenoise = aiDenoiseToApply(image, adjustments, dragging);
   // Unknown for preview data: the backend then takes the stored recipe's.
   const have = image.colorNoiseMultiscale;

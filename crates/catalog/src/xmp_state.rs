@@ -119,7 +119,7 @@ impl Library {
     pub(crate) fn xmp_problem(&self, id: &str, path: &Path) -> Result<Option<XmpProblem>> {
         Ok(if !path.is_file() {
             Some(XmpProblem::Offline)
-        } else if self.xmp_owners(path)? > 1 {
+        } else if self.xmp_shared(path)? {
             Some(XmpProblem::SharedName)
         } else if self.sidecar_changed_elsewhere(id, path)? {
             Some(XmpProblem::ChangedElsewhere)
@@ -133,7 +133,9 @@ impl Library {
     /// wrote or read is gone: `sync_xmp` replaces neither (Keep library does).
     fn sidecar_changed_elsewhere(&self, id: &str, path: &Path) -> Result<bool> {
         let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
-        let sidecar = sidecars.path(path);
+        let Some(sidecar) = sidecars.path(path) else {
+            return Ok(false);
+        };
         if sidecar.exists() && !sidecar.is_file() {
             return Ok(true);
         }
@@ -222,7 +224,10 @@ impl Library {
                 continue;
             }
             check.checked += 1;
-            let sidecar = sidecars.path(&path);
+            let Some(sidecar) = sidecars.path(&path) else {
+                seen.0.remove(&id);
+                continue;
+            };
             let changed = match fs::metadata(&sidecar) {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     hash.is_some()
@@ -265,8 +270,8 @@ impl Library {
                     }
                 }
             };
-            // A RAW and its JPEG share a sidecar the library never writes.
-            if changed && self.xmp_owners(&path)? <= 1 {
+            // An ambiguous sidecar needs a filename change before review.
+            if changed && !self.xmp_shared(&path)? {
                 seen.0.remove(&id);
                 check.changed.push(id);
             }
@@ -341,10 +346,7 @@ pub(crate) fn held_partners_sidecar(
     hash: Option<&str>,
     publishing: Option<&str>,
 ) -> bool {
-    let developed = photo
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(rawtonic_metadata::sidecars::is_developed_image);
+    let developed = rawtonic_metadata::sidecars::is_developed(photo);
     if !developed || (hash.is_none() && publishing.is_none()) || !sidecars.has_partner(photo) {
         return false;
     }
