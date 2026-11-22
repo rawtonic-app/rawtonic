@@ -245,17 +245,32 @@ impl ExportRecords {
             std::fs::create_dir_all(parent)?;
         }
         let not_ours = || format!("{} is not a Rawtonic export records file", path.display());
-        // An existing file must be an SQLite database: SQLite would take a
-        // short file of anything else (or an empty one) for an empty
-        // database and write over it.
-        if std::fs::symlink_metadata(path).is_ok() {
-            use std::io::Read;
-            let mut header = [0u8; 16];
-            let is_sqlite = std::fs::File::open(path)
-                .and_then(|mut file| file.read_exact(&mut header))
-                .is_ok_and(|()| &header == b"SQLite format 3\0");
-            ensure!(is_sqlite, not_ours());
-        }
+        // A file that is there must be Rawtonic's records (an SQLite
+        // database with its application id): SQLite would take a short file
+        // of anything else, an empty one or an emptied database for a new
+        // database and write over it. Only a file this call creates itself
+        // is set up.
+        let created = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+        {
+            Ok(_) => true,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                use std::io::Read;
+                let mut header = [0u8; 100];
+                let ours = std::fs::File::open(path)
+                    .and_then(|mut file| file.read_exact(&mut header))
+                    .is_ok_and(|()| {
+                        &header[..16] == b"SQLite format 3\0"
+                            && i32::from_be_bytes([header[68], header[69], header[70], header[71]])
+                                == RECORDS_APPLICATION_ID
+                    });
+                ensure!(ours, not_ours());
+                false
+            }
+            Err(e) => return Err(e).with_context(not_ours),
+        };
         let conn = Connection::open(path)
             .with_context(|| format!("Cannot open the export records {}", path.display()))?;
         conn.busy_timeout(Duration::from_secs(5))?;
@@ -268,7 +283,7 @@ impl ExportRecords {
             .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
             .with_context(not_ours)?;
         ensure!(
-            id == RECORDS_APPLICATION_ID || (id == 0 && tables == 0),
+            id == RECORDS_APPLICATION_ID || (created && id == 0 && tables == 0),
             not_ours()
         );
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -276,9 +291,11 @@ impl ExportRecords {
             version <= RECORDS_VERSION,
             "The export records are from a newer Rawtonic (version {version})"
         );
+        // The id and table first, while a new file is still in rollback
+        // mode: they reach the file's header at once (in WAL mode only at a
+        // checkpoint), so the next open finds the id there.
         conn.execute_batch(&format!(
-            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
-             PRAGMA application_id={RECORDS_APPLICATION_ID};
+            "PRAGMA application_id={RECORDS_APPLICATION_ID};
              CREATE TABLE IF NOT EXISTS records(
                output TEXT PRIMARY KEY,
                source TEXT NOT NULL,
@@ -286,7 +303,8 @@ impl ExportRecords {
                size INTEGER NOT NULL,
                sha256 TEXT NOT NULL,
                recorded_ms INTEGER NOT NULL);
-             PRAGMA user_version={RECORDS_VERSION};"
+             PRAGMA user_version={RECORDS_VERSION};
+             PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;"
         ))?;
         Ok(Self { conn })
     }
@@ -310,12 +328,31 @@ impl ExportRecords {
             .optional()?)
     }
 
-    /// Records the file just written at `output` as the export of `source`
-    /// with `inputs`: its size and SHA-256 as it is now.
+    /// Records the file at `output` as it is now as the export of `source`
+    /// with `inputs` (tests; exports record what they wrote, [`Self::record_written`]).
     pub fn record(&self, output: &Path, source: &str, inputs: &str) -> Result<()> {
         let mut file = std::fs::File::open(output)?;
         let size = file.metadata()?.len();
         let sha256 = rawtonic_fs::sha256_hex_read(&mut file)?;
+        self.record_written(
+            output,
+            source,
+            inputs,
+            &crate::output::Written { size, sha256 },
+        )
+    }
+
+    /// Records `written`, the file an export of `source` with `inputs`
+    /// published at `output` (its size and SHA-256 as written, not as the
+    /// path holds now).
+    pub fn record_written(
+        &self,
+        output: &Path,
+        source: &str,
+        inputs: &str,
+        written: &crate::output::Written,
+    ) -> Result<()> {
+        let (size, sha256) = (written.size, written.sha256.as_str());
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as i64);
@@ -581,6 +618,15 @@ mod tests {
         let before = fs::read(&other).unwrap();
         assert!(ExportRecords::open(&other).is_err());
         assert_eq!(fs::read(&other).unwrap(), before);
+        // An initialized database whose tables were dropped: not ours either.
+        let emptied = dir.path().join("emptied.sqlite");
+        let conn = Connection::open(&emptied).unwrap();
+        conn.execute_batch("CREATE TABLE t(x); DROP TABLE t;")
+            .unwrap();
+        drop(conn);
+        let before = fs::read(&emptied).unwrap();
+        assert!(ExportRecords::open(&emptied).is_err());
+        assert_eq!(fs::read(&emptied).unwrap(), before);
         assert!(!dir.path().join("other.sqlite-wal").exists());
         for contents in [&b"not a database at all, just some text"[..], b"x", b""] {
             let text = dir.path().join("notes.txt");

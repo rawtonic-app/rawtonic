@@ -79,20 +79,48 @@ pub enum Publish<'a> {
     },
 }
 
+/// The size and SHA-256 of a file as an export wrote it, taken from its
+/// temporary file before it is published: what its record certifies, never
+/// whatever is at its path later.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Written {
+    pub size: u64,
+    pub sha256: String,
+}
+
+impl Written {
+    fn of(file: &mut fs::File) -> io::Result<Self> {
+        use std::io::{Seek, SeekFrom, Write};
+        file.flush()?;
+        let size = file.seek(SeekFrom::End(0))?;
+        file.seek(SeekFrom::Start(0))?;
+        let sha256 = rawtonic_fs::sha256_hex_read(file)?;
+        Ok(Self { size, sha256 })
+    }
+}
+
 impl Publish<'_> {
     /// Publishes the file `fill` writes at `path` (see
-    /// [`write_new_output_with`], [`replace_previous_output_with`]).
+    /// [`write_new_output_with`], [`replace_previous_output_with`]); returns
+    /// what was written.
     pub fn write_with(
         self,
         path: &Path,
         fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
-    ) -> io::Result<()> {
+    ) -> io::Result<Written> {
+        let mut written = None;
+        let fill = |file: &mut fs::File| {
+            fill(file)?;
+            written = Some(Written::of(file)?);
+            Ok(())
+        };
         match self {
-            Publish::New => write_new_output_with(path, fill),
+            Publish::New => write_new_output_with(path, fill)?,
             Publish::Replace { previous, source } => {
-                replace_previous_output_with(path, previous, source, fill)
+                replace_previous_output_with(path, previous, source, fill)?
             }
         }
+        written.ok_or_else(|| io::Error::other("Nothing was written"))
     }
 
     /// [`Self::write_with`] of an encoded export.
@@ -100,7 +128,7 @@ impl Publish<'_> {
         self,
         path: &Path,
         encoded: crate::export_processing::EncodedExport,
-    ) -> Result<(), String> {
+    ) -> Result<Written, String> {
         self.write_with(path, |file| {
             encoded.write_to(file).map_err(io::Error::other)
         })

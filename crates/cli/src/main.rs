@@ -1610,10 +1610,23 @@ fn export(args: ExportArgs) -> Result<()> {
         // exported again after a wait, into the same file (app: the same).
         let catalog = photo_metadata(photo, &source, &sidecar);
         let capture = corrected_capture(&source);
+        // A replacement renders only the photo it was planned for: a sync
+        // tool that put another file at the photo's path since gets no
+        // export over the first photo's file.
+        if replace.is_some()
+            && existing_files::photo_key(
+                photo,
+                rawtonic_catalog::fingerprint(&source).ok().as_deref(),
+            ) != photo_keys[named_index]
+        {
+            return Err(serde_json::json!({"source": photo, "error":
+                "The photo's file changed since the export was planned; its earlier export is kept"}));
+        }
+        let written_file = std::sync::Mutex::new(None);
         let mut results = rawtonic_runtime::gpu_memory::retry_out_of_memory(
             &[()],
             |_| {
-                let result = exporter.export(&rawtonic_export::file_export::FileExport {
+                let result = exporter.export_written(&rawtonic_export::file_export::FileExport {
                     source: &source,
                     output,
                     format: &format,
@@ -1633,6 +1646,9 @@ fn export(args: ExportArgs) -> Result<()> {
                         _ => rawtonic_export::output::Publish::New,
                     },
                 });
+                let result = result.map(|file| {
+                    *written_file.lock().unwrap_or_else(|e| e.into_inner()) = Some(file);
+                });
                 vec![((), result)]
             },
             // Before a replace the file is there: whether it is still the
@@ -1651,11 +1667,14 @@ fn export(args: ExportArgs) -> Result<()> {
         );
         match results.remove(0).1 {
             Ok(()) => {
-                if let (Some(records), Some(photo_key)) = (&records_path, &photo_keys[named_index])
+                let written_file = written_file.into_inner().unwrap_or_else(|e| e.into_inner());
+                if let (Some(records), Some(photo_key), Some(file)) =
+                    (&records_path, &photo_keys[named_index], &written_file)
                 {
-                    // One connection per thread (SQLite).
+                    // One connection per thread (SQLite). What was written,
+                    // not what the path holds by now.
                     let recorded = ExportRecords::open(records).and_then(|records| {
-                        records.record(output, photo_key, &export_inputs[named_index])
+                        records.record_written(output, photo_key, &export_inputs[named_index], file)
                     });
                     if let Err(e) = recorded {
                         eprintln!(

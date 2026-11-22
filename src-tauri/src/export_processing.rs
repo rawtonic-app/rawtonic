@@ -6,6 +6,7 @@ use rawtonic_export::existing_files::{
 };
 pub use rawtonic_export::export_processing::*;
 use rawtonic_export::file_export::require_local_tiff;
+use rawtonic_export::output::Written;
 use rawtonic_recipe::masks;
 
 use crate::state::ai::AiState;
@@ -1233,6 +1234,9 @@ pub(crate) async fn export_images_impl(
         let targets = Arc::new(targets);
 
         let export_items = rawtonic_export::sidecars::plan_export_items(paths);
+        // Every export is recorded: the records file is set up once, before
+        // photos run side by side and each opens it.
+        drop(open_export_records(&app_handle));
 
         let used_paths = Arc::new(Mutex::new(std::collections::HashSet::new()));
         let lanes = ExportLanes::new(num_threads, available_cores);
@@ -2082,7 +2086,9 @@ fn export_photo(
         "decode": crate::image_loader::decode_preferences(settings),
         "toneMapper": crate::image_processing::resolve_tonemapper_override(settings, is_raw),
     });
-    let inputs = |target: usize| {
+    // Once per recipe, before it renders: the render reads these inputs
+    // (the watermark file included) after this, and its record names them.
+    let hash_inputs = |target: usize| {
         let export_settings = &targets[target].export_settings;
         let watermark_file = export_settings
             .watermark
@@ -2099,9 +2105,18 @@ fn export_photo(
             }),
         )
     };
+    let inputs_of: Vec<std::cell::OnceCell<String>> =
+        targets.iter().map(|_| std::cell::OnceCell::new()).collect();
+    let inputs = |target: usize| {
+        inputs_of[target]
+            .get_or_init(|| hash_inputs(target))
+            .clone()
+    };
     // The photo as its exports are recorded: its path and its original's
     // file, so another photo put at the same path is never taken for it.
     let photo_key = existing_files::photo_key(image_path_str, pinned.source_identity.as_deref());
+    // A replacement is planned only with a key (`plan_target`).
+    let photo = photo_key.as_deref().unwrap_or_default();
     let records = std::cell::OnceCell::new();
     let records = || {
         records
@@ -2122,11 +2137,24 @@ fn export_photo(
             }
         })
     };
-    let file_date = pinned.naming_date(original_path);
-    let capture = wanted
-        .iter()
-        .any(|&t| targets[t].export_settings.naming_needs_capture())
-        .then(|| naming_capture(original_path, pinned.metadata.as_ref()));
+    // A file evicted to the cloud is not read for its names (that would
+    // download it before Skip could pass it by): its snapshot's EXIF, else
+    // its file date names it.
+    let evicted = rawtonic_fs::is_cloud_placeholder(original_path);
+    let file_date = if evicted && pinned.exif.is_none() {
+        std::fs::metadata(original_path)
+            .ok()
+            .and_then(|meta| meta.created().ok())
+            .and_then(|time| jiff::Timestamp::try_from(time).ok())
+            .unwrap_or_else(jiff::Timestamp::now)
+    } else {
+        pinned.naming_date(original_path)
+    };
+    let capture = (!evicted
+        && wanted
+            .iter()
+            .any(|&t| targets[t].export_settings.naming_needs_capture()))
+    .then(|| naming_capture(original_path, pinned.metadata.as_ref()));
 
     // Each recipe's file is named (and recorded) right before it is
     // written, as when each recipe was its own export.
@@ -2146,7 +2174,7 @@ fn export_photo(
                 capture.as_ref(),
                 mask_layers,
                 used_paths,
-                photo_key.as_deref().unwrap_or_default(),
+                photo,
                 &inputs(target),
                 &|path| photo_key.as_ref().and_then(|_| previous(path)),
             )
@@ -2188,10 +2216,11 @@ fn export_photo(
     // After every file of a recipe is written (its mask files too): the
     // main file recorded for a later Replace if changed, and how it ended
     // reported.
-    let published = |target: usize, output_path: &Path| {
+    let published = |target: usize, output_path: &Path, written: Option<Written>| {
         planned.published(target);
-        if let (Some(records), Some(photo)) = (records(), photo_key.as_deref())
-            && let Err(e) = records.record(output_path, photo, &inputs(target))
+        if let (Some(records), Some(photo), Some(written)) =
+            (records(), photo_key.as_deref(), written.as_ref())
+            && let Err(e) = records.record_written(output_path, photo, &inputs(target), written)
         {
             log::warn!(
                 "Export records: recording {} failed: {e}",
@@ -2278,12 +2307,12 @@ fn export_photo(
             )?;
             ensure_export_not_cancelled(cancellation_token)?;
             let previous = replacing(target);
-            publish_with(previous.as_ref(), image_path_str)
+            let written = publish_with(previous.as_ref(), photo)
                 .write_with(output_path, |file| {
                     std::io::Write::write_all(file, &cube_bytes)
                 })
                 .map_err(|e| e.to_string())?;
-            published(target, output_path);
+            published(target, output_path, Some(written));
             Ok(())
         },
     ));
@@ -2405,7 +2434,10 @@ fn export_photo(
         }
     };
 
-    let tonemapper_override = |is_raw| resolve_tonemapper_override_from_handle(app_handle, is_raw);
+    // The preferences of the run's snapshot (`settings`), which its records
+    // name too, not ones changed while it runs.
+    let tonemapper_override =
+        |is_raw| crate::image_processing::resolve_tonemapper_override(settings, is_raw);
     let load_lut = |path: &str| {
         get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), path).ok()
     };
@@ -2508,11 +2540,15 @@ fn export_photo(
     results.extend(export_in_turn(images, plan, |target, output_path| {
         let export_settings = &targets[target].export_settings;
         let previous = replacing(target);
+        // What was written, as its record certifies it.
+        let written = Mutex::new(None);
         let write_export =
             |path: &Path,
              _extension: &str,
              encoded: rawtonic_export::export_processing::EncodedExport| {
-                publish_with(previous.as_ref(), image_path_str).write_export(path, encoded)
+                let file = publish_with(previous.as_ref(), photo).write_export(path, encoded)?;
+                *lock_recover(&written) = Some(file);
+                Ok(())
             };
         {
             let prepared = prepared[export_settings.export_masks as usize]
@@ -2616,7 +2652,7 @@ fn export_photo(
                     &develop,
                     is_raw,
                     &app_handle.state::<crate::state::gpu::GpuState>(),
-                    resolve_tonemapper_override_from_handle(app_handle, is_raw),
+                    crate::image_processing::resolve_tonemapper_override(settings, is_raw),
                     js_adjustments[effects::LUT_PATH.into_name()]
                         .as_str()
                         .and_then(|path| {
@@ -2633,7 +2669,7 @@ fn export_photo(
             }
             // Recorded only now: a mask file that failed leaves no record,
             // so a retry never takes the photo for unchanged.
-            published(target, output_path);
+            published(target, output_path, lock_recover(&written).take());
             Ok(())
         }
     }));
@@ -4418,6 +4454,33 @@ mod tests {
         let planned = plan(&export, &raw, "v2");
         assert_eq!(planned.outcome(), Outcome::Replaced);
         assert_eq!(planned.path(), own);
+        // Published as the export publishes it, with the key it was planned
+        // with, and recorded as written: the next run finds it unchanged.
+        let Planned::Write {
+            replace: Some(previous),
+            ..
+        } = &planned
+        else {
+            unreachable!()
+        };
+        let written = super::publish_with(Some(previous), raw_key)
+            .write_with(&own, |file| std::io::Write::write_all(file, b"export v2"))
+            .unwrap();
+        assert_eq!(std::fs::read(&own).unwrap(), b"export v2");
+        records
+            .record_written(&own, raw_key, "v2", &written)
+            .unwrap();
+        assert_eq!(
+            plan(&export, &raw, "v2").outcome(),
+            Outcome::SkippedUnchanged
+        );
+        // A key of another photo at that path publishes nothing.
+        assert!(
+            super::publish_with(Some(&records.get(&own).unwrap().unwrap()), "other\nkey")
+                .write_with(&own, |file| std::io::Write::write_all(file, b"x"))
+                .is_err()
+        );
+        assert_eq!(std::fs::read(&own).unwrap(), b"export v2");
         // Another photo named onto it: kept both.
         let planned = plan(&target("replaceIfChanged", "a-edited"), &other_raw, "v2");
         assert_eq!(planned.outcome(), Outcome::KeptBoth);

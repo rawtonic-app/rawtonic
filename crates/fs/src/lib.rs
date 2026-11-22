@@ -343,7 +343,7 @@ pub fn replace_existing(
             meta.is_file() && !meta.file_type().is_symlink(),
             "Refusing to replace a symlink or non-file"
         );
-        let stamp = FileStamp::of(&meta);
+        let stamp = FileStamp::of(path, &meta);
         Ok((meta, stamp))
     };
     let (meta, before) = stamp(path)?;
@@ -374,26 +374,62 @@ pub fn replace_existing(
     Ok(())
 }
 
-/// What tells a file at a path from one put there in its place.
+/// What tells a file at a path from one put there in its place: its size,
+/// modification time and file identity (device and inode on Unix, volume
+/// serial number and file index on Windows).
 #[derive(PartialEq, Eq)]
 struct FileStamp {
     len: u64,
     modified: Option<std::time::SystemTime>,
-    #[cfg(unix)]
-    id: (u64, u64),
+    id: Option<(u64, u64)>,
 }
 
 impl FileStamp {
-    fn of(meta: &fs::Metadata) -> Self {
-        #[cfg(unix)]
-        use std::os::unix::fs::MetadataExt;
+    fn of(path: &Path, meta: &fs::Metadata) -> Self {
         Self {
             len: meta.len(),
             modified: meta.modified().ok(),
-            #[cfg(unix)]
-            id: (meta.dev(), meta.ino()),
+            id: file_id(path, meta),
         }
     }
+}
+
+#[cfg(unix)]
+fn file_id(_path: &Path, meta: &fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    Some((meta.dev(), meta.ino()))
+}
+
+#[cfg(windows)]
+fn file_id(path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        GetFileInformationByHandle,
+    };
+    // Opened for its attributes only, sharing everything: it blocks no
+    // rename and no other program.
+    let file = fs::OpenOptions::new()
+        .access_mode(0x80) // FILE_READ_ATTRIBUTES
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .open(path)
+        .ok()?;
+    // SAFETY: a plain C structure of integers; all zeros is a valid value.
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: a valid handle of an open file and a writable out-structure.
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle() as _, &mut info) } != 0;
+    ok.then(|| {
+        (
+            u64::from(info.dwVolumeSerialNumber),
+            (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+        )
+    })
+}
+
+#[cfg(not(any(unix, windows)))]
+fn file_id(_path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
+    None
 }
 
 /// Renames `file` over `path`; on Windows retried while another program

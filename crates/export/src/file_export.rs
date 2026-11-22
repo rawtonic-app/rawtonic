@@ -332,6 +332,12 @@ impl FileExporter {
     }
 
     pub fn export(&self, job: &FileExport) -> Result<(), String> {
+        self.export_written(job).map(drop)
+    }
+
+    /// [`Self::export`], returning what was written (size and SHA-256 of
+    /// the published file, for the export records).
+    pub fn export_written(&self, job: &FileExport) -> Result<crate::output::Written, String> {
         if let Some(inputs) = &self.render_inputs {
             inputs.clear();
         }
@@ -345,8 +351,11 @@ impl FileExporter {
         let developed = self.develop(job)?;
         let source_path_str = developed.path.as_str();
         let catalog = || job.catalog.clone();
+        let written = std::sync::Mutex::new(None);
         let write = |path: &Path, _extension: &str, encoded: EncodedExport| {
-            job.publish.write_export(path, encoded)
+            let file = job.publish.write_export(path, encoded)?;
+            *written.lock().unwrap_or_else(|e| e.into_inner()) = Some(file);
+            Ok(())
         };
         self.with_env(|env| {
             render_and_save(
@@ -372,7 +381,10 @@ impl FileExporter {
         if job.settings.preserve_timestamps {
             set_capture_file_times(job.output, capture_date_with(job.source, &exif_sidecar));
         }
-        Ok(())
+        written
+            .into_inner()
+            .unwrap_or_else(|e| e.into_inner())
+            .ok_or_else(|| format!("{}: nothing was written", job.output.display()))
     }
 }
 
