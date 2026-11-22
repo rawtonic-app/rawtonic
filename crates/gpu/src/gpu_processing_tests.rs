@@ -19432,7 +19432,9 @@ fn region_differences(
 /// ([`unorm8_store_slack`]). An empirical regression threshold, not a
 /// derived bound: on an RTX 3080 on Vulkan at most 1.6e-6 of the samples
 /// in each of the three region tests' 125 comparisons exceeded 1 code
-/// (NRR5); a shift of the display values would move far more.
+/// (NRR5). It only keeps the extra code to as rare a use as measured; it
+/// detects no particular shift of the display values (a shift within the
+/// dither's 1 code passed before the slack too).
 const STORE_SLACK_SHARE: f64 = 1e-4;
 
 /// [`region_differences`] and the share of the compared samples that
@@ -19745,8 +19747,8 @@ fn regions_render_as_windows_of_the_whole_photograph() {
         }
     }
     // Byte for byte with the export shader; the display variants within
-    // 1 code (their 8-bit dither's phase) and the store's slack, which only
-    // a rare sample may use.
+    // 1 code (their 8-bit dither's phase) and the store's slack, used by no
+    // more samples than `STORE_SLACK_SHARE`.
     let failed: Vec<_> = worst
         .iter()
         .filter(|(.., max, d_max, d_share)| {
