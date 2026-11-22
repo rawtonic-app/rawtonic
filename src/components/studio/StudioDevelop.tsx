@@ -1642,15 +1642,15 @@ export default function StudioDevelop() {
                 // The photo's tone-slider response goes back to a new edit's;
                 // its layers' Whites and Shadows keep the amount they render.
                 const to = (defaults.toneVersion ?? 1) as number;
-                selectedImage?.isReady &&
-                  setAdjustments((prev) =>
-                    withNewGrainStructure(prev, {
-                      ...prev,
-                      ...Object.fromEntries(keys.map((key) => [key, structuredClone(defaults[key])])),
-                      toneVersion: to,
-                      masks: layersInToneVersion(prev.masks, prev.toneVersion ?? 1, to)
-                    })
-                  );
+                if (!selectedImage?.isReady) return;
+                setAdjustments((prev) =>
+                  withNewGrainStructure(prev, {
+                    ...prev,
+                    ...Object.fromEntries(keys.map((key) => [key, structuredClone(defaults[key])])),
+                    toneVersion: to,
+                    masks: layersInToneVersion(prev.masks, prev.toneVersion ?? 1, to)
+                  })
+                );
               }}
             >
               {control(t('studio.develop.sliders.exposure'), 'exposure', -5, 5, 0.01)}
