@@ -1961,7 +1961,10 @@ describe('Group reset', () => {
         selectedImage: {
           ...state.selectedImage!,
           isRaw: true,
-          photoDefaults: { resolved: { levels: ['global'], settings: { shadows: 50, toneVersion: TONE_VERSION } } }
+          photoDefaults: {
+            camera: null,
+            resolved: { levels: ['global'], settings: { shadows: 50, toneVersion: TONE_VERSION } }
+          }
         } as SelectedImage
       }))
     );
