@@ -599,9 +599,9 @@ pub fn resample_display_image(image: &DynamicImage, nwidth: u32, nheight: u32) -
 /// `large` and `small` pixels square), the small one reduced from the large
 /// one (to the size the direct fit gives) when that is at least 2.5 times
 /// its size. Most of a reduction's work is its pass over the full source,
-/// of a similar size for both tiles: reducing a 24 MP camera JPEG to both
-/// took 147–176 ms of CPU per photo, the small tile from the large one
-/// 10 ms. Measured at the default sizes (480 from 1280): stripes of 0.1–0.45
+/// of a similar size for both tiles, so the small tile from the large one
+/// costs a fraction of a second direct reduction (single-thread timings in
+/// notes: benchmark-results/adf2-2026-11-22). Measured at the default sizes (480 from 1280): stripes of 0.1–0.45
 /// cycles per small-tile pixel keep 1.00–1.01 of the direct reduction's
 /// contrast (notes: benchmark-results/adf2-2026-11-22); at a ratio of 2
 /// (640 from 1280) about 0.96 at 0.45 cycles, so smaller ratios reduce the
@@ -11384,6 +11384,15 @@ mod resample_tests {
             println!("{cycles} cycles per pixel: the cascade keeps {kept:.3}");
             assert!((0.98..1.02).contains(&kept), "{cycles}: {kept:.3}");
         }
+        // At the default sizes the small tile is reduced from the large one
+        // (fine detail makes the two ways differ).
+        let source = DynamicImage::ImageRgb8(RgbImage::from_fn(6000, 4000, |x, y| {
+            let v = if (x + y / 3) % 3 == 0 { 255 } else { 0 };
+            image::Rgb([v, (x % 7 * 36) as u8, (y % 5 * 51) as u8])
+        }));
+        let (large, small) = super::resample_display_pair(&source, 1280, 480);
+        assert!(small.as_bytes() == resample_display_image(&large, 480, 480).as_bytes());
+        assert!(small.as_bytes() != resample_display_image(&source, 480, 480).as_bytes());
         // A large tile under 2.5 times the small one: the small one is
         // reduced from the source (640 from 1280, or a source under 1200 px).
         let source = DynamicImage::ImageRgb8(RgbImage::from_fn(3000, 2000, |x, y| {
