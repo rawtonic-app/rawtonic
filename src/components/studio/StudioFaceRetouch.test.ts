@@ -8,6 +8,7 @@ import {
   eyeChange,
   eyeValue,
   eyesSwapped,
+  carryOver,
   swapSides,
   faceRetouchGeometry,
   removedBlemishes,
@@ -214,6 +215,27 @@ describe('eye sides through a flip', () => {
         sides
       )
     ).toBe(false);
+  });
+
+  it('keeps the full Iris disk of eyes analysed before it through a flip', () => {
+    const sides = { from: plain, to: { ...plain, flipHorizontal: true }, width: 200, height: 100 };
+    const parsed = (left: number, right: number, disk?: number): RetouchFace => {
+      const f = face(left, right);
+      return {
+        ...f,
+        box: [Math.min(left, right) - 30, 0, 100, 100],
+        eyes: f.eyes!.map((e) => ({ ...e!, parsedEye: [], parsedIris: [], ...(disk && { irisDisk: disk }) }))
+      } as RetouchFace;
+    };
+    const saved = { ...parsed(40, 80), settings: { iris: 60 } } as RetouchFace;
+    const found = parsed(120, 160, 0.9);
+    const carried = carryOver([saved], [found], sides).faces[0];
+    expect(carried.settings).toEqual({ iris: 60 });
+    expect(carried.eyes!.map((e) => e!.irisDisk)).toEqual([undefined, undefined]);
+    expect(carried.eyes![0]!.iris).toEqual([120, 50, 5]);
+    // A retouch analysed with the disk keeps the new eyes as they are.
+    const withDisk = { ...parsed(40, 80, 0.9), settings: { iris: 60 } } as RetouchFace;
+    expect(carryOver([withDisk], [found], sides).faces[0].eyes!.map((e) => e!.irisDisk)).toEqual([0.9, 0.9]);
   });
 
   it('exchanges only the left and right values', () => {

@@ -85,7 +85,8 @@ const MIN_LOOP_AREA: f32 = 0.5;
 
 /// The Iris mask's disk on the parser's eyes, as a share of Face Mesh's
 /// iris radius (stored per eye as `irisDisk`). Face Mesh's iris circle sits
-/// up to half a radius beside the real iris and is often a little large, so
+/// beside the real iris (a median 0.2 of its radius on EYE2's portraits, up
+/// to 0.75) and is often a little large, so
 /// the full disk lifted the eye white beside the iris; at 0.9 the Iris halo
 /// fell below Capture One's on EYE2's tuning portraits with its lightening
 /// kept (the smallest of 1, 0.9, 0.85, 0.8 that does) and held on the

@@ -125,9 +125,26 @@ function analyseEyesTeeth(path: string, geometry: string, download = false, down
   return pending;
 }
 
+/** `face` found again for `old`: when `old`'s parser eyes were analysed
+ * before the Iris disk (`irisDisk`, 2026-11-22) its Iris keeps the full
+ * circle, so a saved Iris does not change with a flip or turn. */
+export function withIrisDiskOf(old: RetouchFace, face: RetouchFace): RetouchFace {
+  const fullDisk = old.eyes?.some((e) => e?.parsedIris !== undefined && e.irisDisk === undefined);
+  if (!fullDisk || !face.eyes) return face;
+  return {
+    ...face,
+    eyes: face.eyes.map((e) => {
+      if (!e) return e;
+      const { irisDisk: _, ...rest } = e;
+      return rest;
+    })
+  };
+}
+
 /** Faces found again after a geometry change keep the settings of the
- * face nearest to them (within half a face). */
-function carryOver(
+ * face nearest to them (within half a face), and their Iris disk
+ * (`withIrisDiskOf`). */
+export function carryOver(
   previous: RetouchFace[],
   next: RetouchFace[],
   sides?: Sides
@@ -158,7 +175,11 @@ function carryOver(
     // eye may be on the left; its own values follow the eye.
     const turned = sides !== undefined && eyesSwapped(best, face, sides);
     swapped ||= turned;
-    return { ...face, settings: turned ? swapSides(best.settings) : { ...best.settings }, enabled: best.enabled };
+    return {
+      ...withIrisDiskOf(best, face),
+      settings: turned ? swapSides(best.settings) : { ...best.settings },
+      enabled: best.enabled
+    };
   });
   return { faces, swapped };
 }
