@@ -832,7 +832,27 @@ fn recipe_for_with(
     // Capture One's local adjustment layers (`capture_one_layers`), above
     // any the photo's settings brought, their gradients through the lens
     // correction of the recipe as it renders (its frame stamped above).
+    // Capture One's Shadow comes over as the amount that lifts as far
+    // (`costyle::shadows_amount`, the unit of carried settings), the photo's
+    // and its layers'; the recipe holds it as its tone version's slider value.
+    if matches!(develop, Develop::CaptureOne(_)) {
+        rawtonic_engine::image_processing::express_shadows_amounts(&mut adjustments);
+    }
     let layers = capture_one_layers(c1_layers, path, &adjustments, lens);
+    let layers = {
+        let mut layered = json!({
+            rawtonic_engine::image_processing::TONE_VERSION_KEY: adjustments
+                .get(rawtonic_engine::image_processing::TONE_VERSION_KEY)
+                .cloned()
+                .unwrap_or(Value::Null),
+            rawtonic_recipe::masks::MASKS.name(): layers,
+        });
+        rawtonic_engine::image_processing::express_shadows_amounts(&mut layered);
+        match layered[rawtonic_recipe::masks::MASKS.name()].take() {
+            Value::Array(layers) => layers,
+            _ => Vec::new(),
+        }
+    };
     if !edited && layers.is_empty() {
         return None;
     }
@@ -847,12 +867,6 @@ fn recipe_for_with(
         } else {
             *entry = Value::Array(layers);
         }
-    }
-    // Capture One's Shadow comes over as the amount that lifts as far
-    // (`costyle::shadows_amount`, the unit of carried settings), the photo's
-    // and its layers'; the recipe holds it as its tone version's slider value.
-    if matches!(develop, Develop::CaptureOne(_)) {
-        rawtonic_engine::image_processing::express_shadows_amounts(&mut adjustments);
     }
     let mut clipped = false;
     if let Develop::LightroomXmp(xmp) = develop {
@@ -1988,6 +2002,35 @@ mod tests {
         .unwrap()
         .0;
         assert_eq!(lr["shadows"].as_f64(), Some(50.0));
+        // A Capture One layer's Shadow, also on a photo without develop
+        // settings of its own: the same value as on the photo.
+        use rawtonic_interop::capture_one::Layer;
+        use rawtonic_interop::capture_one_masks::Mask;
+        let layer = |shadow: &str| Layer {
+            name: "Shadow".into(),
+            enabled: true,
+            opacity: 100.0,
+            settings: vec![("ShadowRecovery".into(), shadow.into())],
+            mask: Mask::Linear {
+                start: (100.0, 50.0),
+                end: (100.0, 150.0),
+                midpoint: 0.5,
+            },
+            frame: (600.0, 400.0),
+        };
+        for develop in [
+            Develop::None,
+            Develop::CaptureOne(vec![("ShadowRecovery".into(), "20".into())]),
+        ] {
+            let (recipe, _) = recipe_for_with(&develop, &[layer("20")], path, &none).unwrap();
+            let value = recipe["masks"][0]["adjustments"]["shadows"]
+                .as_f64()
+                .unwrap();
+            assert!((tone.shadows_amount(value) - 59.0).abs() < 1e-6, "{value}");
+            if let Some(photo) = recipe["shadows"].as_f64() {
+                assert!((tone.shadows_amount(photo) - 59.0).abs() < 1e-6, "{photo}");
+            }
+        }
     }
 
     /// A Lightroom HDR edit keeps its `crs:HDR…`/`crs:SDR…` settings in the

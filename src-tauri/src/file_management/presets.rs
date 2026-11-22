@@ -308,7 +308,14 @@ pub(crate) fn parse_preset_file_reporting(
         content
     };
 
-    let converted_preset = preset_converter::convert_xmp_to_preset(&xmp_content)?;
+    let mut converted_preset = preset_converter::convert_xmp_to_preset(&xmp_content)?;
+    // The preset carries no tone version, so its Shadows are amounts: as the
+    // amount Lightroom's value means (its Shadows move at tone version 21's
+    // pace), a photo of any version renders Lightroom's lift.
+    rawtonic_engine::image_processing::shadows_as_amounts(
+        &mut converted_preset.adjustments,
+        rawtonic_engine::recipe_versions::SHADOWS_TRAVEL_TONE_VERSION,
+    );
     let (settings, profile) = preset_converter::untranslated_settings(&xmp_content);
     Ok((
         vec![PresetItem::Preset(converted_preset)],
@@ -496,6 +503,32 @@ mod tests {
         let renamed = directory.path().join("renamed.rrpreset");
         rawtonic_fs::atomic_write(&renamed, b"PK\x03\x04").unwrap();
         assert!(parse_preset_file_reporting(renamed.to_str().unwrap()).is_err());
+    }
+
+    /// A Lightroom preset's Shadows (Camera Raw's pace, tone version 21's) is
+    /// stored as the amount it means: applied to a new edit it is the same
+    /// slider value again, on a version-20 photo the value with that lift.
+    #[test]
+    fn a_lightroom_presets_shadows_keeps_lightrooms_lift() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("lift.xmp");
+        rawtonic_fs::atomic_write(
+            &path,
+            br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Shadows2012="+50" crs:Exposure2012="+0.30"/></rdf:RDF></x:xmpmeta>"#,
+        )
+        .unwrap();
+        let (items, _) = parse_preset_file_reporting(path.to_str().unwrap()).unwrap();
+        let PresetItem::Preset(preset) = &items[0] else {
+            panic!("not a preset")
+        };
+        assert!(preset.adjustments.get("toneVersion").is_none());
+        assert_eq!(preset.adjustments["shadows"].as_f64(), Some(61.0));
+        let mut onto_new = preset.adjustments.clone();
+        rawtonic_engine::image_processing::express_pasted_whites(
+            &mut onto_new,
+            &serde_json::json!({"toneVersion": 21}),
+        );
+        assert_eq!(onto_new["shadows"].as_f64(), Some(50.0));
     }
 
     #[test]

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { debouncedSetHistory, panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { sharpenViewFor } from '../../utils/sharpenView';
+import { layersInToneVersion } from '../../utils/pastedVersions';
 import { storedSliderValue } from '../../utils/aiDenoise';
 import { useUIStore } from '../../store/useUIStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -1635,19 +1636,22 @@ export default function StudioDevelop() {
                 ['blacks', t('studio.develop.sliders.blacks')],
                 ['brightness', t('studio.develop.sliders.brightness')]
               ])}
-              onReset={() =>
-                reset([
-                  'exposure',
-                  'contrast',
-                  'brightness',
-                  'highlights',
-                  'shadows',
-                  'whites',
-                  'blacks',
-                  // The photo's tone-slider response goes back to a new edit's.
-                  ...(layer ? [] : ['toneVersion'])
-                ])
-              }
+              onReset={() => {
+                const keys = ['exposure', 'contrast', 'brightness', 'highlights', 'shadows', 'whites', 'blacks'];
+                if (layer) return reset(keys);
+                // The photo's tone-slider response goes back to a new edit's;
+                // its layers' Whites and Shadows keep the amount they render.
+                const to = (defaults.toneVersion ?? 1) as number;
+                selectedImage?.isReady &&
+                  setAdjustments((prev) =>
+                    withNewGrainStructure(prev, {
+                      ...prev,
+                      ...Object.fromEntries(keys.map((key) => [key, structuredClone(defaults[key])])),
+                      toneVersion: to,
+                      masks: layersInToneVersion(prev.masks, prev.toneVersion ?? 1, to)
+                    })
+                  );
+              }}
             >
               {control(t('studio.develop.sliders.exposure'), 'exposure', -5, 5, 0.01)}
               {control(t('studio.develop.sliders.contrast'), 'contrast')}

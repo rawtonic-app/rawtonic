@@ -14,7 +14,8 @@ import {
   GRAIN_VERSION,
   INITIAL_ADJUSTMENTS,
   initialAdjustmentsFor,
-  normalizeLoadedAdjustments
+  normalizeLoadedAdjustments,
+  TONE_VERSION
 } from '../../utils/adjustments';
 import { Panel, type AppSettings, type SelectedImage } from '../ui/AppProperties';
 import { Mask, SubMaskMode } from '../panel/right/Masks';
@@ -1932,6 +1933,29 @@ describe('Group reset', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset Exposure' }));
     expect(adjustments().masks[0].adjustments.brightness).toBe(0);
     expect(historyStepName(step(), i18n.t.bind(i18n))).toBe('Reset Exposure');
+  });
+
+  it("the photo's Exposure reset takes a new edit's tone version and keeps its layers' Whites and Shadows", () => {
+    const layerOf = (adjustments: Record<string, number>) => ({
+      ...structuredClone(useEditorStore.getState().adjustments.masks[0] ?? {}),
+      id: 'l',
+      name: 'l',
+      visible: true,
+      invert: false,
+      opacity: 100,
+      subMasks: [],
+      adjustments: { ...INITIAL_ADJUSTMENTS, ...adjustments }
+    });
+    setEdit({ toneVersion: 20, exposure: 0.5, shadows: 30, masks: [layerOf({ shadows: 61, whites: 40 })] });
+    mount();
+    openGroups();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Exposure' }));
+    expect(adjustments().toneVersion).toBe(TONE_VERSION);
+    expect(adjustments().exposure).toBe(0);
+    expect(adjustments().shadows).toBe(0);
+    // Version 20's +61 is version 21's +50; Whites travel alike in 20 and 21.
+    expect(adjustments().masks[0].adjustments.shadows).toBe(50);
+    expect(adjustments().masks[0].adjustments.whites).toBe(40);
   });
 
   it('a reset of values already at their defaults names no step', async () => {

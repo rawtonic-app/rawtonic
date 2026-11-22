@@ -157,6 +157,26 @@ const KEYS: VersionKey[] = [
   }
 ];
 
+/** `masks` (a photo's layers) with their Whites and Shadows re-expressed from
+ * tone version `from` to `to` (exact: the travel versions render the same
+ * amount), so a layer renders as it did when the photo's `toneVersion`
+ * changes under it (a reset of the photo's tone group). */
+export function layersInToneVersion<T extends { adjustments?: object }>(masks: T[], from: number, to: number): T[] {
+  if (from === to) return masks;
+  return masks.map((mask) => {
+    const values = mask?.adjustments as Record<string, unknown> | undefined;
+    if (!values) return mask;
+    let out = values;
+    for (const slider of ['whites', 'shadows']) {
+      const value = out[slider];
+      if (typeof value !== 'number') continue;
+      const expressed = translateTone(value, from, to, slider);
+      if (expressed !== value) out = { ...out, [slider]: expressed };
+    }
+    return out === values ? mask : { ...mask, adjustments: out };
+  });
+}
+
 /** The version keys a paste may keep as the photograph has them. */
 export const PASTED_VERSION_KEYS: readonly string[] = KEYS.map((key) => key.key);
 
