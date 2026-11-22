@@ -40,7 +40,21 @@
     "dismiss": "Ausblenden: {{title}}",
     "dismissShort": "Ausblenden",
     "download": {
-      "model": "{{name}} wird geladen"
+      "model": "Wird geladen: {{name}}",
+      "names": {
+        "denoise": "KI-Entrauschungsmodell",
+        "depth": "Tiefenmodell",
+        "eyesTeeth": "Augen- und Zahnmodell",
+        "faces": "Gesichtsmodelle",
+        "fill": "Füllmodell",
+        "landscape": "Landschaftsmodell",
+        "objectRemoval": "Modell zum Entfernen von Objekten",
+        "relight": "Relight-Modell",
+        "search": "Suchmodell",
+        "sky": "Himmelsmodell",
+        "subject": "Motivmodell",
+        "superResolution": "Super-Resolution-Modell"
+      }
     },
     "duplicates": {
       "failed": "Duplikatsuche fehlgeschlagen",
@@ -868,6 +882,7 @@
         "upgradeRequired": "Upgrade erforderlich"
       },
       "createNewTitle": "Neue generative Bearbeitung erstellen",
+      "downloadFailed": "Das Modell konnte nicht geladen werden. Prüfe die Internetverbindung und versuche es erneut.",
       "generatingDepthMap": "KI-Tiefenkarte wird berechnet...",
       "params": {
         "feather": "Weiche Kante",
@@ -2133,6 +2148,7 @@
       "importAiMasksOnOpen_other": "KI-Masken von {{count}} Fotos werden berechnet, wenn sie in Entwickeln geöffnet oder exportiert werden",
       "importCopies_one": "{{count}} virtuelle Kopie importiert",
       "importCopies_other": "{{count}} virtuelle Kopien importiert",
+      "importCopiesInAlbums": "Alben enthalten Fotos, keine virtuellen Kopien – diese Kopien wurden als ihre Fotos hinzugefügt: {{n}}.",
       "importCopiesSkipped_one": "{{count}} virtuelle Kopie nicht importiert",
       "importCopiesSkipped_other": "{{count}} virtuelle Kopien nicht importiert",
       "importCropsClipped_one": "{{count}} Freistellung ragte über das Bildfeld der Kamera hinaus und wurde darauf beschnitten",
@@ -2141,6 +2157,8 @@
       "imported_other": "{{count}} Fotos importiert ({{withSettings}} mit Bearbeitungen, Alben: {{albums}})",
       "importNotFound_one": "{{count}} nicht gefunden",
       "importNotFound_other": "{{count}} nicht gefunden",
+      "importSmartAlbumsByFacts": "Smart-Alben nach Kamera, Objektiv, ISO oder Aufnahmedatum füllen sich, während die Aufnahmedaten der Dateien gelesen werden; Kamera- und Objektivwörter können andere Fotos finden als in Lightroom: {{n}}.",
+      "importSmartAlbumsSkipped": "Smart-Sammlungen ausgelassen, weil eine Regel keine Entsprechung hat: {{n}}.",
       "importStacks_one": "{{count}} Stapel importiert",
       "importStacks_other": "{{count}} Stapel importiert",
       "importUnconvertedSettings": "Importierte Bearbeitungen mit Einstellungen, die nicht konvertiert werden konnten: {{n}}.",
@@ -3904,6 +3922,10 @@
         "teethBrightness": "Zähne Helligkeit",
         "teethWhiten": "Zähne aufhellen",
         "texture": "Gesicht: Textur"
+      },
+      "download": {
+        "preparing": "Modell wird vorbereitet…",
+        "progress": "Wird geladen… {{percent}} %"
       },
       "downloadModels": "Gesichtsmodelle laden",
       "eyes": {

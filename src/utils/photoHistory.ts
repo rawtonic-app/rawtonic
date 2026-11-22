@@ -71,6 +71,19 @@ const kept = new Map<string, Kept>();
  * is kept (`recipeStepsSince` gives those that wrote it since). */
 export const keptSince = (path: string) => kept.get(path)?.written;
 
+/** The kept History entries of `path` (another photo is open), if any. */
+export const keptHistory = (path: string): readonly Adjustments[] | undefined => kept.get(path)?.history;
+
+/** Replaces the kept History entries of `path` by `history` (as many, each
+ * entry the same step: its undo order stays), if they are still `was`
+ * (kept, not opened or left again since). Returns whether it did. */
+export function replaceKeptHistory(path: string, was: readonly Adjustments[], history: Adjustments[]): boolean {
+  const entry = kept.get(path);
+  if (!entry || entry.history !== was || history.length !== was.length) return false;
+  entry.history = history;
+  return true;
+}
+
 /** The undo orders of the batch steps that wrote `path` (appUndo.ts). */
 let writtenSteps: (path: string) => number[] = () => [];
 export function registerWrittenSteps(steps: (path: string) => number[]) {

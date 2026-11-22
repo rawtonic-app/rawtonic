@@ -618,6 +618,30 @@ pub(crate) async fn download_verified(
 pub(crate) struct DownloadBatch {
     pub done: u64,
     pub total: u64,
+    /// The model whose download this batch started: its start event goes
+    /// out with the first file fetched and its one finish event when the
+    /// batch is dropped (all done, failed or cancelled), so the Activity
+    /// shows one entry from the first file to the last.
+    pub started: Option<(tauri::AppHandle, String)>,
+}
+
+impl DownloadBatch {
+    /// A batch of `total` bytes still to download.
+    pub fn of(total: u64) -> Self {
+        Self {
+            done: 0,
+            total,
+            started: None,
+        }
+    }
+}
+
+impl Drop for DownloadBatch {
+    fn drop(&mut self) {
+        if let Some((app_handle, model_name)) = self.started.take() {
+            let _ = app_handle.emit("ai-model-download-finish", model_name);
+        }
+    }
 }
 
 /// A model file could not be downloaded or did not match its SHA-256
@@ -642,7 +666,7 @@ pub(crate) async fn download_verified_in(
     file: &str,
     expected_hash: &str,
     model_name: &str,
-    batch: Option<&mut DownloadBatch>,
+    mut batch: Option<&mut DownloadBatch>,
 ) -> Result<()> {
     let dest_path = models_dir.join(file);
     let is_valid = verify_sha256(&dest_path, expected_hash)?;
@@ -651,16 +675,28 @@ pub(crate) async fn download_verified_in(
         if dest_path.exists() {
             println!("Model {} has incorrect hash. Re-downloading.", model_name);
         }
-        let _ = app_handle.emit("ai-model-download-start", model_name);
         // The finish event also when the download is dropped (a cancelled
-        // removal stops waiting for it).
+        // removal stops waiting for it); in a batch, once for all its
+        // files (`DownloadBatch::started`).
         struct Finish<'a>(&'a tauri::AppHandle, &'a str);
         impl Drop for Finish<'_> {
             fn drop(&mut self) {
                 let _ = self.0.emit("ai-model-download-finish", self.1);
             }
         }
-        let _finish = Finish(app_handle, model_name);
+        let _finish = match batch.as_deref_mut() {
+            Some(batch) => {
+                if batch.started.is_none() {
+                    let _ = app_handle.emit("ai-model-download-start", model_name);
+                    batch.started = Some((app_handle.clone(), model_name.to_string()));
+                }
+                None
+            }
+            None => {
+                let _ = app_handle.emit("ai-model-download-start", model_name);
+                Some(Finish(app_handle, model_name))
+            }
+        };
         let (before, batch_total) = batch.as_ref().map_or((0, 0), |b| (b.done, b.total));
         let mut fetched = 0;
         // At most one event per percent (of the batch, when there is one).
@@ -1185,10 +1221,29 @@ pub(crate) async fn load_core_ml(
     label: &str,
     model_name: &str,
 ) -> Option<rawtonic_denoise::coreml::CoreMlModel> {
+    load_core_ml_in(
+        app_handle, models_dir, package, files, download, label, model_name, None,
+    )
+    .await
+}
+
+/// `load_core_ml`, counting its download into `batch`.
+#[cfg(target_os = "macos")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn load_core_ml_in(
+    app_handle: &tauri::AppHandle,
+    models_dir: &Path,
+    package: &str,
+    files: &[(&str, &str, &str)],
+    download: bool,
+    label: &str,
+    model_name: &str,
+    batch: Option<&mut DownloadBatch>,
+) -> Option<rawtonic_denoise::coreml::CoreMlModel> {
     let package = models_dir.join(package);
     let start = std::time::Instant::now();
     match assemble_package(
-        app_handle, models_dir, &package, files, download, model_name, None,
+        app_handle, models_dir, &package, files, download, model_name, batch,
     )
     .await
     {

@@ -209,6 +209,9 @@ pub struct ColorNoiseView {
     /// Changes with every render input stored or dropped (`revision`).
     revision: AtomicU64,
     split_before: Mutex<Option<SplitBeforeRequest>>,
+    /// The corrected base the last preview frame rendered from (`note_shown`),
+    /// None when it rendered from its own base.
+    shown: Mutex<Option<Weak<DynamicImage>>>,
 }
 
 /// Keeps `item` last in `list` of at most [`KEPT`], dropping the oldest.
@@ -287,6 +290,26 @@ impl ColorNoiseView {
     /// too) and returns its number.
     pub(crate) fn note_frame(&self) -> u64 {
         self.frames.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// What the preview frame being rendered now renders from: `corrected`
+    /// (from [`corrected_base`]) or its own base (None). Probes of the
+    /// shown frame follow it ([`shown_corrected_base`]).
+    pub(crate) fn note_shown(&self, corrected: Option<&Arc<DynamicImage>>) {
+        *lock_recover(&self.shown) = corrected.map(Arc::downgrade);
+    }
+
+    /// What [`note_shown`](Self::note_shown) last recorded, to put back
+    /// after a render nobody sees ([`restore_shown`](Self::restore_shown)).
+    pub(crate) fn shown_mark(&self) -> Option<Weak<DynamicImage>> {
+        lock_recover(&self.shown).clone()
+    }
+
+    /// Puts back the record of [`shown_mark`](Self::shown_mark): a render
+    /// nobody sees (Linux's drag-draft warm-up) leaves the shown frame's
+    /// base the one probes sample.
+    pub(crate) fn restore_shown(&self, mark: Option<Weak<DynamicImage>>) {
+        *lock_recover(&self.shown) = mark;
     }
 
     /// The number of the last frame noted.
@@ -434,6 +457,41 @@ pub(crate) fn corrected_base(
             None
         }
     }
+}
+
+/// The corrected base the last preview frame of `base` rendered from for
+/// this colour noise setting (a settled fit frame; `note_shown`), if it
+/// did: what probes of the shown frame (the Levels pickers) render from,
+/// at Color 0. None after a frame from its own base (a zoomed region, a
+/// drag). Looks up only; never wants or builds one.
+pub(crate) fn shown_corrected_base(
+    view: &ColorNoiseView,
+    adjustments: &AllAdjustments,
+    recipe: &serde_json::Value,
+    source: &Arc<DynamicImage>,
+    is_raw: bool,
+    base: &Arc<DynamicImage>,
+) -> Option<Arc<DynamicImage>> {
+    if !enabled() || !applies(adjustments, recipe, is_raw) {
+        return None;
+    }
+    let key = Key::of(&adjustments.global, recipe, is_raw);
+    let source = Arc::downgrade(source);
+    let inputs: Vec<Weak<Rgb32FImage>> = lock_recover(&view.inputs)
+        .iter()
+        .filter(|c| Weak::ptr_eq(&c.source, &source) && c.key == key)
+        .map(|c| Arc::downgrade(&c.input))
+        .collect();
+    let shown = lock_recover(&view.shown).clone()?;
+    let base = Arc::downgrade(base);
+    lock_recover(&view.corrected)
+        .iter()
+        .find(|c| {
+            Weak::ptr_eq(&c.base, &base)
+                && inputs.iter().any(|i| Weak::ptr_eq(&c.input, i))
+                && Weak::ptr_eq(&Arc::downgrade(&c.image), &shown)
+        })
+        .map(|c| Arc::clone(&c.image))
 }
 
 /// The preview worker after a final frame: when a render input is wanted and
@@ -876,6 +934,66 @@ mod tests {
         let other = image(600, 400);
         assert!(frame_of(&other, (300, 200), 25).is_none());
         assert!(lock_recover(&view.inputs).is_empty());
+    }
+
+    /// The Levels pickers sample the base a settled fit frame showed, for
+    /// its setting only, and never ask for one to be built.
+    #[test]
+    fn probes_find_the_corrected_base_the_fit_frame_shows() {
+        let view = ColorNoiseView::default();
+        let (source, base) = (image(600, 400), image(200, 133));
+        let corrected = image(200, 133);
+        let shown = |amount| {
+            shown_corrected_base(&view, &all(amount), &recipe(amount), &source, true, &base)
+        };
+        assert!(shown(25).is_none(), "no frame showed one yet");
+        assert!(
+            lock_recover(&view.builds).wanted.is_empty(),
+            "a probe wants none"
+        );
+        let frame = || {
+            corrected_base(
+                &view,
+                &global(25),
+                FitFrame {
+                    number: Some(view.note_frame()),
+                    source: &source,
+                    path: "a.raw",
+                    recipe: &recipe(25),
+                    is_raw: true,
+                    base: &base,
+                    reduced_dims: (300, 200),
+                },
+                |_| Ok(Arc::clone(&corrected)),
+                refresh,
+            )
+        };
+        assert!(frame().is_none());
+        view.note_shown(None);
+        let wanted = lock_recover(&view.builds).wanted.pop().unwrap();
+        view.store(&wanted, Rgb32FImage::new(300, 200));
+        let used = frame().unwrap();
+        assert!(
+            shown(25).is_none(),
+            "built, but no frame rendered from it yet"
+        );
+        view.note_shown(Some(&used));
+        assert!(Arc::ptr_eq(&shown(25).unwrap(), &corrected));
+        // A render nobody sees (the drag-draft warm-up) changes nothing.
+        let mark = view.shown_mark();
+        view.note_shown(None);
+        view.restore_shown(mark);
+        assert!(Arc::ptr_eq(&shown(25).unwrap(), &corrected));
+        // A zoomed or dragged frame after it renders from its own base.
+        view.note_shown(None);
+        assert!(shown(25).is_none());
+        view.note_shown(Some(&used));
+        // Another setting or base: the frame would not show it.
+        assert!(shown(50).is_none());
+        let other = image(200, 133);
+        assert!(
+            shown_corrected_base(&view, &all(25), &recipe(25), &source, true, &other).is_none()
+        );
     }
 
     /// A frame nobody sees (the drag-draft warm-up) keeps the frame before

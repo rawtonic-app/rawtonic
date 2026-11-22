@@ -44,7 +44,21 @@
     "dismiss": "Ignora: {{title}}",
     "dismissShort": "Ignora",
     "download": {
-      "model": "Download: {{name}}"
+      "model": "Download: {{name}}",
+      "names": {
+        "denoise": "modello di riduzione rumore IA",
+        "depth": "modello di profondità",
+        "eyesTeeth": "modello di occhi e denti",
+        "faces": "modelli del viso",
+        "fill": "modello di riempimento",
+        "landscape": "modello di paesaggio",
+        "objectRemoval": "modello di rimozione oggetti",
+        "relight": "modello di riilluminazione",
+        "search": "modello di ricerca",
+        "sky": "modello del cielo",
+        "subject": "modello del soggetto",
+        "superResolution": "modello di super risoluzione"
+      }
     },
     "duplicates": {
       "failed": "Ricerca dei duplicati non riuscita",
@@ -916,6 +930,7 @@
         "upgradeRequired": "Upgrade Richiesto"
       },
       "createNewTitle": "Crea Nuova Modifica Generativa",
+      "downloadFailed": "Impossibile scaricare il modello. Controlla la connessione a internet e riprova.",
       "generatingDepthMap": "Calcolo mappa di profondità IA...",
       "params": {
         "feather": "Sfumatura",
@@ -2246,6 +2261,7 @@
       "importCopies_one": "{{count}} copia virtuale importata",
       "importCopies_many": "{{count}} copie virtuali importate",
       "importCopies_other": "{{count}} copie virtuali importate",
+      "importCopiesInAlbums": "Gli album contengono foto, non copie virtuali: queste copie sono state aggiunte come le loro foto: {{n}}.",
       "importCopiesSkipped_one": "{{count}} copia virtuale non importata",
       "importCopiesSkipped_many": "{{count}} copie virtuali non importate",
       "importCopiesSkipped_other": "{{count}} copie virtuali non importate",
@@ -2258,6 +2274,8 @@
       "importNotFound_one": "{{count}} non trovata",
       "importNotFound_many": "{{count}} non trovate",
       "importNotFound_other": "{{count}} non trovate",
+      "importSmartAlbumsByFacts": "Gli album smart per fotocamera, obiettivo, ISO o data di scatto si riempiono man mano che si leggono i dati di scatto dei file; le parole di fotocamera e obiettivo possono trovare altre foto rispetto a Lightroom: {{n}}.",
+      "importSmartAlbumsSkipped": "Raccolte smart omesse perché una regola non ha un equivalente: {{n}}.",
       "importStacks_one": "{{count}} pila importata",
       "importStacks_many": "{{count}} pile importate",
       "importStacks_other": "{{count}} pile importate",
@@ -4071,6 +4089,10 @@
         "teethBrightness": "Luminosità dei denti",
         "teethWhiten": "Sbiancare i denti",
         "texture": "Volto: texture"
+      },
+      "download": {
+        "preparing": "Preparazione del modello…",
+        "progress": "Download… {{percent}}%"
       },
       "downloadModels": "Scarica i modelli del viso",
       "eyes": {

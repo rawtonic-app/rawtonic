@@ -2024,9 +2024,15 @@ pub(crate) mod tests {
     /// Test hook: the Standard preview of `source` caches the camera crop
     /// `crop` (and no other facts).
     pub(crate) fn cache_camera_crop(source: &Path, crop: Vec<u32>) {
+        cache_camera_crop_in_facts(source, crop, rawtonic_engine::source_facts::VERSION);
+    }
+
+    /// `cache_camera_crop` in facts of `version`.
+    pub(crate) fn cache_camera_crop_in_facts(source: &Path, crop: Vec<u32>, version: u32) {
         let settings = AppSettings::default();
         write(source, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
         rewrite_facts(source, ProxyKind::Standard, |facts| {
+            facts.version = version;
             facts.camera_crop = Some(crop);
             facts.frames = Some(vec![0; rawtonic_engine::source_frame::VERSION as usize + 1]);
         });

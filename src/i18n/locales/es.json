@@ -44,7 +44,21 @@
     "dismiss": "Descartar: {{title}}",
     "dismissShort": "Descartar",
     "download": {
-      "model": "Descargando {{name}}"
+      "model": "Descargando {{name}}",
+      "names": {
+        "denoise": "modelo de reducción de ruido IA",
+        "depth": "modelo de profundidad",
+        "eyesTeeth": "modelo de ojos y dientes",
+        "faces": "modelos de rostro",
+        "fill": "modelo de relleno",
+        "landscape": "modelo de paisaje",
+        "objectRemoval": "modelo de eliminación de objetos",
+        "relight": "modelo de reiluminación",
+        "search": "modelo de búsqueda",
+        "sky": "modelo de cielo",
+        "subject": "modelo de sujeto",
+        "superResolution": "modelo de superresolución"
+      }
     },
     "duplicates": {
       "failed": "La búsqueda de duplicados ha fallado",
@@ -916,6 +930,7 @@
         "upgradeRequired": "Mejora requerida"
       },
       "createNewTitle": "Crear nueva edición generativa",
+      "downloadFailed": "No se pudo descargar el modelo. Comprueba la conexión a internet y vuelve a intentarlo.",
       "generatingDepthMap": "Calculando mapa de profundidad IA...",
       "params": {
         "feather": "Desvanecer",
@@ -2246,6 +2261,7 @@
       "importCopies_one": "{{count}} copia virtual importada",
       "importCopies_many": "{{count}} copias virtuales importadas",
       "importCopies_other": "{{count}} copias virtuales importadas",
+      "importCopiesInAlbums": "Los álbumes contienen fotos, no copias virtuales: estas copias se añadieron como sus fotos: {{n}}.",
       "importCopiesSkipped_one": "{{count}} copia virtual no importada",
       "importCopiesSkipped_many": "{{count}} copias virtuales no importadas",
       "importCopiesSkipped_other": "{{count}} copias virtuales no importadas",
@@ -2258,6 +2274,8 @@
       "importNotFound_one": "{{count}} no encontrada",
       "importNotFound_many": "{{count}} no encontradas",
       "importNotFound_other": "{{count}} no encontradas",
+      "importSmartAlbumsByFacts": "Los álbumes inteligentes por cámara, objetivo, ISO o fecha de captura se rellenan a medida que se leen los datos de captura de los archivos; las palabras de cámara y objetivo pueden coincidir con otras fotos que en Lightroom: {{n}}.",
+      "importSmartAlbumsSkipped": "Colecciones inteligentes omitidas porque una regla no tiene equivalente: {{n}}.",
       "importStacks_one": "{{count}} pila importada",
       "importStacks_many": "{{count}} pilas importadas",
       "importStacks_other": "{{count}} pilas importadas",
@@ -4071,6 +4089,10 @@
         "teethBrightness": "Brillo de los dientes",
         "teethWhiten": "Blanquear dientes",
         "texture": "Cara: textura"
+      },
+      "download": {
+        "preparing": "Preparando el modelo…",
+        "progress": "Descargando… {{percent}} %"
       },
       "downloadModels": "Descargar modelos de rostro",
       "eyes": {

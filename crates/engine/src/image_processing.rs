@@ -4872,6 +4872,18 @@ pub const COLOR_RANGE_INPUT_PROBE: u32 = 4;
 pub fn color_range_input_probe(slot: u32, low: bool) -> u32 {
     COLOR_RANGE_INPUT_PROBE | (u32::from(low) << 4) | (slot << 8)
 }
+/// `output_space[3]` of the Levels pickers' probe ([`levels_precise_probe`]).
+pub const LEVELS_PRECISE_PROBE: u32 = 5;
+
+/// The Levels pickers' probe's `output_space[3]`: as [`LEVELS_INPUT_PROBE`],
+/// Levels' input clipped to the sRGB cube, as 16-bit codes (rounded half up)
+/// split over two 8-bit renders on the display path: `low` false the high
+/// bytes with alpha 0, true the low bytes (shader
+/// `levels_precise_probe_pixel`). Display variants only (shader
+/// `MIXER_PROBES`); others store Levels' input in 8 bits.
+pub fn levels_precise_probe(low: bool) -> u32 {
+    LEVELS_PRECISE_PROBE | (u32::from(low) << 4)
+}
 pub use crate::color_grading::GRADING_LUT_SIZE;
 
 #[derive(Debug, Clone, Copy, Pod, Zeroable, Default)]

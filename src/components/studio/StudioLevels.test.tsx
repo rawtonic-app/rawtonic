@@ -9,7 +9,6 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 import { INITIAL_ADJUSTMENTS, INITIAL_LEVELS, type Adjustments } from '../../utils/adjustments';
 import { debouncedSetHistory, useEditorStore } from '../../store/useEditorStore';
 import { flushSliderDraft, registerSliderDraftRenderer, renderDraft } from '../../utils/sliderDraft';
-import { linearFromSrgb } from '../../utils/targetedAdjustment';
 import TargetedAdjustmentOverlay from '../panel/editor/TargetedAdjustmentOverlay';
 import { LEVELS_HISTOGRAM_DELAY_MS, StudioLevels } from './StudioLevels';
 
@@ -398,6 +397,26 @@ describe('Levels picker on the photo', () => {
     return el;
   };
 
+  it('uses the undithered Levels input and sets black 128.5 to 129', async () => {
+    useEditorStore.setState({ tatTarget: 'levelsBlack', levelsChannel: 'rgb' });
+    invoke.mockImplementation((command) =>
+      Promise.resolve(
+        command === 'sample_levels_input'
+          ? [
+              [128, 128, 128],
+              [129, 129, 129]
+            ]
+          : null
+      )
+    );
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 100, clientY: 150, pointerId: 1 });
+    });
+    const levels = useEditorStore.getState().adjustments.levels!;
+    expect([levels.red.inBlack, levels.green.inBlack, levels.blue.inBlack]).toEqual([129, 129, 129]);
+  });
+
   it('neutralises the sample through the colour channels on RGB, in one undo step', async () => {
     const adjustments = structuredClone(INITIAL_ADJUSTMENTS);
     adjustments.levels!.rgb.inWhite = 200;
@@ -407,7 +426,7 @@ describe('Levels picker on the photo', () => {
       levelsChannel: 'rgb'
     });
     useEditorStore.getState().resetHistory(adjustments);
-    const grey = linearFromSrgb([30, 30, 30]);
+    const grey = [30, 30, 30];
     invoke.mockResolvedValue([grey, grey]);
     const el = overlay();
     await act(async () => {
@@ -415,11 +434,11 @@ describe('Levels picker on the photo', () => {
     });
     fireEvent.pointerUp(el, { pointerId: 1 });
     debouncedSetHistory.flush();
-    expect(invoke).toHaveBeenCalledWith('sample_curve_input', {
+    expect(invoke).toHaveBeenCalledWith('sample_levels_input', {
       path: '/s/a.NEF',
       normalizedX: 0.25,
       normalizedY: 0.5,
-      adjustments: { ...adjustments, levels: INITIAL_LEVELS }
+      adjustments
     });
     const state = useEditorStore.getState();
     // The composite stays; each channel takes the composite's output of 30.
@@ -436,7 +455,7 @@ describe('Levels picker on the photo', () => {
 
   it('sets only the active colour channel on its tab', async () => {
     useEditorStore.setState({ tatTarget: 'levelsWhite', levelsChannel: 'green' });
-    invoke.mockResolvedValue([linearFromSrgb([200, 180, 150])]);
+    invoke.mockResolvedValue([[200, 180, 150]]);
     const el = overlay();
     await act(async () => {
       fireEvent.pointerDown(el, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
@@ -453,7 +472,7 @@ describe('Levels picker on the photo', () => {
     invoke.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
     useEditorStore.setState({ tatTarget: 'levelsBlack', levelsChannel: 'rgb' });
     const el = overlay();
-    const sample = [linearFromSrgb([40, 60, 80])];
+    const sample = [[40, 60, 80]];
     // The exposure changes while the photo is sampled.
     fireEvent.pointerDown(el, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
     const exposed = { ...useEditorStore.getState().adjustments, exposure: 1 };
@@ -493,7 +512,7 @@ describe('Levels picker on the photo', () => {
     el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 300 }) as DOMRect;
     fireEvent.pointerDown(el, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
     useEditorStore.setState({ levelsChannel: 'green' });
-    await act(async () => answer([linearFromSrgb([200, 200, 200])]));
+    await act(async () => answer([[200, 200, 200]]));
     expect(useEditorStore.getState().adjustments.levels).toEqual(INITIAL_LEVELS);
   });
 
@@ -522,10 +541,10 @@ describe('Levels picker on the photo', () => {
     await press(200);
     expect(answers).toHaveLength(2);
     // A answers first (black 30), then B (black 90): only B applies.
-    await act(async () => answers[0]([linearFromSrgb([30, 30, 30])]));
+    await act(async () => answers[0]([[30, 30, 30]]));
     expect(useEditorStore.getState().adjustments.levels).toEqual(INITIAL_LEVELS);
     expect(useEditorStore.getState().tatTarget).toBe('levelsBlack');
-    await act(async () => answers[1]([linearFromSrgb([90, 90, 90])]));
+    await act(async () => answers[1]([[90, 90, 90]]));
     const levels = useEditorStore.getState().adjustments.levels!;
     expect(levels.rgb).toEqual(INITIAL_LEVELS.rgb);
     for (const c of ['red', 'green', 'blue'] as const) expect(levels[c]).toMatchObject({ inBlack: 90, inWhite: 255 });
@@ -537,7 +556,7 @@ describe('Levels picker on the photo', () => {
     await press(10);
     clickBlack();
     expect(useEditorStore.getState().tatTarget).toBeNull();
-    await act(async () => answers[2]([linearFromSrgb([30, 30, 30])]));
+    await act(async () => answers[2]([[30, 30, 30]]));
     expect(useEditorStore.getState().adjustments).toBe(before);
   });
 
@@ -554,9 +573,9 @@ describe('Levels picker on the photo', () => {
     await press(200);
     expect(answers).toHaveLength(2);
     // A answers first (black 30), then B (black 90): A is void, B applies.
-    await act(async () => answers[0]([linearFromSrgb([30, 30, 30])]));
+    await act(async () => answers[0]([[30, 30, 30]]));
     expect(useEditorStore.getState().adjustments.levels).toEqual(INITIAL_LEVELS);
-    await act(async () => answers[1]([linearFromSrgb([90, 90, 90])]));
+    await act(async () => answers[1]([[90, 90, 90]]));
     const levels = useEditorStore.getState().adjustments.levels!;
     for (const c of ['red', 'green', 'blue'] as const) expect(levels[c]).toMatchObject({ inBlack: 90 });
   });
@@ -580,7 +599,7 @@ describe('Levels picker on the photo', () => {
       const dragged = structuredClone(base);
       dragged.levels!.rgb.outWhite = 200;
       renderDraft('/s/a.NEF', dragged, commit);
-      await act(async () => answers[0]([linearFromSrgb([30, 30, 30])]));
+      await act(async () => answers[0]([[30, 30, 30]]));
       flushSliderDraft();
       const levels = useEditorStore.getState().adjustments.levels!;
       expect(levels.rgb.outWhite).toBe(200);
@@ -593,7 +612,7 @@ describe('Levels picker on the photo', () => {
       const exposed = structuredClone(before);
       exposed.exposure = before.exposure + 1;
       renderDraft('/s/a.NEF', exposed, commit);
-      await act(async () => answers[1]([linearFromSrgb([60, 60, 60])]));
+      await act(async () => answers[1]([[60, 60, 60]]));
       expect(useEditorStore.getState().adjustments.levels).toEqual(before.levels);
       flushSliderDraft();
     } finally {

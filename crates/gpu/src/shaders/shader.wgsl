@@ -124,6 +124,10 @@ const BW_INPUT_PROBE: u32 = 3u;
 // COLOR_RANGE_INPUT_PROBE | part << 4 | slot << 8 (crates/engine
 // `color_range_input_probe`), see `color_range_probe_pixel`.
 const COLOR_RANGE_INPUT_PROBE: u32 = 4u;
+// The Levels pickers' precise probe (also MIXER_PROBES): `output_space.w` =
+// LEVELS_PRECISE_PROBE | part << 4 (crates/engine `levels_precise_probe`),
+// see `levels_precise_probe_pixel`.
+const LEVELS_PRECISE_PROBE: u32 = 5u;
 const SHARPEN_VIEW_MASK: u32 = 0x40000004u;
 const SHARPEN_VIEW_GREY: u32 = 0x40000008u;
 // In the mask view the sharpening returns its Masking factor m (0–1) as
@@ -4743,6 +4747,22 @@ fn color_range_probe_pixel(display: vec3<f32>, influence: f32) -> vec4<f32> {
         return vec4<f32>(vec3<f32>(code >> vec3<u32>(8u)) / 255.0, 0.0);
     }
     return vec4<f32>(vec3<f32>(code & vec3<u32>(255u)) / 255.0, clamp(influence, 0.0, 1.0));
+}
+
+// The Levels pickers' probe pixel: the colour Levels receive (clipped to
+// the sRGB cube) as 16-bit codes rounded half up, split over two renders of
+// the 8-bit display path: part 0 the high bytes with alpha 0 (which marks
+// the probe; photos have alpha above 0), part 1 the low bytes with a check
+// byte of the high ones in alpha, so a pair from two different renders is
+// found (src-tauri editor_preview.rs `levels_input_codes`).
+fn levels_precise_probe_pixel(clipped: vec3<f32>) -> vec4<f32> {
+    let code = vec3<u32>(floor(clipped * 65535.0 + 0.5));
+    let high = code >> vec3<u32>(8u);
+    if (((adjustments.global.output_space.w >> 4u) & 1u) == 0u) {
+        return vec4<f32>(vec3<f32>(high) / 255.0, 0.0);
+    }
+    let check = (high.x + 7u * high.y + 31u * high.z) & 255u;
+    return vec4<f32>(vec3<f32>(code & vec3<u32>(255u)) / 255.0, f32(check) / 255.0);
 }
 
 fn apply_hsl_panel(color: vec3<f32>, hsl_adjustments: array<HslColor, 8>, coords_i: vec2<i32>) -> vec3<f32> {
@@ -12026,6 +12046,11 @@ fn main(
     // histogram's render): the colour Levels receive, clipped to the sRGB
     // cube, without anything after it (no output mapping, no dither).
     if (adjustments.global.output_space.w != 0u) {
+        // The pickers' 16-bit split (display variants only).
+        if (MIXER_PROBES && (adjustments.global.output_space.w & 15u) == LEVELS_PRECISE_PROBE) {
+            textureStore(output_texture, id.xy, levels_precise_probe_pixel(clamp(base_srgb, vec3<f32>(0.0), vec3<f32>(1.0))));
+            return;
+        }
         textureStore(output_texture, id.xy, vec4<f32>(clamp(base_srgb, vec3<f32>(0.0), vec3<f32>(1.0)), original_alpha));
         return;
     }

@@ -13619,15 +13619,19 @@ pub fn foreground_rendered_within(window: std::time::Duration) -> bool {
 }
 
 /// Renders the user watches as they happen: the Develop view's frames, its
-/// JPEG fallback (e.g. on Linux), tone targets' samples of them and the
-/// scopes beside a zoomed drag's frames ([`render_scope_analytics`]; a
-/// background render would wait until the drag stops). They keep their
-/// source in the Develop view's image cache.
+/// JPEG fallback (e.g. on Linux), tone targets' and the Levels pickers'
+/// samples of them and the scopes beside a zoomed drag's frames
+/// ([`render_scope_analytics`]; a background render would wait until the
+/// drag stops). They keep their source (and its colour noise pyramid) in
+/// the Develop view's image cache.
 fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
     output_to_display
         || matches!(
             caller_id,
-            "apply_adjustments" | "sample_curve_input" | SCOPE_ANALYTICS_CALLER
+            "apply_adjustments"
+                | "sample_curve_input"
+                | "sample_levels_input"
+                | SCOPE_ANALYTICS_CALLER
         )
 }
 
@@ -13657,6 +13661,16 @@ mod foreground_turn_tests {
         // The cell worker's renders stay background renders.
         assert!(!foreground_turn("multi_view", false));
         assert!(foreground_turn("apply_adjustments", false));
+    }
+
+    #[test]
+    fn the_levels_pickers_sample_from_the_develop_views_source() {
+        // Their two renders reuse the shown preview's upload and colour
+        // noise pyramid instead of building their own (~24 ms each on
+        // Metal, notes: parity-gaps/G08-levels.md LVP1).
+        assert!(foreground_render("sample_levels_input", false));
+        assert!(foreground_turn("sample_levels_input", false));
+        assert!(!foreground_render("levels_input_histogram", false));
     }
 }
 

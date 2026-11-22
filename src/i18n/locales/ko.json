@@ -36,7 +36,21 @@
     "dismiss": "닫기: {{title}}",
     "dismissShort": "닫기",
     "download": {
-      "model": "다운로드 중: {{name}}"
+      "model": "다운로드 중: {{name}}",
+      "names": {
+        "denoise": "AI 노이즈 제거 모델",
+        "depth": "심도 모델",
+        "eyesTeeth": "눈·치아 모델",
+        "faces": "얼굴 모델",
+        "fill": "채우기 모델",
+        "landscape": "풍경 모델",
+        "objectRemoval": "개체 제거 모델",
+        "relight": "재조명 모델",
+        "search": "검색 모델",
+        "sky": "하늘 모델",
+        "subject": "피사체 모델",
+        "superResolution": "초해상도 모델"
+      }
     },
     "duplicates": {
       "failed": "중복 찾기 실패",
@@ -854,6 +868,7 @@
         "upgradeRequired": "업그레이드 필요"
       },
       "createNewTitle": "새 생성형 편집 만들기",
+      "downloadFailed": "모델을 다운로드할 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요.",
       "generatingDepthMap": "AI 심도 맵 계산 중...",
       "params": {
         "feather": "페더",
@@ -2061,10 +2076,13 @@
       "hotFolderResumeFailed": "감시 폴더를 다시 시작할 수 없습니다: {{error}}",
       "importAiMasksOnOpen_other": "사진 {{count}}개의 AI 마스크는 현상에서 열거나 내보낼 때 계산됩니다",
       "importCopies_other": "가상 복사본 {{count}}개를 가져옴",
+      "importCopiesInAlbums": "앨범에는 가상 복사본이 아니라 사진이 들어갑니다. 이 복사본은 해당 사진으로 추가되었습니다: {{n}}.",
       "importCopiesSkipped_other": "가상 복사본 {{count}}개는 가져오지 않음",
       "importCropsClipped_other": "자르기 {{count}}개가 카메라 프레임을 벗어나 프레임에 맞게 잘림",
       "imported_other": "사진 {{count}}장을 가져왔습니다(조정됨 {{withSettings}}장, 앨범 {{albums}}개)",
       "importNotFound_other": "{{count}}장 찾을 수 없음",
+      "importSmartAlbumsByFacts": "카메라, 렌즈, ISO, 촬영 날짜 스마트 앨범은 파일의 촬영 데이터를 읽는 동안 채워지며, 카메라와 렌즈 단어는 Lightroom과 다른 사진에 일치할 수 있습니다: {{n}}.",
+      "importSmartAlbumsSkipped": "대응하는 규칙이 없어 제외된 스마트 컬렉션: {{n}}.",
       "importStacks_other": "스택 {{count}}개를 가져왔습니다",
       "importUnconvertedSettings": "변환할 수 없는 설정이 포함된 가져온 편집: {{n}}개.",
       "importWarnings_other": "사진 {{count}}장을 경고와 함께 가져왔습니다. {{error}}",
@@ -3795,6 +3813,10 @@
         "teethBrightness": "치아 밝기",
         "teethWhiten": "치아 미백",
         "texture": "얼굴 텍스처"
+      },
+      "download": {
+        "preparing": "모델 준비 중…",
+        "progress": "다운로드 중… {{percent}}%"
       },
       "downloadModels": "얼굴 모델 다운로드",
       "eyes": {

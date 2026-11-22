@@ -827,7 +827,18 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
             notRead: { smartAlbums: 3, localAdjustments: 0, unlocated: 0 }
           }
         : command === 'library_import'
-          ? { imported: 12, withSettings: 5, missing: 0, copiesSkipped: 1, albums: 2, errors: [], warnings }
+          ? {
+              imported: 12,
+              withSettings: 5,
+              missing: 0,
+              copiesSkipped: 1,
+              albums: 2,
+              smartAlbumsSkipped: ['Camera: no counterpart for “camera” (words)'],
+              copiesInAlbums: ['Italy: A.NEF (Copy 1)'],
+              smartAlbumsByFacts: ['Tamron: filled as the files’ capture data is read'],
+              errors: [],
+              warnings
+            }
           : base(command, args)
   );
   render(
@@ -858,6 +869,18 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
     detail: warnings.join('\n'),
     autoClose: false
   });
+  expect(toast.warning).toHaveBeenCalledWith('Smart collections left out because a rule has no counterpart: 1.', {
+    detail: 'Camera: no counterpart for “camera” (words)',
+    autoClose: false
+  });
+  expect(toast.warning).toHaveBeenCalledWith(
+    'Albums hold photographs, not virtual copies — these copies were added as their photographs: 1.',
+    { detail: 'Italy: A.NEF (Copy 1)', autoClose: false }
+  );
+  expect(toast.warning).toHaveBeenCalledWith(
+    expect.stringContaining('Smart albums by camera, lens, ISO or capture date fill as the files'),
+    { detail: 'Tamron: filled as the files’ capture data is read', autoClose: false }
+  );
   expect(toast.success).toHaveBeenCalledWith(
     expect.stringContaining('12 photos imported (5 with edits, 2 albums)'),
     expect.anything()

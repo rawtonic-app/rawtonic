@@ -404,6 +404,9 @@ interface ImportReport {
   withSettings: number;
   missing: number;
   copiesSkipped: number;
+  smartAlbumsSkipped?: string[];
+  copiesInAlbums?: string[];
+  smartAlbumsByFacts?: string[];
   /** Virtual copies imported as virtual copies of their photograph. */
   copies?: number;
   /** Crops trimmed to the camera's frame (they reached beyond it). */
@@ -1225,6 +1228,21 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       if (report.warnings?.length)
         notify.warning(t('session.toasts.importUnconvertedSettings', { n: report.warnings.length }), {
           detail: report.warnings.join('\n'),
+          autoClose: false
+        });
+      if (report.smartAlbumsSkipped?.length)
+        notify.warning(t('session.toasts.importSmartAlbumsSkipped', { n: report.smartAlbumsSkipped.length }), {
+          detail: report.smartAlbumsSkipped.join('\n'),
+          autoClose: false
+        });
+      if (report.copiesInAlbums?.length)
+        notify.warning(t('session.toasts.importCopiesInAlbums', { n: report.copiesInAlbums.length }), {
+          detail: report.copiesInAlbums.join('\n'),
+          autoClose: false
+        });
+      if (report.smartAlbumsByFacts?.length)
+        notify.warning(t('session.toasts.importSmartAlbumsByFacts', { n: report.smartAlbumsByFacts.length }), {
+          detail: report.smartAlbumsByFacts.join('\n'),
           autoClose: false
         });
       if (report.errors.length) notify.error(report.errors[0], { autoClose: false });

@@ -96,6 +96,17 @@ pub struct ImportReport {
     /// their model runs when the photo is opened in Develop, so exports
     /// before that leave those masks' layers without effect.
     pub ai_masks_on_open: usize,
+    /// Smart collections left out, each with the criterion that has no
+    /// counterpart (never imported with other rules or other members).
+    pub smart_albums_skipped: Vec<String>,
+    /// Albums with a virtual copy among their members: a Rawtonic album
+    /// holds photographs, so it holds the copy's photograph.
+    pub copies_in_albums: Vec<String>,
+    /// Smart albums imported on camera, lens, ISO or capture date: the
+    /// catalog fills them as the background pass reads the files, and
+    /// camera and lens words are matched in the name the file states, not
+    /// as Lightroom does, so they can differ from Lightroom's.
+    pub smart_albums_by_facts: Vec<String>,
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -155,6 +166,49 @@ pub fn smart_rule(rules: &SmartRules) -> Option<Rule> {
     Some(Rule::Group { combine, rules })
 }
 
+/// What a smart collection's rules depend on that the catalog reads from
+/// the files after the import: `Some(note)` for camera, lens, ISO or
+/// capture date. The catalog finds camera and lens words anywhere in the
+/// name the file states, Lightroom whole words in names from its own
+/// tables, so those members can differ.
+fn smart_rule_facts_note(rules: &SmartRules) -> Option<&'static str> {
+    const TEXT: &str = "filled as the files' capture data is read; camera and lens words match anywhere in the name the file states, Lightroom matches whole words in names from its own tables, so the members can differ";
+    const FACTS: &str = "filled as the files' capture data is read";
+    rules
+        .rules
+        .iter()
+        .filter_map(|rule| match rule {
+            SmartRule::Group(group) => smart_rule_facts_note(group),
+            SmartRule::Condition { criteria, .. } => match criteria.as_str() {
+                "camera" | "lens" => Some(TEXT),
+                "isoSpeedRating" | "captureTime" => Some(FACTS),
+                _ => None,
+            },
+        })
+        .max_by_key(|note| note.len())
+}
+
+/// What stops a smart collection's rules from translating: the first
+/// criterion (or combination) without a counterpart, named as Lightroom
+/// names it.
+pub fn smart_rule_gap(rules: &SmartRules) -> Option<String> {
+    if !matches!(rules.combine.as_str(), "intersect" | "union" | "exclude") {
+        return Some(format!("combination “{}”", rules.combine));
+    }
+    rules.rules.iter().find_map(|rule| match rule {
+        SmartRule::Group(group) => smart_rule_gap(group),
+        SmartRule::Condition {
+            criteria,
+            operation,
+            value,
+            value2,
+            units,
+        } => smart_condition(criteria, operation, value, value2, units.as_deref())
+            .is_none()
+            .then(|| format!("“{criteria}” ({operation})")),
+    })
+}
+
 fn smart_condition(
     criteria: &str,
     operation: &str,
@@ -203,6 +257,81 @@ fn smart_condition(
             let op = compare(operation).filter(|op| matches!(op, Op::Is | Op::IsNot))?;
             (Field::Label, op, json!(label))
         }
+        // Lightroom's camera name is the maker and the model ("Canon EOS
+        // 600D"); the catalog keeps them apart, so a word is looked for in
+        // either. A whole name has no column to compare with.
+        "camera" => {
+            let in_either = |op: Op, words: &str| {
+                [Field::Camera, Field::Make]
+                    .into_iter()
+                    .map(|field| Rule::Condition {
+                        field,
+                        op,
+                        value: json!(words),
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let either = |op: Op, words: &str| Rule::Group {
+                combine: Combine::Any,
+                rules: in_either(op, words),
+            };
+            return match operation {
+                "words" | "all" => Some(Rule::Group {
+                    combine: Combine::All,
+                    rules: text(value)?
+                        .split_whitespace()
+                        .map(|word| either(Op::Contains, word))
+                        .collect(),
+                }),
+                "any" => Some(either(Op::ContainsAny, &text(value)?)),
+                "noneOf" => Some(Rule::Group {
+                    combine: Combine::None,
+                    rules: in_either(Op::ContainsAny, &text(value)?),
+                }),
+                "empty" | "notEmpty" => Some(Rule::Condition {
+                    field: Field::Camera,
+                    op: if operation == "empty" {
+                        Op::Empty
+                    } else {
+                        Op::NotEmpty
+                    },
+                    value: Value::Null,
+                }),
+                _ => None,
+            };
+        }
+        // Text of the photograph's own facts: Lightroom's word search and
+        // comparisons, as the catalog's.
+        "lens" | "filename" => {
+            let op = match operation {
+                "words" | "all" => Op::Contains,
+                "any" => Op::ContainsAny,
+                "noneOf" => Op::NotContains,
+                "==" => Op::Is,
+                "!=" => Op::IsNot,
+                "beginsWith" => Op::StartsWith,
+                "endsWith" => Op::EndsWith,
+                "empty" => Op::Empty,
+                "notEmpty" => Op::NotEmpty,
+                _ => return None,
+            };
+            let field = if criteria == "lens" {
+                Field::Lens
+            } else {
+                Field::Filename
+            };
+            let value = match op {
+                Op::Empty | Op::NotEmpty => Value::Null,
+                _ => json!(text(value)?),
+            };
+            (field, op, value)
+        }
+        "isoSpeedRating" if operation == "in" => (
+            Field::Iso,
+            Op::Between,
+            json!([number(value)?, number(value2)?]),
+        ),
+        "isoSpeedRating" => (Field::Iso, compare(operation)?, json!(number(value)?)),
         "keywords" => {
             let op = match operation {
                 "any" => Op::ContainsAny,
@@ -400,6 +529,13 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
     // are reused.
     let existing = catalog.collections().map_err(|e| e.to_string())?;
     let mut created: HashMap<&str, String> = HashMap::new();
+    report.smart_albums_skipped.extend(
+        source
+            .not_read
+            .smart_album_names
+            .iter()
+            .map(|name| format!("{name}: its rules could not be read")),
+    );
     let mut pending: Vec<&rawtonic_interop::Album> = source.albums.iter().collect();
     while !pending.is_empty() {
         let before = pending.len();
@@ -419,11 +555,29 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
             let smart = match &album.smart {
                 Some(rules) => match smart_rule(rules) {
                     Some(rule) => Some(rule),
-                    // Announced in the preview as not imported.
-                    None => continue,
+                    // Announced in the preview as not imported, named here.
+                    None => {
+                        report.smart_albums_skipped.push(format!(
+                            "{}: no counterpart for {}",
+                            album.name,
+                            album
+                                .smart
+                                .as_ref()
+                                .and_then(smart_rule_gap)
+                                .unwrap_or_else(|| "its rules".into())
+                        ));
+                        continue;
+                    }
                 },
                 None => None,
             };
+            if smart.is_some()
+                && let Some(note) = album.smart.as_ref().and_then(smart_rule_facts_note)
+            {
+                report
+                    .smart_albums_by_facts
+                    .push(format!("{}: {note}", album.name));
+            }
             let kind = if album.is_group {
                 GROUP
             } else if smart.is_some() {
@@ -463,12 +617,27 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                     .photos
                     .iter()
                     .filter_map(|key| {
-                        let key = source
-                            .photos
-                            .iter()
-                            .find(|p| &p.key == key)
-                            .map(|p| p.copy_of.as_deref().unwrap_or(&p.key))?;
-                        assets.get(key).cloned()
+                        let photo = source.photos.iter().find(|p| &p.key == key)?;
+                        let member = assets
+                            .get(photo.copy_of.as_deref().unwrap_or(&photo.key))
+                            .cloned()?;
+                        if photo.copy_of.is_some() {
+                            report.copies_in_albums.push(format!(
+                                "{}: {}{}",
+                                album.name,
+                                photo
+                                    .path
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().into_owned())
+                                    .unwrap_or_default(),
+                                photo
+                                    .copy_name
+                                    .as_ref()
+                                    .map(|n| format!(" ({n})"))
+                                    .unwrap_or_default()
+                            ));
+                        }
+                        Some(member)
                     })
                     .collect();
                 if !members.is_empty() {
@@ -1810,6 +1979,9 @@ mod tests {
                 ),
                 photo("2", photos.join("Gone.NEF"), Develop::None, None),
                 photo("3", photos.join("A.NEF"), Develop::None, Some("1")),
+                // A copy of a photograph that is not there: no member, no
+                // claim that its photograph was added.
+                photo("4", photos.join("Gone.NEF"), Develop::None, Some("2")),
             ],
             albums: vec![
                 Album {
@@ -1825,7 +1997,7 @@ mod tests {
                     name: "Italy".into(),
                     parent: Some("10".into()),
                     is_group: false,
-                    photos: vec!["1".into(), "3".into()],
+                    photos: vec!["1".into(), "3".into(), "4".into()],
                     smart: None,
                 },
                 Album {
@@ -1870,8 +2042,14 @@ mod tests {
                 report.copies,
                 report.albums
             ),
-            (1, 1, 1, 0, 1, 2)
+            (1, 1, 1, 1, 1, 2)
         );
+        // What was left out or became something else is named, never silent.
+        assert_eq!(
+            report.smart_albums_skipped,
+            ["Recently edited: no counterpart for “touchTime” (inLast)"]
+        );
+        assert_eq!(report.copies_in_albums, ["Italy: A.NEF"]);
         let asset = catalog.asset_at(&photos.join("A.NEF")).unwrap().unwrap();
         let meta = catalog.metadata(&asset.id).unwrap();
         assert_eq!((meta.rating, meta.label.as_str(), meta.flag), (4, "Red", 1));
@@ -2250,6 +2428,43 @@ mod tests {
 
     /// Lightroom's smart collection criteria as smart album rules; one
     /// criterion without a counterpart leaves the whole collection out.
+    /// The criterion that keeps a collection out is named, also inside
+    /// nested groups, as Lightroom names it.
+    #[test]
+    fn the_untranslatable_criterion_of_a_smart_collection_is_named() {
+        let rules = |combine: &str, rules: Vec<SmartRule>| SmartRules {
+            combine: combine.into(),
+            rules,
+        };
+        let nested = rules(
+            "intersect",
+            vec![
+                condition("rating", ">=", SmartValue::Number(3.0)),
+                SmartRule::Group(rules(
+                    "union",
+                    vec![
+                        condition("labelColor", "==", SmartValue::Number(1.0)),
+                        condition("aspectRatio", "==", SmartValue::Text("landscape".into())),
+                    ],
+                )),
+            ],
+        );
+        assert_eq!(
+            smart_rule_gap(&nested).as_deref(),
+            Some("“aspectRatio” (==)")
+        );
+        assert!(smart_rule(&nested).is_none());
+        assert_eq!(
+            smart_rule_gap(&rules("sideways", vec![])).as_deref(),
+            Some("combination “sideways”")
+        );
+        let fine = rules(
+            "intersect",
+            vec![condition("rating", ">=", SmartValue::Number(3.0))],
+        );
+        assert_eq!(smart_rule_gap(&fine), None);
+    }
+
     #[test]
     fn lightroom_smart_collections_translate() {
         let rules = |combine: &str, rules: Vec<SmartRule>| SmartRules {
@@ -2303,6 +2518,253 @@ mod tests {
         ] {
             assert!(smart_rule(&rules("intersect", vec![unknown])).is_none());
         }
+    }
+
+    /// Camera, lens, file name and ISO criteria of a Lightroom smart
+    /// collection translate to the catalog's own fields; criteria the
+    /// catalog has no field for stay out (`smart_rule_gap` names them).
+    #[test]
+    fn lightroom_camera_lens_file_name_and_iso_criteria_translate() {
+        let one = |criteria: &str, operation: &str, value: SmartValue| {
+            smart_rule(&SmartRules {
+                combine: "intersect".into(),
+                rules: vec![condition(criteria, operation, value)],
+            })
+            .map(|rule| serde_json::to_value(&rule).unwrap()["rules"][0].clone())
+        };
+        let text = |t: &str| SmartValue::Text(t.into());
+        for (criteria, operation, value, expected) in [
+            (
+                "camera",
+                "words",
+                text("Canon EOS"),
+                json!({"combine": "all", "rules": [
+                {"combine": "any", "rules": [
+                    {"field": "camera", "op": "contains", "value": "Canon"},
+                    {"field": "make", "op": "contains", "value": "Canon"}]},
+                {"combine": "any", "rules": [
+                    {"field": "camera", "op": "contains", "value": "EOS"},
+                    {"field": "make", "op": "contains", "value": "EOS"}]}]}),
+            ),
+            (
+                "camera",
+                "any",
+                text("Canon Nikon"),
+                json!({"combine": "any", "rules": [
+                {"field": "camera", "op": "containsAny", "value": "Canon Nikon"},
+                {"field": "make", "op": "containsAny", "value": "Canon Nikon"}]}),
+            ),
+            (
+                "camera",
+                "noneOf",
+                text("Canon"),
+                json!({"combine": "none", "rules": [
+                {"field": "camera", "op": "containsAny", "value": "Canon"},
+                {"field": "make", "op": "containsAny", "value": "Canon"}]}),
+            ),
+            (
+                "camera",
+                "notEmpty",
+                SmartValue::None,
+                json!({"field": "camera", "op": "notEmpty"}),
+            ),
+            (
+                "lens",
+                "words",
+                text("TAMRON"),
+                json!({"field": "lens", "op": "contains", "value": "TAMRON"}),
+            ),
+            (
+                "lens",
+                "beginsWith",
+                text("EF"),
+                json!({"field": "lens", "op": "startsWith", "value": "EF"}),
+            ),
+            (
+                "lens",
+                "notEmpty",
+                SmartValue::None,
+                json!({"field": "lens", "op": "notEmpty"}),
+            ),
+            (
+                "filename",
+                "beginsWith",
+                text("17"),
+                json!({"field": "filename", "op": "startsWith", "value": "17"}),
+            ),
+            (
+                "filename",
+                "endsWith",
+                text(".DNG"),
+                json!({"field": "filename", "op": "endsWith", "value": ".DNG"}),
+            ),
+            (
+                "isoSpeedRating",
+                ">=",
+                SmartValue::Number(800.0),
+                json!({"field": "iso", "op": "ge", "value": 800.0}),
+            ),
+            (
+                "isoSpeedRating",
+                "==",
+                SmartValue::Number(100.0),
+                json!({"field": "iso", "op": "is", "value": 100.0}),
+            ),
+        ] {
+            assert_eq!(
+                one(criteria, operation, value),
+                Some(expected),
+                "{criteria} {operation}"
+            );
+        }
+        let range = smart_rule(&SmartRules {
+            combine: "intersect".into(),
+            rules: vec![SmartRule::Condition {
+                criteria: "isoSpeedRating".into(),
+                operation: "in".into(),
+                value: SmartValue::Number(800.0),
+                value2: SmartValue::Number(1600.0),
+                units: None,
+            }],
+        })
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&range).unwrap()["rules"][0],
+            json!({"field": "iso", "op": "between", "value": [800.0, 1600.0]})
+        );
+        // Not Lightroom's id (it ignores it) and values the field cannot hold.
+        assert!(one("iso", ">=", SmartValue::Number(800.0)).is_none());
+        assert!(one("isoSpeedRating", ">=", text("800")).is_none());
+        assert!(one("camera", "words", SmartValue::Number(1.0)).is_none());
+        assert!(one("camera", "sideways", text("x")).is_none());
+        // A whole name ("Canon EOS 600D") is not the model the catalog reads.
+        assert!(one("camera", "==", text("Canon EOS 600D")).is_none());
+    }
+
+    /// The translated rules select photographs by the camera, lens, name
+    /// and ISO the catalog read from the files.
+    #[test]
+    fn translated_camera_lens_file_name_and_iso_rules_select_the_photographs() {
+        use rawtonic_catalog::CaptureFacts;
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let photos = tmp.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        // The camera model without its maker, as the catalog reads it.
+        let rows = [
+            ("17a.CR2", "EOS 5D Mark II", "EF50mm f/1.8", 100),
+            (
+                "18b.CR2",
+                "EOS 6D",
+                "TAMRON SP 17-50mm F/2.8 DiII A16E",
+                1600,
+            ),
+            ("19c.DNG", "M10", "Summicron-M 1:2/35 ASPH.", 800),
+            ("20d.NEF", "D80", "", 400),
+        ];
+        for (name, ..) in rows {
+            fs::write(photos.join(name), name).unwrap();
+        }
+        let source = Source {
+            name: "LR".into(),
+            photos: rows
+                .iter()
+                .map(|(name, ..)| photo(name, photos.join(name), Develop::None, None))
+                .collect(),
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        let album =
+            |key: &str, criteria: &str, operation: &str, word: &str| rawtonic_interop::Album {
+                key: key.into(),
+                name: format!("{criteria} {word}"),
+                parent: None,
+                is_group: false,
+                photos: vec![],
+                smart: Some(SmartRules {
+                    combine: "intersect".into(),
+                    rules: vec![condition(
+                        criteria,
+                        operation,
+                        SmartValue::Text(word.into()),
+                    )],
+                }),
+            };
+        let source = Source {
+            albums: vec![
+                album("a", "lens", "words", "TAMRON"),
+                album("b", "filename", "beginsWith", "1"),
+            ],
+            ..source
+        };
+        let report = import_into(&catalog, &source).unwrap();
+        // Camera and lens albums are named in the report (filled later,
+        // matched by text), the file-name album is not.
+        assert!(report.warnings.is_empty(), "{report:?}");
+        assert_eq!(report.smart_albums_by_facts.len(), 1, "{report:?}");
+        assert!(
+            report.smart_albums_by_facts[0].starts_with("lens TAMRON: filled as"),
+            "{report:?}"
+        );
+        for (name, model, lens, iso) in rows {
+            let id = catalog.asset_at(&photos.join(name)).unwrap().unwrap().id;
+            let make = if model.starts_with("EOS") {
+                "Canon"
+            } else {
+                "Leica"
+            };
+            catalog
+                .record_facts(
+                    &id,
+                    &CaptureFacts {
+                        make: Some(make.into()),
+                        model: Some(model.into()),
+                        lens: (!lens.is_empty()).then(|| lens.into()),
+                        iso: Some(iso),
+                        ..CaptureFacts::default()
+                    },
+                )
+                .unwrap();
+        }
+        let members = |criteria: &str, operation: &str, value: SmartValue| {
+            let rule = smart_rule(&SmartRules {
+                combine: "intersect".into(),
+                rules: vec![condition(criteria, operation, value)],
+            })
+            .unwrap();
+            let album = catalog.create_smart_collection("t", None, &rule).unwrap();
+            let mut names: Vec<String> = catalog
+                .collection_paths(&album.id)
+                .unwrap()
+                .iter()
+                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        };
+        let text = |t: &str| SmartValue::Text(t.into());
+        assert_eq!(
+            members("camera", "words", text("Canon")),
+            ["17a.CR2", "18b.CR2"]
+        );
+        assert_eq!(
+            members("camera", "words", text("canon eos 6d")),
+            ["18b.CR2"]
+        );
+        assert_eq!(
+            members("camera", "noneOf", text("Canon")),
+            ["19c.DNG", "20d.NEF"]
+        );
+        assert_eq!(members("lens", "words", text("TAMRON")), ["18b.CR2"]);
+        assert_eq!(
+            members("filename", "beginsWith", text("1")),
+            ["17a.CR2", "18b.CR2", "19c.DNG"]
+        );
+        assert_eq!(
+            members("isoSpeedRating", ">=", SmartValue::Number(800.0)),
+            ["18b.CR2", "19c.DNG"]
+        );
     }
 
     /// Capture One's raster masks (unrotated sensor frame) record the
@@ -2736,6 +3198,76 @@ ProcessVersion = "15.4" }}"#,
             not_read: NotRead::default(),
         };
         assert!(import_into(&session, &source).is_err());
+    }
+
+    /// Smart collection membership of an imported Lightroom catalog, as the
+    /// app shows it (`SMR_LRCAT`, photographs at their catalog paths,
+    /// `SMR_OUT` the scratch catalog and result files, which must not exist
+    /// yet). Importing writes the copies' `.rrdata` beside their
+    /// photographs: run it on scratch copies of the photographs.
+    #[test]
+    #[ignore = "tool: needs SMR_LRCAT and SMR_OUT"]
+    fn smart_collection_membership_of_a_lightroom_catalog() {
+        use std::sync::atomic::AtomicBool;
+        let lrcat = std::env::var("SMR_LRCAT").unwrap();
+        let out = std::path::PathBuf::from(std::env::var("SMR_OUT").unwrap());
+        fs::create_dir_all(&out).unwrap();
+        let catalog = Library::create(&out.join("Scratch"), "Scratch", Mode::Catalog).unwrap();
+        let (lib, kind) = read_source(Path::new(&lrcat)).unwrap();
+        let shown = preview(&lib, kind);
+        let report = import_into(&catalog, &lib).unwrap();
+        // The app's background pass: capture facts (dates, camera, lens).
+        let cancel = AtomicBool::new(false);
+        let mut cursor = 0;
+        loop {
+            let (looked, _, _) = catalog
+                .fill_facts(
+                    &mut cursor,
+                    256,
+                    std::time::Duration::ZERO,
+                    &cancel,
+                    &rawtonic_ingest::capture::capture_facts,
+                    &|| (),
+                )
+                .unwrap();
+            if looked == 0 {
+                break;
+            }
+        }
+        let mut tsv = String::new();
+        for c in catalog.collections().unwrap() {
+            let paths: Vec<String> = catalog
+                .collection_assets(&c.id)
+                .map(|a| {
+                    a.into_iter()
+                        .map(|a| a.path.to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_else(|e| vec![format!("ERROR {e}")]);
+            tsv += &format!(
+                "{}\t{}\t{}\t{}\t{}\n",
+                c.id,
+                c.name,
+                c.kind,
+                paths.len(),
+                paths.join(",")
+            );
+        }
+        let write_new = |name: &str, text: String| {
+            use std::io::Write;
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(out.join(name))
+                .unwrap()
+                .write_all(text.as_bytes())
+                .unwrap();
+        };
+        write_new("rawtonic-collections.tsv", tsv);
+        write_new(
+            "preview-and-report.txt",
+            format!("{shown:#?}\n{report:#?}\n"),
+        );
     }
 
     /// Imports a real library (`RAWTONIC_IMPORT_SAMPLE`) into a temporary

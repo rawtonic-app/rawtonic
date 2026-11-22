@@ -44,7 +44,21 @@
     "dismiss": "Descarta: {{title}}",
     "dismissShort": "Descarta",
     "download": {
-      "model": "S’està baixant {{name}}"
+      "model": "S’està baixant {{name}}",
+      "names": {
+        "denoise": "el model de reducció de soroll IA",
+        "depth": "el model de profunditat",
+        "eyesTeeth": "el model d’ulls i dents",
+        "faces": "els models de cara",
+        "fill": "el model d’emplenament",
+        "landscape": "el model de paisatge",
+        "objectRemoval": "el model d’eliminació d’objectes",
+        "relight": "el model de reil·luminació",
+        "search": "el model de cerca",
+        "sky": "el model de cel",
+        "subject": "el model de subjecte",
+        "superResolution": "el model de superresolució"
+      }
     },
     "duplicates": {
       "failed": "La cerca de duplicats ha fallat",
@@ -916,6 +930,7 @@
         "upgradeRequired": "Cal actualitzar"
       },
       "createNewTitle": "Crear nova edició generativa",
+      "downloadFailed": "No s’ha pogut baixar el model. Comprova la connexió a internet i torna-ho a provar.",
       "generatingDepthMap": "S'està calculant el mapa de profunditat d'IA...",
       "params": {
         "feather": "Esvaïment",
@@ -2246,6 +2261,7 @@
       "importCopies_one": "{{count}} còpia virtual importada",
       "importCopies_many": "{{count}} còpies virtuals importades",
       "importCopies_other": "{{count}} còpies virtuals importades",
+      "importCopiesInAlbums": "Els àlbums contenen fotos, no còpies virtuals: aquestes còpies s’han afegit com les seves fotos: {{n}}.",
       "importCopiesSkipped_one": "{{count}} còpia virtual no importada",
       "importCopiesSkipped_many": "{{count}} còpies virtuals no importades",
       "importCopiesSkipped_other": "{{count}} còpies virtuals no importades",
@@ -2258,6 +2274,8 @@
       "importNotFound_one": "{{count}} no trobada",
       "importNotFound_many": "{{count}} no trobades",
       "importNotFound_other": "{{count}} no trobades",
+      "importSmartAlbumsByFacts": "Els àlbums intel·ligents per càmera, objectiu, ISO o data de captura s’ompliran a mesura que es llegeixen les dades de captura dels fitxers; les paraules de càmera i objectiu poden coincidir amb altres fotos que a Lightroom: {{n}}.",
+      "importSmartAlbumsSkipped": "Col·leccions intel·ligents omeses perquè una regla no té equivalent: {{n}}.",
       "importStacks_one": "{{count}} pila importada",
       "importStacks_many": "{{count}} piles importades",
       "importStacks_other": "{{count}} piles importades",
@@ -4071,6 +4089,10 @@
         "teethBrightness": "Brillantor de les dents",
         "teethWhiten": "Blanquejar les dents",
         "texture": "Cara: textura"
+      },
+      "download": {
+        "preparing": "S’està preparant el model…",
+        "progress": "S’està baixant… {{percent}} %"
       },
       "downloadModels": "Baixa els models de cara",
       "eyes": {
