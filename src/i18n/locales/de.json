@@ -2307,7 +2307,7 @@
         "Nonlocal MatchFilter": "KI-Entrauschen auf dem RAW-Mosaik.",
         "ONNX Runtime": "Führt KI-Modelle aus, unter Windows und Linux über das WebGPU-Plugin auch auf der GPU (Microsoft). Geändert: auf Macs mit Apple-Chip, unter Linux und Windows x64 von Rawtonic ohne Microsofts Telemetrie aus dem Quellcode gebaut.",
         "p12-keystore / RustCrypto": "Öffnen der PKCS#12-Zertifikatsdatei, aus der ein Signaturzertifikat importiert wird.",
-        "RapidRAW": "Der quelloffene RAW-Editor von Timon Käch, auf dem Rawtonics Editor aufbaut (Commit a82251f); die Prüfung auf heiße und tote Fotodioden neuer Bearbeitungen stammt aus RapidRAW v1.7.1.",
+        "RapidRAW": "Der quelloffene RAW-Editor von Timon Käch, auf dem Rawtonics Editor aufbaut (Commit a82251f); die Prüfung auf heiße und tote Fotodioden neuer Bearbeitungen und Teile der Foto-Zusammenführungen (Punktsuche für Panoramen, Geisterprüfung für HDR) stammen aus RapidRAW v1.7.1.",
         "rav1d": "Dekodiert AVIF-Dateien (die Rust-Portierung von dav1d).",
         "rawler": "RAW-Dekodierung (dnglab über RapidRAW-DngLab), mit Rawtonic-Patches; Sony ARW 6 aus LibRaw portiert.",
         "ring": "Signieren der Herkunftsnachweise (C2PA) in Exporten: ECDSA-, RSA-PSS- und Ed25519-Signaturen, SHA-256.",
