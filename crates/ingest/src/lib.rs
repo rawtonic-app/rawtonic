@@ -1224,7 +1224,7 @@ pub(crate) fn import_pair(
         }
         _ => identical_file(&folder, &name, source, companion, &reserved, unrecorded)?,
     };
-    // A new RAW cannot take a stem packet already at the destination.
+    // A new RAW cannot take another photograph's destination stem packet.
     // This includes a rendered image imported earlier under the same
     // template, and also applies to backups. Keep the normal numbered
     // collision suffix; verified copies from an interrupted import keep
@@ -1232,8 +1232,17 @@ pub(crate) fn import_pair(
     let raw = !rawtonic_metadata::sidecars::is_developed(source);
     let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
     let xmp_taken = |path: &Path| {
-        (raw && fs::symlink_metadata(rawtonic_metadata::sidecars::stem_sidecar(path)).is_ok())
-            || sidecars.ambiguous_packet(path).is_some()
+        if sidecars.ambiguous_packet(path).is_some() {
+            return true;
+        }
+        let stem = rawtonic_metadata::sidecars::stem_sidecar(path);
+        raw && rawtonic_fs::canonicalize(&stem).ok().is_some_and(|stem| {
+            sidecars.same_stem(path).iter().any(|photo| {
+                sidecars
+                    .existing(photo)
+                    .is_some_and(|own| rawtonic_fs::canonicalize(own).is_ok_and(|own| own == stem))
+            })
+        })
     };
     // The backup: one an earlier, cut-off import made (also when it got no
     // further than the backup) is kept rather than made again.
