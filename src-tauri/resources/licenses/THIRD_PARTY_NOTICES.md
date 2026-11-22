@@ -9,6 +9,8 @@ Rawtonic additions: Copyright 2026 Rawtonic contributors, AGPL-3.0-or-later.
 ## RapidRAW
 The initial `src/`, `src-tauri/`, `public/`, `data/` and frontend tooling derive from [CyberTimon/RapidRAW](https://github.com/CyberTimon/RapidRAW), snapshot a82251f699333daf3648292c756485272be86187, Copyright Timon Käch and contributors. Engine modules moved out of `src-tauri/` into `crates/` (ADR 0009, e.g. `crates/rawdecode`) keep that origin and license. Distributed under its preserved GNU AGPL v3 license (`licenses/RapidRAW-AGPL-3.0.txt`). Rawtonic is an independent derivative, not an official RapidRAW release. Existing third-party notices and data licenses remain applicable. No claim is made that upstream owners endorse Rawtonic.
 
+Later upstream code ported into Rawtonic, under the same license and copyright: the isolation test for hot and dead photosites in `crates/rawdecode/src/hot_pixels.rs` (`DeadTest::Isolated`, new edits from `renderVersion` 15) from RapidRAW v1.7.1 `src-tauri/src/decode/hot_pixels.rs` (commit 63b415758), adapted to Rawtonic's row prefilter and sensor levels.
+
 ## Vendored rawler
 `third_party/rawler` contains rawler 0.7.1 from [CyberTimon/RapidRAW-DngLab](https://github.com/CyberTimon/RapidRAW-DngLab) (RapidRAW's fork of [dnglab/dnglab](https://github.com/dnglab/dnglab)), commit 934af4b213a12b95f77d69529627067056066294, Copyright Daniel Vogelbacher, Pedro Côrte-Real and contributors, GNU LGPL v2.1; the license text and AUTHORS file are preserved there. Rawtonic's decoder fixes and camera additions are marked in the source and listed in `third_party/rawler/RAWTONIC_PATCHES.md` (ADR 0007). It replaces the git dependency through a `[patch]` entry in the workspace Cargo.toml; the LGPL terms apply to the vendored crate as before.
 

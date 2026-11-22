@@ -431,9 +431,9 @@ pub fn current_key(
 /// The decoder settings that change the decoded pixels, and the decode
 /// variant (`image_loader::load_base_image_from_bytes_for`): the multi-scale
 /// colour noise filter (no decode-time chroma clean-up) and, appended only
-/// when set so earlier proxies keep their key, the second or isolation
-/// dead-photosite test, a frame other than version 0's (`source_frame`), the unbiased
-/// blacks (`BlackLevels::Unbiased`, `UnbiasedBorder`), the ratio
+/// when set so earlier proxies keep their key, the second or the isolation
+/// dead-photosite test, a frame other than version 0's (`source_frame`),
+/// the unbiased blacks (`BlackLevels::Unbiased`, `UnbiasedBorder`), the ratio
 /// highlight rebuild (`HighlightRebuild::Ratios`) and a DNG lens warp of
 /// the camera planes (`WarpPlanes::Camera`).
 fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
