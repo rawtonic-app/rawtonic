@@ -101,6 +101,24 @@ fn thumbnail_metadata(source: &Path, sidecar: &Path) -> Option<ImageMetadata> {
 
 /// The modification time of `source` in seconds; for an offline photograph
 /// the one the library registered (its cached thumbnails stay valid).
+/// A LUT file's presence, size and modification time, for tile keys.
+fn lut_file_state(lut: &Path) -> [u8; 17] {
+    let mut state = [0u8; 17];
+    if let Ok(meta) = fs::metadata(lut)
+        && meta.is_file()
+    {
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |since| since.as_nanos() as u64);
+        state[0] = 1;
+        state[1..9].copy_from_slice(&meta.len().to_le_bytes());
+        state[9..].copy_from_slice(&modified.to_le_bytes());
+    }
+    state
+}
+
 fn source_mtime(source: &Path) -> Option<u64> {
     match fs::metadata(source) {
         Ok(meta) => meta
@@ -240,6 +258,17 @@ fn thumbnail_hash_with(
         .is_some_and(|lights| !lights.is_empty())
     {
         hasher.update(b"\0relight-defaults-v1");
+    }
+    // A recipe's LUT renders only while its file loads (black before
+    // 2026-11-22 when it did not): the tile follows the file's state, so
+    // one made while the LUT was missing is made again once it is back.
+    if refreshed
+        && let Some(lut) = adjustments
+            .as_ref()
+            .and_then(|adjustments| adjustments[effects::LUT_PATH.into_name()].as_str())
+    {
+        hasher.update(b"\0lut-file-v1\0");
+        hasher.update(&lut_file_state(Path::new(lut)));
     }
     if is_raw_file(&source_path) {
         // Old embedded RAW previews could omit camera orientation for non-TIFF
@@ -2247,6 +2276,37 @@ mod source_preview_tests {
         );
         std::fs::remove_file(&medium).unwrap();
         assert_eq!(super::announced_medium_thumbnail(photo), None);
+    }
+
+    #[test]
+    fn a_tile_follows_whether_its_lut_file_loads() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.jpg");
+        std::fs::write(&source, b"source unchanged").unwrap();
+        let path = source.to_str().unwrap();
+        let lut = temp.path().join("look.cube");
+        let recipe = serde_json::to_vec(&serde_json::json!({
+            "lutPath": lut.to_str().unwrap(), "lutIntensity": 100
+        }))
+        .unwrap();
+        let key = || super::thumbnail_hash_for_engine(path, &recipe, 1).unwrap();
+        let offline_key = || super::thumbnail_hash_before_refreshes(path, &recipe).unwrap();
+        let (missing, missing_offline) = (key(), offline_key());
+        std::fs::write(&lut, b"LUT_3D_SIZE 2\n").unwrap();
+        let present = key();
+        assert_ne!(missing, present, "a LUT that is back makes a new tile");
+        assert_eq!(present, key());
+        std::fs::write(&lut, b"LUT_3D_SIZE 2\n# edited\n").unwrap();
+        assert_ne!(present, key(), "an edited LUT makes a new tile");
+        // The key an offline original's older tile is found by stays.
+        assert_eq!(missing_offline, offline_key());
+        // A recipe without a LUT keeps its key.
+        let plain = super::thumbnail_hash_for_engine(path, b"{\"exposure\":1}", 1).unwrap();
+        std::fs::remove_file(&lut).unwrap();
+        assert_eq!(
+            plain,
+            super::thumbnail_hash_for_engine(path, b"{\"exposure\":1}", 1).unwrap()
+        );
     }
 
     #[test]
