@@ -3561,6 +3561,7 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
     }
     let started = std::time::Instant::now();
     let frames = develop.color_noise_view.frames_noted();
+    let shown = develop.color_noise_view.shown_mark();
     let result = gpu_processing::supersedable(newer_request_waits(app_handle, None), || {
         process_editor_preview_job(
             app_handle,
@@ -3582,11 +3583,11 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
         )
     });
     // Not shown: the final frame before it stays the latest for its colour
-    // noise correction (`color_noise_view`).
-    app_handle
-        .state::<DevelopSession>()
-        .color_noise_view
-        .forget_frame(frames);
+    // noise correction (`color_noise_view`), and the base the Levels
+    // pickers sample stays that frame's.
+    let view = &app_handle.state::<DevelopSession>().color_noise_view;
+    view.forget_frame(frames);
+    view.restore_shown(shown);
     match result {
         Ok(_) => log::info!("Drag draft source prepared in {:.1?}", started.elapsed()),
         Err(e) if e.code == ErrorCode::Cancelled => {

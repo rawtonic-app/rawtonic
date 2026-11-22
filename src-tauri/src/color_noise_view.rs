@@ -299,6 +299,19 @@ impl ColorNoiseView {
         *lock_recover(&self.shown) = corrected.map(Arc::downgrade);
     }
 
+    /// What [`note_shown`](Self::note_shown) last recorded, to put back
+    /// after a render nobody sees ([`restore_shown`](Self::restore_shown)).
+    pub(crate) fn shown_mark(&self) -> Option<Weak<DynamicImage>> {
+        lock_recover(&self.shown).clone()
+    }
+
+    /// Puts back the record of [`shown_mark`](Self::shown_mark): a render
+    /// nobody sees (Linux's drag-draft warm-up) leaves the shown frame's
+    /// base the one probes sample.
+    pub(crate) fn restore_shown(&self, mark: Option<Weak<DynamicImage>>) {
+        *lock_recover(&self.shown) = mark;
+    }
+
     /// The number of the last frame noted.
     pub(crate) fn frames_noted(&self) -> u64 {
         self.frames.load(Ordering::SeqCst)
@@ -965,6 +978,11 @@ mod tests {
             "built, but no frame rendered from it yet"
         );
         view.note_shown(Some(&used));
+        assert!(Arc::ptr_eq(&shown(25).unwrap(), &corrected));
+        // A render nobody sees (the drag-draft warm-up) changes nothing.
+        let mark = view.shown_mark();
+        view.note_shown(None);
+        view.restore_shown(mark);
         assert!(Arc::ptr_eq(&shown(25).unwrap(), &corrected));
         // A zoomed or dragged frame after it renders from its own base.
         view.note_shown(None);
