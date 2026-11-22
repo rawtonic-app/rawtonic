@@ -1324,7 +1324,8 @@ struct DevelopInput<'a> {
     roi: Option<gpu_processing::Roi>,
     key: u64,
     /// Whose render it is at the GPU processor (`gpu_processing`'s turns):
-    /// [`CELL_RENDER`] or [`LIVE_RENDER`].
+    /// [`CELL_RENDER`], [`LIVE_RENDER`] or the colour target's
+    /// (`gpu_processing::COLOR_TARGET_CALLER`).
     caller: &'static str,
     /// The output space; None encodes for the display (the cells).
     space: Option<rawtonic_engine::output_color_space::OutputColorSpace>,
@@ -3368,7 +3369,7 @@ pub(crate) fn develop_target_block(
         0.0,
         recipe,
         key,
-        CELL_RENDER,
+        gpu_processing::COLOR_TARGET_CALLER,
         Some(space),
         probe,
     )?;

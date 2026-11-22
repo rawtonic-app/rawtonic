@@ -784,8 +784,9 @@ export const FAR_MISS = 1;
  * slope, the rest for its steps). */
 export const MAX_SEARCH_MEASURES = 8;
 /** No search probe starts once this much time has passed since the first
- * measurement came back (each probe ~20–30 ms with the region kept). */
-export const SEARCH_BUDGET_MS = 400;
+ * measurement came back (a probe took 25–300 ms on an M5 Pro with the
+ * region kept; only far misses search, a reachable target never waits). */
+export const SEARCH_BUDGET_MS = 1000;
 /** The search's result replaces the corrections' only when it at least
  * halves their measured miss: a target the sliders can approach, not one
  * out of reach whose colour would only be drained to shave the distance
