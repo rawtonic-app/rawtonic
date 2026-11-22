@@ -436,21 +436,21 @@ export function PointCurve({
   const [splitLive, setSplitLive] = useState<number | null>(null);
   // A split drag still running when the curve unmounts (another photo or tool)
   // must give the interaction back.
-  const splitActive = useRef(false);
+  const splitLastValue = useRef<number | null>(null);
   const interactionRef = useRef(onInteraction);
   interactionRef.current = onInteraction;
   useEffect(
     () => () => {
-      if (splitActive.current) {
-        splitActive.current = false;
+      if (splitLastValue.current !== null) {
+        splitLastValue.current = null;
         interactionRef.current(false);
       }
     },
     []
   );
   const endSplit = () => {
-    if (!splitActive.current) return;
-    splitActive.current = false;
+    if (splitLastValue.current === null) return;
+    splitLastValue.current = null;
     setSplitDrag(null);
     setSplitLive(null);
     onInteraction(false);
@@ -506,8 +506,14 @@ export function PointCurve({
     if (!region || !onRegionChange) return;
     const [min, max] = SPLIT_RANGES[key];
     const next = Math.max(min, Math.min(max, Math.round(value)));
-    if (splitActive.current) setSplitLive(next);
-    if (next !== region[key]) onRegionChange({ ...region, [key]: next });
+    const previous = splitDrag === key ? splitLastValue.current : null;
+    if (next === (previous ?? region[key])) return;
+    if (previous !== null) {
+      // The pointer can return to the committed value while the draft differs.
+      splitLastValue.current = next;
+      setSplitLive(next);
+    }
+    onRegionChange({ ...region, [key]: next });
   };
   const position = (event: React.PointerEvent<SVGSVGElement>) => {
     const matrix = event.currentTarget.getScreenCTM();
@@ -681,7 +687,7 @@ export function PointCurve({
                     e.preventDefault();
                     e.currentTarget.focus({ preventScroll: true });
                     e.currentTarget.setPointerCapture(e.pointerId);
-                    splitActive.current = true;
+                    splitLastValue.current = splits[key];
                     setSplitDrag(key);
                     setSplitLive(splits[key]);
                     onInteraction(true);
@@ -806,10 +812,11 @@ export function PointCurve({
                     ? p.x
                     : Math.max(points[i - 1].x + 1, Math.min(points[i + 1].x - 1, p.x + dx));
                 const y = Math.max(0, Math.min(255, p.y + dy));
-                if (x === p.x && y === p.y) return;
-                debouncedSetHistory.group(e.currentTarget, () =>
-                  onChange({ ...curves, [channel]: points.map((q, n) => (n === i ? { x, y } : q)) })
-                );
+                debouncedSetHistory.group(e.currentTarget, () => {
+                  if (x !== p.x || y !== p.y) {
+                    onChange({ ...curves, [channel]: points.map((q, n) => (n === i ? { x, y } : q)) });
+                  }
+                });
                 // Focus already reads the point's name and key hints.
                 const input = Math.round(x);
                 const output = Math.round(y);

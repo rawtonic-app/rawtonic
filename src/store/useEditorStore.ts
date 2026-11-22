@@ -498,6 +498,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
 // The store owns pending history so every navigation path can settle it.
 // Slider edits still coalesce, but Undo is available from the first edit.
+// Allow for the initial auto-repeat delay before recovering from a lost key-up.
+const KEYBOARD_GROUP_IDLE_MS = 2000;
 let scheduledHistory: {
   adjustments: Adjustments;
   control: Element | null;
@@ -513,13 +515,18 @@ function flushScheduledHistory() {
   if (scheduledHistory) useEditorStore.getState().pushHistory(scheduledHistory.adjustments);
 }
 
+function timeKeyboardGroup(control: Element, delay: number) {
+  if (scheduledHistory?.control !== control) return;
+  if (scheduledHistory.timer !== null) clearTimeout(scheduledHistory.timer);
+  scheduledHistory.timer = setTimeout(flushScheduledHistory, delay);
+}
+
 function scheduleHistory(adjustments: Adjustments, control: Element | null = null) {
   cancelScheduledHistory();
   scheduledHistory = {
     adjustments,
     control,
-    // A held arrow can wait longer than a slider interval before its first
-    // auto-repeat. Start the keyboard inactivity timer when the key is released.
+    // Keyboard edits arm their timer after the synchronous update in group().
     timer: control ? null : setTimeout(flushScheduledHistory, 500)
   };
 }
@@ -559,12 +566,11 @@ export const debouncedSetHistory = Object.assign(
         edit();
       } finally {
         editingControl = previous;
+        timeKeyboardGroup(control, KEYBOARD_GROUP_IDLE_MS);
       }
     },
     releaseGroup: (control: Element) => {
-      if (scheduledHistory?.control === control && scheduledHistory.timer === null) {
-        scheduledHistory.timer = setTimeout(flushScheduledHistory, COMMIT_INTERVAL_MS);
-      }
+      timeKeyboardGroup(control, COMMIT_INTERVAL_MS);
     },
     endGroup: (control: Element) => {
       if (scheduledHistory?.control && control.contains(scheduledHistory.control)) flushScheduledHistory();
