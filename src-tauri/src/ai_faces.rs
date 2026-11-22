@@ -437,9 +437,10 @@ pub async fn generate_ai_people_mask(
 /// `path`: the photo asked for (a stale error when another one is open).
 /// `eyes_teeth`: with the eye and teeth parser's outlines too, when it is
 /// installed or `download_eyes_teeth` may fetch it. Returns
-/// `{ frame, faces, eyesTeethMissing }`: the frame key the faces belong to
-/// (rawtonic-engine `face_retouch::frame_key`), the faces, and whether the
-/// parser was asked for but is not installed.
+/// `{ frame, faces, eyesTeethMissing, irisDisk }`: the frame key the faces
+/// belong to (rawtonic-engine `face_retouch::frame_key`), the faces, whether
+/// the parser was asked for but is not installed, and the Iris disk of a
+/// retouch made from faces the parser looked at.
 #[tauri::command]
 pub async fn analyze_face_retouch(
     js_adjustments: serde_json::Value,
@@ -479,11 +480,16 @@ pub async fn analyze_face_retouch(
             crate::adjustment_utils::apply_spatial_transformations(warped.as_ref(), &uncropped);
         let image = rawtonic_faces::recipe::display_rgb8(&framed, is_raw);
         let analysis = rawtonic_faces::analyze(&image, &models).map_err(|e| e.to_string())?;
-        Ok(serde_json::json!({
+        let mut found = serde_json::json!({
             "frame": rawtonic_engine::face_retouch::frame_key(&js_adjustments),
             "faces": rawtonic_faces::recipe::retouch_faces(&image, &analysis, portrait.as_deref())?,
             "eyesTeethMissing": eyes_teeth_missing,
-        }))
+        });
+        // For a retouch the panel makes from these faces.
+        if let Some(disk) = rawtonic_faces::recipe::iris_disk(portrait.as_deref()) {
+            found["irisDisk"] = serde_json::json!(disk);
+        }
+        Ok(found)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -662,6 +668,9 @@ pub async fn apply_face_retouch_to_paths(
                 });
                 if let Some(protect) = protect {
                     value["protect"] = protect;
+                }
+                if let Some(disk) = rawtonic_faces::recipe::iris_disk(portrait.as_deref()) {
+                    value["irisDisk"] = serde_json::json!(disk);
                 }
                 Ok(value)
             })

@@ -11,7 +11,8 @@
 //! mirror image, averaged inside the model. Its eye probability becomes per
 //! eye two outlines, at 0.1 (the eye opening; Sclera is it minus the iris
 //! circle at 0.9 of its radius) and at 0.03 (Iris is the iris circle within
-//! it), and its teeth probability one at 0.4. Those settings were fixed on
+//! it, the circle at `IRIS_DISK` of its radius), and its teeth probability
+//! one at 0.4. Those settings were fixed on
 //! EYE3's tuning set. The outlines are stored in the recipe like Face Mesh's
 //! (`eye_teeth`), so the render needs no model.
 //!
@@ -81,6 +82,16 @@ const MOUTH_REACH: f32 = 0.25;
 /// pixels.
 const TOLERANCE: f32 = 0.2;
 const MIN_LOOP_AREA: f32 = 0.5;
+
+/// The Iris mask's disk on the parser's eyes, as a share of Face Mesh's
+/// iris radius (stored on the face retouch as `irisDisk`). Face Mesh's iris circle sits
+/// beside the real iris (a median 0.2 of its radius on EYE2's portraits, up
+/// to 0.75) and is often a little large, so
+/// the full disk lifted the eye white beside the iris; at 0.9 the Iris halo
+/// fell below Capture One's on EYE2's tuning portraits with its lightening
+/// kept (the smallest of 1, 0.9, 0.85, 0.8 that does) and held on the
+/// hold-out (notes: benchmark-results/eye8-2026-11-22).
+pub const IRIS_DISK: f32 = 0.9;
 
 /// Closed outlines, photo pixels; a point is inside when an odd number of
 /// them surround it (holes are loops inside loops).
