@@ -365,7 +365,8 @@ impl ExportQueue {
 
     /// The oldest queued job and the queued jobs right behind it that
     /// `joins` it (the same photos with other recipes), marked running to
-    /// run together. A job that cannot be read or started fails on its own.
+    /// run together. A job with an invalid record fails on its own. A
+    /// database-wide error leaves admission uncommitted.
     pub fn start_next_with(&self, joins: impl Fn(&Job, &Job) -> bool) -> Result<Vec<Job>> {
         let tx = self.conn.unchecked_transaction()?;
         let queued = self.ids("SELECT id FROM jobs WHERE state='queued' ORDER BY seq")?;
@@ -374,7 +375,7 @@ impl ExportQueue {
             let mut job = match self.job(&id) {
                 Ok(job) => job,
                 Err(err) => {
-                    self.mark_failed(&id, &format!("Cannot read queued export: {err:#}"))?;
+                    self.fail_admission(&id, "read", err)?;
                     continue;
                 }
             };
@@ -382,7 +383,7 @@ impl ExportQueue {
                 break;
             }
             if let Err(err) = self.set_state(&id, JobState::Running) {
-                self.mark_failed(&id, &format!("Cannot start queued export: {err:#}"))?;
+                self.fail_admission(&id, "start", err)?;
                 continue;
             }
             job.state = JobState::Running;
@@ -392,6 +393,21 @@ impl ExportQueue {
         Ok(group)
     }
 
+    fn fail_admission(&self, id: &str, action: &str, err: anyhow::Error) -> Result<()> {
+        // SQLite can roll back the transaction itself, including on a
+        // constraint with ROLLBACK conflict handling. Do not write in autocommit.
+        if self.conn.is_autocommit()
+            || err
+                .downcast_ref::<rusqlite::Error>()
+                .and_then(rusqlite::Error::sqlite_error_code)
+                .is_some_and(|code| code != rusqlite::ErrorCode::ConstraintViolation)
+        {
+            return Err(err);
+        }
+        self.mark_failed(id, &format!("Cannot {action} queued export: {err:#}"))
+    }
+
+    /// Whether work arrived while the queue runner was finishing.
     pub fn has_queued_jobs(&self) -> Result<bool> {
         Ok(self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM jobs WHERE state='queued')",
@@ -889,6 +905,62 @@ mod tests {
             q.finish(&next, RunEnd::Completed).unwrap().state,
             JobState::Done
         );
+    }
+
+    #[test]
+    fn a_rolled_back_admission_leaves_the_whole_group_queued_for_retry() {
+        let (_dir, q) = queue();
+        let first = q.enqueue("First", &json!({}), &paths(1)).unwrap();
+        let second = q.enqueue("Second", &json!({}), &paths(1)).unwrap();
+        q.conn
+            .execute_batch(
+                "CREATE TRIGGER rollback_start BEFORE UPDATE OF state ON jobs
+                 WHEN OLD.label='Second' AND NEW.state='running'
+                 BEGIN SELECT RAISE(ROLLBACK, 'admission rolled back'); END;",
+            )
+            .unwrap();
+
+        let error = q.start_next_with(|_, _| true).unwrap_err();
+        for id in [&first, &second] {
+            let job = q.job(id).unwrap();
+            assert_eq!(job.state, JobState::Queued, "{job:?}");
+            assert!(job.failures.is_empty());
+            assert_eq!(q.item(id, 0).unwrap().state, ItemState::Pending);
+        }
+        assert!(
+            error.to_string().contains("admission rolled back"),
+            "{error:#}"
+        );
+
+        q.conn.execute_batch("DROP TRIGGER rollback_start").unwrap();
+        let started = q.start_next_with(|_, _| true).unwrap();
+        assert_eq!(
+            started.iter().map(|j| &j.id).collect::<Vec<_>>(),
+            [&first, &second]
+        );
+    }
+
+    #[test]
+    fn a_busy_queue_can_admit_the_same_job_when_the_writer_releases_its_lock() {
+        let (dir, q) = queue();
+        let id = q.enqueue("Waiting", &json!({}), &paths(1)).unwrap();
+        q.conn.busy_timeout(Duration::ZERO).unwrap();
+        let writer = Connection::open(dir.path().join("export-queue.sqlite")).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+
+        let error = q.start_next().unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<rusqlite::Error>(),
+            Some(rusqlite::Error::SqliteFailure(code, _))
+                if code.code == rusqlite::ErrorCode::DatabaseBusy
+        ));
+        let job = q.job(&id).unwrap();
+        assert_eq!(job.state, JobState::Queued);
+        assert!(job.failures.is_empty());
+        assert_eq!(q.item(&id, 0).unwrap().state, ItemState::Pending);
+
+        writer.execute_batch("ROLLBACK").unwrap();
+        assert_eq!(q.start_next().unwrap().unwrap().id, id);
     }
 
     #[test]
