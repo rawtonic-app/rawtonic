@@ -118,6 +118,7 @@ pub fn retouch_faces(
                     {
                         eye["parsedEye"] = serde_json::json!(loops(&p.eye));
                         eye["parsedIris"] = serde_json::json!(loops(&p.iris));
+                        eye["irisDisk"] = serde_json::json!(crate::portrait::IRIS_DISK);
                     }
                     eye
                 })

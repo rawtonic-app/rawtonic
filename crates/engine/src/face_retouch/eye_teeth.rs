@@ -65,6 +65,11 @@ pub struct Eye {
     /// The parser's wider opening, within which the iris circle is iris.
     #[serde(default)]
     pub parsed_iris: Option<Loops>,
+    /// The share of the iris radius the Iris mask's disk reaches on the
+    /// parser's eyes (rawtonic-faces `portrait::IRIS_DISK`); absent in eyes
+    /// found before it (alpha.19 and earlier), which keep the full disk.
+    #[serde(default)]
+    pub iris_disk: Option<f32>,
 }
 
 /// The strengths at 100. A later change to them that would alter saved
@@ -662,13 +667,15 @@ fn eye_masks(patch: &Patch, lid: &Outline, (cx, cy, r): (f32, f32, f32)) -> (Vec
 
 /// The masks of one eye from the eye and teeth parser (rawtonic-faces
 /// `portrait`): Sclera is its eye opening outside the iris circle at 0.9 of
-/// its radius, Iris the circle within its wider opening (the circle's 0.9
-/// leaves the limbal ring to both; EYE3's settings).
+/// its radius, Iris the circle at `disk_share` of its radius within its
+/// wider opening (the circle's 0.9 leaves the limbal ring to both; EYE3's
+/// settings; `Eye::iris_disk`).
 fn parsed_eye_masks(
     patch: &Patch,
     opening: &Region,
     wide: &Region,
     (cx, cy, r): (f32, f32, f32),
+    disk_share: f32,
 ) -> (Vec<f32>, Vec<f32>) {
     let feather = (0.08 * r).max(1.0);
     let iris_feather = (0.1 * r).max(1.0);
@@ -677,7 +684,7 @@ fn parsed_eye_masks(
         .map(|k| {
             let (x, y) = patch.centre(k);
             let d = (x - cx).hypot(y - cy);
-            let disk = (0.5 - (d - r) / iris_feather).clamp(0.0, 1.0);
+            let disk = (0.5 - (d - disk_share * r) / iris_feather).clamp(0.0, 1.0);
             let inner = (0.5 - (d - 0.9 * r) / iris_feather).clamp(0.0, 1.0);
             (
                 wide.coverage(x, y, feather, IRIS_INSET * r) * disk,
@@ -754,7 +761,12 @@ fn retouch_eye(
     };
     let patch = Patch::new(image, bounds);
     let (iris_w, white_w) = match &parsed {
-        Some((opening, wide)) => parsed_eye_masks(&patch, opening, wide, (cx, cy, r)),
+        Some((opening, wide)) => {
+            // A share outside 0.5–1 is not one the app writes (an edited
+            // sidecar): kept within it.
+            let share = eye.iris_disk.map_or(1.0, |s| s.clamp(0.5, 1.0));
+            parsed_eye_masks(&patch, opening, wide, (cx, cy, r), share)
+        }
         None => eye_masks(&patch, &lid, (cx, cy, r)),
     };
     let n = patch.w * patch.h;
@@ -1389,6 +1401,56 @@ mod tests {
                 "({x}, {y}) lifted from {a} to {b}"
             );
         }
+    }
+
+    /// A parser eye whose stored iris circle (radius 14) is larger than the
+    /// real iris (radius 11), with a shaded eye white between them, before
+    /// and after Iris 100; `disk`: the eye's `irisDisk`.
+    fn iris_beside_a_shaded_white(disk: Option<f32>) -> (Rgb32FImage, Rgb32FImage) {
+        const SHADED: [f32; 3] = [0.2, 0.19, 0.17];
+        let image = Rgb32FImage::from_fn(400, 300, |x, y| {
+            let (xf, yf) = (x as f32 + 0.5, y as f32 + 0.5);
+            let eye = ((xf - 120.0) / 40.0).powi(2) + ((yf - 100.0) / 16.0).powi(2) <= 1.0;
+            let d = (xf - 120.0).hypot(yf - 100.0);
+            let rgb = if !eye {
+                SKIN
+            } else if d <= 11.0 {
+                IRIS
+            } else if d <= 16.0 {
+                SHADED
+            } else {
+                WHITE
+            };
+            image::Rgb(rgb)
+        });
+        let opening = ellipse(120.0, 100.0, 40.0, 16.0, 32);
+        let mut eye = json!({"iris": [120.0, 100.0, 14.0], "lid": opening,
+                             "parsedEye": [opening], "parsedIris": [opening]});
+        if let Some(d) = disk {
+            eye["irisDisk"] = json!(d);
+        }
+        let recipe = json!({"faceRetouch": {"settings": {"iris": 100}, "faces": [{
+            "crop": [4.0, 0.0, 0.0, 0.0, 4.0, 0.0], "size": 100, "eyeDistance": 160.0,
+            "skin": "", "blemishes": [], "kept": [], "eyes": [eye],
+        }]}});
+        let mut after = image.clone();
+        assert!(apply_face_retouch(&mut after, &recipe));
+        (image, after)
+    }
+
+    #[test]
+    fn the_iris_disk_keeps_iris_off_the_white_beside_it() {
+        let (before, after) = iris_beside_a_shaded_white(Some(0.9));
+        // The iris is lifted; the shaded white at 13.5 px, inside the stored
+        // circle but outside its 0.9 disk, is not.
+        assert!(changed(&before, &after, 125, 100));
+        assert!(!changed(&before, &after, 133, 100));
+        assert!(!changed(&before, &after, 106, 100));
+        // Eyes found before `irisDisk` keep the full disk, as they rendered.
+        let (before, old) = iris_beside_a_shaded_white(None);
+        assert!(changed(&before, &old, 133, 100));
+        let (_, full) = iris_beside_a_shaded_white(Some(1.0));
+        assert_eq!(old, full);
     }
 
     #[test]
