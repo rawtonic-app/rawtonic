@@ -57,7 +57,12 @@ export function describeExportItem(item: ExportItemLive): string {
     case 'failed':
       return renderErrorMessage(item.error ?? '');
     case 'done':
-      if (item.outcome === 'skippedExists' || item.outcome === 'skippedUnchanged' || item.outcome === 'keptBoth')
+      if (
+        item.outcome === 'skippedExists' ||
+        item.outcome === 'skippedUnchanged' ||
+        item.outcome === 'keptBoth' ||
+        item.outcome === 'keptOriginal'
+      )
         return i18n.t(`studio.export.queue.photo.${item.outcome}`);
       if (item.outcome === 'replaced') return i18n.t('studio.export.queue.photo.replaced');
       return item.startedMs != null && item.finishedMs != null

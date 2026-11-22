@@ -3762,6 +3762,7 @@
           "denoising": "AI Denoise {{percent}} %",
           "doneIn": "Done in {{seconds}} s",
           "keptBoth": "Exported under a new name: the existing file is not its own export",
+          "keptOriginal": "Exported under a new name: the existing file is a photo in a library",
           "loading": "Reading the photo…",
           "masks": "Writing masks…",
           "rendering": "Rendering and writing…",

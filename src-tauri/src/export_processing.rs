@@ -2,7 +2,7 @@
 //! queue, its Tauri commands and events, sidecar and session access and the
 //! metadata embedding stay here; the render and encoders live in the crate.
 use rawtonic_export::existing_files::{
-    self, Decision, ExistingFiles, ExportRecords, Outcome, Recorded,
+    self, Decision, ExistingFiles, ExportRecords, Outcome, Previous, Recorded,
 };
 pub use rawtonic_export::export_processing::*;
 use rawtonic_export::file_export::require_local_tiff;
@@ -1629,12 +1629,13 @@ fn wait_unless_cancelled(wait: std::time::Duration, cancellation_token: &AtomicB
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Planned {
     /// Write the file at `path`: a new one, or over the previous export of
-    /// the photo recorded as `replace`. `kept_both`: Replace if changed
-    /// found another file at the recipe's name and numbered this one.
+    /// the photo recorded as `replace`. `kept`: why Replace if changed
+    /// kept another file at the recipe's name and numbered this one
+    /// ([`Outcome::KeptBoth`], [`Outcome::KeptOriginal`]).
     Write {
         path: std::path::PathBuf,
         replace: Option<Recorded>,
-        kept_both: bool,
+        kept: Option<Outcome>,
     },
     /// Not exported: the file at `path` stays as it is.
     Skip {
@@ -1657,8 +1658,8 @@ impl Planned {
                 replace: Some(_), ..
             } => Outcome::Replaced,
             Planned::Write {
-                kept_both: true, ..
-            } => Outcome::KeptBoth,
+                kept: Some(kept), ..
+            } => *kept,
             Planned::Write { .. } => Outcome::Written,
         }
     }
@@ -1685,7 +1686,7 @@ fn plan_output_path(
     used_paths: &Mutex<std::collections::HashSet<std::path::PathBuf>>,
     source: &str,
     inputs: &str,
-    previous: &dyn Fn(&Path) -> Option<Recorded>,
+    previous: &dyn Fn(&Path) -> Previous,
 ) -> Result<Planned, String> {
     let export_settings = &target.export_settings;
     let output_folder_path = Path::new(&target.output_folder_or_file);
@@ -1769,9 +1770,11 @@ fn plan_output_path(
             Decision::Replace(recorded) => Planned::Write {
                 path: output_path,
                 replace: Some(recorded),
-                kept_both: false,
+                kept: None,
             },
-            Decision::Number { reported: true } => {
+            Decision::Number {
+                reported: Some(kept),
+            } => {
                 let stem = output_path
                     .file_stem()
                     .map(|stem| stem.to_string_lossy().into_owned())
@@ -1794,13 +1797,13 @@ fn plan_output_path(
                 Planned::Write {
                     path: numbered,
                     replace: None,
-                    kept_both: true,
+                    kept: Some(kept),
                 }
             }
-            Decision::Write | Decision::Number { reported: false } => Planned::Write {
+            Decision::Write | Decision::Number { reported: None } => Planned::Write {
                 path: output_path,
                 replace: None,
-                kept_both: false,
+                kept: None,
             },
         });
     }
@@ -1808,7 +1811,7 @@ fn plan_output_path(
     let mut used = used_paths.lock().unwrap();
     let exists = family(&output_path).iter().any(|path| path.exists());
     let taken = family(&output_path).iter().any(|path| used.contains(path));
-    let (replace, kept_both) = match existing_files::decide(
+    let (replace, kept) = match existing_files::decide(
         policy,
         &output_path,
         exists,
@@ -1824,8 +1827,8 @@ fn plan_output_path(
                 outcome,
             });
         }
-        Decision::Write => (None, false),
-        Decision::Replace(recorded) => (Some(recorded), false),
+        Decision::Write => (None, None),
+        Decision::Replace(recorded) => (Some(recorded), None),
         Decision::Number { reported } => {
             let parent_dir = output_path
                 .parent()
@@ -1847,7 +1850,7 @@ fn plan_output_path(
     Ok(Planned::Write {
         path: output_path,
         replace,
-        kept_both,
+        kept,
     })
 }
 
@@ -2142,15 +2145,17 @@ fn export_photo(
     // original by now (added to a library, or edited as a photo).
     let previous = |path: &Path| {
         if crate::session_bridge::is_library_photo(path, &known_libraries) {
-            return None;
+            return Previous::Original;
         }
-        records().and_then(|records| match records.get(path) {
-            Ok(recorded) => recorded,
-            Err(e) => {
-                log::warn!("Export records: reading {} failed: {e}", path.display());
-                None
-            }
-        })
+        records()
+            .and_then(|records| match records.get(path) {
+                Ok(recorded) => recorded,
+                Err(e) => {
+                    log::warn!("Export records: reading {} failed: {e}", path.display());
+                    None
+                }
+            })
+            .into()
     };
     // Named as before for every choice: the name may need the capture date
     // or facts (read from the original when the snapshot has none).
@@ -2180,7 +2185,10 @@ fn export_photo(
                 used_paths,
                 photo,
                 &inputs(target),
-                &|path| photo_key.as_ref().and_then(|_| previous(path)),
+                &|path| match &photo_key {
+                    Some(_) => previous(path),
+                    None => Previous::Unknown,
+                },
             )
         })
     };
@@ -3428,8 +3436,8 @@ fn estimate_sizes(
 #[cfg(test)]
 mod tests {
     use super::{
-        ExportTarget, PhotoItem, PlannedFiles, crashed_export_error, export_in_turn, is_open_edit,
-        render_groups_for_streaming_tiffs,
+        ExportTarget, PhotoItem, PlannedFiles, Previous, crashed_export_error, export_in_turn,
+        is_open_edit, render_groups_for_streaming_tiffs,
     };
 
     /// The file `plan_output_path` names for a recipe whose choice writes
@@ -3453,7 +3461,7 @@ mod tests {
             used,
             item.image_path_str,
             "inputs",
-            &|_| None,
+            &|_| Previous::Unknown,
         )
         .map(|planned| planned.path().to_path_buf())
     }
@@ -4269,7 +4277,7 @@ mod tests {
                 &used,
                 "a.CR3",
                 "inputs",
-                &|_| None,
+                &|_| Previous::Unknown,
             )
         };
         let first = planned.once(0, plan).unwrap();
@@ -4406,7 +4414,7 @@ mod tests {
                 explicit_vc: None,
                 total_paths: 1,
             };
-            let previous = |path: &Path| records.get(path).unwrap();
+            let previous = |path: &Path| Previous::from(records.get(path).unwrap());
             plan_with(
                 target,
                 &item,
@@ -4445,7 +4453,7 @@ mod tests {
             Planned::Write {
                 path: own.clone(),
                 replace: None,
-                kept_both: false
+                kept: None
             }
         );
         rawtonic_fs::atomic_write(&own, b"export v1").unwrap();

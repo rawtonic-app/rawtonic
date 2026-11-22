@@ -133,15 +133,39 @@ pub(crate) fn library_dir_for(path: &Path) -> Option<PathBuf> {
 /// sidecar beside it (edited as a photo). An export there is never
 /// replaced ("If a file exists": Replace if changed). `known`: the other
 /// libraries the app knows (its recent libraries).
-pub(crate) fn is_library_photo(path: &Path, _known: &[PathBuf]) -> bool {
+pub(crate) fn is_library_photo(path: &Path, known: &[PathBuf]) -> bool {
     if crate::exif_processing::get_primary_sidecar_path(path).exists() {
         return true;
     }
-    library_for(path).is_some_and(|directory| match Library::open(&directory) {
-        Ok(lib) => !matches!(lib.asset_at(path), Ok(None)),
-        // A library that cannot be read: taken as holding it.
-        Err(_) => true,
-    })
+    // The library managing the file's folder, found from the file itself
+    // (not from the library an export runs under), else the open one.
+    let owner = culling_library_for(path, active_library_directory().as_deref());
+    if let Some(owner) = &owner {
+        match Library::open(owner) {
+            Ok(lib) => {
+                if !matches!(lib.asset_at(path), Ok(None)) {
+                    return true;
+                }
+            }
+            // The library of its folder cannot be read: taken as holding it.
+            Err(_) => return true,
+        }
+    }
+    // Every other library the app knows (a catalog registers files
+    // anywhere). One that is gone or unreadable lists nothing.
+    let mut seen: Vec<&Path> = owner.iter().map(PathBuf::as_path).collect();
+    for directory in known {
+        if seen.contains(&directory.as_path()) || !directory.is_dir() {
+            continue;
+        }
+        seen.push(directory);
+        if let Ok(lib) = Library::open(directory)
+            && !matches!(lib.asset_at(path), Ok(None))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 pub fn is_managed_source(source: &Path) -> bool {

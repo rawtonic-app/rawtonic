@@ -4091,6 +4091,7 @@
           "denoising": "Odszumianie AI {{percent}} %",
           "doneIn": "Gotowe w {{seconds}} s",
           "keptBoth": "Wyeksportowano pod nową nazwą: istniejący plik nie jest jego eksportem",
+          "keptOriginal": "Wyeksportowano pod nową nazwą: istniejący plik jest zdjęciem w bibliotece",
           "loading": "Odczyt zdjęcia…",
           "masks": "Zapis masek…",
           "rendering": "Renderowanie i zapis…",

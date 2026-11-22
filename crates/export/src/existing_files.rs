@@ -60,6 +60,10 @@ pub enum Outcome {
     /// this photo (or has mask files beside it), so it was kept and the new
     /// one got a numbered name.
     KeptBoth,
+    /// Replace if changed: the file of its name is a photo of a library
+    /// (someone's original, even if Rawtonic once exported it), so it was
+    /// kept and the new one got a numbered name.
+    KeptOriginal,
 }
 
 impl Outcome {
@@ -70,6 +74,7 @@ impl Outcome {
             Outcome::SkippedUnchanged => "skippedUnchanged",
             Outcome::Replaced => "replaced",
             Outcome::KeptBoth => "keptBoth",
+            Outcome::KeptOriginal => "keptOriginal",
         }
     }
     pub fn parse(text: &str) -> Option<Self> {
@@ -79,6 +84,7 @@ impl Outcome {
             Outcome::SkippedUnchanged,
             Outcome::Replaced,
             Outcome::KeptBoth,
+            Outcome::KeptOriginal,
         ]
         .into_iter()
         .find(|outcome| outcome.as_str() == text)
@@ -162,14 +168,32 @@ pub fn settings_for_hash(settings: &crate::export_processing::ExportSettings) ->
 pub enum Decision {
     /// Write a new file under its own name.
     Write,
-    /// Give it the next free numbered name; `reported` when Replace if
-    /// changed fell back to it ([`Outcome::KeptBoth`]).
+    /// Give it the next free numbered name; `reported` how, when Replace
+    /// if changed fell back to it ([`Outcome::KeptBoth`],
+    /// [`Outcome::KeptOriginal`]).
     Number {
-        reported: bool,
+        reported: Option<Outcome>,
     },
     Skip(Outcome),
     /// Replace the previous export recorded so.
     Replace(Recorded),
+}
+
+/// What is known of the file at an output's name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Previous {
+    /// Nothing recorded for it.
+    Unknown,
+    /// A photo of a library: never replaced.
+    Original,
+    /// What an export recorded for it.
+    Export(Recorded),
+}
+
+impl From<Option<Recorded>> for Previous {
+    fn from(recorded: Option<Recorded>) -> Self {
+        recorded.map_or(Previous::Unknown, Previous::Export)
+    }
 }
 
 /// The decision for an output whose own name is `path`, before anything
@@ -179,36 +203,49 @@ pub enum Decision {
 /// are never replaced), `previous` what was recorded for the file at
 /// `path`, `source` the photo and `inputs` this export's [`inputs_hash`].
 #[allow(clippy::too_many_arguments)]
-pub fn decide(
+pub fn decide<P>(
     policy: ExistingFiles,
     path: &Path,
     exists: bool,
     used: bool,
     mask_files: bool,
-    previous: impl FnOnce() -> Option<Recorded>,
+    previous: impl FnOnce() -> P,
     source: &str,
     inputs: &str,
-) -> Decision {
+) -> Decision
+where
+    P: Into<Previous>,
+{
     // Two photos of one run named alike are both exported, whatever the
     // choice: skipping the second would lose it silently.
     if used {
-        return Decision::Number { reported: false };
+        return Decision::Number { reported: None };
     }
     if !exists {
         return Decision::Write;
     }
     match policy {
-        ExistingFiles::KeepBoth => Decision::Number { reported: false },
+        ExistingFiles::KeepBoth => Decision::Number { reported: None },
         ExistingFiles::Skip => Decision::Skip(Outcome::SkippedExists),
-        ExistingFiles::ReplaceIfChanged => {
-            match previous().filter(|p| p.is_export_of(path, source)) {
-                Some(previous) if previous.inputs == inputs => {
+        ExistingFiles::ReplaceIfChanged => match previous().into() {
+            Previous::Original => Decision::Number {
+                reported: Some(Outcome::KeptOriginal),
+            },
+            Previous::Export(previous) if previous.is_export_of(path, source) => {
+                if previous.inputs == inputs {
                     Decision::Skip(Outcome::SkippedUnchanged)
+                } else if mask_files {
+                    Decision::Number {
+                        reported: Some(Outcome::KeptBoth),
+                    }
+                } else {
+                    Decision::Replace(previous)
                 }
-                Some(previous) if !mask_files => Decision::Replace(previous),
-                _ => Decision::Number { reported: true },
             }
-        }
+            _ => Decision::Number {
+                reported: Some(Outcome::KeptBoth),
+            },
+        },
     }
 }
 
@@ -412,7 +449,7 @@ mod tests {
             );
             assert_eq!(
                 decide(policy, &path, true, true, false, || None, "s", "i"),
-                Decision::Number { reported: false }
+                Decision::Number { reported: None }
             );
         }
     }
@@ -447,7 +484,7 @@ mod tests {
                 "s",
                 "i"
             ),
-            Decision::Number { reported: false }
+            Decision::Number { reported: None }
         );
     }
 
@@ -468,7 +505,9 @@ mod tests {
                 photo,
                 "v1"
             ),
-            Decision::Number { reported: true }
+            Decision::Number {
+                reported: Some(Outcome::KeptBoth)
+            }
         );
 
         // Our export: unchanged inputs skip, changed ones replace.
@@ -501,7 +540,9 @@ mod tests {
                 "/photos/b.raf",
                 "v2"
             ),
-            Decision::Number { reported: true }
+            Decision::Number {
+                reported: Some(Outcome::KeptBoth)
+            }
         );
         // With separate mask files beside it: kept (they are never replaced).
         assert_eq!(
@@ -515,7 +556,9 @@ mod tests {
                 photo,
                 "v2"
             ),
-            Decision::Number { reported: true }
+            Decision::Number {
+                reported: Some(Outcome::KeptBoth)
+            }
         );
 
         // Edited or replaced by someone else since: kept, same size or not.
@@ -528,7 +571,9 @@ mod tests {
                 photo,
                 "v2"
             ),
-            Decision::Number { reported: true }
+            Decision::Number {
+                reported: Some(Outcome::KeptBoth)
+            }
         );
         fs::write(&path, b"retouched in another editor").unwrap();
         assert_eq!(
@@ -539,7 +584,9 @@ mod tests {
                 photo,
                 "v1"
             ),
-            Decision::Number { reported: true }
+            Decision::Number {
+                reported: Some(Outcome::KeptBoth)
+            }
         );
 
         // A symlink to our export is not our export.
@@ -558,7 +605,9 @@ mod tests {
                     photo,
                     "v2"
                 ),
-                Decision::Number { reported: true }
+                Decision::Number {
+                    reported: Some(Outcome::KeptBoth)
+                }
             );
         }
     }
@@ -585,6 +634,28 @@ mod tests {
     }
 
     #[test]
+    fn a_photo_of_a_library_is_kept_even_if_it_is_our_export() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.jpg");
+        fs::write(&path, b"export").unwrap();
+        assert_eq!(
+            decide(
+                ExistingFiles::ReplaceIfChanged,
+                &path,
+                true,
+                false,
+                false,
+                || Previous::Original,
+                "s",
+                "v2"
+            ),
+            Decision::Number {
+                reported: Some(Outcome::KeptOriginal)
+            }
+        );
+    }
+
+    #[test]
     fn another_photo_at_the_same_path_is_not_the_recorded_one() {
         let first = photo_key("/card/DSC_0001.NEF", Some("aaa")).unwrap();
         let reused = photo_key("/card/DSC_0001.NEF", Some("bbb")).unwrap();
@@ -603,7 +674,9 @@ mod tests {
                 &reused,
                 "v2"
             ),
-            Decision::Number { reported: true }
+            Decision::Number {
+                reported: Some(Outcome::KeptBoth)
+            }
         );
     }
 

@@ -3927,6 +3927,7 @@
           "denoising": "Débruitage IA {{percent}} %",
           "doneIn": "Terminé en {{seconds}} s",
           "keptBoth": "Exportée sous un nouveau nom : le fichier existant n'est pas son propre export",
+          "keptOriginal": "Exportée sous un nouveau nom : le fichier existant est une photo d'une bibliothèque",
           "loading": "Lecture de la photo…",
           "masks": "Écriture des masques…",
           "rendering": "Rendu et écriture…",

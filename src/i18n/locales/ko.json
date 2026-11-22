@@ -3655,6 +3655,7 @@
           "denoising": "AI 노이즈 제거 {{percent}}%",
           "doneIn": "{{seconds}}초 만에 완료",
           "keptBoth": "새 이름으로 내보냄: 기존 파일은 이 사진의 내보내기가 아닙니다",
+          "keptOriginal": "새 이름으로 내보냄: 기존 파일은 라이브러리에 있는 사진입니다",
           "loading": "사진 읽는 중…",
           "masks": "마스크 쓰는 중…",
           "rendering": "렌더링 및 쓰는 중…",

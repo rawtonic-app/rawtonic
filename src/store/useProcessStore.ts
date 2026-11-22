@@ -51,7 +51,7 @@ export interface ExportItem {
 }
 
 /** Mirrors `rawtonic_export::existing_files::Outcome`. */
-export type ExportOutcome = 'written' | 'skippedExists' | 'skippedUnchanged' | 'replaced' | 'keptBoth';
+export type ExportOutcome = 'written' | 'skippedExists' | 'skippedUnchanged' | 'replaced' | 'keptBoth' | 'keptOriginal';
 
 /** What a photo in progress is doing (`export_queue::Stage`). */
 export type ExportStage = 'loading' | 'denoising' | 'selecting' | 'rendering' | 'masks';

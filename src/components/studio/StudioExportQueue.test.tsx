@@ -67,6 +67,9 @@ it('says what "If a file exists" skipped, replaced or kept, per job and per phot
     'Skipped: a file of its name exists'
   );
   expect(describeExportItem(item(0, { state: 'done', outcome: 'replaced' }))).toBe('Replaced its earlier export');
+  expect(describeExportItem(item(0, { state: 'done', outcome: 'keptOriginal' }))).toBe(
+    'Exported under a new name: the existing file is a photo in a library'
+  );
 });
 
 it('lists every job newest first, empty or not, and acts on single jobs', () => {

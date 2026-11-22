@@ -3655,6 +3655,7 @@
           "denoising": "AI 降噪 {{percent}}%",
           "doneIn": "{{seconds}} 秒完成",
           "keptBoth": "以新名稱匯出：現有檔案不是它自己的匯出",
+          "keptOriginal": "以新名稱匯出：現有檔案是圖庫中的照片",
           "loading": "正在讀取照片…",
           "masks": "正在寫入遮罩…",
           "rendering": "正在算繪並寫入…",

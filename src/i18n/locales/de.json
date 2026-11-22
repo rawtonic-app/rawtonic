@@ -3762,6 +3762,7 @@
           "denoising": "KI-Entrauschen {{percent}} %",
           "doneIn": "Fertig in {{seconds}} s",
           "keptBoth": "Unter neuem Namen exportiert: Die vorhandene Datei ist nicht sein eigener Export",
+          "keptOriginal": "Unter neuem Namen exportiert: Die vorhandene Datei ist ein Foto in einer Bibliothek",
           "loading": "Foto wird gelesen…",
           "masks": "Masken werden geschrieben…",
           "rendering": "Wird gerendert und geschrieben…",

@@ -3927,6 +3927,7 @@
           "denoising": "Redução de ruído com IA {{percent}} %",
           "doneIn": "Concluída em {{seconds}} s",
           "keptBoth": "Exportada com novo nome: o arquivo existente não é a sua própria exportação",
+          "keptOriginal": "Exportada com novo nome: o arquivo existente é uma foto de uma biblioteca",
           "loading": "Lendo a foto…",
           "masks": "Gravando máscaras…",
           "rendering": "Renderizando e gravando…",

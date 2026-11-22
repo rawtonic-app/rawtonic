@@ -148,7 +148,8 @@ pub struct Job {
     /// Of `done`: previous exports replaced (Replace if changed).
     pub replaced: usize,
     /// Of `done`: exported under a numbered name because the file at their
-    /// name was not a previous export of the photo (Replace if changed).
+    /// name was not a previous export of the photo or is a photo of a
+    /// library (Replace if changed).
     pub kept_both: usize,
     /// The failed photos in job order, for the interface to list.
     pub failures: Vec<Failure>,
@@ -751,7 +752,8 @@ impl ExportQueue {
         )?;
         let (skipped, replaced, kept_both): (i64, i64, i64) = self.conn.query_row(
             "SELECT coalesce(sum(outcome IN ('skippedExists','skippedUnchanged')),0),
-               coalesce(sum(outcome='replaced'),0), coalesce(sum(outcome='keptBoth'),0)
+               coalesce(sum(outcome='replaced'),0),
+               coalesce(sum(outcome IN ('keptBoth','keptOriginal')),0)
              FROM items WHERE job_id=? AND state='done'",
             [id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),

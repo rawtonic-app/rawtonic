@@ -1368,7 +1368,8 @@ fn export(args: ExportArgs) -> Result<()> {
         .collect();
     if named.is_empty() {
         return print(serde_json::json!({
-            "written": [], "skipped": skipped, "replaced": [], "keptBoth": [], "failed": [],
+            "written": [], "skipped": skipped, "replaced": [], "keptBoth": [], "keptOriginal": [],
+            "failed": [],
             "seconds": started_at.elapsed().as_secs_f64(),
         }));
     }
@@ -1514,10 +1515,16 @@ fn export(args: ExportArgs) -> Result<()> {
             false,
             || {
                 // Never a file that is a photograph by now.
-                if photo_key.is_none() || is_library_photo(own) {
-                    return None;
+                if is_library_photo(own) {
+                    return existing_files::Previous::Original;
                 }
-                records.as_ref().and_then(|r| r.get(own).ok().flatten())
+                if photo_key.is_none() {
+                    return existing_files::Previous::Unknown;
+                }
+                records
+                    .as_ref()
+                    .and_then(|r| r.get(own).ok().flatten())
+                    .into()
             },
             photo_key.unwrap_or_default(),
             inputs,
@@ -1535,7 +1542,7 @@ fn export(args: ExportArgs) -> Result<()> {
                 // A file the user named is numbered only as Replace if
                 // changed's fallback; Keep both refuses it, as before.
                 anyhow::ensure!(
-                    *may_number || reported,
+                    *may_number || reported.is_some(),
                     "Output exists; Rawtonic never overwrites: {}",
                     own.display()
                 );
@@ -1549,12 +1556,7 @@ fn export(args: ExportArgs) -> Result<()> {
                     target = own.with_file_name(format!("{stem}_{counter}.{extension}"));
                     counter += 1;
                 }
-                let outcome = if reported {
-                    Outcome::KeptBoth
-                } else {
-                    Outcome::Written
-                };
-                (target, None, outcome)
+                (target, None, reported.unwrap_or(Outcome::Written))
             }
         };
         used.insert(path.clone());
@@ -1691,6 +1693,7 @@ fn export(args: ExportArgs) -> Result<()> {
     let mut written = Vec::new();
     let mut replaced = Vec::new();
     let mut kept_both = Vec::new();
+    let mut kept_original = Vec::new();
     let mut failed = Vec::new();
     for (outcome, (_, _, _, planned, _)) in outcomes.into_iter().zip(&jobs) {
         match outcome {
@@ -1698,6 +1701,7 @@ fn export(args: ExportArgs) -> Result<()> {
                 match planned {
                     Outcome::Replaced => replaced.push(path.clone()),
                     Outcome::KeptBoth => kept_both.push(path.clone()),
+                    Outcome::KeptOriginal => kept_original.push(path.clone()),
                     _ => {}
                 }
                 written.push(path);
@@ -1718,6 +1722,7 @@ fn export(args: ExportArgs) -> Result<()> {
         "skipped": skipped,
         "replaced": replaced,
         "keptBoth": kept_both,
+        "keptOriginal": kept_original,
         "failed": failed,
         "seconds": started.elapsed().as_secs_f64(),
         "metadata": if keep_metadata { "source EXIF and session catalog metadata" } else if keep_creator_contact { "creator, copyright, creator contact details and usage terms" } else { "creator, copyright and usage terms" },

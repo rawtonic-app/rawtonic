@@ -3927,6 +3927,7 @@
           "denoising": "Reducció de soroll amb IA {{percent}} %",
           "doneIn": "Fet en {{seconds}} s",
           "keptBoth": "Exportada amb un nom nou: el fitxer existent no és la seva exportació",
+          "keptOriginal": "Exportada amb un nom nou: el fitxer existent és una foto d'una biblioteca",
           "loading": "S'està llegint la foto…",
           "masks": "S'estan escrivint les màscares…",
           "rendering": "S'està renderitzant i escrivint…",
