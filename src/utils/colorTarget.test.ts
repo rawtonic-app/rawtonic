@@ -22,6 +22,7 @@ import {
   solveColorTargetMeasured,
   srgb8ToLinear,
   MAX_CORRECTIONS,
+  MAX_SEARCH_MEASURES,
   meanDisplayLab,
   type Vec3
 } from './colorTarget';
@@ -369,6 +370,54 @@ describe('closed loop on the measured result', () => {
     expect(calls.length).toBe(3);
   });
 
+  // A renderer whose output turns the hue and takes chroma where the model
+  // does not see it (an output mapping of colours far beyond sRGB): the
+  // more chroma, the more turn.
+  const blue = rangeAt([20, 70, 200]);
+  const turning =
+    (calls: ColorRange[][] = []) =>
+    async (ranges: ColorRange[]) => {
+      calls.push(ranges);
+      const [L, a, b] = renderedLab(ranges, centreInput(blue));
+      const chroma = Math.hypot(a, b);
+      const hue = Math.atan2(b, a) + ((30 * Math.PI) / 180) * (chroma / 60);
+      return [L * 0.9 + 3, 0.8 * chroma * Math.cos(hue), 0.8 * chroma * Math.sin(hue)] as Vec3;
+    };
+
+  it('follows the renderer’s own response where the model’s corrections stop far off', async () => {
+    const target = labOfSrgb([0, 90, 190]);
+    const calls: ColorRange[][] = [];
+    const loop = (await solveColorTargetMeasured([blue], blue.id, target, null, turning(calls), { now: () => 0 }))!;
+    // The model's corrections alone end more than ΔE00 1 off; the search
+    // on the measured response brings it within 1.
+    const corrections = calls.slice(0, MAX_CORRECTIONS + 1);
+    const render = turning();
+    const alone = Math.min(...(await Promise.all(corrections.map(async (r) => deltaE00(target, (await render(r))!)))));
+    expect(alone).toBeGreaterThan(1);
+    expect(loop.measured!.deltaE).toBeLessThan(0.5);
+    expect(calls.length).toBeLessThanOrEqual(MAX_CORRECTIONS + 1 + MAX_SEARCH_MEASURES);
+    expect(loop.measured!.deltaE).toBeCloseTo(deltaE00(target, (await render(loop.ranges))!), 6);
+  });
+
+  it('keeps the model’s direction for a target out of reach instead of a colour drained to shave the distance', async () => {
+    // Nothing lighter than L* 40 comes out: a light target stays far off
+    // whatever the sliders do.
+    const target = labOfSrgb([150, 190, 240]);
+    const calls: ColorRange[][] = [];
+    const capped = async (ranges: ColorRange[]) => {
+      calls.push(ranges);
+      const [L, a, b] = renderedLab(ranges, centreInput(blue));
+      return [Math.min(L, 40), a, b] as Vec3;
+    };
+    const loop = (await solveColorTargetMeasured([blue], blue.id, target, null, capped, { now: () => 0 }))!;
+    expect(calls.length).toBeGreaterThan(MAX_CORRECTIONS + 1);
+    // The result is one of the model's own corrections, not a search probe.
+    expect(calls.findIndex((r) => JSON.stringify(r) === JSON.stringify(loop.ranges))).toBeLessThanOrEqual(
+      MAX_CORRECTIONS
+    );
+    expect(loop.measured!.deltaE).toBeGreaterThan(5);
+  });
+
   it('keeps the best measured sliders when a correction measures worse', async () => {
     let n = 0;
     const loop = (await solveColorTargetMeasured([skin], skin.id, target, null, async (ranges) => {
@@ -376,7 +425,9 @@ describe('closed loop on the measured result', () => {
       const lab = renderedLab(ranges, centreInput(skin));
       return (n === 1 ? [lab[0] + 1, lab[1], lab[2]] : [lab[0] + 9, lab[1], lab[2]]) as Vec3;
     }))!;
-    expect(n).toBe(2);
+    // The corrections stop at the worse one; a measured search may follow
+    // (ΔE00 1 off) and finds nothing better either.
+    expect(n).toBeLessThanOrEqual(2 + MAX_SEARCH_MEASURES);
     expect(loop.corrections).toBe(0);
     expect(loop.ranges[0].hueShift).toBe(solveColorTarget([skin], skin.id, target)!.shifts.hueShift);
   });

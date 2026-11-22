@@ -3372,6 +3372,15 @@ pub(crate) fn develop_target_block(
         Some(space),
         probe,
     )?;
+    #[cfg(feature = "performance-profiling")]
+    log::info!(
+        "[PERF] {}",
+        serde_json::json!({
+            "stage": "color_target_block", "probe": probe.is_some(),
+            "source": region.source_kind, "ms": region.ms,
+            "end_epoch_ms": crate::performance::epoch_ms()
+        })
+    );
     let covered =
         region
             .extent

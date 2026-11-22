@@ -7,6 +7,7 @@ import { draftFor, flushSliderDraft } from './sliderDraft';
 import { MAX_COLOR_RANGES, newColorRange, type Adjustments, type ColorRange } from './adjustments';
 import { srgbToOklch } from './oklab';
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from './geometryKeys';
+import { reportPerformance } from '../hooks/usePerformanceDiagnostics';
 import {
   colorBeforeRanges,
   inverseGain,
@@ -214,8 +215,17 @@ export function geometryKeyOf(adjustments: Adjustments): string {
 }
 
 /**
- * The renderer's sample at range `range`'s pick, taken again now (earlier
- * tools or the mask may have changed since; the store keeps it), or null
+ * What the colour entering the ranges of the photo (`layer` null) or of a
+ * mask layer depends on: the recipe without those ranges (their own shifts,
+ * a target, a new range change nothing before them).
+ */
+export const inputKeyOf = (adjustments: Adjustments, layer: string | null): string =>
+  JSON.stringify(withRanges(adjustments, layer, () => []));
+
+/**
+ * The renderer's sample at range `range`'s pick: the one kept while nothing
+ * before the ranges changed, else taken again now (earlier tools or the mask
+ * changed since; the store keeps it), or null
  * for a range not picked in the photo (moved on the wheel since) and when
  * the renderer has no sample there now (the pick keeps its point, without
  * a sample, until one comes).
@@ -227,21 +237,21 @@ export async function rangeInputFor(
 ): Promise<RangeInput | null> {
   const pick = rangePickOf(photo, layer, range);
   if (!pick) return null;
-  const input = await sampleRangeInput(
-    photo,
-    pick.point[0],
-    pick.point[1],
-    layer,
-    useEditorStore.getState().adjustments,
-    pick.block ?? null
-  );
+  const adjustments = useEditorStore.getState().adjustments;
+  const inputKey = inputKeyOf(adjustments, layer);
+  // A full-resolution probe of the block (two renders) is most of a
+  // target's time: only an edit before the ranges asks for it again.
+  if (pick.input && pick.inputKey === inputKey) return pick.input;
+  const input = await sampleRangeInput(photo, pick.point[0], pick.point[1], layer, adjustments, pick.block ?? null);
   const state = useEditorStore.getState();
   const key = rangePickKey(photo, layer, range.id);
   if (state.colorRangeInputs[key] !== pick) return input;
   // No sample now (a hidden layer, a layer without a mask, no preview): the
   // old one no longer stands for the photo, but the point stays, so the
   // next sample (the layer shown again) picks it up.
-  state.setEditor({ colorRangeInputs: { ...state.colorRangeInputs, [key]: { ...pick, input } } });
+  state.setEditor({
+    colorRangeInputs: { ...state.colorRangeInputs, [key]: { ...pick, input, inputKey: input ? inputKey : undefined } }
+  });
   return input;
 }
 
@@ -332,7 +342,8 @@ export async function pickColorRange(path: string, target: string, x: number, y:
                 centre: rangeCentre(picked),
                 geometry: geometryKeyOf(asked.adjustments),
                 block,
-                input
+                input,
+                inputKey: inputKeyOf(asked.adjustments, layer)
               }
             }
           : after.colorRangeInputs
@@ -547,8 +558,14 @@ export async function applyColorTarget(
   // The correction reads and writes the ranges of the layer it started on,
   // whatever the panel shows meanwhile (another layer selected).
   const own = recipeRanges(photo, layer);
+  // Profiling builds: where a target's time goes (the input's sample, each
+  // measurement, the correction).
+  const began = performance.now();
+  const since = () => Math.round(performance.now() - began);
+  const measures: number[][] = [];
   const correct = async () => {
     const fresh = (await rangeInputFor(photo, layer, range)) ?? pick.input;
+    const inputMs = since();
     if (stale()) return false;
     const current = own.ranges();
     if (!current.some((r) => r.id === rangeId)) return false;
@@ -556,7 +573,9 @@ export async function applyColorTarget(
     let unmeasured: string | null = null;
     const loop = await solveColorTargetMeasured(current, rangeId, lab, fresh, async (ranges) => {
       if (stale()) return null;
+      const from = since();
       const measured = await measureRanges(photo, layer, pick, ranges);
+      measures.push([from, since()]);
       recipes.set(ranges, measured.recipe);
       unmeasured = measured.unmeasured;
       return measured.lab;
@@ -564,23 +583,32 @@ export async function applyColorTarget(
     if (stale() || !loop) return false;
     const solved = shiftsOf(loop.ranges.find((r) => r.id === rangeId)!);
     const first = shiftsOf(current.find((r) => r.id === rangeId)!);
+    let corrected = false;
     if (
       solved.hueShift !== first.hueShift ||
       solved.saturation !== first.saturation ||
       solved.lightnessShift !== first.lightnessShift
     ) {
-      const corrected = current.map((x) => (x.id === rangeId ? { ...x, ...solved } : x));
+      corrected = true;
+      const next = current.map((x) => (x.id === rangeId ? { ...x, ...solved } : x));
       // The first solve's step already written (the measurement came after
       // the history's pause): the correction replaces it, one step. Still
       // pending: the edit joins it.
       if (
         !amendHistoryStep(
           model,
-          withRanges(model, layer, () => corrected)
+          withRanges(model, layer, () => next)
         )
       )
-        own.apply(corrected);
+        own.apply(next);
     }
+    reportPerformance('color_target_correction', {
+      input_ms: inputMs,
+      measures,
+      corrections: loop.corrections,
+      changed: corrected ? 1 : 0,
+      done_ms: since()
+    });
     const recipe = recipes.get(loop.ranges);
     if (loop.measured && recipe) remember(photo, layer, rangeId, recipe, loop.measured.lab);
     // Not measurable: the readout says so for the recipe as it is now.
