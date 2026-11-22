@@ -104,11 +104,33 @@ impl Sample for f32 {
 /// crate's: 0 and the sample type's maximum, 1.0 for floats).
 fn resize_channels<S: Sample, const C: usize>(
     pixels: &[S],
+    dimensions: (u32, u32),
+    new_dimensions: (u32, u32),
+    floor: f32,
+    ceiling: f32,
+) -> Vec<S> {
+    resize_mapped::<S, S, C>(
+        pixels,
+        S::to_f32,
+        dimensions,
+        new_dimensions,
+        floor,
+        ceiling,
+    )
+}
+
+/// [`resize_channels`] whose source values are read through `read` (each
+/// value as the `f32` the passes add) into output samples of type `O`: the
+/// same taps and the same sums in the same order. A source that would be
+/// converted to `f32` first gives the same values without that copy.
+fn resize_mapped<I: Copy + Sync, O: Sample, const C: usize>(
+    pixels: &[I],
+    read: impl Fn(I) -> f32 + Sync,
     (width, height): (u32, u32),
     (new_width, new_height): (u32, u32),
     floor: f32,
     ceiling: f32,
-) -> Vec<S> {
+) -> Vec<O> {
     let row = width as usize * C;
     let rows = taps(height, new_height);
     let mut vertical = vec![0.0f32; row * new_height as usize];
@@ -119,14 +141,14 @@ fn resize_channels<S: Sample, const C: usize>(
             for (i, &weight) in taps.weights.iter().enumerate() {
                 let start = (taps.first + i) * row;
                 for (sum, &value) in out.iter_mut().zip(&pixels[start..start + row]) {
-                    *sum += value.to_f32() * weight;
+                    *sum += read(value) * weight;
                 }
             }
         });
 
     let columns = taps(width, new_width);
     let new_row = new_width as usize * C;
-    let mut resized = vec![S::from_clamped(0.0); new_row * new_height as usize];
+    let mut resized = vec![O::from_clamped(0.0); new_row * new_height as usize];
     resized
         .par_chunks_mut(new_row)
         .zip(vertical.par_chunks(row))
@@ -148,7 +170,7 @@ fn resize_channels<S: Sample, const C: usize>(
                     } else {
                         sum
                     };
-                    *value = S::from_clamped(clamped);
+                    *value = O::from_clamped(clamped);
                 }
             }
         });
@@ -170,6 +192,28 @@ where
         (new_width, new_height),
         0.0,
         <P::Subpixel as Sample>::MAX,
+    );
+    ImageBuffer::from_raw(new_width, new_height, pixels).expect("resized buffer size")
+}
+
+/// [`resize_scene_linear`] of an 8-bit RGB image whose values `linear`
+/// maps to linear light (`linear[v]` the value of `v`): the values of
+/// `resize_scene_linear` of the image converted with that table first, bit
+/// for bit, without the full-size float copy (12 bytes per pixel; 290 MB
+/// for a 24 MP camera JPEG, made for each grid tile).
+pub fn resize_mapped_rgb8_linear(
+    image: &image::RgbImage,
+    linear: &[f32; 256],
+    new_width: u32,
+    new_height: u32,
+) -> image::Rgb32FImage {
+    let pixels = resize_mapped::<u8, f32, 3>(
+        image.as_raw(),
+        |value| linear[usize::from(value)],
+        image.dimensions(),
+        (new_width, new_height),
+        0.0,
+        f32::INFINITY,
     );
     ImageBuffer::from_raw(new_width, new_height, pixels).expect("resized buffer size")
 }
