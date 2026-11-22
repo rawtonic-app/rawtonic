@@ -44,6 +44,12 @@ export const CREDITS: Credit[] = [
     license: 'SQLite: public domain; bindings: MIT; Rawtonic correction: AGPL-3.0-or-later'
   },
   {
+    name: 'cyrb53',
+    url: 'https://github.com/bryc/code/blob/master/jshash/experimental/cyrb53.js',
+    what: "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
+    license: 'Public domain'
+  },
+  {
     name: 'RapidRAW',
     url: 'https://github.com/CyberTimon/RapidRAW',
     what: "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
@@ -118,7 +124,7 @@ export const CREDITS: Credit[] = [
   {
     name: 'ConvNeXt UperNet',
     url: 'https://github.com/facebookresearch/ConvNeXt',
-    what: 'Sky masks (Meta, ADE20K).',
+    what: 'Sky and Landscape masks (Meta, ADE20K).',
     license: 'MIT'
   },
   {
@@ -150,6 +156,12 @@ export const CREDITS: Credit[] = [
     url: 'https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker',
     what: 'Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).',
     license: 'Apache-2.0'
+  },
+  {
+    name: 'EasyPortrait face parsing (FPN + ResNet-50)',
+    url: 'https://github.com/hukenovs/easyportrait',
+    what: 'Eye openings and teeth for the face retouch (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Changed: converted to ONNX and Core ML, published under CC BY-SA 4.0.',
+    license: 'CC BY-SA 4.0'
   },
   {
     name: 'SigLIP 2',

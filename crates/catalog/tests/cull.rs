@@ -239,6 +239,40 @@ fn scores_are_made_from_each_reading_once_per_file_model_and_prompt_set() {
 }
 
 #[test]
+fn scores_of_another_prompt_set_are_forgotten_and_read_again() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path(), &["cap.jpg", "plain.jpg"]);
+    let old = prompts("old");
+    read(&lib, &ids[0], &old, &toward(cos_of(0.05), 7));
+    read(&lib, &ids[1], &old, &axis(9));
+    lib.set_cull_dismissed(&[ids[1].clone()], "misfire", true)
+        .unwrap();
+    let misfires = || {
+        names(
+            lib.search(&rule(
+                json!({"field": "suggestion", "op": "is", "value": "misfire"}),
+            ))
+            .unwrap(),
+        )
+    };
+    assert_eq!(misfires(), ["cap.jpg"]);
+    // A library scored with the old set, opened with the new one: its old
+    // scores suggest nothing any more, and its photographs are read again.
+    assert_eq!(lib.forget_other_cull_scores(MODEL, "new").unwrap(), 2);
+    assert!(misfires().is_empty());
+    let photos = lib.cull_photos(&ids).unwrap();
+    assert!(photos.values().all(|p| p.suggested.is_empty() && !p.scored));
+    assert_eq!(lib.cull_backlog_count(MODEL, "new").unwrap(), 2);
+    // The photographer's dismissal stays.
+    assert_eq!(photos[&ids[1]].dismissed, ["misfire"]);
+    let new = prompts("new");
+    read(&lib, &ids[0], &new, &toward(cos_of(0.05), 7));
+    assert_eq!(misfires(), ["cap.jpg"]);
+    assert_eq!(lib.forget_other_cull_scores(MODEL, "new").unwrap(), 0);
+    assert_eq!(misfires(), ["cap.jpg"]);
+}
+
+#[test]
 fn suggestions_dismissals_and_search_rules() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids) = library(

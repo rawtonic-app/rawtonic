@@ -1654,9 +1654,14 @@ fn plan_output_path(
 /// the same mask. Only components still as the export found them, in the
 /// same geometry, take it. Returns whether the recipe changed. The photo open in Develop is left
 /// to the editor, which computes and saves its own.
+///
+/// Only into a stored recipe that `accepts` (read in the same turn as the
+/// write: a recipe changed since the detection began, e.g. given AI Denoise,
+/// is checked as it is now).
 pub(crate) fn keep_detected_selections(
     path: &str,
     detected: &[rawtonic_engine::ai_selections::Detected],
+    accepts: impl Fn(&Value) -> bool,
 ) -> Result<bool, String> {
     if detected.is_empty() {
         return Ok(false);
@@ -1664,6 +1669,9 @@ pub(crate) fn keep_detected_selections(
     let (source_path, sidecar_path) = parse_virtual_path(path);
     let _turn = crate::file_management::sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
+    if !accepts(&metadata.adjustments) {
+        return Ok(false);
+    }
     // An edit still to be moved from a camera TIFF's thumbnail to its full
     // frame (`recipe_frame::conform`, done when the user saves): a bitmap of
     // the full frame in it would read as made on the full frame, so nothing
@@ -1671,16 +1679,7 @@ pub(crate) fn keep_detected_selections(
     if needs_frame_migration(&metadata.adjustments, &source_path) {
         return Ok(false);
     }
-    // Its geometry as the detection saw it: prepared for a render as the
-    // export and the queue prepare it (version keys, the resolved lens),
-    // which a never-opened recipe may not hold yet.
-    let mut frame = metadata.adjustments.clone();
-    let _ = rawtonic_export::normalize::normalize(
-        &mut frame,
-        &rawtonic_export::normalize::RecipeSource::file(&source_path),
-        rawtonic_export::normalize::Bitmaps::None,
-        rawtonic_export::normalize::Defaults::Render,
-    );
+    let frame = detection_frame(&metadata.adjustments, &source_path);
     if !rawtonic_engine::ai_selections::keep_detected_in(
         &mut metadata.adjustments,
         &frame,
@@ -1692,6 +1691,32 @@ pub(crate) fn keep_detected_selections(
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json)
         .map_err(|e| format!("the selections could not be kept: {e}"))?;
     Ok(true)
+}
+
+/// Keeps an export's selections only while the saved recipe still asks for
+/// the same effective AI Denoise settings as the decode used by the export.
+pub(crate) fn keep_export_detected_selections(
+    path: &str,
+    detected: &[rawtonic_engine::ai_selections::Detected],
+    exported_recipe: &Value,
+) -> Result<bool, String> {
+    use rawtonic_engine::image_loader::ai_denoise_settings;
+    let denoise = ai_denoise_settings(exported_recipe);
+    keep_detected_selections(path, detected, |now| ai_denoise_settings(now) == denoise)
+}
+
+/// The geometry of `adjustments` as a detection saw it: prepared for a
+/// render as the export and the selection queue prepare it (version keys,
+/// the resolved lens), which a never-opened recipe may not hold yet.
+pub(crate) fn detection_frame(adjustments: &Value, source_path: &Path) -> Value {
+    let mut frame = adjustments.clone();
+    let _ = rawtonic_export::normalize::normalize(
+        &mut frame,
+        &rawtonic_export::normalize::RecipeSource::file(source_path),
+        rawtonic_export::normalize::Bitmaps::None,
+        rawtonic_export::normalize::Defaults::Render,
+    );
+    frame
 }
 
 /// Whether `adjustments` is an edit of a camera TIFF still made on its
@@ -1852,7 +1877,7 @@ fn export_photo(
     let normalized = rawtonic_export::normalize::normalize(
         &mut js_adjustments,
         &rawtonic_export::normalize::RecipeSource::file(&source_path),
-        rawtonic_export::normalize::Bitmaps::Shared(&develop.patch_cache),
+        rawtonic_export::normalize::Bitmaps::Queued(&develop.patch_cache),
         rawtonic_export::normalize::Defaults::Render,
     );
     let versions = normalized.file_versions();
@@ -2004,7 +2029,13 @@ fn export_photo(
         )
         .map_err(|e| format!("{source_path_str}: not exported, {e}"))?;
         ensure_export_not_cancelled(cancellation_token)?;
-        if !is_current_edit && let Err(e) = keep_detected_selections(image_path_str, &detected) {
+        // Only into a recipe still developed with the AI Denoise the
+        // selections were computed on (one pasted onto it while this export
+        // waited detects again on its own decode).
+        if !is_current_edit
+            && let Err(e) =
+                keep_export_detected_selections(image_path_str, &detected, &js_adjustments)
+        {
             // The export stands; its next export computes them again.
             log::warn!("Export: keeping the AI selections of {image_path_str} failed: {e}");
         }
@@ -3802,6 +3833,85 @@ mod tests {
         assert!(!planned.unpublished(0), "its file is there: not again");
         let other = plan_output_path(&target, &item, &source, &date, None, 0, &used).unwrap();
         assert_ne!(other, first, "the reservation still holds for others");
+    }
+
+    #[test]
+    fn exports_with_colliding_templates_preserve_other_originals_and_raw_jpeg_partners() {
+        use rawtonic_export::export_processing::encode_export;
+
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.CR3");
+        let partner = dir.path().join("a.jpg");
+        let other = dir.path().join("b.jpg");
+        let originals: [(&Path, &[u8]); 3] = [
+            (&raw, b"original RAW"),
+            (&partner, b"camera JPEG"),
+            (&other, b"another JPEG"),
+        ];
+        for (path, contents) in originals {
+            rawtonic_fs::atomic_write(path, contents).unwrap();
+        }
+
+        let mut target = ExportTarget {
+            output_folder_or_file: dir.path().to_string_lossy().into_owned(),
+            is_explicit_file_path: false,
+            base_origin_folders: Vec::new(),
+            export_settings: serde_json::from_value(serde_json::json!({
+                "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
+                "filenameTemplate": "b", "destinationType": "originalFolder",
+            }))
+            .unwrap(),
+            output_format: "jpg".to_string(),
+            tracking: None,
+        };
+        let used = std::sync::Mutex::new(std::collections::HashSet::new());
+        let date = jiff::Timestamp::now();
+        let plan = |target: &ExportTarget, source: &Path, global_index, total_paths| {
+            let item = PhotoItem {
+                global_index,
+                image_path_str: source.to_str().unwrap(),
+                appearance_count: 1,
+                explicit_vc: None,
+                total_paths,
+            };
+            plan_output_path(target, &item, source, &date, None, 0, &used).unwrap()
+        };
+        let write = |target: &ExportTarget, path: &Path| {
+            let image = image::DynamicImage::new_rgb8(2, 2);
+            let encoded = encode_export(image, "jpg", &target.export_settings, None).unwrap();
+            super::write_export_bytes(path, "jpg", encoded)
+        };
+        for (index, (source, expected)) in [(&raw, "b_1.jpg"), (&other, "b_2.jpg")]
+            .into_iter()
+            .enumerate()
+        {
+            let output = plan(&target, source, index, 2);
+            assert_eq!(output, dir.path().join(expected));
+            write(&target, &output).unwrap();
+        }
+
+        // With only the RAW selected, the camera JPEG in the same folder is also protected.
+        target.export_settings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
+            "filenameTemplate": "a", "destinationType": "originalFolder",
+        }))
+        .unwrap();
+        let output = plan(&target, &raw, 0, 1);
+        assert_eq!(output, dir.path().join("a_1.jpg"));
+        write(&target, &output).unwrap();
+
+        // An explicit single-file destination still hits no-clobber at publication.
+        target.is_explicit_file_path = true;
+        target.export_settings.destination_type = None;
+        for original in [&partner, &other] {
+            target.output_folder_or_file = original.to_str().unwrap().to_owned();
+            let output = plan(&target, &raw, 0, 1);
+            assert_eq!(&output, original);
+            assert!(write(&target, &output).is_err());
+        }
+        for (path, contents) in originals {
+            assert_eq!(std::fs::read(path).unwrap(), contents);
+        }
     }
 
     #[test]

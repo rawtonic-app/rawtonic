@@ -318,6 +318,9 @@ const anotherDialogOpen = () =>
   typeof document !== 'undefined' && document.querySelector('dialog[open], [aria-modal="true"]') !== null;
 /** `session_bridge::CARD_INSERTED`: a memory card was connected. */
 const CARD_INSERTED_EVENT = 'card-inserted';
+/** Sent when a file operation's undo or redo changed a session folder's
+ * role (`SESSION_FOLDERS_CHANGED` in file_operations.rs). */
+const SESSION_FOLDERS_CHANGED_EVENT = 'session-folders-changed';
 const EJECT_AFTER_KEY = 'rawtonic.ingestEjectAfter';
 /** "Eject the card after the import", as last set (off at first). */
 const storedEjectAfter = () => {
@@ -401,6 +404,9 @@ interface ImportReport {
   withSettings: number;
   missing: number;
   copiesSkipped: number;
+  smartAlbumsSkipped?: string[];
+  copiesInAlbums?: string[];
+  smartAlbumsByFacts?: string[];
   /** Virtual copies imported as virtual copies of their photograph. */
   copies?: number;
   /** Crops trimmed to the camera's frame (they reached beyond it). */
@@ -1224,6 +1230,21 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
           detail: report.warnings.join('\n'),
           autoClose: false
         });
+      if (report.smartAlbumsSkipped?.length)
+        notify.warning(t('session.toasts.importSmartAlbumsSkipped', { n: report.smartAlbumsSkipped.length }), {
+          detail: report.smartAlbumsSkipped.join('\n'),
+          autoClose: false
+        });
+      if (report.copiesInAlbums?.length)
+        notify.warning(t('session.toasts.importCopiesInAlbums', { n: report.copiesInAlbums.length }), {
+          detail: report.copiesInAlbums.join('\n'),
+          autoClose: false
+        });
+      if (report.smartAlbumsByFacts?.length)
+        notify.warning(t('session.toasts.importSmartAlbumsByFacts', { n: report.smartAlbumsByFacts.length }), {
+          detail: report.smartAlbumsByFacts.join('\n'),
+          autoClose: false
+        });
       if (report.errors.length) notify.error(report.errors[0], { autoClose: false });
       window.dispatchEvent(new Event(SESSION_ALBUMS_CHANGED));
       setForm(null);
@@ -1260,6 +1281,31 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       folderTrees: [...folderTrees.filter((tree) => tree.path === directory), ...trees]
     });
   }, []);
+  // Undoing or redoing "Move contents" gives the folder role back to the
+  // old folder or again to the new one (G38): the Library shows the roles
+  // as they now are.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen<{ session: string; refused?: string | null }>(SESSION_FOLDERS_CHANGED_EVENT, ({ payload }) => {
+      // The files moved back, but the role could not (another role has
+      // that folder now): said, and the roles shown as they are.
+      if (payload.refused)
+        notify.warning(i18n.t('session.folders.roleNotRestored', { error: payload.refused }), {
+          autoClose: false
+        });
+      const directory = useLibraryStore.getState().sessionDirectory;
+      if (directory) void refreshFolders(directory).catch(() => {});
+    }).then((fn) => {
+      if (disposed) fn();
+      else stop = fn;
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, [refreshFolders]);
   // A folder made the Capture, Selects or Output folder in the folder tree's
   // menu (G38): the same command Session Folders calls, with the folder the
   // user right-clicked instead of one picked in the dialog. Nothing moves,

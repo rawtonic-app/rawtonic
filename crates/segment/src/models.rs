@@ -1,4 +1,4 @@
-//! The Sky and Subject models from a model folder the app filled (the
+//! The Sky, Subject and landscape models from a model folder the app filled (the
 //! CLI's `--models`), on the backend the app picks there: on macOS the Core
 //! ML program the app assembled from the model pack, else the ONNX model.
 //! Nothing is downloaded or assembled here; a model that is not installed
@@ -11,7 +11,8 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Result, bail};
 
 use crate::{
-    SKYSEG_FILENAME, SKYSEG_SHA256, SUBJECT_FILENAME, SUBJECT_SHA256, SkyModel, SubjectModel,
+    LANDSCAPE_FILENAME, LANDSCAPE_SHA256, LandscapeModel, SKYSEG_FILENAME, SKYSEG_SHA256,
+    SUBJECT_FILENAME, SUBJECT_SHA256, SkyModel, SubjectModel,
 };
 
 /// Whether the file at `path` has the SHA-256 `expected_hash` (lower-case hex).
@@ -29,6 +30,7 @@ pub struct Models {
     dir: PathBuf,
     sky: Mutex<Option<Arc<SkyModel>>>,
     subject: Mutex<Option<Arc<SubjectModel>>>,
+    landscape: Mutex<Option<Arc<LandscapeModel>>>,
 }
 
 impl Models {
@@ -37,7 +39,18 @@ impl Models {
             dir: dir.into(),
             sky: Mutex::new(None),
             subject: Mutex::new(None),
+            landscape: Mutex::new(None),
         }
+    }
+
+    /// The landscape-parts model (ONNX Runtime on every platform).
+    pub fn landscape(&self) -> Result<Arc<LandscapeModel>> {
+        let mut slot = self.landscape.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(model) = slot.as_ref() {
+            return Ok(model.clone());
+        }
+        let path = self.onnx(LANDSCAPE_FILENAME, LANDSCAPE_SHA256, "Landscape")?;
+        Ok(slot.insert(Arc::new(LandscapeModel::onnx(&path)?)).clone())
     }
 
     pub fn sky(&self) -> Result<Arc<SkyModel>> {

@@ -30,6 +30,7 @@ import { notDeliveredToast } from '../components/session/tether';
 import { PhotoBatch, batchPhotoSettled, photoBatches, unsettledPhotos } from '../utils/photoWrites';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { debouncedSave } from './useEditorActions';
+import { AI_SELECTIONS_DETECTED, adoptQueuedSelections } from '../utils/queuedSelections';
 import { sourceOf } from '../entities/photo/photoRef';
 import {
   gpuBackendStatus,
@@ -517,6 +518,14 @@ export function useTauriListeners({
           useEditorStore.getState().setEditor(update);
         }
       }),
+      // The background queue computed a photo's AI selections: the open
+      // photograph's editor takes them into the recipe it holds.
+      listen<string>(AI_SELECTIONS_DETECTED, (event) => {
+        if (!isEffectActive) return;
+        adoptQueuedSelections(event.payload).catch((error) =>
+          console.error('Taking the computed AI selections failed:', error)
+        );
+      }),
       listen<string>('open-with-file', (event) => {
         if (isEffectActive) useProcessStore.getState().setProcess({ initialFileToOpen: event.payload });
       }),
@@ -673,14 +682,14 @@ export function useTauriListeners({
             selecting: [...(state.selecting ?? []), event.payload]
           }));
       }),
-      // Preferences that change a decode changed (linear RAW mode,
-      // preprocessing, Apple RAW 9): the open RAW is developed again.
-      listen('decode-preferences-changed', () => {
+      // A decode uses a snapshot of Preferences. A change during the initial
+      // load can leave its result stale too, before the format is known.
+      listen<{ nonRaw: boolean }>('decode-preferences-changed', ({ payload }) => {
         if (!isEffectActive) return;
         useEditorStore
           .getState()
           .setEditor((state) =>
-            state.selectedImage?.isRaw
+            state.selectedImage && (state.selectedImage.isRaw || !state.selectedImage.isDecoded || payload.nonRaw)
               ? { selectedImage: { ...state.selectedImage, decoderStale: (state.selectedImage.decoderStale ?? 0) + 1 } }
               : {}
           );

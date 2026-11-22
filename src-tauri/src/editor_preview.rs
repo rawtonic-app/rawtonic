@@ -1337,6 +1337,118 @@ pub async fn sample_curve_input(
     .map_err(|error| format!("Curve input sampling task failed: {error}"))?
 }
 
+/// What Levels receive around a point (sRGB display values clipped to the
+/// cube, before Levels): 0–255 per channel with the fractions of 16-bit
+/// codes rounded half up, for the black and white point pickers. Two
+/// renders of the shown preview's display path (`levels_precise_probe`),
+/// whose shader is warm and whose retained blurs and masks it reuses; a
+/// variant without the probe (the general shader standing in) gives its
+/// 8-bit values. `adjustments` is the recipe (without view states); its
+/// levels do not matter. None while no preview base of the recipe's
+/// geometry is cached.
+#[tauri::command]
+pub async fn sample_levels_input(
+    path: String,
+    normalized_x: f64,
+    normalized_y: f64,
+    adjustments: serde_json::Value,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<Vec<[f64; 3]>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("sample_levels_input");
+        let recipe = levels_input_probe(&adjustments);
+        // Re-sample if the bytes fail their consistency check.
+        for _ in 0..3 {
+            let Some(images) = render_probes(
+                &app_handle,
+                &path,
+                recipe.clone(),
+                ProbeArea::Point(normalized_x, normalized_y),
+                &[
+                    ProbeOutput::LevelsPrecise { low: false },
+                    ProbeOutput::LevelsPrecise { low: true },
+                ],
+                "sample_levels_input",
+            )?
+            else {
+                return Ok(None);
+            };
+            let [first, low] =
+                <[_; 2]>::try_from(images).map_err(|_| "Expected two Levels picker renders")?;
+            let first = first.to_rgba8();
+            let Some(marked) = levels_probe_marked(first.as_raw()) else {
+                break;
+            };
+            if let Some(values) = levels_input_codes(marked, low.to_rgba8().as_raw()) {
+                return Ok(Some(values));
+            }
+            log::warn!("Levels picker: the two renders do not pair; sampled again");
+        }
+        // No 16-bit pair (a variant without the probe stood in, or the
+        // pairs kept failing their check): the histogram's 8-bit probe.
+        log::warn!("Levels picker: no 16-bit probe pair; 8-bit sample");
+        let Some(image) = render_probe(
+            &app_handle,
+            &path,
+            recipe,
+            ProbeArea::Point(normalized_x, normalized_y),
+            ProbeOutput::LevelsInput,
+            "sample_levels_input",
+        )?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(
+            image
+                .to_rgba8()
+                .as_raw()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| [0, 1, 2].map(|c| f64::from(p[c])))
+                .collect(),
+        ))
+    })
+    .await
+    .map_err(|error| format!("Levels input sampling task failed: {error}"))?
+}
+
+/// The high bytes of the Levels pickers' probe, when every pixel carries
+/// its mark (alpha 0; shader `levels_precise_probe_pixel`).
+fn levels_probe_marked(high: &[u8]) -> Option<&[[u8; 4]]> {
+    let high = high.as_chunks::<4>().0;
+    (!high.is_empty() && high.iter().all(|p| p[3] == 0)).then_some(high)
+}
+
+/// The check byte the low render's alpha carries for the high bytes `h`
+/// (shader `levels_precise_probe_pixel`).
+fn levels_probe_check(h: &[u8; 4]) -> u8 {
+    ((u32::from(h[0]) + 7 * u32::from(h[1]) + 31 * u32::from(h[2])) & 255) as u8
+}
+
+/// The probe's two renders as display values (0–255 with the 16-bit
+/// codes' fractions); None unless every low pixel carries its high
+/// pixel's check byte (both from one render).
+fn levels_input_codes(high: &[[u8; 4]], low: &[u8]) -> Option<Vec<[f64; 3]>> {
+    let low = low.as_chunks::<4>().0;
+    (high.len() == low.len()
+        && high
+            .iter()
+            .zip(low)
+            .all(|(h, l)| l[3] == levels_probe_check(h)))
+    .then(|| {
+        high.iter()
+            .zip(low)
+            .map(|(h, l)| {
+                [0, 1, 2].map(|c| {
+                    f64::from(u16::from(h[c]) << 8 | u16::from(l[c])) * 255.0 / f64::from(u16::MAX)
+                })
+            })
+            .collect()
+    })
+}
+
 /// The mixer whose input a colour target of the targeted adjustment samples
 /// (`mixer` of [`sample_mixer_input`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -1389,8 +1501,8 @@ pub async fn sample_mixer_input(
 }
 
 /// The colour editor's input around a point (`sample_color_range_input`):
-/// per preview pixel of the picker's block, the colour entering the edited
-/// ranges as signed linear sRGB (unclipped in the working gamut: before the
+/// per pixel of the picker's block, the colour entering the edited ranges
+/// as signed linear sRGB (unclipped in the working gamut: before the
 /// photo's ranges, or for a mask layer after the photo's ranges and the
 /// layers below it), and the layer's mask influence (1 for the photo's
 /// ranges).
@@ -1398,43 +1510,76 @@ pub async fn sample_mixer_input(
 pub struct ColorRangeInput {
     pub pixels: Vec<[f64; 3]>,
     pub influence: Vec<f64>,
+    /// Columns and rows of `pixels` (row-major) when they were developed at
+    /// full resolution; None for the preview's 11 × 11 block.
+    pub size: Option<[u32; 2]>,
 }
 
 /// The target colour solve's sample: what the colour editor of the photo
-/// (`layer` None) or of mask layer `layer` receives in the pixels around a
-/// point of the shown preview, rendered in two probe passes (shader
-/// `color_range_probe_pixel`: 16 bits per channel over two 8-bit renders,
-/// the second with the influence). `adjustments` is the recipe (without
-/// view states). None while no preview base of the recipe's geometry is
-/// cached, for a layer that draws no mask, or when the render had no
-/// display variant with the probe (the frontend then samples the frame).
+/// (`layer` None) or of mask layer `layer` receives in the picker's block
+/// around a point (`block`: the block the eyedropper read, normalised to the
+/// shown photograph; else the eyedropper's block on the cached preview
+/// base), in two probe passes (shader `color_range_probe_pixel`: 16 bits per
+/// channel over two 8-bit renders, the second with the influence).
+/// Developed at full resolution as the export develops it
+/// ([`target_block`]); for a recipe whose export pixels a region cannot
+/// show (AI Denoise) from the cached preview base instead, as the picker
+/// reads it. `adjustments` is the recipe (without view states). None while
+/// no preview base is cached, for a layer that draws no mask, or when the
+/// render had no variant with the probe.
 #[tauri::command]
 pub async fn sample_color_range_input(
     path: String,
     normalized_x: f64,
     normalized_y: f64,
+    block: Option<[f32; 4]>,
     adjustments: serde_json::Value,
     layer: Option<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<Option<ColorRangeInput>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let render = |low: bool| {
+        let mut recipe = adjustments;
+        normalize_editor_recipe(&app_handle.state::<DevelopSession>(), &mut recipe);
+        let Some(slot) = color_range_slot(&recipe, layer.as_deref()) else {
+            return Ok(None);
+        };
+        let point = (normalized_x, normalized_y);
+        let full = |low: bool| match target_block(
+            &app_handle,
+            &path,
+            point,
+            block,
+            recipe.clone(),
+            Some(image_processing::color_range_input_probe(slot, low)),
+        )? {
+            Measured::Pixels(pixels, size) => Ok::<_, String>(Some((pixels, size))),
+            Measured::NotTheExport | Measured::Unavailable => Ok(None),
+        };
+        if let (Some((high, size)), Some((low, _))) = (full(false)?, full(true)?) {
+            return Ok(
+                color_range_input(high.as_flattened(), low.as_flattened()).map(|input| {
+                    ColorRangeInput {
+                        size: Some(size),
+                        ..input
+                    }
+                }),
+            );
+        }
+        // The preview's own block, as the picker reads it.
+        let preview = |low: bool| {
             render_probe(
                 &app_handle,
                 &path,
-                adjustments.clone(),
+                recipe.clone(),
                 ProbeArea::Point(normalized_x, normalized_y),
-                ProbeOutput::ColorRanges {
-                    layer: layer.clone(),
-                    low,
-                },
+                ProbeOutput::ColorRanges { slot, low },
                 "sample_color_range_input",
             )
         };
-        let Some(high) = render(false)? else {
+        let Some(high) = preview(false)? else {
             return Ok(None);
         };
-        let Some(low) = render(true)? else {
+        let Some(low) = preview(true)? else {
             return Ok(None);
         };
         Ok(color_range_input(
@@ -1444,6 +1589,153 @@ pub async fn sample_color_range_input(
     })
     .await
     .map_err(|error| format!("Colour editor input sampling task failed: {error}"))?
+}
+
+/// The renderer's slot of the colour editor of the photo (`layer` None: 0)
+/// or of mask layer `layer` (its index among the layers that draw a mask,
+/// + 1); None for a layer that draws none.
+fn color_range_slot(recipe: &serde_json::Value, layer: Option<&str>) -> Option<u32> {
+    let Some(id) = layer else { return Some(0) };
+    mask_definitions_from_json(recipe)
+        .iter()
+        .filter(|mask| mask.produces_bitmap())
+        .take(image_processing::MAX_MASKS)
+        .position(|mask| mask.id == id)
+        .map(|index| index as u32 + 1)
+}
+
+/// The picker's block around a normalised point: the 11 × 11 preview pixels
+/// `preview_sample_roi` reads on a `base`-sized preview base, snapped to its
+/// grid as the eyedropper is, normalised to the photograph (x, y, w, h).
+fn pick_block((x, y): (f64, f64), base: (u32, u32)) -> Option<[f32; 4]> {
+    let roi = gpu_processing::preview_sample_roi(base.0, base.1, x, y)?;
+    let (w, h) = (base.0 as f32, base.1 as f32);
+    Some([
+        roi.x as f32 / w,
+        roi.y as f32 / h,
+        roi.width as f32 / w,
+        roi.height as f32 / h,
+    ])
+}
+
+/// What a target block's development gave.
+enum Measured {
+    /// RGBA8 pixels (row-major) and their columns and rows.
+    Pixels(Vec<[u8; 4]>, [u32; 2]),
+    /// A region cannot show the export's pixels for this recipe (AI
+    /// Denoise: a region's source is the decode without it).
+    NotTheExport,
+    /// No preview base, another photograph loaded, a block outside it.
+    Unavailable,
+}
+
+/// The pixels of `recipe` (normalised, without view states) in a block of
+/// the shown photograph, developed at full resolution as the export
+/// develops it (`multi_view::develop_target_block`: a zoomed region at 100 %
+/// with the render's reach) in sRGB, or the shader's `probe` there. `block`
+/// (normalised x, y, w, h) is the block the eyedropper read; without it, the
+/// eyedropper's block around `point` on the cached preview base.
+fn target_block(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    point: (f64, f64),
+    block: Option<[f32; 4]>,
+    recipe: serde_json::Value,
+    probe: Option<u32>,
+) -> Result<Measured, String> {
+    let state = app_handle.state::<AppState>();
+    let develop = app_handle.state::<DevelopSession>();
+    let (loaded_image, _, (full_w, full_h)) = preview_source(&state)?;
+    if loaded_image.path != path {
+        return Ok(Measured::Unavailable);
+    }
+    let block = match block {
+        Some(block) => Some(block),
+        None => develop
+            .cached_preview
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .filter(|c| c.source.ptr_eq(&Arc::downgrade(&loaded_image.image)))
+            .and_then(|c| pick_block(point, c.image.dimensions())),
+    };
+    let Some([bx, by, bw, bh]) =
+        block.filter(|b| b.iter().all(|v| v.is_finite()) && b[2] > 0.0 && b[3] > 0.0)
+    else {
+        return Ok(Measured::Unavailable);
+    };
+    let (shown_w, shown_h) = crate::multi_view::shown_size_of(&recipe, full_w, full_h);
+    let shown_block = [bx * shown_w, by * shown_h, bw * shown_w, bh * shown_h];
+    Ok(
+        match crate::multi_view::develop_target_block(
+            app_handle,
+            path,
+            shown_block,
+            (shown_w, shown_h),
+            recipe,
+            rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
+            probe,
+        )? {
+            None => Measured::NotTheExport,
+            Some((pixels, _)) if pixels.is_empty() => Measured::Unavailable,
+            Some((pixels, size)) => Measured::Pixels(pixels, size),
+        },
+    )
+}
+
+/// The target colour's measurement (`sample_color_range_result`): sRGB
+/// display values 0–255 per pixel, or why there are none.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ColorRangeResult {
+    pub pixels: Vec<[f64; 3]>,
+    /// "notTheExport" when a region cannot show the export's pixels for this
+    /// recipe (AI Denoise); None with pixels.
+    pub unmeasured: Option<&'static str>,
+}
+
+/// The target colour's measurement: `adjustments` (the recipe as it would
+/// be applied, without view states) developed in the eyedropper's `block`
+/// as the export develops it ([`target_block`]), with every tool and mask
+/// layer, as sRGB display values. The target solve corrects its sliders on
+/// it and its readout states it. None when nothing could be developed.
+#[tauri::command]
+pub async fn sample_color_range_result(
+    path: String,
+    normalized_x: f64,
+    normalized_y: f64,
+    block: Option<[f32; 4]>,
+    adjustments: serde_json::Value,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<ColorRangeResult>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut recipe = adjustments;
+        normalize_editor_recipe(&app_handle.state::<DevelopSession>(), &mut recipe);
+        Ok(
+            match target_block(
+                &app_handle,
+                &path,
+                (normalized_x, normalized_y),
+                block,
+                recipe,
+                None,
+            )? {
+                Measured::Pixels(pixels, _) => Some(ColorRangeResult {
+                    pixels: pixels
+                        .iter()
+                        .map(|p| [p[0], p[1], p[2]].map(f64::from))
+                        .collect(),
+                    unmeasured: None,
+                }),
+                Measured::NotTheExport => Some(ColorRangeResult {
+                    pixels: Vec::new(),
+                    unmeasured: Some("notTheExport"),
+                }),
+                Measured::Unavailable => None,
+            },
+        )
+    })
+    .await
+    .map_err(|error| format!("Colour editor result sampling task failed: {error}"))?
 }
 
 /// The colour editor probe's two renders as colours and influences (shader
@@ -1475,7 +1767,11 @@ fn color_range_input(high: &[u8], low: &[u8]) -> Option<ColorRangeInput> {
         })
         .collect();
     let influence = low.iter().map(|p| f64::from(p[3]) / 255.0).collect();
-    Some(ColorRangeInput { pixels, influence })
+    Some(ColorRangeInput {
+        pixels,
+        influence,
+        size: None,
+    })
 }
 
 /// The mean of a mixer probe's pixels (shader `mixer_probe_pixel`: r chroma
@@ -1573,12 +1869,18 @@ enum ProbeArea {
 enum ProbeOutput {
     Space(rawtonic_engine::output_color_space::OutputColorSpace),
     LevelsInput,
+    /// Levels' input as 16-bit codes, one of the pickers' two renders
+    /// (`levels_precise_probe`).
+    LevelsPrecise {
+        low: bool,
+    },
     /// A mixer's input (`MIXER_INPUT_PROBE`, `BW_INPUT_PROBE`).
     Mixer(MixerProbe),
-    /// The colour editor's input of the photo (`layer` None) or a mask
-    /// layer, one of its two renders (`COLOR_RANGE_INPUT_PROBE`).
+    /// The colour editor's input of renderer slot `slot` (0: the photo's
+    /// ranges, else a mask layer's), one of its two renders
+    /// (`COLOR_RANGE_INPUT_PROBE`).
     ColorRanges {
-        layer: Option<String>,
+        slot: u32,
         low: bool,
     },
 }
@@ -1591,11 +1893,31 @@ enum ProbeOutput {
 fn render_probe(
     app_handle: &tauri::AppHandle,
     path: &str,
-    mut recipe: serde_json::Value,
+    recipe: serde_json::Value,
     area: ProbeArea,
     output: ProbeOutput,
     caller_id: &str,
 ) -> Result<Option<image::DynamicImage>, String> {
+    Ok(
+        render_probes(app_handle, path, recipe, area, &[output], caller_id)?
+            .and_then(|images| images.into_iter().next()),
+    )
+}
+
+/// [`render_probe`] for each of `outputs`, all from the same preview base
+/// and masks. Paired renders also pin their first preview pipeline. The pickers'
+/// renders (`sample_levels_input`) take the base the last preview frame
+/// rendered from when that was one with its colour noise reduction
+/// applied at full resolution (`color_noise_view::shown_corrected_base`),
+/// at Color 0, as that frame renders.
+fn render_probes(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    mut recipe: serde_json::Value,
+    area: ProbeArea,
+    outputs: &[ProbeOutput],
+    caller_id: &str,
+) -> Result<Option<Vec<image::DynamicImage>>, String> {
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
     let gpu = app_handle.state::<crate::state::gpu::GpuState>();
@@ -1654,7 +1976,67 @@ fn render_probe(
         crate::photo_library::library_of_str(&loaded_image.path).as_deref(),
     );
     probe.global.detail_scale = scale;
-    match output {
+    let lut = recipe[effects::LUT_PATH.into_name()]
+        .as_str()
+        .and_then(|p| {
+            lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p)
+                .ok()
+        });
+    // The pickers sample what the settled fit frame shows.
+    let mut base = base;
+    let mut transform_hash = transform_hash;
+    if caller_id == "sample_levels_input"
+        && let Some(corrected) = crate::color_noise_view::shown_corrected_base(
+            &develop.color_noise_view,
+            &probe,
+            &recipe,
+            &loaded_image.image,
+            loaded_image.is_raw,
+            &base,
+        )
+    {
+        probe.global.color_noise_reduction = 0.0;
+        // The frame's own source key (`render_preview_job`), so the
+        // render reuses its upload.
+        let mut hasher = DefaultHasher::new();
+        transform_hash.hash(&mut hasher);
+        (Arc::as_ptr(&corrected) as usize).hash(&mut hasher);
+        transform_hash = hasher.finish();
+        base = corrected;
+    }
+    let pipeline_pin = gpu_processing::PreviewPipelinePin::default();
+    let pipeline_pin = (outputs.len() > 1).then_some(&pipeline_pin);
+    outputs
+        .iter()
+        .map(|output| {
+            let mut probe = probe.clone();
+            set_probe_output(&mut probe, output);
+            gpu_processing::process_and_get_dynamic_image_with_preview_shader(
+                &context,
+                &gpu,
+                &develop,
+                &base,
+                transform_hash,
+                RenderRequest {
+                    adjustments: probe,
+                    mask_bitmaps: &mask_bitmaps,
+                    lut: lut.clone(),
+                    roi,
+                },
+                caller_id,
+                pipeline_pin,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
+/// Sets what a probe render stores (`ProbeOutput`).
+fn set_probe_output(
+    probe: &mut rawtonic_engine::image_processing::PreparedAdjustments,
+    output: &ProbeOutput,
+) {
+    match *output {
         ProbeOutput::Space(space) => {
             probe.global.output_space[0] = space.shader_code();
             probe.global.output_matrix =
@@ -1663,52 +2045,19 @@ fn render_probe(
         ProbeOutput::LevelsInput => {
             probe.global.output_space[3] = image_processing::LEVELS_INPUT_PROBE;
         }
+        ProbeOutput::LevelsPrecise { low } => {
+            probe.global.output_space[3] = image_processing::levels_precise_probe(low);
+        }
         ProbeOutput::Mixer(mixer) => {
             probe.global.output_space[3] = match mixer {
                 MixerProbe::ColorMixer => image_processing::MIXER_INPUT_PROBE,
                 MixerProbe::BlackAndWhite => image_processing::BW_INPUT_PROBE,
             };
         }
-        ProbeOutput::ColorRanges { layer, low } => {
-            // The renderer's layers are the ones that draw a mask.
-            let slot = match layer {
-                None => 0,
-                Some(id) => {
-                    let Some(index) = mask_definitions
-                        .iter()
-                        .filter(|mask| mask.produces_bitmap())
-                        .take(image_processing::MAX_MASKS)
-                        .position(|mask| mask.id == id)
-                    else {
-                        return Ok(None);
-                    };
-                    index as u32 + 1
-                }
-            };
+        ProbeOutput::ColorRanges { slot, low } => {
             probe.global.output_space[3] = image_processing::color_range_input_probe(slot, low);
         }
     }
-    let lut = recipe[effects::LUT_PATH.into_name()]
-        .as_str()
-        .and_then(|p| {
-            lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p)
-                .ok()
-        });
-    gpu_processing::process_and_get_dynamic_image_with_preview_shader(
-        &context,
-        &gpu,
-        &develop,
-        &base,
-        transform_hash,
-        RenderRequest {
-            adjustments: probe,
-            mask_bitmaps: &mask_bitmaps,
-            lut,
-            roi,
-        },
-        caller_id,
-    )
-    .map(Some)
 }
 
 /// The bitmaps of `masks` (`recipe`'s) on a preview base of `size` at
@@ -2299,7 +2648,7 @@ fn process_preview_job(
     // A final fit frame of the full decode shows the export's render input
     // reduced (warp, edge-fringe pass and colour noise reduction at full
     // resolution), rendered at Color 0 (`color_noise_view`).
-    let (processing_image, render_transform_hash) = match fit_color_noise_base(
+    let corrected_base = fit_color_noise_base(
         develop,
         &loaded_image,
         &final_adjustments,
@@ -2327,7 +2676,10 @@ fn process_preview_job(
             generation: render_generation,
             native: use_wgpu_renderer,
         },
-    ) {
+    );
+    // The Levels pickers sample what this frame renders from.
+    develop.color_noise_view.note_shown(corrected_base.as_ref());
+    let (processing_image, render_transform_hash) = match corrected_base {
         Some(corrected) => {
             final_adjustments.global.color_noise_reduction = 0.0;
             let mut hasher = DefaultHasher::new();
@@ -2422,18 +2774,7 @@ fn process_preview_job(
             full_dims,
         );
     }
-    // A drag's frame computes Glow's and Halation's terms once per 2 x 2
-    // pixels, as Lightroom's and Capture One's drag frames are coarser
-    // (G76/GRN3); the settled frame (and the scopes' release input above)
-    // computes them per pixel. The Full Resolution live quality renders
-    // every pixel exactly while dragging.
-    // Film grain likewise, but in a drag of a grain control (`grain_drag`,
-    // from the press on), which shows the grain being set as it settles.
-    let coarser_drag = is_interactive && live_quality != "full";
-    final_adjustments.drag_effects = rawtonic_engine::image_processing::DragEffects {
-        half_terms: coarser_drag,
-        half_grain: coarser_drag && !grain_drag,
-    };
+    final_adjustments.drag_effects = drag_effects(is_interactive, live_quality, grain_drag);
     let final_processed_image_result =
         crate::image_processing::process_and_get_dynamic_image_with_analytics(
             context,
@@ -2686,6 +3027,26 @@ fn browser_region_frame(
     has_roi: bool,
 ) -> bool {
     !interactive && full_zoom && !crop_edit && has_roi
+}
+
+/// A drag's frame computes Glow's and Halation's terms once per block of
+/// pixels, as Lightroom's and Capture One's drag frames are coarser
+/// (G76/GRN3); the settled frame (and the scopes' release input) computes
+/// them per pixel. The Full Resolution live quality renders every pixel
+/// exactly while dragging. Film grain likewise (4 x 4 blocks below a short
+/// side of 1080 px, G76/GRN6), but in a drag of a grain control
+/// (`grain_drag`, from the press on), which shows the grain being set as it
+/// settles: every pixel's grain, as the settled frame.
+fn drag_effects(
+    is_interactive: bool,
+    live_quality: &str,
+    grain_drag: bool,
+) -> rawtonic_engine::image_processing::DragEffects {
+    let coarser_drag = is_interactive && live_quality != "full";
+    rawtonic_engine::image_processing::DragEffects {
+        half_terms: coarser_drag,
+        half_grain: coarser_drag && !grain_drag,
+    }
 }
 
 /// A drag asking for fewer pixels than the cached base has (with grain,
@@ -3202,6 +3563,7 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
     }
     let started = std::time::Instant::now();
     let frames = develop.color_noise_view.frames_noted();
+    let shown = develop.color_noise_view.shown_mark();
     let result = gpu_processing::supersedable(newer_request_waits(app_handle, None), || {
         process_editor_preview_job(
             app_handle,
@@ -3223,11 +3585,11 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
         )
     });
     // Not shown: the final frame before it stays the latest for its colour
-    // noise correction (`color_noise_view`).
-    app_handle
-        .state::<DevelopSession>()
-        .color_noise_view
-        .forget_frame(frames);
+    // noise correction (`color_noise_view`), and the base the Levels
+    // pickers sample stays that frame's.
+    let view = &app_handle.state::<DevelopSession>().color_noise_view;
+    view.forget_frame(frames);
+    view.restore_shown(shown);
     match result {
         Ok(_) => log::info!("Drag draft source prepared in {:.1?}", started.elapsed()),
         Err(e) if e.code == ErrorCode::Cancelled => {
@@ -4937,6 +5299,20 @@ mod preview_memory_tests {
     }
 
     #[test]
+    fn only_drags_of_other_controls_take_coarser_grain() {
+        // G76/GRN6: a drag of Grain Amount, Size or Roughness shows every
+        // pixel's grain; a drag of any other control takes the grain per
+        // block (4 x 4 below 1080 px, the GPU's `grain_block_shift`); the
+        // settled frame and Full Resolution live quality are exact.
+        let other = drag_effects(true, "high", false);
+        assert!(other.half_grain && other.half_terms);
+        let grain = drag_effects(true, "high", true);
+        assert!(!grain.half_grain && grain.half_terms);
+        assert_eq!(drag_effects(false, "high", false), Default::default());
+        assert_eq!(drag_effects(true, "full", false), Default::default());
+    }
+
+    #[test]
     fn a_smaller_drag_frame_renders_the_base_reduced() {
         assert_eq!(
             reduced_drag_divisor(true, 1608, 1024),
@@ -5800,7 +6176,7 @@ mod levels_input_tests {
 
 #[cfg(test)]
 mod color_range_input_tests {
-    use super::color_range_input;
+    use super::{color_range_input, pick_block};
 
     /// Shader `color_range_probe_pixel` of linear ProPhoto `pro` with `influence`.
     fn encoded(pro: [f64; 3], influence: f64) -> ([u8; 4], [u8; 4]) {
@@ -5819,6 +6195,21 @@ mod color_range_input_tests {
                 (influence * 255.0).round() as u8,
             ],
         )
+    }
+
+    #[test]
+    fn the_target_block_is_the_eyedroppers_block_at_full_resolution() {
+        // x = 0.5 on a 1,000-px preview of a 4,000-px photo: the eyedropper
+        // reads preview columns 495..506, full-resolution columns 1980..2024.
+        let shown = |b: [f32; 4]| [b[0] * 4000.0, b[1] * 2000.0, b[2] * 4000.0, b[3] * 2000.0];
+        let block = pick_block((0.5, 0.25), (1000, 500)).unwrap();
+        assert_eq!(shown(block), [1980.0, 480.0, 44.0, 44.0]);
+        // At the edge it is cut as the eyedropper's block is.
+        assert_eq!(
+            shown(pick_block((0.0, 0.0), (1000, 500)).unwrap()),
+            [0.0, 0.0, 24.0, 24.0]
+        );
+        assert!(pick_block((1.5, 0.0), (1000, 500)).is_none());
     }
 
     #[test]
@@ -5915,5 +6306,44 @@ mod mixer_input_tests {
         assert_eq!(mixer_sample(&[]), None);
         // A photo pixel (alpha 1): the pipeline had no probe.
         assert_eq!(mixer_sample(&[200, 120, 90, 255]), None);
+    }
+}
+
+#[cfg(test)]
+mod levels_picker_tests {
+    use super::{levels_input_codes, levels_probe_check, levels_probe_marked};
+
+    #[test]
+    fn the_levels_probe_reads_sixteen_bit_codes_from_its_two_renders() {
+        // 128.5 of 255 is 33,024.5 of 65,535, rounded half up to 33,025
+        // (0x8101): between 8-bit levels. 0x0101 is level 1 exactly.
+        let high = [0x81, 0x00, 0xff, 0, 0x01, 0x00, 0x00, 0];
+        // Alpha: the check byte of each pixel's high bytes.
+        let check = [
+            levels_probe_check(&[0x81, 0x00, 0xff, 0]),
+            levels_probe_check(&[0x01, 0x00, 0x00, 0]),
+        ];
+        let low = [0x01, 0x00, 0xff, check[0], 0x01, 0x00, 0x00, check[1]];
+        let marked = levels_probe_marked(&high).expect("probe pixels");
+        let values = levels_input_codes(marked, &low).unwrap();
+        assert_eq!(values.len(), 2);
+        assert!((values[0][0] - 33_025.0 / 257.0).abs() < 1e-9, "{values:?}");
+        assert!((values[0][0] - 128.5).abs() < 1.0 / 256.0, "{values:?}");
+        assert_eq!(values[0][1], 0.0);
+        assert!((values[0][2] - 255.0).abs() < 1e-9, "{values:?}");
+        assert!((values[1][0] - 1.0).abs() < 1e-9, "{values:?}");
+        // A photo pixel (alpha above 0): the pipeline had no probe.
+        assert_eq!(levels_probe_marked(&[128, 128, 128, 255]), None);
+        assert_eq!(levels_probe_marked(&[]), None);
+        // Renders of different sizes do not pair.
+        assert_eq!(levels_input_codes(marked, &low[..4]), None);
+        // Nor do two renders of different colours: 0x80ff's high byte with
+        // 0x8100's low byte would read 0x8000, a level off.
+        let high = [0x80, 0x00, 0x00, 0];
+        let other = [0x00, 0x00, 0x00, levels_probe_check(&[0x81, 0x00, 0x00, 0])];
+        assert_eq!(
+            levels_input_codes(levels_probe_marked(&high).unwrap(), &other),
+            None
+        );
     }
 }

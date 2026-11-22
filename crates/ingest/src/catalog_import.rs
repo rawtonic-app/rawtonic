@@ -646,8 +646,9 @@ fn copy_originals(
             photo.path.display()
         );
         let mut sidecars = Vec::new();
-        let xmp = rawtonic_metadata::sidecar_path(&photo.path);
-        if xmp.try_exists()? {
+        if let Some(xmp) = rawtonic_metadata::sidecar_path(&photo.path)
+            && xmp.try_exists()?
+        {
             sidecars.push(xmp);
         }
         if let Some(record) = source.snapshot.companion_record(&asset)?

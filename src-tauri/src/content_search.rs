@@ -177,6 +177,9 @@ fn run_pass(
         log::warn!("Culling scores not made: {e:#}");
         None
     });
+    if let Some(set) = &culling {
+        Library::open(directory)?.forget_other_cull_scores(MODEL_ID, &set.id)?;
+    }
     let mut status = Library::open(directory)?.content_status(MODEL_ID)?;
     emit(
         PROGRESS,
@@ -490,10 +493,8 @@ pub async fn content_search_download(
     let missing = tauri::async_runtime::spawn_blocking(move || missing_files(&dir))
         .await
         .map_err(|e| e.to_string())?;
-    let mut batch = crate::ai_processing::DownloadBatch {
-        done: 0,
-        total: missing.iter().map(|(_, _, size)| size).sum(),
-    };
+    let mut batch =
+        crate::ai_processing::DownloadBatch::of(missing.iter().map(|(_, _, size)| size).sum());
     for (file, sha, _) in missing {
         crate::ai_processing::download_verified_in(
             &app_handle,
@@ -811,6 +812,74 @@ mod measurement {
     fn median(mut v: Vec<f64>) -> f64 {
         v.sort_by(f64::total_cmp);
         v[v.len() / 2]
+    }
+
+    /// Ranks a folder of photographs for queries the way the app does
+    /// (`CONTENT_THUMBS`: `.jpg` files, each ranked by its file name;
+    /// `CONTENT_QUERIES`: one query per line; `CONTENT_RANKED`: the output,
+    /// `query<TAB>name<TAB>name…`, best first). Run by hand.
+    #[test]
+    #[ignore = "tool: needs CONTENT_MODELS, CONTENT_THUMBS, CONTENT_QUERIES, CONTENT_RANKED and ORT_DYLIB_PATH"]
+    fn ranks_a_folder_of_photographs() {
+        let env = |name| std::env::var_os(name).map(PathBuf::from).unwrap();
+        let models = env("CONTENT_MODELS");
+        assert!(missing_files(&models).is_empty(), "search model incomplete");
+        let mut files: Vec<PathBuf> = std::fs::read_dir(env("CONTENT_THUMBS"))
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("jpg")))
+            .collect();
+        files.sort();
+        let scratch = tempfile::tempdir().unwrap();
+        let lib = Library::create(&scratch.path().join("Rank"), "Rank", Mode::Session).unwrap();
+        let capture = lib.directory.join("Capture");
+        let vision = rawtonic_onnx::Model::load_cpu_threads(
+            &models.join(SIGLIP_VISION_FILENAME),
+            rawtonic_onnx::ModelKind::TagVision,
+            PASS_THREADS,
+        )
+        .unwrap();
+        for file in &files {
+            let named = capture.join(file.file_name().unwrap());
+            std::fs::write(&named, file.file_name().unwrap().as_encoded_bytes()).unwrap();
+            let asset = lib.add_asset(&named).unwrap();
+            let image = image::open(file).unwrap();
+            let embedding = crate::tagging::image_embedding(&image, &vision).unwrap();
+            lib.record_content(&asset.id, MODEL_ID, &asset.fingerprint, Ok(&embedding))
+                .unwrap();
+        }
+        let encoder = TextEncoder {
+            session: rawtonic_onnx::Model::load(
+                &models.join(TEXT_FILENAME),
+                rawtonic_onnx::ModelKind::TagText,
+            )
+            .unwrap(),
+            tokenizer: Tokenizer::from_file(models.join(SIGLIP_TOKENIZER_FILENAME)).unwrap(),
+        };
+        let mut out = String::new();
+        for query in std::fs::read_to_string(env("CONTENT_QUERIES"))
+            .unwrap()
+            .lines()
+        {
+            let embedding = crate::tagging::embed_texts(&encoder, vec![query_text(query)]).unwrap();
+            let names: Vec<String> = lib
+                .content_ranking(MODEL_ID, &embedding)
+                .unwrap()
+                .iter()
+                .map(|(p, _)| p.file_name().unwrap().to_string_lossy().into_owned())
+                .collect();
+            writeln!(out, "{query}\t{}", names.join("\t")).unwrap();
+        }
+        // Never over an existing file (a mistyped path must not cost one).
+        std::io::Write::write_all(
+            &mut std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(env("CONTENT_RANKED"))
+                .unwrap(),
+            out.as_bytes(),
+        )
+        .unwrap();
     }
 
     #[test]

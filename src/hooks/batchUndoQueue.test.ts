@@ -20,10 +20,11 @@ import { INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import { Invokes } from '../components/ui/AppProperties';
 import { redo, undo, useCatalogUndoStore } from '../utils/appUndo';
 import { PHOTO_WRITES_SETTLED, type PhotoWritesSettled } from '../utils/photoWrites';
+import { notify } from '../activity/notify';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('../activity/notify', () => ({
-  notify: { error: vi.fn(), info: vi.fn(), isActive: vi.fn(), update: vi.fn() }
+  notify: { error: vi.fn(), info: vi.fn(), warning: vi.fn(), isActive: vi.fn(), update: vi.fn() }
 }));
 
 type Pending = {
@@ -217,4 +218,21 @@ it('keeps a failed restore of a never-edited recipe unsaved and tries it again w
   });
   expect(retry.args).toEqual({ changes: [{ path: '/new.dng', adjustments: null }] });
   expect(await unsaved).toEqual(['/new.dng']);
+});
+
+it('keeps the undo step of a Sync saved in the library whose sidecars could not be written, and says so', async () => {
+  const note =
+    'Saved in the library; the sidecar file next to 3 of 3 photos could not be written: /a.dng: Permission denied';
+  const { result } = renderHook(useEditorActions);
+  let done!: Promise<unknown>;
+  act(() => {
+    done = result.current.applyAdjustmentsToPaths({ contrast: 20 }, photos, { pasteFrom: '/open.dng', label: 'sync' })!;
+  });
+  await answer(Invokes.ApplyAdjustmentsToPaths, { ...synced, unwritten: note });
+  await act(async () => {
+    await done;
+  });
+  expect(useCatalogUndoStore.getState().past).toHaveLength(1);
+  expect(notify.warning).toHaveBeenCalledWith(note);
+  expect(notify.error).not.toHaveBeenCalled();
 });

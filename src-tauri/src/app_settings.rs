@@ -1352,29 +1352,44 @@ fn save_settings_snapshot(settings: AppSettings, app_handle: &AppHandle) -> Resu
     let develop = app_handle.state::<DevelopSession>();
     crate::state::lock::lock_recover(&develop.decoded_image_cache).set_capacity(cache_size);
     let after = crate::state::settings::current(app_handle);
-    if forget_decodes_of_other_preferences(&develop, &before, &after) {
+    if let Some(changed) = forget_decodes_of_other_preferences(&develop, &before, &after) {
         // The open photograph's pixels are of the old preferences: the
         // editor develops it again (`decoderStale`).
-        let _ = app_handle.emit("decode-preferences-changed", ());
+        let _ = app_handle.emit("decode-preferences-changed", changed);
     }
     Ok(())
+}
+
+#[derive(Clone, Serialize)]
+#[cfg_attr(test, derive(Debug, Deserialize, PartialEq, Eq))]
+#[serde(rename_all = "camelCase")]
+struct DecodePreferencesChanged {
+    /// Whether preprocessing also changed for non-RAWs.
+    non_raw: bool,
 }
 
 /// A change of the decode preferences (`image_loader::decode_preferences`:
 /// linear RAW mode, preprocessing, Apple RAW 9, whichever way it was made)
 /// makes every decode held, ahead or kept for the multi view another
-/// decode: they are let go, and decoded again on demand. Whether they were.
+/// decode: they are let go, and decoded again on demand.
 fn forget_decodes_of_other_preferences(
     develop: &DevelopSession,
     before: &AppSettings,
     after: &AppSettings,
-) -> bool {
-    let changed = crate::image_loader::decode_preferences(before)
-        != crate::image_loader::decode_preferences(after);
-    if changed {
-        develop.invalidate(crate::state::develop::Scope::Decoder);
+) -> Option<DecodePreferencesChanged> {
+    use crate::image_loader::{DecodeVariant, base_options, decode_preferences};
+
+    if decode_preferences(before) == decode_preferences(after) {
+        return None;
     }
-    changed
+    develop.invalidate(crate::state::develop::Scope::Decoder);
+    let before = base_options(before, DecodeVariant::default());
+    let after = base_options(after, DecodeVariant::default());
+    let non_raw = before.apply_to_non_raws != after.apply_to_non_raws
+        || (after.apply_to_non_raws
+            && (before.color_nr_amount != after.color_nr_amount
+                || before.sharpening_amount != after.sharpening_amount));
+    Some(DecodePreferencesChanged { non_raw })
 }
 
 /// Frontend snapshots must never roll back the backend's throttle timestamp,
@@ -2121,6 +2136,49 @@ mod decoder_preferences_tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
+    #[test]
+    fn decode_preference_event_matches_frontend() {
+        let _statics = crate::multi_view_prefetch::tests::STATICS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let payloads: Value = serde_json::from_str(include_str!(
+            "../../src/contracts/decodePreferencesChanged.json"
+        ))
+        .unwrap();
+        let before = AppSettings::default();
+        let enabled = AppSettings {
+            apply_preprocessing_to_non_raws: Some(true),
+            ..before.clone()
+        };
+        let sharp = |settings: &AppSettings| AppSettings {
+            raw_preprocessing_sharpening: Some(0.9),
+            ..settings.clone()
+        };
+        let color_nr = AppSettings {
+            raw_preprocessing_color_nr: Some(0.9),
+            ..enabled.clone()
+        };
+        let linear = AppSettings {
+            linear_raw_mode: "linear".into(),
+            ..enabled.clone()
+        };
+        let develop = DevelopSession::default();
+        for (before, after, key) in [
+            (&before, &enabled, "rawAndNonRaw"),
+            (&enabled, &before, "rawAndNonRaw"),
+            (&enabled, &sharp(&enabled), "rawAndNonRaw"),
+            (&enabled, &color_nr, "rawAndNonRaw"),
+            (&before, &sharp(&before), "rawOnly"),
+            (&enabled, &linear, "rawOnly"),
+        ] {
+            let from_frontend: DecodePreferencesChanged =
+                serde_json::from_value(payloads[key].clone()).unwrap();
+            let outgoing = forget_decodes_of_other_preferences(&develop, before, after).unwrap();
+            assert_eq!(outgoing, from_frontend);
+            assert_eq!(serde_json::to_value(outgoing).unwrap(), payloads[key]);
+        }
+    }
+
     fn cached(develop: &DevelopSession) -> bool {
         develop
             .decoded_image_cache
@@ -2188,9 +2246,7 @@ mod decoder_preferences_tests {
         };
         for (name, after) in &changes {
             let develop = fill();
-            assert!(forget_decodes_of_other_preferences(
-                &develop, &before, after
-            ));
+            assert!(forget_decodes_of_other_preferences(&develop, &before, after).is_some());
             assert!(!cached(&develop), "{name} kept the decoded images");
         }
         let develop = fill();
@@ -2198,9 +2254,7 @@ mod decoder_preferences_tests {
             image_cache_size: Some(9),
             ..before.clone()
         };
-        assert!(!forget_decodes_of_other_preferences(
-            &develop, &before, &other
-        ));
+        assert!(forget_decodes_of_other_preferences(&develop, &before, &other).is_none());
         assert!(cached(&develop), "an unrelated setting cleared them");
     }
 }

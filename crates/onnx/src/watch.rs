@@ -80,6 +80,8 @@ pub(crate) struct Slot<S> {
     name: &'static str,
     current: Mutex<Current<S>>,
     limit: fn(u32, Duration) -> Duration,
+    #[cfg(test)]
+    before_watch: Option<std::sync::Barrier>,
 }
 
 impl<S: Send + 'static> Slot<S> {
@@ -102,6 +104,8 @@ impl<S: Send + 'static> Slot<S> {
                 slowest: Duration::ZERO,
             }),
             limit,
+            #[cfg(test)]
+            before_watch: None,
         }
     }
 
@@ -250,6 +254,10 @@ impl<S: Send + 'static> Slot<S> {
                 })
                 .context("starting the AI run thread")?;
         }
+        #[cfg(test)]
+        if let Some(barrier) = &self.before_watch {
+            barrier.wait();
+        }
         let why = loop {
             match result.recv_timeout(LOOK) {
                 Ok((Ok(value), took)) => {
@@ -317,16 +325,16 @@ mod tests {
 
     #[test]
     fn a_hung_gpu_run_moves_every_caller_to_the_cpu() {
-        let slot = Arc::new(Slot::with_limit(
-            "test",
-            Fake("gpu"),
-            Provider::WebGpu,
-            short,
-        ));
-        // The first run never returns on the GPU.
+        let mut slot =
+            Slot::with_limit("test", Fake("gpu"), Provider::WebGpu, |_, _| Duration::ZERO);
+        // Hold all three callers after they submit to the GPU and before any
+        // caller can detect the hang.
+        slot.before_watch = Some(std::sync::Barrier::new(4));
+        let slot = Arc::new(slot);
+        let (started, running) = mpsc::channel();
+        // The first run remains blocked on the GPU until the test ends.
         let (_never, hang) = mpsc::channel::<()>();
         let hang = Arc::new(Mutex::new(hang));
-        let started = Instant::now();
         let first = {
             let slot = slot.clone();
             let hang = hang.clone();
@@ -334,6 +342,7 @@ mod tests {
                 slot.run_watched(
                     move |s: &mut Fake| {
                         if s.0 == "gpu" {
+                            started.send(()).unwrap();
                             let _ = hang.lock().unwrap().recv();
                         }
                         Ok(s.0)
@@ -343,7 +352,7 @@ mod tests {
                 )
             })
         };
-        std::thread::sleep(Duration::from_millis(100));
+        running.recv().unwrap();
         // Two more callers queue behind the hung run.
         let waiting: Vec<_> = (0..2)
             .map(|_| {
@@ -355,12 +364,12 @@ mod tests {
             .collect();
         // The provider is readable while the session is held.
         assert_eq!(slot.provider(), Provider::WebGpu);
+        slot.before_watch.as_ref().unwrap().wait();
         assert_eq!(first.join().unwrap().unwrap(), "cpu");
         for w in waiting {
             assert_eq!(w.join().unwrap().unwrap(), "cpu");
         }
         assert_eq!(slot.provider(), Provider::Cpu);
-        assert!(started.elapsed() < Duration::from_secs(5));
         // Later runs go straight to the CPU.
         let later = slot.run_watched(
             |s: &mut Fake| Ok(s.0),

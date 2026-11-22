@@ -27,13 +27,21 @@ import { capturePendingSliderClick, useEditorStore } from '../store/useEditorSto
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
-import { INITIAL_ADJUSTMENTS, PasteMode, normalizeLoadedAdjustments, whitesAmountV17 } from '../utils/adjustments';
+import { useLibraryActions } from './useLibraryActions';
+import {
+  INITIAL_ADJUSTMENTS,
+  PasteMode,
+  TONE_VERSION,
+  normalizeLoadedAdjustments,
+  whitesAmountV17
+} from '../utils/adjustments';
 import { revertStyle, withStyleAmount } from '../utils/appliedStyle';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
 import { cropEditCancelled, cropGestureEnded, cropGestureStarted } from '../utils/cropGesture';
 
 import { PHOTO_WRITES_SETTLED } from '../utils/photoWrites';
+import { adoptQueuedSelections } from '../utils/queuedSelections';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
@@ -228,6 +236,28 @@ it('clears a failed-save overlay after an explicit successful reset from Library
   expect(useEditorStore.getState().selectedImage?.path).toBe('/first.dng');
   expect(useEditorStore.getState().adjustments.exposure).toBe(-2);
   errorLog.mockRestore();
+});
+
+it("tells the photographer when the editor's first edit of a photo in the cloud has no camera crop", async () => {
+  resetActivityStore();
+  const image = { ...photo('/evicted.RAF'), cameraCrops: [] };
+  useEditorStore.setState({ selectedImage: image });
+  const warnings = () => useActivityStore.getState().entries.filter((entry) => entry.id.startsWith('crop-missing'));
+  debouncedSave('/evicted.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+  // The editor left this photo before its pending save flushed.
+  useEditorStore.setState({ selectedImage: photo('/first.dng') });
+  void debouncedSave.flush();
+  await finish(Invokes.SaveMetadataAndUpdateThumbnail, { cropMissing: true });
+  expect(invoke).toHaveBeenCalledWith(
+    Invokes.SaveMetadataAndUpdateThumbnail,
+    expect.objectContaining({ path: image.path, cameraCropKnown: false })
+  );
+  expect(warnings()).toMatchObject([{ status: 'warning', paths: ['/evicted.RAF'] }]);
+  // Later saves answer nothing to tell.
+  debouncedSave('/evicted.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 2 });
+  void debouncedSave.flush();
+  await finish(Invokes.SaveMetadataAndUpdateThumbnail, {});
+  expect(warnings()).toHaveLength(1);
 });
 
 it('persists unrelated unsaved adjustments before applying a partial Library paste', async () => {
@@ -1041,6 +1071,72 @@ describe('AI preset layers', () => {
     }
   );
 
+  it("queues the AI selections of the Library's active photo, which the batch leaves to the editor", async () => {
+    useUIStore.setState({ activeView: 'library' });
+    const { result } = renderHook(useEditorActions);
+    const masks = [
+      {
+        id: 'sky-layer',
+        visible: true,
+        subMasks: [{ id: 'source-sky', type: 'ai-sky', parameters: { maskDataBase64: null } }]
+      }
+    ] as never;
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        void result.current.applyAdjustmentsToPaths({ masks }, ['/first.dng', '/second.dng']);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(invoke).toHaveBeenCalledWith(Invokes.QueueSelections, { paths: ['/first.dng'] });
+  });
+
+  it("keeps the active photo's computed selection through the next preset (G28)", async () => {
+    useUIStore.setState({ activeView: 'library' });
+    const { result } = renderHook(useEditorActions);
+    const masks = [
+      { id: 'sky-layer', visible: true, subMasks: [{ id: 's', type: 'ai-sky', parameters: { maskDataBase64: null } }] }
+    ] as never;
+    act(() => {
+      void result.current.applyAdjustmentsToPaths({ masks }, ['/first.dng']);
+    });
+    const sky = () => useEditorStore.getState().adjustments.masks[0].subMasks[0];
+    const id = sky().id;
+    // The queue computed it: the editor takes it into the recipe it holds.
+    const adopting = adoptQueuedSelections('/first.dng');
+    await finish(Invokes.AdoptSelections, [{ [id]: { maskDataBase64: 'data:sky' } }]);
+    expect(await adopting).toBe(true);
+    act(() => {
+      void result.current.applyAdjustmentsToPaths({ exposure: 1 }, ['/first.dng']);
+    });
+    expect(useEditorStore.getState().adjustments.exposure).toBe(1);
+    expect(sky().parameters).toEqual({ maskDataBase64: 'data:sky' });
+  });
+
+  it('leaves the open photo in Develop to its own detection', async () => {
+    useUIStore.setState({ activeView: 'editor' });
+    const { result } = renderHook(useEditorActions);
+    const masks = [
+      { id: 'sky-layer', visible: true, subMasks: [{ id: 's', type: 'ai-sky', parameters: {} }] }
+    ] as never;
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        void result.current.applyAdjustmentsToPaths({ masks }, ['/first.dng']);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(invoke).not.toHaveBeenCalledWith(Invokes.QueueSelections, expect.anything());
+  });
+
   it('keeps explicit preset nulls on the open photo as on the closed targets', async () => {
     const { result } = renderHook(useEditorActions);
     act(() =>
@@ -1472,8 +1568,8 @@ describe('pasted version keys onto a never-edited open photo', () => {
       });
     });
     const pasted = useEditorStore.getState().adjustments;
-    // The new edit's version (20; Blacks travel as from version 18).
-    expect(pasted.toneVersion).toBe(20);
+    // The new edit's version (Blacks travel as from version 18).
+    expect(pasted.toneVersion).toBe(TONE_VERSION);
     // Version 18's slider value for version 16's −100, as the backend writes onto a closed Reset photo.
     expect(pasted.blacks).toBeCloseTo(-71.551724, 5);
     expect(whitesAmountV17(pasted.whites)).toBeCloseTo(74, 9);
@@ -1507,9 +1603,9 @@ describe('pasted version keys onto a never-edited open photo', () => {
       { blacks: -100, masks: [sky] } as never,
       null
     )!;
-    // The new edit's version (20) and version 18's slider value for version 16's −100, as the backend
+    // The new edit's version and version 18's slider value for version 16's −100, as the backend
     // writes onto the closed photo.
-    expect(applied.toneVersion).toBe(20);
+    expect(applied.toneVersion).toBe(TONE_VERSION);
     expect(applied.blacks).toBeCloseTo(-71.551724, 5);
   });
 
@@ -1543,16 +1639,36 @@ describe('pasted version keys onto a never-edited open photo', () => {
   });
 });
 
-it('copies the active Library photo after the stale editor photo is deselected', async () => {
-  useUIStore.setState({ activeView: 'library' });
-  select('/a.dng');
-  useLibraryStore.setState({ multiSelectedPaths: ['/a.dng', '/b.dng'], libraryActivePath: '/b.dng' });
-  useLibraryStore.setState({ multiSelectedPaths: ['/b.dng'] });
-  vi.mocked(invoke).mockResolvedValue({ adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } });
-  const { result } = renderHook(() => useEditorActions());
-  await act(async () => {
-    await result.current.handleCopyAdjustments(undefined, { quick: true });
+describe('Copy from the Library selection', () => {
+  beforeEach(() => {
+    useUIStore.setState({ activeView: 'library' });
+    select('/a.dng');
   });
-  expect(useEditorStore.getState().copiedFrom).toBe('/b.dng');
-  expect(useEditorStore.getState().copiedAdjustments?.exposure).toBe(1);
+  afterEach(() => useUIStore.setState({ activeView: 'editor' }));
+
+  it('copies the focused photo of the remaining selection after Ctrl-click deselects the editor photo', async () => {
+    useLibraryStore.setState({ multiSelectedPaths: ['/b.dng', '/c.dng', '/a.dng'] });
+    vi.mocked(invoke).mockResolvedValue({ adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } });
+    const { result } = renderHook(() => ({ ...useEditorActions(), ...useLibraryActions() }));
+    act(() => {
+      result.current.handleLibraryImageSingleClick('/a.dng', { ctrlKey: true, metaKey: false, shiftKey: false });
+    });
+    await act(async () => {
+      await result.current.handleCopyAdjustments(undefined, { quick: true });
+    });
+    expect(useEditorStore.getState().copiedFrom).toBe('/c.dng');
+    expect(useEditorStore.getState().copiedAdjustments?.exposure).toBe(1);
+  });
+
+  it('keeps the clipboard when Ctrl-click removes the last selected photo', async () => {
+    const { result } = renderHook(() => ({ ...useEditorActions(), ...useLibraryActions() }));
+    const clipboard = useEditorStore.getState().copiedAdjustments;
+    act(() => {
+      result.current.handleLibraryImageSingleClick('/a.dng', { ctrlKey: true, metaKey: false, shiftKey: false });
+    });
+    await act(async () => {
+      await result.current.handleCopyAdjustments(undefined, { quick: true });
+    });
+    expect(useEditorStore.getState().copiedAdjustments).toBe(clipboard);
+  });
 });

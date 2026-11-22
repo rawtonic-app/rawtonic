@@ -20,6 +20,9 @@ import {
 import { Invokes } from '../components/ui/AppProperties';
 import { debouncedSave, waitForPendingMetadataSave } from './useEditorActions';
 import { notify as toast } from '../activity/notify';
+import { adoptQueuedSelections } from '../utils/queuedSelections';
+import { historyOrders, nextUndoOrder, setHistoryOrders } from '../utils/undoOrder';
+import { editorRecipe } from '../utils/neverEdited';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
@@ -228,6 +231,46 @@ it('releases a transient camera preview when an unfinished selection is replaced
   await resolve(Invokes.LoadEmbeddedPreview, '/first.dng', new Uint8Array([1]).buffer);
   act(() => useEditorStore.setState({ selectedImage: photo('/second.dng') }));
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:priority-preview');
+});
+
+it('reopens with the existing undo orders while the queue is matching its kept History', async () => {
+  const path = '/first.dng';
+  const before = editorRecipe({ ...INITIAL_ADJUSTMENTS, exposure: 0.5 }, true, 4000, 3000, null);
+  const parameters = { maskDataBase64: null, detectPending: true };
+  const withSky = (parameters: object) =>
+    editorRecipe(
+      { ...before, masks: [{ id: 'layer', subMasks: [{ id: 'sky', type: 'ai-sky', parameters }] }] },
+      true,
+      4000,
+      3000,
+      null
+    );
+  const waiting = withSky(parameters);
+  const computed = { maskDataBase64: 'data:sky' };
+  const saved = withSky(computed);
+  const history = [before, waiting];
+  const orders = [nextUndoOrder(), nextUndoOrder()];
+  setHistoryOrders(history, orders);
+  useEditorStore.setState({
+    selectedImage: { ...photo(path), isReady: true },
+    adjustments: waiting,
+    history,
+    historyIndex: 1
+  });
+  useEditorStore.setState({ selectedImage: null });
+  const adopting = adoptQueuedSelections(path);
+  await act(async () => {});
+  useEditorStore.setState({ selectedImage: photo(path) });
+  renderHook(() => useImageLoader({ current: null }));
+  await resolve(Invokes.LoadMetadata, path, { adjustments: saved, exif: {} });
+  await resolve(Invokes.LoadImage, path, nativeResult);
+
+  await resolve(Invokes.AdoptSelections, path, [{ sky: computed }]);
+  const reopened = useEditorStore.getState();
+  expect(reopened.selectedImage?.isReady).toBe(true);
+  expect(historyOrders(reopened.history)).toEqual(orders);
+  expect(reopened.history[reopened.historyIndex]).toBe(reopened.adjustments);
+  expect(await adopting).toBe(true);
 });
 
 it('waits for the reopened photograph’s pending save before reading its recipe', async () => {

@@ -11,7 +11,7 @@
 use crate::CatalogError;
 use crate::error::{bail, ensure};
 use crate::{Library, XmpProblem, search_text};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rawtonic_metadata::{Metadata, MetadataError};
 use rusqlite::{TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -236,12 +236,93 @@ impl Library {
         if !a.path.is_file() {
             return Err(crate::CatalogError::XmpOffline.into());
         }
-        // RAW+JPEG siblings would share a stem; refuse ambiguity rather than clobber.
+        // Two photographs whose sidecar has one name (a CR3 and a DNG of
+        // one stem): refuse ambiguity rather than clobber. A RAW and its
+        // JPEG have a sidecar each (`rawtonic_metadata::sidecars`).
         ensure!(
-            self.xmp_owners(&a.path)? == 1,
-            "RAW/JPEG sidecar ownership needs pair resolution"
+            !self.xmp_shared(&a.path)?,
+            "Two photographs share this XMP sidecar name; it is not written"
         );
-        Ok(rawtonic_metadata::sidecar_path(&a.path))
+        let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
+        let path = sidecars
+            .path(&a.path)
+            .context("Ambiguous XMP sidecar name")?;
+        if !rawtonic_metadata::sidecars::is_developed(&a.path)
+            && let Ok(bytes) = rawtonic_metadata::read_xmp_bytes(&path)
+        {
+            self.release_partner_digests(asset, &a.path, &path, &bytes, &sidecars)?;
+        }
+        if !path.exists() {
+            let (hash, publishing): (Option<String>, Option<String>) = self.conn.query_row(
+                "SELECT xmp_hash,xmp_publishing FROM metadata WHERE asset_id=?",
+                [asset],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            if crate::xmp_state::held_partners_sidecar(
+                &sidecars,
+                &a.path,
+                hash.as_deref(),
+                publishing.as_deref(),
+            ) {
+                // The RAW's sidecar, read for the JPEG before the pair rule:
+                // the JPEG never had one of its own.
+                self.conn.execute(
+                    "UPDATE metadata SET xmp_hash=NULL,xmp_publishing=NULL WHERE asset_id=?",
+                    [asset],
+                )?;
+            }
+        }
+        Ok(path)
+    }
+
+    /// Before `photo` (a RAW) writes its stem sidecar `sidecar` (now
+    /// `bytes`): a JPEG or HEIF partner whose digest is that sidecar's read
+    /// it for itself before the pair rule (`rawtonic_metadata::sidecars`).
+    /// It forgets that digest, so the RAW's write is not taken for its own
+    /// sidecar going missing; its own is written on its next edit.
+    fn release_partner_digests(
+        &self,
+        asset: &str,
+        photo: &Path,
+        sidecar: &Path,
+        bytes: &[u8],
+        sidecars: &rawtonic_metadata::sidecars::Sidecars,
+    ) -> Result<()> {
+        let digest = rawtonic_fs::sha256_hex(bytes);
+        for path in sidecars.same_stem(photo) {
+            if !rawtonic_metadata::sidecars::is_developed(&path) {
+                continue;
+            }
+            // A partner that has its own sidecar holds that one's digest,
+            // even when its bytes are the same as the RAW's.
+            let Some(own) = sidecars.path(&path) else {
+                continue;
+            };
+            if own == sidecar || own.exists() {
+                continue;
+            }
+            let previous = rawtonic_metadata::sidecars::stem_sidecar(&path);
+            if previous.exists()
+                && rawtonic_fs::canonicalize(&previous).ok()
+                    != rawtonic_fs::canonicalize(sidecar).ok()
+            {
+                // A case-sensitive volume can hold two stem spellings.
+                continue;
+            }
+            let Some(partner) = self.asset_at(&path)? else {
+                continue;
+            };
+            if partner.id == asset {
+                continue;
+            }
+            self.conn.execute(
+                "UPDATE metadata SET xmp_hash=CASE WHEN xmp_hash=?1 THEN NULL ELSE xmp_hash END,
+                     xmp_publishing=CASE WHEN xmp_publishing=?1 THEN NULL ELSE xmp_publishing END
+                 WHERE asset_id=?2 AND (xmp_hash=?1 OR xmp_publishing=?1)",
+                params![digest, partner.id],
+            )?;
+        }
+        Ok(())
     }
 
     /// Writes the library's metadata and recipe over a sidecar whose digest

@@ -413,7 +413,8 @@ export const rangeCentre = (range: ColorRange): Vec3 => {
 
 /**
  * What the renderer's probe saw at a pick (`sample_color_range_input`): the
- * colour entering the edited ranges in each preview pixel around the point
+ * colour entering the edited ranges in each pixel of the picker's block
+ * around the point, developed at full resolution as the export develops it
  * (Oklab of the unclipped working colour: before the photo's ranges, or for
  * a mask layer after the photo's ranges and the layers below it) and the
  * layer's mask influence there (1 for the photo's own ranges).
@@ -421,6 +422,9 @@ export const rangeCentre = (range: ColorRange): Vec3 => {
 export interface RangeInput {
   pixels: Vec3[];
   influence: number[];
+  /** The mean (Oklab, display values averaged) of every pixel the renderer
+   * read; `pixels` may be cells of that block (utils/colorRanges `binned`). */
+  mean?: Vec3;
 }
 
 /** A range picked in the photo: the normalised point, the range's colour
@@ -430,8 +434,18 @@ export interface ColorRangePick {
   centre: Vec3;
   /** The framing the point belongs to (utils/colorRanges `geometryKeyOf`). */
   geometry: string;
+  /** The eyedropper's block (x, y, w, h normalised to the shown photograph):
+   * the range's later samples and the target's measurements read it. */
+  block?: [number, number, number, number] | null;
   /** Null while the renderer has no sample there (a hidden layer). */
   input: RangeInput | null;
+  /** The recipe `input` was sampled from, without the ranges it enters, and
+   * the app settings it was rendered with (utils/colorRanges `inputKeyOf`):
+   * while they and `inputSource` stand, the sample does too. */
+  inputKey?: string;
+  /** The editor's photograph (`selectedImage`) the sample was rendered from:
+   * a new decode, AI Denoise result or reload replaces it. */
+  inputSource?: unknown;
 }
 
 /** The input a range stands for without a probe: its sampled colour at full strength. */
@@ -716,4 +730,283 @@ export function solveColorTarget(
     movable: true,
     uncovered: false
   };
+}
+
+// --- Closed loop on the renderer's result ------------------------------
+
+/** CIELAB D50 of the pickers' mean of sRGB display values (0–255 per pixel). */
+export function meanDisplayLab(pixels: Vec3[]): Vec3 | null {
+  if (!pixels.length) return null;
+  const sum: Vec3 = [0, 0, 0];
+  for (const p of pixels) for (let k = 0; k < 3; k += 1) sum[k] += p[k] / pixels.length;
+  return linearToLab(srgb8ToLinear(sum));
+}
+
+/** The measured result of a range's target (`useEditorStore.colorTargetMeasure`):
+ * the range (`photo|layer|range id`), the recipe measured (JSON) and the
+ * CIELAB D50 the renderer left at the pick, or null when it could not be measured. */
+export interface ColorTargetMeasure {
+  key: string;
+  recipe: string;
+  /** Null when the renderer could not measure this recipe there. */
+  lab: Vec3 | null;
+  /** Why not: 'notTheExport' (AI Denoise: a region's source is not the
+   * export's) or 'unavailable'; null with `lab`. */
+  unmeasured?: string | null;
+}
+
+/** What the renderer leaves at the pick, in its sRGB render with every tool. */
+export interface MeasuredTarget {
+  lab: Vec3;
+  /** ΔE00 to the target. */
+  deltaE: number;
+}
+
+export interface MeasuredSolve {
+  /** The ranges with the shifts that measured closest to the target. */
+  ranges: ColorRange[];
+  /** Their measurement, or null when the renderer could not measure (the
+   * ranges are then the model's solve). */
+  measured: MeasuredTarget | null;
+  /** How many corrections after the model's solve were measured. */
+  corrections: number;
+}
+
+/** Corrections after the model's solve (each one renderer probe). */
+export const MAX_CORRECTIONS = 3;
+/** No further correction starts once this much time has passed since the
+ * first measurement came back (the corrections' share of a typed target's
+ * latency; the first measurement may wait for the full-resolution source). */
+export const CORRECTION_BUDGET_MS = 120;
+/** Below this measured distance no correction is tried. */
+const GOOD_ENOUGH = 0.2;
+/** A measured miss from which the renderer's own response leads the search
+ * (`searchMeasured`): the model's corrections stopped this far off, so the
+ * model no longer predicts what the sliders do at the pick. */
+export const FAR_MISS = 1;
+/** Renderer probes the measured search takes at most (three for its first
+ * slope, the rest for its steps). */
+export const MAX_SEARCH_MEASURES = 8;
+/** No search probe starts once this much time has passed since the first
+ * measurement came back: a cutoff for starting probes, one started just
+ * before it still finishes (a probe took 25–300 ms on an M5 Pro with the
+ * region kept; only far misses search, a reachable target never waits). */
+export const SEARCH_BUDGET_MS = 1000;
+/** The search's result replaces the corrections' when it reaches the target
+ * (`TARGET_REACHED`) or at least halves their measured miss: a target the
+ * sliders can approach, not one out of reach whose colour would only be
+ * drained to shave the distance (as `solveColorTarget` keeps such a
+ * target's own direction). */
+const SEARCH_GAIN = 0.5;
+/** Slider steps of the search's first slope (finite differences): wide
+ * enough to step over the output's small-scale wiggles. */
+const SLOPE_STEP = 12;
+/** The furthest the search moves the sliders in one step. */
+const MAX_SEARCH_STEP = 60;
+
+/**
+ * The closed loop of the target solve: the model's solve
+ * (`solveColorTarget`) is rendered and measured at the pick (`measure`: the
+ * renderer's sRGB result there, every tool and the output's mapping
+ * included), the aim is moved by the measured error and solved again, up
+ * to `MAX_CORRECTIONS` times while the measured ΔE00 keeps improving and
+ * the time budget lasts. Texture at the pick (the mean of shifted pixels
+ * is not the shifted mean), later tools and the output's gamut mapping are
+ * what the model leaves out; the measurement holds them all. Returns the
+ * best measured ranges.
+ */
+export async function solveColorTargetMeasured(
+  ranges: ColorRange[],
+  id: string,
+  targetLab: Vec3,
+  input: RangeInput | null | undefined,
+  measure: (ranges: ColorRange[]) => Promise<Vec3 | null>,
+  { maxCorrections = MAX_CORRECTIONS, budgetMs = CORRECTION_BUDGET_MS, now = () => performance.now() } = {}
+): Promise<MeasuredSolve | null> {
+  const first = solveColorTarget(ranges, id, targetLab, input);
+  if (!first) return null;
+  const withShifts = (shifts: TargetSolve['shifts']) => ranges.map((r) => (r.id === id ? { ...r, ...shifts } : r));
+  let best: MeasuredSolve = { ranges: withShifts(first.shifts), measured: null, corrections: 0 };
+  let started: number | null = null;
+  const tried = new Set<string>();
+  let aim = targetLab;
+  let solve = first;
+  for (let step = 0; step <= maxCorrections; step += 1) {
+    const { hueShift, saturation, lightnessShift } = solve.shifts;
+    const key = `${hueShift}|${saturation}|${lightnessShift}`;
+    // The same sliders again measure the same: the loop has settled.
+    if (tried.has(key)) break;
+    tried.add(key);
+    const next = withShifts(solve.shifts);
+    const lab = await measure(next);
+    if (!lab || !lab.every(Number.isFinite)) break;
+    const deltaE = deltaE00(targetLab, lab);
+    if (best.measured && deltaE >= best.measured.deltaE - 0.01) break;
+    best = { ranges: next, measured: { lab, deltaE }, corrections: step };
+    started ??= now();
+    if (deltaE <= GOOD_ENOUGH || now() - started > budgetMs) break;
+    // Aim past the target by what the render missed it by.
+    aim = aim.map((v, k) => v + (targetLab[k] - lab[k])) as Vec3;
+    const again = solveColorTarget(ranges, id, aim, input);
+    if (!again) break;
+    solve = again;
+  }
+  if (!best.measured || best.measured.deltaE <= FAR_MISS) return best;
+  const searched = await searchMeasured(
+    best,
+    id,
+    targetLab,
+    measure,
+    () => now() - (started ?? now()) > SEARCH_BUDGET_MS
+  );
+  if (!searched) return best;
+  const gained = searched.measured!.deltaE;
+  return gained <= TARGET_REACHED || gained <= SEARCH_GAIN * best.measured.deltaE ? searched : best;
+}
+
+/**
+ * The measured search after the model's corrections stopped far off
+ * (`FAR_MISS`): where the model leaves out what the renderer does to the
+ * range's colour — the output's gamut mapping of a colour far beyond sRGB
+ * turns its hue and lightness otherwise than the range's shifts do — the
+ * sliders follow the renderer's measured response instead. Its slope at the
+ * best measured sliders is taken from one probe per slider, then
+ * Gauss–Newton steps in Lab within the sliders' limits, each step's probe
+ * updating the slope (Broyden) and halving the step after a probe that
+ * measures worse. Returns the best measured, or null when none beat
+ * `best`.
+ */
+async function searchMeasured(
+  best: MeasuredSolve,
+  id: string,
+  targetLab: Vec3,
+  measure: (ranges: ColorRange[]) => Promise<Vec3 | null>,
+  overBudget: () => boolean
+): Promise<MeasuredSolve | null> {
+  const own = best.ranges.find((r) => r.id === id);
+  if (!own || !best.measured) return null;
+  const withShifts = (p: Vec3) =>
+    best.ranges.map((r) => (r.id === id ? { ...r, hueShift: p[0], saturation: p[1], lightnessShift: p[2] } : r));
+  let point: Vec3 = [num(own.hueShift, 0), num(own.saturation, 0), num(own.lightnessShift, 0)];
+  let lab = best.measured.lab;
+  let found = null as MeasuredSolve | null;
+  let probes = 0;
+  const probe = async (p: Vec3) => {
+    if (probes >= MAX_SEARCH_MEASURES || overBudget()) return null;
+    probes += 1;
+    const next = withShifts(p);
+    const measured = await measure(next);
+    if (!measured || !measured.every(Number.isFinite)) return null;
+    const deltaE = deltaE00(targetLab, measured);
+    // Any measured gain counts (a probe just past the reach threshold
+    // must not be dropped as too small a step).
+    if (deltaE < (found ?? best).measured!.deltaE)
+      found = { ranges: next, measured: { lab: measured, deltaE }, corrections: best.corrections + probes };
+    return measured;
+  };
+  // The slope: one probe per slider, towards the middle of its range.
+  const slope: number[][] = [
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0]
+  ];
+  for (let k = 0; k < 3; k += 1) {
+    const step = point[k] + SLOPE_STEP > SHIFT_LIMIT ? -SLOPE_STEP : SLOPE_STEP;
+    const p = [...point] as Vec3;
+    p[k] += step;
+    const measured = await probe(p);
+    if (!measured) return found;
+    for (let j = 0; j < 3; j += 1) slope[j][k] = (measured[j] - lab[j]) / step;
+  }
+  // A probe of the slope may itself be the best: the steps go on from there.
+  let reach = MAX_SEARCH_STEP;
+  while (true) {
+    const from = found ? shiftsVec(found, id) : point;
+    const at = found ? found.measured!.lab : lab;
+    if (from !== point) {
+      // Broyden: the slope agrees with the probe the search moved to.
+      broyden(slope, sub(from, point), sub(at, lab));
+      point = from;
+      lab = at;
+    }
+    const step = boundedStep(slope, sub(targetLab, lab), point, reach);
+    if (!step) return found;
+    const next = point.map((v, k) => clamp(Math.round(v + step[k]), -SHIFT_LIMIT, SHIFT_LIMIT)) as Vec3;
+    if (next.every((v, k) => v === point[k])) return found;
+    const before: MeasuredSolve | null = found;
+    const measured = await probe(next);
+    if (!measured) return found;
+    if (found === before) {
+      // Worse: the slope learns from the probe, the next step is shorter.
+      broyden(slope, sub(next, point), sub(measured, lab));
+      reach /= 2;
+      if (reach < 1) return found;
+    }
+  }
+}
+
+const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+
+const shiftsVec = (solve: MeasuredSolve, id: string): Vec3 => {
+  const r = solve.ranges.find((x) => x.id === id)!;
+  return [num(r.hueShift, 0), num(r.saturation, 0), num(r.lightnessShift, 0)];
+};
+
+/** Broyden's update of `slope` (Lab per slider step) for a move `ds` that changed the result by `dy`. */
+function broyden(slope: number[][], ds: Vec3, dy: Vec3) {
+  const norm = ds[0] * ds[0] + ds[1] * ds[1] + ds[2] * ds[2];
+  if (norm < 1e-9) return;
+  for (let j = 0; j < 3; j += 1) {
+    const miss = dy[j] - (slope[j][0] * ds[0] + slope[j][1] * ds[1] + slope[j][2] * ds[2]);
+    for (let k = 0; k < 3; k += 1) slope[j][k] += (miss * ds[k]) / norm;
+  }
+}
+
+/**
+ * The Gauss–Newton step (slider steps) for the Lab error `error` with the
+ * slope `slope`, the sliders at `point`: the least-squares step, sliders
+ * that would pass their limit held at it and the others solved again,
+ * shortened to `reach`. Null when no slider can move.
+ */
+function boundedStep(slope: number[][], error: Vec3, point: Vec3, reach: number): Vec3 | null {
+  let free = [0, 1, 2];
+  for (let round = 0; round < 3 && free.length; round += 1) {
+    const step: Vec3 = [0, 0, 0];
+    // Normal equations over the free sliders, lightly damped.
+    const n = free.length;
+    const a = free.map((i) => free.map((k) => slope.reduce((sum, row) => sum + row[i] * row[k], 0)));
+    const b = free.map((i) => slope.reduce((sum, row, j) => sum + row[i] * error[j], 0));
+    const scale = Math.max(...a.map((row, i) => row[i]), 1e-12);
+    a.forEach((row, i) => (row[i] += 1e-3 * scale));
+    const x = solveLinear(a, b);
+    if (!x) return null;
+    x.forEach((v, i) => (step[free[i]] = v));
+    // A slider at its limit that the step pushes further out stays there.
+    const past = free.filter((k) => Math.abs(point[k]) >= SHIFT_LIMIT && Math.sign(step[k]) === Math.sign(point[k]));
+    if (past.length && n > 1) {
+      free = free.filter((k) => !past.includes(k));
+      continue;
+    }
+    const length = Math.hypot(...step);
+    return length > reach ? (step.map((v) => (v * reach) / length) as Vec3) : step;
+  }
+  return null;
+}
+
+/** Gaussian elimination with partial pivoting; null when singular. */
+function solveLinear(a: number[][], b: number[]): number[] | null {
+  const n = b.length;
+  const m = a.map((row, i) => [...row, b[i]]);
+  for (let c = 0; c < n; c += 1) {
+    let pivot = c;
+    for (let r = c + 1; r < n; r += 1) if (Math.abs(m[r][c]) > Math.abs(m[pivot][c])) pivot = r;
+    if (Math.abs(m[pivot][c]) < 1e-12) return null;
+    [m[c], m[pivot]] = [m[pivot], m[c]];
+    for (let r = 0; r < n; r += 1) {
+      if (r === c) continue;
+      const f = m[r][c] / m[c][c];
+      for (let k = c; k <= n; k += 1) m[r][k] -= f * m[c][k];
+    }
+  }
+  return m.map((row, i) => row[n] / row[i]);
 }

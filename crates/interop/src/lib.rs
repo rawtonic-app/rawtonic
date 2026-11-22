@@ -21,6 +21,7 @@ pub mod capture_one;
 pub mod capture_one_masks;
 pub mod capture_one_tiles;
 pub mod lightroom;
+pub mod lightroom_hdr;
 pub mod lightroom_settings;
 
 /// The develop settings of a photograph, in its editor's own form.
@@ -130,6 +131,9 @@ pub struct Stack {
 #[serde(rename_all = "camelCase")]
 pub struct NotRead {
     pub smart_albums: usize,
+    /// Names of the smart albums whose rules could not be read (where the
+    /// reader has them); they are part of `smart_albums`.
+    pub smart_album_names: Vec<String>,
     /// Local adjustment layers whose mask is not read (Capture One's
     /// painted, colour range and AI masks).
     pub local_adjustments: usize,

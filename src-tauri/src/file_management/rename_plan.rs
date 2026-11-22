@@ -7,7 +7,7 @@
 use super::parse_virtual_path;
 use crate::formats::{is_raw_file, is_supported_image_file};
 use jiff::Timestamp;
-use rawtonic_metadata::photo_ref::PhotoRef;
+use rawtonic_metadata::{photo_ref::PhotoRef, sidecars::is_developed};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -117,12 +117,19 @@ impl RenamePlan {
 /// it: its editor sidecar, EXIF cache or a virtual copy's sidecar
 /// (`<photo>.<copy id>.rrdata`). The sidecar of another photo whose name
 /// starts with this one's (`A.NEF.jpg.rrdata` of a derivative `A.NEF.jpg`)
-/// is not its own.
+/// is not its own. A developed image's full-name XMP (`A.JPG.xmp`, its own
+/// beside a RAW of its stem: `rawtonic_metadata::sidecars`) is its own; a
+/// RAW's XMP is the stem form, handled with the name group (`plan_xmp`).
 pub(crate) fn own_file_role(photo: &str, entry: &str) -> Option<FileRole> {
     let rest = entry.strip_prefix(photo)?.strip_prefix('.')?;
+    let developed = Path::new(photo)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(rawtonic_metadata::sidecars::is_developed_image);
     match rest {
         "rrdata" => Some(FileRole::EditSidecar),
         "rrexif" => Some(FileRole::ExifCache),
+        _ if developed && rest.eq_ignore_ascii_case("xmp") => Some(FileRole::Xmp),
         _ => {
             let id = rest.strip_suffix(".rrdata")?;
             // Copy ids never hold a dot nor make the name another photo's.
@@ -341,8 +348,12 @@ pub fn plan_rename_with(
                 to: p.to.clone(),
                 role: FileRole::Photo,
             });
+            let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
             for entry in &entries {
-                if let Some(role) = own_file_role(&old_name, entry) {
+                if let Some(role) = own_file_role(&old_name, entry)
+                    && (role != FileRole::Xmp
+                        || (is_developed(&p.from) && !sidecars.is_ambiguous(&folder.join(entry))))
+                {
                     p.files.push(PlannedFile {
                         from: folder.join(entry),
                         to: folder.join(format!("{new_name}{}", &entry[old_name.len()..])),
@@ -379,17 +390,66 @@ fn plan_xmp(
     facts: &mut PhotoFacts,
 ) {
     let old_stem = stem(&planned[members[0]].from);
-    let Some(xmp) = entries.iter().map(|e| folder.join(e)).find(|p| {
-        stem(p) == old_stem && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
-    }) else {
+    // The XMP of exactly this name first (`A.xmp`, `A.XMP`); another
+    // letter case of the stem only when there is none (on a case-sensitive
+    // volume `a.xmp` beside `A.NEF` and `a.NEF` is `a.NEF`'s).
+    let is_xmp = |p: &PathBuf| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp"));
+    let candidates: Vec<PathBuf> = entries
+        .iter()
+        .map(|e| folder.join(e))
+        .filter(is_xmp)
+        .collect();
+    // Only a case-sensitive volume holds two photos whose names differ in
+    // letter case alone; on others `img.NEF` and `IMG.JPG` are a pair.
+    let from = &planned[members[0]].from;
+    let swapped: String = file_name(from)
+        .chars()
+        .map(|c| {
+            if c.is_ascii_uppercase() {
+                c.to_ascii_lowercase()
+            } else {
+                c.to_ascii_uppercase()
+            }
+        })
+        .collect();
+    let case_sensitive = swapped != file_name(from) && !from.with_file_name(&swapped).exists();
+    let other_case_photo = case_sensitive
+        && entries.iter().map(|e| folder.join(e)).any(|p| {
+            is_supported_image_file(&p)
+                && stem(&p) != old_stem
+                && stem(&p).eq_ignore_ascii_case(&old_stem)
+                && !is_developed(&p)
+        });
+    let Some(xmp) = candidates
+        .iter()
+        .find(|p| stem(p) == old_stem)
+        .or_else(|| {
+            candidates
+                .iter()
+                .find(|p| !other_case_photo && stem(p).eq_ignore_ascii_case(&old_stem))
+        })
+        .cloned()
+    else {
         return;
     };
+    if rawtonic_metadata::sidecars::Sidecars::new().is_ambiguous(&xmp) {
+        return;
+    }
     let selected: Vec<&PathBuf> = members.iter().map(|&i| &planned[i].from).collect();
     // Photos of that name; a RAW's companion is no photo of its own.
     let named: Vec<PathBuf> = entries
         .iter()
         .map(|e| folder.join(e))
-        .filter(|p| stem(p) == old_stem && is_supported_image_file(p))
+        // Letter case ignored, as the sidecar rule does (`img.NEF` and
+        // `IMG.JPG` are a pair on a case-insensitive volume).
+        .filter(|p| {
+            is_supported_image_file(p)
+                && if other_case_photo {
+                    stem(p) == old_stem
+                } else {
+                    stem(p).eq_ignore_ascii_case(&old_stem)
+                }
+        })
         .collect();
     let hidden: Vec<PathBuf> = named
         .iter()
@@ -397,6 +457,13 @@ fn plan_xmp(
         .filter_map(|p| facts.companion(p))
         .collect();
     let owners: Vec<PathBuf> = named.into_iter().filter(|p| !hidden.contains(p)).collect();
+    // Beside a RAW, a JPEG of the name has its own sidecar (`A.JPG.xmp`,
+    // `rawtonic_metadata::sidecars`): the stem one is the RAW's alone.
+    let owners: Vec<PathBuf> = if owners.iter().any(|p| !is_developed(p)) {
+        owners.into_iter().filter(|p| !is_developed(p)).collect()
+    } else {
+        owners
+    };
     let others: Vec<PathBuf> = owners
         .iter()
         .filter(|o| !selected.contains(o))
@@ -428,6 +495,22 @@ fn plan_xmp(
     };
     match taker {
         Some(i) => {
+            // A JPEG renamed alone to the name of a file that stays there
+            // (`B.JPG` → `A.JPG` beside `A.NEF`): its `B.xmp` becomes
+            // `A.JPG.xmp`, never the `A.xmp` the RAW would take for its own.
+            let renamed_away: Vec<&PathBuf> = planned.iter().map(|p| &p.from).collect();
+            let meets_partner = is_developed(&planned[i].from)
+                && entries.iter().map(|e| folder.join(e)).any(|p| {
+                    stem(&p).eq_ignore_ascii_case(new_stem)
+                        && !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
+                        && p != planned[i].to
+                        && !renamed_away.contains(&&p)
+                });
+            let to = if meets_partner {
+                folder.join(format!("{}.xmp", file_name(&planned[i].to)))
+            } else {
+                to
+            };
             planned[i].files.push(PlannedFile {
                 from: xmp.clone(),
                 to,
@@ -455,11 +538,19 @@ fn plan_xmp(
 /// rename) or by two files of this rename.
 fn find_conflicts(planned: &mut [PlannedPhoto]) {
     let mut count: HashMap<PathBuf, usize> = HashMap::new();
+    let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
     for file in planned.iter().flat_map(|p| &p.files) {
         *count.entry(file.to.clone()).or_default() += 1;
     }
     for photo in planned.iter_mut() {
         let mut problems = Vec::new();
+        if photo.from != photo.to
+            && let Some(path) = sidecars
+                .ambiguous_packet(&photo.from)
+                .or_else(|| sidecars.ambiguous_packet(&photo.to))
+        {
+            problems.push(Problem::Occupied { path });
+        }
         for file in &photo.files {
             if count[&file.to] > 1 {
                 problems.push(Problem::SameTarget {
@@ -588,15 +679,21 @@ mod tests {
         ] {
             assert_eq!(own_file_role("A.NEF", other), None, "{other}");
         }
+        // A JPEG's own XMP beside its RAW, any letter case.
+        for own in ["A.JPG.xmp", "A.JPG.XMP"] {
+            assert_eq!(own_file_role("A.JPG", own), Some(FileRole::Xmp), "{own}");
+        }
+        assert_eq!(own_file_role("A.JPG", "A.JPG.jpg.xmp"), None);
     }
 
-    /// R2: independent `A.NEF` and `A.JPG` sharing `A.xmp`, renamed
-    /// together, share one sequence number and their XMP follows once.
+    /// R2: independent `A.NEF` and `A.JPG` renamed together share one
+    /// sequence number; `A.xmp` is the RAW's and follows it, the JPEG's own
+    /// `A.JPG.xmp` follows the JPEG.
     #[test]
     fn a_raw_and_jpeg_sharing_an_xmp_are_renamed_as_a_pair() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().canonical().unwrap();
-        write(&dir, &["A.NEF", "A.JPG", "A.xmp", "B.NEF"]);
+        write(&dir, &["A.NEF", "A.JPG", "A.xmp", "A.JPG.xmp", "B.NEF"]);
         let paths = [dir.join("A.NEF"), dir.join("A.JPG"), dir.join("B.NEF")].map(|p| arg(&p));
         let plan = plan_rename(&paths, "Job");
         assert!(!plan.blocked(), "{plan:?}");
@@ -604,24 +701,22 @@ mod tests {
             renames(&plan),
             [
                 "A.JPG → Job_1.JPG",
+                "A.JPG.xmp → Job_1.JPG.xmp",
                 "A.NEF → Job_1.NEF",
                 "A.xmp → Job_1.xmp",
                 "B.NEF → Job_2.NEF",
             ]
         );
         assert!(plan.photos.iter().all(|p| p.notes.is_empty()));
-        // Only one renamed: the XMP follows the RAW, and the plan says so.
+        // Only the RAW renamed: its XMP follows it; the JPEG keeps its own.
         let plan = plan_rename(&[arg(&dir.join("A.NEF"))], "Job");
         assert_eq!(renames(&plan), ["A.NEF → Job.NEF", "A.xmp → Job.xmp"]);
-        assert_eq!(
-            plan.photos[0].notes,
-            [Note::XmpWithRaw {
-                xmp: dir.join("A.xmp"),
-                others: vec![dir.join("A.JPG")]
-            }]
-        );
+        assert!(plan.photos[0].notes.is_empty());
         let plan = plan_rename(&[arg(&dir.join("A.JPG"))], "Job");
-        assert_eq!(renames(&plan), ["A.JPG → Job.JPG"]);
+        assert_eq!(
+            renames(&plan),
+            ["A.JPG → Job.JPG", "A.JPG.xmp → Job.JPG.xmp"]
+        );
         assert_eq!(
             plan.photos[0].notes,
             [Note::XmpStays {
@@ -785,6 +880,47 @@ mod tests {
         let paths = [arg(&dir.path().join("A.NEF"))];
         let plan = plan_rename(&paths, "Job_{orig}");
         assert_eq!(plan.photos[0].to, dir.path().join("Job_A.NEF"));
+    }
+
+    /// (f) of review round 3: a lone JPEG renamed to the name of a RAW that
+    /// has no XMP never hands its `B.xmp` to the RAW as `A.xmp`.
+    #[test]
+    fn a_jpeg_renamed_to_its_raws_name_keeps_its_xmp_its_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().canonical().unwrap();
+        write(&dir, &["A.NEF", "B.JPG", "B.xmp"]);
+        let plan = plan_rename(&[arg(&dir.join("B.JPG"))], "A");
+        assert_eq!(renames(&plan), ["B.JPG → A.JPG", "B.xmp → A.JPG.xmp"]);
+        assert!(!plan.files().iter().any(|f| f.to == dir.join("A.xmp")));
+    }
+
+    /// On a case-insensitive volume `img.NEF` and `IMG.JPG` are a pair:
+    /// renaming the JPEG leaves the RAW's `IMG.xmp` with it.
+    #[test]
+    fn a_mixed_case_pair_keeps_the_raws_xmp_with_the_raw() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().canonical().unwrap();
+        write(&dir, &["img.NEF", "IMG.JPG", "IMG.xmp"]);
+        if !dir.join("IMG.NEF").exists() {
+            return; // case-sensitive volume: not a pair there
+        }
+        let plan = plan_rename(&[arg(&dir.join("IMG.JPG"))], "Job");
+        assert_eq!(renames(&plan), ["IMG.JPG → Job.JPG"]);
+    }
+
+    /// On a case-sensitive volume `A.NEF` and `a.NEF` are two photos; each
+    /// keeps the XMP of its own spelling.
+    #[test]
+    fn a_rename_takes_only_the_xmp_of_its_own_letter_case() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().canonical().unwrap();
+        write(&dir, &["A.NEF"]);
+        if dir.join("a.NEF").exists() {
+            return; // case-insensitive volume: one file
+        }
+        write(&dir, &["a.NEF", "a.xmp"]);
+        let plan = plan_rename(&[arg(&dir.join("A.NEF"))], "Job");
+        assert_eq!(renames(&plan), ["A.NEF → Job.NEF"]);
     }
 
     #[test]

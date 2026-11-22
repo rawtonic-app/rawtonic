@@ -2308,7 +2308,7 @@ pub type RowStream<'a> = &'a mut dyn FnMut(RowBand<'_>) -> Result<(), String>;
 
 /// Shader family for a CPU-readback render.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ReadbackShader {
+pub enum ReadbackShader<'a> {
     /// Exact export arithmetic.
     #[default]
     Export,
@@ -2319,7 +2319,23 @@ pub enum ReadbackShader {
     /// Foreground browser previews: display arithmetic with retained mask,
     /// blur and detail intermediates. Background jobs must not evict these.
     Preview,
+    /// Related foreground probes share the same pipeline selection.
+    PreviewPinned(&'a PreviewPipelinePin),
 }
+
+/// Pipeline selection for one set of probes of the same preview recipe.
+#[derive(Debug, Default)]
+pub struct PreviewPipelinePin {
+    selected: std::cell::OnceCell<(wgpu::BindGroupLayout, wgpu::ComputePipeline, bool)>,
+}
+
+impl PartialEq for PreviewPipelinePin {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
+impl Eq for PreviewPipelinePin {}
 
 pub struct RenderRequest<'a> {
     pub adjustments: rawtonic_engine::image_processing::PreparedAdjustments,
@@ -9929,6 +9945,28 @@ impl GpuProcessor {
     /// The pipeline of a display-shader frame, and whether it is a display
     /// variant (with `effect_passes` a main pass, which the finish pass
     /// follows) and not a general pipeline standing in.
+    fn preview_readback_pipeline<'a>(
+        &'a self,
+        adjustments: &AllAdjustments,
+        output_to_display: bool,
+        shader: ReadbackShader<'a>,
+    ) -> Result<(&'a wgpu::ComputePipeline, bool), String> {
+        let ReadbackShader::PreviewPinned(pin) = shader else {
+            return self.preview_pipeline(adjustments, output_to_display);
+        };
+        if let Some((layout, pipeline, variant)) = pin.selected.get() {
+            if layout != &self.main_bgl {
+                return Err("The preview processor changed while sampling.".to_string());
+            }
+            return Ok((pipeline, *variant));
+        }
+        let (pipeline, variant) = self.preview_pipeline(adjustments, output_to_display)?;
+        let _ = pin
+            .selected
+            .set((self.main_bgl.clone(), pipeline.clone(), variant));
+        Ok((pipeline, variant))
+    }
+
     fn preview_pipeline(
         &self,
         adjustments: &AllAdjustments,
@@ -11066,11 +11104,15 @@ impl GpuProcessor {
             || export_with_display_finish
             || (matches!(
                 readback_shader,
-                ReadbackShader::Display | ReadbackShader::Preview
+                ReadbackShader::Display
+                    | ReadbackShader::Preview
+                    | ReadbackShader::PreviewPinned(_)
             ) && output_precision == RenderOutputPrecision::EightBit);
         let retain_intermediates = output_to_display
-            || (readback_shader == ReadbackShader::Preview
-                && output_precision == RenderOutputPrecision::EightBit);
+            || (matches!(
+                readback_shader,
+                ReadbackShader::Preview | ReadbackShader::PreviewPinned(_)
+            ) && output_precision == RenderOutputPrecision::EightBit);
         let device = &self.context.device;
         let queue = &self.context.queue;
         let display_targets = output_to_display.then(|| self.display_targets(width, height));
@@ -11216,8 +11258,11 @@ impl GpuProcessor {
                 display_variant = variant;
                 pipeline
             } else if display_shader && !force_full_preparation && !force_general_pipeline {
-                let (pipeline, variant) =
-                    self.preview_pipeline(&request.adjustments, output_to_display)?;
+                let (pipeline, variant) = self.preview_readback_pipeline(
+                    &request.adjustments,
+                    output_to_display,
+                    readback_shader,
+                )?;
                 display_variant = variant;
                 pipeline
             } else if !output_to_display && !force_full_preparation && !force_general_pipeline {
@@ -11584,8 +11629,14 @@ impl GpuProcessor {
             && !deferred
             && adjustments.global.grain_version >= 3
             && request.adjustments.drag_effects.half_grain;
+        // Its blocks: 4 x 4 pixels in a small frame (G76/GRN6), as a shift.
+        let grain_shift = if half_grain {
+            effect_passes::grain_block_shift(width, height)
+        } else {
+            0
+        };
         // The largest block of the frame, in which the smaller nest.
-        let block_shift = terms_shift.max(u32::from(half_grain));
+        let block_shift = terms_shift.max(grain_shift);
         let finish_pass = match passes {
             Some(passes) if grain || deferred => Some((
                 passes.finish_pipeline(device, grain, deferred, half_grain)?,
@@ -12348,8 +12399,8 @@ impl GpuProcessor {
                     });
                     (pipeline, bind_group, tiles)
                 });
-                // The finish pass, and a drag's grain field pass over the
-                // 2 x 2 blocks with the same resources (G76/GRN3).
+                // The finish pass, and a drag's grain field pass over its
+                // blocks with the same resources (G76/GRN3, GRN6).
                 let (finish, grain_field) = match &finish_pass {
                     Some((pipeline, colour, views, passes)) => {
                         let entries = vec![
@@ -12632,8 +12683,7 @@ impl GpuProcessor {
                     bytemuck::cast_slice(&region_data),
                 );
                 // A drag's terms pass and grain field pass cover the
-                // regions' blocks (4 x 4 or 2 x 2 for the terms, 2 x 2 for
-                // the grain).
+                // regions' blocks (4 x 4 or 2 x 2 each).
                 let block_workgroups = |shift: u32, buffer: &wgpu::Buffer| -> u32 {
                     let blocks = effect_passes::block_regions(
                         &regions,
@@ -12655,7 +12705,9 @@ impl GpuProcessor {
                     _ => workgroups,
                 };
                 let field_workgroups = match passes {
-                    Some(passes) if half_grain => block_workgroups(1, passes.field_regions()),
+                    Some(passes) if half_grain => {
+                        block_workgroups(grain_shift, passes.field_regions())
+                    }
                     _ => workgroups,
                 };
                 let mut tile_adjustments = boxed_uniforms(adjustments);
@@ -12667,9 +12719,10 @@ impl GpuProcessor {
                 tile_adjustments.detail_cache = [
                     u32::from(detail_view.is_some()),
                     u32::from(finish_pass.is_some()),
-                    // z: the terms' block shift (`terms_shift`).
+                    // z: the terms' block shift (`terms_shift`), w: the grain
+                    // field's (`grain_shift`).
                     terms_shift,
-                    0,
+                    grain_shift,
                 ];
                 tile_adjustments.source_window = source_window;
                 queue.write_buffer(
@@ -13611,15 +13664,19 @@ pub fn foreground_rendered_within(window: std::time::Duration) -> bool {
 }
 
 /// Renders the user watches as they happen: the Develop view's frames, its
-/// JPEG fallback (e.g. on Linux), tone targets' samples of them and the
-/// scopes beside a zoomed drag's frames ([`render_scope_analytics`]; a
-/// background render would wait until the drag stops). They keep their
-/// source in the Develop view's image cache.
+/// JPEG fallback (e.g. on Linux), tone targets' and the Levels pickers'
+/// samples of them and the scopes beside a zoomed drag's frames
+/// ([`render_scope_analytics`]; a background render would wait until the
+/// drag stops). They keep their source (and its colour noise pyramid) in
+/// the Develop view's image cache.
 fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
     output_to_display
         || matches!(
             caller_id,
-            "apply_adjustments" | "sample_curve_input" | SCOPE_ANALYTICS_CALLER
+            "apply_adjustments"
+                | "sample_curve_input"
+                | "sample_levels_input"
+                | SCOPE_ANALYTICS_CALLER
         )
 }
 
@@ -13627,15 +13684,25 @@ fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
 /// Develop view's preview worker between the primary's frames.
 pub const MULTI_VIEW_LIVE_CALLER: &str = "multi_view_live";
 
+/// The colour target's measurements at the pick (the app's
+/// `develop_target_block`): the result of the edit the user just made, read
+/// back for its correction and readout. As background renders the first of
+/// them waited out the pause after the edit's frame (~250 ms of a target's
+/// ~280 ms, notes: parity-gaps/G11 TGT5).
+pub const COLOR_TARGET_CALLER: &str = "color_target";
+
 /// Renders that take a foreground turn at the processor
-/// ([`processor_turns`]): the foreground renders, and the multi view's live
+/// ([`processor_turns`]): the foreground renders, the multi view's live
 /// cells, which as background renders waited out the pause after the
-/// primary's frame (~250 ms) before the first cell changed. They share the
-/// primary's worker, so they cannot hold up its frames; their sources stay
-/// out of the Develop view's image cache (each cell would evict the
+/// primary's frame (~250 ms) before the first cell changed (they share the
+/// primary's worker, so they cannot hold up its frames), and the colour
+/// target's measurements (a small block each, ~10–30 ms). Their sources
+/// stay out of the Develop view's image cache (each would evict the
 /// primary's).
 fn foreground_turn(caller_id: &str, output_to_display: bool) -> bool {
-    foreground_render(caller_id, output_to_display) || caller_id == MULTI_VIEW_LIVE_CALLER
+    foreground_render(caller_id, output_to_display)
+        || caller_id == MULTI_VIEW_LIVE_CALLER
+        || caller_id == COLOR_TARGET_CALLER
 }
 
 #[cfg(test)]
@@ -13648,7 +13715,20 @@ mod foreground_turn_tests {
         assert!(!foreground_render(MULTI_VIEW_LIVE_CALLER, false));
         // The cell worker's renders stay background renders.
         assert!(!foreground_turn("multi_view", false));
+        // The colour target's measurements: a foreground turn, not the cache.
+        assert!(foreground_turn(COLOR_TARGET_CALLER, false));
+        assert!(!foreground_render(COLOR_TARGET_CALLER, false));
         assert!(foreground_turn("apply_adjustments", false));
+    }
+
+    #[test]
+    fn the_levels_pickers_sample_from_the_develop_views_source() {
+        // Their two renders reuse the shown preview's upload and colour
+        // noise pyramid instead of building their own (~24 ms each on
+        // Metal, notes: parity-gaps/G08-levels.md LVP1).
+        assert!(foreground_render("sample_levels_input", false));
+        assert!(foreground_turn("sample_levels_input", false));
+        assert!(!foreground_render("levels_input_histogram", false));
     }
 }
 

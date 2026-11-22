@@ -28,6 +28,7 @@ import {
 } from '../../utils/maskKinds';
 import AdjustmentControl from './AdjustmentControl';
 import StudioPeopleMask from './StudioPeopleMask';
+import StudioLandscapeMask from './StudioLandscapeMask';
 import { useStudioTools } from './useStudioTools';
 import { componentIcon, maskKindMenu } from './maskKindMenu';
 import MaskThumb from './MaskThumb';
@@ -287,7 +288,7 @@ export default function StudioMaskComponents() {
 }
 
 /** The selected component's own settings: Grow and Feather of the automatic
- * selections, the People parts, a colour range's Refine, a depth range's
+ * selections, the People and Landscape parts, a colour range's Refine, a depth range's
  * limits. Nothing for the drawn shapes (their layer settings follow). */
 export function StudioMaskComponentSettings() {
   const { t } = useTranslation();
@@ -304,7 +305,15 @@ export function StudioMaskComponentSettings() {
   const hint = activeKind ? KIND_HINTS[activeKind] : undefined;
   const selection =
     activeKind === 'subject' || activeKind === 'background' || activeKind === 'sky' || activeKind === 'object';
-  if (!hint && !selection && activeKind !== 'people' && activeKind !== 'color' && activeKind !== 'depth') return null;
+  if (
+    !hint &&
+    !selection &&
+    activeKind !== 'people' &&
+    activeKind !== 'landscape' &&
+    activeKind !== 'color' &&
+    activeKind !== 'depth'
+  )
+    return null;
 
   return (
     <div
@@ -353,6 +362,9 @@ export function StudioMaskComponentSettings() {
       )}
       {activeKind === 'people' && (
         <StudioPeopleMask sub={active} setParameters={setParameters} onInteraction={onInteraction} />
+      )}
+      {activeKind === 'landscape' && (
+        <StudioLandscapeMask sub={active} setParameters={setParameters} onInteraction={onInteraction} />
       )}
       {activeKind === 'color' && (
         <>

@@ -20,15 +20,28 @@ export function isPhotoChanged(error: unknown): boolean {
   return errorCode(error) === 'stale';
 }
 
+/** The tool's model is not installed and the request did not download it. */
+export function isModelsMissing(error: unknown): boolean {
+  return errorCode(error) === 'models_missing';
+}
+
+/** A model could not be downloaded (offline, server unreachable). */
+export function isDownloadFailed(error: unknown): boolean {
+  return errorCode(error) === 'download_failed';
+}
+
 /** The task was cancelled (Cancel, or a newer request replaced it). */
 export function isAiTaskCancelled(error: unknown): boolean {
   return errorCode(error) === 'cancelled';
 }
 
 /** Text for an AI tool's failure: our own translated sentence when the AI
- * runtime is missing or broken, else `fallback` (the error by default). */
+ * runtime is missing or broken or a model could not be downloaded (the
+ * technical error, URL and OS error, stays in the log), else `fallback`
+ * (the error by default). */
 export function aiErrorMessage(error: unknown, fallback?: string): string {
   if (isAiRuntimeError(error)) return i18n.t('editor.ai.runtimeUnavailable');
+  if (isDownloadFailed(error)) return i18n.t('editor.ai.downloadFailed');
   return fallback ?? errorMessage(error);
 }
 

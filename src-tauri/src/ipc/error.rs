@@ -51,6 +51,10 @@ pub enum ErrorCode {
     /// paused (`session_move::EXPORTS_PENDING`); the Library offers the
     /// export queue.
     ExportsPending,
+    /// A model file could not be downloaded (offline, server unreachable;
+    /// `ai_processing::DownloadFailed`): the tool shows its own sentence and
+    /// offers the download again.
+    DownloadFailed,
 }
 
 /// A command's failure: its `code` and the `message` the user sees.
@@ -156,6 +160,9 @@ fn cause_code(cause: &(dyn std::error::Error + 'static)) -> Option<ErrorCode> {
     }
     if cause.is::<rawtonic_runtime::Cancelled>() {
         return Some(ErrorCode::Cancelled);
+    }
+    if cause.is::<crate::ai_processing::DownloadFailed>() {
+        return Some(ErrorCode::DownloadFailed);
     }
     if let Some(io) = cause.downcast_ref::<std::io::Error>() {
         return Some(io_code(io.kind()));
@@ -350,10 +357,22 @@ mod tests {
             (ErrorCode::RenderFailed, "render_failed"),
             (ErrorCode::GeneratedAreas, "generated_areas"),
             (ErrorCode::ExportsPending, "exports_pending"),
+            (ErrorCode::DownloadFailed, "download_failed"),
         ];
         for (code, name) in names {
             assert_eq!(serde_json::to_value(code).unwrap(), json!(name));
         }
+    }
+
+    #[test]
+    fn a_failed_model_download_has_its_code() {
+        let error = CommandError::chain(
+            anyhow::Error::new(crate::ai_processing::DownloadFailed(
+                "connection refused".into(),
+            ))
+            .context("Eye and teeth model"),
+        );
+        assert_eq!(error.code, ErrorCode::DownloadFailed);
     }
 
     #[test]

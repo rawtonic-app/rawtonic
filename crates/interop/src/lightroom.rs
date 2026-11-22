@@ -250,7 +250,10 @@ pub fn read(catalog: &Path) -> Result<Library> {
                     photos: Vec::new(),
                     smart: Some(rules),
                 }),
-                None => not_read.smart_albums += 1,
+                None => {
+                    not_read.smart_albums += 1;
+                    not_read.smart_album_names.push(name);
+                }
             },
             COLLECTION | GROUP => {
                 let photos = members.remove(&id).unwrap_or_default();

@@ -347,6 +347,11 @@ export interface FaceRetouchSettings {
 export interface RetouchEye {
   iris: number[];
   lid: number[][];
+  /** The eye and teeth parser's eye opening and its wider opening for the
+   * iris (closed outlines, mask-frame pixels); missing where the masks come
+   * from `lid` (eyes found before the parser, or an eye it missed). */
+  parsedEye?: number[][][];
+  parsedIris?: number[][][];
 }
 
 /** A blemish found on a face (mask-frame pixels; `score`: prominence). */
@@ -377,6 +382,10 @@ export interface RetouchFace {
   eyes?: (RetouchEye | null)[];
   /** Inner lip outline of an open mouth (mask-frame pixels). */
   mouth?: number[][] | null;
+  /** The eye and teeth parser's teeth outlines; present (maybe empty) on
+   * faces it looked at, missing on faces whose Eyes and Teeth keep the
+   * Face Mesh outlines (edits made before it). */
+  parsedTeeth?: number[][][];
   /** Blemishes (ids) the user keeps. */
   kept: number[];
   /** Blemishes (ids) the user heals below the slider's reach. */
@@ -1090,9 +1099,12 @@ export interface MaskContainer
     Omit<MaskContainerKeys, RequiredMaskContainerKey>,
     Required<Pick<MaskContainerKeys, RequiredMaskContainerKey>> {}
 
-/** The mask version new layers get (crates/engine/src/masks.rs): 5 adds
- * components as a + b − a·b and intersects them as a·b. */
-export const MASK_VERSION = 5;
+/** The mask version new layers get (crates/engine/src/recipe_versions.rs
+ * `mask`): 5 adds components as a + b − a·b and intersects them as a·b; 6
+ * compares an AI mask's recorded lens and transform warp with the current
+ * one by geometry only, so a mask made in the current lens profile
+ * correction is not mapped through it again. */
+export const MASK_VERSION = 6;
 
 /** The version Refine edge moves an older layer to: the 16-bit mask with
  * the current Refine edge, keeping how its components combine (version 5
@@ -1442,7 +1454,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 20;
+export const TONE_VERSION = 21;
 
 /** The tone-slider response from which raised Whites move at the reference
  * editors' pace (`whites_amount_v17` in crates/engine/src/image_processing.rs). */
@@ -1478,6 +1490,52 @@ export function whitesValueV17(amount: number): number {
   const value = 0.5 * (lo + hi);
   const rounded = Math.round(value * 1e6) / 1e6;
   return Math.abs(whitesAmountV17(rounded) - target) <= 1e-9 ? rounded : value;
+}
+
+/** The tone-slider response from which raised Shadows move at Camera Raw's
+ * pace (`shadows_amount_v21` in crates/engine/src/image_processing.rs). */
+export const SHADOWS_TRAVEL_TONE_VERSION = 21;
+
+const SHADOWS_V21_KNOTS: [number, number, number][] = [
+  [0, 0, 1.61],
+  [25, 35.4, 1.19],
+  [50, 61, 0.95],
+  [75, 83, 0.77],
+  [100, 100, 0.58]
+];
+
+/** The Shadows amount version 21 renders for the slider value `value` (as the
+ * engine's `shadows_amount_v21`: lowered Shadows as the value, raised through
+ * a monotone cubic through (0, 0), (25, 35.4), (50, 61), (75, 83), (100, 100)). */
+export function shadowsAmountV21(value: number): number {
+  if (value <= 0) return value;
+  const v = Math.min(value, 100);
+  const i = Math.min(Math.floor(v / 25), 3);
+  const [x0, y0, m0] = SHADOWS_V21_KNOTS[i];
+  const [x1, y1, m1] = SHADOWS_V21_KNOTS[i + 1];
+  const h = x1 - x0;
+  const t = (v - x0) / h;
+  const t2 = t * t;
+  const t3 = t * t * t;
+  return (2 * t3 - 3 * t2 + 1) * y0 + (t3 - 2 * t2 + t) * h * m0 + (-2 * t3 + 3 * t2) * y1 + (t3 - t2) * h * m1;
+}
+
+/** The version-21 slider value that renders the Shadows amount `amount` (the
+ * engine's `shadows_value_v21`). */
+export function shadowsValueV21(amount: number): number {
+  if (amount <= 0) return amount;
+  const target = Math.min(amount, 100);
+  let lo = 0;
+  let hi = 100;
+  for (let i = 0; i < 64; i++) {
+    const mid = 0.5 * (lo + hi);
+    if (shadowsAmountV21(mid) < target) lo = mid;
+    else hi = mid;
+  }
+  // A slider value copied back onto its own response comes back exactly.
+  const value = 0.5 * (lo + hi);
+  const rounded = Math.round(value * 1e6) / 1e6;
+  return Math.abs(shadowsAmountV21(rounded) - target) <= 1e-9 ? rounded : value;
 }
 
 /** The tone-slider response from which lowered Blacks move at Capture One's
@@ -1542,7 +1600,7 @@ export const blacksSetBlackPoint = (recipe: Partial<Adjustments> | undefined, is
 /** `settings` with its own and its layers' `slider` passed through `map`. */
 const mapSlider = <T extends Partial<Adjustments>>(
   settings: T,
-  slider: 'whites' | 'blacks',
+  slider: 'whites' | 'blacks' | 'shadows',
   map: (value: number) => number
 ): T => {
   let out = settings;
@@ -1567,9 +1625,10 @@ const mapSlider = <T extends Partial<Adjustments>>(
  * −200 (`blacksAmount` of the version the settings name, else the
  * source's), where the source's Blacks sets the RAW look's black point, and
  * the slider value elsewhere (presets from before version 18 hold that
- * already). Without their own `toneVersion` they carry Whites as the amount
- * too (version 16's slider value), so applying them changes no photo-wide
- * key (`withCarriedWhitesFor`, `withCarriedBlacksFor`). */
+ * already). Without their own `toneVersion` they carry Whites and Shadows
+ * as the amount too (version 16's / version 20's slider value), so applying
+ * them changes no photo-wide key (`withCarriedWhitesFor`,
+ * `withCarriedBlacksFor`). */
 export const withPortableWhites = <T extends Partial<Adjustments>>(
   settings: T,
   source: Partial<Adjustments> | undefined,
@@ -1579,20 +1638,24 @@ export const withPortableWhites = <T extends Partial<Adjustments>>(
   const tone = keyed ? toneOf(settings) : toneOf(source);
   const blackPoint = blacksSetBlackPoint({ toneMapper: settings.toneMapper ?? source?.toneMapper }, sourceIsRaw);
   const out = blackPoint ? mapSlider(settings, 'blacks', (value) => blacksAmount(value, tone)) : settings;
-  return keyed || tone < WHITES_TRAVEL_TONE_VERSION ? out : mapSlider(out, 'whites', whitesAmountV17);
+  if (keyed) return out;
+  const whites = tone < WHITES_TRAVEL_TONE_VERSION ? out : mapSlider(out, 'whites', whitesAmountV17);
+  return tone < SHADOWS_TRAVEL_TONE_VERSION ? whites : mapSlider(whites, 'shadows', shadowsAmountV21);
 };
 
 /** Carried settings (`withPortableWhites`) as `destination` reads them: its
- * own and its layers' Whites re-expressed in its tone-slider response (as
- * the engine's `express_pasted_whites` does for the photos it writes);
- * settings that name their `toneVersion` mean that version's Whites. */
+ * own and its layers' Whites and Shadows re-expressed in its tone-slider
+ * response (as the engine's `express_pasted_whites` does for the photos it
+ * writes); settings that name their `toneVersion` mean that version's. */
 export const withCarriedWhitesFor = <T extends Partial<Adjustments>>(
   settings: T,
   destination?: Partial<Adjustments>
-): T =>
-  Object.prototype.hasOwnProperty.call(settings, 'toneVersion') || toneOf(destination) < WHITES_TRAVEL_TONE_VERSION
-    ? settings
-    : mapSlider(settings, 'whites', whitesValueV17);
+): T => {
+  if (Object.prototype.hasOwnProperty.call(settings, 'toneVersion')) return settings;
+  const tone = toneOf(destination);
+  const whites = tone < WHITES_TRAVEL_TONE_VERSION ? settings : mapSlider(settings, 'whites', whitesValueV17);
+  return tone < SHADOWS_TRAVEL_TONE_VERSION ? whites : mapSlider(whites, 'shadows', shadowsValueV21);
+};
 
 /** Carried settings' Blacks (amounts, `withPortableWhites`) as the photo
  * `destination` (`destinationIsRaw`: a RAW file) renders them once they are

@@ -5,6 +5,7 @@
       "depth": "AI 마스크: 깊이",
       "foreground": "AI 마스크: 전경",
       "inpaint": "생성형 채우기",
+      "landscape": "AI 마스크: 풍경",
       "object": "AI 마스크: 개체",
       "other": "AI 작업",
       "people": "AI 마스크: 인물",
@@ -31,10 +32,25 @@
     },
     "copied": "복사됨",
     "copyDetails": "세부 정보 복사",
+    "cropMissing_other": "카메라 자르기를 사진 {{count}}장에 적용하지 못했습니다. 원본이 클라우드에 있습니다. 편집은 저장되었습니다. 원본을 내려받은 뒤 현상에서 자르기를 설정하세요.",
     "dismiss": "닫기: {{title}}",
     "dismissShort": "닫기",
     "download": {
-      "model": "다운로드 중: {{name}}"
+      "model": "다운로드 중: {{name}}",
+      "names": {
+        "denoise": "AI 노이즈 제거 모델",
+        "depth": "심도 모델",
+        "eyesTeeth": "눈·치아 모델",
+        "faces": "얼굴 모델",
+        "fill": "채우기 모델",
+        "landscape": "풍경 모델",
+        "objectRemoval": "개체 제거 모델",
+        "relight": "재조명 모델",
+        "search": "검색 모델",
+        "sky": "하늘 모델",
+        "subject": "피사체 모델",
+        "superResolution": "초해상도 모델"
+      }
     },
     "duplicates": {
       "failed": "중복 찾기 실패",
@@ -852,6 +868,7 @@
         "upgradeRequired": "업그레이드 필요"
       },
       "createNewTitle": "새 생성형 편집 만들기",
+      "downloadFailed": "모델을 다운로드할 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요.",
       "generatingDepthMap": "AI 심도 맵 계산 중...",
       "params": {
         "feather": "페더",
@@ -1040,6 +1057,7 @@
       "flow": "플로우",
       "foreground": "전경",
       "heal": "복구",
+      "landscape": "풍경",
       "linear": "선형",
       "liquify": "픽셀 유동화",
       "luminance": "휘도",
@@ -1738,6 +1756,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "사진은 돌아왔지만 폴더 역할은 그대로입니다: {{error}}",
       "selectsUnavailable": "Selects 폴더 {{folder}}을(를) 사용할 수 없습니다(드라이브가 연결되어 있나요?). 아무것도 옮기지 않았습니다. 세션 폴더에서 다른 Selects 폴더를 선택하세요.",
       "title": "세션 폴더",
       "unavailable": "사용할 수 없음: 폴더가 없거나 드라이브가 연결되지 않았습니다.",
@@ -2057,10 +2076,13 @@
       "hotFolderResumeFailed": "감시 폴더를 다시 시작할 수 없습니다: {{error}}",
       "importAiMasksOnOpen_other": "사진 {{count}}개의 AI 마스크는 현상에서 열거나 내보낼 때 계산됩니다",
       "importCopies_other": "가상 복사본 {{count}}개를 가져옴",
+      "importCopiesInAlbums": "앨범에는 가상 복사본이 아니라 사진이 들어갑니다. 이 복사본은 해당 사진으로 추가되었습니다: {{n}}.",
       "importCopiesSkipped_other": "가상 복사본 {{count}}개는 가져오지 않음",
       "importCropsClipped_other": "자르기 {{count}}개가 카메라 프레임을 벗어나 프레임에 맞게 잘림",
       "imported_other": "사진 {{count}}장을 가져왔습니다(조정됨 {{withSettings}}장, 앨범 {{albums}}개)",
       "importNotFound_other": "{{count}}장 찾을 수 없음",
+      "importSmartAlbumsByFacts": "카메라, 렌즈, ISO, 촬영 날짜 스마트 앨범은 파일의 촬영 데이터를 읽는 동안 채워지며, 카메라와 렌즈 단어는 Lightroom과 다른 사진에 일치할 수 있습니다: {{n}}.",
+      "importSmartAlbumsSkipped": "대응하는 규칙이 없어 제외된 스마트 컬렉션: {{n}}.",
       "importStacks_other": "스택 {{count}}개를 가져왔습니다",
       "importUnconvertedSettings": "변환할 수 없는 설정이 포함된 가져온 편집: {{n}}개.",
       "importWarnings_other": "사진 {{count}}장을 경고와 함께 가져왔습니다. {{error}}",
@@ -2142,7 +2164,7 @@
         "failed_other": "XMP 파일 {{count}}개를 쓸 수 없습니다: {{error}}",
         "offline_other": "사진 {{count}}장이 오프라인입니다. 드라이브를 다시 연결하면 XMP 파일이 업데이트됩니다.",
         "pending_other": "XMP 파일 {{count}}개를 다시 쓸 수 있습니다.",
-        "sharedName_other": "사진 {{count}}장이 다른 사진과 이름이 같아(RAW와 JPEG) 둘 다 같은 XMP 파일에 쓰게 됩니다."
+        "sharedName_other": "사진 {{count}}장이 각각 다른 사진과 같은 XMP 파일을 사용하게 됩니다."
       },
       "resolved_other": "사진 {{count}}장의 XMP 충돌을 해결했습니다",
       "retry": "다시 시도",
@@ -2166,13 +2188,15 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "얼굴 리터치용 눈 영역과 치아(SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). 변경: ONNX와 Core ML로 변환, CC BY-SA 4.0으로 공개.",
         "Jiff / Unicode CLDR": "Windows 표준 시간대 이름과 IANA 식별자의 매핑.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -2897,7 +2921,6 @@
         "target": {
           "blueAria": "목표 파랑(sRGB 0–255)",
           "chromaAria": "목표 채도 C*(CIELAB D50)",
-          "distance": "목표까지 ΔE00 {{value}}.",
           "greenAria": "목표 초록(sRGB 0–255)",
           "grey": "이 범위는 너무 회색이라 색을 입힐 수 없습니다.",
           "heading": "목표 색상",
@@ -2912,14 +2935,20 @@
             "lightness": "명도(×0.6–1.4)",
             "saturation": "채도(0–200 %)"
           },
-          "outOfReach": "도달 불가: ΔE00 {{value}} 남음, {{limits}} 한계 도달.",
+          "measuredDistance": "목표에서 ΔE00 {{value}}, 선택한 지점에서 측정.",
+          "measuredOutOfReach": "도달 불가: ΔE00 {{value}} 남음, 선택한 지점에서 측정; {{limits}} 한계 도달.",
+          "measuredOutsideSrgb": "목표가 sRGB 밖에 있습니다: 선택한 지점의 sRGB 결과는 ΔE00 {{value}} 떨어져 있습니다(측정값).",
+          "measuredReached": "목표 도달: ΔE00 {{value}}, 선택한 지점에서 측정.",
+          "measuring": "선택한 지점에서 결과 측정 중…",
+          "notMeasured": "목표에서 예측된 ΔE00 {{value}}; AI 노이즈 제거가 켜져 있어 선택한 지점의 결과를 측정할 수 없습니다.",
           "outsideSrgb": "목표가 sRGB 밖에 있습니다. sRGB 내보내기는 색을 sRGB 안으로 매핑합니다.",
           "outsideWorkingGamut": "목표가 사진의 작업 색역(ProPhoto) 밖에 있습니다. 사진의 어떤 색도 그 색이 될 수 없으며, 범위는 최대한 가까이 갑니다.",
           "pickAria": "목표 색상 찍기",
           "pickedThrough": "목표에서 ΔE00 {{value}}로 예측되지만, 이 색은 범위 자체의 큰 변경을 거쳐 찍혔습니다. 사진에서 결과를 확인하거나 슬라이더를 0으로 두고 다시 찍으세요.",
           "pickTitle": "사진에서 목표 색상을 찍으면 이 범위가 그 색으로 이동합니다",
-          "reached": "목표 도달(ΔE00 {{value}}).",
-          "readoutTitle": "범위의 찍은 색에 대한 예측값(커브, 컬러 그레이딩 등 이후 도구 적용 전)",
+          "predicted": "범위 색상에 대해 예측된 ΔE00 {{value}}, 측정 안 됨: 측정하려면 사진에서 범위를 선택하세요.",
+          "predictedOutOfReach": "도달 불가로 예측: ΔE00 {{value}} 남음; {{limits}} 한계 도달(측정 안 됨: 측정하려면 사진에서 범위를 선택하세요).",
+          "readoutTitle": "모든 도구가 적용된 사진의 sRGB 렌더에서 선택한 지점의 스포이트 11 × 11 미리보기 픽셀로 측정; 사진에서 선택하지 않은 범위는 그 색상에 대해 예측",
           "redAria": "목표 빨강(sRGB 0–255)",
           "sampleAria": "목표 색상 샘플링",
           "sampleTitle": "이 사진에서 목표 색상을 찍어 여기나 다른 사진의 범위에 사용",
@@ -2927,6 +2956,7 @@
           "srgb": "sRGB",
           "swatchAria": "범위 결과 {{result}}, 목표 {{target}}",
           "uncovered": "레이어 마스크가 더 이상 선택한 지점을 덮지 않습니다. 범위 슬라이더는 그대로 유지됩니다.",
+          "unmeasured": "목표에서 예측된 ΔE00 {{value}}; 선택한 지점의 결과를 측정할 수 없었습니다.",
           "useSampled": "{{name}}의 목표 사용",
           "useSampledTitle": "이 범위를 {{name}}에서 찍은 색으로 이동"
         },
@@ -3217,6 +3247,7 @@
           "brush": "브러시",
           "color": "색상",
           "depth": "심도",
+          "landscape": "풍경",
           "linear": "선형",
           "luminance": "휘도",
           "object": "개체",
@@ -3246,6 +3277,7 @@
           "brush": "새 브러시 레이어",
           "color": "새 레이어: 색상 범위",
           "depth": "새 레이어: 심도 범위",
+          "landscape": "새 풍경 레이어",
           "linear": "새 선형 그라디언트 레이어",
           "luminance": "새 레이어: 휘도 범위",
           "object": "새 레이어: 개체",
@@ -3533,13 +3565,13 @@
         "exporting": "내보내는 중 {{current}}/{{total}}"
       },
       "provenance": {
-        "about": "각 파일이 현상된 원본 사진, 편집 종류, 생성 모델이 만든 모든 영역을 기록하고 사용자의 인증서로 서명합니다. JPEG, PNG 및 TIFF. 아무것도 전송되지 않습니다.",
+        "about": "각 파일이 현상된 원본 사진, 편집 종류, 생성 모델이 만든 모든 영역을 기록하고 사용자의 인증서로 서명합니다. JPEG, PNG, TIFF, WebP 및 AVIF. 아무것도 전송되지 않습니다.",
         "add": "각 파일에 출처 매니페스트 서명",
         "author": "사진 제작자를 저자로 표시",
-        "blocked": "출처 정보(C2PA)가 {{recipes}}에 서명할 수 없습니다. 유효한 서명 인증서를 설정하고 JPEG, PNG 또는 TIFF로 내보내세요.",
+        "blocked": "출처 정보(C2PA)가 {{recipes}}에 서명할 수 없습니다. 유효한 서명 인증서를 설정하고 JPEG, PNG, TIFF, WebP 또는 AVIF로 내보내세요.",
         "certificateFilter": "PKCS#12 인증서",
         "expired": "이 인증서는 지금 유효하지 않습니다(유효 기간: {{until}}까지). 이 인증서로는 내보내기에 서명할 수 없습니다. 갱신된 인증서를 가져오거나 새로 만드세요.",
-        "formatUnsupported": "{{format}} 파일은 아직 출처 매니페스트를 담을 수 없습니다. JPEG, PNG 또는 TIFF를 선택하거나 옵션을 끄세요.",
+        "formatUnsupported": "{{format}} 파일은 아직 출처 매니페스트를 담을 수 없습니다. JPEG, PNG, TIFF, WebP 또는 AVIF를 선택하거나 옵션을 끄세요.",
         "generate": "이 컴퓨터에서 인증서 만들기",
         "import": "내 인증서 가져오기 (.p12)…",
         "importConfirm": "가져오기",
@@ -3782,11 +3814,17 @@
         "teethWhiten": "치아 미백",
         "texture": "얼굴 텍스처"
       },
+      "download": {
+        "preparing": "모델 준비 중…",
+        "progress": "다운로드 중… {{percent}}%"
+      },
       "downloadModels": "얼굴 모델 다운로드",
       "eyes": {
+        "downloadModel": "눈·치아 모델 다운로드",
         "find": "눈과 치아 찾기",
         "finding": "눈과 치아 찾는 중…",
         "missing": "눈과 치아 도구에는 이 도구가 생기기 전에 찾은 얼굴의 눈과 입이 필요합니다.",
+        "modelMissing": "눈과 치아에는 눈·치아 모델(57MB)이 필요합니다. GitHub의 Rawtonic 모델 팩에서 한 번 내려받으며 이 컴퓨터에서 실행됩니다.",
         "none": "이 얼굴에서 눈이나 벌린 입을 찾지 못했습니다.",
         "sideAria": "눈",
         "sideHint": {
@@ -3860,6 +3898,23 @@
       "shadowClippingLit": "그림자 경고, 뭉개짐",
       "shadowClippingTitle": "그림자 클리핑 경고(사진에서 파란색으로 표시; {{shortcut}}로 둘 다 전환)",
       "title": "히스토그램"
+    },
+    "landscape": {
+      "aria": "풍경 마스크",
+      "choose": "선택할 요소를 고르세요.",
+      "finding": "풍경 요소를 찾는 중…",
+      "noneFound": "이 사진에서 이 요소들을 찾지 못했습니다.",
+      "notFound": "(찾지 못함)",
+      "parts": {
+        "architecture": "건축물",
+        "artificialGround": "인공 지면",
+        "mountains": "산",
+        "naturalGround": "자연 지면",
+        "sky": "하늘",
+        "vegetation": "식물",
+        "water": "물"
+      },
+      "partsAria": "풍경 요소"
     },
     "layers": {
       "bandWidth": "띠 너비",
@@ -4591,6 +4646,7 @@
         "brush": "브러시",
         "color": "색상 범위",
         "depth": "심도 범위",
+        "landscape": "풍경",
         "linear": "선형",
         "luminance": "휘도 범위",
         "object": "개체",
@@ -4891,6 +4947,7 @@
         "profile": "프로필",
         "profileNamed": "프로필 “{{name}}”",
         "Shadows": "그림자",
+        "shadowsBeyondReach": "Rawtonic 그림자 범위를 넘는 그림자(±100으로 설정)",
         "toneCurveMissingPoints": "Lightroom에서 이름만 있고 점이 없는 톤 커브",
         "upright": "Upright",
         "whiteBalance": "화이트 밸런스"
@@ -5416,6 +5473,7 @@
         "moveToolsLeft": "현상 도구를 왼쪽으로 이동",
         "moveToolsRight": "현상 도구를 오른쪽으로 이동"
       },
+      "lightroomHdr": "Lightroom의 HDR 편집 — SDR로 표시되고 내보내집니다",
       "loupe": {
         "adjust": "현상",
         "adjustTitle": "현상에서 조정",

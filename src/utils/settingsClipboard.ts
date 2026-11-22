@@ -18,7 +18,14 @@ import { sourceOf } from '../entities/photo/photoRef';
  * selection, pointed on one photograph, is pointed again): pasted or synced
  * onto another photograph they never keep the source's bitmap
  * (`masks::DETECTED_TYPES`). */
-export const DETECTED_TYPES = new Set(['ai-subject', 'ai-foreground', 'ai-sky', 'ai-depth', 'ai-people']);
+export const DETECTED_TYPES = new Set([
+  'ai-subject',
+  'ai-foreground',
+  'ai-sky',
+  'ai-landscape',
+  'ai-depth',
+  'ai-people'
+]);
 
 /** Marks a component pasted from another photograph whose detection has not
  * run on this one yet (`masks::DETECT_PENDING`). */
@@ -135,6 +142,8 @@ const DETECTION_RESULT_KEYS = [
   // A bitmap migrated from a camera TIFF's thumbnail (crates/engine/src/recipe_frame.rs).
   'detectAgain',
   'bitmapFrame',
+  // The photo size a Landscape bitmap's grid covers (`mask_generation::BITMAP_GRID_OF`).
+  'bitmapGridOf',
   'rotation',
   'flipHorizontal',
   'flipVertical',

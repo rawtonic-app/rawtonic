@@ -54,16 +54,10 @@ pub fn extract_xmp_tags(content: &str) -> Vec<String> {
     tags
 }
 
+/// The XMP sidecar `image_path` has, never its RAW partner's
+/// (`rawtonic_metadata::sidecars`).
 pub fn resolve_xmp_path(image_path: &Path) -> Option<PathBuf> {
-    let xmp_path = image_path.with_extension("xmp");
-    let xmp_path_upper = image_path.with_extension("XMP");
-    if xmp_path.exists() {
-        Some(xmp_path)
-    } else if xmp_path_upper.exists() {
-        Some(xmp_path_upper)
-    } else {
-        None
-    }
+    rawtonic_metadata::existing_sidecar(image_path)
 }
 
 pub fn sync_metadata_from_xmp(source_path: &Path, metadata: &mut ImageMetadata) -> bool {
@@ -123,7 +117,9 @@ pub fn sync_metadata_to_xmp(source_path: &Path, metadata: &ImageMetadata, create
     if crate::session_bridge::is_managed_source(source_path) {
         return;
     }
-    let path = resolve_xmp_path(source_path).unwrap_or_else(|| source_path.with_extension("xmp"));
+    let Some(path) = rawtonic_metadata::sidecar_path(source_path) else {
+        return;
+    };
     if !path.exists() && !create_if_missing {
         return;
     }

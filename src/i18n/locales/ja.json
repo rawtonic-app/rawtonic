@@ -5,6 +5,7 @@
       "depth": "AI マスク: 深度",
       "foreground": "AI マスク: 前景",
       "inpaint": "生成塗りつぶし",
+      "landscape": "AIマスク：風景",
       "object": "AI マスク: オブジェクト",
       "other": "AI タスク",
       "people": "AI マスク: 人物",
@@ -31,10 +32,25 @@
     },
     "copied": "コピーしました",
     "copyDetails": "詳細をコピー",
+    "cropMissing_other": "カメラのトリミングを {{count}} 枚に適用できませんでした。オリジナルがクラウドにあります。編集は保存済みです。オリジナルをダウンロードして、現像でトリミングを設定してください。",
     "dismiss": "閉じる: {{title}}",
     "dismissShort": "閉じる",
     "download": {
-      "model": "ダウンロード中: {{name}}"
+      "model": "ダウンロード中: {{name}}",
+      "names": {
+        "denoise": "AI ノイズ除去モデル",
+        "depth": "奥行きモデル",
+        "eyesTeeth": "目と歯のモデル",
+        "faces": "顔モデル",
+        "fill": "塗りつぶしモデル",
+        "landscape": "風景モデル",
+        "objectRemoval": "オブジェクト除去モデル",
+        "relight": "再ライティングモデル",
+        "search": "検索モデル",
+        "sky": "空モデル",
+        "subject": "被写体モデル",
+        "superResolution": "超解像モデル"
+      }
     },
     "duplicates": {
       "failed": "重複の検索に失敗しました",
@@ -852,6 +868,7 @@
         "upgradeRequired": "アップグレードが必要です"
       },
       "createNewTitle": "新しい生成編集を作成",
+      "downloadFailed": "モデルをダウンロードできませんでした。インターネット接続を確認して、もう一度お試しください。",
       "generatingDepthMap": "AI深度マップを計算中...",
       "params": {
         "feather": "ぼかし",
@@ -1040,6 +1057,7 @@
       "flow": "流量",
       "foreground": "手前",
       "heal": "修復",
+      "landscape": "風景",
       "linear": "線形",
       "liquify": "ゆがみ",
       "luminance": "ルミナンス",
@@ -1738,6 +1756,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "写真は元に戻りましたが、フォルダの役割はそのままです: {{error}}",
       "selectsUnavailable": "Selects フォルダ {{folder}} を使用できません (ドライブは接続されていますか?)。何も移動していません。「セッションフォルダ」で別の Selects フォルダを選んでください。",
       "title": "セッションフォルダ",
       "unavailable": "使用できません: フォルダがないか、ドライブが接続されていません。",
@@ -2057,10 +2076,13 @@
       "hotFolderResumeFailed": "監視フォルダを再開できませんでした: {{error}}",
       "importAiMasksOnOpen_other": "{{count}} 件の写真の AI マスクは、現像で開いたとき、または書き出すときに計算されます",
       "importCopies_other": "仮想コピー {{count}} 件を読み込みました",
+      "importCopiesInAlbums": "アルバムには仮想コピーではなく写真が入ります。これらのコピーはその写真として追加されました: {{n}}。",
       "importCopiesSkipped_other": "仮想コピー {{count}} 件は読み込まれていません",
       "importCropsClipped_other": "切り抜き {{count}} 件がカメラの撮影範囲を超えていたため、その範囲に収めました",
       "imported_other": "{{count}} 枚の写真を読み込みました（補正あり {{withSettings}} 枚、アルバム {{albums}} 個）",
       "importNotFound_other": "{{count}} 枚が見つかりません",
+      "importSmartAlbumsByFacts": "カメラ、レンズ、ISO、撮影日のスマートアルバムは、ファイルの撮影データを読み込むにつれて埋まります。カメラとレンズの語は Lightroom と異なる写真に一致することがあります: {{n}}。",
+      "importSmartAlbumsSkipped": "対応するルールがないため省略したスマートコレクション: {{n}}。",
       "importStacks_other": "スタック {{count}} 件を読み込みました",
       "importUnconvertedSettings": "変換できなかった設定を含む読み込み済みの編集: {{n}} 件。",
       "importWarnings_other": "{{count}} 枚の写真を警告付きで読み込みました。{{error}}",
@@ -2142,7 +2164,7 @@
         "failed_other": "{{count}} 件の XMP ファイルを書き込めませんでした: {{error}}",
         "offline_other": "{{count}} 枚の写真がオフラインです。ドライブを再接続すると XMP ファイルが更新されます。",
         "pending_other": "{{count}} 件の XMP ファイルを再度書き込めます。",
-        "sharedName_other": "{{count}} 枚の写真がほかの写真と同じ名前です (RAW と JPEG)。両方が同じ XMP ファイルに書き込むことになります。"
+        "sharedName_other": "{{count}} 枚の写真が、別の写真と同じ XMP ファイルを使用することになります。"
       },
       "resolved_other": "{{count}} 枚の写真の XMP の競合を解決しました",
       "retry": "再試行",
@@ -2166,13 +2188,15 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "顔のレタッチ用の目の開口部と歯（SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin）。変更: ONNX と Core ML に変換し、CC BY-SA 4.0 で公開。",
         "Jiff / Unicode CLDR": "Windows のタイムゾーン名と IANA 識別子の対応表。",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -2897,7 +2921,6 @@
         "target": {
           "blueAria": "ターゲットの青(sRGB 0–255)",
           "chromaAria": "ターゲットの彩度 C*(CIELAB D50)",
-          "distance": "ターゲットまで ΔE00 {{value}}。",
           "greenAria": "ターゲットの緑(sRGB 0–255)",
           "grey": "この範囲はグレーに近すぎて色を付けられません。",
           "heading": "ターゲット",
@@ -2912,14 +2935,20 @@
             "lightness": "明度(×0.6–1.4)",
             "saturation": "彩度(0–200 %)"
           },
-          "outOfReach": "到達不可:残り ΔE00 {{value}}。{{limits}} が上限です。",
+          "measuredDistance": "ターゲットから ΔE00 {{value}}（選択した点で測定）。",
+          "measuredOutOfReach": "到達不可：残り ΔE00 {{value}}（選択した点で測定）。{{limits}} が限界です。",
+          "measuredOutsideSrgb": "ターゲットは sRGB の外側です：選択した点の sRGB の結果は ΔE00 {{value}} 離れたままです（測定値）。",
+          "measuredReached": "ターゲットに到達：ΔE00 {{value}}（選択した点で測定）。",
+          "measuring": "選択した点で結果を測定中…",
+          "notMeasured": "ターゲットから予測 ΔE00 {{value}}。AI ノイズ除去がオンのため、選択した点の結果は測定できません。",
           "outsideSrgb": "ターゲットは sRGB の範囲外です。sRGB の書き出しでは色が sRGB 内にマッピングされます。",
           "outsideWorkingGamut": "ターゲットは写真の作業色域(ProPhoto)の外です。写真のどの色もその色にはなれないため、範囲はできるだけ近づけます。",
           "pickAria": "ターゲットカラーを取得",
           "pickedThrough": "予測はターゲットから ΔE00 {{value}} ですが、この色は範囲自体の大きな変更を通して取得されました。写真で結果を確認するか、スライダーを0にして取得し直してください。",
           "pickTitle": "写真でターゲットカラーを取得し、この範囲をその色へ移動",
-          "reached": "ターゲットに到達(ΔE00 {{value}})。",
-          "readoutTitle": "範囲の取得色に対する予測値(トーンカーブやカラーグレーディングなど後段のツールの前)",
+          "predicted": "範囲の色について予測 ΔE00 {{value}}、未測定：測定するには写真で範囲を選択してください。",
+          "predictedOutOfReach": "到達不可と予測：残り ΔE00 {{value}}。{{limits}} が限界です（未測定：測定するには写真で範囲を選択してください）。",
+          "readoutTitle": "すべてのツールを適用した写真の sRGB レンダリングで、選択した点のスポイトの 11 × 11 プレビューピクセルにわたって測定。写真で選択していない範囲はその色について予測",
           "redAria": "ターゲットの赤(sRGB 0–255)",
           "sampleAria": "ターゲットカラーを取得",
           "sampleTitle": "この写真でターゲットカラーを取得(この写真や別の写真の範囲用)",
@@ -2927,6 +2956,7 @@
           "srgb": "sRGB",
           "swatchAria": "範囲の結果 {{result}}、ターゲット {{target}}",
           "uncovered": "レイヤーのマスクが拾った位置を覆っていません。範囲のスライダーはそのままです。",
+          "unmeasured": "ターゲットから予測 ΔE00 {{value}}。選択した点の結果は測定できませんでした。",
           "useSampled": "{{name}} のターゲットを使用",
           "useSampledTitle": "この範囲を {{name}} で取得した色へ移動"
         },
@@ -3217,6 +3247,7 @@
           "brush": "ブラシ",
           "color": "カラー",
           "depth": "深度",
+          "landscape": "風景",
           "linear": "線形",
           "luminance": "輝度",
           "object": "オブジェクト",
@@ -3246,6 +3277,7 @@
           "brush": "新規ブラシレイヤー",
           "color": "新規レイヤー: カラー範囲",
           "depth": "新規レイヤー: 深度範囲",
+          "landscape": "新しい風景レイヤー",
           "linear": "新規線形グラデーションレイヤー",
           "luminance": "新規レイヤー: 輝度範囲",
           "object": "新規レイヤー: オブジェクト",
@@ -3533,13 +3565,13 @@
         "exporting": "書き出し中 {{current}} / {{total}}"
       },
       "provenance": {
-        "about": "各ファイルの現像元の写真、編集の種類、生成モデルが作成したすべての領域を記録し、あなたの証明書で署名します。JPEG、PNG、TIFF。何も送信されません。",
+        "about": "各ファイルの現像元の写真、編集の種類、生成モデルが作成したすべての領域を記録し、あなたの証明書で署名します。JPEG、PNG、TIFF、WebP、AVIF。何も送信されません。",
         "add": "各ファイルに来歴マニフェストを署名して埋め込む",
         "author": "写真の作成者を著者として記載",
-        "blocked": "来歴情報 (C2PA) は {{recipes}} に署名できません。有効な署名証明書を設定し、JPEG、PNG、TIFF のいずれかで書き出してください。",
+        "blocked": "来歴情報 (C2PA) は {{recipes}} に署名できません。有効な署名証明書を設定し、JPEG、PNG、TIFF、WebP、AVIF のいずれかで書き出してください。",
         "certificateFilter": "PKCS#12 証明書",
         "expired": "この証明書は現在有効ではありません (有効期限: {{until}})。この証明書では書き出しに署名できません。更新した証明書を読み込むか、新しく作成してください。",
-        "formatUnsupported": "{{format}} ファイルにはまだ来歴マニフェストを埋め込めません。JPEG、PNG、TIFF のいずれかを選ぶか、このオプションをオフにしてください。",
+        "formatUnsupported": "{{format}} ファイルにはまだ来歴マニフェストを埋め込めません。JPEG、PNG、TIFF、WebP、AVIF のいずれかを選ぶか、このオプションをオフにしてください。",
         "generate": "このコンピューターで証明書を作成",
         "import": "自分の証明書を読み込む (.p12)…",
         "importConfirm": "読み込む",
@@ -3782,11 +3814,17 @@
         "teethWhiten": "歯のホワイトニング",
         "texture": "顔: テクスチャ"
       },
+      "download": {
+        "preparing": "モデルを準備しています…",
+        "progress": "ダウンロード中… {{percent}}%"
+      },
       "downloadModels": "顔モデルをダウンロード",
       "eyes": {
+        "downloadModel": "目と歯のモデルをダウンロード",
         "find": "目と歯を検出",
         "finding": "目と歯を検出中…",
         "missing": "「目」と「歯」には、これらのツールより前に検出された顔の目と口が必要です。",
+        "modelMissing": "目と歯には目と歯のモデル（57 MB）を使います。GitHub 上の Rawtonic のモデルパックから一度だけダウンロードされ、このコンピューター上で動作します。",
         "none": "この顔には目または開いた口が見つかりません。",
         "sideAria": "目",
         "sideHint": {
@@ -3860,6 +3898,23 @@
       "shadowClippingLit": "シャドウの警告、黒つぶれ",
       "shadowClippingTitle": "シャドウのクリッピング警告（写真では青。{{shortcut}} で両方を切り替え）",
       "title": "ヒストグラム"
+    },
+    "landscape": {
+      "aria": "風景マスク",
+      "choose": "選択する要素を選んでください。",
+      "finding": "風景の要素を検出中…",
+      "noneFound": "この写真ではいずれの要素も見つかりませんでした。",
+      "notFound": "（見つかりません）",
+      "parts": {
+        "architecture": "建築物",
+        "artificialGround": "人工の地面",
+        "mountains": "山",
+        "naturalGround": "自然の地面",
+        "sky": "空",
+        "vegetation": "植物",
+        "water": "水"
+      },
+      "partsAria": "風景の要素"
     },
     "layers": {
       "bandWidth": "帯の幅",
@@ -4591,6 +4646,7 @@
         "brush": "ブラシ",
         "color": "カラー範囲",
         "depth": "深度範囲",
+        "landscape": "風景",
         "linear": "線形",
         "luminance": "輝度範囲",
         "object": "オブジェクト",
@@ -4891,6 +4947,7 @@
         "profile": "プロファイル",
         "profileNamed": "プロファイル「{{name}}」",
         "Shadows": "シャドウ",
+        "shadowsBeyondReach": "Rawtonic のシャドウの範囲を超えるシャドウ（±100 に設定）",
         "toneCurveMissingPoints": "Lightroom で名前だけのトーンカーブ（ポイントなし）",
         "upright": "Upright",
         "whiteBalance": "ホワイトバランス"
@@ -5416,6 +5473,7 @@
         "moveToolsLeft": "現像ツールを左へ移動",
         "moveToolsRight": "現像ツールを右へ移動"
       },
+      "lightroomHdr": "Lightroom の HDR 編集 — SDR として表示・書き出しされます",
       "loupe": {
         "adjust": "現像",
         "adjustTitle": "現像で調整",

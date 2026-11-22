@@ -279,6 +279,7 @@ fn lightroom_smart_collections_carry_their_rules() {
         })
     );
     assert_eq!(lib.not_read.smart_albums, 1);
+    assert_eq!(lib.not_read.smart_album_names, ["Recent"]);
     assert!(
         !lib.albums
             .iter()

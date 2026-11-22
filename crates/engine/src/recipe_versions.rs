@@ -201,6 +201,9 @@ pub const SHADOWS_EDGE_STOP_TONE_VERSION: u64 = 19;
 /// The tone-slider response from which raised Shadows do not lift light
 /// tones among thin dark detail (`toneVersion` 20).
 pub const SHADOWS_LIGHT_GAPS_TONE_VERSION: u64 = 20;
+/// The tone-slider response from which raised Shadows move at Camera Raw's
+/// pace (`toneVersion` 21, `image_processing::shadows_amount_v21`).
+pub const SHADOWS_TRAVEL_TONE_VERSION: u64 = 21;
 
 /// `toneVersion` (`image_processing::TONE_VERSION`): 1 when missing, never
 /// newer than this renderer knows.
@@ -283,6 +286,27 @@ impl ToneVersion {
     pub fn whites_value(self, amount: f64) -> f64 {
         if self.0 >= WHITES_TRAVEL_TONE_VERSION {
             ip::whites_value_v17(amount)
+        } else {
+            amount
+        }
+    }
+
+    /// The Shadows amount (recipe units, version 20's slider value) the
+    /// renderer applies for the slider value `value`: from version 21 raised
+    /// Shadows follow Camera Raw's travel.
+    pub fn shadows_amount(self, value: f64) -> f64 {
+        if self.0 >= SHADOWS_TRAVEL_TONE_VERSION {
+            ip::shadows_amount_v21(value)
+        } else {
+            value
+        }
+    }
+
+    /// The slider value that renders the Shadows amount `amount` (the
+    /// inverse of [`Self::shadows_amount`]).
+    pub fn shadows_value(self, amount: f64) -> f64 {
+        if self.0 >= SHADOWS_TRAVEL_TONE_VERSION {
+            ip::shadows_value_v21(amount)
         } else {
             amount
         }
@@ -1062,6 +1086,11 @@ pub mod mask {
     /// Components add as a + b − a·b and intersect as a·b instead of max
     /// and min (`mask_generation::fold`).
     pub const SOFT_FOLD: u32 = 5;
+    /// AI bitmaps compare the warp they were made in with the current one
+    /// by geometry only (`mask_generation::PhotoGeometry`), so a mask made
+    /// in the current lens profile correction is not mapped through it
+    /// again.
+    pub const WARP_BY_GEOMETRY: u32 = 6;
 }
 
 /// `maskVersion` of a mask layer: none for masks from before the key, read
@@ -1092,6 +1121,10 @@ impl MaskVersion {
 
     pub fn soft_fold(self) -> bool {
         self.at_least(mask::SOFT_FOLD)
+    }
+
+    pub fn warp_by_geometry(self) -> bool {
+        self.at_least(mask::WARP_BY_GEOMETRY)
     }
 }
 
@@ -1136,6 +1169,9 @@ pub mod light_range {
 
 /// The key of a Select Subject component's version (`subjectVersion`).
 pub const SUBJECT_VERSION_KEY: &str = "subjectVersion";
+
+/// The key of a Landscape component's version (`landscapeVersion`).
+pub const LANDSCAPE_VERSION_KEY: &str = "landscapeVersion";
 
 #[cfg(test)]
 mod tests {

@@ -326,8 +326,9 @@ pub fn copy_library(
         // emitted from the snapshot below.
         if !from.starts_with(&source) {
             let mut sidecars = external_sidecars.remove(from).unwrap_or_default();
-            let xmp = rawtonic_metadata::sidecar_path(from);
-            if xmp.try_exists()? {
+            if let Some(xmp) = rawtonic_metadata::sidecar_path(from)
+                && xmp.try_exists()?
+            {
                 sidecars.push(xmp);
             }
             if let Some(companion) = snapshot.companion_verified(asset)? {

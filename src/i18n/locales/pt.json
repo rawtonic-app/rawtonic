@@ -5,6 +5,7 @@
       "depth": "Máscara IA: profundidade",
       "foreground": "Máscara IA: primeiro plano",
       "inpaint": "Preenchimento generativo",
+      "landscape": "Máscara IA: Paisagem",
       "object": "Máscara IA: objeto",
       "other": "Tarefa de IA",
       "people": "Máscara IA: pessoas",
@@ -37,10 +38,27 @@
     },
     "copied": "Copiado",
     "copyDetails": "Copiar detalhes",
+    "cropMissing_one": "Corte da câmara não aplicado a {{count}} foto: o original está na nuvem. A edição foi guardada; transfira o original e defina o corte em Revelar.",
+    "cropMissing_many": "Corte da câmara não aplicado a {{count}} fotos: os originais estão na nuvem. As edições foram guardadas; transfira os originais e defina o corte em Revelar.",
+    "cropMissing_other": "Corte da câmara não aplicado a {{count}} fotos: os originais estão na nuvem. As edições foram guardadas; transfira os originais e defina o corte em Revelar.",
     "dismiss": "Dispensar: {{title}}",
     "dismissShort": "Dispensar",
     "download": {
-      "model": "A transferir {{name}}"
+      "model": "A transferir {{name}}",
+      "names": {
+        "denoise": "o modelo de redução de ruído IA",
+        "depth": "o modelo de profundidade",
+        "eyesTeeth": "o modelo de olhos e dentes",
+        "faces": "os modelos de rosto",
+        "fill": "o modelo de preenchimento",
+        "landscape": "o modelo de paisagem",
+        "objectRemoval": "o modelo de remoção de objetos",
+        "relight": "o modelo de reiluminação",
+        "search": "o modelo de pesquisa",
+        "sky": "o modelo de céu",
+        "subject": "o modelo de motivo",
+        "superResolution": "o modelo de super-resolução"
+      }
     },
     "duplicates": {
       "failed": "A procura de duplicados falhou",
@@ -912,6 +930,7 @@
         "upgradeRequired": "Atualização Necessária"
       },
       "createNewTitle": "Criar Nova Edição Generativa",
+      "downloadFailed": "Não foi possível transferir o modelo. Verifique a ligação à internet e tente novamente.",
       "generatingDepthMap": "A calcular mapa de profundidade IA...",
       "params": {
         "feather": "Difusão",
@@ -1103,6 +1122,7 @@
       "flow": "Fluxo",
       "foreground": "Primeiro Plano",
       "heal": "Restaurar",
+      "landscape": "Paisagem",
       "linear": "Linear",
       "liquify": "Dissolver",
       "luminance": "Luminância",
@@ -1885,6 +1905,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "As fotos voltaram, mas a função da pasta fica onde está: {{error}}",
       "selectsUnavailable": "A pasta Selects {{folder}} não está disponível (o disco está ligado?). Nada foi movido; escolha outra pasta Selects em Pastas da sessão.",
       "title": "Pastas da sessão",
       "unavailable": "Indisponível: a pasta não existe ou o disco não está ligado.",
@@ -2240,6 +2261,7 @@
       "importCopies_one": "{{count}} cópia virtual importada",
       "importCopies_many": "{{count}} cópias virtuais importadas",
       "importCopies_other": "{{count}} cópias virtuais importadas",
+      "importCopiesInAlbums": "Os álbuns contêm fotos, não cópias virtuais — estas cópias foram adicionadas como as suas fotos: {{n}}.",
       "importCopiesSkipped_one": "{{count}} cópia virtual não importada",
       "importCopiesSkipped_many": "{{count}} cópias virtuais não importadas",
       "importCopiesSkipped_other": "{{count}} cópias virtuais não importadas",
@@ -2252,6 +2274,8 @@
       "importNotFound_one": "{{count}} não encontrada",
       "importNotFound_many": "{{count}} não encontradas",
       "importNotFound_other": "{{count}} não encontradas",
+      "importSmartAlbumsByFacts": "Os álbuns inteligentes por câmara, objetiva, ISO ou data de captura são preenchidos à medida que os dados de captura dos ficheiros são lidos; as palavras de câmara e objetiva podem corresponder a outras fotos do que no Lightroom: {{n}}.",
+      "importSmartAlbumsSkipped": "Coleções inteligentes omitidas porque uma regra não tem equivalente: {{n}}.",
       "importStacks_one": "{{count}} pilha importada",
       "importStacks_many": "{{count}} pilhas importadas",
       "importStacks_other": "{{count}} pilhas importadas",
@@ -2365,9 +2389,9 @@
         "pending_one": "{{count}} arquivo XMP pode ser gravado novamente.",
         "pending_many": "{{count}} arquivos XMP podem ser gravados novamente.",
         "pending_other": "{{count}} arquivos XMP podem ser gravados novamente.",
-        "sharedName_one": "{{count}} foto tem o mesmo nome que outra (RAW e JPEG), então ambas gravariam o mesmo arquivo XMP.",
-        "sharedName_many": "{{count}} fotos têm o mesmo nome que outra (RAW e JPEG), então ambas gravariam o mesmo arquivo XMP.",
-        "sharedName_other": "{{count}} fotos têm o mesmo nome que outra (RAW e JPEG), então ambas gravariam o mesmo arquivo XMP."
+        "sharedName_one": "{{count}} foto usaria o mesmo arquivo XMP que outra foto.",
+        "sharedName_many": "{{count}} fotos usariam o mesmo arquivo XMP que outra foto.",
+        "sharedName_other": "{{count}} fotos usariam o mesmo arquivo XMP que outra foto."
       },
       "resolved_one": "Conflito XMP resolvido em {{count}} foto",
       "resolved_many": "Conflitos XMP resolvidos em {{count}} fotos",
@@ -2395,13 +2419,15 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Aberturas dos olhos e dentes para o retoque facial (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Alterado: convertido para ONNX e Core ML, publicado sob CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Mapeamento dos nomes dos fusos horários do Windows para identificadores IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -3145,7 +3171,6 @@
         "target": {
           "blueAria": "Azul alvo (sRGB 0–255)",
           "chromaAria": "Croma alvo C* (CIELAB D50)",
-          "distance": "A ΔE00 {{value}} do alvo.",
           "greenAria": "Verde alvo (sRGB 0–255)",
           "grey": "Este intervalo é demasiado cinzento para receber uma cor.",
           "heading": "Alvo",
@@ -3160,14 +3185,20 @@
             "lightness": "luminosidade (×0,6–1,4)",
             "saturation": "saturação (0–200 %)"
           },
-          "outOfReach": "Fora de alcance: restam ΔE00 {{value}}; {{limits}} no limite.",
+          "measuredDistance": "ΔE00 {{value}} do alvo, medido no ponto escolhido.",
+          "measuredOutOfReach": "Fora de alcance: faltam ΔE00 {{value}}, medido no ponto escolhido; {{limits}} no limite.",
+          "measuredOutsideSrgb": "O alvo está fora de sRGB: o resultado sRGB no ponto escolhido fica a ΔE00 {{value}} (medido).",
+          "measuredReached": "Alvo atingido: ΔE00 {{value}}, medido no ponto escolhido.",
+          "measuring": "A medir o resultado no ponto escolhido…",
+          "notMeasured": "Previsto a ΔE00 {{value}} do alvo; com a redução de ruído IA o resultado no ponto escolhido não pode ser medido.",
           "outsideSrgb": "O alvo está fora de sRGB; uma exportação sRGB mapeia a cor para dentro de sRGB.",
           "outsideWorkingGamut": "O alvo está além das cores de trabalho da foto (ProPhoto): nenhuma cor da foto pode sê-lo, o intervalo aproxima-se o mais que pode.",
           "pickAria": "Recolher a cor alvo",
           "pickedThrough": "Previsto a ΔE00 {{value}} do alvo, mas esta cor foi recolhida através da forte alteração do próprio intervalo: verifique o resultado na foto ou recolha-a de novo com os controlos a 0.",
           "pickTitle": "Recolha a cor alvo na foto; este intervalo move-se para ela",
-          "reached": "Alvo atingido (ΔE00 {{value}}).",
-          "readoutTitle": "Previsão para a cor recolhida do intervalo, antes de ferramentas posteriores como curvas e gradação de cor",
+          "predicted": "Previsto a ΔE00 {{value}} do alvo para a cor do intervalo, não medido: escolha o intervalo na foto para o medir.",
+          "predictedOutOfReach": "Previsto fora de alcance: faltam ΔE00 {{value}}; {{limits}} no limite (não medido: escolha o intervalo na foto para o medir).",
+          "readoutTitle": "Medido na renderização sRGB da foto com todas as ferramentas, nos 11 × 11 píxeis de pré-visualização do conta-gotas no ponto escolhido; um intervalo não escolhido na foto é previsto para a sua cor",
           "redAria": "Vermelho alvo (sRGB 0–255)",
           "sampleAria": "Recolher uma cor alvo",
           "sampleTitle": "Recolha uma cor alvo nesta foto, para um intervalo aqui ou noutra foto",
@@ -3175,6 +3206,7 @@
           "srgb": "sRGB",
           "swatchAria": "Resultado do intervalo {{result}}, alvo {{target}}",
           "uncovered": "A máscara da camada já não cobre o ponto recolhido: os controlos do intervalo ficam como estão.",
+          "unmeasured": "Previsto a ΔE00 {{value}} do alvo; não foi possível medir o resultado no ponto escolhido.",
           "useSampled": "Usar o alvo de {{name}}",
           "useSampledTitle": "Mover este intervalo para a cor recolhida em {{name}}"
         },
@@ -3475,6 +3507,7 @@
           "brush": "Pincel",
           "color": "Cor",
           "depth": "Profundidade",
+          "landscape": "Paisagem",
           "linear": "Linear",
           "luminance": "Luminância",
           "object": "Objeto",
@@ -3504,6 +3537,7 @@
           "brush": "Nova camada de pincel",
           "color": "Nova camada: Faixa de cor",
           "depth": "Nova camada: Faixa de profundidade",
+          "landscape": "Nova camada de paisagem",
           "linear": "Nova camada de gradiente linear",
           "luminance": "Nova camada: Faixa de luminância",
           "object": "Nova camada: Objeto",
@@ -3795,13 +3829,13 @@
         "exporting": "Exportando {{current}} de {{total}}"
       },
       "provenance": {
-        "about": "Regista a fotografia a partir da qual cada ficheiro foi revelado, os tipos de edição e cada área criada por um modelo generativo, assinado com o seu certificado. JPEG, PNG e TIFF. Nada é enviado.",
+        "about": "Regista a fotografia a partir da qual cada ficheiro foi revelado, os tipos de edição e cada área criada por um modelo generativo, assinado com o seu certificado. JPEG, PNG, TIFF, WebP e AVIF. Nada é enviado.",
         "add": "Assinar um manifesto de proveniência em cada ficheiro",
         "author": "Indicar o criador da fotografia como autor",
-        "blocked": "A proveniência (C2PA) não pode assinar {{recipes}}: configure um certificado de assinatura válido e exporte JPEG, PNG ou TIFF.",
+        "blocked": "A proveniência (C2PA) não pode assinar {{recipes}}: configure um certificado de assinatura válido e exporte JPEG, PNG, TIFF, WebP ou AVIF.",
         "certificateFilter": "Certificado PKCS#12",
         "expired": "Este certificado não é válido agora (válido até {{until}}): não é possível assinar exportações com ele. Importe um certificado renovado ou crie um novo.",
-        "formatUnsupported": "Os ficheiros {{format}} ainda não podem conter um manifesto de proveniência. Escolha JPEG, PNG ou TIFF, ou desative a opção.",
+        "formatUnsupported": "Os ficheiros {{format}} ainda não podem conter um manifesto de proveniência. Escolha JPEG, PNG, TIFF, WebP ou AVIF, ou desative a opção.",
         "generate": "Criar um certificado neste computador",
         "import": "Importar o seu certificado (.p12)…",
         "importConfirm": "Importar",
@@ -4056,11 +4090,17 @@
         "teethWhiten": "Branquear dentes",
         "texture": "Rosto: textura"
       },
+      "download": {
+        "preparing": "A preparar o modelo…",
+        "progress": "A transferir… {{percent}} %"
+      },
       "downloadModels": "Transferir modelos de rosto",
       "eyes": {
+        "downloadModel": "Transferir o modelo de olhos e dentes",
         "find": "Encontrar olhos e dentes",
         "finding": "A encontrar olhos e dentes…",
         "missing": "Olhos e Dentes precisam dos olhos e da boca destes rostos, encontrados antes de estas ferramentas existirem.",
+        "modelMissing": "Olhos e Dentes usam um modelo de olhos e dentes (57 MB). É transferido uma vez do pacote de modelos do Rawtonic no GitHub e é executado neste computador.",
         "none": "Nenhum olho ou boca aberta encontrado neste rosto.",
         "sideAria": "Olho",
         "sideHint": {
@@ -4136,6 +4176,23 @@
       "shadowClippingLit": "Aviso de sombras, esmagadas",
       "shadowClippingTitle": "Aviso de recorte de sombras (azul na foto; {{shortcut}} alterna ambos)",
       "title": "Histograma"
+    },
+    "landscape": {
+      "aria": "Máscara de paisagem",
+      "choose": "Escolha as partes a selecionar.",
+      "finding": "A procurar as partes da paisagem…",
+      "noneFound": "Nenhuma destas partes foi encontrada nesta foto.",
+      "notFound": "(não encontrada)",
+      "parts": {
+        "architecture": "Arquitetura",
+        "artificialGround": "Solo artificial",
+        "mountains": "Montanhas",
+        "naturalGround": "Solo natural",
+        "sky": "Céu",
+        "vegetation": "Vegetação",
+        "water": "Água"
+      },
+      "partsAria": "Partes da paisagem"
     },
     "layers": {
       "bandWidth": "Largura da faixa",
@@ -4919,6 +4976,7 @@
         "brush": "Pincel",
         "color": "Faixa de cor",
         "depth": "Faixa de profundidade",
+        "landscape": "Paisagem",
         "linear": "Linear",
         "luminance": "Faixa de luminância",
         "object": "Objeto",
@@ -5237,6 +5295,7 @@
         "profile": "perfil",
         "profileNamed": "perfil «{{name}}»",
         "Shadows": "sombras",
+        "shadowsBeyondReach": "sombras além do alcance das Sombras do Rawtonic (definidas em ±100)",
         "toneCurveMissingPoints": "curva tonal com nome do Lightroom, mas sem pontos",
         "upright": "Upright",
         "whiteBalance": "equilíbrio de brancos"
@@ -5777,6 +5836,7 @@
         "moveToolsLeft": "Mover as ferramentas de Revelação para a esquerda",
         "moveToolsRight": "Mover as ferramentas de Revelação para a direita"
       },
+      "lightroomHdr": "Edição HDR do Lightroom — exibida e exportada como SDR",
       "loupe": {
         "adjust": "Revelação",
         "adjustTitle": "Ajustar em Revelação",

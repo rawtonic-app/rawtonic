@@ -5,6 +5,7 @@
       "depth": "AI mask: Depth",
       "foreground": "AI mask: Foreground",
       "inpaint": "Generative fill",
+      "landscape": "AI mask: Landscape",
       "object": "AI mask: Object",
       "other": "AI task",
       "people": "AI mask: People",
@@ -34,10 +35,26 @@
     },
     "copied": "Copied",
     "copyDetails": "Copy details",
+    "cropMissing_one": "Camera crop not applied to {{count}} photo: its original is in the cloud. The edit is saved; download the original and set the crop in Develop.",
+    "cropMissing_other": "Camera crop not applied to {{count}} photos: their originals are in the cloud. The edits are saved; download the originals and set the crop in Develop.",
     "dismiss": "Dismiss: {{title}}",
     "dismissShort": "Dismiss",
     "download": {
-      "model": "Downloading {{name}}"
+      "model": "Downloading {{name}}",
+      "names": {
+        "denoise": "AI Denoise model",
+        "depth": "depth model",
+        "eyesTeeth": "eye and teeth model",
+        "faces": "face models",
+        "fill": "fill model",
+        "landscape": "landscape model",
+        "objectRemoval": "object removal model",
+        "relight": "Relight model",
+        "search": "search model",
+        "sky": "sky model",
+        "subject": "subject model",
+        "superResolution": "Super Resolution model"
+      }
     },
     "duplicates": {
       "failed": "Finding duplicates failed",
@@ -865,6 +882,7 @@
         "upgradeRequired": "Upgrade Required"
       },
       "createNewTitle": "Create New Generative Edit",
+      "downloadFailed": "The model could not be downloaded. Check the internet connection and try again.",
       "generatingDepthMap": "Calculating AI Depth Map...",
       "params": {
         "feather": "Feather",
@@ -1054,6 +1072,7 @@
       "flow": "Flow",
       "foreground": "Foreground",
       "heal": "Heal",
+      "landscape": "Landscape",
       "linear": "Linear",
       "liquify": "Liquify",
       "luminance": "Luminance",
@@ -1792,6 +1811,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "The photos are back, but the folder role stays where it is: {{error}}",
       "selectsUnavailable": "The Selects folder {{folder}} is not available (is its drive connected?). Nothing was moved; choose another Selects folder in Session Folders.",
       "title": "Session Folders",
       "unavailableUse": {
@@ -2128,6 +2148,7 @@
       "importAiMasksOnOpen_other": "AI masks of {{count}} photos are computed when each is opened in Develop or exported",
       "importCopies_one": "{{count}} virtual copy imported",
       "importCopies_other": "{{count}} virtual copies imported",
+      "importCopiesInAlbums": "Albums hold photographs, not virtual copies — these copies were added as their photographs: {{n}}.",
       "importCopiesSkipped_one": "{{count}} virtual copy not imported",
       "importCopiesSkipped_other": "{{count}} virtual copies not imported",
       "importCropsClipped_one": "{{count}} crop reached beyond the camera's frame and was trimmed to it",
@@ -2136,6 +2157,8 @@
       "imported_other": "{{count}} photos imported ({{withSettings}} with edits, {{albums}} albums)",
       "importNotFound_one": "{{count}} not found",
       "importNotFound_other": "{{count}} not found",
+      "importSmartAlbumsByFacts": "Smart albums by camera, lens, ISO or capture date fill as the files' capture data is read, and camera and lens words can match other photos than in Lightroom: {{n}}.",
+      "importSmartAlbumsSkipped": "Smart collections left out because a rule has no counterpart: {{n}}.",
       "importStacks_one": "{{count}} stack imported",
       "importStacks_other": "{{count}} stacks imported",
       "importUnconvertedSettings": "Imported edits with settings that could not be converted: {{n}}.",
@@ -2233,8 +2256,8 @@
         "offline_other": "{{count}} photos are offline. Their XMP files are updated when the drive is connected again.",
         "pending_one": "{{count}} XMP file can be written again.",
         "pending_other": "{{count}} XMP files can be written again.",
-        "sharedName_one": "{{count}} photo has the same name as another one (RAW and JPEG), so both would write the same XMP file.",
-        "sharedName_other": "{{count}} photos have the same name as another one (RAW and JPEG), so both would write the same XMP file."
+        "sharedName_one": "{{count}} photo would use the same XMP file as another photo.",
+        "sharedName_other": "{{count}} photos would each use the same XMP file as another photo."
       },
       "resolved_one": "XMP conflict resolved for {{count}} photo",
       "resolved_other": "XMP conflicts resolved for {{count}} photos",
@@ -2260,13 +2283,15 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Eye openings and teeth for the face retouch (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Changed: converted to ONNX and Core ML, published under CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Windows time zone names mapped to IANA identifiers.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -2992,7 +3017,6 @@
         "target": {
           "blueAria": "Target blue (sRGB 0–255)",
           "chromaAria": "Target chroma C* (CIELAB D50)",
-          "distance": "ΔE00 {{value}} from the target.",
           "greenAria": "Target green (sRGB 0–255)",
           "grey": "This range is too gray to take a color.",
           "heading": "Target",
@@ -3007,14 +3031,20 @@
             "lightness": "lightness (×0.6–1.4)",
             "saturation": "saturation (0–200 %)"
           },
-          "outOfReach": "Out of reach: ΔE00 {{value}} left; {{limits}} at its limit.",
+          "measuredDistance": "ΔE00 {{value}} from the target, measured at the picked point.",
+          "measuredOutOfReach": "Out of reach: ΔE00 {{value}} left, measured at the picked point; {{limits}} at its limit.",
+          "measuredOutsideSrgb": "The target is outside sRGB: the sRGB result at the picked point stays ΔE00 {{value}} from it (measured).",
+          "measuredReached": "Target reached: ΔE00 {{value}}, measured at the picked point.",
+          "measuring": "Measuring the result at the picked point…",
+          "notMeasured": "Predicted ΔE00 {{value}} from the target; the result at the picked point cannot be measured with AI Denoise on.",
           "outsideSrgb": "The target is outside sRGB; an sRGB export maps the color into sRGB.",
           "outsideWorkingGamut": "The target is beyond the photo's working colours (ProPhoto): no colour of the photo can be it, the range goes as close as it can.",
           "pickAria": "Pick the target color",
           "pickedThrough": "Predicted ΔE00 {{value}} from the target, but this color was picked through the range's own strong change: check the result in the photo, or pick it again with the sliders at 0.",
           "pickTitle": "Pick the target color in the photo; this range moves onto it",
-          "reached": "Target reached (ΔE00 {{value}}).",
-          "readoutTitle": "Predicted for the range's picked color, before later tools such as curves and color grading",
+          "predicted": "Predicted ΔE00 {{value}} from the target for the range's color, not measured: pick the range in the photo to measure it.",
+          "predictedOutOfReach": "Predicted out of reach: ΔE00 {{value}} left; {{limits}} at its limit (not measured: pick the range in the photo to measure it).",
+          "readoutTitle": "Measured in the photo's sRGB render with every tool, over the picker's 11 × 11 preview pixels at the picked point; a range not picked in the photo is predicted for its color",
           "redAria": "Target red (sRGB 0–255)",
           "sampleAria": "Sample a target color",
           "sampleTitle": "Sample a target color in this photo, for a range here or in another photo",
@@ -3022,6 +3052,7 @@
           "srgb": "sRGB",
           "swatchAria": "Range result {{result}}, target {{target}}",
           "uncovered": "The layer's mask no longer covers the picked point: the range's sliders stay as they are.",
+          "unmeasured": "Predicted ΔE00 {{value}} from the target; the result at the picked point could not be measured.",
           "useSampled": "Use target from {{name}}",
           "useSampledTitle": "Move this range onto the color sampled in {{name}}"
         },
@@ -3317,6 +3348,7 @@
           "brush": "Brush",
           "color": "Color",
           "depth": "Depth",
+          "landscape": "Landscape",
           "linear": "Linear",
           "luminance": "Luminance",
           "object": "Object",
@@ -3346,6 +3378,7 @@
           "brush": "New brush layer",
           "color": "New color range layer",
           "depth": "New depth range layer",
+          "landscape": "New landscape layer",
           "linear": "New linear gradient layer",
           "luminance": "New luminance range layer",
           "object": "New object layer",
@@ -3635,13 +3668,13 @@
         "exporting": "Exporting {{current}} of {{total}}"
       },
       "provenance": {
-        "about": "Records the photograph each file was developed from, the kinds of edits and every area a generative model made, signed with your certificate. JPEG, PNG and TIFF. Nothing is sent anywhere.",
+        "about": "Records the photograph each file was developed from, the kinds of edits and every area a generative model made, signed with your certificate. JPEG, PNG, TIFF, WebP and AVIF. Nothing is sent anywhere.",
         "add": "Sign a provenance manifest into each file",
         "author": "Name the photo's creator as author",
-        "blocked": "Provenance (C2PA) cannot sign {{recipes}}: set up a valid signing certificate and export JPEG, PNG or TIFF.",
+        "blocked": "Provenance (C2PA) cannot sign {{recipes}}: set up a valid signing certificate and export JPEG, PNG, TIFF, WebP or AVIF.",
         "certificateFilter": "PKCS#12 certificate",
         "expired": "This certificate is not valid now (valid until {{until}}): exports cannot be signed with it. Import a renewed certificate or make a new one.",
-        "formatUnsupported": "{{format}} files cannot carry a provenance manifest yet. Choose JPEG, PNG or TIFF, or turn the option off.",
+        "formatUnsupported": "{{format}} files cannot carry a provenance manifest yet. Choose JPEG, PNG, TIFF, WebP or AVIF, or turn the option off.",
         "generate": "Make a certificate on this computer",
         "import": "Import your certificate (.p12)…",
         "importConfirm": "Import",
@@ -3890,11 +3923,17 @@
         "teethWhiten": "Teeth whiten",
         "texture": "Face texture"
       },
+      "download": {
+        "preparing": "Preparing the model…",
+        "progress": "Downloading… {{percent}}%"
+      },
       "downloadModels": "Download face models",
       "eyes": {
+        "downloadModel": "Download eye and teeth model",
         "find": "Find eyes and teeth",
         "finding": "Finding eyes and teeth…",
         "missing": "Eyes and Teeth need the eyes and mouth of these faces, which were found before these tools existed.",
+        "modelMissing": "Eyes and Teeth use an eye and teeth model (57 MB). It is downloaded once from Rawtonic's model pack on GitHub and runs on this computer.",
         "none": "No eyes or open mouth found on this face.",
         "sideAria": "Eye",
         "sideHint": {
@@ -3969,6 +4008,23 @@
       "shadowClippingLit": "Shadow clipping, clipped",
       "shadowClippingTitle": "Shadow clipping warning (blue in the photo; {{shortcut}} switches both)",
       "title": "Histogram"
+    },
+    "landscape": {
+      "aria": "Landscape mask",
+      "choose": "Choose the parts to select.",
+      "finding": "Finding the parts of the landscape…",
+      "noneFound": "None of these parts was found in this photo.",
+      "notFound": "(not found)",
+      "parts": {
+        "architecture": "Architecture",
+        "artificialGround": "Artificial ground",
+        "mountains": "Mountains",
+        "naturalGround": "Natural ground",
+        "sky": "Sky",
+        "vegetation": "Vegetation",
+        "water": "Water"
+      },
+      "partsAria": "Parts of the landscape"
     },
     "layers": {
       "bandWidth": "Band width",
@@ -4720,6 +4776,7 @@
         "brush": "Brush",
         "color": "Color range",
         "depth": "Depth range",
+        "landscape": "Landscape",
         "linear": "Linear",
         "luminance": "Luminance range",
         "object": "Object",
@@ -5029,6 +5086,7 @@
         "profile": "profile",
         "profileNamed": "profile “{{name}}”",
         "Shadows": "shadows",
+        "shadowsBeyondReach": "Shadow beyond the reach of Rawtonic's Shadows (set to ±100)",
         "toneCurveMissingPoints": "tone curve named in Lightroom but without its points",
         "upright": "Upright",
         "whiteBalance": "white balance"
@@ -5560,6 +5618,7 @@
         "moveToolsLeft": "Move the Develop tools to the left",
         "moveToolsRight": "Move the Develop tools to the right"
       },
+      "lightroomHdr": "HDR edit from Lightroom — shown and exported as SDR",
       "loupe": {
         "adjust": "Develop",
         "adjustTitle": "Adjust in Develop",

@@ -32,10 +32,19 @@ use crate::state::lock::lock_recover;
 /// Suggestions changed in the library at the payload's directory.
 pub const CULLING_CHANGED: &str = "library-culling-changed";
 
-/// The prompt set's id: the text model and every prompt, so a change to
-/// either scores every photograph again.
+/// What the scores are read from: the photograph's thumbnail as cached
+/// (`thumbnails::as_cached`). Scores read before (CUL2) came from the
+/// thumbnail in memory when the pass made it, so they depended on timing
+/// (notes: benchmark-results/cul3-2026-11-21/REPORT.md).
+const SCORED_FROM: &[u8] = b"cached-thumbnail-v1";
+
+/// The prompt set's id: the text model, every prompt and what the scores
+/// are read from, so a change to any of them scores every photograph again
+/// (dismissals are kept apart and stay).
 pub fn prompt_set_id() -> String {
     let mut hash = Sha256::new();
+    hash.update(SCORED_FROM);
+    hash.update(b"\0");
     hash.update(crate::content_search::TEXT_SHA256);
     for prompt in MISFIRE_PROMPTS {
         hash.update(b"\0m");
@@ -254,6 +263,9 @@ mod tests {
         let id = prompt_set_id();
         assert_eq!(id.len(), 16);
         assert_eq!(id, prompt_set_id());
+        // Libraries scored from the timing-dependent reading (CUL2's id)
+        // are scored again.
+        assert_ne!(id, "4f4b591d2dbc24d9");
     }
 
     #[test]

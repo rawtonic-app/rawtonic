@@ -96,6 +96,17 @@ pub struct ImportReport {
     /// their model runs when the photo is opened in Develop, so exports
     /// before that leave those masks' layers without effect.
     pub ai_masks_on_open: usize,
+    /// Smart collections left out, each with the criterion that has no
+    /// counterpart (never imported with other rules or other members).
+    pub smart_albums_skipped: Vec<String>,
+    /// Albums with a virtual copy among their members: a Rawtonic album
+    /// holds photographs, so it holds the copy's photograph.
+    pub copies_in_albums: Vec<String>,
+    /// Smart albums imported on camera, lens, ISO or capture date: the
+    /// catalog fills them as the background pass reads the files, and
+    /// camera and lens words are matched in the name the file states, not
+    /// as Lightroom does, so they can differ from Lightroom's.
+    pub smart_albums_by_facts: Vec<String>,
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -155,6 +166,49 @@ pub fn smart_rule(rules: &SmartRules) -> Option<Rule> {
     Some(Rule::Group { combine, rules })
 }
 
+/// What a smart collection's rules depend on that the catalog reads from
+/// the files after the import: `Some(note)` for camera, lens, ISO or
+/// capture date. The catalog finds camera and lens words anywhere in the
+/// name the file states, Lightroom whole words in names from its own
+/// tables, so those members can differ.
+fn smart_rule_facts_note(rules: &SmartRules) -> Option<&'static str> {
+    const TEXT: &str = "filled as the files' capture data is read; camera and lens words match anywhere in the name the file states, Lightroom matches whole words in names from its own tables, so the members can differ";
+    const FACTS: &str = "filled as the files' capture data is read";
+    rules
+        .rules
+        .iter()
+        .filter_map(|rule| match rule {
+            SmartRule::Group(group) => smart_rule_facts_note(group),
+            SmartRule::Condition { criteria, .. } => match criteria.as_str() {
+                "camera" | "lens" => Some(TEXT),
+                "isoSpeedRating" | "captureTime" => Some(FACTS),
+                _ => None,
+            },
+        })
+        .max_by_key(|note| note.len())
+}
+
+/// What stops a smart collection's rules from translating: the first
+/// criterion (or combination) without a counterpart, named as Lightroom
+/// names it.
+pub fn smart_rule_gap(rules: &SmartRules) -> Option<String> {
+    if !matches!(rules.combine.as_str(), "intersect" | "union" | "exclude") {
+        return Some(format!("combination “{}”", rules.combine));
+    }
+    rules.rules.iter().find_map(|rule| match rule {
+        SmartRule::Group(group) => smart_rule_gap(group),
+        SmartRule::Condition {
+            criteria,
+            operation,
+            value,
+            value2,
+            units,
+        } => smart_condition(criteria, operation, value, value2, units.as_deref())
+            .is_none()
+            .then(|| format!("“{criteria}” ({operation})")),
+    })
+}
+
 fn smart_condition(
     criteria: &str,
     operation: &str,
@@ -203,6 +257,81 @@ fn smart_condition(
             let op = compare(operation).filter(|op| matches!(op, Op::Is | Op::IsNot))?;
             (Field::Label, op, json!(label))
         }
+        // Lightroom's camera name is the maker and the model ("Canon EOS
+        // 600D"); the catalog keeps them apart, so a word is looked for in
+        // either. A whole name has no column to compare with.
+        "camera" => {
+            let in_either = |op: Op, words: &str| {
+                [Field::Camera, Field::Make]
+                    .into_iter()
+                    .map(|field| Rule::Condition {
+                        field,
+                        op,
+                        value: json!(words),
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let either = |op: Op, words: &str| Rule::Group {
+                combine: Combine::Any,
+                rules: in_either(op, words),
+            };
+            return match operation {
+                "words" | "all" => Some(Rule::Group {
+                    combine: Combine::All,
+                    rules: text(value)?
+                        .split_whitespace()
+                        .map(|word| either(Op::Contains, word))
+                        .collect(),
+                }),
+                "any" => Some(either(Op::ContainsAny, &text(value)?)),
+                "noneOf" => Some(Rule::Group {
+                    combine: Combine::None,
+                    rules: in_either(Op::ContainsAny, &text(value)?),
+                }),
+                "empty" | "notEmpty" => Some(Rule::Condition {
+                    field: Field::Camera,
+                    op: if operation == "empty" {
+                        Op::Empty
+                    } else {
+                        Op::NotEmpty
+                    },
+                    value: Value::Null,
+                }),
+                _ => None,
+            };
+        }
+        // Text of the photograph's own facts: Lightroom's word search and
+        // comparisons, as the catalog's.
+        "lens" | "filename" => {
+            let op = match operation {
+                "words" | "all" => Op::Contains,
+                "any" => Op::ContainsAny,
+                "noneOf" => Op::NotContains,
+                "==" => Op::Is,
+                "!=" => Op::IsNot,
+                "beginsWith" => Op::StartsWith,
+                "endsWith" => Op::EndsWith,
+                "empty" => Op::Empty,
+                "notEmpty" => Op::NotEmpty,
+                _ => return None,
+            };
+            let field = if criteria == "lens" {
+                Field::Lens
+            } else {
+                Field::Filename
+            };
+            let value = match op {
+                Op::Empty | Op::NotEmpty => Value::Null,
+                _ => json!(text(value)?),
+            };
+            (field, op, value)
+        }
+        "isoSpeedRating" if operation == "in" => (
+            Field::Iso,
+            Op::Between,
+            json!([number(value)?, number(value2)?]),
+        ),
+        "isoSpeedRating" => (Field::Iso, compare(operation)?, json!(number(value)?)),
         "keywords" => {
             let op = match operation {
                 "any" => Op::ContainsAny,
@@ -296,7 +425,14 @@ pub fn translate(develop: &Develop) -> Option<Value> {
 }
 
 fn import_warnings(photo: &Photo) -> Vec<String> {
-    let layers = crate::capture_one_layers::report(&photo.capture_one_layers);
+    let mut layers = match &photo.develop {
+        Develop::CaptureOne(entries) => capture_one_shadows_report(entries)
+            .into_iter()
+            .chain(capture_one_lens_report(entries))
+            .collect(),
+        _ => Vec::new(),
+    };
+    layers.extend(crate::capture_one_layers::report(&photo.capture_one_layers));
     let layers = layers
         .into_iter()
         .map(|line| format!("{}: {line}", photo.path.display()));
@@ -322,6 +458,7 @@ fn import_warnings(photo: &Photo) -> Vec<String> {
                 crate::preset_converter::tone_curve_warning(xmp),
                 crate::preset_converter::point_color_overflow_warning(xmp),
                 crate::preset_converter::lightroom_subtract_warning(xmp).map(str::to_string),
+                crate::preset_converter::skipped_masks_warning(xmp),
             ]
             .into_iter()
             .flatten()
@@ -395,6 +532,13 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
     // are reused.
     let existing = catalog.collections().map_err(|e| e.to_string())?;
     let mut created: HashMap<&str, String> = HashMap::new();
+    report.smart_albums_skipped.extend(
+        source
+            .not_read
+            .smart_album_names
+            .iter()
+            .map(|name| format!("{name}: its rules could not be read")),
+    );
     let mut pending: Vec<&rawtonic_interop::Album> = source.albums.iter().collect();
     while !pending.is_empty() {
         let before = pending.len();
@@ -414,11 +558,29 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
             let smart = match &album.smart {
                 Some(rules) => match smart_rule(rules) {
                     Some(rule) => Some(rule),
-                    // Announced in the preview as not imported.
-                    None => continue,
+                    // Announced in the preview as not imported, named here.
+                    None => {
+                        report.smart_albums_skipped.push(format!(
+                            "{}: no counterpart for {}",
+                            album.name,
+                            album
+                                .smart
+                                .as_ref()
+                                .and_then(smart_rule_gap)
+                                .unwrap_or_else(|| "its rules".into())
+                        ));
+                        continue;
+                    }
                 },
                 None => None,
             };
+            if smart.is_some()
+                && let Some(note) = album.smart.as_ref().and_then(smart_rule_facts_note)
+            {
+                report
+                    .smart_albums_by_facts
+                    .push(format!("{}: {note}", album.name));
+            }
             let kind = if album.is_group {
                 GROUP
             } else if smart.is_some() {
@@ -458,12 +620,27 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                     .photos
                     .iter()
                     .filter_map(|key| {
-                        let key = source
-                            .photos
-                            .iter()
-                            .find(|p| &p.key == key)
-                            .map(|p| p.copy_of.as_deref().unwrap_or(&p.key))?;
-                        assets.get(key).cloned()
+                        let photo = source.photos.iter().find(|p| &p.key == key)?;
+                        let member = assets
+                            .get(photo.copy_of.as_deref().unwrap_or(&photo.key))
+                            .cloned()?;
+                        if photo.copy_of.is_some() {
+                            report.copies_in_albums.push(format!(
+                                "{}: {}{}",
+                                album.name,
+                                photo
+                                    .path
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().into_owned())
+                                    .unwrap_or_default(),
+                                photo
+                                    .copy_name
+                                    .as_ref()
+                                    .map(|n| format!(" ({n})"))
+                                    .unwrap_or_default()
+                            ));
+                        }
+                        Some(member)
                     })
                     .collect();
                 if !members.is_empty() {
@@ -531,9 +708,9 @@ fn stack_id(source_name: &str, key: &str) -> String {
 }
 
 /// Whether the translated edit holds AI masks whose data a model computes
-/// when the photo is opened or exported (`ai-foreground`, `ai-sky` without
-/// data; `ai_selections::detect_missing`).
-fn has_ai_masks_on_open(adjustments: &Value) -> bool {
+/// when the photo is opened or exported (`ai-foreground`, `ai-sky`,
+/// `ai-landscape` without data; `ai_selections::detect_missing`).
+pub(crate) fn has_ai_masks_on_open(adjustments: &Value) -> bool {
     adjustments[masks::MASKS.name()]
         .as_array()
         .into_iter()
@@ -541,8 +718,10 @@ fn has_ai_masks_on_open(adjustments: &Value) -> bool {
         .filter_map(|layer| layer[masks::SUB_MASKS.name()].as_array())
         .flatten()
         .any(|sub| {
-            matches!(sub["type"].as_str(), Some("ai-foreground" | "ai-sky"))
-                && sub["parameters"]["maskDataBase64"].is_null()
+            matches!(
+                sub["type"].as_str(),
+                Some("ai-foreground" | "ai-sky" | "ai-landscape")
+            ) && sub["parameters"]["maskDataBase64"].is_null()
         })
 }
 
@@ -600,13 +779,24 @@ fn recipe_for_with(
     lens: LensOf,
 ) -> Option<(Value, bool)> {
     let translated = translate(develop);
-    let edited = translated.is_some();
-    if !edited && c1_layers.is_empty() {
-        return None;
-    }
-    let mut adjustments = translated.unwrap_or_else(|| json!({}));
+    let mut adjustments = translated.clone().unwrap_or_else(|| json!({}));
+    // Capture One's lens choice and CA switch are edits of their own: a
+    // variant with only those comes over too.
     if let Develop::CaptureOne(entries) = develop {
         capture_one_lens(entries, path, &mut adjustments);
+        capture_one_chromatic_aberration(entries, path, &mut adjustments);
+    }
+    // An HDR edit whose settings the converter does not translate is still
+    // an imported edit: its HDR settings are kept (below).
+    let hdr = match develop {
+        Develop::LightroomXmp(xmp) => rawtonic_interop::lightroom_hdr::hdr_settings(xmp),
+        _ => Default::default(),
+    };
+    let edited = translated.is_some()
+        || !hdr.is_empty()
+        || adjustments.as_object().is_some_and(|m| !m.is_empty());
+    if !edited && c1_layers.is_empty() {
+        return None;
     }
     let is_raw = crate::formats::is_raw_file(path);
     let mut base = json!({});
@@ -642,7 +832,27 @@ fn recipe_for_with(
     // Capture One's local adjustment layers (`capture_one_layers`), above
     // any the photo's settings brought, their gradients through the lens
     // correction of the recipe as it renders (its frame stamped above).
+    // Capture One's Shadow comes over as the amount that lifts as far
+    // (`costyle::shadows_amount`, the unit of carried settings), the photo's
+    // and its layers'; the recipe holds it as its tone version's slider value.
+    if matches!(develop, Develop::CaptureOne(_)) {
+        rawtonic_engine::image_processing::express_shadows_amounts(&mut adjustments);
+    }
     let layers = capture_one_layers(c1_layers, path, &adjustments, lens);
+    let layers = {
+        let mut layered = json!({
+            rawtonic_engine::image_processing::TONE_VERSION_KEY: adjustments
+                .get(rawtonic_engine::image_processing::TONE_VERSION_KEY)
+                .cloned()
+                .unwrap_or(Value::Null),
+            rawtonic_recipe::masks::MASKS.name(): layers,
+        });
+        rawtonic_engine::image_processing::express_shadows_amounts(&mut layered);
+        match layered[rawtonic_recipe::masks::MASKS.name()].take() {
+            Value::Array(layers) => layers,
+            _ => Vec::new(),
+        }
+    };
     if !edited && layers.is_empty() {
         return None;
     }
@@ -660,6 +870,16 @@ fn recipe_for_with(
     }
     let mut clipped = false;
     if let Develop::LightroomXmp(xmp) = develop {
+        // An HDR edit is not rendered (SDR only) but kept for the sidecar
+        // (`rawtonic_interop::lightroom_hdr`).
+        if !hdr.is_empty()
+            && let Some(map) = adjustments.as_object_mut()
+        {
+            map.insert(
+                rawtonic_interop::lightroom_hdr::LIGHTROOM_HDR_KEY.into(),
+                json!(hdr),
+            );
+        }
         let attrs = crate::preset_converter::crs_attributes(xmp);
         lightroom_lens(&attrs, path, &mut adjustments);
         clipped = lightroom_crop(&attrs, path, &mut adjustments);
@@ -823,9 +1043,104 @@ fn capture_one_lens_amounts(entries: &[(String, String)]) -> Option<(Option<f64>
             .filter(|v| v.is_finite())
             .map(|v| v.clamp(0.0, 200.0))
     };
-    get("LensIdGuid").filter(|v| !v.trim().is_empty())?;
+    get("LensIdGuid").filter(|v| !v.trim().is_empty() && !is_generic_lens(v))?;
     let amounts = (amount("LensGeoAbr"), amount("LensLightFallOff"));
     (amounts.0.is_some() || amounts.1.is_some()).then_some(amounts)
+}
+
+/// The `LensIdGuid` of Capture One's "Generic" lens profile, the one it
+/// uses for a lens it has no profile of: seen the same on Olympus, Canon,
+/// Leaf and DNG files of Capture One 16.6–16.9 (notes:
+/// benchmark-results/c1q1-2026-11-21/). It holds no data of the lens, so
+/// its Distortion and Light Falloff amounts scale a generic model, not the
+/// lens's own correction.
+const CAPTURE_ONE_GENERIC_LENS: &str = "E936EE15-75CA-42EC-9602-629D90D9947E";
+
+fn is_generic_lens(guid: &str) -> bool {
+    guid.trim().eq_ignore_ascii_case(CAPTURE_ONE_GENERIC_LENS)
+}
+
+/// The entry `key` of Capture One's settings.
+fn capture_one_entry<'a>(entries: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    entries
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.trim())
+}
+
+/// The import report's line for a Capture One Shadow that lifts (or
+/// darkens) further than Rawtonic's Shadows reach (`costyle::shadows_amount`).
+fn capture_one_shadows_report(entries: &[(String, String)]) -> Option<String> {
+    let shadow = capture_one_entry(entries, "ShadowRecovery")?
+        .parse::<f64>()
+        .ok()
+        .filter(|v| crate::costyle::shadows_beyond_reach(*v))?;
+    let end = if shadow > 0.0 { "+100" } else { "-100" };
+    Some(format!(
+        "Capture One's Shadow {shadow:+} reaches further than Rawtonic's Shadows: set to {end}"
+    ))
+}
+
+/// The import report's lines for Capture One's lens settings Rawtonic does
+/// not take over as they are: the Generic profile (the photo keeps
+/// Rawtonic's default correction for its lens, never a lens profile picked
+/// in its place) with the amounts set on it, which have no measured
+/// equivalent on Rawtonic's sliders; and an analysed chromatic aberration
+/// curve (Rawtonic measures the photo's own CA instead).
+fn capture_one_lens_report(entries: &[(String, String)]) -> Vec<String> {
+    let mut out = Vec::new();
+    if capture_one_entry(entries, "LensIdGuid").is_some_and(is_generic_lens) {
+        out.push(
+            "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies"
+                .to_string(),
+        );
+        for (key, name) in [
+            ("LensGeoAbr", "Distortion"),
+            ("LensLightFallOff", "Light Falloff"),
+        ] {
+            let amount = capture_one_entry(entries, key)
+                .and_then(|v| v.split('|').nth(1))
+                .and_then(|v| v.trim().parse::<f64>().ok())
+                .filter(|v| v.is_finite() && *v != 0.0);
+            if let Some(amount) = amount {
+                out.push(format!(
+                    "Capture One's {name} {amount} with the Generic profile not carried (no measured equivalent)"
+                ));
+            }
+        }
+    }
+    if capture_one_entry(entries, "LensChromAbrCustomCurve").is_some_and(|v| !v.is_empty()) {
+        out.push(
+            "Capture One's analysed chromatic aberration curve not carried (Rawtonic measures the photo's own)"
+                .to_string(),
+        );
+    }
+    out
+}
+
+/// Capture One's Chromatic Aberration switch as Rawtonic's CA correction:
+/// on is the correction on (a RAW's new edit has it on by default, the
+/// automatic correction of `lateral_ca`; other files get its switch on);
+/// off turns off both the automatic correction and the lens data's own.
+/// Not set (Capture One's default left alone) keeps Rawtonic's default.
+fn capture_one_chromatic_aberration(
+    entries: &[(String, String)],
+    path: &Path,
+    adjustments: &mut Value,
+) {
+    let Some(map) = adjustments.as_object_mut() else {
+        return;
+    };
+    match capture_one_entry(entries, "ChromaticAberEnabled") {
+        Some("0") => {
+            map.insert(lens::AUTO_CHROMATIC_ABERRATION.name().into(), json!(false));
+            map.insert(lens::TCA_ENABLED.name().into(), json!(false));
+        }
+        Some("1") if !crate::formats::is_raw_file(path) => {
+            map.insert(lens::AUTO_CHROMATIC_ABERRATION.name().into(), json!(true));
+        }
+        _ => {}
+    }
 }
 
 /// Lightroom's lens profile corrections on Rawtonic's own lens data
@@ -1229,10 +1544,10 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
         };
-        let curve = "0.0,0.0000;8037.0,-32.7000;22513.0,-922.2000";
+        let curve = "0,0;1000,-10;2000,-40";
         let on = entries(
             &format!("{curve}|100.0|1|100|-1.0"),
-            "3004.0,-0.0150|0.0|1",
+            "1000,-0.01|0.0|1",
             "G",
         );
         assert_eq!(
@@ -1241,7 +1556,7 @@ mod tests {
         );
         let half = entries(&format!("{curve}|50.0|1|100|-1.0"), "", "G");
         assert_eq!(capture_one_lens_amounts(&half), Some((Some(50.0), None)));
-        let falloff_only = entries("", "3004.0,-0.0150|40.0|1", "G");
+        let falloff_only = entries("", "1000,-0.01|40.0|1", "G");
         assert_eq!(
             capture_one_lens_amounts(&falloff_only),
             Some((None, Some(40.0)))
@@ -1259,11 +1574,7 @@ mod tests {
         fs::write(&path, b"not a raw").unwrap();
         // Both amounts 0: the photo is neither moved nor brightened,
         // whatever the default.
-        let off = entries(
-            &format!("{curve}|0.0|1|100|-1.0"),
-            "3004.0,-0.0150|0.0|1",
-            "G",
-        );
+        let off = entries(&format!("{curve}|0.0|1|100|-1.0"), "1000,-0.01|0.0|1", "G");
         let mut adjustments = json!({});
         capture_one_lens(&off, &path, &mut adjustments);
         assert_eq!(
@@ -1280,6 +1591,109 @@ mod tests {
         let mut adjustments = json!({"lensCorrectionMode": "manual"});
         capture_one_lens(&off, &path, &mut adjustments);
         assert_eq!(adjustments, json!({"lensCorrectionMode": "manual"}));
+    }
+
+    /// C1Q1: Capture One's Generic lens profile (no profile of the lens) is
+    /// not swapped for a lens profile: the photo keeps Rawtonic's default
+    /// for its lens, and the report says so and names Generic amounts that
+    /// have no measured equivalent. Chromatic Aberration on/off is carried
+    /// as Rawtonic's CA correction on/off.
+    #[test]
+    fn capture_one_generic_lens_and_chromatic_aberration() {
+        let entries = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let generic = entries(&[
+            ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),
+            ("LensGeoAbr", "0,0;1000,-10;2000,-40|30.0|1|100|-1"),
+            ("LensLightFallOff", "|0.0|1"),
+            ("ChromaticAberEnabled", "1"),
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.ORF");
+        fs::write(&raw, b"not a raw").unwrap();
+        // No lens profile in Capture One: no amounts to put on one.
+        assert_eq!(capture_one_lens_amounts(&generic), None);
+        let mut adjustments = json!({});
+        capture_one_lens(&generic, &raw, &mut adjustments);
+        assert_eq!(adjustments, json!({}), "the default lens correction stays");
+        assert_eq!(
+            capture_one_lens_report(&generic),
+            [
+                "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies",
+                "Capture One's Distortion 30 with the Generic profile not carried (no measured equivalent)",
+            ]
+        );
+        let warnings =
+            import_warnings(&photo("1", raw.clone(), Develop::CaptureOne(generic), None));
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert!(warnings[0].starts_with(&raw.display().to_string()));
+        // A Generic profile left at 0 is said once, with nothing left out.
+        let untouched = entries(&[
+            ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),
+            ("LensGeoAbr", "0,0;1000,-10|0.000000|1|100|-1"),
+            ("LensLightFallOff", "|0|1"),
+        ]);
+        assert_eq!(capture_one_lens_report(&untouched).len(), 1);
+        // A lens profile of Capture One's own reports nothing.
+        let profiled = entries(&[
+            ("LensIdGuid", "P"),
+            ("LensGeoAbr", "0,0;1000,-10|60.0|1|100|-1"),
+            ("ChromaticAberEnabled", "1"),
+        ]);
+        assert!(capture_one_lens_report(&profiled).is_empty());
+
+        // Chromatic Aberration: on is Rawtonic's CA correction on (by default
+        // on a RAW's new edit, set on other files), off turns it off.
+        let tiff = dir.path().join("a.tif");
+        let ca = |on: &str, path: &Path| {
+            let mut adjustments = json!({});
+            capture_one_chromatic_aberration(
+                &entries(&[("ChromaticAberEnabled", on)]),
+                path,
+                &mut adjustments,
+            );
+            adjustments
+        };
+        assert_eq!(ca("1", &raw), json!({}));
+        assert_eq!(ca("1", &tiff), json!({"autoChromaticAberration": true}));
+        let off = json!({"autoChromaticAberration": false, "lensTcaEnabled": false});
+        assert_eq!(ca("0", &raw), off);
+        assert_eq!(ca("0", &tiff), off);
+        let mut adjustments = json!({});
+        capture_one_chromatic_aberration(&entries(&[]), &raw, &mut adjustments);
+        assert_eq!(
+            adjustments,
+            json!({}),
+            "not set in Capture One: the default"
+        );
+        // Capture One's analysed CA curve has no Rawtonic counterpart.
+        let analysed = entries(&[
+            ("ChromaticAberEnabled", "1"),
+            ("LensChromAbrCustomCurve", "0,0;1000,1|0,0;1000,-1"),
+        ]);
+        assert_eq!(
+            capture_one_lens_report(&analysed),
+            [
+                "Capture One's analysed chromatic aberration curve not carried (Rawtonic measures the photo's own)"
+            ]
+        );
+        // Through the whole recipe: a RAW with CA off renders without it,
+        // also when that is the variant's only edit.
+        for develop in [
+            entries(&[("Exposure", "0.5"), ("ChromaticAberEnabled", "0")]),
+            entries(&[("ChromaticAberEnabled", "0")]),
+        ] {
+            let (recipe, _) = recipe_for(&Develop::CaptureOne(develop), &[], &raw).unwrap();
+            assert_eq!(recipe["autoChromaticAberration"], false);
+            assert_eq!(recipe["lensTcaEnabled"], false);
+        }
+        // CA on is Rawtonic's default: nothing to import.
+        let on = entries(&[("ChromaticAberEnabled", "1")]);
+        assert!(recipe_for(&Develop::CaptureOne(on), &[], &raw).is_none());
     }
 
     fn photo(key: &str, path: PathBuf, develop: Develop, copy_of: Option<&str>) -> Photo {
@@ -1533,6 +1947,128 @@ mod tests {
         assert!(translate(&Develop::None).is_none());
     }
 
+    /// Capture One's Shadow comes over as the Shadows value that lifts the
+    /// darkest quarter as far (notes: benchmark-results/shg4-2026-11-22), in
+    /// the new edit's tone response, the photo's and its layers'; beyond
+    /// Rawtonic's reach it is +100 with a report line. Lightroom's Shadows
+    /// stays the same value (tone version 21 moves at Camera Raw's pace).
+    #[test]
+    fn capture_one_shadow_lifts_as_far_and_lightroom_shadows_stays() {
+        let none = |_: &Value, _: &Path| None;
+        let path = Path::new("missing/a.NEF");
+        let c1 = |shadow: &str| {
+            recipe_for_with(
+                &Develop::CaptureOne(vec![("ShadowRecovery".into(), shadow.into())]),
+                &[],
+                path,
+                &none,
+            )
+            .unwrap()
+            .0
+        };
+        let tone = rawtonic_engine::recipe_versions::ToneVersion::of(
+            &json!({"toneVersion": rawtonic_engine::image_processing::TONE_VERSION}),
+        );
+        for (shadow, amount) in [("20", 59.0), ("-30", -48.6), ("50", 92.6)] {
+            let recipe = c1(shadow);
+            assert_eq!(
+                recipe["toneVersion"].as_u64(),
+                Some(rawtonic_engine::image_processing::TONE_VERSION)
+            );
+            let value = recipe["shadows"].as_f64().unwrap();
+            assert!(
+                (tone.shadows_amount(value) - amount).abs() < 1e-6,
+                "{shadow}: {value}"
+            );
+        }
+        // Capture One's +20 is about Rawtonic's +48 (version 20's +59).
+        assert!((c1("20")["shadows"].as_f64().unwrap() - 47.9).abs() < 0.1);
+        assert_eq!(c1("80")["shadows"], json!(100.0));
+        assert_eq!(c1("-60")["shadows"], json!(-100.0));
+        let report = |shadow: &str| {
+            capture_one_shadows_report(&[("ShadowRecovery".to_string(), shadow.to_string())])
+        };
+        assert!(report("80").is_some_and(|line| line.contains("+80") && line.contains("+100")));
+        assert!(report("-60").is_some_and(|line| line.contains("-100")));
+        assert!(report("60").is_none() && report("-40").is_none());
+        let lr = recipe_for_with(
+            &Develop::LightroomXmp(
+                r#"<rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Shadows2012="+50"/>"#.into(),
+            ),
+            &[],
+            path,
+            &none,
+        )
+        .unwrap()
+        .0;
+        assert_eq!(lr["shadows"].as_f64(), Some(50.0));
+        // A Capture One layer's Shadow, also on a photo without develop
+        // settings of its own: the same value as on the photo.
+        use rawtonic_interop::capture_one::Layer;
+        use rawtonic_interop::capture_one_masks::Mask;
+        let layer = |shadow: &str| Layer {
+            name: "Shadow".into(),
+            enabled: true,
+            opacity: 100.0,
+            settings: vec![("ShadowRecovery".into(), shadow.into())],
+            mask: Mask::Linear {
+                start: (100.0, 50.0),
+                end: (100.0, 150.0),
+                midpoint: 0.5,
+            },
+            frame: (600.0, 400.0),
+        };
+        for develop in [
+            Develop::None,
+            Develop::CaptureOne(vec![("ShadowRecovery".into(), "20".into())]),
+        ] {
+            let (recipe, _) = recipe_for_with(&develop, &[layer("20")], path, &none).unwrap();
+            let value = recipe["masks"][0]["adjustments"]["shadows"]
+                .as_f64()
+                .unwrap();
+            assert!((tone.shadows_amount(value) - 59.0).abs() < 1e-6, "{value}");
+            if let Some(photo) = recipe["shadows"].as_f64() {
+                assert!((tone.shadows_amount(photo) - 59.0).abs() < 1e-6, "{photo}");
+            }
+        }
+    }
+
+    /// A Lightroom HDR edit keeps its `crs:HDR…`/`crs:SDR…` settings in the
+    /// recipe (they are written back to the sidecar, `rawtonic_metadata`);
+    /// a recipe of a photo without them has no such key.
+    #[test]
+    fn lightroom_hdr_settings_are_kept_with_the_recipe_and_absent_otherwise() {
+        let hdr = r#"s = { Exposure2012 = 0.5, HDREditMode = 1, HDRMaxValue = 4, SDRBrightness = 12, SDRBlend = 0.5 }"#;
+        let xmp = rawtonic_interop::lightroom_settings::to_xmp(hdr).unwrap();
+        let path = Path::new("A.NEF");
+        let (adjustments, _) =
+            recipe_for(&Develop::LightroomXmp(xmp), &[], path).expect("translated");
+        let kept = &adjustments[rawtonic_interop::lightroom_hdr::LIGHTROOM_HDR_KEY];
+        assert_eq!(kept["HDREditMode"], "1");
+        assert_eq!(kept["HDRMaxValue"], "4");
+        assert_eq!(kept["SDRBrightness"], "12");
+        assert_eq!(adjustments["exposure"], 0.5);
+
+        // Settings the converter has nothing to translate keep the HDR edit.
+        let only = rawtonic_interop::lightroom_settings::to_xmp("s = { HDREditMode = 1 }").unwrap();
+        let (adjustments, _) =
+            recipe_for(&Develop::LightroomXmp(only), &[], path).expect("kept as an edit");
+        assert_eq!(
+            adjustments[rawtonic_interop::lightroom_hdr::LIGHTROOM_HDR_KEY]["HDREditMode"],
+            "1"
+        );
+
+        let plain =
+            rawtonic_interop::lightroom_settings::to_xmp("s = { Exposure2012 = 0.5 }").unwrap();
+        let (adjustments, _) =
+            recipe_for(&Develop::LightroomXmp(plain), &[], path).expect("translated");
+        assert!(
+            adjustments
+                .get(rawtonic_interop::lightroom_hdr::LIGHTROOM_HDR_KEY)
+                .is_none()
+        );
+    }
+
     /// A catalog's Guided Upright (its develop settings as Lua) keeps its
     /// guides on the way to the XMP the import reads them from.
     #[test]
@@ -1565,6 +2101,9 @@ mod tests {
                 ),
                 photo("2", photos.join("Gone.NEF"), Develop::None, None),
                 photo("3", photos.join("A.NEF"), Develop::None, Some("1")),
+                // A copy of a photograph that is not there: no member, no
+                // claim that its photograph was added.
+                photo("4", photos.join("Gone.NEF"), Develop::None, Some("2")),
             ],
             albums: vec![
                 Album {
@@ -1580,7 +2119,7 @@ mod tests {
                     name: "Italy".into(),
                     parent: Some("10".into()),
                     is_group: false,
-                    photos: vec!["1".into(), "3".into()],
+                    photos: vec!["1".into(), "3".into(), "4".into()],
                     smart: None,
                 },
                 Album {
@@ -1625,8 +2164,14 @@ mod tests {
                 report.copies,
                 report.albums
             ),
-            (1, 1, 1, 0, 1, 2)
+            (1, 1, 1, 1, 1, 2)
         );
+        // What was left out or became something else is named, never silent.
+        assert_eq!(
+            report.smart_albums_skipped,
+            ["Recently edited: no counterpart for “touchTime” (inLast)"]
+        );
+        assert_eq!(report.copies_in_albums, ["Italy: A.NEF"]);
         let asset = catalog.asset_at(&photos.join("A.NEF")).unwrap().unwrap();
         let meta = catalog.metadata(&asset.id).unwrap();
         assert_eq!((meta.rating, meta.label.as_str(), meta.flag), (4, "Red", 1));
@@ -2005,6 +2550,43 @@ mod tests {
 
     /// Lightroom's smart collection criteria as smart album rules; one
     /// criterion without a counterpart leaves the whole collection out.
+    /// The criterion that keeps a collection out is named, also inside
+    /// nested groups, as Lightroom names it.
+    #[test]
+    fn the_untranslatable_criterion_of_a_smart_collection_is_named() {
+        let rules = |combine: &str, rules: Vec<SmartRule>| SmartRules {
+            combine: combine.into(),
+            rules,
+        };
+        let nested = rules(
+            "intersect",
+            vec![
+                condition("rating", ">=", SmartValue::Number(3.0)),
+                SmartRule::Group(rules(
+                    "union",
+                    vec![
+                        condition("labelColor", "==", SmartValue::Number(1.0)),
+                        condition("aspectRatio", "==", SmartValue::Text("landscape".into())),
+                    ],
+                )),
+            ],
+        );
+        assert_eq!(
+            smart_rule_gap(&nested).as_deref(),
+            Some("“aspectRatio” (==)")
+        );
+        assert!(smart_rule(&nested).is_none());
+        assert_eq!(
+            smart_rule_gap(&rules("sideways", vec![])).as_deref(),
+            Some("combination “sideways”")
+        );
+        let fine = rules(
+            "intersect",
+            vec![condition("rating", ">=", SmartValue::Number(3.0))],
+        );
+        assert_eq!(smart_rule_gap(&fine), None);
+    }
+
     #[test]
     fn lightroom_smart_collections_translate() {
         let rules = |combine: &str, rules: Vec<SmartRule>| SmartRules {
@@ -2058,6 +2640,253 @@ mod tests {
         ] {
             assert!(smart_rule(&rules("intersect", vec![unknown])).is_none());
         }
+    }
+
+    /// Camera, lens, file name and ISO criteria of a Lightroom smart
+    /// collection translate to the catalog's own fields; criteria the
+    /// catalog has no field for stay out (`smart_rule_gap` names them).
+    #[test]
+    fn lightroom_camera_lens_file_name_and_iso_criteria_translate() {
+        let one = |criteria: &str, operation: &str, value: SmartValue| {
+            smart_rule(&SmartRules {
+                combine: "intersect".into(),
+                rules: vec![condition(criteria, operation, value)],
+            })
+            .map(|rule| serde_json::to_value(&rule).unwrap()["rules"][0].clone())
+        };
+        let text = |t: &str| SmartValue::Text(t.into());
+        for (criteria, operation, value, expected) in [
+            (
+                "camera",
+                "words",
+                text("Canon EOS"),
+                json!({"combine": "all", "rules": [
+                {"combine": "any", "rules": [
+                    {"field": "camera", "op": "contains", "value": "Canon"},
+                    {"field": "make", "op": "contains", "value": "Canon"}]},
+                {"combine": "any", "rules": [
+                    {"field": "camera", "op": "contains", "value": "EOS"},
+                    {"field": "make", "op": "contains", "value": "EOS"}]}]}),
+            ),
+            (
+                "camera",
+                "any",
+                text("Canon Nikon"),
+                json!({"combine": "any", "rules": [
+                {"field": "camera", "op": "containsAny", "value": "Canon Nikon"},
+                {"field": "make", "op": "containsAny", "value": "Canon Nikon"}]}),
+            ),
+            (
+                "camera",
+                "noneOf",
+                text("Canon"),
+                json!({"combine": "none", "rules": [
+                {"field": "camera", "op": "containsAny", "value": "Canon"},
+                {"field": "make", "op": "containsAny", "value": "Canon"}]}),
+            ),
+            (
+                "camera",
+                "notEmpty",
+                SmartValue::None,
+                json!({"field": "camera", "op": "notEmpty"}),
+            ),
+            (
+                "lens",
+                "words",
+                text("TAMRON"),
+                json!({"field": "lens", "op": "contains", "value": "TAMRON"}),
+            ),
+            (
+                "lens",
+                "beginsWith",
+                text("EF"),
+                json!({"field": "lens", "op": "startsWith", "value": "EF"}),
+            ),
+            (
+                "lens",
+                "notEmpty",
+                SmartValue::None,
+                json!({"field": "lens", "op": "notEmpty"}),
+            ),
+            (
+                "filename",
+                "beginsWith",
+                text("17"),
+                json!({"field": "filename", "op": "startsWith", "value": "17"}),
+            ),
+            (
+                "filename",
+                "endsWith",
+                text(".DNG"),
+                json!({"field": "filename", "op": "endsWith", "value": ".DNG"}),
+            ),
+            (
+                "isoSpeedRating",
+                ">=",
+                SmartValue::Number(800.0),
+                json!({"field": "iso", "op": "ge", "value": 800.0}),
+            ),
+            (
+                "isoSpeedRating",
+                "==",
+                SmartValue::Number(100.0),
+                json!({"field": "iso", "op": "is", "value": 100.0}),
+            ),
+        ] {
+            assert_eq!(
+                one(criteria, operation, value),
+                Some(expected),
+                "{criteria} {operation}"
+            );
+        }
+        let range = smart_rule(&SmartRules {
+            combine: "intersect".into(),
+            rules: vec![SmartRule::Condition {
+                criteria: "isoSpeedRating".into(),
+                operation: "in".into(),
+                value: SmartValue::Number(800.0),
+                value2: SmartValue::Number(1600.0),
+                units: None,
+            }],
+        })
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&range).unwrap()["rules"][0],
+            json!({"field": "iso", "op": "between", "value": [800.0, 1600.0]})
+        );
+        // Not Lightroom's id (it ignores it) and values the field cannot hold.
+        assert!(one("iso", ">=", SmartValue::Number(800.0)).is_none());
+        assert!(one("isoSpeedRating", ">=", text("800")).is_none());
+        assert!(one("camera", "words", SmartValue::Number(1.0)).is_none());
+        assert!(one("camera", "sideways", text("x")).is_none());
+        // A whole name ("Canon EOS 600D") is not the model the catalog reads.
+        assert!(one("camera", "==", text("Canon EOS 600D")).is_none());
+    }
+
+    /// The translated rules select photographs by the camera, lens, name
+    /// and ISO the catalog read from the files.
+    #[test]
+    fn translated_camera_lens_file_name_and_iso_rules_select_the_photographs() {
+        use rawtonic_catalog::CaptureFacts;
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let photos = tmp.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        // The camera model without its maker, as the catalog reads it.
+        let rows = [
+            ("17a.CR2", "EOS 5D Mark II", "EF50mm f/1.8", 100),
+            (
+                "18b.CR2",
+                "EOS 6D",
+                "TAMRON SP 17-50mm F/2.8 DiII A16E",
+                1600,
+            ),
+            ("19c.DNG", "M10", "Summicron-M 1:2/35 ASPH.", 800),
+            ("20d.NEF", "D80", "", 400),
+        ];
+        for (name, ..) in rows {
+            fs::write(photos.join(name), name).unwrap();
+        }
+        let source = Source {
+            name: "LR".into(),
+            photos: rows
+                .iter()
+                .map(|(name, ..)| photo(name, photos.join(name), Develop::None, None))
+                .collect(),
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        let album =
+            |key: &str, criteria: &str, operation: &str, word: &str| rawtonic_interop::Album {
+                key: key.into(),
+                name: format!("{criteria} {word}"),
+                parent: None,
+                is_group: false,
+                photos: vec![],
+                smart: Some(SmartRules {
+                    combine: "intersect".into(),
+                    rules: vec![condition(
+                        criteria,
+                        operation,
+                        SmartValue::Text(word.into()),
+                    )],
+                }),
+            };
+        let source = Source {
+            albums: vec![
+                album("a", "lens", "words", "TAMRON"),
+                album("b", "filename", "beginsWith", "1"),
+            ],
+            ..source
+        };
+        let report = import_into(&catalog, &source).unwrap();
+        // Camera and lens albums are named in the report (filled later,
+        // matched by text), the file-name album is not.
+        assert!(report.warnings.is_empty(), "{report:?}");
+        assert_eq!(report.smart_albums_by_facts.len(), 1, "{report:?}");
+        assert!(
+            report.smart_albums_by_facts[0].starts_with("lens TAMRON: filled as"),
+            "{report:?}"
+        );
+        for (name, model, lens, iso) in rows {
+            let id = catalog.asset_at(&photos.join(name)).unwrap().unwrap().id;
+            let make = if model.starts_with("EOS") {
+                "Canon"
+            } else {
+                "Leica"
+            };
+            catalog
+                .record_facts(
+                    &id,
+                    &CaptureFacts {
+                        make: Some(make.into()),
+                        model: Some(model.into()),
+                        lens: (!lens.is_empty()).then(|| lens.into()),
+                        iso: Some(iso),
+                        ..CaptureFacts::default()
+                    },
+                )
+                .unwrap();
+        }
+        let members = |criteria: &str, operation: &str, value: SmartValue| {
+            let rule = smart_rule(&SmartRules {
+                combine: "intersect".into(),
+                rules: vec![condition(criteria, operation, value)],
+            })
+            .unwrap();
+            let album = catalog.create_smart_collection("t", None, &rule).unwrap();
+            let mut names: Vec<String> = catalog
+                .collection_paths(&album.id)
+                .unwrap()
+                .iter()
+                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        };
+        let text = |t: &str| SmartValue::Text(t.into());
+        assert_eq!(
+            members("camera", "words", text("Canon")),
+            ["17a.CR2", "18b.CR2"]
+        );
+        assert_eq!(
+            members("camera", "words", text("canon eos 6d")),
+            ["18b.CR2"]
+        );
+        assert_eq!(
+            members("camera", "noneOf", text("Canon")),
+            ["19c.DNG", "20d.NEF"]
+        );
+        assert_eq!(members("lens", "words", text("TAMRON")), ["18b.CR2"]);
+        assert_eq!(
+            members("filename", "beginsWith", text("1")),
+            ["17a.CR2", "18b.CR2", "19c.DNG"]
+        );
+        assert_eq!(
+            members("isoSpeedRating", ">=", SmartValue::Number(800.0)),
+            ["18b.CR2", "19c.DNG"]
+        );
     }
 
     /// Capture One's raster masks (unrotated sensor frame) record the
@@ -2261,6 +3090,64 @@ ProcessVersion = "15.4" }}"#,
         );
     }
 
+    /// A Lightroom mask the import leaves out (here a Landscape mask with
+    /// the Snow part, which has no equivalent) is named in the report.
+    #[test]
+    fn skipped_lightroom_masks_are_named_in_the_report() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let path = tmp.path().join("IMG_3.jpg");
+        let mut jpeg = Vec::new();
+        image::DynamicImage::new_rgb8(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        fs::write(&path, &jpeg).unwrap();
+        let landscape = |id: u32| {
+            format!(
+                r#"<rdf:li crs:What="Mask/Image" crs:MaskSubType="0" crs:MaskSubCategoryID="{id}"/>"#
+            )
+        };
+        let xmp = format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:ProcessVersion="15.4">
+ <crs:MaskGroupBasedCorrections><rdf:Seq>
+  <rdf:li><rdf:Description crs:CorrectionName="Peaks" crs:LocalExposure2012="-0.1"><crs:CorrectionMasks><rdf:Seq>{}{}</rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li>
+  <rdf:li><rdf:Description crs:CorrectionName="Lake" crs:LocalExposure2012="0.1"><crs:CorrectionMasks><rdf:Seq>{}</rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li>
+ </rdf:Seq></crs:MaskGroupBasedCorrections></rdf:Description></rdf:RDF></x:xmpmeta>"#,
+            landscape(50002),
+            landscape(50008),
+            landscape(50007),
+        );
+        let source = Source {
+            name: "LR".into(),
+            photos: vec![photo("1", path.clone(), Develop::LightroomXmp(xmp), None)],
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        let report = import_into(&catalog, &source).unwrap();
+        assert_eq!((report.imported, report.ai_masks_on_open), (1, 1));
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.contains("Lightroom masks not imported") && w.contains("Peaks")),
+            "{:?}",
+            report.warnings
+        );
+        let asset = catalog.asset_at(&path).unwrap().unwrap();
+        let state = catalog.editor_state(&asset.id).unwrap().unwrap();
+        let masks = state["adjustments"]["masks"].as_array().unwrap();
+        assert_eq!(masks.len(), 1);
+        assert_eq!(
+            masks[0]["subMasks"][0]["parameters"]["parts"],
+            json!(["water"])
+        );
+    }
+
     #[test]
     fn lightroom_masks_are_imported_with_the_photos_orientation() {
         let tmp = tempfile::tempdir().unwrap();
@@ -2433,6 +3320,76 @@ ProcessVersion = "15.4" }}"#,
             not_read: NotRead::default(),
         };
         assert!(import_into(&session, &source).is_err());
+    }
+
+    /// Smart collection membership of an imported Lightroom catalog, as the
+    /// app shows it (`SMR_LRCAT`, photographs at their catalog paths,
+    /// `SMR_OUT` the scratch catalog and result files, which must not exist
+    /// yet). Importing writes the copies' `.rrdata` beside their
+    /// photographs: run it on scratch copies of the photographs.
+    #[test]
+    #[ignore = "tool: needs SMR_LRCAT and SMR_OUT"]
+    fn smart_collection_membership_of_a_lightroom_catalog() {
+        use std::sync::atomic::AtomicBool;
+        let lrcat = std::env::var("SMR_LRCAT").unwrap();
+        let out = std::path::PathBuf::from(std::env::var("SMR_OUT").unwrap());
+        fs::create_dir_all(&out).unwrap();
+        let catalog = Library::create(&out.join("Scratch"), "Scratch", Mode::Catalog).unwrap();
+        let (lib, kind) = read_source(Path::new(&lrcat)).unwrap();
+        let shown = preview(&lib, kind);
+        let report = import_into(&catalog, &lib).unwrap();
+        // The app's background pass: capture facts (dates, camera, lens).
+        let cancel = AtomicBool::new(false);
+        let mut cursor = 0;
+        loop {
+            let (looked, _, _) = catalog
+                .fill_facts(
+                    &mut cursor,
+                    256,
+                    std::time::Duration::ZERO,
+                    &cancel,
+                    &rawtonic_ingest::capture::capture_facts,
+                    &|| (),
+                )
+                .unwrap();
+            if looked == 0 {
+                break;
+            }
+        }
+        let mut tsv = String::new();
+        for c in catalog.collections().unwrap() {
+            let paths: Vec<String> = catalog
+                .collection_assets(&c.id)
+                .map(|a| {
+                    a.into_iter()
+                        .map(|a| a.path.to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_else(|e| vec![format!("ERROR {e}")]);
+            tsv += &format!(
+                "{}\t{}\t{}\t{}\t{}\n",
+                c.id,
+                c.name,
+                c.kind,
+                paths.len(),
+                paths.join(",")
+            );
+        }
+        let write_new = |name: &str, text: String| {
+            use std::io::Write;
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(out.join(name))
+                .unwrap()
+                .write_all(text.as_bytes())
+                .unwrap();
+        };
+        write_new("rawtonic-collections.tsv", tsv);
+        write_new(
+            "preview-and-report.txt",
+            format!("{shown:#?}\n{report:#?}\n"),
+        );
     }
 
     /// Imports a real library (`RAWTONIC_IMPORT_SAMPLE`) into a temporary

@@ -23,7 +23,8 @@ export type ErrorCode =
   | 'live_stroke_resync'
   | 'render_failed'
   | 'generated_areas'
-  | 'exports_pending';
+  | 'exports_pending'
+  | 'download_failed';
 
 export interface CommandError {
   code: ErrorCode;

@@ -1267,7 +1267,14 @@ impl<'a> EncodedExport<'a> {
                 bit_depth,
                 color_space,
                 metadata,
-            } => write_tiff(&image, bit_depth, color_space, metadata.as_ref(), file),
+            } => write_tiff(
+                &image,
+                bit_depth,
+                color_space,
+                metadata.as_ref(),
+                file,
+                None,
+            ),
             Encoded::Streamed {
                 size,
                 render,
@@ -1281,17 +1288,49 @@ impl<'a> EncodedExport<'a> {
                 color_space,
                 metadata.as_ref(),
                 render,
+                None,
             ),
+            // Hashed while the strips are written (`crate::signed_tiff`).
             Encoded::Signed {
                 tiff,
                 plan,
                 identity,
-            } => {
-                EncodedExport(*tiff).write_to(file)?;
-                #[cfg(feature = "performance-profiling")]
-                let _stage = crate::performance::PerformanceStage::new("export_provenance");
-                crate::c2pa::sign_tiff(file, &plan, identity)
-            }
+            } => match *tiff {
+                Encoded::Tiff {
+                    image,
+                    bit_depth,
+                    color_space,
+                    metadata,
+                } => write_tiff(
+                    &image,
+                    bit_depth,
+                    color_space,
+                    metadata.as_ref(),
+                    file,
+                    Some((&plan, identity)),
+                ),
+                Encoded::Streamed {
+                    size,
+                    render,
+                    bit_depth,
+                    color_space,
+                    metadata,
+                } => write_tiff_rows(
+                    file,
+                    size,
+                    bit_depth,
+                    color_space,
+                    metadata.as_ref(),
+                    render,
+                    Some((&plan, identity)),
+                ),
+                tiff => {
+                    EncodedExport(tiff).write_to(file)?;
+                    #[cfg(feature = "performance-profiling")]
+                    let _stage = crate::performance::PerformanceStage::new("export_provenance");
+                    crate::c2pa::sign_tiff(file, &plan, identity)
+                }
+            },
         }
     }
 
@@ -1742,7 +1781,7 @@ pub const PROVENANCE_NEEDS_IDENTITY: &str = "Provenance (C2PA) is on in this exp
 pub fn provenance_format_error(extension: &str) -> Option<String> {
     (!crate::c2pa::supports(extension)).then(|| {
         format!(
-            "Provenance (C2PA) cannot be written to {} files yet; export JPEG, PNG or TIFF, or turn the option off.",
+            "Provenance (C2PA) cannot be written to {} files yet; export JPEG, PNG, TIFF, WebP or AVIF, or turn the option off.",
             extension.to_uppercase()
         )
     })
@@ -1840,10 +1879,11 @@ fn with_provenance<'a>(
         Encoded::Bytes(bytes) => {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("export_provenance");
-            Encoded::Bytes(if extension == "png" {
-                crate::c2pa::sign_png(&bytes, &plan, identity)?
-            } else {
-                crate::c2pa::sign_jpeg(&bytes, &plan, identity)?
+            Encoded::Bytes(match extension {
+                "png" => crate::c2pa::sign_png(&bytes, &plan, identity)?,
+                "webp" => crate::c2pa::sign_webp(&bytes, &plan, identity)?,
+                "avif" => crate::c2pa::sign_avif(&bytes, &plan, identity)?,
+                _ => crate::c2pa::sign_jpeg(&bytes, &plan, identity)?,
             })
         }
         tiff => Encoded::Signed {
@@ -2687,6 +2727,7 @@ pub fn encode_with_metadata(
             export_settings.color_space,
             metadata,
             &mut Cursor::new(&mut bytes),
+            None,
         )?;
         return Ok(bytes);
     }
@@ -2981,7 +3022,7 @@ pub fn encode_image_to_bytes(
             cursor
                 .get_mut()
                 .reserve(tiff_capacity(image, tiff_bit_depth));
-            write_tiff(image, tiff_bit_depth, color_space, None, &mut cursor)?;
+            write_tiff(image, tiff_bit_depth, color_space, None, &mut cursor, None)?;
         }
         "avif" => {
             // The export's quality as for JPEG and WebP (rav1e speed 4, as
@@ -3038,6 +3079,7 @@ fn write_tiff<S: Read + Write + Seek>(
     color_space: OutputColorSpace,
     metadata: Option<&crate::exif_processing::ExportMetadata>,
     file: &mut S,
+    signer: Option<TiffSigner<'_>>,
 ) -> Result<(), String> {
     let (width, height) = image.dimensions();
     let converted;
@@ -3067,8 +3109,15 @@ fn write_tiff<S: Read + Write + Seek>(
                 pixels,
             })
         },
+        signer,
     )
 }
+
+/// The manifest a TIFF is signed with, and its signer.
+type TiffSigner<'a> = (
+    &'a crate::c2pa::ManifestPlan,
+    &'a crate::c2pa::SigningIdentity,
+);
 
 /// [`write_tiff`] of a render whose RGBA rows `render` hands to its stream
 /// top to bottom (`rawtonic_gpu::gpu_processing::RowStream`), in the
@@ -3083,22 +3132,47 @@ fn write_tiff_rows<S: Read + Write + Seek>(
     color_space: OutputColorSpace,
     metadata: Option<&crate::exif_processing::ExportMetadata>,
     render: impl FnOnce(RowStream<'_>) -> Result<(), String>,
+    signer: Option<TiffSigner<'_>>,
 ) -> Result<(), String> {
+    use tiff::encoder::colortype::{RGB8, RGB16};
+    let icc = crate::icc_profile::for_space(color_space);
+    if let Some((plan, identity)) = signer {
+        // The same file with the manifest last, its hash taken as the
+        // strips are written (`crate::signed_tiff`).
+        return crate::signed_tiff::write(
+            file,
+            |writer, in_strip| match tiff_bit_depth {
+                TiffBitDepth::Eight => tiff_layout::<RGB8, _>(writer, size, icc, in_strip),
+                TiffBitDepth::Sixteen => tiff_layout::<RGB16, _>(writer, size, icc, in_strip),
+            },
+            |file| append_tiff_metadata(file, metadata),
+            |writer| match tiff_bit_depth {
+                TiffBitDepth::Eight => tiff_strips::<RGB8, _>(writer, size, icc, render),
+                TiffBitDepth::Sixteen => tiff_strips::<RGB16, _>(writer, size, icc, render),
+            },
+            plan,
+            identity,
+        );
+    }
     {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("export_encode");
         let mut writer = std::io::BufWriter::with_capacity(TIFF_WRITE_BUFFER, &mut *file);
-        let icc = crate::icc_profile::for_space(color_space);
         match tiff_bit_depth {
-            TiffBitDepth::Eight => {
-                tiff_strips::<tiff::encoder::colortype::RGB8, _>(&mut writer, size, icc, render)?
-            }
-            TiffBitDepth::Sixteen => {
-                tiff_strips::<tiff::encoder::colortype::RGB16, _>(&mut writer, size, icc, render)?
-            }
+            TiffBitDepth::Eight => tiff_strips::<RGB8, _>(&mut writer, size, icc, render)?,
+            TiffBitDepth::Sixteen => tiff_strips::<RGB16, _>(&mut writer, size, icc, render)?,
         }
         writer.flush().map_err(|e| e.to_string())?;
     }
+    append_tiff_metadata(file, metadata)
+}
+
+/// Appends `metadata`'s directories to a complete TIFF in `file`
+/// ([`crate::tiff_exif::append_exif_to`]); see [`write_tiff`].
+fn append_tiff_metadata<S: Read + Write + Seek>(
+    file: &mut S,
+    metadata: Option<&crate::exif_processing::ExportMetadata>,
+) -> Result<(), String> {
     let Some(metadata) = metadata else {
         return Ok(());
     };
@@ -3128,12 +3202,53 @@ fn write_tiff_rows<S: Read + Write + Seek>(
     }
 }
 
+/// [`tiff_strips`] without pixels: the same calls with zero strips, each
+/// written while `in_strip` is set, for the layout pass of a signed TIFF
+/// (`crate::signed_tiff`).
+fn tiff_layout<C, W>(
+    writer: W,
+    (width, height): (u32, u32),
+    icc: &[u8],
+    in_strip: &std::cell::Cell<bool>,
+) -> Result<(), String>
+where
+    W: Write + Seek,
+    C: tiff::encoder::colortype::ColorType,
+    C::Inner: TiffSample,
+    [C::Inner]: tiff::encoder::TiffValue,
+{
+    if width == 0 || height == 0 {
+        return Err("A TIFF needs at least one pixel.".to_string());
+    }
+    let tiff_error = |e: tiff::TiffError| e.to_string();
+    let mut encoder = tiff::encoder::TiffEncoder::new(writer).map_err(tiff_error)?;
+    let mut image = encoder.new_image::<C>(width, height).map_err(tiff_error)?;
+    image
+        .encoder()
+        .write_tag(tiff::tags::Tag::IccProfile, icc)
+        .map_err(tiff_error)?;
+    let zeros = vec![C::Inner::ZERO; usize::try_from(image.next_strip_sample_count()).unwrap_or(0)];
+    loop {
+        let samples = usize::try_from(image.next_strip_sample_count()).unwrap_or(0);
+        if samples == 0 {
+            break;
+        }
+        in_strip.set(true);
+        let written = image.write_strip(&zeros[..samples]);
+        in_strip.set(false);
+        written.map_err(tiff_error)?;
+    }
+    image.finish().map_err(tiff_error)
+}
+
 /// A TIFF sample type and its RGBA samples in a [`RowBand`].
 trait TiffSample: Copy {
+    const ZERO: Self;
     fn of<'a>(pixels: &BandPixels<'a>) -> Option<&'a [Self]>;
 }
 
 impl TiffSample for u8 {
+    const ZERO: Self = 0;
     fn of<'a>(pixels: &BandPixels<'a>) -> Option<&'a [u8]> {
         match *pixels {
             BandPixels::U8(samples) => Some(samples),
@@ -3143,6 +3258,7 @@ impl TiffSample for u8 {
 }
 
 impl TiffSample for u16 {
+    const ZERO: Self = 0;
     fn of<'a>(pixels: &BandPixels<'a>) -> Option<&'a [u16]> {
         match *pixels {
             BandPixels::U16(samples) => Some(samples),
@@ -4880,6 +4996,16 @@ mod tiff_rows_tests {
         band_rows: u32,
         depth: TiffBitDepth,
     ) -> Result<Vec<u8>, String> {
+        streamed_with(image, band_rows, depth, None, None)
+    }
+
+    fn streamed_with(
+        image: &DynamicImage,
+        band_rows: u32,
+        depth: TiffBitDepth,
+        metadata: Option<&crate::exif_processing::ExportMetadata>,
+        signer: Option<TiffSigner<'_>>,
+    ) -> Result<Vec<u8>, String> {
         let (width, height) = image.dimensions();
         let mut file = Cursor::new(Vec::new());
         write_tiff_rows(
@@ -4887,7 +5013,7 @@ mod tiff_rows_tests {
             (width, height),
             depth,
             OutputColorSpace::AdobeRgb,
-            None,
+            metadata,
             |stream| {
                 let row = width as usize * 4;
                 let mut first_row = 0;
@@ -4909,8 +5035,224 @@ mod tiff_rows_tests {
                 }
                 Ok(())
             },
+            signer,
         )?;
         Ok(file.into_inner())
+    }
+
+    /// The store's (start, length) in a signed TIFF (tag 0xCD41 of IFD0).
+    fn manifest_range(tiff: &[u8]) -> (usize, usize) {
+        let ifd = u32::from_le_bytes(tiff[4..8].try_into().unwrap()) as usize;
+        let count = u16::from_le_bytes(tiff[ifd..ifd + 2].try_into().unwrap()) as usize;
+        let entry = (0..count)
+            .map(|i| &tiff[ifd + 2 + i * 12..ifd + 14 + i * 12])
+            .find(|e| u16::from_le_bytes([e[0], e[1]]) == crate::c2pa::TIFF_TAG)
+            .expect("a C2PA tag");
+        let len = u32::from_le_bytes(entry[4..8].try_into().unwrap()) as usize;
+        let at = u32::from_le_bytes(entry[8..12].try_into().unwrap()) as usize;
+        (at, len)
+    }
+
+    /// What signing adds to a 24 MP (6000 × 4000) TIFF export written to a
+    /// file, the ADOPT2 bar (≤ 50 ms): the same render streamed in bands of
+    /// 256 rows, unsigned and signed alternately, `C2PA_TIME_RUNS` times
+    /// (default 15); p50/p90 of signed − unsigned per pair. Also the old
+    /// way (write, then `c2pa::sign_tiff` reading the file back).
+    /// `C2PA_TIME_DIR=<dir on the export disk> cargo test --release -p
+    /// rawtonic-export --lib tiff_rows_tests::signed_tiff_overhead --
+    /// --ignored --nocapture`.
+    trait ReadWriteSeek: Read + Write + Seek {}
+    impl<T: Read + Write + Seek> ReadWriteSeek for T {}
+
+    #[test]
+    #[ignore = "timing (release build, quiet host)"]
+    fn signed_tiff_overhead_per_24mp_export() {
+        use std::time::Instant;
+        let dir = std::path::PathBuf::from(std::env::var("C2PA_TIME_DIR").expect("C2PA_TIME_DIR"));
+        let runs: usize = std::env::var("C2PA_TIME_RUNS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(15);
+        let keys = tempfile::tempdir().unwrap();
+        crate::c2pa::identity::generate(keys.path(), "Test Signer").unwrap();
+        let identity = crate::c2pa::identity::load(keys.path()).unwrap().unwrap();
+        let plan = crate::c2pa::plan_for(
+            "/photos/DSC0001.ARW",
+            &serde_json::json!({"crop": {}}),
+            crate::c2pa::OutputChanges::default(),
+            Some("Ada Example"),
+        );
+        let metadata = crate::exif_processing::ExportMetadata::marking_only().unwrap();
+        let (width, height) = (6000u32, 4000u32);
+        for (sixteen, depth) in [(true, TiffBitDepth::Sixteen), (false, TiffBitDepth::Eight)] {
+            let image = rgba(width, height, sixteen);
+            let encode = |file: &mut Box<dyn ReadWriteSeek>, signer: Option<TiffSigner<'_>>| {
+                let start = Instant::now();
+                write_tiff_rows(
+                    file,
+                    (width, height),
+                    depth,
+                    OutputColorSpace::Srgb,
+                    Some(&metadata),
+                    |stream| {
+                        let row = width as usize * 4;
+                        let mut first_row = 0;
+                        while first_row < height {
+                            let rows = 256.min(height - first_row);
+                            let range = first_row as usize * row..(first_row + rows) as usize * row;
+                            let pixels = match &image {
+                                DynamicImage::ImageRgba16(i) => BandPixels::U16(&i.as_raw()[range]),
+                                DynamicImage::ImageRgba8(i) => BandPixels::U8(&i.as_raw()[range]),
+                                _ => unreachable!(),
+                            };
+                            stream(RowBand {
+                                first_row,
+                                width,
+                                rows,
+                                pixels,
+                            })?;
+                            first_row += rows;
+                        }
+                        Ok(())
+                    },
+                    signer,
+                )
+                .unwrap();
+                start.elapsed().as_secs_f64() * 1e3
+            };
+            // `memory`: into a buffer, without the disk's own variation.
+            let in_memory = dir.as_os_str() == "memory";
+            let capacity = tiff_capacity(&image, depth);
+            let write = |path: &std::path::Path, signer: Option<TiffSigner<'_>>| {
+                let mut file: Box<dyn ReadWriteSeek> = if in_memory {
+                    Box::new(Cursor::new(Vec::with_capacity(capacity)))
+                } else {
+                    Box::new(std::fs::File::create_new(path).unwrap())
+                };
+                let elapsed = encode(&mut file, signer);
+                (file, elapsed)
+            };
+            let (mut plain, mut signed, mut after) = (Vec::new(), Vec::new(), Vec::new());
+            for i in 0..runs {
+                let path = |what: &str| dir.join(format!("c2p2-timing-{what}-{i}.tif"));
+                let order: &[&str] = if i % 2 == 0 {
+                    &["plain", "signed", "after"]
+                } else {
+                    &["after", "signed", "plain"]
+                };
+                for &what in order {
+                    let target = path(what);
+                    match what {
+                        "plain" => plain.push(write(&target, None).1),
+                        "signed" => signed.push(write(&target, Some((&plan, &identity))).1),
+                        _ => {
+                            let (mut file, written) = write(&target, None);
+                            let start = Instant::now();
+                            crate::c2pa::sign_tiff(&mut file, &plan, &identity).unwrap();
+                            after.push(written + start.elapsed().as_secs_f64() * 1e3);
+                        }
+                    }
+                    if !in_memory {
+                        std::fs::remove_file(&target).unwrap();
+                    }
+                }
+            }
+            let quantiles = |v: &[f64]| {
+                let mut v = v.to_vec();
+                v.sort_by(f64::total_cmp);
+                let at = |q: f64| v[((v.len() - 1) as f64 * q).round() as usize];
+                (at(0.5), at(0.9))
+            };
+            let diff =
+                |a: &[f64]| -> Vec<f64> { a.iter().zip(&plain).map(|(a, p)| a - p).collect() };
+            let (p50, p90) = quantiles(&plain);
+            eprintln!(
+                "TIFF {} bit, {runs} runs: unsigned p50 {p50:.1} ms p90 {p90:.1} ms",
+                if sixteen { 16 } else { 8 }
+            );
+            let (p50, p90) = quantiles(&signed);
+            let (d50, d90) = quantiles(&diff(&signed));
+            eprintln!(
+                "  signed (hashed while written): p50 {p50:.1} ms p90 {p90:.1} ms; overhead p50 {d50:.1} ms p90 {d90:.1} ms"
+            );
+            let (p50, p90) = quantiles(&after);
+            let (d50, d90) = quantiles(&diff(&after));
+            eprintln!(
+                "  written, then sign_tiff (read back): p50 {p50:.1} ms p90 {p90:.1} ms; overhead p50 {d50:.1} ms p90 {d90:.1} ms"
+            );
+        }
+    }
+
+    /// A signed TIFF hashed while its strips are written
+    /// (`crate::signed_tiff`) is the file `c2pa::sign_tiff` makes of the
+    /// finished TIFF: the same bytes but the store, whose binding is the
+    /// hash of every byte before it. A render that stops early signs
+    /// nothing.
+    #[test]
+    fn signed_tiffs_hashed_while_written_are_the_tiffs_signed_after() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::c2pa::identity::generate(dir.path(), "Test Signer").unwrap();
+        let identity = crate::c2pa::identity::load(dir.path()).unwrap().unwrap();
+        let plan = crate::c2pa::plan_for(
+            "/photos/DSC0001.ARW",
+            &serde_json::json!({"aiPatches": [{"patchData": {}}]}),
+            crate::c2pa::OutputChanges::default(),
+            None,
+        );
+        let metadata = crate::exif_processing::ExportMetadata::marking_only().unwrap();
+        for (sixteen, depth) in [(true, TiffBitDepth::Sixteen), (false, TiffBitDepth::Eight)] {
+            for (width, height) in [(1, 1), (613, 700)] {
+                let image = rgba(width, height, sixteen);
+                let mut after =
+                    Cursor::new(streamed_with(&image, 256, depth, Some(&metadata), None).unwrap());
+                crate::c2pa::sign_tiff(&mut after, &plan, &identity).unwrap();
+                let after = after.into_inner();
+                let (at, len) = manifest_range(&after);
+                for band_rows in [7, height] {
+                    let case = format!("{width}x{height} 16-bit {sixteen}, bands of {band_rows}");
+                    let during = streamed_with(
+                        &image,
+                        band_rows,
+                        depth,
+                        Some(&metadata),
+                        Some((&plan, &identity)),
+                    )
+                    .unwrap();
+                    assert_eq!(manifest_range(&during), (at, len), "{case}");
+                    assert_eq!(during.len(), at + len, "{case}: the store last");
+                    assert!(during[..at] == after[..at], "{case}");
+                    let bound = ring::digest::digest(&ring::digest::SHA256, &during[..at]);
+                    assert!(
+                        during[at..].windows(32).any(|w| w == bound.as_ref()),
+                        "{case}: the binding"
+                    );
+                    let decoded = image::load_from_memory(&during).unwrap();
+                    assert!(decoded.to_rgb16() == image.to_rgb16(), "{case}: pixels");
+                }
+            }
+        }
+        // The render stops after four of ten rows.
+        let image = rgba(20, 10, true);
+        let samples = image.as_rgba16().unwrap().as_raw();
+        let mut file = Cursor::new(Vec::new());
+        let error = write_tiff_rows(
+            &mut file,
+            (20, 10),
+            TiffBitDepth::Sixteen,
+            OutputColorSpace::Srgb,
+            None,
+            |stream| {
+                stream(RowBand {
+                    first_row: 0,
+                    width: 20,
+                    rows: 4,
+                    pixels: BandPixels::U16(&samples[..20 * 4 * 4]),
+                })
+            },
+            Some((&plan, &identity)),
+        )
+        .unwrap_err();
+        assert!(error.contains("ended before its last row"), "{error}");
     }
 
     /// Strips of the `tiff` crate's height (several per image here), rows
@@ -4929,7 +5271,15 @@ mod tiff_rows_tests {
                     );
                 }
                 let mut file = Cursor::new(Vec::new());
-                write_tiff(&image, depth, OutputColorSpace::AdobeRgb, None, &mut file).unwrap();
+                write_tiff(
+                    &image,
+                    depth,
+                    OutputColorSpace::AdobeRgb,
+                    None,
+                    &mut file,
+                    None,
+                )
+                .unwrap();
                 assert!(
                     file.into_inner() == expected,
                     "{width}x{height} 16-bit {sixteen}, whole"
@@ -4937,7 +5287,15 @@ mod tiff_rows_tests {
                 // An RGB render (no alpha) too.
                 let rgb = DynamicImage::ImageRgb16(image.to_rgb16());
                 let mut file = Cursor::new(Vec::new());
-                write_tiff(&rgb, depth, OutputColorSpace::AdobeRgb, None, &mut file).unwrap();
+                write_tiff(
+                    &rgb,
+                    depth,
+                    OutputColorSpace::AdobeRgb,
+                    None,
+                    &mut file,
+                    None,
+                )
+                .unwrap();
                 assert!(
                     file.into_inner() == expected,
                     "{width}x{height} 16-bit {sixteen}, RGB"
@@ -4972,6 +5330,7 @@ mod tiff_rows_tests {
                     }
                     Ok(())
                 },
+                None,
             )
         };
         assert!(write(&[(0, 10)], TiffBitDepth::Sixteen).is_ok());

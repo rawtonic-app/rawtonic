@@ -243,6 +243,48 @@
   }
  },
  {
+  "name": "shadows pasted with tone version 21 onto 20: the amount as version 20's value",
+  "pasted": {
+   "shadows": 50,
+   "toneVersion": 21
+  },
+  "destination": {
+   "toneVersion": 20,
+   "exposure": 0.3
+  },
+  "expected": {
+   "shadows": 61,
+   "toneVersion": 20
+  }
+ },
+ {
+  "name": "shadows pasted with tone version 20 onto 21: version 20's +61 is 21's +50",
+  "pasted": {
+   "shadows": 61,
+   "toneVersion": 20
+  },
+  "destination": {
+   "toneVersion": 21,
+   "exposure": 0.3
+  },
+  "expected": {
+   "shadows": 50,
+   "toneVersion": 21
+  }
+ },
+ {
+  "name": "shadows carried as amount (no tone version) onto 21",
+  "pasted": {
+   "shadows": 61
+  },
+  "destination": {
+   "toneVersion": 21
+  },
+  "expected": {
+   "shadows": 50
+  }
+ },
+ {
   "name": "blacks pasted with tone version 18 onto 16: the amount, deeper than 16's reach at -100",
   "pasted": {
    "blacks": -100,

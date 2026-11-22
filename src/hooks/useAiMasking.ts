@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { isPhotoChanged, noteBackgroundAiError, toastAiError } from '../utils/aiErrors';
+import { isModelsMissing, isPhotoChanged, noteBackgroundAiError, toastAiError } from '../utils/aiErrors';
 import { errorMessage } from '../shared/ipc/errors';
 import { DETECT_PENDING } from '../utils/settingsClipboard';
 import {
@@ -202,8 +202,24 @@ export function warmUpAiMaskModels() {
   );
 }
 
+/** Landscape selections the editor asked for while the Landscape model was
+ * not installed (its automatic detection downloads nothing), by request
+ * key; asked again once a Landscape mask's settings installed the model
+ * (`noteLandscapeModelReady`). */
+const landscapeWaitingForModel = new Set<string>();
+const landscapeModelListeners = new Set<() => void>();
+
+/** The Landscape model is installed now (a Landscape mask's settings
+ * downloaded it): selections waiting for it are asked for again. */
+export function noteLandscapeModelReady() {
+  if (landscapeWaitingForModel.size === 0) return;
+  landscapeWaitingForModel.clear();
+  landscapeModelListeners.forEach((listener) => listener());
+}
+
 /** Forgets the session state (tests). */
 export function resetAiMaskSession() {
+  landscapeWaitingForModel.clear();
   cancelAiMaskPrecompute();
   lastMaskingUse = null;
   lastUseReported = 0;
@@ -643,6 +659,97 @@ export function useAiMasking() {
     }
   };
 
+  /** A Landscape mask of its stored parts (`generate_ai_landscape_mask`,
+   * which does not download the model): `done` (filled, or its parts
+   * changed meanwhile), `dropped` (the photo changed), `missing` (the model
+   * is not installed), `failed`. `version`: the component's
+   * `landscapeVersion` (absent = 1). */
+  const handleGenerateAiLandscapeMask = async (
+    subMaskId: string,
+    parts: string[],
+    version: number
+  ): Promise<'done' | 'dropped' | 'missing' | 'failed'> => {
+    const { selectedImage, adjustments } = useEditorStore.getState();
+    if (!selectedImage?.path) return 'dropped';
+    registerAiTask(subMaskId, 'landscape');
+    noteMaskingToolsUsed();
+
+    try {
+      const newParameters = await invoke<Record<string, unknown>>(Invokes.GenerateAiLandscapeMask, {
+        jsAdjustments: getTransformAdjustments(adjustments),
+        path: selectedImage.path,
+        parts,
+        version,
+        download: false,
+        flipHorizontal: adjustments.flipHorizontal,
+        flipVertical: adjustments.flipVertical,
+        orientationSteps: adjustments.orientationSteps,
+        rotation: adjustments.rotation,
+        taskId: subMaskId
+      });
+      const path = selectedImage.path;
+      // A slider owns its draft until release: wait for it, as an Object
+      // selection does.
+      if (useEditorStore.getState().isSliderDragging) {
+        await new Promise<void>((resolve) => {
+          const unsubscribe = useEditorStore.subscribe((state) => {
+            if (state.isSliderDragging && state.selectedImage?.path === path) return;
+            unsubscribe();
+            resolve();
+          });
+        });
+      }
+      const editor = useEditorStore.getState();
+      if (editor.selectedImage?.path !== path || !editor.selectedImage.isReady) return 'dropped';
+      // The mask belongs to the edit that chose these parts: it fills that
+      // edit's step, and every step holding the component with these parts
+      // and no mask, instead of making a step of its own. Undo after it
+      // arrives then goes back to before the parts changed, and redo stays.
+      // Parts changed meanwhile (or an undo) keep their own request.
+      const asked = JSON.stringify(parts);
+      const waiting = (sub: SubMask) => {
+        const own = (sub.parameters ?? {}) as { parts?: string[]; maskDataBase64?: string | null };
+        return sub.id === subMaskId && !own.maskDataBase64 && JSON.stringify(own.parts ?? []) === asked;
+      };
+      const fill = (recipe: Adjustments): Adjustments => {
+        if (!recipe.masks?.some((c: MaskContainer) => c.subMasks.some(waiting))) return recipe;
+        return {
+          ...recipe,
+          masks: recipe.masks.map((c: MaskContainer) =>
+            c.subMasks.some(waiting)
+              ? {
+                  ...c,
+                  subMasks: c.subMasks.map((sub: SubMask) => {
+                    if (!waiting(sub)) return sub;
+                    const { [DETECT_PENDING]: _pending, ...rest } = {
+                      ...(sub.parameters ?? {}),
+                      ...newParameters
+                    } as Record<string, unknown>;
+                    return { ...sub, parameters: rest };
+                  })
+                }
+              : c
+          )
+        };
+      };
+      debouncedSetHistory.flush();
+      editor.patchesSentToBackend.delete(subMaskId);
+      editor.setEditor((state) =>
+        state.selectedImage?.path !== path
+          ? state
+          : { adjustments: fill(state.adjustments), history: state.history.map(fill) }
+      );
+      return 'done';
+    } catch (error) {
+      if (isPhotoChanged(error)) return 'dropped';
+      if (isModelsMissing(error)) return 'missing';
+      toastAiError(error, `Landscape mask failed: ${errorMessage(error)}`);
+      return 'failed';
+    } finally {
+      unregisterAiTask(subMaskId);
+    }
+  };
+
   // Imported Lightroom masks: automatic AI masks without data (Select Sky,
   // Select Subject) are computed for the open photo, once each; geometry
   // kept in normalised raw coordinates (gradients, brushes, colour ranges)
@@ -662,6 +769,15 @@ export function useAiMasking() {
   };
   const requestedAutoMasks = useRef(new Set<string>());
   const [askAgain, setAskAgain] = useState(0);
+  /** The Landscape request that failed last, by component. */
+  const failedLandscape = useRef(new Map<string, string>());
+  useEffect(() => {
+    const listener = () => setAskAgain((n) => n + 1);
+    landscapeModelListeners.add(listener);
+    return () => {
+      landscapeModelListeners.delete(listener);
+    };
+  }, []);
   const requestedPlacements = useRef(new Set<string>());
   const [placeMasksAgain, setPlaceMasksAgain] = useState(0);
   const sliderDragging = useEditorStore((s) => s.isSliderDragging);
@@ -743,6 +859,11 @@ export function useAiMasking() {
     if (!selectedImageReady) return;
     const { selectedImage } = useEditorStore.getState();
     const masks = useEditorStore.getState().adjustments.masks ?? [];
+    const hidden = new Set(
+      masks.flatMap((m: MaskContainer) =>
+        m.subMasks.filter((sub: SubMask) => m.visible === false || sub.visible === false).map((sub: SubMask) => sub.id)
+      )
+    );
     for (const sub of masks.flatMap((m: MaskContainer) => m.subMasks)) {
       if ((sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized) continue;
       // A People mask computes again whenever its parts or person change
@@ -761,6 +882,43 @@ export function useAiMasking() {
         // (a failure is not retried until the photo opens again).
         void handleGenerateAiPeopleMask(sub.id, parts, p.person ?? null).then((ok) => {
           if (ok) requestedAutoMasks.current.delete(key);
+        });
+        continue;
+      }
+      // A Landscape mask computes again whenever its parts change; a hidden
+      // one (layer or component) waits until it is shown, so a photo opened
+      // with one does not download the model for it.
+      if (sub.type === 'ai-landscape') {
+        const p = (sub.parameters ?? {}) as {
+          parts?: string[];
+          maskDataBase64?: string | null;
+          landscapeVersion?: number;
+        };
+        const parts = p.parts ?? [];
+        const key = `${selectedImage?.path}:${sub.id}:${JSON.stringify(parts)}`;
+        // A failed selection is not asked again by itself (no retry loop),
+        // but any edit of its parts (untick and tick again too) asks again.
+        if (failedLandscape.current.get(sub.id) !== key) failedLandscape.current.delete(sub.id);
+        if (
+          p.maskDataBase64 ||
+          parts.length === 0 ||
+          hidden.has(sub.id) ||
+          requestedAutoMasks.current.has(key) ||
+          failedLandscape.current.has(sub.id) ||
+          landscapeWaitingForModel.has(key)
+        )
+          continue;
+        requestedAutoMasks.current.add(key);
+        const asked = selectedImage?.path;
+        void handleGenerateAiLandscapeMask(sub.id, parts, p.landscapeVersion ?? 1).then((outcome) => {
+          // Settled either way: the same parts may be asked for again (an
+          // undo, a tick after an untick); a component that holds its mask
+          // is skipped above.
+          requestedAutoMasks.current.delete(key);
+          if (outcome === 'missing') landscapeWaitingForModel.add(key);
+          if (outcome === 'failed') failedLandscape.current.set(sub.id, key);
+          const now = useEditorStore.getState().selectedImage;
+          if (outcome === 'dropped' && now?.path === asked && now?.isReady) setAskAgain((n) => n + 1);
         });
         continue;
       }

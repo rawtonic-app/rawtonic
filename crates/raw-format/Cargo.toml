@@ -1,0 +1,13 @@
+[package]
+name = "rawtonic-raw-format"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Classifies camera RAW containers without loading the develop pipeline."
+
+[lints]
+workspace = true
+
+[dependencies]
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
+rawler = { workspace = true }

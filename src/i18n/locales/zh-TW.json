@@ -5,6 +5,7 @@
       "depth": "AI 遮罩：深度",
       "foreground": "AI 遮罩：前景",
       "inpaint": "生成式填色",
+      "landscape": "AI 遮色片：風景",
       "object": "AI 遮罩：物件",
       "other": "AI 工作",
       "people": "AI 遮罩：人物",
@@ -31,10 +32,25 @@
     },
     "copied": "已複製",
     "copyDetails": "複製詳細資訊",
+    "cropMissing_other": "相機裁切未套用到 {{count}} 張照片：原檔在雲端。編輯已儲存；請下載原檔後在「顯影」中設定裁切。",
     "dismiss": "關閉：{{title}}",
     "dismissShort": "關閉",
     "download": {
-      "model": "正在下載 {{name}}"
+      "model": "正在下載 {{name}}",
+      "names": {
+        "denoise": "AI 降噪模型",
+        "depth": "深度模型",
+        "eyesTeeth": "眼睛與牙齒模型",
+        "faces": "臉部模型",
+        "fill": "填補模型",
+        "landscape": "風景模型",
+        "objectRemoval": "物件移除模型",
+        "relight": "重新打光模型",
+        "search": "搜尋模型",
+        "sky": "天空模型",
+        "subject": "主體模型",
+        "superResolution": "超解析度模型"
+      }
     },
     "duplicates": {
       "failed": "尋找重複項目失敗",
@@ -852,6 +868,7 @@
         "upgradeRequired": "需要升級"
       },
       "createNewTitle": "建立新的生成式編輯",
+      "downloadFailed": "無法下載模型。請檢查網路連線後再試一次。",
       "generatingDepthMap": "正在計算 AI 深度圖...",
       "params": {
         "feather": "羽化",
@@ -1040,6 +1057,7 @@
       "flow": "流線",
       "foreground": "前景",
       "heal": "修復",
+      "landscape": "風景",
       "linear": "線性",
       "liquify": "液化",
       "luminance": "亮度",
@@ -1738,6 +1756,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "照片已移回，但資料夾角色保持不變：{{error}}",
       "selectsUnavailable": "Selects 資料夾 {{folder}} 無法使用（其磁碟是否已連接？）。未移動任何內容；請在「工作階段資料夾」中選擇其他 Selects 資料夾。",
       "title": "工作階段資料夾",
       "unavailable": "無法使用：資料夾不存在或其磁碟未連接。",
@@ -2057,10 +2076,13 @@
       "hotFolderResumeFailed": "無法繼續監看資料夾：{{error}}",
       "importAiMasksOnOpen_other": "{{count}} 張相片的 AI 遮色片會在「顯影」中開啟或匯出時計算",
       "importCopies_other": "已匯入 {{count}} 個虛擬副本",
+      "importCopiesInAlbums": "相簿只包含照片，不包含虛擬複本——這些複本已作為其照片加入：{{n}}。",
       "importCopiesSkipped_other": "{{count}} 個虛擬副本未匯入",
       "importCropsClipped_other": "{{count}} 個裁切超出相機畫面，已收縮到畫面內",
       "imported_other": "已匯入 {{count}} 張照片（{{withSettings}} 張有調整，{{albums}} 個相簿）",
       "importNotFound_other": "{{count}} 張找不到",
+      "importSmartAlbumsByFacts": "依相機、鏡頭、ISO 或拍攝日期建立的智慧相簿會隨檔案拍攝資料的讀取逐步填入，相機與鏡頭的詞可能比對到與 Lightroom 不同的照片：{{n}}。",
+      "importSmartAlbumsSkipped": "因規則沒有對應項而略過的智慧型收藏夾：{{n}}。",
       "importStacks_other": "已匯入 {{count}} 個堆疊",
       "importUnconvertedSettings": "包含無法轉換的設定的已匯入編輯：{{n}} 個。",
       "importWarnings_other": "{{count}} 張照片已匯入，但有警告。{{error}}",
@@ -2142,7 +2164,7 @@
         "failed_other": "無法寫入 {{count}} 個 XMP 檔案：{{error}}",
         "offline_other": "{{count}} 張照片處於離線狀態。重新連接磁碟後會更新其 XMP 檔案。",
         "pending_other": "{{count}} 個 XMP 檔案可以重新寫入。",
-        "sharedName_other": "{{count}} 張照片與另一張同名（RAW 和 JPEG），兩者會寫入同一個 XMP 檔案。"
+        "sharedName_other": "{{count}} 張照片將分別與另一張照片使用同一個 XMP 檔案。"
       },
       "resolved_other": "已為 {{count}} 張照片解決 XMP 衝突",
       "retry": "重試",
@@ -2166,13 +2188,15 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "臉部修飾所用的眼睛輪廓與牙齒（SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin）。已修改：轉換為 ONNX 與 Core ML，以 CC BY-SA 4.0 發布。",
         "Jiff / Unicode CLDR": "Windows 時區名稱與 IANA 識別碼的對照表。",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -2897,7 +2921,6 @@
         "target": {
           "blueAria": "目標藍(sRGB 0–255)",
           "chromaAria": "目標彩度 C*(CIELAB D50)",
-          "distance": "距目標 ΔE00 {{value}}。",
           "greenAria": "目標綠(sRGB 0–255)",
           "grey": "此範圍太接近灰色,無法著色。",
           "heading": "目標顏色",
@@ -2912,14 +2935,20 @@
             "lightness": "明度(×0.6–1.4)",
             "saturation": "飽和度(0–200 %)"
           },
-          "outOfReach": "無法達到:剩餘 ΔE00 {{value}};{{limits}} 已達極限。",
+          "measuredDistance": "距目標 ΔE00 {{value}}，在所選點測得。",
+          "measuredOutOfReach": "無法達到：還差 ΔE00 {{value}}，在所選點測得；{{limits}}已到極限。",
+          "measuredOutsideSrgb": "目標在 sRGB 之外：所選點的 sRGB 結果與其相差 ΔE00 {{value}}（測得）。",
+          "measuredReached": "已達到目標：ΔE00 {{value}}，在所選點測得。",
+          "measuring": "正在測量所選點的結果…",
+          "notMeasured": "預測距目標 ΔE00 {{value}}；開啟 AI 降噪時無法測量所選點的結果。",
           "outsideSrgb": "目標超出 sRGB;sRGB 輸出會將顏色映射到 sRGB 內。",
           "outsideWorkingGamut": "目標超出照片的工作色彩(ProPhoto):照片中沒有顏色能成為它,範圍會盡可能接近。",
           "pickAria": "擷取目標顏色",
           "pickedThrough": "預測距目標 ΔE00 {{value}},但此顏色是在範圍本身的大幅調整下擷取的:請在照片中檢查結果,或將滑桿歸零後重新擷取。",
           "pickTitle": "在照片中擷取目標顏色,此範圍會移到該顏色",
-          "reached": "已達到目標(ΔE00 {{value}})。",
-          "readoutTitle": "針對範圍擷取顏色的預測值,在曲線、調色等後續工具之前",
+          "predicted": "依範圍顏色預測距目標 ΔE00 {{value}}，未測量：在照片中選取該範圍即可測量。",
+          "predictedOutOfReach": "預測無法達到：還差 ΔE00 {{value}}；{{limits}}已到極限（未測量：在照片中選取該範圍即可測量）。",
+          "readoutTitle": "在套用所有工具的照片 sRGB 算繪中，於所選點滴管的 11 × 11 預覽像素上測得；未在照片中選取的範圍依其顏色預測",
           "redAria": "目標紅(sRGB 0–255)",
           "sampleAria": "擷取目標顏色",
           "sampleTitle": "在此照片中擷取目標顏色,用於此處或另一張照片的範圍",
@@ -2927,6 +2956,7 @@
           "srgb": "sRGB",
           "swatchAria": "範圍結果 {{result}},目標 {{target}}",
           "uncovered": "圖層的蒙版已不覆蓋取樣點:範圍的滑桿保持不變。",
+          "unmeasured": "預測距目標 ΔE00 {{value}}；無法測量所選點的結果。",
           "useSampled": "使用來自 {{name}} 的目標",
           "useSampledTitle": "將此範圍移到在 {{name}} 中擷取的顏色"
         },
@@ -3217,6 +3247,7 @@
           "brush": "畫筆",
           "color": "顏色",
           "depth": "深度",
+          "landscape": "風景",
           "linear": "線性",
           "luminance": "亮度",
           "object": "物件",
@@ -3246,6 +3277,7 @@
           "brush": "新增筆刷圖層",
           "color": "新增圖層：顏色範圍",
           "depth": "新增圖層：深度範圍",
+          "landscape": "新增風景圖層",
           "linear": "新增線性漸層圖層",
           "luminance": "新增圖層：亮度範圍",
           "object": "新增圖層：物件",
@@ -3533,13 +3565,13 @@
         "exporting": "正在匯出 {{current}}/{{total}}"
       },
       "provenance": {
-        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG 與 TIFF。不會傳送任何內容。",
+        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG、TIFF、WebP 與 AVIF。不會傳送任何內容。",
         "add": "在每個檔案中簽署來源清單",
         "author": "將相片的創作者列為作者",
-        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG 或 TIFF。",
+        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG、TIFF、WebP 或 AVIF。",
         "certificateFilter": "PKCS#12 憑證",
         "expired": "此憑證目前無效（有效至 {{until}}）：無法用它為輸出簽署。請匯入更新的憑證或建立新的憑證。",
-        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG 或 TIFF，或關閉此選項。",
+        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG、TIFF、WebP 或 AVIF，或關閉此選項。",
         "generate": "在此電腦上建立憑證",
         "import": "匯入您的憑證 (.p12)…",
         "importConfirm": "匯入",
@@ -3782,11 +3814,17 @@
         "teethWhiten": "牙齒美白",
         "texture": "臉孔紋理"
       },
+      "download": {
+        "preparing": "正在準備模型…",
+        "progress": "正在下載… {{percent}}%"
+      },
       "downloadModels": "下載臉部模型",
       "eyes": {
+        "downloadModel": "下載眼睛與牙齒模型",
         "find": "尋找眼睛和牙齒",
         "finding": "正在尋找眼睛和牙齒…",
         "missing": "眼睛和牙齒需要這些臉孔的眼睛和嘴，這些臉孔是在這些工具出現之前找到的。",
+        "modelMissing": "眼睛和牙齒需要眼睛與牙齒模型（57 MB）。它會從 GitHub 上的 Rawtonic 模型包下載一次，並在這台電腦上執行。",
         "none": "在此臉孔上找不到眼睛或張開的嘴。",
         "sideAria": "眼睛",
         "sideHint": {
@@ -3860,6 +3898,23 @@
       "shadowClippingLit": "陰影警告，已壓暗",
       "shadowClippingTitle": "陰影剪裁警告（照片中顯示為藍色；{{shortcut}} 同時切換兩側）",
       "title": "色階分佈圖"
+    },
+    "landscape": {
+      "aria": "風景遮色片",
+      "choose": "選擇要選取的部分。",
+      "finding": "正在尋找風景的組成部分…",
+      "noneFound": "這張照片中未找到這些部分。",
+      "notFound": "（未找到）",
+      "parts": {
+        "architecture": "建築",
+        "artificialGround": "人工地面",
+        "mountains": "山脈",
+        "naturalGround": "自然地面",
+        "sky": "天空",
+        "vegetation": "植被",
+        "water": "水"
+      },
+      "partsAria": "風景的組成部分"
     },
     "layers": {
       "bandWidth": "條帶寬度",
@@ -4591,6 +4646,7 @@
         "brush": "畫筆",
         "color": "顏色範圍",
         "depth": "深度範圍",
+        "landscape": "風景",
         "linear": "線性",
         "luminance": "亮度範圍",
         "object": "物件",
@@ -4891,6 +4947,7 @@
         "profile": "描述檔",
         "profileNamed": "描述檔「{{name}}」",
         "Shadows": "陰影",
+        "shadowsBeyondReach": "超出 Rawtonic 陰影範圍的陰影（設為 ±100）",
         "toneCurveMissingPoints": "Lightroom 中僅有名稱、沒有控制點的色調曲線",
         "upright": "Upright",
         "whiteBalance": "白平衡"
@@ -5416,6 +5473,7 @@
         "moveToolsLeft": "將顯影工具移到左側",
         "moveToolsRight": "將顯影工具移到右側"
       },
+      "lightroomHdr": "來自 Lightroom 的 HDR 編輯 — 以 SDR 顯示與匯出",
       "loupe": {
         "adjust": "顯影",
         "adjustTitle": "在顯影中調整",

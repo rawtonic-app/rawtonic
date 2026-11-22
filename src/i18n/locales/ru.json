@@ -5,6 +5,7 @@
       "depth": "ИИ-маска: глубина",
       "foreground": "ИИ-маска: передний план",
       "inpaint": "Генеративная заливка",
+      "landscape": "ИИ-маска: Пейзаж",
       "object": "ИИ-маска: объект",
       "other": "Задача ИИ",
       "people": "ИИ-маска: люди",
@@ -40,10 +41,28 @@
     },
     "copied": "Скопировано",
     "copyDetails": "Копировать подробности",
+    "cropMissing_one": "Кадрирование камеры не применено к {{count}} фото: оригинал в облаке. Правка сохранена; скачайте оригинал и задайте кадрирование в Проявке.",
+    "cropMissing_few": "Кадрирование камеры не применено к {{count}} фото: оригиналы в облаке. Правки сохранены; скачайте оригиналы и задайте кадрирование в Проявке.",
+    "cropMissing_many": "Кадрирование камеры не применено к {{count}} фото: оригиналы в облаке. Правки сохранены; скачайте оригиналы и задайте кадрирование в Проявке.",
+    "cropMissing_other": "Кадрирование камеры не применено к {{count}} фото: оригиналы в облаке. Правки сохранены; скачайте оригиналы и задайте кадрирование в Проявке.",
     "dismiss": "Скрыть: {{title}}",
     "dismissShort": "Скрыть",
     "download": {
-      "model": "Загрузка: {{name}}"
+      "model": "Загрузка: {{name}}",
+      "names": {
+        "denoise": "модель ИИ-шумоподавления",
+        "depth": "модель глубины",
+        "eyesTeeth": "модель глаз и зубов",
+        "faces": "модели лиц",
+        "fill": "модель заполнения",
+        "landscape": "модель пейзажа",
+        "objectRemoval": "модель удаления объектов",
+        "relight": "модель переосвещения",
+        "search": "модель поиска",
+        "sky": "модель неба",
+        "subject": "модель объекта",
+        "superResolution": "модель суперразрешения"
+      }
     },
     "duplicates": {
       "failed": "Не удалось найти дубликаты",
@@ -959,6 +978,7 @@
         "upgradeRequired": "Требуется обновление"
       },
       "createNewTitle": "Создать новую генеративную правку",
+      "downloadFailed": "Не удалось загрузить модель. Проверьте подключение к интернету и повторите попытку.",
       "generatingDepthMap": "Расчет карты глубины ИИ...",
       "params": {
         "feather": "Растушевка",
@@ -1152,6 +1172,7 @@
       "flow": "Поток",
       "foreground": "Передний план",
       "heal": "Восстановление",
+      "landscape": "Пейзаж",
       "linear": "Линейный",
       "liquify": "Пластика",
       "luminance": "Яркость",
@@ -1978,6 +1999,7 @@
         "output": "Output",
         "selects": "Selects"
       },
+      "roleNotRestored": "Фотографии вернулись, но роль папки осталась прежней: {{error}}",
       "selectsUnavailable": "Папка Selects {{folder}} недоступна (подключён ли её диск?). Ничего не перемещено; выберите другую папку Selects в «Папках сессии».",
       "title": "Папки сессии",
       "unavailable": "Недоступна: папка отсутствует или её диск не подключён.",
@@ -2351,6 +2373,7 @@
       "importCopies_few": "{{count}} виртуальные копии импортированы",
       "importCopies_many": "{{count}} виртуальных копий импортировано",
       "importCopies_other": "{{count}} виртуальной копии импортировано",
+      "importCopiesInAlbums": "Альбомы содержат фотографии, а не виртуальные копии — эти копии добавлены как их фотографии: {{n}}.",
       "importCopiesSkipped_one": "{{count}} виртуальная копия не импортирована",
       "importCopiesSkipped_few": "{{count}} виртуальные копии не импортированы",
       "importCopiesSkipped_many": "{{count}} виртуальных копий не импортировано",
@@ -2367,6 +2390,8 @@
       "importNotFound_few": "не найдено: {{count}}",
       "importNotFound_many": "не найдено: {{count}}",
       "importNotFound_other": "не найдено: {{count}}",
+      "importSmartAlbumsByFacts": "Умные альбомы по камере, объективу, ISO или дате съёмки заполняются по мере чтения данных съёмки из файлов; слова камеры и объектива могут находить другие фотографии, чем в Lightroom: {{n}}.",
+      "importSmartAlbumsSkipped": "Умные коллекции пропущены, так как у правила нет аналога: {{n}}.",
       "importStacks_one": "{{count}} стопка импортирована",
       "importStacks_few": "{{count}} стопки импортированы",
       "importStacks_many": "{{count}} стопок импортировано",
@@ -2496,10 +2521,10 @@
         "pending_few": "{{count}} файла XMP можно записать снова.",
         "pending_many": "{{count}} файлов XMP можно записать снова.",
         "pending_other": "{{count}} файла XMP можно записать снова.",
-        "sharedName_one": "{{count}} фото называется так же, как другое (RAW и JPEG), поэтому оба записали бы один и тот же файл XMP.",
-        "sharedName_few": "{{count}} фото называются так же, как другие (RAW и JPEG), поэтому оба записали бы один и тот же файл XMP.",
-        "sharedName_many": "{{count}} фото называются так же, как другие (RAW и JPEG), поэтому оба записали бы один и тот же файл XMP.",
-        "sharedName_other": "{{count}} фото называются так же, как другие (RAW и JPEG), поэтому оба записали бы один и тот же файл XMP."
+        "sharedName_one": "{{count}} фото использовало бы тот же файл XMP, что и другое фото.",
+        "sharedName_few": "{{count}} фото использовали бы тот же файл XMP, что и другое фото.",
+        "sharedName_many": "{{count}} фото использовали бы тот же файл XMP, что и другое фото.",
+        "sharedName_other": "{{count}} фото использовали бы тот же файл XMP, что и другое фото."
       },
       "resolved_one": "Конфликт XMP решён для {{count}} фото",
       "resolved_few": "Конфликты XMP решены для {{count}} фото",
@@ -2529,13 +2554,15 @@
         "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
-        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
+        "cyrb53": "String hash by bryc that names a mask bitmap's content between the editor and the renderer.",
         "darktable": "Reference implementations that guided parts of the inherited editor.",
         "DAViD": "Surface normals of people for Relight (Microsoft).",
         "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
         "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
         "Depth Anything V2 Small": "Depth masks.",
         "DirectX Shader Compiler": "On Windows, Microsoft's shader compiler (dxcompiler.dll, dxil.dll), with which ONNX Runtime's WebGPU plugin runs the AI models on the GPU (Microsoft).",
+        "EasyPortrait face parsing (FPN + ResNet-50)": "Разрез глаз и зубы для ретуши лица (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Изменено: преобразовано в ONNX и Core ML, опубликовано под CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Соответствие имён часовых поясов Windows идентификаторам IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
@@ -3297,7 +3324,6 @@
         "target": {
           "blueAria": "Целевой синий (sRGB 0–255)",
           "chromaAria": "Целевая насыщенность C* (CIELAB D50)",
-          "distance": "До цели ΔE00 {{value}}.",
           "greenAria": "Целевой зелёный (sRGB 0–255)",
           "grey": "Этот диапазон слишком серый, чтобы принять цвет.",
           "heading": "Целевой цвет",
@@ -3312,14 +3338,20 @@
             "lightness": "светлота (×0,6–1,4)",
             "saturation": "насыщенность (0–200 %)"
           },
-          "outOfReach": "Недостижимо: осталось ΔE00 {{value}}; {{limits}} на пределе.",
+          "measuredDistance": "ΔE00 {{value}} от цели, измерено в выбранной точке.",
+          "measuredOutOfReach": "Недостижимо: осталось ΔE00 {{value}}, измерено в выбранной точке; {{limits}} на пределе.",
+          "measuredOutsideSrgb": "Цель вне sRGB: результат sRGB в выбранной точке остаётся в ΔE00 {{value}} от неё (измерено).",
+          "measuredReached": "Цель достигнута: ΔE00 {{value}}, измерено в выбранной точке.",
+          "measuring": "Измерение результата в выбранной точке…",
+          "notMeasured": "Прогноз: ΔE00 {{value}} от цели; с ИИ-шумоподавлением результат в выбранной точке нельзя измерить.",
           "outsideSrgb": "Цель за пределами sRGB; при экспорте в sRGB цвет отображается в sRGB.",
           "outsideWorkingGamut": "Цель за пределами рабочих цветов фото (ProPhoto): ни один цвет фото не может её достичь, диапазон подходит настолько близко, насколько может.",
           "pickAria": "Взять целевой цвет",
           "pickedThrough": "Прогноз: ΔE00 {{value}} от цели, но этот цвет взят через сильное изменение самого диапазона: проверьте результат на фото или возьмите цвет заново с ползунками на 0.",
           "pickTitle": "Взять целевой цвет на фото; этот диапазон сместится к нему",
-          "reached": "Цель достигнута (ΔE00 {{value}}).",
-          "readoutTitle": "Прогноз для взятого цвета диапазона, до последующих инструментов, таких как кривые и цветокоррекция",
+          "predicted": "Прогноз: ΔE00 {{value}} от цели для цвета диапазона, не измерено: выберите диапазон на фото, чтобы измерить.",
+          "predictedOutOfReach": "Прогноз: недостижимо, осталось ΔE00 {{value}}; {{limits}} на пределе (не измерено: выберите диапазон на фото, чтобы измерить).",
+          "readoutTitle": "Измерено в sRGB-рендере фото со всеми инструментами по 11 × 11 пикселям превью пипетки в выбранной точке; для диапазона, не выбранного на фото, — прогноз для его цвета",
           "redAria": "Целевой красный (sRGB 0–255)",
           "sampleAria": "Взять целевой цвет",
           "sampleTitle": "Взять целевой цвет на этом фото — для диапазона здесь или на другом фото",
@@ -3327,6 +3359,7 @@
           "srgb": "sRGB",
           "swatchAria": "Результат диапазона {{result}}, цель {{target}}",
           "uncovered": "Маска слоя больше не покрывает выбранную точку: ползунки диапазона остаются как есть.",
+          "unmeasured": "Прогноз: ΔE00 {{value}} от цели; результат в выбранной точке измерить не удалось.",
           "useSampled": "Использовать цель из {{name}}",
           "useSampledTitle": "Сместить этот диапазон к цвету, взятому в {{name}}"
         },
@@ -3632,6 +3665,7 @@
           "brush": "Кисть",
           "color": "Цвет",
           "depth": "Глубина",
+          "landscape": "Пейзаж",
           "linear": "Линейный",
           "luminance": "Яркость",
           "object": "Предмет",
@@ -3661,6 +3695,7 @@
           "brush": "Новый слой кисти",
           "color": "Новый слой: Цветовой диапазон",
           "depth": "Новый слой: Диапазон глубины",
+          "landscape": "Новый слой пейзажа",
           "linear": "Новый слой линейного градиента",
           "luminance": "Новый слой: Диапазон яркости",
           "object": "Новый слой: Предмет",
@@ -3954,13 +3989,13 @@
         "exporting": "Экспорт {{current}} из {{total}}"
       },
       "provenance": {
-        "about": "Записывает, из какой фотографии проявлен каждый файл, виды правок и каждую область, созданную генеративной моделью, с подписью вашим сертификатом. JPEG, PNG и TIFF. Ничего не отправляется.",
+        "about": "Записывает, из какой фотографии проявлен каждый файл, виды правок и каждую область, созданную генеративной моделью, с подписью вашим сертификатом. JPEG, PNG, TIFF, WebP и AVIF. Ничего не отправляется.",
         "add": "Подписывать манифест происхождения в каждом файле",
         "author": "Указать автора фотографии",
-        "blocked": "Происхождение (C2PA) не может подписать: {{recipes}}. Настройте действительный сертификат подписи и экспортируйте JPEG, PNG или TIFF.",
+        "blocked": "Происхождение (C2PA) не может подписать: {{recipes}}. Настройте действительный сертификат подписи и экспортируйте JPEG, PNG, TIFF, WebP или AVIF.",
         "certificateFilter": "Сертификат PKCS#12",
         "expired": "Этот сертификат сейчас недействителен (действителен до {{until}}): подписывать им экспорт нельзя. Импортируйте обновлённый сертификат или создайте новый.",
-        "formatUnsupported": "Файлы {{format}} пока не могут содержать манифест происхождения. Выберите JPEG, PNG или TIFF либо отключите параметр.",
+        "formatUnsupported": "Файлы {{format}} пока не могут содержать манифест происхождения. Выберите JPEG, PNG, TIFF, WebP или AVIF либо отключите параметр.",
         "generate": "Создать сертификат на этом компьютере",
         "import": "Импортировать свой сертификат (.p12)…",
         "importConfirm": "Импортировать",
@@ -4221,11 +4256,17 @@
         "teethWhiten": "Отбеливание зубов",
         "texture": "Лицо: текстура"
       },
+      "download": {
+        "preparing": "Подготовка модели…",
+        "progress": "Загрузка… {{percent}}%"
+      },
       "downloadModels": "Загрузить модели лиц",
       "eyes": {
+        "downloadModel": "Загрузить модель глаз и зубов",
         "find": "Найти глаза и зубы",
         "finding": "Поиск глаз и зубов…",
         "missing": "Для «Глаз» и «Зубов» нужны глаза и рот этих лиц, найденных до появления этих инструментов.",
+        "modelMissing": "Для «Глаз» и «Зубов» нужна модель глаз и зубов (57 МБ). Она один раз загружается из пакета моделей Rawtonic на GitHub и работает на этом компьютере.",
         "none": "На этом лице не найдены глаза или открытый рот.",
         "sideAria": "Глаз",
         "sideHint": {
@@ -4302,6 +4343,23 @@
       "shadowClippingLit": "Предупреждение о тенях, провалены",
       "shadowClippingTitle": "Предупреждение о проваленных тенях (синим на фото; {{shortcut}} переключает оба)",
       "title": "Гистограмма"
+    },
+    "landscape": {
+      "aria": "Маска пейзажа",
+      "choose": "Выберите части для выделения.",
+      "finding": "Поиск частей пейзажа…",
+      "noneFound": "Ни одна из этих частей не найдена на этом фото.",
+      "notFound": "(не найдено)",
+      "parts": {
+        "architecture": "Архитектура",
+        "artificialGround": "Искусственная поверхность",
+        "mountains": "Горы",
+        "naturalGround": "Естественная поверхность",
+        "sky": "Небо",
+        "vegetation": "Растительность",
+        "water": "Вода"
+      },
+      "partsAria": "Части пейзажа"
     },
     "layers": {
       "bandWidth": "Ширина полосы",
@@ -5117,6 +5175,7 @@
         "brush": "Кисть",
         "color": "Цветовой диапазон",
         "depth": "Диапазон глубины",
+        "landscape": "Пейзаж",
         "linear": "Линейный",
         "luminance": "Диапазон яркости",
         "object": "Предмет",
@@ -5444,6 +5503,7 @@
         "profile": "профиль",
         "profileNamed": "профиль «{{name}}»",
         "Shadows": "тени",
+        "shadowsBeyondReach": "тени за пределами диапазона Теней Rawtonic (установлено ±100)",
         "toneCurveMissingPoints": "тональная кривая с именем из Lightroom, но без точек",
         "upright": "Upright",
         "whiteBalance": "баланс белого"
@@ -5993,6 +6053,7 @@
         "moveToolsLeft": "Переместить инструменты проявки влево",
         "moveToolsRight": "Переместить инструменты проявки вправо"
       },
+      "lightroomHdr": "HDR-обработка из Lightroom — отображается и экспортируется как SDR",
       "loupe": {
         "adjust": "Проявка",
         "adjustTitle": "Настроить в Проявке",

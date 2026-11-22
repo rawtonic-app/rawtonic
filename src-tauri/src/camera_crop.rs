@@ -15,7 +15,16 @@ pub async fn get_camera_crops(path: String) -> Result<Vec<Option<serde_json::Val
         if rawtonic_engine::source_facts::registered(&source_str).is_none() {
             crate::preview_proxy::prepare_offline(&source);
         }
-        rawtonic_engine::camera_crop::crops(&source_str)
+        // The editor's proxy can be older than the newest cached header.
+        // Facts from before RAF aspect ratios were read cannot answer it.
+        let crops = if let Some(facts) = rawtonic_engine::source_facts::registered(&source_str) {
+            rawtonic_engine::camera_crop::crops_from_facts(&facts, &source_str).unwrap_or_default()
+        } else if crate::file_management::is_cloud_placeholder(&source) {
+            Vec::new()
+        } else {
+            rawtonic_engine::camera_crop::crops(&source_str)
+        };
+        crops
             .into_iter()
             .map(|crop| crop.map(|crop| rawtonic_engine::camera_crop::recipe_values(crop).0))
             .collect()

@@ -1,0 +1,4 @@
+{
+  "rawOnly": { "nonRaw": false },
+  "rawAndNonRaw": { "nonRaw": true }
+}

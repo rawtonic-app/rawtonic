@@ -24,6 +24,7 @@ use rawtonic_fileops::{
 };
 use rawtonic_fs::Canonical;
 use rawtonic_metadata::photo_ref::{self, PhotoRef};
+use rawtonic_metadata::sidecars::is_developed;
 use serde::Serialize;
 use std::{
     cell::Cell,
@@ -231,6 +232,14 @@ pub fn stop_file_operation(run: u64) {
     STOP.stop(run);
 }
 
+/// `with_journal` for the session folders' glue (`session_folders`).
+pub(crate) fn with_journal_pub<T>(
+    app: &AppHandle,
+    f: impl FnOnce(&Journal) -> Result<T, FileOpsError>,
+) -> Result<T, String> {
+    with_journal(app, f)
+}
+
 fn with_journal<T>(
     app: &AppHandle,
     f: impl FnOnce(&Journal) -> Result<T, FileOpsError>,
@@ -353,19 +362,103 @@ fn album_key(path: &Path) -> Option<String> {
     Some(PhotoRef::of_path(&path.with_file_name(image), Some(id)).format())
 }
 
-/// The XMP sidecar of `image` (`name.xmp`, shared by RAW+JPEG pairs).
-fn xmp_for(image: &Path) -> PathBuf {
-    rawtonic_metadata::sidecar_path(image)
+/// The XMP sidecar `image` has (`rawtonic_metadata::sidecars`): a RAW's
+/// is `<stem>.xmp`, a JPEG beside its RAW has `<name>.JPG.xmp`.
+fn xmp_for(image: &Path) -> Option<PathBuf> {
+    rawtonic_metadata::existing_sidecar(image)
+}
+
+/// The XMP sidecars of `images` that take another name in `dest`: a lone
+/// JPEG's `A.xmp` moved beside a file of its stem (its RAW, there already or
+/// moved with it) becomes `A.JPG.xmp`, so the RAW never takes it for its own
+/// there (`rawtonic_metadata::sidecars`).
+pub fn xmp_targets(images: &[PathBuf], dest: &Path) -> HashMap<PathBuf, PathBuf> {
+    let there = rawtonic_metadata::sidecars::Sidecars::new();
+    let mut targets = HashMap::new();
+    for image in images {
+        let (Some(name), Some(stem)) = (image.file_name(), image.file_stem()) else {
+            continue;
+        };
+        if !is_developed(image) {
+            continue;
+        }
+        let Some(xmp) = rawtonic_metadata::existing_sidecar(image) else {
+            continue;
+        };
+        let stem_form = xmp
+            .file_stem()
+            .is_some_and(|s| s.eq_ignore_ascii_case(stem));
+        let partner_moves = images.iter().any(|other| {
+            other != image
+                && other
+                    .file_stem()
+                    .is_some_and(|s| s.eq_ignore_ascii_case(stem))
+        });
+        if stem_form && (partner_moves || there.has_partner(&dest.join(name))) {
+            targets.insert(xmp, full_name_sidecar(&dest.join(name)));
+        }
+    }
+    targets
+}
+
+/// Renames a move into `dest` needs first: a JPEG there alone whose
+/// `A.xmp` would become the RAW's (or be no one's) once another photo of its
+/// name is moved in beside it takes `A.JPG.xmp`
+/// (`xmp_targets` for the JPEG that stays).
+pub fn partner_xmp_renames(images: &[PathBuf], dest: &Path) -> Vec<(PathBuf, PathBuf)> {
+    let mut renames = Vec::new();
+    let Ok(entries) = fs::read_dir(dest) else {
+        return renames;
+    };
+    let there: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    // Any photo of its name arriving (a RAW, or a rendered TIFF beside a
+    // JPEG) makes the JPEG's sidecar the full-name one.
+    for image in images {
+        let Some(stem) = image.file_stem() else {
+            continue;
+        };
+        for jpeg in there.iter().filter(|p| {
+            is_developed(p)
+                && p.is_file()
+                && p.file_stem().is_some_and(|s| s.eq_ignore_ascii_case(stem))
+        }) {
+            // Its sidecar now, while it is alone there.
+            if let Some(xmp) = rawtonic_metadata::existing_sidecar(jpeg)
+                && xmp
+                    .file_stem()
+                    .is_some_and(|s| s.eq_ignore_ascii_case(stem))
+                && !renames.iter().any(|(from, _)| from == &xmp)
+            {
+                renames.push((xmp, full_name_sidecar(jpeg)));
+            }
+        }
+    }
+    renames
+}
+
+/// `A.JPG.xmp` for `A.JPG`.
+fn full_name_sidecar(image: &Path) -> PathBuf {
+    let mut name = image.file_name().unwrap_or_default().to_os_string();
+    name.push(".xmp");
+    image.with_file_name(name)
 }
 
 /// Every file that belongs to `images` and moves with them: editor sidecars,
 /// virtual copies, the EXIF cache, a RAW's companion JPEG
-/// (`session_bridge::companion_of`), and an XMP whose every photo is
-/// included.
+/// (`session_bridge::companion_of`), and its XMP sidecar, unless another
+/// photo left behind has a sidecar of that name too (a CR3 and a DNG of one
+/// stem): then it stays with the remaining photo.
 pub fn associated_files(images: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
     let selected: HashSet<&PathBuf> = images.iter().collect();
+    let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
     let mut files = BTreeSet::new();
     for image in images {
+        if let Some(packet) = sidecars.ambiguous_packet(image) {
+            return Err(format!(
+                "File operation blocked by ambiguous XMP ownership at {}",
+                packet.display()
+            ));
+        }
         for file in crate::file_management::find_all_associated_files(image)? {
             files.insert(file);
         }
@@ -373,12 +466,34 @@ pub fn associated_files(images: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
         if let Some(companion) = &companion {
             files.insert(companion.clone());
         }
-        let xmp = xmp_for(image);
-        if !xmp.is_file() || files.contains(&xmp) {
+        let Some(xmp) = sidecars.existing(image) else {
+            continue;
+        };
+        // Listed already (a JPEG's own `A.JPG.xmp`), maybe under its stored
+        // spelling (`A.JPG.XMP` on a case-insensitive volume, where the
+        // name asked for is not in the folder's listing). On a
+        // case-sensitive volume `a.xmp` beside `A.xmp` is a file of its own.
+        let parent = image.parent().ok_or("No parent folder")?;
+        let spelled_so = || {
+            fs::read_dir(parent)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .any(|e| Some(e.file_name().as_os_str()) == xmp.file_name())
+        };
+        let listed = files.contains(&xmp)
+            || (files.iter().any(|f| {
+                f.parent() == xmp.parent()
+                    && f.file_name().zip(xmp.file_name()).is_some_and(|(a, b)| {
+                        a.to_string_lossy()
+                            .eq_ignore_ascii_case(&b.to_string_lossy())
+                    })
+            }) && !spelled_so());
+        if !xmp.is_file() || listed {
             continue;
         }
-        // Another photo with this name (RAW+JPEG) keeps its XMP; a
-        // companion is no photo of its own.
+        // A JPEG partner's sidecar is its own (`A.JPG.xmp`), not this one;
+        // a companion is no photo of its own.
         let stem = image.file_stem();
         let shared = fs::read_dir(image.parent().ok_or("No parent folder")?)
             .map_err(|e| e.to_string())?
@@ -389,6 +504,7 @@ pub fn associated_files(images: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
                     && is_supported_image_file(&p)
                     && !selected.contains(&p)
                     && companion.as_ref() != Some(&p)
+                    && xmp_for(&p).as_ref() == Some(&xmp)
             });
         if !shared {
             files.insert(xmp);
@@ -473,6 +589,19 @@ pub fn run(
     label: &str,
     steps: Vec<Step>,
 ) -> Result<Operation, String> {
+    run_with_context(app, kind, label, steps, None)
+}
+
+/// `run`, with `context` kept with the operation under
+/// `session_folders::CONTEXT_KEY` (the folder role a Move contents part went
+/// with), for its undo and redo to follow (`sync`).
+pub fn run_with_context(
+    app: &AppHandle,
+    kind: &str,
+    label: &str,
+    steps: Vec<Step>,
+    context: Option<serde_json::Value>,
+) -> Result<Operation, String> {
     // Album memberships of what goes to the system Trash, for undo.
     let trashed: Vec<String> = steps
         .iter()
@@ -499,8 +628,15 @@ pub fn run(
             notify_kept(app, journal, &id, &[]);
         }
         let op = result?;
+        let mut stored = serde_json::Map::new();
         if !memberships.is_empty() {
-            journal.set_context(&op.id, serde_json::json!({ "albums": memberships }))?;
+            stored.insert("albums".into(), serde_json::json!(memberships));
+        }
+        if let Some(context) = &context {
+            stored.insert(crate::session_folders::CONTEXT_KEY.into(), context.clone());
+        }
+        if !stored.is_empty() {
+            journal.set_context(&op.id, serde_json::Value::Object(stored))?;
         }
         journal.operation(&op.id)
     })?;
@@ -899,11 +1035,51 @@ fn sync(app: &AppHandle, op: &Operation, follows: bool) -> Result<(), String> {
             }
         }
     }
+    // The folder role a Move contents part went with follows its undo and
+    // redo (C1Q1, G38), and the Library shows the roles as they now are; a
+    // role that cannot follow is said, the records' sync goes on.
+    use crate::session_folders::Followed;
+    match with_journal(app, |journal| {
+        Ok(crate::session_folders::follow(journal, op, forward))
+    }) {
+        Ok(Followed::Changed { session }) => {
+            let _ = app.emit(
+                SESSION_FOLDERS_CHANGED,
+                SessionFoldersChanged {
+                    session,
+                    refused: None,
+                },
+            );
+        }
+        Ok(Followed::Refused { session, error }) => {
+            log::warn!("'{}': the folder role stays: {error}", op.label);
+            let _ = app.emit(
+                SESSION_FOLDERS_CHANGED,
+                SessionFoldersChanged {
+                    session,
+                    refused: Some(error),
+                },
+            );
+        }
+        Ok(Followed::Unchanged) => {}
+        Err(e) => log::warn!("'{}': the folder role could not follow: {e}", op.label),
+    }
     catalog?;
     if let Err(e) = with_journal(app, |journal| journal.mark_synced(&op.id)) {
         log::warn!("File operation '{}' synced but not recorded: {e}", op.label);
     }
     Ok(())
+}
+
+/// The event telling the Library that a session's folder roles changed with
+/// a file operation's undo or redo, or could not (`refused`: why).
+pub const SESSION_FOLDERS_CHANGED: &str = "session-folders-changed";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionFoldersChanged {
+    session: PathBuf,
+    refused: Option<String>,
 }
 
 /// The (old, new) places of what the operation moved, in the direction its
@@ -1298,8 +1474,10 @@ pub fn trash_photos(
                 group.push(file);
             }
         }
-        let xmp = xmp_for(image);
-        if all.contains(&xmp) && assigned.insert(xmp.clone()) {
+        if let Some(xmp) = xmp_for(image)
+            && all.contains(&xmp)
+            && assigned.insert(xmp.clone())
+        {
             group.push(xmp);
         }
         groups.push(group);
@@ -1433,8 +1611,8 @@ mod tests {
     }
 
     /// A RAW's recorded companion JPEG moves and goes to the Trash with it,
-    /// and so does the XMP (the companion is no photo of its own); a JPEG
-    /// of the same name that is not its companion keeps the XMP.
+    /// and so does the XMP; a JPEG of the same name that is not its
+    /// companion stays, and the RAW's XMP goes with the RAW all the same.
     #[test]
     fn a_companion_jpeg_belongs_to_its_raw() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1456,7 +1634,7 @@ mod tests {
         assert!(files.contains(&capture.join("A.JPG")));
         assert!(files.contains(&capture.join("A.xmp")));
         assert!(!files.contains(&capture.join("B.JPG")));
-        assert!(!files.contains(&capture.join("B.xmp")));
+        assert!(files.contains(&capture.join("B.xmp")));
         assert_eq!(
             crate::session_bridge::companions_in_folder(&capture),
             HashSet::from([capture.join("A.JPG")])
@@ -1496,7 +1674,7 @@ mod tests {
     }
 
     #[test]
-    fn uppercase_xmp_follows_its_photo_and_keeps_the_shared_stem_guard() {
+    fn uppercase_xmp_follows_its_raw_also_beside_a_jpeg() {
         let tmp = tempfile::tempdir().unwrap();
         let photo = tmp.path().join("upper.arw");
         let upper = photo.with_extension("XMP");
@@ -1511,9 +1689,16 @@ mod tests {
                 .contains(&upper)
         );
         let jpeg = photo.with_extension("jpg");
-        fs::write(&jpeg, b"companion").unwrap();
+        fs::write(&jpeg, b"partner").unwrap();
+        // The stem sidecar is the RAW's: it goes with the RAW alone, never
+        // with the JPEG alone.
         assert!(
-            !associated_files(std::slice::from_ref(&photo))
+            associated_files(std::slice::from_ref(&photo))
+                .unwrap()
+                .contains(&upper)
+        );
+        assert!(
+            !associated_files(std::slice::from_ref(&jpeg))
                 .unwrap()
                 .contains(&upper)
         );
@@ -1521,13 +1706,14 @@ mod tests {
     }
 
     #[test]
-    fn associated_files_keep_a_shared_xmp_with_the_remaining_photo() {
+    fn each_partner_of_a_raw_jpeg_pair_moves_with_its_own_xmp() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         for name in [
             "A.RAF",
             "A.JPG",
             "A.xmp",
+            "A.JPG.xmp",
             "A.RAF.rrdata",
             "A.RAF.abc123.rrdata",
             "B.ARW",
@@ -1540,15 +1726,137 @@ mod tests {
         assert!(files.contains(&dir.join("A.RAF.abc123.rrdata")));
         assert!(files.contains(&dir.join("B.xmp")), "B's own XMP moves");
         assert!(
-            !files.contains(&dir.join("A.xmp")),
-            "A.JPG stays and keeps A.xmp"
+            files.contains(&dir.join("A.xmp")),
+            "the RAW's XMP moves with it"
         );
         assert!(!files.contains(&dir.join("A.JPG")));
-        let both = associated_files(&[dir.join("A.RAF"), dir.join("A.JPG")]).unwrap();
         assert!(
-            both.contains(&dir.join("A.xmp")),
-            "both photos go, so does their XMP"
+            !files.contains(&dir.join("A.JPG.xmp")),
+            "the JPEG keeps its own"
         );
+        let jpeg = associated_files(&[dir.join("A.JPG")]).unwrap();
+        assert!(jpeg.contains(&dir.join("A.JPG.xmp")));
+        assert!(!jpeg.contains(&dir.join("A.xmp")), "never the RAW's");
+    }
+
+    #[test]
+    fn a_lone_jpegs_xmp_moved_beside_its_raw_takes_its_own_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (from, to) = (tmp.path().join("from"), tmp.path().join("to"));
+        fs::create_dir_all(&from).unwrap();
+        fs::create_dir_all(&to).unwrap();
+        for name in ["A.JPG", "A.xmp", "B.JPG", "B.xmp"] {
+            fs::write(from.join(name), name).unwrap();
+        }
+        fs::write(to.join("A.NEF"), b"raw").unwrap();
+        let images = [from.join("A.JPG"), from.join("B.JPG")];
+        let targets = xmp_targets(&images, &to);
+        assert_eq!(
+            targets.get(&from.join("A.xmp")),
+            Some(&to.join("A.JPG.xmp"))
+        );
+        assert_eq!(
+            targets.get(&from.join("B.xmp")),
+            None,
+            "B stays alone there"
+        );
+    }
+
+    #[test]
+    fn a_pair_brought_together_by_a_move_keeps_each_its_own_xmp() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (jpegs, raws, to) = (
+            tmp.path().join("jpegs"),
+            tmp.path().join("raws"),
+            tmp.path().join("to"),
+        );
+        for dir in [&jpegs, &raws, &to] {
+            fs::create_dir_all(dir).unwrap();
+        }
+        fs::write(jpegs.join("A.JPG"), b"jpg").unwrap();
+        fs::write(jpegs.join("A.xmp"), b"jpeg's").unwrap();
+        fs::write(raws.join("A.NEF"), b"raw").unwrap();
+        // Both moved in one operation into an empty folder.
+        let images = [jpegs.join("A.JPG"), raws.join("A.NEF")];
+        assert_eq!(
+            xmp_targets(&images, &to).get(&jpegs.join("A.xmp")),
+            Some(&to.join("A.JPG.xmp"))
+        );
+        assert!(partner_xmp_renames(&images, &to).is_empty());
+        // The RAW moved alone into the folder that holds the JPEG and its
+        // XMP: the JPEG's takes its own name there first.
+        fs::write(to.join("B.JPG"), b"jpg").unwrap();
+        fs::write(to.join("B.xmp"), b"jpeg's").unwrap();
+        fs::write(raws.join("B.NEF"), b"raw").unwrap();
+        assert_eq!(
+            partner_xmp_renames(&[raws.join("B.NEF")], &to),
+            [(to.join("B.xmp"), to.join("B.JPG.xmp"))]
+        );
+    }
+
+    /// (g) of review round 3: a rendered TIFF of a JPEG's name moved in
+    /// beside it: the JPEG's `A.xmp` takes its own full name first, and the
+    /// TIFF never takes it.
+    #[test]
+    fn a_tiff_moved_beside_a_lone_jpeg_leaves_the_jpegs_xmp_its_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (from, to) = (tmp.path().join("from"), tmp.path().join("to"));
+        fs::create_dir_all(&from).unwrap();
+        fs::create_dir_all(&to).unwrap();
+        fs::write(from.join("A.TIF"), b"rendered").unwrap();
+        fs::write(to.join("A.JPG"), b"jpg").unwrap();
+        fs::write(to.join("A.xmp"), b"jpeg's").unwrap();
+        let images = [from.join("A.TIF")];
+        assert_eq!(
+            partner_xmp_renames(&images, &to),
+            [(to.join("A.xmp"), to.join("A.JPG.xmp"))]
+        );
+        assert!(xmp_targets(&images, &to).is_empty());
+        assert!(
+            !associated_files(&images)
+                .unwrap()
+                .contains(&to.join("A.xmp"))
+        );
+        // After the move the TIFF has no sidecar of its own yet, the JPEG
+        // has its own.
+        fs::rename(to.join("A.xmp"), to.join("A.JPG.xmp")).unwrap();
+        fs::rename(from.join("A.TIF"), to.join("A.TIF")).unwrap();
+        assert_eq!(rawtonic_metadata::existing_sidecar(&to.join("A.TIF")), None);
+        assert_eq!(
+            rawtonic_metadata::existing_sidecar(&to.join("A.JPG")),
+            Some(to.join("A.JPG.xmp"))
+        );
+    }
+
+    #[test]
+    fn a_jpegs_own_xmp_is_moved_once_whatever_its_letter_case() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        for name in ["A.CR3", "A.JPG", "A.JPG.XMP"] {
+            fs::write(dir.join(name), name).unwrap();
+        }
+        let files = associated_files(&[dir.join("A.JPG")]).unwrap();
+        let xmps = files
+            .iter()
+            .filter(|f| f.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp")))
+            .count();
+        assert_eq!(xmps, 1, "{files:?}");
+    }
+
+    #[test]
+    fn a_sidecar_two_raws_share_stays_with_the_one_left_behind() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        for name in ["A.CR3", "A.DNG", "A.xmp"] {
+            fs::write(dir.join(name), name).unwrap();
+        }
+        let one = associated_files(&[dir.join("A.CR3")]).unwrap();
+        assert!(
+            !one.contains(&dir.join("A.xmp")),
+            "A.DNG stays and keeps A.xmp"
+        );
+        let both = associated_files(&[dir.join("A.CR3"), dir.join("A.DNG")]).unwrap();
+        assert!(both.contains(&dir.join("A.xmp")), "both go, so does it");
     }
 
     #[test]
@@ -1595,6 +1903,146 @@ mod tests {
             plan_trash(&[vec![folder.clone()]]),
             vec![Step::rename(&folder, dir.join("Trash/Selects"))]
         );
+    }
+
+    /// C1Q1 (G38): undoing "Move contents" gives the Capture role back to
+    /// the folder the photos returned to, and redo gives it to the new
+    /// folder again; a folder chosen in between keeps the role, and a role
+    /// that cannot go back is refused without holding up the records.
+    #[test]
+    fn move_contents_undo_and_redo_carry_the_folder_role() {
+        use crate::session_folders::{Followed, follow};
+        use rawtonic_catalog::session_folders::FolderRole;
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let (old, new) = (dir.join("Capture"), dir.join("Capture2"));
+        fs::create_dir_all(&new).unwrap();
+        let photo = old.join("A.NEF");
+        fs::write(&photo, "a").unwrap();
+        Library::open(&dir).unwrap().add_asset(&photo).unwrap();
+        let folder = |role| Library::open(&dir).unwrap().session_folder(role).path;
+        let set = |role, path: &Path| {
+            Library::open(&dir)
+                .unwrap()
+                .set_session_folder(role, path)
+                .unwrap();
+        };
+        let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+        let nt = &rawtonic_fileops::NoSystemTrash;
+        // As Session Folders does it: the role first, then the contents.
+        let move_contents = || {
+            set(FolderRole::Capture, &new);
+            let steps = rawtonic_fileops::plan_move_contents(&old, &new)
+                .unwrap()
+                .remove(0);
+            let op = journal
+                .execute("move", "Move contents to Capture2", steps, nt)
+                .unwrap();
+            let context = crate::session_folders::move_context(&dir, &old, &new).unwrap();
+            journal
+                .set_context(
+                    &op.id,
+                    serde_json::json!({ crate::session_folders::CONTEXT_KEY: context }),
+                )
+                .unwrap();
+            let op = journal.operation(&op.id).unwrap();
+            sync_catalog(&op, true).unwrap();
+            assert_eq!(follow(&journal, &op, true), Followed::Unchanged);
+            op
+        };
+        let undo = |op: &Operation| {
+            let op = journal.undo(&op.id, nt).unwrap();
+            sync_catalog(&op, false).unwrap();
+            let followed = follow(&journal, &op, false);
+            assert!(photo.is_file());
+            (op, followed)
+        };
+        let redo = |op: &Operation| {
+            let op = journal.redo(&op.id, nt).unwrap();
+            sync_catalog(&op, true).unwrap();
+            let followed = follow(&journal, &op, true);
+            assert!(new.join("A.NEF").is_file());
+            (op, followed)
+        };
+
+        let op = move_contents();
+        assert_eq!(folder(FolderRole::Capture), new);
+        let (op, followed) = undo(&op);
+        assert_eq!(
+            followed,
+            Followed::Changed {
+                session: dir.clone()
+            }
+        );
+        assert_eq!(
+            folder(FolderRole::Capture),
+            old,
+            "undo puts the Capture role back"
+        );
+        // Running it again (a retried sync) changes nothing more.
+        assert_eq!(follow(&journal, &op, false), Followed::Unchanged);
+        let (op, followed) = redo(&op);
+        assert_eq!(
+            followed,
+            Followed::Changed {
+                session: dir.clone()
+            }
+        );
+        assert_eq!(
+            folder(FolderRole::Capture),
+            new,
+            "redo gives it to the new folder again"
+        );
+
+        // A folder chosen after the move keeps the role through undo and redo.
+        let other = dir.join("Elsewhere");
+        fs::create_dir_all(&other).unwrap();
+        set(FolderRole::Capture, &other);
+        let (op, followed) = undo(&op);
+        assert_eq!(followed, Followed::Unchanged);
+        let (op, followed) = redo(&op);
+        assert_eq!(followed, Followed::Unchanged);
+        assert_eq!(folder(FolderRole::Capture), other.canonical().unwrap());
+        let (_, _) = undo(&op);
+
+        // Undo, then the role chosen by hand (elsewhere and back to the old
+        // folder): redo leaves it there.
+        let op = move_contents();
+        let (op, followed) = undo(&op);
+        assert_eq!(
+            followed,
+            Followed::Changed {
+                session: dir.clone()
+            }
+        );
+        set(FolderRole::Capture, &other);
+        set(FolderRole::Capture, &old);
+        crate::session_folders::chosen_by_hand(&journal, &dir, FolderRole::Capture);
+        let (op, followed) = redo(&op);
+        assert_eq!(followed, Followed::Unchanged);
+        assert_eq!(folder(FolderRole::Capture), old);
+        let (_, _) = undo(&op);
+
+        // The role put back by hand after the move: redo leaves it there.
+        let op = move_contents();
+        set(FolderRole::Capture, &old);
+        let (op, followed) = undo(&op);
+        assert_eq!(followed, Followed::Unchanged);
+        let (op, followed) = redo(&op);
+        assert_eq!(followed, Followed::Unchanged);
+        assert_eq!(folder(FolderRole::Capture), old);
+        let (_, _) = undo(&op);
+        set(FolderRole::Capture, &old);
+
+        // The old folder took another role since: the files come back, the
+        // Capture role stays, and the records followed all the same.
+        let op = move_contents();
+        set(FolderRole::Selects, &old);
+        let (_, followed) = undo(&op);
+        assert!(matches!(followed, Followed::Refused { .. }), "{followed:?}");
+        assert_eq!(folder(FolderRole::Capture), new);
+        let lib = Library::open(&dir).unwrap();
+        assert!(lib.asset_at(&photo).unwrap().is_some());
     }
 
     #[test]

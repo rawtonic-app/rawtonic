@@ -222,9 +222,34 @@ pub fn preview_name(
 }
 
 /// Copies the card sidecar `sidecar` beside `photo` (a verified copy of its
-/// photograph) as `<photo stem>.xmp` (`copy_beside`).
+/// photograph) under the name the photo's own sidecar has there
+/// (`rawtonic_metadata::sidecars`): `<stem>.xmp` for a RAW; a developed
+/// image's full-name card sidecar (`NAME.JPG.xmp`, from a RAW+JPEG pair)
+/// keeps that form, so it never takes the name its RAW's sidecar has
+/// (`copy_beside`).
 fn copy_sidecar(sidecar: &Path, photo: &Path, barrier: &mut Barrier) -> Result<PathBuf> {
-    let target = rawtonic_metadata::sidecar_path(photo);
+    let extension = photo.extension().and_then(|e| e.to_str());
+    let full_name = sidecar
+        .file_stem()
+        .and_then(|stem| Path::new(stem).extension())
+        .and_then(|e| e.to_str())
+        .zip(extension)
+        .is_some_and(|(of_sidecar, of_photo)| of_sidecar.eq_ignore_ascii_case(of_photo));
+    let target = if full_name && rawtonic_metadata::sidecars::is_developed(photo) {
+        let mut name = photo
+            .file_name()
+            .context("Photo has no filename")?
+            .to_os_string();
+        name.push(".xmp");
+        photo.with_file_name(name)
+    } else {
+        rawtonic_metadata::sidecar_path(photo).context("Ambiguous XMP sidecar name")?
+    };
+    ensure!(
+        !rawtonic_metadata::sidecars::Sidecars::new().is_ambiguous(&target),
+        "Ambiguous XMP sidecar name: {}",
+        target.display()
+    );
     copy_beside_all(
         sidecar,
         &[target],
@@ -1199,6 +1224,26 @@ pub(crate) fn import_pair(
         }
         _ => identical_file(&folder, &name, source, companion, &reserved, unrecorded)?,
     };
+    // A new RAW cannot take another photograph's destination stem packet.
+    // This includes a rendered image imported earlier under the same
+    // template, and also applies to backups. Keep the normal numbered
+    // collision suffix; verified copies from an interrupted import keep
+    // their recorded names.
+    let raw = !rawtonic_metadata::sidecars::is_developed(source);
+    let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
+    let xmp_taken = |path: &Path| {
+        if sidecars.ambiguous_packet(path).is_some() {
+            return true;
+        }
+        let stem = rawtonic_metadata::sidecars::stem_sidecar(path);
+        raw && rawtonic_fs::canonicalize(&stem).ok().is_some_and(|stem| {
+            sidecars.same_stem(path).iter().any(|photo| {
+                sidecars
+                    .existing(photo)
+                    .is_some_and(|own| rawtonic_fs::canonicalize(own).is_ok_and(|own| own == stem))
+            })
+        })
+    };
     // The backup: one an earlier, cut-off import made (also when it got no
     // further than the backup) is kept rather than made again.
     let backup_plan = match options.backup {
@@ -1223,7 +1268,7 @@ pub(crate) fn import_pair(
                         backup_folder,
                         &name,
                         companion,
-                        &|_| false,
+                        &xmp_taken,
                         CollisionPolicy::Suffix,
                     )?
                     .context("No backup destination")?,
@@ -1238,7 +1283,7 @@ pub(crate) fn import_pair(
                 &folder,
                 &name,
                 companion,
-                &reserved,
+                &|path| reserved(path) || xmp_taken(path),
                 CollisionPolicy::Suffix,
             )?
             .context("No destination")?,

@@ -329,6 +329,44 @@ pub(crate) fn file_replaced_since_open(source: &Path) -> Option<&'static str> {
     (now != recorded).then_some(FILE_REPLACED)
 }
 
+/// The error of an editor sidecar write of a library photograph (not a
+/// virtual copy) the library committed but whose derived sidecar beside
+/// the photograph could not be written (a write-protected folder): the
+/// library is what its recipe is read from (`read_editor_sidecar`), so the
+/// edit is saved and its undo holds; the file follows on the next save. Tell it from other errors with
+/// [`saved_in_library`].
+#[derive(Debug)]
+pub struct DerivedSidecarUnwritten(io::Error);
+
+impl std::fmt::Display for DerivedSidecarUnwritten {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "saved in the library; the sidecar file next to the photo could not be written: {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for DerivedSidecarUnwritten {}
+
+fn derived_unwritten(e: io::Error) -> io::Error {
+    io::Error::other(DerivedSidecarUnwritten(e))
+}
+
+/// Why only the derived sidecar was not written, when `error` (of
+/// [`write_editor_sidecar`]) left the edit saved in the library.
+pub fn saved_in_library(error: &io::Error) -> Option<&io::Error> {
+    error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<DerivedSidecarUnwritten>())
+        .map(|unwritten| &unwritten.0)
+}
+
+/// Writes an editor sidecar: through the library that holds the photograph
+/// (committed first), then the sidecar beside it. An error after the
+/// library committed a photograph's own recipe is a
+/// [`DerivedSidecarUnwritten`].
 pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> {
     let _lock = WRITE_LOCK.lock().map_err(io_error)?;
     let path = path.as_ref();
@@ -355,6 +393,11 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             lib.asset_at(&source).map_err(io_error)?
         };
         if let Some(asset) = &asset {
+            let previous = if online {
+                lib.copy_state(&asset.id, &copy).map_err(io_error)?
+            } else {
+                None
+            };
             crate::library_search::announcing_ai_facts(&lib, &asset.id, || {
                 lib.save_copy_state(&asset.id, &copy, &state)
             })
@@ -362,9 +405,50 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             if !online {
                 return Ok(());
             }
-            let version = lib.version_for(&asset.id, Some(&copy)).map_err(io_error)?;
-            let bytes = with_library_snapshots(&lib, version.as_deref(), bytes, &state)?;
-            return rawtonic_fs::atomic_write(path, &*bytes).map_err(io_error);
+            // Not a `DerivedSidecarUnwritten`: while the photograph is there
+            // its copy is read from this file (`read_editor_sidecar`), so
+            // an edit the file did not get is not saved, and the library
+            // goes back to what it held (a relink writes that out).
+            let derived = lib
+                .version_for(&asset.id, Some(&copy))
+                .map_err(io_error)
+                .and_then(|version| {
+                    with_library_snapshots(&lib, version.as_deref(), bytes, &state)
+                        .map(std::borrow::Cow::into_owned)
+                });
+            let written = derived.and_then(|derived| {
+                rawtonic_fs::atomic_write(path, &derived)
+                    .map_err(io_error)
+                    .or_else(|e| {
+                        // Replaced, but the folder could not be synced after
+                        // it (a folder that cannot be read): the file holds
+                        // the edit, so it is saved; the library keeps it.
+                        if std::fs::read(path).is_ok_and(|now| now == derived) {
+                            log::warn!("{} written, its folder not synced: {e}", path.display());
+                            Ok(())
+                        } else {
+                            Err(e)
+                        }
+                    })
+            });
+            if written.is_err() {
+                let restored = match &previous {
+                    Some(previous) => {
+                        crate::library_search::announcing_ai_facts(&lib, &asset.id, || {
+                            lib.save_copy_state(&asset.id, &copy, previous)
+                        })
+                        .map(|_| ())
+                    }
+                    None => lib.remove_copy(&asset.id, &copy).map(|_| ()),
+                };
+                if let Err(e) = restored {
+                    log::warn!(
+                        "Virtual copy {copy} of {} keeps an edit its sidecar did not get: {e}",
+                        source.display()
+                    );
+                }
+            }
+            return written;
         }
         return rawtonic_fs::atomic_write(path, bytes).map_err(io_error);
     }
@@ -405,10 +489,16 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             lib.save_editor_state(&asset.id, &state)
         })
         .map_err(io_error)?;
-        let version = lib.primary_version(&asset.id).map_err(io_error)?;
-        let bytes = with_library_snapshots(&lib, Some(&version), bytes, &state)?;
+        let version = lib
+            .primary_version(&asset.id)
+            .map_err(io_error)
+            .map_err(derived_unwritten)?;
+        let bytes = with_library_snapshots(&lib, Some(&version), bytes, &state)
+            .map_err(derived_unwritten)?;
         // SQLite committed first. A failed derived write can be retried without losing edits.
-        rawtonic_fs::atomic_write(path, &*bytes).map_err(io_error)?;
+        rawtonic_fs::atomic_write(path, &*bytes)
+            .map_err(io_error)
+            .map_err(derived_unwritten)?;
         if let Err(e) = lib.sync_xmp(&asset.id) {
             log::warn!(
                 "Edit saved in database; XMP pending for {}: {e}",
@@ -524,6 +614,7 @@ fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
 fn index_folder(lib: &Library) -> anyhow::Result<Vec<SkippedDuplicate>> {
     let known = lib.index_entries()?;
     let mut new = Vec::new();
+    let sidecars = rawtonic_metadata::sidecars::Sidecars::new();
     for photo in session_photos(lib)? {
         if let Some(asset) = known.get(&photo) {
             if !asset.needs_metadata_adoption {
@@ -532,7 +623,7 @@ fn index_folder(lib: &Library) -> anyhow::Result<Vec<SkippedDuplicate>> {
             // Neutral files without sidecars need no more per-asset DB
             // queries; `adopt_contents` checks again inside its transaction,
             // so an edit or explicit clear made since the index snapshot stays.
-            match rawtonic_catalog::Contents::read_sidecars(&photo) {
+            match rawtonic_catalog::Contents::read_sidecars_with(&photo, &sidecars) {
                 Ok(contents) => {
                     lib.adopt_contents(&asset.id, &contents)?;
                 }
@@ -914,6 +1005,18 @@ pub async fn session_create(
     .await
     .map_err(|e| e.to_string())?
 }
+fn open_workspace_library(directory: &Path) -> Result<Library, String> {
+    let lib = Library::open(directory).map_err(|e| e.to_string())?;
+    // Smart Albums and filters can read suggestions before the culling
+    // panel loads, including with the content pass paused.
+    lib.forget_other_cull_scores(
+        crate::content_search::MODEL_ID,
+        &crate::culling::prompt_set_id(),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(lib)
+}
+
 #[tauri::command]
 pub async fn session_open(directory: String, app: tauri::AppHandle) -> Result<Summary, String> {
     if IMPORT_RUNNING.load(Ordering::Acquire) {
@@ -932,7 +1035,7 @@ pub async fn session_open(directory: String, app: tauri::AppHandle) -> Result<Su
         let lib = {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("session_db_open");
-            Library::open(Path::new(&directory)).map_err(|e| e.to_string())?
+            open_workspace_library(Path::new(&directory))?
         };
         report_merged_duplicates(&app, &lib);
         // Previews a catalog brought from another computer (G39).
@@ -2535,6 +2638,64 @@ pub fn save_new_image(image: &image::DynamicImage, path: &Path) -> anyhow::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opening_a_library_hides_obsolete_scores_from_saved_smart_albums() {
+        use rawtonic_catalog::{content::DIM, cull::PromptSet, query::Rule};
+
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(&temp.path().join("Job"), "Job", Mode::Session).unwrap();
+        let model = crate::content_search::MODEL_ID;
+        let current = crate::culling::prompt_set_id();
+        let unit = |axis| {
+            let mut embedding = vec![0.0; DIM];
+            embedding[axis] = 1.0;
+            embedding
+        };
+        let add = |name, prompt_set| {
+            let path = lib.directory.join("Capture").join(name);
+            fs::write(&path, name).unwrap();
+            let asset = lib.add_asset(&path).unwrap();
+            lib.record_cull(
+                &asset.id,
+                model,
+                &PromptSet {
+                    id: prompt_set,
+                    misfire: vec![unit(0)],
+                    document: vec![unit(1)],
+                    logit_scale: 10.0,
+                    logit_bias: -5.0,
+                },
+                &asset.fingerprint,
+                &unit(0),
+            )
+            .unwrap();
+            (path, asset.id)
+        };
+        let (old_path, old_id) = add("old.jpg", "old".into());
+        let (current_path, _) = add("current.jpg", current);
+        lib.set_cull_dismissed(std::slice::from_ref(&old_id), "document", true)
+            .unwrap();
+        let rule: Rule = serde_json::from_value(serde_json::json!({
+            "combine": "all",
+            "rules": [{"field": "suggestion", "op": "is", "value": "misfire"}]
+        }))
+        .unwrap();
+        let album = lib
+            .create_smart_collection("Misfires", None, &rule)
+            .unwrap();
+        let directory = lib.directory.clone();
+        assert!(lib.collection_paths(&album.id).unwrap().contains(&old_path));
+        drop(lib);
+
+        // Restoring the saved album asks before the panel or the content pass.
+        let lib = open_workspace_library(&directory).unwrap();
+        assert_eq!(lib.collection_paths(&album.id).unwrap(), [current_path]);
+        assert_eq!(
+            lib.cull_photos(std::slice::from_ref(&old_id)).unwrap()[&old_id].dismissed,
+            ["document"]
+        );
+    }
 
     /// The import dialog's calls of the IMPD commands, as the webview sends
     /// them (ingestReview.ts, IngestLoupe.tsx, SessionWorkspace.tsx): the
