@@ -367,15 +367,21 @@ fn retouched_base<'a>(
 /// the mapping it was read from, for the steps after it
 /// (`embedded_in_camera_crop`) to read the same file through it instead of
 /// opening it again.
-fn embedded_raw_preview_and_file(
-    source_path: &Path,
-) -> Option<(DynamicImage, image_loader::SharedBytes)> {
+fn embedded_raw_preview_and_file(source_path: &Path) -> Option<(DynamicImage, MappedRaw)> {
+    // Stamped before it is mapped (`camera_crop::crops_in`).
+    let stamp = rawtonic_engine::camera_crop::stamp(&source_path.to_string_lossy());
     let file: image_loader::SharedBytes = Arc::new(read_file_mapped(source_path).ok()?);
     let preview = image_loader::safe_embedded_preview_fallback_shared(
         file.clone(),
         &source_path.to_string_lossy(),
     )?;
-    Some((preview, file))
+    Some((preview, MappedRaw { file, stamp }))
+}
+
+/// A RAW's mapping and its `camera_crop::stamp` from before it was mapped.
+struct MappedRaw {
+    file: image_loader::SharedBytes,
+    stamp: Option<rawtonic_engine::camera_crop::FileStamp>,
 }
 
 pub fn generate_thumbnail_data(
@@ -473,11 +479,11 @@ fn cut_to_camera_crop(
 fn embedded_in_camera_crop(
     image: DynamicImage,
     source: &str,
-    file: Option<&image_loader::SharedBytes>,
+    file: Option<&MappedRaw>,
 ) -> DynamicImage {
     let never_edited = serde_json::Value::Null;
     let crops = match file {
-        Some(file) => rawtonic_engine::camera_crop::crops_in(source, file),
+        Some(raw) => rawtonic_engine::camera_crop::crops_in(source, &raw.file, raw.stamp),
         None => rawtonic_engine::camera_crop::crops(source),
     };
     match rawtonic_engine::camera_crop::initial_crop(&never_edited, &crops) {

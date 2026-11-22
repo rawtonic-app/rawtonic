@@ -27,9 +27,19 @@ pub use rawtonic_rawdecode::camera_crop::CameraCrop;
 pub fn crops(path: &str) -> Vec<Option<CameraCrop>> {
     // Mapped without read-ahead: the crop tags are a few kilobytes, and
     // `RawSource::new` would read the whole file (on a share, every byte).
-    crops_with(path, || {
+    crops_with(path, stamp(path), || {
         rawler::rawsource::RawSource::new_lazy(std::path::Path::new(path)).ok()
     })
+}
+
+/// A file's size and modification time, which key the crops' cache.
+pub type FileStamp = (u64, std::time::SystemTime);
+
+/// The [`FileStamp`] of the file at `path` now.
+pub fn stamp(path: &str) -> Option<FileStamp> {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| Some((m.len(), m.modified().ok()?)))
 }
 
 /// [`crops`] read through `file`, the caller's buffer of the RAW at `path`
@@ -37,15 +47,23 @@ pub fn crops(path: &str) -> Vec<Option<CameraCrop>> {
 /// second open of the file can drop the pages the caller has just read (a
 /// FUSE share client without keep-cache, as KDE's kio-fuse), so the crop
 /// tags were read from the share once more: the Library's never-edited
-/// thumbnail reads the preview, then the crops, from one mapping.
-pub fn crops_in(path: &str, file: &crate::image_loader::SharedBytes) -> Vec<Option<CameraCrop>> {
-    crops_with(path, || {
+/// thumbnail reads the preview, then the crops, from one mapping. `stamp`
+/// is the file's [`stamp`] taken before `file` was mapped: a file replaced
+/// after that keeps a stamp of its own, so crops of the mapped content are
+/// never cached under the replacement's.
+pub fn crops_in(
+    path: &str,
+    file: &crate::image_loader::SharedBytes,
+    stamp: Option<FileStamp>,
+) -> Vec<Option<CameraCrop>> {
+    crops_with(path, stamp, || {
         Some(rawler::rawsource::RawSource::new_from_shared(file.clone()).with_path(path))
     })
 }
 
 fn crops_with(
     path: &str,
+    stamp: Option<FileStamp>,
     source: impl FnOnce() -> Option<rawler::rawsource::RawSource>,
 ) -> Vec<Option<CameraCrop>> {
     let versions = crate::source_frame::VERSION as usize + 1;
@@ -58,10 +76,7 @@ fn crops_with(
     type Cache = Mutex<HashMap<String, (u64, std::time::SystemTime, Vec<Option<CameraCrop>>)>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
-    let Some((len, modified)) = std::fs::metadata(path)
-        .ok()
-        .and_then(|m| Some((m.len(), m.modified().ok()?)))
-    else {
+    let Some((len, modified)) = stamp else {
         return Vec::new();
     };
     if let Some((l, m, found)) = cache
@@ -455,7 +470,7 @@ mod tests {
             }
             let file: crate::image_loader::SharedBytes =
                 std::sync::Arc::new(crate::file_io::read_file_mapped(&path).unwrap());
-            let through = crops_in(&name, &file);
+            let through = crops_in(&name, &file, stamp(&name));
             // Not `crops`: it would answer from the cache `crops_in` filled.
             let source = rawler::rawsource::RawSource::new_lazy(&path).unwrap();
             let own: Vec<_> = (0..=crate::source_frame::VERSION)
