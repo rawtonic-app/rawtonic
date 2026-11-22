@@ -5712,9 +5712,12 @@ fn shadows_v19(adjustments: &AllAdjustments) -> bool {
 }
 
 /// Whether the recipe lowers Whites with tone version 22's offset cap, on
-/// the photo or a layer (`WHITES_V22`).
+/// the photo or a layer (`WHITES_V22`). Only the Camera Raw look's response
+/// changes (shader `base_look_is_camera_raw`); under the other looks the
+/// cap would compile but never run.
 fn whites_v22(adjustments: &AllAdjustments) -> bool {
-    ToneVersion::from_uniform(adjustments.global.tone_version).whites_edge_cap()
+    adjustments.global.tonemapper_mode == 3
+        && ToneVersion::from_uniform(adjustments.global.tone_version).whites_edge_cap()
         && whites_v12(adjustments)
 }
 

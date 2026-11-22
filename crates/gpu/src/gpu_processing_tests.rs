@@ -448,10 +448,26 @@ fn shadows_version_20_compiles_only_for_its_recipes() {
 
 #[test]
 fn whites_version_22_compiles_only_for_its_recipes() {
-    let adjustments =
-        |profile: serde_json::Value| get_all_adjustments_from_json(&profile, true, Some(1));
+    // The cap applies only under the Camera Raw look (shader
+    // `base_look_is_camera_raw`), so the tests run under it.
+    let adjustments = |profile: serde_json::Value| {
+        let mut a = get_all_adjustments_from_json(&profile, true, Some(1));
+        a.global.tonemapper_mode = 3;
+        a
+    };
     let features =
         |profile: serde_json::Value| preview_features(&adjustments(profile)) & WHITES_V22_FEATURE;
+    // Under another look (AgX, Classic, ...) the shader ignores the cap: the
+    // recipe's own variant does not carry it. (The idle plan's Basic-panel
+    // superset, which an export under a compile limit also renders with,
+    // still holds the bit: dropping it changes saved exports' shader on
+    // Vulkan, unmeasured.)
+    for mode in [0, 1, 2, 4] {
+        let mut other = adjustments(json!({"whites": -30, "toneVersion": 22}));
+        other.global.tonemapper_mode = mode;
+        assert_eq!(preview_features(&other) & WHITES_V22_FEATURE, 0, "{mode}");
+        assert_eq!(tone_level(&other), 1, "{mode}");
+    }
     assert_eq!(
         features(json!({"whites": -30, "toneVersion": 22})),
         WHITES_V22_FEATURE
@@ -16377,6 +16393,55 @@ fn shadows_drag_render_time(base: u64) {
         eprintln!(
             "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
             base as usize + k,
+            t[t.len() / 2],
+            t[t.len() * 9 / 10],
+            t.len()
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; lowered Whites of tone version 22 against version 21: wall-clock time of a preview render with its readback per drag step"]
+fn tone_version_22_whites_drag_render_time() {
+    // As `tone_version_12_whites_drag_render_time` (and
+    // `shadows_drag_render_time`'s one-compile-at-a-time setup), versions 21
+    // and 22 under the Camera Raw look, where the cap runs.
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    let view = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+    for block in 0..24 {
+        let version = 21 + (block % 2) as u64;
+        for step in 0..10 {
+            let recipe = json!({ "whites": -20 - 6 * step, "toneVersion": version });
+            let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+            let start = std::time::Instant::now();
+            let _ = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                *adjustments,
+                &[],
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            if step >= 2 && block >= 2 {
+                times[(version - 21) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+    }
+    for (k, t) in times.iter_mut().enumerate() {
+        t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!(
+            "version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+            21 + k,
             t[t.len() / 2],
             t[t.len() * 9 / 10],
             t.len()
