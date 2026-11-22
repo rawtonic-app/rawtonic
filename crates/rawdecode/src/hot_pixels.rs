@@ -128,25 +128,37 @@ fn isolated_candidate(v: f32, lo: f32, hi: f32) -> Option<bool> {
 }
 
 /// Same-colour offsets within two pixels and adjacent other-colour offsets,
-/// per phase of the CFA pattern.
+/// per phase of the CFA pattern (`rows` × `cols` phases).
 struct Neighbours {
-    period: usize,
+    rows: usize,
+    cols: usize,
     same: Vec<Vec<(isize, isize)>>,
     other: Vec<Vec<(isize, isize, usize)>>,
 }
 
 impl Neighbours {
-    fn new(cfa: &CFA) -> Option<Self> {
-        let period = if cfa.width == 6 || cfa.height == 6 {
-            6
+    /// `exact`: the pattern's own period on each axis (RapidRAW's, doubled
+    /// when odd), so 2 × 8 and 12 × 12 DNG patterns keep their colours
+    /// (`DeadTest::Isolated`). Otherwise, as the ratio tests always took
+    /// it, 6 × 6 for a pattern with a side of 6 and 2 × 2 for all others.
+    fn new(cfa: &CFA, exact: bool) -> Option<Self> {
+        let (rows, cols, base) = if exact {
+            let period = |p: usize| if p.is_multiple_of(2) { p.max(2) } else { 2 * p };
+            let (rows, cols) = (period(cfa.height), period(cfa.width));
+            (rows, cols, (rows, cols))
         } else {
-            2
+            let period = if cfa.width == 6 || cfa.height == 6 {
+                6
+            } else {
+                2
+            };
+            (period, period, (6, 6))
         };
         let mut same = Vec::new();
         let mut other = Vec::new();
-        for row in 0..period {
-            for col in 0..period {
-                let colour = cfa.color_at(row + 6, col + 6);
+        for row in 0..rows {
+            for col in 0..cols {
+                let colour = cfa.color_at(row + base.0, col + base.1);
                 let mut s = Vec::new();
                 let mut o = Vec::new();
                 for dy in -2isize..=2 {
@@ -155,8 +167,8 @@ impl Neighbours {
                             continue;
                         }
                         let c = cfa.color_at(
-                            (row as isize + 6 + dy) as usize,
-                            (col as isize + 6 + dx) as usize,
+                            (row as isize + base.0 as isize + dy) as usize,
+                            (col as isize + base.1 as isize + dx) as usize,
                         );
                         if c == colour {
                             s.push((dy, dx));
@@ -173,10 +185,16 @@ impl Neighbours {
             }
         }
         Some(Self {
-            period,
+            rows,
+            cols,
             same,
             other,
         })
+    }
+
+    /// The phase of the sample at (`row`, `col`).
+    fn phase(&self, row: usize, col: usize) -> usize {
+        (row % self.rows) * self.cols + col % self.cols
     }
 }
 
@@ -193,7 +211,7 @@ pub fn suppress<T: Copy + Send + Sync>(
     level: impl Fn(T) -> f32 + Sync,
     store: impl Fn(f32) -> T + Sync,
 ) -> usize {
-    let Some(neighbours) = Neighbours::new(cfa) else {
+    let Some(neighbours) = Neighbours::new(cfa, dead_test == DeadTest::Isolated) else {
         return 0;
     };
     let (left, top, aw, ah) = active;
@@ -211,7 +229,7 @@ pub fn suppress<T: Copy + Send + Sync>(
     let source: &[T] = data;
     // The test of one sample, as it always was.
     let check = |row: usize, col: usize, values: &mut [f32; 24]| -> Option<T> {
-        let phase = (row % neighbours.period) * neighbours.period + col % neighbours.period;
+        let phase = neighbours.phase(row, col);
         let colour = cfa.color_at(row, col);
         if colour >= 3 {
             return None;
@@ -257,7 +275,7 @@ pub fn suppress<T: Copy + Send + Sync>(
     // The median of the same-colour samples within two pixels of
     // (`row`, `col`), with `centre` among them when given.
     let median_around = |row: usize, col: usize, centre: Option<f32>| -> f32 {
-        let phase = (row % neighbours.period) * neighbours.period + col % neighbours.period;
+        let phase = neighbours.phase(row, col);
         let mut values = [0f32; 25];
         let mut n = 0;
         for &(dy, dx) in &neighbours.same[phase] {
@@ -273,7 +291,7 @@ pub fn suppress<T: Copy + Send + Sync>(
     // The isolation test of a sample the prefilter found hot (`hot`) or
     // dead (RapidRAW v1.7.1, `repair`).
     let isolated = |row: usize, col: usize, v: f32, hot: bool| -> Option<T> {
-        let phase = (row % neighbours.period) * neighbours.period + col % neighbours.period;
+        let phase = neighbours.phase(row, col);
         let sign = if hot { 1.0 } else { -1.0 };
         if !neighbours.same[phase].iter().all(|&(dy, dx)| {
             let s = at((row as isize + dy) as usize, (col as isize + dx) as usize);
@@ -347,18 +365,18 @@ pub fn suppress<T: Copy + Send + Sync>(
             for row in band[0] - 2..band[0] + 2 {
                 fill(&mut ring[row % 5], row);
             }
-            let period = neighbours.period;
+            let (rows, cols) = (neighbours.rows, neighbours.cols);
             for &row in band {
                 fill(&mut ring[(row + 2) % 5], row + 2);
                 hi.fill(f32::NEG_INFINITY);
                 lo.fill(f32::INFINITY);
-                for pc in 0..period {
-                    let phase = (row % period) * period + pc;
+                for pc in 0..cols {
+                    let phase = (row % rows) * cols + pc;
                     // Active columns margin..aw - margin of this phase.
-                    let first = margin + (pc + period - (left + margin) % period) % period;
+                    let first = margin + (pc + cols - (left + margin) % cols) % cols;
                     for &(dy, dx) in &neighbours.same[phase] {
                         let from = &ring[(row as isize + dy) as usize % 5];
-                        for col in (first..aw - margin).step_by(period) {
+                        for col in (first..aw - margin).step_by(cols) {
                             let n = from[(col as isize + dx) as usize];
                             hi[col] = hi[col].max(n);
                             lo[col] = lo[col].min(n);
@@ -405,6 +423,25 @@ mod tests {
         CFA::new("RGGB")
     }
 
+    /// A 12 × 12 pattern: Bayer with red and blue swapped in every third
+    /// 2 × 2 block.
+    fn twelve() -> CFA {
+        let pattern: String = (0..144)
+            .map(|i| {
+                let (r, c) = (i / 12, i % 12);
+                let swap = (r / 2 + c / 2) % 3 == 0;
+                match (r % 2, c % 2) {
+                    (0, 0) if swap => 'B',
+                    (0, 0) => 'R',
+                    (1, 1) if swap => 'R',
+                    (1, 1) => 'B',
+                    _ => 'G',
+                }
+            })
+            .collect();
+        CFA::new(&pattern)
+    }
+
     /// The per-sample reference of `dead_test`.
     #[allow(clippy::too_many_arguments)]
     fn reference<T: Copy + Send + Sync>(
@@ -437,7 +474,7 @@ mod tests {
             (state >> 8) as f32 / (1u32 << 24) as f32
         };
         let xtrans = CFA::new("GGRGGBGGBGGRBRGRBGGGBGGRGGRGGBRBGBRG");
-        for cfa in [bayer(), CFA::new("GBRG"), xtrans] {
+        for cfa in [bayer(), CFA::new("GBRG"), xtrans, twelve()] {
             for dead_test in [DeadTest::SameColour, DeadTest::Adjacent, DeadTest::Isolated] {
                 let (w, h) = (203usize, 150usize);
                 let active = (5, 3, 190, 141);
@@ -660,5 +697,41 @@ mod tests {
         assert_eq!(fixed(DeadTest::Isolated, &mut data), 2);
         assert!((data[40 * w + 10] - 0.02).abs() < 1e-6);
         assert!((data[10 * w + 50] - 0.6).abs() < 1e-6);
+    }
+
+    /// A 12 × 12 pattern (DNG CFAs up to 12 × 12 and 2 × 8 exist): the
+    /// isolation test reads each colour's own neighbours, not those of a
+    /// 2 × 2 phase of another colour, so a flat field of each colour stays
+    /// as it is and a hot photosite is still found.
+    #[test]
+    fn the_isolation_test_takes_a_large_patterns_own_period() {
+        let cfa = twelve();
+        let (w, h) = (60, 60);
+        let flat = [0.65f32, 0.3, 0.08];
+        let mosaic: Vec<f32> = (0..w * h)
+            .map(|i| flat[cfa.color_at(i / w, i % w)])
+            .collect();
+        let mut data = mosaic.clone();
+        let run = |data: &mut Vec<f32>| {
+            suppress(
+                data,
+                w,
+                (0, 0, w, h),
+                &cfa,
+                [1.0; 4],
+                DeadTest::Isolated,
+                |v| v,
+                |v| v,
+            )
+        };
+        assert_eq!(run(&mut data), 0);
+        assert_eq!(data, mosaic);
+        let at = (30..40)
+            .flat_map(|y| (30..40).map(move |x| (y, x)))
+            .find(|&(y, x)| cfa.color_at(y, x) == 2)
+            .unwrap();
+        data[at.0 * w + at.1] = 0.9;
+        assert_eq!(run(&mut data), 1);
+        assert_eq!(data, mosaic);
     }
 }

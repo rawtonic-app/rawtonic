@@ -19,7 +19,7 @@ pub fn suppress<T: Copy + Send + Sync>(
     level: impl Fn(T) -> f32 + Sync,
     store: impl Fn(f32) -> T + Sync,
 ) -> usize {
-    let Some(neighbours) = Neighbours::new(cfa) else {
+    let Some(neighbours) = Neighbours::new(cfa, false) else {
         return 0;
     };
     let (left, top, aw, ah) = active;
@@ -40,7 +40,7 @@ pub fn suppress<T: Copy + Send + Sync>(
             let mut out = Vec::new();
             let mut values = [0f32; 24];
             for col in left + 2..left + aw - 2 {
-                let phase = (row % neighbours.period) * neighbours.period + col % neighbours.period;
+                let phase = neighbours.phase(row, col);
                 let colour = cfa.color_at(row, col);
                 if colour >= 3 {
                     continue;
@@ -103,20 +103,16 @@ pub fn isolated<T: Copy + Send + Sync>(
     store: impl Fn(f32) -> T + Sync,
 ) -> usize {
     const REACH: isize = 2;
-    let period = if cfa.width == 6 || cfa.height == 6 {
-        6
-    } else {
-        2
-    };
+    let period = [cfa.width, cfa.height].map(|p| if p % 2 == 0 { p.max(2) } else { 2 * p });
     let mut offsets: Vec<(isize, isize)> = (-REACH..=REACH)
         .flat_map(|dy| (-REACH..=REACH).map(move |dx| (dx, dy)))
         .filter(|&(dx, dy)| dx != 0 || dy != 0)
         .collect();
     offsets.sort_by_key(|&(dx, dy)| dx * dx + dy * dy);
     // Same-colour offsets per phase, nearest first.
-    let same: Vec<Vec<(isize, isize)>> = (0..period * period)
+    let same: Vec<Vec<(isize, isize)>> = (0..period[0] * period[1])
         .map(|k| {
-            let (x, y) = (k % period + period, k / period + period);
+            let (x, y) = (k % period[0] + period[0], k / period[0] + period[1]);
             let colour = cfa.color_at(y, x);
             offsets
                 .iter()
@@ -129,7 +125,7 @@ pub fn isolated<T: Copy + Send + Sync>(
         .collect();
     let source: &[T] = data;
     let value = |x: usize, y: usize| level(source[y * width + x]);
-    let site = |x: usize, y: usize| &same[(y % period) * period + x % period];
+    let site = |x: usize, y: usize| &same[(y % period[1]) * period[0] + x % period[0]];
     let neighbours = |x: usize, y: usize| {
         site(x, y)
             .iter()

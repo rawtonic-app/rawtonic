@@ -52,7 +52,7 @@ export const CREDITS: Credit[] = [
   {
     name: 'RapidRAW',
     url: 'https://github.com/CyberTimon/RapidRAW',
-    what: "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+    what: "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits is ported from RapidRAW v1.7.1.",
     license: 'AGPL-3.0'
   },
   {
