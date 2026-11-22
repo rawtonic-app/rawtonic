@@ -20863,8 +20863,10 @@ fn fit_view_render_input_is_the_exports() {
     let cpu: color_noise_view::CpuRunner<'_> = &|work| work();
     let input = |recipe: &serde_json::Value, dims, stop: &(dyn Fn() -> bool + Sync)| {
         let global = get_all_adjustments_from_json(recipe, true, Some(1)).global;
-        color_noise_view::reduced_render_input(&context, &image, recipe, &global, dims, stop, cpu)
-            .unwrap()
+        color_noise_view::reduced_render_input(
+            &context, &image, recipe, &global, dims, stop, cpu, None,
+        )
+        .unwrap()
     };
     for color in [25, 50] {
         let recipe = json!({ "colorNoiseReduction": color, "colorNoiseVersion": 11 });
@@ -20912,6 +20914,25 @@ fn fit_view_render_input_is_the_exports() {
         assert!(changed as f64 / n > 100.0 * (sum as f64 / n).max(1.0));
         assert!(worst < 64, "max {worst}");
         let reduced = input(&recipe, (800, 104), &|| false).unwrap();
+        // From a kept upload (a typed change), the same pixels.
+        let kept = color_noise_view::KeptInput::default();
+        for _ in 0..2 {
+            let global = get_all_adjustments_from_json(&recipe, true, Some(1)).global;
+            let again = color_noise_view::reduced_render_input(
+                &context,
+                &image,
+                &recipe,
+                &global,
+                (800, 104),
+                &|| false,
+                cpu,
+                Some((&kept, 7)),
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(again.as_raw(), reduced.as_raw());
+            assert!(kept.holds(7));
+        }
         let expected = rawtonic_engine::lanczos::resize_wide_gamut(&full, 800, 104);
         assert_eq!(reduced.as_raw(), expected.as_raw());
         assert!(input(&recipe, (800, 104), &|| true).is_none());
@@ -26902,6 +26923,7 @@ fn tpx5_color_noise_cost() {
                     size,
                     &|| false,
                     &|work| work(),
+                    None,
                 )
                 .unwrap()
                 .unwrap();
@@ -28472,4 +28494,141 @@ fn tone_version_21_shadows_moves_at_camera_raws_pace() {
     }
     assert!(lifted > 0, "no shadow lifted further");
     assert_eq!(darker, 0, "columns rendered darker than version 20's +50");
+}
+
+/// TPX8 probe (measurement, not a check): the fit view's render input
+/// (`color_noise_view::reduced_render_input`) of `TPX8_RAW` with its lens
+/// warp and edge-fringe pass at Color 25 / 50 / 100: time, peak GPU
+/// memory above the start (wgpu's buffer and texture counters, sampled
+/// every 0.2 ms) and, on Linux, the peak resident memory above the start.
+/// `TPX8_RAW=photo cargo test --release -p rawtonic-gpu --features
+/// performance-profiling -- --ignored --nocapture tpx8_fit_view_memory`.
+#[cfg(feature = "performance-profiling")]
+#[test]
+#[ignore = "measurement; needs TPX8_RAW"]
+fn tpx8_fit_view_memory() {
+    use rawtonic_engine::image_loader::{self, BaseImageOptions};
+    use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+    let Some(raw) = std::env::var_os("TPX8_RAW") else {
+        eprintln!("SKIP: TPX8_RAW not set");
+        return;
+    };
+    let raw = raw.to_string_lossy().into_owned();
+    let recipe: serde_json::Value = serde_json::from_str(include_str!(
+        "../../engine/tests/fixtures/new-edit-recipe.raw.json"
+    ))
+    .unwrap();
+    let bytes = std::fs::read(&raw).unwrap();
+    let (img, measures) = image_loader::load_base_image_measured(
+        &bytes,
+        &raw,
+        false,
+        &BaseImageOptions::default().for_recipe(&recipe, &raw),
+        None,
+    )
+    .unwrap();
+    let full = Arc::new(img);
+    let context = GpuContext::headless().unwrap();
+    color_noise_view::ready(&context).unwrap();
+    let (w, h) = (full.width(), full.height());
+    let device = Arc::clone(&context.device);
+    let gpu_bytes = move || {
+        let hal = device.get_internal_counters().hal;
+        hal.buffer_memory.read() + hal.texture_memory.read()
+    };
+    let rss = |key: &str| -> i64 {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with(key))
+                    .and_then(|l| l.split_whitespace().nth(1))
+                    .and_then(|v| v.parse().ok())
+            })
+            .unwrap_or(0)
+            * 1024
+    };
+    let kept = color_noise_view::KeptInput::default();
+    for rep in 0..2 {
+        for c in [25, 50, 100] {
+            // TPX8_NO_KEEP: every build uploads (as before TPX8).
+            let keep = std::env::var_os("TPX8_NO_KEEP").is_none();
+            let reused = kept.holds(1);
+            let mut r = recipe.clone();
+            r["colorNoiseReduction"] = c.into();
+            // A warp, as a lens profile gives (the warp runs on the GPU).
+            r["transformDistortion"] = 5.into();
+            let mut a = crate::image_processing::get_all_adjustments_from_json(&r, true, None);
+            rawtonic_engine::baseline_exposure::apply_base_look(
+                &mut a.global,
+                &raw,
+                measures.as_ref(),
+                None,
+            );
+            let size = (2588u32, (2588u64 * u64::from(h) / u64::from(w)) as u32);
+            free_dropped_resources(&context.device);
+            rawtonic_runtime::allocator::release_freed_memory();
+            let _ = std::fs::write("/proc/self/clear_refs", "5");
+            let rss_start = rss("VmRSS:");
+            let start = gpu_bytes();
+            let peak = Arc::new(AtomicIsize::new(start));
+            let done = Arc::new(AtomicBool::new(false));
+            let sampler = {
+                let (peak, done, gpu_bytes) =
+                    (Arc::clone(&peak), Arc::clone(&done), gpu_bytes.clone());
+                std::thread::spawn(move || {
+                    // Each change of the GPU memory in use: (ms, MB above the start).
+                    let t0 = std::time::Instant::now();
+                    let mut timeline = Vec::new();
+                    let mut last = start;
+                    while !done.load(Ordering::Relaxed) {
+                        let now = gpu_bytes();
+                        peak.fetch_max(now, Ordering::Relaxed);
+                        if now != last {
+                            timeline.push((t0.elapsed().as_millis(), (now - start) >> 20));
+                            last = now;
+                        }
+                        std::thread::sleep(std::time::Duration::from_micros(200));
+                    }
+                    timeline
+                })
+            };
+            let t = std::time::Instant::now();
+            let input = color_noise_view::reduced_render_input(
+                &context,
+                &full,
+                &r,
+                &a.global,
+                size,
+                &|| false,
+                &|work| work(),
+                keep.then_some((&kept, 1)),
+            )
+            .unwrap()
+            .unwrap();
+            let elapsed = t.elapsed();
+            done.store(true, Ordering::Relaxed);
+            let timeline = sampler.join().unwrap();
+            if std::env::var_os("TPX8_TIMELINE").is_some() {
+                eprintln!("TPX8 timeline (ms, MB): {timeline:?}");
+            }
+            free_dropped_resources(&context.device);
+            let mb = |b: f64| b / (1 << 20) as f64;
+            eprintln!(
+                "TPX8 rep {rep} color {c} {w}x{h} -> {size:?} kept input {reused}: {:.0} ms, GPU peak +{:.0} MB, after +{:.0} MB, RSS peak +{:.0} MB",
+                elapsed.as_secs_f64() * 1e3,
+                mb((peak.load(Ordering::Relaxed) - start) as f64),
+                mb((gpu_bytes() - start) as f64),
+                mb((rss("VmHWM:") - rss_start) as f64),
+            );
+            if let Ok(path) = std::env::var("TPX8_DUMP") {
+                std::fs::write(
+                    format!("{path}-{c}.f32"),
+                    bytemuck::cast_slice(input.as_raw()),
+                )
+                .unwrap();
+            }
+            drop(input);
+        }
+    }
 }

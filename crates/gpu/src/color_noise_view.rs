@@ -191,6 +191,56 @@ fn wait_for_compiles(stop: &(dyn Fn() -> bool + Sync)) -> bool {
 /// wait for: G17/TPX6, drags stalled while a build took 7.9 s under load).
 pub type CpuRunner<'a> = &'a (dyn Fn(&mut (dyn FnMut() + Send)) + Sync);
 
+/// The uploaded render input (warped, through the edge-fringe pass) a
+/// build keeps for the next one of the same photograph and geometry
+/// ([`reduced_render_input`]'s `kept`): a typed Color, Detail or Smoothness
+/// change then skips the upload, the largest part of a build's memory
+/// (notes: benchmark-results/tpx8-2026-11-22/REPORT.md).
+#[derive(Default)]
+pub struct KeptInput(Mutex<Option<(u64, UploadedImage)>>);
+
+impl KeptInput {
+    /// Frees the kept input.
+    pub fn clear(&self) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// Whether it holds the input of `key`.
+    pub fn holds(&self, key: u64) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|(k, _)| *k == key)
+    }
+}
+
+/// The largest uploaded input kept (bytes, 8 per pixel): 24–26 MP
+/// photographs; larger ones upload for every build.
+pub const KEPT_INPUT_MAX_BYTES: u64 = 210 << 20;
+
+/// The memory a build of a `width` x `height` photograph's render input
+/// takes beyond what it keeps, graphics memory and the upload's staging on
+/// the CPU together (an integrated GPU's both come out of the same
+/// memory): with `upload`, the warp and edge-fringe pass (whole source and
+/// warped frame on the GPU), else from a kept input (pyramid, level-1
+/// rebuild in bands, band pass). Measured on an RTX 3080 with 24 MP
+/// photographs (TPX8): with the upload 0.69 GB on the GPU plus 0.32 GB
+/// resident (42 bytes per pixel), from a kept input 0.25 GB plus 0.05 GB
+/// (13 bytes per pixel); scaled by pixels with a margin.
+pub fn transient_bytes(width: u32, height: u32, upload: bool) -> u64 {
+    let pixels = u64::from(width) * u64::from(height);
+    if upload {
+        pixels * UPLOAD_BYTES_PER_PIXEL
+    } else {
+        pixels * KEPT_BYTES_PER_PIXEL
+    }
+}
+
+/// [`transient_bytes`] per pixel.
+const UPLOAD_BYTES_PER_PIXEL: u64 = 48;
+const KEPT_BYTES_PER_PIXEL: u64 = 16;
+
 /// Uploads `source` as the export uploads its render input (export_processing
 /// `prepare_export_render`): the recipe's warp and edge-fringe pass at full
 /// resolution on the GPU (`upload_warped_render_source`), else the warp on
@@ -239,7 +289,10 @@ fn upload_render_input(
 /// colour noise reduction is on but not version 11, beyond the texture
 /// size, or when `stop` returned true between two steps (a newer frame
 /// came: the caller wants again). It never runs beside a shader compile:
-/// each step waits for a running one. `cpu` runs the CPU work.
+/// each step waits for a running one. `cpu` runs the CPU work. `kept`:
+/// where the upload is kept for the next build, and the key of this
+/// photograph and geometry there.
+#[allow(clippy::too_many_arguments)]
 pub fn reduced_render_input(
     context: &GpuContext,
     source: &Arc<DynamicImage>,
@@ -248,6 +301,7 @@ pub fn reduced_render_input(
     (width, height): (u32, u32),
     stop: &(dyn Fn() -> bool + Sync),
     cpu: CpuRunner<'_>,
+    kept: Option<(&KeptInput, u64)>,
 ) -> Result<Option<image::Rgb32FImage>, String> {
     let mut global = *global;
     let versioned = color_noise_tuning(&global);
@@ -260,8 +314,46 @@ pub fn reduced_render_input(
     if !wait_for_compiles(stop) {
         return Ok(None);
     }
-    let Some(uploaded) = upload_render_input(context, source, recipe, is_raw)? else {
-        return Ok(None);
+    // The kept input of this photograph and geometry, else a new upload
+    // (the kept one freed first).
+    let reused = kept.and_then(|(kept, key)| {
+        let mut slot = kept.0.lock().unwrap_or_else(|e| e.into_inner());
+        match slot.take() {
+            Some((k, uploaded)) if k == key => Some(uploaded),
+            _ => None,
+        }
+    });
+    let uploaded = match reused {
+        Some(uploaded) => uploaded,
+        None => {
+            free_dropped_resources(&context.device);
+            let Some(uploaded) = upload_render_input(context, source, recipe, is_raw)? else {
+                return Ok(None);
+            };
+            uploaded
+        }
+    };
+    // Kept again once the build is done (also when it stops early).
+    struct GiveBack<'a> {
+        uploaded: Option<UploadedImage>,
+        kept: Option<(&'a KeptInput, u64)>,
+    }
+    impl Drop for GiveBack<'_> {
+        fn drop(&mut self) {
+            if let (Some((kept, key)), Some(uploaded)) = (self.kept, self.uploaded.take()) {
+                let bytes = u64::from(uploaded.0.width) * u64::from(uploaded.0.height) * 8;
+                if bytes <= KEPT_INPUT_MAX_BYTES {
+                    *kept.0.lock().unwrap_or_else(|e| e.into_inner()) = Some((key, uploaded));
+                }
+            }
+        }
+    }
+    let give_back = GiveBack {
+        uploaded: Some(uploaded),
+        kept,
+    };
+    let Some(uploaded) = give_back.uploaded.as_ref() else {
+        unreachable!("set above");
     };
     let (source_width, source_height) = (uploaded.0.width, uploaded.0.height);
     let input = &uploaded.0.texture_view;
@@ -288,25 +380,34 @@ pub fn reduced_render_input(
                 color_noise_thresholds(&mut global, settings, &pyramid.measured.noise, &versioned);
             let [lw, lh] = pyramid.sizes[0];
             global.color_noise_window = [0, 0, lw, lh];
-            let mut chroma = ChromaGpu::from_gpu_pyramid(
+            // As an export (`prepare_color_noise_on_gpu`): level 1 rebuilt
+            // in bands and the levels freed, but the finest level's energy
+            // computed only after that, so that its texture is not
+            // allocated beside the levels (TPX8).
+            let mut chroma =
+                ChromaGpu::packed_from_gpu_pyramid(context, &pipelines.chroma, &pyramid);
+            chroma.rebuild_export_on_gpu(
                 context,
                 &pipelines.chroma,
-                input,
-                source_width,
-                source_height,
-                is_raw,
                 &pyramid,
-            )?;
-            chroma.rebuild_on_gpu(
-                context,
-                &pipelines.chroma,
-                PyramidRef::Gpu(&pyramid),
                 &thresholds,
                 base_sigma,
                 &versioned.1,
             )?;
-            // As an export: only level 1 and its reconstruction stay.
-            chroma.reconstruction = None;
+            let profile = pyramid.measured.profile;
+            drop(pyramid);
+            free_dropped_resources(&context.device);
+            if !wait_for_compiles(stop) {
+                return Ok(None);
+            }
+            chroma.compute_finest_energy(
+                context,
+                &pipelines.chroma,
+                input,
+                [source_width, source_height],
+                is_raw,
+                profile,
+            )?;
             Some(chroma)
         }
         None => None,

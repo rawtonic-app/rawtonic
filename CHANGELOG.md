@@ -86,6 +86,8 @@
 
 ### Fixes
 
+- **Integrated GPUs (Windows/Linux): Develop's fit view can now show the export's own colour noise reduction.** Before, laptops with an integrated graphics chip (e.g. Radeon 680M) always showed a lighter filter in the fit view, which could leave half or more of a high-ISO photo's colour noise that the export removes. The fit view now builds the export's filter there when the app's memory has room for it, and keeps the upload between typed Color, Detail and Smoothness changes, so a change needs less memory and time. **Measured on an RTX 3080 with 24 MP RAWs:** a typed change takes 0.21–0.25 s and about 0.31 GB of graphics plus working memory (before: 0.42 s and about 1.2 GB). Opening a photo or changing its geometry still needs about 1.0 GB for a moment: where that does not fit, the lighter filter stays. Discrete GPUs need 0.17 GB less at each build. Exports are unchanged.
+
 - Tone curve arrow edits still settle into Undo history if a key release is missed. When you drag a region split handle back to its starting position, the photo follows the handle.
 
 - Color Editor targets keep small corrections that reach the target and take a fresh sample after RAW processing preferences change. The Levels pickers retry if the graphics processor changes during sampling. When an older preview lacks camera-crop information, Develop reads it from the local RAW.
