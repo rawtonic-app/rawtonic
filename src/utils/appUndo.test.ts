@@ -1,4 +1,5 @@
 import '../i18n';
+// @ts-expect-error node:timers/promises is untyped in the frontend tsconfig
 import { setImmediate } from 'node:timers/promises';
 import { fireEvent, render } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
