@@ -163,11 +163,12 @@ fn cache_label(path_str: &str, source: &Path) -> String {
 
 /// Whether a tile of `source` is developed from a Standard proxy that still
 /// holds the clamp (`preview_proxy::DISPLAY_COPY`): until the proxy is
-/// renewed its tile keeps its old key. (A virtual copy of another decode
-/// variant renders from the RAW and keeps it too; the key is renewed with the
-/// proxy.)
-fn display_copy_clamps(source: &Path) -> bool {
+/// renewed its tile keeps its old key. A virtual copy of another decode
+/// variant renders from the RAW, never from that proxy: its tile is renewed
+/// at once (decided from the recipes, `stands_for_by_recipe`).
+fn display_copy_clamps(source: &Path, recipe: &serde_json::Value) -> bool {
     crate::preview_proxy::standard_display_copy_is_stale(source)
+        && crate::preview_proxy::stands_for_by_recipe(source, recipe)
 }
 
 pub(crate) fn compute_thumbnail_cache_hash(
@@ -268,7 +269,12 @@ fn thumbnail_hash_with(
         // display copy, `preview_proxy::DISPLAY_COPY`): tiles are made again.
         // A tile developed from a preview proxy that still holds the clamp
         // shows it, so it keeps its key until the proxy is renewed.
-        if refreshed && !display_copy_clamps(&source_path) {
+        if refreshed
+            && !display_copy_clamps(
+                &source_path,
+                adjustments.as_ref().unwrap_or(&serde_json::Value::Null),
+            )
+        {
             hasher.update(b"\0display-copy-keeps-beyond-srgb-v1\0");
         }
         // A face retouch drawn on a reduced base (a preview proxy or a fast
@@ -1533,11 +1539,14 @@ fn preferred_thumbnail_hash<'a>(
 fn keep_tile_of_unavailable_original(
     directory: &Path,
     source: &Path,
+    recipe: &serde_json::Value,
     new: String,
     old: impl FnOnce() -> Option<String>,
 ) -> String {
+    // A proxy of another decode variant cannot show this recipe.
     if crate::preview_proxy::source_available(source)
-        || crate::preview_proxy::proxy_path(source).is_some_and(|p| p.is_file())
+        || (crate::preview_proxy::proxy_path(source).is_some_and(|p| p.is_file())
+            && crate::preview_proxy::stands_for_by_recipe(source, recipe))
         || thumbnail_files_exist(directory, &new)
     {
         return new;
@@ -1662,9 +1671,13 @@ impl ThumbnailCacheEntry {
 
         let cache_hash = compute_thumbnail_cache_hash(path_str, &adjustments_bytes)?;
         let cache_hash =
-            keep_tile_of_unavailable_original(thumb_cache_dir, &source_path, cache_hash, || {
-                thumbnail_hash_before_refreshes(path_str, &adjustments_bytes)
-            });
+            keep_tile_of_unavailable_original(
+                thumb_cache_dir,
+                &source_path,
+                &serde_json::from_slice(&adjustments_bytes).unwrap_or_default(),
+                cache_hash,
+                || thumbnail_hash_before_refreshes(path_str, &adjustments_bytes),
+            );
         let embedded_hash = embedded_thumbnail_hash(path_str);
         let selected = preferred_thumbnail_hash(
             thumb_cache_dir,
@@ -3612,11 +3625,97 @@ mod face_retouch_thumbnail_tests {
             compute_thumbnail_cache_hash(path, new_edit),
             thumbnail_hash_before_refreshes(path, new_edit)
         );
+        // The proxy is the master's: it holds the key of every recipe of the
+        // same decode variant until it is renewed.
+        std::fs::write(
+            temp.path().join("Capture/photo.RAF.rrdata"),
+            br#"{"version":1,"rating":0,"adjustments":{"lensCorrectionMode":"manual"}}"#,
+        )
+        .unwrap();
         assert_eq!(
             compute_thumbnail_cache_hash(path, &bytes),
             thumbnail_hash_before_refreshes(path, &bytes),
-            "a stale proxy holds the key of every recipe of the file until it is renewed"
+            "a stale proxy holds the key of every recipe of its variant until it is renewed"
         );
+    }
+
+    /// A session with a master (cross-bilateral colour noise filter) and a
+    /// virtual copy (multi-scale), the master's proxy written and then stale.
+    fn session_with_a_copy_of_another_variant(
+        temp: &Path,
+    ) -> (PathBuf, String, Vec<u8>, Vec<u8>) {
+        std::fs::write(temp.join("session.json"), br#"{"id":"copy-variant"}"#).unwrap();
+        let source = temp.join("Capture/photo.RAF");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, b"source unchanged").unwrap();
+        let master = br#"{"colorNoiseVersion":1,"lensCorrectionMode":"manual"}"#;
+        let copy = br#"{"colorNoiseVersion":9,"lensCorrectionMode":"manual"}"#;
+        std::fs::write(
+            temp.join("Capture/photo.RAF.rrdata"),
+            format!(r#"{{"version":1,"rating":0,"adjustments":{}}}"#, String::from_utf8_lossy(master)),
+        )
+        .unwrap();
+        let image = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+            80,
+            60,
+            image::Rgb([0.2, 0.3, 0.4]),
+        ));
+        crate::preview_proxy::write_for_test(&source, &image, 40);
+        crate::preview_proxy::clear_display_copy_marker_for_test(&source);
+        let copy_path = format!("{}?vc=c0ffee", source.to_string_lossy());
+        (source, copy_path, master.to_vec(), copy.to_vec())
+    }
+
+    #[test]
+    fn a_copy_of_another_decode_variant_is_made_again_while_the_masters_proxy_clamps() {
+        let temp = tempfile::tempdir().unwrap();
+        let (source, copy_path, master, copy) = session_with_a_copy_of_another_variant(temp.path());
+        let master_path = source.to_str().unwrap();
+        // The master's tile is developed from its stale proxy: old key.
+        assert_eq!(
+            compute_thumbnail_cache_hash(master_path, &master),
+            thumbnail_hash_before_refreshes(master_path, &master)
+        );
+        // The copy's decode differs, so it renders from the RAW (never from
+        // that proxy): its tile is made again now, not once the master's
+        // proxy is renewed.
+        assert_ne!(
+            compute_thumbnail_cache_hash(&copy_path, &copy),
+            thumbnail_hash_before_refreshes(&copy_path, &copy)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_offline_copy_of_another_variant_keeps_its_old_tile_beside_the_masters_proxy() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let (source, _, master, copy) = session_with_a_copy_of_another_variant(temp.path());
+        let cache = temp.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        let (old, new) = ("a".repeat(64), "b".repeat(64));
+        for size in ["small", "medium"] {
+            std::fs::write(cache.join(format!("{old}_{size}.jpg")), b"tile").unwrap();
+        }
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::File::open(&source).is_ok() {
+            return;
+        }
+        let key = |recipe: &[u8]| {
+            keep_tile_of_unavailable_original(
+                &cache,
+                &source,
+                &serde_json::from_slice(recipe).unwrap(),
+                new.clone(),
+                || Some(old.clone()),
+            )
+        };
+        // The master's proxy stands for the master: its tile is renewed.
+        assert_eq!(key(&master), new);
+        // It cannot show the copy, and the RAW cannot be read: the old tile
+        // stays instead of a blank.
+        assert_eq!(key(&copy), old);
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
     }
 
     #[test]
@@ -3634,7 +3733,13 @@ mod face_retouch_thumbnail_tests {
         let present = temp.path().join("photo.jpg");
         std::fs::write(&present, b"photo").unwrap();
         let key = |source: &Path| {
-            keep_tile_of_unavailable_original(&cache, source, new.clone(), || Some(old.clone()))
+            keep_tile_of_unavailable_original(
+                &cache,
+                source,
+                &serde_json::Value::Null,
+                new.clone(),
+                || Some(old.clone()),
+            )
         };
         assert_eq!(key(&gone), new, "no old tile: nothing to keep");
         put(&old);

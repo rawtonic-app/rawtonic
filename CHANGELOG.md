@@ -13,6 +13,8 @@
 
 ### Fixes
 
+- **A virtual copy with another decode variant than its master (e.g. the multi-scale colour noise filter) now gets its refreshed grid tile at once.** Its tile is developed from the RAW, but kept its old look until the master's preview was renewed; and with the original offline and only the master's preview rebuilt, the copy's tile went blank. It now keeps its old tile offline and renews online. Exports are unchanged.
+
 - **Before/After: a snapshot of an older edit is no longer shown through the wrong preview while a photo opens.** For DNGs with a lens warp per colour plane (e.g. some drone and action-camera files), the Before of a snapshot saved with an older render version could briefly show the new per-plane warp until the full decode arrived; it now waits for the decode.
 
 - **Photo merges: fewer dropped panorama frames, sharper focus stacks, cleaner HDR ghosts** (new merges; merged files you saved stay as they are). Measured against RapidRAW 1.7.1's rewritten merge engine on test sets with a known answer and on real brackets and panoramas; each change takes the better of the two approaches.
