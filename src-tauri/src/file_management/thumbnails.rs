@@ -187,7 +187,23 @@ fn thumbnail_hash_for_engine(
     adjustments_bytes: &[u8],
     engine: u32,
 ) -> Option<String> {
-    thumbnail_hash_with(path_str, adjustments_bytes, engine, true)
+    thumbnail_hash_with(path_str, adjustments_bytes, engine, true, false)
+}
+
+/// The key a tile was cached under while its copy's preview proxy still held
+/// the clamp but the other refreshes were done (a retouched copy of another
+/// decode variant, before it was made again at once).
+fn thumbnail_hash_with_display_copy_held(
+    path_str: &str,
+    adjustments_bytes: &[u8],
+) -> Option<String> {
+    thumbnail_hash_with(
+        path_str,
+        adjustments_bytes,
+        crate::preview_proxy::ENGINE_VERSION,
+        true,
+        true,
+    )
 }
 
 /// The key a thumbnail was cached under before face retouch tiles and RAW
@@ -200,6 +216,7 @@ fn thumbnail_hash_before_refreshes(path_str: &str, adjustments_bytes: &[u8]) -> 
         adjustments_bytes,
         crate::preview_proxy::ENGINE_VERSION,
         false,
+        false,
     )
 }
 
@@ -208,6 +225,7 @@ fn thumbnail_hash_with(
     adjustments_bytes: &[u8],
     engine: u32,
     refreshed: bool,
+    hold_display_copy: bool,
 ) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
@@ -270,10 +288,11 @@ fn thumbnail_hash_with(
         // A tile developed from a preview proxy that still holds the clamp
         // shows it, so it keeps its key until the proxy is renewed.
         if refreshed
-            && !display_copy_clamps(
-                &source_path,
-                adjustments.as_ref().unwrap_or(&serde_json::Value::Null),
-            )
+            && !(hold_display_copy
+                || display_copy_clamps(
+                    &source_path,
+                    adjustments.as_ref().unwrap_or(&serde_json::Value::Null),
+                ))
         {
             hasher.update(b"\0display-copy-keeps-beyond-srgb-v1\0");
         }
@@ -1533,6 +1552,18 @@ fn preferred_thumbnail_hash<'a>(
         .unwrap_or(developed)
 }
 
+/// The keys a tile of `path_str` may have been cached under before its
+/// refreshes, newest first: while its proxy still clamped, then before any.
+fn older_tile_keys(path_str: &str, adjustments_bytes: &[u8]) -> Vec<String> {
+    [
+        thumbnail_hash_with_display_copy_held(path_str, adjustments_bytes),
+        thumbnail_hash_before_refreshes(path_str, adjustments_bytes),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
 /// A face retouch tile is made again (a new key). A disconnected original
 /// without a preview proxy cannot be developed again, so the tile cached
 /// under `old` stays until the original is back (a blank grid is worse).
@@ -1541,7 +1572,7 @@ fn keep_tile_of_unavailable_original(
     source: &Path,
     recipe: &serde_json::Value,
     new: String,
-    old: impl FnOnce() -> Option<String>,
+    old: impl FnOnce() -> Vec<String>,
 ) -> String {
     // A proxy of another decode variant cannot show this recipe.
     if crate::preview_proxy::source_available(source)
@@ -1551,10 +1582,10 @@ fn keep_tile_of_unavailable_original(
     {
         return new;
     }
-    match old() {
-        Some(old) if old != new && thumbnail_files_exist(directory, &old) => old,
-        _ => new,
-    }
+    old()
+        .into_iter()
+        .find(|old| *old != new && thumbnail_files_exist(directory, old))
+        .unwrap_or(new)
 }
 
 fn thumbnail_files_exist(directory: &Path, hash: &str) -> bool {
@@ -1675,7 +1706,7 @@ impl ThumbnailCacheEntry {
             &source_path,
             &serde_json::from_slice(&adjustments_bytes).unwrap_or_default(),
             cache_hash,
-            || thumbnail_hash_before_refreshes(path_str, &adjustments_bytes),
+            || older_tile_keys(path_str, &adjustments_bytes),
         );
         let embedded_hash = embedded_thumbnail_hash(path_str);
         let selected = preferred_thumbnail_hash(
@@ -3707,7 +3738,7 @@ mod face_retouch_thumbnail_tests {
                 &source,
                 &serde_json::from_slice(recipe).unwrap(),
                 new.clone(),
-                || Some(old.clone()),
+                || vec![old.clone()],
             )
         };
         // The master's proxy stands for the master: its tile is renewed.
@@ -3716,6 +3747,40 @@ mod face_retouch_thumbnail_tests {
         // stays instead of a blank.
         assert_eq!(key(&copy), old);
         std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_offline_copy_finds_the_tile_cached_while_its_masters_proxy_clamped() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let (source, copy_path, _, _) = session_with_a_copy_of_another_variant(temp.path());
+        // A recipe another refresh marker applies to (a LUT), beside the
+        // display copy's: the tile cached before this fix has that marker
+        // only.
+        let copy = br#"{"colorNoiseVersion":9,"lensCorrectionMode":"manual","lutPath":"x.cube"}"#;
+        let cache = temp.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        let held = thumbnail_hash_with_display_copy_held(&copy_path, copy).unwrap();
+        let new = compute_thumbnail_cache_hash(&copy_path, copy).unwrap();
+        let before = thumbnail_hash_before_refreshes(&copy_path, copy).unwrap();
+        assert!(held != new && held != before);
+        for size in ["small", "medium"] {
+            std::fs::write(cache.join(format!("{held}_{size}.jpg")), b"tile").unwrap();
+        }
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let offline = std::fs::File::open(&source).is_err();
+        let chosen = keep_tile_of_unavailable_original(
+            &cache,
+            &source,
+            &serde_json::from_slice(copy).unwrap(),
+            new,
+            || older_tile_keys(&copy_path, copy),
+        );
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
+        if offline {
+            assert_eq!(chosen, held);
+        }
     }
 
     #[test]
@@ -3738,7 +3803,7 @@ mod face_retouch_thumbnail_tests {
                 source,
                 &serde_json::Value::Null,
                 new.clone(),
-                || Some(old.clone()),
+                || vec![old.clone()],
             )
         };
         assert_eq!(key(&gone), new, "no old tile: nothing to keep");

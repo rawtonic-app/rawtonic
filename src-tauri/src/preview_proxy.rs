@@ -412,6 +412,11 @@ pub fn stands_for(source: &Path, recipe: &serde_json::Value) -> bool {
 /// standing here; this answers "no" only where `stands_for` does too.
 pub(crate) fn stands_for_by_recipe(source: &Path, recipe: &serde_json::Value) -> bool {
     let (path, sidecar) = crate::file_management::parse_virtual_path(&source.to_string_lossy());
+    // A master sidecar not downloaded yet is not read (a grid lookup must
+    // not wait for the cloud): the proxy is taken to stand for the recipe.
+    if crate::file_management::is_cloud_placeholder(&sidecar) {
+        return true;
+    }
     let path = path.to_string_lossy();
     let master = crate::exif_processing::load_sidecar(&sidecar).adjustments;
     crate::image_loader::decode_variant_for_frame(recipe, &path, 0)
