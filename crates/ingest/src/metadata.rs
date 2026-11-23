@@ -112,32 +112,26 @@ impl ImportMetadata {
         }
     }
 
-    /// `contents` of a captured photograph with this preset merged in, as
-    /// the import merges it into a registered copy: the file's own
-    /// metadata (read from the verified copy `photo`), then this preset by
-    /// the import's rules (fill-empty, `overwrite`, `{year}`). `contents`
-    /// holds what the capture was given (rating, keywords) or, with
-    /// `adopted`, the metadata of its card sidecar, whose rating and flag
-    /// stay. The note says the keywords could not all be added (`merge`).
-    pub(crate) fn for_registration(
+    /// Merges this preset into the `metadata` a captured photograph is
+    /// registered with, as the import merges it into a registered copy: what
+    /// the verified copy carries (`embedded`), then this preset by the
+    /// import's rules (fill-empty, `overwrite`, `{year}`). `metadata` holds
+    /// what the capture was given (rating, keywords) or, with `adopted`, the
+    /// metadata of its card sidecar, whose rating and flag stay. The note
+    /// says the keywords could not all be added (`merge`).
+    pub(crate) fn merge_capture(
         &self,
-        photo: &Path,
         source: &Path,
-        header: Option<rawtonic_naming::Capture>,
-        contents: Option<&rawtonic_catalog::Contents>,
+        embedded: Embedded,
+        metadata: &mut Metadata,
         adopted: bool,
-    ) -> Result<(rawtonic_catalog::Contents, Option<String>)> {
-        let embedded = Self::embedded(photo, source, header)?;
-        let mut contents = contents.cloned().unwrap_or_default();
-        let given = contents.metadata.take().unwrap_or_default();
-        let typed_rating = if adopted { 0 } else { given.rating };
-        let mut metadata = given;
-        let note = self.merge(source, embedded, &mut metadata, adopted);
+    ) -> Option<String> {
+        let typed_rating = if adopted { 0 } else { metadata.rating };
+        let note = self.merge(source, embedded, metadata, adopted);
         if typed_rating > 0 {
             metadata.rating = typed_rating;
         }
-        contents.metadata = Some(metadata);
-        Ok((contents, note))
+        note
     }
 
     /// Whether this holds nothing but ratings: then only the rated

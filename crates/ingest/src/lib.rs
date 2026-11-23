@@ -1606,17 +1606,12 @@ fn register(
     // the library's search.
     let (facts, header) = capture::copy_header(&destination);
     // The capture's preset over what the verified copy carries and what was
-    // adopted from its sidecar, stored in this same transaction.
+    // adopted from its sidecar, stored in this same transaction (and left
+    // pending for the XMP, which the sidecar's digest must not hide).
     let mut note = None;
-    let with_preset;
-    let mut contents = contents;
-    if let Some((preset, adopted)) = preset {
-        match preset.for_registration(&destination, source, header.clone(), contents, adopted) {
-            Ok((stored, keywords_note)) => {
-                note = keywords_note;
-                with_preset = stored;
-                contents = Some(&with_preset);
-            }
+    let embedded = match preset {
+        Some(_) => match ImportMetadata::embedded(&destination, source, header.clone()) {
+            Ok(embedded) => Some(embedded),
             Err(error) => {
                 return ImportResult {
                     source: source.into(),
@@ -1627,8 +1622,9 @@ fn register(
                     ..Default::default()
                 };
             }
-        }
-    }
+        },
+        None => None,
+    };
     let registered = library
         .plan_add(&destination, contents.cloned().unwrap_or_default())
         .map(|planned| match facts {
@@ -1638,6 +1634,13 @@ fn register(
         .and_then(|planned| match companion {
             Some(name) => planned.with_companion(name),
             None => Ok(planned),
+        })
+        .and_then(|planned| match (preset, embedded) {
+            (Some((preset, adopted)), Some(embedded)) => planned.edit_metadata(|metadata, _| {
+                note = preset.merge_capture(source, embedded, metadata, adopted);
+                Ok(())
+            }),
+            _ => Ok(planned),
         })
         .and_then(|planned| library.insert_planned(vec![planned]))
         .and_then(|ids| {
