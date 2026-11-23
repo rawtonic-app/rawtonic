@@ -289,7 +289,9 @@ fn levels(settings: &HashMap<String, String>) -> Option<Value> {
 /// plus samples of Capture One's curve (`CURVE_IMPORT_POINTS` in all).
 /// Points an imported curve holds at most: 12 follow Capture One's curve
 /// within 0.12 L* on average (0.5–1.6 L* at most; 16 would give 0.03–0.5) and
-/// leave four of the 16 slots for adding points in Develop.
+/// leave four of the 16 slots for adding points in Develop (a curve that
+/// already has 12 or more source points keeps them all, so it may have fewer
+/// free slots or none).
 const CURVE_IMPORT_POINTS: usize = 12;
 
 fn capture_one_curve_at(points: &[(f64, f64)], x: f64) -> f64 {
