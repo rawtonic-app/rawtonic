@@ -1358,13 +1358,12 @@ pub async fn sample_levels_input(
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("sample_levels_input");
         let recipe = levels_input_probe(&adjustments);
-        // One marker for the whole pass, and none sampled over a frame nobody
-        // sees rendering (`ColorNoiseView::with_picker_mark`): the pass runs
-        // again once that frame is done.
+        // One marker for the whole pass (`ColorNoiseView::with_shown_mark`); a
+        // frame nobody sees writes none.
         let develop = app_handle.state::<DevelopSession>();
         let view = &develop.color_noise_view;
         sample_levels_with(|outputs| {
-            view.with_picker_mark(|shown| {
+            view.with_shown_mark(|shown| {
                 render_probes(
                     &app_handle,
                     &path,
@@ -2001,7 +2000,7 @@ fn render_probes(
                 .ok()
         });
     // The pickers sample what the settled fit frame shows: `picker` is its
-    // marker, taken before the pass (`ColorNoiseView::with_picker_mark`).
+    // marker, taken before the pass (`ColorNoiseView::with_shown_mark`).
     let mut base = base;
     let mut transform_hash = transform_hash;
     if let Some(shown) = &picker
@@ -2786,7 +2785,10 @@ fn process_preview_job(
     // from the JPEG below).
     #[cfg(target_os = "linux")]
     let tool_view = final_adjustments.global.show_clipping != 0;
-    if app_handle.is_some() && (use_wgpu_renderer || cfg!(target_os = "linux")) {
+    if pass != FramePass::DraftWarmup
+        && app_handle.is_some()
+        && (use_wgpu_renderer || cfg!(target_os = "linux"))
+    {
         crate::second_window::note_live(
             &loaded_image.path,
             &adjustments_clone,
@@ -2864,7 +2866,8 @@ fn process_preview_job(
         return Ok(b"WGPU_RENDER".to_vec());
     }
 
-    if pass == FramePass::AnalyticsOnly {
+    // Nothing leaves a frame nobody sees: the render warmed the draft source.
+    if matches!(pass, FramePass::AnalyticsOnly | FramePass::DraftWarmup) {
         return Ok(Vec::new());
     }
 
@@ -2924,7 +2927,6 @@ fn process_preview_job(
             #[cfg(target_os = "linux")]
             if pixel_roi.is_none()
                 && !crop_edit
-                && pass != FramePass::DraftWarmup
                 && let Some(app) = app_handle
                 && crate::second_window::is_open()
             {

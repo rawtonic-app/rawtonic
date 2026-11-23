@@ -207,8 +207,7 @@ pub struct ColorNoiseView {
     /// follows only when none came after the one it was wanted for.
     frames: AtomicU64,
     /// Frames nobody sees rendering now (`render_unseen`): a render input's
-    /// frame follows as if none came, no shown marker is written or said,
-    /// and no picker samples one.
+    /// frame follows as if none came, and no shown marker is written.
     hidden_frames: AtomicU64,
     /// Changes with every render input stored or dropped (`revision`).
     revision: AtomicU64,
@@ -343,36 +342,17 @@ impl ColorNoiseView {
         lock_recover(&self.shown).clone()
     }
 
-    /// What the Levels pickers go on (`sample_levels_with`): the shown
-    /// frame's marker ([`shown_mark`](Self::shown_mark)); None while a frame
-    /// nobody sees renders.
-    pub(crate) fn picker_mark(&self) -> Option<Weak<DynamicImage>> {
-        if self.any_hidden() {
-            return None;
-        }
-        self.shown_mark()
-    }
-
-    /// Runs one pick pass with the marker taken once for it: waits (briefly)
-    /// for a frame nobody sees to end, and None when the marker changed or
-    /// such a frame began while `pass` ran, so the caller runs it again from
-    /// the shown frame's base. The pass may be None-marked (a zoomed or
-    /// dragged frame shows its own base).
-    pub(crate) fn with_picker_mark<T>(
+    /// Runs one pick pass with the shown frame's marker taken once for it;
+    /// None when a shown frame changed the marker meanwhile, so the caller
+    /// runs the pass again from the new frame's base. A frame nobody sees
+    /// never changes it, so a pick during one samples the shown frame's base.
+    pub(crate) fn with_shown_mark<T>(
         &self,
         pass: impl FnOnce(Option<Weak<DynamicImage>>) -> T,
     ) -> Option<T> {
-        let waited = std::time::Instant::now();
-        while self.any_hidden() && waited.elapsed() < std::time::Duration::from_secs(2) {
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-        let mark = self.picker_mark();
-        if mark.is_none() && self.any_hidden() {
-            return None;
-        }
+        let mark = self.shown_mark();
         let out = pass(mark.clone());
-        let after = self.picker_mark();
-        let same = match (&mark, &after) {
+        let same = match (&mark, &self.shown_mark()) {
             (Some(a), Some(b)) => Weak::ptr_eq(a, b),
             (None, None) => true,
             _ => false,
@@ -553,7 +533,7 @@ pub(crate) fn corrected_base(
 /// this colour noise setting (a settled fit frame; `note_shown`), if it
 /// did: what probes of the shown frame (the Levels pickers) render from,
 /// at Color 0. `shown` is the marker the pick went on
-/// ([`ColorNoiseView::picker_mark`]); None after a frame from its own base
+/// ([`ColorNoiseView::with_shown_mark`]); None after a frame from its own base
 /// (a zoomed region, a drag). Looks up only; never wants or builds one.
 pub(crate) fn shown_corrected_base(
     view: &ColorNoiseView,
@@ -575,17 +555,14 @@ pub(crate) fn shown_corrected_base(
         .map(|c| Arc::downgrade(&c.input))
         .collect();
     let base = Arc::downgrade(base);
-    let found = lock_recover(&view.corrected)
+    lock_recover(&view.corrected)
         .iter()
         .find(|c| {
             Weak::ptr_eq(&c.base, &base)
                 && inputs.iter().any(|i| Weak::ptr_eq(&c.input, i))
                 && Weak::ptr_eq(&Arc::downgrade(&c.image), shown)
         })
-        .map(|c| Arc::clone(&c.image))?;
-    // A frame nobody sees started meanwhile: its render comes from the
-    // shown frame's base, which the next pick takes again.
-    (!view.any_hidden()).then_some(found)
+        .map(|c| Arc::clone(&c.image))
 }
 
 /// The preview worker after a final frame: when a render input is wanted and
@@ -1119,7 +1096,7 @@ mod tests {
         let (source, base) = (image(600, 400), image(200, 133));
         let corrected = image(200, 133);
         let shown = |amount| {
-            let shown = view.picker_mark();
+            let shown = view.shown_mark();
             shown_corrected_base(
                 &view,
                 &all(amount),
@@ -1164,21 +1141,11 @@ mod tests {
         view.note_shown(Some(&used));
         assert!(Arc::ptr_eq(&shown(25).unwrap(), &corrected));
         // A render nobody sees (the drag-draft warm-up) writes nothing: a
-        // pick during it takes the shown frame's base again once it is done.
-        let seen = |view: &ColorNoiseView| {
-            let shown = view.picker_mark();
-            let pick = shown.as_ref().and_then(|shown| {
-                shown_corrected_base(view, &all(25), &recipe(25), &source, true, &base, shown)
-            });
-            view.note_shown(pick.as_ref());
-            pick.is_some()
-        };
+        // pick during it samples the shown frame's base.
         assert!(view.render_unseen(|| {
             assert!(view.any_hidden(), "counted while it renders");
-            let during = shown(25);
-            assert!(during.is_none(), "no pick over a hidden frame's render");
-            seen(&view);
-            during.is_none()
+            view.note_shown(None);
+            shown(25).is_some()
         }));
         assert!(Arc::ptr_eq(&shown(25).unwrap(), &corrected));
         assert!(!view.any_hidden(), "ended with its render");
@@ -1231,8 +1198,9 @@ mod tests {
     }
 
     /// A frame nobody sees writes no shown marker: the one the Levels
-    /// pickers sample stays the shown frame's before it, is not sampled
-    /// while it renders, and is the shown frame's again right after.
+    /// pickers sample stays the shown frame's through its render, a pick
+    /// pass keeps the marker it took, and a shown frame that changes the
+    /// marker meanwhile makes the pass run again.
     #[test]
     fn an_unseen_frame_writes_no_shown_marker() {
         let view = ColorNoiseView::default();
@@ -1252,58 +1220,67 @@ mod tests {
             input: input.clone(),
             image: Arc::clone(&shown_base),
         }];
+        // What a pick pass returns: the base it samples.
         let pick = || {
-            let shown = view.picker_mark();
-            shown_corrected_base(
-                &view,
-                &all(25),
-                &recipe(25),
-                &source,
-                true,
-                &base,
-                shown.as_ref()?,
-            )
+            view.with_shown_mark(|shown| {
+                shown_corrected_base(
+                    &view,
+                    &all(25),
+                    &recipe(25),
+                    &source,
+                    true,
+                    &base,
+                    shown.as_ref()?,
+                )
+            })
+            .flatten()
         };
         view.note_frame();
         view.note_shown(Some(&shown_base));
         assert!(Arc::ptr_eq(&pick().unwrap(), &shown_base));
-        // While a frame nobody sees renders, its own render writes no
-        // marker, even from a corrected base of its own (a draft-sized one
-        // the view kept too), and a pick never samples that render.
-        let input = input.clone();
-        let hidden = Arc::clone(&hidden_base);
-        view.render_unseen(|| {
-            lock_recover(&view.corrected).push(CorrectedBase {
-                base: Arc::downgrade(&base),
-                input,
-                image: hidden,
-            });
-            view.note_shown(Some(&hidden_base));
-            view.note_shown(None);
-            assert!(pick().is_none(), "no pick over a hidden frame's render");
-        });
-        assert!(
-            Arc::ptr_eq(&pick().unwrap(), &shown_base),
-            "the shown frame's again"
-        );
-        // A frame nobody sees that began and ended within a pass changes no
-        // marker; one that changes the marker makes the pass run again.
-        assert!(
-            view.with_picker_mark(|mark| {
-                view.render_unseen(|| ());
-                mark.is_some()
+        // While a frame nobody sees renders, with a corrected base of its
+        // own (a draft-sized one the view kept too) and a pick before, in and
+        // after it, every pick samples the shown frame's base.
+        let in_pass = view
+            .with_shown_mark(|shown| {
+                let first = shown_corrected_base(
+                    &view,
+                    &all(25),
+                    &recipe(25),
+                    &source,
+                    true,
+                    &base,
+                    shown.as_ref().unwrap(),
+                );
+                let input = input.clone();
+                let hidden = Arc::clone(&hidden_base);
+                view.render_unseen(|| {
+                    lock_recover(&view.corrected).push(CorrectedBase {
+                        base: Arc::downgrade(&base),
+                        input,
+                        image: hidden,
+                    });
+                    view.note_shown(Some(&hidden_base));
+                    view.note_shown(None);
+                    assert!(
+                        Arc::ptr_eq(&pick().unwrap(), &shown_base),
+                        "a pick in its render"
+                    );
+                });
+                first
             })
-            .is_some(),
-            "a hidden frame that ended within the pass changes no marker"
-        );
+            .expect("a hidden frame within the pass changes no marker");
+        assert!(Arc::ptr_eq(&in_pass.unwrap(), &shown_base));
+        assert!(Arc::ptr_eq(&pick().unwrap(), &shown_base));
+        // A shown frame that changes the marker makes the pass run again.
         let mut runs = 0;
         let kept = loop {
-            if let Some(kept) = view.with_picker_mark(|mark| {
+            if let Some(kept) = view.with_shown_mark(|shown| {
                 runs += 1;
                 if runs == 1 {
                     view.note_shown(None);
                 }
-                mark
+                shown
             }) {
                 break kept;
             }
