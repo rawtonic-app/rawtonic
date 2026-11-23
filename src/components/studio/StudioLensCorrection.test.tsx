@@ -116,8 +116,17 @@ describe('Lens correction tool', () => {
 
   it('switches an imported correction off and on without losing it or its amount', async () => {
     const polynomial = {
-      model: 0, k1: -0.036, k2: 0, k3: 0, zoom: 1, exact_zoom: true,
-      tca_vr: 1, tca_vb: 1, vig_k1: 0, vig_k2: 0, vig_k3: 0
+      model: 0,
+      k1: -0.036,
+      k2: 0,
+      k3: 0,
+      zoom: 1,
+      exact_zoom: true,
+      tca_vr: 1,
+      tca_vb: 1,
+      vig_k1: 0,
+      vig_k2: 0,
+      vig_k3: 0
     };
     current = {
       ...INITIAL_ADJUSTMENTS,

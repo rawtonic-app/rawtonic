@@ -227,9 +227,7 @@ export default function StudioLensCorrection() {
               const on = e.target.checked;
               return setAdjustments((prev) => ({ ...prev, lensDistortionEnabled: on }));
             }
-            return e.target.checked
-              ? void enable()
-              : setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }));
+            return e.target.checked ? void enable() : setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }));
           }}
         />
         {t('studio.lens.enable')}
