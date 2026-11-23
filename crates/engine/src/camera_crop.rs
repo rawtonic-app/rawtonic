@@ -73,9 +73,18 @@ pub fn crops_in(
     if !crate::formats::is_raw_file(path) {
         return vec![None; versions];
     }
-    cached(path, stamp, || {
-        Some(rawler::rawsource::RawSource::new_from_shared(file.clone()).with_path(path))
-    })
+    let source = || rawler::rawsource::RawSource::new_from_shared(file.clone()).with_path(path);
+    // Unstamped (the mapped file's time unknown): read from the mapping,
+    // but not cached, as no stamp says which file at `path` it belongs to.
+    // Only here, where the caller holds the file: `crops` by path keeps
+    // answering nothing without a stamp (export normalization).
+    if stamp.is_none() {
+        let source = source();
+        return (0..=crate::source_frame::VERSION)
+            .map(|version| rawtonic_rawdecode::camera_crop::camera_crop(&source, version))
+            .collect();
+    }
+    cached(path, stamp, || Some(source()))
 }
 
 /// The crops of the file stamped `stamp` at `path`: cached per path and
@@ -88,15 +97,8 @@ fn cached(
     type Cache = Mutex<HashMap<String, (u64, std::time::SystemTime, Vec<Option<CameraCrop>>)>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
-    let read = |source: &rawler::rawsource::RawSource| -> Vec<_> {
-        (0..=crate::source_frame::VERSION)
-            .map(|version| rawtonic_rawdecode::camera_crop::camera_crop(source, version))
-            .collect()
-    };
-    // Unstamped (a mapping whose file time is unknown): read, but never
-    // cached, as no stamp says which file at `path` it belongs to.
     let Some((len, modified)) = stamp else {
-        return source().map_or_else(Vec::new, |source| read(&source));
+        return Vec::new();
     };
     if let Some((l, m, found)) = cache
         .lock()
@@ -111,7 +113,9 @@ fn cached(
     let Some(source) = source() else {
         return Vec::new();
     };
-    let found = read(&source);
+    let found: Vec<_> = (0..=crate::source_frame::VERSION)
+        .map(|version| rawtonic_rawdecode::camera_crop::camera_crop(&source, version))
+        .collect();
     let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
     if cache.len() > 4096 {
         cache.clear();
