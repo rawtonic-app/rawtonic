@@ -142,6 +142,21 @@ pub struct CameraIdentity {
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serial: Option<String>,
+    /// Other names the same file gives its camera: a DNG's Make and Model
+    /// tags when the decoder names the camera differently. A DNG of a camera
+    /// missing from rawler's catalog is named by its tags; once the catalog
+    /// knows the camera it gets the clean names, and a default saved under
+    /// the tag names must still apply.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also_named: Vec<CameraName>,
+}
+
+/// A camera's make and model as one source names them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CameraName {
+    pub make: String,
+    pub model: String,
 }
 
 /// The defaults one photograph gets.
@@ -160,7 +175,11 @@ fn same(a: &str, b: &str) -> bool {
 
 impl CameraDefaults {
     fn is_for(&self, camera: &CameraIdentity) -> bool {
-        same(&self.make, &camera.make) && same(&self.model, &camera.model)
+        (same(&self.make, &camera.make) && same(&self.model, &camera.model))
+            || camera
+                .also_named
+                .iter()
+                .any(|name| same(&self.make, &name.make) && same(&self.model, &name.model))
     }
 }
 
@@ -326,11 +345,29 @@ pub fn camera_of_raw(source: &rawler::rawsource::RawSource) -> Option<CameraIden
     let metadata = decoder
         .raw_metadata(source, &rawler::decoders::RawDecodeParams::default())
         .ok()?;
-    identity(
+    let mut camera = identity(
         &metadata.make,
         &metadata.model,
         metadata.exif.serial_number.as_deref(),
-    )
+    )?;
+    // Only the DNG decoder exposes its root IFD; other formats' decoders
+    // refuse cameras missing from the catalog, so their names never change.
+    if let Ok(Some(root)) = decoder.ifd(rawler::decoders::WellKnownIFD::Root) {
+        let tag = |tag: rawler::tags::TiffCommonTag| {
+            root.get_entry(tag)
+                .and_then(|entry| entry.value.as_string())
+                .map(|text| text.trim().to_string())
+        };
+        if let (Some(make), Some(model)) = (
+            tag(rawler::tags::TiffCommonTag::Make),
+            tag(rawler::tags::TiffCommonTag::Model),
+        ) && !(make.is_empty() && model.is_empty())
+            && !(same(&make, &camera.make) && same(&model, &camera.model))
+        {
+            camera.also_named.push(CameraName { make, model });
+        }
+    }
+    Some(camera)
 }
 
 fn camera_of_exif(path: &Path) -> Option<CameraIdentity> {
@@ -369,6 +406,7 @@ fn identity(make: &str, model: &str, serial: Option<&str>) -> Option<CameraIdent
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string),
+        also_named: Vec::new(),
     })
 }
 
@@ -443,6 +481,7 @@ mod tests {
             make: "Nikon".into(),
             model: "Z 9".into(),
             serial: serial.map(str::to_string),
+            also_named: Vec::new(),
         }
     }
 
@@ -529,10 +568,43 @@ mod tests {
             make: "Canon".into(),
             model: "EOS R5".into(),
             serial: None,
+            also_named: Vec::new(),
         };
         let global = resolve(&d, true, Some(&other)).unwrap();
         assert_eq!(global.levels, ["global"]);
         assert_eq!(resolve(&d, true, None).unwrap().levels, ["global"]);
+    }
+
+    /// A DNG of a camera rawler's catalog gained later is named by its
+    /// clean names; a default saved under its DNG tags still applies.
+    #[test]
+    fn a_default_saved_under_a_dngs_tag_names_still_applies() {
+        let d = DevelopDefaults {
+            raw_only: true,
+            global: None,
+            cameras: vec![CameraDefaults {
+                make: "NIKON CORPORATION".into(),
+                model: "NIKON D810A".into(),
+                serial: None,
+                name: None,
+                settings: settings(json!({"exposure": 0.5})),
+                inherit: true,
+            }],
+        };
+        let mut camera = CameraIdentity {
+            make: "Nikon".into(),
+            model: "D810A".into(),
+            serial: None,
+            also_named: Vec::new(),
+        };
+        assert!(resolve(&d, true, Some(&camera)).is_none());
+        camera.also_named.push(CameraName {
+            make: "NIKON CORPORATION".into(),
+            model: "NIKON D810A".into(),
+        });
+        let resolved = resolve(&d, true, Some(&camera)).unwrap();
+        assert_eq!(resolved.levels, ["camera"]);
+        assert_eq!(resolved.settings["exposure"], json!(0.5));
     }
 
     #[test]

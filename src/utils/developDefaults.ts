@@ -60,6 +60,10 @@ export interface CameraIdentity {
   make: string;
   model: string;
   serial?: string;
+  /** Other names the file gives its camera (a DNG's Make and Model tags when
+   * the decoder names the camera differently): a default saved under them
+   * is this camera's, and saving it again moves it to `make` and `model`. */
+  alsoNamed?: { make: string; model: string }[];
 }
 
 export interface ResolvedDefaults {
@@ -202,9 +206,9 @@ const same = (a: string | undefined, b: string | undefined) =>
 const entryIndex = (defaults: DevelopDefaults, camera: CameraIdentity, level: 'camera' | 'body') =>
   (defaults.cameras ?? []).findIndex(
     (entry) =>
-      same(entry.make, camera.make) &&
-      same(entry.model, camera.model) &&
-      (level === 'body' ? entry.serial?.trim() === camera.serial?.trim() : !entry.serial)
+      [camera, ...(camera.alsoNamed ?? [])].some(
+        (name) => same(entry.make, name.make) && same(entry.model, name.model)
+      ) && (level === 'body' ? entry.serial?.trim() === camera.serial?.trim() : !entry.serial)
   );
 
 /** `defaults` with `set` as the global default (null: none). */

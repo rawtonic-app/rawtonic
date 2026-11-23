@@ -130,6 +130,21 @@ describe('develop defaults', () => {
     expect(withGlobalDefault(d, null)).not.toHaveProperty('global');
   });
 
+  it("finds a default saved under a DNG's tag names and moves it to the camera's names", () => {
+    const tagged = withCameraToolDefault(
+      NO_DEVELOP_DEFAULTS,
+      { make: 'NIKON CORPORATION', model: 'NIKON D810A' },
+      'camera',
+      {
+        exposure: 0.5
+      }
+    );
+    const d810a = { make: 'Nikon', model: 'D810A', alsoNamed: [{ make: 'NIKON CORPORATION', model: 'NIKON D810A' }] };
+    const d = withCameraToolDefault(tagged, d810a, 'camera', { clarity: 10 });
+    expect(d.cameras).toHaveLength(1);
+    expect(d.cameras![0]).toMatchObject({ make: 'Nikon', model: 'D810A', settings: { exposure: 0.5, clarity: 10 } });
+  });
+
   it('opens a never-edited photo with its defaults over the new edit; edited and neutral ones without', () => {
     const fresh = editorRecipe(null, true, 6000, 4000, null, null, resolved);
     expect(fresh.contrast).toBe(20);
