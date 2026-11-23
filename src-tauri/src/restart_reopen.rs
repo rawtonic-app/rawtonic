@@ -162,14 +162,14 @@ mod tests {
 
     #[test]
     fn only_the_restart_flag_marks_a_restart() {
-        let env = |value: Option<&str>| {
-            move |name: &str| {
+        fn env(value: Option<&'static str>) -> impl Fn(&str) -> Option<OsString> {
+            move |name| {
                 (name == RESTARTED_ENV)
                     .then_some(value)
                     .flatten()
                     .map(OsString::from)
             }
-        };
+        }
         assert!(restarted(env(Some("1"))));
         assert!(!restarted(env(Some("0"))));
         assert!(!restarted(env(None)));
