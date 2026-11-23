@@ -1121,6 +1121,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "Sterownik grafiki kilka razy przestał odpowiadać. Twoje zmiany są bezpieczne; zamknij i ponownie otwórz Rawtonic, aby dalej wywoływać zdjęcia. Szczegóły: {{details}}",
+    "gpuDeviceRecovered": "Sterownik grafiki przestał odpowiadać. Rawtonic ponownie uruchomił grafikę; Twoje zmiany są bezpieczne.",
     "gpuStartFailed": "Rawtonic nie mógł uruchomić procesora graficznego, więc nie można wywoływać ani eksportować zdjęć. Zresetuj ustawienia grafiki i spróbuj ponownie; jeśli to nie pomoże, zaktualizuj sterownik karty graficznej. Szczegóły: {{details}}",
     "operationFailed": "Nie udało się ukończyć operacji."
   },

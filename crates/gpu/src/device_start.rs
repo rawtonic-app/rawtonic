@@ -148,6 +148,14 @@ pub fn compile_limit(info: &wgpu::AdapterInfo, windows: bool) -> Option<usize> {
     (windows && info.backend == wgpu::Backend::Vulkan && info.vendor == AMD).then_some(1)
 }
 
+/// Whether renders on the adapter go in short submissions
+/// (`gpu_processing::set_short_submissions`): integrated GPUs, where the
+/// 2 s watchdog took the device away mid-session (DVL1: Radeon 680M, a
+/// single submission of 2.15 s lost it, 1.67 s did not).
+pub fn short_submissions(info: &wgpu::AdapterInfo) -> bool {
+    info.device_type == wgpu::DeviceType::IntegratedGpu
+}
+
 /// Why the adapter cannot run the processing pipeline, if it cannot: WARP,
 /// found by its PCI ids (Microsoft vendor 0x1414, device 0x8C) on DX12.
 pub fn unsupported_adapter(info: &wgpu::AdapterInfo) -> Option<&'static str> {
@@ -239,6 +247,7 @@ pub fn start_device(
         &adapter.get_info(),
         cfg!(target_os = "windows"),
     ));
+    crate::gpu_processing::set_short_submissions(short_submissions(&adapter.get_info()));
     // A lost device otherwise shows only as the next resource's validation
     // error (WGT5: "Buffer … is invalid").
     let generation = mark_started();
@@ -290,6 +299,26 @@ static LOST_HOOK: std::sync::OnceLock<LostHook> = std::sync::OnceLock::new();
 /// are ignored.
 pub fn on_device_lost(hook: impl Fn(LostDevice) + Send + Sync + 'static) {
     let _ = LOST_HOOK.set(Box::new(hook));
+}
+
+/// Takes the newest device as lost without a driver reset, for QA and
+/// tests of the recovery: its renders fail with the lost error and the
+/// hook hears it, as after a real loss. `None` before any device started.
+pub fn simulate_lost(message: &str) -> Option<LostDevice> {
+    let generation = STARTED.load(std::sync::atomic::Ordering::Acquire);
+    if generation == 0 {
+        return None;
+    }
+    log::error!("GPU device lost (simulated): {message} (device {generation})");
+    mark_lost(generation);
+    let lost = LostDevice {
+        generation,
+        message: message.to_string(),
+    };
+    if let Some(hook) = LOST_HOOK.get() {
+        hook(lost.clone());
+    }
+    Some(lost)
 }
 
 fn mark_started() -> u64 {

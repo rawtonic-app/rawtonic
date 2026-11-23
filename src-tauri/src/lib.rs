@@ -58,6 +58,7 @@ mod file_operations;
 mod folder_sync;
 mod gpu_idle_helper;
 mod gpu_processing;
+mod gpu_recovery;
 mod gpu_start_guard;
 mod gpu_warmup;
 mod guided_perspective;
@@ -605,6 +606,8 @@ fn start(args: Vec<String>) {
             if !is_headless {
                 // Before the window and its webview: a cold start's first
                 // Develop frame waits for the display variant this compiles.
+                // A lost device is replaced while the app runs (DVL1).
+                gpu_recovery::install(&app_handle);
                 gpu_processing::start_early(&app_handle);
             }
             if !is_headless {

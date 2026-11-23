@@ -4688,7 +4688,8 @@ pub struct GpuProcessor {
     encode_pipelines: [std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>; 2],
     tile_output_size: wgpu::Extent3d,
     /// Whether renders that allow it run in [`EXPORT_TILE_SIZE`] tiles
-    /// (`render_tile_size`).
+    /// (`render_tile_size`): export processors, and every processor on a
+    /// GPU that needs short submissions (`short_submissions`).
     small_export_tiles: bool,
     adjustments_buffer: wgpu::Buffer,
     /// Count, then the tile-local regions of the current dispatch.
@@ -6868,6 +6869,33 @@ fn env_compile_limit() -> Option<Option<usize>> {
 
 /// Sets the limit for the device just started (`None`: no limit); the
 /// environment variable overrides it.
+/// Whether this process's GPU must get short submissions: on Windows one
+/// submission of more than about 2 s loses the device (the watchdog,
+/// TdrDelay), and a lost device froze the multi view for good (DVL1). A
+/// 2048-pixel tile's passes run about 0.5 s on a Radeon 680M with large
+/// recipes, several times that beside the next photo's decode; a
+/// [`EXPORT_TILE_SIZE`] tile runs a quarter of it. Set at device start
+/// for integrated GPUs (`device_start`); processors made afterwards render
+/// in small tiles where the bytes do not change (`render_tile_size`).
+/// `RAWTONIC_SHORT_GPU_SUBMISSIONS=0|1` overrides it.
+static SHORT_SUBMISSIONS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_short_submissions(short: bool) {
+    let short = match std::env::var("RAWTONIC_SHORT_GPU_SUBMISSIONS").as_deref() {
+        Ok("0") => false,
+        Ok("1") => true,
+        _ => short,
+    };
+    if short {
+        log::info!("GPU renders run in {EXPORT_TILE_SIZE}-pixel tiles (short submissions)");
+    }
+    SHORT_SUBMISSIONS.store(short, std::sync::atomic::Ordering::Release);
+}
+
+pub fn short_submissions() -> bool {
+    SHORT_SUBMISSIONS.load(std::sync::atomic::Ordering::Acquire)
+}
+
 pub fn set_compile_limit(limit: Option<usize>) {
     let limit = env_compile_limit().unwrap_or(limit);
     if let Some(n) = limit {
@@ -8871,7 +8899,10 @@ impl GpuProcessor {
             encode_bgls: [encode_bgl, high_precision_encode_bgl],
             encode_pipelines: Default::default(),
             tile_output_size: clamped_tile_size,
-            small_export_tiles,
+            // On a GPU whose submissions must stay short (an integrated
+            // GPU, `set_short_submissions`) display renders take the small
+            // tiles too.
+            small_export_tiles: small_export_tiles || short_submissions(),
             adjustments_buffer,
             render_regions_buffer,
             prepared_layers_buffer,

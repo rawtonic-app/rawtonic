@@ -1006,6 +1006,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "图形驱动程序多次停止响应。您的编辑不受影响；请退出并重新打开 Rawtonic 以继续冲洗。详细信息：{{details}}",
+    "gpuDeviceRecovered": "图形驱动程序停止响应。Rawtonic 已重新启动图形处理；您的编辑不受影响。",
     "gpuStartFailed": "Rawtonic 无法启动图形处理器，因此无法冲洗或导出照片。请重置图形设置并重试；如果仍无效，请更新显卡驱动。详细信息：{{details}}",
     "operationFailed": "无法完成操作。"
   },
