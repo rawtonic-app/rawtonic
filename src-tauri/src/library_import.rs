@@ -712,18 +712,16 @@ fn settle_reimport(
     copy: Option<&str>,
     imported: Imported,
 ) {
+    report.errors.extend(imported.error);
+    // A copy's sidecar followed in `reimport_copy` already.
     if let Some(change) = imported.change {
-        match follow_sidecar(catalog, asset, &change) {
+        match copy.map_or_else(|| follow_sidecar(catalog, asset, &change), |_| Ok(true)) {
             Ok(true) => report.recipe_changes.push(change),
             // Changed beside the photo between the check and the write: the
             // library's update stays, but no Undo step writes over that file.
-            Ok(false) => report.errors.push(format!(
-                "{}: the editor settings file beside the photo was changed elsewhere since; \
-                 left as it is (the library holds the imported edit)",
-                photo_ref::PhotoRef::parse(&change.path)
-                    .sidecar_path()
-                    .display()
-            )),
+            Ok(false) => report.errors.push(changed_elsewhere(&change)),
+            // The library holds a photograph's own edit, as after an edit
+            // whose sidecar could not be written (`DerivedSidecarUnwritten`).
             Err(e) => {
                 report.errors.push(format!("{}: {e}", photo.path.display()));
                 report.recipe_changes.push(change);
@@ -740,6 +738,16 @@ fn settle_reimport(
             Err(e) => report.errors.push(format!("{}: {e}", photo.path.display())),
         }
     }
+}
+
+fn changed_elsewhere(change: &RecipeChange) -> String {
+    format!(
+        "{}: the editor settings file beside the photo was changed elsewhere since; \
+         left as it is",
+        photo_ref::PhotoRef::parse(&change.path)
+            .sidecar_path()
+            .display()
+    )
 }
 
 /// The derived editor sidecar beside the photograph (`<file>.rrdata`, a
@@ -855,6 +863,8 @@ struct Imported {
     kept_with_newer: bool,
     /// The edit here was brought up to date: its recipe before and after.
     change: Option<RecipeChange>,
+    /// Why an update was not made after all, for the summary's errors.
+    error: Option<String>,
 }
 
 /// What a repeated import does with an edit already here (decision C1RI1
@@ -910,18 +920,25 @@ fn reimport(
 /// there, which the editor reads for a photograph that is online. It is
 /// the photographer's too: the library's edit is never replaced then, and
 /// changed settings there come in as a new virtual copy instead.
+///
+/// A photo whose source the reader could only read in part
+/// (`coverage_unreadable`) never replaces an edit here: its translation
+/// lacks what could not be read.
 fn reimport_here(
     record: Option<&ImportRecord>,
     own: Option<&Value>,
     sidecar: Option<Value>,
-    source: &str,
+    source: &Photo,
     incoming: Option<&Value>,
 ) -> Reimport {
     let own = match (&sidecar, own) {
         (Some(edit), own) if !own.is_some_and(is_edit) => Some(edit),
         (_, own) => own,
     };
-    match reimport(record, own, source, incoming) {
+    if own.is_some_and(is_edit) && coverage_unreadable(source) {
+        return Reimport::Keep;
+    }
+    match reimport(record, own, &source_digest(source), incoming) {
         Reimport::Apply if sidecar.is_some() => Reimport::KeepWithNewer,
         rule => rule,
     }
@@ -951,25 +968,41 @@ fn digest_of(value: &impl Serialize) -> String {
     rawtonic_fs::hex(&sha2::Sha256::digest(bytes)[..])
 }
 
+/// The Capture One rasters of the photo's layers (painted, colour range,
+/// AI and Luma Range coverage).
+fn layer_rasters(
+    photo: &Photo,
+) -> impl Iterator<Item = &rawtonic_interop::capture_one_masks::Raster> {
+    use rawtonic_interop::capture_one_masks::{Coverage, Mask};
+    photo
+        .capture_one_layers
+        .iter()
+        .filter_map(|layer| match &layer.mask {
+            Mask::Raster { raster, .. }
+            | Mask::LumaRange {
+                base: Coverage::Raster { raster },
+                ..
+            } => Some(raster),
+            _ => None,
+        })
+}
+
+/// Whether a layer's coverage could not be read (a damaged or incomplete
+/// copy of the session's mask files): the translation lacks that layer.
+fn coverage_unreadable(photo: &Photo) -> bool {
+    layer_rasters(photo).any(|raster| raster.values().is_none())
+}
+
 /// The other editor's settings for a photo or copy, by digest: its
 /// settings, its Capture One layers and their painted coverage (the
 /// rasters' values, which their serialized form leaves out).
 fn source_digest(photo: &Photo) -> String {
-    use rawtonic_interop::capture_one_masks::{Coverage, Mask};
     use sha2::Digest;
     let mut digest = sha2::Sha256::new();
     digest.update(
         serde_json::to_vec(&(&photo.develop, &photo.capture_one_layers)).unwrap_or_default(),
     );
-    for layer in &photo.capture_one_layers {
-        let raster = match &layer.mask {
-            Mask::Raster { raster, .. }
-            | Mask::LumaRange {
-                base: Coverage::Raster { raster },
-                ..
-            } => raster,
-            _ => continue,
-        };
+    for raster in layer_rasters(photo) {
         match raster.values() {
             Some(values) => digest.update(&values),
             None => digest.update(b"unreadable"),
@@ -1663,7 +1696,7 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
                 record.as_ref(),
                 own.as_ref(),
                 sidecar_edit(&asset.path, None, own.as_ref()),
-                &source_digest(photo),
+                photo,
                 adjustments.as_ref(),
             );
             if rule != Reimport::Apply {
@@ -1864,11 +1897,12 @@ fn reimport_copy(
         catalog.imported_recipe(&version)?.as_ref(),
         own.as_ref(),
         sidecar_edit(&catalog.asset(asset)?.path, Some(copy), own.as_ref()),
-        &source_digest(photo),
+        photo,
         incoming.as_ref(),
     );
     match rule {
         Reimport::Apply => {
+            let previous = state.clone();
             if let (Some(mut state), Some((adjustments, clipped))) = (state, recipe) {
                 imported.translated = true;
                 imported.ai_masks = has_ai_masks_on_open(&adjustments);
@@ -1879,18 +1913,41 @@ fn reimport_copy(
             let stored = catalog
                 .copy_state(asset, copy)?
                 .and_then(|state| state.get("adjustments").cloned());
+            if edit_digest(own.as_ref()) != edit_digest(stored.as_ref()) {
+                let change = RecipeChange {
+                    path: photo_ref::PhotoRef::of_path(&catalog.asset(asset)?.path, Some(copy))
+                        .format(),
+                    before: own.unwrap_or(Value::Null),
+                    after: stored.clone().unwrap_or(Value::Null),
+                };
+                // The editor reads an online copy from its sidecar: the
+                // update counts only once that file holds it. Otherwise the
+                // library's copy goes back as it was, unrecorded, so the next
+                // import tries again, and it is no part of the Undo step.
+                let failed = match follow_sidecar(catalog, asset, &change) {
+                    Ok(true) => None,
+                    Ok(false) => Some(changed_elsewhere(&change)),
+                    Err(e) => Some(format!(
+                        "{}: {e}; this virtual copy was not updated",
+                        photo_ref::PhotoRef::parse(&change.path)
+                            .sidecar_path()
+                            .display()
+                    )),
+                };
+                if let Some(error) = failed {
+                    if let Some(previous) = &previous {
+                        catalog.save_copy_state(asset, copy, previous)?;
+                    }
+                    imported.translated = false;
+                    imported.error = Some(error);
+                    return Ok(imported);
+                }
+                imported.change = Some(change);
+            }
             catalog.record_imported_recipe(
                 &version,
                 &import_record(photo, incoming.as_ref(), stored.as_ref()),
             )?;
-            if edit_digest(own.as_ref()) != edit_digest(stored.as_ref()) {
-                imported.change = Some(RecipeChange {
-                    path: photo_ref::PhotoRef::of_path(&catalog.asset(asset)?.path, Some(copy))
-                        .format(),
-                    before: own.unwrap_or(Value::Null),
-                    after: stored.unwrap_or(Value::Null),
-                });
-            }
         }
         Reimport::Same => {
             catalog.record_imported_recipe(
@@ -4484,5 +4541,104 @@ ProcessVersion = "15.4" }}"#,
         assert_eq!(report.edits_kept.len(), 1, "{report:?}");
         assert_eq!(catalog.copies(&asset).unwrap().len(), 2);
         assert_eq!(fs::read(&raw).unwrap(), b"raf");
+    }
+
+    /// C1RI1 review round 3 (finding 4): an imported copy whose sidecar
+    /// beside the photo cannot be written (a read-only originals folder) is
+    /// not updated: the library keeps the copy as the editor reads it, it is
+    /// no part of the Undo step, and the next import updates it.
+    #[cfg(unix)]
+    #[test]
+    fn a_copy_whose_sidecar_cannot_be_written_is_updated_by_the_next_import() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Cat"), "Cat", Mode::Catalog).unwrap();
+        let photos = tmp.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        let raw = photos.join("a.RAF");
+        fs::write(&raw, b"raf").unwrap();
+        let source = |copy_ev: f64| Source {
+            name: "Job".into(),
+            photos: vec![
+                photo("1", raw.clone(), exposure_in("c1", 0.5), None),
+                photo("2", raw.clone(), exposure_in("c1", copy_ev), Some("1")),
+            ],
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        import_into(&catalog, &source(1.0)).unwrap();
+        let asset = catalog.asset_at(&raw).unwrap().unwrap().id;
+        let copy = catalog.copies(&asset).unwrap()[0].clone();
+        let sidecar = raw.with_file_name(format!("a.RAF.{copy}.rrdata"));
+        let written = fs::read(&sidecar).unwrap();
+        fs::set_permissions(&photos, fs::Permissions::from_mode(0o555)).unwrap();
+        let report = import_into(&catalog, &source(1.5));
+        fs::set_permissions(&photos, fs::Permissions::from_mode(0o755)).unwrap();
+        let report = report.unwrap();
+        assert_eq!(
+            catalog.copy_state(&asset, &copy).unwrap().unwrap()["adjustments"]["exposure"],
+            json!(1.0),
+            "{report:?}"
+        );
+        assert!(
+            report
+                .recipe_changes
+                .iter()
+                .all(|c| !c.path.contains(&copy)),
+            "{report:?}"
+        );
+        assert!(!report.errors.is_empty(), "{report:?}");
+        assert_eq!(fs::read(&sidecar).unwrap(), written);
+        // Writable again: the same settings update it, and its file follows.
+        let again = import_into(&catalog, &source(1.5)).unwrap();
+        assert_eq!(
+            catalog.copy_state(&asset, &copy).unwrap().unwrap()["adjustments"]["exposure"],
+            json!(1.5),
+            "{again:?}"
+        );
+        let followed: Value = serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
+        assert_eq!(followed["adjustments"]["exposure"], json!(1.5));
+        assert_eq!(fs::read(&raw).unwrap(), b"raf");
+    }
+
+    /// C1RI1 review round 3 (finding 3): a Capture One layer whose painted
+    /// coverage cannot be read (an incomplete copy of the session) never
+    /// makes a repeated import replace the edit holding that layer.
+    #[test]
+    fn unreadable_layer_coverage_never_replaces_an_edit() {
+        use rawtonic_interop::capture_one::Layer;
+        use rawtonic_interop::capture_one_masks::{Mask, Raster};
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Cat"), "Cat", Mode::Catalog).unwrap();
+        let raw = tmp.path().join("a.RAF");
+        fs::write(&raw, b"raf").unwrap();
+        let layered = |raster: Raster| {
+            let mut source = one_photo(&raw, exposure_in("c1", 0.5));
+            source.photos[0].capture_one_layers = vec![Layer {
+                name: "Sky".into(),
+                enabled: true,
+                opacity: 100.0,
+                settings: vec![("Exposure".into(), "-1".into())],
+                mask: Mask::Raster { raster, ai: false },
+                frame: (128.0, 128.0),
+            }];
+            source
+        };
+        import_into(
+            &catalog,
+            &layered(Raster::from_values(128, 128, &[200; 128 * 128])),
+        )
+        .unwrap();
+        let asset = catalog.asset_at(&raw).unwrap().unwrap().id;
+        let before = catalog.editor_state(&asset).unwrap().unwrap()["adjustments"].clone();
+        let report = import_into(&catalog, &layered(Raster::unreadable(128, 128))).unwrap();
+        assert_eq!(
+            catalog.editor_state(&asset).unwrap().unwrap()["adjustments"],
+            before,
+            "{report:?}"
+        );
+        assert!(report.recipe_changes.is_empty(), "{report:?}");
+        assert!(catalog.copies(&asset).unwrap().is_empty(), "{report:?}");
     }
 }

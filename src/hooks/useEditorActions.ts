@@ -1075,17 +1075,17 @@ function closeOpenPhoto(path: string) {
 
 /** Before a library write that may change any photograph's recipe (a
  * Lightroom or Capture One import): the photograph open in Develop is
- * closed and its edits written first, so the write sees them as the
- * photographer's and no editor keeps an older recipe of it. Resolves with
- * how many photos hold an edit no save could write yet: the write must not
+ * closed, and every edit still to be written — its own, other writers'
+ * (Edit All Selected) and saves that failed before, retried once — is
+ * written first (`flushRecipeSaves`), so the write sees them as the
+ * photographer's and no editor keeps an older recipe. Resolves with how
+ * many photos still hold an edit no save could write: the write must not
  * run then (it would compare, and may replace, the older saved recipe). */
 export async function closeOpenPhotoForLibraryWrite(): Promise<number> {
   const { selectedImage } = useEditorStore.getState();
-  if (selectedImage) {
-    closeOpenPhoto(selectedImage.path);
-    await (photoWritesSettled(selectedImage.path) ?? Promise.resolve()).catch(() => undefined);
-  }
-  return unsavedRecipes.size;
+  if (selectedImage) closeOpenPhoto(selectedImage.path);
+  const notSaved = await flushRecipeSaves();
+  return new Set([...notSaved, ...unsavedRecipes.keys()]).size;
 }
 
 /** Recipes a library write outside the editor changed (`paths`): cached

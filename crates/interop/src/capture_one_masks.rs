@@ -159,6 +159,18 @@ impl Raster {
         Some(out)
     }
 
+    /// A raster whose one tile cannot be read (its data is missing, as in
+    /// an incomplete copy of a session): `values` gives None.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn unreadable(width: usize, height: usize) -> Self {
+        Raster {
+            width,
+            height,
+            tiles: vec![Tile::Coded(0)],
+            blk: Arc::new(Blk::default()),
+        }
+    }
+
     /// A raster of `values` (row by row over `width` × `height`), stored
     /// as Capture One stores one (`capture_one_tiles::encode`).
     #[cfg(any(test, feature = "test-support"))]
