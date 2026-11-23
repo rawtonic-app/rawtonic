@@ -25,6 +25,7 @@ import {
   type OpenWithPrefs
 } from '../../utils/editWith';
 import { useLibraryStore } from '../../store/useLibraryStore';
+import { draftFromPreset } from '../../utils/exportRecipes';
 import { recipeLabel, recipeSummary, showEditWithSettings } from './EditWithSettingsDialog';
 
 /** Asks for any application ("Other…"): an application bundle on macOS, a
@@ -239,17 +240,31 @@ function programOptions(
 }
 
 /** The programs Edit With lists: the ones for the default recipe's format,
- * then each program with settings of its own that this list misses (its own
- * format may be one the default's list does not cover); a program that is
- * gone is left out. */
+ * then each program with settings of its own that this list misses: looked
+ * up among the programs the system lists for its own format (the default's
+ * list may not cover it), else by its id; a program that is gone is left
+ * out. */
 async function editChoices(extension: string, prefs: OpenWithPrefs | null | undefined): Promise<AppChoices> {
   const choices = await invoke<AppChoices>(Invokes.EditWithApps, { extension });
   if (!choices.supported) return choices;
   const listed = new Set(choices.apps.map((app) => app.path));
-  const missing = Object.keys(prefs?.programSettings ?? {}).filter((program) => !listed.has(program));
+  const own = Object.entries(prefs?.programSettings ?? {}).filter(([program]) => !listed.has(program));
+  const formats = [...new Set(own.map(([, settings]) => draftFromPreset(settings).format))].filter(
+    (format) => format !== extension
+  );
+  const lists = await Promise.all(
+    formats.map((format) =>
+      invoke<AppChoices>(Invokes.EditWithApps, { extension: format })
+        .then((list) => list.apps)
+        .catch(() => [] as AppChoice[])
+    )
+  );
+  const byPath = new Map(lists.flat().map((app) => [app.path, app]));
   const found = await Promise.all(
-    missing.map(async (program) => {
-      const app = await invoke<AppChoice | null>(Invokes.OpenWithDescribe, { program }).catch(() => null);
+    own.map(async ([program]) => {
+      const app =
+        byPath.get(program) ??
+        (await invoke<AppChoice | null>(Invokes.OpenWithDescribe, { program }).catch(() => null));
       return app ? { ...app, path: program, isDefault: false, isRecent: false, recommended: true } : null;
     })
   );

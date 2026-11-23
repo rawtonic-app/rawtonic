@@ -261,6 +261,7 @@ function EditWithSettingsDialog({ shown }: { shown: Shown }) {
               <input type="checkbox" checked={draft.metadata} onChange={(e) => set({ metadata: e.target.checked })} />
               {t('studio.export.metadata.include')}
             </label>
+            {!draft.metadata && <small>{t('studio.export.metadata.rightsKept')}</small>}
             <label className="studio-proof-sheet-check">
               <input
                 type="checkbox"

@@ -531,17 +531,23 @@ it("the menu bar's Edit With offers each program's settings and renders with the
 });
 
 it('keeps a program with its own settings listed when the default format does not list it', async () => {
-  const describe = vi.fn(async (program: string) => ({ ...gwenview, path: `${program}`, isDefault: true }));
+  const describe = vi.fn();
   mockInvoke.mockImplementation(async (command, args) => {
     if (command === 'open_with_prefs') return programSettingsFixture.openWithPrefs;
-    // A TIFF default lists only GIMP; Gwenview is set to JPEG.
-    if (command === 'edit_with_apps') return { supported: true, apps: [gimp] };
-    if (command === 'open_with_describe') return describe((args as { program: string }).program);
+    // A TIFF default lists only GIMP; Gwenview is set to JPEG and found
+    // among the programs listed for JPEG (macOS cannot describe an app by
+    // its id alone).
+    if (command === 'edit_with_apps')
+      return (args as { extension: string }).extension === 'jpg'
+        ? { supported: true, apps: [{ ...gwenview, isDefault: true }] }
+        : { supported: true, apps: [gimp] };
+    if (command === 'open_with_describe') return describe();
   });
   render(<EditWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
   const own = await screen.findByRole('menuitem', { name: /^Gwenview/ });
   expect(own.textContent).toBe('GwenviewJPEG · sRGB');
-  expect(describe).toHaveBeenCalledWith(gwenview.path);
+  expect(mockInvoke).toHaveBeenCalledWith('edit_with_apps', { extension: 'jpg' });
+  expect(describe).not.toHaveBeenCalled();
   fireEvent.click(own);
   await vi.waitFor(() => expect(vi.mocked(runEditWith).mock.lastCall![2]).toBe(gwenview.path));
   expect(vi.mocked(runEditWith).mock.lastCall![1].outputFormat).toBe('jpg');
@@ -569,6 +575,8 @@ it("the settings dialog offers Don't enlarge and creator contact, and names what
   fireEvent.click(within(dialog).getByLabelText('Include metadata'));
   fireEvent.click(within(dialog).getByLabelText('Include creator contact details'));
   expect(within(dialog).getByLabelText('Remove GPS coordinates')).toBeTruthy();
+  // What a file without metadata still carries is said, as in Export.
+  expect(dialog.textContent).toContain('Stripped exports retain creator, copyright and usage terms.');
   fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
   await vi.waitFor(() =>
     expect(mockInvoke).toHaveBeenCalledWith(
