@@ -16,8 +16,10 @@
 //! the app (or the one the CLI names), never beside the exported files: a
 //! synced or web gallery folder gets no extra files.
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
+use std::fs::{self, File};
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -276,73 +278,130 @@ fn key(path: &Path) -> String {
     resolved.to_string_lossy().into_owned()
 }
 
+fn initialize_records(conn: &Connection) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute_batch(&format!(
+        "PRAGMA application_id={RECORDS_APPLICATION_ID};
+         CREATE TABLE IF NOT EXISTS records(
+           output TEXT PRIMARY KEY,
+           source TEXT NOT NULL,
+           inputs TEXT NOT NULL,
+           size INTEGER NOT NULL,
+           sha256 TEXT NOT NULL,
+           recorded_ms INTEGER NOT NULL);
+         PRAGMA user_version={RECORDS_VERSION};"
+    ))?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn is_empty_records_file(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|meta| {
+        meta.is_file() && meta.len() == 0 && !rawtonic_fs::is_cloud_placeholder_metadata(&meta)
+    })
+}
+
 impl ExportRecords {
     pub fn open(path: &Path) -> Result<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let not_ours = || format!("{} is not a Rawtonic export records file", path.display());
-        // A file that is there must be Rawtonic's records (an SQLite
-        // database with its application id): SQLite would take a short file
-        // of anything else, an empty one or an emptied database for a new
-        // database and write over it. Only a file this call creates itself
-        // is set up.
-        let created = match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-        {
-            Ok(_) => true,
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                use std::io::Read;
-                let mut header = [0u8; 100];
-                let ours = std::fs::File::open(path)
-                    .and_then(|mut file| file.read_exact(&mut header))
-                    .is_ok_and(|()| {
-                        &header[..16] == b"SQLite format 3\0"
-                            && i32::from_be_bytes([header[68], header[69], header[70], header[71]])
-                                == RECORDS_APPLICATION_ID
-                    });
-                ensure!(ours, not_ours());
-                false
-            }
-            Err(e) => return Err(e).with_context(not_ours),
+        Self::open_with_initializer(path, initialize_records)
+    }
+
+    fn open_with_initializer(
+        path: &Path,
+        initialize: impl FnOnce(&Connection) -> Result<()>,
+    ) -> Result<Self> {
+        let parent = path
+            .parent()
+            .context("Export records need a parent directory")?;
+        let parent = if parent.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            parent
         };
-        let conn = Connection::open(path)
-            .with_context(|| format!("Cannot open the export records {}", path.display()))?;
+        fs::create_dir_all(parent)?;
+        let missing = match fs::symlink_metadata(path) {
+            Ok(_) => false,
+            Err(e) if e.kind() == ErrorKind::NotFound => true,
+            Err(e) => return Err(e.into()),
+        };
+        if missing || is_empty_records_file(path) {
+            // A legacy crash could leave an empty main file. SQLite sidecars
+            // at that name could also belong to another database.
+            for suffix in ["-journal", "-wal", "-shm"] {
+                let mut sidecar = path.as_os_str().to_os_string();
+                sidecar.push(suffix);
+                match fs::symlink_metadata(&sidecar) {
+                    Err(e) if e.kind() == ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
+                    Ok(_) => {
+                        // A concurrent initializer may already have published
+                        // its database and enabled WAL.
+                        return Self::open_existing(path);
+                    }
+                }
+            }
+
+            // Close SQLite before publishing, while the entire database is
+            // in the main file. WAL is enabled only under the final name.
+            let temp = rawtonic_fs::temp::file_for(path)?;
+            let conn = Connection::open(temp.path())?;
+            initialize(&conn)?;
+            conn.close().map_err(|(_, e)| e)?;
+            temp.as_file().sync_all()?;
+            if missing {
+                match rawtonic_fs::no_clobber::persist_atomic(temp, path) {
+                    Ok(()) => rawtonic_fs::sync_dir(parent)?,
+                    Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
+                    Err(e) => return Err(e.into()),
+                }
+            } else if let Err(e) = rawtonic_fs::replace_existing(temp, path, is_empty_records_file)
+            {
+                // Another opener may have recovered this file while we
+                // staged it. Use its database only if it is really ours.
+                return Self::open_existing(path).map_err(|_| e);
+            }
+        }
+        Self::open_existing(path)
+    }
+
+    fn open_existing(path: &Path) -> Result<Self> {
+        let not_ours = || format!("{} is not a Rawtonic export records file", path.display());
+        // Reject foreign files before SQLite can open or recover a journal.
+        let mut header = [0u8; 100];
+        ensure!(
+            fs::metadata(path).with_context(not_ours)?.is_file(),
+            not_ours()
+        );
+        File::open(path)
+            .and_then(|mut file| file.read_exact(&mut header))
+            .with_context(not_ours)?;
+        ensure!(
+            &header[..16] == b"SQLite format 3\0"
+                && i32::from_be_bytes([header[68], header[69], header[70], header[71]])
+                    == RECORDS_APPLICATION_ID,
+            not_ours()
+        );
+        let conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .with_context(|| format!("Cannot open the export records {}", path.display()))?;
         conn.busy_timeout(Duration::from_secs(5))?;
-        // Read only, before anything is written: another program's database
-        // is left exactly as it is.
         let id: i32 = conn
             .query_row("PRAGMA application_id", [], |r| r.get(0))
             .with_context(not_ours)?;
-        let tables: i64 = conn
-            .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
-            .with_context(not_ours)?;
-        ensure!(
-            id == RECORDS_APPLICATION_ID || (created && id == 0 && tables == 0),
-            not_ours()
-        );
+        ensure!(id == RECORDS_APPLICATION_ID, not_ours());
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         ensure!(
             version <= RECORDS_VERSION,
             "The export records are from a newer Rawtonic (version {version})"
         );
-        // The id and table first, while a new file is still in rollback
-        // mode: they reach the file's header at once (in WAL mode only at a
-        // checkpoint), so the next open finds the id there.
-        conn.execute_batch(&format!(
-            "PRAGMA application_id={RECORDS_APPLICATION_ID};
-             CREATE TABLE IF NOT EXISTS records(
-               output TEXT PRIMARY KEY,
-               source TEXT NOT NULL,
-               inputs TEXT NOT NULL,
-               size INTEGER NOT NULL,
-               sha256 TEXT NOT NULL,
-               recorded_ms INTEGER NOT NULL);
-             PRAGMA user_version={RECORDS_VERSION};
-             PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;"
-        ))?;
+        if version == 0 {
+            // Older versions could leave our header but stop before writing
+            // the table and schema version.
+            initialize_records(&conn)?;
+        }
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
         Ok(Self { conn })
     }
 
@@ -681,6 +740,70 @@ mod tests {
     }
 
     #[test]
+    fn empty_records_left_by_an_interrupted_create_are_recovered() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("records.sqlite");
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+
+        let records = ExportRecords::open(&path).unwrap();
+        let output = dir.path().join("photo.jpg");
+        fs::write(&output, b"export").unwrap();
+        assert!(records.get(&output).unwrap().is_none());
+        records.record(&output, "photo", "v1").unwrap();
+        drop(records);
+
+        let records = ExportRecords::open(&path).unwrap();
+        assert_eq!(records.get(&output).unwrap().unwrap().inputs, "v1");
+    }
+
+    #[test]
+    fn interrupted_initialization_leaves_no_published_database() {
+        let dir = tempfile::tempdir().unwrap();
+        for was_empty in [false, true] {
+            let path = dir.path().join(format!("records-{was_empty}.sqlite"));
+            if was_empty {
+                fs::write(&path, []).unwrap();
+            }
+            let result = ExportRecords::open_with_initializer(&path, |conn| {
+                initialize_records(conn)?;
+                if was_empty {
+                    assert_eq!(fs::read(&path).unwrap(), b"");
+                } else {
+                    assert!(!path.exists());
+                }
+                anyhow::bail!("simulated interruption before publication")
+            });
+            assert_eq!(
+                result.err().unwrap().to_string(),
+                "simulated interruption before publication"
+            );
+            assert!(ExportRecords::open(&path).is_ok());
+        }
+    }
+
+    #[test]
+    fn foreign_file_arriving_during_initialization_is_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        for was_empty in [false, true] {
+            let path = dir.path().join(format!("records-{was_empty}.sqlite"));
+            if was_empty {
+                fs::write(&path, []).unwrap();
+            }
+            let result = ExportRecords::open_with_initializer(&path, |conn| {
+                initialize_records(conn)?;
+                fs::write(&path, b"foreign")?;
+                Ok(())
+            });
+            assert!(result.is_err());
+            assert_eq!(fs::read(&path).unwrap(), b"foreign");
+        }
+    }
+
+    #[test]
     fn another_database_is_refused_unchanged() {
         let dir = tempfile::tempdir().unwrap();
         let other = dir.path().join("other.sqlite");
@@ -701,12 +824,19 @@ mod tests {
         assert!(ExportRecords::open(&emptied).is_err());
         assert_eq!(fs::read(&emptied).unwrap(), before);
         assert!(!dir.path().join("other.sqlite-wal").exists());
-        for contents in [&b"not a database at all, just some text"[..], b"x", b""] {
+        for contents in [&b"not a database at all, just some text"[..], b"x", b"\0"] {
             let text = dir.path().join("notes.txt");
             fs::write(&text, contents).unwrap();
             assert!(ExportRecords::open(&text).is_err());
             assert_eq!(fs::read(&text).unwrap(), contents);
         }
+        let sidecar = dir.path().join("recovery.sqlite-journal");
+        let recovery = dir.path().join("recovery.sqlite");
+        fs::write(&recovery, []).unwrap();
+        fs::write(&sidecar, b"another database's journal").unwrap();
+        assert!(ExportRecords::open(&recovery).is_err());
+        assert_eq!(fs::read(&recovery).unwrap(), b"");
+        assert_eq!(fs::read(&sidecar).unwrap(), b"another database's journal");
         // Its own file opens again.
         let own = dir.path().join("records.sqlite");
         drop(ExportRecords::open(&own).unwrap());
