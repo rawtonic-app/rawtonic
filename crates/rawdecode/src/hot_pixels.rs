@@ -29,6 +29,17 @@
 //! median is far larger than the summed deviations of all 24 samples around
 //! it, which a star's or a line's samples share with it (notes:
 //! benchmark-results/hot1-2026-11-22/).
+//!
+//! That test needs a dead sample to lie below its darkest same-colour
+//! neighbour by more than the neighbours' spread, so it left dead
+//! photosites in busy texture about twice as often as the ratio tests.
+//! `DeadTest::IsolatedTexture` (`renderVersion` 16) also repairs a sample
+//! the isolation test leaves when it is darker than 0.4 of every
+//! same-colour neighbour, still deviates from its neighbourhood's median by
+//! more than 0.4 of the summed deviations around it, and no other sample
+//! within two pixels is dark against its own colour, as the samples of a
+//! dark line or a gap between bright points are (notes:
+//! benchmark-results/hot2-2026-11-23/).
 
 use rawler::CFA;
 use rayon::prelude::*;
@@ -58,6 +69,16 @@ const ISOLATED_FLOOR: f32 = 1.0 / 256.0;
 const CONTRAST: f32 = 0.25;
 const SPILL: f32 = 0.25;
 const CLIP: f32 = 0.95;
+/// `DeadTest::IsolatedTexture`, for a sample darker than `DEAD_RATIO` of
+/// every same-colour neighbour, the darkest at least `ISOLATED_FLOOR`: it
+/// deviates from the median of its neighbourhood by more than
+/// `TEXTURE_ISOLATION` times the summed deviations of the 24 samples
+/// around it, its adjacent samples together deviate the same way by at
+/// most `TEXTURE_SPILL` times its deviation, and no sample around it lies
+/// below `LINE_GUARD` of the median of its own same-colour neighbours.
+const TEXTURE_ISOLATION: f32 = 0.4;
+const TEXTURE_SPILL: f32 = 1.0;
+const LINE_GUARD: f32 = 0.6;
 /// The 24 offsets (dy, dx) around a sample within two pixels, row by row.
 const WINDOW: [(isize, isize); 24] = {
     let mut window = [(0, 0); 24];
@@ -90,13 +111,22 @@ pub enum DeadTest {
     /// (RapidRAW v1.7.1's test, `renderVersion` 15), so the cores of sharp
     /// stars and thin lines keep their samples.
     Isolated,
+    /// `Isolated`, and dead photosites in busy texture whose neighbours
+    /// spread too widely for it (`renderVersion` 16).
+    IsolatedTexture,
 }
 
 impl DeadTest {
     /// Samples from the active area's edge the test cannot reach: the
     /// isolation test takes medians around every sample within two pixels.
     fn margin(self) -> usize {
-        if self == DeadTest::Isolated { 4 } else { 2 }
+        if self.isolated() { 4 } else { 2 }
+    }
+
+    /// Whether this is the isolation test (with or without the texture
+    /// rule for dead photosites).
+    fn isolated(self) -> bool {
+        matches!(self, DeadTest::Isolated | DeadTest::IsolatedTexture)
     }
 }
 
@@ -211,7 +241,7 @@ pub fn suppress<T: Copy + Send + Sync>(
     level: impl Fn(T) -> f32 + Sync,
     store: impl Fn(f32) -> T + Sync,
 ) -> usize {
-    let Some(neighbours) = Neighbours::new(cfa, dead_test == DeadTest::Isolated) else {
+    let Some(neighbours) = Neighbours::new(cfa, dead_test.isolated()) else {
         return 0;
     };
     let (left, top, aw, ah) = active;
@@ -344,6 +374,64 @@ pub fn suppress<T: Copy + Send + Sync>(
         }
         Some(store(median_around(row, col, None)))
     };
+    // `DeadTest::IsolatedTexture`'s rule for a dark sample of level `v`
+    // the isolation test left.
+    // The medians of the same-colour samples within two pixels of
+    // (`row`, `col`) without and with `centre` among them, from one sort.
+    let medians_around = |row: usize, col: usize, centre: f32| -> (f32, f32) {
+        let phase = neighbours.phase(row, col);
+        let mut values = [0f32; 24];
+        let mut n = 0;
+        for &(dy, dx) in &neighbours.same[phase] {
+            values[n] = at((row as isize + dy) as usize, (col as isize + dx) as usize);
+            n += 1;
+        }
+        let sorted = &mut values[..n];
+        let without = middle(sorted);
+        // The sorted values with `centre` inserted at `place`.
+        let place = sorted.partition_point(|s| s.total_cmp(&centre).is_lt());
+        let merged = |i: usize| match i.cmp(&place) {
+            std::cmp::Ordering::Less => sorted[i],
+            std::cmp::Ordering::Equal => centre,
+            std::cmp::Ordering::Greater => sorted[i - 1],
+        };
+        let half = (n + 1) / 2;
+        let with = if (n + 1).is_multiple_of(2) {
+            0.5 * (merged(half - 1) + merged(half))
+        } else {
+            merged(half)
+        };
+        (without, with)
+    };
+    let textured_dead = |row: usize, col: usize, v: f32| -> Option<T> {
+        let (replacement, median) = medians_around(row, col, v);
+        let deviation = v - median;
+        let mut spill = 0.0f32;
+        let mut surround = 0.0f32;
+        for &(dy, dx) in &WINDOW {
+            let (r, c) = ((row as isize + dy) as usize, (col as isize + dx) as usize);
+            let value = at(r, c);
+            let (without, with) = medians_around(r, c, value);
+            // Another dark sample: a line, a gap, a shadow's edge.
+            if value < LINE_GUARD * without {
+                return None;
+            }
+            let deviation_here = value - with;
+            surround += deviation_here.abs();
+            // The sum only grows (same order as the full sum below).
+            if deviation.abs() <= TEXTURE_ISOLATION * surround {
+                return None;
+            }
+            if dy.abs() <= 1 && dx.abs() <= 1 {
+                spill += deviation_here;
+            }
+        }
+        if spill * deviation.signum() > TEXTURE_SPILL * deviation.abs() {
+            return None;
+        }
+        Some(store(replacement))
+    };
+    let texture = dead_test == DeadTest::IsolatedTexture;
     // Only samples brighter than twice their brightest same-colour
     // neighbour or darker than 0.4 of their darkest can be defective, and
     // the brightest and darkest do not depend on the order they are taken
@@ -386,10 +474,21 @@ pub fn suppress<T: Copy + Send + Sync>(
                 let own = &ring[row % 5];
                 for col in margin..aw - margin {
                     let v = own[col];
-                    let fix = if dead_test == DeadTest::Isolated {
-                        isolated_candidate(v, lo[col], hi[col])
-                            .filter(|_| cfa.color_at(row, left + col) < 3)
-                            .and_then(|hot| isolated(row, left + col, v, hot))
+                    let fix = if dead_test.isolated() {
+                        let candidate = isolated_candidate(v, lo[col], hi[col]);
+                        let textured =
+                            texture && lo[col] >= ISOLATED_FLOOR && v < DEAD_RATIO * lo[col];
+                        if (candidate.is_some() || textured) && cfa.color_at(row, left + col) < 3 {
+                            candidate
+                                .and_then(|hot| isolated(row, left + col, v, hot))
+                                .or_else(|| {
+                                    textured
+                                        .then(|| textured_dead(row, left + col, v))
+                                        .flatten()
+                                })
+                        } else {
+                            None
+                        }
                     } else if v > HOT_RATIO * hi[col].max(0.0) + HOT_MARGIN
                         || lo[col] > DEAD_FLOOR && v < DEAD_RATIO * lo[col] - DEAD_MARGIN
                     {
@@ -454,8 +553,9 @@ mod tests {
         level: impl Fn(T) -> f32 + Sync,
         store: impl Fn(f32) -> T + Sync,
     ) -> usize {
-        if dead_test == DeadTest::Isolated {
-            super::hot_pixels_reference::isolated(data, width, active, cfa, level, store)
+        if dead_test.isolated() {
+            let texture = dead_test == DeadTest::IsolatedTexture;
+            super::hot_pixels_reference::isolated(data, width, active, cfa, texture, level, store)
         } else {
             super::hot_pixels_reference::suppress(
                 data, width, active, cfa, wb, dead_test, level, store,
@@ -475,7 +575,12 @@ mod tests {
         };
         let xtrans = CFA::new("GGRGGBGGBGGRBRGRBGGGBGGRGGRGGBRBGBRG");
         for cfa in [bayer(), CFA::new("GBRG"), xtrans, twelve()] {
-            for dead_test in [DeadTest::SameColour, DeadTest::Adjacent, DeadTest::Isolated] {
+            for dead_test in [
+                DeadTest::SameColour,
+                DeadTest::Adjacent,
+                DeadTest::Isolated,
+                DeadTest::IsolatedTexture,
+            ] {
                 let (w, h) = (203usize, 150usize);
                 let active = (5, 3, 190, 141);
                 let levels: Vec<f32> = (0..w * h)
@@ -687,16 +792,54 @@ mod tests {
             star(&adjacent),
             line(&adjacent)
         );
-        let mut isolated = mosaic.clone();
-        assert_eq!(fixed(DeadTest::Isolated, &mut isolated), 0);
-        assert_eq!(isolated, mosaic);
-        // Defects on the flat sky and the bright field.
-        let mut data = mosaic.clone();
-        data[40 * w + 10] = 0.9;
-        data[10 * w + 50] = 0.0;
-        assert_eq!(fixed(DeadTest::Isolated, &mut data), 2);
-        assert!((data[40 * w + 10] - 0.02).abs() < 1e-6);
-        assert!((data[10 * w + 50] - 0.6).abs() < 1e-6);
+        for test in [DeadTest::Isolated, DeadTest::IsolatedTexture] {
+            let mut isolated = mosaic.clone();
+            assert_eq!(fixed(test, &mut isolated), 0);
+            assert_eq!(isolated, mosaic);
+            // Defects on the flat sky and the bright field.
+            let mut data = mosaic.clone();
+            data[40 * w + 10] = 0.9;
+            data[10 * w + 50] = 0.0;
+            assert_eq!(fixed(test, &mut data), 2);
+            assert!((data[40 * w + 10] - 0.02).abs() < 1e-6);
+            assert!((data[10 * w + 50] - 0.6).abs() < 1e-6);
+        }
+    }
+
+    /// A dead photosite on a steep ramp (same-colour neighbours 0.10–0.26):
+    /// it lies below its darkest neighbour by less than their spread, so
+    /// the isolation test leaves it; the texture rule repairs it and
+    /// leaves the ramps, and a dark one-photosite line across them, alone.
+    #[test]
+    fn dead_photosites_in_busy_texture_are_repaired() {
+        let cfa = bayer();
+        let (w, h) = (48, 48);
+        // Steep ramps, 0.02–0.62 every 16 photosites.
+        let texture: Vec<f32> = (0..w * h)
+            .map(|i| 0.02 + 0.04 * (i % w % 16) as f32)
+            .collect();
+        let run = |test: DeadTest, data: &mut Vec<f32>| {
+            suppress(data, w, (0, 0, w, h), &cfa, [1.0; 4], test, |v| v, |v| v)
+        };
+        for test in [DeadTest::Isolated, DeadTest::IsolatedTexture] {
+            let mut data = texture.clone();
+            assert_eq!(run(test, &mut data), 0, "{test:?}");
+        }
+        let at = 20 * w + 20;
+        let mut dead = texture.clone();
+        dead[at] = 0.0;
+        let mut data = dead.clone();
+        assert_eq!(run(DeadTest::Isolated, &mut data), 0);
+        assert_eq!(run(DeadTest::IsolatedTexture, &mut data), 1);
+        assert!(data[at] >= 0.1, "{}", data[at]);
+        // A dark line through the texture keeps its samples.
+        let mut line = texture.clone();
+        for x in 0..w {
+            line[20 * w + x] = 0.01;
+        }
+        let mut data = line.clone();
+        assert_eq!(run(DeadTest::IsolatedTexture, &mut data), 0);
+        assert_eq!(data, line);
     }
 
     /// A 12 × 12 pattern (DNG CFAs up to 12 × 12 and 2 × 8 exist): the

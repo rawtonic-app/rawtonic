@@ -105,6 +105,12 @@ impl RenderVersion {
         self.0 >= crate::image_loader::ISOLATED_DEFECT_RENDER_VERSION
     }
 
+    /// The isolation test also repairs dead photosites in busy texture
+    /// (`image_loader::DeadTest::IsolatedTexture`).
+    pub fn texture_dead_test(self) -> bool {
+        self.0 >= crate::image_loader::TEXTURE_DEAD_RENDER_VERSION
+    }
+
     /// Colours outside the output space keep their hue.
     pub fn gamut_mapping(self) -> bool {
         self.0 >= ip::GAMUT_MAPPING_RENDER_VERSION
