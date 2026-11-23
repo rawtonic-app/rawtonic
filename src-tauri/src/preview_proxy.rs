@@ -433,9 +433,13 @@ pub fn stands_for(source: &Path, recipe: &serde_json::Value, kind: ProxyKind) ->
     if source_facts::registered(&source.to_string_lossy()).is_none() {
         prepare_offline(source);
     }
-    let wanted = crate::image_loader::decode_variant(recipe, &source.to_string_lossy());
-    wanted == crate::image_loader::stored_decode_variant(&source.to_string_lossy())
-        || (!source_available(source) && recorded_variant(source, kind) == Some(wanted))
+    // Without reading the file's frames when both recipes ask for the same
+    // frame version (a never-edited photograph's, CRD4).
+    let path = source.to_string_lossy();
+    crate::image_loader::decodes_as_stored(recipe, &path)
+        || (!source_available(source)
+            && recorded_variant(source, kind)
+                == Some(crate::image_loader::decode_variant(recipe, &path)))
 }
 
 /// `stands_for` of the Standard proxy from the recipes alone: the RAW is

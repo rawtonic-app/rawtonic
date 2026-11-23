@@ -73,9 +73,18 @@ pub fn crops_in(
     if !crate::formats::is_raw_file(path) {
         return vec![None; versions];
     }
-    cached(path, stamp, || {
-        Some(rawler::rawsource::RawSource::new_from_shared(file.clone()).with_path(path))
-    })
+    let source = || rawler::rawsource::RawSource::new_from_shared(file.clone()).with_path(path);
+    // Unstamped (the mapped file's time unknown): read from the mapping,
+    // but not cached, as no stamp says which file at `path` it belongs to.
+    // Only here, where the caller holds the file: `crops` by path keeps
+    // answering nothing without a stamp (export normalization).
+    if stamp.is_none() {
+        let source = source();
+        return (0..=crate::source_frame::VERSION)
+            .map(|version| rawtonic_rawdecode::camera_crop::camera_crop(&source, version))
+            .collect();
+    }
+    cached(path, stamp, || Some(source()))
 }
 
 /// The crops of the file stamped `stamp` at `path`: cached per path and
@@ -481,6 +490,19 @@ mod tests {
             mapped,
             vec![None; crate::source_frame::VERSION as usize + 1]
         );
+    }
+
+    #[test]
+    fn an_unstamped_mapping_has_the_files_crops() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("unstamped.RAF");
+        let name = path.to_str().unwrap();
+        // An unrecognised header: no crop in any frame, an answer for each.
+        rawtonic_fs::atomic_write(&path, [0; 128]).unwrap();
+        let file: crate::image_loader::SharedBytes =
+            std::sync::Arc::new(crate::file_io::read_file_mapped(&path).unwrap());
+        let none = vec![None; crate::source_frame::VERSION as usize + 1];
+        assert_eq!(crops_in(name, &file, None), none);
     }
 
     /// The crops read through the caller's mapping (`crops_in`, the

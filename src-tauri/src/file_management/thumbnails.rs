@@ -3079,6 +3079,47 @@ mod thumbnail_queue_tests {
         assert_eq!(size(1080, 1920), (1080, 1920));
     }
 
+    /// A never-edited RAW's camera JPEG keeps the camera's crop when the
+    /// mapping it came from has no known file time (`MappedRaw::stamp`
+    /// None): the crops are read from that mapping, only not cached.
+    #[test]
+    #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory"]
+    fn an_unstamped_mapping_keeps_the_camera_crop_of_the_thumbnail() {
+        let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
+        let mut cut = 0;
+        for path in fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+        {
+            let name = path.to_string_lossy().into_owned();
+            if !is_raw_file(&name) {
+                continue;
+            }
+            let Some((preview, stamped)) = embedded_raw_preview_and_file(&path) else {
+                continue;
+            };
+            let unstamped = MappedRaw {
+                file: stamped.file.clone(),
+                stamp: None,
+            };
+            let size = |image: DynamicImage| (image.width(), image.height());
+            let without = size(embedded_in_camera_crop(
+                preview.clone(),
+                &name,
+                Some(&unstamped),
+            ));
+            let with = size(embedded_in_camera_crop(
+                preview.clone(),
+                &name,
+                Some(&stamped),
+            ));
+            assert_eq!(without, with, "{name}");
+            cut += usize::from(with != size(preview));
+        }
+        assert!(cut > 0, "no fixture whose camera JPEG is cut to its crop");
+    }
+
     #[test]
     fn a_recipe_uses_the_preview_proxy_only_when_made_for_its_decode_variant() {
         let directory = tempfile::tempdir().unwrap();
