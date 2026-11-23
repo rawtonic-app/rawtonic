@@ -450,6 +450,18 @@ pub fn current_key(
     settings: &AppSettings,
     variant: DecodeVariant,
 ) -> Option<ProxyKey> {
+    let (file_size, modified_ns) = file_stamp(source)?;
+    Some(ProxyKey {
+        file_size,
+        modified_ns,
+        decoder: decoder_key(settings, variant),
+        engine: ENGINE_VERSION,
+    })
+}
+
+/// The size and modification time (ns) of the file at `source`, as a
+/// `ProxyKey` records them.
+fn file_stamp(source: &Path) -> Option<(u64, u128)> {
     let meta = fs::metadata(source).ok()?;
     let modified_ns = meta
         .modified()
@@ -457,12 +469,7 @@ pub fn current_key(
         .duration_since(UNIX_EPOCH)
         .ok()?
         .as_nanos();
-    Some(ProxyKey {
-        file_size: meta.len(),
-        modified_ns,
-        decoder: decoder_key(settings, variant),
-        engine: ENGINE_VERSION,
-    })
+    Some((meta.len(), modified_ns))
 }
 
 /// The decoder settings that change the decoded pixels, and the decode
@@ -646,13 +653,38 @@ fn header_is_current(
             );
     }
     let source_str = source.to_string_lossy();
+    // The frames the header's facts recorded, when they are the file's as
+    // it is now (same size and time) and know every frame version: the
+    // variants need no read of the file (CRD5: one per photograph with a
+    // preview, 100–160 ms over a share).
+    let frames = header
+        .facts
+        .as_ref()
+        .and_then(|facts| facts.frames.as_deref())
+        .filter(|frames| frames.len() == source_frame::VERSION as usize + 1)
+        .filter(|_| crate::formats::is_raw_file(source))
+        .filter(|_| {
+            file_stamp(source).is_some_and(|(size, modified_ns)| {
+                header.key.file_size == size && header.key.modified_ns == modified_ns
+            })
+        });
+    let variant_of = |recipe: &Value| match frames {
+        Some(frames) => crate::image_loader::decode_variant_for_frame(
+            recipe,
+            &source_str,
+            source_frame::effective_with(frames, &source_str, source_frame::requested(recipe)),
+        ),
+        None => crate::image_loader::decode_variant(recipe, &source_str),
+    };
     // The live RAW can resolve frames even for a legacy header. Recipes
     // that ask for the same frame version share it without a second probe.
-    if recipe.is_some_and(|recipe| !crate::image_loader::decode_alike(recipe, &master, &source_str))
-    {
+    if recipe.is_some_and(|recipe| match frames {
+        Some(_) => variant_of(recipe) != variant_of(&master),
+        None => !crate::image_loader::decode_alike(recipe, &master, &source_str),
+    }) {
         return false;
     }
-    let variant = crate::image_loader::decode_variant(&master, &source_str);
+    let variant = variant_of(&master);
     let Some(key) = current_key(source, settings, variant) else {
         return false;
     };
@@ -2891,6 +2923,43 @@ pub(crate) mod tests {
         assert_eq!(stands_for(&photo, &at(15), ProxyKind::Full), Some(false));
         assert!(read_kind(&photo, ProxyKind::Full, &settings, Some(&at(15))).is_none());
         source_facts::forget(&path);
+    }
+
+    /// CRD5: online, a Standard preview of the file as it is now (same size
+    /// and time) whose facts know every frame version gives the header check
+    /// its frames, so the RAW is not read for them (here it cannot be: a read
+    /// would answer the requested version itself). Facts that miss a version
+    /// leave the file to decide.
+    #[test]
+    fn a_current_header_gives_its_frames_without_reading_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("Job");
+        fs::create_dir_all(session.join("Capture")).unwrap();
+        fs::write(session.join("session.json"), "{}").unwrap();
+        fs::write(session.join("session.sqlite"), "").unwrap();
+        let photo = session.join("Capture").join("A.CR3");
+        fs::write(&photo, b"raw bytes").unwrap();
+        let recipe = frame_fixture::frame_one_edit();
+        let metadata = serde_json::json!({ "version": 1, "rating": 0, "adjustments": recipe });
+        fs::write(photo.with_file_name("A.CR3.rrdata"), metadata.to_string()).unwrap();
+        let settings = AppSettings::default();
+        let variant =
+            crate::image_loader::decode_variant_for_frame(&recipe, &photo.to_string_lossy(), 0);
+        let image = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(80, 60, |x, y| {
+            image::Rgb([x as f32 / 80.0, y as f32 / 60.0, 0.25])
+        }));
+        write(&photo, &image, 40, &settings, variant, None).unwrap();
+        let every = source_frame::VERSION as usize + 1;
+        let mut changed = vec![0; every];
+        changed[1] = 1;
+        for (frames, current) in [(vec![0; every], true), (changed, false), (vec![0], false)] {
+            record_standard_frames_for_test(&photo, frames.clone());
+            assert_eq!(
+                standard_header_is_current(&photo, &settings, &recipe),
+                current,
+                "{frames:?}"
+            );
+        }
     }
 
     /// Offline and cold (nothing registered), a virtual copy of an edit from

@@ -655,17 +655,18 @@ pub fn image_colour(
     if let Some(found) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
         return found.clone();
     }
-    let colour = std::fs::read(image_path)
-        .ok()
-        .and_then(|bytes| crate::raw_processing::image_color_with(&bytes, wb))
-        .map(|mut colour| {
-            colour.unit_calibration = crate::baseline_exposure::read_camera(image_path).and_then(
-                |(make, model, _, _)| {
-                    crate::unit_calibration::camera_calibration(image_path, &make, &model)
-                },
-            );
-            colour
-        });
+    // One whole read for the colour and the camera (`with_source_kept`).
+    let colour = crate::capture_info::with_source_kept(image_path, || {
+        crate::capture_info::read_for_metadata(image_path)
+            .and_then(|bytes| crate::raw_processing::image_color_with((*bytes).as_ref(), wb))
+            .map(|mut colour| {
+                colour.unit_calibration = crate::baseline_exposure::read_camera(image_path)
+                    .and_then(|(make, model, _, _)| {
+                        crate::unit_calibration::camera_calibration(image_path, &make, &model)
+                    });
+                colour
+            })
+    });
     cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -676,13 +677,16 @@ pub fn image_colour(
 /// The decode's colour at the As Shot balance read from the file, and
 /// whether it comes from DNG forward matrices (source_facts).
 pub fn image_colour_details(image_path: &str) -> Option<(crate::raw_processing::ImageColor, bool)> {
-    let bytes = std::fs::read(image_path).ok()?;
-    let (mut colour, forward) = crate::raw_processing::image_color_details(&bytes, None)?;
-    colour.unit_calibration =
-        crate::baseline_exposure::read_camera(image_path).and_then(|(make, model, _, _)| {
-            crate::unit_calibration::camera_calibration(image_path, &make, &model)
-        });
-    Some((colour, forward))
+    crate::capture_info::with_source_kept(image_path, || {
+        let bytes = crate::capture_info::read_for_metadata(image_path)?;
+        let (mut colour, forward) =
+            crate::raw_processing::image_color_details((*bytes).as_ref(), None)?;
+        colour.unit_calibration =
+            crate::baseline_exposure::read_camera(image_path).and_then(|(make, model, _, _)| {
+                crate::unit_calibration::camera_calibration(image_path, &make, &model)
+            });
+        Some((colour, forward))
+    })
 }
 
 /// Camera Raw's "As Shot" temperature (K) and tint of a photo.

@@ -188,9 +188,13 @@ pub fn apply_base_look(
     // A virtual copy's path (`<photo>?vc=<id>`, as Develop and the browser
     // render it): everything here is its source file's.
     let path = rawtonic_metadata::photo_ref::source_of(path);
-    base_look(path).apply(global);
-    crate::camera_profile::apply(global, path, library);
-    crate::diffraction::apply(global, path);
+    // The file facts of the look, camera profile and diffraction read the
+    // file at most once between them (`with_source_kept`).
+    crate::capture_info::with_source_kept(path, || {
+        base_look(path).apply(global);
+        crate::camera_profile::apply(global, path, library);
+        crate::diffraction::apply(global, path);
+    });
     let registered = || crate::source_facts::registered(path);
     let (noise_level, image_key, airlight) = match measures {
         Some(measures) => (measures.noise_level, measures.image_key, measures.airlight),
@@ -221,6 +225,29 @@ pub fn dng_baseline_equivalent(path: &str) -> f32 {
     base_look(path).baseline_for(crate::image_processing::RENDER_VERSION) - ADOBE_BASELINE_OFFSET_EV
 }
 
+/// Runs `decode` of the RAW at `path` from `bytes`, the caller's own
+/// buffer of it (its mapping), and reads the file's base look from that
+/// buffer too (`capture_info::with_held_source`): the renders that follow
+/// find it cached instead of reading the whole file again for each of its
+/// facts (CRD5: Develop open and edited thumbnails over a share). Only
+/// after the sensor data decoded: a failed decode or one that fell back to
+/// the embedded preview (a damaged file, `preview_fallback_reason`) caches
+/// nothing for the path.
+pub fn decode_with_base_look<T, E>(
+    path: &str,
+    bytes: crate::capture_info::SharedBuf,
+    decode: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    let source = rawtonic_metadata::photo_ref::source_of(path);
+    crate::capture_info::with_held_source(source, bytes, || {
+        let decoded = decode()?;
+        if crate::image_loader::preview_fallback_reason(path).is_none() {
+            let _ = base_look(source);
+        }
+        Ok(decoded)
+    })
+}
+
 /// Base look for this file (no baseline for non-RAW files).
 pub fn base_look(path: &str) -> BaseLook {
     if path.is_empty() || !crate::formats::is_raw_file(path) {
@@ -235,97 +262,100 @@ pub fn base_look(path: &str) -> BaseLook {
     if let Some(value) = cache().lock().unwrap_or_else(|e| e.into_inner()).get(path) {
         return *value;
     }
-    let value = if path.to_ascii_lowercase().ends_with(".dng") {
-        let tags = read_dng_tags(path).unwrap_or_default();
-        if tags.profile_curve.is_some()
-            && !tags.gain_table_map
-            && !tags.model_code_maker
-            && !adobe_has_profile(&tags.unique_camera_model)
-        {
-            // A camera Adobe has no profile for (DJI Osmo Action, Mavic 3
-            // Pro Cine, Sigma sd Quattro): Camera Raw renders the embedded
-            // profile, its tone curve included, at the file's
-            // BaselineExposure.
-            BaseLook {
-                baseline_ev: tags.baseline + PRORAW_OFFSET_EV,
-                camera_raw: true,
-                neutral_colour: true,
-                profile_curve: tags.profile_curve,
-                no_black_render: tags.no_black_render,
-                phone_defaults: false,
-                capture_gain_ev: 0.0,
-            }
-        } else if tags.gain_table_map && tags.profile_curve.is_some() {
-            // Apple ProRAW and Pixel 8 Pro: Camera Raw renders them with the
-            // embedded profile and its local tone map (applied at decode),
-            // which is made for the embedded curve.
-            BaseLook {
-                baseline_ev: tags.baseline + PRORAW_OFFSET_EV,
-                camera_raw: true,
-                neutral_colour: true,
-                profile_curve: tags.profile_curve,
-                no_black_render: tags.no_black_render,
-                phone_defaults: false,
-                capture_gain_ev: 0.0,
+    // The facts below each read the whole file: once for all of them.
+    let value = crate::capture_info::with_source_kept(path, || {
+        if path.to_ascii_lowercase().ends_with(".dng") {
+            let tags = read_dng_tags(path).unwrap_or_default();
+            if tags.profile_curve.is_some()
+                && !tags.gain_table_map
+                && !tags.model_code_maker
+                && !adobe_has_profile(&tags.unique_camera_model)
+            {
+                // A camera Adobe has no profile for (DJI Osmo Action, Mavic 3
+                // Pro Cine, Sigma sd Quattro): Camera Raw renders the embedded
+                // profile, its tone curve included, at the file's
+                // BaselineExposure.
+                BaseLook {
+                    baseline_ev: tags.baseline + PRORAW_OFFSET_EV,
+                    camera_raw: true,
+                    neutral_colour: true,
+                    profile_curve: tags.profile_curve,
+                    no_black_render: tags.no_black_render,
+                    phone_defaults: false,
+                    capture_gain_ev: 0.0,
+                }
+            } else if tags.gain_table_map && tags.profile_curve.is_some() {
+                // Apple ProRAW and Pixel 8 Pro: Camera Raw renders them with the
+                // embedded profile and its local tone map (applied at decode),
+                // which is made for the embedded curve.
+                BaseLook {
+                    baseline_ev: tags.baseline + PRORAW_OFFSET_EV,
+                    camera_raw: true,
+                    neutral_colour: true,
+                    profile_curve: tags.profile_curve,
+                    no_black_render: tags.no_black_render,
+                    phone_defaults: false,
+                    capture_gain_ev: 0.0,
+                }
+            } else {
+                // Other DNGs: the same offset to the file's BaselineExposure as
+                // proprietary RAWs get to Adobe's (78 DNGs of 41 makers sat a
+                // median 0.15 EV below Camera Raw's midtones with +0.25).
+                BaseLook {
+                    baseline_ev: tags.baseline
+                        + ADOBE_BASELINE_OFFSET_EV
+                        + if tags.gain_table_map {
+                            GAIN_MAP_OFFSET_EV
+                        } else {
+                            0.0
+                        },
+                    camera_raw: true,
+                    neutral_colour: true,
+                    profile_curve: None,
+                    // Galaxy Expert RAW (gain table map, no curve of its own):
+                    // without the black ramp, which matches Camera Raw.
+                    no_black_render: tags.no_black_render || tags.gain_table_map,
+                    phone_defaults: tags.phone_defaults,
+                    capture_gain_ev: 0.0,
+                }
             }
         } else {
-            // Other DNGs: the same offset to the file's BaselineExposure as
-            // proprietary RAWs get to Adobe's (78 DNGs of 41 makers sat a
-            // median 0.15 EV below Camera Raw's midtones with +0.25).
+            // Fujifilm stores how much darker it recorded the RAW than the
+            // metered exposure (more above ISO ~1250, where the gain stops
+            // rising: −0.49 to −3.91 EV on a GFX 50R); Camera Raw pushes the
+            // file back by it. Other makers: the measured Lightroom offset.
+            let fujifilm_bias = path
+                .to_ascii_lowercase()
+                .ends_with(".raf")
+                .then(|| read_raf_exposure_bias(path))
+                .flatten();
+            let adobe = adobe_baseline_for_path(path, fujifilm_bias);
+            let baseline_ev = |adobe: Option<f32>| match adobe {
+                Some(baseline) => {
+                    baseline + ADOBE_BASELINE_OFFSET_EV + adobe_white_correction_for_path(path)
+                        - fujifilm_dynamic_range_ev_for_path(path)
+                }
+                None => fujifilm_bias
+                    .map(|bias| -bias)
+                    .unwrap_or(PROPRIETARY_CAMERA_RAW_EV),
+            };
+            let baseline = baseline_ev(adobe.original);
+            // Cameras without Adobe's value still take the capture gain.
+            let revised = match adobe.revised {
+                Some(revised) => baseline_ev(Some(revised)),
+                None => baseline + adobe.unlisted_gain_ev,
+            };
             BaseLook {
-                baseline_ev: tags.baseline
-                    + ADOBE_BASELINE_OFFSET_EV
-                    + if tags.gain_table_map {
-                        GAIN_MAP_OFFSET_EV
-                    } else {
-                        0.0
-                    },
+                baseline_ev: baseline,
                 camera_raw: true,
                 neutral_colour: true,
                 profile_curve: None,
-                // Galaxy Expert RAW (gain table map, no curve of its own):
-                // without the black ramp, which matches Camera Raw.
-                no_black_render: tags.no_black_render || tags.gain_table_map,
-                phone_defaults: tags.phone_defaults,
-                capture_gain_ev: 0.0,
+                no_black_render: false,
+                phone_defaults: false,
+                capture_gain_ev: revised - baseline,
             }
         }
-    } else {
-        // Fujifilm stores how much darker it recorded the RAW than the
-        // metered exposure (more above ISO ~1250, where the gain stops
-        // rising: −0.49 to −3.91 EV on a GFX 50R); Camera Raw pushes the
-        // file back by it. Other makers: the measured Lightroom offset.
-        let fujifilm_bias = path
-            .to_ascii_lowercase()
-            .ends_with(".raf")
-            .then(|| read_raf_exposure_bias(path))
-            .flatten();
-        let adobe = adobe_baseline_for_path(path, fujifilm_bias);
-        let baseline_ev = |adobe: Option<f32>| match adobe {
-            Some(baseline) => {
-                baseline + ADOBE_BASELINE_OFFSET_EV + adobe_white_correction_for_path(path)
-                    - fujifilm_dynamic_range_ev_for_path(path)
-            }
-            None => fujifilm_bias
-                .map(|bias| -bias)
-                .unwrap_or(PROPRIETARY_CAMERA_RAW_EV),
-        };
-        let baseline = baseline_ev(adobe.original);
-        // Cameras without Adobe's value still take the capture gain.
-        let revised = match adobe.revised {
-            Some(revised) => baseline_ev(Some(revised)),
-            None => baseline + adobe.unlisted_gain_ev,
-        };
-        BaseLook {
-            baseline_ev: baseline,
-            camera_raw: true,
-            neutral_colour: true,
-            profile_curve: None,
-            no_black_render: false,
-            phone_defaults: false,
-            capture_gain_ev: revised - baseline,
-        }
-    };
+    });
     let mut cache = cache().lock().unwrap_or_else(|e| e.into_inner());
     if cache.len() > 4096 {
         cache.clear();
@@ -648,9 +678,11 @@ pub fn sample_profile_curve(pairs: &[f32]) -> Option<[f32; PROFILE_CURVE_SAMPLES
 
 /// BaselineExposure (+ offset), maker, and the embedded profile pieces.
 fn read_dng_tags(path: &str) -> Option<DngTags> {
-    let file = std::fs::File::open(path).ok()?;
+    // The whole file, as the TIFF reader reads it, shared with the look's
+    // other facts (`capture_info::read_for_metadata`).
+    let bytes = crate::capture_info::read_for_metadata(path)?;
     let exif = exif::Reader::new()
-        .read_from_container(&mut std::io::BufReader::new(file))
+        .read_from_container(&mut std::io::Cursor::new((*bytes).as_ref()))
         .ok()?;
     let make = exif
         .get_field(exif::Tag::Make, exif::In::PRIMARY)
@@ -828,6 +860,33 @@ mod adobe_check {
 mod tests {
     use super::{BaseLook, base_look};
     use crate::image_processing::GlobalAdjustments;
+
+    /// CRD5 review: the base look is read from the decode's buffer into the
+    /// path's cache only after the sensor data decoded; a decode that fell
+    /// back to the embedded preview (a damaged file) or failed leaves none.
+    #[test]
+    fn only_a_sensor_decode_reads_the_base_look_ahead() {
+        use crate::image_loader::{PreviewFallback, note_preview_fallback};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("A.ARW");
+        std::fs::write(&path, b"not a raw").unwrap();
+        let path = path.to_str().unwrap();
+        let held: crate::capture_info::SharedBuf = std::sync::Arc::new(b"not a raw".to_vec());
+        let cached = || super::cache().lock().unwrap().contains_key(path);
+        let fell_back = super::decode_with_base_look(path, held.clone(), || {
+            note_preview_fallback(path, Some(PreviewFallback::Other("damaged".into())));
+            Ok::<_, ()>(())
+        });
+        assert!(fell_back.is_ok() && !cached());
+        let failed = super::decode_with_base_look(path, held.clone(), || Err::<(), _>(()));
+        assert!(failed.is_err() && !cached());
+        let decoded = super::decode_with_base_look(path, held, || {
+            note_preview_fallback(path, None);
+            Ok::<_, ()>(())
+        });
+        assert!(decoded.is_ok() && cached());
+        super::cache().lock().unwrap().remove(path);
+    }
 
     /// The measures of the decode rendered win over the last full decode's
     /// of the same file (another recipe's decode may have come since).
