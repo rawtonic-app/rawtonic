@@ -1062,8 +1062,9 @@ fn capture_one_lens_amounts(entries: &[(String, String)]) -> Option<(Option<f64>
 /// benchmark-results/g50s-2026-11-23): the Generic profile moves the
 /// picture by a pure cubic of the radius, 0.0012 of the half diagonal per
 /// percent at r = 1, with no framing zoom (the frame keeps its size).
-/// Geometry against Capture One's frames: 0.7–3.4 px rms over a 7360 px
-/// wide frame (the best of Rawtonic's other distortion controls: 15–66 px).
+/// Geometry against Capture One's frames (Hide Distorted Areas off): 0.7–3.4
+/// px rms over interior patches of a 7360 px wide frame, 2.5–3.2 px on a
+/// 3648 px one (the best of Rawtonic's other distortion controls: 15–66 px).
 const CAPTURE_ONE_GENERIC_K1_PER_PERCENT: f64 = -0.0012;
 
 /// The `k1` of Capture One's Generic Distortion above 0 (0–100 %) with the
@@ -1120,33 +1121,30 @@ fn capture_one_shadows_report(entries: &[(String, String)]) -> Option<String> {
 /// The import report's lines for Capture One's lens settings Rawtonic does
 /// not take over as they are: the Generic profile (the photo keeps
 /// Rawtonic's default correction for its lens, never a lens profile picked
-/// in its place; its Distortion above 0 is carried as a polynomial
-/// distortion, `capture_one_generic_distortion_k1`) with the amounts set on
-/// it that have no measured equivalent on Rawtonic's sliders; and an analysed chromatic aberration
+/// in its place, unless its Distortion above 0 is carried as a polynomial
+/// distortion, `capture_one_generic_distortion_k1`, which is nothing left
+/// out) with the amounts set on it that have no measured equivalent on
+/// Rawtonic's sliders; and an analysed chromatic aberration
 /// curve (Rawtonic measures the photo's own CA instead).
 fn capture_one_lens_report(entries: &[(String, String)]) -> Vec<String> {
     let mut out = Vec::new();
     if capture_one_entry(entries, "LensIdGuid").is_some_and(is_generic_lens) {
-        let distortion = capture_one_generic_distortion_k1(entries).is_some();
-        let mut not_carried = Vec::new();
-        out.push(if distortion {
-            let amount = capture_one_entry(entries, "LensGeoAbr")
-                .and_then(|v| v.split('|').nth(1))
-                .and_then(|v| v.trim().parse::<f64>().ok())
-                .unwrap_or_default()
-                .min(100.0);
-            format!(
-                "Capture One's Generic lens profile: its Distortion {amount} is carried as a polynomial distortion without a lens profile"
-            )
-        } else {
-            "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies"
-                .to_string()
-        });
-        if !distortion {
-            not_carried.push(("LensGeoAbr", "Distortion"));
+        // A Distortion that came over as a polynomial is no setting left
+        // out: nothing to report for it.
+        let distortion_carried = capture_one_generic_distortion_k1(entries).is_some();
+        if !distortion_carried {
+            out.push(
+                "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies"
+                    .to_string(),
+            );
         }
-        not_carried.push(("LensLightFallOff", "Light Falloff"));
-        for (key, name) in not_carried {
+        for (key, name) in [
+            ("LensGeoAbr", "Distortion"),
+            ("LensLightFallOff", "Light Falloff"),
+        ] {
+            if key == "LensGeoAbr" && distortion_carried {
+                continue;
+            }
             let amount = capture_one_entry(entries, key)
                 .and_then(|v| v.split('|').nth(1))
                 .and_then(|v| v.trim().parse::<f64>().ok())
@@ -1682,10 +1680,19 @@ mod tests {
                 }
             })
         );
+        // Nothing to report: the Distortion came over (a Light Falloff of 0
+        // is no setting).
+        assert!(capture_one_lens_report(&generic).is_empty());
+        // Light Falloff on the Generic profile has no equivalent: reported.
+        let with_falloff = entries(&[
+            ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),
+            ("LensGeoAbr", "|30.0|1"),
+            ("LensLightFallOff", "|20.0|1"),
+        ]);
         assert_eq!(
-            capture_one_lens_report(&generic),
+            capture_one_lens_report(&with_falloff),
             [
-                "Capture One's Generic lens profile: its Distortion 30 is carried as a polynomial distortion without a lens profile"
+                "Capture One's Light Falloff 20 with the Generic profile not carried (no measured equivalent)"
             ]
         );
         // Out of range values are clamped to the slider's 0…100.
@@ -1705,8 +1712,7 @@ mod tests {
             Develop::CaptureOne(generic.clone()),
             None,
         ));
-        assert_eq!(warnings.len(), 1, "{warnings:?}");
-        assert!(warnings[0].starts_with(&raw.display().to_string()));
+        assert!(warnings.is_empty(), "{warnings:?}");
         // A Generic profile left at 0 is said once, with nothing left out.
         let untouched = entries(&[
             ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),

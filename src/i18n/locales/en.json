@@ -4126,6 +4126,7 @@
         "model": "Lens model"
       },
       "cameraData": "Camera data",
+      "importedCorrection": "Imported correction",
       "cameraDataOf": "Camera data ({{maker}})",
       "chooseLens": "Choose a lens",
       "chromaticShort": "Chromatic ab.",

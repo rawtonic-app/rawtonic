@@ -4013,6 +4013,7 @@
         "model": "鏡頭型號"
       },
       "cameraData": "相機資料",
+      "importedCorrection": "已匯入的校正",
       "cameraDataOf": "相機資料（{{maker}}）",
       "chooseLens": "選擇鏡頭",
       "chromaticShort": "色差",

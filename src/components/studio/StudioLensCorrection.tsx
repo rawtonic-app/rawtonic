@@ -53,9 +53,16 @@ export default function StudioLensCorrection() {
   const [status, setStatus] = useState<Status>('idle');
   const [camera, setCamera] = useState<CameraLensProfile | null>(null);
   const cameraMode = adjustments.lensCorrectionMode === 'camera';
+  // A polynomial distortion an import wrote (Capture One's Generic profile
+  // with Distortion above 0): no lens in the database, no camera data.
+  const importedMode =
+    adjustments.lensCorrectionMode === 'manual' &&
+    !adjustments.lensMaker &&
+    !adjustments.lensModel &&
+    adjustments.lensDistortionParams?.model === 0;
   const enabled = cameraMode
     ? Boolean(adjustments.lensDistortionParams)
-    : Boolean(adjustments.lensMaker && adjustments.lensModel);
+    : importedMode || Boolean(adjustments.lensMaker && adjustments.lensModel);
   // Keeps its look while the next photograph loads (the tools are inert).
   const ready = useEditorStore(panelsShowReady);
   const exif = selectedImage?.exif ?? {};
@@ -225,7 +232,21 @@ export default function StudioLensCorrection() {
             : t('studio.lens.notFoundPhoto')}
         </p>
       )}
-      {cameraMode && enabled ? (
+      {importedMode ? (
+        <div className="studio-metadata-field">
+          <span>{t('studio.lens.profile')}</span>
+          <span className="studio-lens-profile">
+            {t('studio.lens.importedCorrection')}
+            <button
+              className="studio-text-button"
+              title={t('studio.lens.useDatabaseTitle')}
+              onClick={() => chooseMaker('')}
+            >
+              {t('studio.lens.useDatabase')}
+            </button>
+          </span>
+        </div>
+      ) : cameraMode && enabled ? (
         <div className="studio-metadata-field">
           <span>{t('studio.lens.profile')}</span>
           <span className="studio-lens-profile">

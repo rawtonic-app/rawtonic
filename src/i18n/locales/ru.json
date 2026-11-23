@@ -4467,6 +4467,7 @@
         "model": "Модель объектива"
       },
       "cameraData": "Данные камеры",
+      "importedCorrection": "Импортированная коррекция",
       "cameraDataOf": "Данные камеры ({{maker}})",
       "chooseLens": "Выберите объектив",
       "chromaticShort": "Хром. аберр.",

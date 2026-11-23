@@ -4297,6 +4297,7 @@
         "model": "Modèle d'objectif"
       },
       "cameraData": "Données de l'appareil",
+      "importedCorrection": "Correction importée",
       "cameraDataOf": "Données de l'appareil ({{maker}})",
       "chooseLens": "Choisir un objectif",
       "chromaticShort": "Aberr. chrom.",

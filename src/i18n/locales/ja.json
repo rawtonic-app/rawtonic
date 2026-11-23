@@ -4013,6 +4013,7 @@
         "model": "レンズモデル"
       },
       "cameraData": "カメラのデータ",
+      "importedCorrection": "読み込んだ補正",
       "cameraDataOf": "カメラのデータ（{{maker}}）",
       "chooseLens": "レンズを選択",
       "chromaticShort": "色収差",

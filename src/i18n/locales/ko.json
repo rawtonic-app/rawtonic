@@ -4013,6 +4013,7 @@
         "model": "렌즈 모델"
       },
       "cameraData": "카메라 데이터",
+      "importedCorrection": "가져온 보정",
       "cameraDataOf": "카메라 데이터({{maker}})",
       "chooseLens": "렌즈 선택",
       "chromaticShort": "색수차",

@@ -4297,6 +4297,7 @@
         "model": "Modelo de lente"
       },
       "cameraData": "Datos de la cámara",
+      "importedCorrection": "Corrección importada",
       "cameraDataOf": "Datos de la cámara ({{maker}})",
       "chooseLens": "Elige una lente",
       "chromaticShort": "Aberr. cromática",

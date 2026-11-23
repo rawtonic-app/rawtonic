@@ -4467,6 +4467,7 @@
         "model": "Model obiektywu"
       },
       "cameraData": "Dane aparatu",
+      "importedCorrection": "Zaimportowana korekcja",
       "cameraDataOf": "Dane aparatu ({{maker}})",
       "chooseLens": "Wybierz obiektyw",
       "chromaticShort": "Aberr. chrom.",
