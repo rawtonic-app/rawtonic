@@ -4,7 +4,8 @@
 //! `isolated` is the reference of `DeadTest::Isolated`: RapidRAW v1.7.1's
 //! `repair_hot_pixels` (`src-tauri/src/decode/hot_pixels.rs`, commit
 //! `63b415758`, Copyright Timon Käch, AGPL-3.0-or-later), every sample
-//! tested on its own, adapted to `suppress`'s levels, active area and CFA.
+//! tested on its own, adapted to `suppress`'s levels, active area and CFA;
+//! with `texture` it is the reference of `DeadTest::IsolatedTexture`.
 
 use super::*;
 
@@ -99,6 +100,7 @@ pub fn isolated<T: Copy + Send + Sync>(
     width: usize,
     active: (usize, usize, usize, usize),
     cfa: &CFA,
+    texture: bool,
     level: impl Fn(T) -> f32 + Sync,
     store: impl Fn(f32) -> T + Sync,
 ) -> usize {
@@ -185,6 +187,44 @@ pub fn isolated<T: Copy + Send + Sync>(
         }
         Some(store(median(x, y, None)))
     };
+    // A dark sample in busy texture: darker than 0.4 of every same-colour
+    // neighbour, isolated by the looser bound, no other dark sample around.
+    let textured = |x: usize, y: usize| -> Option<T> {
+        if !texture || cfa.color_at(y, x) >= 3 {
+            return None;
+        }
+        let v = value(x, y);
+        let lo = neighbours(x, y).fold(f32::MAX, f32::min);
+        if lo < ISOLATED_FLOOR || v >= DEAD_RATIO * lo {
+            return None;
+        }
+        let deviation = v - median(x, y, Some(v));
+        let mut surround = 0.0;
+        let mut spill = 0.0;
+        for dy in -REACH..=REACH {
+            for dx in -REACH..=REACH {
+                if dx != 0 || dy != 0 {
+                    let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
+                    let value = value(nx, ny);
+                    if value < LINE_GUARD * median(nx, ny, None) {
+                        return None;
+                    }
+                    let d = value - median(nx, ny, Some(value));
+                    surround += d.abs();
+                    if dx.abs() <= 1 && dy.abs() <= 1 {
+                        spill += d;
+                    }
+                }
+            }
+        }
+        if deviation.abs() <= TEXTURE_ISOLATION * surround
+            || spill * deviation.signum() > TEXTURE_SPILL * deviation.abs()
+        {
+            return None;
+        }
+        Some(store(median(x, y, None)))
+    };
+    let repair = |x: usize, y: usize| repair(x, y).or_else(|| textured(x, y));
     let (left, top, aw, ah) = active;
     let margin = 2 * REACH as usize;
     let repair = &repair;
