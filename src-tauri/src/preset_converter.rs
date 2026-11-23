@@ -3650,7 +3650,7 @@ mod tests {
         // 0.3 : lightness 0.15, not equally on all three (in a Python model
         // without shifts, the error against Camera Raw's change was 2.3–4.0
         // with equal axes on 8 of 10 swatches; 0.34–1.04 with this mapping on
-        // the 6 hold-out swatches, 0.50–0.76 on the fitted ones). Positive variance has no mapping and stays at 0.
+        // the 6 hold-out swatches, 0.54–0.76 on the fitted ones). Positive variance has no mapping and stays at 0.
         let swatch = "0.500000, 0.700000, 0.300000, 0.000000, 0.000000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.520000, 1.000000, 1.000000, 0.000000, 0.400000, 0.760000, 1.000000".to_string();
         let uniformities = |variance: &str| {
             let ranges = super::point_color_ranges_from(
