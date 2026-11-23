@@ -444,9 +444,8 @@ pub fn start_new_instance<R: Runtime>(app: &AppHandle<R>) {
             .env(crate::restart_reopen::RESTARTED_ENV, "1");
         // An AppImage runs in its own mount (`$APPDIR/usr`); started from
         // there, the new copy would take that folder as the one it was
-        // launched in (`OWD`): relative arguments resolved inside the old
-        // mount, and the replaced copy's runtime stayed alive holding it.
-        // Elsewhere this is the working directory, as before.
+        // launched in (`OWD`), and relative arguments resolved inside the
+        // old mount. Elsewhere this is the working directory, as before.
         if let Some(dir) = restart_dir(|name| std::env::var_os(name), std::env::current_dir().ok())
         {
             command.current_dir(dir);
