@@ -4126,7 +4126,6 @@
         "model": "Lens model"
       },
       "cameraData": "Camera data",
-      "importedCorrection": "Imported correction",
       "cameraDataOf": "Camera data ({{maker}})",
       "chooseLens": "Choose a lens",
       "chromaticShort": "Chromatic ab.",
@@ -4134,6 +4133,7 @@
       "diffractionTitle": "Sharpens away the blur of small apertures, by the f-number and pixel size",
       "distortion": "Distortion",
       "enable": "Enable profile corrections",
+      "importedCorrection": "Imported correction",
       "lookingUp": "Looking up the lens…",
       "make": "Make",
       "manualVignetting": "Lens vignetting",

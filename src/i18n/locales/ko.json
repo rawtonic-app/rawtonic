@@ -4013,7 +4013,6 @@
         "model": "렌즈 모델"
       },
       "cameraData": "카메라 데이터",
-      "importedCorrection": "가져온 보정",
       "cameraDataOf": "카메라 데이터({{maker}})",
       "chooseLens": "렌즈 선택",
       "chromaticShort": "색수차",
@@ -4021,6 +4020,7 @@
       "diffractionTitle": "조리개 값과 픽셀 크기에 따라 작은 조리개의 흐림을 보정합니다",
       "distortion": "왜곡",
       "enable": "프로필 보정 사용",
+      "importedCorrection": "가져온 보정",
       "lookingUp": "렌즈를 찾는 중…",
       "make": "제조사",
       "manualVignetting": "렌즈 비네팅",

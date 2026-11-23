@@ -4297,7 +4297,6 @@
         "model": "Modello obiettivo"
       },
       "cameraData": "Dati della fotocamera",
-      "importedCorrection": "Correzione importata",
       "cameraDataOf": "Dati della fotocamera ({{maker}})",
       "chooseLens": "Scegli un obiettivo",
       "chromaticShort": "Aberr. cromatica",
@@ -4305,6 +4304,7 @@
       "diffractionTitle": "Compensa la sfocatura dei diaframmi chiusi in base al numero f e alla dimensione dei pixel",
       "distortion": "Distorsione",
       "enable": "Attiva correzioni del profilo",
+      "importedCorrection": "Correzione importata",
       "lookingUp": "Ricerca dell'obiettivo…",
       "make": "Marca",
       "manualVignetting": "Vignettatura dell’obiettivo",

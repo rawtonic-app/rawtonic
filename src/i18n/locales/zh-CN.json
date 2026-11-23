@@ -4013,7 +4013,6 @@
         "model": "镜头型号"
       },
       "cameraData": "相机数据",
-      "importedCorrection": "已导入的校正",
       "cameraDataOf": "相机数据（{{maker}}）",
       "chooseLens": "选择镜头",
       "chromaticShort": "色差",
@@ -4021,6 +4020,7 @@
       "diffractionTitle": "根据光圈值和像素尺寸锐化小光圈造成的模糊",
       "distortion": "畸变",
       "enable": "启用配置文件校正",
+      "importedCorrection": "已导入的校正",
       "lookingUp": "正在查找镜头…",
       "make": "品牌",
       "manualVignetting": "镜头暗角",

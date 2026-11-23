@@ -4126,7 +4126,6 @@
         "model": "Objektivmodell"
       },
       "cameraData": "Kameradaten",
-      "importedCorrection": "Importierte Korrektur",
       "cameraDataOf": "Kameradaten ({{maker}})",
       "chooseLens": "Objektiv wählen",
       "chromaticShort": "Chrom. Aberration",
@@ -4134,6 +4133,7 @@
       "diffractionTitle": "Schärft die Unschärfe kleiner Blenden nach Blendenzahl und Pixelgröße nach",
       "distortion": "Verzeichnung",
       "enable": "Profilkorrekturen aktivieren",
+      "importedCorrection": "Importierte Korrektur",
       "lookingUp": "Objektiv wird gesucht…",
       "make": "Hersteller",
       "manualVignetting": "Objektiv-Vignettierung",

@@ -4297,7 +4297,6 @@
         "model": "Modelo de lente"
       },
       "cameraData": "Datos de la cámara",
-      "importedCorrection": "Corrección importada",
       "cameraDataOf": "Datos de la cámara ({{maker}})",
       "chooseLens": "Elige una lente",
       "chromaticShort": "Aberr. cromática",
@@ -4305,6 +4304,7 @@
       "diffractionTitle": "Compensa el desenfoque de las aperturas pequeñas según el número f y el tamaño de píxel",
       "distortion": "Distorsión",
       "enable": "Activar correcciones de perfil",
+      "importedCorrection": "Corrección importada",
       "lookingUp": "Buscando la lente…",
       "make": "Marca",
       "manualVignetting": "Viñeteo del objetivo",
