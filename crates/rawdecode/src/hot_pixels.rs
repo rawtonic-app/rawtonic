@@ -44,10 +44,10 @@
 //! Dead photosites in dark, busy texture still escaped that rule.
 //! `DeadTest::IsolatedBlack` (`renderVersion` 17) also repairs a sample at
 //! black, darker than 0.1 of every same-colour neighbour, when no sample
-//! within two pixels is dark against its own colour; both texture rules
-//! act only where the darkest same-colour neighbour stands four times the
-//! photo's own noise above the sample, so the black-clipped noise of very
-//! high ISOs stays as it is. A dead sample takes the green around it times
+//! within two pixels is dark against its own colour, but only where the
+//! darkest same-colour neighbour stands four times the photo's own noise
+//! above the sample, so the black-clipped noise of very high ISOs stays as
+//! it is; elsewhere the texture rule decides as before. A dead sample takes the green around it times
 //! the median ratio of its same-colour neighbours to the green around
 //! them, within their range: in texture the colour ratio varies far less
 //! than the level (notes: benchmark-results/hot3-2026-11-23/).
@@ -91,9 +91,9 @@ const TEXTURE_ISOLATION: f32 = 0.4;
 const TEXTURE_SPILL: f32 = 1.0;
 const LINE_GUARD: f32 = 0.6;
 /// `DeadTest::IsolatedBlack`: a sample darker than `BLACK_RATIO` of every
-/// same-colour neighbour needs only the line guard; a texture rule acts only
-/// where the darkest same-colour neighbour lies more than `NOISE_MARGIN`
-/// times the noise at its level above the sample.
+/// same-colour neighbour needs only the line guard where the darkest
+/// same-colour neighbour lies more than `NOISE_MARGIN` times the noise at
+/// its level above it; elsewhere the texture rule decides.
 const BLACK_RATIO: f32 = 0.1;
 const NOISE_MARGIN: f32 = 4.0;
 /// The noise is measured on every `NOISE_ROW_STEP`th row (a prime, so
@@ -146,9 +146,9 @@ pub enum DeadTest {
     /// `Isolated`, and dead photosites in busy texture whose neighbours
     /// spread too widely for it (`renderVersion` 16).
     IsolatedTexture,
-    /// `IsolatedTexture` where the neighbours stand clear of the photo's
-    /// noise, and dead photosites at black in dark texture; dead samples
-    /// take their neighbours' colour ratio (`renderVersion` 17).
+    /// `IsolatedTexture`, and dead photosites at black in dark texture
+    /// where their neighbours stand clear of the photo's noise; dead
+    /// samples take their neighbours' colour ratio (`renderVersion` 17).
     IsolatedBlack,
 }
 
@@ -228,14 +228,15 @@ fn colour_ratio_repair(
         }
         g * middle(&mut ratios[..n])
     };
-    Some(value.clamp(lo, hi))
+    // Not-a-number neighbours (a float mosaic) leave no range to keep.
+    (lo <= hi && value.is_finite()).then(|| value.clamp(lo, hi))
 }
 
 /// The noise of each colour per half octave of level, measured on the photo
 /// itself: the lower quartile of the differences between each sample and
 /// the nearest same-colour sample to its right (at most two columns away)
 /// on every `NOISE_ROW_STEP`th row. Flat areas set the lower quartile;
-/// texture only raises it, which makes the gate stricter.
+/// texture only raises it, which leaves more to the texture rule.
 struct NoiseBands {
     sigma: [[Option<f32>; NOISE_BANDS]; 3],
 }
@@ -295,8 +296,10 @@ impl NoiseBands {
             .collect();
         let rows: Vec<usize> = (top..top + ah).step_by(NOISE_ROW_STEP).collect();
         let empty = || vec![[[0u32; NOISE_BINS]; NOISE_BANDS]; 3];
+        // One histogram per thread: each is 48 kB to clear and to add.
+        let chunk = rows.len().div_ceil(rayon::current_num_threads()).max(1);
         let counts = rows
-            .par_chunks(16)
+            .par_chunks(chunk)
             .map(|rows| {
                 let mut counts = empty();
                 for &row in rows {
@@ -735,17 +738,20 @@ pub fn suppress<T: Copy + Send + Sync>(
                             texture && lo[col] >= ISOLATED_FLOOR && v < DEAD_RATIO * lo[col];
                         if (candidate.is_some() || textured) && cfa.color_at(row, left + col) < 3 {
                             let index = row * width + left + col;
-                            match candidate.and_then(|hot| isolated(row, left + col, v, hot)) {
-                                Some(value) => Some(Found::Fix(index, value)),
-                                // The noise gate needs the whole photo's noise first.
-                                None if textured && black => {
-                                    Some(Found::Texture(index, v, lo[col]))
-                                }
-                                None => textured
-                                    .then(|| textured_dead(row, left + col, v))
-                                    .flatten()
-                                    .map(|value| Found::Fix(index, value)),
-                            }
+                            candidate
+                                .and_then(|hot| isolated(row, left + col, v, hot))
+                                .or_else(|| {
+                                    textured
+                                        .then(|| textured_dead(row, left + col, v))
+                                        .flatten()
+                                })
+                                .map(|value| Found::Fix(index, value))
+                                .or_else(|| {
+                                    // A sample at black the texture rule leaves waits
+                                    // for the photo's noise.
+                                    (textured && black && v < BLACK_RATIO * lo[col])
+                                        .then_some(Found::Texture(index, v, lo[col]))
+                                })
                         } else {
                             None
                         }
@@ -775,16 +781,15 @@ pub fn suppress<T: Copy + Send + Sync>(
         let noise = NoiseBands::measure(source, width, active, cfa, &level);
         fixes.par_extend(pending.par_iter().filter_map(|&(index, v, lo)| {
             let (row, col) = (index / width, index % width);
-            let sigma = noise.at(cfa.color_at(row, col), lo)?;
-            if lo - v <= NOISE_MARGIN * sigma {
-                return None;
-            }
-            if v < BLACK_RATIO * lo {
-                black_dead(row, col)
-            } else {
-                textured_dead(row, col, v)
-            }
-            .map(|value| (index, value))
+            // In the noise (or where the noise is not known) the texture
+            // rule has decided alone, as with `DeadTest::IsolatedTexture`.
+            let clear = noise
+                .at(cfa.color_at(row, col), lo)
+                .is_some_and(|sigma| lo - v > NOISE_MARGIN * sigma);
+            clear
+                .then(|| black_dead(row, col))
+                .flatten()
+                .map(|value| (index, value))
         }));
     }
     for (index, value) in &fixes {
@@ -793,9 +798,9 @@ pub fn suppress<T: Copy + Send + Sync>(
     fixes.len()
 }
 
-/// A sample the row pass repairs, or (`DeadTest::IsolatedBlack`) a texture
-/// candidate of level `v` and darkest same-colour neighbour `lo` that waits
-/// for the photo's noise.
+/// A sample the row pass repairs, or (`DeadTest::IsolatedBlack`) a sample
+/// at black the texture rule left, of level `v` and darkest same-colour
+/// neighbour `lo`, that waits for the photo's noise.
 enum Found<T> {
     Fix(usize, T),
     Texture(usize, f32, f32),
@@ -1140,6 +1145,37 @@ mod tests {
             let mut data = line.clone();
             assert_eq!(run(test, &mut data), 0, "{test:?}");
             assert_eq!(data, line);
+        }
+    }
+
+    /// A frame of fine texture everywhere (a fabric close-up; the ramps
+    /// above at a tenth of their level): the photo's noise, measured on the
+    /// texture itself, comes out too high for the rule at black, and the
+    /// texture rule still repairs the dead photosite it repaired before.
+    #[test]
+    fn a_frame_of_fine_texture_keeps_the_texture_rule() {
+        let cfa = bayer();
+        let (w, h) = (1024, 1024);
+        let texture: Vec<f32> = (0..w * h)
+            .map(|i| 0.1 * (0.02 + 0.04 * (i % w % 16) as f32))
+            .collect();
+        let at = 516 * w + 516;
+        let mut dead = texture.clone();
+        dead[at] = 0.0;
+        for test in [DeadTest::IsolatedTexture, DeadTest::IsolatedBlack] {
+            let mut data = dead.clone();
+            let fixed = suppress(
+                &mut data,
+                w,
+                (0, 0, w, h),
+                &cfa,
+                [1.0; 4],
+                test,
+                |v| v,
+                |v| v,
+            );
+            assert_eq!(fixed, 1, "{test:?}");
+            assert!(data[at] >= 0.01, "{test:?} {}", data[at]);
         }
     }
 

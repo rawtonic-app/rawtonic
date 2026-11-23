@@ -215,12 +215,12 @@ pub fn isolated<T: Copy + Send + Sync>(
             return None;
         }
         if let Some(noise) = &noise {
-            // Only where the neighbours stand clear of the photo's noise.
-            if lo - v <= NOISE_MARGIN * noise.at(cfa.color_at(y, x), lo)? {
-                return None;
-            }
-            // At black: only the line guard.
-            if v < BLACK_RATIO * lo {
+            // At black, where the neighbours stand clear of the photo's
+            // noise: only the line guard.
+            let clear = noise
+                .at(cfa.color_at(y, x), lo)
+                .is_some_and(|sigma| lo - v > NOISE_MARGIN * sigma);
+            if clear && v < BLACK_RATIO * lo {
                 for dy in -REACH..=REACH {
                     for dx in -REACH..=REACH {
                         let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
