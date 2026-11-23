@@ -5,7 +5,8 @@
 //! `repair_hot_pixels` (`src-tauri/src/decode/hot_pixels.rs`, commit
 //! `63b415758`, Copyright Timon Käch, AGPL-3.0-or-later), every sample
 //! tested on its own, adapted to `suppress`'s levels, active area and CFA;
-//! with `texture` it is the reference of `DeadTest::IsolatedTexture`.
+//! with `texture` it is the reference of `DeadTest::IsolatedTexture`, with
+//! `black` too of `DeadTest::IsolatedBlack`.
 
 use super::*;
 
@@ -101,6 +102,7 @@ pub fn isolated<T: Copy + Send + Sync>(
     active: (usize, usize, usize, usize),
     cfa: &CFA,
     texture: bool,
+    black: bool,
     level: impl Fn(T) -> f32 + Sync,
     store: impl Fn(f32) -> T + Sync,
 ) -> usize {
@@ -126,6 +128,7 @@ pub fn isolated<T: Copy + Send + Sync>(
         })
         .collect();
     let source: &[T] = data;
+    let noise = black.then(|| NoiseBands::measure(source, width, active, cfa, &level));
     let value = |x: usize, y: usize| level(source[y * width + x]);
     let site = |x: usize, y: usize| &same[(y % period[1]) * period[0] + x % period[0]];
     let neighbours = |x: usize, y: usize| {
@@ -142,6 +145,14 @@ pub fn isolated<T: Copy + Send + Sync>(
         } else {
             samples[half]
         }
+    };
+    // A dead sample's level: the colour ratio of its neighbours under
+    // `black`, else (or without green around) their median.
+    let dead_level = |x: usize, y: usize| -> f32 {
+        black
+            .then(|| colour_ratio_repair(cfa, site(x, y), y, x, |r, c| value(c, r)))
+            .flatten()
+            .unwrap_or_else(|| median(x, y, None))
     };
     let repair = |x: usize, y: usize| -> Option<T> {
         if cfa.color_at(y, x) >= 3 {
@@ -185,7 +196,11 @@ pub fn isolated<T: Copy + Send + Sync>(
         {
             return None;
         }
-        Some(store(median(x, y, None)))
+        Some(store(if hot {
+            median(x, y, None)
+        } else {
+            dead_level(x, y)
+        }))
     };
     // A dark sample in busy texture: darker than 0.4 of every same-colour
     // neighbour, isolated by the looser bound, no other dark sample around.
@@ -197,6 +212,25 @@ pub fn isolated<T: Copy + Send + Sync>(
         let lo = neighbours(x, y).fold(f32::MAX, f32::min);
         if lo < ISOLATED_FLOOR || v >= DEAD_RATIO * lo {
             return None;
+        }
+        if let Some(noise) = &noise {
+            // Only where the neighbours stand clear of the photo's noise.
+            if lo - v <= NOISE_MARGIN * noise.at(cfa.color_at(y, x), lo)? {
+                return None;
+            }
+            // At black: only the line guard.
+            if v < BLACK_RATIO * lo {
+                for dy in -REACH..=REACH {
+                    for dx in -REACH..=REACH {
+                        let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
+                        if (dx != 0 || dy != 0) && value(nx, ny) < LINE_GUARD * median(nx, ny, None)
+                        {
+                            return None;
+                        }
+                    }
+                }
+                return Some(store(dead_level(x, y)));
+            }
         }
         let deviation = v - median(x, y, Some(v));
         let mut surround = 0.0;
@@ -222,7 +256,7 @@ pub fn isolated<T: Copy + Send + Sync>(
         {
             return None;
         }
-        Some(store(median(x, y, None)))
+        Some(store(dead_level(x, y)))
     };
     let repair = |x: usize, y: usize| repair(x, y).or_else(|| textured(x, y));
     let (left, top, aw, ah) = active;

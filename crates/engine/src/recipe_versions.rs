@@ -111,6 +111,14 @@ impl RenderVersion {
         self.0 >= crate::image_loader::TEXTURE_DEAD_RENDER_VERSION
     }
 
+    /// The texture rules act only clear of the photo's noise, dead
+    /// photosites at black in dark texture are repaired too, and dead
+    /// photosites take their neighbours' colour ratio
+    /// (`image_loader::DeadTest::IsolatedBlack`).
+    pub fn black_dead_test(self) -> bool {
+        self.0 >= crate::image_loader::BLACK_DEAD_RENDER_VERSION
+    }
+
     /// Colours outside the output space keep their hue.
     pub fn gamut_mapping(self) -> bool {
         self.0 >= ip::GAMUT_MAPPING_RENDER_VERSION
