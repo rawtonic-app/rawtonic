@@ -7,6 +7,8 @@ import { overlayHost } from '../../utils/topLayer';
 import { useExportCollisionStore, type CollisionAnswer } from '../../store/useExportCollisionStore';
 import type { CollisionKind } from '../ui/ExportImportProperties';
 
+const MAX_NAMES_PER_KIND = 5;
+
 /** "If a file exists: Ask": one question per export run, before anything
  * renders. The counts say what is in the way (an earlier export that did not
  * change, one that did, any other file), a few names show which; the answer
@@ -81,16 +83,19 @@ export default function ExportCollisionDialog() {
         <ul className="m-0 pl-4" data-testid="collision-kinds">
           {kinds
             .filter(([, , kind]) => kind.count > 0)
-            .map(([key, label, kind]) => (
-              <li key={key}>
-                <strong>{label}</strong>
-                <div className="text-xs text-text-secondary">
-                  {kind.names.join(', ')}
-                  {kind.count > kind.names.length &&
-                    ` ${t('studio.export.collision.more', { number: kind.count - kind.names.length })}`}
-                </div>
-              </li>
-            ))}
+            .map(([key, label, kind]) => {
+              const names = kind.names.slice(0, MAX_NAMES_PER_KIND);
+              const remaining = kind.count - names.length;
+              return (
+                <li key={key}>
+                  <strong>{label}</strong>
+                  <div className="text-xs text-text-secondary break-words">
+                    {names.join(', ')}
+                    {remaining > 0 && ` ${t('studio.export.collision.more', { number: remaining })}`}
+                  </div>
+                </li>
+              );
+            })}
         </ul>
         {summary.originals > 0 && (
           <p className="m-0">{t('studio.export.collision.originals', { number: summary.originals })}</p>
