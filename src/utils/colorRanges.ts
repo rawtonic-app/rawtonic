@@ -549,14 +549,15 @@ export async function applyColorTarget(
   endLive();
   if (!pick) return;
   const model = useEditorStore.getState().adjustments;
-  // Another target, another photo or range, or any edit meanwhile (Undo,
-  // Redo, a slider): the correction belongs to a recipe that is gone.
+  // An edit can already be visible as a slider draft while the store and
+  // its newest undo step still hold the model's solve.
   const stale = () => {
     const now = useEditorStore.getState();
     const applied = now.colorTarget?.appliedTo;
     return (
       mine !== targetRequest ||
       now.adjustments !== model ||
+      draftFor(photo) !== null ||
       now.selectedImage?.path !== photo ||
       applied?.rangeId !== rangeId ||
       applied.layer !== layer
