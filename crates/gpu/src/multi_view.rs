@@ -464,8 +464,11 @@ impl MultiView {
         // The live frame's region of the photograph is not known here: it
         // is shown to fit until the cell's own render arrives. A zoomed cell
         // that still has its own placed frame keeps it instead, so it never
-        // jumps to fit (and back) while every other cell stays zoomed.
+        // jumps to fit (and back) while every other cell stays zoomed. Its
+        // sharp region was rendered while the photograph was the live one
+        // and may predate edits made since: it is released, as before.
         if self.keeps_zoomed_frame(path) {
+            self.regions.remove(path);
             return;
         }
         if self.copy_frame(
@@ -1345,6 +1348,8 @@ mod tests {
         assert_eq!(multi.texture_key("a"), Some(1));
         let pixels = present(&gpu, &multi, None);
         assert!(close(pixel(&pixels, 35, 50), [255, 0, 0]));
+        // Above the fitted image (letterbox), only the enlarged frame is red.
+        assert!(close(pixel(&pixels, 35, 20), [255, 0, 0]));
         // A cell without a frame of its own still takes the live frame.
         multi.adopt_live_frame(
             &gpu.device,
