@@ -1,4 +1,4 @@
-# user_version 30
+# user_version 31
 # schema
 'index' | 'asset_imports_batch' | 'asset_imports' | 'CREATE INDEX asset_imports_batch ON asset_imports(batch_id)'
 'index' | 'asset_keywords_keyword' | 'asset_keywords' | 'CREATE INDEX asset_keywords_keyword ON asset_keywords(keyword)'
@@ -27,6 +27,7 @@
 'index' | 'sqlite_autoindex_folder_root_volumes_1' | 'folder_root_volumes' | NULL
 'index' | 'sqlite_autoindex_hot_folder_files_1' | 'hot_folder_files' | NULL
 'index' | 'sqlite_autoindex_image_hashes_1' | 'image_hashes' | NULL
+'index' | 'sqlite_autoindex_imported_recipes_1' | 'imported_recipes' | NULL
 'index' | 'sqlite_autoindex_ingest_items_1' | 'ingest_items' | NULL
 'index' | 'sqlite_autoindex_keymaps_1' | 'keymaps' | NULL
 'index' | 'sqlite_autoindex_masks_1' | 'masks' | NULL
@@ -149,6 +150,11 @@
  kind TEXT NOT NULL CHECK(kind IN (''ingest'',''add'',''sync'',''hotfolder'',''tether'')),
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 )'
+'table' | 'imported_recipes' | 'imported_recipes' | 'CREATE TABLE imported_recipes(
+ version_id TEXT PRIMARY KEY REFERENCES versions(id) ON DELETE CASCADE,
+ source TEXT NOT NULL,
+ translated TEXT NOT NULL,
+ stored TEXT NOT NULL)'
 'table' | 'ingest_items' | 'ingest_items' | 'CREATE TABLE ingest_items(
  job_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
  position INTEGER NOT NULL,
@@ -386,6 +392,7 @@ END'
 # table declared_keywords (0 rows): folded, path
 # table cull_scores (0 rows): asset_id, model, fingerprint, misfire, document, error
 # table cull_dismissed (0 rows): asset_id, criterion
+# table imported_recipes (0 rows): version_id, source, translated, stored
 # foreign_key_check
 # searches
 text contains 0123: ["00000000-0000-4000-8000-000000000001"]

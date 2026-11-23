@@ -867,6 +867,18 @@ fn fill(conn: &Connection, version: usize) {
         "cull_dismissed",
         &[("asset_id", t(&asset_id(9))), ("criterion", t("misfire"))],
     );
+    // Photograph 1's edit as an import from another editor wrote it
+    // (schema 31).
+    put(
+        conn,
+        "imported_recipes",
+        &[
+            ("version_id", t(&version_id(1))),
+            ("source", t(&"1a".repeat(32))),
+            ("translated", t(&"2b".repeat(32))),
+            ("stored", t(&"3c".repeat(32))),
+        ],
+    );
     // A stack of photograph 1, its copy and photograph 2 (schema 22).
     put(conn, "stacks", &[("id", t("stack-1")), ("collapsed", i(1))]);
     for (photo, copy, position) in [(1, "", 0), (1, "a1b2c3", 1), (2, "", 2)] {

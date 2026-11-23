@@ -13,8 +13,18 @@
 //! no XMP is written for copies (Lightroom writes none for them either).
 //! Lightroom's folder stacks become stacks (library data only), with
 //! Lightroom's top, order and collapsed state, virtual copies included.
+//!
+//! A repeated import never replaces an edit the photographer made here
+//! since the last one (C1RI1): each import records digests of what it wrote
+//! (`rawtonic_catalog::imported`); an edit still exactly as that import left
+//! it follows the other editor's changed settings (one Undo step in the
+//! app), one changed here is kept, and when the other editor's settings
+//! changed too they come in as a new virtual copy beside it (`reimport`).
+use crate::file_management::RecipeChange;
 use rawtonic_catalog::stacks::{Member, Stack};
-use rawtonic_catalog::{ALBUM, Combine, Field, GROUP, Library, Mode, Op, Rule, SMART};
+use rawtonic_catalog::{
+    ALBUM, Combine, Field, GROUP, ImportRecord, Library, Mode, Op, Rule, SMART,
+};
 use rawtonic_interop::{
     Develop, Library as Source, NotRead, Photo, Root, SmartRule, SmartRules, SmartValue,
 };
@@ -107,6 +117,16 @@ pub struct ImportReport {
     /// camera and lens words are matched in the name the file states, not
     /// as Lightroom does, so they can differ from Lightroom's.
     pub smart_albums_by_facts: Vec<String>,
+    /// Edits here (photographs' and virtual copies') a repeated import
+    /// brought up to date because they were still exactly as the last
+    /// import left them: each one's whole recipe before and after, which the
+    /// app's Undo writes back as one step.
+    pub recipe_changes: Vec<crate::file_management::RecipeChange>,
+    /// Edits changed here since the last import (or never imported) whose
+    /// settings in the other editor changed too: kept as they are, the
+    /// other editor's settings imported as a new virtual copy beside them,
+    /// one line each.
+    pub edits_kept: Vec<String>,
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -480,6 +500,9 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
     // Source keys → stack members here (photographs and virtual copies).
     let mut members: HashMap<&str, Member> = HashMap::new();
     let _batch = catalog.import_batch(rawtonic_catalog::ImportKind::Add);
+    // Photographs whose edit (or a copy's) the import changed or added a
+    // copy to: their derived sidecars follow the library afterwards.
+    let mut changed: Vec<String> = Vec::new();
     for photo in source.photos.iter().filter(|p| p.copy_of.is_none()) {
         if !photo.path.is_file() {
             report.missing += 1;
@@ -492,7 +515,16 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                 report.ai_masks_on_open += usize::from(imported.ai_masks);
                 report.crops_clipped += imported.crops_clipped;
                 report.warnings.extend(import_warnings(photo));
-                report.warnings.extend(kept_warning(photo, &imported));
+                settle_reimport(
+                    catalog,
+                    &mut report,
+                    &mut changed,
+                    &asset,
+                    &source.name,
+                    photo,
+                    None,
+                    imported,
+                );
                 members.insert(photo.key.as_str(), Member::photo(asset.clone()));
                 assets.insert(photo.key.as_str(), asset);
             }
@@ -515,14 +547,23 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                     photo.key.as_str(),
                     Member {
                         asset_id: asset.clone(),
-                        copy,
+                        copy: copy.clone(),
                     },
                 );
                 report.copies += 1;
                 report.ai_masks_on_open += usize::from(imported.ai_masks);
                 report.crops_clipped += imported.crops_clipped;
                 report.warnings.extend(import_warnings(photo));
-                report.warnings.extend(kept_warning(photo, &imported));
+                settle_reimport(
+                    catalog,
+                    &mut report,
+                    &mut changed,
+                    asset,
+                    &source.name,
+                    photo,
+                    Some(&copy),
+                    imported,
+                );
             }
             Err(e) => {
                 report.copies_skipped += 1;
@@ -660,7 +701,45 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
         pending = next;
     }
     report.stacks = import_stacks(catalog, source, &members)?;
+    for asset in &changed {
+        crate::session_bridge::rederive(catalog, asset);
+    }
     Ok(report)
+}
+
+/// The repeated-import part of one photograph's or copy's import: its
+/// brought-up-to-date edit for the Undo step, or the new virtual copy with
+/// the other editor's newer settings beside a kept edit, with its line.
+#[allow(clippy::too_many_arguments)]
+fn settle_reimport(
+    catalog: &Library,
+    report: &mut ImportReport,
+    changed: &mut Vec<String>,
+    asset: &str,
+    source_name: &str,
+    photo: &Photo,
+    copy: Option<&str>,
+    imported: Imported,
+) {
+    let mut touched = false;
+    if let Some(change) = imported.change {
+        report.recipe_changes.push(change);
+        touched = true;
+    }
+    if imported.kept_with_newer {
+        match import_newer_copy(catalog, asset, source_name, photo, copy) {
+            Ok(Some(line)) => {
+                report.copies += 1;
+                report.edits_kept.push(line);
+                touched = true;
+            }
+            Ok(None) => {}
+            Err(e) => report.errors.push(format!("{}: {e}", photo.path.display())),
+        }
+    }
+    if touched && !changed.iter().any(|a| a == asset) {
+        changed.push(asset.to_string());
+    }
 }
 
 /// The source's stacks over the photographs and copies imported
@@ -735,87 +814,123 @@ struct Imported {
     ai_masks: bool,
     /// Edits (its own and its snapshots') whose crop was clipped.
     crops_clipped: usize,
-    /// The photograph's (or copy's) own edit was kept as it is although the
-    /// source carries a Capture One Generic Distortion for it: the line the
-    /// import summary names (`kept_edit_warning`).
-    kept_over_distortion: Option<&'static str>,
+    /// The photograph's or copy's edit here was kept, and the other
+    /// editor's changed settings for it are to come in as a new virtual
+    /// copy (`import_newer_copy`).
+    kept_with_newer: bool,
+    /// The edit here was brought up to date: its recipe before and after.
+    change: Option<RecipeChange>,
 }
 
-/// The settings a Generic Distortion import alone writes
-/// (`capture_one_lens`, `capture_one_chromatic_aberration`).
-const DISTORTION_ONLY_KEYS: [&str; 8] = [
-    "lensCorrectionMode",
-    "lensDistortionParams",
-    "lensDistortionAmount",
-    "lensVignetteAmount",
-    "lensMaker",
-    "lensModel",
-    "autoChromaticAberration",
-    "lensTcaEnabled",
-];
+/// What a repeated import does with an edit already here (decision C1RI1
+/// 2026-11-23, a professional's view: least surprise, never lost work).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reimport {
+    /// No edit of the photographer's here, or one still exactly as the
+    /// last import left it: the import's edit replaces it (one Undo step).
+    Apply,
+    /// The edit here is the import's already: nothing to write; recorded.
+    Same,
+    /// Changed here since, the other editor's settings unchanged: kept.
+    Keep,
+    /// Changed here since (or never imported), and the other editor's
+    /// settings changed too: kept, those come in as a new virtual copy.
+    KeepWithNewer,
+}
 
-/// The polynomial distortion of Capture One's Generic profile in a
-/// translated edit (`capture_one_lens`), if that is all the edit holds: such
-/// a lens-only import never replaces an edit the user made here.
-fn generic_distortion_only(adjustments: &Value) -> Option<&Value> {
-    let map = adjustments.as_object()?;
-    // Versions and the colour label come with every translated edit.
-    let own =
-        |k: &str| DISTORTION_ONLY_KEYS.contains(&k) || k.ends_with("Version") || k == "colorLabel";
-    if !map.keys().all(|k| own(k)) {
-        return None;
+/// The rule: `record` is what the last import wrote to the version (none:
+/// never imported by a build that records it), `own` its recipe here,
+/// `source` the other editor's settings by digest (`source_digest`),
+/// `incoming` the recipe made of them. "Changed here" is told from the
+/// recorded digest, never from times.
+fn reimport(
+    record: Option<&ImportRecord>,
+    own: Option<&Value>,
+    source: &str,
+    incoming: Option<&Value>,
+) -> Reimport {
+    if !own.is_some_and(is_edit) {
+        return Reimport::Apply;
     }
-    polynomial_of(adjustments)
+    let own = edit_digest(own);
+    let new = edit_digest(incoming);
+    if own == new {
+        return Reimport::Same;
+    }
+    match record {
+        Some(r) if r.stored == own => Reimport::Apply,
+        _ if !incoming.is_some_and(is_edit) => Reimport::Keep,
+        Some(r) if r.source == source || r.translated == new => Reimport::Keep,
+        _ => Reimport::KeepWithNewer,
+    }
 }
 
-/// The imported polynomial of a recipe (manual mode, no lens named).
-fn polynomial_of(adjustments: &Value) -> Option<&Value> {
-    let params = adjustments.get(lens::DISTORTION_PARAMS.name())?;
-    (adjustments.get(lens::CORRECTION_MODE.name())?.as_str() == Some("manual")
-        && params.get("model")?.as_u64() == Some(0)
-        && adjustments
-            .get(lens::MAKER.name())
-            .is_none_or(|v| v.is_null()))
-    .then_some(params)
+/// Whether a recipe holds an edit (more than the colour label metadata
+/// puts into it).
+fn is_edit(adjustments: &Value) -> bool {
+    adjustments
+        .as_object()
+        .is_some_and(|map| map.keys().any(|k| k != "colorLabel"))
 }
 
-/// Whether a stored recipe already applies `new` as it is imported: the same
-/// polynomial, switched on, at its full amount.
-fn applies_polynomial(stored: Option<&Value>, new: &Value) -> bool {
-    stored.is_some_and(|recipe| {
-        polynomial_of(recipe) == Some(new)
-            && recipe.get("lensDistortionEnabled") != Some(&json!(false))
-            && recipe
-                .get(lens::DISTORTION_AMOUNT.name())
-                .and_then(Value::as_f64)
-                .is_none_or(|amount| amount == 100.0)
-    })
+/// SHA-256 of a value's JSON (maps in key order).
+fn digest_of(value: &impl Serialize) -> String {
+    use sha2::Digest;
+    let bytes = serde_json::to_vec(value).unwrap_or_default();
+    rawtonic_fs::hex(&sha2::Sha256::digest(bytes)[..])
 }
 
-/// Whether the catalog's photograph already carries an edit of the user's.
-fn has_own_edit(catalog: &Library, asset: &str) -> anyhow::Result<bool> {
-    Ok(catalog
-        .editor_state(asset)?
-        .and_then(|state| state.get("adjustments").cloned())
-        .and_then(|a| a.as_object().map(|m| !m.is_empty()))
-        .unwrap_or(false))
+/// The other editor's settings for a photo or copy, by digest.
+fn source_digest(photo: &Photo) -> String {
+    digest_of(&(&photo.develop, &photo.capture_one_layers))
 }
 
-/// The line for an existing edit or copy kept over a Capture One
-/// Generic Distortion (decision G50S 2026-11-23: never replaced, never silent).
-const KEPT_EDIT: &str = "kept your existing edit; Capture One distortion not applied";
-const KEPT_COPY: &str = "kept your existing copy; Capture One distortion not applied";
-
-fn kept_warning(photo: &Photo, imported: &Imported) -> Option<String> {
-    imported
-        .kept_over_distortion
-        .map(|line| format!("{}: {line}", photo.path.display()))
+/// A recipe by digest as far as it is the photographer's edit: without the
+/// colour label (metadata) and the AI mask data a model computes when the
+/// photo is opened; no edit is `{}`.
+fn edit_digest(adjustments: Option<&Value>) -> String {
+    let mut edit = adjustments
+        .filter(|a| is_edit(a))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    if let Some(map) = edit.as_object_mut() {
+        map.remove("colorLabel");
+    }
+    strip_key(&mut edit, "maskDataBase64");
+    digest_of(&edit)
 }
 
-/// Whether the source photo carries Generic Distortion as `capture_one_lens` imports it.
-fn source_has_generic_distortion(photo: &Photo) -> bool {
-    matches!(&photo.develop, Develop::CaptureOne(entries)
-        if capture_one_generic_distortion_k1(entries).is_some())
+fn strip_key(value: &mut Value, key: &str) {
+    match value {
+        Value::Object(map) => {
+            map.remove(key);
+            map.values_mut().for_each(|v| strip_key(v, key));
+        }
+        Value::Array(items) => items.iter_mut().for_each(|v| strip_key(v, key)),
+        _ => {}
+    }
+}
+
+/// The record of an import that wrote `incoming` (stored as `stored`).
+fn import_record(photo: &Photo, incoming: Option<&Value>, stored: Option<&Value>) -> ImportRecord {
+    ImportRecord {
+        source: source_digest(photo),
+        translated: edit_digest(incoming),
+        stored: edit_digest(stored),
+    }
+}
+
+/// The other editor's name for the summary line.
+fn editor_name(photo: &Photo) -> String {
+    let editor = match photo.develop {
+        Develop::CaptureOne(_) => "Capture One",
+        Develop::LightroomXmp(_) => "Lightroom",
+        Develop::None => "other editor's",
+    };
+    match &photo.copy_name {
+        Some(name) => format!("{editor} “{name}”"),
+        None => editor.into(),
+    }
 }
 
 /// The Rawtonic recipe for one of the photo's edits in the other editor
@@ -1399,7 +1514,7 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
         crops_clipped: recipe
             .as_ref()
             .map_or(0, |(_, clipped)| usize::from(*clipped)),
-        kept_over_distortion: None,
+        ..Default::default()
     };
     let adjustments = recipe.map(|(adjustments, _)| adjustments);
     // The photograph, its translated edit and its metadata are stored in one
@@ -1416,25 +1531,33 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
         xmp_digest: None,
         capture: None,
     };
-    let id = match catalog.asset_at(&photo.path)? {
+    let own_adjustments = |id: &str| -> anyhow::Result<Option<Value>> {
+        Ok(catalog
+            .editor_state(id)?
+            .and_then(|state| state.get("adjustments").cloned()))
+    };
+    let (id, rule, before) = match catalog.asset_at(&photo.path)? {
         Some(asset) => {
             let mut contents = contents;
-            // A lens-only Capture One import never replaces what the user
-            // edited here (the importer keeps existing variants as they are).
-            if let Some(new) = adjustments.as_ref().and_then(generic_distortion_only)
-                && has_own_edit(catalog, &asset.id)?
-            {
+            let own = own_adjustments(&asset.id)?;
+            let version = catalog.version_for(&asset.id, None)?;
+            let record = match &version {
+                Some(version) => catalog.imported_recipe(version)?,
+                None => None,
+            };
+            let rule = reimport(
+                record.as_ref(),
+                own.as_ref(),
+                &source_digest(photo),
+                adjustments.as_ref(),
+            );
+            if rule != Reimport::Apply {
                 contents.editor_state = None;
                 imported.translated = false;
-                let own = catalog
-                    .editor_state(&asset.id)?
-                    .and_then(|state| state.get("adjustments").cloned());
-                if !applies_polynomial(own.as_ref(), new) {
-                    imported.kept_over_distortion = Some(KEPT_EDIT);
-                }
+                imported.kept_with_newer = rule == Reimport::KeepWithNewer;
             }
             catalog.apply_contents(&asset.id, &contents)?;
-            asset.id
+            (asset.id, rule, Some(own))
         }
         None => {
             let planned = catalog.plan_add(&photo.path, contents.clone())?;
@@ -1445,10 +1568,31 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
             if !added {
                 catalog.apply_contents(&id, &contents)?;
             }
-            id
+            (id, Reimport::Apply, None)
         }
     };
     let version = catalog.version_for(&id, None)?;
+    if matches!(rule, Reimport::Apply | Reimport::Same)
+        && let Some(version) = &version
+    {
+        let stored = own_adjustments(&id)?;
+        catalog.record_imported_recipe(
+            version,
+            &import_record(photo, adjustments.as_ref(), stored.as_ref()),
+        )?;
+        // A photograph here before whose edit the import changed: Undo
+        // puts it back.
+        if rule == Reimport::Apply
+            && let Some(before) = before
+            && edit_digest(before.as_ref()) != edit_digest(stored.as_ref())
+        {
+            imported.change = Some(RecipeChange {
+                path: catalog.asset(&id)?.path.to_string_lossy().into_owned(),
+                before: before.unwrap_or(Value::Null),
+                after: stored.unwrap_or(Value::Null),
+            });
+        }
+    }
     imported.crops_clipped += import_snapshots(catalog, version.as_deref(), photo)?;
     Ok((id, imported))
 }
@@ -1523,28 +1667,16 @@ fn import_copy(
     for attempt in 0..16 {
         let candidate = copy_id(asset, &origin, attempt);
         if known.contains(&candidate) {
-            // Imported before: kept as it is. Its derived sidecar is
-            // published again if it is missing (an earlier import could not
-            // write beside the photograph), so listings find the copy.
+            let kept = reimport_copy(catalog, asset, &candidate, photo)?;
+            // Its derived sidecar is published again if it is missing (an
+            // earlier import could not write beside the photograph), so
+            // listings find the copy.
             let sidecar = sidecar_of(&candidate);
             if photo.path.is_file()
                 && !sidecar.exists()
                 && let Some(state) = catalog.copy_state(asset, &candidate)?
             {
                 publish_new(&sidecar, &serde_json::to_vec_pretty(&state)?)?;
-            }
-            let mut kept = Imported::default();
-            if source_has_generic_distortion(photo)
-                && let Some((incoming, _)) =
-                    recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path)
-                && let Some(new) = polynomial_of(&incoming)
-            {
-                let stored = catalog
-                    .copy_state(asset, &candidate)?
-                    .and_then(|state| state.get("adjustments").cloned());
-                if !applies_polynomial(stored.as_ref(), new) {
-                    kept.kept_over_distortion = Some(KEPT_COPY);
-                }
             }
             return Ok((kept, candidate));
         }
@@ -1563,8 +1695,9 @@ fn import_copy(
         crops_clipped: recipe
             .as_ref()
             .map_or(0, |(_, clipped)| usize::from(*clipped)),
-        kept_over_distortion: None,
+        ..Default::default()
     };
+    let incoming = recipe.as_ref().map(|(adjustments, _)| adjustments.clone());
     let mut state = json!({
         "version": crate::image_processing::ImageMetadata::default().version,
         "rating": photo.metadata.rating,
@@ -1574,6 +1707,15 @@ fn import_copy(
     rawtonic_catalog::apply_editor_metadata(&mut state, photo.metadata.clone());
     catalog.save_copy_state(asset, &id, &state)?;
     let version = catalog.version_for(asset, Some(&id))?;
+    if let Some(version) = &version {
+        let stored = catalog
+            .copy_state(asset, &id)?
+            .and_then(|state| state.get("adjustments").cloned());
+        catalog.record_imported_recipe(
+            version,
+            &import_record(photo, incoming.as_ref(), stored.as_ref()),
+        )?;
+    }
     imported.crops_clipped += import_snapshots(catalog, version.as_deref(), photo)?;
     if photo.path.is_file()
         && let Some(state) = catalog.copy_state(asset, &id)?
@@ -1581,6 +1723,130 @@ fn import_copy(
         publish_new(&sidecar_of(&id), &serde_json::to_vec_pretty(&state)?)?;
     }
     Ok((imported, id))
+}
+
+/// A repeated import of the copy `copy` of `asset`, which an earlier import
+/// made: the rule of `reimport` for its edit. Brought up to date, it keeps
+/// its metadata here (rating, keywords, label); its derived sidecar follows
+/// after the import (`session_bridge::rederive`).
+fn reimport_copy(
+    catalog: &Library,
+    asset: &str,
+    copy: &str,
+    photo: &Photo,
+) -> anyhow::Result<Imported> {
+    let mut imported = Imported::default();
+    let Some(version) = catalog.version_for(asset, Some(copy))? else {
+        return Ok(imported);
+    };
+    let state = catalog.copy_state(asset, copy)?;
+    let own = state
+        .as_ref()
+        .and_then(|state| state.get("adjustments").cloned());
+    let recipe = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path);
+    let incoming = recipe.as_ref().map(|(adjustments, _)| adjustments.clone());
+    let rule = reimport(
+        catalog.imported_recipe(&version)?.as_ref(),
+        own.as_ref(),
+        &source_digest(photo),
+        incoming.as_ref(),
+    );
+    match rule {
+        Reimport::Apply => {
+            if let (Some(mut state), Some((adjustments, clipped))) = (state, recipe) {
+                imported.translated = true;
+                imported.ai_masks = has_ai_masks_on_open(&adjustments);
+                imported.crops_clipped = usize::from(clipped);
+                state["adjustments"] = adjustments;
+                catalog.save_copy_state(asset, copy, &state)?;
+            }
+            let stored = catalog
+                .copy_state(asset, copy)?
+                .and_then(|state| state.get("adjustments").cloned());
+            catalog.record_imported_recipe(
+                &version,
+                &import_record(photo, incoming.as_ref(), stored.as_ref()),
+            )?;
+            if edit_digest(own.as_ref()) != edit_digest(stored.as_ref()) {
+                imported.change = Some(RecipeChange {
+                    path: photo_ref::PhotoRef::of_path(&catalog.asset(asset)?.path, Some(copy))
+                        .format(),
+                    before: own.unwrap_or(Value::Null),
+                    after: stored.unwrap_or(Value::Null),
+                });
+            }
+        }
+        Reimport::Same => {
+            catalog.record_imported_recipe(
+                &version,
+                &import_record(photo, incoming.as_ref(), own.as_ref()),
+            )?;
+        }
+        Reimport::Keep => {}
+        Reimport::KeepWithNewer => imported.kept_with_newer = true,
+    }
+    Ok(imported)
+}
+
+/// The other editor's changed settings for a photograph or copy whose edit
+/// here was kept (`Reimport::KeepWithNewer`), as a new virtual copy of
+/// `asset` with the photo's metadata, beside the kept edit: its id is
+/// derived from the source's identity and those settings, so a repeated
+/// import of the same settings finds it instead of making another. Returns
+/// the summary line when it was made.
+fn import_newer_copy(
+    catalog: &Library,
+    asset: &str,
+    source_name: &str,
+    photo: &Photo,
+    of_copy: Option<&str>,
+) -> anyhow::Result<Option<String>> {
+    let origin = format!(
+        "newer\0{}\0{}",
+        copy_origin(source_name, photo),
+        source_digest(photo)
+    );
+    let known = catalog.copies(asset)?;
+    let mut id = None;
+    for attempt in 0..16 {
+        let candidate = copy_id(asset, &origin, attempt);
+        if known.contains(&candidate) {
+            return Ok(None);
+        }
+        let sidecar = photo
+            .path
+            .with_file_name(photo_ref::sidecar_name(&photo.path, Some(&candidate)));
+        if !sidecar.exists() {
+            id = Some((candidate, sidecar));
+            break;
+        }
+    }
+    let (id, sidecar) = id.ok_or_else(|| anyhow::anyhow!("No free name for the virtual copy"))?;
+    let Some((adjustments, _)) = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path)
+    else {
+        return Ok(None);
+    };
+    let mut state = json!({
+        "version": crate::image_processing::ImageMetadata::default().version,
+        "rating": photo.metadata.rating,
+        "tags": [],
+        "adjustments": adjustments,
+    });
+    rawtonic_catalog::apply_editor_metadata(&mut state, photo.metadata.clone());
+    catalog.save_copy_state(asset, &id, &state)?;
+    if photo.path.is_file()
+        && let Some(state) = catalog.copy_state(asset, &id)?
+    {
+        publish_new(&sidecar, &serde_json::to_vec_pretty(&state)?)?;
+    }
+    let what = match of_copy {
+        Some(copy) => format!("{} (virtual copy {copy})", photo.path.display()),
+        None => photo.path.display().to_string(),
+    };
+    Ok(Some(format!(
+        "{what}: kept your edit; the newer {} settings are in a new virtual copy",
+        editor_name(photo)
+    )))
 }
 
 /// Writes `bytes` as the new file `path`: a synced temporary file published
@@ -3510,12 +3776,13 @@ ProcessVersion = "15.4" }}"#,
         assert_eq!(source.name, "Wedding.2026");
     }
 
-    /// G50S decisions 1 and 3: a Capture One import whose only translated
-    /// setting is Generic Distortion never replaces an edit the user made
-    /// here, and keeps an existing copy: each said in the summary. A photo
-    /// without an edit of the user's gets the distortion.
+    /// G50S decisions 1 and 3 under the repeated-import rule (C1RI1): a
+    /// Capture One import whose only translated setting is Generic
+    /// Distortion never replaces an edit the user made here; it comes as a
+    /// new virtual copy, said in the summary. An imported copy unchanged
+    /// here follows it (undoable); a photo without an edit gets it.
     #[test]
-    fn a_generic_distortion_import_never_replaces_the_users_edit_or_copy() {
+    fn a_generic_distortion_import_never_replaces_the_users_edit() {
         let tmp = tempfile::tempdir().unwrap();
         let catalog = Library::create(&tmp.path().join("Cat"), "Cat", Mode::Catalog).unwrap();
         let raw = tmp.path().join("a.RAF");
@@ -3550,9 +3817,10 @@ ProcessVersion = "15.4" }}"#,
             .collect()
         }
         // Imported before without Generic Distortion: the master carries a
-        // user's edit afterwards, the copy exists.
+        // user's edit afterwards, the copy exists as imported.
         import_into(&catalog, &source(false)).unwrap();
         let asset = catalog.asset_at(&raw).unwrap().unwrap().id;
+        let copy = catalog.copies(&asset).unwrap()[0].clone();
         let edit = json!({"version": 1, "rating": 0, "tags": [],
             "adjustments": {"exposure": 0.7}});
         catalog.save_editor_state(&asset, &edit).unwrap();
@@ -3560,22 +3828,31 @@ ProcessVersion = "15.4" }}"#,
         let kept = catalog.editor_state(&asset).unwrap().unwrap();
         assert_eq!(kept["adjustments"]["exposure"], json!(0.7), "{report:?}");
         assert!(kept["adjustments"].get("lensDistortionParams").is_none());
-        assert_eq!(report.with_settings, 0, "{report:?}");
-        let path = raw.display();
-        assert!(
-            report.warnings.contains(&format!(
-                "{path}: kept your existing edit; Capture One distortion not applied"
-            )),
-            "{:?}",
-            report.warnings
+        assert_eq!(
+            report.edits_kept,
+            [format!(
+                "{}: kept your edit; the newer Capture One settings are in a new virtual copy",
+                raw.display()
+            )]
         );
+        let copies = catalog.copies(&asset).unwrap();
+        assert_eq!(copies.len(), 2, "{report:?}");
+        for id in &copies {
+            let state = catalog.copy_state(&asset, id).unwrap().unwrap();
+            assert_eq!(
+                state["adjustments"]["lensDistortionParams"]["k1"],
+                json!(-0.048),
+                "{id}"
+            );
+        }
+        // The imported copy, unchanged here, followed as one undoable change.
+        assert_eq!(report.recipe_changes.len(), 1, "{report:?}");
         assert!(
-            report.warnings.contains(&format!(
-                "{path}: kept your existing copy; Capture One distortion not applied"
-            )),
-            "{:?}",
-            report.warnings
+            report.recipe_changes[0]
+                .path
+                .ends_with(&format!("?vc={copy}"))
         );
+        assert!(report.recipe_changes[0].before.is_null());
         // A photo without an edit of the user's gets the distortion.
         let fresh = tmp.path().join("b.RAF");
         fs::write(&fresh, b"raf").unwrap();
@@ -3598,27 +3875,20 @@ ProcessVersion = "15.4" }}"#,
             state["adjustments"]["lensDistortionParams"]["k1"],
             json!(-0.048)
         );
-        // The user rescaled or switched it off since: kept, and said.
+        // The user rescaled it since, Capture One unchanged: kept, silently.
         let mut state = catalog.editor_state(&id).unwrap().unwrap();
         state["adjustments"]["lensDistortionAmount"] = json!(50.0);
         catalog.save_editor_state(&id, &state).unwrap();
-        // (A lens-only reimport keeps the master as it is.)
         let rescaled = import_into(&catalog, &only).unwrap();
+        assert_eq!(
+            catalog.editor_state(&id).unwrap().unwrap()["adjustments"]["lensDistortionAmount"],
+            json!(50.0)
+        );
         assert!(
-            rescaled
-                .warnings
-                .iter()
-                .any(|w| w.contains("kept your existing edit")),
+            rescaled.edits_kept.is_empty() && rescaled.recipe_changes.is_empty(),
             "{rescaled:?}"
         );
-        state["adjustments"]["lensDistortionAmount"] = json!(100.0);
-        catalog.save_editor_state(&id, &state).unwrap();
-        // Repeated: the same distortion is already there, nothing to say.
-        let again = import_into(&catalog, &only).unwrap();
-        assert!(
-            again.warnings.iter().all(|w| !w.contains("kept your")),
-            "{again:?}"
-        );
+        assert!(catalog.copies(&id).unwrap().is_empty());
     }
 
     #[test]
@@ -3814,5 +4084,193 @@ ProcessVersion = "15.4" }}"#,
             again.stacks,
             catalog.stacks().unwrap().len()
         );
+    }
+
+    /// The develop settings of an exposure in each other editor's form.
+    fn exposure_in(editor: &str, ev: f64) -> Develop {
+        match editor {
+            "c1" => Develop::CaptureOne(vec![("Exposure".into(), format!("{ev}"))]),
+            _ => Develop::LightroomXmp(format!(r#"crs:Exposure2012="{ev:+.2}""#)),
+        }
+    }
+
+    fn one_photo(raw: &Path, develop: Develop) -> Source {
+        Source {
+            name: "Job".into(),
+            photos: vec![photo("1", raw.to_path_buf(), develop, None)],
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        }
+    }
+
+    fn exposure_of(catalog: &Library, asset: &str) -> Value {
+        catalog.editor_state(asset).unwrap().unwrap()["adjustments"]["exposure"].clone()
+    }
+
+    /// C1RI1: an edit the photographer changed here since the import is
+    /// never replaced by a repeated import, for Capture One and Lightroom
+    /// alike. Settings changed there too come in as a new virtual copy,
+    /// named in the summary, once; the photograph is never written.
+    #[test]
+    fn a_reimport_keeps_an_edit_changed_here_and_brings_the_new_settings_as_a_copy() {
+        for editor in ["c1", "lr"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let catalog = Library::create(&tmp.path().join("Cat"), "Cat", Mode::Catalog).unwrap();
+            let raw = tmp.path().join("a.RAF");
+            fs::write(&raw, b"raf").unwrap();
+            import_into(&catalog, &one_photo(&raw, exposure_in(editor, 0.5))).unwrap();
+            let asset = catalog.asset_at(&raw).unwrap().unwrap().id;
+            assert_eq!(exposure_of(&catalog, &asset), json!(0.5), "{editor}");
+            // The photographer's edit here.
+            let mut state = catalog.editor_state(&asset).unwrap().unwrap();
+            state["adjustments"]["exposure"] = json!(0.9);
+            catalog.save_editor_state(&asset, &state).unwrap();
+            // The other editor's settings changed as well.
+            let changed = one_photo(&raw, exposure_in(editor, -0.3));
+            let report = import_into(&catalog, &changed).unwrap();
+            assert_eq!(
+                exposure_of(&catalog, &asset),
+                json!(0.9),
+                "{editor} {report:?}"
+            );
+            assert!(report.recipe_changes.is_empty(), "{editor} {report:?}");
+            let copies = catalog.copies(&asset).unwrap();
+            assert_eq!(copies.len(), 1, "{editor} {report:?}");
+            let copy = catalog.copy_state(&asset, &copies[0]).unwrap().unwrap();
+            assert_eq!(copy["adjustments"]["exposure"], json!(-0.3), "{editor}");
+            let name = if editor == "c1" {
+                "Capture One"
+            } else {
+                "Lightroom"
+            };
+            assert_eq!(
+                report.edits_kept,
+                [format!(
+                    "{}: kept your edit; the newer {name} settings are in a new virtual copy",
+                    raw.display()
+                )],
+                "{editor}"
+            );
+            assert_eq!(report.copies, 1, "{editor}");
+            // Its derived sidecar beside the photograph, as for every copy.
+            assert!(
+                raw.with_file_name(format!("a.RAF.{}.rrdata", copies[0]))
+                    .is_file()
+            );
+            // Repeated: neither a second copy nor a second line.
+            let again = import_into(&catalog, &changed).unwrap();
+            assert_eq!(catalog.copies(&asset).unwrap(), copies, "{editor}");
+            assert!(again.edits_kept.is_empty(), "{editor} {again:?}");
+            assert_eq!(exposure_of(&catalog, &asset), json!(0.9));
+            assert_eq!(fs::read(&raw).unwrap(), b"raf");
+        }
+    }
+
+    /// C1RI1: an edit still exactly as the last import left it follows the
+    /// other editor's changed settings, as one undoable change, and the
+    /// derived sidecar beside the photograph follows; unchanged settings
+    /// there leave an edit made here alone, without a line.
+    #[test]
+    fn a_reimport_updates_an_edit_unchanged_here_with_undo() {
+        for editor in ["c1", "lr"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let catalog = Library::create(&tmp.path().join("Cat"), "Cat", Mode::Catalog).unwrap();
+            let raw = tmp.path().join("a.RAF");
+            fs::write(&raw, b"raf").unwrap();
+            let first = one_photo(&raw, exposure_in(editor, 0.5));
+            import_into(&catalog, &first).unwrap();
+            let asset = catalog.asset_at(&raw).unwrap().unwrap();
+            let report =
+                import_into(&catalog, &one_photo(&raw, exposure_in(editor, -0.3))).unwrap();
+            assert_eq!(
+                exposure_of(&catalog, &asset.id),
+                json!(-0.3),
+                "{editor} {report:?}"
+            );
+            assert!(catalog.copies(&asset.id).unwrap().is_empty(), "{editor}");
+            assert!(report.edits_kept.is_empty(), "{editor} {report:?}");
+            assert_eq!(report.recipe_changes.len(), 1, "{editor} {report:?}");
+            let change = &report.recipe_changes[0];
+            assert_eq!(change.path, asset.path.to_string_lossy(), "{editor}");
+            assert_eq!(change.before["exposure"], json!(0.5), "{editor}");
+            assert_eq!(change.after["exposure"], json!(-0.3), "{editor}");
+            let sidecar: Value =
+                serde_json::from_slice(&fs::read(raw.with_file_name("a.RAF.rrdata")).unwrap())
+                    .unwrap();
+            assert_eq!(sidecar["adjustments"]["exposure"], json!(-0.3), "{editor}");
+            // An edit here, settings there unchanged: kept, nothing to say.
+            let mut state = catalog.editor_state(&asset.id).unwrap().unwrap();
+            state["adjustments"]["exposure"] = json!(0.9);
+            catalog.save_editor_state(&asset.id, &state).unwrap();
+            let same = import_into(&catalog, &one_photo(&raw, exposure_in(editor, -0.3))).unwrap();
+            assert_eq!(
+                exposure_of(&catalog, &asset.id),
+                json!(0.9),
+                "{editor} {same:?}"
+            );
+            assert!(
+                same.recipe_changes.is_empty() && same.edits_kept.is_empty(),
+                "{same:?}"
+            );
+            assert!(catalog.copies(&asset.id).unwrap().is_empty(), "{editor}");
+            assert_eq!(fs::read(&raw).unwrap(), b"raf");
+        }
+    }
+
+    /// C1RI1 for virtual copies: an imported copy unchanged here follows
+    /// the other editor's variant (undoable, its sidecar follows); one
+    /// edited here is kept and the variant's new settings come as a further
+    /// copy.
+    #[test]
+    fn a_reimport_treats_imported_copies_as_edits() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Cat"), "Cat", Mode::Catalog).unwrap();
+        let raw = tmp.path().join("a.RAF");
+        fs::write(&raw, b"raf").unwrap();
+        let source = |copy_ev: f64| Source {
+            name: "Job".into(),
+            photos: vec![
+                photo("1", raw.clone(), exposure_in("c1", 0.5), None),
+                photo("2", raw.clone(), exposure_in("c1", copy_ev), Some("1")),
+            ],
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        import_into(&catalog, &source(1.0)).unwrap();
+        let asset = catalog.asset_at(&raw).unwrap().unwrap().id;
+        let copies = catalog.copies(&asset).unwrap();
+        assert_eq!(copies.len(), 1);
+        let copy = copies[0].clone();
+        let report = import_into(&catalog, &source(1.5)).unwrap();
+        let state = catalog.copy_state(&asset, &copy).unwrap().unwrap();
+        assert_eq!(state["adjustments"]["exposure"], json!(1.5), "{report:?}");
+        assert_eq!(state["rating"], json!(4));
+        let change = report
+            .recipe_changes
+            .iter()
+            .find(|c| c.path.ends_with(&format!("?vc={copy}")))
+            .unwrap_or_else(|| panic!("{report:?}"));
+        assert_eq!(change.before["exposure"], json!(1.0));
+        let sidecar: Value = serde_json::from_slice(
+            &fs::read(raw.with_file_name(format!("a.RAF.{copy}.rrdata"))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(sidecar["adjustments"]["exposure"], json!(1.5));
+        // Edited here, changed there: kept, a further copy.
+        let mut state = state;
+        state["adjustments"]["exposure"] = json!(2.0);
+        catalog.save_copy_state(&asset, &copy, &state).unwrap();
+        let report = import_into(&catalog, &source(-1.0)).unwrap();
+        let kept = catalog.copy_state(&asset, &copy).unwrap().unwrap();
+        assert_eq!(kept["adjustments"]["exposure"], json!(2.0), "{report:?}");
+        let now = catalog.copies(&asset).unwrap();
+        assert_eq!(now.len(), 2, "{report:?}");
+        let added = now.iter().find(|c| **c != copy).unwrap();
+        let added = catalog.copy_state(&asset, added).unwrap().unwrap();
+        assert_eq!(added["adjustments"]["exposure"], json!(-1.0));
+        assert_eq!(report.edits_kept.len(), 1, "{report:?}");
+        assert_eq!(fs::read(&raw).unwrap(), b"raf");
     }
 }

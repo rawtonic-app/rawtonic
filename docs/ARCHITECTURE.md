@@ -170,6 +170,10 @@ New Rust workspace crates isolate data and file safety.
   `cull_suggestions`, `cull_dismiss`), UI `src/components/studio/StudioCulling.tsx` (the Library's Culling panel and the
   tile tags) and `src/store/useCullStore.ts`. Auto-Stack's look-alike rule (`stacks::AutoStackOptions::similarity`)
   compares the same embeddings of consecutive photographs.
+- `imported`: what an import from Lightroom or Capture One (`src-tauri/src/library_import.rs`) last wrote to each
+  version (schema 31: `imported_recipes`, digests of the other editor's settings, of the recipe made of them and of the
+  recipe as stored), `imported_recipe`, `record_imported_recipe`: a repeated import updates only an edit still as the last
+  import left it (one Undo step); one changed here is kept and changed settings there come as a new virtual copy (C1RI1).
 - `duplicates` + `image_hash`: Find Duplicates stage 1 — a hash of each photograph's image data as its file stores it
   (TIFF-based RAWs: the IFD with the most strip/tile bytes; RAF: the CFA section; ISO media/CR3: the largest track's
   samples; JPEG: all but APPn/COM segments; PNG: IHDR/PLTE/tRNS/IDAT; else the whole file, marked `file`), recorded in
