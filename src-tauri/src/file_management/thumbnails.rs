@@ -1598,9 +1598,12 @@ fn keep_tile_of_unavailable_original(
     new: String,
     old: impl FnOnce() -> Vec<String>,
 ) -> String {
-    // A proxy of another decode variant cannot show this recipe.
+    // A proxy of another decode variant cannot show this recipe, and none
+    // is developed for an evicted cloud original (`get_or_generate`
+    // develops nothing without downloading it): its old tile stays.
     if crate::preview_proxy::source_available(source)
         || (crate::preview_proxy::proxy_path(source).is_some_and(|p| p.is_file())
+            && !is_cloud_placeholder(source)
             && crate::preview_proxy::stands_for_by_recipe(source, recipe) == Some(true))
         || thumbnail_files_exist(directory, &new)
     {
@@ -3780,6 +3783,30 @@ mod face_retouch_thumbnail_tests {
         // stays instead of a blank.
         assert_eq!(key(&copy), old);
         std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    /// An evicted cloud original is not developed for a tile, so a preview
+    /// that stands for its recipe does not renew the key: the old tile
+    /// stays instead of a blank (PXV1 review).
+    #[test]
+    fn an_evicted_cloud_original_keeps_its_tile_though_its_preview_stands_for_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let (source, _, master, _) = session_with_a_copy_of_another_variant(temp.path());
+        let cache = temp.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        let (old, new) = ("a".repeat(64), "b".repeat(64));
+        for size in ["small", "medium"] {
+            std::fs::write(cache.join(format!("{old}_{size}.jpg")), b"tile").unwrap();
+        }
+        crate::file_management::simulate_cloud_placeholder(&source);
+        let master = serde_json::from_slice(&master).unwrap();
+        assert_eq!(
+            crate::preview_proxy::stands_for_by_recipe(&source, &master),
+            Some(true)
+        );
+        let chosen =
+            keep_tile_of_unavailable_original(&cache, &source, &master, new, || vec![old.clone()]);
+        assert_eq!(chosen, old);
     }
 
     #[cfg(unix)]
