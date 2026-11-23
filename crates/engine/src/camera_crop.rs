@@ -88,8 +88,15 @@ fn cached(
     type Cache = Mutex<HashMap<String, (u64, std::time::SystemTime, Vec<Option<CameraCrop>>)>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
+    let read = |source: &rawler::rawsource::RawSource| -> Vec<_> {
+        (0..=crate::source_frame::VERSION)
+            .map(|version| rawtonic_rawdecode::camera_crop::camera_crop(source, version))
+            .collect()
+    };
+    // Unstamped (a mapping whose file time is unknown): read, but never
+    // cached, as no stamp says which file at `path` it belongs to.
     let Some((len, modified)) = stamp else {
-        return Vec::new();
+        return source().map_or_else(Vec::new, |source| read(&source));
     };
     if let Some((l, m, found)) = cache
         .lock()
@@ -104,9 +111,7 @@ fn cached(
     let Some(source) = source() else {
         return Vec::new();
     };
-    let found: Vec<_> = (0..=crate::source_frame::VERSION)
-        .map(|version| rawtonic_rawdecode::camera_crop::camera_crop(&source, version))
-        .collect();
+    let found = read(&source);
     let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
     if cache.len() > 4096 {
         cache.clear();
@@ -481,6 +486,19 @@ mod tests {
             mapped,
             vec![None; crate::source_frame::VERSION as usize + 1]
         );
+    }
+
+    #[test]
+    fn an_unstamped_mapping_has_the_files_crops() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("unstamped.RAF");
+        let name = path.to_str().unwrap();
+        // An unrecognised header: no crop in any frame, an answer for each.
+        rawtonic_fs::atomic_write(&path, [0; 128]).unwrap();
+        let file: crate::image_loader::SharedBytes =
+            std::sync::Arc::new(crate::file_io::read_file_mapped(&path).unwrap());
+        let none = vec![None; crate::source_frame::VERSION as usize + 1];
+        assert_eq!(crops_in(name, &file, None), none);
     }
 
     /// The crops read through the caller's mapping (`crops_in`, the

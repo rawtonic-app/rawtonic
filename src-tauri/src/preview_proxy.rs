@@ -401,6 +401,15 @@ pub fn stands_for(source: &Path, recipe: &serde_json::Value) -> bool {
     if source_facts::registered(&source.to_string_lossy()).is_none() {
         prepare_offline(source);
     }
+    stands_for_readable(source, recipe)
+}
+
+/// `stands_for` for a caller that holds a mapping of the readable RAW
+/// `source`: the same answer without the readability check's open, which
+/// on a FUSE share client without keep-cache (KDE's kio-fuse) drops the
+/// pages the caller has read through its mapping (CRD4). Nothing offline
+/// to register for a file that can be read.
+pub fn stands_for_readable(source: &Path, recipe: &serde_json::Value) -> bool {
     let source = source.to_string_lossy();
     crate::image_loader::decode_variant(recipe, &source)
         == crate::image_loader::stored_decode_variant(&source)

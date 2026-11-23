@@ -374,21 +374,44 @@ fn retouched_base<'a>(
     }
 }
 
-/// A RAW's embedded preview (`safe_embedded_preview_fallback_shared`) and
-/// the mapping it was read from, for the steps after it
-/// (`embedded_in_camera_crop`) to read the same file through it instead of
-/// opening it again.
-fn embedded_raw_preview_and_file(source_path: &Path) -> Option<(DynamicImage, MappedRaw)> {
+/// A RAW mapped for the steps of its never-edited thumbnail, which read the
+/// same file through it instead of opening it again: the proxy check's
+/// frames and the develop defaults' camera (`prime_never_edited_raw`), the
+/// embedded preview (`embedded_raw_preview`) and the camera crops
+/// (`embedded_in_camera_crop`). Each open can drop the pages read before on
+/// a FUSE share client without keep-cache (KDE's kio-fuse; CRD3, CRD4).
+fn map_raw(source_path: &Path) -> Option<MappedRaw> {
     let (mmap, metadata) =
         rawtonic_engine::file_io::read_file_mapped_with_metadata(source_path).ok()?;
     // The mapped file's own size and time (`camera_crop::crops_in`).
     let stamp = metadata.modified().ok().map(|time| (metadata.len(), time));
-    let file: image_loader::SharedBytes = Arc::new(mmap);
-    let preview = image_loader::safe_embedded_preview_fallback_shared(
-        file.clone(),
-        &source_path.to_string_lossy(),
-    )?;
-    Some((preview, MappedRaw { file, stamp }))
+    Some(MappedRaw {
+        file: Arc::new(mmap),
+        stamp,
+    })
+}
+
+/// The frames (read by the preview proxy check, `preview_proxy::stands_for`,
+/// with a GPU) and, while develop defaults are set, the camera
+/// (`develop_defaults::for_path`) of the RAW `raw` maps, read through it
+/// into the caches their by-path lookups answer from.
+fn prime_never_edited_raw(raw: &MappedRaw, source: &str, proxy_check: bool) {
+    if proxy_check {
+        let _ = rawtonic_engine::source_frame::frames_in(source, &raw.file, raw.stamp);
+    }
+    if !rawtonic_engine::develop_defaults::current().is_empty() {
+        let _ = rawtonic_engine::develop_defaults::camera_of_in(
+            Path::new(source),
+            &raw.file,
+            raw.stamp,
+        );
+    }
+}
+
+/// A RAW's embedded preview (`safe_embedded_preview_fallback_shared`) read
+/// through its mapping.
+fn embedded_raw_preview(raw: &MappedRaw, source: &str) -> Option<DynamicImage> {
+    image_loader::safe_embedded_preview_fallback_shared(raw.file.clone(), source)
 }
 
 /// A RAW's mapping and the `camera_crop::FileStamp` of the file mapped.
@@ -450,8 +473,15 @@ fn stored_proxy(
     source: &Path,
     adjustments: &serde_json::Value,
     settings: &crate::app_settings::AppSettings,
+    mapped: Option<&MappedRaw>,
 ) -> Option<crate::preview_proxy::Proxy> {
-    crate::preview_proxy::stands_for(source, adjustments)
+    // A caller that has mapped the file knows it is readable
+    // (`preview_proxy::stands_for_readable`, no open after its reads).
+    let stands_for = match mapped {
+        Some(_) => crate::preview_proxy::stands_for_readable(source, adjustments),
+        None => crate::preview_proxy::stands_for(source, adjustments),
+    };
+    stands_for
         .then(|| crate::preview_proxy::read(source, settings))
         .flatten()
 }
@@ -566,12 +596,27 @@ fn develop_thumbnail_with_source(
 
     let settings = crate::state::settings::current(app_handle);
     let always_decode_raw = settings.always_decode_raw_thumbnails.unwrap_or(false);
+    // A never-edited RAW that may show its camera JPEG: mapped once, before
+    // the proxy check and the develop defaults read it (`map_raw`). Not a
+    // cloud placeholder, which reading downloads: the proxy check answers
+    // for it from its previews, and the JPEG maps it below only without a
+    // proxy, as before.
+    let mapped = (is_raw
+        && adjustments.is_null()
+        && preloaded_image.is_none()
+        && !always_decode_raw
+        && !is_cloud_placeholder(&source_path))
+    .then(|| map_raw(&source_path))
+    .flatten();
+    if let Some(raw) = &mapped {
+        prime_never_edited_raw(raw, &source_path_str, gpu_context.is_some());
+    }
 
     // A preview proxy (preview_proxy.rs) develops the thumbnail like the
     // editor does, also for never-edited RAWs (RAW defaults and the camera's
     // lens data), so the Library and the placeholder show the edited look.
     let proxy = (is_raw && preloaded_image.is_none() && gpu_context.is_some())
-        .then(|| stored_proxy(&source_path, &adjustments, &settings))
+        .then(|| stored_proxy(&source_path, &adjustments, &settings, mapped.as_ref()))
         .flatten();
     let (metadata, adjustments) = match (&proxy, metadata) {
         // A new recipe renders as its export does: none (with a proxy to
@@ -624,7 +669,7 @@ fn develop_thumbnail_with_source(
     })
     .flatten();
     let (proxy, color_noise) = match (proxy, color_noise) {
-        (None, Some(input)) => match stored_proxy(&source_path, &adjustments, &settings) {
+        (None, Some(input)) => match stored_proxy(&source_path, &adjustments, &settings, None) {
             Some(proxy) => (Some(proxy), Some(input)),
             None => (None, None),
         },
@@ -638,13 +683,14 @@ fn develop_thumbnail_with_source(
         && adjustments.is_null()
         && preloaded_image.is_none()
         && !always_decode_raw
-        && let Some((preview, file)) = embedded_raw_preview_and_file(&source_path)
+        && let Some(raw) = mapped.or_else(|| map_raw(&source_path))
+        && let Some(preview) = embedded_raw_preview(&raw, &source_path_str)
     {
         *embedded = true;
         return Ok(embedded_in_camera_crop(
             preview,
             &source_path_str,
-            Some(&file),
+            Some(&raw),
         ));
     }
 
@@ -3006,6 +3052,50 @@ mod thumbnail_queue_tests {
         assert_eq!(size(1080, 1920), (1080, 1920));
     }
 
+    /// A never-edited RAW's camera JPEG keeps the camera's crop when the
+    /// mapping it came from has no known file time (`MappedRaw::stamp`
+    /// None): the crops are read from that mapping, only not cached.
+    #[test]
+    #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory"]
+    fn an_unstamped_mapping_keeps_the_camera_crop_of_the_thumbnail() {
+        let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
+        let mut cut = 0;
+        for path in fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+        {
+            let name = path.to_string_lossy().into_owned();
+            if !is_raw_file(&name) {
+                continue;
+            }
+            let Some(stamped) = map_raw(&path) else {
+                continue;
+            };
+            let Some(preview) = embedded_raw_preview(&stamped, &name) else {
+                continue;
+            };
+            let unstamped = MappedRaw {
+                file: stamped.file.clone(),
+                stamp: None,
+            };
+            let size = |image: DynamicImage| (image.width(), image.height());
+            let without = size(embedded_in_camera_crop(
+                preview.clone(),
+                &name,
+                Some(&unstamped),
+            ));
+            let with = size(embedded_in_camera_crop(
+                preview.clone(),
+                &name,
+                Some(&stamped),
+            ));
+            assert_eq!(without, with, "{name}");
+            cut += usize::from(with != size(preview));
+        }
+        assert!(cut > 0, "no fixture whose camera JPEG is cut to its crop");
+    }
+
     #[test]
     fn a_recipe_uses_the_preview_proxy_only_when_made_for_its_decode_variant() {
         let directory = tempfile::tempdir().unwrap();
@@ -3070,7 +3160,7 @@ mod thumbnail_queue_tests {
             let directory = tempfile::tempdir().unwrap();
             let photo = offline_cr3(directory.path(), frame_one_edit(), frame);
             assert_eq!(
-                stored_proxy(&photo, &frame_one_edit(), &settings).is_some(),
+                stored_proxy(&photo, &frame_one_edit(), &settings, None).is_some(),
                 shown
             );
         }

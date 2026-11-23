@@ -292,26 +292,59 @@ pub fn follows_defaults(recipe: &Value) -> bool {
 /// decoder names them (rawler's clean names) and its serial number, other
 /// files' from their EXIF. Read once per file size and modification time.
 pub fn camera_of(path: &Path) -> Option<CameraIdentity> {
+    let stamp = std::fs::metadata(path)
+        .ok()
+        .and_then(|m| Some((m.len(), m.modified().ok()?)))?;
+    cached_camera(path, Some(stamp), || {
+        if crate::formats::is_raw_file(path) {
+            // Mapped without read-ahead: only the tags are read.
+            rawler::rawsource::RawSource::new_lazy(path)
+                .ok()
+                .and_then(|source| camera_of_raw(&source))
+        } else {
+            camera_of_exif(path)
+        }
+    })
+}
+
+/// `camera_of` the RAW at `path` read through `file`, the caller's mapping
+/// of it, into the same cache (`source_frame::frames_in`: a second open can
+/// drop the pages the caller is reading). `stamp` is the size and time of
+/// the file `file` maps; without one the camera is read but not cached.
+/// Other files: `camera_of`.
+pub fn camera_of_in(
+    path: &Path,
+    file: &crate::image_loader::SharedBytes,
+    stamp: Option<crate::camera_crop::FileStamp>,
+) -> Option<CameraIdentity> {
+    if !crate::formats::is_raw_file(path) {
+        return camera_of(path);
+    }
+    cached_camera(path, stamp, || {
+        camera_of_raw(&rawler::rawsource::RawSource::new_from_shared(file.clone()).with_path(path))
+    })
+}
+
+/// The camera of the file stamped `stamp` at `path`: cached per path and
+/// stamp, else read (and cached only with a stamp).
+fn cached_camera(
+    path: &Path,
+    stamp: Option<crate::camera_crop::FileStamp>,
+    read: impl FnOnce() -> Option<CameraIdentity>,
+) -> Option<CameraIdentity> {
     type Cache = Mutex<HashMap<PathBuf, (u64, std::time::SystemTime, Option<CameraIdentity>)>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
-    let (len, modified) = std::fs::metadata(path)
-        .ok()
-        .and_then(|m| Some((m.len(), m.modified().ok()?)))?;
+    let Some((len, modified)) = stamp else {
+        return read();
+    };
     if let Some((l, m, camera)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(path)
         && *l == len
         && *m == modified
     {
         return camera.clone();
     }
-    let camera = if crate::formats::is_raw_file(path) {
-        // Mapped without read-ahead: only the tags are read.
-        rawler::rawsource::RawSource::new_lazy(path)
-            .ok()
-            .and_then(|source| camera_of_raw(&source))
-    } else {
-        camera_of_exif(path)
-    };
+    let camera = read();
     let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
     if cache.len() > 4096 {
         cache.clear();
