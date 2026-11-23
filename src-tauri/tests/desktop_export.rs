@@ -5,6 +5,7 @@
 #![cfg(unix)]
 
 use rawtonic_export::existing_files::{ExportRecords, Outcome};
+use rawtonic_fs::Canonical;
 use std::fs::{self, File};
 use std::io::{Cursor, Read};
 use std::os::unix::fs::MetadataExt;
@@ -25,7 +26,7 @@ fn replace_if_changed_through_the_desktop_worker() {
     );
 
     let temp = tempfile::tempdir().unwrap();
-    let root = temp.path().canonicalize().unwrap();
+    let root = temp.path().canonical().unwrap();
     let data = root.join("exs2-app-data");
     let output = root.join("output");
     fs::create_dir(&data).unwrap();
