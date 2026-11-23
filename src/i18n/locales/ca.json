@@ -89,6 +89,7 @@
       "running": "No hi ha res en curs."
     },
     "export": {
+      "done": "{{label}} exportat ({{existing}})",
       "failed_one": "{{count}} foto no s’ha exportat: {{label}}",
       "failed_many": "{{count}} fotos no s’han exportat: {{label}}",
       "failed_other": "{{count}} fotos no s’han exportat: {{label}}",
@@ -2443,7 +2444,7 @@
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
         "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
         "p12-keystore / RustCrypto": "Obertura del fitxer de certificat PKCS#12 del qual s'importa un certificat de signatura.",
-        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
         "ring": "Signatura dels manifests de procedència (C2PA) a les exportacions: signatures ECDSA, RSA-PSS i Ed25519, SHA-256.",
@@ -3745,6 +3746,28 @@
         "ratioHeight": "Alçada de la proporció",
         "ratioWidth": "Amplada de la proporció"
       },
+      "collision": {
+        "cancel": "Cancel·la",
+        "choice": {
+          "keepBoth": "Conserva tots dos",
+          "replaceIfChanged": "Substitueix si ha canviat",
+          "skip": "Omet"
+        },
+        "hint": {
+          "keepBoth": "Cada fitxer nou rep un nom nou. No se sobreescriu res.",
+          "replaceIfChanged": "Substitueix les teves pròpies exportacions que han canviat. Les que no han canviat s’ometen. Els altres fitxers es queden i el fitxer nou rep un nom nou.",
+          "skip": "Els fitxers existents es queden tal com són; aquestes fotos no tornen a exportar-se."
+        },
+        "intro": "Tria una vegada per a tota l'exportació.",
+        "kind": {
+          "changedOwn": "Exportació anterior, foto o ajustos canviats des d’aleshores: {{number}}",
+          "other": "Altres fitxers o exportacions amb fitxers de màscara (no se substitueixen): {{number}}",
+          "unchangedOwn": "Exportació anterior, sense canvis des d’aleshores: {{number}}"
+        },
+        "more": "i {{number}} més",
+        "originals": "D’aquests, fotos d’una biblioteca, mai substituïdes: {{number}}",
+        "title": "Ja hi ha fitxers amb aquests noms"
+      },
       "destination": {
         "aria": "Destinació de l'exportació",
         "choose": "Tria una carpeta…",
@@ -3752,6 +3775,19 @@
           "fullPath": "Fes servir un nom de carpeta, no una unitat ni un camí complet.",
           "outside": "La subcarpeta ha de quedar dins de la carpeta de destinació.",
           "tokens": "Fes servir els marcadors disponibles i noms de carpeta sense caràcters reservats."
+        },
+        "existing": "Si un fitxer existeix",
+        "existingChoice": {
+          "ask": "Pregunta",
+          "keepBoth": "Conserva tots dos (nom nou)",
+          "replaceIfChanged": "Substitueix si ha canviat",
+          "skip": "Omet"
+        },
+        "existingHint": {
+          "ask": "Abans d'exportar, pregunta una vegada què fer si ja hi ha fitxers amb aquests noms. No es processa ni s'escriu res fins que responguis.",
+          "keepBoth": "El fitxer nou rep un nom numerat; mai no se sobreescriu res.",
+          "replaceIfChanged": "Substitueix l'exportació anterior de Rawtonic d'una foto amb aquest nom només si n'ha canviat l'edició o la configuració; les fotos sense canvis s'ometen. Qualsevol altre fitxer (originals, JPEG de la càmera, fitxers editats en un altre lloc) es conserva i el fitxer nou rep un nom numerat.",
+          "skip": "Les fotos el fitxer de les quals ja existeix no s'exporten."
         },
         "exportTo": "Exporta a",
         "keepStructure": "Mantén l'estructura de carpetes",
@@ -3773,10 +3809,12 @@
       },
       "errors": {
         "batchFailed": "{{failed}} de {{total}} exportacions han fallat",
+        "couldNotStart": "No s’ha pogut iniciar l’exportació. Torna a exportar.",
         "gpuDeviceLost": "No s’ha pogut processar aquesta foto en aquest xip gràfic: ha deixat de respondre (sense memòria). Tanca i torna a obrir Rawtonic i exporta de nou aquesta foto.",
         "gpuMemory": "No hi ha prou memòria gràfica per a aquesta foto. Tanca altres programes que facin servir la targeta gràfica i torna a exportar aquesta foto.",
         "gpuTooComplex": "Les edicions d’aquesta foto són massa complexes perquè el controlador d’aquest xip gràfic les exporti. Elimina algunes edicions (efectes, ajustos locals) i torna-la a exportar, o exporta-la en un altre ordinador.",
         "offline": "{{file}} està fora de línia: per exportar cal el fitxer RAW.",
+        "queuedByOlderVersion": "Aquesta exportació es va posar a la cua en una versió anterior de Rawtonic. Torna a exportar.",
         "terminated": "L'exportació s'ha aturat inesperadament.",
         "textureLimit": "La imatge ({{width}} × {{height}} px) és més gran del que aquesta targeta gràfica pot processar ({{limit}} px per costat).",
         "unreadableRequest": "No s'han pogut llegir els ajustos desats d'aquesta exportació.",
@@ -3888,6 +3926,17 @@
           "minutes": "queden uns {{minutes}} min",
           "seconds": "queden uns {{seconds}} s"
         },
+        "existing": {
+          "keptBoth_one": "{{count}} amb un nom nou",
+          "keptBoth_many": "{{count}} amb noms nous",
+          "keptBoth_other": "{{count}} amb noms nous",
+          "replaced_one": "{{count}} substituïda",
+          "replaced_many": "{{count}} substituïdes",
+          "replaced_other": "{{count}} substituïdes",
+          "skipped_one": "{{count}} omesa",
+          "skipped_many": "{{count}} omeses",
+          "skipped_other": "{{count}} omeses"
+        },
         "exportedTo": "Exportat a:",
         "failed": "{{failed}} de {{total}} han fallat",
         "failures": "Fotos que no s'han exportat",
@@ -3903,10 +3952,15 @@
           "denoiseProgress": "Progrés de la reducció de soroll amb IA",
           "denoising": "Reducció de soroll amb IA {{percent}} %",
           "doneIn": "Fet en {{seconds}} s",
+          "keptBoth": "Exportada amb un nom nou: el fitxer existent no és la seva exportació",
+          "keptOriginal": "Exportada amb un nom nou: el fitxer existent és una foto d'una biblioteca",
           "loading": "S'està llegint la foto…",
           "masks": "S'estan escrivint les màscares…",
           "rendering": "S'està renderitzant i escrivint…",
+          "replaced": "Exportació anterior substituïda",
           "selecting": "Calculant les seleccions amb IA…",
+          "skippedExists": "Omesa: existeix un fitxer amb aquest nom",
+          "skippedUnchanged": "Omesa: sense canvis des de l'última exportació",
           "waiting": "En espera"
         },
         "photos_one": "{{count}} foto",

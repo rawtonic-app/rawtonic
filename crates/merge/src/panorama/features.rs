@@ -20,11 +20,29 @@ pub struct Keypoint {
 const SCALES_PER_OCTAVE: usize = 3;
 const BASE_SIGMA: f32 = 1.6;
 const CONTRAST_THRESHOLD: f32 = 0.012;
+const ADAPTIVE_CONTRAST_STEPS: [f32; 3] = [1.0, 0.5, 0.25];
 const EDGE_RATIO: f32 = 10.0;
 
 /// Keypoints of a single-channel image (any linear range; it is compressed
 /// with a logarithm first so dark and bright frames give the same points).
+///
+/// Frames with little texture (a sky, a wall, a grey card filling the view)
+/// give too few points at the fixed contrast threshold to pass the overlap
+/// test, so the threshold is lowered in steps until a quarter of
+/// `max_keypoints` is found (RapidRAW's adaptive contrast steps, Timon Käch,
+/// AGPL-3.0; notes: benchmark-results/mrg1-2026-11-22).
 pub fn detect(luma: &Plane, max_keypoints: usize) -> Vec<Keypoint> {
+    let mut found = Vec::new();
+    for factor in ADAPTIVE_CONTRAST_STEPS {
+        found = detect_at(luma, max_keypoints, CONTRAST_THRESHOLD * factor);
+        if found.len() >= max_keypoints / 4 {
+            break;
+        }
+    }
+    found
+}
+
+fn detect_at(luma: &Plane, max_keypoints: usize, contrast_threshold: f32) -> Vec<Keypoint> {
     // Perceptual domain: log keeps the same structure under exposure changes.
     let mean = luma.mean().max(1e-6) as f32;
     let base = luma.map(|v| ((v.max(0.0) / mean) + 0.02).ln() * 0.25);
@@ -72,7 +90,7 @@ pub fn detect(luma: &Plane, max_keypoints: usize) -> Vec<Keypoint> {
                     let mut row = Vec::new();
                     for x in 5..w.saturating_sub(5) {
                         let v = dog[s].at(x, y);
-                        if v.abs() < 0.5 * CONTRAST_THRESHOLD / SCALES_PER_OCTAVE as f32 {
+                        if v.abs() < 0.5 * contrast_threshold / SCALES_PER_OCTAVE as f32 {
                             continue;
                         }
                         if is_extremum(&dog, s, x, y, v) {
@@ -86,7 +104,7 @@ pub fn detect(luma: &Plane, max_keypoints: usize) -> Vec<Keypoint> {
                 .into_par_iter()
                 .filter_map(|(x, y)| {
                     let (dx, dy, ds, value) = refine(&dog, s, x, y)?;
-                    if value.abs() < CONTRAST_THRESHOLD / SCALES_PER_OCTAVE as f32
+                    if value.abs() < contrast_threshold / SCALES_PER_OCTAVE as f32
                         || !passes_edge_test(&dog[s], x, y)
                     {
                         return None;
@@ -360,4 +378,83 @@ pub fn match_keypoints(a: &[Keypoint], b: &[Keypoint], ratio: f32) -> Vec<(usize
             (back == i && d1.max(0.0).sqrt() < ratio * d2.max(0.0).sqrt()).then_some((i, j))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::panorama::geometry::ransac_homography;
+    use nalgebra::Vector2;
+
+    /// Smooth random texture of contrast `amplitude` around mid grey.
+    fn texture(w: usize, h: usize, amplitude: f32) -> Plane {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut noise = Plane::new(w, h);
+        for v in noise.data.iter_mut() {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            *v = (state >> 40) as f32 / (1u64 << 24) as f32 - 0.5;
+        }
+        let smooth = gaussian_blur(&noise, 2.0);
+        smooth.map(|v| 0.18 * (1.0 + amplitude * v))
+    }
+
+    fn crop(p: &Plane, x0: usize, w: usize) -> Plane {
+        let mut out = Plane::new(w, p.h);
+        for y in 0..p.h {
+            out.data[y * w..(y + 1) * w].copy_from_slice(&p.data[y * p.w + x0..y * p.w + x0 + w]);
+        }
+        out
+    }
+
+    /// Registers two overlapping crops: inlier count and the found shift.
+    fn register(a: &[Keypoint], b: &[Keypoint]) -> (usize, f64) {
+        let m = match_keypoints(a, b, 0.8);
+        let pts: Vec<(Vector2<f64>, Vector2<f64>)> = m
+            .iter()
+            .map(|&(i, j)| {
+                (
+                    Vector2::new(a[i].x as f64, a[i].y as f64),
+                    Vector2::new(b[j].x as f64, b[j].y as f64),
+                )
+            })
+            .collect();
+        match ransac_homography(&pts, 2.5, 1500) {
+            Some((h, inliers)) => {
+                let p = crate::panorama::geometry::apply_h(&h, &Vector2::new(200.0, 160.0))
+                    .unwrap_or_default();
+                (inliers.len(), 200.0 - p.x)
+            }
+            None => (0, 0.0),
+        }
+    }
+
+    /// Frames with little texture (a grey card or a wall filling the
+    /// view) found almost no keypoints at the fixed contrast threshold, so
+    /// their overlap failed the acceptance test (at least 20 inliers) and
+    /// the frame was left out of the panorama.
+    #[test]
+    fn low_texture_frames_still_register() {
+        let t = texture(480, 320, 0.5);
+        let (a, b) = (crop(&t, 0, 320), crop(&t, 120, 320));
+        let (inliers, shift) = register(&detect(&a, 2500), &detect(&b, 2500));
+        assert!(inliers >= 20, "{inliers} inliers");
+        assert!((shift - 120.0).abs() < 0.5, "shift {shift}");
+    }
+
+    /// Ordinary texture keeps exactly the keypoints of the fixed threshold.
+    #[test]
+    fn textured_frames_keep_their_keypoints() {
+        let t = texture(320, 320, 3.0);
+        let fixed = detect_at(&t, 2500, CONTRAST_THRESHOLD);
+        let adaptive = detect(&t, 2500);
+        assert_eq!(fixed.len(), adaptive.len());
+        assert!(
+            fixed
+                .iter()
+                .zip(&adaptive)
+                .all(|(f, a)| f.x == a.x && f.y == a.y)
+        );
+    }
 }

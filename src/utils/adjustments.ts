@@ -386,6 +386,7 @@ export interface RetouchFace {
    * faces it looked at, missing on faces whose Eyes and Teeth keep the
    * Face Mesh outlines (edits made before it). */
   parsedTeeth?: number[][][];
+
   /** Blemishes (ids) the user keeps. */
   kept: number[];
   /** Blemishes (ids) the user heals below the slider's reach. */
@@ -420,6 +421,11 @@ export interface FaceRetouch {
   enabled?: boolean;
   /** The protection brush's strokes, in the order painted (for every face). */
   protect?: FaceProtectStroke[];
+  /** The share of the iris radius the Iris mask's disk reaches on the
+   * parser's eyes (0.9 since 2026-11-22), set when the retouch is made from
+   * faces the parser looked at; missing on retouches made before, which
+   * keep the full circle. Faces found again keep the retouch's value. */
+  irisDisk?: number;
 }
 
 /** Grain structures (shader `grain_structure_noise`, notes: reference/grain.md). */
@@ -1733,7 +1739,7 @@ export const SHARPEN_VERSION = 8;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 14;
+export const RENDER_VERSION = 16;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
@@ -1749,6 +1755,26 @@ export const DEAD_PIXEL_RENDER_VERSION = 3;
  * recipe of a never-edited photo already carries `RENDER_VERSION`). */
 export const deadPixelAdjacent = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
   (adjustments.renderVersion ?? 1) >= DEAD_PIXEL_RENDER_VERSION;
+
+/** The render version from which a RAW's hot and dead photosites are found
+ * by their isolation from the 5 × 5 neighbourhood
+ * (crates/engine/src/image_loader.rs `ISOLATED_DEFECT_RENDER_VERSION`). */
+export const ISOLATED_DEFECT_RENDER_VERSION = 15;
+
+/** Whether a recipe's RAW is developed with that isolation test, as the
+ * backend decides (`image_loader::decode_variant`). */
+export const defectsIsolated = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
+  (adjustments.renderVersion ?? 1) >= ISOLATED_DEFECT_RENDER_VERSION;
+
+/** The render version from which that isolation test also repairs dead
+ * photosites in busy texture (crates/engine/src/image_loader.rs
+ * `TEXTURE_DEAD_RENDER_VERSION`). */
+export const TEXTURE_DEAD_RENDER_VERSION = 16;
+
+/** Whether a recipe's RAW is developed with that texture rule, as the
+ * backend decides (`image_loader::decode_variant`). */
+export const defectsTexture = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
+  (adjustments.renderVersion ?? 1) >= TEXTURE_DEAD_RENDER_VERSION;
 
 /** The render version from which a RAW's shadows keep their means through
  * the black clip and the demosaic (crates/engine/src/image_loader.rs

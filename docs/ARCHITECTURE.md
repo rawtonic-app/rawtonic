@@ -619,7 +619,11 @@ take turns (`src-tauri/src/ai_lifecycle.rs` `turn`, `export_turn`).
 
 `export` (render pipeline with an explicit `RenderEnv`, resize/border/watermark, encoders, EXIF/XMP export metadata,
 no-clobber output, single-file export used by `rawtonic export`, and the persistent export queue's state in `queue`:
-jobs and their photos with state, output, error and timing; pause, cancel, resume, retry, recovery after a crash).
+jobs and their photos with state, output, error, timing and "If a file exists" outcome; pause, cancel, resume, retry,
+recovery after a crash). `existing_files` holds the "If a file exists" choice (Keep both, Skip, Replace if changed),
+the decision made before a photo renders (`decide`), the inputs fingerprint and the export records
+(`export-records.sqlite` in the app data folder: output path → photo, inputs, size, SHA-256); `output::Publish` writes
+a new file or replaces only the recorded, unchanged previous export (`rawtonic_fs::replace_existing`).
 
 `export` (export settings/geometry/encoders, render pipeline with `RenderEnv`, exif_processing/tiff_exif/xmp_embed with
 `export_metadata_with` + `encode_with_metadata`, `sidecars` (virtual paths, `.rrdata` reading, library walk, export
@@ -668,7 +672,10 @@ Still in the adapter: the window surface and the processor/cache slots in `state
 through `MosaicDenoise::with_progress`, read by the studio's queue panel `StudioExportQueue`; a job carries each photo's
 recipe and embedded metadata, read once at submission through the library it was submitted from
 (`export_processing::pin_photos`), and its runner reads no library), editor-sidecar and session catalog reads, the AI
-models, `tether`, file management and the session bridge.
+models, `tether`, file management and the session bridge. `export_collisions` plans an export's file names ahead
+(`plan_export_collisions`, the same `plan_output_path` with no folder created) for the Export form's "If a file exists: Ask":
+it returns what the names meet, the form asks once and queues the answer; "ask" itself never reaches the queue as a choice
+that overwrites (`existing_files::decide` keeps both).
 
 **Desktop adapter (`src-tauri/`, crate `rawtonic-app`, lib `rapidraw_lib`)** — Tauri commands, `AppState`, image
 loading/caches, file management, export, AI, tether, culling, merge/collage glue and the thin glue modules over the

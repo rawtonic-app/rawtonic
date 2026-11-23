@@ -2,7 +2,7 @@ import '../../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
-import { ExportQueuePanel, describeExportItem } from './StudioExportQueue';
+import { ExportQueuePanel, describeExportItem, describeExportJob } from './StudioExportQueue';
 import { useProcessStore, type ExportItem, type ExportJob } from '../../store/useProcessStore';
 
 let items: ExportItem[] = [];
@@ -44,6 +44,25 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+it('shows a failed proof sheet’s reason even when its photo finished', async () => {
+  items = [item(0, { state: 'done', output: '/cache/sheet/0.jpg' })];
+  const failedSheet = {
+    ...job({ label: 'Proof sheet', state: 'failed', total: 1 }),
+    error: 'This export was queued by an older version of Rawtonic: export it again.'
+  };
+  useProcessStore.getState().setExportQueue({ jobs: [failedSheet], held: false });
+  render(<ExportQueuePanel onClose={() => {}} />);
+
+  const reason = 'This export was queued in an older version of Rawtonic. Export it again.';
+  expect(screen.getByText(reason)).toBeTruthy();
+  expect(screen.queryByText('0 of 1 failed')).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: '1 photo' }));
+  const photos = await screen.findByRole('list', { name: 'Photos of Proof sheet' });
+  expect(within(photos).getByText('Done')).toBeTruthy();
+  expect(screen.getByText(reason)).toBeTruthy();
+});
+
 it('says what each photo is doing, AI Denoise with its share done', () => {
   expect(describeExportItem({ ...item(0, { state: 'running' }), stage: 'denoising', fraction: 0.423 })).toBe(
     'AI Denoise 42 %'
@@ -53,6 +72,23 @@ it('says what each photo is doing, AI Denoise with its share done', () => {
   expect(describeExportItem(item(0, { state: 'done', startedMs: 1000, finishedMs: 4250 }))).toBe('Done in 3.3 s');
   expect(describeExportItem(item(0, { state: 'failed', error: 'Decoder said no' }))).toBe('Decoder said no');
   expect(describeExportItem(item(0, {}))).toBe('Waiting');
+});
+
+it('says what "If a file exists" skipped, replaced or kept, per job and per photo', () => {
+  expect(describeExportJob(job({ state: 'done', done: 4 }))).toBe('Done');
+  expect(describeExportJob(job({ state: 'done', done: 4, skipped: 2, replaced: 1, keptBoth: 1 }))).toBe(
+    'Done · 2 skipped · 1 replaced · 1 kept as a new name'
+  );
+  expect(describeExportItem(item(0, { state: 'done', outcome: 'skippedUnchanged' }))).toBe(
+    'Skipped: unchanged since its last export'
+  );
+  expect(describeExportItem(item(0, { state: 'done', outcome: 'skippedExists' }))).toBe(
+    'Skipped: a file of its name exists'
+  );
+  expect(describeExportItem(item(0, { state: 'done', outcome: 'replaced' }))).toBe('Replaced its earlier export');
+  expect(describeExportItem(item(0, { state: 'done', outcome: 'keptOriginal' }))).toBe(
+    'Exported under a new name: the existing file is a photo in a library'
+  );
 });
 
 it('lists every job newest first, empty or not, and acts on single jobs', () => {

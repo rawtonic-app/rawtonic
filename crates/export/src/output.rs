@@ -47,6 +47,95 @@ pub fn write_new_output_with(
     Ok(())
 }
 
+/// Replaces the previous export at `path` (`previous`, of `source`) with
+/// the content `fill` writes into a synced temporary file beside it, in one
+/// atomic rename (`rawtonic_fs::replace_existing`). Right before the rename
+/// the file must still be that export, byte for byte; otherwise, or when
+/// `fill` fails, nothing changes at `path` and the temporary file is gone.
+pub fn replace_previous_output_with(
+    path: &Path,
+    previous: &crate::existing_files::Recorded,
+    source: &str,
+    fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
+) -> io::Result<()> {
+    let parent = output_folder(path).ok_or_else(|| io::Error::other("Missing output folder"))?;
+    let mut temp = tempfile::Builder::new()
+        .prefix(&rawtonic_fs::temp::prefix_for(path))
+        .tempfile_in(parent)?;
+    fill(temp.as_file_mut())?;
+    temp.as_file().sync_all()?;
+    rawtonic_fs::replace_existing(temp, path, |path| previous.is_export_of(path, source))
+        .map_err(io::Error::other)
+}
+
+/// How an export file is published: as a new file, or over the previous
+/// export of the same photo (Replace if changed).
+#[derive(Clone, Copy)]
+pub enum Publish<'a> {
+    New,
+    Replace {
+        previous: &'a crate::existing_files::Recorded,
+        source: &'a str,
+    },
+}
+
+/// The size and SHA-256 of a file as an export wrote it, taken from its
+/// temporary file before it is published: what its record certifies, never
+/// whatever is at its path later.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Written {
+    pub size: u64,
+    pub sha256: String,
+}
+
+impl Written {
+    fn of(file: &mut fs::File) -> io::Result<Self> {
+        use std::io::{Seek, SeekFrom, Write};
+        file.flush()?;
+        let size = file.seek(SeekFrom::End(0))?;
+        file.seek(SeekFrom::Start(0))?;
+        let sha256 = rawtonic_fs::sha256_hex_read(file)?;
+        Ok(Self { size, sha256 })
+    }
+}
+
+impl Publish<'_> {
+    /// Publishes the file `fill` writes at `path` (see
+    /// [`write_new_output_with`], [`replace_previous_output_with`]); returns
+    /// what was written.
+    pub fn write_with(
+        self,
+        path: &Path,
+        fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
+    ) -> io::Result<Written> {
+        let mut written = None;
+        let fill = |file: &mut fs::File| {
+            fill(file)?;
+            written = Some(Written::of(file)?);
+            Ok(())
+        };
+        match self {
+            Publish::New => write_new_output_with(path, fill)?,
+            Publish::Replace { previous, source } => {
+                replace_previous_output_with(path, previous, source, fill)?
+            }
+        }
+        written.ok_or_else(|| io::Error::other("Nothing was written"))
+    }
+
+    /// [`Self::write_with`] of an encoded export.
+    pub fn write_export(
+        self,
+        path: &Path,
+        encoded: crate::export_processing::EncodedExport,
+    ) -> Result<Written, String> {
+        self.write_with(path, |file| {
+            encoded.write_to(file).map_err(io::Error::other)
+        })
+        .map_err(|e| format!("Failed to write file to '{}': {}", path.display(), e))
+    }
+}
+
 /// Writes an export file to a new file at `path` (never over an existing
 /// one), a TIFF encoded straight into the temporary file.
 pub fn write_new_export(
@@ -80,6 +169,56 @@ mod tests {
                 fs::metadata(&plain).unwrap().permissions().mode() & 0o777
             );
         }
+    }
+
+    #[test]
+    fn only_the_recorded_previous_export_is_replaced() {
+        use crate::existing_files::ExportRecords;
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let records = ExportRecords::open(&dir.path().join("records.sqlite")).unwrap();
+        let path = dir.path().join("photo.jpg");
+        write_new_output(&path, b"export one").unwrap();
+        records.record(&path, "/a.raf", "v1").unwrap();
+        let previous = records.get(&path).unwrap().unwrap();
+        let replace = Publish::Replace {
+            previous: &previous,
+            source: "/a.raf",
+        };
+        replace
+            .write_with(&path, |file| file.write_all(b"export two"))
+            .unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"export two");
+        // The file is no longer the recorded one: the same replace refuses.
+        assert!(
+            replace
+                .write_with(&path, |file| file.write_all(b"export three"))
+                .is_err()
+        );
+        assert_eq!(fs::read(&path).unwrap(), b"export two");
+        // Never another photo's, and a failed encode publishes nothing.
+        records.record(&path, "/a.raf", "v2").unwrap();
+        let previous = records.get(&path).unwrap().unwrap();
+        let other = Publish::Replace {
+            previous: &previous,
+            source: "/b.raf",
+        };
+        assert!(other.write_with(&path, |f| f.write_all(b"b")).is_err());
+        let own = Publish::Replace {
+            previous: &previous,
+            source: "/a.raf",
+        };
+        assert!(
+            own.write_with(&path, |_| Err(io::Error::other("encoder failed")))
+                .is_err()
+        );
+        assert_eq!(fs::read(&path).unwrap(), b"export two");
+        let names: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .filter(|name| rawtonic_fs::temp::is_temp_name(name))
+            .collect();
+        assert!(names.is_empty(), "{names:?}");
     }
 
     #[test]

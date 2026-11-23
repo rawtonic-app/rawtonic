@@ -74,6 +74,7 @@
       "running": "실행 중인 작업이 없습니다."
     },
     "export": {
+      "done": "{{label}} 내보냄({{existing}})",
       "failed_other": "사진 {{count}}장을 내보내지 못했습니다: {{label}}",
       "interrupted": "내보내기 중단됨: {{label}}",
       "running": "내보내는 중: {{label}}",
@@ -2212,7 +2213,7 @@
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
         "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
         "p12-keystore / RustCrypto": "서명 인증서를 가져오는 PKCS#12 인증서 파일 열기.",
-        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
         "ring": "내보내기의 출처 정보(C2PA) 매니페스트 서명: ECDSA, RSA-PSS, Ed25519 서명, SHA-256.",
@@ -3483,6 +3484,28 @@
         "ratioHeight": "비율 높이",
         "ratioWidth": "비율 너비"
       },
+      "collision": {
+        "cancel": "취소",
+        "choice": {
+          "keepBoth": "둘 다 유지",
+          "replaceIfChanged": "변경된 경우 바꾸기",
+          "skip": "건너뛰기"
+        },
+        "hint": {
+          "keepBoth": "새 파일마다 새 이름을 붙입니다. 아무것도 덮어쓰지 않습니다.",
+          "replaceIfChanged": "바뀐 내 내보내기 파일을 바꿉니다. 바뀌지 않은 것은 건너뜁니다. 다른 파일은 그대로 두고 새 파일에 새 이름을 붙입니다.",
+          "skip": "기존 파일은 그대로 두고, 해당 사진은 다시 내보내지 않습니다."
+        },
+        "intro": "이번 내보내기 전체에 대해 한 번만 선택하세요.",
+        "kind": {
+          "changedOwn": "이전 내보내기, 그 뒤로 사진이나 설정이 바뀜: {{number}}",
+          "other": "다른 파일 또는 마스크 파일이 있는 내보내기(바꾸지 않음): {{number}}",
+          "unchangedOwn": "이전 내보내기, 그 뒤로 바뀐 것 없음: {{number}}"
+        },
+        "more": "외 {{number}}개",
+        "originals": "그중 라이브러리의 사진(절대 바꾸지 않음): {{number}}",
+        "title": "같은 이름의 파일이 이미 있습니다"
+      },
       "destination": {
         "aria": "내보내기 대상 위치",
         "choose": "폴더 선택…",
@@ -3490,6 +3513,19 @@
           "fullPath": "드라이브나 전체 경로가 아닌 폴더 이름을 사용하세요.",
           "outside": "하위 폴더는 대상 폴더 안에 있어야 합니다.",
           "tokens": "사용 가능한 토큰과 예약 문자가 없는 폴더 이름을 사용하세요."
+        },
+        "existing": "파일이 있는 경우",
+        "existingChoice": {
+          "ask": "묻기",
+          "keepBoth": "둘 다 유지(새 이름)",
+          "replaceIfChanged": "변경된 경우 바꾸기",
+          "skip": "건너뛰기"
+        },
+        "existingHint": {
+          "ask": "내보내기 전에 같은 이름의 파일이 이미 있을 때 어떻게 할지 한 번 묻습니다. 답하기 전에는 아무것도 처리하거나 기록하지 않습니다.",
+          "keepBoth": "새 파일에 번호가 붙은 이름을 붙입니다. 아무것도 덮어쓰지 않습니다.",
+          "replaceIfChanged": "이 이름에 있는 사진 자신의 이전 Rawtonic 내보내기를 편집이나 설정이 바뀐 경우에만 바꿉니다. 바뀌지 않은 사진은 건너뜁니다. 다른 파일(원본, 카메라 JPEG, 다른 곳에서 편집한 파일)은 그대로 두고 새 파일에 번호가 붙은 이름을 붙입니다.",
+          "skip": "파일이 이미 있는 사진은 내보내지 않습니다."
         },
         "exportTo": "내보낼 위치",
         "keepStructure": "폴더 구조 유지",
@@ -3509,10 +3545,12 @@
       },
       "errors": {
         "batchFailed": "{{total}}개 중 {{failed}}개 내보내기 실패",
+        "couldNotStart": "내보내기를 시작할 수 없습니다. 다시 내보내세요.",
         "gpuDeviceLost": "이 그래픽 칩에서 이 사진을 렌더링할 수 없습니다. 응답이 멈췄습니다(메모리 부족). Rawtonic을 종료했다가 다시 열고 이 사진을 다시 내보내세요.",
         "gpuMemory": "이 사진에 필요한 그래픽 메모리가 부족합니다. 그래픽 카드를 사용하는 다른 프로그램을 닫고 이 사진을 다시 내보내세요.",
         "gpuTooComplex": "이 사진의 편집이 너무 복잡하여 이 그래픽 칩의 드라이버로 내보낼 수 없습니다. 일부 편집(효과, 부분 보정)을 제거하고 다시 내보내거나 다른 컴퓨터에서 내보내세요.",
         "offline": "{{file}}이(가) 오프라인입니다. 내보내려면 RAW 파일이 필요합니다.",
+        "queuedByOlderVersion": "이 내보내기는 이전 버전의 Rawtonic에서 대기열에 추가되었습니다. 다시 내보내세요.",
         "terminated": "내보내기가 예기치 않게 중단되었습니다.",
         "textureLimit": "이미지({{width}} × {{height}} px)가 이 그래픽 카드가 처리할 수 있는 크기(한 변 {{limit}} px)보다 큽니다.",
         "unreadableRequest": "이 내보내기의 저장된 설정을 읽을 수 없습니다.",
@@ -3622,6 +3660,11 @@
           "minutes": "약 {{minutes}}분 남음",
           "seconds": "약 {{seconds}}초 남음"
         },
+        "existing": {
+          "keptBoth_other": "{{count}}개 새 이름으로",
+          "replaced_other": "{{count}}개 바꿈",
+          "skipped_other": "{{count}}개 건너뜀"
+        },
         "exportedTo": "내보낸 위치:",
         "failed": "{{total}}장 중 {{failed}}장 실패",
         "failures": "내보내지 못한 사진",
@@ -3637,10 +3680,15 @@
           "denoiseProgress": "AI 노이즈 제거 진행률",
           "denoising": "AI 노이즈 제거 {{percent}}%",
           "doneIn": "{{seconds}}초 만에 완료",
+          "keptBoth": "새 이름으로 내보냄: 기존 파일은 이 사진의 내보내기가 아닙니다",
+          "keptOriginal": "새 이름으로 내보냄: 기존 파일은 라이브러리에 있는 사진입니다",
           "loading": "사진 읽는 중…",
           "masks": "마스크 쓰는 중…",
           "rendering": "렌더링 및 쓰는 중…",
+          "replaced": "이전 내보내기를 바꿨습니다",
           "selecting": "AI 선택 영역 계산 중…",
+          "skippedExists": "건너뜀: 같은 이름의 파일이 있습니다",
+          "skippedUnchanged": "건너뜀: 마지막 내보내기 이후 변경 없음",
           "waiting": "대기 중"
         },
         "photos_other": "사진 {{count}}장",

@@ -80,6 +80,7 @@
       "running": "Nothing is running."
     },
     "export": {
+      "done": "Exported {{label}} ({{existing}})",
       "failed_one": "{{count}} photo did not export: {{label}}",
       "failed_other": "{{count}} photos did not export: {{label}}",
       "interrupted": "Export interrupted: {{label}}",
@@ -2307,7 +2308,7 @@
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
         "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
         "p12-keystore / RustCrypto": "Opening the PKCS#12 certificate file a provenance signing certificate is imported from.",
-        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
         "ring": "Signing of provenance (C2PA) manifests in exports: ECDSA, RSA-PSS and Ed25519 signatures, SHA-256.",
@@ -3585,6 +3586,28 @@
         "ratioHeight": "Ratio height",
         "ratioWidth": "Ratio width"
       },
+      "collision": {
+        "cancel": "Cancel",
+        "choice": {
+          "keepBoth": "Keep both",
+          "replaceIfChanged": "Replace if changed",
+          "skip": "Skip"
+        },
+        "hint": {
+          "keepBoth": "Every new file gets a new name. Nothing is overwritten.",
+          "replaceIfChanged": "Replaces your own changed exports. Unchanged ones are skipped. Other files stay, and the new file gets a new name.",
+          "skip": "Existing files stay as they are; those photos are not exported again."
+        },
+        "intro": "Choose once for this whole export.",
+        "kind": {
+          "changedOwn": "Earlier export, photo or settings changed since: {{number}}",
+          "other": "Other files, or exports with mask files (not replaced): {{number}}",
+          "unchangedOwn": "Earlier export, nothing changed since: {{number}}"
+        },
+        "more": "and {{number}} more",
+        "originals": "Photos in a library among them, never replaced: {{number}}",
+        "title": "Files with these names already exist"
+      },
       "destination": {
         "aria": "Export destination",
         "choose": "Choose a folder…",
@@ -3592,6 +3615,19 @@
           "fullPath": "Use a folder name, not a drive or full path.",
           "outside": "The subfolder must stay inside the destination folder.",
           "tokens": "Use the available tokens and folder names without reserved characters."
+        },
+        "existing": "If a file exists",
+        "existingChoice": {
+          "ask": "Ask",
+          "keepBoth": "Keep both (new name)",
+          "replaceIfChanged": "Replace if changed",
+          "skip": "Skip"
+        },
+        "existingHint": {
+          "ask": "Before exporting, asks once what to do if files with these names already exist. Nothing is rendered or written until you answer.",
+          "keepBoth": "The new file gets a numbered name; nothing is ever written over.",
+          "replaceIfChanged": "Replaces a photo's own earlier Rawtonic export at this name only when its edit or settings changed; unchanged photos are skipped. Any other file (originals, camera JPEGs, files edited elsewhere) is kept and the new file gets a numbered name.",
+          "skip": "Photos whose file already exists are not exported."
         },
         "exportTo": "Export to",
         "keepStructure": "Keep the folder structure",
@@ -3612,10 +3648,12 @@
       },
       "errors": {
         "batchFailed": "{{failed}} of {{total}} exports failed",
+        "couldNotStart": "This export could not start. Try exporting again.",
         "gpuDeviceLost": "This photo could not be rendered on this graphics chip: it stopped responding (out of memory). Quit and reopen Rawtonic, then export this photo again.",
         "gpuMemory": "Not enough graphics memory for this photo. Close other programs that use the graphics card and export this photo again.",
         "gpuTooComplex": "This photo's edits are too complex for this graphics chip's driver to export. Remove some edits (effects, local adjustments) and export it again, or export it on another computer.",
         "offline": "{{file}} is offline: exporting needs the RAW file.",
+        "queuedByOlderVersion": "This export was queued in an older version of Rawtonic. Export it again.",
         "terminated": "The export stopped unexpectedly.",
         "textureLimit": "The photo ({{width}} × {{height}} px) is larger than this graphics card can render ({{limit}} px per side).",
         "unreadableRequest": "This export's saved settings could not be read.",
@@ -3726,6 +3764,14 @@
           "minutes": "about {{minutes}} min left",
           "seconds": "about {{seconds}} s left"
         },
+        "existing": {
+          "keptBoth_one": "{{count}} kept as a new name",
+          "keptBoth_other": "{{count}} kept as new names",
+          "replaced_one": "{{count}} replaced",
+          "replaced_other": "{{count}} replaced",
+          "skipped_one": "{{count}} skipped",
+          "skipped_other": "{{count}} skipped"
+        },
         "exportedTo": "Exported to:",
         "failed": "{{failed}} of {{total}} failed",
         "failures": "Photos that did not export",
@@ -3741,10 +3787,15 @@
           "denoiseProgress": "AI Denoise progress",
           "denoising": "AI Denoise {{percent}} %",
           "doneIn": "Done in {{seconds}} s",
+          "keptBoth": "Exported under a new name: the existing file is not its own export",
+          "keptOriginal": "Exported under a new name: the existing file is a photo in a library",
           "loading": "Reading the photo…",
           "masks": "Writing masks…",
           "rendering": "Rendering and writing…",
+          "replaced": "Replaced its earlier export",
           "selecting": "Computing AI selections…",
+          "skippedExists": "Skipped: a file of its name exists",
+          "skippedUnchanged": "Skipped: unchanged since its last export",
           "waiting": "Waiting"
         },
         "photos_one": "{{count}} photo",

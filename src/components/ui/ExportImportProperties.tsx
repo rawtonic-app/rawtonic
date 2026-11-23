@@ -1,5 +1,27 @@
 import { Progress } from './AppProperties';
 
+/** "If a file exists": a numbered name (never over a file), skip the
+ * photo, replace only the photo's own previous export when its edit or
+ * settings changed, or ask once per export which of the three
+ * (`rawtonic_export::existing_files`). "ask" is never sent to the queue:
+ * the form swaps in the answer first (`askAboutExistingFiles`). */
+export type ExistingFiles = 'keepBoth' | 'skip' | 'replaceIfChanged' | 'ask';
+
+/** What an export would find at its file names (`plan_export_collisions`). */
+export interface CollisionKind {
+  count: number;
+  /** The first few file names. */
+  names: string[];
+}
+export interface CollisionSummary {
+  total: number;
+  unchangedOwn: CollisionKind;
+  changedOwn: CollisionKind;
+  other: CollisionKind;
+  /** Of `other`, the photos of a library. */
+  originals: number;
+}
+
 export enum FileFormats {
   Jpeg = 'jpeg',
   Png = 'png',
@@ -49,6 +71,8 @@ export interface ExportSettings {
   colorSpace?: OutputColorSpace;
   keepMetadata: boolean;
   preserveTimestamps: boolean;
+  /** What happens when a file of the name exists (absent: keep both). */
+  existingFiles?: ExistingFiles;
   resize: {
     mode: string;
     value: number;
@@ -182,6 +206,8 @@ export interface ExportPreset {
   provenanceAuthor?: boolean;
   exportMasks?: boolean;
   preserveFolders?: boolean;
+  /** "If a file exists" (absent: keep both). */
+  existingFiles?: ExistingFiles;
   /** The first export tokens; recipes saved since hold `nameTemplate`. */
   filenameTemplate: string;
   nameTemplate?: string;

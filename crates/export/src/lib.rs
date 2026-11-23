@@ -6,6 +6,7 @@
 pub mod avif_container;
 pub mod c2pa;
 pub mod exif_processing;
+pub mod existing_files;
 pub mod export_processing;
 pub mod file_export;
 pub mod normalize;

@@ -382,6 +382,10 @@ pub struct ExportPreset {
     pub tiff_bit_depth: Option<u8>,
     #[serde(default)]
     pub preserve_timestamps: Option<bool>,
+    /// "If a file exists" ("keepBoth", "skip", "replaceIfChanged"); absent:
+    /// keep both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existing_files: Option<String>,
     /// The Studio's output sharpening (mode, amount, radius, threshold,
     /// print distance and resolution), kept as the form wrote it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -439,6 +443,7 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             subfolder: Some("".to_string()),
             tiff_bit_depth: None,
             preserve_timestamps: None,
+            existing_files: None,
             output_sharpening: None,
             color_space: None,
             watermark_kind: None,
@@ -487,6 +492,7 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             subfolder: Some("".to_string()),
             tiff_bit_depth: None,
             preserve_timestamps: None,
+            existing_files: None,
             output_sharpening: None,
             color_space: None,
             watermark_kind: None,
@@ -2135,6 +2141,51 @@ mod decoder_preferences_tests {
     use image::DynamicImage;
     use std::collections::HashMap;
     use std::sync::Arc;
+
+    /// The "If a file exists" choice as the Export form sends and saves it
+    /// (src/contracts/exportExistingFiles.json, pinned on its side by
+    /// src/contracts/exportExistingFiles.test.ts).
+    #[test]
+    fn export_existing_files_contract() {
+        use rawtonic_export::existing_files::ExistingFiles;
+        let payloads: Value =
+            serde_json::from_str(include_str!("../../src/contracts/exportExistingFiles.json"))
+                .unwrap();
+        let choices: Vec<ExistingFiles> = payloads["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|settings| {
+                serde_json::from_value::<rawtonic_export::export_processing::ExportSettings>(
+                    settings.clone(),
+                )
+                .unwrap()
+                .existing_files
+            })
+            .collect();
+        assert_eq!(
+            choices,
+            [
+                ExistingFiles::KeepBoth,
+                ExistingFiles::Ask,
+                ExistingFiles::Skip,
+                ExistingFiles::ReplaceIfChanged
+            ]
+        );
+        let preset: ExportPreset = serde_json::from_value(payloads["preset"].clone()).unwrap();
+        assert_eq!(preset.existing_files.as_deref(), Some("ask"));
+        // Saved back as it came (the store rewrites every recipe).
+        assert_eq!(
+            serde_json::to_value(&preset).unwrap()["existingFiles"],
+            "ask"
+        );
+        // A recipe saved before the choice keeps both.
+        let mut older = payloads["settings"][0].clone();
+        older.as_object_mut().unwrap().remove("existingFiles");
+        let older: rawtonic_export::export_processing::ExportSettings =
+            serde_json::from_value(older).unwrap();
+        assert_eq!(older.existing_files, ExistingFiles::KeepBoth);
+    }
 
     #[test]
     fn decode_preference_event_matches_frontend() {

@@ -186,6 +186,10 @@ pub struct ExportSettings {
     /// no manifest, the file as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<ProvenanceSettings>,
+    /// What happens when the file's name is taken ("If a file exists",
+    /// `crate::existing_files`); Keep both by default.
+    #[serde(default)]
+    pub existing_files: crate::existing_files::ExistingFiles,
 }
 
 /// What an export's provenance manifest holds besides its fixed content
@@ -1199,7 +1203,7 @@ pub type ExifMap = std::collections::HashMap<String, String>;
 
 /// Writes an encoded export to a path, given the lower-case extension
 /// (`crate::output::write_new_export` in the app and the CLI).
-pub type WriteExport = dyn Fn(&Path, &str, EncodedExport<'_>) -> Result<(), String>;
+pub type WriteExport<'a> = dyn Fn(&Path, &str, EncodedExport<'_>) -> Result<(), String> + 'a;
 
 /// An encoded export, ready for its file. A TIFF is encoded into the file
 /// itself as it is written ([`EncodedExport::write_to`]), so no full-size
@@ -1361,7 +1365,7 @@ pub struct ExportOutput<'a> {
     /// model is not available (such an export fails with a clear error).
     pub enlarger: Option<&'a dyn Enlarger>,
     /// Writes the encoded bytes for `path` with the given lower-case extension.
-    pub write: &'a WriteExport,
+    pub write: &'a WriteExport<'a>,
     /// The identity provenance manifests are signed with, when the user set
     /// one up; an export asking for a manifest fails without it.
     pub provenance: Option<&'a crate::c2pa::SigningIdentity>,

@@ -24,6 +24,8 @@ const KNOWN: Record<string, () => string> = {
     () => i18n.t('studio.export.errors.gpuTooComplex'),
   "This NEF uses Nikon's High Efficiency compression. Its codec (TicoRAW) is patent-protected, so Rawtonic cannot decode it. Convert the file to DNG with Adobe DNG Converter, or set the camera to Lossless compressed RAW.":
     () => nikonHighEfficiencyMessage(),
+  'This export was queued by an older version of Rawtonic: export it again.': () =>
+    i18n.t('studio.export.errors.queuedByOlderVersion'),
   'Unreadable export request': () => i18n.t('studio.export.errors.unreadableRequest')
 };
 
@@ -35,6 +37,10 @@ function fileName(path: string): string {
 /** A render or export error in the interface language; other errors keep their text. */
 export function renderErrorMessage(error: unknown): string {
   const message = String(error).replace(/^Error: /, '');
+  if (message.startsWith('Unreadable export request:') || message.startsWith('Cannot load queued export:'))
+    return i18n.t('studio.export.errors.unreadableRequest');
+  if (message.startsWith('Cannot start queued export:') || message.startsWith('Cannot read queued photos:'))
+    return i18n.t('studio.export.errors.couldNotStart');
   const limit = TEXTURE_LIMIT.exec(message);
   if (limit) {
     const [, width, height, max] = limit;

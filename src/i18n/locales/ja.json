@@ -74,6 +74,7 @@
       "running": "実行中の処理はありません。"
     },
     "export": {
+      "done": "{{label}} を書き出しました（{{existing}}）",
       "failed_other": "{{count}} 枚の写真を書き出せませんでした: {{label}}",
       "interrupted": "書き出しが中断されました: {{label}}",
       "running": "書き出し中: {{label}}",
@@ -2212,7 +2213,7 @@
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
         "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
         "p12-keystore / RustCrypto": "署名証明書を読み込む PKCS#12 証明書ファイルを開く処理。",
-        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
         "ring": "書き出し時の来歴 (C2PA) マニフェストへの署名: ECDSA、RSA-PSS、Ed25519 署名、SHA-256。",
@@ -3483,6 +3484,28 @@
         "ratioHeight": "比率の高さ",
         "ratioWidth": "比率の幅"
       },
+      "collision": {
+        "cancel": "キャンセル",
+        "choice": {
+          "keepBoth": "両方を残す",
+          "replaceIfChanged": "変更時に置き換え",
+          "skip": "スキップ"
+        },
+        "hint": {
+          "keepBoth": "新しいファイルにはすべて新しい名前が付きます。上書きはしません。",
+          "replaceIfChanged": "変更された自分の書き出しを置き換えます。変更のないものはスキップします。その他のファイルは残り、新しいファイルには新しい名前が付きます。",
+          "skip": "既存のファイルはそのまま残り、それらの写真は再び書き出されません。"
+        },
+        "intro": "この書き出し全体に対して、一度だけ選びます。",
+        "kind": {
+          "changedOwn": "以前の書き出し、その後に写真または設定を変更：{{number}}",
+          "other": "その他のファイル、またはマスクファイル付きの書き出し（置き換えません）：{{number}}",
+          "unchangedOwn": "以前の書き出し、その後変更なし：{{number}}"
+        },
+        "more": "ほか {{number}} 件",
+        "originals": "うちライブラリの写真（置き換えません）：{{number}}",
+        "title": "同じ名前のファイルがすでにあります"
+      },
       "destination": {
         "aria": "書き出し先",
         "choose": "フォルダを選択…",
@@ -3490,6 +3513,19 @@
           "fullPath": "ドライブやフルパスではなくフォルダ名を入力してください。",
           "outside": "サブフォルダは書き出し先フォルダ内に置く必要があります。",
           "tokens": "使用できるトークンと、予約文字を含まないフォルダー名を使ってください。"
+        },
+        "existing": "ファイルが存在する場合",
+        "existingChoice": {
+          "ask": "確認する",
+          "keepBoth": "両方を残す（新しい名前）",
+          "replaceIfChanged": "変更時に置き換え",
+          "skip": "スキップ"
+        },
+        "existingHint": {
+          "ask": "書き出す前に、同じ名前のファイルがすでにある場合の扱いを一度だけ確認します。答えるまで、処理も書き込みも行いません。",
+          "keepBoth": "新しいファイルには番号付きの名前が付きます。上書きは一切しません。",
+          "replaceIfChanged": "この名前にある写真自身の以前の Rawtonic 書き出しを、編集または設定が変わった場合にのみ置き換えます。変更のない写真はスキップします。その他のファイル（元画像、カメラの JPEG、他で編集したファイル）は残し、新しいファイルには番号付きの名前が付きます。",
+          "skip": "ファイルが既に存在する写真は書き出しません。"
         },
         "exportTo": "書き出し先",
         "keepStructure": "フォルダ構造を維持",
@@ -3509,10 +3545,12 @@
       },
       "errors": {
         "batchFailed": "{{total}} 件中 {{failed}} 件の書き出しに失敗しました",
+        "couldNotStart": "書き出しを開始できませんでした。もう一度書き出してください。",
         "gpuDeviceLost": "このグラフィックチップでこの写真をレンダリングできませんでした。応答しなくなりました（メモリ不足）。Rawtonic を終了して開き直し、この写真をもう一度書き出してください。",
         "gpuMemory": "この写真にはグラフィックメモリが足りません。グラフィックカードを使う他のプログラムを閉じて、この写真をもう一度書き出してください。",
         "gpuTooComplex": "この写真の編集内容は複雑すぎて、このグラフィックチップのドライバーでは書き出せません。一部の編集（エフェクト、部分補正）を取り除いて再度書き出すか、別のコンピューターで書き出してください。",
         "offline": "{{file}} はオフラインです。書き出しには RAW ファイルが必要です。",
+        "queuedByOlderVersion": "この書き出しは以前のバージョンのRawtonicでキューに追加されました。もう一度書き出してください。",
         "terminated": "書き出しが予期せず停止しました。",
         "textureLimit": "画像 ({{width}} × {{height}} px) は、このグラフィックカードで処理できるサイズ (1 辺 {{limit}} px) を超えています。",
         "unreadableRequest": "この書き出しの保存済み設定を読み込めませんでした。",
@@ -3622,6 +3660,11 @@
           "minutes": "残り約 {{minutes}} 分",
           "seconds": "残り約 {{seconds}} 秒"
         },
+        "existing": {
+          "keptBoth_other": "{{count}} 件を新しい名前で",
+          "replaced_other": "{{count}} 件置き換え",
+          "skipped_other": "{{count}} 件スキップ"
+        },
         "exportedTo": "書き出し先:",
         "failed": "{{total}} 枚中 {{failed}} 枚が失敗",
         "failures": "書き出されなかった写真",
@@ -3637,10 +3680,15 @@
           "denoiseProgress": "AI ノイズ除去の進行状況",
           "denoising": "AI ノイズ除去 {{percent}} %",
           "doneIn": "{{seconds}} 秒で完了",
+          "keptBoth": "新しい名前で書き出し：既存のファイルはこの写真の書き出しではありません",
+          "keptOriginal": "新しい名前で書き出し：既存のファイルはライブラリ内の写真です",
           "loading": "写真を読み込み中…",
           "masks": "マスクを書き込み中…",
           "rendering": "レンダリングと書き込み中…",
+          "replaced": "以前の書き出しを置き換えました",
           "selecting": "AI 選択範囲を計算中…",
+          "skippedExists": "スキップ：同名のファイルがあります",
+          "skippedUnchanged": "スキップ：前回の書き出しから変更なし",
           "waiting": "待機中"
         },
         "photos_other": "{{count}} 枚の写真",

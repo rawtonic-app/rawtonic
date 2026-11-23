@@ -35,8 +35,10 @@ import {
   type MaskContainer
 } from './adjustments';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
+import { updateAdjustments } from '../hooks/useEditorActions';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
+import { draftFor, registerSliderDraftRenderer } from './sliderDraft';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
@@ -457,7 +459,7 @@ describe('the pick’s block at full resolution', () => {
 });
 
 describe('the measured correction and undo', () => {
-  it('is one undo step with the first solve, also when it comes after the history has written that step', async () => {
+  function setupCorrection(waitForFirstMeasurement: () => Promise<unknown>) {
     const range = { ...newColorRange(20, 0.15, 0.55), id: 'r' };
     const before = { ...INITIAL_ADJUSTMENTS, masks: [layer], colorRanges: [range] };
     useEditorStore.setState({ adjustments: before, colorRangeInputs: {} });
@@ -475,14 +477,15 @@ describe('the measured correction and undo', () => {
         }
       }
     });
-    // The render lands 3 ΔE00 off the model, and its first answer comes
-    // only after the history's pause (a slow first measurement).
+    // The render lands off the model and its first answer can be delayed.
     let first = true;
     vi.mocked(invoke).mockImplementation(async (command: string, args?: unknown) => {
       if (command === Invokes.SampleColorRangeInput) return { pixels: [oklabToLinear(centre)], influence: [1] };
       if (command !== Invokes.SampleColorRangeResult) return null;
-      if (first) await new Promise((r) => setTimeout(r, 700));
-      first = false;
+      if (first) {
+        first = false;
+        await waitForFirstMeasurement();
+      }
       const ranges = ((args as { adjustments: { colorRanges: ColorRange[] } }).adjustments.colorRanges ?? []).filter(
         (r) => r.id === 'r'
       );
@@ -490,6 +493,11 @@ describe('the measured correction and undo', () => {
       return { pixels: [linearToSrgb8(labToLinear([lab[0] + 3, lab[1], lab[2]]))], unmeasured: null };
     });
     const target = linearToLab(srgb8ToLinear([200, 120, 90]));
+    return { range, centre, target };
+  }
+
+  it('is one undo step with the first solve, also when it comes after the history has written that step', async () => {
+    const { range, centre, target } = setupCorrection(() => new Promise((r) => setTimeout(r, 700)));
     await applyColorTarget('/a.cr3', null, 'r', target, null);
     await new Promise((r) => setTimeout(r, 600));
     const state = useEditorStore.getState();
@@ -505,5 +513,48 @@ describe('the measured correction and undo', () => {
     expect(state.history).toHaveLength(2);
     state.undo();
     expect(useEditorStore.getState().adjustments.colorRanges).toEqual([range]);
+  });
+
+  it('keeps a newer slider draft when the first solve is already in history', async () => {
+    vi.useFakeTimers();
+    const unregister = registerSliderDraftRenderer(() => true);
+    const measurementStarted = Promise.withResolvers<void>();
+    const measurement = Promise.withResolvers<void>();
+    try {
+      const { target } = setupCorrection(() => {
+        measurementStarted.resolve();
+        return measurement.promise;
+      });
+      const correction = applyColorTarget(photo.path, null, 'r', target, null);
+      await measurementStarted.promise;
+      await vi.advanceTimersByTimeAsync(600);
+      const model = useEditorStore.getState().adjustments;
+      expect(useEditorStore.getState().history[1]).toBe(model);
+
+      useEditorStore.getState().setEditor({ isSliderDragging: true });
+      updateAdjustments({ colorRanges: [{ ...model.colorRanges![0], hueShift: -80 }] });
+      const draft = draftFor(photo.path);
+      expect(draft?.colorRanges?.[0].hueShift).toBe(-80);
+      expect(useEditorStore.getState().adjustments).toBe(model);
+
+      measurement.resolve();
+      await correction;
+      expect(draftFor(photo.path)).toBe(draft);
+      expect(useEditorStore.getState().history[1]).toBe(model);
+
+      useEditorStore.getState().setEditor({ isSliderDragging: false });
+      await vi.advanceTimersByTimeAsync(600);
+      const state = useEditorStore.getState();
+      expect(state.adjustments).toBe(draft);
+      expect(state.history).toHaveLength(3);
+      state.undo();
+      expect(useEditorStore.getState().adjustments).toEqual(model);
+    } finally {
+      measurement.resolve();
+      useEditorStore.getState().setEditor({ isSliderDragging: false });
+      debouncedSetHistory.cancel();
+      unregister();
+      vi.useRealTimers();
+    }
   });
 });

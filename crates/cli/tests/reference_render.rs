@@ -43,6 +43,7 @@ fn settings() -> ExportSettings {
         output_sharpening: None,
         super_resolution: false,
         provenance: None,
+        existing_files: Default::default(),
     }
 }
 
@@ -97,6 +98,7 @@ fn the_reference_render_is_the_cli_export() {
             catalog: None,
             capture: None,
             library: None,
+            publish: rawtonic_export::output::Publish::New,
         })
         .unwrap()
         .to_rgb16();

@@ -164,6 +164,7 @@ it('builds the export_images settings from the form', () => {
     colorSpace: 'adobeRgb',
     keepMetadata: false,
     preserveTimestamps: false,
+    existingFiles: 'keepBoth',
     stripGps: true,
     keepCreatorContact: false,
     superResolution: false,
@@ -366,4 +367,23 @@ it('saves provenance only when it is on, and sends it for every format', () => {
   expect(exportSettingsFromDraft({ ...on, format: 'webp' }).settings.provenance).toEqual({ includeAuthor: true });
   expect(['jpg', 'JPEG', 'png', 'tif', 'tiff', 'webp', 'AVIF'].every(provenanceFormat)).toBe(true);
   expect(['jxl', 'cube'].some(provenanceFormat)).toBe(false);
+});
+
+it('keeps the "If a file exists" choice in a recipe, saved only when not the default', () => {
+  const plain = presetFromDraft(DEFAULT_RECIPE_DRAFT, 'r1', 'Plain');
+  expect(JSON.parse(JSON.stringify(plain))).not.toHaveProperty('existingFiles');
+  expect(draftFromPreset(plain).existingFiles).toBe('keepBoth');
+  expect(exportSettingsFromDraft(DEFAULT_RECIPE_DRAFT).settings.existingFiles).toBe('keepBoth');
+  for (const existingFiles of ['skip', 'replaceIfChanged', 'ask'] as const) {
+    const saved = presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, existingFiles }, 'r2', 'Web');
+    expect(saved.existingFiles).toBe(existingFiles);
+    expect(draftFromPreset(saved).existingFiles).toBe(existingFiles);
+    expect(exportSettingsFromPreset(saved).settings.existingFiles).toBe(existingFiles);
+  }
+  // A recipe from an older or newer Rawtonic keeps both.
+  expect(draftFromPreset({ ...plain, existingFiles: 'overwrite' as never }).existingFiles).toBe('keepBoth');
+  // Switched back to the default, the saved choice goes.
+  const skip = presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, existingFiles: 'skip' }, 'r3', 'Skip');
+  const back = presetFromDraft({ ...draftFromPreset(skip), existingFiles: 'keepBoth' }, 'r3', 'Skip', skip);
+  expect(back.existingFiles).toBeUndefined();
 });

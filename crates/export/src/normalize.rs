@@ -82,14 +82,14 @@ pub enum Bitmaps<'a> {
 }
 
 /// Which camera and lens defaults (steps 2–5) a caller applies.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub enum Defaults {
     /// All of them (`prepare_recipe_lens`): every render of a stored recipe.
     Render,
     /// Steps 3 and 4 only, without resolving a lens saved offline (step 2)
     /// and without the Lightroom orientation (step 5): the thumbnails of
-    /// never-edited RAWs.
-    NewEdit,
+    /// never-edited RAWs. The caller resolves the camera crop.
+    NewEdit(fn(&mut Value, &Path)),
     /// None: the editor's own recipes, which it completes itself.
     None,
 }
@@ -150,7 +150,7 @@ pub fn normalize(
     // A new recipe (none, or a Library Reset's) renders as the editor's
     // new edit of the photograph: after its defaults (which need it new),
     // the tool responses a new edit starts with.
-    let new_edit = defaults != Defaults::None
+    let new_edit = !matches!(defaults, Defaults::None)
         && source.path.is_some()
         && rawtonic_engine::image_processing::is_new_recipe(recipe);
     let lens = match (defaults, source.path) {
@@ -161,8 +161,8 @@ pub fn normalize(
             rawtonic_engine::recipe_frame::conform(recipe, path);
             crate::exif_processing::prepare_recipe_lens(recipe, path)
         }
-        (Defaults::NewEdit, Some(path)) => {
-            rawtonic_engine::camera_crop::apply_default(recipe, path);
+        (Defaults::NewEdit(apply_camera_default), Some(path)) => {
+            apply_camera_default(recipe, path);
             rawtonic_engine::embedded_lens::apply_default(recipe, path);
             Ok(())
         }
@@ -182,12 +182,36 @@ pub fn normalize(
 /// The import view's new recipe from bytes already read from a card.
 /// The path identifies the format only; no file or sidecar is opened.
 pub fn new_edit_from_bytes(path: &Path, bytes: &[u8]) -> (Value, Normalized) {
+    new_edit_with(path, |recipe| {
+        raw_defaults(
+            recipe,
+            path,
+            &rawler::rawsource::RawSource::new_from_slice(bytes),
+        )
+    })
+}
+
+/// [`new_edit_from_bytes`] of a RAW rawler reads in place (e.g. a mapping of
+/// the file, `RawSource::new_from_shared`), so only the metadata the
+/// defaults need is read instead of a copy of every byte. `source` is used
+/// for a RAW `path` only.
+pub fn new_edit_from_source(
+    path: &Path,
+    source: &rawler::rawsource::RawSource,
+) -> (Value, Normalized) {
+    new_edit_with(path, |recipe| raw_defaults(recipe, path, source))
+}
+
+fn raw_defaults(recipe: &mut Value, path: &Path, source: &rawler::rawsource::RawSource) {
+    rawtonic_engine::camera_crop::apply_default_from_source(recipe, source);
+    rawtonic_engine::embedded_lens::apply_default_from_source(recipe, path, source);
+}
+
+fn new_edit_with(path: &Path, raw: impl FnOnce(&mut Value)) -> (Value, Normalized) {
     let mut recipe = serde_json::json!({});
     let is_raw = rawtonic_engine::formats::is_raw_file(path);
     if is_raw {
-        let source = rawler::rawsource::RawSource::new_from_slice(bytes);
-        rawtonic_engine::camera_crop::apply_default_from_source(&mut recipe, &source);
-        rawtonic_engine::embedded_lens::apply_default_from_source(&mut recipe, path, &source);
+        raw(&mut recipe);
     } else {
         rawtonic_engine::image_processing::apply_render_default(&mut recipe);
     }
@@ -220,6 +244,8 @@ fn start_new_edit_responses(recipe: &mut Value, is_raw: bool) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    const NEW_EDIT: Defaults = Defaults::NewEdit(rawtonic_engine::camera_crop::apply_default);
 
     /// Private, synthetic or CC0 RAW copies; no path/photograph is committed.
     /// Compare every recipe field to the established file normalization,
@@ -268,13 +294,13 @@ mod tests {
             Defaults::Render => {
                 let _ = crate::exif_processing::prepare_recipe_lens(&mut recipe, path);
             }
-            Defaults::NewEdit => {
-                rawtonic_engine::camera_crop::apply_default(&mut recipe, path);
+            Defaults::NewEdit(apply_camera_default) => {
+                apply_camera_default(&mut recipe, path);
                 rawtonic_engine::embedded_lens::apply_default(&mut recipe, path);
             }
             Defaults::None => {}
         }
-        if new && defaults != Defaults::None {
+        if new && !matches!(defaults, Defaults::None) {
             start_new_edit_responses(&mut recipe, rawtonic_engine::formats::is_raw_file(path));
         }
         recipe
@@ -296,7 +322,7 @@ mod tests {
         ];
         for recipe in &recipes {
             for path in paths.map(Path::new) {
-                for defaults in [Defaults::Render, Defaults::NewEdit, Defaults::None] {
+                for defaults in [Defaults::Render, NEW_EDIT, Defaults::None] {
                     let mut normalized = recipe.clone();
                     let source = RecipeSource::file(path);
                     let result = normalize(&mut normalized, &source, Bitmaps::Own, defaults);
@@ -330,7 +356,7 @@ mod tests {
         .unwrap();
         let raw = Path::new("/offline/IMG_2.ARW");
         for given in [Value::Null, json!({}), json!({"sourceFrameVersion": 3})] {
-            for defaults in [Defaults::Render, Defaults::NewEdit] {
+            for defaults in [Defaults::Render, NEW_EDIT] {
                 let mut recipe = given.clone();
                 normalize(
                     &mut recipe,

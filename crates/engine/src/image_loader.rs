@@ -210,7 +210,10 @@ pub struct DecodeVariant {
     /// decode-time chroma clean-up.
     pub multiscale: bool,
     /// How dead photosites are found (hot_pixels.rs): `DeadTest::Adjacent`
-    /// from `renderVersion` 3, so thin dark lines keep their colour.
+    /// from `renderVersion` 3, so thin dark lines keep their colour;
+    /// `DeadTest::Isolated` (hot ones too) from 15, so sharp stars and thin
+    /// lines keep their samples; `DeadTest::IsolatedTexture` from 16, so
+    /// dead ones in busy texture are found too.
     pub dead_test: DeadTest,
     /// The frame developed (`source_frame`): the recipe's
     /// `sourceFrameVersion`, as the oldest version that frames this file
@@ -235,6 +238,16 @@ pub struct DecodeVariant {
 /// The render version from which dead photosites must also be darker than
 /// their adjacent samples of the other colours (`DeadTest::Adjacent`).
 pub const DEAD_TEST_RENDER_VERSION: u64 = 3;
+
+/// The render version from which hot and dead photosites are found by
+/// their isolation from the 5 × 5 neighbourhood (`DeadTest::Isolated`,
+/// RapidRAW v1.7.1's test; notes: benchmark-results/hot1-2026-11-22/).
+pub const ISOLATED_DEFECT_RENDER_VERSION: u64 = 15;
+
+/// The render version from which the isolation test also repairs dead
+/// photosites in busy texture (`DeadTest::IsolatedTexture`; notes:
+/// benchmark-results/hot2-2026-11-23/).
+pub const TEXTURE_DEAD_RENDER_VERSION: u64 = 16;
 
 /// The render version from which RAW shadows keep the means of their
 /// samples through the black clip and the demosaic, and a decoder's black
@@ -294,7 +307,11 @@ pub fn decode_variant_for_frame(adjustments: &Value, source: &str, frame: u32) -
     let render = crate::recipe_versions::RenderVersion::effective(adjustments);
     DecodeVariant {
         multiscale: crate::recipe_versions::ColorNoiseVersion::of(adjustments, is_raw).multiscale(),
-        dead_test: if render.adjacent_dead_test() {
+        dead_test: if render.texture_dead_test() {
+            DeadTest::IsolatedTexture
+        } else if render.isolated_defect_test() {
+            DeadTest::Isolated
+        } else if render.adjacent_dead_test() {
             DeadTest::Adjacent
         } else {
             DeadTest::SameColour
@@ -785,10 +802,22 @@ pub fn tiff_jpeg_candidates(buf: &[u8]) -> Option<Vec<&[u8]>> {
     )
 }
 
+/// `tiff_jpeg_candidates` without lossless JPEG raw image data
+/// (`lossless_jpeg`: a CR2's or DNG's raw strip), largest first. No preview
+/// decoder reads it, and an image decoder's probe of it copies all of it,
+/// i.e. most of the file, before it fails. Filtered as the candidates are
+/// taken (from either end), so a probe that stops at a preview first never
+/// reads the raw strip's header.
+pub fn tiff_jpeg_previews(buf: &[u8]) -> Option<impl DoubleEndedIterator<Item = &[u8]>> {
+    Some(
+        tiff_jpeg_candidates(buf)?
+            .into_iter()
+            .filter(|data| !lossless_jpeg(data)),
+    )
+}
+
 pub fn largest_tiff_jpeg_preview(buf: &[u8]) -> Option<DynamicImage> {
-    tiff_jpeg_candidates(buf)?
-        .into_iter()
-        .filter(|bytes| !lossless_jpeg(bytes))
+    tiff_jpeg_previews(buf)?
         .find_map(|bytes| image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok())
 }
 
@@ -902,7 +931,7 @@ pub fn priority_embedded_jpeg(bytes: &[u8]) -> Option<Vec<u8>> {
     let (jpeg, orientation) = if let Some(jpeg) = raf_embedded_jpeg(bytes) {
         (jpeg, exif_orientation(jpeg).unwrap_or(1))
     } else {
-        let jpeg = tiff_jpeg_candidates(bytes)?.into_iter().find(|jpeg| {
+        let jpeg = tiff_jpeg_previews(bytes)?.find(|jpeg| {
             ImageReader::with_format(Cursor::new(*jpeg), image::ImageFormat::Jpeg)
                 .into_dimensions()
                 .is_ok()
@@ -2387,9 +2416,15 @@ mod decode_variant_tests {
         assert_eq!(test(json!({ "renderVersion": 2 })), DeadTest::SameColour);
         assert_eq!(test(json!({ "renderVersion": 3 })), DeadTest::Adjacent);
         assert_eq!(test(json!({ "renderVersion": 9 })), DeadTest::Adjacent);
+        assert_eq!(test(json!({ "renderVersion": 14 })), DeadTest::Adjacent);
+        assert_eq!(test(json!({ "renderVersion": 15 })), DeadTest::Isolated);
+        assert_eq!(
+            test(json!({ "renderVersion": 16 })),
+            DeadTest::IsolatedTexture
+        );
         // A never-edited photo renders as a new edit.
-        assert_eq!(test(serde_json::Value::Null), DeadTest::Adjacent);
-        assert_eq!(test(json!({})), DeadTest::Adjacent);
+        assert_eq!(test(serde_json::Value::Null), DeadTest::IsolatedTexture);
+        assert_eq!(test(json!({})), DeadTest::IsolatedTexture);
         let black = |recipe| decode_variant(&recipe, "/p/A.NEF").black;
         assert_eq!(black(json!({ "exposure": 1 })), BlackLevels::Clipped);
         assert_eq!(black(json!({ "renderVersion": 7 })), BlackLevels::Clipped);
@@ -2459,5 +2494,63 @@ mod lossless_jpeg_tests {
         assert!(!lossless_jpeg(&[0xFF, 0xD8, 0xFF, 0xDA, 0x00, 0x02]));
         assert!(!lossless_jpeg(&[0x49, 0x49, 0x2A, 0x00]));
         assert!(!lossless_jpeg(&[0xFF, 0xD8, 0xFF]));
+    }
+
+    /// A TIFF RAW's lossless raw strip is no preview: the import dialog's
+    /// probes (`priority_embedded_jpeg`, the grid's size check) would
+    /// otherwise hand it to the image decoder, which copies the whole strip,
+    /// i.e. most of the file, before it fails on the frame header.
+    #[test]
+    fn lossless_raw_data_is_no_preview_candidate() {
+        let image = image::DynamicImage::new_rgb8(8, 6);
+        let mut preview = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut preview, image::ImageFormat::Jpeg)
+            .unwrap();
+        let preview = preview.into_inner();
+        // SOI, SOF3 (lossless), then the "raw data": larger than the preview.
+        let mut raw = vec![0xFF, 0xD8, 0xFF, 0xC3, 0x00, 0x02];
+        raw.resize(preview.len() * 4, 0x55);
+        // One IFD: Compression 6, a strip (the raw data) and an old-style
+        // JPEGInterchangeFormat (the preview).
+        let entries: [(u16, u16, u32); 5] = [
+            (259, 3, 6),
+            (273, 4, 0),
+            (279, 4, raw.len() as u32),
+            (513, 4, 0),
+            (514, 4, preview.len() as u32),
+        ];
+        let data_at = 8 + 2 + entries.len() * 12 + 4;
+        let mut tiff = vec![0x49, 0x49, 0x2A, 0x00, 8, 0, 0, 0];
+        tiff.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        for (tag, kind, value) in entries {
+            let value = match tag {
+                273 => data_at as u32,
+                513 => (data_at + raw.len()) as u32,
+                _ => value,
+            };
+            tiff.extend_from_slice(&tag.to_le_bytes());
+            tiff.extend_from_slice(&kind.to_le_bytes());
+            tiff.extend_from_slice(&1u32.to_le_bytes());
+            tiff.extend_from_slice(&value.to_le_bytes());
+        }
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        tiff.extend_from_slice(&raw);
+        tiff.extend_from_slice(&preview);
+        assert_eq!(
+            super::tiff_jpeg_candidates(&tiff).unwrap(),
+            vec![raw.as_slice(), preview.as_slice()]
+        );
+        let previews = || super::tiff_jpeg_previews(&tiff).unwrap();
+        assert_eq!(previews().collect::<Vec<_>>(), vec![preview.as_slice()]);
+        assert_eq!(
+            previews().rev().collect::<Vec<_>>(),
+            vec![preview.as_slice()]
+        );
+        assert_eq!(
+            super::priority_embedded_jpeg(&tiff)
+                .map(|jpeg| image::load_from_memory(&jpeg).unwrap().to_rgb8()),
+            Some(image.to_rgb8())
+        );
     }
 }

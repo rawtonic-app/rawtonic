@@ -32,6 +32,21 @@ export function exportJobLabel(
     .join(' · ');
 }
 
+/** What "If a file exists" did in a job: "2 skipped · 1 replaced"; empty
+ * when every photo was simply written. */
+export function describeExistingFiles(job: { skipped?: number; replaced?: number; keptBoth?: number }): string {
+  return (
+    [
+      ['skipped', job.skipped],
+      ['replaced', job.replaced],
+      ['keptBoth', job.keptBoth]
+    ] as const
+  )
+    .filter(([, count]) => (count ?? 0) > 0)
+    .map(([key, count]) => i18n.t(`studio.export.queue.existing.${key}`, { count }))
+    .join(' · ');
+}
+
 /** The containing folder, accepting both native path separators. */
 export function outputFolder(output: string): string {
   const separator = Math.max(output.lastIndexOf('/'), output.lastIndexOf('\\'));

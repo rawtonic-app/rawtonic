@@ -11,7 +11,8 @@
 //!   sensor white), which weighs each frame by its signal-to-noise ratio.
 //! - Deghosting compares each frame with the consensus of the frames closer
 //!   to the reference exposure and drops it where they disagree, so moving
-//!   things come from one frame only.
+//!   things come from one frame only. Where the reference itself is bright
+//!   (clean), frames are also compared with it pixel by pixel.
 //!
 //! The result keeps the reference frame's exposure (its midtones render as
 //! they do in the reference) with highlights above 1.0.
@@ -103,6 +104,17 @@ const SATURATION_START: f32 = 0.80;
 const SATURATION_END: f32 = 0.95;
 /// Working-space floor for log comparisons, per unit exposure.
 const NOISE_FLOOR: f32 = 0.004;
+/// Share of a pixel's luminance below which a colour channel's difference
+/// does not count as a ghost (`ghost_map`).
+const CHANNEL_FLOOR: f32 = 0.1;
+/// Working luminance of the reference from which every other frame must
+/// agree with it pixel by pixel (about two stops below where the sensor
+/// starts to saturate; the test fades in from half of it, so a smooth
+/// reflection crossing it gets no contour): there the reference alone is clean, and a frame that
+/// shows something else (a sun glint that moved on rippling water) left
+/// dark rims and specks around the glints that the low-resolution ghost map
+/// is too coarse to catch (notes: benchmark-results/mrg2-2026-11-23).
+const BRIGHT_REFERENCE: f32 = 0.2;
 const LOW_RES_TARGET: usize = 1500;
 const ALIGN_TARGET: usize = 2400;
 
@@ -129,40 +141,139 @@ fn usable(p: &[f32], to_camera: &Matrix3<f32>) -> f32 {
     1.0 - smoothstep(SATURATION_START, SATURATION_END, cam.max())
 }
 
-/// Box-averaged luminance and usability at 1/`f` size.
-fn low_res(view: &View, to_camera: &Matrix3<f32>, f: usize) -> (Plane, Plane) {
+/// Box averages at 1/`f` size: linear RGB, luminance and usability.
+struct LowRes {
+    rgb: [Plane; 3],
+    y: Plane,
+    u: Plane,
+}
+
+fn low_res(view: &View, to_camera: &Matrix3<f32>, f: usize) -> LowRes {
     let (w, h) = (view.w, view.h);
     let (lw, lh) = (w.div_ceil(f), h.div_ceil(f));
-    let rows: Vec<(Vec<f32>, Vec<f32>)> = (0..lh)
+    let rows: Vec<Vec<[f32; 4]>> = (0..lh)
         .into_par_iter()
         .map(|ly| {
-            let mut y_row = vec![0.0f32; lw];
-            let mut u_row = vec![0.0f32; lw];
-            for (lx, (yo, uo)) in y_row.iter_mut().zip(u_row.iter_mut()).enumerate() {
-                let (mut sy, mut su, mut n) = (0.0f32, 0.0f32, 0.0f32);
-                for y in ly * f..((ly + 1) * f).min(h) {
-                    for x in lx * f..((lx + 1) * f).min(w) {
-                        // Pixels without a source count as black, unusable.
-                        if let Some(p) = view.at(x, y) {
-                            sy += luma(&p);
-                            su += usable(&p, to_camera);
+            (0..lw)
+                .map(|lx| {
+                    let mut sum = [0.0f32; 4];
+                    let mut n = 0.0f32;
+                    for y in ly * f..((ly + 1) * f).min(h) {
+                        for x in lx * f..((lx + 1) * f).min(w) {
+                            // Pixels without a source count as black, unusable.
+                            if let Some(p) = view.at(x, y) {
+                                sum[0] += p[0];
+                                sum[1] += p[1];
+                                sum[2] += p[2];
+                                sum[3] += usable(&p, to_camera);
+                            }
+                            n += 1.0;
                         }
-                        n += 1.0;
                     }
-                }
-                *yo = sy / n;
-                *uo = su / n;
-            }
-            (y_row, u_row)
+                    sum.map(|v| v / n)
+                })
+                .collect()
         })
         .collect();
-    let mut y = Plane::new(lw, lh);
-    let mut u = Plane::new(lw, lh);
-    for (ly, (yr, ur)) in rows.into_iter().enumerate() {
-        y.data[ly * lw..(ly + 1) * lw].copy_from_slice(&yr);
-        u.data[ly * lw..(ly + 1) * lw].copy_from_slice(&ur);
+    let mut planes: [Plane; 4] = std::array::from_fn(|_| Plane::new(lw, lh));
+    for (ly, row) in rows.into_iter().enumerate() {
+        for (lx, v) in row.into_iter().enumerate() {
+            for (plane, value) in planes.iter_mut().zip(v) {
+                plane.data[ly * lw + lx] = value;
+            }
+        }
     }
-    (y, u)
+    let [r, g, b, u] = planes;
+    let mut y = Plane::new(lw, lh);
+    for (i, o) in y.data.iter_mut().enumerate() {
+        *o = luma(&[r.data[i], g.data[i], b.data[i]]);
+    }
+    LowRes {
+        rgb: [r, g, b],
+        y,
+        u,
+    }
+}
+
+/// Where a frame shows something else than the consensus of the frames
+/// merged before it (1 = a ghost, dropped): the largest disagreement of
+/// any colour channel, in EV, through a smooth step from `threshold_ev` to
+/// twice that. Each channel counts on its own (RapidRAW's ghost test,
+/// Timon Käch, AGPL-3.0): a moving object of another colour but similar
+/// brightness (a red coat on green grass) differs strongly in one channel
+/// while luminance alone half-passed it as the same scene (notes:
+/// benchmark-results/mrg1-2026-11-22). A channel near black in a saturated
+/// colour (red in deep green foliage) is mostly noise, so each channel's
+/// floor also includes a share of the pixel's luminance (`CHANNEL_FLOOR`):
+/// a colour change counts once it is a sizeable part of the brightness.
+/// The noise part of each channel's floor scales with how much the camera
+/// matrix amplifies sensor noise into that channel against luminance
+/// (`noise_gain`, from `channel_noise_gain`): with one floor for all, the
+/// noisier channels of the darkest frame read as ghosts in deep shadows
+/// (13–19 % of a static bracket's darkest frame at High).
+/// `cons_rgb` are the consensus sums over `cons_den`; `ratio` is the
+/// frame's exposure against the reference.
+fn ghost_map(
+    frame: &LowRes,
+    cons_rgb: &[Plane; 3],
+    cons_den: &Plane,
+    ratio: f32,
+    threshold_ev: f32,
+    noise_gain: [f32; 3],
+) -> Plane {
+    let eps = NOISE_FLOOR * (1.0f32).max(1.0 / ratio);
+    let mut g = Plane::new(frame.u.w, frame.u.h);
+    g.data.par_iter_mut().enumerate().for_each(|(i, g)| {
+        let cd = cons_den.data[i];
+        if frame.u.data[i] < 0.9 || cd <= 0.0 {
+            return;
+        }
+        let k: [f32; 3] = std::array::from_fn(|c| (cons_rgb[c].data[i] / cd).max(0.0));
+        let share = CHANNEL_FLOOR * luma(&k);
+        let e = (0..3)
+            .map(|c| {
+                let v = frame.rgb[c].data[i].max(0.0) / ratio;
+                let floor = eps * noise_gain[c] + share;
+                ((v + floor) / (k[c] + floor)).log2().abs()
+            })
+            .fold(0.0f32, f32::max);
+        *g = smoothstep(threshold_ev, 2.0 * threshold_ev, e);
+    });
+    gaussian_blur(&max_filter(&g, 3), 3.0).map(|v| v.clamp(0.0, 1.0))
+}
+
+/// Noise of each working channel relative to the noise of luminance, for
+/// equal noise in the camera channels: row norms of the camera → working
+/// matrix over the norm of its luminance row.
+fn channel_noise_gain(to_camera: &Matrix3<f32>) -> [f32; 3] {
+    let m = to_camera.try_inverse().unwrap_or_else(Matrix3::identity);
+    let l = nalgebra::RowVector3::new(0.2126f32, 0.7152, 0.0722) * m;
+    let ln = l.norm().max(1e-6);
+    std::array::from_fn(|c| m.row(c).norm() / ln)
+}
+
+/// The reference pixel's role for the frames merged after it: clipped or
+/// nearly (`INFINITY`), bright enough to judge other frames by (its
+/// luminance), or neither (0).
+fn reference_state(p: &[f32], to_camera: &Matrix3<f32>) -> f32 {
+    if usable(p, to_camera) < 1.0 {
+        return f32::INFINITY;
+    }
+    let l = luma(p);
+    if l > 0.5 * BRIGHT_REFERENCE { l } else { 0.0 }
+}
+
+/// How much of a frame's pixel is dropped because it disagrees with a
+/// bright reference pixel (`ref_luma`, from `reference_state`; `luma` is
+/// the frame's in reference units) by more than `threshold_ev`: soft in the
+/// reference's brightness, whole in the disagreement, so it meets the
+/// clipped-reference rule (a frame darker than the clipping point is
+/// dropped whole) without a step where a reflection reaches saturation.
+fn bright_rejection(ref_luma: f32, luma: f32, threshold_ev: f32) -> f32 {
+    if ref_luma <= 0.0 || (luma.max(1e-6) / ref_luma).log2().abs() <= threshold_ev {
+        return 0.0;
+    }
+    smoothstep(0.5 * BRIGHT_REFERENCE, BRIGHT_REFERENCE, ref_luma)
 }
 
 fn max_filter(p: &Plane, radius: usize) -> Plane {
@@ -468,7 +579,9 @@ pub fn merge_hdr(
     let f = wu.max(hu).div_ceil(LOW_RES_TARGET).max(1);
     let align_f = wu.max(hu).div_ceil(ALIGN_TARGET).max(1);
 
-    let (ref_y, ref_u) = low_res(&View::new(&ref_frame.image, None), &to_camera, f);
+    let noise_gain = channel_noise_gain(&to_camera);
+    let ref_low = low_res(&View::new(&ref_frame.image, None), &to_camera, f);
+    let (ref_y, ref_u) = (ref_low.y, ref_low.u);
     let ref_align = config
         .align
         .then(|| align_plane(&ref_frame.image, 1.0, align_f));
@@ -481,13 +594,15 @@ pub fn merge_hdr(
 
     let mut num = vec![0.0f32; wu * hu * 3];
     let mut den = vec![0.0f32; wu * hu];
-    // Low-res consensus luminance of the frames merged so far.
-    let mut cons_num = Plane::new(lw, lh);
+    // Low-res consensus colour of the frames merged so far.
+    let mut cons_rgb: [Plane; 3] = std::array::from_fn(|_| Plane::new(lw, lh));
     let mut cons_den = Plane::new(lw, lh);
     let mut ghost_union = config.deghost.threshold_ev().map(|_| Plane::new(lw, lh));
-    // With ghost removal: where the reference is clipped (set after it is
-    // merged), only frames that agree it is that bright are merged.
-    let mut ref_clipped: Option<Vec<bool>> = None;
+    // With ghost removal (set after the reference is merged): where the
+    // reference is clipped, only frames that agree it is that bright are
+    // merged; where it is bright, only frames that agree with it per pixel
+    // (`reference_state`).
+    let mut ref_state: Option<Vec<f32>> = None;
     let mut reports: Vec<Option<HdrFrameReport>> = vec![None; paths.len()];
 
     let mut ref_frame = Some(ref_frame);
@@ -534,8 +649,8 @@ pub fn merge_hdr(
             ratio = match exif_ratio {
                 Some(r) => r,
                 None => {
-                    let (y, u) = low_res(&View::new(&frame.image, None), &to_camera, f);
-                    measure_ratio(&y, &u, &ref_y, &ref_u).unwrap_or(1.0)
+                    let low = low_res(&View::new(&frame.image, None), &to_camera, f);
+                    measure_ratio(&low.y, &low.u, &ref_y, &ref_u).unwrap_or(1.0)
                 }
             };
             if let Some(ref_align) = &ref_align {
@@ -585,37 +700,16 @@ pub fn merge_hdr(
             }
         }
         let view = View::new(&frame.image, warp_used);
-        let (low_y, low_u) = low_res(&view, &to_camera, f);
-        if !is_ref && let Some(measured) = measure_ratio(&low_y, &low_u, &ref_y, &ref_u) {
+        let low = low_res(&view, &to_camera, f);
+        if !is_ref && let Some(measured) = measure_ratio(&low.y, &low.u, &ref_y, &ref_u) {
             ratio = measured;
         }
 
         // Ghosts: disagreement with the consensus where both are usable.
         let ghost = match (config.deghost.threshold_ev(), is_ref) {
-            (Some(t), false) => {
-                let (y, u) = (&low_y, &low_u);
-                let eps = NOISE_FLOOR * (1.0f32).max(1.0 / ratio);
-                let mut g = Plane::new(lw, lh);
-                g.data.par_iter_mut().enumerate().for_each(|(i, g)| {
-                    let cd = cons_den.data[i];
-                    if u.data[i] < 0.9 || cd <= 0.0 {
-                        return;
-                    }
-                    let c = cons_num.data[i] / cd;
-                    let e = ((y.data[i] / ratio + eps) / (c + eps)).log2().abs();
-                    *g = smoothstep(t, 2.0 * t, e);
-                });
-                let g = gaussian_blur(&max_filter(&g, 3), 3.0).map(|v| v.clamp(0.0, 1.0));
-                Some(g)
-            }
+            (Some(t), false) => Some(ghost_map(&low, &cons_rgb, &cons_den, ratio, t, noise_gain)),
             _ => None,
         };
-        let ghost_fraction = ghost.as_ref().map(|g| g.mean()).unwrap_or(0.0);
-        if let (Some(g), Some(union)) = (&ghost, &mut ghost_union) {
-            for (a, b) in union.data.iter_mut().zip(&g.data) {
-                *a = a.max(*b);
-            }
-        }
 
         // Accumulate (reference units).
         progress(&format!("Merging {}", name(&paths[index])));
@@ -627,19 +721,24 @@ pub fn merge_hdr(
             0.0
         };
         let inv_ratio = 1.0 / ratio;
+        let ghost_ev = config.deghost.threshold_ev().unwrap_or(f32::INFINITY);
         let fx = lw as f32 / wu as f32;
         let fy = lh as f32 / hu as f32;
-        num.par_chunks_mut(wu * 3)
+        // Per row: the bright-reference rejections summed per low-res
+        // column, for the ghost overlay and the frame's ghost share.
+        let rejected: Vec<Vec<f32>> = num
+            .par_chunks_mut(wu * 3)
             .zip(den.par_chunks_mut(wu))
             .enumerate()
-            .for_each(|(y, (nrow, drow))| {
+            .map(|(y, (nrow, drow))| {
+                let mut rejected = Vec::new();
                 for x in 0..wu {
                     let Some(p) = view.at(x, y) else {
                         continue;
                     };
                     let mut wgt = usable(&p, &to_camera);
-                    let clipped_ref = ref_clipped.as_ref().is_some_and(|c| c[y * wu + x]);
-                    if clipped_ref {
+                    let ref_px = ref_state.as_ref().map_or(0.0, |s| s[y * wu + x]);
+                    if ref_px == f32::INFINITY {
                         // A moving highlight (sun glints on water): a frame
                         // darker than the reference's clipping point there
                         // shows another moment, and with the reference
@@ -650,12 +749,28 @@ pub fn merge_hdr(
                         if cam.max() * inv_ratio < 0.9 * SATURATION_START {
                             continue;
                         }
-                    } else if let Some(g) = &ghost {
-                        wgt *= 1.0
-                            - g.sample_bilinear(
+                    } else {
+                        let r = bright_rejection(ref_px, luma(&p) * inv_ratio, ghost_ev);
+                        // Counted as far as the pixel would have merged
+                        // (a clipped pixel of a brighter frame is no loss).
+                        let coarse = ghost.as_ref().map_or(0.0, |g| {
+                            g.sample_bilinear(
                                 (x as f32 + 0.5) * fx - 0.5,
                                 (y as f32 + 0.5) * fy - 0.5,
-                            );
+                            )
+                        });
+                        if r > 0.0 && wgt > 0.0 {
+                            // Both tests together, for the overlay.
+                            if rejected.is_empty() {
+                                rejected = vec![0.0f32; lw];
+                            }
+                            rejected[(x * lw / wu).min(lw - 1)] +=
+                                wgt * (1.0 - (1.0 - r) * (1.0 - coarse));
+                        }
+                        if r >= 1.0 {
+                            continue;
+                        }
+                        wgt *= (1.0 - r) * (1.0 - coarse);
                     }
                     let wgt = ratio * wgt.max(floor);
                     if wgt <= 0.0 {
@@ -666,16 +781,48 @@ pub fn merge_hdr(
                     nrow[x * 3 + 2] += wgt * p[2] * inv_ratio;
                     drow[x] += wgt;
                 }
-            });
+                rejected
+            })
+            .collect();
+        // The ghost map as it acted: the coarse map, or the share of a
+        // low-res cell's usable weight dropped where the bright reference
+        // test took part (both tests combined there).
+        let ghost = ghost.map(|mut g| {
+            let mut sums = Plane::new(lw, lh);
+            for (y, row) in rejected.iter().enumerate() {
+                let ly = (y * lh / hu).min(lh - 1);
+                for (lx, v) in row.iter().enumerate() {
+                    sums.data[ly * lw + lx] += v;
+                }
+            }
+            for ly in 0..lh {
+                let rows = (ly * hu).div_ceil(lh)..((ly + 1) * hu).div_ceil(lh);
+                for lx in 0..lw {
+                    let cols = (lx * wu).div_ceil(lw)..((lx + 1) * wu).div_ceil(lw);
+                    let n = (rows.len() * cols.len()).max(1) as f32;
+                    let i = ly * lw + lx;
+                    g.data[i] = g.data[i].max((sums.data[i] / n).min(1.0));
+                }
+            }
+            g
+        });
+        drop(rejected);
+        let ghost_fraction = ghost.as_ref().map(|g| g.mean()).unwrap_or(0.0);
+        if let (Some(g), Some(union)) = (&ghost, &mut ghost_union) {
+            for (a, b) in union.data.iter_mut().zip(&g.data) {
+                *a = a.max(*b);
+            }
+        }
         // Consensus update at low resolution.
-        let (y, u) = (&low_y, &low_u);
         for i in 0..lw * lh {
-            let mut wgt = u.data[i];
+            let mut wgt = low.u.data[i];
             if let Some(g) = &ghost {
                 wgt *= 1.0 - g.data[i];
             }
             let wgt = ratio * wgt;
-            cons_num.data[i] += wgt * y.data[i] * inv_ratio;
+            for (cons, plane) in cons_rgb.iter_mut().zip(&low.rgb) {
+                cons.data[i] += wgt * plane.data[i] * inv_ratio;
+            }
             cons_den.data[i] += wgt;
         }
 
@@ -690,11 +837,10 @@ pub fn merge_hdr(
         if is_ref {
             ref_meta = Some((frame.color.clone(), frame.metadata.clone()));
             if config.deghost.threshold_ev().is_some() {
-                // Clipped or nearly.
                 let raw: &[f32] = &frame.image;
-                ref_clipped = Some(
+                ref_state = Some(
                     raw.par_chunks_exact(3)
-                        .map(|p| usable(p, &to_camera) < 1.0)
+                        .map(|p| reference_state(p, &to_camera))
                         .collect(),
                 );
             }
@@ -772,4 +918,168 @@ pub fn preview(image: &Rgb32FImage, max_dim: u32) -> RgbImage {
         *px = image::Rgb([tone(s[0]), tone(s[1]), tone(s[2])]);
     });
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A low-res frame of `w`×`h` filled with `rgb`, fully usable.
+    fn flat(w: usize, h: usize, rgb: [f32; 3]) -> LowRes {
+        frame_of(rgb.map(|v| Plane::filled(w, h, v)))
+    }
+
+    fn frame_of(rgb: [Plane; 3]) -> LowRes {
+        let (w, h) = (rgb[0].w, rgb[0].h);
+        let mut y = Plane::new(w, h);
+        for (i, o) in y.data.iter_mut().enumerate() {
+            *o = luma(&[rgb[0].data[i], rgb[1].data[i], rgb[2].data[i]]);
+        }
+        LowRes {
+            rgb,
+            y,
+            u: Plane::filled(w, h, 1.0),
+        }
+    }
+
+    /// A red object moving through a +2 EV frame over grey-green ground: in
+    /// the reference units it is 4.5× brighter in red but only 1.5× in
+    /// luminance (0.58 EV, between Medium's 0.4 and 0.8 EV steps). It must
+    /// be dropped whole, and the matching ground kept.
+    #[test]
+    fn coloured_mover_is_a_ghost_in_its_own_channel() {
+        let (w, h) = (48, 48);
+        let ground = [0.067f32, 0.069, 0.078];
+        let ratio = 4.0;
+        let cons_rgb = ground.map(|v| Plane::filled(w, h, v));
+        let cons_den = Plane::filled(w, h, 1.0);
+        let mut rgb = ground.map(|v| Plane::filled(w, h, v * ratio));
+        for y in 16..32 {
+            for x in 16..32 {
+                for (c, v) in [1.2f32, 0.2, 0.16].into_iter().enumerate() {
+                    rgb[c].data[y * w + x] = v;
+                }
+            }
+        }
+        let frame = frame_of(rgb);
+        let g = ghost_map(
+            &frame,
+            &cons_rgb,
+            &cons_den,
+            ratio,
+            Deghost::Medium.threshold_ev().unwrap(),
+            [1.0; 3],
+        );
+        assert!(g.at(24, 24) > 0.95, "mover kept: ghost {}", g.at(24, 24));
+        assert!(g.at(2, 2) < 0.01, "ground dropped: ghost {}", g.at(2, 2));
+    }
+
+    /// A still, saturated subject (deep green leaves) whose weak red channel
+    /// reads 0.002 in one frame and 0 in the other is no ghost, even at High.
+    #[test]
+    fn noise_in_a_weak_channel_is_no_ghost() {
+        let (w, h) = (32, 32);
+        let cons = [0.002f32, 0.18, 0.01];
+        let cons_rgb = cons.map(|v| Plane::filled(w, h, v));
+        let cons_den = Plane::filled(w, h, 1.0);
+        let frame = flat(w, h, [0.0, 0.18, 0.012]);
+        let g = ghost_map(
+            &frame,
+            &cons_rgb,
+            &cons_den,
+            1.0,
+            Deghost::High.threshold_ev().unwrap(),
+            [1.0; 3],
+        );
+        assert!(g.data.iter().all(|&v| v < 0.01), "ghost {}", g.at(16, 16));
+    }
+
+    /// The same scene seen at another exposure is no ghost in any channel.
+    #[test]
+    fn matching_frame_is_no_ghost() {
+        let (w, h) = (32, 32);
+        let scene = [0.30f32, 0.05, 0.04];
+        let ratio = 0.25;
+        let cons_rgb = scene.map(|v| Plane::filled(w, h, v));
+        let cons_den = Plane::filled(w, h, 1.0);
+        let frame = flat(w, h, scene.map(|v| v * ratio * 1.05));
+        let g = ghost_map(&frame, &cons_rgb, &cons_den, ratio, 0.22, [1.0; 3]);
+        assert!(g.data.iter().all(|&v| v < 0.01));
+    }
+
+    /// A channel the camera matrix amplifies more carries more noise.
+    #[test]
+    fn channel_noise_gain_follows_the_matrix() {
+        let g = channel_noise_gain(&Matrix3::identity());
+        assert!((g[0] - g[1]).abs() < 1e-6 && (g[1] - g[2]).abs() < 1e-6);
+        // to_camera halves blue: camera → working doubles it.
+        let g = channel_noise_gain(&Matrix3::from_diagonal(&nalgebra::Vector3::new(
+            1.0, 1.0, 0.5,
+        )));
+        assert!((g[2] / g[0] - 2.0).abs() < 1e-5, "{g:?}");
+    }
+
+    /// Deep shadow of a static bracket's darkest frame (−2 EV): its blue
+    /// channel is off by sensor noise that the matrix amplified. With one
+    /// floor for every channel this is a ghost at High; with the channel's
+    /// own noise floor it is not, while a real change of that size in
+    /// luminance stays a ghost.
+    #[test]
+    fn amplified_channel_noise_is_no_ghost() {
+        let (w, h) = (32, 32);
+        let ratio = 0.25;
+        let scene = [0.006f32, 0.006, 0.006];
+        let cons_rgb = scene.map(|v| Plane::filled(w, h, v));
+        let cons_den = Plane::filled(w, h, 1.0);
+        let gain = [1.6, 1.4, 2.7];
+        let noisy = flat(w, h, [0.006 * ratio, 0.006 * ratio, 0.0]);
+        let high = Deghost::High.threshold_ev().unwrap();
+        let single = ghost_map(&noisy, &cons_rgb, &cons_den, ratio, high, [1.0; 3]);
+        assert!(single.at(16, 16) > 0.5, "premise: {}", single.at(16, 16));
+        let own = ghost_map(&noisy, &cons_rgb, &cons_den, ratio, high, gain);
+        assert!(
+            own.at(16, 16) < 0.01,
+            "noise is a ghost: {}",
+            own.at(16, 16)
+        );
+        let moved = flat(w, h, [0.03 * ratio, 0.03 * ratio, 0.03 * ratio]);
+        let g = ghost_map(&moved, &cons_rgb, &cons_den, ratio, high, gain);
+        assert!(g.at(16, 16) > 0.95, "change kept: {}", g.at(16, 16));
+    }
+
+    /// Clipped reference pixels, bright ones that judge other frames, and
+    /// darker ones left to the ghost map.
+    #[test]
+    fn reference_state_classifies_pixels() {
+        let id = Matrix3::identity();
+        assert_eq!(reference_state(&[0.9, 0.3, 0.3], &id), f32::INFINITY);
+        let l = reference_state(&[0.5, 0.5, 0.5], &id);
+        assert!((l - 0.5).abs() < 1e-6);
+        assert_eq!(reference_state(&[0.1, 0.1, 0.1], &id), 0.0);
+    }
+
+    /// The bright-reference test fades in with the reference's brightness
+    /// (no step where a smooth reflection crosses `BRIGHT_REFERENCE`) and
+    /// drops a frame that disagrees whole, as the clipped-reference rule
+    /// does (no step where it reaches saturation).
+    #[test]
+    fn bright_rejection_is_continuous() {
+        let t = Deghost::Medium.threshold_ev().unwrap();
+        // 26 % darker (0.43 EV) just below and just above BRIGHT_REFERENCE.
+        let below = bright_rejection(0.199, 0.199 * 0.74, t);
+        let above = bright_rejection(0.201, 0.201 * 0.74, t);
+        assert!((above - below).abs() < 0.01, "{below} {above}");
+        assert!(
+            above > 0.95,
+            "a 26 % darker frame at a bright reference: {above}"
+        );
+        assert_eq!(bright_rejection(0.0, 0.05, t), 0.0);
+        assert!(bright_rejection(0.11, 0.0, t) < 0.05);
+        assert_eq!(bright_rejection(0.5, 0.05, t), 1.0);
+        assert_eq!(bright_rejection(0.5, 0.5 * 1.05, t), 0.0);
+        assert_eq!(bright_rejection(0.5, 0.05, f32::INFINITY), 0.0);
+        // Near saturation it drops a darker frame whole, as the clipped-
+        // reference rule does just above.
+        assert_eq!(bright_rejection(0.799, 0.799 * 0.74, t), 1.0);
+    }
 }

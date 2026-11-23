@@ -415,6 +415,34 @@ fn io_failure(error: &anyhow::Error) -> UpdateFailure {
 mod tests {
     use super::*;
 
+    /// "Restart now" starts the setup while the app is still ending; the
+    /// template's kill of a process that is just exiting fails ("Failed to
+    /// kill ... close it first", UPDX2 on Windows 11). The setup must wait
+    /// for the old process in an update, before the template's check.
+    #[test]
+    fn update_setup_waits_for_the_old_process_before_the_template_check() {
+        let hooks = include_str!("../../windows/installer-hooks.nsh");
+        let setup = include_str!("../../windows/installer.nsi");
+        let hook = hooks
+            .split("!macro NSIS_HOOK_PREINSTALL")
+            .nth(1)
+            .expect("a pre-install hook")
+            .split("!macroend")
+            .next()
+            .unwrap();
+        assert!(hook.contains("$UpdateMode = 1"));
+        // Only plugin functions the template itself uses exist; the program
+        // file opens for writing only once no process runs it.
+        assert!(!hook.contains("nsis_tauri_utils::"));
+        assert!(hook.contains("FileOpen $R9 \"$INSTDIR\\${MAINBINARYNAME}.exe\" a"));
+        assert!(hook.contains("Sleep"));
+        // The template runs the hook right before its running-app check.
+        let section = setup.split("Section Install").nth(1).unwrap();
+        let hook_at = section.find("NSIS_HOOK_PREINSTALL").unwrap();
+        let check_at = section.find("CheckIfAppIsRunning").unwrap();
+        assert!(hook_at < check_at);
+    }
+
     #[test]
     fn failures_name_what_the_photographer_can_act_on() {
         assert_eq!(

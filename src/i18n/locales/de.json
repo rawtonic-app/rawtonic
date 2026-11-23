@@ -80,6 +80,7 @@
       "running": "Nichts läuft gerade."
     },
     "export": {
+      "done": "{{label}} exportiert ({{existing}})",
       "failed_one": "{{count}} Foto nicht exportiert: {{label}}",
       "failed_other": "{{count}} Fotos nicht exportiert: {{label}}",
       "interrupted": "Export unterbrochen: {{label}}",
@@ -2307,7 +2308,7 @@
         "Nonlocal MatchFilter": "KI-Entrauschen auf dem RAW-Mosaik.",
         "ONNX Runtime": "Führt KI-Modelle aus, unter Windows und Linux über das WebGPU-Plugin auch auf der GPU (Microsoft). Geändert: auf Macs mit Apple-Chip, unter Linux und Windows x64 von Rawtonic ohne Microsofts Telemetrie aus dem Quellcode gebaut.",
         "p12-keystore / RustCrypto": "Öffnen der PKCS#12-Zertifikatsdatei, aus der ein Signaturzertifikat importiert wird.",
-        "RapidRAW": "Der quelloffene RAW-Editor von Timon Käch, auf dem Rawtonics Editor aufbaut (Commit a82251f).",
+        "RapidRAW": "Der quelloffene RAW-Editor von Timon Käch, auf dem Rawtonics Editor aufbaut (Commit a82251f); die Prüfung auf heiße und tote Fotodioden neuer Bearbeitungen und Teile der Foto-Zusammenführungen (Punktsuche für Panoramen, Geisterprüfung für HDR) stammen aus RapidRAW v1.7.1.",
         "rav1d": "Dekodiert AVIF-Dateien (die Rust-Portierung von dav1d).",
         "rawler": "RAW-Dekodierung (dnglab über RapidRAW-DngLab), mit Rawtonic-Patches; Sony ARW 6 aus LibRaw portiert.",
         "ring": "Signieren der Herkunftsnachweise (C2PA) in Exporten: ECDSA-, RSA-PSS- und Ed25519-Signaturen, SHA-256.",
@@ -3585,6 +3586,28 @@
         "ratioHeight": "Verhältnis Höhe",
         "ratioWidth": "Verhältnis Breite"
       },
+      "collision": {
+        "cancel": "Abbrechen",
+        "choice": {
+          "keepBoth": "Beide behalten",
+          "replaceIfChanged": "Ersetzen, wenn geändert",
+          "skip": "Überspringen"
+        },
+        "hint": {
+          "keepBoth": "Jede neue Datei bekommt einen neuen Namen. Nichts wird überschrieben.",
+          "replaceIfChanged": "Ersetzt Ihre eigenen, geänderten Exporte. Unveränderte werden übersprungen. Andere Dateien bleiben, und die neue Datei bekommt einen neuen Namen.",
+          "skip": "Vorhandene Dateien bleiben, wie sie sind; diese Fotos werden nicht noch einmal exportiert."
+        },
+        "intro": "Einmal für den ganzen Export wählen.",
+        "kind": {
+          "changedOwn": "Früherer Export, Foto oder Einstellungen seitdem geändert: {{number}}",
+          "other": "Andere Dateien oder Exporte mit Maskendateien (werden nicht ersetzt): {{number}}",
+          "unchangedOwn": "Früherer Export, seitdem nichts geändert: {{number}}"
+        },
+        "more": "und {{number}} weitere",
+        "originals": "Davon Fotos in einer Bibliothek, nie ersetzt: {{number}}",
+        "title": "Dateien mit diesen Namen existieren schon"
+      },
       "destination": {
         "aria": "Exportziel",
         "choose": "Ordner auswählen…",
@@ -3592,6 +3615,19 @@
           "fullPath": "Verwende einen Ordnernamen, kein Laufwerk und keinen vollständigen Pfad.",
           "outside": "Der Unterordner muss innerhalb des Zielordners liegen.",
           "tokens": "Nur verfügbare Platzhalter und Ordnernamen ohne reservierte Zeichen verwenden."
+        },
+        "existing": "Wenn eine Datei existiert",
+        "existingChoice": {
+          "ask": "Fragen",
+          "keepBoth": "Beide behalten (neuer Name)",
+          "replaceIfChanged": "Ersetzen, wenn geändert",
+          "skip": "Überspringen"
+        },
+        "existingHint": {
+          "ask": "Fragt vor dem Export einmal, was geschehen soll, wenn Dateien mit diesen Namen schon existieren. Bis zu Ihrer Antwort wird nichts berechnet oder geschrieben.",
+          "keepBoth": "Die neue Datei bekommt einen nummerierten Namen; nichts wird überschrieben.",
+          "replaceIfChanged": "Ersetzt den eigenen früheren Rawtonic-Export eines Fotos unter diesem Namen nur, wenn sich Bearbeitung oder Einstellungen geändert haben; unveränderte Fotos werden übersprungen. Jede andere Datei (Originale, Kamera-JPEGs, anderswo bearbeitete Dateien) bleibt erhalten, und die neue Datei bekommt einen nummerierten Namen.",
+          "skip": "Fotos, deren Datei schon existiert, werden nicht exportiert."
         },
         "exportTo": "Exportieren nach",
         "keepStructure": "Ordnerstruktur beibehalten",
@@ -3612,10 +3648,12 @@
       },
       "errors": {
         "batchFailed": "{{failed}} von {{total}} Exporten fehlgeschlagen",
+        "couldNotStart": "Der Export konnte nicht gestartet werden. Versuche es erneut.",
         "gpuDeviceLost": "Dieses Foto konnte auf diesem Grafikchip nicht gerendert werden: Er reagiert nicht mehr (Speicher voll). Beende Rawtonic, öffne es erneut und exportiere dieses Foto noch einmal.",
         "gpuMemory": "Nicht genug Grafikspeicher für dieses Foto. Schließe andere Programme, die die Grafikkarte nutzen, und exportiere dieses Foto erneut.",
         "gpuTooComplex": "Die Bearbeitung dieses Fotos ist zu umfangreich, um sie mit dem Treiber dieses Grafikchips zu exportieren. Entferne einige Bearbeitungen (Effekte, lokale Korrekturen) und exportiere erneut, oder exportiere das Foto auf einem anderen Computer.",
         "offline": "{{file}} ist offline: Zum Exportieren wird die RAW-Datei benötigt.",
+        "queuedByOlderVersion": "Dieser Export wurde mit einer älteren Version von Rawtonic in die Warteschlange gestellt. Exportiere erneut.",
         "terminated": "Der Export wurde unerwartet beendet.",
         "textureLimit": "Das Bild ({{width}} × {{height}} px) ist größer, als diese Grafikkarte rendern kann ({{limit}} px pro Seite).",
         "unreadableRequest": "Die gespeicherten Einstellungen dieses Exports konnten nicht gelesen werden.",
@@ -3726,6 +3764,14 @@
           "minutes": "noch etwa {{minutes}} min",
           "seconds": "noch etwa {{seconds}} s"
         },
+        "existing": {
+          "keptBoth_one": "{{count}} unter neuem Namen",
+          "keptBoth_other": "{{count}} unter neuen Namen",
+          "replaced_one": "{{count}} ersetzt",
+          "replaced_other": "{{count}} ersetzt",
+          "skipped_one": "{{count}} übersprungen",
+          "skipped_other": "{{count}} übersprungen"
+        },
         "exportedTo": "Exportiert nach:",
         "failed": "{{failed}} von {{total}} fehlgeschlagen",
         "failures": "Nicht exportierte Fotos",
@@ -3741,10 +3787,15 @@
           "denoiseProgress": "Fortschritt KI-Entrauschen",
           "denoising": "KI-Entrauschen {{percent}} %",
           "doneIn": "Fertig in {{seconds}} s",
+          "keptBoth": "Unter neuem Namen exportiert: Die vorhandene Datei ist nicht sein eigener Export",
+          "keptOriginal": "Unter neuem Namen exportiert: Die vorhandene Datei ist ein Foto in einer Bibliothek",
           "loading": "Foto wird gelesen…",
           "masks": "Masken werden geschrieben…",
           "rendering": "Wird gerendert und geschrieben…",
+          "replaced": "Früheren Export ersetzt",
           "selecting": "KI-Auswahlen werden berechnet …",
+          "skippedExists": "Übersprungen: Eine Datei dieses Namens existiert",
+          "skippedUnchanged": "Übersprungen: seit dem letzten Export unverändert",
           "waiting": "Wartet"
         },
         "photos_one": "{{count}} Foto",

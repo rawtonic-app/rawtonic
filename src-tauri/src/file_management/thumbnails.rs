@@ -163,11 +163,13 @@ fn cache_label(path_str: &str, source: &Path) -> String {
 
 /// Whether a tile of `source` is developed from a Standard proxy that still
 /// holds the clamp (`preview_proxy::DISPLAY_COPY`): until the proxy is
-/// renewed its tile keeps its old key. (A virtual copy of another decode
-/// variant renders from the RAW and keeps it too; the key is renewed with the
-/// proxy.)
-fn display_copy_clamps(source: &Path) -> bool {
+/// renewed its tile keeps its old key. A virtual copy of another decode
+/// variant renders from the RAW, never from that proxy: its tile is renewed
+/// at once (decided from the recipes, `stands_for_by_recipe`).
+fn display_copy_clamps(source: &Path, recipe: &serde_json::Value) -> bool {
     crate::preview_proxy::standard_display_copy_is_stale(source)
+        // Unknown (an evicted master sidecar): the tile keeps its key.
+        && crate::preview_proxy::stands_for_by_recipe(source, recipe) != Some(false)
 }
 
 pub(crate) fn compute_thumbnail_cache_hash(
@@ -186,7 +188,40 @@ fn thumbnail_hash_for_engine(
     adjustments_bytes: &[u8],
     engine: u32,
 ) -> Option<String> {
-    thumbnail_hash_with(path_str, adjustments_bytes, engine, true)
+    thumbnail_hash_with(path_str, adjustments_bytes, engine, true, None)
+}
+
+/// The key a tile was cached under while its copy's preview proxy still held
+/// the clamp but the other refreshes were done (a retouched copy of another
+/// decode variant, before it was made again at once).
+fn thumbnail_hash_with_display_copy_held(
+    path_str: &str,
+    adjustments_bytes: &[u8],
+) -> Option<String> {
+    thumbnail_hash_with(
+        path_str,
+        adjustments_bytes,
+        crate::preview_proxy::ENGINE_VERSION,
+        true,
+        Some(true),
+    )
+}
+
+/// The key of a tile whose display copy was renewed (what the lookup asks
+/// for once the master's proxy is renewed or the copy's variant is known to
+/// differ), whatever the proxy says now: while offline and the master's
+/// sidecar is evicted the lookup cannot tell, and the tile may be there.
+fn thumbnail_hash_with_display_copy_renewed(
+    path_str: &str,
+    adjustments_bytes: &[u8],
+) -> Option<String> {
+    thumbnail_hash_with(
+        path_str,
+        adjustments_bytes,
+        crate::preview_proxy::ENGINE_VERSION,
+        true,
+        Some(false),
+    )
 }
 
 /// The key a thumbnail was cached under before face retouch tiles and RAW
@@ -199,6 +234,7 @@ fn thumbnail_hash_before_refreshes(path_str: &str, adjustments_bytes: &[u8]) -> 
         adjustments_bytes,
         crate::preview_proxy::ENGINE_VERSION,
         false,
+        None,
     )
 }
 
@@ -207,6 +243,7 @@ fn thumbnail_hash_with(
     adjustments_bytes: &[u8],
     engine: u32,
     refreshed: bool,
+    display_copy: Option<bool>,
 ) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
@@ -241,6 +278,17 @@ fn thumbnail_hash_with(
     {
         hasher.update(b"\0relight-defaults-v1");
     }
+    // A recipe whose LUT file did not load rendered black until 2026-11-22:
+    // tiles of recipes with a LUT are made again once. Tiles made while the
+    // LUT does not load are kept under a key of their own
+    // (`ThumbnailCacheEntry::save`), so no file is probed here.
+    if refreshed
+        && adjustments
+            .as_ref()
+            .is_some_and(|adjustments| adjustments[effects::LUT_PATH.into_name()].is_string())
+    {
+        hasher.update(b"\0lut-renders-when-missing-v1\0");
+    }
     if is_raw_file(&source_path) {
         // Old embedded RAW previews could omit camera orientation for non-TIFF
         // containers (notably RAF). Their pixels must not survive this fix.
@@ -257,7 +305,14 @@ fn thumbnail_hash_with(
         // display copy, `preview_proxy::DISPLAY_COPY`): tiles are made again.
         // A tile developed from a preview proxy that still holds the clamp
         // shows it, so it keeps its key until the proxy is renewed.
-        if refreshed && !display_copy_clamps(&source_path) {
+        if refreshed
+            && !display_copy.unwrap_or_else(|| {
+                display_copy_clamps(
+                    &source_path,
+                    adjustments.as_ref().unwrap_or(&serde_json::Value::Null),
+                )
+            })
+        {
             hasher.update(b"\0display-copy-keeps-beyond-srgb-v1\0");
         }
         // A face retouch drawn on a reduced base (a preview proxy or a fast
@@ -363,12 +418,27 @@ fn retouched_base<'a>(
     }
 }
 
-pub(crate) fn try_load_embedded_raw_preview(source_path: &Path) -> Option<DynamicImage> {
-    let mmap = read_file_mapped(source_path).ok()?;
-    image_loader::safe_embedded_preview_fallback_shared(
-        Arc::new(mmap),
+/// A RAW's embedded preview (`safe_embedded_preview_fallback_shared`) and
+/// the mapping it was read from, for the steps after it
+/// (`embedded_in_camera_crop`) to read the same file through it instead of
+/// opening it again.
+fn embedded_raw_preview_and_file(source_path: &Path) -> Option<(DynamicImage, MappedRaw)> {
+    let (mmap, metadata) =
+        rawtonic_engine::file_io::read_file_mapped_with_metadata(source_path).ok()?;
+    // The mapped file's own size and time (`camera_crop::crops_in`).
+    let stamp = metadata.modified().ok().map(|time| (metadata.len(), time));
+    let file: image_loader::SharedBytes = Arc::new(mmap);
+    let preview = image_loader::safe_embedded_preview_fallback_shared(
+        file.clone(),
         &source_path.to_string_lossy(),
-    )
+    )?;
+    Some((preview, MappedRaw { file, stamp }))
+}
+
+/// A RAW's mapping and the `camera_crop::FileStamp` of the file mapped.
+struct MappedRaw {
+    file: image_loader::SharedBytes,
+    stamp: Option<rawtonic_engine::camera_crop::FileStamp>,
 }
 
 pub fn generate_thumbnail_data(
@@ -425,9 +495,13 @@ fn stored_proxy(
     adjustments: &serde_json::Value,
     settings: &crate::app_settings::AppSettings,
 ) -> Option<crate::preview_proxy::Proxy> {
-    crate::preview_proxy::stands_for(source, adjustments)
-        .then(|| crate::preview_proxy::read(source, settings))
-        .flatten()
+    crate::preview_proxy::stands_for(
+        source,
+        adjustments,
+        crate::preview_proxy::ProxyKind::Standard,
+    )
+    .then(|| crate::preview_proxy::read(source, settings))
+    .flatten()
 }
 
 /// A new recipe's plain decode (never edited, or a Reset's) cut to the
@@ -442,10 +516,17 @@ fn cut_to_camera_crop(
 ) -> DynamicImage {
     let Some(crop) = rawtonic_engine::camera_crop::initial_crop(
         recipe,
-        &rawtonic_engine::camera_crop::crops(source),
+        &crate::camera_crop::crops(Path::new(source)),
     ) else {
         return image;
     };
+    cut_to_camera_frame(image, crop)
+}
+
+fn cut_to_camera_frame(
+    image: DynamicImage,
+    crop: rawtonic_engine::camera_crop::CameraCrop,
+) -> DynamicImage {
     let share = |part: u32, margin: u32| part as f64 / (2 * margin + part) as f64;
     let (width, height) = (image.width(), image.height());
     let cut_width = ((width as f64 * share(crop.width, crop.x)).round() as u32).clamp(1, width);
@@ -461,17 +542,23 @@ fn cut_to_camera_crop(
 /// A never-edited RAW's embedded JPEG framed as its export frames it: cut
 /// to the camera's crop where the JPEG shows the whole frame
 /// (`camera_crop::shows_crop`: a Fujifilm RAF's 3:2 JPEG of a 16:9 or 5:4
-/// photo); Canon's and the EX2F's JPEGs are their crop already.
-fn embedded_in_camera_crop(image: DynamicImage, source: &str) -> DynamicImage {
+/// photo); Canon's and the EX2F's JPEGs are their crop already. The crops
+/// are read through `file`, the mapping the JPEG came from, when given.
+fn embedded_in_camera_crop(
+    image: DynamicImage,
+    source: &str,
+    file: Option<&MappedRaw>,
+) -> DynamicImage {
     let never_edited = serde_json::Value::Null;
-    match rawtonic_engine::camera_crop::initial_crop(
-        &never_edited,
-        &rawtonic_engine::camera_crop::crops(source),
-    ) {
+    let crops = match file {
+        Some(raw) => rawtonic_engine::camera_crop::crops_in(source, &raw.file, raw.stamp),
+        None => crate::camera_crop::crops(Path::new(source)),
+    };
+    match rawtonic_engine::camera_crop::initial_crop(&never_edited, &crops) {
         Some(crop)
             if !rawtonic_engine::camera_crop::shows_crop(crop, image.width(), image.height()) =>
         {
-            cut_to_camera_crop(image, &never_edited, source)
+            cut_to_camera_frame(image, crop)
         }
         _ => image,
     }
@@ -555,7 +642,7 @@ fn develop_thumbnail_with_source(
                 &mut recipe,
                 &rawtonic_export::normalize::RecipeSource::file(&source_path),
                 rawtonic_export::normalize::Bitmaps::None,
-                rawtonic_export::normalize::Defaults::NewEdit,
+                rawtonic_export::normalize::Defaults::NewEdit(crate::camera_crop::apply_default),
             );
             let mut meta = metadata.unwrap_or_default();
             meta.adjustments = recipe.clone();
@@ -599,10 +686,14 @@ fn develop_thumbnail_with_source(
         && adjustments.is_null()
         && preloaded_image.is_none()
         && !always_decode_raw
-        && let Some(preview) = try_load_embedded_raw_preview(&source_path)
+        && let Some((preview, file)) = embedded_raw_preview_and_file(&source_path)
     {
         *embedded = true;
-        return Ok(embedded_in_camera_crop(preview, &source_path_str));
+        return Ok(embedded_in_camera_crop(
+            preview,
+            &source_path_str,
+            Some(&file),
+        ));
     }
 
     if let (Some(context), Some(meta)) = (gpu_context, metadata)
@@ -1037,6 +1128,18 @@ enum ImportSource {
     Read(Vec<u8>),
 }
 
+impl ImportSource {
+    /// The file as a buffer rawler reads in place
+    /// (`RawSource::new_from_shared`): mapped, only the parts a step looks at
+    /// are read from the disk or share, not a copy of every byte.
+    fn into_shared(self) -> image_loader::SharedBytes {
+        match self {
+            Self::Mapped(map) => std::sync::Arc::new(map),
+            Self::Read(bytes) => std::sync::Arc::new(bytes),
+        }
+    }
+}
+
 impl std::ops::Deref for ImportSource {
     type Target = [u8];
 
@@ -1078,11 +1181,11 @@ fn source_preview_image(path: &Path, size: u32) -> Option<DynamicImage> {
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_import_source(path)?;
-        quick_source_preview(&bytes, path, size).or_else(|| {
+        let file = read_import_source(path)?.into_shared();
+        quick_source_preview(&file, path, size).or_else(|| {
             let path_str = path.to_string_lossy();
             let mut image = image_loader::load_and_composite(
-                &bytes,
+                (*file).as_ref(),
                 &path_str,
                 &serde_json::Value::Null,
                 true,
@@ -1175,15 +1278,16 @@ pub(crate) fn source_full_size_jpeg(
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_import_source(path)?;
+        let file = read_import_source(path)?.into_shared();
+        let bytes: &[u8] = (*file).as_ref();
         if !is_raw_file(path) {
             if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
                 return Some((bytes.to_vec(), FullSizeSource::File));
             }
-            let image = quick_source_preview(&bytes, path, u32::MAX)?;
+            let image = quick_source_preview(&file, path, u32::MAX)?;
             return Some((encode_full_size(&image)?, FullSizeSource::File));
         }
-        let source = rawler::rawsource::RawSource::new_from_slice(&bytes);
+        let source = rawler::rawsource::RawSource::new_from_shared(file.clone());
         let params = rawler::decoders::RawDecodeParams::default();
         let decoder = rawler::get_decoder(&source).ok();
         // The sensor's size and orientation, from the RAW's header only.
@@ -1196,7 +1300,7 @@ pub(crate) fn source_full_size_jpeg(
                 .map_or((raw.width, raw.height), |area| (area.d.w, area.d.h));
             u32::try_from(w.max(h)).unwrap_or(u32::MAX)
         });
-        if let Some(jpeg) = image_loader::priority_embedded_jpeg(&bytes)
+        if let Some(jpeg) = image_loader::priority_embedded_jpeg(bytes)
             && let Ok((w, h)) =
                 image::ImageReader::with_format(Cursor::new(&jpeg), image::ImageFormat::Jpeg)
                     .into_dimensions()
@@ -1214,7 +1318,7 @@ pub(crate) fn source_full_size_jpeg(
             return Some((encode_full_size(&image)?, FullSizeSource::Embedded));
         }
         let started = std::time::Instant::now();
-        let image = render(&bytes)?;
+        let image = render(bytes)?;
         let rendered = started.elapsed();
         let jpeg = encode_full_size(&image)?;
         log::info!(
@@ -1229,8 +1333,9 @@ pub(crate) fn source_full_size_jpeg(
     .flatten()
 }
 
-/// The width and height of a photograph from its bytes, if they tell.
-pub(crate) type SizeOfBytes<'a> = dyn Fn(&[u8]) -> Option<(u32, u32)> + 'a;
+/// The width and height of a photograph from its file (read in place), if
+/// it tells.
+pub(crate) type SizeOfBytes<'a> = dyn Fn(&image_loader::SharedBytes) -> Option<(u32, u32)> + 'a;
 
 /// The size of a RAW's import 100 % view (`source_full_size_jpeg`), from
 /// its header and embedded JPEG only, without decoding it: a full-size
@@ -1247,8 +1352,8 @@ pub(crate) fn source_full_size_dimensions(
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_import_source(path)?;
-        let source = rawler::rawsource::RawSource::new_from_slice(&bytes);
+        let file = read_import_source(path)?.into_shared();
+        let source = rawler::rawsource::RawSource::new_from_shared(file.clone());
         let params = rawler::decoders::RawDecodeParams::default();
         let sensor_long = rawler::get_decoder(&source)
             .ok()
@@ -1259,7 +1364,7 @@ pub(crate) fn source_full_size_dimensions(
                     .map_or((raw.width, raw.height), |area| (area.d.w, area.d.h));
                 u32::try_from(w.max(h)).unwrap_or(u32::MAX)
             });
-        if let Some(jpeg) = image_loader::priority_embedded_jpeg(&bytes)
+        if let Some(jpeg) = image_loader::priority_embedded_jpeg((*file).as_ref())
             && let Ok((w, h)) =
                 image::ImageReader::with_format(Cursor::new(&jpeg), image::ImageFormat::Jpeg)
                     .into_dimensions()
@@ -1267,7 +1372,7 @@ pub(crate) fn source_full_size_dimensions(
         {
             return Some((w, h));
         }
-        render_size(&bytes)
+        render_size(&file)
     }))
     .ok()
     .flatten()
@@ -1311,9 +1416,9 @@ pub(crate) fn source_capture_info(path: &Path) -> SourceCaptureInfo {
         return SourceCaptureInfo::default();
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_import_source(path)?;
+        let file = read_import_source(path)?.into_shared();
         let exif =
-            crate::exif_processing::read_exif_data_from_bytes(&path.to_string_lossy(), &bytes);
+            crate::exif_processing::read_exif_data_from_shared(&path.to_string_lossy(), file);
         let field = |keys: &[&str]| {
             keys.iter()
                 .filter_map(|key| exif.get(*key))
@@ -1353,7 +1458,12 @@ pub(crate) fn source_capture_info(path: &Path) -> SourceCaptureInfo {
 }
 
 /// `source_preview_jpeg`'s previews that need no develop.
-fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicImage> {
+fn quick_source_preview(
+    file: &image_loader::SharedBytes,
+    path: &Path,
+    size: u32,
+) -> Option<DynamicImage> {
+    let bytes: &[u8] = (**file).as_ref();
     let orient = |image: DynamicImage, orientation: Option<u16>| match orientation {
         Some(o) if o > 1 => rawtonic_rawdecode::orientation::apply_orientation(
             image,
@@ -1377,8 +1487,8 @@ fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicI
             .is_ok_and(|(w, h)| w.min(h) >= size / 2)
     };
     // Candidates come largest first: take the smallest that suffices.
-    if let Some(image) = image_loader::tiff_jpeg_candidates(bytes)
-        .and_then(|candidates| candidates.into_iter().rev().find(small_enough))
+    if let Some(image) = image_loader::tiff_jpeg_previews(bytes)
+        .and_then(|mut previews| previews.rfind(small_enough))
         .and_then(jpeg)
     {
         return Some(orient(image, image_loader::exif_orientation(bytes)));
@@ -1398,7 +1508,7 @@ fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicI
     {
         return Some(orient(image, image_loader::exif_orientation(bytes)));
     }
-    image_loader::safe_embedded_preview_fallback(bytes, &path.to_string_lossy())
+    image_loader::safe_embedded_preview_fallback_shared(file.clone(), &path.to_string_lossy())
 }
 
 pub(crate) fn encode_thumbnail(image: &DynamicImage, target_width: u32) -> Result<Vec<u8>> {
@@ -1465,25 +1575,44 @@ fn preferred_thumbnail_hash<'a>(
         .unwrap_or(developed)
 }
 
+/// The keys a tile of `path_str` may have been cached under, newest
+/// first: with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
+fn older_tile_keys(path_str: &str, adjustments_bytes: &[u8]) -> Vec<String> {
+    [
+        thumbnail_hash_with_display_copy_renewed(path_str, adjustments_bytes),
+        thumbnail_hash_with_display_copy_held(path_str, adjustments_bytes),
+        thumbnail_hash_before_refreshes(path_str, adjustments_bytes),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
 /// A face retouch tile is made again (a new key). A disconnected original
 /// without a preview proxy cannot be developed again, so the tile cached
 /// under `old` stays until the original is back (a blank grid is worse).
 fn keep_tile_of_unavailable_original(
     directory: &Path,
     source: &Path,
+    recipe: &serde_json::Value,
     new: String,
-    old: impl FnOnce() -> Option<String>,
+    old: impl FnOnce() -> Vec<String>,
 ) -> String {
+    // A proxy of another decode variant cannot show this recipe, and none
+    // is developed for an evicted cloud original (`get_or_generate`
+    // develops nothing without downloading it): its old tile stays.
     if crate::preview_proxy::source_available(source)
-        || crate::preview_proxy::proxy_path(source).is_some_and(|p| p.is_file())
+        || (crate::preview_proxy::proxy_path(source).is_some_and(|p| p.is_file())
+            && !is_cloud_placeholder(source)
+            && crate::preview_proxy::stands_for_by_recipe(source, recipe) == Some(true))
         || thumbnail_files_exist(directory, &new)
     {
         return new;
     }
-    match old() {
-        Some(old) if old != new && thumbnail_files_exist(directory, &old) => old,
-        _ => new,
-    }
+    old()
+        .into_iter()
+        .find(|old| *old != new && thumbnail_files_exist(directory, old))
+        .unwrap_or(new)
 }
 
 fn thumbnail_files_exist(directory: &Path, hash: &str) -> bool {
@@ -1497,8 +1626,11 @@ fn embedded_thumbnail_allowed(path_str: &str, adjustments: &[u8], settings: &App
         && is_raw_file(&source)
         && !settings.always_decode_raw_thumbnails.unwrap_or(false)
         && rawtonic_engine::develop_defaults::for_path(&source).is_none()
-        && !(crate::preview_proxy::stands_for(&source, &serde_json::Value::Null)
-            && crate::preview_proxy::standard_header_is_current(&source, settings))
+        && !(crate::preview_proxy::stands_for(
+            &source,
+            &serde_json::Value::Null,
+            crate::preview_proxy::ProxyKind::Standard,
+        ) && crate::preview_proxy::standard_header_is_current(&source, settings))
 }
 
 /// Track one current developed recipe per photo/copy. Only strict cache file
@@ -1536,6 +1668,21 @@ struct ThumbnailCacheEntry {
     medium: PathBuf,
     rating: Option<u8>,
     is_edited: Option<bool>,
+    /// The LUT the recipe names (`lutPath`).
+    lut: Option<String>,
+    /// The tile was developed while that LUT did not load: it is saved
+    /// under `lut_missing_hash`, which no lookup asks for, so the next
+    /// lookup develops it again (with the LUT once it loads).
+    lut_missing: bool,
+}
+
+/// The key of a tile developed while its recipe's LUT did not load: a hash
+/// like every tile key (the webview renews tiles by 64-hex names).
+fn lut_missing_hash(developed: &str) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(developed.as_bytes());
+    hasher.update(b"\0lut-missing-v1");
+    hasher.finalize().to_hex().to_string()
 }
 
 /// A photo's cached thumbnails: small path, medium path, rating, edited.
@@ -1553,6 +1700,7 @@ impl ThumbnailCacheEntry {
         // Rating and edit state only when a sidecar was read: without one they
         // are unknown here (the listing has them), and an event saying 0 could
         // arrive after the photograph was registered with its rating.
+        let mut lut = None;
         let (rating, is_edited, adjustments_bytes) = if is_cloud_placeholder(&sidecar_path) {
             enqueue_metadata(
                 app_handle,
@@ -1563,6 +1711,9 @@ impl ThumbnailCacheEntry {
             (None, None, Vec::new())
         } else if let Some(meta) = thumbnail_metadata(&source_path, &sidecar_path) {
             {
+                lut = meta.adjustments[effects::LUT_PATH.into_name()]
+                    .as_str()
+                    .map(str::to_string);
                 let is_raw = crate::formats::is_raw_file(path_str);
                 let tm = crate::image_processing::resolve_tonemapper_override(settings, is_raw);
                 (
@@ -1580,10 +1731,13 @@ impl ThumbnailCacheEntry {
         };
 
         let cache_hash = compute_thumbnail_cache_hash(path_str, &adjustments_bytes)?;
-        let cache_hash =
-            keep_tile_of_unavailable_original(thumb_cache_dir, &source_path, cache_hash, || {
-                thumbnail_hash_before_refreshes(path_str, &adjustments_bytes)
-            });
+        let cache_hash = keep_tile_of_unavailable_original(
+            thumb_cache_dir,
+            &source_path,
+            &serde_json::from_slice(&adjustments_bytes).unwrap_or_default(),
+            cache_hash,
+            || older_tile_keys(path_str, &adjustments_bytes),
+        );
         let embedded_hash = embedded_thumbnail_hash(path_str);
         let selected = preferred_thumbnail_hash(
             thumb_cache_dir,
@@ -1598,6 +1752,8 @@ impl ThumbnailCacheEntry {
             medium: thumb_cache_dir.join(format!("{}_medium.jpg", selected)),
             rating,
             is_edited,
+            lut,
+            lut_missing: false,
         })
     }
 
@@ -1613,10 +1769,12 @@ impl ThumbnailCacheEntry {
             .parent()
             .ok_or_else(|| anyhow::anyhow!("No cache directory"))?
             .to_path_buf();
+        let lut_missing =
+            (!embedded && self.lut_missing).then(|| lut_missing_hash(&self.developed_hash));
         let hash = if embedded {
             self.embedded_hash.as_ref().unwrap_or(&self.developed_hash)
         } else {
-            &self.developed_hash
+            lut_missing.as_ref().unwrap_or(&self.developed_hash)
         };
         self.small = directory.join(format!("{hash}_small.jpg"));
         self.medium = directory.join(format!("{hash}_medium.jpg"));
@@ -1638,6 +1796,7 @@ impl ThumbnailCacheEntry {
             }
         }
         if (!embedded || backfill)
+            && lut_missing.is_none()
             && let Err(error) = supersede_thumbnail(&directory, path_str, &self.developed_hash)
         {
             log::warn!("Superseded thumbnail of {path_str} not removed: {error:#}");
@@ -1710,8 +1869,16 @@ pub(crate) fn generate_single_thumbnail_and_cache(
         preloaded_image,
         app_handle,
         &mut embedded,
-    )
-    .and_then(|image| entry.save(path_str, &image, embedded, settings));
+    );
+    // The render took the recipe's LUT from the same cache.
+    entry.lut_missing = entry.lut.as_deref().is_some_and(|lut| {
+        crate::lut_processing::get_or_load_lut(
+            &app_handle.state::<crate::state::luts::LutState>(),
+            lut,
+        )
+        .is_err()
+    });
+    let made = made.and_then(|image| entry.save(path_str, &image, embedded, settings));
     if let Err(error) = made {
         log::warn!("Thumbnail of {path_str} not made: {error:#}");
         return None;
@@ -2243,6 +2410,59 @@ mod source_preview_tests {
     }
 
     #[test]
+    fn a_tile_developed_without_its_lut_is_kept_apart_and_made_again() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.jpg");
+        std::fs::write(&source, b"source unchanged").unwrap();
+        let path = source.to_str().unwrap();
+        let lut = temp.path().join("look.cube");
+        let recipe = serde_json::to_vec(&serde_json::json!({
+            "lutPath": lut.to_str().unwrap(), "lutIntensity": 100
+        }))
+        .unwrap();
+        let key = || super::thumbnail_hash_for_engine(path, &recipe, 1).unwrap();
+        // The key probes no file: the same with the LUT there or not.
+        let missing = key();
+        std::fs::write(&lut, b"LUT_3D_SIZE 2\n").unwrap();
+        assert_eq!(missing, key());
+        // Tiles made before 2026-11-22 (black without their LUT) are made
+        // again; an offline original still finds its older tile.
+        let before = super::thumbnail_hash_before_refreshes(path, &recipe).unwrap();
+        assert_ne!(before, key());
+        let plain = b"{\"exposure\":1}";
+        assert_eq!(
+            super::thumbnail_hash_for_engine(path, plain, 1),
+            super::thumbnail_hash_before_refreshes(path, plain)
+        );
+
+        let cache = temp.path().join("thumbnails");
+        std::fs::create_dir(&cache).unwrap();
+        let mut entry = super::ThumbnailCacheEntry {
+            developed_hash: key(),
+            embedded_hash: None,
+            small: cache.join("unused"),
+            medium: cache.join("unused"),
+            rating: None,
+            is_edited: None,
+            lut: Some(lut.to_str().unwrap().to_string()),
+            lut_missing: true,
+        };
+        let image = image::DynamicImage::new_rgb8(8, 8);
+        let settings = crate::AppSettings::default();
+        entry.save(path, &image, false, &settings).unwrap();
+        // Shown now, but not found by the next lookup, which develops again.
+        assert!(entry.small.is_file());
+        assert!(super::thumbnail_files_exist(
+            &cache,
+            &super::lut_missing_hash(&key())
+        ));
+        assert!(!super::thumbnail_files_exist(&cache, &key()));
+        entry.lut_missing = false;
+        entry.save(path, &image, false, &settings).unwrap();
+        assert!(super::thumbnail_files_exist(&cache, &key()));
+    }
+
+    #[test]
     fn embedded_pixels_survive_an_engine_upgrade_but_decoded_pixels_do_not() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("photo.ARW");
@@ -2263,6 +2483,8 @@ mod source_preview_tests {
             medium: cache.join("unused"),
             rating: None,
             is_edited: None,
+            lut: None,
+            lut_missing: false,
         };
         let image = image::DynamicImage::new_rgb8(8, 8);
         let settings = crate::AppSettings::default();
@@ -2323,6 +2545,8 @@ mod source_preview_tests {
             medium: cache.join("unused"),
             rating: None,
             is_edited: None,
+            lut: None,
+            lut_missing: false,
         };
         entry
             .save(path, &image::DynamicImage::new_rgb8(8, 8), true, &settings)
@@ -2846,7 +3070,7 @@ mod thumbnail_queue_tests {
             },
         );
         let size = |width, height| {
-            let cut = embedded_in_camera_crop(DynamicImage::new_rgb8(width, height), path);
+            let cut = embedded_in_camera_crop(DynamicImage::new_rgb8(width, height), path, None);
             (cut.width(), cut.height())
         };
         assert_eq!(size(1920, 1280), (1920, 1080));
@@ -2876,7 +3100,13 @@ mod thumbnail_queue_tests {
         let (source, _) = parse_virtual_path(&copy);
         // The proxy (the master's) fits a snapshot of the master's filter,
         // never one of the copy's.
-        let stands_for = crate::preview_proxy::stands_for;
+        let stands_for = |source: &Path, recipe: &serde_json::Value| {
+            crate::preview_proxy::stands_for(
+                source,
+                recipe,
+                crate::preview_proxy::ProxyKind::Standard,
+            )
+        };
         assert!(stands_for(
             &source,
             &serde_json::json!({"colorNoiseVersion": 1})
@@ -3461,11 +3691,196 @@ mod face_retouch_thumbnail_tests {
             compute_thumbnail_cache_hash(path, new_edit),
             thumbnail_hash_before_refreshes(path, new_edit)
         );
+        // The proxy is the master's: it holds the key of every recipe of the
+        // same decode variant until it is renewed.
+        std::fs::write(
+            temp.path().join("Capture/photo.RAF.rrdata"),
+            br#"{"version":1,"rating":0,"adjustments":{"lensCorrectionMode":"manual"}}"#,
+        )
+        .unwrap();
         assert_eq!(
             compute_thumbnail_cache_hash(path, &bytes),
             thumbnail_hash_before_refreshes(path, &bytes),
-            "a stale proxy holds the key of every recipe of the file until it is renewed"
+            "a stale proxy holds the key of every recipe of its variant until it is renewed"
         );
+    }
+
+    /// A session with a master (cross-bilateral colour noise filter) and a
+    /// virtual copy (multi-scale), the master's proxy written and then stale.
+    fn session_with_a_copy_of_another_variant(temp: &Path) -> (PathBuf, String, Vec<u8>, Vec<u8>) {
+        std::fs::write(temp.join("session.json"), br#"{"id":"copy-variant"}"#).unwrap();
+        let source = temp.join("Capture/photo.RAF");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, b"source unchanged").unwrap();
+        let master = br#"{"colorNoiseVersion":1,"lensCorrectionMode":"manual"}"#;
+        let copy = br#"{"colorNoiseVersion":9,"lensCorrectionMode":"manual"}"#;
+        std::fs::write(
+            temp.join("Capture/photo.RAF.rrdata"),
+            format!(
+                r#"{{"version":1,"rating":0,"adjustments":{}}}"#,
+                String::from_utf8_lossy(master)
+            ),
+        )
+        .unwrap();
+        let image = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+            80,
+            60,
+            image::Rgb([0.2, 0.3, 0.4]),
+        ));
+        crate::preview_proxy::write_for_test(&source, &image, 40);
+        crate::preview_proxy::clear_display_copy_marker_for_test(&source);
+        let copy_path = format!("{}?vc=c0ffee", source.to_string_lossy());
+        (source, copy_path, master.to_vec(), copy.to_vec())
+    }
+
+    #[test]
+    fn a_copy_of_another_decode_variant_is_made_again_while_the_masters_proxy_clamps() {
+        let temp = tempfile::tempdir().unwrap();
+        let (source, copy_path, master, copy) = session_with_a_copy_of_another_variant(temp.path());
+        let master_path = source.to_str().unwrap();
+        // The master's tile is developed from its stale proxy: old key.
+        assert_eq!(
+            compute_thumbnail_cache_hash(master_path, &master),
+            thumbnail_hash_before_refreshes(master_path, &master)
+        );
+        // The copy's decode differs, so it renders from the RAW (never from
+        // that proxy): its tile is made again now, not once the master's
+        // proxy is renewed.
+        assert_ne!(
+            compute_thumbnail_cache_hash(&copy_path, &copy),
+            thumbnail_hash_before_refreshes(&copy_path, &copy)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_offline_copy_of_another_variant_keeps_its_old_tile_beside_the_masters_proxy() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let (source, _, master, copy) = session_with_a_copy_of_another_variant(temp.path());
+        let cache = temp.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        let (old, new) = ("a".repeat(64), "b".repeat(64));
+        for size in ["small", "medium"] {
+            std::fs::write(cache.join(format!("{old}_{size}.jpg")), b"tile").unwrap();
+        }
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::File::open(&source).is_ok() {
+            return;
+        }
+        let key = |recipe: &[u8]| {
+            keep_tile_of_unavailable_original(
+                &cache,
+                &source,
+                &serde_json::from_slice(recipe).unwrap(),
+                new.clone(),
+                || vec![old.clone()],
+            )
+        };
+        // The master's proxy stands for the master: its tile is renewed.
+        assert_eq!(key(&master), new);
+        // It cannot show the copy, and the RAW cannot be read: the old tile
+        // stays instead of a blank.
+        assert_eq!(key(&copy), old);
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    /// An evicted cloud original is not developed for a tile, so a preview
+    /// that stands for its recipe does not renew the key: the old tile
+    /// stays instead of a blank (PXV1 review).
+    #[test]
+    fn an_evicted_cloud_original_keeps_its_tile_though_its_preview_stands_for_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let (source, _, master, _) = session_with_a_copy_of_another_variant(temp.path());
+        let cache = temp.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        let (old, new) = ("a".repeat(64), "b".repeat(64));
+        for size in ["small", "medium"] {
+            std::fs::write(cache.join(format!("{old}_{size}.jpg")), b"tile").unwrap();
+        }
+        crate::file_management::simulate_cloud_placeholder(&source);
+        let master = serde_json::from_slice(&master).unwrap();
+        assert_eq!(
+            crate::preview_proxy::stands_for_by_recipe(&source, &master),
+            Some(true)
+        );
+        let chosen =
+            keep_tile_of_unavailable_original(&cache, &source, &master, new, || vec![old.clone()]);
+        assert_eq!(chosen, old);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_offline_copy_with_an_evicted_master_sidecar_finds_its_renewed_tile() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let (source, copy_path, _, copy) = session_with_a_copy_of_another_variant(temp.path());
+        let cache = temp.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        // Looked up with the master's sidecar evicted, as the grid does.
+        crate::file_management::simulate_cloud_placeholder(
+            &temp.path().join("Capture/photo.RAF.rrdata"),
+        );
+        let new = compute_thumbnail_cache_hash(&copy_path, &copy).unwrap();
+        let renewed = thumbnail_hash_with_display_copy_renewed(&copy_path, &copy).unwrap();
+        for hash in [&renewed] {
+            for size in ["small", "medium"] {
+                std::fs::write(cache.join(format!("{hash}_{size}.jpg")), b"tile").unwrap();
+            }
+        }
+        crate::file_management::simulate_cloud_placeholder(
+            &temp.path().join("Capture/photo.RAF.rrdata"),
+        );
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let offline = std::fs::File::open(&source).is_err();
+        let chosen = keep_tile_of_unavailable_original(
+            &cache,
+            &source,
+            &serde_json::from_slice(&copy).unwrap(),
+            new,
+            || older_tile_keys(&copy_path, &copy),
+        );
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
+        if offline {
+            // Whether the master's proxy fits is not known without the
+            // download: a tile cached after the refresh is found; the
+            // older one stays otherwise (tested above), never a blank.
+            assert_eq!(chosen, renewed);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_offline_copy_finds_the_tile_cached_while_its_masters_proxy_clamped() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let (source, copy_path, _, _) = session_with_a_copy_of_another_variant(temp.path());
+        // A recipe another refresh marker applies to (a LUT), beside the
+        // display copy's: the tile cached before this fix has that marker
+        // only.
+        let copy = br#"{"colorNoiseVersion":9,"lensCorrectionMode":"manual","lutPath":"x.cube"}"#;
+        let cache = temp.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        let held = thumbnail_hash_with_display_copy_held(&copy_path, copy).unwrap();
+        let new = compute_thumbnail_cache_hash(&copy_path, copy).unwrap();
+        let before = thumbnail_hash_before_refreshes(&copy_path, copy).unwrap();
+        assert!(held != new && held != before);
+        for size in ["small", "medium"] {
+            std::fs::write(cache.join(format!("{held}_{size}.jpg")), b"tile").unwrap();
+        }
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let offline = std::fs::File::open(&source).is_err();
+        let chosen = keep_tile_of_unavailable_original(
+            &cache,
+            &source,
+            &serde_json::from_slice(copy).unwrap(),
+            new,
+            || older_tile_keys(&copy_path, copy),
+        );
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
+        if offline {
+            assert_eq!(chosen, held);
+        }
     }
 
     #[test]
@@ -3483,7 +3898,13 @@ mod face_retouch_thumbnail_tests {
         let present = temp.path().join("photo.jpg");
         std::fs::write(&present, b"photo").unwrap();
         let key = |source: &Path| {
-            keep_tile_of_unavailable_original(&cache, source, new.clone(), || Some(old.clone()))
+            keep_tile_of_unavailable_original(
+                &cache,
+                source,
+                &serde_json::Value::Null,
+                new.clone(),
+                || vec![old.clone()],
+            )
         };
         assert_eq!(key(&gone), new, "no old tile: nothing to keep");
         put(&old);

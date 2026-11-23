@@ -236,7 +236,7 @@ impl ExportRequest {
     }
 
     /// Whether `other` reads its photos as this one does (`pin_into`).
-    fn pins_like(&self, other: &ExportRequest) -> bool {
+    pub(crate) fn pins_like(&self, other: &ExportRequest) -> bool {
         self.paths == other.paths
             && self.current_edit_path == other.current_edit_path
             && self.current_edit_adjustments == other.current_edit_adjustments
@@ -468,6 +468,19 @@ impl Tracking {
         let exports = self.app.state::<ExportState>();
         with_queue(&exports, |q| q.item_started(&self.job, index, output));
         self.report(index, Some(Stage::Rendering), None);
+    }
+    /// How a photo's file ended when it was not simply written ("If a file
+    /// exists": skipped, replaced, kept both), and the file it concerns.
+    pub fn outcome(
+        &self,
+        index: usize,
+        outcome: rawtonic_export::existing_files::Outcome,
+        output: &Path,
+    ) {
+        let exports = self.app.state::<ExportState>();
+        with_queue(&exports, |q| {
+            q.item_outcome(&self.job, index, outcome, output)
+        });
     }
     /// A photo in progress moved on to `stage`.
     pub fn stage(&self, index: usize, stage: Stage, fraction: Option<f32>) {
@@ -1278,6 +1291,8 @@ fn new_outputs(items: Vec<Item>, pending: &HashSet<usize>) -> Vec<PathBuf> {
     items
         .into_iter()
         .filter(|item| pending.contains(&item.index) && item.state == ItemState::Done)
+        // A skipped photo wrote nothing ("If a file exists").
+        .filter(|item| !item.outcome.is_some_and(|outcome| outcome.is_skip()))
         .filter_map(|item| item.output)
         .collect()
 }
@@ -1496,17 +1511,41 @@ mod tests {
         .unwrap();
 
         assert!(runnable_or_fail(&exports, &job).is_none());
-        let jobs = snapshot(&exports).jobs;
+        *lock_recover(&exports.queue) =
+            Some(ExportQueue::open(&dir.path().join("export-queue.sqlite")).unwrap());
+        let snapshot_after_failure = snapshot(&exports);
+        let jobs = &snapshot_after_failure.jobs;
         assert_eq!(jobs.len(), 1);
         assert_eq!(
             (jobs[0].state, jobs[0].done, jobs[0].failed),
             (JobState::Failed, 1, 0)
         );
         assert!(jobs[0].failures.is_empty());
+        let wire: Value =
+            serde_json::from_slice(&serde_json::to_vec(&snapshot_after_failure).unwrap()).unwrap();
+        assert_eq!(
+            wire,
+            json!({
+                "jobs": [{
+                    "id": id, "label": "Export", "state": "failed",
+                    "createdAt": jobs[0].created_at,
+                    "total": 1, "done": 1, "failed": 0, "failures": [],
+                    "skipped": 0, "replaced": 0, "keptBoth": 0,
+                    "error": "This export was queued by an older version of Rawtonic: export it again.",
+                }],
+                "editWith": [],
+                "held": false,
+            })
+        );
         let item = with_queue(&exports, |q| q.item(&id, 0)).unwrap();
         assert_eq!(item.state, ItemState::Done);
         assert_eq!(item.output.as_deref(), Some(rendered.as_path()));
         assert_eq!(std::fs::read(&rendered).unwrap(), b"staged render");
+
+        assert_eq!(with_queue(&exports, |q| q.retry(&id)), Some(0));
+        let retried = &snapshot(&exports).jobs[0];
+        assert_eq!((retried.state, retried.done), (JobState::Queued, 1));
+        assert_eq!(retried.error, None);
     }
 
     fn runner_with_waiting_job(request: &Value) -> (tempfile::TempDir, ExportState, String) {
@@ -2179,6 +2218,7 @@ mod tests {
             output: output.map(PathBuf::from),
             error: None,
             attempts: 1,
+            outcome: None,
             started_ms: None,
             finished_ms: None,
         };

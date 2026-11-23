@@ -50,9 +50,9 @@ const PINNED: &[(&str, bool, u64)] = &[
     ("explicit-nulls", false, 11),
     ("nested-unknown", false, 11),
     // Clamped: a newer build's recipe renders with this build's newest version.
-    ("future-version", false, 14),
+    ("future-version", false, 16),
     ("number-forms", false, 11),
-    ("new-edit", false, 14),
+    ("new-edit", false, 16),
 ];
 
 #[test]

@@ -86,7 +86,7 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
     ok: `u64`
   },
   apply_ai_denoise: {
-    args: `path: String, amount: f32, version: Option<u8>, multiscale: Option<bool>, dead_pixel_adjacent: Option<bool>, unbiased_black: Option<bool>, border_black: Option<bool>, highlight_ratios: Option<bool>, camera_plane_warp: Option<bool>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    args: `path: String, amount: f32, version: Option<u8>, multiscale: Option<bool>, dead_pixel_adjacent: Option<bool>, defects_isolated: Option<bool>, defects_texture: Option<bool>, unbiased_black: Option<bool>, border_black: Option<bool>, highlight_ratios: Option<bool>, camera_plane_warp: Option<bool>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
     ok: `f32`
   },
   calculate_auto_straighten: {

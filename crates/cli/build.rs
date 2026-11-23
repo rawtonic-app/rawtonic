@@ -17,6 +17,27 @@ fn link_main_stack() {
     }
 }
 
+/// The released app's version (`src-tauri/Cargo.toml`, bumped by every
+/// release): what the export records fingerprint with, so an update
+/// re-exports with Replace if changed (`existing_files::inputs_hash`).
+fn app_version() {
+    let manifest =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/Cargo.toml");
+    println!("cargo:rerun-if-changed={}", manifest.display());
+    let version = std::fs::read_to_string(&manifest)
+        .ok()
+        .and_then(|text| {
+            text.lines().find_map(|line| {
+                line.strip_prefix("version = \"")?
+                    .strip_suffix('"')
+                    .map(str::to_owned)
+            })
+        })
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
+    println!("cargo:rustc-env=RAWTONIC_APP_VERSION={version}");
+}
+
 fn main() {
     link_main_stack();
+    app_version();
 }
