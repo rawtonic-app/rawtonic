@@ -89,7 +89,6 @@
       "running": "No hi ha res en curs."
     },
     "export": {
-      "done": "{{label}} exportat ({{existing}})",
       "failed_one": "{{count}} foto no s’ha exportat: {{label}}",
       "failed_many": "{{count}} fotos no s’han exportat: {{label}}",
       "failed_other": "{{count}} fotos no s’han exportat: {{label}}",
@@ -3945,7 +3944,10 @@
           "replaced_other": "{{count}} substituïdes",
           "skipped_one": "{{count}} omesa",
           "skipped_many": "{{count}} omeses",
-          "skipped_other": "{{count}} omeses"
+          "skipped_other": "{{count}} omeses",
+          "written_one": "{{count}} exportada",
+          "written_many": "{{count}} exportades",
+          "written_other": "{{count}} exportades"
         },
         "exportedTo": "Exportat a:",
         "failed": "{{failed}} de {{total}} han fallat",
@@ -4314,6 +4316,7 @@
       "diffractionTitle": "Compensa el desenfocament de les obertures petites segons el número f i la mida del píxel",
       "distortion": "Distorsió",
       "enable": "Activa les correccions de perfil",
+      "importedCorrection": "Correcció importada",
       "lookingUp": "Cercant l'objectiu…",
       "make": "Marca",
       "manualVignetting": "Vinyetatge de l’objectiu",

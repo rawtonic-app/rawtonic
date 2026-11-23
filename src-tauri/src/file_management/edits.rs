@@ -3510,6 +3510,61 @@ mod tests {
         assert_eq!(recipe_frame::stamped(&kept), None);
     }
 
+    /// G50S decision 4: the Lens group of a photo with an imported polynomial
+    /// distortion (Capture One's Generic profile) is copied, pasted and
+    /// synced with its parameters, over the destination's lens profile; and a
+    /// lens-off paste clears it.
+    #[test]
+    fn a_pasted_imported_polynomial_distortion_replaces_the_destinations_lens_and_is_kept() {
+        let (_temp, paths) = session_with_photos(2);
+        let polynomial = serde_json::json!({
+            "model": 0, "k1": -0.036, "k2": 0.0, "k3": 0.0, "zoom": 1.0, "exact_zoom": true
+        });
+        let paste = PasteFrom {
+            source: paths[0].clone(),
+            replace_layers: false,
+            as_chosen: false,
+            new_edit: None,
+        };
+        let run = |pasted: &Value| {
+            let failed = edit_sidecars(&paths[1..], None, |path, source, sidecar| {
+                pasted_metadata(
+                    path,
+                    source,
+                    sidecar,
+                    pasted,
+                    Some(&paste),
+                    None,
+                    None,
+                    None,
+                )
+            })
+            .failures;
+            assert!(failed.is_empty(), "{failed:?}");
+            let (_, sidecar) = parse_virtual_path(&paths[1]);
+            crate::exif_processing::load_sidecar(&sidecar).adjustments
+        };
+        let pasted = serde_json::json!({
+            "lensCorrectionMode": "manual", "lensMaker": null, "lensModel": null,
+            "lensDistortionAmount": 60, "lensDistortionParams": polynomial,
+        });
+        let after = run(&pasted);
+        assert_eq!(after["lensDistortionParams"], polynomial);
+        assert_eq!(after["lensDistortionAmount"], 60);
+        assert!(after.get("lensMaker").is_none());
+        // Lens correction off pasted over it: the polynomial goes.
+        let off = serde_json::json!({
+            "lensCorrectionMode": "manual", "lensMaker": null, "lensModel": null,
+            "lensDistortionParams": null,
+        });
+        let cleared = run(&off);
+        assert!(
+            cleared
+                .get("lensDistortionParams")
+                .is_none_or(Value::is_null)
+        );
+    }
+
     #[test]
     fn synced_layers_join_each_photographs_own_with_their_own_detection() {
         let (_temp, paths) = session_with_photos(2);

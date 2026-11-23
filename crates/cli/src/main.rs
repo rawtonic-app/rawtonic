@@ -1467,18 +1467,18 @@ fn export(args: ExportArgs) -> Result<()> {
                 .and_then(|recipe| recipe["lutPath"].as_str())
                 .filter(|lut| !lut.is_empty())
                 .map(|lut| existing_files::file_fingerprint(std::path::Path::new(lut)));
-            existing_files::inputs_hash(
-                env!("RAWTONIC_APP_VERSION"),
-                &serde_json::json!({
-                    "recipe": recipe,
-                    "catalog": photo_metadata(photo, &path, &sidecar),
-                    "capture": corrected_capture(&path),
-                    "source": rawtonic_catalog::fingerprint(&path).ok(),
-                    "lutFile": lut_file,
-                    "format": format.to_lowercase(),
-                    "settings": existing_files::settings_for_hash(&settings),
-                }),
-            )
+            let mut parts = serde_json::json!({
+                "catalog": photo_metadata(photo, &path, &sidecar),
+                "capture": corrected_capture(&path),
+                "source": rawtonic_catalog::fingerprint(&path).ok(),
+                "lutFile": lut_file,
+                "format": format.to_lowercase(),
+                "settings": existing_files::settings_for_hash(&settings),
+            });
+            parts["recipe"] = recipe.as_ref().map_or(serde_json::Value::Null, |recipe| {
+                existing_files::adjustments_for_hash(recipe, &path)
+            });
+            existing_files::inputs_hash(env!("RAWTONIC_APP_VERSION"), &parts)
         })
         .collect();
     // Each photo as its exports are recorded: its path and its original's
