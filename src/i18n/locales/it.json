@@ -559,8 +559,10 @@
       "undo": "Annulla"
     },
     "editWith": {
+      "cancel": "Annulla",
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "closeLibraryFirst": "Chiudi la sessione o il catalogo aperto per riprovare: queste foto sono state modificate fuori da una libreria.",
+      "defaultRecipe": "Ricetta predefinita",
       "failed": "Modifica con non riuscito: {{error}}",
       "generatedAreas": "Modifica con non è ancora disponibile per le foto con aree generate: {{names}}",
       "interrupted": "«Modifica con» in {{app}} è stato interrotto alla chiusura di Rawtonic. Riprova per elaborare di nuovo le foto.",
@@ -568,11 +570,18 @@
       "notLinked": "Rendering eseguito, ma non aggiunto alla libreria: {{error}}",
       "openIn": "Apri in",
       "openLibraryFirst": "Riapri {{library}} per riprovare: le sue foto vengono elaborate con le modifiche che hanno lì.",
-      "recipe": "Ricetta",
+      "ownSettings": "Queste impostazioni valgono solo per {{app}}.",
+      "programSettings": "Impostazioni di un programma",
       "rendering": "Rendering per {{app}}…",
+      "save": "Salva",
+      "settingsFailed": "Impossibile salvare le impostazioni: {{error}}",
+      "settingsFor": "Impostazioni per {{app}}…",
+      "settingsTitle": "Impostazioni di Modifica con per {{app}}",
       "someFailed": "Impossibile eseguire il rendering di {{failed}} foto su {{total}}.",
       "tiffAdobe": "TIFF 16 bit · Adobe RGB",
-      "tiffProPhoto": "TIFF 16 bit · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16 bit · ProPhoto RGB",
+      "useDefault": "Usa la ricetta predefinita",
+      "usesDefault": "{{app}} usa la ricetta predefinita ({{recipe}}). Salvando avrà impostazioni proprie; gli altri programmi mantengono quella predefinita."
     },
     "merge": {
       "focusStack": "Focus Stacking",

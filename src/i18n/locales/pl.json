@@ -585,8 +585,10 @@
       "undo": "Cofnij"
     },
     "editWith": {
+      "cancel": "Anuluj",
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "closeLibraryFirst": "Zamknij otwartą sesję lub katalog, aby spróbować jeszcze raz: te zdjęcia edytowano poza biblioteką.",
+      "defaultRecipe": "Domyślny przepis",
       "failed": "Edycja za pomocą nie powiodła się: {{error}}",
       "generatedAreas": "Edycja za pomocą nie jest jeszcze dostępna dla zdjęć z wygenerowanymi obszarami: {{names}}",
       "interrupted": "„Edytuj w” w {{app}} zostało przerwane przy zamykaniu Rawtonic. Spróbuj ponownie, aby wyrenderować zdjęcia jeszcze raz.",
@@ -594,11 +596,18 @@
       "notLinked": "Wyrenderowano, ale nie dodano do biblioteki: {{error}}",
       "openIn": "Otwórz w",
       "openLibraryFirst": "Otwórz ponownie {{library}}, aby spróbować jeszcze raz: zdjęcia zostaną wywołane z ustawieniami, które tam mają.",
-      "recipe": "Przepis",
+      "ownSettings": "Te ustawienia są używane tylko dla {{app}}.",
+      "programSettings": "Ustawienia programu",
       "rendering": "Renderowanie dla {{app}}…",
+      "save": "Zapisz",
+      "settingsFailed": "Nie udało się zapisać ustawień: {{error}}",
+      "settingsFor": "Ustawienia dla {{app}}…",
+      "settingsTitle": "Ustawienia Edytuj za pomocą dla {{app}}",
       "someFailed": "Nie udało się wyrenderować zdjęć: {{failed}} z {{total}}.",
       "tiffAdobe": "TIFF 16-bit · Adobe RGB",
-      "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB",
+      "useDefault": "Użyj domyślnego przepisu",
+      "usesDefault": "{{app}} używa domyślnego przepisu ({{recipe}}). Zapisanie nada mu własne ustawienia; pozostałe programy zachowują domyślny."
     },
     "merge": {
       "focusStack": "Stosowanie ostrości (Focus Stacking)",

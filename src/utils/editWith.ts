@@ -2,7 +2,14 @@ import { refreshStacks } from '../store/useStackStore';
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import type { ExportPreset, ExportSettings } from '../components/ui/ExportImportProperties';
-import { DEFAULT_RECIPE_DRAFT, exportSettingsFromDraft, exportSettingsFromPreset, savedRecipes } from './exportRecipes';
+import {
+  DEFAULT_RECIPE_DRAFT,
+  draftFromPreset,
+  exportSettingsFromDraft,
+  presetFromDraft,
+  savedRecipes,
+  type RecipeDraft
+} from './exportRecipes';
 import { currentEditForExport, debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
@@ -45,7 +52,11 @@ export interface OpenWithPrefs {
   recentApps: string[];
   /** Program files picked with "Choose program…" (Windows). */
   pickedApps?: string[];
+  /** The default recipe: for every program without settings of its own. */
   editRecipe: string | null;
+  /** Programs' own Edit With settings (program id → recipe), as Lightroom's
+   * Edit In keeps them per editor (`open_with.rs`). */
+  programSettings?: Record<string, ExportPreset>;
 }
 
 /** A program's name from its id when the menu's name is not at hand: the
@@ -60,6 +71,10 @@ export const programName = (program: string) =>
 /** An Edit With recipe: what the renders are exported with. */
 export interface EditRecipe {
   id: string;
+  /** The form's values the recipe was made from (`exportRecipes.ts`). */
+  draft: RecipeDraft;
+  /** The program whose own settings these are (absent: a default recipe). */
+  program?: string;
   /** A built-in recipe's colour space, or a saved recipe's own name. */
   builtIn?: 'adobeRgb' | 'proPhoto';
   name?: string;
@@ -69,18 +84,17 @@ export interface EditRecipe {
 
 /** Full-size 16-bit TIFFs with all metadata, the format image editors take
  * without loss; Adobe RGB unless the recipe says ProPhoto. */
-const builtIn = (id: string, colorSpace: 'adobeRgb' | 'proPhoto'): EditRecipe => ({
-  id,
-  builtIn: colorSpace,
-  ...exportSettingsFromDraft({
+const builtIn = (id: string, colorSpace: 'adobeRgb' | 'proPhoto'): EditRecipe => {
+  const draft: RecipeDraft = {
     ...DEFAULT_RECIPE_DRAFT,
     format: 'tiff',
     depth: 16,
     colorSpace,
     stripGps: false,
     preserveTimestamps: false
-  })
-});
+  };
+  return { id, builtIn: colorSpace, draft, ...exportSettingsFromDraft(draft) };
+};
 
 export const EDIT_RECIPE_TIFF_ADOBE = 'builtin-tiff16-adobe';
 export const BUILT_IN_EDIT_RECIPES: EditRecipe[] = [
@@ -94,7 +108,10 @@ export function editRecipes(presets: ExportPreset[] | undefined): EditRecipe[] {
   return [
     ...BUILT_IN_EDIT_RECIPES,
     ...savedRecipes(presets)
-      .map((preset) => ({ id: preset.id, name: preset.name, ...exportSettingsFromPreset(preset) }))
+      .map((preset) => {
+        const draft = draftFromPreset(preset);
+        return { id: preset.id, name: preset.name, draft, ...exportSettingsFromDraft(draft) };
+      })
       .filter((recipe) => recipe.outputFormat !== 'cube')
   ];
 }
@@ -102,6 +119,33 @@ export function editRecipes(presets: ExportPreset[] | undefined): EditRecipe[] {
 /** The recipe last used, or the first built-in one. */
 export const chosenRecipe = (recipes: EditRecipe[], id: string | null | undefined) =>
   recipes.find((recipe) => recipe.id === id) ?? recipes[0];
+
+/** The formats a program's own settings offer: what image editors open
+ * (a LUT is no image to edit). */
+export const PROGRAM_FORMATS = ['tiff', 'jpg', 'png'] as const;
+
+/** The recipe `program`'s renders are made with: its own settings, else the
+ * default recipe. */
+export function programRecipe(
+  recipes: EditRecipe[],
+  prefs: Pick<OpenWithPrefs, 'editRecipe' | 'programSettings'> | null | undefined,
+  program: string
+): EditRecipe {
+  const own = prefs?.programSettings?.[program];
+  if (!own) return chosenRecipe(recipes, prefs?.editRecipe);
+  const draft = draftFromPreset(own);
+  return { id: own.id, name: own.name, program, draft, ...exportSettingsFromDraft(draft) };
+}
+
+/** What `edit_with_set_program_settings` stores for `program`: the form's
+ * values, started from the recipe the program used until now, so what the
+ * form does not show (sharpening, watermark, …) stays as that recipe had it. */
+export const programSettings = (program: string, name: string, draft: RecipeDraft): ExportPreset =>
+  presetFromDraft(
+    { ...draft, quality: Math.min(100, Math.max(1, Math.round(draft.quality) || 90)) },
+    `program:${program}`,
+    name
+  );
 
 interface EditTarget {
   source: string;

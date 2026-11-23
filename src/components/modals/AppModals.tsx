@@ -15,6 +15,7 @@ import LibrarySwitchShield from './LibrarySwitchShield';
 import CollageModal, { type CollageSpec } from './CollageModal';
 import { DuplicatesDialogHost } from '../studio/DuplicatesDialog';
 import { ProofSheetDialogHost } from '../studio/ProofSheetDialog';
+import { EditWithSettingsDialogHost } from '../studio/EditWithSettingsDialog';
 
 export interface AppModalsProps {
   handleImageSelect: (path: string) => void;
@@ -123,6 +124,7 @@ export default function AppModals(props: AppModalsProps) {
       <LibrarySwitchShield />
       <DuplicatesDialogHost trash={props.executeDelete} />
       <ProofSheetDialogHost />
+      <EditWithSettingsDialogHost />
       <CollageModal
         isOpen={collageModalState.isOpen}
         onClose={() => setUI({ collageModalState: { isOpen: false, sourceImages: [] } })}

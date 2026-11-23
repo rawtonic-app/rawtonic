@@ -559,8 +559,10 @@
       "undo": "Deshacer"
     },
     "editWith": {
+      "cancel": "Cancelar",
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "closeLibraryFirst": "Cierra la sesión o el catálogo abierto para intentarlo de nuevo: estas fotos se editaron fuera de una biblioteca.",
+      "defaultRecipe": "Receta predeterminada",
       "failed": "Error en Editar con: {{error}}",
       "generatedAreas": "Editar con aún no está disponible para fotos con zonas generadas: {{names}}",
       "interrupted": "«Editar con» en {{app}} se interrumpió al cerrar Rawtonic. Vuelve a intentarlo para renderizar las fotos de nuevo.",
@@ -568,11 +570,18 @@
       "notLinked": "Renderizado, pero no añadido a la biblioteca: {{error}}",
       "openIn": "Abrir en",
       "openLibraryFirst": "Vuelve a abrir {{library}} para intentarlo de nuevo: sus fotos se procesan con los ajustes que tienen allí.",
-      "recipe": "Receta",
+      "ownSettings": "Estos ajustes se usan solo para {{app}}.",
+      "programSettings": "Ajustes de un programa",
       "rendering": "Renderizando para {{app}}…",
+      "save": "Guardar",
+      "settingsFailed": "No se pudieron guardar los ajustes: {{error}}",
+      "settingsFor": "Ajustes para {{app}}…",
+      "settingsTitle": "Ajustes de Editar con para {{app}}",
       "someFailed": "No se pudieron renderizar {{failed}} de {{total}} fotos.",
       "tiffAdobe": "TIFF 16 bits · Adobe RGB",
-      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB",
+      "useDefault": "Usar la receta predeterminada",
+      "usesDefault": "{{app}} usa la receta predeterminada ({{recipe}}). Al guardar tendrá ajustes propios; los demás programas mantienen la predeterminada."
     },
     "merge": {
       "focusStack": "Apilamiento de enfoque",

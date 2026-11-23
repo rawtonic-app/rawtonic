@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { openDialog } from '../../utils/fileDialog';
-import { AppWindow, Check, FolderOpen } from 'lucide-react';
+import { AppWindow, Check, FolderOpen, Settings2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { notify } from '../../activity/notify';
@@ -16,6 +16,7 @@ import {
   photoWritesWritten,
   programGroups,
   programName,
+  programRecipe,
   runEditWith,
   type AppChoice,
   type AppChoices,
@@ -24,6 +25,7 @@ import {
   type OpenWithPrefs
 } from '../../utils/editWith';
 import { useLibraryStore } from '../../store/useLibraryStore';
+import { recipeLabel, recipeSummary, showEditWithSettings } from './EditWithSettingsDialog';
 
 /** Asks for any application ("Other…"): an application bundle on macOS, a
  * program file on Windows, a `.desktop` file or executable on Linux. */
@@ -194,7 +196,7 @@ export async function offerInterruptedEditWith(t: TFunction) {
             const prefs = await invoke<OpenWithPrefs>(Invokes.OpenWithPrefs).catch(() => null);
             await editPhotosWith(
               run.photos,
-              chosenRecipe(recipes, prefs?.editRecipe),
+              programRecipe(recipes, prefs, run.program),
               run.program,
               t,
               undefined,
@@ -207,20 +209,18 @@ export async function offerInterruptedEditWith(t: TFunction) {
   }
 }
 
-const recipeLabel = (recipe: EditRecipe, t: TFunction) =>
-  recipe.builtIn === 'adobeRgb'
-    ? t('contextMenus.editWith.tiffAdobe')
-    : recipe.builtIn === 'proPhoto'
-      ? t('contextMenus.editWith.tiffProPhoto')
-      : (recipe.name ?? recipe.id);
-
 /** The programs as plain menu entries (the menu bar's Open With / Edit With
  * show them in the window: its own menus cannot list programs). */
-function programOptions(choices: AppChoices, t: TFunction, onPick: (path: string, name: string) => void): Option[] {
+function programOptions(
+  choices: AppChoices,
+  t: TFunction,
+  onPick: (path: string, name: string) => void,
+  note: (app: AppChoice) => string | null = () => null
+): Option[] {
   if (!choices.supported) return [{ label: t('contextMenus.openWith.unsupported'), disabled: true }];
   const entry = (app: AppChoice): Option => ({
     icon: AppWindow,
-    label: app.isDefault ? `${app.name} · ${t('contextMenus.openWith.default')}` : app.name,
+    label: [app.name, app.isDefault ? t('contextMenus.openWith.default') : null, note(app)].filter(Boolean).join(' · '),
     onClick: () => onPick(app.path, app.name)
   });
   return [
@@ -259,46 +259,116 @@ export async function editWithOptions(
   const prefs = await invoke<OpenWithPrefs>(Invokes.OpenWithPrefs).catch(() => null);
   const recipe = chosenRecipe(recipes, prefs?.editRecipe);
   const choices = await invoke<AppChoices>(Invokes.EditWithApps, { extension: recipe.outputFormat });
+  const programs = choices.supported ? choices.apps : [];
   return [
     { type: OPTION_HEADER, label: t('contextMenus.editWith.label') },
     {
-      label: `${t('contextMenus.editWith.recipe')}: ${recipeLabel(recipe, t)}`,
+      label: `${t('contextMenus.editWith.defaultRecipe')}: ${recipeLabel(recipe, t)}`,
       submenu: recipes.map((r) => ({
         label: recipeLabel(r, t),
         checked: r.id === recipe.id,
         onClick: () => void invoke(Invokes.EditWithSetRecipe, { recipe: r.id }).catch(() => {})
       }))
     },
+    ...(programs.length
+      ? [
+          {
+            label: t('contextMenus.editWith.programSettings'),
+            submenu: programs.map((app) => ({
+              icon: Settings2,
+              label: t('contextMenus.editWith.settingsFor', { app: app.name }),
+              onClick: () => void showEditWithSettings(app.path, app.name, t)
+            }))
+          }
+        ]
+      : []),
     { type: OPTION_SEPARATOR },
-    ...programOptions(choices, t, (program, name) => void editPhotosWith(paths, recipe, program, t, onRendered, name))
+    ...programOptions(
+      choices,
+      t,
+      (program, name) =>
+        void editPhotosWith(paths, programRecipe(recipes, prefs, program), program, t, onRendered, name),
+      (app) => ownSummary(recipes, prefs, app.path, t)
+    )
   ];
 }
 
+/** A program's own Edit With settings in a few words (null: it uses the
+ * default recipe). */
+function ownSummary(
+  recipes: EditRecipe[],
+  prefs: OpenWithPrefs | null | undefined,
+  program: string,
+  t: TFunction
+): string | null {
+  const recipe = programRecipe(recipes, prefs, program);
+  return recipe.program ? recipeSummary(recipe, t) : null;
+}
+
+/** Edit With's per-program parts of a program row: its own settings in a
+ * few words, and "Settings for <program>…". */
+interface RowSettings {
+  note(app: AppChoice): string | null;
+  open(app: AppChoice): void;
+}
+
 /** The programs, the default and recent ones first, then "Other…". */
-function AppRows({ choices, onPick }: { choices: AppChoices | null; onPick(path: string, name: string): void }) {
+function AppRows({
+  choices,
+  onPick,
+  settings
+}: {
+  choices: AppChoices | null;
+  onPick(path: string, name: string): void;
+  settings?: RowSettings;
+}) {
   const { t } = useTranslation();
   if (choices === null) return <div className="rawtonic-menu-heading">{t('contextMenus.openWith.reading')}</div>;
   if (!choices.supported) return <div className="rawtonic-menu-heading">{t('contextMenus.openWith.unsupported')}</div>;
-  const row = (app: AppChoice) => (
-    <button
-      key={app.path}
-      type="button"
-      role="menuitem"
-      className="rawtonic-menu-item"
-      title={app.path}
-      onClick={() => onPick(app.path, app.name)}
-    >
-      <span className="flex items-center gap-2.5 min-w-0">
-        {app.icon ? (
-          <img src={app.icon} alt="" width={16} height={16} className="shrink-0" />
-        ) : (
-          <AppWindow size={14} className="shrink-0" />
+  const row = (app: AppChoice) => {
+    const note = settings?.note(app);
+    const button = (
+      <button
+        key={app.path}
+        type="button"
+        role="menuitem"
+        className="rawtonic-menu-item"
+        title={app.path}
+        onClick={() => onPick(app.path, app.name)}
+      >
+        <span className="flex items-center gap-2.5 min-w-0">
+          {app.icon ? (
+            <img src={app.icon} alt="" width={16} height={16} className="shrink-0" />
+          ) : (
+            <AppWindow size={14} className="shrink-0" />
+          )}
+          <span className="truncate">{app.name}</span>
+        </span>
+        {(app.isDefault || note) && (
+          <small className="rawtonic-menu-count">
+            {[app.isDefault ? t('contextMenus.openWith.default') : null, note].filter(Boolean).join(' · ')}
+          </small>
         )}
-        <span className="truncate">{app.name}</span>
-      </span>
-      {app.isDefault && <small className="rawtonic-menu-count">{t('contextMenus.openWith.default')}</small>}
-    </button>
-  );
+      </button>
+    );
+    if (!settings) return button;
+    const label = t('contextMenus.editWith.settingsFor', { app: app.name });
+    return (
+      <div key={app.path} className="rawtonic-menu-row">
+        {button}
+        <button
+          type="button"
+          role="menuitem"
+          className="rawtonic-menu-item is-icon"
+          aria-label={label}
+          title={label}
+          onClick={() => settings.open(app)}
+        >
+          <Settings2 size={14} aria-hidden="true" />
+        </button>
+      </div>
+    );
+  };
   return (
     <>
       {choices.apps.length === 0 && <div className="rawtonic-menu-heading">{t('contextMenus.openWith.none')}</div>}
@@ -376,32 +446,41 @@ export function EditWithSubMenu({
   const { t } = useTranslation();
   const presets = useSettingsStore((state) => state.appSettings?.exportPresets);
   const recipes = editRecipes(presets);
-  const [recipeId, setRecipeId] = useState<string | null | undefined>(undefined);
+  // undefined while reading; null when they cannot be read.
+  const [prefs, setPrefs] = useState<OpenWithPrefs | null | undefined>(undefined);
   useEffect(() => {
     let current = true;
     invoke<OpenWithPrefs>(Invokes.OpenWithPrefs)
-      .then((prefs) => current && setRecipeId(prefs?.editRecipe ?? null))
-      .catch(() => current && setRecipeId(null));
+      .then((read) => current && setPrefs(read ?? null))
+      .catch(() => current && setPrefs(null));
     return () => {
       current = false;
     };
   }, []);
-  const recipe = chosenRecipe(recipes, recipeId);
-  const choices = useChoices(Invokes.EditWithApps, recipeId === undefined ? null : { extension: recipe.outputFormat });
+  const recipe = chosenRecipe(recipes, prefs?.editRecipe);
+  const choices = useChoices(Invokes.EditWithApps, prefs === undefined ? null : { extension: recipe.outputFormat });
 
   const choose = (id: string) => {
-    setRecipeId(id);
+    setPrefs((read) => ({ recentApps: [], ...read, editRecipe: id }));
     invoke(Invokes.EditWithSetRecipe, { recipe: id }).catch(() => {});
   };
 
   const pick = (program: string, name: string) => {
     hideContextMenu();
-    void editPhotosWith(paths, recipe, program, t, onRendered, name);
+    void editPhotosWith(paths, programRecipe(recipes, prefs, program), program, t, onRendered, name);
+  };
+
+  const settings: RowSettings = {
+    note: (app) => ownSummary(recipes, prefs, app.path, t),
+    open: (app) => {
+      hideContextMenu();
+      void showEditWithSettings(app.path, app.name, t);
+    }
   };
 
   return (
     <div className="rawtonic-menu-list min-w-60" role="menu" aria-label={t('contextMenus.editWith.label')}>
-      <div className="rawtonic-menu-heading rawtonic-menu-group">{t('contextMenus.editWith.recipe')}</div>
+      <div className="rawtonic-menu-heading rawtonic-menu-group">{t('contextMenus.editWith.defaultRecipe')}</div>
       {recipes.map((r) => (
         <button
           key={r.id}
@@ -423,7 +502,7 @@ export function EditWithSubMenu({
       ))}
       <div className="rawtonic-menu-separator" />
       <div className="rawtonic-menu-heading rawtonic-menu-group">{t('contextMenus.editWith.openIn')}</div>
-      <AppRows choices={choices} onPick={pick} />
+      <AppRows choices={choices} onPick={pick} settings={settings} />
     </div>
   );
 }

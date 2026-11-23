@@ -16,6 +16,7 @@
 //! plus, there, the program files the user picked with "Choose program…".
 //! Other systems report `supported: false` and the menus show the entries
 //! disabled.
+use crate::app_settings::ExportPreset;
 use crate::export_queue::ExportRequest;
 use crate::ipc::{CommandError, ErrorCode};
 use crate::state::develop::{DevelopSession, Scope};
@@ -23,7 +24,7 @@ use rawtonic_catalog::Library;
 use rawtonic_export::sidecars::parse_virtual_path;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
@@ -85,8 +86,14 @@ pub struct OpenWithPrefs {
     /// not list for the files (Windows), newest first: offered in every
     /// list while they exist.
     pub picked_apps: Vec<String>,
-    /// The Edit With recipe last used (an export preset id or a built-in one).
+    /// The Edit With recipe last used (an export preset id or a built-in one):
+    /// the default for every program without settings of its own.
     pub edit_recipe: Option<String>,
+    /// Edit With settings of single programs (program id as the menu lists
+    /// it → the recipe its renders are made with), as Lightroom's Edit In
+    /// keeps them per editor: made by the first change of a program's
+    /// settings from the default recipe, removed by "Use default".
+    pub program_settings: BTreeMap<String, ExportPreset>,
 }
 
 /// One render: the photograph (a virtual copy keeps its `?vc=`) and the
@@ -662,6 +669,36 @@ pub async fn edit_with_set_recipe(recipe: String, app: AppHandle) -> Result<(), 
     tauri::async_runtime::spawn_blocking(move || edit_with_set_recipe_blocking(recipe, app))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// `program`'s own Edit With settings become `settings`; None removes
+/// them, so the program uses the default recipe again.
+fn set_program_settings(
+    prefs: &mut OpenWithPrefs,
+    program: String,
+    settings: Option<ExportPreset>,
+) {
+    match settings {
+        Some(settings) => {
+            prefs.program_settings.insert(program, settings);
+        }
+        None => {
+            prefs.program_settings.remove(&program);
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn edit_with_set_program_settings(
+    program: String,
+    settings: Option<ExportPreset>,
+    app: AppHandle,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        update_prefs(&app, |prefs| set_program_settings(prefs, program, settings))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// What `edit_with_start` queued: each render's file and its export job.
@@ -1265,6 +1302,91 @@ mod tests {
         remember_launch(&mut prefs, &program, Launched::Listed);
         assert_eq!(prefs.recent_apps, ["Photos"]);
         assert!(prefs.picked_apps.is_empty());
+    }
+
+    /// The IPC contract of a program's own Edit With settings: what the
+    /// settings dialog sends (`OpenWithMenus.test.tsx` asserts the same
+    /// file) reads into `edit_with_set_program_settings`' parameters, is
+    /// stored in `open_with.json` and read back as the menu gets it, beside
+    /// the default recipe; "Use default recipe" removes it again.
+    #[test]
+    fn program_settings_cross_ipc_as_the_dialog_sends_them() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../src/components/studio/fixtures/editWithProgramSettings.json"
+        ))
+        .unwrap();
+        let arg = |command: &str, name: &str| fixture[command][name].clone();
+        let gimp: String =
+            serde_json::from_value(arg("editWithSetProgramSettings", "program")).unwrap();
+        let settings: Option<ExportPreset> =
+            serde_json::from_value(arg("editWithSetProgramSettings", "settings")).unwrap();
+        let settings = settings.expect("the dialog sends settings");
+        assert_eq!(settings.file_format, "tiff");
+        assert_eq!(settings.tiff_bit_depth, Some(16));
+        assert_eq!(settings.color_space.as_deref(), Some("proPhoto"));
+
+        // A file written before per-program settings: the default recipe
+        // stays, no program has settings of its own.
+        let old = r#"{"recentApps":["/usr/share/applications/org.gimp.GIMP.desktop"],"pickedApps":[],"editRecipe":"builtin-tiff16-adobe"}"#;
+        let mut prefs: OpenWithPrefs = serde_json::from_str(old).unwrap();
+        assert_eq!(prefs.edit_recipe.as_deref(), Some("builtin-tiff16-adobe"));
+        assert!(prefs.program_settings.is_empty());
+
+        // The prefs the menu gets back (a second program, JPEG sRGB).
+        let mut prefs_sent: OpenWithPrefs =
+            serde_json::from_value(fixture["openWithPrefs"].clone()).unwrap();
+        let gwenview = "/usr/share/applications/org.kde.gwenview.desktop";
+        assert_eq!(prefs_sent.program_settings[gwenview].file_format, "jpeg");
+        assert_eq!(
+            prefs_sent.program_settings[gwenview].color_space.as_deref(),
+            Some("srgb")
+        );
+
+        set_program_settings(&mut prefs, gimp.clone(), Some(settings.clone()));
+        set_program_settings(
+            &mut prefs,
+            gwenview.into(),
+            Some(prefs_sent.program_settings[gwenview].clone()),
+        );
+        // Stored and read back as written (`update_prefs`, `read_prefs`).
+        let bytes = serde_json::to_vec_pretty(&prefs).unwrap();
+        let read: OpenWithPrefs = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(read.edit_recipe.as_deref(), Some("builtin-tiff16-adobe"));
+        assert_eq!(
+            serde_json::to_value(&read.program_settings[&gimp]).unwrap(),
+            serde_json::to_value(&settings).unwrap()
+        );
+        let sent: ExportPreset =
+            serde_json::from_value(fixture["openWithPrefs"]["programSettings"][gwenview].clone())
+                .unwrap();
+        assert_eq!(
+            serde_json::to_value(&read.program_settings[gwenview]).unwrap(),
+            serde_json::to_value(&sent).unwrap()
+        );
+        // Every setting the dialog sends is kept, none dropped on the way.
+        let kept = serde_json::to_value(&settings).unwrap();
+        for (key, value) in arg("editWithSetProgramSettings", "settings")
+            .as_object()
+            .unwrap()
+        {
+            assert_eq!(
+                kept[key].as_f64().or(kept[key].as_bool().map(f64::from)),
+                value.as_f64().or(value.as_bool().map(f64::from)),
+                "{key}"
+            );
+            if !value.is_number() {
+                assert_eq!(&kept[key], value, "{key}");
+            }
+        }
+
+        // "Use default recipe" for Gwenview.
+        let program: String = serde_json::from_value(arg("useDefault", "program")).unwrap();
+        let none: Option<ExportPreset> =
+            serde_json::from_value(arg("useDefault", "settings")).unwrap();
+        assert!(none.is_none());
+        set_program_settings(&mut prefs_sent, program, none);
+        assert!(prefs_sent.program_settings.is_empty());
+        assert_eq!(prefs_sent.recent_apps, [gimp.as_str()]);
     }
 
     #[cfg(unix)]

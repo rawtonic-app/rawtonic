@@ -533,8 +533,10 @@
       "undo": "Undo"
     },
     "editWith": {
+      "cancel": "Cancel",
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "closeLibraryFirst": "Close the open session or catalog to try again: these photos were edited outside a library.",
+      "defaultRecipe": "Default recipe",
       "failed": "Edit With failed: {{error}}",
       "generatedAreas": "Edit With is not available for photos with generated areas yet: {{names}}",
       "interrupted": "Edit With in {{app}} was interrupted when Rawtonic quit. Try again to render the photos again.",
@@ -542,11 +544,18 @@
       "notLinked": "Rendered, but not added to the library: {{error}}",
       "openIn": "Open in",
       "openLibraryFirst": "Open {{library}} again to try again: its photos are rendered with the edits they have there.",
-      "recipe": "Recipe",
+      "ownSettings": "These settings are used only for {{app}}.",
+      "programSettings": "Settings for a program",
       "rendering": "Rendering for {{app}}…",
+      "save": "Save",
+      "settingsFailed": "The settings could not be saved: {{error}}",
+      "settingsFor": "Settings for {{app}}…",
+      "settingsTitle": "Edit With settings for {{app}}",
       "someFailed": "{{failed}} of {{total}} photographs could not be rendered.",
       "tiffAdobe": "TIFF 16-bit · Adobe RGB",
-      "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB",
+      "useDefault": "Use default recipe",
+      "usesDefault": "{{app}} uses the default recipe ({{recipe}}). Saving gives it settings of its own; the other programs keep the default."
     },
     "merge": {
       "focusStack": "Focus stacking",
