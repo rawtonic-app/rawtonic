@@ -1358,15 +1358,32 @@ pub async fn sample_levels_input(
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("sample_levels_input");
         let recipe = levels_input_probe(&adjustments);
+        // A frame nobody sees rendering over the sample (`picker_mark`)
+        // ends before the next pass, which takes that frame's base then.
+        let develop = app_handle.state::<DevelopSession>();
+        let view = &develop.color_noise_view;
         sample_levels_with(|outputs| {
-            render_probes(
+            let mark = view
+                .picker_mark()
+                .and_then(|m| m.upgrade())
+                .map(|m| Arc::as_ptr(&m));
+            let images = render_probes(
                 &app_handle,
                 &path,
                 recipe.clone(),
                 ProbeArea::Point(normalized_x, normalized_y),
                 outputs,
                 "sample_levels_input",
-            )
+            );
+            let after = view
+                .picker_mark()
+                .and_then(|m| m.upgrade())
+                .map(|m| Arc::as_ptr(&m));
+            if after != mark {
+                log::warn!("Levels picker: the shown frame changed; sampled again");
+                return Err(gpu_processing::PREVIEW_PROCESSOR_CHANGED.to_string());
+            }
+            images
         })
     })
     .await
@@ -1987,10 +2004,15 @@ fn render_probes(
             lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p)
                 .ok()
         });
-    // The pickers sample what the settled fit frame shows.
+    // The pickers sample what the settled fit frame shows, read before this
+    // probe notes its own frame: a hidden frame's renders note none
+    // (`color_noise_view::picker_mark`).
+    let picker = (caller_id == "sample_levels_input")
+        .then(|| develop.color_noise_view.picker_mark())
+        .flatten();
     let mut base = base;
     let mut transform_hash = transform_hash;
-    if caller_id == "sample_levels_input"
+    if let Some(shown) = &picker
         && let Some(corrected) = crate::color_noise_view::shown_corrected_base(
             &develop.color_noise_view,
             &probe,
@@ -1998,6 +2020,7 @@ fn render_probes(
             &loaded_image.image,
             loaded_image.is_raw,
             &base,
+            shown,
         )
     {
         probe.global.color_noise_reduction = 0.0;
@@ -3007,6 +3030,11 @@ pub(crate) enum FramePass {
     /// frame rendered once more for its analytics only (not encoded or
     /// sent; [`analytics_pass_of`]).
     AnalyticsOnly,
+    /// Linux's drag-draft warm-up: nobody sees the frame
+    /// (`warm_draft_source`), so it writes none of what a shown frame does
+    /// (`color_noise_view::ColorNoiseView::render_unseen`, which also
+    /// covers the frame's own render).
+    DraftWarmup,
 }
 
 /// Leads a Linux settled region frame's reply (then the drag frames' six
@@ -3555,9 +3583,8 @@ fn native_display(_app_handle: &tauri::AppHandle) -> bool {
 }
 
 fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
-    let state = app_handle.state::<AppState>();
-    let develop = app_handle.state::<DevelopSession>();
-    let prepared = develop
+    let prepared = app_handle
+        .state::<DevelopSession>()
         .cached_preview
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -3567,34 +3594,36 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
         return;
     }
     let started = std::time::Instant::now();
-    let frames = develop.color_noise_view.frames_noted();
-    let shown = develop.color_noise_view.shown_mark();
-    let result = gpu_processing::supersedable(newer_request_waits(app_handle, None), || {
-        process_editor_preview_job(
-            app_handle,
-            state,
-            develop,
-            warm.adjustments,
-            true,
-            false,
-            warm.target_resolution,
-            None,
-            false,
-            false,
-            None,
-            None,
-            false,
-            false,
-            warm.generation,
-            FramePass::Requested,
-        )
+    let develop = app_handle.state::<DevelopSession>();
+    // Not shown: the frame renders on a thread that ends as one nobody sees
+    // (`ColorNoiseView::render_unseen`) — the worker's polled closure runs
+    // there too — so it never writes the base the Levels pickers sample, and
+    // a pick during the warm-up reads the final frame's, before and after it
+    // (G08: the marker was put back only after a pick had seen it).
+    let result = develop.color_noise_view.render_unseen(|| {
+        let state = app_handle.state::<AppState>();
+        let develop = app_handle.state::<DevelopSession>();
+        gpu_processing::supersedable(newer_request_waits(app_handle, None), || {
+            process_editor_preview_job(
+                app_handle,
+                state,
+                develop,
+                warm.adjustments,
+                true,
+                false,
+                warm.target_resolution,
+                None,
+                false,
+                false,
+                None,
+                None,
+                false,
+                false,
+                warm.generation,
+                FramePass::DraftWarmup,
+            )
+        })
     });
-    // Not shown: the final frame before it stays the latest for its colour
-    // noise correction (`color_noise_view`), and the base the Levels
-    // pickers sample stays that frame's.
-    let view = &app_handle.state::<DevelopSession>().color_noise_view;
-    view.forget_frame(frames);
-    view.restore_shown(shown);
     match result {
         Ok(_) => log::info!("Drag draft source prepared in {:.1?}", started.elapsed()),
         Err(e) if e.code == ErrorCode::Cancelled => {

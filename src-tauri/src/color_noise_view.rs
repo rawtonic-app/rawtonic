@@ -206,6 +206,10 @@ pub struct ColorNoiseView {
     /// Preview frames rendered so far (`note_frame`): a render input's frame
     /// follows only when none came after the one it was wanted for.
     frames: AtomicU64,
+    /// Frames nobody sees rendering now (`render_unseen`): a render input's
+    /// frame follows as if none came, no shown marker is written or said,
+    /// and no picker samples one.
+    hidden_frames: AtomicU64,
     /// Changes with every render input stored or dropped (`revision`).
     revision: AtomicU64,
     split_before: Mutex<Option<SplitBeforeRequest>>,
@@ -291,44 +295,100 @@ impl ColorNoiseView {
     }
 
     /// Counts a preview frame of the open photograph (every frame, a drag's
-    /// too) and returns its number.
+    /// too) and returns its number. A frame nobody sees is not one.
     pub(crate) fn note_frame(&self) -> u64 {
+        if UNSEEN.with(|unseen| unseen.get()) {
+            return self.frames.load(Ordering::SeqCst);
+        }
         self.frames.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Renders a frame nobody sees (Linux's drag-draft warm-up) with
+    /// `render`, on a thread of its own: the frame ends with that render,
+    /// whatever the job it submits does (and gives way) in between, so the
+    /// next warm-up finds none.
+    pub(crate) fn render_unseen<T: Send>(&self, render: impl FnOnce() -> T + Send) -> T {
+        let frames = &self.hidden_frames;
+        std::thread::scope(|scope| {
+            let render =
+                rawtonic_runtime::spawn_scoped_render_thread(scope, "draft-warmup", move || {
+                    let _unseen = HiddenFrame::new(frames);
+                    render()
+                });
+            render
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+        })
+    }
+
+    /// Whether a frame nobody sees renders now (on any thread).
+    pub(crate) fn any_hidden(&self) -> bool {
+        self.hidden_frames.load(Ordering::SeqCst) > 0
     }
 
     /// What the preview frame being rendered now renders from: `corrected`
     /// (from [`corrected_base`]) or its own base (None). Probes of the
-    /// shown frame follow it ([`shown_corrected_base`]).
+    /// shown frame follow it ([`shown_corrected_base`]); a frame nobody sees
+    /// writes no marker.
     pub(crate) fn note_shown(&self, corrected: Option<&Arc<DynamicImage>>) {
+        if self.any_hidden() {
+            return;
+        }
         *lock_recover(&self.shown) = corrected.map(Arc::downgrade);
     }
 
-    /// What [`note_shown`](Self::note_shown) last recorded, to put back
-    /// after a render nobody sees ([`restore_shown`](Self::restore_shown)).
+    /// What [`note_shown`](Self::note_shown) last recorded: the shown
+    /// frame's base, never one a frame nobody sees wrote (it writes none).
     pub(crate) fn shown_mark(&self) -> Option<Weak<DynamicImage>> {
         lock_recover(&self.shown).clone()
     }
 
-    /// Puts back the record of [`shown_mark`](Self::shown_mark): a render
-    /// nobody sees (Linux's drag-draft warm-up) leaves the shown frame's
-    /// base the one probes sample.
-    pub(crate) fn restore_shown(&self, mark: Option<Weak<DynamicImage>>) {
-        *lock_recover(&self.shown) = mark;
+    /// What the Levels pickers go on (`sample_levels_with`): the shown
+    /// frame's marker ([`shown_mark`](Self::shown_mark)); None while a frame
+    /// nobody sees renders, so a pick never samples over its render, and
+    /// samples again once it is done.
+    pub(crate) fn picker_mark(&self) -> Option<Weak<DynamicImage>> {
+        if self.any_hidden() {
+            return None;
+        }
+        self.shown_mark()
     }
 
     /// The number of the last frame noted.
+    #[cfg(test)]
     pub(crate) fn frames_noted(&self) -> u64 {
         self.frames.load(Ordering::SeqCst)
     }
+}
 
-    /// Takes back the one frame noted after `before` (`frames_noted`): a
-    /// render nobody sees (Linux's drag-draft warm-up,
-    /// `editor_preview::warm_draft_source`) leaves the frame before it the
-    /// latest. Nothing when no frame or more than one came.
-    pub(crate) fn forget_frame(&self, before: u64) {
-        let _ =
-            self.frames
-                .compare_exchange(before + 1, before, Ordering::SeqCst, Ordering::SeqCst);
+thread_local! {
+    /// A frame nobody sees renders on this thread (`HiddenFrame`).
+    static UNSEEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A frame nobody sees rendering (`ColorNoiseView::render_unseen`), until it
+/// drops: it counts as no frame (`note_frame`) and writes no shown marker
+/// (`note_shown`).
+struct HiddenFrame<'a> {
+    frames: &'a AtomicU64,
+}
+
+impl HiddenFrame<'_> {
+    fn new(frames: &AtomicU64) -> HiddenFrame<'_> {
+        assert!(
+            !UNSEEN.with(|unseen| unseen.get()),
+            "one frame nobody sees per thread"
+        );
+        UNSEEN.with(|unseen| unseen.set(true));
+        frames.fetch_add(1, Ordering::SeqCst);
+        HiddenFrame { frames }
+    }
+}
+
+impl Drop for HiddenFrame<'_> {
+    fn drop(&mut self) {
+        UNSEEN.with(|unseen| unseen.set(false));
+        self.frames.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -466,8 +526,9 @@ pub(crate) fn corrected_base(
 /// The corrected base the last preview frame of `base` rendered from for
 /// this colour noise setting (a settled fit frame; `note_shown`), if it
 /// did: what probes of the shown frame (the Levels pickers) render from,
-/// at Color 0. None after a frame from its own base (a zoomed region, a
-/// drag). Looks up only; never wants or builds one.
+/// at Color 0. `shown` is the marker the pick went on
+/// ([`ColorNoiseView::picker_mark`]); None after a frame from its own base
+/// (a zoomed region, a drag). Looks up only; never wants or builds one.
 pub(crate) fn shown_corrected_base(
     view: &ColorNoiseView,
     adjustments: &AllAdjustments,
@@ -475,6 +536,7 @@ pub(crate) fn shown_corrected_base(
     source: &Arc<DynamicImage>,
     is_raw: bool,
     base: &Arc<DynamicImage>,
+    shown: &Weak<DynamicImage>,
 ) -> Option<Arc<DynamicImage>> {
     if !enabled() || !applies(adjustments, recipe, is_raw) {
         return None;
@@ -486,16 +548,18 @@ pub(crate) fn shown_corrected_base(
         .filter(|c| Weak::ptr_eq(&c.source, &source) && c.key == key)
         .map(|c| Arc::downgrade(&c.input))
         .collect();
-    let shown = lock_recover(&view.shown).clone()?;
     let base = Arc::downgrade(base);
-    lock_recover(&view.corrected)
+    let found = lock_recover(&view.corrected)
         .iter()
         .find(|c| {
             Weak::ptr_eq(&c.base, &base)
                 && inputs.iter().any(|i| Weak::ptr_eq(&c.input, i))
-                && Weak::ptr_eq(&Arc::downgrade(&c.image), &shown)
+                && Weak::ptr_eq(&Arc::downgrade(&c.image), shown)
         })
-        .map(|c| Arc::clone(&c.image))
+        .map(|c| Arc::clone(&c.image))?;
+    // A frame nobody sees started meanwhile: its render comes from the
+    // shown frame's base, which the next pick takes again.
+    (!view.any_hidden()).then_some(found)
 }
 
 /// The preview worker after a final frame: when a render input is wanted and
@@ -1029,7 +1093,16 @@ mod tests {
         let (source, base) = (image(600, 400), image(200, 133));
         let corrected = image(200, 133);
         let shown = |amount| {
-            shown_corrected_base(&view, &all(amount), &recipe(amount), &source, true, &base)
+            let shown = view.picker_mark();
+            shown_corrected_base(
+                &view,
+                &all(amount),
+                &recipe(amount),
+                &source,
+                true,
+                &base,
+                shown.as_ref()?,
+            )
         };
         assert!(shown(25).is_none(), "no frame showed one yet");
         assert!(
@@ -1064,11 +1137,25 @@ mod tests {
         );
         view.note_shown(Some(&used));
         assert!(Arc::ptr_eq(&shown(25).unwrap(), &corrected));
-        // A render nobody sees (the drag-draft warm-up) changes nothing.
-        let mark = view.shown_mark();
-        view.note_shown(None);
-        view.restore_shown(mark);
+        // A render nobody sees (the drag-draft warm-up) writes nothing: a
+        // pick during it takes the shown frame's base again once it is done.
+        let seen = |view: &ColorNoiseView| {
+            let shown = view.picker_mark();
+            let pick = shown.as_ref().and_then(|shown| {
+                shown_corrected_base(view, &all(25), &recipe(25), &source, true, &base, shown)
+            });
+            view.note_shown(pick.as_ref());
+            pick.is_some()
+        };
+        assert!(view.render_unseen(|| {
+            assert!(view.any_hidden(), "counted while it renders");
+            let during = shown(25);
+            assert!(during.is_none(), "no pick over a hidden frame's render");
+            seen(&view);
+            during.is_none()
+        }));
         assert!(Arc::ptr_eq(&shown(25).unwrap(), &corrected));
+        assert!(!view.any_hidden(), "ended with its render");
         // A zoomed or dragged frame after it renders from its own base.
         view.note_shown(None);
         assert!(shown(25).is_none());
@@ -1077,24 +1164,102 @@ mod tests {
         assert!(shown(50).is_none());
         let other = image(200, 133);
         assert!(
-            shown_corrected_base(&view, &all(25), &recipe(25), &source, true, &other).is_none()
+            shown_corrected_base(
+                &view,
+                &all(25),
+                &recipe(25),
+                &source,
+                true,
+                &other,
+                &Arc::downgrade(&used)
+            )
+            .is_none()
         );
     }
 
-    /// A frame nobody sees (the drag-draft warm-up) keeps the frame before
-    /// it the latest; a frame shown after it does not.
+    /// A frame nobody sees (the drag-draft warm-up) is no frame: it leaves
+    /// the frame before it the latest, and its build never keeps a render
+    /// input beside it.
     #[test]
     fn an_unseen_frame_leaves_the_last_shown_frame_current() {
         let view = ColorNoiseView::default();
         let shown = view.note_frame();
-        let before = view.frames_noted();
-        view.note_frame();
-        view.forget_frame(before);
+        let counted = view.render_unseen(|| view.note_frame());
+        assert_eq!(counted, shown, "counted as none");
         assert_eq!(view.frames_noted(), shown);
+        // A shown frame after it is the latest, as the two before.
         view.note_frame();
+        assert_eq!(view.frames_noted(), shown + 1);
+        assert!(!view.any_hidden());
+        // However long it renders, and however many frames it notes.
+        assert_eq!(
+            view.render_unseen(|| {
+                let first = view.note_frame();
+                assert_eq!(first, shown + 1);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                view.note_frame()
+            }),
+            shown + 1
+        );
+        assert_eq!(view.frames_noted(), shown + 1, "no frame of its own");
+    }
+
+    /// A frame nobody sees writes no shown marker: the one the Levels
+    /// pickers sample stays the shown frame's before it, is not sampled
+    /// while it renders, and is the shown frame's again right after.
+    #[test]
+    fn an_unseen_frame_writes_no_shown_marker() {
+        let view = ColorNoiseView::default();
+        let (source, base) = (image(600, 400), image(200, 133));
+        let shown_base = image(200, 133);
+        let hidden_base = image(200, 133);
+        let key = Key::of(&global(25), &recipe(25), true);
+        *lock_recover(&view.inputs) = vec![RenderInput {
+            source: Arc::downgrade(&source),
+            path: "a.raw".into(),
+            key,
+            input: Arc::new(Rgb32FImage::new(200, 133)),
+        }];
+        let input = Arc::downgrade(&lock_recover(&view.inputs)[0].input);
+        *lock_recover(&view.corrected) = vec![CorrectedBase {
+            base: Arc::downgrade(&base),
+            input: input.clone(),
+            image: Arc::clone(&shown_base),
+        }];
+        let pick = || {
+            let shown = view.picker_mark();
+            shown_corrected_base(
+                &view,
+                &all(25),
+                &recipe(25),
+                &source,
+                true,
+                &base,
+                shown.as_ref()?,
+            )
+        };
         view.note_frame();
-        view.forget_frame(before);
-        assert_eq!(view.frames_noted(), shown + 2);
+        view.note_shown(Some(&shown_base));
+        assert!(Arc::ptr_eq(&pick().unwrap(), &shown_base));
+        // While a frame nobody sees renders, its own render writes no
+        // marker, even from a corrected base of its own (a draft-sized one
+        // the view kept too), and a pick never samples that render.
+        let input = input.clone();
+        let hidden = Arc::clone(&hidden_base);
+        view.render_unseen(|| {
+            lock_recover(&view.corrected).push(CorrectedBase {
+                base: Arc::downgrade(&base),
+                input,
+                image: hidden,
+            });
+            view.note_shown(Some(&hidden_base));
+            view.note_shown(None);
+            assert!(pick().is_none(), "no pick over a hidden frame's render");
+        });
+        assert!(
+            Arc::ptr_eq(&pick().unwrap(), &shown_base),
+            "the shown frame's again"
+        );
     }
 
     /// A before asking for the edit's render input keeps the edit's frame
