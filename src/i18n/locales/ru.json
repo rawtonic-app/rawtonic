@@ -603,6 +603,7 @@
       "settingsFor": "Настройки для {{app}}…",
       "settingsTitle": "Настройки «Редактировать в» для {{app}}",
       "someFailed": "Не удалось отрендерить фото: {{failed}} из {{total}}.",
+      "stripGps": "Удалить GPS-координаты",
       "tiffAdobe": "TIFF 16 бит · Adobe RGB",
       "tiffProPhoto": "TIFF 16 бит · ProPhoto RGB",
       "useDefault": "Использовать рецепт по умолчанию",

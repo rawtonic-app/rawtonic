@@ -537,6 +537,7 @@
       "settingsFor": "{{app}} 的設定…",
       "settingsTitle": "{{app}} 的「編輯方式」設定",
       "someFailed": "{{total}} 張照片中有 {{failed}} 張無法算圖。",
+      "stripGps": "移除 GPS 座標",
       "tiffAdobe": "TIFF 16 位元 · Adobe RGB",
       "tiffProPhoto": "TIFF 16 位元 · ProPhoto RGB",
       "useDefault": "使用預設配方",

@@ -551,6 +551,7 @@
       "settingsFor": "Einstellungen für {{app}}…",
       "settingsTitle": "Einstellungen für „Bearbeiten mit“ in {{app}}",
       "someFailed": "{{failed}} von {{total}} Fotos konnten nicht gerendert werden.",
+      "stripGps": "GPS-Koordinaten entfernen",
       "tiffAdobe": "TIFF 16 Bit · Adobe RGB",
       "tiffProPhoto": "TIFF 16 Bit · ProPhoto RGB",
       "useDefault": "Standardrezept verwenden",

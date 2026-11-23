@@ -238,6 +238,24 @@ function programOptions(
   ];
 }
 
+/** The programs Edit With lists: the ones for the default recipe's format,
+ * then each program with settings of its own that this list misses (its own
+ * format may be one the default's list does not cover); a program that is
+ * gone is left out. */
+async function editChoices(extension: string, prefs: OpenWithPrefs | null | undefined): Promise<AppChoices> {
+  const choices = await invoke<AppChoices>(Invokes.EditWithApps, { extension });
+  if (!choices.supported) return choices;
+  const listed = new Set(choices.apps.map((app) => app.path));
+  const missing = Object.keys(prefs?.programSettings ?? {}).filter((program) => !listed.has(program));
+  const found = await Promise.all(
+    missing.map(async (program) => {
+      const app = await invoke<AppChoice | null>(Invokes.OpenWithDescribe, { program }).catch(() => null);
+      return app ? { ...app, path: program, isDefault: false, isRecent: false, recommended: true } : null;
+    })
+  );
+  return { ...choices, apps: [...choices.apps, ...found.filter((app) => app !== null)] };
+}
+
 /** Open With as menu entries for `paths`. */
 export async function openWithOptions(paths: string[], t: TFunction): Promise<Option[]> {
   const choices = await invoke<AppChoices>(Invokes.OpenWithApps, { paths });
@@ -258,7 +276,7 @@ export async function editWithOptions(
   const recipes = editRecipes(presets);
   const prefs = await invoke<OpenWithPrefs>(Invokes.OpenWithPrefs).catch(() => null);
   const recipe = chosenRecipe(recipes, prefs?.editRecipe);
-  const choices = await invoke<AppChoices>(Invokes.EditWithApps, { extension: recipe.outputFormat });
+  const choices = await editChoices(recipe.outputFormat, prefs);
   const programs = choices.supported ? choices.apps : [];
   return [
     { type: OPTION_HEADER, label: t('contextMenus.editWith.label') },
@@ -458,7 +476,19 @@ export function EditWithSubMenu({
     };
   }, []);
   const recipe = chosenRecipe(recipes, prefs?.editRecipe);
-  const choices = useChoices(Invokes.EditWithApps, prefs === undefined ? null : { extension: recipe.outputFormat });
+  const [choices, setChoices] = useState<AppChoices | null>(null);
+  const extension = recipe.outputFormat;
+  useEffect(() => {
+    if (prefs === undefined) return;
+    let current = true;
+    setChoices(null);
+    editChoices(extension, prefs)
+      .then((list) => current && setChoices(list))
+      .catch(() => current && setChoices({ supported: true, apps: [] }));
+    return () => {
+      current = false;
+    };
+  }, [extension, prefs]);
 
   const choose = (id: string) => {
     setPrefs((read) => ({ recentApps: [], ...read, editRecipe: id }));

@@ -603,6 +603,7 @@
       "settingsFor": "Ustawienia dla {{app}}…",
       "settingsTitle": "Ustawienia Edytuj za pomocą dla {{app}}",
       "someFailed": "Nie udało się wyrenderować zdjęć: {{failed}} z {{total}}.",
+      "stripGps": "Usuń współrzędne GPS",
       "tiffAdobe": "TIFF 16-bit · Adobe RGB",
       "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB",
       "useDefault": "Użyj domyślnego przepisu",

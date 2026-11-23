@@ -577,6 +577,7 @@
       "settingsFor": "Impostazioni per {{app}}…",
       "settingsTitle": "Impostazioni di Modifica con per {{app}}",
       "someFailed": "Impossibile eseguire il rendering di {{failed}} foto su {{total}}.",
+      "stripGps": "Rimuovi le coordinate GPS",
       "tiffAdobe": "TIFF 16 bit · Adobe RGB",
       "tiffProPhoto": "TIFF 16 bit · ProPhoto RGB",
       "useDefault": "Usa la ricetta predefinita",

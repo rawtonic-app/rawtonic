@@ -577,6 +577,7 @@
       "settingsFor": "Ajustes para {{app}}…",
       "settingsTitle": "Ajustes de Editar con para {{app}}",
       "someFailed": "No se pudieron renderizar {{failed}} de {{total}} fotos.",
+      "stripGps": "Quitar las coordenadas GPS",
       "tiffAdobe": "TIFF 16 bits · Adobe RGB",
       "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB",
       "useDefault": "Usar la receta predeterminada",

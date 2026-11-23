@@ -244,6 +244,16 @@ function EditWithSettingsDialog({ shown }: { shown: Shown }) {
                 )}
               </div>
             )}
+            {draft.resize && (
+              <label className="studio-proof-sheet-check">
+                <input
+                  type="checkbox"
+                  checked={draft.dontEnlarge}
+                  onChange={(e) => set({ dontEnlarge: e.target.checked })}
+                />
+                {t('studio.export.sizing.dontEnlarge')}
+              </label>
+            )}
           </fieldset>
           <fieldset disabled={busy}>
             <legend>{t('studio.export.metadata.legend')}</legend>
@@ -254,11 +264,20 @@ function EditWithSettingsDialog({ shown }: { shown: Shown }) {
             <label className="studio-proof-sheet-check">
               <input
                 type="checkbox"
+                checked={!!draft.keepCreatorContact}
+                disabled={draft.metadata}
+                onChange={(e) => set({ keepCreatorContact: e.target.checked })}
+              />
+              {t('studio.export.metadata.keepCreatorContact')}
+            </label>
+            <label className="studio-proof-sheet-check">
+              <input
+                type="checkbox"
                 checked={draft.stripGps}
                 disabled={!draft.metadata}
                 onChange={(e) => set({ stripGps: e.target.checked })}
               />
-              {t('studio.export.metadata.stripGps')}
+              {t('contextMenus.editWith.stripGps')}
             </label>
           </fieldset>
         </div>

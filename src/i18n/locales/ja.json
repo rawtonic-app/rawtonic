@@ -537,6 +537,7 @@
       "settingsFor": "{{app}} の設定…",
       "settingsTitle": "{{app}} の「このアプリケーションで編集」設定",
       "someFailed": "{{total}} 枚中 {{failed}} 枚の写真をレンダリングできませんでした。",
+      "stripGps": "GPS 座標を削除",
       "tiffAdobe": "TIFF 16 ビット · Adobe RGB",
       "tiffProPhoto": "TIFF 16 ビット · ProPhoto RGB",
       "useDefault": "既定のレシピを使用",

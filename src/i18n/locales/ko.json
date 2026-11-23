@@ -537,6 +537,7 @@
       "settingsFor": "{{app}} 설정…",
       "settingsTitle": "{{app}}의 '다음으로 편집' 설정",
       "someFailed": "사진 {{total}}장 중 {{failed}}장을 렌더링할 수 없습니다.",
+      "stripGps": "GPS 좌표 제거",
       "tiffAdobe": "TIFF 16비트 · Adobe RGB",
       "tiffProPhoto": "TIFF 16비트 · ProPhoto RGB",
       "useDefault": "기본 레시피 사용",

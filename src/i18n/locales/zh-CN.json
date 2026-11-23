@@ -537,6 +537,7 @@
       "settingsFor": "{{app}} 的设置…",
       "settingsTitle": "{{app}} 的“编辑方式”设置",
       "someFailed": "{{total}} 张照片中有 {{failed}} 张无法渲染。",
+      "stripGps": "移除 GPS 坐标",
       "tiffAdobe": "TIFF 16 位 · Adobe RGB",
       "tiffProPhoto": "TIFF 16 位 · ProPhoto RGB",
       "useDefault": "使用默认配方",

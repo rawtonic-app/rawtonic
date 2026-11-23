@@ -529,3 +529,58 @@ it("the menu bar's Edit With offers each program's settings and renders with the
   await vi.waitFor(() => expect(vi.mocked(runEditWith).mock.lastCall![2]).toBe(gwenview.path));
   expect(vi.mocked(runEditWith).mock.lastCall![1].outputFormat).toBe('jpg');
 });
+
+it('keeps a program with its own settings listed when the default format does not list it', async () => {
+  const describe = vi.fn(async (program: string) => ({ ...gwenview, path: `${program}`, isDefault: true }));
+  mockInvoke.mockImplementation(async (command, args) => {
+    if (command === 'open_with_prefs') return programSettingsFixture.openWithPrefs;
+    // A TIFF default lists only GIMP; Gwenview is set to JPEG.
+    if (command === 'edit_with_apps') return { supported: true, apps: [gimp] };
+    if (command === 'open_with_describe') return describe((args as { program: string }).program);
+  });
+  render(<EditWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
+  const own = await screen.findByRole('menuitem', { name: /^Gwenview/ });
+  expect(own.textContent).toBe('GwenviewJPEG · sRGB');
+  expect(describe).toHaveBeenCalledWith(gwenview.path);
+  fireEvent.click(own);
+  await vi.waitFor(() => expect(vi.mocked(runEditWith).mock.lastCall![2]).toBe(gwenview.path));
+  expect(vi.mocked(runEditWith).mock.lastCall![1].outputFormat).toBe('jpg');
+  cleanup();
+
+  const options = await editWithOptions(paths, i18n.t, []);
+  expect(options.some((o) => o.label === 'Gwenview · JPEG · sRGB')).toBe(true);
+});
+
+it("the settings dialog offers Don't enlarge and creator contact, and names what Remove GPS removes", async () => {
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
+    if (command === 'edit_with_apps') return linuxApps;
+  });
+  render(
+    <>
+      <EditWithSubMenu paths={paths} hideContextMenu={vi.fn()} />
+      <EditWithSettingsDialogHost />
+    </>
+  );
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Settings for Gwenview…' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Edit With settings for Gwenview' });
+  fireEvent.click(within(dialog).getByLabelText('Resize to fit'));
+  fireEvent.click(within(dialog).getByLabelText('Don’t enlarge'));
+  fireEvent.click(within(dialog).getByLabelText('Include metadata'));
+  fireEvent.click(within(dialog).getByLabelText('Include creator contact details'));
+  expect(within(dialog).getByLabelText('Remove GPS coordinates')).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+  await vi.waitFor(() =>
+    expect(mockInvoke).toHaveBeenCalledWith(
+      'edit_with_set_program_settings',
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          enableResize: true,
+          dontEnlarge: false,
+          keepMetadata: false,
+          keepCreatorContact: true
+        })
+      })
+    )
+  );
+});
