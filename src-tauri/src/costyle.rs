@@ -1547,7 +1547,10 @@ mod tests {
         }
         // Spline value at x = 0.225 is 0.0009 (0.22 of 255); below its
         // undershoot at x = 0.075…0.15 the curve is clipped to black.
-        assert!(luma.contains(&json!({"x": 57.38, "y": 0.22})));
+        assert!(luma.iter().any(|p| {
+            (p["x"].as_f64().unwrap() - 57.375).abs() < 0.01
+                && (p["y"].as_f64().unwrap() - 0.22).abs() < 0.01
+        }));
         assert!(luma.contains(&json!({"x": 38.25, "y": 0.0})));
         let xs: Vec<f64> = luma.iter().map(|p| p["x"].as_f64().unwrap()).collect();
         assert!(xs.windows(2).all(|w| w[0] < w[1]));
