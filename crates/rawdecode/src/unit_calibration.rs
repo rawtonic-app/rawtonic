@@ -60,8 +60,8 @@ pub fn reference(path: &str, source: Source, key: u16) -> Option<Ratios> {
         Source::SonyDaylight => sony_daylight(path),
         Source::CanonDaylight => canon_reference(path),
         Source::FujifilmStandard => {
-            let bytes = std::fs::read(path).ok()?;
-            crate::capture_info::fujifilm_standard_white_balance(&bytes)
+            let bytes = crate::capture_info::read_for_metadata(path)?;
+            crate::capture_info::fujifilm_standard_white_balance((*bytes).as_ref())
                 .into_iter()
                 .find(|(light, _)| *light == key as u32)
                 .and_then(|(_, [g, r, b])| ratios(r as f64, g as f64, b as f64))
@@ -80,8 +80,7 @@ fn ratios(r: f64, g: f64, b: f64) -> Option<Ratios> {
 }
 
 fn sony_daylight(path: &str) -> Option<Ratios> {
-    let bytes = std::fs::read(path).ok()?;
-    let source = rawler::rawsource::RawSource::new_from_slice(&bytes);
+    let source = crate::capture_info::open_for_metadata(path)?;
     let sr2 = rawler::decoders::arw::ArwDecoder::sr2_subifd(&source).ok()?;
     let value = &sr2.get_entry(0x7820u16)?.value;
     if value.count() != 3 {

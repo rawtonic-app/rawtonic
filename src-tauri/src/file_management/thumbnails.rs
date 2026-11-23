@@ -804,14 +804,12 @@ fn develop_thumbnail_with_source(
                 raw_scale_factor = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
                 Cow::Borrowed(&proxy.image)
             } else {
-                let mmap_guard;
                 let vec_guard;
+                let mapped = read_file_mapped(&source_path)
+                    .map(|mmap| -> image_loader::SharedBytes { Arc::new(mmap) });
 
-                let file_slice: &[u8] = match read_file_mapped(&source_path) {
-                    Ok(mmap) => {
-                        mmap_guard = Some(mmap);
-                        mmap_guard.as_ref().unwrap()
-                    }
+                let file_slice: &[u8] = match &mapped {
+                    Ok(mmap) => (**mmap).as_ref(),
                     Err(e) => {
                         if preloaded_image.is_none() {
                             log::warn!("Fallback read for {}: {}", source_path_str, e);
@@ -828,15 +826,26 @@ fn develop_thumbnail_with_source(
                     }
                 };
 
-                let img = image_loader::load_base_image_for_recipe(
-                    file_slice,
-                    &source_path_str,
-                    true,
-                    &settings,
-                    None,
-                    None,
-                    &adjustments,
-                )?;
+                let decode = || {
+                    image_loader::load_base_image_for_recipe(
+                        file_slice,
+                        &source_path_str,
+                        true,
+                        &settings,
+                        None,
+                        None,
+                        &adjustments,
+                    )
+                };
+                // The base look applied below reads the decode's mapping.
+                let img = match &mapped {
+                    Ok(mmap) if is_raw => crate::baseline_exposure::decode_with_base_look(
+                        &source_path_str,
+                        mmap.clone(),
+                        decode,
+                    ),
+                    _ => decode(),
+                }?;
 
                 if is_raw {
                     raw_scale_factor = crate::raw_processing::get_fast_demosaic_scale_factor(
@@ -1179,6 +1188,36 @@ fn read_import_into_memory(path: &Path) -> bool {
     rawtonic_ingest::batch::source_medium(path) == rawtonic_ingest::batch::Medium::Card
 }
 
+/// Reads the photograph at `path` ahead of a decode that reads all of it
+/// (`file_io::prefetch`: over a share faster than the mapping's page
+/// faults), except on a card, whose files are read into memory or mapped
+/// as they are decoded. Stops once `cancel` (the decode's) is cancelled or
+/// the returned guard is dropped (the decode is over, done or failed).
+#[must_use = "the read-ahead stops when the guard is dropped"]
+pub(crate) fn read_ahead_for_decode(
+    path: &Path,
+    cancel: Option<rawtonic_runtime::CancelToken>,
+) -> ReadAhead {
+    let over = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if !read_import_into_memory(path) {
+        let done = over.clone();
+        rawtonic_engine::file_io::prefetch_until(path, move || {
+            done.load(Ordering::Relaxed)
+                || cancel.as_ref().is_some_and(|cancel| cancel.is_cancelled())
+        });
+    }
+    ReadAhead(over)
+}
+
+/// Ends `read_ahead_for_decode`'s reads when dropped.
+pub(crate) struct ReadAhead(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for ReadAhead {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
 /// A photograph to import for `source_preview_jpeg`, `source_large_preview_jpeg`
 /// and `source_capture_info`: read into memory on a card, mapped elsewhere
 /// (as `read_file_mapped`: refusing missing, empty or locked files).
@@ -1204,15 +1243,21 @@ fn source_preview_image(path: &Path, size: u32) -> Option<DynamicImage> {
         let file = read_import_source(path)?.into_shared();
         quick_source_preview(&file, path, size).or_else(|| {
             let path_str = path.to_string_lossy();
-            let mut image = image_loader::load_and_composite(
-                (*file).as_ref(),
-                &path_str,
-                &serde_json::Value::Null,
-                true,
-                &AppSettings::default(),
-                None,
-            )
-            .ok()?;
+            // Developed: every byte is read, ahead of the mapping's faults,
+            // and the decode's facts read the same buffer.
+            let _read_ahead = read_ahead_for_decode(path, None);
+            let mut image =
+                rawtonic_rawdecode::capture_info::with_held_source(&path_str, file.clone(), || {
+                    image_loader::load_and_composite(
+                        (*file).as_ref(),
+                        &path_str,
+                        &serde_json::Value::Null,
+                        true,
+                        &AppSettings::default(),
+                        None,
+                    )
+                })
+                .ok()?;
             if is_raw_file(path) {
                 apply_cpu_default_raw_processing(&mut image);
             }

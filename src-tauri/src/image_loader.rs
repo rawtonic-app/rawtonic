@@ -1402,21 +1402,38 @@ pub async fn load_image(
                             return Ok((held, exif));
                         }
 
-                        let (img, measures) = load_base_image_measured_for(
-                            &mmap,
-                            &path_clone,
-                            false,
-                            &settings,
+                        // The decode reads every byte: from a share ahead of
+                        // the mapping's faults, and the base look the first
+                        // render applies from the same mapping.
+                        let read_ahead = crate::file_management::read_ahead_for_decode(
+                            Path::new(&path_clone),
                             cancel_token.clone(),
-                            decode_denoise.clone(),
-                            draft.clone(),
-                            Some(variant),
-                        )?;
+                        );
+                        let mmap: SharedBytes = Arc::new(mmap);
+                        let decoded = crate::baseline_exposure::decode_with_base_look(
+                            &path_clone,
+                            mmap.clone(),
+                            || {
+                                load_base_image_measured_for(
+                                    (*mmap).as_ref(),
+                                    &path_clone,
+                                    false,
+                                    &settings,
+                                    cancel_token.clone(),
+                                    decode_denoise.clone(),
+                                    draft.clone(),
+                                    Some(variant),
+                                )
+                            },
+                        );
+                        drop(read_ahead);
+                        let (img, measures) = decoded?;
+                        let mmap: &[u8] = (*mmap).as_ref();
                         let exif = {
                             #[cfg(feature = "performance-profiling")]
                             let _stage =
                                 crate::performance::PerformanceStage::new("source_exif_read");
-                            exif_processing::read_exif_data(&path_clone, &mmap)
+                            exif_processing::read_exif_data(&path_clone, mmap)
                         };
                         Ok(((Arc::new(img), measures), exif))
                     }

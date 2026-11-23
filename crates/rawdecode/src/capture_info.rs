@@ -1089,6 +1089,57 @@ pub type SharedBuf = std::sync::Arc<dyn AsRef<[u8]> + Send + Sync + std::panic::
 
 thread_local! {
     static HELD: std::cell::RefCell<Option<(String, SharedBuf)>> = const { std::cell::RefCell::new(None) };
+    /// The path whose first whole read `read_for_metadata` keeps in `HELD`
+    /// (`with_source_kept`).
+    static KEEP: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+fn held(path: &str) -> Option<SharedBuf> {
+    HELD.with(|held| {
+        held.borrow()
+            .as_ref()
+            .filter(|(held_path, _)| held_path == path)
+            .map(|(_, bytes)| bytes.clone())
+    })
+}
+
+/// Runs `f` keeping the first whole read of the RAW at `path`
+/// (`read_for_metadata`) on this thread for the rest of `f`: the base
+/// look's facts (camera ×2–3, image shape, IFD tags, diffraction, colour)
+/// each read the whole file, so a photograph without a held buffer
+/// (`with_held_source`) is read once instead of once per fact (CRD5: 2–8× a
+/// file's size over a share). Nothing is kept after `f`; inside a scope that
+/// already holds or keeps `path` this only runs `f`.
+pub fn with_source_kept<R>(path: &str, f: impl FnOnce() -> R) -> R {
+    if held(path).is_some() || KEEP.with(|keep| keep.borrow().as_deref() == Some(path)) {
+        return f();
+    }
+    struct Restore(Option<String>, Option<(String, SharedBuf)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            KEEP.with(|keep| *keep.borrow_mut() = self.0.take());
+            HELD.with(|held| *held.borrow_mut() = self.1.take());
+        }
+    }
+    let _restore = Restore(
+        KEEP.with(|keep| keep.borrow_mut().replace(path.to_string())),
+        HELD.with(|held| held.borrow().clone()),
+    );
+    f()
+}
+
+/// The whole RAW at `path` for its metadata readers: the buffer held for it
+/// (`with_held_source`, or kept by `with_source_kept`), else the file read
+/// into memory (never mapped, see `open_for_metadata`).
+pub fn read_for_metadata(path: &str) -> Option<SharedBuf> {
+    if let Some(bytes) = held(path) {
+        return Some(bytes);
+    }
+    let bytes: SharedBuf = std::sync::Arc::new(std::fs::read(path).ok()?);
+    if KEEP.with(|keep| keep.borrow().as_deref() == Some(path)) {
+        HELD.with(|held| *held.borrow_mut() = Some((path.to_string(), bytes.clone())));
+    }
+    Some(bytes)
 }
 
 /// Runs `f` with `bytes`, the caller's own buffer of the RAW at `path` (its
@@ -1116,19 +1167,7 @@ pub fn with_held_source<R>(path: &str, bytes: SharedBuf, f: impl FnOnce() -> R) 
 /// while the source is still on a removable import card, and a card pulled
 /// while a mapping is read raises SIGBUS where a read only fails).
 pub fn open_for_metadata(path: &str) -> Option<rawler::rawsource::RawSource> {
-    let held = HELD.with(|held| {
-        held.borrow()
-            .as_ref()
-            .filter(|(held_path, _)| held_path == path)
-            .map(|(_, bytes)| bytes.clone())
-    });
-    if let Some(bytes) = held {
-        return Some(rawler::rawsource::RawSource::new_from_shared(bytes));
-    }
-    let bytes = std::fs::read(path).ok()?;
-    Some(rawler::rawsource::RawSource::new_from_shared_vec(
-        std::sync::Arc::new(bytes),
-    ))
+    read_for_metadata(path).map(rawler::rawsource::RawSource::new_from_shared)
 }
 
 /// Camera make, model and the model's base name (for regional aliases) as
@@ -1157,9 +1196,9 @@ pub fn read_camera(path: &str) -> Option<(String, String, String, Option<u32>)> 
         .or_else(|| {
             path.to_ascii_lowercase()
                 .ends_with(".crw")
-                .then(|| std::fs::read(path).ok())
+                .then(|| read_for_metadata(path))
                 .flatten()
-                .and_then(|bytes| crw_iso(&bytes))
+                .and_then(|bytes| crw_iso((*bytes).as_ref()))
         });
     Some((metadata.make, metadata.model, metadata.canonical_model, iso))
 }
