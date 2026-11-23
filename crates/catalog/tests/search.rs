@@ -239,10 +239,7 @@ fn every_field_compares_as_documented() {
             json!({"field":"lens","op":"words","value":"85mm f1.4 gm"}),
             vec!["DSC00124.ARW"],
         ),
-        (
-            json!({"field":"lens","op":"words","value":"85"}),
-            vec![],
-        ),
+        (json!({"field":"lens","op":"words","value":"85"}), vec![]),
         (
             json!({"field":"lens","op":"words","value":"GM"}),
             vec!["DSC00123.ARW", "DSC00124.ARW"],

@@ -3196,28 +3196,29 @@ mod tests {
             let id = catalog.asset_at(&photos.join(name)).unwrap().unwrap().id;
             catalog.record_facts(&id, facts).unwrap();
         }
-        let members = move |criteria: &str, operation: &str, value: SmartValue, value2: SmartValue| {
-            let rule = smart_rule(&SmartRules {
-                combine: "intersect".into(),
-                rules: vec![SmartRule::Condition {
-                    criteria: criteria.into(),
-                    operation: operation.into(),
-                    value,
-                    value2,
-                    units: None,
-                }],
-            })
-            .unwrap_or_else(|| panic!("{criteria} {operation} does not translate"));
-            let album = catalog.create_smart_collection("t", None, &rule).unwrap();
-            let mut names: Vec<String> = catalog
-                .collection_paths(&album.id)
-                .unwrap()
-                .iter()
-                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
-                .collect();
-            names.sort();
-            names
-        };
+        let members =
+            move |criteria: &str, operation: &str, value: SmartValue, value2: SmartValue| {
+                let rule = smart_rule(&SmartRules {
+                    combine: "intersect".into(),
+                    rules: vec![SmartRule::Condition {
+                        criteria: criteria.into(),
+                        operation: operation.into(),
+                        value,
+                        value2,
+                        units: None,
+                    }],
+                })
+                .unwrap_or_else(|| panic!("{criteria} {operation} does not translate"));
+                let album = catalog.create_smart_collection("t", None, &rule).unwrap();
+                let mut names: Vec<String> = catalog
+                    .collection_paths(&album.id)
+                    .unwrap()
+                    .iter()
+                    .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+                    .collect();
+                names.sort();
+                names
+            };
         (tmp, Box::new(members))
     }
 
@@ -3236,8 +3237,14 @@ mod tests {
         };
         let (_tmp, members) = members_of_facts(&[
             ("a.CR2", f("EOS 6D Mark II", "EF-S18-55mm f/3.5-5.6 IS")),
-            ("b.CR2", f("EOS 600D", "TAMRON SP 90mm F/2.8 Di VC USD MACRO1:1 F017")),
-            ("c.PEF", f("K-S2", "smc PENTAX-DA* 50-135mm F2.8 ED [IF] SDM")),
+            (
+                "b.CR2",
+                f("EOS 600D", "TAMRON SP 90mm F/2.8 Di VC USD MACRO1:1 F017"),
+            ),
+            (
+                "c.PEF",
+                f("K-S2", "smc PENTAX-DA* 50-135mm F2.8 ED [IF] SDM"),
+            ),
             ("d.DNG", f("M10", "Summicron-M 1:2/35 ASPH.")),
             ("e.CR2", f("EOS-1Ds Mark II", "85.0 mm")),
             ("f.NEF", f("D80", "")),
@@ -3248,7 +3255,16 @@ mod tests {
         assert_eq!(lens("words", "ef-s18-55mm f/3.5-5.6"), ["a.CR2"]);
         assert_eq!(lens("words", "f/2.8"), ["b.CR2"]);
         assert_eq!(lens("words", "90mm TAMRON"), ["b.CR2"]);
-        for part in ["EF", "18-55", "50mm", "TAM", "Summicron", "DA*", "[IF]", "1:2"] {
+        for part in [
+            "EF",
+            "18-55",
+            "50mm",
+            "TAM",
+            "Summicron",
+            "DA*",
+            "[IF]",
+            "1:2",
+        ] {
             assert!(lens("words", part).is_empty(), "{part}");
         }
         assert_eq!(lens("words", "IF"), ["c.PEF"]);
@@ -3262,7 +3278,10 @@ mod tests {
             lens("noneOf", "TAM"),
             ["a.CR2", "c.PEF", "d.DNG", "e.CR2", "f.NEF"]
         );
-        assert_eq!(lens("noneOf", "18"), ["b.CR2", "c.PEF", "d.DNG", "e.CR2", "f.NEF"]);
+        assert_eq!(
+            lens("noneOf", "18"),
+            ["b.CR2", "c.PEF", "d.DNG", "e.CR2", "f.NEF"]
+        );
         // The camera's words are whole words of its name as well.
         let camera = |op: &str, word: &str| members("camera", op, text(word), SmartValue::None);
         assert_eq!(camera("words", "Mark II"), ["a.CR2", "e.CR2"]);
@@ -3308,7 +3327,10 @@ mod tests {
         assert_eq!(one("aperture", "==", 5.3), Vec::<String>::new());
         assert_eq!(one("aperture", "==", 4.97), ["f56.CR2"]);
         assert_eq!(one("aperture", "==", 5.0), Vec::<String>::new());
-        assert_eq!(range("aperture", 4.0, 6.0), ["f56.CR2", "f63.CR2", "f8.CR2"]);
+        assert_eq!(
+            range("aperture", 4.0, 6.0),
+            ["f56.CR2", "f63.CR2", "f8.CR2"]
+        );
         assert!(range("aperture", 6.0, 4.0).is_empty());
         assert_eq!(
             one("aperture", "!=", 6.0),
@@ -3319,9 +3341,15 @@ mod tests {
         assert_eq!(one("focalLength", "==", 15.07), ["f63.CR2"]);
         assert!(one("focalLength", "==", 15.1).is_empty());
         assert_eq!(one("focalLength", "==", 8.9), ["f9.CR2"]);
-        assert_eq!(one("focalLength", ">", 15.0), ["f28.CR2", "f63.CR2", "f8.CR2"]);
+        assert_eq!(
+            one("focalLength", ">", 15.0),
+            ["f28.CR2", "f63.CR2", "f8.CR2"]
+        );
         assert_eq!(one("focalLength", "<", 15.07), ["f56.CR2", "f9.CR2"]);
-        assert_eq!(range("focalLength", 15.0, 50.0), ["f56.CR2", "f63.CR2", "f8.CR2"]);
+        assert_eq!(
+            range("focalLength", 15.0, 50.0),
+            ["f56.CR2", "f63.CR2", "f8.CR2"]
+        );
         // Shutter speed.
         let tv = |seconds: f64| (1.0 / seconds).log2();
         assert_eq!(one("shutterSpeed", "==", 6.64), ["f56.CR2", "f63.CR2"]);
