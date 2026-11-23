@@ -1,3 +1,4 @@
+import { sourceOf } from '../entities/photo/photoRef';
 import type { SelectedImage } from '../components/ui/AppProperties';
 import {
   borderBlack,
@@ -213,7 +214,7 @@ export function sourceDevelopToApply(
 /** Whether a file may be a DNG, the one format whose files carry lens
  * opcodes (crates/engine/src/image_loader.rs `may_hold_dng_opcodes`): a
  * `.dng`, or a TIFF the RAW path takes by its content. */
-const mayHoldDngOpcodes = (path: string | undefined): boolean => /\.(dng|tiff?)$/i.test(path ?? '');
+const mayHoldDngOpcodes = (path: string | undefined): boolean => /\.(dng|tiff?)$/i.test(sourceOf(path ?? ''));
 
 /** Whether the open photograph's decode may depend on its lens warp's planes
  * (`cameraPlaneWarp`): the backend reports them only for DNGs whose warp
