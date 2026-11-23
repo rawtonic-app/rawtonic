@@ -1084,13 +1084,30 @@ fn levels_at(data: &[u16], specular: usize) -> Option<(f32, u32)> {
     Some((black, white as u32))
 }
 
+/// A RAW opened to read its metadata (the by-path facts of the base look:
+/// camera, diffraction, image shape): mapped lazily, so only the parts the
+/// reader looks at are read from the disk or share. A whole-file read per
+/// fact cost 3–5 times the file over a network share (ING1: 495 MB for a
+/// 123 MB ARW, 7 s over a 110 MB/s link). On a memory card the file is read
+/// into memory instead (export adjustments may ask for the camera's base
+/// look while the source is still on the import card): a card pulled while
+/// a mapping is read raises SIGBUS and kills the app, where a read only
+/// fails.
+pub fn open_for_metadata(path: &str) -> Option<rawler::rawsource::RawSource> {
+    let file = std::path::Path::new(path);
+    if rawtonic_fs::volume::is_card(file) {
+        let bytes = std::fs::read(file).ok()?;
+        return Some(rawler::rawsource::RawSource::new_from_shared_vec(
+            std::sync::Arc::new(bytes),
+        ));
+    }
+    rawler::rawsource::RawSource::new_lazy(file).ok()
+}
+
 /// Camera make, model and the model's base name (for regional aliases) as
 /// rawler names them (its camera database), and the EXIF ISO.
 pub fn read_camera(path: &str) -> Option<(String, String, String, Option<u32>)> {
-    // Export adjustments may request the camera's base look while the source
-    // is still on a removable import card. Keep this read owned, never mmap it.
-    let bytes = std::fs::read(path).ok()?;
-    let source = rawler::rawsource::RawSource::new_from_shared_vec(std::sync::Arc::new(bytes));
+    let source = open_for_metadata(path)?;
     let decoder = rawler::get_decoder(&source).ok()?;
     let metadata = decoder
         .raw_metadata(&source, &rawler::decoders::RawDecodeParams::default())

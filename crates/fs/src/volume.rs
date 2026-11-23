@@ -243,6 +243,29 @@ pub struct MediaInfo {
     pub mount_point: Option<PathBuf>,
 }
 
+/// Whether `path` is on a memory card (what `media` says about its medium):
+/// its file system is on removable media or the path runs through a
+/// camera's `DCIM` folder (DCF, every camera's card layout); where the
+/// system does not say, a Linux removable-media mount point (`/media/…`,
+/// `/run/media/…`) counts as a card too. External drives are not
+/// removable media: their photographs are on a drive.
+pub fn is_card_with(path: &Path, media: &MediaInfo) -> bool {
+    let dcim = path
+        .components()
+        .any(|c| c.as_os_str().eq_ignore_ascii_case("DCIM"));
+    let removable_mount = media.removable.is_none()
+        && media
+            .mount_point
+            .as_deref()
+            .is_some_and(|mount| mount.starts_with("/media") || mount.starts_with("/run/media"));
+    dcim || media.removable == Some(true) || removable_mount
+}
+
+/// [`is_card_with`] with the system's answer for `path` (which must exist).
+pub fn is_card(path: &Path) -> bool {
+    is_card_with(path, &media_info(path))
+}
+
 /// The medium holding `path` (which must exist): macOS `statfs`
 /// (`MNT_REMOVABLE`), Linux sysfs (`/sys/class/block/<disk>/removable`),
 /// Windows `GetDriveTypeW` (`DRIVE_REMOVABLE`). Reads nothing of the file.
@@ -1013,6 +1036,26 @@ mod other {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_card_is_removable_media_or_a_dcim_path() {
+        let info = |removable, mount: &str| MediaInfo {
+            removable,
+            mount_point: Some(PathBuf::from(mount)),
+        };
+        let photo = Path::new("/home/me/Pictures/A.ARW");
+        assert!(is_card_with(
+            Path::new("/x/dcim/100MSDCF/A.ARW"),
+            &info(None, "/")
+        ));
+        assert!(is_card_with(photo, &info(Some(true), "/")));
+        assert!(is_card_with(photo, &info(None, "/run/media/me/EOS")));
+        assert!(!is_card_with(
+            photo,
+            &info(Some(false), "/run/media/me/Backup")
+        ));
+        assert!(!is_card_with(photo, &info(None, "/home")));
+    }
 
     #[test]
     fn network_file_systems_are_named() {

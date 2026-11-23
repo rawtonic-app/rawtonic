@@ -498,10 +498,9 @@ pub use crate::capture_info::read_camera;
 /// metadata-only ("dummy") decode. Only for cameras whose Adobe value
 /// depends on the capture size (Phase One Sensor+, Sony α1 II Medium/Small).
 fn read_image_shape(path: &str) -> Option<(u32, bool)> {
-    // Import preview rendering can reach this through the base look; do not
-    // map a not-yet-imported file from a removable card.
-    let bytes = std::fs::read(path).ok()?;
-    let source = rawler::rawsource::RawSource::new_from_shared_vec(std::sync::Arc::new(bytes));
+    // Import preview rendering can reach this through the base look; a file
+    // on a removable card is read, not mapped (`open_for_metadata`).
+    let source = crate::capture_info::open_for_metadata(path)?;
     let decoder = rawler::get_decoder(&source).ok()?;
     let image = decoder
         .raw_image(&source, &rawler::decoders::RawDecodeParams::default(), true)
@@ -722,10 +721,9 @@ fn read_dng_tags(path: &str) -> Option<DngTags> {
 /// sub-IFDs): a ProfileGainTableMap Rawtonic can apply, and
 /// DefaultBlackRender = None (ProRAW stores it there).
 fn raw_ifd_tags(path: &str) -> (bool, bool) {
-    let Ok(bytes) = std::fs::read(path) else {
+    let Some(source) = crate::capture_info::open_for_metadata(path) else {
         return (false, false);
     };
-    let source = rawler::rawsource::RawSource::new_from_slice(&bytes);
     let Ok(decoder) = rawler::get_decoder(&source) else {
         return (false, false);
     };

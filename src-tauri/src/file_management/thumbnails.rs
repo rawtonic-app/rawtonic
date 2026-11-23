@@ -1311,6 +1311,12 @@ pub(crate) fn source_full_size_jpeg(
             let image = rawtonic_rawdecode::orientation::apply_orientation(image, raw.orientation);
             return Some((encode_full_size(&image)?, FullSizeSource::Embedded));
         }
+        // The render reads all of the file: from a network share, ahead of
+        // the mapping's page faults (`file_io::prefetch`). A card's file is
+        // in memory already.
+        if !read_import_into_memory(path) {
+            rawtonic_engine::file_io::prefetch(path);
+        }
         let started = std::time::Instant::now();
         let image = render(bytes)?;
         let rendered = started.elapsed();

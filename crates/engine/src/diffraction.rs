@@ -15,7 +15,6 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use rawler::decoders::RawDecodeParams;
-use rawler::rawsource::RawSource;
 
 use crate::image_processing::GlobalAdjustments;
 
@@ -115,10 +114,9 @@ pub(crate) fn sigmas_for_path(path: &str) -> Sigmas {
         v1: None,
     };
     let sigmas = (|| {
-        // This path also serves the import dialog's not-yet-imported RAW.
-        // Reopen into owned bytes rather than mapping a removable card file.
-        let bytes = std::fs::read(path).ok()?;
-        let source = RawSource::new_from_shared_vec(std::sync::Arc::new(bytes));
+        // This path also serves the import dialog's not-yet-imported RAW:
+        // read in place, except from a removable card (`open_for_metadata`).
+        let source = crate::capture_info::open_for_metadata(path)?;
         let decoder = rawler::get_decoder(&source).ok()?;
         let metadata = decoder
             .raw_metadata(&source, &RawDecodeParams::default())
@@ -272,7 +270,7 @@ mod tests {
             crate::lens_correction::embedded_lens_db(),
         ));
         for path in std::env::var("DIFFRACTION_FILES").unwrap().split(';') {
-            let source = RawSource::new(std::path::Path::new(path)).unwrap();
+            let source = rawler::rawsource::RawSource::new(std::path::Path::new(path)).unwrap();
             let decoder = rawler::get_decoder(&source).unwrap();
             let m = decoder
                 .raw_metadata(&source, &RawDecodeParams::default())

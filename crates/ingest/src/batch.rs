@@ -328,15 +328,7 @@ pub enum Medium {
 /// `/run/media/…`) counts as a card too. External drives are not
 /// removable media: their photographs are on a drive.
 pub fn classify_medium(path: &Path, media: &rawtonic_fs::volume::MediaInfo) -> Medium {
-    let dcim = path
-        .components()
-        .any(|c| c.as_os_str().eq_ignore_ascii_case("DCIM"));
-    let removable_mount = media.removable.is_none()
-        && media
-            .mount_point
-            .as_deref()
-            .is_some_and(|mount| mount.starts_with("/media") || mount.starts_with("/run/media"));
-    if dcim || media.removable == Some(true) || removable_mount {
+    if rawtonic_fs::volume::is_card_with(path, media) {
         Medium::Card
     } else {
         Medium::Disk
