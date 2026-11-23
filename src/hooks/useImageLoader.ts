@@ -13,7 +13,7 @@ import { isNewRecipe, SOURCE_FRAME_VERSION, type Adjustments } from '../utils/ad
 import { withNewEditFrame } from '../utils/sourceFrame';
 import { withCameraCrop, type CameraCrops } from '../utils/cameraCrop';
 import { hasDevelopDefaults, type PhotoDefaults } from '../utils/developDefaults';
-import { rememberOpenedRecipe, waitForPendingMetadataSave } from './useEditorActions';
+import { refineOpenedAspect, rememberOpenedRecipe, waitForPendingMetadataSave } from './useEditorActions';
 import { editorRecipe, neverEdited, newSaved, savedSourceFrame, type CameraLens } from '../utils/neverEdited';
 import { historyFor, keptSince } from '../utils/photoHistory';
 import { keptSelectionMatchesSettled } from '../utils/queuedSelections';
@@ -461,9 +461,15 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               const followAspect =
                 sizeChanged &&
                 !adjustments.crop &&
+                adjustments.aspectRatio !== width / height &&
                 Math.abs((adjustments.aspectRatio ?? 0) - draft.width / draft.height) < 1e-9;
+              const refined = followAspect ? { ...adjustments, aspectRatio: width / height } : adjustments;
+              if (followAspect) refineOpenedAspect(selectedImage.path, adjustments, refined, width, height);
               return {
-                ...(followAspect ? { adjustments: { ...adjustments, aspectRatio: width / height } } : {}),
+                adjustments: refined,
+                ...(followAspect && state.history[state.historyIndex] === adjustments
+                  ? { history: state.history.map((entry) => (entry === adjustments ? refined : entry)) }
+                  : {}),
                 originalSize: { width, height },
                 selectedImage: { ...state.selectedImage, ...fullSource, height, width }
               };

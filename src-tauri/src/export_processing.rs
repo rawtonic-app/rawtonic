@@ -1647,14 +1647,30 @@ pub(crate) fn known_libraries(
 pub(crate) fn photo_inputs(
     pinned: &PinnedPhoto,
     settings: &crate::app_settings::AppSettings,
+    source: &Path,
     is_raw: bool,
 ) -> Value {
-    let lut_file = pinned.adjustments[effects::LUT_PATH.into_name()]
+    use rawtonic_engine::develop_defaults;
+    // A saved, untouched photo still follows its camera's Develop defaults.
+    // Include the resolved values the render uses, including a default LUT.
+    let defaults = settings.develop_defaults.as_ref().and_then(|defaults| {
+        if defaults.is_empty() || !develop_defaults::follows_defaults(&pinned.adjustments) {
+            return None;
+        }
+        let camera = (!defaults.cameras.is_empty() && !rawtonic_fs::is_cloud_placeholder(source))
+            .then(|| develop_defaults::camera_of(source))
+            .flatten();
+        develop_defaults::resolve(defaults, is_raw, camera.as_ref())
+    });
+    let lut_key = effects::LUT_PATH.into_name();
+    let lut_file = defaults
+        .as_ref()
+        .and_then(|defaults| defaults.settings.get(lut_key))
+        .unwrap_or(&pinned.adjustments[lut_key])
         .as_str()
         .filter(|path| !path.is_empty())
         .map(|path| existing_files::file_fingerprint(Path::new(path)));
-    serde_json::json!({
-        "adjustments": &pinned.adjustments,
+    let mut parts = serde_json::json!({
         "metadata": &pinned.metadata,
         "capture": &pinned.capture,
         "sourceIdentity": &pinned.source_identity,
@@ -1665,7 +1681,12 @@ pub(crate) fn photo_inputs(
             crate::image_processing::resolve_tonemapper_override(settings, is_raw),
             crate::image_processing::resolve_tonemapper_override(settings, false),
         ],
-    })
+    });
+    parts["adjustments"] = existing_files::adjustments_for_hash(&pinned.adjustments, source);
+    if let Some(defaults) = defaults.filter(|defaults| !defaults.settings.is_empty()) {
+        parts["developDefaults"] = Value::Object(defaults.settings);
+    }
+    parts
 }
 
 /// A recipe's inputs for one photo (`photo_inputs`): the recipe's settings
@@ -2100,7 +2121,7 @@ fn export_photo(
     // settings, under the app's version. Not the EXIF cache: it is the
     // original's own EXIF (the file is in `sourceIdentity`), cached only
     // after a first decode, which would count as a change.
-    let pinned_inputs = photo_inputs(&pinned, settings, is_raw);
+    let pinned_inputs = photo_inputs(&pinned, settings, original_path, is_raw);
     // Once per recipe, before it renders: the render reads these inputs
     // (the watermark file included) after this, and its record names them.
     let hash_inputs = |target: usize| target_inputs_hash(&pinned_inputs, &targets[target]);

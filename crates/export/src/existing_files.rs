@@ -157,6 +157,51 @@ pub fn inputs_hash(app_version: &str, parts: &serde_json::Value) -> String {
     rawtonic_fs::sha256_hex(bytes)
 }
 
+/// The same edit can be read from the open editor or from its saved recipe.
+/// Hash the edit without the bookkeeping added on save or library read.
+pub fn adjustments_for_hash(adjustments: &serde_json::Value, source: &Path) -> serde_json::Value {
+    use rawtonic_engine::{formats, image_processing, lens_recipe, recipe_frame};
+
+    let mut recipe = adjustments.clone();
+    let unresolved_lens = lens_recipe::is_unresolved(&recipe);
+    if let Some(map) = recipe.as_object_mut() {
+        // The library label is already covered by the exported metadata.
+        map.remove(image_processing::LIBRARY_LABEL_KEY);
+        // Only an unresolved lens stamp changes what the renderer does.
+        if !unresolved_lens {
+            map.remove(lens_recipe::LENS_PROFILE_FOR);
+        }
+    }
+    // Develop's aspect ratio selector is UI state. The crop's coordinates
+    // give the renderer its actual framing. Keep the key if removing it
+    // would make this stored recipe start over with new-edit defaults.
+    if let Some(aspect) = recipe
+        .as_object_mut()
+        .and_then(|map| map.remove("aspectRatio"))
+        && image_processing::is_new_recipe(&recipe)
+    {
+        recipe["aspectRatio"] = aspect;
+    }
+    // A frame stamp can suppress migration of an old camera TIFF's edit.
+    // Its presence alone can also distinguish a saved edit from a new one.
+    if !source
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(formats::is_tiff_extension)
+        && let Some(frame) = recipe
+            .as_object_mut()
+            .and_then(|map| map.remove(recipe_frame::KEY))
+        && image_processing::is_new_recipe(&recipe)
+    {
+        recipe[recipe_frame::KEY] = frame;
+    }
+    if recipe.as_object().is_some_and(|map| map.is_empty()) {
+        serde_json::Value::Null
+    } else {
+        recipe
+    }
+}
+
 /// The content fingerprint of a file an export reads besides the photo (a
 /// watermark image, a LUT), for [`inputs_hash`]: replaced in place, it
 /// changes the export. `None` for a file that cannot be read.
@@ -165,12 +210,23 @@ pub fn file_fingerprint(path: &Path) -> Option<String> {
     rawtonic_fs::sha256_hex_read(&mut file).ok()
 }
 
-/// The export settings as [`inputs_hash`] takes them: without the
-/// `existingFiles` choice, which changes no file.
+/// Settings that affect the output at the already resolved destination.
 pub fn settings_for_hash(settings: &crate::export_processing::ExportSettings) -> serde_json::Value {
     let mut value = serde_json::to_value(settings).unwrap_or_default();
     if let Some(map) = value.as_object_mut() {
-        map.remove("existingFiles");
+        for key in [
+            "existingFiles",
+            "destinationType",
+            "filenameTemplate",
+            "nameTemplate",
+            "jobName",
+            "recipeName",
+            "sequenceStart",
+            "subfolder",
+            "preserveFolders",
+        ] {
+            map.remove(key);
+        }
     }
     value
 }
@@ -1043,7 +1099,7 @@ mod tests {
     }
 
     #[test]
-    fn the_choice_changes_no_file_so_it_is_not_an_input() {
+    fn naming_and_conflict_choices_change_no_file_at_the_resolved_path() {
         let mut settings: crate::export_processing::ExportSettings =
             serde_json::from_value(serde_json::json!({
                 "jpegQuality": 90, "keepMetadata": true, "stripGps": false,
@@ -1053,6 +1109,9 @@ mod tests {
         assert_eq!(settings.existing_files, ExistingFiles::KeepBoth);
         let keep = inputs_hash("1.0", &settings_for_hash(&settings));
         settings.existing_files = ExistingFiles::ReplaceIfChanged;
+        settings.job_name = Some("Client delivery".to_string());
+        settings.recipe_name = Some("Web".to_string());
+        settings.name_template = Some("{orig_base}".to_string());
         assert_eq!(inputs_hash("1.0", &settings_for_hash(&settings)), keep);
         assert_ne!(
             inputs_hash("1.1", &settings_for_hash(&settings)),
@@ -1061,6 +1120,34 @@ mod tests {
         );
         settings.jpeg_quality = 80;
         assert_ne!(inputs_hash("1.0", &settings_for_hash(&settings)), keep);
+    }
+
+    #[test]
+    fn the_recipe_hash_ignores_only_stamps_that_cannot_change_the_render() {
+        use serde_json::{Value, json};
+        let nef = Path::new("photo.NEF");
+        let tiff = Path::new("photo.TIF");
+        let recipe = json!({"exposure": 1, "crop": {"width": 128, "height": 96}});
+        let mut saved = recipe.clone();
+        rawtonic_engine::recipe_frame::stamp(&mut saved, 8256, 5504);
+        rawtonic_engine::lens_recipe::stamp_loaded_lens_profile(&mut saved);
+        saved["colorLabel"] = json!("");
+        saved["aspectRatio"] = json!(4.0 / 3.0);
+        assert_eq!(adjustments_for_hash(&saved, nef), recipe);
+        assert_ne!(adjustments_for_hash(&saved, tiff), recipe);
+
+        saved["lensProfileFor"] = json!(rawtonic_engine::lens_recipe::LENS_UNRESOLVED);
+        assert_ne!(adjustments_for_hash(&saved, nef), recipe);
+        assert_ne!(adjustments_for_hash(&json!({"exposure": 2}), nef), recipe);
+        assert_ne!(
+            adjustments_for_hash(&json!({"frameSize": {"width": 1, "height": 1}}), nef),
+            Value::Null
+        );
+        assert_eq!(adjustments_for_hash(&json!({}), nef), Value::Null);
+        assert_eq!(
+            adjustments_for_hash(&json!({"aspectRatio": 1.5}), nef),
+            json!({"aspectRatio": 1.5})
+        );
     }
 
     #[test]
