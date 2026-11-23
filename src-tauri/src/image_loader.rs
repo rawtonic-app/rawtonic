@@ -1420,7 +1420,7 @@ pub async fn load_image(
                             #[cfg(feature = "performance-profiling")]
                             let _stage =
                                 crate::performance::PerformanceStage::new("source_exif_read");
-                            exif_processing::read_exif_data(&path_clone, &mmap)
+                            exif_processing::read_exif_data(&path_clone, mmap)
                         };
                         Ok(((Arc::new(img), measures), exif))
                     }
