@@ -130,7 +130,7 @@ impl<'a> PlaneLineIter<'a> {
         self
           .codec
           .idwt_53_filter_transform(self.tile, self.plane, &mut self.params, &mut self.iwt_transforms, self.codec.levels - 1)?;
-        let line_data = self.iwt_transforms[self.codec.levels - 1].getline();
+        let line_data = self.iwt_transforms[self.codec.levels - 1].getline()?;
         debug_assert_eq!(line_data.len(), self.tile.plane_width);
         Ok(line_data)
       } else {
@@ -747,7 +747,9 @@ impl CodecParams {
   fn tile_offset(&self, tile_id: usize) -> (usize, usize) {
     let tile_row_idx = tile_id / self.tile_cols; // round down
     let tile_col_idx = tile_id % self.tile_cols; // round down
-    (tile_row_idx * self.tile_width, tile_col_idx * self.tile_width)
+    // Rawtonic patch (RWL1): rows step by the tile height (upstream used the
+    // width, which only works for a single tile row, as in every sample).
+    (tile_row_idx * self.tile_height, tile_col_idx * self.tile_width)
   }
 
   /// Convert one decoded line of all four planes of a tile and write
@@ -811,4 +813,35 @@ fn cfa_line_from_planes(codec: &CodecParams, lines: [&[i32]; 4], row_shift: usiz
     }
   }
   Ok(())
+}
+
+// Rawtonic patch (RWL1): tile offsets of a layout with several tile rows.
+#[cfg(test)]
+mod rawtonic_tests {
+  use super::*;
+
+  #[test]
+  fn tile_rows_step_by_the_tile_height() {
+    let codec = CodecParams {
+      sample_precision: 14,
+      image_width: 12000,
+      image_height: 4000,
+      plane_count: 4,
+      subband_count: 10,
+      levels: 3,
+      n_bits: 14,
+      median_bits: 14,
+      enc_type: 0,
+      tile_cols: 2,
+      tile_rows: 2,
+      tile_width: 6000,
+      tile_height: 2000,
+      mdat_hdr_size: 0,
+      version: 0x200,
+    };
+    assert_eq!(codec.tile_offset(0), (0, 0));
+    assert_eq!(codec.tile_offset(1), (0, 6000));
+    assert_eq!(codec.tile_offset(2), (2000, 0));
+    assert_eq!(codec.tile_offset(3), (2000, 6000));
+  }
 }

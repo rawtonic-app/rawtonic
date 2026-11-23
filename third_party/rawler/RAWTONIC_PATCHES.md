@@ -710,7 +710,14 @@ authors, LGPL-2.1), review in the notes (`reference/dnglab-2026-11-23-review.md`
   header sizes clamped, median bits 1-20 (now checked in `CodecParams::new`),
   and short band lines in the horizontal wavelet step read as zero-padded
   (`idwt_53_line`; valid files take upstream's direct path, unit test
-  `short_band_lines_read_as_zero_padded`). Upstream's `multiversion` 0.9
+  `short_band_lines_read_as_zero_padded`). Two inherited defects for
+  images split into several tile rows are patched (`tile_offset` stepped
+  rows by the tile width instead of the height; `WaveletTransform::getline`
+  returned a stale ring line when none was ready, which the last lines of a
+  tile with a tile below can reach: now an error). No CR3 sample has
+  several tile rows, so neither this nor upstream's tile-above fix is
+  tested on a real file (unit test `tile_rows_step_by_the_tile_height`).
+  Upstream's `multiversion` 0.9
   bump is not taken: 0.8 builds the AVX-512 targets (checked for
   x86_64-apple-darwin).
   Measured: all 110 raw.pixls.us CR3 (26 bodies, RAW and C-RAW) decode

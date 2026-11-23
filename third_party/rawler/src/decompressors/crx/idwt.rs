@@ -6,7 +6,7 @@
 // crx.cpp and documentation done by Laurent Clévy (https://github.com/lclevy/canon_cr3).
 
 use super::{
-  BandParam, CodecParams, Result,
+  BandParam, CodecParams, CrxError, Result,
   mdat::{Plane, Tile},
 };
 use multiversion::multiversion;
@@ -117,9 +117,10 @@ fn idwt_53_line_exact(tile: &Tile, out: &mut [i32], low: &[i32], high: &[i32]) {
 
 /// Copy the next line of the level below `level` into the LL band buffer
 /// of `level`, reusing the allocation of the buffer
-fn copy_lower_line(iwt_transforms: &mut [WaveletTransform], level: usize) {
+fn copy_lower_line(iwt_transforms: &mut [WaveletTransform], level: usize) -> Result<()> {
   let (lower, upper) = iwt_transforms.split_at_mut(level);
-  upper[0].band0_buf.clone_from(lower[level - 1].getline());
+  upper[0].band0_buf.clone_from(lower[level - 1].getline()?);
+  Ok(())
 }
 
 /// This structure holds the inverse transformation state
@@ -188,11 +189,20 @@ impl WaveletTransform {
     }
   }
 
-  pub(super) fn getline(&mut self) -> &Vec<i32> {
+  /// Rawtonic patch (RWL1): an error instead of a stale ring line when
+  /// no reconstructed line is waiting. Upstream (and LibRaw) leave the
+  /// last lines of a tile with a tile below untransformed; no CR3 sample
+  /// has several tile rows, so that path is unverified and must not return
+  /// old pixels silently.
+  pub(super) fn getline(&mut self) -> Result<&Vec<i32>> {
+    if self.cur_h == 0 {
+      return Err(CrxError::General(
+        "CRX: no wavelet line ready (tile layout with a tile below is unsupported)".to_string(),
+      ));
+    }
     let result = &self.line_buf[(self.flt_tap_h as i32 - self.cur_h as i32 + 5) as usize % 5 + 3];
-    debug_assert!(self.cur_h > 0);
     self.cur_h -= 1;
-    result
+    Ok(result)
   }
 
   /// The line buffers `index`, each sliced to the width of the level.
@@ -277,7 +287,7 @@ impl CodecParams {
       let q_step_level = tile.q_step.as_ref().map(|f| &f[cur_level]);
 
       if cur_level > 0 {
-        copy_lower_line(iwt_transforms, cur_level);
+        copy_lower_line(iwt_transforms, cur_level)?;
       } else {
         iwt_transforms[cur_level].band0_buf = self.decode_line_with_iquantization(&plane.subbands[cur_band], &mut params[cur_band], q_step_level)?;
       }
@@ -351,7 +361,7 @@ impl CodecParams {
             if iwt_transforms[level - 1].cur_h == 0 {
               self.idwt_53_filter_transform(tile, plane, params, iwt_transforms, level - 1)?;
             }
-            copy_lower_line(iwt_transforms, level);
+            copy_lower_line(iwt_transforms, level)?;
           }
           let wvlt = &mut iwt_transforms[level];
           let h0 = wvlt.flt_tap_h + 3;
@@ -403,7 +413,7 @@ impl CodecParams {
         if iwt_transforms[level - 1].cur_h == 0 {
           self.idwt_53_filter_transform(tile, plane, params, iwt_transforms, level - 1)?;
         }
-        copy_lower_line(iwt_transforms, level);
+        copy_lower_line(iwt_transforms, level)?;
       }
       let wvlt = &mut iwt_transforms[level];
 
@@ -480,23 +490,25 @@ mod rawtonic_tests {
   fn short_band_lines_read_as_zero_padded() {
     for (left, right) in [(false, false), (true, false), (false, true), (true, true)] {
       let tile = tile(left, right);
-      for width in 0..12 {
+      for width in 1..12 {
         let low: Vec<i32> = (1..=8).collect();
         let high: Vec<i32> = (10..=18).collect();
-        // Long enough lines give the same result on both paths
-        let mut direct = vec![0; width];
-        let mut padded = vec![0; width];
-        if width > 0 {
-          idwt_53_line_exact(&tile, &mut direct, &low, &high);
-          let (l, h) = (low[..low.len().min(width / 2 + 2)].to_vec(), high[..high.len().min(width / 2 + 3)].to_vec());
-          idwt_53_line(&tile, &mut padded, &l, &h);
-          assert_eq!(direct, padded, "width {width} left {left} right {right}");
+        // Too short lines (damaged headers) give the result of the same
+        // lines padded with 0 to a sufficient length on the direct path
+        for (low_len, high_len) in [(1, 0), (0, 2), (2, 1), (low.len(), 1), (1, high.len())] {
+          let (l, h) = (&low[..low_len], &high[..high_len]);
+          let mut fallback = vec![0; width];
+          idwt_53_line(&tile, &mut fallback, l, h);
+          let (mut lp, mut hp) = (l.to_vec(), h.to_vec());
+          lp.resize(width + 4, 0);
+          hp.resize(width + 4, 0);
+          let mut expected = vec![0; width];
+          idwt_53_line_exact(&tile, &mut expected, &lp, &hp);
+          assert_eq!(fallback, expected, "width {width} left {left} right {right} lens {low_len}/{high_len}");
         }
-        // Short (damaged) lines don't panic
-        let mut out = vec![0; width];
-        idwt_53_line(&tile, &mut out, &low[..1], &[]);
-        idwt_53_line(&tile, &mut out, &[], &high[..2]);
       }
+      // An empty output line reads nothing
+      idwt_53_line(&tile, &mut [], &[], &[]);
     }
   }
 }
