@@ -3166,14 +3166,15 @@ mod tests {
         );
     }
 
+    /// The photographs (names, sorted) a Lightroom criterion, operation and
+    /// its two values select.
+    type Members = Box<dyn Fn(&str, &str, SmartValue, SmartValue) -> Vec<String>>;
+
     /// A catalog of photographs with the given capture facts and a closure
     /// that lists the photographs a Lightroom criterion selects.
     fn members_of_facts(
         facts: &[(&str, rawtonic_catalog::CaptureFacts)],
-    ) -> (
-        tempfile::TempDir,
-        Box<dyn Fn(&str, &str, SmartValue, SmartValue) -> Vec<String>>,
-    ) {
+    ) -> (tempfile::TempDir, Members) {
         let tmp = tempfile::tempdir().unwrap();
         let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
         let photos = tmp.path().join("Photos");
