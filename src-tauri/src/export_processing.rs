@@ -1833,10 +1833,9 @@ pub(crate) fn plan_output_path(
             .collect::<Vec<_>>()
     };
 
-    // A file the user named (Save As): Keep both chooses no other name for
-    // it (taken, its write fails, as before); Skip and Replace if changed
-    // decide as for any file, and Replace if changed finding another
-    // program's file there numbers the new one beside it, as it promises.
+    // A file the user named (Save As): decided as for any file; Keep both and
+    // Replace if changed finding a file there number the new one beside it
+    // (never a failure at the write after the render).
     if target.is_explicit_file_path && total_paths == 1 {
         let exists = output_path.exists();
         let decision = existing_files::decide(
@@ -1859,9 +1858,7 @@ pub(crate) fn plan_output_path(
                 replace: Some(recorded),
                 kept: None,
             },
-            Decision::Number {
-                reported: Some(kept),
-            } => {
+            Decision::Number { reported } => {
                 let stem = output_path
                     .file_stem()
                     .map(|stem| stem.to_string_lossy().into_owned())
@@ -1884,10 +1881,10 @@ pub(crate) fn plan_output_path(
                 Planned::Write {
                     path: numbered,
                     replace: None,
-                    kept: Some(kept),
+                    kept: reported,
                 }
             }
-            Decision::Write | Decision::Number { reported: None } => Planned::Write {
+            Decision::Write => Planned::Write {
                 path: output_path,
                 replace: None,
                 kept: None,
@@ -4564,6 +4561,21 @@ mod tests {
         assert_eq!(planned.path(), dir.path().join("a_1.jpg"));
         save_as.export_settings.existing_files = ExistingFiles::Skip;
         assert_eq!(plan(&save_as, &raw, "v1").outcome(), Outcome::SkippedExists);
+        // Keep both (and Ask, which reaches an export as Keep both) on a
+        // taken Save As name numbers a free sibling before anything renders,
+        // instead of failing at the write after the render.
+        for choice in [ExistingFiles::KeepBoth, ExistingFiles::Ask] {
+            save_as.export_settings.existing_files = choice;
+            let planned = plan(&save_as, &raw, "v1");
+            assert_eq!(planned.path(), dir.path().join("a_1.jpg"), "{choice:?}");
+            assert_eq!(planned.outcome(), Outcome::Written);
+        }
+        // A free Save As name is used as it is.
+        save_as.output_folder_or_file = dir.path().join("new.jpg").to_string_lossy().into_owned();
+        assert_eq!(
+            plan(&save_as, &raw, "v1").path(),
+            dir.path().join("new.jpg")
+        );
         assert_eq!(std::fs::read(&raw).unwrap(), b"original RAW");
         assert_eq!(std::fs::read(&partner).unwrap(), b"camera JPEG");
     }
