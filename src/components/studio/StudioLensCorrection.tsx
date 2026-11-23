@@ -60,6 +60,8 @@ export default function StudioLensCorrection() {
     !adjustments.lensMaker &&
     !adjustments.lensModel &&
     adjustments.lensDistortionParams?.model === 0;
+  // The imported correction switched off keeps its parameters and amount.
+  const importedOff = importedMode && adjustments.lensDistortionEnabled === false;
   const enabled = cameraMode
     ? Boolean(adjustments.lensDistortionParams)
     : importedMode || Boolean(adjustments.lensMaker && adjustments.lensModel);
@@ -192,7 +194,7 @@ export default function StudioLensCorrection() {
       step={1}
       defaultValue={100}
       unit="%"
-      disabled={!ready || !enabled || unavailable}
+      disabled={!ready || !enabled || importedOff || unavailable}
       onChange={(value) => setAdjustments((prev) => ({ ...prev, [key]: value }))}
       onInteraction={(active) => setEditor({ isSliderDragging: active })}
     />
@@ -216,11 +218,19 @@ export default function StudioLensCorrection() {
       <label className="studio-check studio-lens-enable">
         <input
           type="checkbox"
-          checked={enabled}
+          checked={enabled && !importedOff}
           disabled={!ready || status === 'detecting'}
-          onChange={(e) =>
-            e.target.checked ? void enable() : setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }))
-          }
+          onChange={(e) => {
+            // The imported correction is switched, not deleted: off keeps
+            // it (and its amount) for On to bring back exactly.
+            if (importedMode) {
+              const on = e.target.checked;
+              return setAdjustments((prev) => ({ ...prev, lensDistortionEnabled: on }));
+            }
+            return e.target.checked
+              ? void enable()
+              : setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }));
+          }}
         />
         {t('studio.lens.enable')}
       </label>

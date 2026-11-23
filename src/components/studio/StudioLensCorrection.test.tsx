@@ -114,6 +114,49 @@ describe('Lens correction tool', () => {
     expect((screen.getByLabelText('Enable profile corrections') as HTMLInputElement).checked).toBe(false);
   });
 
+  it('switches an imported correction off and on without losing it or its amount', async () => {
+    const polynomial = {
+      model: 0, k1: -0.036, k2: 0, k3: 0, zoom: 1, exact_zoom: true,
+      tca_vr: 1, tca_vb: 1, vig_k1: 0, vig_k2: 0, vig_k3: 0
+    };
+    current = {
+      ...INITIAL_ADJUSTMENTS,
+      lensCorrectionMode: 'manual',
+      lensMaker: null,
+      lensModel: null,
+      lensDistortionParams: polynomial,
+      lensDistortionAmount: 60
+    };
+    useEditorStore.setState({ adjustments: current });
+    await renderTool();
+    const box = () => screen.getByLabelText('Enable profile corrections') as HTMLInputElement;
+    expect(box().checked).toBe(true);
+    await act(async () => {
+      fireEvent.click(box());
+    });
+    // Off: kept, disabled, not deleted; nothing looked up.
+    expect(current).toMatchObject({
+      lensDistortionEnabled: false,
+      lensDistortionAmount: 60,
+      lensCorrectionMode: 'manual',
+      lensDistortionParams: polynomial
+    });
+    expect(box().checked).toBe(false);
+    expect(screen.getByText('Imported correction')).toBeTruthy();
+    expect(mockInvoke).not.toHaveBeenCalledWith('autodetect_lens', expect.anything());
+    await act(async () => {
+      fireEvent.click(box());
+    });
+    // On: exactly as it was.
+    expect(current).toMatchObject({
+      lensDistortionEnabled: true,
+      lensDistortionAmount: 60,
+      lensDistortionParams: polynomial
+    });
+    expect(box().checked).toBe(true);
+    expect(mockInvoke).not.toHaveBeenCalledWith('autodetect_lens', expect.anything());
+  });
+
   it("enables the detected profile looked up with the photo's EXIF", async () => {
     await renderTool();
     await act(async () => {

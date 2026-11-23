@@ -41,6 +41,40 @@ describe('settings clipboard', () => {
     expect(chosenSettings(source, group('tone').keys, [], true).masks).toBeUndefined();
   });
 
+  it('carries an imported polynomial distortion with the Lens Correction group', () => {
+    const polynomial = {
+      model: 0, k1: -0.036, k2: 0, k3: 0, zoom: 1, exact_zoom: true,
+      tca_vr: 1, tca_vb: 1, vig_k1: 0, vig_k2: 0, vig_k3: 0
+    };
+    const imported = recipe({
+      lensCorrectionMode: 'manual',
+      lensMaker: null,
+      lensModel: null,
+      lensDistortionParams: polynomial,
+      lensDistortionAmount: 60
+    });
+    const chosen = chosenSettings(imported, group('lensCorrection').keys, [], true);
+    expect(chosen.lensDistortionParams).toEqual(polynomial);
+    expect(chosen.lensDistortionAmount).toBe(60);
+    // Pasted onto a photo with a lens profile: the polynomial replaces it.
+    const own = recipe({
+      lensCorrectionMode: 'auto',
+      lensMaker: 'Sony',
+      lensModel: 'FE 85mm',
+      lensDistortionParams: { ...polynomial, model: 1, k1: 0.2 }
+    });
+    const pasted = pasteInto(own, chosen, { samePhoto: false, replaceLayers: false })!;
+    expect(pasted.lensDistortionParams).toEqual(polynomial);
+    expect(pasted.lensMaker).toBeUndefined();
+    expect(pasted.lensCorrectionMode).toBe('manual');
+    // Any other lens choice carries no stale parameters: the destination
+    // resolves its own.
+    const profile = recipe({ lensCorrectionMode: 'auto', lensMaker: 'Sony', lensModel: 'FE 85mm' });
+    expect(chosenSettings(profile, group('lensCorrection').keys, [], true).lensDistortionParams).toBeNull();
+    // Lens settings not chosen: untouched.
+    expect('lensDistortionParams' in chosenSettings(imported, group('tone').keys, [], true)).toBe(false);
+  });
+
   it('takes processing versions only when chosen, a missing one as missing', () => {
     const source = recipe({ toneVersion: 2, sharpenVersion: 2, contrast: 20 } as Partial<Adjustments>);
     delete (source as Partial<Adjustments>).defringeVersion;
