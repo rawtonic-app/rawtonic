@@ -166,6 +166,33 @@ describe('Lens correction tool', () => {
     expect(mockInvoke).not.toHaveBeenCalledWith('autodetect_lens', expect.anything());
   });
 
+  it('starts a replacement lens switched on after an imported correction was switched off', async () => {
+    current = {
+      ...INITIAL_ADJUSTMENTS,
+      lensCorrectionMode: 'manual',
+      lensMaker: null,
+      lensModel: null,
+      lensDistortionEnabled: false,
+      lensDistortionParams: {
+        model: 0,
+        k1: -0.036,
+        k2: 0,
+        k3: 0,
+        tca_vr: 1,
+        tca_vb: 1,
+        vig_k1: 0,
+        vig_k2: 0,
+        vig_k3: 0
+      }
+    };
+    useEditorStore.setState({ adjustments: current });
+    await renderTool();
+    await act(async () => {
+      fireEvent.click(screen.getByText('Use lens database…'));
+    });
+    expect(current.lensDistortionEnabled).toBe(true);
+  });
+
   it("enables the detected profile looked up with the photo's EXIF", async () => {
     await renderTool();
     await act(async () => {

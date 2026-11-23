@@ -109,6 +109,7 @@ export default function StudioLensCorrection() {
       lensModel: null,
       lensDistortionParams: profile.params,
       lensCorrectionMode: 'camera',
+      lensDistortionEnabled: true,
       cameraCaVersion: CAMERA_CA_VERSION,
       cameraGeometryVersion: CAMERA_GEOMETRY_VERSION
     }));
@@ -152,7 +153,8 @@ export default function StudioLensCorrection() {
         lensMaker: maker,
         lensModel: model,
         lensDistortionParams: distortion,
-        lensCorrectionMode: 'auto'
+        lensCorrectionMode: 'auto',
+        lensDistortionEnabled: true
       }));
       setStatus('idle');
     } catch {
@@ -165,7 +167,9 @@ export default function StudioLensCorrection() {
       lensMaker: maker || null,
       lensModel: null,
       lensDistortionParams: null,
-      lensCorrectionMode: 'manual'
+      lensCorrectionMode: 'manual',
+      // A replacement lens starts on, whatever the imported correction was.
+      lensDistortionEnabled: true
     }));
   const chooseModel = async (model: string) => {
     const maker = adjustments.lensMaker;
@@ -177,7 +181,8 @@ export default function StudioLensCorrection() {
       ...prev,
       lensModel: model || null,
       lensDistortionParams: distortion,
-      lensCorrectionMode: 'manual'
+      lensCorrectionMode: 'manual',
+      lensDistortionEnabled: true
     }));
   };
   const amount = (

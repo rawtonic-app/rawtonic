@@ -779,6 +779,19 @@ fn polynomial_of(adjustments: &Value) -> Option<&Value> {
     .then_some(params)
 }
 
+/// Whether a stored recipe already applies `new` as it is imported: the same
+/// polynomial, switched on, at its full amount.
+fn applies_polynomial(stored: Option<&Value>, new: &Value) -> bool {
+    stored.is_some_and(|recipe| {
+        polynomial_of(recipe) == Some(new)
+            && recipe.get("lensDistortionEnabled") != Some(&json!(false))
+            && recipe
+                .get(lens::DISTORTION_AMOUNT.name())
+                .and_then(Value::as_f64)
+                .is_none_or(|amount| amount == 100.0)
+    })
+}
+
 /// Whether the catalog's photograph already carries an edit of the user's.
 fn has_own_edit(catalog: &Library, asset: &str) -> anyhow::Result<bool> {
     Ok(catalog
@@ -1416,7 +1429,7 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
                 let own = catalog
                     .editor_state(&asset.id)?
                     .and_then(|state| state.get("adjustments").cloned());
-                if own.as_ref().and_then(polynomial_of) != Some(new) {
+                if !applies_polynomial(own.as_ref(), new) {
                     imported.kept_over_distortion = Some(KEPT_EDIT);
                 }
             }
@@ -1521,11 +1534,15 @@ fn import_copy(
                 publish_new(&sidecar, &serde_json::to_vec_pretty(&state)?)?;
             }
             let mut kept = Imported::default();
-            if source_has_generic_distortion(photo) {
+            if source_has_generic_distortion(photo)
+                && let Some((incoming, _)) =
+                    recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path)
+                && let Some(new) = polynomial_of(&incoming)
+            {
                 let stored = catalog
                     .copy_state(asset, &candidate)?
                     .and_then(|state| state.get("adjustments").cloned());
-                if stored.as_ref().and_then(polynomial_of).is_none() {
+                if !applies_polynomial(stored.as_ref(), new) {
                     kept.kept_over_distortion = Some(KEPT_COPY);
                 }
             }
@@ -3581,6 +3598,21 @@ ProcessVersion = "15.4" }}"#,
             state["adjustments"]["lensDistortionParams"]["k1"],
             json!(-0.048)
         );
+        // The user rescaled or switched it off since: kept, and said.
+        let mut state = catalog.editor_state(&id).unwrap().unwrap();
+        state["adjustments"]["lensDistortionAmount"] = json!(50.0);
+        catalog.save_editor_state(&id, &state).unwrap();
+        // (A lens-only reimport keeps the master as it is.)
+        let rescaled = import_into(&catalog, &only).unwrap();
+        assert!(
+            rescaled
+                .warnings
+                .iter()
+                .any(|w| w.contains("kept your existing edit")),
+            "{rescaled:?}"
+        );
+        state["adjustments"]["lensDistortionAmount"] = json!(100.0);
+        catalog.save_editor_state(&id, &state).unwrap();
         // Repeated: the same distortion is already there, nothing to say.
         let again = import_into(&catalog, &only).unwrap();
         assert!(
