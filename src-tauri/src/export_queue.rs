@@ -236,7 +236,7 @@ impl ExportRequest {
     }
 
     /// Whether `other` reads its photos as this one does (`pin_into`).
-    fn pins_like(&self, other: &ExportRequest) -> bool {
+    pub(crate) fn pins_like(&self, other: &ExportRequest) -> bool {
         self.paths == other.paths
             && self.current_edit_path == other.current_edit_path
             && self.current_edit_adjustments == other.current_edit_adjustments

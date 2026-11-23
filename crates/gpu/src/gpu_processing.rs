@@ -1175,6 +1175,26 @@ impl ChromaGpu {
         is_raw: bool,
         pyramid: &GpuPyramid,
     ) -> Result<Self, String> {
+        let mut chroma = Self::packed_from_gpu_pyramid(context, pipelines, pyramid);
+        chroma.compute_finest_energy(
+            context,
+            pipelines,
+            input,
+            [width, height],
+            is_raw,
+            pyramid.measured.profile,
+        )?;
+        Ok(chroma)
+    }
+
+    /// [`Self::from_gpu_pyramid`] without the finest level's energy (a
+    /// placeholder until [`Self::compute_finest_energy`] allocates and
+    /// computes it, so that a caller can free other textures first).
+    fn packed_from_gpu_pyramid(
+        context: &GpuContext,
+        pipelines: &ChromaPipelines,
+        pyramid: &GpuPyramid,
+    ) -> Self {
         let [lw, lh] = pyramid.sizes[0];
         let packed = float_texture(
             context,
@@ -1192,8 +1212,8 @@ impl ChromaGpu {
             packed_view,
             energy_view: empty_view(
                 context,
-                "Chroma finest energy",
-                [width, height],
+                "Chroma finest energy (placeholder)",
+                [1, 1],
                 wgpu::TextureFormat::R32Float,
             ),
             reconstruction: None,
@@ -1207,6 +1227,30 @@ impl ChromaGpu {
             &pyramid.levels[0],
             &pyramid.levels[0],
         );
+        context.queue.submit(Some(encoder.finish()));
+        chroma
+    }
+
+    /// The finest level's local energy of the whole-photo `input` of a
+    /// `width` x `height` photo from the packed level 1 (xy), with the
+    /// pyramid's measured noise `profile`.
+    fn compute_finest_energy(
+        &mut self,
+        context: &GpuContext,
+        pipelines: &ChromaPipelines,
+        input: &wgpu::TextureView,
+        [width, height]: [u32; 2],
+        is_raw: bool,
+        profile: [f32; color_noise::PROFILE_BINS],
+    ) -> Result<(), String> {
+        self.energy_view = empty_view(
+            context,
+            "Chroma finest energy",
+            [width, height],
+            wgpu::TextureFormat::R32Float,
+        );
+        let chroma = &*self;
+        let mut encoder = context.device.create_command_encoder(&Default::default());
         // In bands of whole workgroup rows, one submission each.
         let band = (ENERGY_BAND_PIXELS / width.max(1)).max(16) / 16 * 16;
         let mut top = 0;
@@ -1216,7 +1260,7 @@ impl ChromaGpu {
                 fine_size: [width, height],
                 is_raw: u32::from(is_raw),
                 offset: [0, top],
-                profile: pyramid.measured.profile,
+                profile,
                 ..Default::default()
             };
             pyramid_pass(
@@ -1240,7 +1284,7 @@ impl ChromaGpu {
             submit_and_wait(context, stage)?;
         }
         drop(encoder);
-        Ok(chroma)
+        Ok(())
     }
 
     /// The finest level's local energy (color_noise.wgsl `finest_energy`)

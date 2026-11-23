@@ -3484,6 +3484,28 @@
         "ratioHeight": "比例高度",
         "ratioWidth": "比例寬度"
       },
+      "collision": {
+        "cancel": "取消",
+        "choice": {
+          "keepBoth": "保留兩者",
+          "replaceIfChanged": "有變更時取代",
+          "skip": "略過"
+        },
+        "hint": {
+          "keepBoth": "每個新檔案都使用新名稱，不會覆蓋任何檔案。",
+          "replaceIfChanged": "取代你自己已變更的匯出；沒有變更的會略過。其他檔案保持不動，新檔案使用新名稱。",
+          "skip": "現有檔案保持原樣，這些照片不再重新匯出。"
+        },
+        "intro": "為整個匯出選擇一次。",
+        "kind": {
+          "changedOwn": "先前的匯出，之後照片或設定已變更：{{number}}",
+          "other": "其他檔案，或帶遮罩檔案的匯出（不會取代）：{{number}}",
+          "unchangedOwn": "先前的匯出，之後沒有變動：{{number}}"
+        },
+        "more": "另有 {{number}} 個",
+        "originals": "其中資料庫中的照片，永不取代：{{number}}",
+        "title": "已有同名檔案"
+      },
       "destination": {
         "aria": "匯出目標位置",
         "choose": "選擇資料夾…",
@@ -3494,11 +3516,13 @@
         },
         "existing": "如果檔案已存在",
         "existingChoice": {
+          "ask": "詢問",
           "keepBoth": "保留兩者（新名稱）",
           "replaceIfChanged": "有變更時取代",
           "skip": "略過"
         },
         "existingHint": {
+          "ask": "匯出前，如果已有同名檔案，只詢問一次該怎麼辦。在你回答之前，不會處理或寫入任何內容。",
           "keepBoth": "新檔案使用帶編號的名稱；絕不覆寫任何檔案。",
           "replaceIfChanged": "僅當照片的編輯或設定有變更時，才取代該名稱下這張照片自己先前的 Rawtonic 匯出；未變更的照片會被略過。其他任何檔案（原始檔、相機 JPEG、在別處編輯過的檔案）都會保留，新檔案使用帶編號的名稱。",
           "skip": "檔案已存在的照片不會匯出。"

@@ -672,7 +672,10 @@ Still in the adapter: the window surface and the processor/cache slots in `state
 through `MosaicDenoise::with_progress`, read by the studio's queue panel `StudioExportQueue`; a job carries each photo's
 recipe and embedded metadata, read once at submission through the library it was submitted from
 (`export_processing::pin_photos`), and its runner reads no library), editor-sidecar and session catalog reads, the AI
-models, `tether`, file management and the session bridge.
+models, `tether`, file management and the session bridge. `export_collisions` plans an export's file names ahead
+(`plan_export_collisions`, the same `plan_output_path` with no folder created) for the Export form's "If a file exists: Ask":
+it returns what the names meet, the form asks once and queues the answer; "ask" itself never reaches the queue as a choice
+that overwrites (`existing_files::decide` keeps both).
 
 **Desktop adapter (`src-tauri/`, crate `rawtonic-app`, lib `rapidraw_lib`)** — Tauri commands, `AppState`, image
 loading/caches, file management, export, AI, tether, culling, merge/collage glue and the thin glue modules over the

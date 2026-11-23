@@ -1,6 +1,6 @@
 import '../i18n';
 import { afterEach, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import i18n from 'i18next';
 import SettingsPanel from '../components/panel/SettingsPanel';
 import PreferencesDialog from '../components/studio/PreferencesDialog';
@@ -50,7 +50,8 @@ function Wired() {
   );
 }
 
-it('Preferences: every category has no new accessibility violations', async () => {
+// Nine full axe scans, including the controls list, can exceed 5 s in total on loaded hosts.
+it('Preferences: every category has no new accessibility violations', { timeout: 15_000 }, async () => {
   useSettingsStore.setState({ appSettings: SEEDED, osPlatform: 'macos' });
   render(
     <PreferencesDialog>
@@ -62,12 +63,25 @@ it('Preferences: every category has no new accessibility violations', async () =
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'General' })));
   expect(screen.getByRole('button', { name: 'Remove shortcut "web"' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Remove tag "harbour"' })).toBeTruthy();
-  const categories = screen
+  const categories = within(screen.getByRole('navigation'))
     .getAllByRole('button')
-    .filter((b) => b.hasAttribute('aria-pressed') && b.closest('nav, [role="tablist"], aside'));
+    .filter((b) => b.hasAttribute('aria-pressed'));
   for (const category of categories) {
     const name = category.textContent ?? '';
+    const changed = category.getAttribute('aria-pressed') !== 'true';
+    const previous = document.querySelector('.pref-page');
     await act(async () => fireEvent.click(category));
+    if (changed) {
+      // AnimatePresence can keep the previous page mounted during the switch.
+      await waitFor(
+        () => {
+          const current = document.querySelector('.pref-page');
+          expect(current).toBeTruthy();
+          expect(current).not.toBe(previous);
+        },
+        { timeout: 3000 }
+      );
+    }
     await expectNoNewViolations(`preferences ${name}`, ALLOWED);
   }
 });
@@ -118,13 +132,14 @@ it('keeps the keyboard in the list when an AI tag chip is removed, after the chi
     </PreferencesDialog>
   );
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'General' })));
-  const tag = (name: string) => screen.queryByRole('button', { name: `Remove tag "${name}"` });
-  tag('harbour')!.focus();
-  await act(async () => fireEvent.click(tag('harbour')!));
-  expect(document.activeElement).toBe(tag('portrait'));
-  await vi.waitFor(() => expect(tag('harbour')).toBeNull());
-  expect(document.activeElement).toBe(tag('portrait'));
-  await act(async () => fireEvent.click(tag('portrait')!));
-  await vi.waitFor(() => expect(tag('portrait')).toBeNull());
+  const harbour = screen.getByRole('button', { name: 'Remove tag "harbour"' });
+  const portrait = screen.getByRole('button', { name: 'Remove tag "portrait"' });
+  harbour.focus();
+  await act(async () => fireEvent.click(harbour));
+  expect(document.activeElement).toBe(portrait);
+  await waitFor(() => expect(harbour.isConnected).toBe(false), { timeout: 3000 });
+  expect(document.activeElement).toBe(portrait);
+  await act(async () => fireEvent.click(portrait));
+  await waitFor(() => expect(portrait.isConnected).toBe(false), { timeout: 3000 });
   expect(document.activeElement).toBe(screen.getByPlaceholderText(i18n.t('settings.tagging.addCustomPlaceholder')));
 });

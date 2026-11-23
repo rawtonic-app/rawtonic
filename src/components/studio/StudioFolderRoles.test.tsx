@@ -7,15 +7,16 @@
  */
 import '../../i18n';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import StudioNavigation from './StudioNavigation';
+import SessionWorkspace from '../session/SessionWorkspace';
 import { ContextMenuProvider } from '../../context/ContextMenuContext';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import type { AppSettings } from '../ui/AppProperties';
 import type { FolderTree } from '../../utils/folderTree';
-import type { SessionFolder } from '../../utils/sessionFolders';
+import { requestSetRoleFolder, type SessionFolder } from '../../utils/sessionFolders';
 import type { FolderActions } from './StudioNavigation';
 
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => false, invoke: vi.fn(() => Promise.resolve()) }));
@@ -59,7 +60,8 @@ const renderTree = (folderActions: Pick<FolderActions, 'setRoleFolder'>) =>
 /** The folder's row, by its title (the path). */
 const row = (path: string) => screen.getAllByTitle(path)[0].parentElement!;
 /** The newest menu's item (closing menus fade out). */
-const item = (name: RegExp | string) => screen.getAllByRole('menuitem', { name }).at(-1)!;
+const menu = () => within(screen.getAllByRole('menu').at(-1)!);
+const item = (name: RegExp | string) => menu().getByRole('menuitem', { name });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -154,9 +156,9 @@ describe("set a folder's role from the folder tree (G38)", () => {
       sessionFolders: [],
       expandedFolders: new Set(['/catalog'])
     });
-    renderTree({ setRoleFolder });
+    await act(async () => renderTree({ setRoleFolder }));
     // The folder list is a catalog's once its drives are read.
-    await waitFor(() => expect(document.querySelector('[data-volume]')).toBeTruthy());
+    expect(screen.getByText('Macintosh HD')).toBeTruthy();
     fireEvent.contextMenu(row('/catalog/Photos'));
     expect(screen.queryAllByRole('menuitem', { name: /^Set as .* Folder$/ })).toHaveLength(0);
     expect(screen.getAllByRole('menuitem', { name: /role folders belong to a session/ }).at(-1)).toHaveProperty(
@@ -168,7 +170,6 @@ describe("set a folder's role from the folder tree (G38)", () => {
 
 describe('the session workspace sets the role folder', () => {
   it('runs the same command Session Folders runs, with the folder and no move', async () => {
-    const { default: SessionWorkspace } = await import('../session/SessionWorkspace');
     const change = {
       folder: { ...role('output'), path: '/job/Selects/Day 1', stored: 'Selects/Day 1' },
       previous: role('output')
@@ -190,15 +191,12 @@ describe('the session workspace sets the role folder', () => {
     });
     useLibraryStore.setState({ sessionDirectory: '/job' });
     render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
-    const { requestSetRoleFolder } = await import('../../utils/sessionFolders');
-    requestSetRoleFolder({ role: 'output', folder: '/job/Selects/Day 1' });
-    await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith('session_set_folder', {
-        directory: '/job',
-        role: 'output',
-        path: '/job/Selects/Day 1',
-        moveContents: false
-      })
-    );
+    await act(async () => requestSetRoleFolder({ role: 'output', folder: '/job/Selects/Day 1' }));
+    expect(invoke).toHaveBeenCalledWith('session_set_folder', {
+      directory: '/job',
+      role: 'output',
+      path: '/job/Selects/Day 1',
+      moveContents: false
+    });
   });
 });

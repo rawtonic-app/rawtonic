@@ -30,6 +30,10 @@ pub enum ExistingFiles {
     KeepBoth,
     Skip,
     ReplaceIfChanged,
+    /// The Export form asks once per run (`export_collisions`) and sends
+    /// the answer as one of the three above. Reaching an export itself
+    /// (an older queue, a headless run) it never overwrites: Keep both.
+    Ask,
 }
 
 impl ExistingFiles {
@@ -39,6 +43,11 @@ impl ExistingFiles {
             "keep-both" => Ok(Self::KeepBoth),
             "skip" => Ok(Self::Skip),
             "replace-if-changed" => Ok(Self::ReplaceIfChanged),
+            "ask" => Err(
+                "ask needs a person to answer, and the command line never asks \
+                 (keep-both, skip, replace-if-changed)"
+                    .to_string(),
+            ),
             other => Err(format!(
                 "unknown value {other:?} (keep-both, skip, replace-if-changed)"
             )),
@@ -227,7 +236,7 @@ where
         return Decision::Write;
     }
     match policy {
-        ExistingFiles::KeepBoth => Decision::Number { reported: None },
+        ExistingFiles::KeepBoth | ExistingFiles::Ask => Decision::Number { reported: None },
         ExistingFiles::Skip => Decision::Skip(Outcome::SkippedExists),
         ExistingFiles::ReplaceIfChanged => match previous().into() {
             Previous::Original => Decision::Number {
@@ -302,6 +311,31 @@ fn is_empty_records_file(path: &Path) -> bool {
 }
 
 impl ExportRecords {
+    /// The records of an earlier export, to look files up before the user
+    /// has confirmed anything: nothing is created, initialized, recovered
+    /// or written. `None` when there is no usable records file (missing,
+    /// empty from an interrupted first export, another database, another
+    /// version), which reads as nothing recorded.
+    pub fn open_existing_read_only(path: &Path) -> Option<Self> {
+        let meta = fs::symlink_metadata(path).ok()?;
+        if !meta.is_file() || meta.len() == 0 {
+            return None;
+        }
+        let conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .ok()?;
+        conn.busy_timeout(Duration::from_millis(500)).ok()?;
+        let id: i32 = conn
+            .query_row("PRAGMA application_id", [], |r| r.get(0))
+            .ok()?;
+        let version: u32 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .ok()?;
+        (id == RECORDS_APPLICATION_ID && version == RECORDS_VERSION).then_some(Self { conn })
+    }
+
     pub fn open(path: &Path) -> Result<Self> {
         Self::open_with_initializer(path, initialize_records)
     }
@@ -500,6 +534,7 @@ mod tests {
             ExistingFiles::KeepBoth,
             ExistingFiles::Skip,
             ExistingFiles::ReplaceIfChanged,
+            ExistingFiles::Ask,
         ] {
             let previous = || -> Option<Recorded> { panic!("no record is read for a free name") };
             assert_eq!(
@@ -545,6 +580,76 @@ mod tests {
             ),
             Decision::Number { reported: None }
         );
+    }
+
+    /// "Ask" is answered by the Export form before the queue; one that
+    /// reaches an export anyway (an older queue, a headless run) overwrites
+    /// nothing and reads no record, and the command line has no way to ask.
+    #[test]
+    fn ask_reaching_an_export_keeps_both_and_the_command_line_rejects_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.jpg");
+        fs::write(&path, b"someone's").unwrap();
+        let never = || -> Option<Recorded> { panic!("not read") };
+        assert_eq!(
+            decide(
+                ExistingFiles::Ask,
+                &path,
+                true,
+                false,
+                false,
+                never,
+                "s",
+                "i"
+            ),
+            Decision::Number { reported: None }
+        );
+        let error = ExistingFiles::parse("ask").unwrap_err();
+        assert!(error.contains("never asks"), "{error}");
+        assert!(
+            error.contains("keep-both, skip, replace-if-changed"),
+            "{error}"
+        );
+        assert_eq!(
+            serde_json::from_str::<ExistingFiles>("\"ask\"").unwrap(),
+            ExistingFiles::Ask
+        );
+    }
+
+    /// Looking up records before the user answers writes nothing: no file
+    /// is created for a missing one, an empty one (an interrupted first
+    /// export) is not recovered, and a valid one is only read.
+    #[test]
+    fn a_read_only_lookup_creates_recovers_and_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("records.sqlite");
+        assert!(ExportRecords::open_existing_read_only(&path).is_none());
+        assert!(!path.exists(), "no records file is created");
+
+        fs::write(&path, b"").unwrap();
+        assert!(ExportRecords::open_existing_read_only(&path).is_none());
+        assert_eq!(fs::metadata(&path).unwrap().len(), 0, "not recovered");
+        fs::remove_file(&path).unwrap();
+
+        let out = dir.path().join("a.jpg");
+        fs::write(&out, b"export").unwrap();
+        {
+            let records = ExportRecords::open(&path).unwrap();
+            records.record(&out, "photo", "inputs").unwrap();
+        }
+        let before = fs::read(&path).unwrap();
+        let records = ExportRecords::open_existing_read_only(&path).unwrap();
+        assert_eq!(records.get(&out).unwrap().unwrap().inputs, "inputs");
+        assert!(records.record(&out, "photo", "other").is_err());
+        drop(records);
+        assert_eq!(fs::read(&path).unwrap(), before, "only read");
+
+        let other = dir.path().join("other.sqlite");
+        Connection::open(&other)
+            .unwrap()
+            .execute_batch("CREATE TABLE t(x)")
+            .unwrap();
+        assert!(ExportRecords::open_existing_read_only(&other).is_none());
     }
 
     #[test]
