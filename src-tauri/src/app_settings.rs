@@ -317,6 +317,10 @@ pub struct ExportPreset {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resize_value2: Option<f64>,
     pub dont_enlarge: bool,
+    /// Enlarge 2× with the AI model before the resize (the Studio's form
+    /// saves it; it was dropped on save before).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub super_resolution: Option<bool>,
     pub keep_metadata: bool,
     pub strip_gps: bool,
     #[serde(default)]
@@ -413,6 +417,7 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             resize_value: 2048.0,
             resize_value2: None,
             dont_enlarge: true,
+            super_resolution: None,
             keep_metadata: true,
             strip_gps: false,
             keep_creator_contact: false,
@@ -462,6 +467,7 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             resize_value: 2048.0,
             resize_value2: None,
             dont_enlarge: true,
+            super_resolution: None,
             keep_metadata: false,
             strip_gps: true,
             keep_creator_contact: false,

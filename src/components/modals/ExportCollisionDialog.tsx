@@ -7,6 +7,8 @@ import { overlayHost } from '../../utils/topLayer';
 import { useExportCollisionStore, type CollisionAnswer } from '../../store/useExportCollisionStore';
 import type { CollisionKind } from '../ui/ExportImportProperties';
 
+// The backend normally sends at most five names per kind (NAMES_SHOWN).
+// Keep a render cap here in case a summary arrives with more names.
 const MAX_NAMES_PER_KIND = 5;
 
 /** "If a file exists: Ask": one question per export run, before anything

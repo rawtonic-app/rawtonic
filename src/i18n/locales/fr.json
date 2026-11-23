@@ -558,8 +558,10 @@
       "undo": "Annuler"
     },
     "editWith": {
+      "cancel": "Annuler",
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "closeLibraryFirst": "Fermez la session ou le catalogue ouvert pour réessayer : ces photos ont été retouchées hors bibliothèque.",
+      "defaultRecipe": "Recette par défaut",
       "failed": "Échec de Modifier avec : {{error}}",
       "generatedAreas": "Modifier avec n’est pas encore disponible pour les photos comportant des zones générées : {{names}}",
       "interrupted": "« Modifier avec » dans {{app}} a été interrompu à la fermeture de Rawtonic. Réessayez pour rendre à nouveau les photos.",
@@ -567,11 +569,19 @@
       "notLinked": "Rendu, mais non ajouté à la bibliothèque : {{error}}",
       "openIn": "Ouvrir dans",
       "openLibraryFirst": "Rouvrez {{library}} pour réessayer : ses photos sont rendues avec les réglages qu’elles y ont.",
-      "recipe": "Recette",
+      "ownSettings": "Ces réglages servent uniquement à {{app}}.",
+      "programSettings": "Réglages d’un programme",
       "rendering": "Rendu pour {{app}}…",
+      "save": "Enregistrer",
+      "settingsFailed": "Impossible d’enregistrer les réglages : {{error}}",
+      "settingsFor": "Réglages pour {{app}}…",
+      "settingsTitle": "Réglages Modifier avec pour {{app}}",
       "someFailed": "{{failed}} photos sur {{total}} n’ont pas pu être rendues.",
+      "stripGps": "Supprimer les coordonnées GPS",
       "tiffAdobe": "TIFF 16 bits · Adobe RGB",
-      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB",
+      "useDefault": "Utiliser la recette par défaut",
+      "usesDefault": "{{app}} utilise la recette par défaut ({{recipe}}). Enregistrer lui donne ses propres réglages ; les autres programmes gardent la recette par défaut."
     },
     "merge": {
       "focusStack": "Empilement de mise au point",
@@ -3867,13 +3877,13 @@
         "exporting": "Exportation {{current}} sur {{total}}"
       },
       "provenance": {
-        "about": "Indique la photo dont chaque fichier a été développé, les types de retouches et chaque zone créée par un modèle génératif, signé avec votre certificat. JPEG, PNG, TIFF, WebP et AVIF. Rien n'est envoyé.",
-        "add": "Signer un manifeste de provenance dans chaque fichier",
+        "about": "Indique la photo dont chaque fichier a été développé, les types de retouches et chaque zone créée par un modèle génératif, signé avec votre certificat. JPEG, PNG, TIFF, WebP, AVIF et JPEG XL. Rien n'est envoyé. Les images de masque séparées ne sont pas signées.",
+        "add": "Signer un manifeste de provenance dans le fichier principal de chaque export",
         "author": "Nommer le créateur de la photo comme auteur",
-        "blocked": "La provenance (C2PA) ne peut pas signer {{recipes}} : configurez un certificat de signature valide et exportez en JPEG, PNG, TIFF, WebP ou AVIF.",
+        "blocked": "La provenance (C2PA) ne peut pas signer {{recipes}} : configurez un certificat de signature valide et exportez en JPEG, PNG, TIFF, WebP, AVIF ou JPEG XL.",
         "certificateFilter": "Certificat PKCS#12",
         "expired": "Ce certificat n'est pas valide actuellement (valide jusqu'au {{until}}) : les exports ne peuvent pas être signés avec. Importez un certificat renouvelé ou créez-en un nouveau.",
-        "formatUnsupported": "Les fichiers {{format}} ne peuvent pas encore porter de manifeste de provenance. Choisissez JPEG, PNG, TIFF, WebP ou AVIF, ou désactivez l'option.",
+        "formatUnsupported": "Les fichiers {{format}} ne peuvent pas encore porter de manifeste de provenance. Choisissez JPEG, PNG, TIFF, WebP, AVIF ou JPEG XL, ou désactivez l'option.",
         "generate": "Créer un certificat sur cet ordinateur",
         "import": "Importer votre certificat (.p12)…",
         "importConfirm": "Importer",
@@ -4295,6 +4305,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Plusieurs objectifs correspondent aux informations de la photo sur son objectif ; choisissez le vôtre :",
       "aria": {
         "make": "Marque de l'objectif",
         "model": "Modèle d'objectif"

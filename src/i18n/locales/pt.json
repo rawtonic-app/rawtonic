@@ -558,8 +558,10 @@
       "undo": "Desfazer"
     },
     "editWith": {
+      "cancel": "Cancelar",
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "closeLibraryFirst": "Feche a sessão ou o catálogo aberto para tentar de novo: estas fotos foram editadas fora de uma biblioteca.",
+      "defaultRecipe": "Receita padrão",
       "failed": "Editar com falhou: {{error}}",
       "generatedAreas": "Editar com ainda não está disponível para fotografias com áreas geradas: {{names}}",
       "interrupted": "«Editar com» em {{app}} foi interrompido ao fechar o Rawtonic. Tente novamente para renderizar as fotos outra vez.",
@@ -567,11 +569,19 @@
       "notLinked": "Renderizado, mas não adicionado à biblioteca: {{error}}",
       "openIn": "Abrir em",
       "openLibraryFirst": "Abra {{library}} novamente para tentar de novo: as fotos são processadas com as edições que têm lá.",
-      "recipe": "Receita",
+      "ownSettings": "Estas definições são usadas apenas para {{app}}.",
+      "programSettings": "Definições de um programa",
       "rendering": "A renderizar para {{app}}…",
+      "save": "Guardar",
+      "settingsFailed": "Não foi possível guardar as definições: {{error}}",
+      "settingsFor": "Definições para {{app}}…",
+      "settingsTitle": "Definições de Editar com para {{app}}",
       "someFailed": "Não foi possível renderizar {{failed}} de {{total}} fotografias.",
+      "stripGps": "Remover as coordenadas GPS",
       "tiffAdobe": "TIFF 16 bits · Adobe RGB",
-      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB",
+      "useDefault": "Usar a receita padrão",
+      "usesDefault": "{{app}} usa a receita padrão ({{recipe}}). Ao guardar passa a ter definições próprias; os outros programas mantêm a padrão."
     },
     "merge": {
       "focusStack": "Empilhamento de Foco",
@@ -3867,13 +3877,13 @@
         "exporting": "Exportando {{current}} de {{total}}"
       },
       "provenance": {
-        "about": "Regista a fotografia a partir da qual cada ficheiro foi revelado, os tipos de edição e cada área criada por um modelo generativo, assinado com o seu certificado. JPEG, PNG, TIFF, WebP e AVIF. Nada é enviado.",
-        "add": "Assinar um manifesto de proveniência em cada ficheiro",
+        "about": "Regista a fotografia a partir da qual cada ficheiro foi revelado, os tipos de edição e cada área criada por um modelo generativo, assinado com o seu certificado. JPEG, PNG, TIFF, WebP, AVIF e JPEG XL. Nada é enviado. As imagens de máscara separadas não são assinadas.",
+        "add": "Assinar um manifesto de proveniência no ficheiro principal de cada exportação",
         "author": "Indicar o criador da fotografia como autor",
-        "blocked": "A proveniência (C2PA) não pode assinar {{recipes}}: configure um certificado de assinatura válido e exporte JPEG, PNG, TIFF, WebP ou AVIF.",
+        "blocked": "A proveniência (C2PA) não pode assinar {{recipes}}: configure um certificado de assinatura válido e exporte JPEG, PNG, TIFF, WebP, AVIF ou JPEG XL.",
         "certificateFilter": "Certificado PKCS#12",
         "expired": "Este certificado não é válido agora (válido até {{until}}): não é possível assinar exportações com ele. Importe um certificado renovado ou crie um novo.",
-        "formatUnsupported": "Os ficheiros {{format}} ainda não podem conter um manifesto de proveniência. Escolha JPEG, PNG, TIFF, WebP ou AVIF, ou desative a opção.",
+        "formatUnsupported": "Os ficheiros {{format}} ainda não podem conter um manifesto de proveniência. Escolha JPEG, PNG, TIFF, WebP, AVIF ou JPEG XL, ou desative a opção.",
         "generate": "Criar um certificado neste computador",
         "import": "Importar o seu certificado (.p12)…",
         "importConfirm": "Importar",
@@ -4295,6 +4305,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Várias lentes correspondem ao que a foto indica sobre a sua lente; escolha a sua:",
       "aria": {
         "make": "Marca da lente",
         "model": "Modelo da lente"

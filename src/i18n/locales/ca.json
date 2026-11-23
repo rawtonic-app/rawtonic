@@ -558,8 +558,10 @@
       "undo": "Desfer"
     },
     "editWith": {
+      "cancel": "Cancel·la",
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "closeLibraryFirst": "Tanca la sessió o el catàleg obert per tornar-ho a provar: aquestes fotos es van editar fora d’una biblioteca.",
+      "defaultRecipe": "Recepta predeterminada",
       "failed": "Edita amb ha fallat: {{error}}",
       "generatedAreas": "Edita amb encara no està disponible per a fotos amb zones generades: {{names}}",
       "interrupted": "«Edita amb» a {{app}} es va interrompre en sortir de Rawtonic. Torna-ho a provar per tornar a renderitzar les fotos.",
@@ -567,11 +569,19 @@
       "notLinked": "Renderitzat, però no afegit a la biblioteca: {{error}}",
       "openIn": "Obre a",
       "openLibraryFirst": "Torna a obrir {{library}} per tornar-ho a provar: les seves fotos es processen amb els ajustos que hi tenen.",
-      "recipe": "Recepta",
+      "ownSettings": "Aquesta configuració només s’usa per a {{app}}.",
+      "programSettings": "Configuració d’un programa",
       "rendering": "S’està renderitzant per a {{app}}…",
+      "save": "Desa",
+      "settingsFailed": "No s’ha pogut desar la configuració: {{error}}",
+      "settingsFor": "Configuració per a {{app}}…",
+      "settingsTitle": "Configuració d’Edita amb per a {{app}}",
       "someFailed": "No s’han pogut renderitzar {{failed}} de {{total}} fotos.",
+      "stripGps": "Elimina les coordenades GPS",
       "tiffAdobe": "TIFF 16 bits · Adobe RGB",
-      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB",
+      "useDefault": "Fes servir la recepta predeterminada",
+      "usesDefault": "{{app}} fa servir la recepta predeterminada ({{recipe}}). En desar tindrà configuració pròpia; els altres programes mantenen la predeterminada."
     },
     "merge": {
       "focusStack": "Apilament d'enfocament",
@@ -3867,13 +3877,13 @@
         "exporting": "S'està exportant {{current}} de {{total}}"
       },
       "provenance": {
-        "about": "Registra la foto de la qual s'ha revelat cada fitxer, els tipus d'edició i cada zona creada per un model generatiu, signat amb el vostre certificat. JPEG, PNG, TIFF, WebP i AVIF. No s'envia res.",
-        "add": "Signa un manifest de procedència a cada fitxer",
+        "about": "Registra la foto de la qual s'ha revelat cada fitxer, els tipus d'edició i cada zona creada per un model generatiu, signat amb el vostre certificat. JPEG, PNG, TIFF, WebP, AVIF i JPEG XL. No s'envia res. Les imatges de màscara separades no es signen.",
+        "add": "Signa un manifest de procedència al fitxer principal de cada exportació",
         "author": "Indica el creador de la foto com a autor",
-        "blocked": "La procedència (C2PA) no pot signar {{recipes}}: configureu un certificat de signatura vàlid i exporteu JPEG, PNG, TIFF, WebP o AVIF.",
+        "blocked": "La procedència (C2PA) no pot signar {{recipes}}: configureu un certificat de signatura vàlid i exporteu JPEG, PNG, TIFF, WebP, AVIF o JPEG XL.",
         "certificateFilter": "Certificat PKCS#12",
         "expired": "Aquest certificat no és vàlid ara (vàlid fins al {{until}}): no es poden signar exportacions amb ell. Importeu un certificat renovat o creeu-ne un de nou.",
-        "formatUnsupported": "Els fitxers {{format}} encara no poden portar un manifest de procedència. Trieu JPEG, PNG, TIFF, WebP o AVIF, o desactiveu l'opció.",
+        "formatUnsupported": "Els fitxers {{format}} encara no poden portar un manifest de procedència. Trieu JPEG, PNG, TIFF, WebP, AVIF o JPEG XL, o desactiveu l'opció.",
         "generate": "Crea un certificat en aquest ordinador",
         "import": "Importa el vostre certificat (.p12)…",
         "importConfirm": "Importa",
@@ -4295,6 +4305,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Diversos objectius encaixen amb el que la foto diu del seu objectiu; tria el teu:",
       "aria": {
         "make": "Marca de l'objectiu",
         "model": "Model d'objectiu"

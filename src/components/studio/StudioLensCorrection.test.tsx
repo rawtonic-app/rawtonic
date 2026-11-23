@@ -36,7 +36,18 @@ beforeEach(() => {
     const a = args as Record<string, unknown>;
     if (command === 'get_lensfun_makers') return ['Sony', 'Fujifilm'];
     if (command === 'get_lensfun_lenses_for_maker') return a.maker === 'Sony' ? ['FE 85mm F1.8'] : ['XF 23mm'];
-    if (command === 'autodetect_lens') return a.model === 'FE 85mm F1.8' ? ['Sony', 'FE 85mm F1.8'] : null;
+    if (command === 'autodetect_lens') {
+      if (a.model === 'FE 85mm F1.8') return { lens: ['Sony', 'FE 85mm F1.8'], candidates: [] };
+      if (a.model === '24-70mm')
+        return {
+          lens: null,
+          candidates: [
+            ['Sigma', '24-70mm f/2.8 IF EX DG HSM (crop 1.5x)'],
+            ['Tamron', 'SP 24-70mm f/2.8 Di VC USD']
+          ]
+        };
+      return { lens: null, candidates: [] };
+    }
     if (command === 'get_lens_distortion_params') return distortion;
     if (command === 'get_camera_lens_profile')
       return a.path === '/job/x.raf' ? { maker: 'Fujifilm', params: cameraParams, vignetting: true } : null;
@@ -201,7 +212,8 @@ describe('Lens correction tool', () => {
     expect(mockInvoke).toHaveBeenCalledWith('autodetect_lens', {
       maker: 'SONY',
       model: 'FE 85mm F1.8',
-      cameraModel: 'ILCE-7M3'
+      cameraModel: 'ILCE-7M3',
+      exif: { Make: 'SONY', Model: 'ILCE-7M3', LensModel: 'FE 85mm F1.8', FocalLength: '85.0 mm', FNumber: '2.5' }
     });
     expect(mockInvoke).toHaveBeenCalledWith('get_lens_distortion_params', {
       maker: 'Sony',
@@ -222,6 +234,31 @@ describe('Lens correction tool', () => {
     expect(current).toMatchObject({ lensMaker: null, lensModel: null, lensDistortionParams: null });
   });
 
+  it('offers the lenses an ambiguous detection found instead of picking one', async () => {
+    useEditorStore.setState({
+      selectedImage: {
+        path: '/job/b.cr2',
+        isReady: true,
+        exif: { Make: 'Canon', Model: 'Canon EOS 650D', LensModel: '24-70mm', LensSpecification: '24-70 mm' }
+      } as never
+    });
+    await renderTool();
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Enable profile corrections'));
+    });
+    expect(setAdjustments).not.toHaveBeenCalled();
+    const tamron = screen.getByRole('button', { name: 'Tamron SP 24-70mm f/2.8 Di VC USD' });
+    expect(screen.getByRole('button', { name: 'Sigma 24-70mm f/2.8 IF EX DG HSM (crop 1.5x)' })).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(tamron);
+    });
+    const update = setAdjustments.mock.calls.at(-1)?.[0] as (prev: typeof current) => typeof current;
+    expect(update(current)).toMatchObject({
+      lensMaker: 'Tamron',
+      lensModel: 'SP 24-70mm f/2.8 Di VC USD',
+      lensCorrectionMode: 'manual'
+    });
+  });
   it('says when no profile is found and lets the lens be chosen', async () => {
     useEditorStore.setState({
       selectedImage: {

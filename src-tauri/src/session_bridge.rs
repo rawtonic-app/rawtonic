@@ -628,7 +628,7 @@ fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
             .to_ascii_lowercase();
         if ![
             "arw", "dng", "cr3", "cr2", "nef", "raf", "rw2", "orf", "pef", "jpg", "jpeg", "png",
-            "tif", "tiff", "heic", "heif", "webp", "avif", "jxl",
+            "tif", "tiff", "heic", "heif", "hif", "webp", "avif", "jxl",
         ]
         .contains(&ext.as_str())
         {

@@ -58,7 +58,8 @@ import {
   photoScreenRect,
   resolveViewerBackground,
   viewerBackgroundCss,
-  viewerBackgroundRgba
+  viewerBackgroundRgba,
+  viewerPaintsBackground
 } from '../../utils/viewerDisplay';
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { viewerBackgroundMenu } from './editor/viewerBackgroundMenu';
@@ -1477,7 +1478,12 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const hasDisplayableImage = finalPreviewUrl || selectedImage?.thumbnailUrl;
   // No loading veil over a photograph that is already on screen (a preview
   // proxy frame or the held previous frame) while the full decode runs.
-  const showSpinner = isLoading && !hasDisplayableImage && !hasRenderedFirstFrame && !holdingNativeFrame;
+  // In the multi view with native cells the primary's cell keeps its own
+  // native frame until the new primary's first frame: no veil, no opaque
+  // background over it.
+  const nativeMultiView = multiViewActive && osPlatform !== 'linux' && appSettings?.useWgpuRenderer !== false;
+  const showSpinner =
+    isLoading && !hasDisplayableImage && !hasRenderedFirstFrame && !holdingNativeFrame && !nativeMultiView;
 
   useLayoutEffect(() => {
     const container = imageContainerRef.current;
@@ -2698,7 +2704,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           className={clsx('flex-1 min-w-0 relative overflow-hidden touch-none', 'rounded-none')}
           style={{
             cursor: cursorStyle,
-            backgroundColor: isWgpuActive ? undefined : viewerBackgroundCss(viewerBackground)
+            backgroundColor: viewerPaintsBackground({ nativeFrame: isWgpuActive, nativeMultiView })
+              ? viewerBackgroundCss(viewerBackground)
+              : undefined
           }}
           onContextMenu={handleViewerContextMenu}
           ref={imageContainerRef}

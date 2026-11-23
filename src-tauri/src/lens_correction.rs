@@ -63,22 +63,25 @@ pub async fn get_lensfun_lenses_for_maker(maker: String) -> Result<Vec<String>, 
         .map_err(|e| e.to_string())?
 }
 
+/// The lens the photo was taken with, or none and the lenses it could be
+/// (`rawtonic_engine::lens_detect`): from the editor's EXIF map where it
+/// sends one (focal range, maker-note lens ID), else from the names.
 pub fn autodetect_lens_blocking(
     maker: String,
     model: String,
     camera_model: Option<String>,
-) -> Result<Option<(String, String)>, String> {
+    exif: Option<std::collections::HashMap<String, String>>,
+) -> Result<rawtonic_engine::lens_detect::LensDetection, String> {
+    use rawtonic_engine::lens_detect::{LensFacts, detect_lens};
     let db_guard = global_lens_db();
-    if let Some(db) = db_guard.as_deref() {
-        Ok(find_best_lens_match(
-            db,
-            &maker,
-            &model,
-            camera_model.as_deref().unwrap_or(""),
-        ))
-    } else {
-        Ok(None)
-    }
+    let Some(db) = db_guard.as_deref() else {
+        return Ok(Default::default());
+    };
+    let facts = match &exif {
+        Some(exif) if !exif.is_empty() => LensFacts::from_exif(exif),
+        _ => LensFacts::from_names(&maker, &model, camera_model.as_deref().unwrap_or("")),
+    };
+    Ok(detect_lens(db, &facts))
 }
 
 #[tauri::command]
@@ -86,9 +89,10 @@ pub async fn autodetect_lens(
     maker: String,
     model: String,
     camera_model: Option<String>,
-) -> Result<Option<(String, String)>, String> {
+    exif: Option<std::collections::HashMap<String, String>>,
+) -> Result<rawtonic_engine::lens_detect::LensDetection, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        autodetect_lens_blocking(maker, model, camera_model)
+        autodetect_lens_blocking(maker, model, camera_model, exif)
     })
     .await
     .map_err(|e| e.to_string())?

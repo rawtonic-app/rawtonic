@@ -1650,7 +1650,23 @@ pub(crate) fn photo_inputs(
     source: &Path,
     is_raw: bool,
 ) -> Value {
-    let lut_file = pinned.adjustments[effects::LUT_PATH.into_name()]
+    use rawtonic_engine::develop_defaults;
+    // A saved, untouched photo still follows its camera's Develop defaults.
+    // Include the resolved values the render uses, including a default LUT.
+    let defaults = settings.develop_defaults.as_ref().and_then(|defaults| {
+        if defaults.is_empty() || !develop_defaults::follows_defaults(&pinned.adjustments) {
+            return None;
+        }
+        let camera = (!defaults.cameras.is_empty() && !rawtonic_fs::is_cloud_placeholder(source))
+            .then(|| develop_defaults::camera_of(source))
+            .flatten();
+        develop_defaults::resolve(defaults, is_raw, camera.as_ref())
+    });
+    let lut_key = effects::LUT_PATH.into_name();
+    let lut_file = defaults
+        .as_ref()
+        .and_then(|defaults| defaults.settings.get(lut_key))
+        .unwrap_or(&pinned.adjustments[lut_key])
         .as_str()
         .filter(|path| !path.is_empty())
         .map(|path| existing_files::file_fingerprint(Path::new(path)));
@@ -1667,6 +1683,9 @@ pub(crate) fn photo_inputs(
         ],
     });
     parts["adjustments"] = existing_files::adjustments_for_hash(&pinned.adjustments, source);
+    if let Some(defaults) = defaults.filter(|defaults| !defaults.settings.is_empty()) {
+        parts["developDefaults"] = Value::Object(defaults.settings);
+    }
     parts
 }
 

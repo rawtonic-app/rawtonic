@@ -518,8 +518,10 @@
       "undo": "復原"
     },
     "editWith": {
+      "cancel": "取消",
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "closeLibraryFirst": "請關閉目前開啟的工作階段或目錄後再試：這些相片是在資料庫之外編輯的。",
+      "defaultRecipe": "預設配方",
       "failed": "編輯失敗：{{error}}",
       "generatedAreas": "含有生成區域的照片暫不支援編輯方式：{{names}}",
       "interrupted": "結束 Rawtonic 時，在 {{app}} 中的「用其他應用程式編輯」被中斷。重試可再次算繪這些照片。",
@@ -527,11 +529,19 @@
       "notLinked": "已算圖，但未加入圖庫：{{error}}",
       "openIn": "打開於",
       "openLibraryFirst": "請重新開啟 {{library}} 後再試：相片會依其中的編輯算繪。",
-      "recipe": "配方",
+      "ownSettings": "這些設定僅用於 {{app}}。",
+      "programSettings": "程式設定",
       "rendering": "正在為 {{app}} 算圖…",
+      "save": "儲存",
+      "settingsFailed": "無法儲存設定：{{error}}",
+      "settingsFor": "{{app}} 的設定…",
+      "settingsTitle": "{{app}} 的「編輯方式」設定",
       "someFailed": "{{total}} 張照片中有 {{failed}} 張無法算圖。",
+      "stripGps": "移除 GPS 座標",
       "tiffAdobe": "TIFF 16 位元 · Adobe RGB",
-      "tiffProPhoto": "TIFF 16 位元 · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16 位元 · ProPhoto RGB",
+      "useDefault": "使用預設配方",
+      "usesDefault": "{{app}} 使用預設配方（{{recipe}}）。儲存後它將擁有自己的設定；其他程式保留預設配方。"
     },
     "merge": {
       "focusStack": "焦距合成",
@@ -3603,13 +3613,13 @@
         "exporting": "正在匯出 {{current}}/{{total}}"
       },
       "provenance": {
-        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG、TIFF、WebP 與 AVIF。不會傳送任何內容。",
-        "add": "在每個檔案中簽署來源清單",
+        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG、TIFF、WebP、AVIF 與 JPEG XL。不會傳送任何內容。單獨輸出的遮罩影像不會被簽署。",
+        "add": "在每次輸出的主檔案中簽署來源清單",
         "author": "將相片的創作者列為作者",
-        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG、TIFF、WebP 或 AVIF。",
+        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG、TIFF、WebP、AVIF 或 JPEG XL。",
         "certificateFilter": "PKCS#12 憑證",
         "expired": "此憑證目前無效（有效至 {{until}}）：無法用它為輸出簽署。請匯入更新的憑證或建立新的憑證。",
-        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG、TIFF、WebP 或 AVIF，或關閉此選項。",
+        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG、TIFF、WebP、AVIF 或 JPEG XL，或關閉此選項。",
         "generate": "在此電腦上建立憑證",
         "import": "匯入您的憑證 (.p12)…",
         "importConfirm": "匯入",
@@ -4009,6 +4019,7 @@
       }
     },
     "lens": {
+      "ambiguous": "有多個鏡頭符合此照片的鏡頭資訊；請選擇您的鏡頭：",
       "aria": {
         "make": "鏡頭品牌",
         "model": "鏡頭型號"

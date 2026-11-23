@@ -351,8 +351,8 @@ struct ExportArgs {
     /// before any resize and output sharpening, as the app's export option.
     #[arg(long)]
     super_resolution: bool,
-    /// Sign a provenance manifest (C2PA) into each JPEG, PNG or TIFF with the
-    /// signing identity in DIR, as the app keeps it (its data folder's
+    /// Sign a provenance manifest (C2PA) into each JPEG, PNG, TIFF, WebP, AVIF
+    /// or JPEG XL with the signing identity in DIR, as the app keeps it (its data folder's
     /// `provenance/`, holding `signing-identity.json`).
     #[arg(long, value_name = "DIR")]
     provenance_identity: Option<PathBuf>,

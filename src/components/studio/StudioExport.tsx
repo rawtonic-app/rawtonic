@@ -26,6 +26,7 @@ import {
 import { useSettingsStore } from '../../store/useSettingsStore';
 import {
   RESIZE_MODES,
+  RESIZE_UNITS,
   defaultResizeValue,
   draftFromPreset,
   exportSettingsFromDraft,
@@ -73,16 +74,6 @@ const FORMATS: { extension: string; name: string; translated?: boolean }[] = [
   { extension: 'cube', name: 'CUBE LUT', translated: true }
 ];
 const QUALITY_FORMATS = ['jpg', 'webp', 'jxl', 'avif'];
-
-const RESIZE_UNITS: Record<ResizeMode, string> = {
-  longEdge: 'px',
-  shortEdge: 'px',
-  width: 'px',
-  height: 'px',
-  dimensions: 'px',
-  megapixels: 'MP',
-  percentage: '%'
-};
 
 const ANCHORS = [
   { anchor: WatermarkAnchor.TopLeft, name: 'topLeft' },

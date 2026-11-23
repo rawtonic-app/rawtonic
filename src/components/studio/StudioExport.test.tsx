@@ -198,8 +198,8 @@ it('keeps the destination when the folder dialog is cancelled', async () => {
   expect((screen.getByRole('combobox', { name: 'Export destination' }) as HTMLSelectElement).value).toBe('original');
 });
 
-it("sends the open photograph's recipe only once it is that photograph's", async () => {
-  // Switching from a to b: b is not ready yet and the store still holds a's adjustments.
+it('uses saved recipes and names the open source for reuse only when ready', async () => {
+  // Switching from a to b: b is not yet ready to be reused.
   const previous = useEditorStore.getState();
   useEditorStore.setState({
     selectedImage: { path: '/p/b.RAF', isReady: false } as never,
@@ -221,7 +221,7 @@ it("sends the open photograph's recipe only once it is that photograph's", async
     fireEvent.click(document.querySelector('.studio-export-submit') as HTMLButtonElement);
     await vi.waitFor(() =>
       expect(exported()).toContainEqual(
-        expect.objectContaining({ currentEditPath: '/p/b.RAF', currentEditAdjustments: { exposure: 1.5 } })
+        expect.objectContaining({ currentEditPath: '/p/b.RAF', currentEditAdjustments: null })
       )
     );
   } finally {
