@@ -68,9 +68,10 @@ pub(crate) struct CellTexture {
     key: u64,
     /// Unknown for a stand-in: then it is only shown to fit.
     extent: Option<CellExtent>,
-    /// Sampled nearest-neighbour: an adopted live frame keeps the sampling
-    /// it was shown with (the editor's maximum zoom), until replaced.
-    pixelated: bool,
+    /// Sampled nearest-neighbour at this magnification: an adopted live
+    /// frame keeps the sampling it was shown with (the editor's maximum
+    /// zoom) while its cell stays at that zoom, until replaced.
+    pixelated_at: Option<f32>,
     _texture: wgpu::Texture,
     width: u32,
     height: u32,
@@ -402,7 +403,7 @@ impl MultiView {
         CellTexture {
             key,
             extent,
-            pixelated: false,
+            pixelated_at: None,
             _texture: texture,
             width,
             height,
@@ -573,13 +574,14 @@ impl MultiView {
                 live.size,
                 placed,
             );
+            let scale = self.zoom_of(&old).map(|zoom| zoom.scale);
             if placed.is_some() && live.pixelated {
                 for texture in [self.textures.get_mut(&old), self.regions.get_mut(&old)]
                     .into_iter()
                     .flatten()
                     .filter(|texture| texture.key == 0)
                 {
-                    texture.pixelated = true;
+                    texture.pixelated_at = scale;
                 }
             }
         }
@@ -699,6 +701,15 @@ impl MultiView {
         };
         let texture = Self::make_texture(device, bindings, 0, Some(region), texture);
         self.regions.insert(path.to_string(), texture);
+    }
+
+    /// Whether `texture` of `path`'s cell is sampled nearest-neighbour now:
+    /// an adopted live frame shown so, while the cell stays at its zoom.
+    fn pixelated(&self, path: &str, texture: &CellTexture) -> bool {
+        texture.pixelated_at.is_some_and(|at| {
+            self.zoom_of(path)
+                .is_some_and(|zoom| (zoom.scale - at).abs() <= at * 1e-3)
+        })
     }
 
     /// Whether `path`'s cell shows its adopted live region (key 0, as sharp
@@ -863,7 +874,11 @@ impl MultiView {
                     window,
                     image_size: size,
                     texture_size: size,
-                    pixelated: if texture.pixelated { 1.0 } else { 0.0 },
+                    pixelated: if self.pixelated(&cell.path, texture) {
+                        1.0
+                    } else {
+                        0.0
+                    },
                     rotation: 0.0,
                     bg_primary: background,
                     bg_secondary: background,
@@ -1764,14 +1779,15 @@ mod tests {
                 multi.keeps_live_region("primary"),
                 "{label}: no interim over it"
             );
+            let pixelated = label == "lock on";
             assert_eq!(
-                multi.regions["primary"].pixelated,
-                label == "lock on",
+                multi.pixelated("primary", &multi.regions["primary"]),
+                pixelated,
                 "{label}"
             );
             assert_eq!(
-                multi.textures["primary"].pixelated,
-                label == "lock on",
+                multi.pixelated("primary", &multi.textures["primary"]),
+                pixelated,
                 "{label}"
             );
             let pixels = present(&gpu, &multi, None);
@@ -1785,6 +1801,35 @@ mod tests {
                 );
             }
             assert!(close(pixel(&pixels, 80, 50), [255, 0, 255]), "{label}");
+            // At the edge of the cyan centre (texels 11 | 12, screen 85–89 |
+            // 89–93): the pixel at 88.5 is texel 11 sampled nearest-neighbour
+            // (magenta) as the live frame showed it at the maximum zoom, a
+            // blend of both filtered.
+            let edge = pixel(&pixels, 88, 50);
+            assert_eq!(
+                close(edge, [255, 0, 255]),
+                pixelated,
+                "{label}: edge {edge:?}"
+            );
+            if pixelated {
+                // Zoomed to fit while its own render is pending: filtered
+                // again (nearest-neighbour belongs to the maximum zoom).
+                multi.set_zooms(None, HashMap::new());
+                assert!(!multi.pixelated("primary", &multi.textures["primary"]));
+                multi.set_zooms(Some(zoom), HashMap::new());
+                assert!(multi.pixelated("primary", &multi.textures["primary"]));
+                // The region went with the zoom change; adopt it again.
+                multi.adopt_visible_region(
+                    &gpu.device,
+                    &gpu.queue,
+                    &bindings,
+                    "primary",
+                    &source,
+                    (32, 32),
+                    zoom,
+                    multi.textures["primary"].extent.unwrap(),
+                );
+            }
             assert!(
                 close(pixel(&pixels, 105, 15), [255, 0, 255]),
                 "{label}: no letterbox"

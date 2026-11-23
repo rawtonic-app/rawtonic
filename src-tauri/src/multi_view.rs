@@ -1520,6 +1520,38 @@ fn show_frame(
     }
 }
 
+/// [`show_frame`] for an interim region, unless the cell still shows the
+/// sharp region kept from its live frame ([`keeps_live_region`]), checked
+/// under the same lock. Whether it was shown.
+fn show_interim_frame(
+    context: &GpuContext,
+    path: &str,
+    key: u64,
+    extent: CellExtent,
+    rgba: &image::RgbaImage,
+) -> bool {
+    let mut display = context.display.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(display) = display.as_mut() else {
+        return false;
+    };
+    if display.multi_view().keeps_live_region(path) {
+        return false;
+    }
+    display.upload_cell(
+        &context.device,
+        &context.queue,
+        path,
+        key,
+        extent,
+        CellLayer::Region,
+        rgba.width(),
+        rgba.height(),
+        rgba.as_raw(),
+    );
+    display.render(&context.device, &context.queue);
+    true
+}
+
 /// Develops a prepared cell's whole photograph and keeps it on the display.
 fn develop(
     app_handle: &tauri::AppHandle,
@@ -3600,14 +3632,17 @@ fn show_interim_regions(
                     if !current() {
                         return;
                     }
-                    show_frame(
+                    // Checked again under the upload's lock: a switch may
+                    // have adopted a sharp region meanwhile.
+                    if !show_interim_frame(
                         context,
                         &region.path,
                         region.key,
                         region.extent,
-                        CellLayer::Region,
                         &region.rgba,
-                    );
+                    ) {
+                        continue;
+                    }
                     #[cfg(feature = "performance-profiling")]
                     log::info!(
                         "[PERF] {}",
