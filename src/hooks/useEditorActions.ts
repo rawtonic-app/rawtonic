@@ -442,14 +442,9 @@ export function rememberOpenedRecipe(path: string, opened: OpenedRecipe) {
   openedRecipe = { path, ...opened };
 }
 
-/** Whether the editor is still showing the recipe loaded for this photo. */
-export function isOpenedRecipe(path: string, adjustments: Adjustments): boolean {
-  return openedRecipe?.path === path && openedRecipe.shown === adjustments;
-}
-
 /** A proxy's default aspect can differ slightly from the full source's. */
 export function refineOpenedAspect(path: string, from: Adjustments, to: Adjustments, width: number, height: number) {
-  if (!openedRecipe || !isOpenedRecipe(path, from)) return;
+  if (openedRecipe?.path !== path || openedRecipe.shown !== from) return;
   markOpenedAspectRefinement(from, to);
   rememberOpenedRecipe(path, { ...openedRecipe, shown: to, width, height });
 }

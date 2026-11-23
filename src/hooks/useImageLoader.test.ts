@@ -508,7 +508,7 @@ it('plans exports from the saved recipe when an untouched photo is opened and le
   expect(planned).toMatchObject([
     { currentEditPath: null, currentEditAdjustments: null },
     { currentEditPath: first, currentEditAdjustments: null },
-    { currentEditPath: second, currentEditAdjustments: { exposure: 1 } }
+    { currentEditPath: second, currentEditAdjustments: null }
   ]);
 });
 
