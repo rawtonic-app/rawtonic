@@ -727,16 +727,27 @@ pub fn merge_hdr(
         // Per row: the bright-reference rejections summed per low-res
         // column, for the ghost overlay and the frame's ghost share.
         // Per low-res cell (rows in bands of `f`, as `low_res` averages
-        // them): the usable weight and colour of the samples that merged,
-        // and whether any was rejected at full resolution. Such cells
-        // enter the consensus with what merged, not with their average.
+        // them), with ghost removal: the share and colour of the samples
+        // rejected at full resolution that would have merged otherwise,
+        // so the consensus leaves them out of the cell's average.
+        let track = ghost.is_some();
         let bands: Vec<MergeBand> = num
             .par_chunks_mut(wu * 3 * f)
             .zip(den.par_chunks_mut(wu * f))
             .enumerate()
             .map(|(band, (nband, dband))| {
-                let mut merged = vec![[0.0f32; 4]; lw];
-                let mut touched = vec![false; lw];
+                let mut cells = if track {
+                    vec![[0.0f32; 4]; lw]
+                } else {
+                    Vec::new()
+                };
+                let mut reject = |x: usize, q: f32, p: &[f32; 3]| {
+                    if track && q > 0.0 {
+                        let c = &mut cells[x / f];
+                        c[0] += q;
+                        (0..3).for_each(|k| c[k + 1] += q * p[k]);
+                    }
+                };
                 let rows = nband
                     .chunks_mut(wu * 3)
                     .zip(dband.chunks_mut(wu))
@@ -759,12 +770,9 @@ pub fn merge_hdr(
                                 // only data; with none, the clipped reference stays.
                                 let cam = to_camera * nalgebra::Vector3::new(p[0], p[1], p[2]);
                                 if cam.max() * inv_ratio < 0.9 * SATURATION_START {
-                                    touched[x / f] = true;
+                                    reject(x, rejected_share(wgt, 1.0), &p);
                                     continue;
                                 }
-                                let m = &mut merged[x / f];
-                                m[0] += wgt;
-                                (0..3).for_each(|c| m[c + 1] += wgt * p[c]);
                             } else {
                                 let r = bright_rejection(ref_px, luma(&p) * inv_ratio, ghost_ev);
                                 // Counted as far as the pixel would have merged
@@ -783,14 +791,7 @@ pub fn merge_hdr(
                                     rejected[(x * lw / wu).min(lw - 1)] +=
                                         wgt * (1.0 - (1.0 - r) * (1.0 - coarse));
                                 }
-                                if r > 0.0 {
-                                    touched[x / f] = true;
-                                }
-                                // What merges, before the darkest frame's floor.
-                                let kept = wgt * (1.0 - r).max(0.0) * (1.0 - coarse);
-                                let m = &mut merged[x / f];
-                                m[0] += kept;
-                                (0..3).for_each(|c| m[c + 1] += kept * p[c]);
+                                reject(x, rejected_share(wgt, r), &p);
                                 if r >= 1.0 {
                                     continue;
                                 }
@@ -808,16 +809,14 @@ pub fn merge_hdr(
                         rejected
                     })
                     .collect();
-                (rows, merged, touched)
+                (rows, cells)
             })
             .collect();
         let mut rejected = Vec::with_capacity(hu);
-        let mut merged_cells = Vec::with_capacity(lw * lh);
-        let mut touched_cells = Vec::with_capacity(lw * lh);
-        for (rows, merged, touched) in bands {
+        let mut rejected_cells = Vec::with_capacity(if track { lw * lh } else { 0 });
+        for (rows, cells) in bands {
             rejected.extend(rows);
-            merged_cells.extend(merged);
-            touched_cells.extend(touched);
+            rejected_cells.extend(cells);
         }
         // The ghost map as it acted: the coarse map, or the share of a
         // low-res cell's usable weight dropped where the bright reference
@@ -849,9 +848,8 @@ pub fn merge_hdr(
             }
         }
         // Consensus update at low resolution.
-        let merged = MergedCells {
-            sums: &merged_cells,
-            touched: &touched_cells,
+        let rejected_cells = RejectedCells {
+            sums: &rejected_cells,
             f,
             w: wu,
             h: hu,
@@ -861,7 +859,7 @@ pub fn merge_hdr(
             &mut cons_den,
             &low,
             ghost.as_ref(),
-            &merged,
+            &rejected_cells,
             ratio,
         );
 
@@ -914,57 +912,70 @@ pub fn merge_hdr(
 }
 
 /// One low-res row of the merge loop: the bright-reference rejections per
-/// full-res row (summed per low-res column), and per low-res cell the merged
-/// sums and whether a sample was rejected (`MergedCells`).
-type MergeBand = (Vec<Vec<f32>>, Vec<[f32; 4]>, Vec<bool>);
+/// full-res row (summed per low-res column) and per low-res cell the
+/// rejected samples' sums (`RejectedCells`; empty without ghost removal).
+type MergeBand = (Vec<Vec<f32>>, Vec<[f32; 4]>);
 
-/// What merged of one frame per low-res cell: the usable weight and the
-/// weighted colour summed over the cell's pixels (`f`×`f` of the `w`×`h`
-/// frame), and whether a sample of it was rejected at full resolution.
-struct MergedCells<'a> {
+/// The share of a sample rejected at full resolution (`rejection` of the
+/// bright or clipped reference test) that the consensus leaves out: only a
+/// sample that would have merged (`usable` > 0) counts. A clipped sample of
+/// a brighter frame was never going to merge; leaving it out would compare
+/// the next frame's whole cell with its shadows alone.
+fn rejected_share(usable: f32, rejection: f32) -> f32 {
+    if usable > 0.0 {
+        rejection.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+/// Per low-res cell (`f`×`f` pixels of the `w`×`h` frame): the summed
+/// rejected share of its samples and their colour weighted by it. Empty
+/// without ghost removal.
+struct RejectedCells<'a> {
     sums: &'a [[f32; 4]],
-    touched: &'a [bool],
     f: usize,
     w: usize,
     h: usize,
 }
 
 /// Adds a frame (brightness `ratio` × the reference's) to the low-res
-/// consensus. A cell where samples were rejected at full resolution (the
-/// bright and clipped reference tests) adds what merged there, so the
-/// rejected samples do not judge later frames; any other cell its average
-/// colour with its usable weight, less the coarse ghost map.
+/// consensus: each cell's average colour with its usable weight, less the
+/// ghost map. Samples rejected at full resolution (the bright and clipped
+/// reference tests) are taken out of the cell's average, so they do not
+/// judge later frames; the rest of the cell keeps the support the next
+/// frame's cell average is compared on.
 fn add_to_consensus(
     cons_rgb: &mut [Plane; 3],
     cons_den: &mut Plane,
     low: &LowRes,
     ghost: Option<&Plane>,
-    merged: &MergedCells,
+    rejected: &RejectedCells,
     ratio: f32,
 ) {
     let (lw, lh) = (cons_den.w, cons_den.h);
     let inv_ratio = 1.0 / ratio;
-    let f = merged.f;
+    let f = rejected.f;
     for i in 0..lw * lh {
-        if merged.touched[i] {
-            // Averaged over the cell's pixels, as `low_res` does.
+        let mut rgb = [low.rgb[0].data[i], low.rgb[1].data[i], low.rgb[2].data[i]];
+        if let Some(q) = rejected.sums.get(i).filter(|q| q[0] > 0.0) {
+            // `low_res` averages over all the cell's pixels.
             let (lx, ly) = (i % lw, i / lw);
-            let n =
-                (((lx + 1) * f).min(merged.w) - lx * f) * (((ly + 1) * f).min(merged.h) - ly * f);
-            let m = merged.sums[i].map(|v| v / n as f32);
-            for (c, cons) in cons_rgb.iter_mut().enumerate() {
-                cons.data[i] += ratio * m[c + 1] * inv_ratio;
+            let n = ((((lx + 1) * f).min(rejected.w) - lx * f)
+                * (((ly + 1) * f).min(rejected.h) - ly * f)) as f32;
+            let left = n - q[0];
+            if left < 1e-3 * n {
+                continue;
             }
-            cons_den.data[i] += ratio * m[0];
-            continue;
+            rgb = std::array::from_fn(|c| ((rgb[c] * n - q[c + 1]) / left).max(0.0));
         }
         let mut wgt = low.u.data[i];
         if let Some(g) = ghost {
             wgt *= 1.0 - g.data[i];
         }
         let wgt = ratio * wgt;
-        for (cons, plane) in cons_rgb.iter_mut().zip(&low.rgb) {
-            cons.data[i] += wgt * plane.data[i] * inv_ratio;
+        for (cons, v) in cons_rgb.iter_mut().zip(rgb) {
+            cons.data[i] += wgt * v * inv_ratio;
         }
         cons_den.data[i] += wgt;
     }
@@ -1144,31 +1155,51 @@ mod tests {
     }
 
     /// Samples rejected at full resolution stay out of the consensus: a
-    /// cell whose dark half was rejected agrees with its bright half; a
-    /// cell without rejections adds its average as before.
+    /// cell whose dark half was rejected agrees with its bright half, and a
+    /// next frame that shows the bright half there is no ghost.
     #[test]
     fn rejected_samples_stay_out_of_the_consensus() {
-        // Two cells of 2×2 pixels; each averages 0.5 (half 0.9, half 0.1).
-        let low = frame_of(std::array::from_fn(|_| Plane::filled(2, 1, 0.5)));
-        // Cell 0: the two 0.1 pixels rejected, the two 0.9 ones merged.
-        let sums = [[2.0, 1.8, 1.8, 1.8], [4.0, 2.0, 2.0, 2.0]];
-        let touched = [true, false];
-        let merged = MergedCells {
+        // One cell of 2×2 pixels: two at 0.9, two (a moving dark object)
+        // at 0.1, both rejected; the frame is the reference's brightness.
+        let low = frame_of(std::array::from_fn(|_| Plane::filled(1, 1, 0.5)));
+        let q = rejected_share(1.0, 1.0);
+        let sums = [[2.0 * q, 0.2 * q, 0.2 * q, 0.2 * q]];
+        let rejected = RejectedCells {
             sums: &sums,
-            touched: &touched,
             f: 2,
-            w: 4,
+            w: 2,
             h: 2,
         };
-        let mut cons: [Plane; 3] = std::array::from_fn(|_| Plane::new(2, 1));
-        let mut den = Plane::new(2, 1);
-        add_to_consensus(&mut cons, &mut den, &low, None, &merged, 2.0);
-        // Reference units: the frame's values over `ratio`.
-        let at = |i: usize| cons[1].data[i] / den.data[i];
-        assert!((at(0) - 0.45).abs() < 1e-6, "{}", at(0));
-        assert!((den.data[0] - 1.0).abs() < 1e-6, "half the cell's weight");
-        assert!((at(1) - 0.25).abs() < 1e-6, "{}", at(1));
-        assert!((den.data[1] - 2.0).abs() < 1e-6);
+        let mut cons: [Plane; 3] = std::array::from_fn(|_| Plane::new(1, 1));
+        let mut den = Plane::new(1, 1);
+        add_to_consensus(&mut cons, &mut den, &low, None, &rejected, 1.0);
+        assert!((cons[1].data[0] / den.data[0] - 0.9).abs() < 1e-5);
+        let next = frame_of(std::array::from_fn(|_| Plane::filled(1, 1, 0.9)));
+        let g = ghost_map(&next, &cons, &den, 1.0, 0.22, [1.0; 3]);
+        assert_eq!(g.data[0], 0.0, "the bright half that stayed is no ghost");
+    }
+
+    /// A still cell of bright detail over deep shadow, whose bright half a
+    /// brighter frame clips: the clipped samples were never going to merge,
+    /// so they leave the consensus as it was, and the next frame's whole
+    /// cell matches it (review: no false ghost from mismatched support).
+    #[test]
+    fn clipped_samples_of_a_brighter_frame_keep_the_consensus() {
+        assert_eq!(rejected_share(0.0, 1.0), 0.0);
+        // Cell average 0.365 in reference units (0.72 and 0.01 halves).
+        let low = frame_of(std::array::from_fn(|_| Plane::filled(1, 1, 0.365)));
+        let rejected = RejectedCells {
+            sums: &[[0.0; 4]],
+            f: 4,
+            w: 4,
+            h: 4,
+        };
+        let mut cons: [Plane; 3] = std::array::from_fn(|_| Plane::new(1, 1));
+        let mut den = Plane::new(1, 1);
+        add_to_consensus(&mut cons, &mut den, &low, None, &rejected, 1.0);
+        let next = frame_of(std::array::from_fn(|_| Plane::filled(1, 1, 0.365 * 0.25)));
+        let g = ghost_map(&next, &cons, &den, 0.25, 0.22, [1.0; 3]);
+        assert_eq!(g.data[0], 0.0);
     }
 
     /// Clipped reference pixels, bright ones that judge other frames, and
