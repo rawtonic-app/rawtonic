@@ -1250,6 +1250,7 @@ fn start(args: Vec<String>) {
             open_with::open_with_open,
             open_with::open_with_prefs,
             open_with::edit_with_set_recipe,
+            open_with::edit_with_set_program_settings,
             open_with::edit_with_start,
             open_with::edit_with_finish,
             open_with::edit_with_interrupted,

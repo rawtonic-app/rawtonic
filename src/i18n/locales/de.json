@@ -532,8 +532,10 @@
       "undo": "Rückgängig"
     },
     "editWith": {
+      "cancel": "Abbrechen",
       "cancelled": "{{cancelled}} abgebrochen, {{rendered}} gerendert.",
       "closeLibraryFirst": "Schließen Sie die offene Session oder den Katalog, um es erneut zu versuchen: Diese Fotos wurden außerhalb einer Bibliothek bearbeitet.",
+      "defaultRecipe": "Standardrezept",
       "failed": "Bearbeiten mit fehlgeschlagen: {{error}}",
       "generatedAreas": "„Bearbeiten mit“ ist für Fotos mit generierten Bereichen noch nicht verfügbar: {{names}}",
       "interrupted": "„Bearbeiten mit“ in {{app}} wurde beim Beenden von Rawtonic unterbrochen. „Erneut versuchen“ rendert die Fotos noch einmal.",
@@ -541,11 +543,19 @@
       "notLinked": "Gerendert, aber nicht zur Bibliothek hinzugefügt: {{error}}",
       "openIn": "Öffnen in",
       "openLibraryFirst": "Öffnen Sie {{library}} wieder, um es erneut zu versuchen: Die Fotos werden mit den Einstellungen gerendert, die sie dort haben.",
-      "recipe": "Rezept",
+      "ownSettings": "Diese Einstellungen gelten nur für {{app}}.",
+      "programSettings": "Einstellungen für ein Programm",
       "rendering": "Wird für {{app}} gerendert…",
+      "save": "Sichern",
+      "settingsFailed": "Die Einstellungen konnten nicht gesichert werden: {{error}}",
+      "settingsFor": "Einstellungen für {{app}}…",
+      "settingsTitle": "Einstellungen für „Bearbeiten mit“ in {{app}}",
       "someFailed": "{{failed}} von {{total}} Fotos konnten nicht gerendert werden.",
+      "stripGps": "GPS-Koordinaten entfernen",
       "tiffAdobe": "TIFF 16 Bit · Adobe RGB",
-      "tiffProPhoto": "TIFF 16 Bit · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16 Bit · ProPhoto RGB",
+      "useDefault": "Standardrezept verwenden",
+      "usesDefault": "{{app}} verwendet das Standardrezept ({{recipe}}). Mit Sichern erhält es eigene Einstellungen; die anderen Programme behalten das Standardrezept."
     },
     "merge": {
       "focusStack": "Fokus-Stacking",
