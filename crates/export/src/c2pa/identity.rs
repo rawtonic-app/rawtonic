@@ -1158,6 +1158,8 @@ mod tests {
                 p256_public_key_info(point),
             ),
         ];
+        let jpeg = super::super::tests::small_jpeg();
+        let plan = super::super::tests::plan(&serde_json::json!({}));
         for (problem, algorithm, info) in cases {
             let cert = certificate_named(
                 &rng,
@@ -1187,12 +1189,17 @@ mod tests {
             assert_eq!(identity.info().unwrap().signer, "Old");
             let error = identity.check_usable().unwrap_err();
             assert!(error.contains(problem), "{problem}: {error}");
+            assert_eq!(
+                super::super::sign_jpeg(&jpeg, &plan, &identity).unwrap_err(),
+                error
+            );
             assert!(remove(dir.path()).unwrap());
         }
         // A generated identity signs.
         let dir = tempfile::tempdir().unwrap();
         generate(dir.path(), "New").unwrap();
-        load(dir.path()).unwrap().unwrap().check_usable().unwrap();
+        let identity = load(dir.path()).unwrap().unwrap();
+        super::super::sign_jpeg(&jpeg, &plan, &identity).unwrap();
     }
 
     #[test]
