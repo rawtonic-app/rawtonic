@@ -64,8 +64,8 @@ use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Weak};
 use tauri::ipc::Response;
 use tauri::{Emitter, Manager};
 
@@ -1358,32 +1358,27 @@ pub async fn sample_levels_input(
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("sample_levels_input");
         let recipe = levels_input_probe(&adjustments);
-        // A frame nobody sees rendering over the sample (`picker_mark`)
-        // ends before the next pass, which takes that frame's base then.
+        // One marker for the whole pass, and none sampled over a frame nobody
+        // sees rendering (`ColorNoiseView::with_picker_mark`): the pass runs
+        // again once that frame is done.
         let develop = app_handle.state::<DevelopSession>();
         let view = &develop.color_noise_view;
         sample_levels_with(|outputs| {
-            let mark = view
-                .picker_mark()
-                .and_then(|m| m.upgrade())
-                .map(|m| Arc::as_ptr(&m));
-            let images = render_probes(
-                &app_handle,
-                &path,
-                recipe.clone(),
-                ProbeArea::Point(normalized_x, normalized_y),
-                outputs,
-                "sample_levels_input",
-            );
-            let after = view
-                .picker_mark()
-                .and_then(|m| m.upgrade())
-                .map(|m| Arc::as_ptr(&m));
-            if after != mark {
+            view.with_picker_mark(|shown| {
+                render_probes(
+                    &app_handle,
+                    &path,
+                    recipe.clone(),
+                    ProbeArea::Point(normalized_x, normalized_y),
+                    outputs,
+                    "sample_levels_input",
+                    shown,
+                )
+            })
+            .unwrap_or_else(|| {
                 log::warn!("Levels picker: the shown frame changed; sampled again");
-                return Err(gpu_processing::PREVIEW_PROCESSOR_CHANGED.to_string());
-            }
-            images
+                Err(gpu_processing::PREVIEW_PROCESSOR_CHANGED.to_string())
+            })
         })
     })
     .await
@@ -1921,7 +1916,7 @@ fn render_probe(
     caller_id: &str,
 ) -> Result<Option<image::DynamicImage>, String> {
     Ok(
-        render_probes(app_handle, path, recipe, area, &[output], caller_id)?
+        render_probes(app_handle, path, recipe, area, &[output], caller_id, None)?
             .and_then(|images| images.into_iter().next()),
     )
 }
@@ -1931,7 +1926,7 @@ fn render_probe(
 /// renders (`sample_levels_input`) take the base the last preview frame
 /// rendered from when that was one with its colour noise reduction
 /// applied at full resolution (`color_noise_view::shown_corrected_base`),
-/// at Color 0, as that frame renders.
+/// at Color 0, as that frame renders; `picker` is their marker.
 fn render_probes(
     app_handle: &tauri::AppHandle,
     path: &str,
@@ -1939,6 +1934,7 @@ fn render_probes(
     area: ProbeArea,
     outputs: &[ProbeOutput],
     caller_id: &str,
+    picker: Option<Weak<image::DynamicImage>>,
 ) -> Result<Option<Vec<image::DynamicImage>>, String> {
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
@@ -2004,12 +2000,8 @@ fn render_probes(
             lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p)
                 .ok()
         });
-    // The pickers sample what the settled fit frame shows, read before this
-    // probe notes its own frame: a hidden frame's renders note none
-    // (`color_noise_view::picker_mark`).
-    let picker = (caller_id == "sample_levels_input")
-        .then(|| develop.color_noise_view.picker_mark())
-        .flatten();
+    // The pickers sample what the settled fit frame shows: `picker` is its
+    // marker, taken before the pass (`ColorNoiseView::with_picker_mark`).
     let mut base = base;
     let mut transform_hash = transform_hash;
     if let Some(shown) = &picker
@@ -2932,6 +2924,7 @@ fn process_preview_job(
             #[cfg(target_os = "linux")]
             if pixel_roi.is_none()
                 && !crop_edit
+                && pass != FramePass::DraftWarmup
                 && let Some(app) = app_handle
                 && crate::second_window::is_open()
             {

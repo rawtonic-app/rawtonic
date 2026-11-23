@@ -345,13 +345,39 @@ impl ColorNoiseView {
 
     /// What the Levels pickers go on (`sample_levels_with`): the shown
     /// frame's marker ([`shown_mark`](Self::shown_mark)); None while a frame
-    /// nobody sees renders, so a pick never samples over its render, and
-    /// samples again once it is done.
+    /// nobody sees renders.
     pub(crate) fn picker_mark(&self) -> Option<Weak<DynamicImage>> {
         if self.any_hidden() {
             return None;
         }
         self.shown_mark()
+    }
+
+    /// Runs one pick pass with the marker taken once for it: waits (briefly)
+    /// for a frame nobody sees to end, and None when the marker changed or
+    /// such a frame began while `pass` ran, so the caller runs it again from
+    /// the shown frame's base. The pass may be None-marked (a zoomed or
+    /// dragged frame shows its own base).
+    pub(crate) fn with_picker_mark<T>(
+        &self,
+        pass: impl FnOnce(Option<Weak<DynamicImage>>) -> T,
+    ) -> Option<T> {
+        let waited = std::time::Instant::now();
+        while self.any_hidden() && waited.elapsed() < std::time::Duration::from_secs(2) {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let mark = self.picker_mark();
+        if mark.is_none() && self.any_hidden() {
+            return None;
+        }
+        let out = pass(mark.clone());
+        let after = self.picker_mark();
+        let same = match (&mark, &after) {
+            (Some(a), Some(b)) => Weak::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        same.then_some(out)
     }
 
     /// The number of the last frame noted.
@@ -1260,6 +1286,30 @@ mod tests {
             Arc::ptr_eq(&pick().unwrap(), &shown_base),
             "the shown frame's again"
         );
+        // A frame nobody sees that began and ended within a pass changes no
+        // marker; one that changes the marker makes the pass run again.
+        assert!(
+            view.with_picker_mark(|mark| {
+                view.render_unseen(|| ());
+                mark.is_some()
+            })
+            .is_some(),
+            "a hidden frame that ended within the pass changes no marker"
+        );
+        let mut runs = 0;
+        let kept = loop {
+            if let Some(kept) = view.with_picker_mark(|mark| {
+                runs += 1;
+                if runs == 1 {
+                    view.note_shown(None);
+                }
+                mark
+            }) {
+                break kept;
+            }
+        };
+        assert_eq!(runs, 2, "a changed marker ran the pass again");
+        assert!(kept.is_none(), "the second pass took the new marker");
     }
 
     /// A before asking for the edit's render input keeps the edit's frame
