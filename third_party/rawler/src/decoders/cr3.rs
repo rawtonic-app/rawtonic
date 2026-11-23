@@ -58,6 +58,8 @@ struct Cr3Metadata {
   xpacket: Option<Vec<u8>>,
   image_unique_id: Option<[u8; 16]>,
   lens_description: Option<&'static LensDescription>,
+  /// Rawtonic patch (LNS1): see `RawMetadata::lens_candidates`.
+  lens_candidates: Vec<&'static LensDescription>,
   exif: Option<GenericTiffReader>,
   makernotes: Option<GenericTiffReader>,
   wb: Option<[f32; 4]>,
@@ -235,6 +237,7 @@ impl<'a> Decoder for Cr3Decoder<'a> {
     }
 
     let mut mdata = RawMetadata::new_with_lens(&self.camera, exif, cr3md.lens_description.cloned());
+    mdata.lens_candidates = cr3md.lens_candidates.iter().map(|lens| (*lens).clone()).collect();
 
     if let Some(unique_id) = &cr3md.image_unique_id {
       // For CR3, we use the already included Makernote tag with unique image ID
@@ -471,7 +474,18 @@ impl<'a> Cr3Decoder<'a> {
       .with_camera(&self.camera) // must follow with_lens_keyname() as it my override key
       .with_lens_id(self.read_lens_id()?)
       .with_mounts(&[CANON_CN_MOUNT.into(), CANON_EF_MOUNT.into(), CANON_RF_MOUNT.into()]);
-    md.lens_description = resolver.resolve();
+    // Rawtonic patch (LNS1): an ambiguous lens ID narrowed by the lens's own
+    // focal range and widest aperture, else its candidates.
+    let resolver = match self.cmt3.get_entry(Cr3MakernoteTag::CameraSettings) {
+      Some(Entry { value: Value::Short(v), .. }) => match super::cr2::canon_lens_info(v) {
+        Some(info) => resolver.with_lens_info(info),
+        None => resolver,
+      },
+      _ => resolver,
+    };
+    let (lens, candidates) = resolver.resolve_with_candidates();
+    md.lens_description = lens;
+    md.lens_candidates = candidates;
 
     if let Some(Entry {
       value: crate::formats::tiff::Value::Byte(v),

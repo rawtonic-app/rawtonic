@@ -4133,6 +4133,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Several lenses fit what the photo says about its lens; choose yours:",
       "aria": {
         "make": "Lens make",
         "model": "Lens model"

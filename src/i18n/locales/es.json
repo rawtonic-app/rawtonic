@@ -4305,6 +4305,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Varias lentes encajan con lo que la foto indica de su lente; elige la tuya:",
       "aria": {
         "make": "Marca de la lente",
         "model": "Modelo de lente"

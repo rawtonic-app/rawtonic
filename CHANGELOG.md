@@ -17,6 +17,7 @@
 
 ### Fixes
 
+- **Automatic lens correction finds more lenses and no longer guesses.** The lens is now also read from the camera's own lens data where the photo's standard lens field is empty (older Nikon and Canon bodies, e.g. a D800 with the 24-70 f/2.8G or an EOS-1Ds Mark III with the EF 50 f/1.2L, now get their profile). Where several lenses report the same identity (third-party 24-70 f/2.8 zooms on Canon bodies) or the lens name gives only a focal range, Rawtonic no longer applies a wrong profile: the Lens correction tool lists the lenses that fit and you choose yours. A profile whose focal range contradicts the photo (another camera's fixed lens, a lens named only "----") is no longer picked. Saved edits keep the lens they were saved with. Photos edited with automatic lens correction while they were offline get their lens looked up at export: an ambiguous lens is no longer guessed there either, so such exports may now come out without a lens profile instead of a wrong one.
 - Export recipes saved with Super Resolution keep it after a restart (it was dropped when the settings were written).
 - Opening an untouched photo in Develop no longer marks its earlier export as changed.
 

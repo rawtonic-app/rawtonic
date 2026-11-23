@@ -139,14 +139,27 @@ pub struct LensDatabase {
     pub cameras: Vec<Camera>,
     #[serde(rename = "lens", default)]
     pub lenses: Vec<Lens>,
+    /// Lensfun's mounts with the mounts whose lenses fit them (EF-S takes
+    /// EF lenses), for lens detection (`lens_detect`).
+    #[serde(rename = "mount", default)]
+    pub mounts: Vec<Mount>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct Mount {
+    /// The mount's name, and translations (`lang`).
+    #[serde(default)]
+    pub name: Vec<MultiName>,
+    #[serde(default)]
+    pub compat: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct MultiName {
     #[serde(rename = "@lang")]
-    lang: Option<String>,
+    pub(crate) lang: Option<String>,
     #[serde(rename = "$value")]
-    value: String,
+    pub(crate) value: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -1072,6 +1085,7 @@ pub fn load_lensfun_dir(resource_path: &std::path::Path) -> LensDatabase {
     let mut combined_db = LensDatabase {
         cameras: Vec::new(),
         lenses: Vec::new(),
+        mounts: Vec::new(),
     };
 
     if !resource_path.exists() {
@@ -1091,6 +1105,7 @@ pub fn load_lensfun_dir(resource_path: &std::path::Path) -> LensDatabase {
                 Ok(mut db) => {
                     combined_db.cameras.append(&mut db.cameras);
                     combined_db.lenses.append(&mut db.lenses);
+                    combined_db.mounts.append(&mut db.mounts);
                 }
                 Err(e) => {
                     log::error!("Failed to parse Lensfun XML file {:?}: {}", path, e);
@@ -1121,15 +1136,7 @@ pub fn find_lens_by_camera_mount<'a>(
         return None;
     }
 
-    let mounts: Vec<&str> = db
-        .cameras
-        .iter()
-        .filter(|c| {
-            any_name_matches(&c.maker, clean_maker) && any_name_matches(&c.model, clean_model)
-        })
-        .map(|c| c.mount.trim())
-        .filter(|m| !m.is_empty())
-        .collect();
+    let mounts = camera_mounts(db, clean_maker, clean_model);
 
     if mounts.is_empty() {
         return None;
@@ -1165,32 +1172,36 @@ pub fn find_lens_by_camera_mount<'a>(
     Some(lens)
 }
 
+/// The Lensfun mounts of the camera (maker and model as in EXIF).
+pub(crate) fn camera_mounts<'a>(db: &'a LensDatabase, maker: &str, model: &str) -> Vec<&'a str> {
+    db.cameras
+        .iter()
+        .filter(|c| any_name_matches(&c.maker, maker) && any_name_matches(&c.model, model))
+        .map(|c| c.mount.trim())
+        .filter(|m| !m.is_empty())
+        .collect()
+}
+
 pub fn lens_result(db: &LensDatabase, lens: &Lens) -> (String, String) {
     let lens_maker = lens.get_maker();
     let maker_lenses = lenses_for_maker(db, &lens_maker);
     (lens_maker, lens.get_display_name(&maker_lenses))
 }
 
+/// The lens a maker, EXIF lens name and camera name (`lens_detect`; with
+/// the photo's whole EXIF map, `lens_detect::LensFacts::from_exif`, it also
+/// weighs the lens's focal range and the maker note's lens ID).
 pub fn find_best_lens_match(
     db: &LensDatabase,
     maker: &str,
     model: &str,
     camera_model: &str,
 ) -> Option<(String, String)> {
-    let clean_model = model.trim().trim_matches('"');
-
-    if !clean_model.is_empty()
-        && let Some(hit) = find_lens_by_fuzzy_model(db, maker, clean_model)
-    {
-        return Some(hit);
-    }
-    if let Some(hit) =
-        without_model_code(clean_model).and_then(|name| find_lens_by_fuzzy_model(db, maker, name))
-    {
-        return Some(hit);
-    }
-
-    find_lens_by_camera_mount(db, maker, camera_model).map(|lens| lens_result(db, lens))
+    crate::lens_detect::detect_lens(
+        db,
+        &crate::lens_detect::LensFacts::from_names(maker, model, camera_model),
+    )
+    .lens
 }
 
 /// The EXIF lens name without a trailing maker's model code ("17-70mm F/2.8
@@ -1198,7 +1209,7 @@ pub fn find_best_lens_match(
 /// spell for another mount ("B070"): the fuzzy match needs every character
 /// of the EXIF name in the lensfun name. A code mixes letters and digits and
 /// is no focal length or aperture.
-fn without_model_code(name: &str) -> Option<&str> {
+pub(crate) fn without_model_code(name: &str) -> Option<&str> {
     let (rest, code) = name.trim().rsplit_once(' ')?;
     let is_code = code.len() >= 4
         && code.chars().all(|c| c.is_ascii_alphanumeric())
@@ -1208,7 +1219,7 @@ fn without_model_code(name: &str) -> Option<&str> {
     (is_code && rest.trim().len() >= 4).then(|| rest.trim())
 }
 
-fn find_lens_by_fuzzy_model(
+pub(crate) fn find_lens_by_fuzzy_model(
     db: &LensDatabase,
     maker: &str,
     model: &str,
@@ -1296,6 +1307,7 @@ pub fn embedded_lens_db() -> LensDatabase {
     let mut combined = LensDatabase {
         cameras: Vec::new(),
         lenses: Vec::new(),
+        mounts: Vec::new(),
     };
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/lensfun_db");
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
@@ -1304,6 +1316,7 @@ pub fn embedded_lens_db() -> LensDatabase {
         {
             combined.cameras.append(&mut db.cameras);
             combined.lenses.append(&mut db.lenses);
+            combined.mounts.append(&mut db.mounts);
         }
     }
     combined
@@ -1341,7 +1354,7 @@ pub fn global_lens_db() -> Option<std::sync::Arc<LensDatabase>> {
 /// Lowercase letters, digits and dots only, without a leading maker name:
 /// "Canon RF 28mm F2.8 STM" and EXIF's "RF28mm F2.8 STM" both become
 /// "rf28mmf2.8stm".
-fn normalized_lens_name(name: &str, maker: &str) -> String {
+pub(crate) fn normalized_lens_name(name: &str, maker: &str) -> String {
     let lower = name.trim().to_ascii_lowercase();
     let maker = maker.trim().to_ascii_lowercase();
     let rest = lower.strip_prefix(maker.as_str()).unwrap_or(&lower);

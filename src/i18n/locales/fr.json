@@ -4305,6 +4305,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Plusieurs objectifs correspondent aux informations de la photo sur son objectif ; choisissez le vôtre :",
       "aria": {
         "make": "Marque de l'objectif",
         "model": "Modèle d'objectif"

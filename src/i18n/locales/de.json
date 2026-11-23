@@ -4133,6 +4133,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Mehrere Objektive passen zu den Objektivangaben des Fotos; wähle deines:",
       "aria": {
         "make": "Objektivhersteller",
         "model": "Objektivmodell"

@@ -4476,6 +4476,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Do informacji zdjęcia o obiektywie pasuje kilka obiektywów; wybierz swój:",
       "aria": {
         "make": "Producent obiektywu",
         "model": "Model obiektywu"
