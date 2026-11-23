@@ -592,6 +592,12 @@ pub(crate) mod imageio {
             orientation: i64,
             tags: &[(&str, &str, &str)],
         ) -> Vec<u8> {
+            assert_eq!(
+                width.checked_mul(height),
+                Some(pixels.len()),
+                "{width}×{height} needs one pixel per position"
+            );
+            assert!(width > 0 && width.checked_mul(8).is_some());
             let mut buffer: Vec<u8> = pixels
                 .iter()
                 .flat_map(|p| [p[0], p[1], p[2], u16::MAX].map(u16::to_le_bytes))

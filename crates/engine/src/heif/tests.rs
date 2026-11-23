@@ -186,34 +186,41 @@ mod macos {
     }
 
     #[test]
-    fn ten_bit_heic_keeps_more_than_eight_bits() {
-        // A shallow ramp: 1024 columns over a quarter of the range.
+    fn ten_bit_heic_is_read_at_ten_bit_precision() {
+        // A shallow ramp: 1024 columns over a quarter of the range, one
+        // 16-bit step of 16 per column (a 10-bit code every 4 columns).
         let (width, height) = (1024, 64);
+        let source = |x: usize| 20000 + (x * 16) as u16;
         let pixels: Vec<[u16; 3]> = (0..height)
-            .flat_map(|_| {
-                (0..width).map(|x| {
-                    let v = 20000 + (x * 16) as u16;
-                    [v, v, v]
-                })
-            })
+            .flat_map(|_| (0..width).map(|x| [source(x); 3]))
             .collect();
         let bytes = encode_heic(width, height, &pixels, "kCGColorSpaceSRGB", 1, &[]);
         let image = crate::image_loader::load_image_with_orientation(&bytes, None)
             .unwrap()
             .into_rgb32f();
-        let mut levels: Vec<u32> = image
-            .rows()
-            .nth(32)
-            .unwrap()
-            .map(|p| (p.0[1] * 65535.0).round() as u32)
+        let row: Vec<f32> = image.rows().nth(32).unwrap().map(|p| p.0[1]).collect();
+        // Error against the source in 10-bit codes (1023 per unit).
+        let errors: Vec<f32> = row
+            .iter()
+            .enumerate()
+            .map(|(x, v)| (v - f32::from(source(x)) / 65535.0).abs() * 1023.0)
             .collect();
+        let mean = errors.iter().sum::<f32>() / errors.len() as f32;
+        let max = errors.iter().copied().fold(0.0, f32::max);
+        let mut levels: Vec<u32> = row.iter().map(|v| (v * 65535.0).round() as u32).collect();
+        levels.sort_unstable();
         levels.dedup();
-        // 8 bits give at most 65 levels over this range; 10 bits about 256.
         eprintln!(
-            "HEIC 10-bit ramp: {} distinct levels (8-bit at most 65)",
+            "HEIC 10-bit ramp: {} distinct levels (8 bits give at most 65, 10 bits 257), error mean {mean:.3} max {max:.3} 10-bit codes",
             levels.len()
         );
-        assert!(levels.len() > 150, "{} levels", levels.len());
+        // 8 bits would err by up to 2 10-bit codes and give ≤ 65 levels; 10
+        // bits by half a code (rounding, measured 2026-11-23: mean 0.25, max 0.50).
+        assert!(levels.len() > 200, "{} levels", levels.len());
+        assert!(
+            mean < 0.4 && max < 0.75,
+            "mean {mean} max {max} 10-bit codes"
+        );
     }
 
     #[test]
