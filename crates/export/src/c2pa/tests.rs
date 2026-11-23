@@ -12,7 +12,7 @@ fn identity() -> (tempfile::TempDir, SigningIdentity) {
     (dir, identity)
 }
 
-fn plan(adjustments: &Value) -> ManifestPlan {
+pub(super) fn plan(adjustments: &Value) -> ManifestPlan {
     plan_for(
         "/photos/DSC0001.ARW",
         adjustments,
@@ -241,7 +241,7 @@ fn action_names(actions: &C) -> Vec<String> {
         .collect()
 }
 
-fn small_jpeg() -> Vec<u8> {
+pub(super) fn small_jpeg() -> Vec<u8> {
     let image =
         image::RgbImage::from_fn(32, 24, |x, y| image::Rgb([x as u8 * 8, y as u8 * 10, 90]));
     let mut out = Vec::new();
