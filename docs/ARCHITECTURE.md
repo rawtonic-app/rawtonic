@@ -622,7 +622,8 @@ no-clobber output, single-file export used by `rawtonic export`, and the persist
 jobs and their photos with state, output, error, timing and "If a file exists" outcome; pause, cancel, resume, retry,
 recovery after a crash). `existing_files` holds the "If a file exists" choice (Keep both, Skip, Replace if changed),
 the decision made before a photo renders (`decide`), the inputs fingerprint and the export records
-(`export-records.sqlite` in the app data folder: output path → photo, inputs, size, SHA-256); `output::Publish` writes
+(`export-records.sqlite` in the app data folder: output path → requested path, photo, inputs, size, SHA-256);
+when the requested name is occupied, the same photo's verified numbered sibling can be reused. `output::Publish` writes
 a new file or replaces only the recorded, unchanged previous export (`rawtonic_fs::replace_existing`).
 
 `export` (export settings/geometry/encoders, render pipeline with `RenderEnv`, exif_processing/tiff_exif/xmp_embed with
