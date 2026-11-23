@@ -28621,13 +28621,6 @@ fn tpx8_fit_view_memory() {
                 mb((gpu_bytes() - start) as f64),
                 mb((rss("VmHWM:") - rss_start) as f64),
             );
-            if let Ok(path) = std::env::var("TPX8_DUMP") {
-                std::fs::write(
-                    format!("{path}-{c}.f32"),
-                    bytemuck::cast_slice(input.as_raw()),
-                )
-                .unwrap();
-            }
             drop(input);
         }
     }

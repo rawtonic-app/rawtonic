@@ -197,37 +197,57 @@ pub type CpuRunner<'a> = &'a (dyn Fn(&mut (dyn FnMut() + Send)) + Sync);
 /// change then skips the upload, the largest part of a build's memory
 /// (notes: benchmark-results/tpx8-2026-11-22/REPORT.md).
 #[derive(Default)]
-pub struct KeptInput(Mutex<Option<(u64, UploadedImage)>>);
+pub struct KeptInput(Mutex<Kept>);
+
+#[derive(Default)]
+struct Kept {
+    input: Option<(u64, UploadedImage)>,
+    /// Counts [`KeptInput::clear`]s: a build that took the input before a
+    /// clear (another photograph, a memory release) does not put it back.
+    generation: u64,
+}
 
 impl KeptInput {
-    /// Frees the kept input.
+    fn lock(&self) -> std::sync::MutexGuard<'_, Kept> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Frees the kept input, also the one a running build holds once it
+    /// ends.
     pub fn clear(&self) {
-        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let mut kept = self.lock();
+        kept.input = None;
+        kept.generation += 1;
     }
 
     /// Whether it holds the input of `key`.
     pub fn holds(&self, key: u64) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .is_some_and(|(k, _)| *k == key)
+        self.lock().input.as_ref().is_some_and(|(k, _)| *k == key)
     }
+}
+
+/// Whether the upload of a `width` x `height` photograph is kept between
+/// builds ([`KEPT_INPUT_MAX_BYTES`]).
+pub fn keeps_input_of(width: u32, height: u32) -> bool {
+    u64::from(width) * u64::from(height) * 8 <= KEPT_INPUT_MAX_BYTES
 }
 
 /// The largest uploaded input kept (bytes, 8 per pixel): 24–26 MP
 /// photographs; larger ones upload for every build.
 pub const KEPT_INPUT_MAX_BYTES: u64 = 210 << 20;
 
-/// The memory a build of a `width` x `height` photograph's render input
-/// takes beyond what it keeps, graphics memory and the upload's staging on
-/// the CPU together (an integrated GPU's both come out of the same
-/// memory): with `upload`, the warp and edge-fringe pass (whole source and
-/// warped frame on the GPU), else from a kept input (pyramid, level-1
-/// rebuild in bands, band pass). Measured on an RTX 3080 with 24 MP
-/// photographs (TPX8): with the upload 0.69 GB on the GPU plus 0.32 GB
-/// resident (42 bytes per pixel), from a kept input 0.25 GB plus 0.05 GB
-/// (13 bytes per pixel); scaled by pixels with a margin.
+/// The memory the app's whole process may grow by while a build of a
+/// `width` x `height` photograph's render input runs on a GPU that shares
+/// the machine's memory, the work it triggers included (the frame and
+/// thumbnail rendered from it): with `upload`, the warp and edge-fringe
+/// pass (whole source and warped frame on the GPU), else from a kept input
+/// (pyramid, level-1 rebuild in bands, band pass). Set from the largest
+/// Private Bytes rises per typed change on a Radeon 680M with 24 MP RAWs
+/// (TPX8, notes: benchmark-results/tpx8-2026-11-22/REPORT.md): 1.44 GB from
+/// a kept input (60 bytes per pixel), 1.72 GB with the upload (71 bytes per
+/// pixel); an upper bound, as other work shared that window. The build
+/// alone took 0.31 / 1.0–1.15 GB on an RTX 3080 (GPU counters plus
+/// resident memory).
 pub fn transient_bytes(width: u32, height: u32, upload: bool) -> u64 {
     let pixels = u64::from(width) * u64::from(height);
     if upload {
@@ -238,8 +258,8 @@ pub fn transient_bytes(width: u32, height: u32, upload: bool) -> u64 {
 }
 
 /// [`transient_bytes`] per pixel.
-const UPLOAD_BYTES_PER_PIXEL: u64 = 48;
-const KEPT_BYTES_PER_PIXEL: u64 = 16;
+const UPLOAD_BYTES_PER_PIXEL: u64 = 72;
+const KEPT_BYTES_PER_PIXEL: u64 = 60;
 
 /// Uploads `source` as the export uploads its render input (export_processing
 /// `prepare_export_render`): the recipe's warp and edge-fringe pass at full
@@ -316,12 +336,10 @@ pub fn reduced_render_input(
     }
     // The kept input of this photograph and geometry, else a new upload
     // (the kept one freed first).
-    let reused = kept.and_then(|(kept, key)| {
-        let mut slot = kept.0.lock().unwrap_or_else(|e| e.into_inner());
-        match slot.take() {
-            Some((k, uploaded)) if k == key => Some(uploaded),
-            _ => None,
-        }
+    let generation = kept.map(|(kept, _)| kept.lock().generation);
+    let reused = kept.and_then(|(kept, key)| match kept.lock().input.take() {
+        Some((k, uploaded)) if k == key => Some(uploaded),
+        _ => None,
     });
     let uploaded = match reused {
         Some(uploaded) => uploaded,
@@ -334,16 +352,21 @@ pub fn reduced_render_input(
         }
     };
     // Kept again once the build is done (also when it stops early).
+    // Not after a clear meanwhile: the photograph changed or its memory
+    // was released.
     struct GiveBack<'a> {
         uploaded: Option<UploadedImage>,
         kept: Option<(&'a KeptInput, u64)>,
+        generation: Option<u64>,
     }
     impl Drop for GiveBack<'_> {
         fn drop(&mut self) {
             if let (Some((kept, key)), Some(uploaded)) = (self.kept, self.uploaded.take()) {
-                let bytes = u64::from(uploaded.0.width) * u64::from(uploaded.0.height) * 8;
-                if bytes <= KEPT_INPUT_MAX_BYTES {
-                    *kept.0.lock().unwrap_or_else(|e| e.into_inner()) = Some((key, uploaded));
+                let mut slot = kept.lock();
+                if Some(slot.generation) == self.generation
+                    && keeps_input_of(uploaded.0.width, uploaded.0.height)
+                {
+                    slot.input = Some((key, uploaded));
                 }
             }
         }
@@ -351,6 +374,7 @@ pub fn reduced_render_input(
     let give_back = GiveBack {
         uploaded: Some(uploaded),
         kept,
+        generation,
     };
     let Some(uploaded) = give_back.uploaded.as_ref() else {
         unreachable!("set above");

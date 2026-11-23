@@ -628,7 +628,8 @@ fn kept_key(wanted: &Wanted) -> u64 {
 /// largest part (a Radeon 680M laptop: 1.9–2.9 s and +1.07–1.68 GB of
 /// private memory per build with the upload, WTPX5B; notes:
 /// benchmark-results/tpx8-2026-11-22/REPORT.md). The build with the upload
-/// does not count for the 1 s guard there: the changes after it do.
+/// that is then kept does not count for the 1 s guard there: the changes
+/// after it do (photographs too large to keep count every build).
 fn on_gpu(
     app: &tauri::AppHandle,
     source: &Arc<DynamicImage>,
@@ -690,7 +691,11 @@ fn on_gpu(
     Some(GpuBuild {
         input,
         started,
-        timed: !(shared_memory && uploads),
+        // A build whose upload is kept is the photograph's first; one too
+        // large to keep uploads every time and counts.
+        timed: !(shared_memory
+            && uploads
+            && color_noise_view::keeps_input_of(source.width(), source.height())),
     })
 }
 
