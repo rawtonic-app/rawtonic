@@ -36,14 +36,13 @@ export interface PlannedExport {
 export async function runExportJobs(planned: PlannedExport[], paths: string[]): Promise<number> {
   if (!paths.length) return 0;
   const t = i18n.t.bind(i18n);
-  // Each photograph's recipe and metadata are read once, when the export is
-  // queued, from the library it is queued from: that library, the editor's
-  // recipe and the folders are taken together, now (a slider draft first
-  // commits), and the edits and metadata (rating, label, keywords, EXIF)
-  // being saved are written before it is queued.
+  // Pin the library and folders now. Finish the writes (including the open
+  // photo's slider draft) so Ask and the queue can both read the saved
+  // recipes and metadata from that library. Develop's display defaults and
+  // lens parameters before save can differ from the persisted recipe.
   const flushing = Promise.all([flushRecipeSaves(), photoWritesAndStepsSettled()]).then(([unsaved]) => unsaved);
   const session = useLibraryStore.getState().sessionDirectory;
-  const openEdit = currentEditForExport(useEditorStore.getState());
+  const { currentEditPath } = currentEditForExport(useEditorStore.getState());
   const originFolders = useLibraryStore.getState().rootPaths;
   const jobName = readJobName(session);
   const status = useProcessStore.getState().exportState.status;
@@ -150,7 +149,8 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
         baseOriginFolders: originFolders,
         exportSettings: { ...job.settings, jobName, recipeName: job.recipe?.name ?? '' },
         outputFormat: job.outputFormat,
-        ...openEdit,
+        currentEditPath,
+        currentEditAdjustments: null,
         library: submittedFrom(session)
       });
     }
