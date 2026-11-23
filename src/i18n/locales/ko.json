@@ -74,7 +74,6 @@
       "running": "실행 중인 작업이 없습니다."
     },
     "export": {
-      "done": "{{label}} 내보냄({{existing}})",
       "failed_other": "사진 {{count}}장을 내보내지 못했습니다: {{label}}",
       "interrupted": "내보내기 중단됨: {{label}}",
       "nothingExported": "내보낸 사진 없음 — {{existing}} ({{label}})",
@@ -3664,7 +3663,8 @@
         "existing": {
           "keptBoth_other": "{{count}}개 새 이름으로",
           "replaced_other": "{{count}}개 바꿈",
-          "skipped_other": "{{count}}개 건너뜀"
+          "skipped_other": "{{count}}개 건너뜀",
+          "written_other": "{{count}}개 내보냄"
         },
         "exportedTo": "내보낸 위치:",
         "failed": "{{total}}장 중 {{failed}}장 실패",

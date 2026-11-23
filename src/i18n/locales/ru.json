@@ -98,7 +98,6 @@
       "running": "Ничего не выполняется."
     },
     "export": {
-      "done": "{{label}} экспортировано ({{existing}})",
       "failed_one": "{{count}} фото не экспортировано: {{label}}",
       "failed_few": "{{count}} фото не экспортированы: {{label}}",
       "failed_many": "{{count}} фото не экспортировано: {{label}}",
@@ -4100,7 +4099,11 @@
           "skipped_one": "{{count}} пропущено",
           "skipped_few": "{{count}} пропущено",
           "skipped_many": "{{count}} пропущено",
-          "skipped_other": "{{count}} пропущено"
+          "skipped_other": "{{count}} пропущено",
+          "written_one": "{{count}} записано",
+          "written_few": "{{count}} записано",
+          "written_many": "{{count}} записано",
+          "written_other": "{{count}} записано"
         },
         "exportedTo": "Экспортировано в:",
         "failed": "Ошибка: {{failed}} из {{total}}",
