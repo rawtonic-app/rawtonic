@@ -441,16 +441,10 @@ fn solve_level(
     let stride = ((px_total as f64 / cfg.target_samples as f64).sqrt().ceil() as usize).max(1);
 
     let tmpl_mean = lvl.tmpl.mean();
-    let tmpl_var: f64 = lvl
-        .tmpl
-        .data
-        .par_iter()
-        .map(|&v| {
-            let d = v as f64 - tmpl_mean;
-            d * d
-        })
-        .sum::<f64>()
-        / px_total as f64;
+    let tmpl_var: f64 = det_sum(&lvl.tmpl.data, |&v| {
+        let d = v as f64 - tmpl_mean;
+        d * d
+    }) / px_total as f64;
     let tmpl_var = tmpl_var.max(1e-9);
 
     let mut lambda = 1e-3f64;
@@ -468,48 +462,44 @@ fn solve_level(
         let mad = abs_res[mid].max(1e-6);
         let huber = 1.5 * 1.4826 * mad;
 
-        let (hess, grad, cost, wsum) = samples
-            .par_iter()
-            .fold(
-                || (vec![0f64; n * n], vec![0f64; n], 0f64, 0f64),
-                |mut acc, s| {
-                    let r = s.residual;
-                    let wgt = if r.abs() <= huber {
-                        1.0
-                    } else {
-                        huber / r.abs()
-                    };
-                    let mut j = [0f64; 23];
-                    for (p, jp) in j.iter_mut().enumerate().take(np) {
-                        *jp = *gain * (s.gx * s.ju[p] + s.gy * s.jv[p]);
+        let (hess, grad, cost, wsum) = det_fold(
+            &samples,
+            || (vec![0f64; n * n], vec![0f64; n], 0f64, 0f64),
+            |mut acc, s| {
+                let r = s.residual;
+                let wgt = if r.abs() <= huber {
+                    1.0
+                } else {
+                    huber / r.abs()
+                };
+                let mut j = [0f64; 23];
+                for (p, jp) in j.iter_mut().enumerate().take(np) {
+                    *jp = *gain * (s.gx * s.ju[p] + s.gy * s.jv[p]);
+                }
+                j[np] = s.val;
+                j[np + 1] = 1.0;
+                for a in 0..n {
+                    acc.1[a] += wgt * j[a] * r;
+                    for b in a..n {
+                        acc.0[a * n + b] += wgt * j[a] * j[b];
                     }
-                    j[np] = s.val;
-                    j[np + 1] = 1.0;
-                    for a in 0..n {
-                        acc.1[a] += wgt * j[a] * r;
-                        for b in a..n {
-                            acc.0[a * n + b] += wgt * j[a] * j[b];
-                        }
-                    }
-                    acc.2 += wgt * r * r;
-                    acc.3 += wgt;
-                    acc
-                },
-            )
-            .reduce(
-                || (vec![0f64; n * n], vec![0f64; n], 0f64, 0f64),
-                |mut a, b| {
-                    for i in 0..n * n {
-                        a.0[i] += b.0[i];
-                    }
-                    for i in 0..n {
-                        a.1[i] += b.1[i];
-                    }
-                    a.2 += b.2;
-                    a.3 += b.3;
-                    a
-                },
-            );
+                }
+                acc.2 += wgt * r * r;
+                acc.3 += wgt;
+                acc
+            },
+            |mut a, b| {
+                for i in 0..n * n {
+                    a.0[i] += b.0[i];
+                }
+                for i in 0..n {
+                    a.1[i] += b.1[i];
+                }
+                a.2 += b.2;
+                a.3 += b.3;
+                a
+            },
+        );
 
         let cost = cost / wsum.max(1e-12);
 
@@ -682,4 +672,52 @@ pub fn warp_frame(
     }
 
     (out, mask)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Smooth texture with fine detail, shifted by (`dx`, `dy`) pixels.
+    fn textured(w: usize, h: usize, dx: f64, dy: f64) -> Plane {
+        let mut p = Plane::new(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                let (u, v) = (x as f64 + dx, y as f64 + dy);
+                let s = (u * 0.071).sin() * (v * 0.053).cos()
+                    + 0.5 * (u * 0.193 + v * 0.117).sin()
+                    + 0.25 * (u * 0.41 - v * 0.37).cos();
+                p.data[y * w + x] = (0.5 + 0.2 * s) as f32;
+            }
+        }
+        p
+    }
+
+    /// The alignment of a merge (and with it every merged pixel) must not
+    /// depend on the thread count or on how rayon splits the work.
+    #[test]
+    fn alignment_is_bit_identical_for_every_thread_count() {
+        let (w, h) = (720, 480);
+        let tmpl = textured(w, h, 0.0, 0.0);
+        let src = textured(w, h, 2.3, -1.7);
+        let cfg = AlignConfig::default();
+        let run = |threads: usize| {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap();
+            pool.install(|| {
+                let pyr = build_align_pyramids(&tmpl, &src, &cfg);
+                let pose = solve_alignment(&pyr, LensWarp::identity(w, h), &cfg);
+                let mut bits: Vec<u64> =
+                    pose.warp.to_vector().iter().map(|v| v.to_bits()).collect();
+                bits.extend([pose.gain, pose.bias, pose.quality].map(f64::to_bits));
+                bits
+            })
+        };
+        let first = run(1);
+        for threads in [2, 3, 5, 8, 16, 16, 16] {
+            assert_eq!(run(threads), first, "{threads} threads");
+        }
+    }
 }
