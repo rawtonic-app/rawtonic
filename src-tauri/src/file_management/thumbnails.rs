@@ -185,7 +185,24 @@ fn thumbnail_hash_for_engine(
     adjustments_bytes: &[u8],
     engine: u32,
 ) -> Option<String> {
-    thumbnail_hash_with(path_str, adjustments_bytes, engine, true, None)
+    thumbnail_hash_with(path_str, adjustments_bytes, engine, true, None, true)
+}
+
+/// The key a tile was cached under before a photo's camera matched its
+/// Develop defaults' entries by the camera's one name (2026-11-23): while
+/// the original is unavailable, that tile is better than none.
+fn thumbnail_hash_before_camera_identity(
+    path_str: &str,
+    adjustments_bytes: &[u8],
+) -> Option<String> {
+    thumbnail_hash_with(
+        path_str,
+        adjustments_bytes,
+        crate::preview_proxy::ENGINE_VERSION,
+        true,
+        None,
+        false,
+    )
 }
 
 /// The key a tile was cached under while its copy's preview proxy still held
@@ -201,6 +218,7 @@ fn thumbnail_hash_with_display_copy_held(
         crate::preview_proxy::ENGINE_VERSION,
         true,
         Some(true),
+        false,
     )
 }
 
@@ -218,6 +236,7 @@ fn thumbnail_hash_with_display_copy_renewed(
         crate::preview_proxy::ENGINE_VERSION,
         true,
         Some(false),
+        false,
     )
 }
 
@@ -232,6 +251,7 @@ fn thumbnail_hash_before_refreshes(path_str: &str, adjustments_bytes: &[u8]) -> 
         crate::preview_proxy::ENGINE_VERSION,
         false,
         None,
+        false,
     )
 }
 
@@ -241,6 +261,7 @@ fn thumbnail_hash_with(
     engine: u32,
     refreshed: bool,
     display_copy: Option<bool>,
+    camera_identity: bool,
 ) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
@@ -266,6 +287,11 @@ fn thumbnail_hash_with(
     {
         hasher.update(b"\0develop-defaults\0");
         hasher.update(&defaults);
+        // The same defaults may give a photo another camera entry since its
+        // camera is matched by its one name for all its files.
+        if camera_identity {
+            hasher.update(b"\0camera-identity-v1");
+        }
     }
     // Absent light fields now render with a new light's values.
     if adjustments
@@ -1585,9 +1611,10 @@ fn preferred_thumbnail_hash<'a>(
 }
 
 /// The keys a tile of `path_str` may have been cached under, newest
-/// first: with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
+/// first: before camera identities, with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
 fn older_tile_keys(path_str: &str, adjustments_bytes: &[u8]) -> Vec<String> {
     [
+        thumbnail_hash_before_camera_identity(path_str, adjustments_bytes),
         thumbnail_hash_with_display_copy_renewed(path_str, adjustments_bytes),
         thumbnail_hash_with_display_copy_held(path_str, adjustments_bytes),
         thumbnail_hash_before_refreshes(path_str, adjustments_bytes),

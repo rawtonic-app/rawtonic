@@ -320,40 +320,6 @@ fn entry_for<'a>(
     )
 }
 
-impl DevelopDefaults {
-    /// Moves every camera entry saved under names a file gave its camera to
-    /// the camera's one name (`canonical_names`), so Preferences and the
-    /// editor see one entry per camera: the app's own settings only, on
-    /// load (a camera the catalog learnt since is renamed then). An entry
-    /// whose camera has another entry at its level keeps its names, so
-    /// `entry_for` still gives each file the one saved for it. True when
-    /// anything changed.
-    pub fn canonicalize_camera_names(&mut self) -> bool {
-        let identity = |entry: &CameraDefaults| {
-            let (make, model) = canonical_names(&entry.make, &entry.model);
-            (
-                make.to_lowercase(),
-                model.to_lowercase(),
-                entry.serial.as_deref().map(|s| s.trim().to_string()),
-            )
-        };
-        let keys: Vec<_> = self.cameras.iter().map(identity).collect();
-        let mut changed = false;
-        for (at, entry) in self.cameras.iter_mut().enumerate() {
-            if keys.iter().filter(|key| **key == keys[at]).count() > 1 {
-                continue;
-            }
-            let (make, model) = canonical_names(&entry.make, &entry.model);
-            if entry.make != make || entry.model != model {
-                entry.make = make;
-                entry.model = model;
-                changed = true;
-            }
-        }
-        changed
-    }
-}
-
 /// The defaults for a photograph (`is_raw`, taken with `camera` when its
 /// file names one): its body's (the serial number's), its model's and the
 /// global default, the more specific winning (a level that does not
@@ -459,16 +425,8 @@ pub fn fingerprint() -> Option<Vec<u8>> {
     if defaults.is_empty() {
         return None;
     }
-    // With the rule that finds a camera's entry: renders cached under the
-    // same settings but an older rule may have taken another entry.
-    let mut bytes = CAMERA_MATCHING.as_bytes().to_vec();
-    bytes.extend(serde_json::to_vec(&*defaults).ok()?);
-    Some(bytes)
+    serde_json::to_vec(&*defaults).ok()
 }
-
-/// The rule matching a photo's camera to its entry (`entry_for`), part of
-/// `fingerprint`: change it when that rule changes.
-const CAMERA_MATCHING: &str = "camera-identity-1\n";
 
 /// Whether a recipe follows the defaults: new (`is_new_recipe`) and without
 /// its defaults decided (`KEY`).
@@ -950,10 +908,10 @@ mod tests {
 
     /// Defaults saved for one body from its JPEG (EXIF names) and from its
     /// RAW (clean names) before they shared an identity: each file keeps
-    /// the one saved from its kind, and loading keeps both names.
+    /// the one saved from its kind.
     #[test]
     fn entries_saved_from_a_jpeg_and_a_raw_of_one_body_each_keep_their_files() {
-        let mut defaults = DevelopDefaults {
+        let defaults = DevelopDefaults {
             raw_only: false,
             global: None,
             cameras: vec![
@@ -962,21 +920,6 @@ mod tests {
                 model_default("NIKON CORPORATION", "NIKON D810A", 0.7),
             ],
         };
-        assert!(defaults.canonicalize_camera_names());
-        let names: Vec<_> = defaults
-            .cameras
-            .iter()
-            .map(|c| (c.make.as_str(), c.model.as_str()))
-            .collect();
-        assert_eq!(
-            names,
-            [
-                ("Canon", "Canon EOS R5"),
-                ("Canon", "EOS R5"),
-                ("Nikon", "D810A")
-            ]
-        );
-        assert!(!defaults.canonicalize_camera_names());
         let jpeg = identity("Canon", "Canon EOS R5", None).unwrap();
         let raw = identity("Canon", "EOS R5", None).unwrap();
         assert_eq!(exposure_for(&defaults, false, &jpeg), Some(0.4));

@@ -1266,12 +1266,6 @@ pub(crate) fn migrate_settings(settings: &mut AppSettings) -> bool {
     let all_current_keys = all_available_adjustments();
     let default_included = default_included_adjustments();
     let mut settings_modified = migrate_viewer_background(settings);
-    // Camera defaults under the camera's one name for all its files.
-    if let Some(defaults) = settings.develop_defaults.as_mut()
-        && defaults.canonicalize_camera_names()
-    {
-        settings_modified = true;
-    }
 
     if settings.root_folders.is_empty()
         && let Some(last) = &settings.last_root_path
@@ -2120,31 +2114,6 @@ mod privacy_persistence_tests {
                 .privacy_notice_seen,
             Some(true)
         );
-    }
-}
-
-#[cfg(test)]
-mod camera_name_migration_tests {
-    /// Loading the settings moves a camera default saved under a file's
-    /// names (here a DNG's tags from before its camera was catalogued) to
-    /// the camera's one name, and writes the file back.
-    #[test]
-    fn a_camera_default_moves_to_the_cameras_one_name_on_load() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("settings.json");
-        std::fs::write(
-            &path,
-            br#"{"developDefaults":{"cameras":[{"make":"NIKON CORPORATION","model":"NIKON D810A","settings":{"exposure":0.7}}]}}"#,
-        )
-        .unwrap();
-        let loaded = super::load_settings_file(&path).unwrap();
-        let camera = &loaded.develop_defaults.unwrap().cameras[0];
-        assert_eq!(
-            (camera.make.as_str(), camera.model.as_str()),
-            ("Nikon", "D810A")
-        );
-        let written = std::fs::read_to_string(&path).unwrap();
-        assert!(written.contains("\"D810A\""), "{written}");
     }
 }
 
