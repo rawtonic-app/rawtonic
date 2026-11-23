@@ -267,6 +267,9 @@ impl<'a> Manifest<'a> {
     /// The manifest store for a file `binding` describes. Unsigned (a zero
     /// signature of the right length) to find its size.
     fn store(&self, binding: Binding<'_>, signed: bool) -> Result<Vec<u8>, String> {
+        if signed {
+            self.identity.check_usable()?;
+        }
         let plan = self.plan;
         let mut assertions: Vec<(&str, Vec<u8>)> = Vec::new();
 
