@@ -13,6 +13,8 @@
 
 ### Fixes
 
+- **A virtual copy with another decode variant than its master (e.g. the multi-scale colour noise filter) now gets its refreshed grid tile at once.** Its tile is developed from the RAW, but kept its old look until the master's preview was renewed; and with the original offline and only the master's preview rebuilt, the copy's tile went blank. It now keeps its old tile offline and renews online. Exports are unchanged.
+
 - Slider edits made while a colour target is still being measured keep their values and Undo history.
 - The export queue explains why a proof sheet could not start, even when all its photos have already rendered.
 - **Before/After: a snapshot of an older edit is no longer shown through the wrong preview while a photo opens.** For DNGs with a lens warp per colour plane (e.g. some drone and action-camera files), the Before of a snapshot saved with an older render version could briefly show the new per-plane warp until the full decode arrived; it now waits for the decode.

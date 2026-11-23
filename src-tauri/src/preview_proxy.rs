@@ -406,6 +406,25 @@ pub fn stands_for(source: &Path, recipe: &serde_json::Value) -> bool {
         == crate::image_loader::stored_decode_variant(&source)
 }
 
+/// `stands_for` from the recipes alone: no file is read, the registered
+/// facts are not touched (a cloud file stays undownloaded while a grid is
+/// browsed). The frame is left out, so a copy of another frame counts as
+/// standing here; this answers "no" only where `stands_for` does too. None
+/// when it cannot be told without a download (the master's sidecar is an
+/// evicted cloud file): callers take the side that shows no blank tile.
+pub(crate) fn stands_for_by_recipe(source: &Path, recipe: &serde_json::Value) -> Option<bool> {
+    let (path, sidecar) = crate::file_management::parse_virtual_path(&source.to_string_lossy());
+    if crate::file_management::is_cloud_placeholder(&sidecar) {
+        return None;
+    }
+    let path = path.to_string_lossy();
+    let master = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+    Some(
+        crate::image_loader::decode_variant_for_frame(recipe, &path, 0)
+            == crate::image_loader::decode_variant_for_frame(&master, &path, 0),
+    )
+}
+
 /// The key a proxy of `source` made now from a decode for `variant` would
 /// carry.
 pub fn current_key(
