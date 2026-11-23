@@ -2192,14 +2192,19 @@ fn export_photo(
             )
         })
     };
+    let report_outcome = |target: usize, outcome: Outcome, path: &Path| {
+        if let Some(tracking) = &targets[target].tracking {
+            tracking.outcome(item.global_index, outcome, path);
+        } else {
+            log::debug!("Export outcome {}: {}", outcome.as_str(), path.display());
+        }
+    };
     let plan = |target: usize| {
         let planned = plan_target(target)?;
         let tracking = targets[target].tracking.as_ref();
         match &planned {
             Planned::Skip { path, outcome } => {
-                if let Some(tracking) = tracking {
-                    tracking.outcome(item.global_index, *outcome, path);
-                }
+                report_outcome(target, *outcome, path);
                 return Ok(None);
             }
             // The queue records the file only once it is replaced: a
@@ -2242,10 +2247,8 @@ fn export_photo(
         let outcome = planned
             .get(target)
             .map_or(Outcome::Written, |planned| planned.outcome());
-        if outcome != Outcome::Written
-            && let Some(tracking) = &targets[target].tracking
-        {
-            tracking.outcome(item.global_index, outcome, output_path);
+        if outcome != Outcome::Written {
+            report_outcome(target, outcome, output_path);
         }
     };
     // Recipes that skip their photo are decided before its source is
