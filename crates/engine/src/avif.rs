@@ -624,6 +624,7 @@ fn primary_properties(bytes: &[u8]) -> Option<Properties> {
 /// The primary item's colour properties (`colr`: ICC profile, `nclx` code
 /// points) of any HEIF file, read from the container: the HEIC reader
 /// (heif.rs) colour-manages its decode as AVIF's.
+#[cfg(target_os = "macos")]
 pub(crate) fn primary_colour(bytes: &[u8]) -> (Option<Vec<u8>>, Option<Cicp>) {
     primary_properties(bytes).map_or((None, None), |p| (p.icc, p.nclx))
 }
