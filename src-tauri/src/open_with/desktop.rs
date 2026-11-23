@@ -1,8 +1,8 @@
 //! The programs a freedesktop desktop offers for a file, as Open With / Edit
 //! With list them: the `.desktop` entries under `$XDG_DATA_DIRS/applications`
-//! (Flatpak and Snap export theirs there) whose `MimeType` holds the file's
-//! type, the default per `mimeapps.list`, and the launch command of an entry
-//! with its `Exec` field codes expanded. Plain data and file reads under
+//! (Flatpak and Snap export theirs there), their MIME associations and raster
+//! editor categories, the defaults in `mimeapps.list`, and launch commands
+//! with their `Exec` field codes expanded. Plain data and file reads under
 //! given directories, so it is tested on every system; `open_with.rs` binds
 //! it to the environment on Linux.
 //!
@@ -99,6 +99,29 @@ pub struct Entry {
     pub try_exec: Option<String>,
     pub mime_types: Vec<String>,
     pub icon: Option<String>,
+    raster_editor: bool,
+    no_display: bool,
+    only_show_in: Option<Vec<String>>,
+    not_show_in: Vec<String>,
+}
+
+impl Entry {
+    /// Whether the launcher can be offered as an Edit With fallback.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub fn offers_raster_editing(&self, desktops: &[String]) -> bool {
+        let matches_desktop = |values: &[String]| {
+            values.iter().any(|value| {
+                desktops
+                    .iter()
+                    .any(|desktop| value.eq_ignore_ascii_case(desktop))
+            })
+        };
+        self.raster_editor
+            && !self.no_display
+            && self.only_show_in.as_deref().is_none_or(matches_desktop)
+            && !matches_desktop(&self.not_show_in)
+            && takes_files(&self.exec)
+    }
 }
 
 /// A `Key=value` of the `[Desktop Entry]` group, the key optionally
@@ -165,23 +188,53 @@ pub fn parse_entry(text: &str, path: &Path, id: &str, languages: &[String]) -> O
         .or_else(|| fields.get("Name"))
         .map(|n| unescape(n))
         .filter(|n| !n.is_empty())?;
-    let mime_types = fields
-        .get("MimeType")
-        .map(|v| {
-            v.split(';')
-                .filter(|m| !m.is_empty())
-                .map(str::to_string)
-                .collect()
+    let list = |key| {
+        fields.get(key).map(|value| {
+            value
+                .split(';')
+                .filter(|v| !v.is_empty())
+                .collect::<Vec<_>>()
         })
-        .unwrap_or_default();
+    };
+    let categories = list("Categories").unwrap_or_default();
+    let raster_editor = categories.contains(&"RasterGraphics")
+        || (categories.contains(&"Graphics")
+            && categories.contains(&"2DGraphics")
+            && list("Keywords").into_iter().flatten().any(|keyword| {
+                matches!(
+                    keyword
+                        .trim()
+                        .to_ascii_lowercase()
+                        .replace('-', " ")
+                        .as_str(),
+                    "image editor"
+                        | "photo editor"
+                        | "raster editor"
+                        | "image editing"
+                        | "photo editing"
+                        | "raster editing"
+                )
+            }));
     Some(Entry {
         path: path.to_path_buf(),
         id: id.to_string(),
         name,
         exec,
         try_exec: fields.get("TryExec").map(|v| unescape(v)),
-        mime_types,
+        mime_types: list("MimeType")
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
         icon: fields.get("Icon").map(|v| unescape(v)),
+        raster_editor,
+        no_display: flag("NoDisplay"),
+        only_show_in: list("OnlyShowIn").map(|v| v.into_iter().map(str::to_owned).collect()),
+        not_show_in: list("NotShowIn")
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
     })
 }
 
@@ -356,6 +409,12 @@ pub struct Associations {
 }
 
 impl Associations {
+    pub fn is_removed(&self, mime: &str, id: &str) -> bool {
+        self.removed
+            .get(mime)
+            .is_some_and(|ids| ids.iter().any(|i| i == id))
+    }
+
     /// Merges one file's text; call it for the most specific file first, an
     /// earlier file's choices come before a later one's.
     pub fn add_file(&mut self, text: &str) {
@@ -428,12 +487,6 @@ pub fn apps_for_family<'a>(
     assoc: &Associations,
 ) -> (Vec<&'a Entry>, Option<String>) {
     let by_id: HashMap<&str, &Entry> = entries.iter().map(|e| (e.id.as_str(), e)).collect();
-    let removed = |mime: &str, id: &str| {
-        assoc
-            .removed
-            .get(mime)
-            .is_some_and(|ids| ids.iter().any(|i| i == id))
-    };
     let mut out: Vec<&Entry> = Vec::new();
     let mut push = |entry: &'a Entry| {
         if !out.iter().any(|o| o.id == entry.id) {
@@ -455,7 +508,7 @@ pub fn apps_for_family<'a>(
             }
         }
         for entry in entries {
-            if entry.mime_types.iter().any(|m| m == mime) && !removed(mime, &entry.id) {
+            if entry.mime_types.iter().any(|m| m == mime) && !assoc.is_removed(mime, &entry.id) {
                 push(entry);
             }
         }
@@ -1027,6 +1080,10 @@ mod tests {
             try_exec: None,
             mime_types: mimes.iter().map(|m| m.to_string()).collect(),
             icon: None,
+            raster_editor: false,
+            no_display: false,
+            only_show_in: None,
+            not_show_in: Vec::new(),
         }
     }
 

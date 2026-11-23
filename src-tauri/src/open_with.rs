@@ -496,14 +496,13 @@ fn one_per_type(files: &[PathBuf]) -> Vec<&Path> {
         .collect()
 }
 
-fn choices(app: &AppHandle, files: Vec<PathBuf>) -> AppChoices {
+fn choices(app: &AppHandle, (mut apps, default): (Vec<AppChoice>, Option<String>)) -> AppChoices {
     if !platform::SUPPORTED {
         return AppChoices {
             supported: false,
             apps: Vec::new(),
         };
     }
-    let (mut apps, default) = platform::apps_for(&one_per_type(&files));
     let prefs = read_prefs(app);
     let recent = prefs.recent_apps;
     add_picked(&mut apps, &prefs.picked_apps, &platform::describe);
@@ -590,9 +589,12 @@ pub async fn open_with_pick(
 /// The programs that open the originals of `paths`.
 #[tauri::command]
 pub async fn open_with_apps(paths: Vec<String>, app: AppHandle) -> Result<AppChoices, String> {
-    tauri::async_runtime::spawn_blocking(move || choices(&app, original_files(&paths)))
-        .await
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let files = original_files(&paths);
+        choices(&app, platform::apps_for(&one_per_type(&files)))
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// The programs that open files of `extension` (Edit With's renders).
@@ -600,18 +602,33 @@ pub async fn open_with_apps(paths: Vec<String>, app: AppHandle) -> Result<AppCho
 pub async fn edit_with_apps(extension: String, app: AppHandle) -> Result<AppChoices, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let probe = probe_file(&app, &extension)?;
-        Ok(choices(&app, vec![probe]))
+        #[cfg(target_os = "linux")]
+        let found = platform::edit_apps_for(&probe);
+        #[cfg(not(target_os = "linux"))]
+        let found = platform::apps_for(&[&probe]);
+        Ok(choices(&app, found))
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-fn open_in(app: &AppHandle, program: &str, files: &[PathBuf]) -> Result<(), String> {
+fn open_in(
+    app: &AppHandle,
+    program: &str,
+    files: &[PathBuf],
+    edit_with: bool,
+) -> Result<(), String> {
     platform::check(program)?;
     if let Some(missing) = files.iter().find(|file| !file.is_file()) {
         return Err(format!("{} is not available.", missing.display()));
     }
-    let launched = platform::open(program, files)?;
+    #[cfg(target_os = "linux")]
+    let launched = platform::open(program, files, edit_with)?;
+    #[cfg(not(target_os = "linux"))]
+    let launched = {
+        let _ = edit_with;
+        platform::open(program, files)?
+    };
     update_prefs(app, |prefs| remember_launch(prefs, program, launched))
 }
 
@@ -636,7 +653,7 @@ pub async fn open_with_open(
         if files.is_empty() {
             return Err("No photographs to open.".to_string());
         }
-        open_in(&app, &program, &files)
+        open_in(&app, &program, &files, false)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1006,7 +1023,7 @@ pub async fn edit_with_finish(
             log::warn!("Edit With: not added to the library: {problem}");
         }
         watch(&app, &items);
-        open_in(&app, &program, &renders)
+        open_in(&app, &program, &renders, true)
             .inspect_err(|e| log::warn!("Edit With: {program} did not open the renders: {e}"))?;
         if result.problems.is_empty() {
             crate::export_queue::handed_off(
