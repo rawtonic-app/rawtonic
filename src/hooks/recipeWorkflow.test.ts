@@ -153,12 +153,12 @@ describe('recorded behaviour worth a second look', () => {
     expect(saved('raster.legacy-no-versions').fringeVersion).toBeUndefined();
   });
 
-  it.skipIf(RECORD)('legacy recipes keep their old render version but gain grainVersion 3', () => {
+  it.skipIf(RECORD)('legacy recipes keep their old render version but gain the current grainVersion', () => {
     // FINDING: the legacy recipe stays on the first render (no renderVersion key) and toneVersion 5,
-    // yet grainVersion becomes 3 on save.
+    // yet grainVersion becomes the current one (4) on save; it has no grain, so nothing renders differently.
     expect(saved('raw.legacy-no-versions').renderVersion).toBeUndefined();
     expect(saved('raw.legacy-no-versions').toneVersion).toBe(5);
-    expect(saved('raw.legacy-no-versions').grainVersion).toBe(3);
+    expect(saved('raw.legacy-no-versions').grainVersion).toBe(4);
   });
 
   it.skipIf(RECORD)('future version and unknown keys survive; explicit nulls survive except version keys', () => {
