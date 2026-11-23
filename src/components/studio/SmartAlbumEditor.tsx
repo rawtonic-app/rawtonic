@@ -26,20 +26,20 @@ import { selectOnFocus } from '../../utils/selectOnFocus';
 import { COLOR_LABEL_NAMES } from '../../entities/photo/colorLabel';
 
 /** What a field's value is, which decides its operators and inputs. */
-type Kind = 'search' | 'text' | 'number' | 'date' | 'choice' | 'album' | 'folder' | 'bool';
+type Kind = 'search' | 'text' | 'name' | 'number' | 'date' | 'choice' | 'album' | 'folder' | 'bool';
 
 const FIELDS: { field: Field; kind: Kind }[] = [
   { field: 'text', kind: 'search' },
   { field: 'details', kind: 'search' },
-  { field: 'filename', kind: 'text' },
+  { field: 'filename', kind: 'name' },
   { field: 'keyword', kind: 'text' },
   { field: 'rating', kind: 'number' },
   { field: 'flag', kind: 'choice' },
   { field: 'label', kind: 'choice' },
   { field: 'fileType', kind: 'choice' },
-  { field: 'camera', kind: 'text' },
-  { field: 'make', kind: 'text' },
-  { field: 'lens', kind: 'text' },
+  { field: 'camera', kind: 'name' },
+  { field: 'make', kind: 'name' },
+  { field: 'lens', kind: 'name' },
   { field: 'iso', kind: 'number' },
   { field: 'focalLength', kind: 'number' },
   { field: 'aperture', kind: 'number' },
@@ -61,6 +61,7 @@ const kindOf = (field: Field): Kind => FIELDS.find((f) => f.field === field)?.ki
 
 export const OPS: Record<Kind, Op[]> = {
   search: ['contains', 'containsAny', 'notContains'],
+  name: ['contains', 'words', 'containsAny', 'notContains', 'is', 'isNot', 'startsWith', 'endsWith', 'empty', 'notEmpty'],
   text: ['contains', 'containsAny', 'notContains', 'is', 'isNot', 'startsWith', 'endsWith', 'empty', 'notEmpty'],
   number: ['is', 'isNot', 'gt', 'ge', 'lt', 'le', 'between', 'empty', 'notEmpty'],
   date: ['is', 'isNot', 'lt', 'gt', 'between', 'inLast', 'notInLast', 'empty', 'notEmpty'],
@@ -143,6 +144,7 @@ function valueFor(field: Field, op: Op, previous: unknown, albums: SessionAlbum[
   switch (kind) {
     case 'search':
     case 'text':
+    case 'name':
       return typeof previous === 'string' ? previous : '';
     case 'number':
       if (typeof previous === 'number') return previous;
@@ -470,6 +472,7 @@ function ValueEditor({
       return <FolderValue value={String(value ?? '')} label={label} onChange={onChange} />;
     case 'search':
     case 'text':
+    case 'name':
       return (
         <input
           className="studio-metadata-input studio-rule-text"

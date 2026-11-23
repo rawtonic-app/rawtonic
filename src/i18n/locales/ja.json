@@ -4541,6 +4541,18 @@
             "isNot": "次の直下にない",
             "notContains": "次にもその下にもない"
           },
+          "name": {
+            "contains": "次のすべてを含む",
+            "containsAny": "次のいずれかを含む",
+            "empty": "空",
+            "endsWith": "次で終わる",
+            "is": "次と等しい",
+            "isNot": "次と等しくない",
+            "notContains": "次のいずれも含まない",
+            "notEmpty": "空でない",
+            "startsWith": "次で始まる",
+            "words": "次の語を含む"
+          },
           "number": {
             "between": "次の範囲内",
             "empty": "値なし",

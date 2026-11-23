@@ -5066,6 +5066,18 @@
             "isNot": "nie jest bezpośrednio w",
             "notContains": "nie jest w ani poniżej"
           },
+          "name": {
+            "contains": "zawiera wszystkie słowa",
+            "containsAny": "zawiera dowolne ze słów",
+            "empty": "jest puste",
+            "endsWith": "kończy się na",
+            "is": "to",
+            "isNot": "to nie",
+            "notContains": "nie zawiera żadnego ze słów",
+            "notEmpty": "nie jest puste",
+            "startsWith": "zaczyna się od",
+            "words": "zawiera słowa"
+          },
           "number": {
             "between": "jest między",
             "empty": "nie ma wartości",

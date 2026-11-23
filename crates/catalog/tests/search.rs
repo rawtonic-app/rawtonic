@@ -230,6 +230,23 @@ fn every_field_compares_as_documented() {
             json!({"field":"lens","op":"contains","value":"GM 85"}),
             vec!["DSC00124.ARW"],
         ),
+        // Whole words of the name (ignoring case): "85mm" is one, "85" is not.
+        (
+            json!({"field":"lens","op":"words","value":"85mm ge1.4 gm"}),
+            vec![],
+        ),
+        (
+            json!({"field":"lens","op":"words","value":"85mm f1.4 gm"}),
+            vec!["DSC00124.ARW"],
+        ),
+        (
+            json!({"field":"lens","op":"words","value":"85"}),
+            vec![],
+        ),
+        (
+            json!({"field":"lens","op":"words","value":"GM"}),
+            vec!["DSC00123.ARW", "DSC00124.ARW"],
+        ),
         (
             json!({"field":"lens","op":"startsWith","value":"rf"}),
             vec!["IMG_0001.CR3"],

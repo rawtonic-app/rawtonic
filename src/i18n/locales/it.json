@@ -4870,6 +4870,18 @@
             "isNot": "non è direttamente in",
             "notContains": "non è in né sotto"
           },
+          "name": {
+            "contains": "contiene tutte le parole",
+            "containsAny": "contiene una delle parole",
+            "empty": "è vuoto",
+            "endsWith": "finisce con",
+            "is": "è",
+            "isNot": "non è",
+            "notContains": "non contiene nessuna delle parole",
+            "notEmpty": "non è vuoto",
+            "startsWith": "inizia con",
+            "words": "contiene le parole"
+          },
           "number": {
             "between": "è tra",
             "empty": "non ha un valore",

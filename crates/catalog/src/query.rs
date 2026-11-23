@@ -135,6 +135,10 @@ pub enum Op {
     ContainsAny,
     /// Text: no word is part of the field. Album/folder: not in it.
     NotContains,
+    /// Text of a name (camera, lens): every word is a whole word of the
+    /// field (words are separated by spaces; square brackets around a word
+    /// do not count), ignoring case. Lightroom's "contains words".
+    Words,
     /// Equal (text ignoring case; a keyword of the photograph; one of a
     /// list for flag, label, file type; a folder without its subfolders;
     /// a calendar day for dates; `true`/`false` for offline).
@@ -564,6 +568,23 @@ impl<'a> Compiler<'a> {
     fn text_column(&mut self, column: &str, op: Op, value: &Value) -> Result<String> {
         let coalesced = format!("coalesce({column},'')");
         Ok(match op {
+            Op::Words => {
+                let words = words(value)?;
+                if words.is_empty() {
+                    return Ok("1".into());
+                }
+                let parts: Vec<String> = words
+                    .into_iter()
+                    .map(|word| {
+                        self.push(word);
+                        format!(
+                            "instr(' ' || rawtonic_fold(replace(replace({coalesced}, '[', ''), ']', '')) || ' ', \
+                             ' ' || rawtonic_fold(?) || ' ') > 0"
+                        )
+                    })
+                    .collect();
+                format!("({})", parts.join(" AND "))
+            }
             Op::Contains | Op::ContainsAny | Op::NotContains => {
                 self.text_words(&coalesced, op, value)?
             }

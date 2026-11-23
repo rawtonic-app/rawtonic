@@ -4870,6 +4870,18 @@
             "isNot": "no és directament a",
             "notContains": "no és a dins ni a sota de"
           },
+          "name": {
+            "contains": "conté totes les paraules",
+            "containsAny": "conté alguna de les paraules",
+            "empty": "és buit",
+            "endsWith": "acaba en",
+            "is": "és",
+            "isNot": "no és",
+            "notContains": "no conté cap de les paraules",
+            "notEmpty": "no és buit",
+            "startsWith": "comença per",
+            "words": "conté les paraules"
+          },
           "number": {
             "between": "és entre",
             "empty": "no té valor",

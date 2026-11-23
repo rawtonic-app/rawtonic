@@ -43,6 +43,7 @@ export type Op =
   | 'contains'
   | 'containsAny'
   | 'notContains'
+  | 'words'
   | 'is'
   | 'isNot'
   | 'startsWith'
