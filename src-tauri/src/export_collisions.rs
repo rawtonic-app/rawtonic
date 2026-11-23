@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::Manager;
 
-/// File names listed per kind in the question; the counts hold all.
+/// Bound the IPC payload to this many sample names per kind. Counts include
+/// every collision. The dialog also caps how many names it renders.
 const NAMES_SHOWN: usize = 5;
 /// Photos read at a time, as the queue pins them.
 const PIN_CHUNK: usize = 32;
