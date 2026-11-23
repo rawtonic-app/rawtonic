@@ -462,7 +462,15 @@ impl MultiView {
         height: u32,
     ) {
         // The live frame's region of the photograph is not known here: it
-        // is shown to fit until the cell's own render arrives.
+        // is shown to fit until the cell's own render arrives. A zoomed cell
+        // that still has its own placed frame keeps it instead, so it never
+        // jumps to fit (and back) while every other cell stays zoomed. Its
+        // sharp region was rendered while the photograph was the live one
+        // and may predate edits made since: it is released, as before.
+        if self.keeps_zoomed_frame(path) {
+            self.regions.remove(path);
+            return;
+        }
         if self.copy_frame(
             device,
             queue,
@@ -475,6 +483,17 @@ impl MultiView {
         ) {
             self.regions.remove(path);
         }
+    }
+
+    /// Whether `path`'s cell is zoomed in and already has a whole-photograph
+    /// frame placed for its zoom (a known extent): the old primary's live
+    /// frame, shown only to fit, would replace a frame shown as asked.
+    fn keeps_zoomed_frame(&self, path: &str) -> bool {
+        self.zoom_of(path).is_some()
+            && self
+                .textures
+                .get(path)
+                .is_some_and(|texture| texture.extent.is_some())
     }
 
     /// Copies the top left `width` × `height` of `source` (a developed
@@ -1289,6 +1308,84 @@ mod tests {
         // Not shown: nothing is kept.
         multi.adopt_live_frame(&gpu.device, &gpu.queue, &bindings, "gone", &source, 12, 8);
         assert_eq!(multi.texture_key("gone"), None);
+    }
+
+    #[test]
+    #[ignore = "requires a native GPU; a zoomed cell keeps its placed frame over the old live frame"]
+    fn a_zoomed_cell_keeps_its_own_frame_over_the_old_live_frame() {
+        let gpu = offscreen();
+        let mut multi = layout(&gpu);
+        multi.set_zoom(Some(CellZoom {
+            scale: 4.0,
+            center: [0.5, 0.5],
+        }));
+        let size = wgpu::Extent3d {
+            width: 16,
+            height: 16,
+            depth_or_array_layers: 1,
+        };
+        let source = gpu
+            .device
+            .create_texture(&crate::gpu_processing::still_texture_descriptor(size));
+        gpu.queue.write_texture(
+            source.as_image_copy(),
+            &solid(16, 16, [255, 0, 255]),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(64),
+                rows_per_image: Some(16),
+            },
+            size,
+        );
+        let bindings = DisplayBindings {
+            layout: &gpu.layout,
+            sampler: &gpu.sampler,
+            empty_overlay: &gpu.empty,
+        };
+        // "a" has a sharp region (green) beside its whole frame (red).
+        multi.upload(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "a",
+            1,
+            CellExtent {
+                shown: [30.0, 20.0],
+                region: Some([10.0, 5.0, 10.0, 10.0]),
+            },
+            CellLayer::Region,
+            10,
+            10,
+            &solid(10, 10, [0, 255, 0]),
+        );
+        assert!(multi.region_of("a").is_some());
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 35, 50), [0, 255, 0]), "region drawn");
+        // "a" has its own render placed for the zoom: it stays, red and
+        // enlarged, not the live frame shown to fit; the region, which may
+        // predate edits, is released.
+        multi.adopt_live_frame(&gpu.device, &gpu.queue, &bindings, "a", &source, 16, 16);
+        assert_eq!(multi.texture_key("a"), Some(1));
+        assert_eq!(multi.region_of("a"), None);
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 35, 50), [255, 0, 0]));
+        // Above the fitted image (letterbox), only the enlarged frame is red.
+        assert!(close(pixel(&pixels, 35, 20), [255, 0, 0]));
+        // A cell without a frame of its own still takes the live frame.
+        multi.adopt_live_frame(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "pending",
+            &source,
+            16,
+            16,
+        );
+        assert_eq!(multi.texture_key("pending"), Some(0));
+        // Back at fit the live frame (the newer pixels) replaces the old one.
+        multi.set_zoom(None);
+        multi.adopt_live_frame(&gpu.device, &gpu.queue, &bindings, "a", &source, 16, 16);
+        assert_eq!(multi.texture_key("a"), Some(0));
     }
 
     #[test]
