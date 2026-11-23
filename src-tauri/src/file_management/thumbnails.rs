@@ -188,7 +188,7 @@ fn thumbnail_hash_for_engine(
     adjustments_bytes: &[u8],
     engine: u32,
 ) -> Option<String> {
-    thumbnail_hash_with(path_str, adjustments_bytes, engine, true, false)
+    thumbnail_hash_with(path_str, adjustments_bytes, engine, true, None)
 }
 
 /// The key a tile was cached under while its copy's preview proxy still held
@@ -203,7 +203,24 @@ fn thumbnail_hash_with_display_copy_held(
         adjustments_bytes,
         crate::preview_proxy::ENGINE_VERSION,
         true,
+        Some(true),
+    )
+}
+
+/// The key of a tile whose display copy was renewed (what the lookup asks
+/// for once the master's proxy is renewed or the copy's variant is known to
+/// differ), whatever the proxy says now: while offline and the master's
+/// sidecar is evicted the lookup cannot tell, and the tile may be there.
+fn thumbnail_hash_with_display_copy_renewed(
+    path_str: &str,
+    adjustments_bytes: &[u8],
+) -> Option<String> {
+    thumbnail_hash_with(
+        path_str,
+        adjustments_bytes,
+        crate::preview_proxy::ENGINE_VERSION,
         true,
+        Some(false),
     )
 }
 
@@ -217,7 +234,7 @@ fn thumbnail_hash_before_refreshes(path_str: &str, adjustments_bytes: &[u8]) -> 
         adjustments_bytes,
         crate::preview_proxy::ENGINE_VERSION,
         false,
-        false,
+        None,
     )
 }
 
@@ -226,7 +243,7 @@ fn thumbnail_hash_with(
     adjustments_bytes: &[u8],
     engine: u32,
     refreshed: bool,
-    hold_display_copy: bool,
+    display_copy: Option<bool>,
 ) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
@@ -289,11 +306,12 @@ fn thumbnail_hash_with(
         // A tile developed from a preview proxy that still holds the clamp
         // shows it, so it keeps its key until the proxy is renewed.
         if refreshed
-            && !(hold_display_copy
-                || display_copy_clamps(
+            && !display_copy.unwrap_or_else(|| {
+                display_copy_clamps(
                     &source_path,
                     adjustments.as_ref().unwrap_or(&serde_json::Value::Null),
-                ))
+                )
+            })
         {
             hasher.update(b"\0display-copy-keeps-beyond-srgb-v1\0");
         }
@@ -1553,10 +1571,11 @@ fn preferred_thumbnail_hash<'a>(
         .unwrap_or(developed)
 }
 
-/// The keys a tile of `path_str` may have been cached under before its
-/// refreshes, newest first: while its proxy still clamped, then before any.
+/// The keys a tile of `path_str` may have been cached under, newest
+/// first: with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
 fn older_tile_keys(path_str: &str, adjustments_bytes: &[u8]) -> Vec<String> {
     [
+        thumbnail_hash_with_display_copy_renewed(path_str, adjustments_bytes),
         thumbnail_hash_with_display_copy_held(path_str, adjustments_bytes),
         thumbnail_hash_before_refreshes(path_str, adjustments_bytes),
     ]
@@ -3752,16 +3771,22 @@ mod face_retouch_thumbnail_tests {
 
     #[cfg(unix)]
     #[test]
-    fn an_offline_copy_with_an_evicted_master_sidecar_keeps_its_old_tile() {
+    fn an_offline_copy_with_an_evicted_master_sidecar_finds_its_renewed_tile() {
         use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::tempdir().unwrap();
         let (source, copy_path, _, copy) = session_with_a_copy_of_another_variant(temp.path());
         let cache = temp.path().join("cache");
         std::fs::create_dir_all(&cache).unwrap();
+        // Looked up with the master's sidecar evicted, as the grid does.
+        crate::file_management::simulate_cloud_placeholder(
+            &temp.path().join("Capture/photo.RAF.rrdata"),
+        );
         let new = compute_thumbnail_cache_hash(&copy_path, &copy).unwrap();
-        let old = thumbnail_hash_before_refreshes(&copy_path, &copy).unwrap();
-        for size in ["small", "medium"] {
-            std::fs::write(cache.join(format!("{old}_{size}.jpg")), b"tile").unwrap();
+        let renewed = thumbnail_hash_with_display_copy_renewed(&copy_path, &copy).unwrap();
+        for hash in [&renewed] {
+            for size in ["small", "medium"] {
+                std::fs::write(cache.join(format!("{hash}_{size}.jpg")), b"tile").unwrap();
+            }
         }
         crate::file_management::simulate_cloud_placeholder(
             &temp.path().join("Capture/photo.RAF.rrdata"),
@@ -3778,8 +3803,9 @@ mod face_retouch_thumbnail_tests {
         std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
         if offline {
             // Whether the master's proxy fits is not known without the
-            // download: the cached tile stays, never a blank.
-            assert_eq!(chosen, old);
+            // download: a tile cached after the refresh is found; the
+            // older one stays otherwise (tested above), never a blank.
+            assert_eq!(chosen, renewed);
         }
     }
 
