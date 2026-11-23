@@ -68,7 +68,7 @@ it('keeps an export failure under Needs attention with Try again and the photogr
   const failure = entry('export:j1')!;
   expect(failure).toMatchObject({
     status: 'failure',
-    title: '1 photo did not export: 3 photos as JPG',
+    title: '1 photo did not export: 3 photos as JPG · 2 written',
     paths: ['/s/A.NEF']
   });
   expect(failure.detail).toBe('A.NEF: disk full');
@@ -114,10 +114,10 @@ it('offers no Try again for a failed Edit With render: it is never resumed', () 
   expect(entry('export:j1')!.actions).toBeUndefined();
 });
 
-it('ends the task of an export that finished well (its files are reported once with Show in Finder)', () => {
+it('counts new files when every photo was written', () => {
   useProcessStore.getState().setExportQueue({ jobs: [job({})], held: false });
   useProcessStore.getState().setExportQueue({ jobs: [job({ state: 'done', done: 3 })], held: false });
-  expect(entry('export:j1')).toBeUndefined();
+  expect(entry('export:j1')?.title).toBe('3 photos as JPG · 3 written');
 });
 
 it.each([
@@ -135,14 +135,35 @@ it.each([
   }
 });
 
-it('keeps the skipped, replaced and renamed counts on a mixed export', () => {
-  const run = job({});
+it('counts every photo on a mixed export', () => {
+  const run = job({ label: '6 photos as JPG', total: 6 });
   useProcessStore.getState().setExportQueue({ jobs: [run], held: false });
   useProcessStore.getState().setExportQueue({
-    jobs: [{ ...run, state: 'done', done: 3, skipped: 1, replaced: 1, keptBoth: 1 }],
+    jobs: [{ ...run, state: 'done', done: 6, skipped: 2, replaced: 1 }],
     held: false
   });
-  expect(entry('export:j1')?.title).toBe('Exported 3 photos as JPG (1 skipped · 1 replaced · 1 kept as a new name)');
+  expect(entry('export:j1')?.title).toBe('6 photos as JPG · 3 written · 2 skipped · 1 replaced');
+});
+
+it('counts each outcome alongside a partial failure', () => {
+  useProcessStore.getState().setExportQueue({
+    jobs: [
+      job({
+        label: '6 photos as JPG',
+        total: 6,
+        state: 'failed',
+        done: 5,
+        skipped: 2,
+        replaced: 1,
+        keptBoth: 1,
+        failed: 1
+      })
+    ],
+    held: false
+  });
+  expect(entry('export:j1')?.title).toBe(
+    '1 photo did not export: 6 photos as JPG · 1 written · 2 skipped · 1 replaced · 1 kept as a new name'
+  );
 });
 
 it('keeps a failed paste until dismissed: a later paste of other values says nothing about it', async () => {

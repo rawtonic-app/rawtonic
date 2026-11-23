@@ -75,10 +75,13 @@ it('says what each photo is doing, AI Denoise with its share done', () => {
 });
 
 it('says what "If a file exists" skipped, replaced or kept, per job and per photo', () => {
-  expect(describeExportJob(job({ state: 'done', done: 4 }))).toBe('Done');
-  expect(describeExportJob(job({ state: 'done', done: 4, skipped: 2, replaced: 1, keptBoth: 1 }))).toBe(
-    'Done · 2 skipped · 1 replaced · 1 kept as a new name'
+  expect(describeExportJob(job({ state: 'done', done: 4 }))).toBe('Done · 4 written');
+  expect(describeExportJob(job({ state: 'done', total: 6, done: 6, skipped: 2, replaced: 1 }))).toBe(
+    'Done · 3 written · 2 skipped · 1 replaced'
   );
+  expect(
+    describeExportJob(job({ state: 'failed', total: 6, done: 5, skipped: 2, replaced: 1, keptBoth: 1, failed: 1 }))
+  ).toBe('1 of 6 failed · 1 written · 2 skipped · 1 replaced · 1 kept as a new name');
   expect(describeExportItem(item(0, { state: 'done', outcome: 'skippedUnchanged' }))).toBe(
     'Skipped: unchanged since its last export'
   );

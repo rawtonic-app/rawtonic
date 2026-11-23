@@ -70,7 +70,7 @@ afterEach(() => cleanup());
 
 it('describes what each queued export is waiting for', () => {
   expect(describeExportJob(job({}))).toBe('Interrupted (12 of 30 exported)');
-  expect(describeExportJob(job({ state: 'failed', failed: 3 }))).toBe('3 of 30 failed');
+  expect(describeExportJob(job({ state: 'failed', failed: 3 }))).toBe('3 of 30 failed · 12 written');
   expect(describeExportJob(job({ state: 'queued', done: 0 }))).toBe('Waiting');
   expect(describeExportJob(job({ state: 'cancelled' }))).toBe('Cancelled (12 of 30 exported)');
 });

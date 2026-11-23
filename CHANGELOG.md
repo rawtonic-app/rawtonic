@@ -14,6 +14,8 @@
 
 ### Fixes
 
+- The export queue and Activity count newly written photos alongside skips, replacements, new names and failures. Replace if changed skips an unchanged export when saving and reopening its edit only adds bookkeeping to the recipe.
+
 - **Restart now for an update reopens a photo you opened on its own.** With no library open, a photo opened that way could come back as an empty start screen after the update's restart: on Windows always (the setup restarts Rawtonic without the file), on macOS and Linux when the photo was handed to Rawtonic while it was already running or opened from the Finder, and for a Linux AppImage started with a relative path. Rawtonic now notes what was open in its own settings folder before the update installs and opens it again at the next start; the photo file itself is never touched. A library reopens by itself as before, and a restart no longer brings back a library or photo from the first launch's command line after you switched to another one. The restarted AppImage also starts in the folder it was first launched from, so a file named relative to that folder is found again.
 
 - Virtual copies use previews that match their framing. A copy can open from its matching preview while the original is offline, even if the master uses a different frame. The grid keeps the copy’s existing thumbnail when it can’t make a new one offline.

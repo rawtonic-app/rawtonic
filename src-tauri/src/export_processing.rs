@@ -1647,14 +1647,14 @@ pub(crate) fn known_libraries(
 pub(crate) fn photo_inputs(
     pinned: &PinnedPhoto,
     settings: &crate::app_settings::AppSettings,
+    source: &Path,
     is_raw: bool,
 ) -> Value {
     let lut_file = pinned.adjustments[effects::LUT_PATH.into_name()]
         .as_str()
         .filter(|path| !path.is_empty())
         .map(|path| existing_files::file_fingerprint(Path::new(path)));
-    serde_json::json!({
-        "adjustments": &pinned.adjustments,
+    let mut parts = serde_json::json!({
         "metadata": &pinned.metadata,
         "capture": &pinned.capture,
         "sourceIdentity": &pinned.source_identity,
@@ -1665,7 +1665,9 @@ pub(crate) fn photo_inputs(
             crate::image_processing::resolve_tonemapper_override(settings, is_raw),
             crate::image_processing::resolve_tonemapper_override(settings, false),
         ],
-    })
+    });
+    parts["adjustments"] = existing_files::adjustments_for_hash(&pinned.adjustments, source);
+    parts
 }
 
 /// A recipe's inputs for one photo (`photo_inputs`): the recipe's settings
@@ -2100,7 +2102,7 @@ fn export_photo(
     // settings, under the app's version. Not the EXIF cache: it is the
     // original's own EXIF (the file is in `sourceIdentity`), cached only
     // after a first decode, which would count as a change.
-    let pinned_inputs = photo_inputs(&pinned, settings, is_raw);
+    let pinned_inputs = photo_inputs(&pinned, settings, original_path, is_raw);
     // Once per recipe, before it renders: the render reads these inputs
     // (the watermark file included) after this, and its record names them.
     let hash_inputs = |target: usize| target_inputs_hash(&pinned_inputs, &targets[target]);
