@@ -3532,6 +3532,7 @@ impl WgpuDisplay {
                 texture,
                 size: (*width, *height),
                 placed,
+                pixelated: self.latest_transform.pixelated > 0.5,
             }),
             _ => None,
         };

@@ -57,6 +57,8 @@ pub(crate) struct LiveFrame<'a> {
     pub texture: &'a wgpu::Texture,
     pub size: (u32, u32),
     pub placed: Option<[f32; 4]>,
+    /// Shown nearest-neighbour (the editor's maximum zoom).
+    pub pixelated: bool,
 }
 
 /// A secondary photograph's developed frame (display-encoded RGBA8).
@@ -66,6 +68,9 @@ pub(crate) struct CellTexture {
     key: u64,
     /// Unknown for a stand-in: then it is only shown to fit.
     extent: Option<CellExtent>,
+    /// Sampled nearest-neighbour: an adopted live frame keeps the sampling
+    /// it was shown with (the editor's maximum zoom), until replaced.
+    pixelated: bool,
     _texture: wgpu::Texture,
     width: u32,
     height: u32,
@@ -397,6 +402,7 @@ impl MultiView {
         CellTexture {
             key,
             extent,
+            pixelated: false,
             _texture: texture,
             width,
             height,
@@ -567,6 +573,15 @@ impl MultiView {
                 live.size,
                 placed,
             );
+            if placed.is_some() && live.pixelated {
+                for texture in [self.textures.get_mut(&old), self.regions.get_mut(&old)]
+                    .into_iter()
+                    .flatten()
+                    .filter(|texture| texture.key == 0)
+                {
+                    texture.pixelated = true;
+                }
+            }
         }
     }
 
@@ -684,6 +699,24 @@ impl MultiView {
         };
         let texture = Self::make_texture(device, bindings, 0, Some(region), texture);
         self.regions.insert(path.to_string(), texture);
+    }
+
+    /// Whether `path`'s cell shows its adopted live region (key 0, as sharp
+    /// as the photograph was on screen as the primary) and it still covers
+    /// what the cell shows: an interim region, developed from a reduced
+    /// source, would only make it softer until the developed one arrives.
+    pub fn keeps_live_region(&self, path: &str) -> bool {
+        let (Some(cell), Some(zoom), Some(region)) =
+            (self.cell(path), self.zoom_of(path), self.regions.get(path))
+        else {
+            return false;
+        };
+        region.key == 0
+            && region.extent.is_some_and(|extent| {
+                extent
+                    .region
+                    .is_some_and(|r| region_covers(r, cell.area, extent.shown, zoom))
+            })
     }
 
     /// Whether `path`'s cell is zoomed in and already has a whole-photograph
@@ -830,7 +863,7 @@ impl MultiView {
                     window,
                     image_size: size,
                     texture_size: size,
-                    pixelated: 0.0,
+                    pixelated: if texture.pixelated { 1.0 } else { 0.0 },
                     rotation: 0.0,
                     bg_primary: background,
                     bg_secondary: background,
@@ -1710,6 +1743,8 @@ mod tests {
                     texture: &source,
                     size: (32, 32),
                     placed: Some(placed),
+                    // The editor's maximum zoom samples nearest-neighbour.
+                    pixelated: label == "lock on",
                 }),
             );
             assert_eq!(multi.primary(), Some("a"), "{label}");
@@ -1725,6 +1760,20 @@ mod tests {
             assert_eq!(key, 0, "{label}");
             assert_eq!(extent.shown, [32.0, 32.0], "{label}");
             assert_eq!(extent.region, Some([8.0, 6.0, 16.0, 20.0]), "{label}");
+            assert!(
+                multi.keeps_live_region("primary"),
+                "{label}: no interim over it"
+            );
+            assert_eq!(
+                multi.regions["primary"].pixelated,
+                label == "lock on",
+                "{label}"
+            );
+            assert_eq!(
+                multi.textures["primary"].pixelated,
+                label == "lock on",
+                "{label}"
+            );
             let pixels = present(&gpu, &multi, None);
             // Enlarged as before the switch: the cyan centre spans 89–121
             // (at fit it would span 97.5–112.5 only, magenta around it).
@@ -1786,6 +1835,7 @@ mod tests {
                 texture: &source,
                 size: (32, 32),
                 placed: Some([75.0, 20.0, 60.0, 60.0]),
+                pixelated: false,
             }),
         );
         assert_eq!(multi.region_of("primary"), None);

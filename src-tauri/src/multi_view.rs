@@ -235,18 +235,40 @@ pub(crate) async fn set_multi_view(
     zooms: Option<ZoomsPayload>,
     app_handle: tauri::AppHandle,
 ) -> Result<bool, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        show_cells(&app_handle, primary, cells, zooms.map(cell_zooms))
-    })
-    .await
-    .map_err(|e| format!("Multi view task failed: {e}"))
+    let zooms = zooms.map(|zooms| {
+        (
+            cell_zooms(zooms),
+            ZOOM_SEQ.fetch_add(1, Ordering::SeqCst) + 1,
+        )
+    });
+    tauri::async_runtime::spawn_blocking(move || show_cells(&app_handle, primary, cells, zooms))
+        .await
+        .map_err(|e| format!("Multi view task failed: {e}"))
+}
+
+/// Numbers the zooms in the order they are received, with a layout
+/// ([`set_multi_view`]) or alone ([`set_multi_view_zoom`]); the newest
+/// applied is [`ZOOM_APPLIED`] (read and written under the display lock). A
+/// layout's zooms, applied after its stand-ins are decoded, never undo a
+/// zoom or pan received after it, and an older zoom never undoes a layout's.
+static ZOOM_SEQ: AtomicU64 = AtomicU64::new(0);
+static ZOOM_APPLIED: AtomicU64 = AtomicU64::new(0);
+
+/// Whether zooms numbered `seq` are newer than the ones applied (and are
+/// now the applied ones).
+fn take_zoom_turn(seq: u64) -> bool {
+    let newer = seq > ZOOM_APPLIED.load(Ordering::SeqCst);
+    if newer {
+        ZOOM_APPLIED.store(seq, Ordering::SeqCst);
+    }
+    newer
 }
 
 fn show_cells(
     app_handle: &tauri::AppHandle,
     primary: Option<String>,
     cells: Vec<CellPayload>,
-    zooms: Option<CellZooms>,
+    zooms: Option<(CellZooms, u64)>,
 ) -> bool {
     let Ok(context) = gpu_processing::get_or_init_gpu_context(
         &app_handle.state::<crate::state::gpu::GpuState>(),
@@ -282,7 +304,7 @@ fn show_cells(
                     area: cell.area,
                 })
                 .collect(),
-            zooms,
+            zooms.and_then(|(zooms, seq)| take_zoom_turn(seq).then_some(zooms)),
         );
         // The live frame in its cell at once, not after the webview's
         // editor has laid out the cell (a frame later).
@@ -2121,6 +2143,7 @@ pub(crate) async fn set_multi_view_zoom(
     cells: Option<HashMap<String, ZoomPayload>>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
+    let seq = ZOOM_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
     tauri::async_runtime::spawn_blocking(move || {
         let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
             return;
@@ -2135,7 +2158,10 @@ pub(crate) async fn set_multi_view_zoom(
                 return;
             };
             let multi = display.multi_view();
-            if !multi.is_active() || (multi.zoom() == shared && multi.cell_zooms() == &individual) {
+            if !multi.is_active() || !take_zoom_turn(seq) {
+                return;
+            }
+            if multi.zoom() == shared && multi.cell_zooms() == &individual {
                 return;
             }
             display.set_multi_view_zooms(shared, individual);
@@ -3559,6 +3585,9 @@ fn show_interim_regions(
                     else {
                         return;
                     };
+                    if keeps_live_region(context, &path) {
+                        continue;
+                    }
                     let region = match develop_interim_region(
                         app_handle, context, &path, area, zoom, &recipe, key, &interim,
                     ) {
@@ -3598,6 +3627,17 @@ fn show_interim_regions(
             });
         }
     });
+}
+
+/// Whether `path`'s cell still shows the sharp region it kept from its live
+/// frame (it was the primary): no interim region over it.
+fn keeps_live_region(context: &GpuContext, path: &str) -> bool {
+    context
+        .display
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|display| display.multi_view().keeps_live_region(path))
 }
 
 /// The render key of an interim region (`develop_interim_region`) of the
@@ -4655,6 +4695,12 @@ mod tests {
             }
         );
         assert_eq!(cell_zooms(args("fit").zooms.unwrap()), CellZooms::default());
+        // Zooms apply in the order received: one received after the
+        // layout wins over the layout's own, an older one never undoes it.
+        let first = ZOOM_SEQ.fetch_add(2, Ordering::SeqCst) + 1;
+        assert!(take_zoom_turn(first + 1));
+        assert!(!take_zoom_turn(first));
+        assert!(!take_zoom_turn(first + 1));
         // Leaving the multi view sends no zooms: the cells are released.
         let single = args("single");
         assert!(single.primary.is_none() && single.cells.is_empty() && single.zooms.is_none());
