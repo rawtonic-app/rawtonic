@@ -1745,14 +1745,30 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                         && lightroom_strokes(c).iter().any(|s| s["autoMask"] == true)
                 });
                 if gated_eraser {
-                    if !items.is_empty() || attr("MaskBlendMode").is_some_and(|b| b != "0") {
+                    // Its eraser cuts everything before it, so the group goes
+                    // first when only additive components precede it
+                    // (c ∪ b · (1 − e) is one value in either order).
+                    let additive = |item: &roxmltree::Node| {
+                        let a = |n: &str| item.attribute((CRS_NS, n));
+                        matches!(a("MaskBlendMode"), None | Some("0"))
+                            && a("MaskInverted") != Some("true")
+                            && a("MaskValue")
+                                .and_then(|v| v.parse::<f64>().ok())
+                                .is_none_or(|v| v > 0.0 || a("What") == Some("Mask/Aggregate"))
+                    };
+                    if !matches!(attr("MaskBlendMode"), None | Some("0"))
+                        || attr("MaskInverted") == Some("true")
+                        || !items.iter().all(|(item, _, _)| additive(item))
+                    {
                         supported = false;
                         continue;
                     }
                     let active = attr("MaskActive") != Some("false");
-                    for child in children {
-                        items.push((described(child), active, None));
-                    }
+                    let flat: Vec<_> = children
+                        .into_iter()
+                        .map(|c| (described(c), active, None))
+                        .collect();
+                    items.splice(0..0, flat);
                     continue;
                 }
                 let mut strokes = Vec::new();
@@ -3461,8 +3477,8 @@ mod tests {
         );
         assert_eq!(subs_of(&mixed_children).len(), 2);
         // An eraser with Auto Mask stays separate stroke components, the
-        // eraser an Intersect with Invert gated like a brush (as before),
-        // only as the first component; elsewhere it is left out and named.
+        // eraser an Intersect with Invert gated like a brush (as before); the
+        // group goes first when only additive components precede it.
         let auto_eraser = brush("0", "false").replace(
             "<rdf:li>d 0.63 0.50</rdf:li>",
             "<rdf:li>M 0.63 0.50</rdf:li>",
@@ -3477,12 +3493,28 @@ mod tests {
             subs[1]["parameters"]["lrNormalized"]["strokes"][0]["autoMask"],
             json!(true)
         );
-        let after_other = auto_eraser.replacen(
+        let after_gradient = auto_eraser.replacen(
             r#"<rdf:li><rdf:Description crs:What="Mask/Aggregate""#,
             gradient,
             1,
         );
-        let (layers, skipped) = super::lightroom_masks(&after_other);
+        let types: Vec<_> = subs_of(&after_gradient)
+            .iter()
+            .map(|s| s["type"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(types, ["brush", "brush", "linear"]);
+        // After a component that subtracts, or inverted: left out and named.
+        let after_subtract = after_gradient.replace(
+            r#"crs:What="Mask/Gradient" crs:MaskValue="1""#,
+            r#"crs:What="Mask/Gradient" crs:MaskBlendMode="1" crs:MaskValue="0""#,
+        );
+        let (layers, skipped) = super::lightroom_masks(&after_subtract);
+        assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
+        let inverted_group = auto_eraser.replace(
+            r#"crs:MaskInverted="false" crs:MaskValue="1""#,
+            r#"crs:MaskInverted="true" crs:MaskValue="1""#,
+        );
+        let (layers, skipped) = super::lightroom_masks(&inverted_group);
         assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
         // An active stroke without readable dabs is named, not dropped.
         let no_dabs = brush("0", "false").replace("<rdf:li>d 0.63 0.50</rdf:li>", "");
