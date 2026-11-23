@@ -4626,6 +4626,7 @@
           "details": "Any text but keywords",
           "duplicate": "Duplicate (identical image data)",
           "exposure": "Shutter speed (s)",
+          "exposureExact": "Shutter speed (s, narrow tolerance)",
           "eyes": "Eyes",
           "filename": "File name",
           "fileType": "File type",

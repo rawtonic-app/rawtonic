@@ -5019,6 +5019,7 @@
           "details": "Dowolny tekst poza słowami kluczowymi",
           "duplicate": "Duplikat (identyczne dane obrazu)",
           "exposure": "Czas naświetlania (s)",
+          "exposureExact": "Czas naświetlania (s, wąska tolerancja)",
           "eyes": "Oczy",
           "filename": "Nazwa pliku",
           "fileType": "Typ pliku",

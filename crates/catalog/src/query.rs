@@ -93,6 +93,8 @@ pub enum Field {
     Aperture,
     /// Exposure time in seconds.
     Exposure,
+    /// Exposure time in seconds, compared within 0.01 stop for imported rules.
+    ExposureExact,
     CaptureDate,
     /// When the photograph came into the library.
     ImportDate,
@@ -668,7 +670,11 @@ impl<'a> Compiler<'a> {
         let near = |n: f64| match tolerance {
             Tolerance::Absolute(t) => t,
             Tolerance::Relative(r) => n.abs() * r,
-            Tolerance::Listed(_) => 0.0,
+            Tolerance::Listed(_) | Tolerance::Stops(_) => 0.0,
+        };
+        let bounds = |n: f64| match tolerance {
+            Tolerance::Stops(stops) => (n * (-stops).exp2(), n * stops.exp2()),
+            _ => (n - near(n), n + near(n)),
         };
         Ok(match (op, tolerance) {
             (Op::Is | Op::IsNot, Tolerance::Listed(listed)) => {
@@ -682,6 +688,14 @@ impl<'a> Compiler<'a> {
                     format!("({column} IS NULL OR NOT {test})")
                 }
             }
+            (Op::Is | Op::IsNot, Tolerance::Stops(_)) => {
+                let (low, high) = bounds(number(value)?);
+                self.push(low);
+                self.push(high);
+                // A photo without an exposure time is excluded from both comparisons.
+                let not = if op == Op::IsNot { "NOT " } else { "" };
+                format!("{column} {not}BETWEEN ? AND ?")
+            }
             (Op::Is | Op::IsNot, _) => {
                 let n = number(value)?;
                 self.push(n);
@@ -694,13 +708,13 @@ impl<'a> Compiler<'a> {
                 }
             }
             (Op::Lt | Op::Le | Op::Gt | Op::Ge, _) => {
-                let n = number(value)?;
+                let (low, high) = bounds(number(value)?);
                 // Within the tolerance counts as equal.
                 let (sign, bound) = match op {
-                    Op::Lt => ("<", n - near(n)),
-                    Op::Le => ("<=", n + near(n)),
-                    Op::Gt => (">", n + near(n)),
-                    _ => (">=", n - near(n)),
+                    Op::Lt => ("<", low),
+                    Op::Le => ("<=", high),
+                    Op::Gt => (">", high),
+                    _ => (">=", low),
                 };
                 self.push(bound);
                 format!("{column} {sign} ?")
@@ -708,8 +722,8 @@ impl<'a> Compiler<'a> {
             (Op::Between, _) => {
                 let (from, to) = pair(value, number)?;
                 let (from, to) = if from <= to { (from, to) } else { (to, from) };
-                self.push(from - near(from));
-                self.push(to + near(to));
+                self.push(bounds(from).0);
+                self.push(bounds(to).1);
                 format!("{column} BETWEEN ? AND ?")
             }
             (Op::Empty, _) => format!("{column} IS NULL"),
@@ -1033,6 +1047,9 @@ impl<'a> Compiler<'a> {
             // Cameras round exposure times (1/250 is 0.004 or 1/256).
             Field::Exposure => {
                 self.number_column("a.exposure", op, value, Tolerance::Relative(0.03))
+            }
+            Field::ExposureExact => {
+                self.number_column("a.exposure", op, value, Tolerance::Stops(0.01))
             }
             Field::CaptureDate => self.date_column(crate::capture_time::EFFECTIVE, op, value),
             Field::ImportDate => self.date_column(
@@ -1360,6 +1377,8 @@ impl<'a> Compiler<'a> {
 enum Tolerance {
     Absolute(f64),
     Relative(f64),
+    /// A multiplicative interval of ± this many stops around an exposure time.
+    Stops(f64),
     /// Exact, and for "is" also the photographs a value list counts under
     /// the value (the SQL that rounds as the list does).
     Listed(&'static str),

@@ -27,6 +27,7 @@ export type Field =
   | 'focalLength'
   | 'aperture'
   | 'exposure'
+  | 'exposureExact'
   | 'captureDate'
   | 'importDate'
   | 'album'

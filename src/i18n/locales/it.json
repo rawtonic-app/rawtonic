@@ -4823,6 +4823,7 @@
           "details": "Qualsiasi testo tranne le parole chiave",
           "duplicate": "Duplicato (dati immagine identici)",
           "exposure": "Tempo di posa (s)",
+          "exposureExact": "Tempo di posa (s, tolleranza ridotta)",
           "eyes": "Occhi",
           "filename": "Nome file",
           "fileType": "Tipo di file",

@@ -4494,6 +4494,7 @@
           "details": "關鍵字以外的任意文字",
           "duplicate": "重複項目（影像資料相同）",
           "exposure": "快門速度（秒）",
+          "exposureExact": "快門速度（秒，較小容差）",
           "eyes": "眼睛",
           "filename": "檔案名稱",
           "fileType": "檔案類型",
