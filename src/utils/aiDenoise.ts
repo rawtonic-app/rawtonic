@@ -210,16 +210,23 @@ export function sourceDevelopToApply(
   };
 }
 
+/** Whether a file may be a DNG, the one format whose files carry lens
+ * opcodes (crates/engine/src/image_loader.rs `may_hold_dng_opcodes`): a
+ * `.dng`, or a TIFF the RAW path takes by its content. */
+const mayHoldDngOpcodes = (path: string | undefined): boolean => /\.(dng|tiff?)$/i.test(path ?? '');
+
 /** Whether the open photograph's decode may depend on its lens warp's planes
  * (`cameraPlaneWarp`): the backend reports them only for DNGs whose warp
- * has different coefficients per plane. While only preview data is open
- * (a RAW not decoded yet, not offline) it is not known which files those
- * are, so the planes count: a snapshot of another render version is not
- * shown through the preview proxy built for the edit's version. */
+ * has different coefficients per plane. Where no decode reports them (preview
+ * data of a RAW not decoded yet, an offline photograph) it is not known
+ * which files those are, so the planes count for a file that may be a DNG:
+ * a snapshot of another render version is not shown through the preview
+ * proxy built for the edit's version. */
 export const warpPlanesMatter = (
-  image: Partial<Pick<SelectedImage, 'cameraPlaneWarp' | 'isRaw' | 'isDecoded' | 'offline'>> | null | undefined
+  image: Partial<Pick<SelectedImage, 'cameraPlaneWarp' | 'isRaw' | 'isDecoded' | 'offline' | 'path'>> | null | undefined
 ): boolean =>
-  image?.cameraPlaneWarp !== undefined || (image?.isRaw === true && image.isDecoded === false && !image.offline);
+  image?.cameraPlaneWarp !== undefined ||
+  (image?.isRaw === true && (image.isDecoded === false || !!image.offline) && mayHoldDngOpcodes(image.path));
 
 /**
  * How a recipe develops the RAW before any adjustment (AI Denoise amount and

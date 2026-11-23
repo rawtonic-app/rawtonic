@@ -319,8 +319,12 @@ describe('developmentSignature', () => {
     );
     // Preview data of a RAW (which files are affected is not known yet):
     // they differ, until the decode reports.
-    expect(warpPlanesMatter({ isRaw: true, isDecoded: false })).toBe(true);
-    expect(warpPlanesMatter({ isRaw: true, isDecoded: false, offline: {} as never })).toBe(false);
+    const preview = { isRaw: true, isDecoded: false, path: '/p/a.DNG' };
+    expect(warpPlanesMatter(preview)).toBe(true);
+    // An offline photograph never decodes: the same.
+    expect(warpPlanesMatter({ ...preview, isDecoded: true, offline: {} as never })).toBe(true);
+    // Formats that cannot carry the lens opcodes are compared at once.
+    expect(warpPlanesMatter({ ...preview, path: '/p/a.NEF' })).toBe(false);
     // ... while other photographs (no such warp, other formats) still share.
     expect(warpPlanesMatter({})).toBe(false);
     expect(warpPlanesMatter(null)).toBe(false);

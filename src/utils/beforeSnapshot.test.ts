@@ -209,3 +209,14 @@ it('is no before for an older render version while the decode that shows it is n
   useEditorStore.setState({ selectedImage: { ...open, isDecoded: true, cameraPlaneWarp: true } as never });
   expect(beforeSnapshot()).toBeNull();
 });
+
+it('keeps an offline photograph, which never decodes, from showing an older version through its proxy', () => {
+  const old: Snapshot = { ...snapshot, adjustments: { ...snapshot.adjustments, renderVersion: 13 } };
+  useSnapshotStore.setState({ snapshots: [old] });
+  const open = useEditorStore.getState().selectedImage!;
+  useEditorStore.setState({
+    selectedImage: { ...open, isDecoded: true, offline: { reason: 'volume' } } as never,
+    adjustments: { ...INITIAL_ADJUSTMENTS, renderVersion: 14 } as never
+  });
+  expect(beforeSnapshot()).toBeNull();
+});
