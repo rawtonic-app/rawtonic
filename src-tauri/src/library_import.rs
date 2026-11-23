@@ -1684,7 +1684,9 @@ mod tests {
         );
         assert_eq!(
             capture_one_lens_report(&generic),
-            ["Capture One's Generic lens profile: its Distortion 30 is carried as a polynomial distortion without a lens profile"]
+            [
+                "Capture One's Generic lens profile: its Distortion 30 is carried as a polynomial distortion without a lens profile"
+            ]
         );
         // Out of range values are clamped to the slider's 0…100.
         let mut clamped = json!({});
@@ -1714,7 +1716,11 @@ mod tests {
         assert_eq!(capture_one_lens_report(&untouched).len(), 1);
         let mut kept = json!({});
         capture_one_lens(&untouched, &raw, &mut kept);
-        assert_eq!(kept, json!({}), "Distortion 0: the default lens correction stays");
+        assert_eq!(
+            kept,
+            json!({}),
+            "Distortion 0: the default lens correction stays"
+        );
         // A lens profile of Capture One's own reports nothing.
         let profiled = entries(&[
             ("LensIdGuid", "P"),
