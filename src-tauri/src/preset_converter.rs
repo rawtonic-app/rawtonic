@@ -3650,7 +3650,10 @@ mod tests {
         // fitted ones). Positive variance has no mapping and stays at 0.
         let swatch = "0.500000, 0.700000, 0.300000, 0.000000, 0.000000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.520000, 1.000000, 1.000000, 0.000000, 0.400000, 0.760000, 1.000000".to_string();
         let uniformities = |variance: &str| {
-            let ranges = super::point_color_ranges_from(&[swatch.clone()], &[variance.to_string()]);
+            let ranges = super::point_color_ranges_from(
+                std::slice::from_ref(&swatch),
+                &[variance.to_string()],
+            );
             [
                 "hueUniformity",
                 "saturationUniformity",
