@@ -185,7 +185,24 @@ fn thumbnail_hash_for_engine(
     adjustments_bytes: &[u8],
     engine: u32,
 ) -> Option<String> {
-    thumbnail_hash_with(path_str, adjustments_bytes, engine, true, None)
+    thumbnail_hash_with(path_str, adjustments_bytes, engine, true, None, true)
+}
+
+/// The key a tile was cached under before a photo's camera matched its
+/// Develop defaults' entries by the camera's one name (2026-11-23): while
+/// the original is unavailable, that tile is better than none.
+fn thumbnail_hash_before_camera_identity(
+    path_str: &str,
+    adjustments_bytes: &[u8],
+) -> Option<String> {
+    thumbnail_hash_with(
+        path_str,
+        adjustments_bytes,
+        crate::preview_proxy::ENGINE_VERSION,
+        true,
+        None,
+        false,
+    )
 }
 
 /// The key a tile was cached under while its copy's preview proxy still held
@@ -201,6 +218,7 @@ fn thumbnail_hash_with_display_copy_held(
         crate::preview_proxy::ENGINE_VERSION,
         true,
         Some(true),
+        false,
     )
 }
 
@@ -218,6 +236,7 @@ fn thumbnail_hash_with_display_copy_renewed(
         crate::preview_proxy::ENGINE_VERSION,
         true,
         Some(false),
+        false,
     )
 }
 
@@ -232,6 +251,7 @@ fn thumbnail_hash_before_refreshes(path_str: &str, adjustments_bytes: &[u8]) -> 
         crate::preview_proxy::ENGINE_VERSION,
         false,
         None,
+        false,
     )
 }
 
@@ -241,6 +261,7 @@ fn thumbnail_hash_with(
     engine: u32,
     refreshed: bool,
     display_copy: Option<bool>,
+    camera_identity: bool,
 ) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
@@ -266,6 +287,11 @@ fn thumbnail_hash_with(
     {
         hasher.update(b"\0develop-defaults\0");
         hasher.update(&defaults);
+        // The same defaults may give a photo another camera entry since its
+        // camera is matched by its one name for all its files.
+        if camera_identity {
+            hasher.update(b"\0camera-identity-v1");
+        }
     }
     // Absent light fields now render with a new light's values.
     if adjustments
@@ -1585,9 +1611,10 @@ fn preferred_thumbnail_hash<'a>(
 }
 
 /// The keys a tile of `path_str` may have been cached under, newest
-/// first: with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
+/// first: before camera identities, with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
 fn older_tile_keys(path_str: &str, adjustments_bytes: &[u8]) -> Vec<String> {
     [
+        thumbnail_hash_before_camera_identity(path_str, adjustments_bytes),
         thumbnail_hash_with_display_copy_renewed(path_str, adjustments_bytes),
         thumbnail_hash_with_display_copy_held(path_str, adjustments_bytes),
         thumbnail_hash_before_refreshes(path_str, adjustments_bytes),
@@ -1612,6 +1639,7 @@ fn keep_tile_of_unavailable_original(
     // develops nothing without downloading it): its old tile stays.
     if crate::preview_proxy::source_available(source)
         || (!is_cloud_placeholder(source)
+            && !proxy_lacks_camera_defaults(&rawtonic_engine::develop_defaults::current(), recipe)
             && crate::preview_proxy::stands_for_by_recipe(source, recipe) == Some(true))
         || thumbnail_files_exist(directory, &new)
     {
@@ -1621,6 +1649,16 @@ fn keep_tile_of_unavailable_original(
         .into_iter()
         .find(|old| *old != new && thumbnail_files_exist(directory, old))
         .unwrap_or(new)
+}
+
+/// A tile developed from a proxy while the original is unavailable cannot
+/// carry a never-edited photo's camera defaults (its camera is read from the
+/// original), so it does not replace one cached while it was readable.
+fn proxy_lacks_camera_defaults(
+    defaults: &rawtonic_engine::develop_defaults::DevelopDefaults,
+    recipe: &serde_json::Value,
+) -> bool {
+    !defaults.cameras.is_empty() && rawtonic_engine::develop_defaults::follows_defaults(recipe)
 }
 
 fn thumbnail_files_exist(directory: &Path, hash: &str) -> bool {
@@ -3883,6 +3921,28 @@ mod face_retouch_thumbnail_tests {
         // stays instead of a blank.
         assert_eq!(key(&copy), old);
         std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    /// A never-edited photo with camera defaults set cannot get them from a
+    /// proxy while its original is offline (CID1 review round 3): its old
+    /// tile stays; an edited one, or without camera defaults, renews.
+    #[test]
+    fn a_proxy_does_not_replace_a_tile_with_camera_defaults_of_an_offline_original() {
+        use rawtonic_engine::develop_defaults::{CameraDefaults, DevelopDefaults};
+        let mut defaults = DevelopDefaults::default();
+        let never_edited = serde_json::Value::Null;
+        let edited = serde_json::json!({ "exposure": 0.5 });
+        assert!(!proxy_lacks_camera_defaults(&defaults, &never_edited));
+        defaults.cameras.push(CameraDefaults {
+            make: "Canon".into(),
+            model: "EOS R5".into(),
+            serial: None,
+            name: None,
+            settings: Default::default(),
+            inherit: false,
+        });
+        assert!(proxy_lacks_camera_defaults(&defaults, &never_edited));
+        assert!(!proxy_lacks_camera_defaults(&defaults, &edited));
     }
 
     /// An evicted cloud original is not developed for a tile, so a preview
