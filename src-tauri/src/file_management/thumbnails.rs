@@ -163,13 +163,10 @@ fn cache_label(path_str: &str, source: &Path) -> String {
 
 /// Whether a tile of `source` is developed from a Standard proxy that still
 /// holds the clamp (`preview_proxy::DISPLAY_COPY`): until the proxy is
-/// renewed its tile keeps its old key. A virtual copy of another decode
-/// variant renders from the RAW, never from that proxy: its tile is renewed
-/// at once (decided from the recipes, `stands_for_by_recipe`).
+/// renewed its tile keeps its old key. Online, a copy that develops another
+/// decode variant or effective frame can renew its tile from the RAW.
 fn display_copy_clamps(source: &Path, recipe: &serde_json::Value) -> bool {
-    crate::preview_proxy::standard_display_copy_is_stale(source)
-        // Unknown (an evicted master sidecar): the tile keeps its key.
-        && crate::preview_proxy::stands_for_by_recipe(source, recipe) != Some(false)
+    crate::preview_proxy::standard_display_copy_is_stale(source, recipe)
 }
 
 pub(crate) fn compute_thumbnail_cache_hash(
@@ -487,21 +484,18 @@ fn generate_thumbnail_with_source(
 }
 
 /// The stored Standard proxy of the RAW `source` when it stands for a
-/// photograph shown with `adjustments`: made for its decode variant
-/// (`preview_proxy::stands_for`) and, offline, of its frame (read through
-/// `preview_proxy::frame_fits`).
+/// photograph shown with `adjustments` in its own effective frame.
 fn stored_proxy(
     source: &Path,
     adjustments: &serde_json::Value,
     settings: &crate::app_settings::AppSettings,
 ) -> Option<crate::preview_proxy::Proxy> {
-    crate::preview_proxy::stands_for(
+    crate::preview_proxy::read_kind(
         source,
-        adjustments,
         crate::preview_proxy::ProxyKind::Standard,
+        settings,
+        Some(adjustments),
     )
-    .then(|| crate::preview_proxy::read(source, settings))
-    .flatten()
 }
 
 /// A new recipe's plain decode (never edited, or a Reset's) cut to the
@@ -1598,12 +1592,11 @@ fn keep_tile_of_unavailable_original(
     new: String,
     old: impl FnOnce() -> Vec<String>,
 ) -> String {
-    // A proxy of another decode variant cannot show this recipe, and none
+    // A proxy of another variant or frame cannot show this recipe, and none
     // is developed for an evicted cloud original (`get_or_generate`
     // develops nothing without downloading it): its old tile stays.
     if crate::preview_proxy::source_available(source)
-        || (crate::preview_proxy::proxy_path(source).is_some_and(|p| p.is_file())
-            && !is_cloud_placeholder(source)
+        || (!is_cloud_placeholder(source)
             && crate::preview_proxy::stands_for_by_recipe(source, recipe) == Some(true))
         || thumbnail_files_exist(directory, &new)
     {
@@ -1626,11 +1619,11 @@ fn embedded_thumbnail_allowed(path_str: &str, adjustments: &[u8], settings: &App
         && is_raw_file(&source)
         && !settings.always_decode_raw_thumbnails.unwrap_or(false)
         && rawtonic_engine::develop_defaults::for_path(&source).is_none()
-        && !(crate::preview_proxy::stands_for(
+        && !crate::preview_proxy::standard_header_is_current(
             &source,
+            settings,
             &serde_json::Value::Null,
-            crate::preview_proxy::ProxyKind::Standard,
-        ) && crate::preview_proxy::standard_header_is_current(&source, settings))
+        )
 }
 
 /// Track one current developed recipe per photo/copy. Only strict cache file
@@ -3142,11 +3135,8 @@ mod thumbnail_queue_tests {
         // The proxy (the master's) fits a snapshot of the master's filter,
         // never one of the copy's.
         let stands_for = |source: &Path, recipe: &serde_json::Value| {
-            crate::preview_proxy::stands_for(
-                source,
-                recipe,
-                crate::preview_proxy::ProxyKind::Standard,
-            )
+            let wanted = crate::image_loader::decode_variant(recipe, &source.to_string_lossy());
+            crate::preview_proxy::may_stand_for_variant(source, wanted)
         };
         assert!(stands_for(
             &source,
@@ -3194,6 +3184,51 @@ mod thumbnail_queue_tests {
                 shown
             );
         }
+    }
+
+    #[test]
+    fn frame_copy_does_not_keep_the_masters_stale_proxy_key() {
+        use crate::preview_proxy::frame_fixture::{frame_one_edit, offline_cr3};
+        let directory = tempfile::tempdir().unwrap();
+        let master = frame_one_edit();
+        let photo = offline_cr3(directory.path(), master.clone(), 1);
+        let mut copy = master.clone();
+        copy["sourceFrameVersion"] = 0.into();
+        fs::rename(directory.path().join("elsewhere.CR3"), &photo).unwrap();
+        crate::preview_proxy::clear_display_copy_marker_for_test(&photo);
+        assert!(display_copy_clamps(&photo, &master));
+        assert!(!display_copy_clamps(&photo, &copy));
+        let settings = AppSettings::default();
+        assert!(stored_proxy(&photo, &master, &settings).is_some());
+        assert!(stored_proxy(&photo, &copy, &settings).is_none());
+
+        fs::rename(&photo, directory.path().join("elsewhere.CR3")).unwrap();
+        for size in ["small", "medium"] {
+            fs::write(directory.path().join(format!("old_{size}.jpg")), b"tile").unwrap();
+        }
+        assert_eq!(
+            keep_tile_of_unavailable_original(
+                directory.path(),
+                &photo,
+                &copy,
+                "new".into(),
+                || { vec!["old".into()] }
+            ),
+            "old"
+        );
+    }
+
+    #[test]
+    fn frame_copy_uses_its_own_preview_when_the_master_changed_frames_offline() {
+        use crate::preview_proxy::frame_fixture::{frame_one_edit, offline_cr3};
+        let directory = tempfile::tempdir().unwrap();
+        let master = frame_one_edit();
+        let photo = offline_cr3(directory.path(), master.clone(), 0);
+        let mut copy = master.clone();
+        copy["sourceFrameVersion"] = 0.into();
+        let settings = AppSettings::default();
+        assert!(stored_proxy(&photo, &master, &settings).is_none());
+        assert!(stored_proxy(&photo, &copy, &settings).is_some());
     }
 
     #[test]
@@ -3726,8 +3761,17 @@ mod face_retouch_thumbnail_tests {
             "a renewed proxy holds the colours: its tile is made again"
         );
         crate::preview_proxy::clear_display_copy_marker_for_test(&source);
-        // A never-edited photo's decode is the one the proxy stands for.
         let new_edit = b"null".as_slice();
+        assert_ne!(
+            compute_thumbnail_cache_hash(path, new_edit),
+            thumbnail_hash_before_refreshes(path, new_edit),
+            "without frame facts the stale frame-0 proxy cannot prove a match for a new RAF edit"
+        );
+        crate::preview_proxy::record_standard_frames_for_test(
+            &source,
+            vec![0; rawtonic_engine::source_frame::VERSION as usize + 1],
+        );
+        // These frame facts say every recipe version develops frame 0.
         assert_eq!(
             compute_thumbnail_cache_hash(path, new_edit),
             thumbnail_hash_before_refreshes(path, new_edit)

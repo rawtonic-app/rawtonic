@@ -757,7 +757,7 @@ fn prepare(
     {
         return;
     }
-    let (source, _): (PathBuf, _) = parse_virtual_path(path);
+    let (source, sidecar): (PathBuf, _) = parse_virtual_path(path);
     if !is_raw_file(&source) || preview_proxy::proxy_path(&source).is_none() {
         return;
     }
@@ -768,10 +768,10 @@ fn prepare(
     {
         // Stored already (or all there is): keep it in memory for an
         // instant activation.
-        // Only for a photograph the previews stand for (a virtual copy's
-        // decode variant may differ from its master's,
-        // `preview_proxy::stands_for_variant`).
-        let wanted = crate::image_loader::stored_decode_variant(path);
+        // Only for a photograph the previews stand for (a copy can develop
+        // a different variant or frame).
+        let recipe = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        let wanted = crate::image_loader::decode_variant(&recipe, &source.to_string_lossy());
         if !preview_proxy::may_stand_for_variant(&source, wanted) {
             return;
         }
@@ -783,13 +783,12 @@ fn prepare(
             .get(path, wanted)
             .is_some();
         if !in_memory
-            && let Some(proxy) = preview_proxy::read(&source, &settings).filter(|proxy| {
-                preview_proxy::stands_for_variant(
-                    &source,
-                    wanted,
-                    preview_proxy::variant_of_key(&proxy.key.decoder),
-                )
-            })
+            && let Some(proxy) = preview_proxy::read_kind(
+                &source,
+                preview_proxy::ProxyKind::Standard,
+                &settings,
+                Some(&recipe),
+            )
         {
             state
                 .source

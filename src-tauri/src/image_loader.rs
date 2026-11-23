@@ -230,21 +230,6 @@ pub fn stored_decode_variant(path: &str) -> DecodeVariant {
     decode_variant(&metadata.adjustments, &source.to_string_lossy())
 }
 
-/// Whether `recipe`, shown for the photograph at `path`, decodes as its
-/// stored recipe does (`decode_variant(recipe, path) ==
-/// stored_decode_variant(path)`), reading the file's frames only when the
-/// two ask for different frame versions (`decode_alike`).
-pub fn decodes_as_stored(recipe: &Value, path: &str) -> bool {
-    let (source, sidecar) = parse_virtual_path(path);
-    let stored = exif_processing::load_sidecar(&sidecar).adjustments;
-    let source = source.to_string_lossy();
-    if source == path {
-        decode_alike(recipe, &stored, path)
-    } else {
-        decode_variant(recipe, path) == decode_variant(&stored, &source)
-    }
-}
-
 /// The base image options of the app's preferences for a photograph whose
 /// recipe asks for `variant` (`BaseImageOptions::for_variant`).
 pub fn base_options(settings: &AppSettings, variant: DecodeVariant) -> BaseImageOptions {
@@ -526,7 +511,7 @@ pub async fn load_image_proxy(
     let merges = tauri::Manager::state::<MergeState>(&app_handle);
     #[cfg(feature = "performance-profiling")]
     let performance_start = Instant::now();
-    let (source_path, _) = parse_virtual_path(&path);
+    let (source_path, sidecar_path) = parse_virtual_path(&path);
     let source_path_str = source_path.to_string_lossy().to_string();
     if !is_raw_file(&source_path_str) {
         return Ok(None);
@@ -537,8 +522,9 @@ pub async fn load_image_proxy(
         &path,
     );
     let settings = crate::state::settings::current(&app_handle);
-    let variant = stored_decode_variant(&path);
-    let decoded_key = decoded_cache_key(&source_path_str, None, variant);
+    let recipe = exif_processing::load_sidecar(&sidecar_path).adjustments;
+    let wanted = decode_variant(&recipe, &source_path_str);
+    let decoded_key = decoded_cache_key(&source_path_str, None, wanted);
     if develop
         .decoded_image_cache
         .lock()
@@ -547,15 +533,13 @@ pub async fn load_image_proxy(
         .is_some()
         || crate::proxy_worker::keeps_decode_of(
             &decoded_key,
-            &crate::preview_proxy::current_key(&source_path, &settings, variant),
+            &crate::preview_proxy::current_key(&source_path, &settings, wanted),
         )
     {
         return Ok(None);
     }
-    // Only previews that stand for this photograph's decode variant (a
-    // virtual copy's may differ from its master's, `stands_for_variant`)
-    // stand in until the decode.
-    let wanted = stored_decode_variant(&path);
+    // Only previews that stand for this photograph's decode variant and
+    // frame stand in until the decode.
     if !crate::preview_proxy::may_stand_for_variant(&source_path, wanted) {
         return Ok(None);
     }
@@ -571,17 +555,15 @@ pub async fn load_image_proxy(
         let read_path = path.clone();
         let read_source = source_path.clone();
         let proxy = tokio::task::spawn_blocking(move || {
-            crate::preview_proxy::read(&read_source, &settings)
+            crate::preview_proxy::read_kind(
+                &read_source,
+                crate::preview_proxy::ProxyKind::Standard,
+                &settings,
+                Some(&recipe),
+            )
         })
         .await
-        .map_err(|e| e.to_string())?
-        .filter(|proxy| {
-            crate::preview_proxy::stands_for_variant(
-                &source_path,
-                wanted,
-                crate::preview_proxy::variant_of_key(&proxy.key.decoder),
-            )
-        });
+        .map_err(|e| e.to_string())?;
         proxy.map(|proxy| {
             state
                 .source
@@ -674,9 +656,8 @@ fn decode_for_proxy(
     decode.upgrade()
 }
 
-/// An offline virtual copy whose recipe develops the RAW differently from
-/// the photograph's previews (`preview_proxy::stands_for`).
-const OTHER_VARIANT_OFFLINE: &str = "This copy develops the RAW differently from the photograph's stored previews (another colour noise filter or render version); reconnect the RAW to open it";
+/// An offline recipe whose frame or decode variant differs from its previews.
+const OTHER_VARIANT_OFFLINE: &str = "The saved edit develops the RAW differently from its stored previews. Reconnect the original to open it.";
 
 /// The `sourceFrameVersion` a first edit of the RAW at `source` carries when
 /// it is made on a source of frame `shown` (`DecodeVariant::frame`): None
@@ -1780,19 +1761,8 @@ async fn open_offline(
     stored_exif: Option<HashMap<String, String>>,
     settings: &AppSettings,
 ) -> Result<Option<LoadImageResult>, String> {
-    // A preview stands for the decode variant it was made for
-    // (`preview_proxy::stands_for_variant`): a virtual copy of another one
-    // cannot be shown from it.
-    let wanted = stored_decode_variant(path);
-    let stands = |key: &crate::preview_proxy::ProxyKey| {
-        crate::preview_proxy::stands_for_variant(
-            source,
-            wanted,
-            crate::preview_proxy::variant_of_key(&key.decoder),
-        )
-    };
-    // Some preview was there but stands for another variant.
-    let mut other_variant = false;
+    use crate::preview_proxy::{self, ProxyKind};
+    let wanted = decode_variant(&metadata.adjustments, &source.to_string_lossy());
     let exif = crate::session_bridge::with_capture_override(
         source,
         crate::exif_processing::read_rrexif_sidecar(source)
@@ -1801,20 +1771,17 @@ async fn open_offline(
     );
     let read_source = source.to_path_buf();
     let read_settings = settings.clone();
+    let read_recipe = metadata.adjustments.clone();
     let full = tokio::task::spawn_blocking(move || {
-        crate::preview_proxy::read_kind(
+        preview_proxy::read_kind(
             &read_source,
-            crate::preview_proxy::ProxyKind::Full,
+            ProxyKind::Full,
             &read_settings,
+            Some(&read_recipe),
         )
     })
     .await
-    .map_err(|e| e.to_string())?
-    .filter(|full| {
-        let fits = stands(&full.key);
-        other_variant |= !fits;
-        fits
-    });
+    .map_err(|e| e.to_string())?;
     if let Some(full) = full {
         let proxy_frame = crate::preview_proxy::variant_of_key(&full.key.decoder).frame;
         let (width, height) = full.image.dimensions();
@@ -1882,16 +1849,17 @@ async fn open_offline(
         None => {
             let read_source = source.to_path_buf();
             let read_settings = settings.clone();
+            let read_recipe = metadata.adjustments.clone();
             tokio::task::spawn_blocking(move || {
-                crate::preview_proxy::read(&read_source, &read_settings)
+                preview_proxy::read_kind(
+                    &read_source,
+                    ProxyKind::Standard,
+                    &read_settings,
+                    Some(&read_recipe),
+                )
             })
             .await
             .map_err(|e| e.to_string())?
-            .filter(|proxy| {
-                let fits = stands(&proxy.key);
-                other_variant |= !fits;
-                fits
-            })
             .map(|proxy| {
                 state
                     .source
@@ -1903,6 +1871,11 @@ async fn open_offline(
         }
     };
     let Some(standard) = standard else {
+        let other_variant = [ProxyKind::Full, ProxyKind::Standard]
+            .into_iter()
+            .any(|kind| {
+                preview_proxy::stands_for(source, &metadata.adjustments, kind) == Some(false)
+            });
         return if other_variant {
             Err(OTHER_VARIANT_OFFLINE.to_string())
         } else {
