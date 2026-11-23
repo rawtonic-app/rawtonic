@@ -236,9 +236,11 @@ fn exposure_rule(criteria: &str, operation: &str, value: f64, value2: Option<f64
     };
     Some(match operation {
         "==" => within(low(value), high(value)),
+        // Not "none of equal": a photograph without the value is not
+        // different from it either.
         "!=" => Rule::Group {
-            combine: Combine::None,
-            rules: vec![within(low(value), high(value))],
+            combine: Combine::Any,
+            rules: vec![one(Op::Lt, low(value)), one(Op::Gt, high(value))],
         },
         ">" => one(Op::Gt, high(value)),
         ">=" => one(Op::Ge, low(value)),
@@ -3291,6 +3293,8 @@ mod tests {
             ("f56.CR2", f(5.6, 15.0, 1.0 / 100.0)),
             ("f9.CR2", f(9.0, 8.898, 0.8)),
             ("f28.CR2", f(2.8, 200.0, 1.0 / 400.0)),
+            // No aperture, focal length or shutter speed recorded.
+            ("none.CR2", CaptureFacts::default()),
         ]);
         let n = |v: f64| SmartValue::Number(v);
         let one = |criteria: &str, op: &str, v: f64| members(criteria, op, n(v), SmartValue::None);
