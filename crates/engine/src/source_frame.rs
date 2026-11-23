@@ -48,8 +48,11 @@ pub fn reset_recipe(adjustments: &Value) -> Value {
 /// size and modification time), else, offline, from what its previews keep
 /// (`source_facts`); None when neither knows.
 pub fn frames(path: &str) -> Option<Vec<u32>> {
-    if let Some(frames) = unchanged(path) {
-        return Some(frames);
+    let extension = extension_of(path);
+    if !crate::formats::is_raw_file(path)
+        || !rawtonic_rawdecode::source_frame::may_change(&extension)
+    {
+        return Some(vec![0; VERSION as usize + 1]);
     }
     // Offline: what its previews keep (nothing is registered while the
     // file can be read).
@@ -59,83 +62,42 @@ pub fn frames(path: &str) -> Option<Vec<u32>> {
     {
         return Some(frames);
     }
-    let stamp = crate::camera_crop::stamp(path)?;
-    // Mapped without read-ahead: only the metadata is read (dummy
-    // decodes), and `RawSource::new` would read the whole file.
-    cached(path, Some(stamp), || {
-        rawler::rawsource::RawSource::new_lazy(std::path::Path::new(path)).ok()
-    })
-}
-
-/// `frames` read through `file`, the caller's mapping of the readable RAW
-/// at `path`, into the same cache (a later `frames(path)` of that file
-/// reads nothing). A second open of the file can drop the pages the caller
-/// is reading (a FUSE share client without keep-cache, as KDE's kio-fuse):
-/// the Library's never-edited thumbnail reads its frames, camera, preview
-/// and crops from one mapping. `stamp` is the size and time of the file
-/// `file` maps (`camera_crop::crops_in`); without one the frames are read
-/// but not cached.
-pub fn frames_in(
-    path: &str,
-    file: &crate::image_loader::SharedBytes,
-    stamp: Option<crate::camera_crop::FileStamp>,
-) -> Option<Vec<u32>> {
-    if let Some(frames) = unchanged(path) {
-        return Some(frames);
-    }
-    cached(path, stamp, || {
-        Some(rawler::rawsource::RawSource::new_from_shared(file.clone()).with_path(path))
-    })
-}
-
-/// Whether `frames` reads the file at `path` (a RAW whose frame some
-/// version changes), not answering all 0 without it.
-pub fn frames_read_file(path: &str) -> bool {
-    unchanged(path).is_none()
-}
-
-/// All 0 for a file no frame version changes.
-fn unchanged(path: &str) -> Option<Vec<u32>> {
-    (!crate::formats::is_raw_file(path)
-        || !rawtonic_rawdecode::source_frame::may_change(&extension_of(path)))
-    .then(|| vec![0; VERSION as usize + 1])
-}
-
-/// The frames of the file stamped `stamp` at `path`: cached per path and
-/// stamp, else read from `source` (and cached only with a stamp).
-fn cached(
-    path: &str,
-    stamp: Option<crate::camera_crop::FileStamp>,
-    source: impl FnOnce() -> Option<rawler::rawsource::RawSource>,
-) -> Option<Vec<u32>> {
     type Cache = Mutex<HashMap<String, (u64, std::time::SystemTime, Vec<u32>)>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
-    if let Some((len, modified)) = stamp
-        && let Some((l, m, found)) = cache
+    let stamp = std::fs::metadata(path)
+        .ok()
+        .and_then(|m| Some((m.len(), m.modified().ok()?)));
+    if let Some((len, modified)) = stamp {
+        if let Some((l, m, found)) = cache
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(path)
             .cloned()
-        && l == len
-        && m == modified
-    {
-        return Some(found);
+            && l == len
+            && m == modified
+        {
+            return Some(found);
+        }
+        // Mapped without read-ahead: only the metadata is read (dummy
+        // decodes), and `RawSource::new` would read the whole file.
+        if let Some(found) = rawler::rawsource::RawSource::new_lazy(std::path::Path::new(path))
+            .ok()
+            .filter(|source| rawtonic_rawdecode::source_frame::frame(source, 0).is_some())
+            .map(|source| {
+                (0..=VERSION)
+                    .map(|v| rawtonic_rawdecode::source_frame::effective(&source, v))
+                    .collect::<Vec<u32>>()
+            })
+        {
+            cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(path.to_string(), (len, modified, found.clone()));
+            return Some(found);
+        }
     }
-    let found = source()
-        .filter(|source| rawtonic_rawdecode::source_frame::frame(source, 0).is_some())
-        .map(|source| {
-            (0..=VERSION)
-                .map(|v| rawtonic_rawdecode::source_frame::effective(&source, v))
-                .collect::<Vec<u32>>()
-        })?;
-    if let Some((len, modified)) = stamp {
-        cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(path.to_string(), (len, modified, found.clone()));
-    }
-    Some(found)
+    None
 }
 
 /// The frame version that develops the RAW at `path` as `version` does
@@ -236,50 +198,5 @@ mod tests {
         // A never-edited photograph stays one (the newest frame).
         assert_eq!(reset_recipe(&json!({})), json!({}));
         assert_eq!(reset_recipe(&Value::Null), json!({}));
-    }
-
-    /// The frames and the camera read through the caller's mapping
-    /// (`frames_in`, `develop_defaults::camera_of_in`: the Library's
-    /// never-edited thumbnail) are those read from the file itself.
-    #[test]
-    #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory"]
-    fn frames_and_camera_through_the_callers_mapping_are_the_files() {
-        let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
-        let mut checked = 0;
-        for path in std::fs::read_dir(dir)
-            .unwrap()
-            .flatten()
-            .map(|entry| entry.path())
-        {
-            let name = path.to_string_lossy().into_owned();
-            if !crate::formats::is_raw_file(&name) {
-                continue;
-            }
-            let file: crate::image_loader::SharedBytes =
-                std::sync::Arc::new(crate::file_io::read_file_mapped(&path).unwrap());
-            let stamp = crate::camera_crop::stamp(&name);
-            let frames = frames_in(&name, &file, stamp);
-            let camera = crate::develop_defaults::camera_of_in(&path, &file, stamp);
-            // Not `frames` / `camera_of`: they would answer from the caches
-            // filled above.
-            let source = rawler::rawsource::RawSource::new_lazy(&path).unwrap();
-            let own = unchanged(&name).or_else(|| {
-                rawtonic_rawdecode::source_frame::frame(&source, 0).map(|_| {
-                    (0..=VERSION)
-                        .map(|v| rawtonic_rawdecode::source_frame::effective(&source, v))
-                        .collect()
-                })
-            });
-            assert_eq!(frames, own, "{name}");
-            assert_eq!(
-                camera,
-                crate::develop_defaults::camera_of_raw(&source),
-                "{name}"
-            );
-            // Unstamped: the same, read again.
-            assert_eq!(frames_in(&name, &file, None), own, "{name}");
-            checked += 1;
-        }
-        assert!(checked > 0, "no RAW files in the fixture directory");
     }
 }

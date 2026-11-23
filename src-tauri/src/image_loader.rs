@@ -227,6 +227,21 @@ pub fn stored_decode_variant(path: &str) -> DecodeVariant {
     decode_variant(&metadata.adjustments, &source.to_string_lossy())
 }
 
+/// Whether `recipe`, shown for the photograph at `path`, decodes as its
+/// stored recipe does (`decode_variant(recipe, path) ==
+/// stored_decode_variant(path)`), reading the file's frames only when the
+/// two ask for different frame versions (`decode_alike`).
+pub fn decodes_as_stored(recipe: &Value, path: &str) -> bool {
+    let (source, sidecar) = parse_virtual_path(path);
+    let stored = exif_processing::load_sidecar(&sidecar).adjustments;
+    let source = source.to_string_lossy();
+    if source == path {
+        decode_alike(recipe, &stored, path)
+    } else {
+        decode_variant(recipe, path) == decode_variant(&stored, &source)
+    }
+}
+
 /// The base image options of the app's preferences for a photograph whose
 /// recipe asks for `variant` (`BaseImageOptions::for_variant`).
 pub fn base_options(settings: &AppSettings, variant: DecodeVariant) -> BaseImageOptions {

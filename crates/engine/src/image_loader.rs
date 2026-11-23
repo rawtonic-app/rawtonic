@@ -282,6 +282,20 @@ pub fn decode_variant(adjustments: &Value, source: &str) -> DecodeVariant {
     decode_variant_for_frame(adjustments, source, frame)
 }
 
+/// Whether the recipes `a` and `b`, rendered on the file at `source`,
+/// decode alike (their `decode_variant`s are equal). The frame is the one
+/// part of a variant read from the file, and only as the version each
+/// recipe asks for (`source_frame::requested`): recipes asking for the same
+/// version get the same frame, so the file is read only when they ask for
+/// different ones. A never-edited photograph's proxy check (both
+/// recipes new) reads nothing (CRD4).
+pub fn decode_alike(a: &Value, b: &Value, source: &str) -> bool {
+    if crate::source_frame::requested(a) == crate::source_frame::requested(b) {
+        return decode_variant_for_frame(a, source, 0) == decode_variant_for_frame(b, source, 0);
+    }
+    decode_variant(a, source) == decode_variant(b, source)
+}
+
 /// Whether `source` may be a DNG, the one format whose files carry lens
 /// opcodes (`DecodeVariant::warp_planes`): a `.dng`, or a TIFF the RAW path
 /// takes by its content (`formats::is_raw_file`; a DNG renamed `.tif`).
@@ -2458,6 +2472,41 @@ mod decode_variant_tests {
         // The colour noise filter is decided as before.
         assert!(decode_variant(&json!({}), "/p/A.NEF").multiscale);
         assert!(!decode_variant(&json!({ "colorNoiseReduction": 25 }), "/p/A.NEF").multiscale);
+    }
+
+    /// `decode_alike` answers as comparing the two `decode_variant`s, also
+    /// where the file's frames make versions develop alike.
+    #[test]
+    fn recipes_decode_alike_as_their_variants_compare() {
+        let path = "/offline/decode-alike.CR3";
+        let newest = crate::source_frame::VERSION;
+        // Versions 0 and 1 develop one frame, 2 and 3 another.
+        crate::source_facts::register(
+            path,
+            crate::source_facts::SourceFacts {
+                version: crate::source_facts::VERSION,
+                frames: Some((0..=newest).map(|v| v / 2 * 2).collect()),
+                ..Default::default()
+            },
+        );
+        let mut recipes = vec![
+            serde_json::Value::Null,
+            json!({}),
+            json!({ "exposure": 1 }),
+            json!({ "renderVersion": 8 }),
+            json!({ "colorNoiseReduction": 25 }),
+        ];
+        recipes.extend((0..=newest).map(|v| json!({ "sourceFrameVersion": v, "exposure": 1 })));
+        for a in &recipes {
+            for b in &recipes {
+                assert_eq!(
+                    super::decode_alike(a, b, path),
+                    decode_variant(a, path) == decode_variant(b, path),
+                    "{a} / {b}"
+                );
+            }
+        }
+        crate::source_facts::forget(path);
     }
 }
 
