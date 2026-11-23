@@ -1742,7 +1742,17 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                         .and_then(|v| v.parse::<f64>().ok())
                         .unwrap_or(1.0)
                         .clamp(0.0, 1.0);
-                    for mut stroke in lightroom_strokes(child) {
+                    let painted_strokes = lightroom_strokes(child);
+                    // An unreadable active stroke is a partial mask: named.
+                    // An eraser with Auto Mask would erase across colour
+                    // edges here (the brush ignores Auto Mask for erasers):
+                    // left out and named, never imported wrong.
+                    if painted_strokes.is_empty()
+                        || (value <= 0.0 && painted_strokes.iter().any(|s| s["autoMask"] == true))
+                    {
+                        supported = false;
+                    }
+                    for mut stroke in painted_strokes {
                         if value <= 0.0 {
                             stroke["eraser"] = json!(true);
                         } else if value < 1.0 {
@@ -3431,6 +3441,17 @@ mod tests {
             1,
         );
         assert_eq!(subs_of(&mixed_children).len(), 2);
+        // An eraser with Auto Mask (the brush ignores it for erasers) and an
+        // active stroke without readable dabs are left out and named.
+        let auto_eraser = brush("0", "false").replace(
+            "<rdf:li>d 0.63 0.50</rdf:li>",
+            "<rdf:li>M 0.63 0.50</rdf:li>",
+        );
+        let (layers, skipped) = super::lightroom_masks(&auto_eraser);
+        assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
+        let no_dabs = brush("0", "false").replace("<rdf:li>d 0.63 0.50</rdf:li>", "");
+        let (layers, skipped) = super::lightroom_masks(&no_dabs);
+        assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
         let erasing = mixed_children.replace(
             r#"crs:What="Mask/Gradient" crs:MaskValue="1""#,
             r#"crs:What="Mask/Gradient" crs:MaskValue="0""#,
