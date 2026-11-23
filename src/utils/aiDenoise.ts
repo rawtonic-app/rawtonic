@@ -210,11 +210,16 @@ export function sourceDevelopToApply(
   };
 }
 
-/** Whether the open photograph's decode depends on its lens warp's planes
+/** Whether the open photograph's decode may depend on its lens warp's planes
  * (`cameraPlaneWarp`): the backend reports them only for DNGs whose warp
- * has different coefficients per plane. */
-export const warpPlanesMatter = (image: Pick<SelectedImage, 'cameraPlaneWarp'> | null | undefined): boolean =>
-  image?.cameraPlaneWarp !== undefined;
+ * has different coefficients per plane. While only preview data is open
+ * (a RAW not decoded yet, not offline) it is not known which files those
+ * are, so the planes count: a snapshot of another render version is not
+ * shown through the preview proxy built for the edit's version. */
+export const warpPlanesMatter = (
+  image: Partial<Pick<SelectedImage, 'cameraPlaneWarp' | 'isRaw' | 'isDecoded' | 'offline'>> | null | undefined
+): boolean =>
+  image?.cameraPlaneWarp !== undefined || (image?.isRaw === true && image.isDecoded === false && !image.offline);
 
 /**
  * How a recipe develops the RAW before any adjustment (AI Denoise amount and

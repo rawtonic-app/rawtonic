@@ -317,8 +317,11 @@ describe('developmentSignature', () => {
     expect(developmentSignature(v13, true, warpPlanesMatter(affected))).not.toBe(
       developmentSignature(v14, true, warpPlanesMatter(affected))
     );
-    // ... while other photographs (no such warp, other formats, preview
-    // data: not reported) still do.
+    // Preview data of a RAW (which files are affected is not known yet):
+    // they differ, until the decode reports.
+    expect(warpPlanesMatter({ isRaw: true, isDecoded: false })).toBe(true);
+    expect(warpPlanesMatter({ isRaw: true, isDecoded: false, offline: {} as never })).toBe(false);
+    // ... while other photographs (no such warp, other formats) still share.
     expect(warpPlanesMatter({})).toBe(false);
     expect(warpPlanesMatter(null)).toBe(false);
     expect(developmentSignature(v13, true, warpPlanesMatter({}))).toBe(
