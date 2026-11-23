@@ -29,7 +29,7 @@ fn an_exported_heic_keeps_its_exif_and_is_turned_once() {
     );
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("IMG_0001.HEIC");
-    std::fs::write(&source, &bytes).unwrap();
+    rawtonic_fs::atomic_write(&source, &bytes).unwrap();
 
     // The export as the pipeline encodes it: the loader's pixels (the
     // container's quarter turn applied) with the source's kept metadata.
