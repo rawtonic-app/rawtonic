@@ -4505,6 +4505,7 @@
           "keyword": "キーワード",
           "label": "カラーラベル",
           "lens": "レンズ",
+          "lensImported": "レンズ(取り込んだカタログでの名前)",
           "make": "カメラメーカー",
           "offline": "見つからない写真",
           "previousImport": "前回の読み込みに含まれる",

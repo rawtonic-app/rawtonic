@@ -4637,6 +4637,7 @@
           "keyword": "Keyword",
           "label": "Color label",
           "lens": "Lens",
+          "lensImported": "Lens (as named in the imported catalog)",
           "make": "Camera maker",
           "offline": "Missing photo",
           "previousImport": "In the previous import",

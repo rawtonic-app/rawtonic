@@ -4637,6 +4637,7 @@
           "keyword": "Stichwort",
           "label": "Farbmarkierung",
           "lens": "Objektiv",
+          "lensImported": "Objektiv (wie im importierten Katalog benannt)",
           "make": "Kamerahersteller",
           "offline": "Fehlendes Foto",
           "previousImport": "Im letzten Import",

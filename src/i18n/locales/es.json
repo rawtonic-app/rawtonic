@@ -4834,6 +4834,7 @@
           "keyword": "Palabra clave",
           "label": "Etiqueta de color",
           "lens": "Objetivo",
+          "lensImported": "Objetivo (nombre del catálogo importado)",
           "make": "Fabricante de la cámara",
           "offline": "Foto que falta",
           "previousImport": "En la importación anterior",

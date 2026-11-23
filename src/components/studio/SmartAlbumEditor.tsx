@@ -40,6 +40,7 @@ const FIELDS: { field: Field; kind: Kind }[] = [
   { field: 'camera', kind: 'name' },
   { field: 'make', kind: 'name' },
   { field: 'lens', kind: 'name' },
+  { field: 'lensImported', kind: 'name' },
   { field: 'iso', kind: 'number' },
   { field: 'focalLength', kind: 'number' },
   { field: 'aperture', kind: 'number' },
@@ -315,7 +316,7 @@ function ConditionEditor({ rule, albums, folder, onChange, onRemove }: RuleProps
         value={rule.field}
         onChange={(e) => setField(e.target.value as Field)}
       >
-        {FIELDS.map(({ field }) => (
+        {FIELDS.filter(({ field }) => field !== 'lensImported' || rule.field === field).map(({ field }) => (
           <option key={field} value={field}>
             {t(`studio.library.smartAlbums.fields.${field}`)}
           </option>

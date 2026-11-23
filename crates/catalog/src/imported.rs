@@ -53,4 +53,14 @@ impl Library {
         )?;
         Ok(())
     }
+
+    /// Records `lens` as the name the other editor gives asset `id`'s lens
+    /// (`Field::LensImported`); an empty name is none.
+    pub fn set_imported_lens(&self, id: &str, lens: &str) -> Result<(), CatalogError> {
+        self.conn.execute(
+            "UPDATE assets SET lens_import=? WHERE id=?",
+            params![lens.trim(), id],
+        )?;
+        Ok(())
+    }
 }
