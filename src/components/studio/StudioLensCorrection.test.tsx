@@ -119,7 +119,6 @@ describe('Lens correction tool', () => {
     expect(current).toMatchObject({ lensMaker: null, lensModel: null, lensDistortionParams: null });
   });
 
-
   it('offers the lenses an ambiguous detection found instead of picking one', async () => {
     useEditorStore.setState({
       selectedImage: {
