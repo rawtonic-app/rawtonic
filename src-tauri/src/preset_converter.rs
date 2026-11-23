@@ -1720,7 +1720,8 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             let children = seq_items(mask, "Masks");
             let plain = |child: roxmltree::Node| {
                 let attr = |n: &str| described(child).attribute((CRS_NS, n));
-                matches!(attr("MaskBlendMode"), None | Some("0")) && attr("MaskInverted") != Some("true")
+                matches!(attr("MaskBlendMode"), None | Some("0"))
+                    && attr("MaskInverted") != Some("true")
             };
             if children
                 .iter()
@@ -3370,11 +3371,19 @@ mod tests {
         );
         let modes: Vec<_> = subs_of(&mixed)
             .iter()
-            .map(|s| (s["type"].as_str().unwrap().to_string(), s["mode"].as_str().unwrap().to_string()))
+            .map(|s| {
+                (
+                    s["type"].as_str().unwrap().to_string(),
+                    s["mode"].as_str().unwrap().to_string(),
+                )
+            })
             .collect();
         assert_eq!(
             modes,
-            [("linear".into(), "additive".into()), ("brush".into(), "additive".into())]
+            [
+                ("linear".into(), "additive".into()),
+                ("brush".into(), "additive".into())
+            ]
         );
         // After a component that subtracts too.
         let after_subtract = mixed.replace(
@@ -3408,7 +3417,10 @@ mod tests {
             r#"crs:MaskInverted="false" crs:MaskValue="1" crs:MaskActive="false""#,
             1,
         );
-        let visible: Vec<_> = subs_of(&hidden).iter().map(|s| s["visible"].clone()).collect();
+        let visible: Vec<_> = subs_of(&hidden)
+            .iter()
+            .map(|s| s["visible"].clone())
+            .collect();
         assert_eq!(visible, [json!(false), json!(true)]);
         // An aggregate of other components: flat when it adds and does not erase.
         let mixed_children = brush("0", "false").replacen(
@@ -3419,7 +3431,10 @@ mod tests {
             1,
         );
         assert_eq!(subs_of(&mixed_children).len(), 2);
-        let erasing = mixed_children.replace(r#"crs:What="Mask/Gradient" crs:MaskValue="1""#, r#"crs:What="Mask/Gradient" crs:MaskValue="0""#);
+        let erasing = mixed_children.replace(
+            r#"crs:What="Mask/Gradient" crs:MaskValue="1""#,
+            r#"crs:What="Mask/Gradient" crs:MaskValue="0""#,
+        );
         let (layers, skipped) = super::lightroom_masks(&erasing);
         assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
     }
@@ -3440,17 +3455,28 @@ mod tests {
             let mut dabs = vec![points[0]];
             let mut carried = 0.0;
             for pair in points.windows(2) {
-                let (dx, dy) = ((pair[1].0 - pair[0].0) * f64::from(w), (pair[1].1 - pair[0].1) * f64::from(h));
+                let (dx, dy) = (
+                    (pair[1].0 - pair[0].0) * f64::from(w),
+                    (pair[1].1 - pair[0].1) * f64::from(h),
+                );
                 let length = dx.hypot(dy);
                 let mut at = step - carried;
                 while at <= length {
-                    dabs.push((pair[0].0 + (pair[1].0 - pair[0].0) * at / length, pair[0].1 + (pair[1].1 - pair[0].1) * at / length));
+                    dabs.push((
+                        pair[0].0 + (pair[1].0 - pair[0].0) * at / length,
+                        pair[0].1 + (pair[1].1 - pair[0].1) * at / length,
+                    ));
                     at += step;
                 }
                 carried = length - (at - step);
             }
-            let dabs: String = dabs.iter().map(|(x, y)| format!("<rdf:li>d {x:.6} {y:.6}</rdf:li>")).collect();
-            format!(r#"<rdf:li><rdf:Description crs:What="Mask/Paint" crs:MaskValue="{value}" crs:Radius="{radius}" crs:Flow="1" crs:CenterWeight="0"><crs:Dabs><rdf:Seq>{dabs}</rdf:Seq></crs:Dabs></rdf:Description></rdf:li>"#)
+            let dabs: String = dabs
+                .iter()
+                .map(|(x, y)| format!("<rdf:li>d {x:.6} {y:.6}</rdf:li>"))
+                .collect();
+            format!(
+                r#"<rdf:li><rdf:Description crs:What="Mask/Paint" crs:MaskValue="{value}" crs:Radius="{radius}" crs:Flow="1" crs:CenterWeight="0"><crs:Dabs><rdf:Seq>{dabs}</rdf:Seq></crs:Dabs></rdf:Description></rdf:li>"#
+            )
         };
         let group = |active: bool, strokes: &[String]| {
             format!(
@@ -3460,8 +3486,14 @@ mod tests {
         };
         // MSK5's geometry: brush 1 upper, eraser 1 across it, brush 2 lower
         // and eraser 2 across both brushes.
-        let g1 = [stroke(&[(0.18, 0.33), (0.62, 0.33)], 0.09, 1.0), stroke(&[(0.40, 0.15), (0.40, 0.60)], 0.05, 0.0)];
-        let g2 = [stroke(&[(0.38, 0.58), (0.82, 0.58)], 0.09, 1.0), stroke(&[(0.56, 0.15), (0.56, 0.75)], 0.05, 0.0)];
+        let g1 = [
+            stroke(&[(0.18, 0.33), (0.62, 0.33)], 0.09, 1.0),
+            stroke(&[(0.40, 0.15), (0.40, 0.60)], 0.05, 0.0),
+        ];
+        let g2 = [
+            stroke(&[(0.38, 0.58), (0.82, 0.58)], 0.09, 1.0),
+            stroke(&[(0.56, 0.15), (0.56, 0.75)], 0.05, 0.0),
+        ];
         let layer_of = |groups: String| -> MaskDefinition {
             let xmp = format!(
                 r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"><crs:MaskGroupBasedCorrections><rdf:Seq><rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="m" crs:LocalExposure2012="-0.375"><crs:CorrectionMasks><rdf:Seq>{groups}</rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li></rdf:Seq></crs:MaskGroupBasedCorrections></rdf:Description></rdf:RDF></x:xmpmeta>"#
@@ -3469,14 +3501,32 @@ mod tests {
             let (layers, skipped) = super::lightroom_masks(&xmp);
             assert!(skipped.is_empty(), "{skipped:?}");
             let mut adjustments = json!({ "masks": layers });
-            assert!(super::place_lightroom_geometry(&mut adjustments, f64::from(w), f64::from(h), 1));
+            assert!(super::place_lightroom_geometry(
+                &mut adjustments,
+                f64::from(w),
+                f64::from(h),
+                1
+            ));
             serde_json::from_value(adjustments["masks"][0].clone()).unwrap()
         };
         let coverage = |layer: &MaskDefinition| -> Vec<f32> {
-            let bitmap = generate_layer_mask(layer, w, h, 1.0, (0.0, 0.0), &PhotoGeometry::default(), None).unwrap();
+            let bitmap = generate_layer_mask(
+                layer,
+                w,
+                h,
+                1.0,
+                (0.0, 0.0),
+                &PhotoGeometry::default(),
+                None,
+            )
+            .unwrap();
             match bitmap.wide().map(<[u16]>::to_vec) {
                 Some(wide) => wide.iter().map(|v| f32::from(*v) / 65535.0).collect(),
-                None => bitmap.into_bytes().pixels().map(|p| f32::from(p[0]) / 255.0).collect(),
+                None => bitmap
+                    .into_bytes()
+                    .pixels()
+                    .map(|p| f32::from(p[0]) / 255.0)
+                    .collect(),
             }
         };
         let one = coverage(&layer_of(group(true, &g1)));
@@ -3485,19 +3535,39 @@ mod tests {
         let second_hidden = coverage(&layer_of(group(true, &g1) + &group(false, &g2)));
         let first_hidden = coverage(&layer_of(group(false, &g1) + &group(true, &g2)));
         let none = coverage(&layer_of(group(false, &g1) + &group(false, &g2)));
-        let worst = |x: &[f32], y: &[f32]| x.iter().zip(y).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
+        let worst = |x: &[f32], y: &[f32]| {
+            x.iter()
+                .zip(y)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0, f32::max)
+        };
         let screen: Vec<f32> = one.iter().zip(&two).map(|(a, b)| a + b - a * b).collect();
-        assert!(worst(&both, &screen) <= 4.0 / 255.0, "screen(g1, g2): {}", worst(&both, &screen));
+        assert!(
+            worst(&both, &screen) <= 4.0 / 255.0,
+            "screen(g1, g2): {}",
+            worst(&both, &screen)
+        );
         assert!(worst(&second_hidden, &one) <= 4.0 / 255.0, "hidden second");
         assert!(worst(&first_hidden, &two) <= 4.0 / 255.0, "hidden first");
         assert!(none.iter().all(|v| *v <= 1.0 / 255.0), "both hidden");
         // Eraser 2 crosses brush 1 and leaves it (LR: 0.768 before and after),
         // eraser 1 crosses brush 2 and leaves it (0.846): the groups are
         // not one flat sequence.
-        let at = |c: &[f32], x: f64, y: f64| c[(y * f64::from(h)) as usize * w as usize + (x * f64::from(w)) as usize];
-        assert!(at(&both, 0.56, 0.33) > 0.5 && (at(&both, 0.56, 0.33) - at(&one, 0.56, 0.33)).abs() <= 4.0 / 255.0);
-        assert!(at(&both, 0.40, 0.58) > 0.5 && (at(&both, 0.40, 0.58) - at(&two, 0.40, 0.58)).abs() <= 4.0 / 255.0);
-        assert!(at(&both, 0.40, 0.33) < 0.05 && at(&both, 0.56, 0.58) < 0.05, "each eraser cuts its own group");
+        let at = |c: &[f32], x: f64, y: f64| {
+            c[(y * f64::from(h)) as usize * w as usize + (x * f64::from(w)) as usize]
+        };
+        assert!(
+            at(&both, 0.56, 0.33) > 0.5
+                && (at(&both, 0.56, 0.33) - at(&one, 0.56, 0.33)).abs() <= 4.0 / 255.0
+        );
+        assert!(
+            at(&both, 0.40, 0.58) > 0.5
+                && (at(&both, 0.40, 0.58) - at(&two, 0.40, 0.58)).abs() <= 4.0 / 255.0
+        );
+        assert!(
+            at(&both, 0.40, 0.33) < 0.05 && at(&both, 0.56, 0.58) < 0.05,
+            "each eraser cuts its own group"
+        );
     }
 
     #[test]
