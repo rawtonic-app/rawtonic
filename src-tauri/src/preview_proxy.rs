@@ -450,6 +450,18 @@ pub fn current_key(
     settings: &AppSettings,
     variant: DecodeVariant,
 ) -> Option<ProxyKey> {
+    let (file_size, modified_ns) = file_stamp(source)?;
+    Some(ProxyKey {
+        file_size,
+        modified_ns,
+        decoder: decoder_key(settings, variant),
+        engine: ENGINE_VERSION,
+    })
+}
+
+/// The size and modification time (ns) of the file at `source`, as a
+/// `ProxyKey` records them.
+fn file_stamp(source: &Path) -> Option<(u64, u128)> {
     let meta = fs::metadata(source).ok()?;
     let modified_ns = meta
         .modified()
@@ -457,12 +469,7 @@ pub fn current_key(
         .duration_since(UNIX_EPOCH)
         .ok()?
         .as_nanos();
-    Some(ProxyKey {
-        file_size: meta.len(),
-        modified_ns,
-        decoder: decoder_key(settings, variant),
-        engine: ENGINE_VERSION,
-    })
+    Some((meta.len(), modified_ns))
 }
 
 /// The decoder settings that change the decoded pixels, and the decode
@@ -643,13 +650,38 @@ fn header_is_current(
             );
     }
     let source_str = source.to_string_lossy();
+    // The frames the header's facts recorded, when they are the file's as
+    // it is now (same size and time) and know every frame version: the
+    // variants need no read of the file (CRD5: one per photograph with a
+    // preview, 100–160 ms over a share).
+    let frames = header
+        .facts
+        .as_ref()
+        .and_then(|facts| facts.frames.as_deref())
+        .filter(|frames| frames.len() == source_frame::VERSION as usize + 1)
+        .filter(|_| crate::formats::is_raw_file(source))
+        .filter(|_| {
+            file_stamp(source).is_some_and(|(size, modified_ns)| {
+                header.key.file_size == size && header.key.modified_ns == modified_ns
+            })
+        });
+    let variant_of = |recipe: &Value| match frames {
+        Some(frames) => crate::image_loader::decode_variant_for_frame(
+            recipe,
+            &source_str,
+            source_frame::effective_with(frames, &source_str, source_frame::requested(recipe)),
+        ),
+        None => crate::image_loader::decode_variant(recipe, &source_str),
+    };
     // The live RAW can resolve frames even for a legacy header. Recipes
     // that ask for the same frame version share it without a second probe.
-    if recipe.is_some_and(|recipe| !crate::image_loader::decode_alike(recipe, &master, &source_str))
-    {
+    if recipe.is_some_and(|recipe| match frames {
+        Some(_) => variant_of(recipe) != variant_of(&master),
+        None => !crate::image_loader::decode_alike(recipe, &master, &source_str),
+    }) {
         return false;
     }
-    let variant = crate::image_loader::decode_variant(&master, &source_str);
+    let variant = variant_of(&master);
     let Some(key) = current_key(source, settings, variant) else {
         return false;
     };

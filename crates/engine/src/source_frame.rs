@@ -114,6 +114,16 @@ pub fn effective(path: &str, version: u32) -> u32 {
     })
 }
 
+/// `effective` from `frames`, the file's `frames` as its caller already
+/// holds them (a preview's facts recorded for the same file), without
+/// reading the file.
+pub fn effective_with(frames: &[u32], path: &str, version: u32) -> u32 {
+    if version == crate::recipe_versions::ORIGINAL_SOURCE_FRAME {
+        return crate::recipe_versions::ORIGINAL_SOURCE_FRAME;
+    }
+    effective_in(frames, version, &extension_of(path))
+}
+
 /// The extension of `path` (no dot).
 pub fn extension_of(path: &str) -> String {
     std::path::Path::new(path)
