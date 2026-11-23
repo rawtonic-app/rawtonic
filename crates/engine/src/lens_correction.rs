@@ -1207,8 +1207,8 @@ pub fn find_best_lens_match(
 /// The EXIF lens name without a trailing maker's model code ("17-70mm F/2.8
 /// DiIII-A VC RXD B070X" → "… VC RXD"), which lensfun's names often lack or
 /// spell for another mount ("B070"): the fuzzy match needs every character
-/// of the EXIF name in the lensfun name. A code mixes letters and digits and
-/// is no focal length or aperture.
+/// of the EXIF name in the Lensfun name. The caller still checks the full
+/// name's identifiers before applying a profile.
 pub(crate) fn without_model_code(name: &str) -> Option<&str> {
     let (rest, code) = name.trim().rsplit_once(' ')?;
     let is_code = code.len() >= 4
@@ -1219,11 +1219,12 @@ pub(crate) fn without_model_code(name: &str) -> Option<&str> {
     (is_code && rest.trim().len() >= 4).then(|| rest.trim())
 }
 
-pub(crate) fn find_lens_by_fuzzy_model(
-    db: &LensDatabase,
+pub(crate) fn find_lens_by_fuzzy_model<'a>(
+    db: &'a LensDatabase,
     maker: &str,
     model: &str,
-) -> Option<(String, String)> {
+    allowed: impl Fn(&Lens) -> bool,
+) -> Option<&'a Lens> {
     let clean_maker = maker.trim().trim_matches('"').to_string();
     let clean_model = model.trim().trim_matches('"').to_string();
     let matcher = fuzzy_matcher::skim::SkimMatcherV2::default().ignore_case();
@@ -1249,7 +1250,7 @@ pub(crate) fn find_lens_by_fuzzy_model(
                     .unwrap_or(0);
                 let score = score_english.max(score_canonical);
 
-                if score > 0 {
+                if score > 0 && allowed(lens) {
                     let best_name = if score_canonical > score_english {
                         &canonical_name
                     } else {
@@ -1266,15 +1267,11 @@ pub(crate) fn find_lens_by_fuzzy_model(
             .max_by_key(|(score, _)| *score);
 
         if let Some((_, best_lens)) = best_match {
-            return Some((
-                best_lens.get_maker(),
-                best_lens.get_display_name(&lenses_from_maker),
-            ));
+            return Some(best_lens);
         }
     }
 
-    let best_match_fallback = db
-        .lenses
+    db.lenses
         .iter()
         .filter_map(|lens| {
             let english_name = lens.get_full_model_name();
@@ -1288,17 +1285,10 @@ pub(crate) fn find_lens_by_fuzzy_model(
                 .unwrap_or(0);
             let score = score_english.max(score_canonical);
 
-            if score > 0 { Some((score, lens)) } else { None }
+            (score > 0 && allowed(lens)).then_some((score, lens))
         })
-        .max_by_key(|(score, _): &(i64, _)| *score);
-
-    if let Some((_, best_lens)) = best_match_fallback {
-        let lens_maker = best_lens.get_maker();
-        let maker_lenses = lenses_for_maker(db, &lens_maker);
-        return Some((lens_maker, best_lens.get_display_name(&maker_lenses)));
-    }
-
-    None
+        .max_by_key(|(score, _)| *score)
+        .map(|(_, best_lens)| best_lens)
 }
 
 /// The bundled database read from the source tree (tests).

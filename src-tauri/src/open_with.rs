@@ -871,7 +871,7 @@ fn plan_edits(
     for (target, photos) in targets.iter_mut().zip(snapshots) {
         if let Some(photo) = photos.into_iter().next() {
             target.library = photo.owner;
-            target.metadata = photo.metadata;
+            target.metadata = recipe.embedded_library_metadata(photo.metadata);
         }
     }
     Ok((targets, jobs))
@@ -986,6 +986,75 @@ pub fn link_render(
         lib.group_stack(&[member, added])?;
     }
     Ok(())
+}
+
+/// `current` (a render's library metadata) without what `registered`
+/// (what an earlier build registered for it) holds and `embedded` (what its
+/// file embeds) does not: only a field still at the registered value
+/// changes, so the user's later edits of the render stay. An IPTC field
+/// becomes an explicit empty value, which also clears it in the sidecar.
+fn without_unembedded(
+    mut current: rawtonic_metadata::Metadata,
+    registered: &rawtonic_metadata::Metadata,
+    embedded: &rawtonic_metadata::Metadata,
+) -> rawtonic_metadata::Metadata {
+    fn repair<T: PartialEq + Clone>(current: &mut T, registered: &T, embedded: &T) {
+        if current == registered && registered != embedded {
+            *current = embedded.clone();
+        }
+    }
+    repair(&mut current.rating, &registered.rating, &embedded.rating);
+    repair(&mut current.label, &registered.label, &embedded.label);
+    repair(&mut current.flag, &registered.flag, &embedded.flag);
+    // Keyword by keyword, so one the user added since stays.
+    current.keywords.retain(|keyword| {
+        !registered.keywords.contains(keyword) || embedded.keywords.contains(keyword)
+    });
+    repair(&mut current.title, &registered.title, &embedded.title);
+    repair(
+        &mut current.description,
+        &registered.description,
+        &embedded.description,
+    );
+    repair(&mut current.creator, &registered.creator, &embedded.creator);
+    repair(
+        &mut current.copyright,
+        &registered.copyright,
+        &embedded.copyright,
+    );
+    for (key, value) in &registered.iptc {
+        let kept = embedded.iptc.get(key).cloned().unwrap_or_default();
+        if current.iptc.get(key) == Some(value) && *value != kept {
+            current.iptc.insert(key.clone(), kept);
+        }
+    }
+    current
+}
+
+/// Repairs the render of `target` when an earlier build registered it
+/// with `registered`, the photo's full metadata, although its file embeds
+/// only `target.metadata` ([`without_unembedded`]). Nothing for a render the
+/// library does not list.
+pub(crate) fn repair_render_metadata(
+    target: &EditTarget,
+    registered: &rawtonic_metadata::Metadata,
+) -> Result<(), String> {
+    let Some(dir) = &target.library else {
+        return Ok(());
+    };
+    let embedded = target.metadata.clone().unwrap_or_default();
+    crate::session_bridge::with_library_blocking(Path::new(dir), |lib| {
+        let failed = |e: rawtonic_catalog::CatalogError| format!("{e:#}");
+        let Some(render) = lib.asset_at(Path::new(&target.target)).map_err(failed)? else {
+            return Ok(());
+        };
+        let current = lib.metadata(&render.id).map_err(failed)?;
+        let repaired = without_unembedded(current.clone(), registered, &embedded);
+        if repaired != current {
+            lib.set_metadata(&render.id, &repaired).map_err(failed)?;
+        }
+        Ok(())
+    })
 }
 
 pub(crate) fn link_renders(items: &[EditTarget]) -> EditWithResult {
@@ -1926,6 +1995,239 @@ mod tests {
         fs::write(&unrelated, b"photo").unwrap();
         lib.add_asset(&unrelated).unwrap();
         assert!(link_render(&lib, &source.to_string_lossy(), &unrelated, None).is_err());
+    }
+
+    /// A photograph of a new session with the creator's contact details,
+    /// a place and a caption, its library and the session directory.
+    fn photo_with_private_metadata(tmp: &Path) -> (Library, PathBuf, PathBuf) {
+        use rawtonic_catalog::Mode;
+        let dir = tmp.join("S");
+        let lib = Library::create(&dir, "S", Mode::Session).unwrap();
+        let source = dir.join("Capture/A.NEF");
+        fs::write(&source, b"raw").unwrap();
+        let original = lib.add_asset(&source).unwrap();
+        let mut meta = lib.metadata(&original.id).unwrap();
+        meta.rating = 3;
+        meta.flag = 1;
+        meta.keywords = vec!["Private client".into()];
+        meta.title = "Harbour".into();
+        meta.creator = "Ada".into();
+        meta.copyright = "(c) Ada".into();
+        for (key, value) in [
+            ("creatorEmail", "ada@example.org"),
+            ("creatorPhone", "+49 555 0100"),
+            ("city", "Kiel"),
+            ("usageTerms", "Editorial only"),
+        ] {
+            meta.iptc.insert(key.into(), value.into());
+        }
+        lib.set_metadata(&original.id, &meta).unwrap();
+        (lib, source, dir)
+    }
+
+    /// Plans, "renders" and registers the Edit With render of `source` with
+    /// `settings`, runs the XMP sync, and returns the render's registered
+    /// metadata and every sidecar text beside it.
+    fn register_render(
+        lib: &Library,
+        source: &Path,
+        dir: &Path,
+        settings: serde_json::Value,
+    ) -> (rawtonic_metadata::Metadata, String) {
+        let mut recipe = tiff_recipe(None, Some(dir));
+        recipe.export_settings = serde_json::from_value(settings).unwrap();
+        recipe.edit_with = Some(crate::export_queue::EditWithRun {
+            id: "run".into(),
+            program: "Editor".into(),
+            photos: vec![source.to_string_lossy().into_owned()],
+        });
+        let queue = Queue::new();
+        let (targets, jobs) = plan_edits(
+            vec![source.to_string_lossy().into_owned()],
+            recipe,
+            &queue.queue,
+            &|_| false,
+        )
+        .unwrap();
+        // The target kept for recovery and Try again holds the same.
+        let request = queue.request(&jobs[0]);
+        assert_eq!(request.edit_target.as_ref(), Some(&targets[0]));
+        let render = PathBuf::from(&targets[0].target);
+        fs::write(&render, b"tiff").unwrap();
+        link_render(
+            lib,
+            &targets[0].source,
+            &render,
+            targets[0].metadata.as_ref(),
+        )
+        .unwrap();
+        let edit = lib.asset_at(&render).unwrap().unwrap();
+        lib.sync_xmp(&edit.id).unwrap();
+        let mut sidecars = String::new();
+        for entry in fs::read_dir(render.parent().unwrap()).unwrap() {
+            let path = entry.unwrap().path();
+            if path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
+            {
+                sidecars.push_str(&fs::read_to_string(&path).unwrap());
+            }
+        }
+        (lib.metadata(&edit.id).unwrap(), sidecars)
+    }
+
+    #[test]
+    fn a_render_registers_only_the_metadata_its_file_embeds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (lib, source, dir) = photo_with_private_metadata(tmp.path());
+        let original = std::fs::read(&source).unwrap();
+
+        // Metadata limited to the rights, creator contact details off.
+        let (got, sidecars) = register_render(
+            &lib,
+            &source,
+            &dir,
+            serde_json::json!({"jpegQuality": 90, "keepMetadata": false, "stripGps": true}),
+        );
+        assert_eq!(
+            (got.creator.as_str(), got.copyright.as_str()),
+            ("Ada", "(c) Ada")
+        );
+        assert_eq!(
+            got.iptc.get("usageTerms").map(String::as_str),
+            Some("Editorial only")
+        );
+        for key in ["creatorEmail", "creatorPhone", "city"] {
+            assert!(!got.iptc.contains_key(key), "{key} registered");
+        }
+        assert_eq!((got.rating, got.title.as_str()), (0, ""));
+        assert!(
+            sidecars.contains("Ada"),
+            "the sync wrote the render's sidecar"
+        );
+        for private in [
+            "ada@example.org",
+            "555 0100",
+            "Kiel",
+            "Harbour",
+            "Private client",
+        ] {
+            assert!(!sidecars.contains(private), "{private} in the sidecar");
+        }
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+    }
+
+    #[test]
+    fn a_render_registers_contact_details_and_all_metadata_only_when_its_file_has_them() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (lib, source, dir) = photo_with_private_metadata(tmp.path());
+        let (got, sidecars) = register_render(
+            &lib,
+            &source,
+            &dir,
+            serde_json::json!({"jpegQuality": 90, "keepMetadata": false, "stripGps": true, "keepCreatorContact": true}),
+        );
+        assert_eq!(
+            got.iptc.get("creatorEmail").map(String::as_str),
+            Some("ada@example.org")
+        );
+        assert!(!got.iptc.contains_key("city"));
+        assert!(sidecars.contains("ada@example.org") && !sidecars.contains("Kiel"));
+
+        // All metadata without GPS: the file has the library's fields, so
+        // the render is registered with them; GPS is never part of them.
+        let tmp = tempfile::tempdir().unwrap();
+        let (lib, source, dir) = photo_with_private_metadata(tmp.path());
+        let (got, sidecars) = register_render(
+            &lib,
+            &source,
+            &dir,
+            serde_json::json!({"jpegQuality": 90, "keepMetadata": true, "stripGps": true}),
+        );
+        assert_eq!((got.rating, got.title.as_str()), (3, "Harbour"));
+        assert_eq!(got.iptc.get("city").map(String::as_str), Some("Kiel"));
+        assert!(!sidecars.contains("GPS"));
+        // The pick flag stays with the photograph: the file has none.
+        assert_eq!(got.flag, 0);
+    }
+
+    #[test]
+    fn a_render_an_earlier_build_registered_with_everything_loses_what_its_file_lacks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (lib, source, dir) = photo_with_private_metadata(tmp.path());
+        let original = lib.asset_at(&source).unwrap().unwrap();
+        let full = lib.metadata(&original.id).unwrap();
+        // The earlier build registered the stripped render with everything,
+        // and its sidecar was synced so.
+        let render = dir.join("Capture/A_edit.tiff");
+        fs::write(&render, b"tiff").unwrap();
+        link_render(&lib, &source.to_string_lossy(), &render, Some(&full)).unwrap();
+        let edit = lib.asset_at(&render).unwrap().unwrap();
+        lib.sync_xmp(&edit.id).unwrap();
+        // The user retitled the render and tagged it since.
+        let mut retitled = lib.metadata(&edit.id).unwrap();
+        retitled.title = "Harbour, retouched".into();
+        retitled.keywords.push("retouched".into());
+        lib.set_metadata(&edit.id, &retitled).unwrap();
+        drop(lib);
+
+        let target = EditTarget {
+            source: source.to_string_lossy().into_owned(),
+            target: render.to_string_lossy().into_owned(),
+            library: Some(dir.to_string_lossy().into_owned()),
+            metadata: rawtonic_export::exif_processing::embedded_library_metadata(
+                "tiff",
+                false,
+                false,
+                full.clone(),
+            ),
+        };
+        repair_render_metadata(&target, &full).unwrap();
+        // Idempotent: a second recovery changes nothing more.
+        repair_render_metadata(&target, &full).unwrap();
+
+        let lib = Library::open(&dir).unwrap();
+        let got = lib.metadata(&edit.id).unwrap();
+        assert_eq!(got.title, "Harbour, retouched", "the user's edit stays");
+        assert_eq!(
+            got.keywords,
+            ["retouched"],
+            "only the inherited keyword goes"
+        );
+        assert_eq!((got.rating, got.flag), (0, 0));
+        assert_eq!(
+            (got.creator.as_str(), got.copyright.as_str()),
+            ("Ada", "(c) Ada")
+        );
+        for key in ["creatorEmail", "creatorPhone", "city"] {
+            assert!(
+                got.iptc.get(key).is_none_or(|value| value.is_empty()),
+                "{key} still registered"
+            );
+        }
+        lib.sync_xmp(&edit.id).unwrap();
+        let sidecar = fs::read_dir(dir.join("Capture"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
+            })
+            .map(|path| fs::read_to_string(path).unwrap())
+            .collect::<String>();
+        assert!(sidecar.contains("Harbour, retouched"));
+        for private in ["ada@example.org", "555 0100", "Kiel", "Private client"] {
+            assert!(!sidecar.contains(private), "{private} in the sidecar");
+        }
+        // A render the library does not list is left alone.
+        let elsewhere = EditTarget {
+            target: dir
+                .join("Capture/B_edit.tiff")
+                .to_string_lossy()
+                .into_owned(),
+            ..target
+        };
+        repair_render_metadata(&elsewhere, &full).unwrap();
     }
 
     #[test]

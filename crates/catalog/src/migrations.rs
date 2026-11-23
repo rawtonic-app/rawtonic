@@ -104,6 +104,8 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration::sql(29, include_str!("../migrations/0029.sql")),
     // Assisted culling's scores and the photographer's dismissals.
     Migration::sql(30, include_str!("../migrations/0030.sql")),
+    // What an import from another editor last wrote to each version.
+    Migration::sql(31, include_str!("../migrations/0031.sql")),
 ];
 
 /// The newest schema: the last migration's.

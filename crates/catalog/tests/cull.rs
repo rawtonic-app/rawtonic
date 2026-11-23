@@ -87,7 +87,7 @@ fn a_new_library_has_the_culling_tables() {
     let version: u32 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 30);
+    assert!(version >= 30);
     for table in ["cull_scores", "cull_dismissed"] {
         let n: i64 = db
             .query_row(
