@@ -1067,11 +1067,16 @@ mod export {
 
     #[test]
     fn an_export_that_cannot_be_signed_is_not_written() {
-        let (_dir, _identity) = identity();
+        let (_dir, identity) = identity();
         let (result, file) = export("jpg", &settings(true), None, &json!({}));
         assert_eq!(result.unwrap_err(), PROVENANCE_NEEDS_IDENTITY);
         assert!(file.is_none());
-        // A format with no manifest binding.
+        // A format with no manifest binding: refused, nothing written.
+        for extension in ["heic", "cube"] {
+            let (result, file) = export(extension, &settings(true), Some(&identity), &json!({}));
+            assert!(result.is_err(), "{extension}");
+            assert!(file.is_none(), "{extension}");
+        }
         assert!(
             crate::export_processing::provenance_format_error("heic")
                 .unwrap()
