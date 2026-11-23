@@ -1063,20 +1063,47 @@ fn load_source(
         return Ok((proxy.image, scale, facts, "proxy-memory"));
     }
     let settings = crate::state::settings::current(app_handle);
-    if is_raw
-        && proxy_fits
-        && let Some(proxy) = crate::preview_proxy::read(&source_path, &settings)
-    {
+    if is_raw && let Some(found) = preview_on_disk(&source_path, recipe, proxy_fits, &settings) {
+        return Ok(found);
+    }
+    decode(&source_path, &source_str, is_raw, &settings, recipe)
+}
+
+/// A RAW cell's source from the previews on disk (`load_source`): the
+/// Standard one when it stands for `recipe` (`standard_fits`), else,
+/// offline, a 1:1 preview made for the recipe's variant (the Standard one
+/// may have been renewed for the master's since, PXV1): the RAW cannot be
+/// decoded then.
+fn preview_on_disk(
+    source_path: &Path,
+    recipe: &serde_json::Value,
+    standard_fits: bool,
+    settings: &crate::app_settings::AppSettings,
+) -> Option<(Arc<DynamicImage>, f32, Facts, &'static str)> {
+    let found = |proxy: crate::preview_proxy::Proxy, how| {
         let scale = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
         let facts = Facts {
             full_width: proxy.full_width,
             full_height: proxy.full_height,
-            is_raw,
+            is_raw: true,
             measures: proxy.measures,
         };
-        return Ok((Arc::new(proxy.image), scale, facts, "proxy-disk"));
+        (Arc::new(proxy.image), scale, facts, how)
+    };
+    if standard_fits && let Some(proxy) = crate::preview_proxy::read(source_path, settings) {
+        return Some(found(proxy, "proxy-disk"));
     }
-    decode(&source_path, &source_str, is_raw, &settings, recipe)
+    if crate::preview_proxy::source_available(source_path)
+        || !crate::preview_proxy::stands_for(
+            source_path,
+            recipe,
+            crate::preview_proxy::ProxyKind::Full,
+        )
+    {
+        return None;
+    }
+    crate::preview_proxy::read_kind(source_path, crate::preview_proxy::ProxyKind::Full, settings)
+        .map(|proxy| found(proxy, "proxy-1:1"))
 }
 
 fn decode(
@@ -4334,6 +4361,48 @@ mod tests {
             whole_base_key("portrait", &first),
             whole_base_key("portrait", &second)
         );
+    }
+
+    /// PXV1 review: offline, a virtual copy saved at render version 15
+    /// whose 1:1 preview was made at 15 while the Standard one was renewed
+    /// for its never-edited master (16) shows its fit cell from the 1:1
+    /// one, never by decoding the missing RAW; the master from its Standard
+    /// one; a copy of a third variant from neither.
+    #[test]
+    fn an_offline_copy_cell_falls_back_to_its_matching_one_to_one_preview() {
+        use crate::preview_proxy::ProxyKind;
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("Job");
+        std::fs::create_dir_all(session.join("Capture")).unwrap();
+        std::fs::write(session.join("session.json"), "{}").unwrap();
+        std::fs::write(session.join("session.sqlite"), "").unwrap();
+        let photo = session.join("Capture").join("A.NEF");
+        std::fs::write(&photo, b"raw bytes").unwrap();
+        let path = photo.to_string_lossy().to_string();
+        let at = |version: u64| serde_json::json!({ "exposure": 0.5, "renderVersion": version });
+        let variant_at =
+            |version: u64| crate::image_loader::decode_variant_for_frame(&at(version), &path, 0);
+        let master = crate::image_loader::stored_decode_variant(&path);
+        assert_ne!(variant_at(15), master);
+        let settings = crate::app_settings::AppSettings::default();
+        let image = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+            80,
+            60,
+            image::Rgb([0.2, 0.3, 0.4]),
+        ));
+        crate::preview_proxy::write(&photo, &image, 40, &settings, master, None).unwrap();
+        crate::preview_proxy::write_full(&photo, &image, &settings, variant_at(15), None).unwrap();
+        std::fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
+        rawtonic_engine::source_facts::forget(&path);
+        let cell = |recipe: &serde_json::Value| {
+            let standard_fits =
+                crate::preview_proxy::stands_for(&photo, recipe, ProxyKind::Standard);
+            preview_on_disk(&photo, recipe, standard_fits, &settings).map(|found| found.3)
+        };
+        assert_eq!(cell(&at(15)), Some("proxy-1:1"));
+        assert_eq!(cell(&serde_json::Value::Null), Some("proxy-disk"));
+        assert_eq!(cell(&at(14)), None);
+        rawtonic_engine::source_facts::forget(&path);
     }
 
     #[test]
