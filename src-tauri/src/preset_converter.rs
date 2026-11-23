@@ -222,6 +222,14 @@ fn prophoto_hsv_to_oklab(hue_sixths: f64, saturation: f64, value: f64) -> (f64, 
 /// window of the same half-width (measured, notes: reference/point-color.md).
 const HUE_WINDOW_WIDENING: f64 = 1.15;
 
+/// Colour editor uniformity (hue, chroma, lightness) at Point Color
+/// Variance −1, growing linearly to it. Camera Raw 18.7 pushes the hue
+/// fully towards the swatch and the chroma and lightness much less. Fitted
+/// on 2 photos (4 swatches) and checked on 2 others (6 swatches) at −0.25 /
+/// −0.5 / −1; equal axes changed 2.3–4.0× Camera Raw's change on 8 of those
+/// 10 swatches (notes: benchmark-results/ptc2-2026-11-23).
+const VARIANCE_UNIFORMITY: [f64; 3] = [100.0, 30.0, 15.0];
+
 fn hue_difference(a: f64, b: f64) -> f64 {
     (a - b + 540.0).rem_euclid(360.0) - 180.0
 }
@@ -380,17 +388,14 @@ fn point_color_ranges_from(swatches: &[String], variances: &[String]) -> Vec<Val
         } else {
             0.0
         };
-        // Negative variance evens the range out (Capture One's uniformity).
-        let uniformity = variances
+        // Negative variance evens the range out (Capture One's uniformity),
+        // by the per-axis amounts measured against Camera Raw (PTC2).
+        let variance = variances
             .get(index)
             .and_then(|x| x.trim().parse::<f64>().ok())
-            .map_or(0.0, |x| {
-                if x < 0.0 {
-                    (-x * 100.0).min(100.0)
-                } else {
-                    0.0
-                }
-            });
+            .map_or(0.0, |x| (-x).clamp(0.0, 1.0));
+        let [hue_uniformity, saturation_uniformity, lightness_uniformity] =
+            VARIANCE_UNIFORMITY.map(|per_unit| variance * per_unit);
         let round = |x: f64| (x * 1000.0).round() / 1000.0;
         ranges.push(json!({
             "id": Uuid::new_v4().to_string(),
@@ -404,9 +409,9 @@ fn point_color_ranges_from(swatches: &[String], variances: &[String]) -> Vec<Val
             recipe_color::RANGE_HUE_SHIFT.name(): round((hue_degrees / 0.5).clamp(-100.0, 100.0)),
             recipe_color::RANGE_SATURATION.name(): round(saturation.clamp(-100.0, 100.0)),
             recipe_color::RANGE_LIGHTNESS_SHIFT.name(): round(lightness_shift.clamp(-100.0, 100.0)),
-            recipe_color::RANGE_HUE_UNIFORMITY.name(): round(uniformity),
-            recipe_color::RANGE_SATURATION_UNIFORMITY.name(): round(uniformity),
-            recipe_color::RANGE_LIGHTNESS_UNIFORMITY.name(): round(uniformity),
+            recipe_color::RANGE_HUE_UNIFORMITY.name(): round(hue_uniformity),
+            recipe_color::RANGE_SATURATION_UNIFORMITY.name(): round(saturation_uniformity),
+            recipe_color::RANGE_LIGHTNESS_UNIFORMITY.name(): round(lightness_uniformity),
         }));
     }
     ranges
@@ -3635,6 +3640,27 @@ mod tests {
         assert!((10.0..60.0).contains(&width), "{width}");
     }
 
+    #[test]
+    fn negative_point_color_variance_becomes_measured_uniformities() {
+        // Camera Raw 18.7 (PTC2, 4 photos, 10 swatches, Variance −0.25 / −0.5 /
+        // −1): uniformity grows with the variance in the ratio hue 1 : chroma
+        // 0.3 : lightness 0.15, not equally on all three (equal axes changed
+        // 2.3–4.0× Camera Raw's change on 8 of 10 swatches; this mapping
+        // leaves 0.34–1.04 of it on the 6 hold-out swatches, 0.50–0.76 on the
+        // fitted ones). Positive variance has no mapping and stays at 0.
+        let swatch = "0.500000, 0.700000, 0.300000, 0.000000, 0.000000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.520000, 1.000000, 1.000000, 0.000000, 0.400000, 0.760000, 1.000000".to_string();
+        let uniformities = |variance: &str| {
+            let ranges = super::point_color_ranges_from(&[swatch.clone()], &[variance.to_string()]);
+            ["hueUniformity", "saturationUniformity", "lightnessUniformity"]
+                .map(|key| ranges[0][key].as_f64().unwrap())
+        };
+        assert_eq!(uniformities("-0.250000"), [25.0, 7.5, 3.75]);
+        assert_eq!(uniformities("-0.500000"), [50.0, 15.0, 7.5]);
+        assert_eq!(uniformities("-1.000000"), [100.0, 30.0, 15.0]);
+        assert_eq!(uniformities("-2.000000"), [100.0, 30.0, 15.0], "capped");
+        assert_eq!(uniformities("0.500000"), [0.0, 0.0, 0.0]);
+    }
+
     /// Eight Point Color swatches of different hues (Lightroom's limit per
     /// photo and per mask), as `crs:PointColors` items.
     fn eight_swatches() -> Vec<String> {
@@ -3711,13 +3737,9 @@ mod tests {
         );
         // The first valid swatch carries the variance of its own position.
         let mut expected = without_id(&photo[0]);
-        for key in [
-            "hueUniformity",
-            "saturationUniformity",
-            "lightnessUniformity",
-        ] {
-            expected[key] = json!(40.0);
-        }
+        expected["hueUniformity"] = json!(40.0);
+        expected["saturationUniformity"] = json!(12.0);
+        expected["lightnessUniformity"] = json!(6.0);
         assert_eq!(without_id(&layer[0]), expected);
         for (range, photo) in layer[1..].iter().zip(&photo[1..]) {
             assert_eq!(without_id(range), without_id(photo));
