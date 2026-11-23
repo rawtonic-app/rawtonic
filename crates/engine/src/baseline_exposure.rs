@@ -230,17 +230,20 @@ pub fn dng_baseline_equivalent(path: &str) -> f32 {
 /// buffer too (`capture_info::with_held_source`): the renders that follow
 /// find it cached instead of reading the whole file again for each of its
 /// facts (CRD5: Develop open and edited thumbnails over a share). Only
-/// after a decode that succeeded: a failed one (a damaged file) caches
+/// after the sensor data decoded: a failed decode or one that fell back to
+/// the embedded preview (a damaged file, `preview_fallback_reason`) caches
 /// nothing for the path.
 pub fn decode_with_base_look<T, E>(
     path: &str,
     bytes: crate::capture_info::SharedBuf,
     decode: impl FnOnce() -> Result<T, E>,
 ) -> Result<T, E> {
-    let path = rawtonic_metadata::photo_ref::source_of(path);
-    crate::capture_info::with_held_source(path, bytes, || {
+    let source = rawtonic_metadata::photo_ref::source_of(path);
+    crate::capture_info::with_held_source(source, bytes, || {
         let decoded = decode()?;
-        let _ = base_look(path);
+        if crate::image_loader::preview_fallback_reason(path).is_none() {
+            let _ = base_look(source);
+        }
         Ok(decoded)
     })
 }
@@ -857,6 +860,33 @@ mod adobe_check {
 mod tests {
     use super::{BaseLook, base_look};
     use crate::image_processing::GlobalAdjustments;
+
+    /// CRD5 review: the base look is read from the decode's buffer into the
+    /// path's cache only after the sensor data decoded; a decode that fell
+    /// back to the embedded preview (a damaged file) or failed leaves none.
+    #[test]
+    fn only_a_sensor_decode_reads_the_base_look_ahead() {
+        use crate::image_loader::{PreviewFallback, note_preview_fallback};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("A.ARW");
+        std::fs::write(&path, b"not a raw").unwrap();
+        let path = path.to_str().unwrap();
+        let held: crate::capture_info::SharedBuf = std::sync::Arc::new(b"not a raw".to_vec());
+        let cached = || super::cache().lock().unwrap().contains_key(path);
+        let fell_back = super::decode_with_base_look(path, held.clone(), || {
+            note_preview_fallback(path, Some(PreviewFallback::Other("damaged".into())));
+            Ok::<_, ()>(())
+        });
+        assert!(fell_back.is_ok() && !cached());
+        let failed = super::decode_with_base_look(path, held.clone(), || Err::<(), _>(()));
+        assert!(failed.is_err() && !cached());
+        let decoded = super::decode_with_base_look(path, held, || {
+            note_preview_fallback(path, None);
+            Ok::<_, ()>(())
+        });
+        assert!(decoded.is_ok() && cached());
+        super::cache().lock().unwrap().remove(path);
+    }
 
     /// The measures of the decode rendered win over the last full decode's
     /// of the same file (another recipe's decode may have come since).

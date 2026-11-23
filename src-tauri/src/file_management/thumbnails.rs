@@ -1165,12 +1165,30 @@ fn read_import_into_memory(path: &Path) -> bool {
 /// Reads the photograph at `path` ahead of a decode that reads all of it
 /// (`file_io::prefetch`: over a share faster than the mapping's page
 /// faults), except on a card, whose files are read into memory or mapped
-/// as they are decoded. Stops once `cancel` (the decode's) is cancelled.
-pub(crate) fn read_ahead_for_decode(path: &Path, cancel: Option<rawtonic_runtime::CancelToken>) {
+/// as they are decoded. Stops once `cancel` (the decode's) is cancelled or
+/// the returned guard is dropped (the decode is over, done or failed).
+#[must_use = "the read-ahead stops when the guard is dropped"]
+pub(crate) fn read_ahead_for_decode(
+    path: &Path,
+    cancel: Option<rawtonic_runtime::CancelToken>,
+) -> ReadAhead {
+    let over = Arc::new(std::sync::atomic::AtomicBool::new(false));
     if !read_import_into_memory(path) {
+        let done = over.clone();
         rawtonic_engine::file_io::prefetch_until(path, move || {
-            cancel.as_ref().is_some_and(|cancel| cancel.is_cancelled())
+            done.load(Ordering::Relaxed)
+                || cancel.as_ref().is_some_and(|cancel| cancel.is_cancelled())
         });
+    }
+    ReadAhead(over)
+}
+
+/// Ends `read_ahead_for_decode`'s reads when dropped.
+pub(crate) struct ReadAhead(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for ReadAhead {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
     }
 }
 
@@ -1201,7 +1219,7 @@ fn source_preview_image(path: &Path, size: u32) -> Option<DynamicImage> {
             let path_str = path.to_string_lossy();
             // Developed: every byte is read, ahead of the mapping's faults,
             // and the decode's facts read the same buffer.
-            read_ahead_for_decode(path, None);
+            let _read_ahead = read_ahead_for_decode(path, None);
             let mut image =
                 rawtonic_rawdecode::capture_info::with_held_source(&path_str, file.clone(), || {
                     image_loader::load_and_composite(

@@ -74,7 +74,8 @@ pub fn prefetch(path: &Path) {
 }
 
 /// `prefetch` that stops before its next chunk once `cancelled` says so
-/// (the decode it reads ahead for was abandoned: another photo opened).
+/// (the decode it reads ahead for was abandoned: another photo opened, or
+/// it is over).
 pub fn prefetch_until(path: &Path, cancelled: impl Fn() -> bool + Send + Sync + 'static) {
     let path = path.to_path_buf();
     let _ = std::thread::Builder::new()
