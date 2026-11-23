@@ -1021,6 +1021,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "Der Grafiktreiber reagierte mehrmals nicht mehr. Deine Bearbeitungen sind sicher; beende Rawtonic und öffne es erneut, um weiter zu entwickeln. Details: {{details}}",
+    "gpuDeviceRecovered": "Der Grafiktreiber reagierte nicht mehr. Rawtonic hat die Grafik neu gestartet; deine Bearbeitungen sind sicher.",
     "gpuStartFailed": "Rawtonic konnte den Grafikprozessor nicht starten, daher lassen sich Fotos weder entwickeln noch exportieren. Setze die Grafikeinstellungen zurück und versuche es erneut; hilft das nicht, aktualisiere den Grafiktreiber. Details: {{details}}",
     "operationFailed": "Der Vorgang konnte nicht abgeschlossen werden."
   },

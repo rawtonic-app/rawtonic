@@ -1021,6 +1021,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "The graphics driver stopped responding several times. Your edits are safe; quit and reopen Rawtonic to go on developing. Details: {{details}}",
+    "gpuDeviceRecovered": "The graphics driver stopped responding. Rawtonic restarted the graphics; your edits are safe.",
     "gpuStartFailed": "Rawtonic could not start the graphics processor, so photos cannot be developed or exported. Reset the graphics settings and retry; if that does not help, update the graphics driver. Details: {{details}}",
     "operationFailed": "The operation could not be completed."
   },

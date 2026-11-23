@@ -28894,3 +28894,104 @@ fn tpx8_fit_view_memory() {
         }
     }
 }
+
+/// DVL1: on a GPU that needs short submissions (`short_submissions`) display
+/// renders run in `EXPORT_TILE_SIZE` tiles: the bytes of the display
+/// readback stay those of `TILE_SIZE` tiles for recipes whose blurs have
+/// their whole radius at tile seams (`renderVersion` 2), and older recipes
+/// keep `TILE_SIZE` tiles. Prints one tile's render time at both sizes
+/// (the watchdog budget: on a Radeon 680M one submission over ~2 s lost
+/// the device).
+#[test]
+#[ignore = "requires a native GPU"]
+fn display_renders_in_short_submission_tiles_keep_their_bytes() {
+    let context = context();
+    let (width, height) = (5632u32, 4220u32);
+    let photo = DynamicImage::ImageRgba32F(ImageBuffer::from_fn(width, height, move |x, y| {
+        let n = ((x * 7919 + y * 104_729) % 251) as f32 / 251.0;
+        Rgba([
+            0.2 + 0.5 * x as f32 / width as f32 + 0.05 * n,
+            0.3 + 0.2 * n,
+            0.6 * y as f32 / height as f32 + 0.1 * (1.0 - n),
+            1.0,
+        ])
+    }));
+    let max = context.limits.max_texture_dimension_2d;
+    let slot = |small: bool| {
+        let mut processor = GpuProcessor::new(context.clone(), max, max).unwrap();
+        processor.small_export_tiles = small;
+        GpuProcessorSlot::new(Some(GpuProcessorState {
+            processor,
+            width: max,
+            height: max,
+        }))
+    };
+    let (large, small) = (slot(false), slot(true));
+    let render = |slot: &GpuProcessorSlot, render_version: u64, roi: Option<Roi>| {
+        let recipe = json!({"exposure":0.4,"contrast":15,"clarity":60,"structure":20,
+            "sharpness":40,"lumaNoiseReduction":20,"colorNoiseReduction":25,
+            "flareAmount":30,"vignetteAmount":-20,"renderVersion":render_version});
+        let started = Instant::now();
+        let image = process_and_get_dynamic_image_inner(
+            &context,
+            slot,
+            &Mutex::new(None),
+            RenderSource::Image {
+                image: &photo,
+                transform_hash: 1,
+            },
+            RenderRequest {
+                adjustments: get_all_adjustments_from_json(&recipe, true, None),
+                mask_bitmaps: &[],
+                lut: None,
+                roi,
+            },
+            "dvl1_test",
+            RenderOutputPrecision::EightBit,
+            false,
+            None,
+            None,
+            ReadbackShader::Display,
+        )
+        .expect("renders");
+        (image, started.elapsed())
+    };
+    let region = Roi {
+        x: 1100,
+        y: 700,
+        width: 2100,
+        height: 1500,
+    };
+    for (render_version, roi) in [(2, None), (2, Some(region)), (1, Some(region))] {
+        let (a, _) = render(&large, render_version, roi);
+        let (b, _) = render(&small, render_version, roi);
+        assert!(
+            a.as_bytes() == b.as_bytes(),
+            "renderVersion {render_version} {roi:?}: small display tiles change the bytes"
+        );
+    }
+    // One tile's render (warm: the second of each), whole frame for scale.
+    let tile = |side: u32| {
+        Some(Roi {
+            x: 2048,
+            y: 2048,
+            width: side,
+            height: side,
+        })
+    };
+    let mut times = Vec::new();
+    for (name, slot, roi) in [
+        ("2048 tile", &large, tile(2048)),
+        ("1024 tile", &small, tile(1024)),
+        ("whole frame, 2048 tiles", &large, None),
+        ("whole frame, 1024 tiles", &small, None),
+    ] {
+        render(slot, 2, roi);
+        let (_, took) = render(slot, 2, roi);
+        times.push(format!("{name}: {took:.2?}"));
+    }
+    eprintln!(
+        "DVL1 display render times {width}x{height}: {}",
+        times.join(", ")
+    );
+}
