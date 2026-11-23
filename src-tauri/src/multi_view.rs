@@ -940,7 +940,7 @@ pub(crate) fn measure_preview(
     }
     let (source, _) = parse_virtual_path(path);
     // A recipe of another decode variant is not shown from the previews.
-    if !crate::preview_proxy::stands_for(&source, recipe) {
+    if !crate::preview_proxy::stands_for(&source, recipe, crate::preview_proxy::ProxyKind::Full) {
         return;
     }
     if crate::preview_proxy::full_key(&source, settings)
@@ -1034,9 +1034,14 @@ fn load_source(
         };
         return Ok((image, 1.0, facts, "decoded"));
     }
-    // The previews stand for the master recipe's decode variant
+    // The previews stand for the decode variant they were made for
     // (`preview_proxy::stands_for`); a cell of another one decodes.
-    let proxy_fits = !is_raw || crate::preview_proxy::stands_for(&source_path, recipe);
+    let proxy_fits = !is_raw
+        || crate::preview_proxy::stands_for(
+            &source_path,
+            recipe,
+            crate::preview_proxy::ProxyKind::Standard,
+        );
     if let Some(proxy) = state
         .source
         .proxy_memory
@@ -2138,7 +2143,11 @@ fn load_full_source(
         return Ok((image, 1.0, facts, "decoded", None));
     }
     if is_raw
-        && crate::preview_proxy::stands_for(&source_path, recipe)
+        && crate::preview_proxy::stands_for(
+            &source_path,
+            recipe,
+            crate::preview_proxy::ProxyKind::Full,
+        )
         && let Some(proxy) = crate::preview_proxy::read_kind(
             &source_path,
             crate::preview_proxy::ProxyKind::Full,
@@ -2451,7 +2460,12 @@ fn prepare_region_from_rows(
     let (full_w, full_h) = match &decoded {
         Some(image) => image.dimensions(),
         None if !known.is_raw => return Err("not a RAW"),
-        None if !crate::preview_proxy::stands_for(&source_path, recipe) => {
+        None if !crate::preview_proxy::stands_for(
+            &source_path,
+            recipe,
+            crate::preview_proxy::ProxyKind::Full,
+        ) =>
+        {
             return Err("the 1:1 preview is of another decode variant");
         }
         None => crate::preview_proxy::full_size(&source_path, &settings)
@@ -3061,8 +3075,11 @@ fn region_source_ready(
     // the zoom's scale, which takes as much memory as a decode.
     zoom.scale >= 1.0
         && (in_memory
-            || (crate::preview_proxy::stands_for(&source_path, recipe)
-                && crate::preview_proxy::has_full(&source_path, &settings)))
+            || (crate::preview_proxy::stands_for(
+                &source_path,
+                recipe,
+                crate::preview_proxy::ProxyKind::Full,
+            ) && crate::preview_proxy::has_full(&source_path, &settings)))
 }
 
 /// The kept region base of `path` that still covers what its cell `area`

@@ -495,9 +495,13 @@ fn stored_proxy(
     adjustments: &serde_json::Value,
     settings: &crate::app_settings::AppSettings,
 ) -> Option<crate::preview_proxy::Proxy> {
-    crate::preview_proxy::stands_for(source, adjustments)
-        .then(|| crate::preview_proxy::read(source, settings))
-        .flatten()
+    crate::preview_proxy::stands_for(
+        source,
+        adjustments,
+        crate::preview_proxy::ProxyKind::Standard,
+    )
+    .then(|| crate::preview_proxy::read(source, settings))
+    .flatten()
 }
 
 /// A new recipe's plain decode (never edited, or a Reset's) cut to the
@@ -1619,8 +1623,11 @@ fn embedded_thumbnail_allowed(path_str: &str, adjustments: &[u8], settings: &App
         && is_raw_file(&source)
         && !settings.always_decode_raw_thumbnails.unwrap_or(false)
         && rawtonic_engine::develop_defaults::for_path(&source).is_none()
-        && !(crate::preview_proxy::stands_for(&source, &serde_json::Value::Null)
-            && crate::preview_proxy::standard_header_is_current(&source, settings))
+        && !(crate::preview_proxy::stands_for(
+            &source,
+            &serde_json::Value::Null,
+            crate::preview_proxy::ProxyKind::Standard,
+        ) && crate::preview_proxy::standard_header_is_current(&source, settings))
 }
 
 /// Track one current developed recipe per photo/copy. Only strict cache file
@@ -3090,7 +3097,13 @@ mod thumbnail_queue_tests {
         let (source, _) = parse_virtual_path(&copy);
         // The proxy (the master's) fits a snapshot of the master's filter,
         // never one of the copy's.
-        let stands_for = crate::preview_proxy::stands_for;
+        let stands_for = |source: &Path, recipe: &serde_json::Value| {
+            crate::preview_proxy::stands_for(
+                source,
+                recipe,
+                crate::preview_proxy::ProxyKind::Standard,
+            )
+        };
         assert!(stands_for(
             &source,
             &serde_json::json!({"colorNoiseVersion": 1})
