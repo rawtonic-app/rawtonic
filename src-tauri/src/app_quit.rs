@@ -438,14 +438,33 @@ pub fn start_new_instance<R: Runtime>(app: &AppHandle<R>) {
     tauri_plugin_single_instance::destroy(app);
     let env = app.env();
     let started = tauri::process::current_binary(&env).and_then(|binary| {
-        std::process::Command::new(binary)
+        let mut command = std::process::Command::new(binary);
+        command
             .args(env.args_os.iter().skip(1))
-            .env(crate::restart_reopen::RESTARTED_ENV, "1")
-            .spawn()
+            .env(crate::restart_reopen::RESTARTED_ENV, "1");
+        // An AppImage runs in its own mount (`$APPDIR/usr`); started from
+        // there, the new copy would take that folder as the one it was
+        // launched in (`OWD`): relative arguments resolved inside the old
+        // mount, and the replaced copy's runtime stayed alive holding it.
+        // Elsewhere this is the working directory, as before.
+        if let Some(dir) = restart_dir(|name| std::env::var_os(name), std::env::current_dir().ok())
+        {
+            command.current_dir(dir);
+        }
+        command.spawn()
     });
     if let Err(e) = started {
         log::error!("Could not restart the app: {e}");
     }
+}
+
+/// The folder a restart starts the new instance in: the one this instance
+/// was launched in, while it still exists.
+fn restart_dir(
+    var: impl Fn(&str) -> Option<std::ffi::OsString>,
+    cwd: Option<std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
+    crate::launch_request::invocation_dir(var, cwd).filter(|dir| dir.is_dir())
 }
 
 #[cfg(target_os = "macos")]
@@ -698,6 +717,33 @@ mod tests {
         assert!(!is_restart(Some(0)));
         assert!(!is_restart(Some(1)));
         assert!(!is_restart(None));
+    }
+
+    /// UPD3: an AppImage restarted from its mount resolved `photo.NEF`
+    /// against the old mount (`/tmp/.mount_…/usr/photo.NEF`).
+    #[test]
+    fn an_appimage_restarts_in_the_folder_it_was_launched_in() {
+        let launched = tempfile::tempdir().unwrap();
+        let mount = tempfile::tempdir().unwrap();
+        let env = |owd: std::path::PathBuf| {
+            move |name: &str| match name {
+                "APPIMAGE" => Some("/apps/Rawtonic.AppImage".into()),
+                "OWD" => Some(owd.clone().into_os_string()),
+                _ => None,
+            }
+        };
+        let cwd = Some(mount.path().to_path_buf());
+        assert_eq!(
+            restart_dir(env(launched.path().to_path_buf()), cwd.clone()),
+            Some(launched.path().to_path_buf())
+        );
+        // A launch folder removed since: none (the working directory, as before).
+        assert_eq!(
+            restart_dir(env(launched.path().join("gone")), cwd.clone()),
+            None
+        );
+        // Not an AppImage: the working directory.
+        assert_eq!(restart_dir(|_| None, cwd.clone()), cwd);
     }
 }
 
