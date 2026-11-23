@@ -48,7 +48,7 @@ pub const TIFF_TAG: u16 = 0xCD41;
 pub fn supports(extension: &str) -> bool {
     matches!(
         extension,
-        "jpg" | "jpeg" | "png" | "tif" | "tiff" | "webp" | "avif"
+        "jpg" | "jpeg" | "png" | "tif" | "tiff" | "webp" | "avif" | "jxl"
     )
 }
 
@@ -70,6 +70,11 @@ enum Binding<'b> {
     /// `c2pa.hash.bmff.v3`: SHA-256 of each top-level box's offset and bytes
     /// but the manifest's `uuid` box and any `mfra`.
     Bmff { hash: &'b [u8] },
+    /// `c2pa.hash.boxes` (JPEG XL): the SHA-256 of each top-level box, the
+    /// manifest's own box (`None`) in its place without a hash.
+    Boxes {
+        boxes: &'b [(String, Option<[u8; 32]>)],
+    },
 }
 
 /// One action of the manifest.
@@ -374,6 +379,29 @@ impl<'a> Manifest<'a> {
                     ("alg", Cbor::text("sha256")),
                     ("hash", Cbor::Bytes(hash.to_vec())),
                     ("name", Cbor::text("jumbf manifest")),
+                ]),
+            ),
+            Binding::Boxes { boxes } => (
+                "c2pa.hash.boxes",
+                Cbor::map([
+                    (
+                        "boxes",
+                        Cbor::Array(
+                            boxes
+                                .iter()
+                                .map(|(name, hash)| {
+                                    Cbor::map([
+                                        ("names", Cbor::Array(vec![Cbor::text(name)])),
+                                        // The manifest's own box: a single zero
+                                        // byte, as c2pa-rs writes it.
+                                        ("hash", Cbor::Bytes(hash.map_or(vec![0], |h| h.to_vec()))),
+                                        ("pad", Cbor::Bytes(Vec::new())),
+                                    ])
+                                })
+                                .collect(),
+                        ),
+                    ),
+                    ("alg", Cbor::text("sha256")),
                 ]),
             ),
         };
@@ -794,6 +822,65 @@ pub fn sign_avif(
     }
     file[at..at + len].copy_from_slice(&signed);
     Ok(file)
+}
+
+/// A JPEG XL file with the manifest of `plan` signed by `identity`, in a
+/// `jumb` box right before the codestream (as c2pa-rs places it). A bare
+/// codestream is wrapped in the container first (signature, `ftyp`, `jxlc`).
+/// Its binding (`c2pa.hash.boxes`) hashes every other top-level box whole,
+/// named by its four-character type.
+pub fn sign_jxl(
+    jxl: &[u8],
+    plan: &ManifestPlan,
+    identity: &SigningIdentity,
+) -> Result<Vec<u8>, String> {
+    let wrapped;
+    let jxl = if jxl.starts_with(&[0xff, 0x0a]) {
+        wrapped = crate::xmp_embed::jxl_container(jxl, None, None);
+        &wrapped[..]
+    } else {
+        jxl
+    };
+    if jxl.get(..12) != Some(&[0, 0, 0, 12, b'J', b'X', b'L', b' ', 0x0d, 0x0a, 0x87, 0x0a][..]) {
+        return Err("Not a JPEG XL file.".to_string());
+    }
+    let mut entries = Vec::new();
+    let mut insert_at = None;
+    for (at, len) in bmff_boxes(jxl)? {
+        let whole = &jxl[at..at + len];
+        let kind = &whole[4..8];
+        if kind == b"jumb" || kind == b"brob" {
+            return Err(
+                "The JPEG XL file already holds a manifest or compressed boxes.".to_string(),
+            );
+        }
+        if !kind.iter().all(|b| b.is_ascii_graphic() || *b == b' ') {
+            return Err("A JPEG XL box has a type that is not text.".to_string());
+        }
+        if insert_at.is_none() && (kind == b"jxlc" || kind == b"jxlp") {
+            insert_at = Some(at);
+            entries.push(("C2PA".to_string(), None));
+        }
+        let name = String::from_utf8_lossy(kind).into_owned();
+        entries.push((
+            name,
+            Some(
+                digest::digest(&digest::SHA256, whole)
+                    .as_ref()
+                    .try_into()
+                    .expect("32 bytes"),
+            ),
+        ));
+    }
+    let at = insert_at.ok_or("The JPEG XL file has no codestream box.")?;
+    let manifest = Manifest::new(plan, identity);
+    let store = manifest.store(Binding::Boxes { boxes: &entries }, true)?;
+    // The store is the complete `jumb` box.
+    let mut out = Vec::with_capacity(jxl.len() + store.len());
+    out.extend_from_slice(&jxl[..at]);
+    out.extend_from_slice(&store);
+    out.extend_from_slice(&jxl[at..]);
+    Ok(out)
 }
 
 /// A TIFF's manifest with its place reserved ([`reserve_tiff`]), to be

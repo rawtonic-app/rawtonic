@@ -127,6 +127,16 @@ fn webp_store(webp: &[u8]) -> &[u8] {
     }
 }
 
+/// The manifest store of a JPEG XL file: its `jumb` box.
+fn jxl_store(jxl: &[u8]) -> &[u8] {
+    let (at, len) = bmff_boxes(jxl)
+        .unwrap()
+        .into_iter()
+        .find(|&(at, _)| &jxl[at + 4..at + 8] == b"jumb")
+        .expect("a jumb box");
+    &jxl[at..at + len]
+}
+
 /// The manifest store of an AVIF, from its C2PA `uuid` box.
 fn avif_store(avif: &[u8]) -> &[u8] {
     let (at, len) = bmff_boxes(avif)
@@ -145,7 +155,45 @@ fn avif_store(avif: &[u8]) -> &[u8] {
 /// Returns the actions assertion.
 fn validate(file: &[u8], store: &[u8]) -> C {
     let manifest = boxes(&store[8..])[1].1;
-    if let Some(bmff) = find(manifest, "c2pa.hash.bmff.v3") {
+    if let Some(boxes_hash) = find(manifest, "c2pa.hash.boxes") {
+        // Each top-level box but the manifest's own, named by its type; the
+        // manifest's own box sits right before the codestream.
+        let hash = content(boxes_hash);
+        let listed = get(&hash, "boxes").as_array().unwrap();
+        let mut at = 0;
+        let mut previous = None;
+        for entry in listed {
+            let names = get(entry, "names").as_array().unwrap();
+            assert_eq!(names.len(), 1);
+            let name = names[0].as_text().unwrap();
+            let (start, len) = bmff_boxes(file)
+                .unwrap()
+                .into_iter()
+                .nth(at)
+                .expect("a box for the entry");
+            at += 1;
+            let kind = &file[start + 4..start + 8];
+            // The manifest's own box is named `C2PA`, whatever its type.
+            assert_eq!(
+                name.as_bytes(),
+                if kind == b"jumb" { b"C2PA" } else { kind }
+            );
+            assert!(get(entry, "pad").as_bytes().unwrap().is_empty());
+            let hash = get(entry, "hash").as_bytes().unwrap();
+            if name == "C2PA" {
+                assert_eq!(hash.as_slice(), &[0]);
+                assert!(matches!(previous, Some(p) if p != "jxlc"));
+            } else {
+                assert_eq!(
+                    hash.as_slice(),
+                    digest::digest(&digest::SHA256, &file[start..start + len]).as_ref(),
+                    "hard binding of {name}"
+                );
+            }
+            previous = Some(name.to_string());
+        }
+        assert_eq!(at, bmff_boxes(file).unwrap().len(), "every box is listed");
+    } else if let Some(bmff) = find(manifest, "c2pa.hash.bmff.v3") {
         // Each top-level box but the C2PA `uuid` box: its offset (64-bit
         // big-endian), then its bytes.
         let hash = content(bmff);
@@ -451,13 +499,98 @@ fn large_manifests_span_app11_segments() {
 }
 
 #[test]
-fn only_jpeg_png_tiff_webp_and_avif_take_a_manifest() {
-    for ext in ["jpg", "jpeg", "png", "tif", "tiff", "webp", "avif"] {
+fn only_jpeg_png_tiff_webp_avif_and_jxl_take_a_manifest() {
+    for ext in ["jpg", "jpeg", "png", "tif", "tiff", "webp", "avif", "jxl"] {
         assert!(supports(ext));
     }
-    for ext in ["jxl", "cube"] {
+    for ext in ["heic", "cube"] {
         assert!(!supports(ext));
     }
+}
+
+/// A JPEG XL file as the export encodes it, with EXIF and XMP boxes.
+fn small_jxl() -> Vec<u8> {
+    let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(40, 30, |x, y| {
+        image::Rgba([x as u8 * 6, y as u8 * 8, 70, 255])
+    }));
+    let bare = crate::export_processing::encode_image_to_bytes(
+        &image,
+        "jxl",
+        90,
+        crate::export_processing::TiffBitDepth::Eight,
+        crate::output_color_space::OutputColorSpace::Srgb,
+        None,
+    )
+    .unwrap();
+    crate::xmp_embed::jxl_container(&bare, Some(b"II*\0exif"), Some(b"<x:xmpmeta/>"))
+}
+
+#[test]
+fn signed_jxl_validates_binds_every_box_and_decodes_the_same() {
+    let (_dir, identity) = identity();
+    let recipe = json!({"aiPatches": [{"patchData": {"color": "A"}}]});
+    let plan = plan(&recipe);
+    let jxl = small_jxl();
+    let signed = sign_jxl(&jxl, &plan, &identity).unwrap();
+    let store = jxl_store(&signed);
+    let actions = validate(&signed, store);
+    assert!(action_names(&actions).contains(&"c2pa.edited".to_string()));
+    assert!(find(store, "c2pa.hash.data").is_none());
+    // Right before the codestream, after the metadata boxes.
+    let kinds: Vec<[u8; 4]> = bmff_boxes(&signed)
+        .unwrap()
+        .iter()
+        .map(|&(at, _)| signed[at + 4..at + 8].try_into().unwrap())
+        .collect();
+    assert_eq!(
+        kinds,
+        [*b"JXL ", *b"ftyp", *b"Exif", *b"xml ", *b"jumb", *b"jxlc"]
+    );
+    // Every other byte is the encoder's.
+    let (at, len) = bmff_boxes(&signed)
+        .unwrap()
+        .into_iter()
+        .find(|&(at, _)| &signed[at + 4..at + 8] == b"jumb")
+        .unwrap();
+    let mut without = signed[..at].to_vec();
+    without.extend_from_slice(&signed[at + len..]);
+    assert_eq!(without, jxl);
+    let decode = |bytes: &[u8]| {
+        let image = jxl_oxide::JxlImage::read_with_defaults(Cursor::new(bytes)).unwrap();
+        image
+            .render_frame(0)
+            .unwrap()
+            .image_all_channels()
+            .buf()
+            .to_vec()
+    };
+    assert!(decode(&signed) == decode(&jxl));
+    // A changed byte in any box, or a box moved, breaks the binding.
+    for tamper in [20, signed.len() - 3] {
+        let mut tampered = signed.clone();
+        tampered[tamper] ^= 1;
+        assert!(
+            std::panic::catch_unwind(|| validate(&tampered, store)).is_err(),
+            "{tamper}"
+        );
+    }
+    let mut moved = signed[..at].to_vec();
+    moved.extend_from_slice(&[0, 0, 0, 8, b'f', b'r', b'e', b'e']);
+    moved.extend_from_slice(&signed[at..]);
+    assert!(std::panic::catch_unwind(|| validate(&moved, store)).is_err());
+    // A bare codestream (the export without metadata) is wrapped, then signed.
+    let (last, _) = *bmff_boxes(&jxl).unwrap().last().unwrap();
+    let bare = &jxl[last + 8..];
+    assert!(bare.starts_with(&[0xff, 0x0a]));
+    let wrapped = sign_jxl(bare, &plan, &identity).unwrap();
+    validate(&wrapped, jxl_store(&wrapped));
+    assert!(decode(&wrapped) == decode(&jxl));
+    assert!(
+        sign_jxl(&signed, &plan, &identity)
+            .unwrap_err()
+            .contains("already")
+    );
+    assert!(sign_jxl(b"not jxl at all", &plan, &identity).is_err());
 }
 
 /// A WebP and an AVIF as the export encodes them (with their ICC profile).
@@ -624,12 +757,14 @@ fn c2patool_validates_signed_files() {
     let (webp, avif) = small_webp_and_avif();
     let webp = sign_webp(&webp, &plan, &identity).unwrap();
     let avif = sign_avif(&avif, &plan, &identity).unwrap();
+    let jxl = sign_jxl(&small_jxl(), &plan, &identity).unwrap();
     for (name, bytes) in [
         ("signed.jpg", jpeg),
         ("signed.png", png),
         ("signed.tif", tiff.into_inner()),
         ("signed.webp", webp),
         ("signed.avif", avif),
+        ("signed.jxl", jxl),
     ] {
         let path = out.path().join(name);
         std::fs::write(&path, &bytes).unwrap();
@@ -817,15 +952,19 @@ mod export {
     fn signed_exports_bind_their_metadata_and_ai_marking() {
         let (_dir, identity) = identity();
         let recipe = json!({"aiPatches": [{"patchData": {"color": "A"}}]});
-        for extension in ["jpg", "png", "tif", "webp", "avif"] {
+        for extension in ["jpg", "png", "tif", "webp", "avif", "jxl"] {
             let (result, file) = export(extension, &settings(true), Some(&identity), &recipe);
             result.unwrap();
             let file = file.unwrap();
+            if let Ok(keep) = std::env::var("C2PA_KEEP") {
+                super::keep_sample(&keep, &format!("export.{extension}"), &file);
+            }
             let store = match extension {
                 "jpg" => jpeg_store(&file),
                 "png" => png_store(&file).to_vec(),
                 "webp" => webp_store(&file).to_vec(),
                 "avif" => avif_store(&file).to_vec(),
+                "jxl" => jxl_store(&file).to_vec(),
                 _ => tiff_store(&file).to_vec(),
             };
             let actions = validate(&file, &store);
@@ -842,7 +981,7 @@ mod export {
     #[test]
     fn without_the_option_nothing_changes() {
         let (_dir, identity) = identity();
-        for extension in ["jpg", "tif", "png", "webp", "avif"] {
+        for extension in ["jpg", "tif", "png", "webp", "avif", "jxl"] {
             let (result, plain) = export(extension, &settings(false), Some(&identity), &json!({}));
             result.unwrap();
             let plain = plain.unwrap();
@@ -932,10 +1071,13 @@ mod export {
         let (result, file) = export("jpg", &settings(true), None, &json!({}));
         assert_eq!(result.unwrap_err(), PROVENANCE_NEEDS_IDENTITY);
         assert!(file.is_none());
-        // JPEG XL cannot carry a manifest yet.
-        let (result, file) = export("jxl", &settings(true), Some(&identity), &json!({}));
-        assert!(result.unwrap_err().contains("cannot be written to"));
-        assert!(file.is_none());
+        // A format with no manifest binding.
+        assert!(
+            crate::export_processing::provenance_format_error("heic")
+                .unwrap()
+                .contains("cannot be written to")
+        );
+        assert!(crate::export_processing::provenance_format_error("jxl").is_none());
     }
 }
 

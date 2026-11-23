@@ -637,7 +637,7 @@ orientation, in that order; every render caller in the app and the CLI calls it 
 off by default): its own CBOR/JUMBF/COSE_Sign1 writer on `ring` (no c2pa-rs: its RSA and chrono dependencies fail the
 advisory gates), JPEG APP11, PNG `caBX`, TIFF tag 0xCD41 (`tiff_exif::append_reserved_tag`), WebP `C2PA` chunk (`c2pa.hash.data`)
 and AVIF C2PA `uuid` box right before the first `mdat`, item locations moved (`avif_container::insert_before_media`;
-`c2pa.hash.bmff.v3`: each top-level box with its offset, but the manifest box and `/mfra`), signed after every other write of
+`c2pa.hash.bmff.v3`: each top-level box with its offset, but the manifest box and `/mfra`) and a JPEG XL `jumb` box right before the codestream (`c2pa.hash.boxes`: each other top-level box hashed whole, named by its type; a bare codestream is wrapped first), signed after every other write of
 the file (`with_provenance` in `export_processing`); a TIFF is written in two passes, the layout with its strips left out
 and the metadata and reserved manifest appended, then the strips while a thread hashes them (`signed_tiff`): the
 pixel strips are not read back, only the few KB around them; `identity` keeps the signing key

@@ -3706,13 +3706,13 @@
         "exporting": "Export {{current}} von {{total}}"
       },
       "provenance": {
-        "about": "Hält fest, aus welchem Foto jede Datei entwickelt wurde, welche Arten von Bearbeitungen es gab und jeden Bereich, den ein generatives Modell erzeugt hat – signiert mit Ihrem Zertifikat. JPEG, PNG, TIFF, WebP und AVIF. Es wird nichts gesendet.",
+        "about": "Hält fest, aus welchem Foto jede Datei entwickelt wurde, welche Arten von Bearbeitungen es gab und jeden Bereich, den ein generatives Modell erzeugt hat – signiert mit Ihrem Zertifikat. JPEG, PNG, TIFF, WebP, AVIF und JPEG XL. Es wird nichts gesendet.",
         "add": "Herkunftsnachweis in jede Datei signieren",
         "author": "Urheber des Fotos als Autor nennen",
-        "blocked": "Der Herkunftsnachweis (C2PA) kann {{recipes}} nicht signieren: Richten Sie ein gültiges Signaturzertifikat ein und exportieren Sie JPEG, PNG, TIFF, WebP oder AVIF.",
+        "blocked": "Der Herkunftsnachweis (C2PA) kann {{recipes}} nicht signieren: Richten Sie ein gültiges Signaturzertifikat ein und exportieren Sie JPEG, PNG, TIFF, WebP, AVIF oder JPEG XL.",
         "certificateFilter": "PKCS#12-Zertifikat",
         "expired": "Dieses Zertifikat ist derzeit nicht gültig (gültig bis {{until}}): Exporte können damit nicht signiert werden. Importieren Sie ein erneuertes Zertifikat oder erstellen Sie ein neues.",
-        "formatUnsupported": "{{format}}-Dateien können noch keinen Herkunftsnachweis tragen. Wählen Sie JPEG, PNG, TIFF, WebP oder AVIF oder schalten Sie die Option aus.",
+        "formatUnsupported": "{{format}}-Dateien können noch keinen Herkunftsnachweis tragen. Wählen Sie JPEG, PNG, TIFF, WebP, AVIF oder JPEG XL oder schalten Sie die Option aus.",
         "generate": "Zertifikat auf diesem Computer erstellen",
         "import": "Eigenes Zertifikat importieren (.p12)…",
         "importConfirm": "Importieren",
