@@ -5664,7 +5664,6 @@ version = "0.7.1"
 dependencies = [
  "approx",
  "backtrace",
- "bitstream-io",
  "byteorder",
  "clap",
  "enumn",

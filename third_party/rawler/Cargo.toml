@@ -25,7 +25,6 @@ samplecheck = []
 
 [dependencies]
 backtrace = "0.3"
-bitstream-io = "4.1"
 byteorder = "1"
 jiff = "1.0.0"
 rawtonic-runtime = { path = "../../crates/runtime", version = "0.1.0" }
