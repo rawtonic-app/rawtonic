@@ -270,8 +270,16 @@ async fn fetch(
 /// the app. Windows: the per-user setup takes over and the app ends here; the
 /// setup starts the new version. A failure leaves the running app as it was
 /// and keeps the package for another try.
+///
+/// `reopen`: the photo shown when no library is open; the next start opens
+/// it again (`restart_reopen`), on Windows too, where the setup's relaunch
+/// carries no arguments. A library reopens by itself.
 #[tauri::command]
-pub async fn update_install(app: AppHandle, version: String) -> Result<(), UpdateFailure> {
+pub async fn update_install(
+    app: AppHandle,
+    version: String,
+    reopen: Option<String>,
+) -> Result<(), UpdateFailure> {
     let state = app.state::<UpdateInstall>();
     let (update, bytes) = {
         let mut ready = crate::state::lock::lock_recover(&state.ready);
@@ -284,6 +292,14 @@ pub async fn update_install(app: AppHandle, version: String) -> Result<(), Updat
         }
     };
     log::info!("Update {version}: installing");
+    // Before the setup starts (it ends this process on Windows). Not noted,
+    // the restart only comes back empty: the update goes on.
+    let config_dir = app.path().app_config_dir().ok();
+    if let Some(dir) = &config_dir
+        && let Err(e) = crate::restart_reopen::remember(dir, reopen.as_deref())
+    {
+        log::warn!("Update {version}: the open photo is not noted for the restart: {e}");
+    }
     let place_app = app.clone();
     let (update, bytes, result) = tauri::async_runtime::spawn_blocking(move || {
         let result = put_in_place(&place_app, &update, &bytes);
@@ -311,6 +327,10 @@ pub async fn update_install(app: AppHandle, version: String) -> Result<(), Updat
         }
         Err(kind) => {
             log::warn!("Update {version}: install failed: {kind:?}");
+            // The app keeps running: no restart takes the note.
+            if let Some(dir) = &config_dir {
+                let _ = crate::restart_reopen::forget(dir);
+            }
             if !matches!(kind, UpdateFailure::NotRestored { .. }) {
                 *crate::state::lock::lock_recover(&state.ready) = Some((update, bytes));
             }

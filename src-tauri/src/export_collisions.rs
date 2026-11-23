@@ -6,10 +6,10 @@
 //! replaces it (`rawtonic_export::existing_files`).
 use crate::export_processing::{
     ExportTarget, PhotoItem, Planned, known_libraries, mask_file_paths, photo_inputs, pin_photos,
-    plan_output_path, previous_export, target_inputs_hash,
+    plan_output_path, target_inputs_hash,
 };
 use crate::export_queue::ExportRequest;
-use rawtonic_export::existing_files::{ExistingFiles, ExportRecords, Outcome, Previous};
+use rawtonic_export::existing_files::{ExistingFiles, ExportRecords, History, Outcome};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -78,14 +78,14 @@ fn collide_photo(
     pinned: &crate::export_processing::PinnedPhoto,
     settings: &crate::app_settings::AppSettings,
     used: &Mutex<HashSet<PathBuf>>,
-    previous: &dyn Fn(&Path) -> Previous,
+    history: &History<'_>,
 ) -> Result<(), String> {
     let (source_path, _) = crate::file_management::parse_virtual_path(item.image_path_str);
     let is_raw = crate::formats::is_raw_file(&source_path);
     // Read (a LUT's file, say) only once a name is found taken: an export to
     // an empty folder hashes nothing.
     let inputs = std::cell::OnceCell::new();
-    let inputs = || inputs.get_or_init(|| photo_inputs(pinned, settings, is_raw));
+    let inputs = || inputs.get_or_init(|| photo_inputs(pinned, settings, &source_path, is_raw));
     let photo_key = rawtonic_export::existing_files::photo_key(
         item.image_path_str,
         pinned.source_identity.as_deref(),
@@ -102,13 +102,9 @@ fn collide_photo(
         let capture = target.export_settings.naming_needs_capture().then(|| {
             crate::export_processing::naming_capture(&source_path, pinned.metadata.as_ref())
         });
-        let previous = |path: &Path| match &photo_key {
-            Some(_) => previous(path),
-            None => Previous::Unknown,
-        };
-        let as_asked = |policy: ExistingFiles| ExportTarget {
+        let replace = ExportTarget {
             export_settings: rawtonic_export::export_processing::ExportSettings {
-                existing_files: policy,
+                existing_files: ExistingFiles::ReplaceIfChanged,
                 ..target.export_settings.clone()
             },
             output_folder_or_file: target.output_folder_or_file.clone(),
@@ -117,59 +113,52 @@ fn collide_photo(
             output_format: target.output_format.clone(),
             tracking: None,
         };
-        let plan = |policy: ExistingFiles, used: &Mutex<HashSet<PathBuf>>, hash: &str| {
-            plan_output_path(
-                &as_asked(policy),
-                item,
-                &source_path,
-                &file_date,
-                capture.as_ref(),
-                mask_layers,
-                used,
-                photo,
-                hash,
-                &previous,
-                false,
-            )
+        let hash = std::cell::OnceCell::new();
+        let inputs_hash = || {
+            hash.get_or_init(|| target_inputs_hash(inputs(), target))
+                .as_str()
         };
-        // The recipe's own name, and whether anything is at it (its mask
-        // files too): Skip names it, nothing is hashed or read for it.
-        let existing = match plan(ExistingFiles::Skip, &Mutex::new(HashSet::new()), "")? {
-            Planned::Skip { path, .. } => path,
-            Planned::Write { .. } => {
-                // Free: only the name is reserved, as the export does.
-                plan(ExistingFiles::ReplaceIfChanged, used, "")?;
-                continue;
-            }
-        };
-        // Compared only against what an export recorded for the name; any
-        // other file is "other" whatever the inputs are.
-        let hash = if matches!(previous(&existing), Previous::Export(_)) {
-            target_inputs_hash(inputs(), target)
-        } else {
-            String::new()
-        };
-        let masks = if target.export_settings.export_masks {
-            mask_layers
-        } else {
-            0
-        };
-        // What is on disk: the main file, else a mask file of its family.
-        let occupied = std::iter::once(existing.clone())
-            .chain((0..masks).flat_map(|layer| mask_file_paths(&existing, layer)))
-            .find(|path| path.exists())
-            .unwrap_or_else(|| existing.clone());
-        match plan(ExistingFiles::ReplaceIfChanged, used, &hash)? {
+        match plan_output_path(
+            &replace,
+            item,
+            &source_path,
+            &file_date,
+            capture.as_ref(),
+            mask_layers,
+            used,
+            photo,
+            inputs_hash,
+            history,
+            false,
+        )? {
             Planned::Skip {
+                path,
                 outcome: Outcome::SkippedUnchanged,
-                ..
-            } => summary.unchanged_own.add(&occupied),
-            Planned::Write {
-                replace: Some(_), ..
-            } => summary.changed_own.add(&occupied),
-            Planned::Write {
-                kept: Some(kept), ..
             } => {
+                summary.unchanged_own.add(&path);
+            }
+            Planned::Write {
+                path,
+                replace: Some(_),
+                ..
+            } => {
+                summary.changed_own.add(&path);
+            }
+            Planned::Write {
+                slot,
+                kept: Some(kept),
+                ..
+            } => {
+                let masks = if target.export_settings.export_masks {
+                    mask_layers
+                } else {
+                    0
+                };
+                // Name the actual collision, which can be a mask file.
+                let occupied = std::iter::once(slot.clone())
+                    .chain((0..masks).flat_map(|layer| mask_file_paths(&slot, layer)))
+                    .find(|path| path.exists())
+                    .unwrap_or(slot);
                 summary.other.add(&occupied);
                 if kept == Outcome::KeptOriginal {
                     summary.originals += 1;
@@ -191,7 +180,10 @@ pub(crate) fn plan_collisions(
     known_libraries: &[PathBuf],
 ) -> Result<CollisionSummary, String> {
     let mut summary = CollisionSummary::default();
-    let previous = |path: &Path| previous_export(path, known_libraries, records);
+    let history = History {
+        records: &|| records,
+        is_original: &|path| crate::session_bridge::is_library_photo(path, known_libraries),
+    };
     // Recipes of one photo set read each photo once, as the queue does.
     let mut groups: Vec<Vec<&ExportRequest>> = Vec::new();
     for request in requests {
@@ -241,7 +233,7 @@ pub(crate) fn plan_collisions(
                     pinned,
                     settings,
                     &used,
-                    &previous,
+                    &history,
                 )?;
             }
         }
@@ -318,10 +310,25 @@ mod tests {
     /// Records `own` as the export `request` made of its photo, with
     /// `inputs` (the request's own hash when None).
     fn record(records: &ExportRecords, request: &ExportRequest, own: &Path, inputs: Option<&str>) {
+        record_at_slot(records, request, own, own, inputs);
+    }
+
+    fn record_at_slot(
+        records: &ExportRecords,
+        request: &ExportRequest,
+        output: &Path,
+        slot: &Path,
+        inputs: Option<&str>,
+    ) {
         let settings = crate::app_settings::AppSettings::default();
-        let pinned = pin_photos(&request.paths, None, None, None)
-            .unwrap()
-            .remove(0);
+        let pinned = pin_photos(
+            &request.paths,
+            request.current_edit_path.as_deref(),
+            request.current_edit_adjustments.as_ref(),
+            request.library.directory(),
+        )
+        .unwrap()
+        .remove(0);
         let key = rawtonic_export::existing_files::photo_key(
             &request.paths[0],
             pinned.source_identity.as_deref(),
@@ -335,8 +342,62 @@ mod tests {
             output_format: request.output_format.clone(),
             tracking: None,
         };
-        let hash = target_inputs_hash(&photo_inputs(&pinned, &settings, true), &target);
-        records.record(own, &key, inputs.unwrap_or(&hash)).unwrap();
+        let source = Path::new(&request.paths[0]);
+        let hash = target_inputs_hash(&photo_inputs(&pinned, &settings, source, true), &target);
+        let bytes = std::fs::read(output).unwrap();
+        records
+            .record_written(
+                output,
+                slot,
+                &key,
+                inputs.unwrap_or(&hash),
+                &rawtonic_export::output::Written {
+                    size: bytes.len() as u64,
+                    sha256: rawtonic_fs::sha256_hex(&bytes),
+                },
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn closing_develop_after_replacing_a_numbered_export_does_not_change_its_inputs() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.NEF");
+        rawtonic_fs::atomic_write(&raw, b"original RAW").unwrap();
+        let records = ExportRecords::open(&dir.path().join("records.sqlite")).unwrap();
+        let mut request = request(dir.path(), &raw, "{orig_base}-edited");
+        request.current_edit_path = Some(request.paths[0].clone());
+        request.current_edit_adjustments = Some(serde_json::json!({"exposure": 1}));
+        std::fs::create_dir(dir.path().join("web")).unwrap();
+        let slot = dir.path().join("web/a-edited.jpg");
+        let numbered = dir.path().join("web/a-edited_1.jpg");
+        rawtonic_fs::atomic_write(&slot, b"foreign file").unwrap();
+        rawtonic_fs::atomic_write(&numbered, b"export before edit").unwrap();
+        record_at_slot(&records, &request, &numbered, &slot, Some("old inputs"));
+        assert_eq!(
+            summary(std::slice::from_ref(&request), &records)
+                .changed_own
+                .count,
+            1
+        );
+
+        rawtonic_fs::atomic_write(&numbered, b"export after edit").unwrap();
+        record_at_slot(&records, &request, &numbered, &slot, None);
+        let mut saved = request.current_edit_adjustments.take().unwrap();
+        request.current_edit_path = None;
+        rawtonic_engine::recipe_frame::stamp(&mut saved, 8256, 5504);
+        rawtonic_engine::lens_recipe::stamp_loaded_lens_profile(&mut saved);
+        saved[rawtonic_engine::image_processing::LIBRARY_LABEL_KEY] = serde_json::json!("");
+        rawtonic_fs::atomic_write(
+            &crate::exif_processing::get_primary_sidecar_path(&raw),
+            serde_json::json!({"version": 1, "adjustments": saved}).to_string(),
+        )
+        .unwrap();
+
+        let repeated = summary(&[request], &records);
+        assert_eq!(repeated.changed_own.count, 0);
+        assert_eq!(repeated.unchanged_own.names, ["a-edited_1.jpg"]);
+        assert_eq!(std::fs::read(&slot).unwrap(), b"foreign file");
     }
 
     /// Before anything renders, the plan counts what the names meet: our
@@ -382,6 +443,20 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, ["a-edited.jpg"]);
+
+        // The question names the actual numbered export that Replace if
+        // changed would use, even though the requested name is foreign.
+        let numbered = own.with_file_name("a-edited_2.jpg");
+        rawtonic_fs::atomic_write(&own, b"foreign again").unwrap();
+        rawtonic_fs::atomic_write(&numbered, b"export v2").unwrap();
+        record_at_slot(&records, &request, &numbered, &own, Some("old inputs"));
+        let found = summary(std::slice::from_ref(&request), &records);
+        assert_eq!((found.total, found.changed_own.count), (1, 1));
+        assert_eq!(found.changed_own.names, ["a-edited_2.jpg"]);
+        record_at_slot(&records, &request, &numbered, &own, None);
+        let found = summary(&[request], &records);
+        assert_eq!((found.total, found.unchanged_own.count), (1, 1));
+        assert_eq!(found.unchanged_own.names, ["a-edited_2.jpg"]);
     }
 
     /// An export with separate mask files is never replaced (Replace if

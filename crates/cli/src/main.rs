@@ -1237,7 +1237,9 @@ fn export(args: ExportArgs) -> Result<()> {
             path.display()
         );
     }
-    use rawtonic_export::existing_files::{self, Decision, ExistingFiles, ExportRecords, Outcome};
+    use rawtonic_export::existing_files::{
+        self, Decision, ExistingFiles, ExportRecords, History, Outcome,
+    };
     anyhow::ensure!(
         on_conflict != ExistingFiles::ReplaceIfChanged || export_records.is_some(),
         "--on-conflict replace-if-changed needs --export-records FILE (the record of earlier exports)"
@@ -1465,18 +1467,18 @@ fn export(args: ExportArgs) -> Result<()> {
                 .and_then(|recipe| recipe["lutPath"].as_str())
                 .filter(|lut| !lut.is_empty())
                 .map(|lut| existing_files::file_fingerprint(std::path::Path::new(lut)));
-            existing_files::inputs_hash(
-                env!("RAWTONIC_APP_VERSION"),
-                &serde_json::json!({
-                    "recipe": recipe,
-                    "catalog": photo_metadata(photo, &path, &sidecar),
-                    "capture": corrected_capture(&path),
-                    "source": rawtonic_catalog::fingerprint(&path).ok(),
-                    "lutFile": lut_file,
-                    "format": format.to_lowercase(),
-                    "settings": existing_files::settings_for_hash(&settings),
-                }),
-            )
+            let mut parts = serde_json::json!({
+                "catalog": photo_metadata(photo, &path, &sidecar),
+                "capture": corrected_capture(&path),
+                "source": rawtonic_catalog::fingerprint(&path).ok(),
+                "lutFile": lut_file,
+                "format": format.to_lowercase(),
+                "settings": existing_files::settings_for_hash(&settings),
+            });
+            parts["recipe"] = recipe.as_ref().map_or(serde_json::Value::Null, |recipe| {
+                existing_files::adjustments_for_hash(recipe, &path)
+            });
+            existing_files::inputs_hash(env!("RAWTONIC_APP_VERSION"), &parts)
         })
         .collect();
     // Each photo as its exports are recorded: its path and its original's
@@ -1506,41 +1508,36 @@ fn export(args: ExportArgs) -> Result<()> {
         Outcome,
         usize,
     )> = Vec::new();
+    let history = History {
+        records: &|| records.as_ref(),
+        is_original: &is_library_photo,
+    };
     for (named_index, ((photo, own, may_number), inputs)) in
         named.iter().zip(&export_inputs).enumerate()
     {
         let photo_key = photo_keys[named_index].as_deref();
-        let decision = existing_files::decide(
+        let (path, decision) = history.decide(
             on_conflict,
             own,
             own.exists(),
             used.contains(own),
             false,
-            || {
-                // Never a file that is a photograph by now.
-                if is_library_photo(own) {
-                    return existing_files::Previous::Original;
-                }
-                if photo_key.is_none() {
-                    return existing_files::Previous::Unknown;
-                }
-                records
-                    .as_ref()
-                    .and_then(|r| r.get(own).ok().flatten())
-                    .into()
-            },
             photo_key.unwrap_or_default(),
-            inputs,
+            || inputs.as_str(),
+            |path| used.contains(path),
         );
         let (path, replace, outcome) = match decision {
             Decision::Skip(outcome) => {
+                if outcome == Outcome::SkippedUnchanged && path != *own {
+                    used.insert(path.clone());
+                }
                 skipped.push(serde_json::json!({
-                    "source": photo, "output": own, "reason": outcome.as_str()
+                    "source": photo, "output": path, "reason": outcome.as_str()
                 }));
                 continue;
             }
-            Decision::Write => (own.clone(), None, Outcome::Written),
-            Decision::Replace(previous) => (own.clone(), Some(previous), Outcome::Replaced),
+            Decision::Write => (path, None, Outcome::Written),
+            Decision::Replace(previous) => (path, Some(previous), Outcome::Replaced),
             Decision::Number { reported } => {
                 // A file the user named is numbered only as Replace if
                 // changed's fallback; Keep both refuses it, as before.
@@ -1679,7 +1676,13 @@ fn export(args: ExportArgs) -> Result<()> {
                     // One connection per thread (SQLite). What was written,
                     // not what the path holds by now.
                     let recorded = ExportRecords::open(records).and_then(|records| {
-                        records.record_written(output, photo_key, &export_inputs[named_index], file)
+                        records.record_written(
+                            output,
+                            &named[named_index].1,
+                            photo_key,
+                            &export_inputs[named_index],
+                            file,
+                        )
                     });
                     if let Err(e) = recorded {
                         eprintln!(

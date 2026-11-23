@@ -89,11 +89,11 @@
       "running": "Nada em curso."
     },
     "export": {
-      "done": "{{label}} exportado ({{existing}})",
       "failed_one": "{{count}} foto não exportada: {{label}}",
       "failed_many": "{{count}} fotos não exportadas: {{label}}",
       "failed_other": "{{count}} fotos não exportadas: {{label}}",
       "interrupted": "Exportação interrompida: {{label}}",
+      "nothingExported": "Nada foi exportado — {{existing}} ({{label}})",
       "running": "A exportar {{label}}",
       "waiting": "A aguardar exportação: {{label}}"
     },
@@ -3935,7 +3935,10 @@
           "replaced_other": "{{count}} substituídas",
           "skipped_one": "{{count}} pulada",
           "skipped_many": "{{count}} puladas",
-          "skipped_other": "{{count}} puladas"
+          "skipped_other": "{{count}} puladas",
+          "written_one": "{{count}} exportada",
+          "written_many": "{{count}} exportadas",
+          "written_other": "{{count}} exportadas"
         },
         "exportedTo": "Exportado para:",
         "failed": "{{failed}} de {{total}} falharam",

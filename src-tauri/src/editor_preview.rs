@@ -64,8 +64,8 @@ use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Weak};
 use tauri::ipc::Response;
 use tauri::{Emitter, Manager};
 
@@ -1358,15 +1358,26 @@ pub async fn sample_levels_input(
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("sample_levels_input");
         let recipe = levels_input_probe(&adjustments);
+        // One marker for the whole pass (`ColorNoiseView::with_shown_mark`); a
+        // frame nobody sees writes none.
+        let develop = app_handle.state::<DevelopSession>();
+        let view = &develop.color_noise_view;
         sample_levels_with(|outputs| {
-            render_probes(
-                &app_handle,
-                &path,
-                recipe.clone(),
-                ProbeArea::Point(normalized_x, normalized_y),
-                outputs,
-                "sample_levels_input",
-            )
+            view.with_shown_mark(|shown| {
+                render_probes(
+                    &app_handle,
+                    &path,
+                    recipe.clone(),
+                    ProbeArea::Point(normalized_x, normalized_y),
+                    outputs,
+                    "sample_levels_input",
+                    shown,
+                )
+            })
+            .unwrap_or_else(|| {
+                log::warn!("Levels picker: the shown frame changed; sampled again");
+                Err(gpu_processing::PREVIEW_PROCESSOR_CHANGED.to_string())
+            })
         })
     })
     .await
@@ -1904,7 +1915,7 @@ fn render_probe(
     caller_id: &str,
 ) -> Result<Option<image::DynamicImage>, String> {
     Ok(
-        render_probes(app_handle, path, recipe, area, &[output], caller_id)?
+        render_probes(app_handle, path, recipe, area, &[output], caller_id, None)?
             .and_then(|images| images.into_iter().next()),
     )
 }
@@ -1914,7 +1925,7 @@ fn render_probe(
 /// renders (`sample_levels_input`) take the base the last preview frame
 /// rendered from when that was one with its colour noise reduction
 /// applied at full resolution (`color_noise_view::shown_corrected_base`),
-/// at Color 0, as that frame renders.
+/// at Color 0, as that frame renders; `picker` is their marker.
 fn render_probes(
     app_handle: &tauri::AppHandle,
     path: &str,
@@ -1922,6 +1933,7 @@ fn render_probes(
     area: ProbeArea,
     outputs: &[ProbeOutput],
     caller_id: &str,
+    picker: Option<Weak<image::DynamicImage>>,
 ) -> Result<Option<Vec<image::DynamicImage>>, String> {
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
@@ -1987,10 +1999,11 @@ fn render_probes(
             lut_processing::get_or_load_lut(&app_handle.state::<crate::state::luts::LutState>(), p)
                 .ok()
         });
-    // The pickers sample what the settled fit frame shows.
+    // The pickers sample what the settled fit frame shows: `picker` is its
+    // marker, taken before the pass (`ColorNoiseView::with_shown_mark`).
     let mut base = base;
     let mut transform_hash = transform_hash;
-    if caller_id == "sample_levels_input"
+    if let Some(shown) = &picker
         && let Some(corrected) = crate::color_noise_view::shown_corrected_base(
             &develop.color_noise_view,
             &probe,
@@ -1998,6 +2011,7 @@ fn render_probes(
             &loaded_image.image,
             loaded_image.is_raw,
             &base,
+            shown,
         )
     {
         probe.global.color_noise_reduction = 0.0;
@@ -2771,7 +2785,10 @@ fn process_preview_job(
     // from the JPEG below).
     #[cfg(target_os = "linux")]
     let tool_view = final_adjustments.global.show_clipping != 0;
-    if app_handle.is_some() && (use_wgpu_renderer || cfg!(target_os = "linux")) {
+    if pass != FramePass::DraftWarmup
+        && app_handle.is_some()
+        && (use_wgpu_renderer || cfg!(target_os = "linux"))
+    {
         crate::second_window::note_live(
             &loaded_image.path,
             &adjustments_clone,
@@ -2849,7 +2866,8 @@ fn process_preview_job(
         return Ok(b"WGPU_RENDER".to_vec());
     }
 
-    if pass == FramePass::AnalyticsOnly {
+    // Nothing leaves a frame nobody sees: the render warmed the draft source.
+    if matches!(pass, FramePass::AnalyticsOnly | FramePass::DraftWarmup) {
         return Ok(Vec::new());
     }
 
@@ -3007,6 +3025,11 @@ pub(crate) enum FramePass {
     /// frame rendered once more for its analytics only (not encoded or
     /// sent; [`analytics_pass_of`]).
     AnalyticsOnly,
+    /// Linux's drag-draft warm-up: nobody sees the frame
+    /// (`warm_draft_source`), so it writes none of what a shown frame does
+    /// (`color_noise_view::ColorNoiseView::render_unseen`, which also
+    /// covers the frame's own render).
+    DraftWarmup,
 }
 
 /// Leads a Linux settled region frame's reply (then the drag frames' six
@@ -3555,9 +3578,8 @@ fn native_display(_app_handle: &tauri::AppHandle) -> bool {
 }
 
 fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
-    let state = app_handle.state::<AppState>();
-    let develop = app_handle.state::<DevelopSession>();
-    let prepared = develop
+    let prepared = app_handle
+        .state::<DevelopSession>()
         .cached_preview
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -3567,34 +3589,36 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
         return;
     }
     let started = std::time::Instant::now();
-    let frames = develop.color_noise_view.frames_noted();
-    let shown = develop.color_noise_view.shown_mark();
-    let result = gpu_processing::supersedable(newer_request_waits(app_handle, None), || {
-        process_editor_preview_job(
-            app_handle,
-            state,
-            develop,
-            warm.adjustments,
-            true,
-            false,
-            warm.target_resolution,
-            None,
-            false,
-            false,
-            None,
-            None,
-            false,
-            false,
-            warm.generation,
-            FramePass::Requested,
-        )
+    let develop = app_handle.state::<DevelopSession>();
+    // Not shown: the frame renders on a thread that ends as one nobody sees
+    // (`ColorNoiseView::render_unseen`) — the worker's polled closure runs
+    // there too — so it never writes the base the Levels pickers sample, and
+    // a pick during the warm-up reads the final frame's, before and after it
+    // (G08: the marker was put back only after a pick had seen it).
+    let result = develop.color_noise_view.render_unseen(|| {
+        let state = app_handle.state::<AppState>();
+        let develop = app_handle.state::<DevelopSession>();
+        gpu_processing::supersedable(newer_request_waits(app_handle, None), || {
+            process_editor_preview_job(
+                app_handle,
+                state,
+                develop,
+                warm.adjustments,
+                true,
+                false,
+                warm.target_resolution,
+                None,
+                false,
+                false,
+                None,
+                None,
+                false,
+                false,
+                warm.generation,
+                FramePass::DraftWarmup,
+            )
+        })
     });
-    // Not shown: the final frame before it stays the latest for its colour
-    // noise correction (`color_noise_view`), and the base the Levels
-    // pickers sample stays that frame's.
-    let view = &app_handle.state::<DevelopSession>().color_noise_view;
-    view.forget_frame(frames);
-    view.restore_shown(shown);
     match result {
         Ok(_) => log::info!("Drag draft source prepared in {:.1?}", started.elapsed()),
         Err(e) if e.code == ErrorCode::Cancelled => {
@@ -3660,16 +3684,13 @@ pub(crate) async fn activate_photo(
         );
         return Ok(Activation::None);
     };
-    // Only previews that stand for the recipe's decode variant stand in (a
-    // virtual copy's may differ from its master's,
-    // `preview_proxy::stands_for_variant`).
-    let wanted = crate::image_loader::decode_variant(
-        &adjustments
-            .clone()
-            .filter(|a| a.is_object())
-            .unwrap_or_else(|| crate::exif_processing::load_sidecar(&sidecar_path).adjustments),
-        &source_path.to_string_lossy(),
-    );
+    // Only previews that stand for the recipe's decode variant and frame
+    // stand in.
+    let proxy_recipe = adjustments
+        .clone()
+        .filter(|a| a.is_object())
+        .unwrap_or_else(|| crate::exif_processing::load_sidecar(&sidecar_path).adjustments);
+    let wanted = crate::image_loader::decode_variant(&proxy_recipe, &source_path.to_string_lossy());
     if !crate::preview_proxy::may_stand_for_variant(&source_path, wanted) {
         #[cfg(feature = "performance-profiling")]
         log::info!(
@@ -3697,8 +3718,14 @@ pub(crate) async fn activate_photo(
         None => {
             let settings = crate::state::settings::current(&app_handle);
             let read_source = source_path.clone();
+            let never_edited = crate::embedded_still::never_edited(&proxy_recipe);
             let Some(proxy) = tokio::task::spawn_blocking(move || {
-                crate::preview_proxy::read(&read_source, &settings)
+                crate::preview_proxy::read_kind(
+                    &read_source,
+                    crate::preview_proxy::ProxyKind::Standard,
+                    &settings,
+                    Some(&proxy_recipe),
+                )
             })
             .await
             .map_err(|e| e.to_string())?
@@ -3708,28 +3735,8 @@ pub(crate) async fn activate_photo(
                     "[PERF] {}",
                     serde_json::json!({ "stage": "activate_photo_skipped", "reason": "no proxy" })
                 );
-                let never_edited = crate::embedded_still::never_edited(
-                    &adjustments
-                        .clone()
-                        .filter(|a| a.is_object())
-                        .unwrap_or_else(|| {
-                            crate::exif_processing::load_sidecar(&sidecar_path).adjustments
-                        }),
-                );
                 return Ok(show_still(&app_handle, &path, viewport, never_edited).await);
             };
-            if !crate::preview_proxy::stands_for_variant(
-                &source_path,
-                wanted,
-                crate::preview_proxy::variant_of_key(&proxy.key.decoder),
-            ) {
-                #[cfg(feature = "performance-profiling")]
-                log::info!(
-                    "[PERF] {}",
-                    serde_json::json!({ "stage": "activate_photo_skipped", "reason": "other decode variant" })
-                );
-                return Ok(Activation::None);
-            }
             state
                 .source
                 .proxy_memory

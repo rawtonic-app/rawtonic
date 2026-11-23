@@ -11,7 +11,7 @@ import { listen } from '@tauri-apps/api/event';
 import i18n from 'i18next';
 import { Invokes } from '../components/ui/AppProperties';
 import { renderErrorMessage } from '../utils/renderErrors';
-import { describeExistingFiles } from '../utils/exportFeedback';
+import { describeCompletedExports } from '../utils/exportFeedback';
 import { formatBytes } from '../utils/previews';
 import { useActivityStore } from '../store/useActivityStore';
 import { useEditorStore } from '../store/useEditorStore';
@@ -122,10 +122,12 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
       else activity.start({ id, ...fields });
     } else if (job.state === 'failed') {
       const failures = job.failures ?? [];
+      const title = i18n.t('activity.export.failed', { count: job.failed, label: job.label });
+      const completed = job.failed > 0 ? describeCompletedExports(job) : '';
       activity.report('failure', {
         id,
         source: 'export',
-        title: i18n.t('activity.export.failed', { count: job.failed, label: job.label }),
+        title: completed ? `${title} · ${completed}` : title,
         detail:
           failures
             .slice(0, 3)
@@ -158,12 +160,12 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
         ]
       });
     } else if (job.state === 'done') {
-      // The written files are reported once per run with Show in Finder
-      // (`notifyExportOutputs`); the task just ends, saying what "If a
-      // file exists" skipped or replaced when it did.
-      const existing = describeExistingFiles(job);
-      if (existing) activity.finish(id, { title: i18n.t('activity.export.done', { label: job.label, existing }) });
-      else activity.finish(id);
+      const completed = describeCompletedExports(job);
+      const title =
+        job.skipped === job.total
+          ? i18n.t('activity.export.nothingExported', { label: job.label, existing: completed })
+          : `${job.label} · ${completed}`;
+      activity.finish(id, { source: 'export', title });
     } else {
       // Cancelled or paused by the user, or waiting while the queue is held.
       activity.resolve(id);

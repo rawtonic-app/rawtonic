@@ -6,7 +6,17 @@ import { listen } from '@tauri-apps/api/event';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { Invokes } from '../components/ui/AppProperties';
 import { relaunchAfterSettingsSaves } from './useSettingsStore';
+import { useEditorStore } from './useEditorStore';
+import { useLibraryStore } from './useLibraryStore';
 import { confirmWhileRunning, runningWork, type AskToQuitWhileRunning } from '../utils/quit';
+
+/** The photo the restart reopens: the one shown when no library is open (a
+ * library reopens by itself; a photo opened on its own had nothing to come
+ * back from, and the Windows setup restarts without arguments). */
+export function photoToReopen(): string | null {
+  if (useLibraryStore.getState().sessionDirectory) return null;
+  return useEditorStore.getState().selectedImage?.path ?? null;
+}
 
 /** Restarting to update stops running exports and imports, as quitting does. */
 const confirmRestartWhileRunning: AskToQuitWhileRunning = (work, restart, cancel) =>
@@ -165,7 +175,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       // restart's own hold keeps editing closed); only then is the update
       // put in place. Windows: the setup ends the app and starts the new one.
       const unsaved = await relaunchAfterSettingsSaves(async () => {
-        await invoke(Invokes.UpdateInstall, { version });
+        await invoke(Invokes.UpdateInstall, { version, reopen: photoToReopen() });
         await relaunch();
       });
       if (unsaved.length > 0) {

@@ -80,10 +80,10 @@
       "running": "Nichts läuft gerade."
     },
     "export": {
-      "done": "{{label}} exportiert ({{existing}})",
       "failed_one": "{{count}} Foto nicht exportiert: {{label}}",
       "failed_other": "{{count}} Fotos nicht exportiert: {{label}}",
       "interrupted": "Export unterbrochen: {{label}}",
+      "nothingExported": "Nichts exportiert — {{existing}} ({{label}})",
       "running": "Exportiere {{label}}",
       "waiting": "Wartet auf Export: {{label}}"
     },
@@ -3770,7 +3770,9 @@
           "replaced_one": "{{count}} ersetzt",
           "replaced_other": "{{count}} ersetzt",
           "skipped_one": "{{count}} übersprungen",
-          "skipped_other": "{{count}} übersprungen"
+          "skipped_other": "{{count}} übersprungen",
+          "written_one": "{{count}} geschrieben",
+          "written_other": "{{count}} geschrieben"
         },
         "exportedTo": "Exportiert nach:",
         "failed": "{{failed}} von {{total}} fehlgeschlagen",

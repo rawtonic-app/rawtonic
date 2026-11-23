@@ -1,5 +1,5 @@
 import '../../i18n';
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { invoke, open } = vi.hoisted(() => ({ invoke: vi.fn(), open: vi.fn() }));
@@ -83,20 +83,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
   debouncedSave.cancel();
   debouncedSetHistory.cancel();
+  vi.useRealTimers();
 });
 
 const openBrowser = async () => {
   render(<StudioProfileBrowser disabled={false} onInteraction={() => undefined} />);
-  fireEvent.click(screen.getByRole('button', { name: 'Browse profiles' }));
-  const browser = await screen.findByRole('region', { name: 'Profile browser' });
-  await within(browser).findByRole('button', { name: 'Studio flash' });
-  await within(browser).findByRole('button', { name: 'Darker skies' });
-  return browser;
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Browse profiles' })));
+  return screen.getByRole('region', { name: 'Profile browser' });
 };
 const tile = (browser: HTMLElement, name: string) => within(browser).getByRole('button', { name });
 
+// Observe the visible tiles first, then let the thumbnail debounce invoke the mock backend.
+const renderThumbnails = async () => {
+  await act(async () => vi.advanceTimersToNextFrame());
+  await act(async () => vi.advanceTimersByTimeAsync(60));
+};
+
 describe('profile browser', () => {
   it('groups camera profiles, looks, black-and-white mixes and imported packs, each tile a thumbnail of the photo', async () => {
+    vi.useFakeTimers();
     const browser = await openBrowser();
     const groups = within(browser)
       .getAllByRole('region')
@@ -112,7 +117,8 @@ describe('profile browser', () => {
     expect(tile(browser, 'None').getAttribute('aria-pressed')).toBe('true');
     expect(tile(browser, 'Colour').getAttribute('aria-pressed')).toBe('true');
     // Rendered natively from the open photo, with each tile's keys only.
-    await waitFor(() => expect(browser.querySelectorAll('img')).toHaveLength(7));
+    await renderThumbnails();
+    expect(browser.querySelectorAll('img')).toHaveLength(7);
     const variants = tileCalls.flatMap((call) => call.variants);
     expect(variants).toContainEqual({ cameraProfile: 'profiles/Studio.dcp' });
     expect(variants).toContainEqual(
@@ -126,6 +132,7 @@ describe('profile browser', () => {
   });
 
   it('observes every displayed tile again after filtering and clearing search', async () => {
+    vi.useFakeTimers();
     const observed = new Set<Element>();
     vi.stubGlobal(
       'IntersectionObserver',
@@ -142,13 +149,16 @@ describe('profile browser', () => {
     );
     const browser = await openBrowser();
     const cells = () => [...browser.querySelectorAll('[data-tile]')];
-    await waitFor(() => expect(cells().every((cell) => observed.has(cell))).toBe(true));
+    await act(async () => vi.advanceTimersToNextFrame());
+    expect(cells()).toHaveLength(7);
+    expect(cells().every((cell) => observed.has(cell))).toBe(true);
     const search = within(browser).getByRole('searchbox', { name: 'Search profiles' });
     fireEvent.change(search, { target: { value: 'warm' } });
     expect(cells()).toHaveLength(1);
     fireEvent.change(search, { target: { value: '' } });
     expect(cells()).toHaveLength(7);
-    await waitFor(() => expect(cells().every((cell) => observed.has(cell))).toBe(true));
+    await act(async () => vi.advanceTimersToNextFrame());
+    expect(cells().every((cell) => observed.has(cell))).toBe(true);
   });
 
   it('previews on hover and focus without a history step, and restores on leaving or Esc', async () => {
@@ -182,17 +192,18 @@ describe('profile browser', () => {
   });
 
   it('shows, previews and applies a look with Effects on, also when they were off', async () => {
+    vi.useFakeTimers();
     useEditorStore.setState((s) => ({
       adjustments: { ...s.adjustments, sectionVisibility: { ...s.adjustments.sectionVisibility, effects: false } }
     }));
     const browser = await openBrowser();
-    await waitFor(() => expect(tileCalls.length).toBeGreaterThan(0));
+    await renderThumbnails();
     const warm = tileCalls.flatMap((c) => c.variants).find((v) => v.lutPath === '/res/Warm 200.cube');
     expect(warm).toMatchObject({ sectionVisibility: { effects: true } });
     fireEvent.mouseEnter(tile(browser, 'Warm'));
     expect(useEditorStore.getState().previewOverride?.sectionVisibility?.effects).toBe(true);
-    fireEvent.click(tile(browser, 'Warm'));
-    await waitFor(() => expect(useEditorStore.getState().adjustments.lutPath).toBe('/res/Warm 200.cube'));
+    await act(async () => fireEvent.click(tile(browser, 'Warm')));
+    expect(useEditorStore.getState().adjustments.lutPath).toBe('/res/Warm 200.cube');
     expect(useEditorStore.getState().adjustments.sectionVisibility?.effects).toBe(true);
   });
 
@@ -208,8 +219,8 @@ describe('profile browser', () => {
     expect(historyIndex).toBe(1);
     expect(tile(browser, 'Studio flash').getAttribute('aria-pressed')).toBe('true');
 
-    fireEvent.click(tile(browser, 'Warm'));
-    await waitFor(() => expect(useEditorStore.getState().adjustments.lutPath).toBe('/res/Warm 200.cube'));
+    await act(async () => fireEvent.click(tile(browser, 'Warm')));
+    expect(useEditorStore.getState().adjustments.lutPath).toBe('/res/Warm 200.cube');
     await act(async () => debouncedSetHistory.flush());
     expect(useEditorStore.getState().history).toHaveLength(3);
 
@@ -275,6 +286,7 @@ describe('profile browser', () => {
   });
 
   it('cancels the tiles still rendering when it closes', async () => {
+    vi.useFakeTimers();
     let finish: (value: ArrayBuffer) => void = () => undefined;
     invoke.mockImplementation(async (command: string, args: Record<string, unknown>) => {
       if (command === 'profile_thumbnails') {
@@ -287,7 +299,7 @@ describe('profile browser', () => {
       return undefined;
     });
     await openBrowser();
-    await waitFor(() => expect(tileCalls.length).toBeGreaterThan(0));
+    await renderThumbnails();
     fireEvent.click(screen.getByRole('button', { name: 'Browse profiles' }));
     expect(invoke).toHaveBeenCalledWith('cancel_profile_thumbnails', { generation: tileCalls.at(-1)!.generation });
     finish(framed(8));

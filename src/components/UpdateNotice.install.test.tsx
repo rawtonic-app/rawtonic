@@ -9,6 +9,8 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import UpdateNotice from './UpdateNotice';
 import { type UpdateInfo, useUpdateStore } from '../store/useUpdateStore';
 import { relaunchAfterSettingsSaves, useSettingsStore } from '../store/useSettingsStore';
+import { useEditorStore } from '../store/useEditorStore';
+import { useLibraryStore } from '../store/useLibraryStore';
 import { runningWork } from '../utils/quit';
 import { type AppSettings, Invokes } from './ui/AppProperties';
 
@@ -71,6 +73,8 @@ beforeEach(() => {
     installVersion: null
   });
   useSettingsStore.setState({ appSettings: {} as AppSettings });
+  useLibraryStore.setState({ sessionDirectory: null });
+  useEditorStore.setState({ selectedImage: null });
   answers = {
     [Invokes.CheckUpdates]: async () => release,
     [Invokes.UpdateDownload]: async () => undefined,
@@ -112,8 +116,29 @@ it('installs only after the click: download with progress, then Restart now inst
   fireEvent.click(screen.getByText('updates.restartNow'));
   await act(async () => {});
   expect(relaunchAfterSettingsSaves).toHaveBeenCalledTimes(1);
-  expect(calls(Invokes.UpdateInstall)).toEqual([[Invokes.UpdateInstall, { version: '0.2.0' }]]);
+  expect(calls(Invokes.UpdateInstall)).toEqual([[Invokes.UpdateInstall, { version: '0.2.0', reopen: null }]]);
   expect(relaunch).toHaveBeenCalledTimes(1);
+});
+
+/** Downloads the release and clicks Restart now; returns what the install got. */
+async function restartNow() {
+  await shown();
+  fireEvent.click(screen.getByText('updates.install'));
+  await act(async () => {});
+  fireEvent.click(screen.getByText('updates.restartNow'));
+  await act(async () => {});
+  return calls(Invokes.UpdateInstall).map(([, args]) => args);
+}
+
+it('a photo open without a library is handed to the install, to reopen after the restart', async () => {
+  useEditorStore.setState({ selectedImage: { path: '/photos/copy one.ARW' } as never });
+  expect(await restartNow()).toEqual([{ version: '0.2.0', reopen: '/photos/copy one.ARW' }]);
+});
+
+it('with a library open the restart reopens the library, not a lone photo', async () => {
+  useLibraryStore.setState({ sessionDirectory: '/libraries/Wedding' });
+  useEditorStore.setState({ selectedImage: { path: '/libraries/Wedding/Capture/a.ARW' } as never });
+  expect(await restartNow()).toEqual([{ version: '0.2.0', reopen: null }]);
 });
 
 it('a network failure offers a retry and the installer link', async () => {

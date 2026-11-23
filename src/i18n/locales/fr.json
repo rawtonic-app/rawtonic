@@ -89,11 +89,11 @@
       "running": "Aucune tâche en cours."
     },
     "export": {
-      "done": "{{label}} exporté ({{existing}})",
       "failed_one": "{{count}} photo non exportée : {{label}}",
       "failed_many": "{{count}} photos non exportées : {{label}}",
       "failed_other": "{{count}} photos non exportées : {{label}}",
       "interrupted": "Exportation interrompue : {{label}}",
+      "nothingExported": "Rien n’a été exporté — {{existing}} ({{label}})",
       "running": "Exportation de {{label}}",
       "waiting": "En attente d’exportation : {{label}}"
     },
@@ -3935,7 +3935,10 @@
           "replaced_other": "{{count}} remplacées",
           "skipped_one": "{{count}} ignorée",
           "skipped_many": "{{count}} ignorées",
-          "skipped_other": "{{count}} ignorées"
+          "skipped_other": "{{count}} ignorées",
+          "written_one": "{{count}} exportée",
+          "written_many": "{{count}} exportées",
+          "written_other": "{{count}} exportées"
         },
         "exportedTo": "Exporté vers :",
         "failed": "{{failed}} sur {{total}} en échec",

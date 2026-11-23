@@ -83,7 +83,10 @@ const backend = (command: string, created: SessionSummary): unknown =>
 
 // The last test's tree too: a menu's hover timer firing after the test
 // environment is gone threw "window is not defined" (flaky check.sh runs).
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 beforeEach(() => {
   cleanup();
   useEditorStore.setState({ selectedImage: null });
@@ -224,6 +227,7 @@ describe('Session workspace keyboard flows', () => {
     await screen.findByText('Acme');
     expect(screen.queryByRole('button', { name: /XMP not updated/ })).toBeNull();
     // A rating's XMP could not be written: its write settles.
+    vi.useFakeTimers();
     pending = 1;
     act(() => {
       window.dispatchEvent(
@@ -232,17 +236,28 @@ describe('Session workspace keyboard flows', () => {
         })
       );
     });
-    expect(await screen.findByRole('button', { name: '1 XMP not updated' })).toBeTruthy();
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByRole('button', { name: '1 XMP not updated' })).toBeTruthy();
     // Opening an album leaves Develop first and flushes its save after.
     act(() => useUIStore.setState({ activeView: 'editor' }));
     debouncedSave('/jobs/Acme/Capture/a.ARW', {} as Adjustments);
     act(() => useUIStore.setState({ activeView: 'library' }));
-    debouncedSave.flush();
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    const save = debouncedSave.flush();
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(invoke).toHaveBeenCalledWith(
+      'save_metadata_and_update_thumbnail',
+      expect.objectContaining({
+        path: '/jobs/Acme/Capture/a.ARW'
+      })
+    );
     // Not counted before the save is written.
     expect(screen.getByRole('button', { name: '1 XMP not updated' })).toBeTruthy();
-    act(() => finishSave());
-    expect(await screen.findByRole('button', { name: '2 XMP not updated' }, { timeout: 3000 })).toBeTruthy();
+    await act(async () => {
+      finishSave();
+      await save;
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(screen.getByRole('button', { name: '2 XMP not updated' })).toBeTruthy();
   });
 
   it('counts pending XMP files again when a batch write settles, also one that failed', async () => {
@@ -516,6 +531,7 @@ describe('restoring the last session', () => {
       expandedAlbumGroups: [],
       sessionDirectory: '/jobs/Beta'
     });
+    const onNavigate = vi.fn(async () => {});
     const onSelectAlbum = vi.fn();
     useSettingsStore.setState({
       appSettings: {
@@ -524,20 +540,19 @@ describe('restoring the last session', () => {
         lastFolderState: last('session-album:abc')
       } as AppSettings
     });
-    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} onSelectAlbum={onSelectAlbum} />);
-    act(() => {
+    render(<SessionWorkspace onNavigate={onNavigate} onSelectAlbum={onSelectAlbum} />);
+    await act(async () => {
       expect(runAppCommand('recent:/jobs/Beta')).toBe(true);
     });
-    await waitFor(() =>
-      expect(onSelectAlbum).toHaveBeenCalledWith(
-        'session-album:abc',
-        'Best',
-        ['/jobs/Beta/Photos/a.nef', '/jobs/Beta/Photos/b.nef'],
-        false
-      )
+    expect(onSelectAlbum).toHaveBeenCalledWith(
+      'session-album:abc',
+      'Best',
+      ['/jobs/Beta/Photos/a.nef', '/jobs/Beta/Photos/b.nef'],
+      false
     );
     // The collection is gone: the library's own folder stays.
     onSelectAlbum.mockClear();
+    onNavigate.mockClear();
     useSettingsStore.setState({
       appSettings: {
         lastRootPath: null,
@@ -545,11 +560,10 @@ describe('restoring the last session', () => {
         lastFolderState: last('session-album:deleted')
       } as AppSettings
     });
-    act(() => {
+    await act(async () => {
       expect(runAppCommand('recent:/jobs/Beta')).toBe(true);
     });
-    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe('/jobs/Beta'));
-    await new Promise((r) => setTimeout(r, 50));
+    expect(onNavigate).toHaveBeenCalledWith('/jobs/Beta/Capture', true);
     expect(onSelectAlbum).not.toHaveBeenCalled();
   });
 
@@ -595,27 +609,25 @@ describe('restoring the last session', () => {
       });
     set();
     render(<SessionWorkspace onNavigate={onNavigate} />);
-    act(() => {
-      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
-    });
-    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('C:\\Users\\a\\raws 9', true));
+    const reopen = () =>
+      act(async () => {
+        expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
+      });
+    await reopen();
+    expect(onNavigate).toHaveBeenCalledWith('C:\\Users\\a\\raws 9', true);
     // The folder is gone: the library's own folder.
     folderThere = false;
     onNavigate.mockClear();
     set();
-    act(() => {
-      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
-    });
-    await waitFor(() => expect(onNavigate).toHaveBeenCalled());
+    await reopen();
+    expect(onNavigate).toHaveBeenCalledWith('C:\\Users\\a\\catalog 3\\Capture', true);
     expect(onNavigate).not.toHaveBeenCalledWith('C:\\Users\\a\\raws 9', true);
     // Another catalog folder is there: the library opens on it, not on an empty view.
     others = [{ path: 'D:\\Shots\\day 2', exists: true, photos: 4 }];
     onNavigate.mockClear();
     set();
-    act(() => {
-      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
-    });
-    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('D:\\Shots\\day 2', true));
+    await reopen();
+    expect(onNavigate).toHaveBeenCalledWith('D:\\Shots\\day 2', true);
   });
 
   it('opens Missing Photos, highlighted, when no catalog folder is on disk, and keeps the saved folder', async () => {
@@ -652,10 +664,11 @@ describe('restoring the last session', () => {
       appSettings: { lastRootPath: null, recentLibraries: [beta.directory], lastFolderState: saved } as AppSettings
     });
     render(<SessionWorkspace onNavigate={onNavigate} onSelectAlbum={onSelectAlbum} />);
-    act(() => {
+    // Let the open finish and re-enable Recent before opening the same library again.
+    await act(async () => {
       expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
     });
-    await waitFor(() => expect(onSelectAlbum).toHaveBeenCalled());
+    expect(onSelectAlbum).toHaveBeenCalled();
     expect(onSelectAlbum.mock.calls[0][0]).toBe('session-missing');
     expect(info.mock.calls.filter((c) => String(c[0]).includes('showing Missing Photos'))).toHaveLength(1);
     // Not the user's selection: the saved one is untouched and held back from saving.
@@ -665,10 +678,10 @@ describe('restoring the last session', () => {
     there = true;
     onNavigate.mockClear();
     onSelectAlbum.mockClear();
-    act(() => {
+    await act(async () => {
       expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
     });
-    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('D:\\Shots\\raws 9', true));
+    expect(onNavigate).toHaveBeenCalledWith('D:\\Shots\\raws 9', true);
     expect(onSelectAlbum).not.toHaveBeenCalled();
     info.mockRestore();
   });
