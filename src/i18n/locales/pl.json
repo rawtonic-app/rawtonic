@@ -4028,7 +4028,7 @@
       },
       "provenance": {
         "about": "Zapisuje, z którego zdjęcia wywołano każdy plik, rodzaje edycji i każdy obszar utworzony przez model generatywny, podpisane Twoim certyfikatem. JPEG, PNG, TIFF, WebP, AVIF i JPEG XL. Nic nie jest wysyłane. Osobne obrazy masek nie są podpisywane.",
-        "add": "Podpisz manifest pochodzenia w każdym pliku",
+        "add": "Podpisz manifest pochodzenia w głównym pliku każdego eksportu",
         "author": "Podaj twórcę zdjęcia jako autora",
         "blocked": "Pochodzenie (C2PA) nie może podpisać: {{recipes}}. Skonfiguruj ważny certyfikat podpisu i eksportuj JPEG, PNG, TIFF, WebP, AVIF lub JPEG XL.",
         "certificateFilter": "Certyfikat PKCS#12",

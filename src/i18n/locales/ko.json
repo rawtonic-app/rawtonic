@@ -3604,7 +3604,7 @@
       },
       "provenance": {
         "about": "각 파일이 현상된 원본 사진, 편집 종류, 생성 모델이 만든 모든 영역을 기록하고 사용자의 인증서로 서명합니다. JPEG, PNG, TIFF, WebP, AVIF 및 JPEG XL. 아무것도 전송되지 않습니다. 별도의 마스크 이미지에는 서명되지 않습니다.",
-        "add": "각 파일에 출처 매니페스트 서명",
+        "add": "각 내보내기의 주 파일에 출처 매니페스트 서명",
         "author": "사진 제작자를 저자로 표시",
         "blocked": "출처 정보(C2PA)가 {{recipes}}에 서명할 수 없습니다. 유효한 서명 인증서를 설정하고 JPEG, PNG, TIFF, WebP, AVIF 또는 JPEG XL로 내보내세요.",
         "certificateFilter": "PKCS#12 인증서",

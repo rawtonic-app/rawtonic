@@ -3868,7 +3868,7 @@
       },
       "provenance": {
         "about": "Indique la photo dont chaque fichier a été développé, les types de retouches et chaque zone créée par un modèle génératif, signé avec votre certificat. JPEG, PNG, TIFF, WebP, AVIF et JPEG XL. Rien n'est envoyé. Les images de masque séparées ne sont pas signées.",
-        "add": "Signer un manifeste de provenance dans chaque fichier",
+        "add": "Signer un manifeste de provenance dans le fichier principal de chaque export",
         "author": "Nommer le créateur de la photo comme auteur",
         "blocked": "La provenance (C2PA) ne peut pas signer {{recipes}} : configurez un certificat de signature valide et exportez en JPEG, PNG, TIFF, WebP, AVIF ou JPEG XL.",
         "certificateFilter": "Certificat PKCS#12",

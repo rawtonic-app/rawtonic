@@ -3868,7 +3868,7 @@
       },
       "provenance": {
         "about": "Registra la foto de la que se reveló cada archivo, los tipos de edición y cada zona creada por un modelo generativo, firmado con su certificado. JPEG, PNG, TIFF, WebP, AVIF y JPEG XL. No se envía nada. Las imágenes de máscara separadas no se firman.",
-        "add": "Firmar un manifiesto de procedencia en cada archivo",
+        "add": "Firmar un manifiesto de procedencia en el archivo principal de cada exportación",
         "author": "Nombrar al creador de la foto como autor",
         "blocked": "La procedencia (C2PA) no puede firmar {{recipes}}: configure un certificado de firma válido y exporte JPEG, PNG, TIFF, WebP, AVIF o JPEG XL.",
         "certificateFilter": "Certificado PKCS#12",

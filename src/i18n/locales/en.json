@@ -3707,7 +3707,7 @@
       },
       "provenance": {
         "about": "Records the photograph each file was developed from, the kinds of edits and every area a generative model made, signed with your certificate. JPEG, PNG, TIFF, WebP, AVIF and JPEG XL. Nothing is sent anywhere. Separate mask images are not signed.",
-        "add": "Sign a provenance manifest into each file",
+        "add": "Sign a provenance manifest into the main file of each export",
         "author": "Name the photo's creator as author",
         "blocked": "Provenance (C2PA) cannot sign {{recipes}}: set up a valid signing certificate and export JPEG, PNG, TIFF, WebP, AVIF or JPEG XL.",
         "certificateFilter": "PKCS#12 certificate",
