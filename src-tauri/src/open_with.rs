@@ -1293,14 +1293,14 @@ mod tests {
             "../../src/components/studio/fixtures/openWithLinux.json"
         ))
         .unwrap();
-        let entry = |id: &str, path: &str, name: &str| desktop::Entry {
-            path: PathBuf::from(path),
-            id: id.into(),
-            name: name.into(),
-            exec: "app %F".into(),
-            try_exec: None,
-            mime_types: vec![],
-            icon: None,
+        let entry = |id: &str, path: &str, name: &str| {
+            desktop::parse_entry(
+                &format!("[Desktop Entry]\nType=Application\nName={name}\nExec=app %F\n"),
+                Path::new(path),
+                id,
+                &[],
+            )
+            .unwrap()
         };
         let gimp = entry(
             "org.gimp.GIMP.desktop",
