@@ -187,6 +187,27 @@ pub fn smart_rule(rules: &SmartRules) -> Option<Rule> {
     Some(Rule::Group { combine, rules })
 }
 
+/// `rule` with its lens conditions on the file's lens (`Field::Lens`), as
+/// the first import of Lightroom's lens rules wrote them.
+fn lens_rules_as_first_imported(rule: &Rule) -> Rule {
+    match rule {
+        Rule::Group { combine, rules } => Rule::Group {
+            combine: *combine,
+            rules: rules.iter().map(lens_rules_as_first_imported).collect(),
+        },
+        Rule::Condition {
+            field: Field::LensImported,
+            op,
+            value,
+        } => Rule::Condition {
+            field: Field::Lens,
+            op: *op,
+            value: value.clone(),
+        },
+        other => other.clone(),
+    }
+}
+
 /// What a smart collection's rules depend on that the catalog reads from
 /// the files after the import: `Some(note)` for camera, lens, ISO or
 /// capture date. Lightroom may name a camera differently from what the file
@@ -708,26 +729,44 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
             // A smart album is reused only with the same rules: one of the
             // same name with other rules (changed in Lightroom since the
             // last import, or made here) stays as it is beside a new one.
-            let id = match existing.iter().find(|c| {
+            let same = |c: &&rawtonic_catalog::Collection, rules: Option<&Rule>| {
                 c.name == album.name
                     && c.parent == parent
                     && c.kind == kind
-                    && (smart.is_none() || c.rules.as_ref() == smart.as_ref())
-            }) {
+                    && (smart.is_none() || c.rules.as_ref() == rules)
+            };
+            // An earlier import wrote lens rules on the file's lens (`lens`,
+            // now `lensImported`): that album is the same one, brought up
+            // to date rather than copied beside the new one.
+            let former = smart.as_ref().map(lens_rules_as_first_imported);
+            let id = match existing.iter().find(|c| same(c, smart.as_ref())) {
                 Some(c) => c.id.clone(),
-                None => match &smart {
-                    Some(rule) => {
-                        catalog
-                            .create_smart_collection(&album.name, parent.as_deref(), rule)
-                            .map_err(|e| e.to_string())?
-                            .id
+                None => match existing
+                    .iter()
+                    .find(|c| former != smart && same(c, former.as_ref()))
+                {
+                    Some(c) => {
+                        if let Some(rule) = &smart {
+                            catalog
+                                .set_collection_rules(&c.id, rule)
+                                .map_err(|e| e.to_string())?;
+                        }
+                        c.id.clone()
                     }
-                    None => {
-                        catalog
-                            .create_collection_of_kind(&album.name, parent.as_deref(), kind)
-                            .map_err(|e| e.to_string())?
-                            .id
-                    }
+                    None => match &smart {
+                        Some(rule) => {
+                            catalog
+                                .create_smart_collection(&album.name, parent.as_deref(), rule)
+                                .map_err(|e| e.to_string())?
+                                .id
+                        }
+                        None => {
+                            catalog
+                                .create_collection_of_kind(&album.name, parent.as_deref(), kind)
+                                .map_err(|e| e.to_string())?
+                                .id
+                        }
+                    },
                 },
             };
             if smart.is_some() {
@@ -3826,22 +3865,96 @@ mod tests {
             ),
             // A compact camera: no lens text in the file, a range in Lightroom.
             ("d.CR2", file(""), Some("6.1-30.5 mm".into())),
-            // Lightroom has no lens for it either.
-            ("e.CR2", file("EF 24mm f/2.8"), None),
+            // Lightroom records it without a lens, whatever the file states.
+            ("e.CR2", file("EF 24mm f/2.8"), Some(String::new())),
+            // Ingested after the import: only the file's lens text exists.
+            ("f.CR2", file("EF 85mm f/1.8 USM"), None),
         ]);
         let text = |t: &str| SmartValue::Text(t.into());
         let lens = |op: &str, word: &str| members("lens", op, text(word), SmartValue::None);
         assert_eq!(lens("words", "EF50mm"), ["a.CR2"]);
-        assert!(lens("words", "EF").is_empty());
+        // Only the photograph Lightroom never saw has "EF" as a word.
+        assert_eq!(lens("words", "EF"), ["f.CR2"]);
         assert_eq!(lens("words", "EF-S18-55mm"), ["b.CR2"]);
         assert_eq!(lens("words", "TAMRON 17-50mm"), ["c.CR2"]);
         assert_eq!(lens("words", "6.1-30.5"), ["d.CR2"]);
         assert_eq!(lens("==", "ef50mm f/1.8"), ["a.CR2"]);
-        assert_eq!(lens("beginsWith", "EF"), ["a.CR2", "b.CR2"]);
+        assert_eq!(lens("beginsWith", "EF"), ["a.CR2", "b.CR2", "f.CR2"]);
         assert_eq!(lens("endsWith", "STM"), ["b.CR2"]);
         assert_eq!(lens("any", "tam"), ["c.CR2"]);
-        // A photograph Lightroom names no lens for is in "none of".
+        // A photograph Lightroom names no lens for is in "none of" and
+        // "empty"; one it never saw is read by the file's lens.
         assert_eq!(lens("noneOf", "EF"), ["c.CR2", "d.CR2", "e.CR2"]);
+        assert_eq!(
+            members("lens", "empty", SmartValue::None, SmartValue::None),
+            ["e.CR2"]
+        );
+        assert_eq!(lens("words", "85mm"), ["f.CR2"]);
+        assert_eq!(lens("noneOf", "85mm").len(), 5);
+    }
+
+    /// A repeated import brings an album an earlier import wrote on the
+    /// file's lens up to date (no second album), and a lens Lightroom now
+    /// records as none replaces the name kept before.
+    #[test]
+    fn a_repeated_import_updates_lens_albums_and_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let photos = tmp.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        fs::write(photos.join("a.CR2"), "a").unwrap();
+        let album = |rules: Vec<SmartRule>| rawtonic_interop::Album {
+            key: "1".into(),
+            name: "Tamron".into(),
+            parent: None,
+            is_group: false,
+            photos: vec![],
+            smart: Some(SmartRules {
+                combine: "intersect".into(),
+                rules,
+            }),
+        };
+        let source = |lens: &str| {
+            let mut p = photo("a", photos.join("a.CR2"), Develop::None, None);
+            p.lens = Some(lens.into());
+            Source {
+                name: "LR".into(),
+                photos: vec![p],
+                albums: vec![album(vec![condition(
+                    "lens",
+                    "words",
+                    SmartValue::Text("TAMRON".into()),
+                )])],
+                stacks: vec![],
+                not_read: NotRead::default(),
+            }
+        };
+        // What the first version of the import wrote.
+        let former = Rule::Group {
+            combine: Combine::All,
+            rules: vec![Rule::Condition {
+                field: Field::Lens,
+                op: Op::Words,
+                value: json!("TAMRON"),
+            }],
+        };
+        let old = catalog
+            .create_smart_collection("Tamron", None, &former)
+            .unwrap();
+        import_into(&catalog, &source("TAMRON SP 17-50mm")).unwrap();
+        let albums: Vec<_> = catalog.collections().unwrap();
+        assert_eq!(albums.len(), 1, "{albums:?}");
+        assert_eq!(albums[0].id, old.id);
+        assert!(matches!(
+            &albums[0].rules,
+            Some(Rule::Group { rules, .. })
+                if matches!(rules[..], [Rule::Condition { field: Field::LensImported, .. }])
+        ));
+        assert_eq!(catalog.collection_paths(&old.id).unwrap().len(), 1);
+        // Lightroom records no lens any more: the old name does not stay.
+        import_into(&catalog, &source("")).unwrap();
+        assert_eq!(catalog.collections().unwrap().len(), 1);
+        assert!(catalog.collection_paths(&old.id).unwrap().is_empty());
     }
 
     /// A square bracket is dropped at the edge of a word of a name, not inside it.

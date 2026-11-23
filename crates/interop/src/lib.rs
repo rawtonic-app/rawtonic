@@ -44,7 +44,9 @@ pub struct Photo {
     pub metadata: Metadata,
     pub develop: Develop,
     /// The lens as the editor names it (Lightroom's own lens name, which
-    /// its smart collections on lenses match), when its catalog has one.
+    /// its smart collections on lenses match): empty where its catalog
+    /// records the photograph without a lens, `None` where it records
+    /// nothing (the file's lens text is then the only one).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lens: Option<String>,
     /// For a virtual copy (Lightroom) or a further variant (Capture One):

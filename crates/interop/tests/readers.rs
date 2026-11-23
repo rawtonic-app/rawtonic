@@ -80,10 +80,11 @@ fn lightroom_photos_metadata_settings_and_collections() {
     let a = &lib.photos[0];
     assert_eq!(a.path, photos.join("2026/A.NEF"));
     assert_eq!(a.metadata.rating, 3);
-    // Lightroom's own lens name; a blank or missing one is none.
+    // Lightroom's own lens name; empty where it records none, absent where
+    // it records nothing for the photograph.
     assert_eq!(a.lens.as_deref(), Some("EF50mm f/1.8"));
-    assert_eq!(lib.photos[1].lens, None);
-    assert_eq!(lib.photos[2].lens, None);
+    assert_eq!(lib.photos[1].lens.as_deref(), Some(""), "blank name");
+    assert_eq!(lib.photos[2].lens.as_deref(), Some(""), "no lens");
     assert_eq!(a.metadata.label, "Red", "German label name");
     assert_eq!(a.metadata.flag, 1);
     assert_eq!(a.metadata.keywords, vec!["Places|Rome".to_string()]);
