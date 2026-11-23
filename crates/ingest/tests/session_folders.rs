@@ -20,7 +20,16 @@ fn a_capture_goes_to_a_capture_folder_outside_the_session() {
     let source = d.path().join("A.ARW");
     fs::write(&source, b"capture").unwrap();
 
-    let result = import_capture(&lib, &source, "{orig}", 1, None, &AtomicBool::new(false)).unwrap();
+    let result = import_capture(
+        &lib,
+        &source,
+        "{orig}",
+        1,
+        None,
+        None,
+        &AtomicBool::new(false),
+    )
+    .unwrap();
     assert!(result.error.is_none(), "{result:?}");
     let copy = result.destination.unwrap();
     assert_eq!(copy, drive.join("A.ARW"));
@@ -54,9 +63,17 @@ fn a_capture_folder_whose_drive_is_away_refuses_the_capture() {
     let source = d.path().join("A.ARW");
     fs::write(&source, b"capture").unwrap();
 
-    let error = import_capture(&lib, &source, "{orig}", 1, None, &AtomicBool::new(false))
-        .unwrap_err()
-        .to_string();
+    let error = import_capture(
+        &lib,
+        &source,
+        "{orig}",
+        1,
+        None,
+        None,
+        &AtomicBool::new(false),
+    )
+    .unwrap_err()
+    .to_string();
     assert!(error.contains("not available"), "{error}");
     assert!(!d.path().join("Drive").exists());
     assert!(

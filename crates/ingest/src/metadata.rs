@@ -29,9 +29,13 @@ pub struct ImportMetadata {
     pub ratings: BTreeMap<PathBuf, u8>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MetadataPreset {
+    /// Empty for an unsaved preset (a watch started from a new, unsaved
+    /// preset keeps its values without an identity).
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub name: String,
     #[serde(flatten)]
     pub metadata: ImportMetadata,
@@ -106,6 +110,28 @@ impl ImportMetadata {
                 metadata.keywords.push(keyword.into());
             }
         }
+    }
+
+    /// Merges this preset into the `metadata` a captured photograph is
+    /// registered with, as the import merges it into a registered copy: what
+    /// the verified copy carries (`embedded`), then this preset by the
+    /// import's rules (fill-empty, `overwrite`, `{year}`). `metadata` holds
+    /// what the capture was given (rating, keywords) or, with `adopted`, the
+    /// metadata of its card sidecar, whose rating and flag stay. The note
+    /// says the keywords could not all be added (`merge`).
+    pub(crate) fn merge_capture(
+        &self,
+        source: &Path,
+        embedded: Embedded,
+        metadata: &mut Metadata,
+        adopted: bool,
+    ) -> Option<String> {
+        let typed_rating = if adopted { 0 } else { metadata.rating };
+        let note = self.merge(source, embedded, metadata, adopted);
+        if typed_rating > 0 {
+            metadata.rating = typed_rating;
+        }
+        note
     }
 
     /// Whether this holds nothing but ratings: then only the rated

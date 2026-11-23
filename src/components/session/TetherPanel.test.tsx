@@ -92,7 +92,7 @@ it('connects the camera found on USB for this library, with the next-capture set
     port: 'usb:020,004',
     template: '{orig}',
     nextCapture: { mode: 'defaults' },
-    metadata: { rating: 3, keywords: ['studio', 'Acme'] },
+    metadata: { rating: 3, keywords: ['studio', 'Acme'], import: null },
     freeCameraCopies: true
   });
 });

@@ -1177,7 +1177,8 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       setNextCaptureForm((form) => ({
         ...form,
         rating: hotFolder.metadata?.rating ?? 0,
-        keywords: (hotFolder.metadata?.keywords ?? []).join(', ')
+        keywords: (hotFolder.metadata?.keywords ?? []).join(', '),
+        import: hotFolder.metadata?.import ?? null
       }));
     }
     setForm('hotfolder');
