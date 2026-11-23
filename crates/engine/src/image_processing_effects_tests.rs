@@ -113,7 +113,7 @@ fn clamped_and_discrete_effect_uniforms_keep_old_reads() {
             assert_eq!(actual.grain_color.to_bits(), color.to_bits());
             assert_eq!(
                 actual.grain_version,
-                recipe["grainVersion"].as_u64().unwrap_or(1).clamp(1, 3) as u32
+                recipe["grainVersion"].as_u64().unwrap_or(1).clamp(1, 4) as u32
             );
             assert_eq!(
                 actual.has_lut,
