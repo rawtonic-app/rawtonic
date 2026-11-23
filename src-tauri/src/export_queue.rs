@@ -186,6 +186,24 @@ fn on_queue<T>(
 }
 
 impl ExportRequest {
+    /// What of a photo's library metadata `metadata` this request's files
+    /// embed (`embedded_library_metadata`): the most a library may register
+    /// for one of them (Edit With's render), so an excluded field never
+    /// reaches the library or, through it, the file's sidecar.
+    pub(crate) fn embedded_library_metadata(
+        &self,
+        metadata: Option<rawtonic_metadata::Metadata>,
+    ) -> Option<rawtonic_metadata::Metadata> {
+        metadata.and_then(|metadata| {
+            rawtonic_export::exif_processing::embedded_library_metadata(
+                &self.output_format,
+                self.export_settings.keep_metadata,
+                self.export_settings.keep_creator_contact,
+                metadata,
+            )
+        })
+    }
+
     /// Reads what each photo is exported with, once, through the library
     /// the export was submitted from (`pin_photos`), a chunk at a time, and
     /// keeps it with the photo in each of `jobs` (requests that read their
@@ -303,7 +321,7 @@ pub(crate) fn queue_inspected<T: Clone>(
                         source: request.paths[0].clone(),
                         target: request.output_folder_or_file.clone(),
                         library: photo.owner,
-                        metadata: photo.metadata,
+                        metadata: request.embedded_library_metadata(photo.metadata),
                     });
                 }
             }
@@ -685,9 +703,7 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
             if other.done == other.total
                 && other.total > 0
                 && edit_with_of(&other.request).as_ref() == Some(&run)
-                && let Some(target) = other.request.get("editTarget")
-                && let Ok(target) =
-                    serde_json::from_value::<crate::open_with::EditTarget>(target.clone())
+                && let Some(target) = completed_target(&other.request)
                 && !runs[index].completed.contains(&target)
             {
                 runs[index].completed.push(target);
@@ -702,6 +718,18 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
             log::warn!("Recovering Edit With: {problem}");
         }
     }
+    // A render an earlier build registered with the photo's full metadata
+    // loses what its file does not embed (later edits of it stay).
+    for job in &jobs {
+        if job.done == job.total
+            && job.total > 0
+            && edit_with_of(&job.request).is_some()
+            && let Some((target, snapshot)) = registered_before_the_rule(&job.request)
+            && let Err(e) = crate::open_with::repair_render_metadata(&target, &snapshot)
+        {
+            log::warn!("Recovering Edit With: {}: {e}", target.target);
+        }
+    }
     // Targets have been copied into the one-shot recovery notice. Old edit
     // rows, including fully completed orphan clicks, must not hold history forever.
     for job in jobs {
@@ -712,6 +740,38 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
         }
     }
     Ok(runs)
+}
+
+/// The render target an Edit With job pinned, with only the
+/// metadata its file embeds: jobs from builds before that rule kept the
+/// photo's full library metadata.
+fn completed_target(request: &Value) -> Option<crate::open_with::EditTarget> {
+    let mut target: crate::open_with::EditTarget =
+        serde_json::from_value(request.get("editTarget")?.clone()).ok()?;
+    let flag = |key| request["exportSettings"][key].as_bool().unwrap_or(false);
+    // A setting it lacks counts as the stricter one.
+    target.metadata = target.metadata.take().and_then(|metadata| {
+        rawtonic_export::exif_processing::embedded_library_metadata(
+            request["outputFormat"].as_str().unwrap_or_default(),
+            flag("keepMetadata"),
+            flag("keepCreatorContact"),
+            metadata,
+        )
+    });
+    Some(target)
+}
+
+/// An Edit With job of a build that pinned the photo's full library
+/// metadata with its target: the target as [`completed_target`] reads it
+/// and the metadata that build registered.
+fn registered_before_the_rule(
+    request: &Value,
+) -> Option<(crate::open_with::EditTarget, rawtonic_metadata::Metadata)> {
+    let stored: Option<rawtonic_metadata::Metadata> =
+        serde_json::from_value(request.get("editTarget")?.get("metadata")?.clone()).ok()?;
+    let target = completed_target(request)?;
+    let stored = stored?;
+    (target.metadata.as_ref() != Some(&stored)).then_some((target, stored))
 }
 
 /// The Edit With runs the last quit cut short (each handed out once).
@@ -735,10 +795,7 @@ pub(crate) fn handed_off(exports: &ExportState, targets: &[crate::open_with::Edi
     with_queue(exports, |q| {
         for job in q.jobs()? {
             if matches!(job.state, JobState::Done | JobState::Cancelled)
-                && job.request.get("editTarget").is_some_and(|value| {
-                    serde_json::from_value::<crate::open_with::EditTarget>(value.clone())
-                        .is_ok_and(|target| targets.contains(&target))
-                })
+                && completed_target(&job.request).is_some_and(|target| targets.contains(&target))
             {
                 q.remove(&job.id)?;
             }
@@ -1354,6 +1411,64 @@ mod tests {
     use rawtonic_fs::Canonical;
     use serde_json::json;
     use std::{sync::mpsc, thread, time::Duration};
+
+    #[test]
+    fn a_recovered_edit_target_keeps_only_the_metadata_its_file_embeds() {
+        // A finished Edit With job of an earlier build kept the photo's
+        // full library metadata with its target.
+        let job = |settings: Value| {
+            json!({
+                "outputFormat": "tiff",
+                "exportSettings": settings,
+                "editTarget": {
+                    "source": "/S/Capture/A.NEF", "target": "/S/Capture/A_edit.tif",
+                    "library": "/S",
+                    "metadata": {"rating": 3, "label": "", "flag": 0, "keywords": ["k"],
+                        "title": "Harbour", "description": "", "creator": "Ada",
+                        "copyright": "(c) Ada",
+                        "iptc": {"creatorEmail": "ada@example.org", "city": "Kiel",
+                            "usageTerms": "Editorial only"}},
+                },
+            })
+        };
+        let stripped = completed_target(&job(json!({"keepMetadata": false})))
+            .unwrap()
+            .metadata
+            .unwrap();
+        assert_eq!(stripped.creator, "Ada");
+        assert_eq!(
+            stripped.iptc.keys().collect::<Vec<_>>(),
+            ["usageTerms"],
+            "no contact details or place"
+        );
+        assert_eq!((stripped.rating, stripped.title.as_str()), (0, ""));
+        // Settings it lacks count as the stricter ones.
+        assert_eq!(
+            completed_target(&job(json!({}))).unwrap().metadata,
+            Some(stripped)
+        );
+        let contact = completed_target(&job(
+            json!({"keepMetadata": false, "keepCreatorContact": true}),
+        ))
+        .unwrap()
+        .metadata
+        .unwrap();
+        assert!(contact.iptc.contains_key("creatorEmail") && !contact.iptc.contains_key("city"));
+        // Such a job's render gets repaired on recovery; one registered
+        // with what its file embeds needs none.
+        let (target, stored) =
+            registered_before_the_rule(&job(json!({"keepMetadata": false}))).unwrap();
+        assert_eq!(
+            (target.metadata.unwrap().iptc.len(), stored.iptc.len()),
+            (1, 3)
+        );
+        assert!(registered_before_the_rule(&job(json!({"keepMetadata": true}))).is_none());
+        let all = completed_target(&job(json!({"keepMetadata": true})))
+            .unwrap()
+            .metadata
+            .unwrap();
+        assert_eq!(all.iptc.get("city").map(String::as_str), Some("Kiel"));
+    }
 
     fn running(jobs: &[&str]) -> Arc<Running> {
         Arc::new(Mutex::new(

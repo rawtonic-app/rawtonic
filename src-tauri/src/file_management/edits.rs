@@ -210,6 +210,22 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     Ok(saved)
 }
 
+/// Regenerates the thumbnails of `paths`, whose recipes a command outside
+/// the editor's batch edits wrote (a Lightroom or Capture One import), in
+/// the background: counted in the thumbnail queue, each announced as it is
+/// made, as after a batch edit.
+pub(crate) fn refresh_thumbnails(app_handle: AppHandle, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+    add_to_thumbnail_queue(
+        &app_handle.state::<ThumbnailState>(),
+        paths.len(),
+        &app_handle,
+    );
+    regenerate_thumbnails(app_handle, paths);
+}
+
 /// Regenerates the thumbnails of `paths` in the background, after their
 /// recipes were written (the thumbnail queue already counts them).
 fn regenerate_thumbnails(app_handle: AppHandle, paths: Vec<String>) {

@@ -84,7 +84,8 @@ export interface KeywordLabel {
   kind: 'add' | 'remove' | 'rename' | 'merge' | 'move' | 'convert' | 'delete' | 'new' | 'deleteUnused';
   keyword?: string;
 }
-export type BatchLabel = 'matchLight' | 'paste' | 'sync' | 'reset' | 'style' | 'lensCorrection' | 'apply';
+export type BatchLabel =
+  'matchLight' | 'paste' | 'sync' | 'reset' | 'style' | 'lensCorrection' | 'apply' | 'importEdits';
 interface Step {
   order: number;
   action: CullingValue['kind'] | 'recipes' | 'xmp' | 'captureTime' | 'stacks' | 'catalogImport' | 'keywords';
@@ -572,6 +573,38 @@ export function catalogImportAction(library: string, receipts: XmpReceipt[]) {
   }));
 }
 
+/** Records the edits a repeated Lightroom or Capture One import already
+ * wrote (those still exactly as the last import left them, brought up to
+ * date) as one undoable step: Undo writes each photo's recipe from before
+ * the import back, Redo the imported one (nothing when it changed none). */
+export function importedRecipesAction(changes: RecipeSnapshot[]) {
+  if (!changes.length) return;
+  debouncedSetHistory.flush();
+  branch++;
+  const editor = useEditorStore.getState();
+  editor.setEditor({
+    history: editor.history.slice(0, editor.historyIndex + 1)
+  });
+  const step: Step = {
+    order: nextUndoOrder(),
+    action: 'recipes',
+    changes: [],
+    snapshots: changes,
+    label: 'importEdits',
+    directory: useLibraryStore.getState().sessionDirectory
+  };
+  currentTargets.set(
+    step,
+    changes.map((change) => change.path)
+  );
+  useCatalogUndoStore.setState((s) => ({
+    past: [...s.past, step].slice(-100),
+    future: [],
+    filesFuture: [],
+    fileRedoBlocked: true
+  }));
+}
+
 /** Runs a batch recipe edit of `paths` (paste, sync, reset, …) as one
  * undoable step for every photo it wrote, as Lightroom's Undo of a Sync.
  * `order`: the open photograph's own editor entry for the same edit (both
@@ -954,6 +987,8 @@ function batchLabel(label: BatchLabel | undefined) {
       return i18n.t('undoHistory.lensCorrection');
     case 'apply':
       return i18n.t('undoHistory.apply');
+    case 'importEdits':
+      return i18n.t('undoHistory.importEdits');
     default:
       return i18n.t('undoHistory.matchLight');
   }

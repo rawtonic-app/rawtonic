@@ -10,6 +10,7 @@ import { INITIAL_ADJUSTMENTS } from './adjustments';
 import { editUndoOrder } from './undoOrder';
 import {
   catalogAction,
+  importedRecipesAction,
   recipeAction,
   recipeBatchAction,
   registerRecipeWriter,
@@ -961,6 +962,28 @@ it('one undo restores every photo a Sync changed, and redo applies it again (O-0
     '/c.nef': { exposure: 1.85 }
   });
   expect(replacer).toHaveBeenCalledTimes(2);
+});
+
+it('edits a repeated catalog import brought up to date are one undo step (C1RI1)', async () => {
+  const recipes: Record<string, unknown> = {
+    '/b.nef': { exposure: -0.3 },
+    '/b.nef?vc=a1b2c3': { exposure: 1.5 }
+  };
+  const { replacer } = batchDisk(recipes);
+  importedRecipesAction([
+    { path: '/b.nef', before: { exposure: 0.5 }, after: { exposure: -0.3 } },
+    { path: '/b.nef?vc=a1b2c3', before: { exposure: 1 }, after: { exposure: 1.5 } }
+  ]);
+  expect(getUndoLabel()).toBe('Undo Imported Edits');
+  await undo();
+  expect(recipes).toEqual({ '/b.nef': { exposure: 0.5 }, '/b.nef?vc=a1b2c3': { exposure: 1 } });
+  await redo();
+  expect(recipes).toEqual({ '/b.nef': { exposure: -0.3 }, '/b.nef?vc=a1b2c3': { exposure: 1.5 } });
+  expect(replacer).toHaveBeenCalledTimes(2);
+  // An import that changed no edit is no step.
+  const steps = useCatalogUndoStore.getState().past.length;
+  importedRecipesAction([]);
+  expect(useCatalogUndoStore.getState().past.length).toBe(steps);
 });
 
 it('a paste onto the open photo and others is one undo step for all of them (O-01)', async () => {

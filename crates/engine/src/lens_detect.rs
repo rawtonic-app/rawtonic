@@ -3,9 +3,9 @@
 //! focal range and widest aperture (LensSpecification, the name) and the
 //! lenses its maker-note lens ID fits (`LensCandidates`, filled by the
 //! EXIF reader where the ID is shared, e.g. one Canon LensType for several
-//! third-party lenses). A lens whose facts contradict the photo's is never
-//! picked, and where several lenses remain and nothing tells them apart
-//! there is no pick: the candidates are offered instead of a guess.
+//! third-party lenses). Focal range, aperture, generation and maker model
+//! code constrain the pick. If the photo does not distinguish the remaining
+//! lenses, their profiles are offered for manual selection.
 //! notes: benchmark-results/lns1-2026-11-23/REPORT.md
 use crate::lens_correction::{
     Lens, LensDatabase, body_crop_factor, camera_mounts, find_lens_by_camera_mount,
@@ -248,6 +248,188 @@ fn consistent(lens: &Lens, facts: &LensFacts) -> bool {
     focal_ok && aperture_ok
 }
 
+/// Product suffixes are identity claims, even when the rest of the name
+/// was matched by subsequence or the name used for scoring omitted a code.
+#[derive(Default)]
+struct NameMarkers<'a> {
+    generation: u8,
+    format: u8,
+    aperture_suffix: Option<&'a str>,
+    model_code: Option<&'a str>,
+    mount_suffixes: Option<&'a str>,
+}
+
+impl<'a> NameMarkers<'a> {
+    fn read(name: &'a str) -> Self {
+        // Extender generations describe a different optical component.
+        let name = name.split(" + ").next().unwrap_or(name);
+        let mut markers = Self::default();
+        for part in marker_pattern().captures_iter(name) {
+            if let Some(generation) = part.name("generation").or_else(|| part.name("number")) {
+                markers.generation |= generation_bit(generation.as_str());
+            }
+            if let Some(format) = part.name("format") {
+                markers.format = generation_bit(format.as_str());
+            }
+            if let Some(suffix) = part.name("suffix") {
+                markers.aperture_suffix = Some(suffix.as_str().trim());
+            }
+            if let Some(code) = model_code(&part) {
+                markers.model_code = Some(code);
+                markers.mount_suffixes = part.name("mounts").map(|mounts| mounts.as_str());
+            }
+        }
+        markers
+    }
+
+    fn agrees_with(&self, other: &Self) -> bool {
+        generations_agree(self.generation, other.generation)
+            && generations_agree(self.format, other.format)
+            && agrees(self.aperture_suffix, [other.aperture_suffix])
+            && self.code_agrees([other])
+    }
+
+    fn fits_profile(&self, lens: &Lens) -> bool {
+        if self.generation == 0
+            && self.format == 0
+            && self.aperture_suffix.is_none()
+            && self.model_code.is_none()
+        {
+            return true;
+        }
+        // An alternate spelling can supply a code or generation omitted by
+        // another spelling. Omitting it never hides a conflicting marker.
+        let names: Vec<_> = lens
+            .model
+            .iter()
+            .map(|name| NameMarkers::read(&name.value))
+            .collect();
+        let generations = names.iter().fold(0, |all, name| all | name.generation);
+        let formats = names.iter().fold(0, |all, name| all | name.format);
+        generations_agree(self.generation, generations)
+            && generations_agree(self.format, formats)
+            && agrees(
+                self.aperture_suffix,
+                names.iter().map(|name| name.aperture_suffix),
+            )
+            && self.code_agrees(&names)
+    }
+
+    fn code_agrees<'b>(&self, names: impl IntoIterator<Item = &'b NameMarkers<'b>>) -> bool {
+        let Some(wanted) = self.model_code else {
+            return true;
+        };
+        let mut codes = names
+            .into_iter()
+            .filter_map(|name| Some((name.model_code?, name.mount_suffixes)))
+            .peekable();
+        codes.peek().is_none() || codes.any(|(code, mounts)| {
+            code.eq_ignore_ascii_case(wanted)
+                // A profile may spell out the suffixes it covers: "B070 Z/RF/X/E".
+                || mounts.is_some_and(|mounts| {
+                    wanted.get(..code.len()).is_some_and(|prefix| prefix.eq_ignore_ascii_case(code))
+                        && mounts.split('/').any(|suffix| suffix.eq_ignore_ascii_case(&wanted[code.len()..]))
+                })
+        })
+    }
+}
+
+fn generation_bit(generation: &str) -> u8 {
+    match generation.to_ascii_lowercase().as_str() {
+        "i" | "1" => 1,
+        "ii" | "2" => 2,
+        "iii" | "3" => 4,
+        _ => 8, // IV
+    }
+}
+
+fn generations_agree(wanted: u8, known: u8) -> bool {
+    // A shared calibration may explicitly cover several generations (I/II).
+    known == 0 || wanted & known == wanted
+}
+
+fn agrees<'a>(wanted: Option<&str>, known: impl IntoIterator<Item = Option<&'a str>>) -> bool {
+    let Some(wanted) = wanted else { return true };
+    let mut known = known.into_iter().flatten().peekable();
+    known.peek().is_none() || known.any(|marker| wanted.eq_ignore_ascii_case(marker))
+}
+
+fn marker_pattern() -> &'static regex::Regex {
+    static MARKERS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    MARKERS.get_or_init(|| {
+        regex::Regex::new(concat!(
+            r"(?xi)",
+            // Aperture suffixes (f/2.8L, F2.8G). Capture the number separately
+            // so the family name still includes the aperture.
+            r"(?<aperture>f\s*/?\s*\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?)(?<suffix>[ldge]|\s+l)\b",
+            // Di II/III describes a lens format, not the generation.
+            r"|\b(?<format_name>di\s*-?\s*(?<format>iii|ii|i))\b",
+            r"|\b(?:(?:mark|mk|g)\s*(?<number>[1-4])|(?:mark\s*|mk\s*)?(?<generation>iii|ii|iv|i))\b",
+            // Keep the Sigma series name when removing its numeric code.
+            r"|(?<series>\|\s*(?:\[[acs]\]\s*)?(?:contemporary|art|sports|[acs])\s+(?:[acs]\s+)?)(?<series_code>\d{3})\b",
+            r"|\b(?:model\s+)?(?<code>[a-z]{1,4}\d{3,}[a-z]{0,4}|[ab]\d{2})\b(?:\s+(?<mounts>[a-z]{1,2}(?:/[a-z]{1,2})+))?",
+        ))
+        .unwrap()
+    })
+}
+
+fn model_code<'a>(part: &regex::Captures<'a>) -> Option<&'a str> {
+    part.name("code")
+        .or_else(|| part.name("series_code"))
+        .map(|code| code.as_str())
+        // Mount prefixes can be attached to the focal length (RF100mm).
+        .filter(|code| !code.to_ascii_lowercase().ends_with("mm"))
+}
+
+fn family_name(name: &str, maker: &str) -> String {
+    let name = marker_pattern().replace_all(name, |part: &regex::Captures<'_>| {
+        if part.name("code").is_some() && model_code(part).is_none() {
+            return part[0].to_string();
+        }
+        ["aperture", "format_name", "series"]
+            .iter()
+            .filter_map(|label| part.name(label).map(|value| value.as_str()))
+            .collect::<String>()
+    });
+    normalized_lens_name(&name, maker)
+}
+
+/// An otherwise exact spelling can omit a leading brand word (Lumix) and
+/// write the same generation as "II", "MkII" or "Mark 2".
+fn matches_spelling(name: &str, profile: &str, maker: &str) -> bool {
+    let normalize = |name: &str| {
+        let name = marker_pattern().replace_all(name, |part: &regex::Captures<'_>| {
+            part.name("number")
+                .or_else(|| part.name("generation"))
+                .map_or_else(
+                    || part[0].to_string(),
+                    |generation| format!(" mark{} ", generation_bit(generation.as_str())),
+                )
+        });
+        normalized_lens_name(&name, maker)
+    };
+    let wanted = normalize(name);
+    let mut profile = profile.trim();
+    loop {
+        if normalize(profile) == wanted {
+            return true;
+        }
+        let Some((prefix, rest)) = profile.split_once(char::is_whitespace) else {
+            return false;
+        };
+        if prefix.len() < 2
+            || !prefix.bytes().all(|byte| byte.is_ascii_alphabetic())
+            || NameMarkers::read(prefix).generation != 0
+            || ["mark", "mk"]
+                .iter()
+                .any(|word| prefix.eq_ignore_ascii_case(word))
+        {
+            return false;
+        }
+        profile = rest.trim_start();
+    }
+}
+
 /// A lens Lensfun lists for one camera body only (its English name is
 /// "fixed lens"): found through the camera's mount, never by name.
 fn is_fixed_lens(lens: &Lens) -> bool {
@@ -319,7 +501,7 @@ pub fn detect_lens(db: &LensDatabase, facts: &LensFacts) -> LensDetection {
             return found;
         }
     }
-    if let Some(found) = from_name(db, facts) {
+    if let Some(found) = from_name(db, facts, &facts.lens_name) {
         return found;
     }
     find_lens_by_camera_mount(db, &facts.maker, &facts.camera_model)
@@ -354,40 +536,56 @@ fn offer(db: &LensDatabase, lenses: &[&Lens], crop: Option<f32>) -> Vec<(String,
     candidates
 }
 
-/// The lenses of one maker the name fits best, and equally well (the
-/// fuzzy score without the length penalty), among those the photo's facts
-/// allow: more than one physical lens means the name does not tell them
-/// apart.
-fn equally_fitting<'a>(
+/// The best fuzzy ties and variants of the selected lens's family.
+/// Letters before and after a missing generation can affect the fuzzy score,
+/// but they cannot tell two generations apart.
+fn ambiguous_matches<'a>(
     db: &'a LensDatabase,
-    maker: &str,
+    winner: &Lens,
     name: &str,
     facts: &LensFacts,
+    allowed: impl Fn(&Lens) -> bool,
 ) -> Vec<&'a Lens> {
     use fuzzy_matcher::FuzzyMatcher;
     let matcher = fuzzy_matcher::skim::SkimMatcherV2::default().ignore_case();
-    let query = name.trim();
-    let scored: Vec<(i64, &Lens)> = db
+    let maker = winner.get_maker();
+    let families: Vec<_> = winner
+        .model
+        .iter()
+        .map(|model| family_name(&model.value, &maker))
+        .collect();
+    let scored: Vec<_> = db
         .lenses
         .iter()
-        .filter(|lens| lens.get_maker().eq_ignore_ascii_case(maker))
+        .filter(|lens| lens.get_maker().eq_ignore_ascii_case(&maker))
         .filter(|lens| {
-            lens.calibration.is_some() && !is_fixed_lens(lens) && consistent(lens, facts)
+            lens.calibration.is_some()
+                && !is_fixed_lens(lens)
+                && consistent(lens, facts)
+                && allowed(lens)
         })
-        .filter_map(|lens| {
+        .map(|lens| {
             let score = matcher
-                .fuzzy_match(&lens.get_full_model_name(), query)
-                .max(matcher.fuzzy_match(&lens.get_canonical_model_name(), query))?;
-            Some((score, lens))
+                .fuzzy_match(&lens.get_full_model_name(), name)
+                .max(matcher.fuzzy_match(&lens.get_canonical_model_name(), name));
+            let same_family = lens
+                .model
+                .iter()
+                .any(|model| families.contains(&family_name(&model.value, &maker)));
+            (score, same_family, lens)
         })
         .collect();
-    let Some(top) = scored.iter().map(|(score, _)| *score).max() else {
-        return Vec::new();
-    };
+    let top = scored.iter().filter_map(|(score, _, _)| *score).max();
+    let winner_model = winner.get_canonical_model_name();
+    let has_family_variant = scored.iter().any(|(_, same_family, lens)| {
+        *same_family && lens.get_canonical_model_name() != winner_model
+    });
     let best: Vec<&Lens> = scored
         .into_iter()
-        .filter(|(score, _)| *score == top)
-        .map(|(_, lens)| lens)
+        .filter(|(score, same_family, _)| {
+            has_family_variant && *same_family || score.is_some() && *score == top
+        })
+        .map(|(_, _, lens)| lens)
         .collect();
     let identities = best
         .iter()
@@ -453,10 +651,14 @@ fn from_candidates(db: &LensDatabase, facts: &LensFacts, crop: Option<f32>) -> L
     }
     // An EXIF lens name that fits some candidates but not all narrows them.
     let exif_name = facts.lens_name.trim();
+    let photo_markers = NameMarkers::read(exif_name);
     if found.len() > 1 && exif_name.len() >= 4 {
         let fits: Vec<bool> = found
             .iter()
-            .map(|(name, _)| matcher.fuzzy_match(name, exif_name).is_some())
+            .map(|(name, _)| {
+                matcher.fuzzy_match(name, exif_name).is_some()
+                    && photo_markers.agrees_with(&NameMarkers::read(name))
+            })
             .collect();
         if fits.iter().any(|f| *f) && fits.iter().any(|f| !*f) {
             found = found
@@ -466,31 +668,34 @@ fn from_candidates(db: &LensDatabase, facts: &LensFacts, crop: Option<f32>) -> L
                 .collect();
         }
     }
-    if let [(_, lenses)] = found.as_slice()
-        && let Some(lens) = best_calibration(lenses, crop)
-    {
-        return LensDetection::picked(named(db, lens));
-    }
-    // The one lens the maker note names, without a Lensfun entry of its
-    // very name: looked up by that name as an EXIF name would be (it
-    // identifies the lens and must agree with the facts).
-    if let [(name, lenses)] = found.as_slice()
-        && lenses.is_empty()
-    {
-        let (focal, aperture) = name_spec(name);
-        let by_name = LensFacts {
-            lens_name: (*name).to_string(),
-            // The photo's own facts first: a name that contradicts them is
-            // not taken (`consistent`), only offered.
-            focal_range: facts.focal_range.or(focal),
-            max_aperture: facts.max_aperture.or(aperture),
-            candidates: Vec::new(),
-            ..facts.clone()
-        };
-        if let Some(found) = from_name(db, &by_name)
-            && found.lens.is_some()
-        {
-            return found;
+    let matching: Vec<_> = found
+        .iter()
+        .filter(|(name, _)| photo_markers.agrees_with(&NameMarkers::read(name)))
+        .collect();
+    if let [(name, lenses)] = matching.as_slice() {
+        let markers = NameMarkers::read(name);
+        let eligible: Vec<_> = lenses
+            .iter()
+            .copied()
+            .filter(|lens| photo_markers.fits_profile(lens) && markers.fits_profile(lens))
+            .collect();
+        if let Some(lens) = best_calibration(&eligible, crop) {
+            return LensDetection::picked(named(db, lens));
+        }
+        // The one lens the maker note names, without a Lensfun entry of
+        // that exact spelling: look it up with both sources' facts.
+        if lenses.is_empty() {
+            let (focal, aperture) = name_spec(name);
+            let by_name = LensFacts {
+                focal_range: facts.focal_range.or(focal),
+                max_aperture: facts.max_aperture.or(aperture),
+                ..facts.clone()
+            };
+            if let Some(found) = from_name(db, &by_name, name)
+                && found.lens.is_some()
+            {
+                return found;
+            }
         }
     }
     let lenses: Vec<&Lens> = found
@@ -541,27 +746,27 @@ fn fits_mount(lens: &Lens, mounts: Option<&[String]>) -> bool {
 /// that states no focal length identifies nothing by itself (the camera's
 /// fixed lens is looked up by its mount); one that states no aperture
 /// ("24-70mm") picks nothing: the lenses it fits are offered.
-fn from_name(db: &LensDatabase, facts: &LensFacts) -> Option<LensDetection> {
-    let name = facts.lens_name.trim();
+fn from_name(db: &LensDatabase, facts: &LensFacts, name: &str) -> Option<LensDetection> {
+    let name = name.trim();
     if name.is_empty() || name_spec(name).0.is_none() {
         return None;
     }
     let mounts = mounts_for_camera(db, facts);
     let mounts = mounts.as_deref();
     if identifies_lens(name) {
-        let best = |query: &str| find_lens_by_fuzzy_model(db, &facts.maker, query);
+        let markers = NameMarkers::read(name);
+        let photo = (facts.lens_name.trim() != name).then(|| NameMarkers::read(&facts.lens_name));
+        let allowed = |lens: &Lens| {
+            markers.fits_profile(lens)
+                && photo.as_ref().is_none_or(|photo| photo.fits_profile(lens))
+        };
+        let best = |query| find_lens_by_fuzzy_model(db, &facts.maker, query, allowed);
         let hit = best(name).or_else(|| without_model_code(name).and_then(best));
-        if let Some((maker, model)) = &hit
-            && let Some((_, lens)) =
-                crate::lens_correction::find_lens_by_display_name(db, maker, model)
+        if let Some(lens) = hit
             && !is_fixed_lens(lens)
             && consistent(lens, facts)
         {
-            // A name two lenses of that maker fit equally well ("EF 24-70mm
-            // f/2.8": the f/2.8L and the f/2.8L II) names neither.
-            // Where one of them carries exactly the EXIF name ("FE 24-70mm
-            // F2.8 GM" beside the "GM II"), that one.
-            let tied = equally_fitting(db, &lens.get_maker(), name, facts);
+            let tied = ambiguous_matches(db, lens, name, facts, allowed);
             if !tied.is_empty() {
                 let crop =
                     body_crop_factor(db, &facts.maker, &facts.camera_model, facts.frame_crop);
@@ -570,10 +775,9 @@ fn from_name(db: &LensDatabase, facts: &LensFacts) -> Option<LensDetection> {
                     .copied()
                     .filter(|lens| {
                         let maker = lens.get_maker();
-                        let wanted = normalized_lens_name(name, &maker);
                         lens.model
                             .iter()
-                            .any(|n| normalized_lens_name(&n.value, &maker) == wanted)
+                            .any(|n| matches_spelling(name, &n.value, &maker))
                     })
                     .collect();
                 let identities: std::collections::BTreeSet<String> = exact
@@ -591,7 +795,7 @@ fn from_name(db: &LensDatabase, facts: &LensFacts) -> Option<LensDetection> {
                         .map(|lens| LensDetection::picked(named(db, lens)));
                 }
             }
-            return Some(LensDetection::picked((maker.clone(), model.clone())));
+            return Some(LensDetection::picked(named(db, lens)));
         }
     }
     // A name without an aperture, or a best match that contradicts the
@@ -609,6 +813,10 @@ fn from_name(db: &LensDatabase, facts: &LensFacts) -> Option<LensDetection> {
                 .fuzzy_match(&lens.get_full_model_name(), query)
                 .or_else(|| matcher.fuzzy_match(&lens.get_canonical_model_name(), query))
                 .is_some()
+                || lens.model.iter().any(|model| {
+                    let maker = lens.get_maker();
+                    family_name(&model.value, &maker) == family_name(name, &maker)
+                })
         })
         .collect();
     // The camera's own mount first; adapted lenses only when none fits it.
@@ -772,6 +980,86 @@ mod tests {
         assert_eq!(
             found.lens,
             Some(("Sony".into(), "FE 24-70mm f/2.8 GM".into()))
+        );
+    }
+
+    #[test]
+    fn a_name_missing_generation_details_offers_both_generations() {
+        let found = detect(&[
+            ("Make", "Canon"),
+            ("Model", "Canon EOS 5D Mark III"),
+            ("LensModel", "EF 24-70mm f/2.8 USM"),
+        ]);
+        assert_eq!(found.lens, None);
+        assert_eq!(
+            found.candidates,
+            [
+                ("Canon".into(), "EF 24-70mm f/2.8L USM".into()),
+                ("Canon".into(), "EF 24-70mm f/2.8L II USM".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_conflicting_model_code_is_only_offered() {
+        for maker_note in ["", "Tamron SP 90mm F/2.8 Di VC USD MACRO 1:1 F004"] {
+            let found = detect(&[
+                ("Make", "Canon"),
+                ("Model", "Canon EOS 600D"),
+                ("LensModel", "TAMRON SP 90mm F/2.8 Di VC USD MACRO1:1 F017"),
+                ("LensSpecification", "90 mm, f/2.8"),
+                (LENS_CANDIDATES, maker_note),
+            ]);
+            assert_eq!(found.lens, None);
+            assert!(
+                found
+                    .candidates
+                    .iter()
+                    .any(|(_, model)| model.ends_with("F004"))
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_identity_markers_must_agree() {
+        for (exif, profile) in [
+            ("35mm F1.4L Mark II", "35mm f/1.4L III"),
+            ("85mm F1.8G", "85mm f/1.8D"),
+            ("90mm F2.8 F017", "90mm F2.8 (Model F004)"),
+            (
+                "150-600mm F5-6.3 DG OS HSM | Contemporary 015",
+                "150-600mm F5-6.3 DG OS HSM | Sports 014",
+            ),
+            ("SP 90mm F/2.8 Di III G2", "SP 90mm F/2.8 Di II G2"),
+        ] {
+            assert!(!NameMarkers::read(exif).agrees_with(&NameMarkers::read(profile)));
+        }
+        for (exif, profile) in [
+            ("35mm F1.4 L Mark 2", "35mm f/1.4L MkII"),
+            ("35mm F1.4 II", "35mm F1.4 (Vers. I/II)"),
+            ("RF100mm F2.8", "RF 100mm F2.8"),
+            (
+                "17-70mm F/2.8 DiIII-A VC RXD B070X",
+                "17-70mm F2.8 B070 Z/RF/X/E",
+            ),
+        ] {
+            assert!(NameMarkers::read(exif).agrees_with(&NameMarkers::read(profile)));
+        }
+    }
+
+    #[test]
+    fn a_later_generation_does_not_match_an_explicit_earlier_one() {
+        let mut db = embedded_lens_db();
+        db.lenses
+            .retain(|lens| lens.get_canonical_model_name() == "Canon EF 16-35mm f/2.8L III USM");
+        let found = detect_lens(
+            &db,
+            &LensFacts::from_names("Canon", "EF 16-35mm f/2.8L II USM", "Canon EOS 5D Mark III"),
+        );
+        assert_eq!(found.lens, None);
+        assert_eq!(
+            found.candidates,
+            [("Canon".into(), "EF 16-35mm f/2.8L III USM".into())]
         );
     }
 
