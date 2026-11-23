@@ -77,6 +77,7 @@
       "done": "{{label}} 내보냄({{existing}})",
       "failed_other": "사진 {{count}}장을 내보내지 못했습니다: {{label}}",
       "interrupted": "내보내기 중단됨: {{label}}",
+      "nothingExported": "내보낸 사진 없음 — {{existing}} ({{label}})",
       "running": "내보내는 중: {{label}}",
       "waiting": "내보내기 대기 중: {{label}}"
     },

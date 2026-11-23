@@ -36,15 +36,20 @@ afterEach(() => {
 
 const ALLOWED: Allowed[] = [KNOWN.toolHeader];
 
-it('Develop: every tool tab, with its groups open, has no new accessibility violations', async () => {
-  render(<StudioDevelop />, { wrapper: ContextMenuProvider });
-  const tabs = within(screen.getByRole('navigation')).getAllByRole('button');
-  for (const tab of tabs) {
-    const name = tab.getAttribute('aria-label') ?? tab.textContent ?? '';
-    act(() => fireEvent.click(tab));
-    document.querySelectorAll('details').forEach((group) => {
-      group.open = true;
-    });
-    await expectNoNewViolations(`develop ${name}`, ALLOWED);
+// Each tab runs a full axe scan of the expanded Develop DOM, which can exceed 5 s in total on loaded hosts.
+it(
+  'Develop: every tool tab, with its groups open, has no new accessibility violations',
+  { timeout: 15_000 },
+  async () => {
+    render(<StudioDevelop />, { wrapper: ContextMenuProvider });
+    const tabs = within(screen.getByRole('navigation')).getAllByRole('button');
+    for (const tab of tabs) {
+      const name = tab.getAttribute('aria-label') ?? tab.textContent ?? '';
+      act(() => fireEvent.click(tab));
+      document.querySelectorAll('details').forEach((group) => {
+        group.open = true;
+      });
+      await expectNoNewViolations(`develop ${name}`, ALLOWED);
+    }
   }
-});
+);

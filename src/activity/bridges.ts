@@ -162,8 +162,13 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
       // (`notifyExportOutputs`); the task just ends, saying what "If a
       // file exists" skipped or replaced when it did.
       const existing = describeExistingFiles(job);
-      if (existing) activity.finish(id, { title: i18n.t('activity.export.done', { label: job.label, existing }) });
-      else activity.finish(id);
+      if (existing) {
+        const title = i18n.t(job.skipped === job.total ? 'activity.export.nothingExported' : 'activity.export.done', {
+          label: job.label,
+          existing
+        });
+        activity.finish(id, { title });
+      } else activity.finish(id);
     } else {
       // Cancelled or paused by the user, or waiting while the queue is held.
       activity.resolve(id);
