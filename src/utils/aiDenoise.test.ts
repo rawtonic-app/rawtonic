@@ -317,8 +317,19 @@ describe('developmentSignature', () => {
     expect(developmentSignature(v13, true, warpPlanesMatter(affected))).not.toBe(
       developmentSignature(v14, true, warpPlanesMatter(affected))
     );
-    // ... while other photographs (no such warp, other formats, preview
-    // data: not reported) still do.
+    // Preview data of a RAW (which files are affected is not known yet):
+    // they differ, until the decode reports.
+    const preview = { isRaw: true, isDecoded: false, path: '/p/a.DNG' };
+    expect(warpPlanesMatter(preview)).toBe(true);
+    // An offline photograph never decodes: the same.
+    expect(warpPlanesMatter({ ...preview, isDecoded: true, offline: {} as never })).toBe(true);
+    // A virtual copy of an offline DNG is its source's file.
+    expect(warpPlanesMatter({ ...preview, isDecoded: true, offline: {} as never, path: '/p/a.DNG?vc=abc123' })).toBe(
+      true
+    );
+    // Formats that cannot carry the lens opcodes are compared at once.
+    expect(warpPlanesMatter({ ...preview, path: '/p/a.NEF' })).toBe(false);
+    // ... while other photographs (no such warp, other formats) still share.
     expect(warpPlanesMatter({})).toBe(false);
     expect(warpPlanesMatter(null)).toBe(false);
     expect(developmentSignature(v13, true, warpPlanesMatter({}))).toBe(

@@ -182,3 +182,41 @@ it('is no before on Linux for a snapshot with AI Denoise, whose browser split de
   useSettingsStore.setState({ osPlatform: 'linux' });
   expect(beforeSnapshot()).toBeNull();
 });
+
+it('is no before for an older render version while the decode that shows it is not there yet', () => {
+  // A snapshot of a saved version 13 recipe beside a version 14 edit: while
+  // only preview data is open (`cameraPlaneWarp` unknown), the preview
+  // proxy is built for the edit and would show the snapshot through a
+  // DNG's per-plane lens warp it never had.
+  const old: Snapshot = { ...snapshot, adjustments: { ...snapshot.adjustments, renderVersion: 13 } };
+  useSnapshotStore.setState({ snapshots: [old] });
+  const open = useEditorStore.getState().selectedImage!;
+  useEditorStore.setState({
+    selectedImage: { ...open, isDecoded: false } as never,
+    adjustments: { ...INITIAL_ADJUSTMENTS, renderVersion: 14 } as never
+  });
+  expect(beforeSnapshot()).toBeNull();
+  // A snapshot of the edit's own version is shown from the proxy.
+  useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, renderVersion: 13 } as never });
+  expect(beforeSnapshot()?.id).toBe('s');
+  // The decode reports no per-plane warp for this file: compared again.
+  useEditorStore.setState({
+    selectedImage: { ...open, isDecoded: true } as never,
+    adjustments: { ...INITIAL_ADJUSTMENTS, renderVersion: 14 } as never
+  });
+  expect(beforeSnapshot()?.id).toBe('s');
+  // The decode reports it (an affected DNG): never shown through the other source.
+  useEditorStore.setState({ selectedImage: { ...open, isDecoded: true, cameraPlaneWarp: true } as never });
+  expect(beforeSnapshot()).toBeNull();
+});
+
+it('keeps an offline photograph, which never decodes, from showing an older version through its proxy', () => {
+  const old: Snapshot = { ...snapshot, adjustments: { ...snapshot.adjustments, renderVersion: 13 } };
+  useSnapshotStore.setState({ snapshots: [old] });
+  const open = useEditorStore.getState().selectedImage!;
+  useEditorStore.setState({
+    selectedImage: { ...open, isDecoded: true, offline: { reason: 'volume' } } as never,
+    adjustments: { ...INITIAL_ADJUSTMENTS, renderVersion: 14 } as never
+  });
+  expect(beforeSnapshot()).toBeNull();
+});
