@@ -61,7 +61,18 @@ const kindOf = (field: Field): Kind => FIELDS.find((f) => f.field === field)?.ki
 
 export const OPS: Record<Kind, Op[]> = {
   search: ['contains', 'containsAny', 'notContains'],
-  name: ['contains', 'words', 'containsAny', 'notContains', 'is', 'isNot', 'startsWith', 'endsWith', 'empty', 'notEmpty'],
+  name: [
+    'contains',
+    'words',
+    'containsAny',
+    'notContains',
+    'is',
+    'isNot',
+    'startsWith',
+    'endsWith',
+    'empty',
+    'notEmpty'
+  ],
   text: ['contains', 'containsAny', 'notContains', 'is', 'isNot', 'startsWith', 'endsWith', 'empty', 'notEmpty'],
   number: ['is', 'isNot', 'gt', 'ge', 'lt', 'le', 'between', 'empty', 'notEmpty'],
   date: ['is', 'isNot', 'lt', 'gt', 'between', 'inLast', 'notInLast', 'empty', 'notEmpty'],
