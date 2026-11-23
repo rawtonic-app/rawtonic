@@ -62,7 +62,7 @@ pub use idle_compile_child::idle_compiles_in_helpers;
 pub use idle_compiles::{
     IdleCompileMemoryGuard, set_before_export_compile, set_idle_compile_memory_guard,
 };
-pub use multi_view::{CellExtent, CellLayer, CellZoom, MultiView, MultiViewCell};
+pub use multi_view::{CellExtent, CellLayer, CellZoom, CellZooms, MultiView, MultiViewCell};
 use multi_view::{DisplayBindings, DisplayPass, PrimaryDraw, encode_display_pass};
 use preview_layers::{
     CURVE_LUT_SAMPLES, LAYER_SUMS_HEADER, LUMINANCE_LUT_WORDS, LayerSumsPlan, PreparedLayer,
@@ -3504,39 +3504,38 @@ impl WgpuDisplay {
     }
 
     /// Shows `cells` beside each other with `primary` as the live photograph
-    /// (no cells: back to the single view, releasing every cell texture).
-    /// When the primary changes, the old primary's live frame stays as its
-    /// cell's frame until that cell is rendered.
+    /// (no cells: back to the single view, releasing every cell texture),
+    /// zoomed to `zooms` in the same step (None: as they are). When the
+    /// primary changes, the old primary's live frame stays as its cell's
+    /// frame, where it was on screen, until that cell is rendered.
     pub fn set_multi_view(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         primary: Option<String>,
         cells: Vec<MultiViewCell>,
+        zooms: Option<CellZooms>,
     ) {
         if cells.is_empty() {
             self.multi.clear();
             return;
         }
         self.camera_cover = None;
-        let old_primary = self.multi.primary().map(str::to_string);
         let mut multi = std::mem::take(&mut self.multi);
-        multi.set_layout(primary.clone(), cells);
-        if let (Some(old), Some(frame)) = (old_primary, self.frame_path.as_deref())
-            && primary.as_deref() != Some(old.as_str())
-            && frame == old
-            && let Some((texture, width, height)) = &self.frame_texture
-        {
-            multi.adopt_live_frame(
-                device,
-                queue,
-                &self.bindings(),
-                &old,
+        // Where the live frame is drawn: its normal placement (not the
+        // crop-editing frame, not a split).
+        let placed =
+            (!self.frame_uncropped && self.split_x.is_none()).then_some(self.geometry.rect);
+        let live = match (self.frame_path.as_deref(), &self.frame_texture) {
+            (Some(path), Some((texture, width, height))) => Some(multi_view::LiveFrame {
+                path,
                 texture,
-                *width,
-                *height,
-            );
-        }
+                size: (*width, *height),
+                placed,
+            }),
+            _ => None,
+        };
+        multi.show(device, queue, &self.bindings(), primary, cells, zooms, live);
         self.multi = multi;
     }
 

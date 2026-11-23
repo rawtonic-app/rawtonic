@@ -41,6 +41,24 @@ pub struct CellExtent {
     pub region: Option<[f32; 4]>,
 }
 
+/// The zooms a layout change carries: every cell's shared zoom (the zoom
+/// lock) or each cell's own (absent: fit).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CellZooms {
+    pub shared: Option<CellZoom>,
+    pub cells: HashMap<String, CellZoom>,
+}
+
+/// The live frame on screen as the layout changes: the photograph at
+/// `path`, the top left `size` of `texture`, placed at `placed` (window
+/// device px; None: not known).
+pub(crate) struct LiveFrame<'a> {
+    pub path: &'a str,
+    pub texture: &'a wgpu::Texture,
+    pub size: (u32, u32),
+    pub placed: Option<[f32; 4]>,
+}
+
 /// A secondary photograph's developed frame (display-encoded RGBA8).
 pub(crate) struct CellTexture {
     /// What it was rendered from (recipe and size); 0 for a stand-in that
@@ -112,6 +130,60 @@ pub fn zoomed_region(area: [f32; 4], shown: [f32; 2], zoom: CellZoom, margin: f3
     let x2 = (cx + w * (0.5 + margin)).clamp(0.0, shown[0]);
     let y2 = (cy + h * (0.5 + margin)).clamp(0.0, shown[1]);
     [x1, y1, (x2 - x1).max(0.0), (y2 - y1).max(0.0)]
+}
+
+/// The extent of a live frame of `size` texels placed at `rect` (window
+/// device px) at `zoom`: the whole shown photograph, its size in
+/// full-resolution px following from the zoom. None when `rect` is not a
+/// placement of that frame (hidden, empty, or of another aspect ratio).
+pub fn live_extent(rect: [f32; 4], zoom: CellZoom, size: (u32, u32)) -> Option<CellExtent> {
+    let [x, y, w, h] = rect;
+    let (tw, th) = (size.0 as f32, size.1 as f32);
+    let placed = [x, y, w, h].iter().all(|v| v.is_finite())
+        && w > 1.0
+        && h > 1.0
+        && x > -1e5
+        && y > -1e5
+        && tw > 0.0
+        && th > 0.0
+        && ((w / h) / (tw / th) - 1.0).abs() <= 0.02
+        && zoom.scale.is_finite()
+        && zoom.scale > 0.0;
+    placed.then(|| CellExtent {
+        shown: [w / zoom.scale, h / zoom.scale],
+        region: None,
+    })
+}
+
+/// Whether a live frame of `size` texels placed at `rect` is its photograph
+/// shown at `zoom` in a cell `area` (within 2 device px and 1 %).
+pub fn placed_at_zoom(rect: [f32; 4], area: [f32; 4], zoom: CellZoom, size: (u32, u32)) -> bool {
+    live_extent(rect, zoom, size).is_some_and(|extent| {
+        let expected = zoomed_rect(area, extent, zoom);
+        let tolerance = 2.0 + 0.01 * rect[2].max(rect[3]);
+        (expected[0] - rect[0]).abs() <= tolerance && (expected[1] - rect[1]).abs() <= tolerance
+    })
+}
+
+/// The texels (x, y, w, h) of a whole-photograph texture of `size` that a
+/// cell `area` shows at `zoom` (`shown`: the photograph in full-resolution
+/// px), whole texels around it; None when it shows none.
+pub fn visible_texels(
+    area: [f32; 4],
+    shown: [f32; 2],
+    zoom: CellZoom,
+    size: (u32, u32),
+) -> Option<[u32; 4]> {
+    let [rx, ry, rw, rh] = zoomed_region(area, shown, zoom, 0.0);
+    if rw <= 0.0 || rh <= 0.0 || shown[0] <= 0.0 || shown[1] <= 0.0 {
+        return None;
+    }
+    let (kx, ky) = (size.0 as f32 / shown[0], size.1 as f32 / shown[1]);
+    let x1 = ((rx * kx).floor().max(0.0) as u32).min(size.0);
+    let y1 = ((ry * ky).floor().max(0.0) as u32).min(size.1);
+    let x2 = (((rx + rw) * kx).ceil().max(0.0) as u32).min(size.0);
+    let y2 = (((ry + rh) * ky).ceil().max(0.0) as u32).min(size.1);
+    (x2 > x1 && y2 > y1).then(|| [x1, y1, x2 - x1, y2 - y1])
 }
 
 /// Whether `region` holds everything a cell `area` shows at `zoom`.
@@ -446,8 +518,61 @@ impl MultiView {
         true
     }
 
+    /// Shows `cells` with `primary` as the live photograph, zoomed to
+    /// `zooms` (None: as they are) in the same step, so that the photograph
+    /// that stops being the primary is placed at its own zoom from the first
+    /// present on: its `live` frame stays on screen as its cell's frame
+    /// where it was ([`MultiView::adopt_live_frame`]) until the cell's own
+    /// render replaces it. A zoom that arrived after the layout left the old
+    /// primary at fit until then (G74, WMV3).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn show(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bindings: &DisplayBindings,
+        primary: Option<String>,
+        cells: Vec<MultiViewCell>,
+        zooms: Option<CellZooms>,
+        live: Option<LiveFrame>,
+    ) {
+        let old = self.primary.clone();
+        let old_area = old
+            .as_deref()
+            .and_then(|path| self.cell(path))
+            .map(|cell| cell.area);
+        self.set_layout(primary.clone(), cells);
+        if let Some(zooms) = zooms
+            && (self.zoom != zooms.shared || self.cell_zooms != zooms.cells)
+        {
+            self.set_zooms(zooms.shared, zooms.cells);
+        }
+        if let (Some(old), Some(live)) = (old, live)
+            && primary.as_deref() != Some(old.as_str())
+            && live.path == old
+        {
+            // Only a placement that is the old primary's zoom in its cell
+            // (not one the next photograph's editor already sent).
+            let placed = live.placed.filter(|rect| {
+                self.zoom_of(&old)
+                    .zip(old_area)
+                    .is_some_and(|(zoom, area)| placed_at_zoom(*rect, area, zoom, live.size))
+            });
+            self.adopt_live_frame(
+                device,
+                queue,
+                bindings,
+                &old,
+                live.texture,
+                live.size,
+                placed,
+            );
+        }
+    }
+
     /// The live frame of `path` (the primary's preview, `width` × `height`
-    /// of `source`) stays on screen as its cell's frame when another
+    /// of `source`, placed at `placed` on screen: window device px, None
+    /// when not known) stays on screen as its cell's frame when another
     /// photograph becomes the primary, until the cell's own render replaces
     /// it (key 0). A GPU copy: no re-render, no readback.
     #[allow(clippy::too_many_arguments)]
@@ -458,20 +583,28 @@ impl MultiView {
         bindings: &DisplayBindings,
         path: &str,
         source: &wgpu::Texture,
-        width: u32,
-        height: u32,
+        (width, height): (u32, u32),
+        placed: Option<[f32; 4]>,
     ) {
-        // The live frame's region of the photograph is not known here: it
-        // is shown to fit until the cell's own render arrives. A zoomed cell
-        // that still has its own placed frame keeps it instead, so it never
-        // jumps to fit (and back) while every other cell stays zoomed. Its
-        // sharp region was rendered while the photograph was the live one
-        // and may predate edits made since: it is released, as before.
-        if self.keeps_zoomed_frame(path) {
+        // Zoomed in, the live frame covered `placed`: the whole shown
+        // photograph enlarged by the zoom, so the photograph's size follows
+        // from it and the frame stays placed as it was (and moves with a
+        // pan). At fit, or when the placement is not known, it is shown to
+        // fit until the cell's own render arrives.
+        let zoom = self.zoom_of(path);
+        let extent = zoom
+            .zip(placed)
+            .and_then(|(zoom, rect)| live_extent(rect, zoom, (width, height)));
+        // A zoomed cell that still has its own placed frame keeps it rather
+        // than a live frame that can only be shown to fit, so it never jumps
+        // to fit (and back) while every other cell stays zoomed. Its sharp
+        // region was rendered while the photograph was the live one and may
+        // predate edits made since: it is released, as before.
+        if extent.is_none() && self.keeps_zoomed_frame(path) {
             self.regions.remove(path);
             return;
         }
-        if self.copy_frame(
+        if !self.copy_frame(
             device,
             queue,
             bindings,
@@ -479,10 +612,78 @@ impl MultiView {
             source,
             (width, height),
             0,
-            None,
+            extent,
         ) {
-            self.regions.remove(path);
+            return;
         }
+        self.regions.remove(path);
+        // Its visible part, as sharp as it was on screen, stays drawn over
+        // the cell's own whole-photograph render (at the cell's size, soft
+        // at 100 %) until the cell's region is developed.
+        if let (Some(zoom), Some(extent)) = (zoom, extent) {
+            self.adopt_visible_region(
+                device,
+                queue,
+                bindings,
+                path,
+                source,
+                (width, height),
+                zoom,
+                extent,
+            );
+        }
+    }
+
+    /// Copies the part of `source` (the live frame of `path`, `extent`, the
+    /// whole shown photograph) that its cell shows at `zoom` as the cell's
+    /// zoomed region (key 0: developed again).
+    #[allow(clippy::too_many_arguments)]
+    fn adopt_visible_region(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bindings: &DisplayBindings,
+        path: &str,
+        source: &wgpu::Texture,
+        (width, height): (u32, u32),
+        zoom: CellZoom,
+        extent: CellExtent,
+    ) {
+        let Some(area) = self.cell(path).map(|cell| cell.area) else {
+            return;
+        };
+        let Some([x, y, w, h]) = visible_texels(area, extent.shown, zoom, (width, height)) else {
+            return;
+        };
+        let texture = Self::cell_texture(device, w, h);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Multi view live region copy"),
+        });
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: source,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x, y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            texture.as_image_copy(),
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit(Some(encoder.finish()));
+        let (kx, ky) = (
+            extent.shown[0] / width as f32,
+            extent.shown[1] / height as f32,
+        );
+        let region = CellExtent {
+            shown: extent.shown,
+            region: Some([x as f32 * kx, y as f32 * ky, w as f32 * kx, h as f32 * ky]),
+        };
+        let texture = Self::make_texture(device, bindings, 0, Some(region), texture);
+        self.regions.insert(path.to_string(), texture);
     }
 
     /// Whether `path`'s cell is zoomed in and already has a whole-photograph
@@ -1251,7 +1452,15 @@ mod tests {
             empty_overlay: &gpu.empty,
         };
         let validation = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        multi.adopt_live_frame(&gpu.device, &gpu.queue, &bindings, "a", &still, 16, 16);
+        multi.adopt_live_frame(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "a",
+            &still,
+            (16, 16),
+            None,
+        );
         let error = pollster::block_on(validation.pop());
         assert!(error.is_none(), "{error:?}");
         let pixels = present(&gpu, &multi, None);
@@ -1301,12 +1510,28 @@ mod tests {
             empty_overlay: &gpu.empty,
         };
         // Only a 12 × 8 corner holds the frame (a smaller preview).
-        multi.adopt_live_frame(&gpu.device, &gpu.queue, &bindings, "a", &source, 12, 8);
+        multi.adopt_live_frame(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "a",
+            &source,
+            (12, 8),
+            None,
+        );
         assert_eq!(multi.texture_key("a"), Some(0), "waits for its own render");
         let pixels = present(&gpu, &multi, None);
         assert!(close(pixel(&pixels, 35, 50), [255, 0, 255]));
         // Not shown: nothing is kept.
-        multi.adopt_live_frame(&gpu.device, &gpu.queue, &bindings, "gone", &source, 12, 8);
+        multi.adopt_live_frame(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "gone",
+            &source,
+            (12, 8),
+            None,
+        );
         assert_eq!(multi.texture_key("gone"), None);
     }
 
@@ -1364,7 +1589,15 @@ mod tests {
         // "a" has its own render placed for the zoom: it stays, red and
         // enlarged, not the live frame shown to fit; the region, which may
         // predate edits, is released.
-        multi.adopt_live_frame(&gpu.device, &gpu.queue, &bindings, "a", &source, 16, 16);
+        multi.adopt_live_frame(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "a",
+            &source,
+            (16, 16),
+            None,
+        );
         assert_eq!(multi.texture_key("a"), Some(1));
         assert_eq!(multi.region_of("a"), None);
         let pixels = present(&gpu, &multi, None);
@@ -1378,14 +1611,250 @@ mod tests {
             &bindings,
             "pending",
             &source,
-            16,
-            16,
+            (16, 16),
+            None,
         );
         assert_eq!(multi.texture_key("pending"), Some(0));
         // Back at fit the live frame (the newer pixels) replaces the old one.
         multi.set_zoom(None);
-        multi.adopt_live_frame(&gpu.device, &gpu.queue, &bindings, "a", &source, 16, 16);
+        multi.adopt_live_frame(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "a",
+            &source,
+            (16, 16),
+            None,
+        );
         assert_eq!(multi.texture_key("a"), Some(0));
+    }
+
+    /// A 32 × 32 live frame: magenta with a cyan centre (texels 12–19).
+    fn bullseye(gpu: &Offscreen) -> wgpu::Texture {
+        let size = wgpu::Extent3d {
+            width: 32,
+            height: 32,
+            depth_or_array_layers: 1,
+        };
+        let texture = gpu
+            .device
+            .create_texture(&crate::gpu_processing::still_texture_descriptor(size));
+        let rgba: Vec<u8> = (0..32 * 32)
+            .flat_map(|i| {
+                let (x, y) = (i % 32, i / 32);
+                if (12..20).contains(&x) && (12..20).contains(&y) {
+                    [0, 255, 255, 255]
+                } else {
+                    [255, 0, 255, 255]
+                }
+            })
+            .collect();
+        gpu.queue.write_texture(
+            texture.as_image_copy(),
+            &rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(128),
+                rows_per_image: Some(32),
+            },
+            size,
+        );
+        texture
+    }
+
+    #[test]
+    #[ignore = "requires a native GPU; the outgoing primary keeps its zoom and live frame in one step"]
+    fn the_outgoing_primary_stays_zoomed_where_it_was() {
+        let gpu = offscreen();
+        let bindings = DisplayBindings {
+            layout: &gpu.layout,
+            sampler: &gpu.sampler,
+            empty_overlay: &gpu.empty,
+        };
+        let source = bullseye(&gpu);
+        // The primary's cell [75, 10, 60, 80] showed its 32 × 32 photograph
+        // at 4 device px per pixel, centred: the frame covered 128 × 128 px
+        // about the cell's centre (105, 50).
+        let zoom = CellZoom {
+            scale: 4.0,
+            center: [0.5, 0.5],
+        };
+        let placed = [41.0, -14.0, 128.0, 128.0];
+        for (label, zooms) in [
+            (
+                "lock on",
+                CellZooms {
+                    shared: Some(zoom),
+                    cells: HashMap::new(),
+                },
+            ),
+            (
+                "lock off",
+                CellZooms {
+                    shared: None,
+                    cells: HashMap::from([("primary".to_string(), zoom)]),
+                },
+            ),
+        ] {
+            let mut multi = layout(&gpu);
+            let cells = multi.cells().to_vec();
+            multi.show(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                Some("a".into()),
+                cells,
+                Some(zooms),
+                Some(LiveFrame {
+                    path: "primary",
+                    texture: &source,
+                    size: (32, 32),
+                    placed: Some(placed),
+                }),
+            );
+            assert_eq!(multi.primary(), Some("a"), "{label}");
+            assert_eq!(multi.zoom_of("primary"), Some(zoom), "{label}");
+            assert_eq!(
+                multi.texture_key("primary"),
+                Some(0),
+                "{label}: waits for its own render"
+            );
+            // Its visible part stays as sharp as it was: the cell shows
+            // texels 8.5–23.5 of 32 (60 × 80 px at 4 px each).
+            let (key, extent) = multi.region_of("primary").expect(label);
+            assert_eq!(key, 0, "{label}");
+            assert_eq!(extent.shown, [32.0, 32.0], "{label}");
+            assert_eq!(extent.region, Some([8.0, 6.0, 16.0, 20.0]), "{label}");
+            let pixels = present(&gpu, &multi, None);
+            // Enlarged as before the switch: the cyan centre spans 89–121
+            // (at fit it would span 97.5–112.5 only, magenta around it).
+            for (x, y) in [(93, 50), (117, 50), (105, 38), (105, 62)] {
+                assert!(
+                    close(pixel(&pixels, x, y), [0, 255, 255]),
+                    "{label}: ({x}, {y}) {:?}",
+                    pixel(&pixels, x, y)
+                );
+            }
+            assert!(close(pixel(&pixels, 80, 50), [255, 0, 255]), "{label}");
+            assert!(
+                close(pixel(&pixels, 105, 15), [255, 0, 255]),
+                "{label}: no letterbox"
+            );
+            // The cell's own whole render (at the cell's size, here a flat
+            // red) goes under the sharp region until its region is developed.
+            multi.upload(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                "primary",
+                9,
+                whole(32, 32),
+                CellLayer::Whole,
+                32,
+                32,
+                &solid(32, 32, [255, 0, 0]),
+            );
+            let pixels = present(&gpu, &multi, None);
+            assert!(
+                close(pixel(&pixels, 93, 50), [0, 255, 255]),
+                "{label}: region kept"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a native GPU; without its zoom the old primary's frame is shown to fit"]
+    fn an_outgoing_primary_at_fit_is_shown_to_fit() {
+        let gpu = offscreen();
+        let bindings = DisplayBindings {
+            layout: &gpu.layout,
+            sampler: &gpu.sampler,
+            empty_overlay: &gpu.empty,
+        };
+        let source = bullseye(&gpu);
+        let mut multi = layout(&gpu);
+        let cells = multi.cells().to_vec();
+        multi.show(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            Some("a".into()),
+            cells,
+            Some(CellZooms::default()),
+            Some(LiveFrame {
+                path: "primary",
+                texture: &source,
+                size: (32, 32),
+                placed: Some([75.0, 20.0, 60.0, 60.0]),
+            }),
+        );
+        assert_eq!(multi.region_of("primary"), None);
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 93, 50), [255, 0, 255]));
+        assert!(close(pixel(&pixels, 105, 50), [0, 255, 255]));
+    }
+
+    #[test]
+    fn a_live_frame_takes_its_extent_from_where_it_was_placed() {
+        let zoom = CellZoom {
+            scale: 2.0,
+            center: [0.5, 0.5],
+        };
+        assert_eq!(
+            live_extent([10.0, 20.0, 300.0, 200.0], zoom, (3000, 2000)),
+            Some(CellExtent {
+                shown: [150.0, 100.0],
+                region: None
+            })
+        );
+        // Hidden (the webview's off-screen placement), empty, or of another
+        // aspect ratio: not a placement of this frame.
+        assert_eq!(
+            live_extent([-999999.0, -999999.0, 1.0, 1.0], zoom, (30, 20)),
+            None
+        );
+        assert_eq!(live_extent([0.0, 0.0, 300.0, 0.0], zoom, (30, 20)), None);
+        assert_eq!(live_extent([0.0, 0.0, 300.0, 300.0], zoom, (30, 20)), None);
+        // Placed as the zoom puts it in its cell, or elsewhere (another
+        // photograph's placement): then it is not taken.
+        let area = [0.0, 0.0, 100.0, 100.0];
+        assert!(placed_at_zoom(
+            [-100.0, -50.0, 300.0, 200.0],
+            area,
+            zoom,
+            (30, 20)
+        ));
+        assert!(!placed_at_zoom(
+            [0.0, 0.0, 300.0, 200.0],
+            area,
+            zoom,
+            (30, 20)
+        ));
+        assert_eq!(
+            visible_texels(
+                [0.0, 0.0, 60.0, 80.0],
+                [32.0, 32.0],
+                CellZoom {
+                    scale: 4.0,
+                    center: [0.5, 0.5]
+                },
+                (32, 32)
+            ),
+            Some([8, 6, 16, 20])
+        );
+        // Twice as many texels as pixels; clipped to the photograph.
+        assert_eq!(
+            visible_texels(
+                [0.0, 0.0, 60.0, 80.0],
+                [32.0, 32.0],
+                CellZoom {
+                    scale: 4.0,
+                    center: [0.0, 0.5]
+                },
+                (64, 64)
+            ),
+            Some([0, 12, 15, 40])
+        );
     }
 
     #[test]

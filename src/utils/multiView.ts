@@ -261,6 +261,42 @@ export interface SharedZoom {
   center: [number, number];
 }
 
+/** The zooms the native side shows the cells at: `zoom` shared by every
+ * cell (the zoom lock), else `cells` each at its own (absent: fit). */
+export interface CellZoomsPayload {
+  zoom: SharedZoom | null;
+  cells: Record<string, SharedZoom> | null;
+}
+
+/**
+ * The zooms sent with a layout of `shown` that has `primary` live, in the
+ * same native step, so that the photograph that stops being the primary
+ * (`outgoing`, shown at `primaryZoom`) keeps that zoom in its cell from the
+ * layout's first frame (sent after it, its cell showed its last live frame
+ * to fit until its own render: G74). With the lock every cell takes the
+ * primary's zoom; without it each other cell its own, the outgoing primary
+ * the one it was shown at (null: fit).
+ */
+export function layoutZooms(
+  zoomLock: boolean,
+  primaryZoom: SharedZoom | null,
+  outgoing: string | null,
+  cellZooms: Record<string, SharedZoom>,
+  primary: string | null,
+  shown: string[]
+): CellZoomsPayload {
+  if (zoomLock) return { zoom: primaryZoom, cells: null };
+  const each = { ...cellZooms };
+  if (outgoing && outgoing !== primary) {
+    if (primaryZoom) each[outgoing] = primaryZoom;
+    else delete each[outgoing];
+  }
+  return {
+    zoom: null,
+    cells: Object.fromEntries(Object.entries(each).filter(([path]) => path !== primary && shown.includes(path)))
+  };
+}
+
 /**
  * The primary's zoom as the editor shows it in its cell: `transform` is the
  * editor's pan/zoom (scale relative to fit, position in CSS px), `fit` the
