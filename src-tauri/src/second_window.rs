@@ -495,6 +495,7 @@ fn set_photo(
                     path: path.to_string(),
                     area: inner.area,
                 }],
+                None,
             );
             display.set_multi_view_zoom(inner.zoom);
         }
@@ -1275,6 +1276,7 @@ pub(crate) fn resized(
                         &context.queue,
                         None,
                         vec![MultiViewCell { path, area }],
+                        None,
                     );
                     display.set_multi_view_zoom(zoom);
                 }

@@ -30,7 +30,7 @@ use crate::editor_preview::{reduced_preview_base, reduced_preview_scale};
 use crate::file_management::{parse_virtual_path, read_file_mapped};
 use crate::formats::is_raw_file;
 use crate::gpu_processing::{
-    self, CellExtent, CellLayer, CellZoom, GpuContext, LatestJobSender, MultiViewCell,
+    self, CellExtent, CellLayer, CellZoom, CellZooms, GpuContext, LatestJobSender, MultiViewCell,
     ReadbackShader, RenderOutputPrecision, RenderRequest, RenderSource,
 };
 use crate::image_processing::{self, RegionMeasures, get_all_adjustments_from_json};
@@ -222,24 +222,53 @@ fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
 }
 
 /// Shows `cells` side by side in the viewer with `primary` as the live
-/// photograph; no cells is the single view (every cell texture and prepared
-/// base is released). Returns false when there is no native display (the
-/// webview then offers no multi view).
+/// photograph, the cells zoomed to `zooms` in the same step (absent: as
+/// they are; see [`set_multi_view_zoom`]), so that a photograph that stops
+/// being the primary keeps its zoom from the first frame on; no cells is the
+/// single view (every cell texture and prepared base is released). Returns
+/// false when there is no native display (the webview then offers no multi
+/// view).
 #[tauri::command]
 pub(crate) async fn set_multi_view(
     primary: Option<String>,
     cells: Vec<CellPayload>,
+    zooms: Option<ZoomsPayload>,
     app_handle: tauri::AppHandle,
 ) -> Result<bool, String> {
-    tauri::async_runtime::spawn_blocking(move || show_cells(&app_handle, primary, cells))
+    let zooms = zooms.map(|zooms| {
+        (
+            cell_zooms(zooms),
+            ZOOM_SEQ.fetch_add(1, Ordering::SeqCst) + 1,
+        )
+    });
+    tauri::async_runtime::spawn_blocking(move || show_cells(&app_handle, primary, cells, zooms))
         .await
         .map_err(|e| format!("Multi view task failed: {e}"))
+}
+
+/// Numbers the zooms in the order they are received, with a layout
+/// ([`set_multi_view`]) or alone ([`set_multi_view_zoom`]); the newest
+/// applied is [`ZOOM_APPLIED`] (read and written under the display lock). A
+/// layout's zooms, applied after its stand-ins are decoded, never undo a
+/// zoom or pan received after it, and an older zoom never undoes a layout's.
+static ZOOM_SEQ: AtomicU64 = AtomicU64::new(0);
+static ZOOM_APPLIED: AtomicU64 = AtomicU64::new(0);
+
+/// Whether zooms numbered `seq` are newer than the ones applied (and are
+/// now the applied ones).
+fn take_zoom_turn(seq: u64) -> bool {
+    let newer = seq > ZOOM_APPLIED.load(Ordering::SeqCst);
+    if newer {
+        ZOOM_APPLIED.store(seq, Ordering::SeqCst);
+    }
+    newer
 }
 
 fn show_cells(
     app_handle: &tauri::AppHandle,
     primary: Option<String>,
     cells: Vec<CellPayload>,
+    zooms: Option<(CellZooms, u64)>,
 ) -> bool {
     let Ok(context) = gpu_processing::get_or_init_gpu_context(
         &app_handle.state::<crate::state::gpu::GpuState>(),
@@ -275,6 +304,7 @@ fn show_cells(
                     area: cell.area,
                 })
                 .collect(),
+            zooms.and_then(|(zooms, seq)| take_zoom_turn(seq).then_some(zooms)),
         );
         // The live frame in its cell at once, not after the webview's
         // editor has laid out the cell (a frame later).
@@ -309,7 +339,14 @@ fn show_cells(
                 )
             })
             .collect();
-        (multi.is_zoomed(), bare)
+        let zooms: Option<HashMap<String, CellZoom>> = multi.is_zoomed().then(|| {
+            multi
+                .cells()
+                .iter()
+                .filter_map(|cell| Some((cell.path.clone(), multi.zoom_of(&cell.path)?)))
+                .collect()
+        });
+        (zooms, bare)
     };
     if cells.is_empty() {
         *worker.memory.lock().unwrap_or_else(|e| e.into_inner()) = Memory::default();
@@ -337,9 +374,13 @@ fn show_cells(
         let paths: Vec<&str> = cells.iter().map(|cell| cell.path.as_str()).collect();
         memory.forget_changed(&paths)
     };
-    // Zoomed in: regions of new cells, or of recipes or files that changed.
-    if file_changed || zoomed {
-        refresh_regions(&region_worker(app_handle), file_changed, zoomed);
+    // Zoomed in: regions of new cells, or of recipes or files that changed,
+    // or of zooms that came with the layout.
+    if let Some(zooms) = &zoomed {
+        region_worker(app_handle).keep_bases_at(zooms);
+    }
+    if file_changed || zoomed.is_some() {
+        refresh_regions(&region_worker(app_handle), file_changed, zoomed.is_some());
     }
     // Before the cells' renders start: theirs would slow these reads.
     show_stand_ins(app_handle, &context, bare);
@@ -1479,6 +1520,38 @@ fn show_frame(
     }
 }
 
+/// [`show_frame`] for an interim region, unless the cell still shows the
+/// sharp region kept from its live frame ([`keeps_live_region`]), checked
+/// under the same lock. Whether it was shown.
+fn show_interim_frame(
+    context: &GpuContext,
+    path: &str,
+    key: u64,
+    extent: CellExtent,
+    rgba: &image::RgbaImage,
+) -> bool {
+    let mut display = context.display.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(display) = display.as_mut() else {
+        return false;
+    };
+    if display.multi_view().keeps_live_region(path) {
+        return false;
+    }
+    display.upload_cell(
+        &context.device,
+        &context.queue,
+        path,
+        key,
+        extent,
+        CellLayer::Region,
+        rgba.width(),
+        rgba.height(),
+        rgba.as_raw(),
+    );
+    display.render(&context.device, &context.queue);
+    true
+}
+
 /// Develops a prepared cell's whole photograph and keeps it on the display.
 fn develop(
     app_handle: &tauri::AppHandle,
@@ -1966,6 +2039,16 @@ pub struct ZoomPayload {
     pub center: [f32; 2],
 }
 
+/// The zooms sent with a layout ([`set_multi_view`]), as
+/// [`set_multi_view_zoom`] takes them: `zoom` shared by every cell (the zoom
+/// lock), else `cells` each at its own.
+#[derive(Clone, Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ZoomsPayload {
+    pub zoom: Option<ZoomPayload>,
+    pub cells: Option<HashMap<String, ZoomPayload>>,
+}
+
 struct RegionJob {
     generation: usize,
 }
@@ -2030,6 +2113,15 @@ impl RegionWorker {
         self.bases.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
+    /// Drops the kept bases made at another magnification than their cell's
+    /// `zooms` now: of no use any more.
+    fn keep_bases_at(&self, zooms: &HashMap<String, CellZoom>) {
+        self.bases
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|path, base| zooms.get(path).is_some_and(|z| z.scale == base.zoom_scale));
+    }
+
     /// Develops the visible regions again (cancelling the job under way).
     fn schedule(&self) {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -2059,6 +2151,19 @@ pub(crate) fn cell_zoom(z: ZoomPayload) -> Option<CellZoom> {
     })
 }
 
+/// The zooms of `payload` as the display keeps them ([`cell_zoom`]).
+fn cell_zooms(payload: ZoomsPayload) -> CellZooms {
+    CellZooms {
+        shared: payload.zoom.and_then(cell_zoom),
+        cells: payload
+            .cells
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|(path, z)| Some((path, cell_zoom(z)?)))
+            .collect(),
+    }
+}
+
 /// Zooms the other cells of the multi view: all to the primary's zoom
 /// (`zoom`, Lightroom's zoom lock; None: fit), or, without the lock, each in
 /// `cells` to its own zoom and pan (the others to fit). The cells'
@@ -2070,23 +2175,25 @@ pub(crate) async fn set_multi_view_zoom(
     cells: Option<HashMap<String, ZoomPayload>>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
+    let seq = ZOOM_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
     tauri::async_runtime::spawn_blocking(move || {
         let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
             return;
         };
-        let shared = zoom.and_then(cell_zoom);
-        let individual: HashMap<String, CellZoom> = cells
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|(path, z)| Some((path, cell_zoom(z)?)))
-            .collect();
+        let CellZooms {
+            shared,
+            cells: individual,
+        } = cell_zooms(ZoomsPayload { zoom, cells });
         let zooms: HashMap<String, CellZoom> = {
             let mut display = context.display.lock().unwrap_or_else(|e| e.into_inner());
             let Some(display) = display.as_mut() else {
                 return;
             };
             let multi = display.multi_view();
-            if !multi.is_active() || (multi.zoom() == shared && multi.cell_zooms() == &individual) {
+            if !multi.is_active() || !take_zoom_turn(seq) {
+                return;
+            }
+            if multi.zoom() == shared && multi.cell_zooms() == &individual {
                 return;
             }
             display.set_multi_view_zooms(shared, individual);
@@ -2105,12 +2212,7 @@ pub(crate) async fn set_multi_view_zoom(
             return;
         }
         let worker = region_worker(&app_handle);
-        // Bases at another magnification of their cell are of no use any more.
-        worker
-            .bases
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .retain(|path, base| zooms.get(path).is_some_and(|z| z.scale == base.zoom_scale));
+        worker.keep_bases_at(&zooms);
         worker.schedule();
     })
     .await
@@ -3515,6 +3617,9 @@ fn show_interim_regions(
                     else {
                         return;
                     };
+                    if keeps_live_region(context, &path) {
+                        continue;
+                    }
                     let region = match develop_interim_region(
                         app_handle, context, &path, area, zoom, &recipe, key, &interim,
                     ) {
@@ -3527,14 +3632,17 @@ fn show_interim_regions(
                     if !current() {
                         return;
                     }
-                    show_frame(
+                    // Checked again under the upload's lock: a switch may
+                    // have adopted a sharp region meanwhile.
+                    if !show_interim_frame(
                         context,
                         &region.path,
                         region.key,
                         region.extent,
-                        CellLayer::Region,
                         &region.rgba,
-                    );
+                    ) {
+                        continue;
+                    }
                     #[cfg(feature = "performance-profiling")]
                     log::info!(
                         "[PERF] {}",
@@ -3554,6 +3662,17 @@ fn show_interim_regions(
             });
         }
     });
+}
+
+/// Whether `path`'s cell still shows the sharp region it kept from its live
+/// frame (it was the primary): no interim region over it.
+fn keeps_live_region(context: &GpuContext, path: &str) -> bool {
+    context
+        .display
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|display| display.multi_view().keeps_live_region(path))
 }
 
 /// The render key of an interim region (`develop_interim_region`) of the
@@ -4571,6 +4690,60 @@ mod tests {
             shown_part(developed, developed, 1.0, (900, 700)),
             [0, 0, 900, 700]
         );
+    }
+
+    /// The layouts the webview sends (src/contracts/multiViewLayout.json,
+    /// built by MultiViewStage): the zooms travel with the layout, so the
+    /// photograph leaving the primary keeps its zoom from the first frame.
+    #[test]
+    fn layouts_from_the_webview_carry_their_zooms() {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Args {
+            primary: Option<String>,
+            cells: Vec<CellPayload>,
+            #[serde(default)]
+            zooms: Option<ZoomsPayload>,
+        }
+        let payloads: HashMap<String, serde_json::Value> =
+            serde_json::from_str(include_str!("../../src/contracts/multiViewLayout.json")).unwrap();
+        let args = |name: &str| -> Args { serde_json::from_value(payloads[name].clone()).unwrap() };
+        let zoom = CellZoom {
+            scale: 1.0,
+            center: [0.25, 0.5],
+        };
+        let unlocked = args("unlocked");
+        assert_eq!(unlocked.primary.as_deref(), Some("/photos/b.dng"));
+        assert_eq!(unlocked.cells[1].area, [110.0, 0.0, 100.0, 80.0]);
+        assert_eq!(
+            cell_zooms(unlocked.zooms.unwrap()),
+            CellZooms {
+                shared: None,
+                cells: HashMap::from([("/photos/a.dng".to_string(), zoom)]),
+            }
+        );
+        assert_eq!(
+            cell_zooms(args("locked").zooms.unwrap()),
+            CellZooms {
+                shared: Some(zoom),
+                cells: HashMap::new(),
+            }
+        );
+        assert_eq!(cell_zooms(args("fit").zooms.unwrap()), CellZooms::default());
+        // Zooms apply in the order received: one received after the
+        // layout wins over the layout's own, an older one never undoes it.
+        let first = ZOOM_SEQ.fetch_add(2, Ordering::SeqCst) + 1;
+        assert!(take_zoom_turn(first + 1));
+        assert!(!take_zoom_turn(first));
+        assert!(!take_zoom_turn(first + 1));
+        // Leaving the multi view sends no zooms: the cells are released.
+        let single = args("single");
+        assert!(single.primary.is_none() && single.cells.is_empty() && single.zooms.is_none());
+        // The command's own arguments, in this order.
+        let source = include_str!("multi_view.rs");
+        assert!(source.contains(
+            "async fn set_multi_view(\n    primary: Option<String>,\n    cells: Vec<CellPayload>,\n    zooms: Option<ZoomsPayload>,"
+        ));
     }
 
     #[test]

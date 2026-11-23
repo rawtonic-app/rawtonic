@@ -1,0 +1,27 @@
+{
+  "unlocked": {
+    "primary": "/photos/b.dng",
+    "cells": [
+      { "path": "/photos/a.dng", "area": [0, 0, 100, 80] },
+      { "path": "/photos/b.dng", "area": [110, 0, 100, 80] }
+    ],
+    "zooms": { "zoom": null, "cells": { "/photos/a.dng": { "scale": 1, "center": [0.25, 0.5] } } }
+  },
+  "locked": {
+    "primary": "/photos/b.dng",
+    "cells": [
+      { "path": "/photos/a.dng", "area": [0, 0, 100, 80] },
+      { "path": "/photos/b.dng", "area": [110, 0, 100, 80] }
+    ],
+    "zooms": { "zoom": { "scale": 1, "center": [0.25, 0.5] }, "cells": null }
+  },
+  "fit": {
+    "primary": "/photos/b.dng",
+    "cells": [
+      { "path": "/photos/a.dng", "area": [0, 0, 100, 80] },
+      { "path": "/photos/b.dng", "area": [110, 0, 100, 80] }
+    ],
+    "zooms": { "zoom": null, "cells": {} }
+  },
+  "single": { "primary": null, "cells": [] }
+}
