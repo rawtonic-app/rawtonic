@@ -4823,6 +4823,7 @@
           "details": "Qualsevol text excepte paraules clau",
           "duplicate": "Duplicat (dades d'imatge idèntiques)",
           "exposure": "Velocitat d’obturació (s)",
+          "exposureExact": "Velocitat d’obturació (s, tolerància estreta)",
           "eyes": "Ulls",
           "filename": "Nom del fitxer",
           "fileType": "Tipus de fitxer",

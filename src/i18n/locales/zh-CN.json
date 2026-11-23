@@ -4494,6 +4494,7 @@
           "details": "除关键词外的任意文本",
           "duplicate": "重复项（图像数据相同）",
           "exposure": "快门速度（秒）",
+          "exposureExact": "快门速度（秒，较小容差）",
           "eyes": "眼睛",
           "filename": "文件名",
           "fileType": "文件类型",

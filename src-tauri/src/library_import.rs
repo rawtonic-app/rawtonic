@@ -232,21 +232,19 @@ pub fn smart_rule_gap(rules: &SmartRules) -> Option<String> {
     })
 }
 
-/// Lightroom compares aperture, focal length and shutter speed within
-/// ±0.01 of its own unit (measured, SMR2): the aperture value `Av =
-/// 2·log2(f-number)`, millimetres, and the time value `Tv = log2(1/seconds)`
-/// of a shutter speed. For a shutter speed greater means a longer time and a
-/// range runs from the shorter to the longer time. Written as the catalog's
-/// f-number, millimetre and second bounds. An exposure time carries the
-/// catalog's own 3 % camera-rounding tolerance instead of Lightroom's
-/// ±0.7 %: the two differ only for a value between a camera's shutter
-/// speeds (a third of a stop is 26 %), and the rule stays readable in the
-/// smart-album editor as the time Lightroom's value stands for.
-fn exposure_rule(criteria: &str, operation: &str, value: f64, value2: Option<f64>) -> Option<Rule> {
+/// Lightroom compares aperture and focal length within ±0.01 in aperture
+/// values (`Av = 2·log2(f-number)`) and millimetres (measured, SMR2).
+/// Translate those limits into the catalog's f-number and millimetre bounds.
+fn aperture_or_focal_length_rule(
+    criteria: &str,
+    operation: &str,
+    value: f64,
+    value2: Option<f64>,
+) -> Option<Rule> {
     let (field, tolerance, at): (Field, f64, fn(f64) -> f64) = match criteria {
         "aperture" => (Field::Aperture, 0.01, |av| (av / 2.0).exp2()),
         "focalLength" => (Field::FocalLength, 0.01, |mm| mm),
-        _ => (Field::Exposure, 0.0, |tv| (-tv).exp2()),
+        _ => return None,
     };
     // The catalog's smallest and largest value Lightroom takes as `x`.
     let low = |x: f64| at(x - tolerance).min(at(x + tolerance));
@@ -273,8 +271,7 @@ fn exposure_rule(criteria: &str, operation: &str, value: f64, value2: Option<f64
         ">=" => one(Op::Ge, low(value)),
         "<" => one(Op::Lt, low(value)),
         "<=" => one(Op::Le, high(value)),
-        // A range from the longer to the shorter time (or from the larger
-        // to the smaller number) holds nothing in Lightroom.
+        // A range from the larger to the smaller value holds nothing in Lightroom.
         "in" => {
             let (from, to) = (low(value), high(value2?));
             if from > to {
@@ -422,8 +419,32 @@ fn smart_condition(
             };
             (field, op, value)
         }
-        "aperture" | "focalLength" | "shutterSpeed" => {
-            return exposure_rule(criteria, operation, number(value)?, number(value2));
+        "aperture" | "focalLength" => {
+            return aperture_or_focal_length_rule(
+                criteria,
+                operation,
+                number(value)?,
+                number(value2),
+            );
+        }
+        "shutterSpeed" => {
+            // Lightroom stores Tv = log2(1/seconds), but orders by seconds:
+            // greater means a longer time, and a range starts at the shorter time.
+            let from = number(value)?;
+            let seconds = |tv: f64| (-tv).exp2();
+            let (op, value) = if operation == "in" {
+                let to = number(value2)?;
+                if from < to {
+                    return Some(Rule::Group {
+                        combine: Combine::Any,
+                        rules: vec![],
+                    });
+                }
+                (Op::Between, json!([seconds(from), seconds(to)]))
+            } else {
+                (compare(operation)?, json!(seconds(from)))
+            };
+            (Field::ExposureExact, op, value)
         }
         "isoSpeedRating" if operation == "in" => (
             Field::Iso,
@@ -4009,10 +4030,17 @@ mod tests {
         let tv = |seconds: f64| (1.0 / seconds).log2();
         assert_eq!(one("shutterSpeed", "==", 6.64), ["f56.CR2", "f63.CR2"]);
         assert_eq!(one("shutterSpeed", "==", tv(0.8)), ["f9.CR2"]);
-        // Off Lightroom's ±0.01 but within the catalog's 3 % (see
-        // `exposure_rule`): 6.6 is 1/97 s.
-        assert_eq!(one("shutterSpeed", "==", 6.3), Vec::<String>::new());
+        // Tv 6.6 (about 1/97 s) is outside Lightroom's ±0.01.
+        assert!(one("shutterSpeed", "==", 6.6).is_empty());
         assert_eq!(one("shutterSpeed", "==", 6.65), ["f56.CR2", "f63.CR2"]);
+        assert_eq!(
+            one("shutterSpeed", "!=", 6.64),
+            ["f28.CR2", "f8.CR2", "f9.CR2"]
+        );
+        assert_eq!(
+            one("shutterSpeed", "<", 6.6),
+            ["f28.CR2", "f56.CR2", "f63.CR2"]
+        );
         assert_eq!(one("shutterSpeed", ">", 6.64), ["f8.CR2", "f9.CR2"]);
         assert_eq!(
             one("shutterSpeed", ">=", 6.64),
@@ -4028,6 +4056,7 @@ mod tests {
             ["f56.CR2", "f63.CR2", "f8.CR2"]
         );
         assert!(range("shutterSpeed", 5.64, 6.64).is_empty());
+        assert!(range("shutterSpeed", 6.64, 6.645).is_empty());
     }
 
     /// Capture One's raster masks (unrotated sensor frame) record the

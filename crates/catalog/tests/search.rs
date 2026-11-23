@@ -414,6 +414,39 @@ fn every_field_compares_as_documented() {
 }
 
 #[test]
+fn exact_exposure_excludes_camera_rounding() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path());
+    lib.record_facts(
+        &ids[0],
+        &CaptureFacts {
+            exposure: Some(1.0 / 100.0),
+            ..CaptureFacts::default()
+        },
+    )
+    .unwrap();
+    let seconds = (-6.6_f64).exp2();
+    assert_eq!(
+        found(&lib, json!({"field":"exposure","op":"is","value":seconds})),
+        ["DSC00123.ARW"]
+    );
+    assert!(
+        found(
+            &lib,
+            json!({"field":"exposureExact","op":"is","value":seconds})
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        found(
+            &lib,
+            json!({"field":"exposureExact","op":"is","value":(-6.65_f64).exp2()})
+        ),
+        ["DSC00123.ARW"]
+    );
+}
+
+#[test]
 fn groups_nest_with_all_any_and_none() {
     let d = tempfile::tempdir().unwrap();
     let (lib, _) = library(d.path());

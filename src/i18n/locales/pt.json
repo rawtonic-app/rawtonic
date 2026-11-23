@@ -4823,6 +4823,7 @@
           "details": "Qualquer texto exceto palavras-chave",
           "duplicate": "Duplicado (dados de imagem idênticos)",
           "exposure": "Velocidade do obturador (s)",
+          "exposureExact": "Velocidade do obturador (s, tolerância reduzida)",
           "eyes": "Olhos",
           "filename": "Nome do arquivo",
           "fileType": "Tipo de arquivo",
