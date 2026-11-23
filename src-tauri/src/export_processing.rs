@@ -4399,14 +4399,16 @@ mod tests {
         assert_eq!(output, dir.path().join("a_1.jpg"));
         write(&target, &output).unwrap();
 
-        // An explicit single-file destination still hits no-clobber at publication.
+        // An explicit single-file destination on an original is numbered
+        // beside it before rendering (never written over, never a failure
+        // at publication).
         target.is_explicit_file_path = true;
         target.export_settings.destination_type = None;
-        for original in [&partner, &other] {
+        for (original, expected) in [(&partner, "a_2.jpg"), (&other, "b_3.jpg")] {
             target.output_folder_or_file = original.to_str().unwrap().to_owned();
             let output = plan(&target, &raw, 0, 1);
-            assert_eq!(&output, original);
-            assert!(write(&target, &output).is_err());
+            assert_eq!(output, dir.path().join(expected));
+            write(&target, &output).unwrap();
         }
         for (path, contents) in originals {
             assert_eq!(std::fs::read(path).unwrap(), contents);
@@ -4555,6 +4557,7 @@ mod tests {
         // choice promises; Skip leaves it.
         let mut save_as = target("replaceIfChanged", "{orig_base}");
         save_as.is_explicit_file_path = true;
+        save_as.export_settings.destination_type = None;
         save_as.output_folder_or_file = partner.to_string_lossy().into_owned();
         let planned = plan(&save_as, &raw, "v1");
         assert_eq!(planned.outcome(), Outcome::KeptBoth);
