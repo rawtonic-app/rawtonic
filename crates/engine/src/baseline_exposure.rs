@@ -229,17 +229,19 @@ pub fn dng_baseline_equivalent(path: &str) -> f32 {
 /// buffer of it (its mapping), and reads the file's base look from that
 /// buffer too (`capture_info::with_held_source`): the renders that follow
 /// find it cached instead of reading the whole file again for each of its
-/// facts (CRD5: Develop open and edited thumbnails over a share).
-pub fn decode_with_base_look<R>(
+/// facts (CRD5: Develop open and edited thumbnails over a share). Only
+/// after a decode that succeeded: a failed one (a damaged file) caches
+/// nothing for the path.
+pub fn decode_with_base_look<T, E>(
     path: &str,
     bytes: crate::capture_info::SharedBuf,
-    decode: impl FnOnce() -> R,
-) -> R {
+    decode: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
     let path = rawtonic_metadata::photo_ref::source_of(path);
     crate::capture_info::with_held_source(path, bytes, || {
-        let decoded = decode();
+        let decoded = decode()?;
         let _ = base_look(path);
-        decoded
+        Ok(decoded)
     })
 }
 
@@ -673,9 +675,11 @@ pub fn sample_profile_curve(pairs: &[f32]) -> Option<[f32; PROFILE_CURVE_SAMPLES
 
 /// BaselineExposure (+ offset), maker, and the embedded profile pieces.
 fn read_dng_tags(path: &str) -> Option<DngTags> {
-    let file = std::fs::File::open(path).ok()?;
+    // The whole file, as the TIFF reader reads it, shared with the look's
+    // other facts (`capture_info::read_for_metadata`).
+    let bytes = crate::capture_info::read_for_metadata(path)?;
     let exif = exif::Reader::new()
-        .read_from_container(&mut std::io::BufReader::new(file))
+        .read_from_container(&mut std::io::Cursor::new((*bytes).as_ref()))
         .ok()?;
     let make = exif
         .get_field(exif::Tag::Make, exif::In::PRIMARY)

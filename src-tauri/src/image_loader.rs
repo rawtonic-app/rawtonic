@@ -1395,9 +1395,10 @@ pub async fn load_image(
                         // The decode reads every byte: from a share ahead of
                         // the mapping's faults, and the base look the first
                         // render applies from the same mapping.
-                        crate::file_management::read_ahead_for_decode(Path::new(
-                            &path_clone,
-                        ));
+                        crate::file_management::read_ahead_for_decode(
+                            Path::new(&path_clone),
+                            cancel_token.clone(),
+                        );
                         let mmap: SharedBytes = Arc::new(mmap);
                         let (img, measures) = crate::baseline_exposure::decode_with_base_look(
                             &path_clone,

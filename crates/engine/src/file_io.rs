@@ -70,6 +70,12 @@ const PREFETCH_THREADS: usize = 4;
 /// fails the caller. The decode reads every byte anyway; on a local disk
 /// this only reorders reads of a file that is cached or read at once.
 pub fn prefetch(path: &Path) {
+    prefetch_until(path, || false);
+}
+
+/// `prefetch` that stops before its next chunk once `cancelled` says so
+/// (the decode it reads ahead for was abandoned: another photo opened).
+pub fn prefetch_until(path: &Path, cancelled: impl Fn() -> bool + Send + Sync + 'static) {
     let path = path.to_path_buf();
     let _ = std::thread::Builder::new()
         .name("source-prefetch".into())
@@ -80,7 +86,9 @@ pub fn prefetch(path: &Path) {
             let Ok(len) = file.metadata().map(|m| m.len()) else {
                 return;
             };
-            prefetch_chunks(len, &|at, buf| read_chunk(&file, at, buf).is_ok());
+            prefetch_chunks(len, &|at, buf| {
+                !cancelled() && read_chunk(&file, at, buf).is_ok()
+            });
         });
 }
 

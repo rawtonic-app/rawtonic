@@ -1165,10 +1165,12 @@ fn read_import_into_memory(path: &Path) -> bool {
 /// Reads the photograph at `path` ahead of a decode that reads all of it
 /// (`file_io::prefetch`: over a share faster than the mapping's page
 /// faults), except on a card, whose files are read into memory or mapped
-/// as they are decoded.
-pub(crate) fn read_ahead_for_decode(path: &Path) {
+/// as they are decoded. Stops once `cancel` (the decode's) is cancelled.
+pub(crate) fn read_ahead_for_decode(path: &Path, cancel: Option<rawtonic_runtime::CancelToken>) {
     if !read_import_into_memory(path) {
-        rawtonic_engine::file_io::prefetch(path);
+        rawtonic_engine::file_io::prefetch_until(path, move || {
+            cancel.as_ref().is_some_and(|cancel| cancel.is_cancelled())
+        });
     }
 }
 
@@ -1199,7 +1201,7 @@ fn source_preview_image(path: &Path, size: u32) -> Option<DynamicImage> {
             let path_str = path.to_string_lossy();
             // Developed: every byte is read, ahead of the mapping's faults,
             // and the decode's facts read the same buffer.
-            read_ahead_for_decode(path);
+            read_ahead_for_decode(path, None);
             let mut image =
                 rawtonic_rawdecode::capture_info::with_held_source(&path_str, file.clone(), || {
                     image_loader::load_and_composite(
