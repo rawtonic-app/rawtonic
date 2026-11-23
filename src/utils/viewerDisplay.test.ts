@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CROP_ROTATE_BAND_PX,
   windowClearOverNative,
+  viewerPaintsBackground,
   clampViewerZoom,
   cropModeBox,
   cropModeMarginPx,
@@ -180,5 +181,16 @@ describe('windowClearOverNative', () => {
   it('is opaque outside the viewer or without the native renderer', () => {
     expect(windowClearOverNative({ ...base, nativeMultiView: true, viewerOn: false })).toBe(false);
     expect(windowClearOverNative({ ...base, nativeMultiView: true, nativeRenderer: false })).toBe(false);
+  });
+});
+
+describe('viewerPaintsBackground', () => {
+  it('paints the single view until a native frame shows the photograph', () => {
+    expect(viewerPaintsBackground({ nativeFrame: false, nativeMultiView: false })).toBe(true);
+    expect(viewerPaintsBackground({ nativeFrame: true, nativeMultiView: false })).toBe(false);
+  });
+
+  it("never covers the multi view's primary cell, which keeps its own native frame", () => {
+    expect(viewerPaintsBackground({ nativeFrame: false, nativeMultiView: true })).toBe(false);
   });
 });

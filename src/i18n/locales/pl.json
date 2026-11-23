@@ -2397,6 +2397,11 @@
       "imported_few": "Zaimportowano {{count}} zdjęcia (z edycją: {{withSettings}}, albumy: {{albums}})",
       "imported_many": "Zaimportowano {{count}} zdjęć (z edycją: {{withSettings}}, albumy: {{albums}})",
       "imported_other": "Zaimportowano {{count}} zdjęcia (z edycją: {{withSettings}}, albumy: {{albums}})",
+      "importEditsKept": "Zachowano edycje zmienione w Rawtonic; nowsze ustawienia trafiły do nowych kopii wirtualnych: {{n}}.",
+      "importEditsUpdated_one": "{{count}} edycja zaktualizowana (Cofnij ją przywraca)",
+      "importEditsUpdated_few": "{{count}} edycje zaktualizowane (Cofnij je przywraca)",
+      "importEditsUpdated_many": "{{count}} edycji zaktualizowanych (Cofnij je przywraca)",
+      "importEditsUpdated_other": "{{count}} edycji zaktualizowanej (Cofnij je przywraca)",
       "importNotFound_one": "nie znaleziono: {{count}}",
       "importNotFound_few": "nie znaleziono: {{count}}",
       "importNotFound_many": "nie znaleziono: {{count}}",
@@ -2408,6 +2413,7 @@
       "importStacks_many": "{{count}} stosów zaimportowanych",
       "importStacks_other": "{{count}} stosu zaimportowanego",
       "importUnconvertedSettings": "Zaimportowane edycje z ustawieniami, których nie udało się przekonwertować: {{n}}.",
+      "importUnsavedEdits": "Niektóre edycje nie są jeszcze zapisane ({{n}}). Zaimportuj ponownie, gdy zostaną zapisane, aby import ich nie nadpisał.",
       "importWarnings_one": "{{count}} zdjęcie zaimportowano z ostrzeżeniem. {{error}}",
       "importWarnings_few": "{{count}} zdjęcia zaimportowano z ostrzeżeniami. {{error}}",
       "importWarnings_many": "{{count}} zdjęć zaimportowano z ostrzeżeniami. {{error}}",
@@ -4037,13 +4043,13 @@
         "exporting": "Eksportowanie {{current}} z {{total}}"
       },
       "provenance": {
-        "about": "Zapisuje, z którego zdjęcia wywołano każdy plik, rodzaje edycji i każdy obszar utworzony przez model generatywny, podpisane Twoim certyfikatem. JPEG, PNG, TIFF, WebP i AVIF. Nic nie jest wysyłane.",
-        "add": "Podpisz manifest pochodzenia w każdym pliku",
+        "about": "Zapisuje, z którego zdjęcia wywołano każdy plik, rodzaje edycji i każdy obszar utworzony przez model generatywny, podpisane Twoim certyfikatem. JPEG, PNG, TIFF, WebP, AVIF i JPEG XL. Nic nie jest wysyłane. Osobne obrazy masek nie są podpisywane.",
+        "add": "Podpisz manifest pochodzenia w głównym pliku każdego eksportu",
         "author": "Podaj twórcę zdjęcia jako autora",
-        "blocked": "Pochodzenie (C2PA) nie może podpisać: {{recipes}}. Skonfiguruj ważny certyfikat podpisu i eksportuj JPEG, PNG, TIFF, WebP lub AVIF.",
+        "blocked": "Pochodzenie (C2PA) nie może podpisać: {{recipes}}. Skonfiguruj ważny certyfikat podpisu i eksportuj JPEG, PNG, TIFF, WebP, AVIF lub JPEG XL.",
         "certificateFilter": "Certyfikat PKCS#12",
         "expired": "Ten certyfikat nie jest teraz ważny (ważny do {{until}}): nie można nim podpisywać eksportów. Zaimportuj odnowiony certyfikat lub utwórz nowy.",
-        "formatUnsupported": "Pliki {{format}} nie mogą jeszcze zawierać manifestu pochodzenia. Wybierz JPEG, PNG, TIFF, WebP lub AVIF albo wyłącz opcję.",
+        "formatUnsupported": "Pliki {{format}} nie mogą jeszcze zawierać manifestu pochodzenia. Wybierz JPEG, PNG, TIFF, WebP, AVIF lub JPEG XL albo wyłącz opcję.",
         "generate": "Utwórz certyfikat na tym komputerze",
         "import": "Importuj własny certyfikat (.p12)…",
         "importConfirm": "Importuj",
@@ -4476,6 +4482,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Do informacji zdjęcia o obiektywie pasuje kilka obiektywów; wybierz swój:",
       "aria": {
         "make": "Producent obiektywu",
         "model": "Model obiektywu"
@@ -5075,6 +5082,18 @@
             "is": "jest bezpośrednio w",
             "isNot": "nie jest bezpośrednio w",
             "notContains": "nie jest w ani poniżej"
+          },
+          "name": {
+            "contains": "zawiera wszystkie słowa",
+            "containsAny": "zawiera dowolne ze słów",
+            "empty": "jest puste",
+            "endsWith": "kończy się na",
+            "is": "to",
+            "isNot": "to nie",
+            "notContains": "nie zawiera żadnego ze słów",
+            "notEmpty": "nie jest puste",
+            "startsWith": "zaczyna się od",
+            "words": "zawiera słowa"
           },
           "number": {
             "between": "jest między",
@@ -6223,6 +6242,7 @@
     "edit": "Edycja",
     "file": "Zmiana pliku",
     "flag": "Ustaw flagę",
+    "importEdits": "Zaimportowane edycje",
     "keywordAdd": "Dodaj słowo kluczowe „{{keyword}}”",
     "keywordConvert": "Przekształć słowo kluczowe",
     "keywordDelete": "Usuń słowo kluczowe",

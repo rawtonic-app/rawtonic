@@ -531,7 +531,7 @@ fn start(args: Vec<String>) {
                     }))
                     .unwrap_or_else(|_| {
                         log::error!("Loading the Lensfun database failed; lens profiles are unavailable.");
-                        lens_correction::LensDatabase { cameras: Vec::new(), lenses: Vec::new() }
+                        lens_correction::LensDatabase { cameras: Vec::new(), lenses: Vec::new(), mounts: Vec::new() }
                     });
                     lens_correction::set_global_lens_db(Arc::new(lens_db));
                 });

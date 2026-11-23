@@ -135,6 +135,10 @@ pub enum Op {
     ContainsAny,
     /// Text: no word is part of the field. Album/folder: not in it.
     NotContains,
+    /// Text of a name (camera, lens): every word is a whole word of the
+    /// field (words are separated by spaces; square brackets at the edge of a
+    /// word do not count), ignoring case. Lightroom's "contains words".
+    Words,
     /// Equal (text ignoring case; a keyword of the photograph; one of a
     /// list for flag, label, file type; a folder without its subfolders;
     /// a calendar day for dates; `true`/`false` for offline).
@@ -562,8 +566,51 @@ impl<'a> Compiler<'a> {
 
     /// A text column compared as a whole, ignoring case.
     fn text_column(&mut self, column: &str, op: Op, value: &Value) -> Result<String> {
+        self.text_column_of(column, op, value, false)
+    }
+
+    /// `text_column`; `name`: the text is a camera or lens name, in which a
+    /// word in square brackets is that word (`[IF]` is `IF`, as Lightroom
+    /// reads lens names).
+    fn text_column_of(
+        &mut self,
+        column: &str,
+        op: Op,
+        value: &Value,
+        name: bool,
+    ) -> Result<String> {
         let coalesced = format!("coalesce({column},'')");
         Ok(match op {
+            Op::Words => {
+                let words = words(value)?;
+                if words.is_empty() {
+                    return Ok("1".into());
+                }
+                let parts: Vec<String> = words
+                    .into_iter()
+                    .map(|word| {
+                        // A word is a whole space-separated word of the
+                        // field; in a name also one in square brackets
+                        // (`[IF]` is `IF`, not `[IF]`; `IMG[1]` is not `IMG1`).
+                        let whole = format!(
+                            "instr(' ' || rawtonic_fold({coalesced}) || ' ', ' ' || rawtonic_fold(?) || ' ') > 0"
+                        );
+                        if !name {
+                            self.push(word);
+                            return whole;
+                        }
+                        let bracketed = word.starts_with('[') && word.ends_with(']');
+                        self.push(word.clone());
+                        self.push(word);
+                        let plain = if bracketed { "0" } else { "1" };
+                        format!(
+                            "(({plain} AND {whole}) OR \
+                             instr(' ' || rawtonic_fold({coalesced}) || ' ', ' [' || rawtonic_fold(?) || '] ') > 0)"
+                        )
+                    })
+                    .collect();
+                format!("({})", parts.join(" AND "))
+            }
             Op::Contains | Op::ContainsAny | Op::NotContains => {
                 self.text_words(&coalesced, op, value)?
             }
@@ -795,9 +842,9 @@ impl<'a> Compiler<'a> {
                     value,
                 )
             }
-            Field::Camera => self.text_column("a.camera", op, value),
-            Field::Make => self.text_column("a.make", op, value),
-            Field::Lens => self.text_column("a.lens", op, value),
+            Field::Camera => self.text_column_of("a.camera", op, value, true),
+            Field::Make => self.text_column_of("a.make", op, value, true),
+            Field::Lens => self.text_column_of("a.lens", op, value, true),
             Field::Keyword => match op {
                 Op::Is | Op::IsNot => {
                     // A keyword and every keyword under it (`Animals` finds a

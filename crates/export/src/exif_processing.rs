@@ -17,6 +17,7 @@ use little_exif::ifd::ExifTagGroup;
 use little_exif::metadata::Metadata;
 use little_exif::rational::{iR64, uR64};
 use rawler::decoders::RawMetadata;
+use rawtonic_engine::lens_detect;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -658,6 +659,71 @@ pub fn extract_metadata(file_bytes: &[u8]) -> Option<HashMap<String, String>> {
     extract_metadata_with(file_bytes, &|| read_raw_metadata(file_bytes))
 }
 
+/// Whether an EXIF map of a RAW file (`path`) was read before the maker
+/// note's lens was looked for (`add_maker_note_lens`) where its EXIF lens
+/// name does not identify the lens: read again for lens detection.
+pub fn needs_maker_note_lens(path: &str, map: &HashMap<String, String>) -> bool {
+    is_raw_file(path)
+        && !map.contains_key(lens_detect::MAKER_NOTE_LENS_READ)
+        && !map
+            .get("LensModel")
+            .is_some_and(|name| lens_detect::identifies_lens(name))
+}
+
+/// `add_maker_note_lens` for an EXIF map cached before it existed
+/// (`needs_maker_note_lens`), from the file the caller holds as a shared
+/// buffer: only its maker note is read.
+pub fn add_maker_note_lens_from_shared(
+    map: &mut HashMap<String, String>,
+    file: std::sync::Arc<dyn AsRef<[u8]> + Send + Sync + std::panic::RefUnwindSafe>,
+) {
+    let raw_metadata =
+        || raw_metadata_of(&rawler::rawsource::RawSource::new_from_shared(file.clone()));
+    add_maker_note_lens(map, &raw_metadata);
+}
+
+/// The lens the maker note names (rawler's lens ID tables) where the EXIF
+/// tags do not identify it (`lens_detect::identifies_lens`): no LensModel
+/// (older bodies name the lens only in the maker note: Nikon's lens data,
+/// Canon's LensType) or a generic one ("24-70mm", third-party lenses on
+/// Canon). It goes to `LensCandidates` — the one lens, or the lenses an ID
+/// shared by several fits — a key for lens detection only: LensModel and
+/// LensMake stay the file's, so exported metadata does not change. A name
+/// that identifies the lens reads no maker note.
+fn add_maker_note_lens(
+    map: &mut HashMap<String, String>,
+    raw_metadata: &dyn Fn() -> Option<RawMetadata>,
+) {
+    if map
+        .get("LensModel")
+        .is_some_and(|name| lens_detect::identifies_lens(name))
+    {
+        return;
+    }
+    let Some(metadata) = raw_metadata() else {
+        return;
+    };
+    map.insert(
+        lens_detect::MAKER_NOTE_LENS_READ.to_string(),
+        "1".to_string(),
+    );
+    let names = match &metadata.lens {
+        Some(lens) => vec![lens.lens_name.trim().to_string()],
+        None => metadata
+            .lens_candidates
+            .iter()
+            .map(|lens| lens.lens_name.trim().to_string())
+            .collect(),
+    };
+    let names: Vec<String> = names.into_iter().filter(|n| !n.is_empty()).collect();
+    if !names.is_empty() {
+        map.insert(
+            lens_detect::LENS_CANDIDATES.to_string(),
+            names.join(lens_detect::LENS_CANDIDATES_SEPARATOR),
+        );
+    }
+}
+
 /// `extract_metadata` with the decoder's metadata from `raw_metadata`
 /// (read only when the EXIF tags do not suffice).
 fn extract_metadata_with(
@@ -803,6 +869,7 @@ fn extract_metadata_with(
     }
 
     if !map.is_empty() {
+        add_maker_note_lens(&mut map, raw_metadata);
         return Some(map);
     }
 
@@ -899,6 +966,21 @@ fn extract_metadata_with(
     if let Some(v) = exif.lens_serial_number {
         insert_if_present("LensSerialNumber", v);
     }
+
+    // The lenses an ambiguous maker-note lens ID fits (`add_maker_note_lens`).
+    let candidates: Vec<String> = metadata
+        .lens_candidates
+        .iter()
+        .map(|lens| lens.lens_name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect();
+    if metadata.lens.is_none() && !candidates.is_empty() {
+        insert_if_present(
+            lens_detect::LENS_CANDIDATES,
+            candidates.join(lens_detect::LENS_CANDIDATES_SEPARATOR),
+        );
+    }
+    insert_if_present(lens_detect::MAKER_NOTE_LENS_READ, "1".to_string());
 
     if let Some(lens_desc) = &metadata.lens {
         let focal_min = fmt_rat(&lens_desc.focal_range[0]);
@@ -1526,21 +1608,18 @@ pub fn export_rights(
     kept
 }
 
-/// A fresh rights-only packet. Do not copy source EXIF or source XMP: these
-/// may carry camera identifiers and locations. Catalog rights avoid any source
-/// read; otherwise inspect just Artist/Copyright in the cached map or source.
-fn stripped_export_metadata(
-    source: &str,
-    generated: bool,
+/// What a stripped export keeps of the library metadata `metadata`:
+/// creator, copyright and usage terms, and the creator contact details only
+/// with `keep_creator_contact`; nothing else (no rating, keywords, captions
+/// or location fields).
+pub fn stripped_metadata(
+    metadata: rawtonic_metadata::Metadata,
     keep_creator_contact: bool,
-    exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
-    catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
-) -> Option<ExportMetadata> {
-    let mut kept = export_rights(source, exif_sidecar, catalog);
-    kept = rawtonic_metadata::Metadata {
-        creator: kept.creator,
-        copyright: kept.copyright,
-        iptc: kept
+) -> rawtonic_metadata::Metadata {
+    rawtonic_metadata::Metadata {
+        creator: metadata.creator,
+        copyright: metadata.copyright,
+        iptc: metadata
             .iptc
             .into_iter()
             .filter(|(key, _)| {
@@ -1553,7 +1632,45 @@ fn stripped_export_metadata(
             })
             .collect(),
         ..Default::default()
-    };
+    }
+}
+
+/// The library metadata (`metadata`) an export with these settings writes
+/// into its file without generated areas (an Edit With render), so a
+/// library that registers the file holds no more than the file does: with
+/// `keep_metadata` all of it but the culling flag, which the export's XMP
+/// leaves out (`export_xmp_with_source`; GPS is EXIF, never part of it),
+/// else [`stripped_metadata`]; nothing for a format that embeds none.
+pub fn embedded_library_metadata(
+    output_format: &str,
+    keep_metadata: bool,
+    keep_creator_contact: bool,
+    mut metadata: rawtonic_metadata::Metadata,
+) -> Option<rawtonic_metadata::Metadata> {
+    if !embeds_metadata(output_format) {
+        None
+    } else if keep_metadata {
+        metadata.flag = 0;
+        Some(metadata)
+    } else {
+        Some(stripped_metadata(metadata, keep_creator_contact))
+    }
+}
+
+/// A fresh rights-only packet. Do not copy source EXIF or source XMP: these
+/// may carry camera identifiers and locations. Catalog rights avoid any source
+/// read; otherwise inspect just Artist/Copyright in the cached map or source.
+fn stripped_export_metadata(
+    source: &str,
+    generated: bool,
+    keep_creator_contact: bool,
+    exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
+    catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
+) -> Option<ExportMetadata> {
+    let kept = stripped_metadata(
+        export_rights(source, exif_sidecar, catalog),
+        keep_creator_contact,
+    );
     if kept.creator.trim().is_empty()
         && kept.copyright.trim().is_empty()
         && kept.iptc.values().all(|v| v.trim().is_empty())
@@ -2456,6 +2573,63 @@ mod tests {
     use super::exif_datetime;
 
     #[test]
+    fn what_a_library_registers_for_an_export_is_what_its_xmp_carries() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.jpg");
+        std::fs::write(&source, b"no exif").unwrap();
+        let library = rawtonic_metadata::Metadata {
+            rating: 4,
+            label: "Red".into(),
+            flag: 1,
+            creator: "Photographer".into(),
+            copyright: "All rights reserved".into(),
+            title: "Private title".into(),
+            description: "Private caption".into(),
+            keywords: vec!["Private keyword".into()],
+            iptc: [
+                ("creatorEmail".into(), "photo@example.invalid".into()),
+                ("usageTerms".into(), "Licensed use only".into()),
+                ("city".into(), "Private city".into()),
+                (
+                    "digitalSourceType".into(),
+                    "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture".into(),
+                ),
+            ]
+            .into(),
+            ..Default::default()
+        };
+        for (keep_metadata, contact) in [(true, false), (false, false), (false, true)] {
+            let catalog = || Some(library.clone());
+            let written = super::export_metadata_with(
+                source.to_str().unwrap(),
+                "tiff",
+                rawtonic_engine::output_color_space::OutputColorSpace::AdobeRgb,
+                keep_metadata,
+                true,
+                contact,
+                8,
+                8,
+                false,
+                &|| None,
+                &catalog,
+            )
+            .unwrap();
+            let (carried, _) = rawtonic_metadata::read_xmp(&written.xmp.unwrap()).unwrap();
+            let registered =
+                super::embedded_library_metadata("tiff", keep_metadata, contact, library.clone())
+                    .unwrap();
+            assert_eq!(
+                registered, carried,
+                "keep {keep_metadata}, contact {contact}"
+            );
+        }
+        assert_eq!(
+            super::embedded_library_metadata("dng", true, true, library),
+            None
+        );
+    }
+
+    #[test]
     fn stripped_export_keeps_rights_and_contacts_but_no_camera_or_location() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("photo.jpg");
@@ -2622,6 +2796,80 @@ mod tests {
             plain.is_none(),
             "nothing without metadata or generated areas"
         );
+    }
+
+    fn described_lens(make: &str, model: &str) -> rawler::lens::LensDescription {
+        use rawler::formats::tiff::Rational;
+        rawler::lens::LensDescription {
+            identifiers: rawler::lens::LensIdentifier {
+                name: None,
+                id: None,
+                nikon_id: None,
+                olympus_id: None,
+            },
+            mount: String::new(),
+            lens_make: make.into(),
+            lens_model: model.into(),
+            focal_range: [Rational::new(24, 1), Rational::new(70, 1)],
+            aperture_range: [Rational::new(28, 10), Rational::new(28, 10)],
+            lens_name: format!("{make} {model}"),
+        }
+    }
+
+    /// The maker note's lens where the EXIF tags name none (D800: Nikon's
+    /// lens data), the candidates of a shared lens ID where the EXIF name
+    /// states no aperture (EOS 650D, "24-70mm"), nothing read for a full
+    /// EXIF name.
+    #[test]
+    fn maker_note_lens_fills_what_exif_lacks() {
+        use rawtonic_engine::lens_detect::{LENS_CANDIDATES, MAKER_NOTE_LENS_READ};
+        let with_lens = || {
+            Some(RawMetadata {
+                lens: Some(described_lens(
+                    "Nikon",
+                    "AF-S Zoom-Nikkor 24-70mm f/2.8G ED",
+                )),
+                ..Default::default()
+            })
+        };
+        let mut d800 = HashMap::from([("Make".to_string(), "NIKON CORPORATION".to_string())]);
+        super::add_maker_note_lens(&mut d800, &with_lens);
+        assert_eq!(
+            d800[LENS_CANDIDATES],
+            "Nikon AF-S Zoom-Nikkor 24-70mm f/2.8G ED"
+        );
+        // Detection only: the exported LensModel/LensMake stay the file's.
+        assert!(!d800.contains_key("LensModel") && !d800.contains_key("LensMake"));
+        assert!(!super::needs_maker_note_lens("a.NEF", &d800));
+
+        let shared = || {
+            Some(RawMetadata {
+                lens_candidates: vec![
+                    described_lens("Sigma", "24-70mm f/2.8 IF EX DG HSM"),
+                    described_lens("Tamron", "SP 24-70mm f/2.8 Di VC USD"),
+                ],
+                ..Default::default()
+            })
+        };
+        let mut eos650d = HashMap::from([("LensModel".to_string(), "24-70mm".to_string())]);
+        assert!(super::needs_maker_note_lens("a.CR2", &eos650d));
+        super::add_maker_note_lens(&mut eos650d, &shared);
+        assert_eq!(eos650d["LensModel"], "24-70mm");
+        assert_eq!(
+            eos650d[LENS_CANDIDATES],
+            "Sigma 24-70mm f/2.8 IF EX DG HSM; Tamron SP 24-70mm f/2.8 Di VC USD"
+        );
+        assert_eq!(eos650d[MAKER_NOTE_LENS_READ], "1");
+
+        let mut named = HashMap::from([(
+            "LensModel".to_string(),
+            "EF-M 15-45mm f/3.5-6.3 IS STM".to_string(),
+        )]);
+        super::add_maker_note_lens(&mut named, &|| {
+            panic!("a full EXIF name reads no maker note")
+        });
+        assert_eq!(named.len(), 1);
+        assert!(!super::needs_maker_note_lens("a.CR3", &named));
     }
 
     /// A little-endian TIFF whose EXIF holds FocalLength 50 mm and, when

@@ -2166,6 +2166,9 @@
       "importCropsClipped_other": "{{count}} Freistellungen ragten über das Bildfeld der Kamera hinaus und wurden darauf beschnitten",
       "imported_one": "{{count}} Foto importiert ({{withSettings}} mit Bearbeitungen, Alben: {{albums}})",
       "imported_other": "{{count}} Fotos importiert ({{withSettings}} mit Bearbeitungen, Alben: {{albums}})",
+      "importEditsKept": "In Rawtonic geänderte Bearbeitungen behalten; die neueren Einstellungen kamen als neue virtuelle Kopien: {{n}}.",
+      "importEditsUpdated_one": "{{count}} Bearbeitung aktualisiert (Rückgängig stellt sie wieder her)",
+      "importEditsUpdated_other": "{{count}} Bearbeitungen aktualisiert (Rückgängig stellt sie wieder her)",
       "importNotFound_one": "{{count}} nicht gefunden",
       "importNotFound_other": "{{count}} nicht gefunden",
       "importSmartAlbumsByFacts": "Smart-Alben nach Kamera, Objektiv, ISO oder Aufnahmedatum füllen sich, während die Aufnahmedaten der Dateien gelesen werden; Kamera- und Objektivwörter können andere Fotos finden als in Lightroom: {{n}}.",
@@ -2173,6 +2176,7 @@
       "importStacks_one": "{{count}} Stapel importiert",
       "importStacks_other": "{{count}} Stapel importiert",
       "importUnconvertedSettings": "Importierte Bearbeitungen mit Einstellungen, die nicht konvertiert werden konnten: {{n}}.",
+      "importUnsavedEdits": "Einige Bearbeitungen sind noch nicht gespeichert ({{n}}). Importieren Sie erneut, sobald sie gespeichert sind, damit der Import sie nicht überschreibt.",
       "importWarnings_one": "{{count}} Foto wurde mit einer Warnung importiert. {{error}}",
       "importWarnings_other": "{{count}} Fotos wurden mit Warnungen importiert. {{error}}",
       "ingestCancelled": "Import abgebrochen",
@@ -3716,13 +3720,13 @@
         "exporting": "Export {{current}} von {{total}}"
       },
       "provenance": {
-        "about": "Hält fest, aus welchem Foto jede Datei entwickelt wurde, welche Arten von Bearbeitungen es gab und jeden Bereich, den ein generatives Modell erzeugt hat – signiert mit Ihrem Zertifikat. JPEG, PNG, TIFF, WebP und AVIF. Es wird nichts gesendet.",
-        "add": "Herkunftsnachweis in jede Datei signieren",
+        "about": "Hält fest, aus welchem Foto jede Datei entwickelt wurde, welche Arten von Bearbeitungen es gab und jeden Bereich, den ein generatives Modell erzeugt hat – signiert mit Ihrem Zertifikat. JPEG, PNG, TIFF, WebP, AVIF und JPEG XL. Es wird nichts gesendet. Separate Maskenbilder werden nicht signiert.",
+        "add": "Herkunftsnachweis in die Hauptdatei jedes Exports signieren",
         "author": "Urheber des Fotos als Autor nennen",
-        "blocked": "Der Herkunftsnachweis (C2PA) kann {{recipes}} nicht signieren: Richten Sie ein gültiges Signaturzertifikat ein und exportieren Sie JPEG, PNG, TIFF, WebP oder AVIF.",
+        "blocked": "Der Herkunftsnachweis (C2PA) kann {{recipes}} nicht signieren: Richten Sie ein gültiges Signaturzertifikat ein und exportieren Sie JPEG, PNG, TIFF, WebP, AVIF oder JPEG XL.",
         "certificateFilter": "PKCS#12-Zertifikat",
         "expired": "Dieses Zertifikat ist derzeit nicht gültig (gültig bis {{until}}): Exporte können damit nicht signiert werden. Importieren Sie ein erneuertes Zertifikat oder erstellen Sie ein neues.",
-        "formatUnsupported": "{{format}}-Dateien können noch keinen Herkunftsnachweis tragen. Wählen Sie JPEG, PNG, TIFF, WebP oder AVIF oder schalten Sie die Option aus.",
+        "formatUnsupported": "{{format}}-Dateien können noch keinen Herkunftsnachweis tragen. Wählen Sie JPEG, PNG, TIFF, WebP, AVIF oder JPEG XL oder schalten Sie die Option aus.",
         "generate": "Zertifikat auf diesem Computer erstellen",
         "import": "Eigenes Zertifikat importieren (.p12)…",
         "importConfirm": "Importieren",
@@ -4133,6 +4137,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Mehrere Objektive passen zu den Objektivangaben des Fotos; wähle deines:",
       "aria": {
         "make": "Objektivhersteller",
         "model": "Objektivmodell"
@@ -4682,6 +4687,18 @@
             "is": "ist direkt in",
             "isNot": "ist nicht direkt in",
             "notContains": "ist nicht in oder unter"
+          },
+          "name": {
+            "contains": "enthält alle Wörter",
+            "containsAny": "enthält eines der Wörter",
+            "empty": "ist leer",
+            "endsWith": "endet mit",
+            "is": "ist",
+            "isNot": "ist nicht",
+            "notContains": "enthält keines der Wörter",
+            "notEmpty": "ist nicht leer",
+            "startsWith": "beginnt mit",
+            "words": "enthält die ganzen Wörter"
           },
           "number": {
             "between": "liegt zwischen",
@@ -5780,6 +5797,7 @@
     "edit": "Bearbeitung",
     "file": "Dateiänderung",
     "flag": "Markierung festlegen",
+    "importEdits": "Importierte Bearbeitungen",
     "keywordAdd": "Stichwort „{{keyword}}“ hinzufügen",
     "keywordConvert": "Stichwort umwandeln",
     "keywordDelete": "Stichwort löschen",

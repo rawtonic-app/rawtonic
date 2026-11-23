@@ -2282,6 +2282,10 @@
       "imported_one": "{{count}} foto importata ({{withSettings}} con modifiche, album: {{albums}})",
       "imported_many": "{{count}} foto importate ({{withSettings}} con modifiche, album: {{albums}})",
       "imported_other": "{{count}} foto importate ({{withSettings}} con modifiche, album: {{albums}})",
+      "importEditsKept": "Modifiche cambiate in Rawtonic mantenute; le impostazioni più recenti sono arrivate come nuove copie virtuali: {{n}}.",
+      "importEditsUpdated_one": "{{count}} modifica aggiornata (Annulla la ripristina)",
+      "importEditsUpdated_many": "{{count}} modifiche aggiornate (Annulla le ripristina)",
+      "importEditsUpdated_other": "{{count}} modifiche aggiornate (Annulla le ripristina)",
       "importNotFound_one": "{{count}} non trovata",
       "importNotFound_many": "{{count}} non trovate",
       "importNotFound_other": "{{count}} non trovate",
@@ -2291,6 +2295,7 @@
       "importStacks_many": "{{count}} pile importate",
       "importStacks_other": "{{count}} pile importate",
       "importUnconvertedSettings": "Modifiche importate con impostazioni che non è stato possibile convertire: {{n}}.",
+      "importUnsavedEdits": "Alcune modifiche non sono ancora salvate ({{n}}). Importa di nuovo quando sono salvate, così l’importazione non le sovrascrive.",
       "importWarnings_one": "{{count}} foto è stata importata con un avviso. {{error}}",
       "importWarnings_many": "{{count}} foto sono state importate con avvisi. {{error}}",
       "importWarnings_other": "{{count}} foto sono state importate con avvisi. {{error}}",
@@ -3877,13 +3882,13 @@
         "exporting": "Esportazione {{current}} di {{total}}"
       },
       "provenance": {
-        "about": "Registra la foto da cui ogni file è stato sviluppato, i tipi di modifica e ogni area creata da un modello generativo, firmato con il tuo certificato. JPEG, PNG, TIFF, WebP e AVIF. Non viene inviato nulla.",
-        "add": "Firma un manifesto di provenienza in ogni file",
+        "about": "Registra la foto da cui ogni file è stato sviluppato, i tipi di modifica e ogni area creata da un modello generativo, firmato con il tuo certificato. JPEG, PNG, TIFF, WebP, AVIF e JPEG XL. Non viene inviato nulla. Le immagini di maschera separate non vengono firmate.",
+        "add": "Firma un manifesto di provenienza nel file principale di ogni esportazione",
         "author": "Indica il creatore della foto come autore",
-        "blocked": "La provenienza (C2PA) non può firmare {{recipes}}: imposta un certificato di firma valido ed esporta JPEG, PNG, TIFF, WebP o AVIF.",
+        "blocked": "La provenienza (C2PA) non può firmare {{recipes}}: imposta un certificato di firma valido ed esporta JPEG, PNG, TIFF, WebP, AVIF o JPEG XL.",
         "certificateFilter": "Certificato PKCS#12",
         "expired": "Questo certificato non è valido ora (valido fino al {{until}}): non è possibile firmare le esportazioni con esso. Importa un certificato rinnovato o creane uno nuovo.",
-        "formatUnsupported": "I file {{format}} non possono ancora contenere un manifesto di provenienza. Scegli JPEG, PNG, TIFF, WebP o AVIF, oppure disattiva l'opzione.",
+        "formatUnsupported": "I file {{format}} non possono ancora contenere un manifesto di provenienza. Scegli JPEG, PNG, TIFF, WebP, AVIF o JPEG XL, oppure disattiva l'opzione.",
         "generate": "Crea un certificato su questo computer",
         "import": "Importa il tuo certificato (.p12)…",
         "importConfirm": "Importa",
@@ -4305,6 +4310,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Diversi obiettivi corrispondono a ciò che la foto indica del suo obiettivo; scegli il tuo:",
       "aria": {
         "make": "Marca dell'obiettivo",
         "model": "Modello obiettivo"
@@ -4879,6 +4885,18 @@
             "is": "è direttamente in",
             "isNot": "non è direttamente in",
             "notContains": "non è in né sotto"
+          },
+          "name": {
+            "contains": "contiene tutte le parole",
+            "containsAny": "contiene una delle parole",
+            "empty": "è vuoto",
+            "endsWith": "finisce con",
+            "is": "è",
+            "isNot": "non è",
+            "notContains": "non contiene nessuna delle parole",
+            "notEmpty": "non è vuoto",
+            "startsWith": "inizia con",
+            "words": "contiene le parole"
           },
           "number": {
             "between": "è tra",
@@ -6002,6 +6020,7 @@
     "edit": "Modifica",
     "file": "Modifica file",
     "flag": "Imposta contrassegno",
+    "importEdits": "Modifiche importate",
     "keywordAdd": "Aggiungi la parola chiave «{{keyword}}»",
     "keywordConvert": "Converti parola chiave",
     "keywordDelete": "Elimina parola chiave",

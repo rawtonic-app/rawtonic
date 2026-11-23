@@ -242,6 +242,11 @@ pub struct RawMetadata {
   /// `Camera::canonical_model`); equal to `model` otherwise.
   pub canonical_model: String,
   pub lens: Option<LensDescription>,
+  /// Rawtonic patch (LNS1): without `lens`, the lenses the maker note's
+  /// lens ID fits when it cannot tell them apart (several lenses sharing a
+  /// Canon LensType); empty otherwise.
+  #[serde(default)]
+  pub lens_candidates: Vec<LensDescription>,
   pub unique_image_id: Option<u128>,
   pub rating: Option<u32>,
 }
@@ -265,6 +270,7 @@ impl RawMetadata {
       canonical_model: canonical_model(camera),
       unique_image_id: None,
       lens: None,
+      lens_candidates: Vec::new(),
       rating: None,
     }
   }
@@ -280,6 +286,7 @@ impl RawMetadata {
       canonical_model: canonical_model(camera),
       unique_image_id: None,
       lens,
+      lens_candidates: Vec::new(),
       rating: None,
     }
   }

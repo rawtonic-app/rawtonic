@@ -2282,6 +2282,10 @@
       "imported_one": "{{count}} foto importada ({{withSettings}} amb ajustaments, àlbums: {{albums}})",
       "imported_many": "{{count}} fotos importades ({{withSettings}} amb ajustaments, àlbums: {{albums}})",
       "imported_other": "{{count}} fotos importades ({{withSettings}} amb ajustaments, àlbums: {{albums}})",
+      "importEditsKept": "S’han conservat les edicions canviades a Rawtonic; els ajustos més recents han arribat com a noves còpies virtuals: {{n}}.",
+      "importEditsUpdated_one": "{{count}} edició actualitzada (Desfés la restableix)",
+      "importEditsUpdated_many": "{{count}} edicions actualitzades (Desfés les restableix)",
+      "importEditsUpdated_other": "{{count}} edicions actualitzades (Desfés les restableix)",
       "importNotFound_one": "{{count}} no trobada",
       "importNotFound_many": "{{count}} no trobades",
       "importNotFound_other": "{{count}} no trobades",
@@ -2291,6 +2295,7 @@
       "importStacks_many": "{{count}} piles importades",
       "importStacks_other": "{{count}} piles importades",
       "importUnconvertedSettings": "Edicions importades amb ajustos que no s’han pogut convertir: {{n}}.",
+      "importUnsavedEdits": "Algunes edicions encara no s’han desat ({{n}}). Torna a importar quan estiguin desades, perquè la importació no les sobreescrigui.",
       "importWarnings_one": "{{count}} foto s’ha importat amb un avís. {{error}}",
       "importWarnings_many": "{{count}} fotos s’han importat amb avisos. {{error}}",
       "importWarnings_other": "{{count}} fotos s’han importat amb avisos. {{error}}",
@@ -3877,13 +3882,13 @@
         "exporting": "S'està exportant {{current}} de {{total}}"
       },
       "provenance": {
-        "about": "Registra la foto de la qual s'ha revelat cada fitxer, els tipus d'edició i cada zona creada per un model generatiu, signat amb el vostre certificat. JPEG, PNG, TIFF, WebP i AVIF. No s'envia res.",
-        "add": "Signa un manifest de procedència a cada fitxer",
+        "about": "Registra la foto de la qual s'ha revelat cada fitxer, els tipus d'edició i cada zona creada per un model generatiu, signat amb el vostre certificat. JPEG, PNG, TIFF, WebP, AVIF i JPEG XL. No s'envia res. Les imatges de màscara separades no es signen.",
+        "add": "Signa un manifest de procedència al fitxer principal de cada exportació",
         "author": "Indica el creador de la foto com a autor",
-        "blocked": "La procedència (C2PA) no pot signar {{recipes}}: configureu un certificat de signatura vàlid i exporteu JPEG, PNG, TIFF, WebP o AVIF.",
+        "blocked": "La procedència (C2PA) no pot signar {{recipes}}: configureu un certificat de signatura vàlid i exporteu JPEG, PNG, TIFF, WebP, AVIF o JPEG XL.",
         "certificateFilter": "Certificat PKCS#12",
         "expired": "Aquest certificat no és vàlid ara (vàlid fins al {{until}}): no es poden signar exportacions amb ell. Importeu un certificat renovat o creeu-ne un de nou.",
-        "formatUnsupported": "Els fitxers {{format}} encara no poden portar un manifest de procedència. Trieu JPEG, PNG, TIFF, WebP o AVIF, o desactiveu l'opció.",
+        "formatUnsupported": "Els fitxers {{format}} encara no poden portar un manifest de procedència. Trieu JPEG, PNG, TIFF, WebP, AVIF o JPEG XL, o desactiveu l'opció.",
         "generate": "Crea un certificat en aquest ordinador",
         "import": "Importa el vostre certificat (.p12)…",
         "importConfirm": "Importa",
@@ -4305,6 +4310,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Diversos objectius encaixen amb el que la foto diu del seu objectiu; tria el teu:",
       "aria": {
         "make": "Marca de l'objectiu",
         "model": "Model d'objectiu"
@@ -4879,6 +4885,18 @@
             "is": "és directament a",
             "isNot": "no és directament a",
             "notContains": "no és a dins ni a sota de"
+          },
+          "name": {
+            "contains": "conté totes les paraules",
+            "containsAny": "conté alguna de les paraules",
+            "empty": "és buit",
+            "endsWith": "acaba en",
+            "is": "és",
+            "isNot": "no és",
+            "notContains": "no conté cap de les paraules",
+            "notEmpty": "no és buit",
+            "startsWith": "comença per",
+            "words": "conté les paraules"
           },
           "number": {
             "between": "és entre",
@@ -6002,6 +6020,7 @@
     "edit": "Edició",
     "file": "Canvi de fitxer",
     "flag": "Estableix la marca",
+    "importEdits": "Edicions importades",
     "keywordAdd": "Afegeix la paraula clau «{{keyword}}»",
     "keywordConvert": "Converteix la paraula clau",
     "keywordDelete": "Suprimeix la paraula clau",

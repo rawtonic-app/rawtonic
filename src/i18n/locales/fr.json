@@ -2282,6 +2282,10 @@
       "imported_one": "{{count}} photo importée ({{withSettings}} retouchées, albums : {{albums}})",
       "imported_many": "{{count}} photos importées ({{withSettings}} retouchées, albums : {{albums}})",
       "imported_other": "{{count}} photos importées ({{withSettings}} retouchées, albums : {{albums}})",
+      "importEditsKept": "Retouches modifiées dans Rawtonic conservées ; les réglages plus récents arrivent en nouvelles copies virtuelles : {{n}}.",
+      "importEditsUpdated_one": "{{count}} retouche mise à jour (Annuler la rétablit)",
+      "importEditsUpdated_many": "{{count}} retouches mises à jour (Annuler les rétablit)",
+      "importEditsUpdated_other": "{{count}} retouches mises à jour (Annuler les rétablit)",
       "importNotFound_one": "{{count}} introuvable",
       "importNotFound_many": "{{count}} introuvables",
       "importNotFound_other": "{{count}} introuvables",
@@ -2291,6 +2295,7 @@
       "importStacks_many": "{{count}} piles importées",
       "importStacks_other": "{{count}} piles importées",
       "importUnconvertedSettings": "Retouches importées avec des réglages qui n’ont pas pu être convertis : {{n}}.",
+      "importUnsavedEdits": "Certaines retouches ne sont pas encore enregistrées ({{n}}). Importez de nouveau une fois qu’elles le sont, pour que l’import ne les écrase pas.",
       "importWarnings_one": "{{count}} photo a été importée avec un avertissement. {{error}}",
       "importWarnings_many": "{{count}} photos ont été importées avec des avertissements. {{error}}",
       "importWarnings_other": "{{count}} photos ont été importées avec des avertissements. {{error}}",
@@ -3877,13 +3882,13 @@
         "exporting": "Exportation {{current}} sur {{total}}"
       },
       "provenance": {
-        "about": "Indique la photo dont chaque fichier a été développé, les types de retouches et chaque zone créée par un modèle génératif, signé avec votre certificat. JPEG, PNG, TIFF, WebP et AVIF. Rien n'est envoyé.",
-        "add": "Signer un manifeste de provenance dans chaque fichier",
+        "about": "Indique la photo dont chaque fichier a été développé, les types de retouches et chaque zone créée par un modèle génératif, signé avec votre certificat. JPEG, PNG, TIFF, WebP, AVIF et JPEG XL. Rien n'est envoyé. Les images de masque séparées ne sont pas signées.",
+        "add": "Signer un manifeste de provenance dans le fichier principal de chaque export",
         "author": "Nommer le créateur de la photo comme auteur",
-        "blocked": "La provenance (C2PA) ne peut pas signer {{recipes}} : configurez un certificat de signature valide et exportez en JPEG, PNG, TIFF, WebP ou AVIF.",
+        "blocked": "La provenance (C2PA) ne peut pas signer {{recipes}} : configurez un certificat de signature valide et exportez en JPEG, PNG, TIFF, WebP, AVIF ou JPEG XL.",
         "certificateFilter": "Certificat PKCS#12",
         "expired": "Ce certificat n'est pas valide actuellement (valide jusqu'au {{until}}) : les exports ne peuvent pas être signés avec. Importez un certificat renouvelé ou créez-en un nouveau.",
-        "formatUnsupported": "Les fichiers {{format}} ne peuvent pas encore porter de manifeste de provenance. Choisissez JPEG, PNG, TIFF, WebP ou AVIF, ou désactivez l'option.",
+        "formatUnsupported": "Les fichiers {{format}} ne peuvent pas encore porter de manifeste de provenance. Choisissez JPEG, PNG, TIFF, WebP, AVIF ou JPEG XL, ou désactivez l'option.",
         "generate": "Créer un certificat sur cet ordinateur",
         "import": "Importer votre certificat (.p12)…",
         "importConfirm": "Importer",
@@ -4305,6 +4310,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Plusieurs objectifs correspondent aux informations de la photo sur son objectif ; choisissez le vôtre :",
       "aria": {
         "make": "Marque de l'objectif",
         "model": "Modèle d'objectif"
@@ -4879,6 +4885,18 @@
             "is": "est directement dans",
             "isNot": "n’est pas directement dans",
             "notContains": "n’est ni dans ni sous"
+          },
+          "name": {
+            "contains": "contient tous les mots",
+            "containsAny": "contient l’un des mots",
+            "empty": "est vide",
+            "endsWith": "se termine par",
+            "is": "est",
+            "isNot": "n’est pas",
+            "notContains": "ne contient aucun des mots",
+            "notEmpty": "n’est pas vide",
+            "startsWith": "commence par",
+            "words": "contient les mots"
           },
           "number": {
             "between": "est entre",
@@ -6002,6 +6020,7 @@
     "edit": "Modification",
     "file": "Modification de fichier",
     "flag": "Définir le marqueur",
+    "importEdits": "Retouches importées",
     "keywordAdd": "Ajouter le mot-clé « {{keyword}} »",
     "keywordConvert": "Convertir le mot-clé",
     "keywordDelete": "Supprimer le mot-clé",

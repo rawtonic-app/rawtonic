@@ -2091,11 +2091,14 @@
       "importCopiesSkipped_other": "{{count}} 個虛擬副本未匯入",
       "importCropsClipped_other": "{{count}} 個裁切超出相機畫面，已收縮到畫面內",
       "imported_other": "已匯入 {{count}} 張照片（{{withSettings}} 張有調整，{{albums}} 個相簿）",
+      "importEditsKept": "保留了在 Rawtonic 中變更的編輯；較新的設定已作為新的虛擬副本匯入：{{n}}。",
+      "importEditsUpdated_other": "已將 {{count}} 項編輯更新（復原可還原）",
       "importNotFound_other": "{{count}} 張找不到",
       "importSmartAlbumsByFacts": "依相機、鏡頭、ISO 或拍攝日期建立的智慧相簿會隨檔案拍攝資料的讀取逐步填入，相機與鏡頭的詞可能比對到與 Lightroom 不同的照片：{{n}}。",
       "importSmartAlbumsSkipped": "因規則沒有對應項而略過的智慧型收藏夾：{{n}}。",
       "importStacks_other": "已匯入 {{count}} 個堆疊",
       "importUnconvertedSettings": "包含無法轉換的設定的已匯入編輯：{{n}} 個。",
+      "importUnsavedEdits": "有些編輯尚未儲存（{{n}}）。請在儲存後再次匯入，以免匯入覆寫它們。",
       "importWarnings_other": "{{count}} 張照片已匯入，但有警告。{{error}}",
       "ingestCancelled": "匯入已取消",
       "ingested_other": "已拷貝並驗證 {{count}} 張照片",
@@ -3613,13 +3616,13 @@
         "exporting": "正在匯出 {{current}}/{{total}}"
       },
       "provenance": {
-        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG、TIFF、WebP 與 AVIF。不會傳送任何內容。",
-        "add": "在每個檔案中簽署來源清單",
+        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG、TIFF、WebP、AVIF 與 JPEG XL。不會傳送任何內容。單獨輸出的遮罩影像不會被簽署。",
+        "add": "在每次輸出的主檔案中簽署來源清單",
         "author": "將相片的創作者列為作者",
-        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG、TIFF、WebP 或 AVIF。",
+        "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG、TIFF、WebP、AVIF 或 JPEG XL。",
         "certificateFilter": "PKCS#12 憑證",
         "expired": "此憑證目前無效（有效至 {{until}}）：無法用它為輸出簽署。請匯入更新的憑證或建立新的憑證。",
-        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG、TIFF、WebP 或 AVIF，或關閉此選項。",
+        "formatUnsupported": "{{format}} 檔案暫時無法攜帶來源清單。請選擇 JPEG、PNG、TIFF、WebP、AVIF 或 JPEG XL，或關閉此選項。",
         "generate": "在此電腦上建立憑證",
         "import": "匯入您的憑證 (.p12)…",
         "importConfirm": "匯入",
@@ -4019,6 +4022,7 @@
       }
     },
     "lens": {
+      "ambiguous": "有多個鏡頭符合此照片的鏡頭資訊；請選擇您的鏡頭：",
       "aria": {
         "make": "鏡頭品牌",
         "model": "鏡頭型號"
@@ -4550,6 +4554,18 @@
             "is": "直接位於",
             "isNot": "不直接位於",
             "notContains": "不位於其中或其下"
+          },
+          "name": {
+            "contains": "包含以下全部",
+            "containsAny": "包含以下任一",
+            "empty": "為空",
+            "endsWith": "結尾為",
+            "is": "為",
+            "isNot": "不為",
+            "notContains": "不包含以下任何",
+            "notEmpty": "不為空",
+            "startsWith": "開頭為",
+            "words": "包含這些詞"
           },
           "number": {
             "between": "介於",
@@ -5631,6 +5647,7 @@
     "edit": "編輯",
     "file": "檔案變更",
     "flag": "設定旗標",
+    "importEdits": "匯入的編輯",
     "keywordAdd": "新增關鍵字「{{keyword}}」",
     "keywordConvert": "轉換關鍵字",
     "keywordDelete": "刪除關鍵字",

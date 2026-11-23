@@ -72,9 +72,11 @@ pub(crate) fn load_sidecar_file(sidecar_path: &Path) -> ImageMetadata {
 pub fn load_sidecar_with_exif(sidecar_path: &Path, source_path: &Path) -> ImageMetadata {
     let mut meta = load_sidecar(sidecar_path);
 
-    if meta.exif.is_none() {
+    if let Some(exif) = meta.exif.take() {
+        meta.exif = Some(with_maker_note_lens(source_path, exif));
+    } else {
         if let Some(cached_exif) = read_rrexif_sidecar(source_path) {
-            meta.exif = Some(cached_exif);
+            meta.exif = Some(with_maker_note_lens(source_path, cached_exif));
         } else if crate::file_management::is_cloud_placeholder(source_path) {
             // An original that is only in the cloud is never opened for its
             // EXIF (macOS would download it): None, as for a missing file.
@@ -160,6 +162,31 @@ pub fn read_exif_data_mapped(path: &str, file: memmap2::Mmap) -> HashMap<String,
     })
 }
 
+/// An EXIF map cached (sidecar, EXIF cache) before the maker note's lens
+/// was read with it, of a RAW whose EXIF lens name does not identify the
+/// lens: the maker note's lens added now, so lens detection sees it
+/// (`needs_maker_note_lens`). Only the maker note is read; nothing is
+/// written back, and a cloud-only original is not opened.
+fn with_maker_note_lens(
+    source_path: &Path,
+    mut exif: HashMap<String, String>,
+) -> HashMap<String, String> {
+    if !rawtonic_export::exif_processing::needs_maker_note_lens(
+        &source_path.to_string_lossy(),
+        &exif,
+    ) || crate::file_management::is_cloud_placeholder(source_path)
+    {
+        return exif;
+    }
+    if let Ok(mmap) = crate::file_management::read_file_mapped(source_path) {
+        rawtonic_export::exif_processing::add_maker_note_lens_from_shared(
+            &mut exif,
+            std::sync::Arc::new(mmap),
+        );
+    }
+    exif
+}
+
 fn cached_exif_data(
     path: &str,
     read: impl FnOnce() -> HashMap<String, String>,
@@ -167,7 +194,7 @@ fn cached_exif_data(
     let source_path = Path::new(path);
 
     if let Some(cached_exif) = read_rrexif_sidecar(source_path) {
-        return cached_exif;
+        return with_maker_note_lens(source_path, cached_exif);
     }
 
     let exif_map = read();

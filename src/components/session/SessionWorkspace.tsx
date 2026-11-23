@@ -100,12 +100,15 @@ import { Status } from '../ui/ExportImportProperties';
 import { Trans, useTranslation } from 'react-i18next';
 import i18n from 'i18next';
 import { invokeInOrder } from '../../utils/catalogWrites';
+import { closeOpenPhotoForLibraryWrite, recipesChangedOutside } from '../../hooks/useEditorActions';
 import {
   catalogAction,
   followLibraryMove,
+  importedRecipesAction,
   showCullingChanges,
   useCatalogUndoStore,
-  type CullingChange
+  type CullingChange,
+  type RecipeSnapshot
 } from '../../utils/appUndo';
 import './session.css';
 import { noteTool } from '../contribute/usageStats';
@@ -417,6 +420,12 @@ interface ImportReport {
   stacks?: number;
   aiMasksOnOpen: number;
   warnings?: string[];
+  /** Edits a repeated import brought up to date (still as the last import
+   * left them): their recipes before and after, one Undo step. */
+  recipeChanges?: RecipeSnapshot[];
+  /** Edits changed here and in the other editor: kept, the other editor's
+   * settings came in as new virtual copies (one line each). */
+  editsKept?: string[];
   errors: string[];
 }
 
@@ -1203,6 +1212,13 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     setError('');
     try {
       noteTool('ingest');
+      // Edits made in Develop count as the photographer's before the import
+      // compares them, and no editor keeps a recipe it brings up to date.
+      const unsaved = await closeOpenPhotoForLibraryWrite();
+      if (unsaved) {
+        setError(t('session.toasts.importUnsavedEdits', { n: unsaved }));
+        return;
+      }
       const report = await invoke<ImportReport>(Invokes.LibraryImport, {
         source: importSource.trim(),
         directory: session.directory,
@@ -1219,6 +1235,9 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
           report.copies ? t('session.toasts.importCopies', { count: report.copies }) : null,
           report.copiesSkipped ? t('session.toasts.importCopiesSkipped', { count: report.copiesSkipped }) : null,
           report.stacks ? t('session.toasts.importStacks', { count: report.stacks }) : null,
+          report.recipeChanges?.length
+            ? t('session.toasts.importEditsUpdated', { count: report.recipeChanges.length })
+            : null,
           report.cropsClipped ? t('session.toasts.importCropsClipped', { count: report.cropsClipped }) : null,
           report.aiMasksOnOpen ? t('session.toasts.importAiMasksOnOpen', { count: report.aiMasksOnOpen }) : null
         ]
@@ -1226,6 +1245,13 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
           .join(' · '),
         { autoClose: 8000 }
       );
+      importedRecipesAction(report.recipeChanges ?? []);
+      await recipesChangedOutside((report.recipeChanges ?? []).map((change) => change.path));
+      if (report.editsKept?.length)
+        notify.warning(t('session.toasts.importEditsKept', { n: report.editsKept.length }), {
+          detail: report.editsKept.join('\n'),
+          autoClose: false
+        });
       if (report.warnings?.length)
         notify.warning(t('session.toasts.importUnconvertedSettings', { n: report.warnings.length }), {
           detail: report.warnings.join('\n'),

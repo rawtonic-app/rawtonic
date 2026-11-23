@@ -2091,11 +2091,14 @@
       "importCopiesSkipped_other": "仮想コピー {{count}} 件は読み込まれていません",
       "importCropsClipped_other": "切り抜き {{count}} 件がカメラの撮影範囲を超えていたため、その範囲に収めました",
       "imported_other": "{{count}} 枚の写真を読み込みました（補正あり {{withSettings}} 枚、アルバム {{albums}} 個）",
+      "importEditsKept": "Rawtonic で変更した編集はそのままです。新しい設定は新しい仮想コピーとして読み込みました: {{n}}。",
+      "importEditsUpdated_other": "{{count}} 件の編集を最新にしました（取り消すと元に戻ります）",
       "importNotFound_other": "{{count}} 枚が見つかりません",
       "importSmartAlbumsByFacts": "カメラ、レンズ、ISO、撮影日のスマートアルバムは、ファイルの撮影データを読み込むにつれて埋まります。カメラとレンズの語は Lightroom と異なる写真に一致することがあります: {{n}}。",
       "importSmartAlbumsSkipped": "対応するルールがないため省略したスマートコレクション: {{n}}。",
       "importStacks_other": "スタック {{count}} 件を読み込みました",
       "importUnconvertedSettings": "変換できなかった設定を含む読み込み済みの編集: {{n}} 件。",
+      "importUnsavedEdits": "保存されていない編集があります（{{n}}）。保存されてからもう一度読み込んでください。読み込みで上書きされないようにするためです。",
       "importWarnings_other": "{{count}} 枚の写真を警告付きで読み込みました。{{error}}",
       "ingestCancelled": "取り込みをキャンセルしました",
       "ingested_other": "{{count}} 枚の写真をコピーして検証しました",
@@ -3613,13 +3616,13 @@
         "exporting": "書き出し中 {{current}} / {{total}}"
       },
       "provenance": {
-        "about": "各ファイルの現像元の写真、編集の種類、生成モデルが作成したすべての領域を記録し、あなたの証明書で署名します。JPEG、PNG、TIFF、WebP、AVIF。何も送信されません。",
-        "add": "各ファイルに来歴マニフェストを署名して埋め込む",
+        "about": "各ファイルの現像元の写真、編集の種類、生成モデルが作成したすべての領域を記録し、あなたの証明書で署名します。JPEG、PNG、TIFF、WebP、AVIF、JPEG XL。何も送信されません。別ファイルのマスク画像には署名されません。",
+        "add": "各書き出しのメインファイルに来歴マニフェストを署名して埋め込む",
         "author": "写真の作成者を著者として記載",
-        "blocked": "来歴情報 (C2PA) は {{recipes}} に署名できません。有効な署名証明書を設定し、JPEG、PNG、TIFF、WebP、AVIF のいずれかで書き出してください。",
+        "blocked": "来歴情報 (C2PA) は {{recipes}} に署名できません。有効な署名証明書を設定し、JPEG、PNG、TIFF、WebP、AVIF、JPEG XL のいずれかで書き出してください。",
         "certificateFilter": "PKCS#12 証明書",
         "expired": "この証明書は現在有効ではありません (有効期限: {{until}})。この証明書では書き出しに署名できません。更新した証明書を読み込むか、新しく作成してください。",
-        "formatUnsupported": "{{format}} ファイルにはまだ来歴マニフェストを埋め込めません。JPEG、PNG、TIFF、WebP、AVIF のいずれかを選ぶか、このオプションをオフにしてください。",
+        "formatUnsupported": "{{format}} ファイルにはまだ来歴マニフェストを埋め込めません。JPEG、PNG、TIFF、WebP、AVIF、JPEG XL のいずれかを選ぶか、このオプションをオフにしてください。",
         "generate": "このコンピューターで証明書を作成",
         "import": "自分の証明書を読み込む (.p12)…",
         "importConfirm": "読み込む",
@@ -4019,6 +4022,7 @@
       }
     },
     "lens": {
+      "ambiguous": "写真のレンズ情報に合うレンズが複数あります。使用したレンズを選択してください:",
       "aria": {
         "make": "レンズメーカー",
         "model": "レンズモデル"
@@ -4550,6 +4554,18 @@
             "is": "次の直下にある",
             "isNot": "次の直下にない",
             "notContains": "次にもその下にもない"
+          },
+          "name": {
+            "contains": "次のすべてを含む",
+            "containsAny": "次のいずれかを含む",
+            "empty": "空",
+            "endsWith": "次で終わる",
+            "is": "次と等しい",
+            "isNot": "次と等しくない",
+            "notContains": "次のいずれも含まない",
+            "notEmpty": "空でない",
+            "startsWith": "次で始まる",
+            "words": "次の語を含む"
           },
           "number": {
             "between": "次の範囲内",
@@ -5631,6 +5647,7 @@
     "edit": "編集",
     "file": "ファイルの変更",
     "flag": "フラグの設定",
+    "importEdits": "読み込んだ編集",
     "keywordAdd": "キーワード「{{keyword}}」を追加",
     "keywordConvert": "キーワードを変換",
     "keywordDelete": "キーワードを削除",
