@@ -265,15 +265,15 @@ fn reference_state(p: &[f32], to_camera: &Matrix3<f32>) -> f32 {
 
 /// How much of a frame's pixel is dropped because it disagrees with a
 /// bright reference pixel (`ref_luma`, from `reference_state`; `luma` is
-/// the frame's in reference units): soft in the reference's brightness and
-/// in the disagreement (from `threshold_ev` to twice that, as `ghost_map`).
+/// the frame's in reference units) by more than `threshold_ev`: soft in the
+/// reference's brightness, whole in the disagreement, so it meets the
+/// clipped-reference rule (a frame darker than the clipping point is
+/// dropped whole) without a step where a reflection reaches saturation.
 fn bright_rejection(ref_luma: f32, luma: f32, threshold_ev: f32) -> f32 {
-    if ref_luma <= 0.0 || !threshold_ev.is_finite() {
+    if ref_luma <= 0.0 || (luma.max(1e-6) / ref_luma).log2().abs() <= threshold_ev {
         return 0.0;
     }
-    let d = (luma.max(1e-6) / ref_luma).log2().abs();
     smoothstep(0.5 * BRIGHT_REFERENCE, BRIGHT_REFERENCE, ref_luma)
-        * smoothstep(threshold_ev, 2.0 * threshold_ev, d)
 }
 
 fn max_filter(p: &Plane, radius: usize) -> Plane {
@@ -753,25 +753,24 @@ pub fn merge_hdr(
                         let r = bright_rejection(ref_px, luma(&p) * inv_ratio, ghost_ev);
                         // Counted as far as the pixel would have merged
                         // (a clipped pixel of a brighter frame is no loss).
-                        if r > 0.0 {
-                            if wgt > 0.0 {
-                                if rejected.is_empty() {
-                                    rejected = vec![0.0f32; lw];
-                                }
-                                rejected[(x * lw / wu).min(lw - 1)] += r * wgt;
+                        let coarse = ghost.as_ref().map_or(0.0, |g| {
+                            g.sample_bilinear(
+                                (x as f32 + 0.5) * fx - 0.5,
+                                (y as f32 + 0.5) * fy - 0.5,
+                            )
+                        });
+                        if r > 0.0 && wgt > 0.0 {
+                            // Both tests together, for the overlay.
+                            if rejected.is_empty() {
+                                rejected = vec![0.0f32; lw];
                             }
-                            if r >= 1.0 {
-                                continue;
-                            }
-                            wgt *= 1.0 - r;
+                            rejected[(x * lw / wu).min(lw - 1)] +=
+                                wgt * (1.0 - (1.0 - r) * (1.0 - coarse));
                         }
-                        if let Some(g) = &ghost {
-                            wgt *= 1.0
-                                - g.sample_bilinear(
-                                    (x as f32 + 0.5) * fx - 0.5,
-                                    (y as f32 + 0.5) * fy - 0.5,
-                                );
+                        if r >= 1.0 {
+                            continue;
                         }
+                        wgt *= (1.0 - r) * (1.0 - coarse);
                     }
                     let wgt = ratio * wgt.max(floor);
                     if wgt <= 0.0 {
@@ -786,7 +785,8 @@ pub fn merge_hdr(
             })
             .collect();
         // The ghost map as it acted: the coarse map, or the share of a
-        // low-res cell's usable weight the bright reference rejected.
+        // low-res cell's usable weight dropped where the bright reference
+        // test took part (both tests combined there).
         let ghost = ghost.map(|mut g| {
             let mut sums = Plane::new(lw, lh);
             for (y, row) in rejected.iter().enumerate() {
@@ -1059,8 +1059,9 @@ mod tests {
     }
 
     /// The bright-reference test fades in with the reference's brightness
-    /// and with the disagreement: no step where a smooth reflection crosses
-    /// the threshold, full rejection of a glint that moved.
+    /// (no step where a smooth reflection crosses `BRIGHT_REFERENCE`) and
+    /// drops a frame that disagrees whole, as the clipped-reference rule
+    /// does (no step where it reaches saturation).
     #[test]
     fn bright_rejection_is_continuous() {
         let t = Deghost::Medium.threshold_ev().unwrap();
@@ -1068,10 +1069,17 @@ mod tests {
         let below = bright_rejection(0.199, 0.199 * 0.74, t);
         let above = bright_rejection(0.201, 0.201 * 0.74, t);
         assert!((above - below).abs() < 0.01, "{below} {above}");
+        assert!(
+            above > 0.95,
+            "a 26 % darker frame at a bright reference: {above}"
+        );
         assert_eq!(bright_rejection(0.0, 0.05, t), 0.0);
         assert!(bright_rejection(0.11, 0.0, t) < 0.05);
         assert_eq!(bright_rejection(0.5, 0.05, t), 1.0);
         assert_eq!(bright_rejection(0.5, 0.5 * 1.05, t), 0.0);
         assert_eq!(bright_rejection(0.5, 0.05, f32::INFINITY), 0.0);
+        // Near saturation it drops a darker frame whole, as the clipped-
+        // reference rule does just above.
+        assert_eq!(bright_rejection(0.799, 0.799 * 0.74, t), 1.0);
     }
 }
