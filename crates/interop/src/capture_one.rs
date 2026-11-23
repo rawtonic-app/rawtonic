@@ -279,6 +279,7 @@ pub fn read(session_db: &Path) -> Result<Library> {
             } else {
                 Develop::CaptureOne(settings)
             },
+            lens: None,
             copy_of,
             copy_name: None,
             snapshots: Vec::new(),

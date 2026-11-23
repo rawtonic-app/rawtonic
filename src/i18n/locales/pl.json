@@ -5030,6 +5030,7 @@
           "keyword": "Słowo kluczowe",
           "label": "Etykieta koloru",
           "lens": "Obiektyw",
+          "lensImported": "Obiektyw (nazwa z zaimportowanego katalogu)",
           "make": "Producent aparatu",
           "offline": "Brakujące zdjęcie",
           "previousImport": "W poprzednim imporcie",
