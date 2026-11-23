@@ -1731,6 +1731,30 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                     supported = false;
                     continue;
                 }
+                // An eraser with Auto Mask erases only across the colours its
+                // dabs sit on, which one brush's erasers (they ignore Auto
+                // Mask) cannot do: such a group stays the separate stroke
+                // components of before (the eraser an Intersect with Invert,
+                // colour-gated like a brush). That cuts everything before
+                // it, so it is right only as the first component.
+                let gated_eraser = children.iter().any(|c| {
+                    let c = described(*c);
+                    c.attribute((CRS_NS, "MaskValue"))
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .is_some_and(|v| v <= 0.0)
+                        && lightroom_strokes(c).iter().any(|s| s["autoMask"] == true)
+                });
+                if gated_eraser {
+                    if !items.is_empty() || attr("MaskBlendMode").is_some_and(|b| b != "0") {
+                        supported = false;
+                        continue;
+                    }
+                    let active = attr("MaskActive") != Some("false");
+                    for child in children {
+                        items.push((described(child), active, None));
+                    }
+                    continue;
+                }
                 let mut strokes = Vec::new();
                 for child in children {
                     let child = described(child);
@@ -1744,12 +1768,7 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                         .clamp(0.0, 1.0);
                     let painted_strokes = lightroom_strokes(child);
                     // An unreadable active stroke is a partial mask: named.
-                    // An eraser with Auto Mask would erase across colour
-                    // edges here (the brush ignores Auto Mask for erasers):
-                    // left out and named, never imported wrong.
-                    if painted_strokes.is_empty()
-                        || (value <= 0.0 && painted_strokes.iter().any(|s| s["autoMask"] == true))
-                    {
+                    if painted_strokes.is_empty() {
                         supported = false;
                     }
                     for mut stroke in painted_strokes {
@@ -3441,14 +3460,31 @@ mod tests {
             1,
         );
         assert_eq!(subs_of(&mixed_children).len(), 2);
-        // An eraser with Auto Mask (the brush ignores it for erasers) and an
-        // active stroke without readable dabs are left out and named.
+        // An eraser with Auto Mask stays separate stroke components, the
+        // eraser an Intersect with Invert gated like a brush (as before),
+        // only as the first component; elsewhere it is left out and named.
         let auto_eraser = brush("0", "false").replace(
             "<rdf:li>d 0.63 0.50</rdf:li>",
             "<rdf:li>M 0.63 0.50</rdf:li>",
         );
-        let (layers, skipped) = super::lightroom_masks(&auto_eraser);
+        let subs = subs_of(&auto_eraser);
+        assert_eq!(subs.len(), 2);
+        assert_eq!(
+            (subs[1]["mode"].as_str(), subs[1]["invert"].as_bool()),
+            (Some("intersect"), Some(true))
+        );
+        assert_eq!(
+            subs[1]["parameters"]["lrNormalized"]["strokes"][0]["autoMask"],
+            json!(true)
+        );
+        let after_other = auto_eraser.replacen(
+            r#"<rdf:li><rdf:Description crs:What="Mask/Aggregate""#,
+            gradient,
+            1,
+        );
+        let (layers, skipped) = super::lightroom_masks(&after_other);
         assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
+        // An active stroke without readable dabs is named, not dropped.
         let no_dabs = brush("0", "false").replace("<rdf:li>d 0.63 0.50</rdf:li>", "");
         let (layers, skipped) = super::lightroom_masks(&no_dabs);
         assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
