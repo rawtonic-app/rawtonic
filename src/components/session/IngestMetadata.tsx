@@ -94,7 +94,11 @@ export default function IngestMetadata({
     const id = selected === 'new' ? crypto.randomUUID() : selected;
     const saved = { ...value, id, name: name.trim() };
     const next = selected === 'new' ? [...presets, saved] : presets.map((p) => (p.id === id ? saved : p));
-    if (await persist(next)) setSelected(id);
+    if (await persist(next)) {
+      setSelected(id);
+      // The form's value is the saved preset now (a watch started from it keeps its identity).
+      onChange(saved);
+    }
   };
   const field = (key: string, label: string) => {
     const id = `${prefix}-${key}`;

@@ -249,37 +249,20 @@ pub(crate) fn resolved(
 /// metadata.
 fn next_contents(
     lib: &Library,
-    source: &Path,
     settings: &CaptureSettings,
     previous: Option<&str>,
-) -> anyhow::Result<Option<Contents>> {
+) -> Option<Contents> {
     let adjustments = next_state(lib, &settings.next_capture, previous);
     let meta = &settings.metadata;
     if adjustments.is_none() && meta.is_empty() {
-        return Ok(None);
+        return None;
     }
-    let metadata = match &meta.import {
-        // The preset merges with what the file itself carries, as in an
-        // import; the keywords typed beside it join its own.
-        Some(import) => {
-            let (metadata, note) =
-                import
-                    .metadata
-                    .for_capture(source, meta.rating, &meta.keywords)?;
-            if let Some(note) = note {
-                log::warn!("Hot folder: {}: {note}", source.display());
-            }
-            Some(metadata)
-        }
-        None => (!meta.is_empty()).then(|| rawtonic_metadata::Metadata {
-            rating: meta.rating,
-            keywords: meta.keywords.clone(),
-            ..Default::default()
-        }),
-    };
+    // The import preset is merged in when the copy is recorded
+    // (`import_capture`), with the file's and its sidecar's metadata.
+    let typed = meta.rating != 0 || !meta.keywords.is_empty();
     // The editor marks keywords the user typed with `user:`.
     let tags: Vec<String> = meta.keywords.iter().map(|k| format!("user:{k}")).collect();
-    Ok(Some(Contents {
+    Some(Contents {
         editor_state: adjustments.map(|adjustments| {
             json!({
                 "version": crate::image_processing::ImageMetadata::default().version,
@@ -288,9 +271,13 @@ fn next_contents(
                 "adjustments": adjustments,
             })
         }),
-        metadata,
+        metadata: typed.then(|| rawtonic_metadata::Metadata {
+            rating: meta.rating,
+            keywords: meta.keywords.clone(),
+            ..Default::default()
+        }),
         ..Contents::default()
-    }))
+    })
 }
 
 /// Ingests one complete file with its next-capture adjustments and
@@ -309,25 +296,22 @@ pub fn ingest_capture(
     earlier: Option<&Path>,
     cancel: &AtomicBool,
 ) -> (Imported, Option<String>) {
-    let contents = match next_contents(lib, source, settings, previous) {
-        Ok(contents) => contents,
-        Err(e) => {
-            return (
-                Imported {
-                    source: source.into(),
-                    destination: None,
-                    skipped: false,
-                    error: Some(format!("{e:#}")),
-                },
-                None,
-            );
-        }
-    };
+    let preset = settings.metadata.import.as_ref().map(|p| &p.metadata);
+    let contents = next_contents(lib, settings, previous);
     let recorded = earlier.and_then(|copy| {
-        rawtonic_ingest::record_earlier_copy(lib, source, copy, contents.as_ref()).transpose()
+        rawtonic_ingest::record_earlier_copy(lib, source, copy, contents.as_ref(), preset)
+            .transpose()
     });
-    let mut result = match recorded.unwrap_or_else(|| {
-        rawtonic_ingest::import_capture(lib, source, template, sequence, contents.as_ref(), cancel)
+    let result = match recorded.unwrap_or_else(|| {
+        rawtonic_ingest::import_capture(
+            lib,
+            source,
+            template,
+            sequence,
+            contents.as_ref(),
+            preset,
+            cancel,
+        )
     }) {
         Ok(result) => result,
         Err(e) => {
@@ -342,21 +326,6 @@ pub fn ingest_capture(
             );
         }
     };
-    // A sidecar copied from beside the file replaces the metadata stored with
-    // the capture (it is adopted wholesale, `register_with_sidecar`): the
-    // preset then goes on top of it, by the import's rules, with the file
-    // the library holds.
-    if result.sidecar.is_some()
-        && result.error.is_none()
-        && !result.skipped
-        && let Some(import) = &settings.metadata.import
-        && let Err(e) =
-            rawtonic_ingest::metadata::apply_to_copy(lib, &mut result, &import.metadata, &|| {
-                Box::new(crate::session_bridge::write_turn())
-            })
-    {
-        log::warn!("Hot folder: import metadata of {}: {e:#}", source.display());
-    }
     let imported = Imported {
         source: source.into(),
         destination: result.destination.clone(),
@@ -1210,7 +1179,14 @@ mod tests {
                 metadata: NextCaptureMetadata {
                     rating: 3,
                     keywords: vec!["studio".into()],
-                    import: None,
+                    import: Some(MetadataPreset {
+                        id: String::new(),
+                        name: String::new(),
+                        metadata: rawtonic_ingest::metadata::ImportMetadata {
+                            creator: "Ada".into(),
+                            ..Default::default()
+                        },
+                    }),
                 },
             };
             let cancel = AtomicBool::new(false);
@@ -1250,6 +1226,7 @@ mod tests {
                     .unwrap();
             assert_eq!(sidecar["adjustments"]["contrast"], 12, "{table}");
             let meta = lib.metadata(&asset).unwrap();
+            assert_eq!(meta.creator, "Ada", "{table}");
             assert_eq!(
                 (meta.rating, meta.keywords),
                 (3, vec!["studio".to_string()])

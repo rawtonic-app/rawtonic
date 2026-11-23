@@ -112,27 +112,32 @@ impl ImportMetadata {
         }
     }
 
-    /// The metadata a captured photograph (hot folder, tether) is stored
-    /// with: what the file itself carries, then this preset by the import's
-    /// rules (fill-empty, `overwrite`, `{year}`), `keywords` typed beside it
-    /// and a `rating` of 1–5 (0 keeps the camera's). Reads `source` only.
-    /// The note says the keywords could not all be added (`merge`).
-    pub fn for_capture(
+    /// `contents` of a captured photograph with this preset merged in, as
+    /// the import merges it into a registered copy: the file's own
+    /// metadata (read from the verified copy `photo`), then this preset by
+    /// the import's rules (fill-empty, `overwrite`, `{year}`). `contents`
+    /// holds what the capture was given (rating, keywords) or, with
+    /// `adopted`, the metadata of its card sidecar, whose rating and flag
+    /// stay. The note says the keywords could not all be added (`merge`).
+    pub(crate) fn for_registration(
         &self,
+        photo: &Path,
         source: &Path,
-        rating: u8,
-        keywords: &[String],
-    ) -> Result<(Metadata, Option<String>)> {
-        let embedded = Self::embedded(source, source, None)?;
-        let mut metadata = Metadata {
-            keywords: keywords.to_vec(),
-            ..Metadata::default()
-        };
-        let note = self.merge(source, embedded, &mut metadata, false);
-        if rating > 0 {
-            metadata.rating = rating;
+        header: Option<rawtonic_naming::Capture>,
+        contents: Option<&rawtonic_catalog::Contents>,
+        adopted: bool,
+    ) -> Result<(rawtonic_catalog::Contents, Option<String>)> {
+        let embedded = Self::embedded(photo, source, header)?;
+        let mut contents = contents.cloned().unwrap_or_default();
+        let given = contents.metadata.take().unwrap_or_default();
+        let typed_rating = if adopted { 0 } else { given.rating };
+        let mut metadata = given;
+        let note = self.merge(source, embedded, &mut metadata, adopted);
+        if typed_rating > 0 {
+            metadata.rating = typed_rating;
         }
-        Ok((metadata, note))
+        contents.metadata = Some(metadata);
+        Ok((contents, note))
     }
 
     /// Whether this holds nothing but ratings: then only the rated
@@ -263,7 +268,7 @@ pub(crate) fn warn(result: &mut crate::ImportResult, note: String) {
 /// atomic XMP writer keep both sides recoverable if sidecar sync fails.
 /// Catalog errors are returned (the job stops and is resumed later); what
 /// the preset cannot add to this photograph is a warning on its result.
-pub fn apply_to_copy(
+pub(crate) fn apply_to_copy(
     library: &Library,
     result: &mut crate::ImportResult,
     preset: &ImportMetadata,

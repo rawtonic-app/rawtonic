@@ -251,6 +251,7 @@ pub fn run_job_in_turn(
             before_copy: Some(&record),
             read_ahead: Some(&read_ahead),
             leftovers_taken: Some(&leftovers_taken),
+            preset: None,
         };
         // A JPEG gone or changed since (the RAW still there) does not hold
         // its RAW back: the RAW comes in alone.

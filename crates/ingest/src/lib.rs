@@ -16,6 +16,7 @@ pub mod transfer;
 use crate::error::{bail, ensure};
 use anyhow::{Context, Result};
 use copy::Barrier;
+use metadata::ImportMetadata;
 use rawtonic_catalog::{Contents, Library};
 use rawtonic_fs::Canonical;
 use rawtonic_naming::{Context as NamingContext, render};
@@ -623,6 +624,7 @@ pub fn import_capture(
     template: &str,
     sequence: u64,
     contents: Option<&Contents>,
+    preset: Option<&ImportMetadata>,
     cancel: &AtomicBool,
 ) -> Result<ImportResult, IngestError> {
     let destination = destination_folder(library, None, &[])?;
@@ -635,6 +637,7 @@ pub fn import_capture(
         1,
         None,
         contents,
+        preset,
         cancel,
     )?)
 }
@@ -813,6 +816,7 @@ pub fn import_one_into(
         sequence_start,
         backup,
         None,
+        None,
         cancel,
     )?)
 }
@@ -827,6 +831,7 @@ fn import_one_into_with(
     sequence_start: u64,
     backup: Option<&Path>,
     contents: Option<&Contents>,
+    preset: Option<&ImportMetadata>,
     cancel: &AtomicBool,
 ) -> Result<ImportResult> {
     let options = ImportOptions {
@@ -839,6 +844,7 @@ fn import_one_into_with(
         before_copy: None,
         read_ahead: None,
         leftovers_taken: None,
+        preset,
     };
     Ok(import_pair(library, source, None, &options, contents, cancel)?.photo)
 }
@@ -866,6 +872,9 @@ pub(crate) struct ImportOptions<'a> {
     /// The leftovers this import removed are added here (the bytes a
     /// resumed job freed, its log, G66).
     pub leftovers_taken: Option<&'a std::sync::Mutex<rawtonic_fs::temp::Removed>>,
+    /// A capture's metadata preset (`import_capture`), merged with the file's
+    /// own and its sidecar's metadata when the copy is recorded.
+    pub preset: Option<&'a ImportMetadata>,
 }
 
 /// What importing a photograph with a companion did: the photograph's
@@ -992,6 +1001,7 @@ fn import_alone(
     let options = ImportOptions {
         earlier: None,
         before_copy: None,
+        preset: None,
         ..*options
     };
     import_pair(library, source, None, &options, None, cancel)
@@ -1439,6 +1449,7 @@ pub(crate) fn import_pair(
         backup_result,
         hash.as_deref(),
         contents,
+        options.preset,
         companion_name,
         copied_sidecar,
         warnings,
@@ -1492,17 +1503,20 @@ fn register_with_sidecar(
     backup: Option<PathBuf>,
     sha256: Option<&str>,
     contents: Option<&Contents>,
+    preset: Option<&ImportMetadata>,
     companion: Option<&str>,
     copied_sidecar: Option<Result<PathBuf>>,
     mut warnings: Vec<String>,
 ) -> ImportResult {
     let mut sidecar = None;
+    let mut sidecar_metadata = false;
     let mut merged = contents.cloned();
     if let Some(copied) = copied_sidecar {
         let adopted = copied.and_then(|copied| Ok((copied, Contents::read_sidecars(&photo)?)));
         match adopted {
             Ok((copied, read)) => {
                 sidecar = Some(copied);
+                sidecar_metadata = read.metadata.is_some();
                 merged = Some(match contents {
                     None => read,
                     // A capture's next-capture adjustments stay; the
@@ -1525,6 +1539,7 @@ fn register_with_sidecar(
         backup,
         sha256,
         merged.as_ref(),
+        preset.map(|preset| (preset, sidecar_metadata)),
         companion,
     );
     result.sidecar = sidecar;
@@ -1543,6 +1558,7 @@ pub fn record_earlier_copy(
     source: &Path,
     copy: &Path,
     contents: Option<&Contents>,
+    preset: Option<&ImportMetadata>,
 ) -> Result<Option<ImportResult>, IngestError> {
     let Ok(meta) = fs::symlink_metadata(copy) else {
         return Ok(None);
@@ -1566,6 +1582,7 @@ pub fn record_earlier_copy(
         None,
         None,
         contents,
+        preset.map(|preset| (preset, false)),
         None,
     )))
 }
@@ -1581,11 +1598,36 @@ fn register(
     backup: Option<PathBuf>,
     sha256: Option<&str>,
     contents: Option<&Contents>,
+    preset: Option<(&ImportMetadata, bool)>,
     companion: Option<&str>,
 ) -> ImportResult {
     // The copy's EXIF (its first megabyte; the copy was just verified) for
     // the library's search.
     let (facts, header) = capture::copy_header(&destination);
+    // The capture's preset over what the verified copy carries and what was
+    // adopted from its sidecar, stored in this same transaction.
+    let mut note = None;
+    let with_preset;
+    let mut contents = contents;
+    if let Some((preset, adopted)) = preset {
+        match preset.for_registration(&destination, source, header.clone(), contents, adopted) {
+            Ok((stored, keywords_note)) => {
+                note = keywords_note;
+                with_preset = stored;
+                contents = Some(&with_preset);
+            }
+            Err(error) => {
+                return ImportResult {
+                    source: source.into(),
+                    destination: Some(destination),
+                    backup,
+                    error: Some(format!("Import metadata could not be prepared: {error:#}")),
+                    header,
+                    ..Default::default()
+                };
+            }
+        }
+    }
     let registered = library
         .plan_add(&destination, contents.cloned().unwrap_or_default())
         .map(|planned| match facts {
@@ -1617,7 +1659,7 @@ fn register(
             )),
         ),
     };
-    ImportResult {
+    let mut result = ImportResult {
         source: source.into(),
         destination: Some(destination),
         backup,
@@ -1626,7 +1668,11 @@ fn register(
         skipped: false,
         header,
         ..Default::default()
+    };
+    if let Some(note) = note {
+        crate::metadata::warn(&mut result, note);
     }
+    result
 }
 
 #[cfg(test)]
@@ -1780,6 +1826,7 @@ mod tests {
                 "{orig}",
                 1,
                 Some(&contents),
+                None,
                 &AtomicBool::new(false),
             )
             .unwrap();
@@ -1790,7 +1837,7 @@ mod tests {
             assert!(lib.assets(None).unwrap().is_empty(), "{table}");
             assert_eq!(lib.previous_import().unwrap(), None, "{table}");
             lib.clear_write_failures().unwrap();
-            let r = record_earlier_copy(&lib, &source, &copy, Some(&contents))
+            let r = record_earlier_copy(&lib, &source, &copy, Some(&contents), None)
                 .unwrap()
                 .unwrap();
             let id = r.asset_id.unwrap();
