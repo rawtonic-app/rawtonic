@@ -109,7 +109,8 @@ const NOISE_FLOOR: f32 = 0.004;
 const CHANNEL_FLOOR: f32 = 0.1;
 /// Working luminance of the reference from which every other frame must
 /// agree with it pixel by pixel (about two stops below where the sensor
-/// starts to saturate): there the reference alone is clean, and a frame that
+/// starts to saturate; the test fades in from half of it, so a smooth
+/// reflection crossing it gets no contour): there the reference alone is clean, and a frame that
 /// shows something else (a sun glint that moved on rippling water) left
 /// dark rims and specks around the glints that the low-resolution ghost map
 /// is too coarse to catch (notes: benchmark-results/mrg2-2026-11-23).
@@ -259,7 +260,20 @@ fn reference_state(p: &[f32], to_camera: &Matrix3<f32>) -> f32 {
         return f32::INFINITY;
     }
     let l = luma(p);
-    if l >= BRIGHT_REFERENCE { l } else { 0.0 }
+    if l > 0.5 * BRIGHT_REFERENCE { l } else { 0.0 }
+}
+
+/// How much of a frame's pixel is dropped because it disagrees with a
+/// bright reference pixel (`ref_luma`, from `reference_state`; `luma` is
+/// the frame's in reference units): soft in the reference's brightness and
+/// in the disagreement (from `threshold_ev` to twice that, as `ghost_map`).
+fn bright_rejection(ref_luma: f32, luma: f32, threshold_ev: f32) -> f32 {
+    if ref_luma <= 0.0 || !threshold_ev.is_finite() {
+        return 0.0;
+    }
+    let d = (luma.max(1e-6) / ref_luma).log2().abs();
+    smoothstep(0.5 * BRIGHT_REFERENCE, BRIGHT_REFERENCE, ref_luma)
+        * smoothstep(threshold_ev, 2.0 * threshold_ev, d)
 }
 
 fn max_filter(p: &Plane, radius: usize) -> Plane {
@@ -696,12 +710,6 @@ pub fn merge_hdr(
             (Some(t), false) => Some(ghost_map(&low, &cons_rgb, &cons_den, ratio, t, noise_gain)),
             _ => None,
         };
-        let ghost_fraction = ghost.as_ref().map(|g| g.mean()).unwrap_or(0.0);
-        if let (Some(g), Some(union)) = (&ghost, &mut ghost_union) {
-            for (a, b) in union.data.iter_mut().zip(&g.data) {
-                *a = a.max(*b);
-            }
-        }
 
         // Accumulate (reference units).
         progress(&format!("Merging {}", name(&paths[index])));
@@ -716,10 +724,14 @@ pub fn merge_hdr(
         let ghost_ev = config.deghost.threshold_ev().unwrap_or(f32::INFINITY);
         let fx = lw as f32 / wu as f32;
         let fy = lh as f32 / hu as f32;
-        num.par_chunks_mut(wu * 3)
+        // Per row: the bright-reference rejections summed per low-res
+        // column, for the ghost overlay and the frame's ghost share.
+        let rejected: Vec<Vec<f32>> = num
+            .par_chunks_mut(wu * 3)
             .zip(den.par_chunks_mut(wu))
             .enumerate()
-            .for_each(|(y, (nrow, drow))| {
+            .map(|(y, (nrow, drow))| {
+                let mut rejected = Vec::new();
                 for x in 0..wu {
                     let Some(p) = view.at(x, y) else {
                         continue;
@@ -738,10 +750,20 @@ pub fn merge_hdr(
                             continue;
                         }
                     } else {
-                        if ref_px > 0.0
-                            && ((luma(&p) * inv_ratio).max(1e-6) / ref_px).log2().abs() > ghost_ev
-                        {
-                            continue;
+                        let r = bright_rejection(ref_px, luma(&p) * inv_ratio, ghost_ev);
+                        // Counted as far as the pixel would have merged
+                        // (a clipped pixel of a brighter frame is no loss).
+                        if r > 0.0 {
+                            if wgt > 0.0 {
+                                if rejected.is_empty() {
+                                    rejected = vec![0.0f32; lw];
+                                }
+                                rejected[(x * lw / wu).min(lw - 1)] += r * wgt;
+                            }
+                            if r >= 1.0 {
+                                continue;
+                            }
+                            wgt *= 1.0 - r;
                         }
                         if let Some(g) = &ghost {
                             wgt *= 1.0
@@ -760,7 +782,37 @@ pub fn merge_hdr(
                     nrow[x * 3 + 2] += wgt * p[2] * inv_ratio;
                     drow[x] += wgt;
                 }
-            });
+                rejected
+            })
+            .collect();
+        // The ghost map as it acted: the coarse map, or the share of a
+        // low-res cell's usable weight the bright reference rejected.
+        let ghost = ghost.map(|mut g| {
+            let mut sums = Plane::new(lw, lh);
+            for (y, row) in rejected.iter().enumerate() {
+                let ly = (y * lh / hu).min(lh - 1);
+                for (lx, v) in row.iter().enumerate() {
+                    sums.data[ly * lw + lx] += v;
+                }
+            }
+            for ly in 0..lh {
+                let rows = (ly * hu).div_ceil(lh)..((ly + 1) * hu).div_ceil(lh);
+                for lx in 0..lw {
+                    let cols = (lx * wu).div_ceil(lw)..((lx + 1) * wu).div_ceil(lw);
+                    let n = (rows.len() * cols.len()).max(1) as f32;
+                    let i = ly * lw + lx;
+                    g.data[i] = g.data[i].max((sums.data[i] / n).min(1.0));
+                }
+            }
+            g
+        });
+        drop(rejected);
+        let ghost_fraction = ghost.as_ref().map(|g| g.mean()).unwrap_or(0.0);
+        if let (Some(g), Some(union)) = (&ghost, &mut ghost_union) {
+            for (a, b) in union.data.iter_mut().zip(&g.data) {
+                *a = a.max(*b);
+            }
+        }
         // Consensus update at low resolution.
         for i in 0..lw * lh {
             let mut wgt = low.u.data[i];
@@ -1004,5 +1056,22 @@ mod tests {
         let l = reference_state(&[0.5, 0.5, 0.5], &id);
         assert!((l - 0.5).abs() < 1e-6);
         assert_eq!(reference_state(&[0.1, 0.1, 0.1], &id), 0.0);
+    }
+
+    /// The bright-reference test fades in with the reference's brightness
+    /// and with the disagreement: no step where a smooth reflection crosses
+    /// the threshold, full rejection of a glint that moved.
+    #[test]
+    fn bright_rejection_is_continuous() {
+        let t = Deghost::Medium.threshold_ev().unwrap();
+        // 26 % darker (0.43 EV) just below and just above BRIGHT_REFERENCE.
+        let below = bright_rejection(0.199, 0.199 * 0.74, t);
+        let above = bright_rejection(0.201, 0.201 * 0.74, t);
+        assert!((above - below).abs() < 0.01, "{below} {above}");
+        assert_eq!(bright_rejection(0.0, 0.05, t), 0.0);
+        assert!(bright_rejection(0.11, 0.0, t) < 0.05);
+        assert_eq!(bright_rejection(0.5, 0.05, t), 1.0);
+        assert_eq!(bright_rejection(0.5, 0.5 * 1.05, t), 0.0);
+        assert_eq!(bright_rejection(0.5, 0.05, f32::INFINITY), 0.0);
     }
 }
