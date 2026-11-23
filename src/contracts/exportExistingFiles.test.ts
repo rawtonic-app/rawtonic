@@ -7,13 +7,13 @@ import payloads from './exportExistingFiles.json';
 import { DEFAULT_RECIPE_DRAFT, EXISTING_FILES, exportSettingsFromDraft, presetFromDraft } from '../utils/exportRecipes';
 
 it('the form sends each choice as the Rust side reads it', () => {
-  expect(EXISTING_FILES).toEqual(['keepBoth', 'skip', 'replaceIfChanged']);
+  expect(EXISTING_FILES).toEqual(['keepBoth', 'ask', 'skip', 'replaceIfChanged']);
   EXISTING_FILES.forEach((existingFiles, i) => {
     expect(exportSettingsFromDraft({ ...DEFAULT_RECIPE_DRAFT, existingFiles }).settings).toEqual(payloads.settings[i]);
   });
 });
 
 it('a recipe saves the choice as the Rust side reads it', () => {
-  const preset = presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, existingFiles: 'replaceIfChanged' }, 'recipe-1', 'Web');
+  const preset = presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, existingFiles: 'ask' }, 'recipe-1', 'Web');
   expect(JSON.parse(JSON.stringify(preset))).toEqual(payloads.preset);
 });

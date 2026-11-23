@@ -43,6 +43,12 @@ pub fn persist(temp: NamedTempFile, path: &Path) -> io::Result<Persisted> {
     persist_with(temp, path, exclusive_rename, copy)
 }
 
+/// Publishes a synced temporary file under a new name in one step. Refuses
+/// volumes without exclusive rename or hard links. The caller syncs the folder.
+pub fn persist_atomic(temp: NamedTempFile, path: &Path) -> io::Result<()> {
+    exclusive_rename(temp, path).map_err(|e| e.error)
+}
+
 /// [`persist`] for a folder no other writer creates names in: without an
 /// exclusive rename, it checks the name is free and renames (atomic).
 pub fn persist_in_own_folder(temp: NamedTempFile, path: &Path) -> io::Result<Persisted> {

@@ -2271,13 +2271,30 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_virtual_copy_written_into_a_folder_that_cannot_be_read_is_saved() {
+        let temp = tempfile::tempdir().unwrap();
+        let (_, pinned) = relink_copy_saved_in_unreadable_folder(temp.path());
+        assert_eq!(
+            pinned.adjustments["exposure"], 1.5,
+            "the relinked copy's export pin"
+        );
+    }
+
+    #[cfg(unix)]
+    fn relink_copy_saved_in_unreadable_folder(
+        directory: &Path,
+    ) -> (std::path::PathBuf, crate::export_processing::PinnedPhoto) {
         use rawtonic_catalog::{Library, Mode};
         use std::os::unix::fs::PermissionsExt;
-        let temp = tempfile::tempdir().unwrap();
-        let lib = Library::create(temp.path(), "Unreadable folder", Mode::Session).unwrap();
-        let capture = temp.path().join("Capture");
-        let source = capture.join("a.jpg");
-        fs::write(&source, b"synthetic original").unwrap();
+        let lib = Library::create(directory, "Unreadable folder", Mode::Session).unwrap();
+        let capture = directory.join("Capture");
+        let source = capture.join("a.png");
+        let photo = image::RgbImage::from_pixel(32, 24, image::Rgb([72, 96, 120]));
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        photo
+            .write_to(&mut encoded, image::ImageFormat::Png)
+            .unwrap();
+        let original = encoded.into_inner();
+        rawtonic_fs::atomic_write(&source, &original).unwrap();
         let copy = format!("{}?vc=c0ffee", source.to_string_lossy());
         let paths = vec![copy.clone()];
         let edited = |exposure: f64| {
@@ -2310,7 +2327,63 @@ mod tests {
         assert!(edits.failures.is_empty(), "{edits:?}");
         assert_eq!(file, 1.5);
         assert_eq!(changes.len(), 1, "its undo step");
-        assert_eq!(fs::read(&source).unwrap(), b"synthetic original");
+
+        // Move only the photo. Relink must recreate the copy sidecar at
+        // the new location from the state saved in the catalog.
+        let relocated = directory.join("Selects/relocated.png");
+        rawtonic_fs::rename_no_clobber(&source, &relocated).unwrap();
+        lib.verify_paths().unwrap();
+        let report = lib.relink(&asset.id, &relocated, false).unwrap();
+        crate::session_bridge::after_relink(&lib, &report);
+        assert_eq!(fs::read(&relocated).unwrap(), original);
+
+        let copy = format!("{}?vc=c0ffee", relocated.display());
+        let mut pinned =
+            crate::export_processing::pin_photos(&[copy], None, None, Some(directory)).unwrap();
+        (relocated, pinned.remove(0))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "requires a GPU; run explicitly on native QA hosts"]
+    fn a_relinked_virtual_copy_exports_its_saved_edit() {
+        use rawtonic_export::file_export::{FileExport, FileExporter};
+        use rawtonic_export::output::Publish;
+
+        let temp = tempfile::tempdir().unwrap();
+        let (source, pinned) = relink_copy_saved_in_unreadable_folder(temp.path());
+        let exporter =
+            FileExporter::new(&Path::new(env!("CARGO_MANIFEST_DIR")).join("lensfun_db")).unwrap();
+        let export = |name: &str, recipe: Option<Value>| {
+            let output = temp.path().join(name);
+            exporter
+                .export(&FileExport {
+                    source: &source,
+                    output: &output,
+                    format: "png",
+                    recipe,
+                    settings: serde_json::from_value(serde_json::json!({
+                        "jpegQuality": 90, "keepMetadata": false, "stripGps": false
+                    }))
+                    .unwrap(),
+                    base: Default::default(),
+                    catalog: None,
+                    capture: None,
+                    library: Some(temp.path()),
+                    publish: Publish::New,
+                })
+                .unwrap();
+            image::open(output).unwrap().to_rgb8()
+        };
+
+        let actual = export("pinned.png", Some(pinned.adjustments));
+        let expected = export("direct.png", Some(serde_json::json!({"exposure": 1.5})));
+        let master = export("master.png", None);
+        assert_ne!(expected, master, "the edit must visibly change the export");
+        assert_eq!(
+            actual, expected,
+            "the relinked copy must export its saved edit"
+        );
     }
 
     fn successful_targets(

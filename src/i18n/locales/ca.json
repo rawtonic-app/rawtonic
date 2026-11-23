@@ -3746,6 +3746,28 @@
         "ratioHeight": "Alçada de la proporció",
         "ratioWidth": "Amplada de la proporció"
       },
+      "collision": {
+        "cancel": "Cancel·la",
+        "choice": {
+          "keepBoth": "Conserva tots dos",
+          "replaceIfChanged": "Substitueix si ha canviat",
+          "skip": "Omet"
+        },
+        "hint": {
+          "keepBoth": "Cada fitxer nou rep un nom nou. No se sobreescriu res.",
+          "replaceIfChanged": "Substitueix les teves pròpies exportacions que han canviat. Les que no han canviat s’ometen. Els altres fitxers es queden i el fitxer nou rep un nom nou.",
+          "skip": "Els fitxers existents es queden tal com són; aquestes fotos no tornen a exportar-se."
+        },
+        "intro": "Tria una vegada per a tota l'exportació.",
+        "kind": {
+          "changedOwn": "Exportació anterior, foto o ajustos canviats des d’aleshores: {{number}}",
+          "other": "Altres fitxers o exportacions amb fitxers de màscara (no se substitueixen): {{number}}",
+          "unchangedOwn": "Exportació anterior, sense canvis des d’aleshores: {{number}}"
+        },
+        "more": "i {{number}} més",
+        "originals": "D’aquests, fotos d’una biblioteca, mai substituïdes: {{number}}",
+        "title": "Ja hi ha fitxers amb aquests noms"
+      },
       "destination": {
         "aria": "Destinació de l'exportació",
         "choose": "Tria una carpeta…",
@@ -3756,11 +3778,13 @@
         },
         "existing": "Si un fitxer existeix",
         "existingChoice": {
+          "ask": "Pregunta",
           "keepBoth": "Conserva tots dos (nom nou)",
           "replaceIfChanged": "Substitueix si ha canviat",
           "skip": "Omet"
         },
         "existingHint": {
+          "ask": "Abans d'exportar, pregunta una vegada què fer si ja hi ha fitxers amb aquests noms. No es processa ni s'escriu res fins que responguis.",
           "keepBoth": "El fitxer nou rep un nom numerat; mai no se sobreescriu res.",
           "replaceIfChanged": "Substitueix l'exportació anterior de Rawtonic d'una foto amb aquest nom només si n'ha canviat l'edició o la configuració; les fotos sense canvis s'ometen. Qualsevol altre fitxer (originals, JPEG de la càmera, fitxers editats en un altre lloc) es conserva i el fitxer nou rep un nom numerat.",
           "skip": "Les fotos el fitxer de les quals ja existeix no s'exporten."
@@ -3785,10 +3809,12 @@
       },
       "errors": {
         "batchFailed": "{{failed}} de {{total}} exportacions han fallat",
+        "couldNotStart": "No s’ha pogut iniciar l’exportació. Torna a exportar.",
         "gpuDeviceLost": "No s’ha pogut processar aquesta foto en aquest xip gràfic: ha deixat de respondre (sense memòria). Tanca i torna a obrir Rawtonic i exporta de nou aquesta foto.",
         "gpuMemory": "No hi ha prou memòria gràfica per a aquesta foto. Tanca altres programes que facin servir la targeta gràfica i torna a exportar aquesta foto.",
         "gpuTooComplex": "Les edicions d’aquesta foto són massa complexes perquè el controlador d’aquest xip gràfic les exporti. Elimina algunes edicions (efectes, ajustos locals) i torna-la a exportar, o exporta-la en un altre ordinador.",
         "offline": "{{file}} està fora de línia: per exportar cal el fitxer RAW.",
+        "queuedByOlderVersion": "Aquesta exportació es va posar a la cua en una versió anterior de Rawtonic. Torna a exportar.",
         "terminated": "L'exportació s'ha aturat inesperadament.",
         "textureLimit": "La imatge ({{width}} × {{height}} px) és més gran del que aquesta targeta gràfica pot processar ({{limit}} px per costat).",
         "unreadableRequest": "No s'han pogut llegir els ajustos desats d'aquesta exportació.",

@@ -153,9 +153,11 @@ pub struct Job {
     pub kept_both: usize,
     /// The failed photos in job order, for the interface to list.
     pub failures: Vec<Failure>,
+    /// The job itself failed to run, even if some or all photos were done.
+    pub error: Option<String>,
 }
 
-const QUEUE_VERSION: u32 = 4;
+const QUEUE_VERSION: u32 = 5;
 
 pub struct ExportQueue {
     conn: Connection,
@@ -242,6 +244,19 @@ impl ExportQueue {
                 tx.execute_batch("ALTER TABLE items ADD COLUMN outcome TEXT;")?;
             }
             tx.execute_batch("PRAGMA user_version=4;")?;
+            tx.commit()?;
+        }
+        if version < 5 {
+            let tx = conn.unchecked_transaction()?;
+            let has_error: bool = tx.query_row(
+                "SELECT count(*) FROM pragma_table_info('jobs') WHERE name='error'",
+                [],
+                |r| r.get(0),
+            )?;
+            if !has_error {
+                tx.execute_batch("ALTER TABLE jobs ADD COLUMN error TEXT;")?;
+            }
+            tx.execute_batch("PRAGMA user_version=5;")?;
             tx.commit()?;
         }
         Ok(Self { conn })
@@ -457,7 +472,11 @@ impl ExportQueue {
              WHERE job_id=? AND state!='done'",
             params![error, now_ms(), job],
         )?;
-        self.set_state(job, JobState::Failed)
+        self.conn.execute(
+            "UPDATE jobs SET state='failed', error=? WHERE id=?",
+            params![error, job],
+        )?;
+        Ok(())
     }
 
     /// A photo's attempt begins (before its source is read): running, timed
@@ -659,7 +678,7 @@ impl ExportQueue {
         )?;
         // To the back of the queue.
         tx.execute(
-            "UPDATE jobs SET state='queued', seq=(SELECT max(seq)+1 FROM jobs) WHERE id=?",
+            "UPDATE jobs SET state='queued', error=NULL, seq=(SELECT max(seq)+1 FROM jobs) WHERE id=?",
             [job],
         )?;
         tx.commit()?;
@@ -735,12 +754,18 @@ impl ExportQueue {
     }
 
     pub fn job(&self, id: &str) -> Result<Job> {
-        let (label, state, request, created_at): (String, String, String, String) = self
+        let (label, state, request, created_at, error): (
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+        ) = self
             .conn
             .query_row(
-                "SELECT label,state,request,created_at FROM jobs WHERE id=?",
+                "SELECT label,state,request,created_at,error FROM jobs WHERE id=?",
                 [id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .optional()?
             .with_context(|| format!("No export job {id}"))?;
@@ -789,6 +814,7 @@ impl ExportQueue {
             replaced: replaced as usize,
             kept_both: kept_both as usize,
             failures,
+            error,
         })
     }
 
@@ -962,6 +988,10 @@ mod tests {
             failed.failures[0]
                 .error
                 .contains("could not start blocked export")
+        );
+        assert_eq!(
+            failed.error.as_deref(),
+            Some(failed.failures[0].error.as_str())
         );
         q.item_done(&next, 0).unwrap();
         assert_eq!(
@@ -1460,6 +1490,7 @@ mod tests {
             .unwrap();
         }
         let q = ExportQueue::open(&path).unwrap();
+        assert_eq!(q.job("j").unwrap().error, None);
         let item = &q.items("j").unwrap()[0];
         assert_eq!(q.item_snapshot("j", 0).unwrap(), None, "queued without one");
         assert_eq!(item.error.as_deref(), Some("decode failed"));

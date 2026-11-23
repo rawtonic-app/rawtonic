@@ -206,12 +206,18 @@ pub struct ColorNoiseView {
     /// Preview frames rendered so far (`note_frame`): a render input's frame
     /// follows only when none came after the one it was wanted for.
     frames: AtomicU64,
+    /// Frames nobody sees rendering now (`render_unseen`): a render input's
+    /// frame follows as if none came, and no shown marker is written.
+    hidden_frames: AtomicU64,
     /// Changes with every render input stored or dropped (`revision`).
     revision: AtomicU64,
     split_before: Mutex<Option<SplitBeforeRequest>>,
     /// The corrected base the last preview frame rendered from (`note_shown`),
     /// None when it rendered from its own base.
     shown: Mutex<Option<Weak<DynamicImage>>>,
+    /// On integrated GPUs, the last build's uploaded input for the next
+    /// build of the same photograph and geometry (`on_gpu`).
+    kept_input: rawtonic_gpu::gpu_processing::color_noise_view::KeptInput,
 }
 
 /// Keeps `item` last in `list` of at most [`KEPT`], dropping the oldest.
@@ -227,6 +233,7 @@ impl ColorNoiseView {
     pub fn clear(&self) {
         lock_recover(&self.inputs).clear();
         lock_recover(&self.corrected).clear();
+        self.kept_input.clear();
         self.revision.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -287,44 +294,107 @@ impl ColorNoiseView {
     }
 
     /// Counts a preview frame of the open photograph (every frame, a drag's
-    /// too) and returns its number.
+    /// too) and returns its number. A frame nobody sees is not one.
     pub(crate) fn note_frame(&self) -> u64 {
+        if UNSEEN.with(|unseen| unseen.get()) {
+            return self.frames.load(Ordering::SeqCst);
+        }
         self.frames.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Renders a frame nobody sees (Linux's drag-draft warm-up) with
+    /// `render`, on a thread of its own: the frame ends with that render,
+    /// whatever the job it submits does (and gives way) in between, so the
+    /// next warm-up finds none.
+    pub(crate) fn render_unseen<T: Send>(&self, render: impl FnOnce() -> T + Send) -> T {
+        let frames = &self.hidden_frames;
+        std::thread::scope(|scope| {
+            let render =
+                rawtonic_runtime::spawn_scoped_render_thread(scope, "draft-warmup", move || {
+                    let _unseen = HiddenFrame::new(frames);
+                    render()
+                });
+            render
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+        })
+    }
+
+    /// Whether a frame nobody sees renders now (on any thread).
+    pub(crate) fn any_hidden(&self) -> bool {
+        self.hidden_frames.load(Ordering::SeqCst) > 0
     }
 
     /// What the preview frame being rendered now renders from: `corrected`
     /// (from [`corrected_base`]) or its own base (None). Probes of the
-    /// shown frame follow it ([`shown_corrected_base`]).
+    /// shown frame follow it ([`shown_corrected_base`]); a frame nobody sees
+    /// writes no marker.
     pub(crate) fn note_shown(&self, corrected: Option<&Arc<DynamicImage>>) {
+        if self.any_hidden() {
+            return;
+        }
         *lock_recover(&self.shown) = corrected.map(Arc::downgrade);
     }
 
-    /// What [`note_shown`](Self::note_shown) last recorded, to put back
-    /// after a render nobody sees ([`restore_shown`](Self::restore_shown)).
+    /// What [`note_shown`](Self::note_shown) last recorded: the shown
+    /// frame's base, never one a frame nobody sees wrote (it writes none).
     pub(crate) fn shown_mark(&self) -> Option<Weak<DynamicImage>> {
         lock_recover(&self.shown).clone()
     }
 
-    /// Puts back the record of [`shown_mark`](Self::shown_mark): a render
-    /// nobody sees (Linux's drag-draft warm-up) leaves the shown frame's
-    /// base the one probes sample.
-    pub(crate) fn restore_shown(&self, mark: Option<Weak<DynamicImage>>) {
-        *lock_recover(&self.shown) = mark;
+    /// Runs one pick pass with the shown frame's marker taken once for it;
+    /// None when a shown frame changed the marker meanwhile, so the caller
+    /// runs the pass again from the new frame's base. A frame nobody sees
+    /// never changes it, so a pick during one samples the shown frame's base.
+    pub(crate) fn with_shown_mark<T>(
+        &self,
+        pass: impl FnOnce(Option<Weak<DynamicImage>>) -> T,
+    ) -> Option<T> {
+        let mark = self.shown_mark();
+        let out = pass(mark.clone());
+        let same = match (&mark, &self.shown_mark()) {
+            (Some(a), Some(b)) => Weak::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        same.then_some(out)
     }
 
     /// The number of the last frame noted.
+    #[cfg(test)]
     pub(crate) fn frames_noted(&self) -> u64 {
         self.frames.load(Ordering::SeqCst)
     }
+}
 
-    /// Takes back the one frame noted after `before` (`frames_noted`): a
-    /// render nobody sees (Linux's drag-draft warm-up,
-    /// `editor_preview::warm_draft_source`) leaves the frame before it the
-    /// latest. Nothing when no frame or more than one came.
-    pub(crate) fn forget_frame(&self, before: u64) {
-        let _ =
-            self.frames
-                .compare_exchange(before + 1, before, Ordering::SeqCst, Ordering::SeqCst);
+thread_local! {
+    /// A frame nobody sees renders on this thread (`HiddenFrame`).
+    static UNSEEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A frame nobody sees rendering (`ColorNoiseView::render_unseen`), until it
+/// drops: it counts as no frame (`note_frame`) and writes no shown marker
+/// (`note_shown`).
+struct HiddenFrame<'a> {
+    frames: &'a AtomicU64,
+}
+
+impl HiddenFrame<'_> {
+    fn new(frames: &AtomicU64) -> HiddenFrame<'_> {
+        assert!(
+            !UNSEEN.with(|unseen| unseen.get()),
+            "one frame nobody sees per thread"
+        );
+        UNSEEN.with(|unseen| unseen.set(true));
+        frames.fetch_add(1, Ordering::SeqCst);
+        HiddenFrame { frames }
+    }
+}
+
+impl Drop for HiddenFrame<'_> {
+    fn drop(&mut self) {
+        UNSEEN.with(|unseen| unseen.set(false));
+        self.frames.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -462,8 +532,9 @@ pub(crate) fn corrected_base(
 /// The corrected base the last preview frame of `base` rendered from for
 /// this colour noise setting (a settled fit frame; `note_shown`), if it
 /// did: what probes of the shown frame (the Levels pickers) render from,
-/// at Color 0. None after a frame from its own base (a zoomed region, a
-/// drag). Looks up only; never wants or builds one.
+/// at Color 0. `shown` is the marker the pick went on
+/// ([`ColorNoiseView::with_shown_mark`]); None after a frame from its own base
+/// (a zoomed region, a drag). Looks up only; never wants or builds one.
 pub(crate) fn shown_corrected_base(
     view: &ColorNoiseView,
     adjustments: &AllAdjustments,
@@ -471,6 +542,7 @@ pub(crate) fn shown_corrected_base(
     source: &Arc<DynamicImage>,
     is_raw: bool,
     base: &Arc<DynamicImage>,
+    shown: &Weak<DynamicImage>,
 ) -> Option<Arc<DynamicImage>> {
     if !enabled() || !applies(adjustments, recipe, is_raw) {
         return None;
@@ -482,14 +554,13 @@ pub(crate) fn shown_corrected_base(
         .filter(|c| Weak::ptr_eq(&c.source, &source) && c.key == key)
         .map(|c| Arc::downgrade(&c.input))
         .collect();
-    let shown = lock_recover(&view.shown).clone()?;
     let base = Arc::downgrade(base);
     lock_recover(&view.corrected)
         .iter()
         .find(|c| {
             Weak::ptr_eq(&c.base, &base)
                 && inputs.iter().any(|i| Weak::ptr_eq(&c.input, i))
-                && Weak::ptr_eq(&Arc::downgrade(&c.image), &shown)
+                && Weak::ptr_eq(&Arc::downgrade(&c.image), shown)
         })
         .map(|c| Arc::clone(&c.image))
 }
@@ -591,16 +662,62 @@ fn pool() -> &'static rayon::ThreadPool {
 /// bandwidth and is no Radeon 680M: the 1 s guard decides there.
 const APPLE_SILICON: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
 
-/// The GPU build of `wanted`'s render input and when it started (after the
-/// pass's pipelines are ready: their compile is no build's time); None when
-/// a newer frame came meanwhile (`stop`; its final frame wants again),
-/// for recipes the GPU pass does not take and on errors (logged).
+/// A GPU build's render input, when it started (after the pass's
+/// pipelines are ready: their compile is no build's time) and whether its
+/// time counts for the guard.
+struct GpuBuild {
+    input: Rgb32FImage,
+    started: std::time::Instant,
+    timed: bool,
+}
+
+/// The key of `wanted`'s uploaded input: its photograph and geometry.
+fn kept_key(wanted: &Wanted) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    wanted.path.hash(&mut hasher);
+    (Weak::as_ptr(&wanted.source) as usize).hash(&mut hasher);
+    wanted.key.geometry.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Whether a build of `needed` bytes fits what the app may still take
+/// (`memory_pressure::work_headroom`); logs when it does not.
+fn fits_headroom(needed: u64) -> bool {
+    let room = crate::memory_pressure::work_headroom();
+    let fits = room.is_some_and(|room| needed <= room);
+    if !fits {
+        log::info!(
+            "Colour noise view: not built, {} MB wanted, room {:?} MB",
+            needed >> 20,
+            room.map(|r| r >> 20)
+        );
+    }
+    fits
+}
+
+/// The GPU build of `wanted`'s render input; None when a newer frame came
+/// meanwhile (`stop`; its final frame wants again), when an integrated
+/// GPU's memory has no room for it, for recipes the GPU pass does not take
+/// and on errors (logged).
+///
+/// On an integrated GPU (outside Apple silicon) or under a compile limit
+/// the graphics memory is the machine's own: there a build runs only when
+/// its memory (`color_noise_view::transient_bytes`) fits what the app may
+/// still take (`memory_pressure::work_headroom`), and its uploaded input is
+/// kept for the next build of the photograph and geometry, so that typed
+/// Color, Detail and Smoothness changes skip the upload, the build's
+/// largest part (a Radeon 680M laptop: 1.9–2.9 s and +1.07–1.68 GB of
+/// private memory per build with the upload, WTPX5B; notes:
+/// benchmark-results/tpx8-2026-11-22/REPORT.md). The build with the upload
+/// that is then kept does not count for the 1 s guard there: the changes
+/// after it do (photographs too large to keep count every build).
 fn on_gpu(
     app: &tauri::AppHandle,
     source: &Arc<DynamicImage>,
     wanted: &Wanted,
     stop: &(dyn Fn() -> bool + Sync),
-) -> Option<(Option<Rgb32FImage>, std::time::Instant)> {
+) -> Option<GpuBuild> {
     use rawtonic_gpu::gpu_processing::color_noise_view;
     let gpu = app.state::<crate::state::gpu::GpuState>();
     let integrated = lock_recover(&gpu.adapter)
@@ -608,14 +725,14 @@ fn on_gpu(
         .is_some_and(|(_, adapter)| {
             adapter.get_info().device_type == wgpu::DeviceType::IntegratedGpu
         });
-    if (integrated && !APPLE_SILICON) || rawtonic_gpu::gpu_processing::compiles_limited() {
-        // On a Radeon 680M laptop (integrated, compile limit) the GPU build
-        // took 1.9–2.9 s on opening a 24 MP photo and 0.86–1.12 s per typed
-        // change, with +1.07–1.68 GB of private memory (WTPX5B): over the
-        // bar from the first build, so it never runs there; an RTX 3080
-        // takes 0.5–0.6 s with the warp and edge-fringe pass (G17/TPX7).
-        TOO_SLOW.store(true, Ordering::Relaxed);
-        log::info!("Colour noise view: off on this GPU (integrated or compile-limited)");
+    let shared_memory =
+        (integrated && !APPLE_SILICON) || rawtonic_gpu::gpu_processing::compiles_limited();
+    let develop = app.state::<crate::state::develop::DevelopSession>();
+    let kept = &develop.color_noise_view.kept_input;
+    let key = kept_key(wanted);
+    let uploads = !shared_memory || !kept.holds(key);
+    let needed = color_noise_view::transient_bytes(source.width(), source.height(), uploads);
+    if shared_memory && !fits_headroom(needed) {
         return None;
     }
     let context = crate::gpu_processing::get_or_init_gpu_context(&gpu, app)
@@ -632,6 +749,10 @@ fn on_gpu(
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
+    // Again after the waits: an export may have started meanwhile.
+    if shared_memory && !fits_headroom(needed) {
+        return None;
+    }
     let started = std::time::Instant::now();
     let input = color_noise_view::reduced_render_input(
         &context,
@@ -641,10 +762,21 @@ fn on_gpu(
         wanted.dims,
         stop,
         &|work| pool().install(work),
+        // Budgeted for a build from the kept upload: none if it went
+        // meanwhile (a memory release); the next frame wants again.
+        shared_memory.then_some((kept, key, !uploads)),
     )
     .inspect_err(|e| log::warn!("Colour noise view: GPU build failed: {e}"))
     .ok()??;
-    Some((Some(input), started))
+    Some(GpuBuild {
+        input,
+        started,
+        // A build whose upload is kept is the photograph's first; one too
+        // large to keep uploads every time and counts.
+        timed: !(shared_memory
+            && uploads
+            && color_noise_view::keeps_input_of(source.width(), source.height())),
+    })
 }
 
 fn build(app: &tauri::AppHandle, wanted: Wanted) {
@@ -664,26 +796,31 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
         return;
     };
     let (w, h) = wanted.dims;
-    let Some((input, started)) = on_gpu(app, &source, &wanted, &|| !current(&wanted.frame)) else {
+    let Some(GpuBuild {
+        input,
+        started,
+        timed,
+    }) = on_gpu(app, &source, &wanted, &|| !current(&wanted.frame))
+    else {
         return;
     };
     log::info!(
-        "Colour noise view: render input of {}x{} at {}x{} in {:.0} ms",
+        "Colour noise view: render input of {}x{} at {}x{} in {:.0} ms{}",
         source.width(),
         source.height(),
         w,
         h,
-        started.elapsed().as_secs_f64() * 1000.0
+        started.elapsed().as_secs_f64() * 1000.0,
+        if timed { "" } else { " (with its upload)" }
     );
     let megapixels = f64::from(source.width()) * f64::from(source.height()) / 1e6;
-    if note_build_time(started.elapsed().as_secs_f64() * 1000.0 * 24.0 / megapixels.max(1.0)) {
+    if timed
+        && note_build_time(started.elapsed().as_secs_f64() * 1000.0 * 24.0 / megapixels.max(1.0))
+    {
         TOO_SLOW.store(true, Ordering::Relaxed);
         log::warn!("Colour noise view: too slow here, off for this session");
     }
     drop(source);
-    let Some(input) = input else {
-        return;
-    };
     view.store(&wanted, input);
     // The build's buffers go back.
     pool().broadcast(|_| rawtonic_runtime::allocator::release_freed_memory());
@@ -827,6 +964,21 @@ mod tests {
         SLOW_BUILDS.store(0, Ordering::Relaxed);
     }
 
+    /// A background mask run's release keeps the fit view's render inputs
+    /// (and the kept upload with them); other releases drop them (TPX8).
+    #[test]
+    fn a_mask_runs_release_keeps_the_render_inputs() {
+        let develop = crate::state::develop::DevelopSession::default();
+        let source = image(8, 8);
+        let view = &develop.color_noise_view;
+        let wanted = wanted_for(&source, recipe(25), None, (4, 4));
+        view.store(&wanted, Rgb32FImage::new(4, 4));
+        develop.release_rebuildable(true);
+        assert_eq!(lock_recover(&view.inputs).len(), 1);
+        develop.release_rebuildable(false);
+        assert!(lock_recover(&view.inputs).is_empty());
+    }
+
     #[test]
     fn render_inputs_beyond_the_cap_are_not_built() {
         assert_eq!(build_dims((2588, 1725)), Some((2588, 1725)));
@@ -944,7 +1096,16 @@ mod tests {
         let (source, base) = (image(600, 400), image(200, 133));
         let corrected = image(200, 133);
         let shown = |amount| {
-            shown_corrected_base(&view, &all(amount), &recipe(amount), &source, true, &base)
+            let shown = view.shown_mark();
+            shown_corrected_base(
+                &view,
+                &all(amount),
+                &recipe(amount),
+                &source,
+                true,
+                &base,
+                shown.as_ref()?,
+            )
         };
         assert!(shown(25).is_none(), "no frame showed one yet");
         assert!(
@@ -979,11 +1140,15 @@ mod tests {
         );
         view.note_shown(Some(&used));
         assert!(Arc::ptr_eq(&shown(25).unwrap(), &corrected));
-        // A render nobody sees (the drag-draft warm-up) changes nothing.
-        let mark = view.shown_mark();
-        view.note_shown(None);
-        view.restore_shown(mark);
+        // A render nobody sees (the drag-draft warm-up) writes nothing: a
+        // pick during it samples the shown frame's base.
+        assert!(view.render_unseen(|| {
+            assert!(view.any_hidden(), "counted while it renders");
+            view.note_shown(None);
+            shown(25).is_some()
+        }));
         assert!(Arc::ptr_eq(&shown(25).unwrap(), &corrected));
+        assert!(!view.any_hidden(), "ended with its render");
         // A zoomed or dragged frame after it renders from its own base.
         view.note_shown(None);
         assert!(shown(25).is_none());
@@ -992,24 +1157,136 @@ mod tests {
         assert!(shown(50).is_none());
         let other = image(200, 133);
         assert!(
-            shown_corrected_base(&view, &all(25), &recipe(25), &source, true, &other).is_none()
+            shown_corrected_base(
+                &view,
+                &all(25),
+                &recipe(25),
+                &source,
+                true,
+                &other,
+                &Arc::downgrade(&used)
+            )
+            .is_none()
         );
     }
 
-    /// A frame nobody sees (the drag-draft warm-up) keeps the frame before
-    /// it the latest; a frame shown after it does not.
+    /// A frame nobody sees (the drag-draft warm-up) is no frame: it leaves
+    /// the frame before it the latest, and its build never keeps a render
+    /// input beside it.
     #[test]
     fn an_unseen_frame_leaves_the_last_shown_frame_current() {
         let view = ColorNoiseView::default();
         let shown = view.note_frame();
-        let before = view.frames_noted();
-        view.note_frame();
-        view.forget_frame(before);
+        let counted = view.render_unseen(|| view.note_frame());
+        assert_eq!(counted, shown, "counted as none");
         assert_eq!(view.frames_noted(), shown);
+        // A shown frame after it is the latest, as the two before.
         view.note_frame();
+        assert_eq!(view.frames_noted(), shown + 1);
+        assert!(!view.any_hidden());
+        // However long it renders, and however many frames it notes.
+        assert_eq!(
+            view.render_unseen(|| {
+                let first = view.note_frame();
+                assert_eq!(first, shown + 1);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                view.note_frame()
+            }),
+            shown + 1
+        );
+        assert_eq!(view.frames_noted(), shown + 1, "no frame of its own");
+    }
+
+    /// A frame nobody sees writes no shown marker: the one the Levels
+    /// pickers sample stays the shown frame's through its render, a pick
+    /// pass keeps the marker it took, and a shown frame that changes the
+    /// marker meanwhile makes the pass run again.
+    #[test]
+    fn an_unseen_frame_writes_no_shown_marker() {
+        let view = ColorNoiseView::default();
+        let (source, base) = (image(600, 400), image(200, 133));
+        let shown_base = image(200, 133);
+        let hidden_base = image(200, 133);
+        let key = Key::of(&global(25), &recipe(25), true);
+        *lock_recover(&view.inputs) = vec![RenderInput {
+            source: Arc::downgrade(&source),
+            path: "a.raw".into(),
+            key,
+            input: Arc::new(Rgb32FImage::new(200, 133)),
+        }];
+        let input = Arc::downgrade(&lock_recover(&view.inputs)[0].input);
+        *lock_recover(&view.corrected) = vec![CorrectedBase {
+            base: Arc::downgrade(&base),
+            input: input.clone(),
+            image: Arc::clone(&shown_base),
+        }];
+        // What a pick pass returns: the base it samples.
+        let pick = || {
+            view.with_shown_mark(|shown| {
+                shown_corrected_base(
+                    &view,
+                    &all(25),
+                    &recipe(25),
+                    &source,
+                    true,
+                    &base,
+                    shown.as_ref()?,
+                )
+            })
+            .flatten()
+        };
         view.note_frame();
-        view.forget_frame(before);
-        assert_eq!(view.frames_noted(), shown + 2);
+        view.note_shown(Some(&shown_base));
+        assert!(Arc::ptr_eq(&pick().unwrap(), &shown_base));
+        // While a frame nobody sees renders, with a corrected base of its
+        // own (a draft-sized one the view kept too) and a pick before, in and
+        // after it, every pick samples the shown frame's base.
+        let in_pass = view
+            .with_shown_mark(|shown| {
+                let first = shown_corrected_base(
+                    &view,
+                    &all(25),
+                    &recipe(25),
+                    &source,
+                    true,
+                    &base,
+                    shown.as_ref().unwrap(),
+                );
+                let input = input.clone();
+                let hidden = Arc::clone(&hidden_base);
+                view.render_unseen(|| {
+                    lock_recover(&view.corrected).push(CorrectedBase {
+                        base: Arc::downgrade(&base),
+                        input,
+                        image: hidden,
+                    });
+                    view.note_shown(Some(&hidden_base));
+                    view.note_shown(None);
+                    assert!(
+                        Arc::ptr_eq(&pick().unwrap(), &shown_base),
+                        "a pick in its render"
+                    );
+                });
+                first
+            })
+            .expect("a hidden frame within the pass changes no marker");
+        assert!(Arc::ptr_eq(&in_pass.unwrap(), &shown_base));
+        assert!(Arc::ptr_eq(&pick().unwrap(), &shown_base));
+        // A shown frame that changes the marker makes the pass run again.
+        let mut runs = 0;
+        let kept = loop {
+            if let Some(kept) = view.with_shown_mark(|shown| {
+                runs += 1;
+                if runs == 1 {
+                    view.note_shown(None);
+                }
+                shown
+            }) {
+                break kept;
+            }
+        };
+        assert_eq!(runs, 2, "a changed marker ran the pass again");
+        assert!(kept.is_none(), "the second pass took the new marker");
     }
 
     /// A before asking for the edit's render input keeps the edit's frame

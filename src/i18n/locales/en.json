@@ -3586,6 +3586,28 @@
         "ratioHeight": "Ratio height",
         "ratioWidth": "Ratio width"
       },
+      "collision": {
+        "cancel": "Cancel",
+        "choice": {
+          "keepBoth": "Keep both",
+          "replaceIfChanged": "Replace if changed",
+          "skip": "Skip"
+        },
+        "hint": {
+          "keepBoth": "Every new file gets a new name. Nothing is overwritten.",
+          "replaceIfChanged": "Replaces your own changed exports. Unchanged ones are skipped. Other files stay, and the new file gets a new name.",
+          "skip": "Existing files stay as they are; those photos are not exported again."
+        },
+        "intro": "Choose once for this whole export.",
+        "kind": {
+          "changedOwn": "Earlier export, photo or settings changed since: {{number}}",
+          "other": "Other files, or exports with mask files (not replaced): {{number}}",
+          "unchangedOwn": "Earlier export, nothing changed since: {{number}}"
+        },
+        "more": "and {{number}} more",
+        "originals": "Photos in a library among them, never replaced: {{number}}",
+        "title": "Files with these names already exist"
+      },
       "destination": {
         "aria": "Export destination",
         "choose": "Choose a folder…",
@@ -3596,11 +3618,13 @@
         },
         "existing": "If a file exists",
         "existingChoice": {
+          "ask": "Ask",
           "keepBoth": "Keep both (new name)",
           "replaceIfChanged": "Replace if changed",
           "skip": "Skip"
         },
         "existingHint": {
+          "ask": "Before exporting, asks once what to do if files with these names already exist. Nothing is rendered or written until you answer.",
           "keepBoth": "The new file gets a numbered name; nothing is ever written over.",
           "replaceIfChanged": "Replaces a photo's own earlier Rawtonic export at this name only when its edit or settings changed; unchanged photos are skipped. Any other file (originals, camera JPEGs, files edited elsewhere) is kept and the new file gets a numbered name.",
           "skip": "Photos whose file already exists are not exported."
@@ -3624,10 +3648,12 @@
       },
       "errors": {
         "batchFailed": "{{failed}} of {{total}} exports failed",
+        "couldNotStart": "This export could not start. Try exporting again.",
         "gpuDeviceLost": "This photo could not be rendered on this graphics chip: it stopped responding (out of memory). Quit and reopen Rawtonic, then export this photo again.",
         "gpuMemory": "Not enough graphics memory for this photo. Close other programs that use the graphics card and export this photo again.",
         "gpuTooComplex": "This photo's edits are too complex for this graphics chip's driver to export. Remove some edits (effects, local adjustments) and export it again, or export it on another computer.",
         "offline": "{{file}} is offline: exporting needs the RAW file.",
+        "queuedByOlderVersion": "This export was queued in an older version of Rawtonic. Export it again.",
         "terminated": "The export stopped unexpectedly.",
         "textureLimit": "The photo ({{width}} × {{height}} px) is larger than this graphics card can render ({{limit}} px per side).",
         "unreadableRequest": "This export's saved settings could not be read.",

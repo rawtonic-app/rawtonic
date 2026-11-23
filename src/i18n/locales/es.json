@@ -3746,6 +3746,28 @@
         "ratioHeight": "Alto de la proporción",
         "ratioWidth": "Ancho de la proporción"
       },
+      "collision": {
+        "cancel": "Cancelar",
+        "choice": {
+          "keepBoth": "Conservar ambos",
+          "replaceIfChanged": "Reemplazar si cambió",
+          "skip": "Omitir"
+        },
+        "hint": {
+          "keepBoth": "Cada archivo nuevo recibe un nombre nuevo. No se sobrescribe nada.",
+          "replaceIfChanged": "Reemplaza tus propias exportaciones que han cambiado. Las que no cambiaron se omiten. Los demás archivos se quedan y el archivo nuevo recibe un nombre nuevo.",
+          "skip": "Los archivos existentes se quedan como están; esas fotos no se vuelven a exportar."
+        },
+        "intro": "Elige una vez para toda la exportación.",
+        "kind": {
+          "changedOwn": "Exportación anterior, foto o ajustes cambiados desde entonces: {{number}}",
+          "other": "Otros archivos o exportaciones con archivos de máscara (no se reemplazan): {{number}}",
+          "unchangedOwn": "Exportación anterior, sin cambios desde entonces: {{number}}"
+        },
+        "more": "y {{number}} más",
+        "originals": "De ellos, fotos de una biblioteca, nunca reemplazadas: {{number}}",
+        "title": "Ya existen archivos con estos nombres"
+      },
       "destination": {
         "aria": "Destino de exportación",
         "choose": "Elegir una carpeta…",
@@ -3756,11 +3778,13 @@
         },
         "existing": "Si un archivo existe",
         "existingChoice": {
+          "ask": "Preguntar",
           "keepBoth": "Conservar ambos (nombre nuevo)",
           "replaceIfChanged": "Reemplazar si cambió",
           "skip": "Omitir"
         },
         "existingHint": {
+          "ask": "Antes de exportar, pregunta una vez qué hacer si ya existen archivos con estos nombres. No se procesa ni se escribe nada hasta que respondas.",
           "keepBoth": "El archivo nuevo recibe un nombre numerado; nunca se sobrescribe nada.",
           "replaceIfChanged": "Reemplaza la exportación anterior de Rawtonic de una foto con este nombre solo si su edición o sus ajustes cambiaron; las fotos sin cambios se omiten. Cualquier otro archivo (originales, JPEG de la cámara, archivos editados en otro programa) se conserva y el archivo nuevo recibe un nombre numerado.",
           "skip": "Las fotos cuyo archivo ya existe no se exportan."
@@ -3785,10 +3809,12 @@
       },
       "errors": {
         "batchFailed": "{{failed}} de {{total}} exportaciones fallaron",
+        "couldNotStart": "No se pudo iniciar la exportación. Vuelve a intentarlo.",
         "gpuDeviceLost": "No se pudo procesar esta foto en este chip gráfico: ha dejado de responder (sin memoria). Cierra y vuelve a abrir Rawtonic y exporta de nuevo esta foto.",
         "gpuMemory": "No hay suficiente memoria gráfica para esta foto. Cierra otros programas que usen la tarjeta gráfica y vuelve a exportar esta foto.",
         "gpuTooComplex": "Las ediciones de esta foto son demasiado complejas para que el controlador de este chip gráfico las exporte. Quita algunas ediciones (efectos, ajustes locales) y vuelve a exportarla, o expórtala en otro ordenador.",
         "offline": "{{file}} está sin conexión: para exportar se necesita el archivo RAW.",
+        "queuedByOlderVersion": "Esta exportación se puso en cola en una versión anterior de Rawtonic. Vuelve a exportar.",
         "terminated": "La exportación se detuvo de forma inesperada.",
         "textureLimit": "La imagen ({{width}} × {{height}} px) es más grande de lo que esta tarjeta gráfica puede procesar ({{limit}} px por lado).",
         "unreadableRequest": "No se pudieron leer los ajustes guardados de esta exportación.",

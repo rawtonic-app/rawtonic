@@ -6,6 +6,7 @@ import {
   colorNoiseMultiscale,
   deadPixelAdjacent,
   defectsIsolated,
+  defectsTexture,
   highlightRatios,
   unbiasedBlack,
   type Adjustments
@@ -95,6 +96,9 @@ export interface SourceDevelop {
   /** With the isolation test for hot and dead photosites (`renderVersion`
    * 15; undefined: the stored recipe's). */
   defectsIsolated?: boolean;
+  /** With its rule for dead photosites in busy texture (`renderVersion` 16;
+   * undefined: the stored recipe's). */
+  defectsTexture?: boolean;
   /** With unbiased blacks (`renderVersion` 8; undefined: the stored
    * recipe's). */
   unbiasedBlack?: boolean;
@@ -114,7 +118,7 @@ export interface SourceDevelop {
  * recipe, or null when it does: its AI Denoise amount (`aiDenoiseToApply`)
  * its colour noise filter (`colorNoiseMultiscale`: reset of a legacy
  * edit, paste or a preset can change `colorNoiseVersion`) or its
- * dead-photosite test (`deadPixelAdjacent`, `defectsIsolated`), its black handling
+ * dead-photosite test (`deadPixelAdjacent`, `defectsIsolated`, `defectsTexture`), its black handling
  * (`unbiasedBlack`, `borderBlack`), its highlight rebuild (`highlightRatios`)
  * or a DNG's lens warp (`cameraPlaneWarp`) differs from the source's. Other
  * formats only develop again when their preprocessing preferences change.
@@ -136,6 +140,8 @@ export function sourceDevelopToApply(
     | 'deadPixelAdjacentFailed'
     | 'defectsIsolated'
     | 'defectsIsolatedFailed'
+    | 'defectsTexture'
+    | 'defectsTextureFailed'
     | 'unbiasedBlack'
     | 'unbiasedBlackFailed'
     | 'borderBlack'
@@ -169,6 +175,10 @@ export function sourceDevelopToApply(
   const haveIsolated = image.defectsIsolated;
   const wantedIsolated = image.offline || haveIsolated === undefined ? haveIsolated : defectsIsolated(adjustments);
   const isolated = wantedIsolated === image.defectsIsolatedFailed ? haveIsolated : wantedIsolated;
+  // And for its texture rule (`renderVersion` 16).
+  const haveTexture = image.defectsTexture;
+  const wantedTexture = image.offline || haveTexture === undefined ? haveTexture : defectsTexture(adjustments);
+  const texture = wantedTexture === image.defectsTextureFailed ? haveTexture : wantedTexture;
   // And for the black handling (`renderVersion` 8).
   const haveBlack = image.unbiasedBlack;
   const wantedBlack = image.offline || haveBlack === undefined ? haveBlack : unbiasedBlack(adjustments);
@@ -191,6 +201,7 @@ export function sourceDevelopToApply(
     multiscale === have &&
     dead === haveDead &&
     isolated === haveIsolated &&
+    texture === haveTexture &&
     black === haveBlack &&
     border === haveBorder &&
     ratios === haveRatios &&
@@ -204,6 +215,7 @@ export function sourceDevelopToApply(
     multiscale,
     deadPixelAdjacent: dead,
     defectsIsolated: isolated,
+    defectsTexture: texture,
     unbiasedBlack: black,
     borderBlack: border,
     highlightRatios: ratios,
@@ -255,6 +267,7 @@ export function developmentSignature(
     unbiasedBlack(adjustments),
     borderBlack(adjustments),
     defectsIsolated(adjustments),
+    defectsTexture(adjustments),
     ...(warpPlanes ? [cameraPlaneWarp(adjustments)] : [])
   ]);
 }

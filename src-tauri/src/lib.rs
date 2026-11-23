@@ -48,6 +48,7 @@ mod embedded_still;
 #[cfg(test)]
 mod engine_tools;
 mod exif_processing;
+mod export_collisions;
 mod export_cpus;
 mod export_processing;
 mod export_queue;
@@ -1156,6 +1157,7 @@ fn start(args: Vec<String>) {
             image_loader::load_embedded_preview,
             export_processing::export_images,
             export_processing::export_images_batch,
+            export_collisions::plan_export_collisions,
             export_processing::export_naming_preview,
             provenance::provenance_identity,
             provenance::generate_provenance_identity,

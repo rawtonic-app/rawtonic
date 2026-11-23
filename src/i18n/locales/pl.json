@@ -3905,6 +3905,28 @@
         "ratioHeight": "Wysokość proporcji",
         "ratioWidth": "Szerokość proporcji"
       },
+      "collision": {
+        "cancel": "Anuluj",
+        "choice": {
+          "keepBoth": "Zachowaj oba",
+          "replaceIfChanged": "Zastąp, jeśli zmieniono",
+          "skip": "Pomiń"
+        },
+        "hint": {
+          "keepBoth": "Każdy nowy plik dostaje nową nazwę. Nic nie jest nadpisywane.",
+          "replaceIfChanged": "Zastępuje Twoje własne zmienione eksporty. Niezmienione są pomijane. Inne pliki zostają, a nowy plik dostaje nową nazwę.",
+          "skip": "Istniejące pliki zostają bez zmian; te zdjęcia nie są eksportowane ponownie."
+        },
+        "intro": "Wybierz raz dla całego eksportu.",
+        "kind": {
+          "changedOwn": "Wcześniejszy eksport, zdjęcie lub ustawienia zmienione od tego czasu: {{number}}",
+          "other": "Inne pliki lub eksporty z plikami masek (nie są zastępowane): {{number}}",
+          "unchangedOwn": "Wcześniejszy eksport, od tego czasu bez zmian: {{number}}"
+        },
+        "more": "i {{number}} więcej",
+        "originals": "W tym zdjęcia z biblioteki, nigdy nie zastępowane: {{number}}",
+        "title": "Pliki o tych nazwach już istnieją"
+      },
       "destination": {
         "aria": "Miejsce docelowe eksportu",
         "choose": "Wybierz folder…",
@@ -3915,11 +3937,13 @@
         },
         "existing": "Jeśli plik istnieje",
         "existingChoice": {
+          "ask": "Zapytaj",
           "keepBoth": "Zachowaj oba (nowa nazwa)",
           "replaceIfChanged": "Zastąp, jeśli zmieniono",
           "skip": "Pomiń"
         },
         "existingHint": {
+          "ask": "Przed eksportem pyta raz, co zrobić, gdy pliki o tych nazwach już istnieją. Do czasu odpowiedzi nic nie jest przetwarzane ani zapisywane.",
           "keepBoth": "Nowy plik otrzymuje numerowaną nazwę; nic nie zostaje nadpisane.",
           "replaceIfChanged": "Zastępuje wcześniejszy eksport Rawtonic danego zdjęcia pod tą nazwą tylko wtedy, gdy zmieniła się jego edycja lub ustawienia; niezmienione zdjęcia są pomijane. Każdy inny plik (oryginały, pliki JPEG z aparatu, pliki edytowane gdzie indziej) zostaje zachowany, a nowy plik otrzymuje numerowaną nazwę.",
           "skip": "Zdjęcia, których plik już istnieje, nie są eksportowane."
@@ -3945,10 +3969,12 @@
       },
       "errors": {
         "batchFailed": "Nieudane eksporty: {{failed}} z {{total}}",
+        "couldNotStart": "Nie udało się rozpocząć eksportu. Spróbuj wyeksportować ponownie.",
         "gpuDeviceLost": "Nie udało się wyrenderować tego zdjęcia na tym układzie graficznym: przestał odpowiadać (brak pamięci). Zamknij i ponownie otwórz Rawtonic, a następnie wyeksportuj to zdjęcie jeszcze raz.",
         "gpuMemory": "Za mało pamięci graficznej dla tego zdjęcia. Zamknij inne programy korzystające z karty graficznej i wyeksportuj to zdjęcie ponownie.",
         "gpuTooComplex": "Edycja tego zdjęcia jest zbyt złożona, aby sterownik tego układu graficznego mógł je wyeksportować. Usuń część edycji (efekty, korekty lokalne) i wyeksportuj je ponownie albo wyeksportuj je na innym komputerze.",
         "offline": "{{file}} jest offline: eksport wymaga pliku RAW.",
+        "queuedByOlderVersion": "Ten eksport dodano do kolejki w starszej wersji Rawtonic. Wyeksportuj ponownie.",
         "terminated": "Eksport został nieoczekiwanie przerwany.",
         "textureLimit": "Obraz ({{width}} × {{height}} px) jest większy, niż ta karta graficzna może wyrenderować ({{limit}} px na bok).",
         "unreadableRequest": "Nie można odczytać zapisanych ustawień tego eksportu.",

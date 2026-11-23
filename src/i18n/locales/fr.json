@@ -3746,6 +3746,28 @@
         "ratioHeight": "Hauteur du rapport",
         "ratioWidth": "Largeur du rapport"
       },
+      "collision": {
+        "cancel": "Annuler",
+        "choice": {
+          "keepBoth": "Conserver les deux",
+          "replaceIfChanged": "Remplacer si modifié",
+          "skip": "Ignorer"
+        },
+        "hint": {
+          "keepBoth": "Chaque nouveau fichier reçoit un nouveau nom. Rien n’est écrasé.",
+          "replaceIfChanged": "Remplace vos propres exports modifiés. Les exports inchangés sont ignorés. Les autres fichiers restent, et le nouveau fichier reçoit un nouveau nom.",
+          "skip": "Les fichiers existants restent tels quels ; ces photos ne sont pas exportées de nouveau."
+        },
+        "intro": "Choisissez une fois pour tout l'export.",
+        "kind": {
+          "changedOwn": "Export précédent, photo ou réglages modifiés depuis : {{number}}",
+          "other": "Autres fichiers ou exports avec fichiers de masque (non remplacés) : {{number}}",
+          "unchangedOwn": "Export précédent, rien n’a changé depuis : {{number}}"
+        },
+        "more": "et {{number}} autres",
+        "originals": "Dont photos d’une bibliothèque, jamais remplacées : {{number}}",
+        "title": "Des fichiers portant ces noms existent déjà"
+      },
       "destination": {
         "aria": "Destination de l'exportation",
         "choose": "Choisir un dossier…",
@@ -3756,11 +3778,13 @@
         },
         "existing": "Si un fichier existe",
         "existingChoice": {
+          "ask": "Demander",
           "keepBoth": "Conserver les deux (nouveau nom)",
           "replaceIfChanged": "Remplacer si modifié",
           "skip": "Ignorer"
         },
         "existingHint": {
+          "ask": "Avant l'export, demande une fois quoi faire si des fichiers de ces noms existent déjà. Rien n'est calculé ni écrit avant votre réponse.",
           "keepBoth": "Le nouveau fichier reçoit un nom numéroté ; rien n'est jamais écrasé.",
           "replaceIfChanged": "Remplace l'export Rawtonic précédent d'une photo sous ce nom uniquement si sa retouche ou ses réglages ont changé ; les photos inchangées sont ignorées. Tout autre fichier (originaux, JPEG de l'appareil, fichiers retouchés ailleurs) est conservé et le nouveau fichier reçoit un nom numéroté.",
           "skip": "Les photos dont le fichier existe déjà ne sont pas exportées."
@@ -3785,10 +3809,12 @@
       },
       "errors": {
         "batchFailed": "{{failed}} exportations sur {{total}} ont échoué",
+        "couldNotStart": "L’exportation n’a pas pu démarrer. Réessayez d’exporter.",
         "gpuDeviceLost": "Cette photo n’a pas pu être rendue sur cette puce graphique : elle ne répond plus (mémoire saturée). Quittez et rouvrez Rawtonic, puis exportez de nouveau cette photo.",
         "gpuMemory": "Mémoire graphique insuffisante pour cette photo. Fermez les autres programmes qui utilisent la carte graphique et exportez de nouveau cette photo.",
         "gpuTooComplex": "Les retouches de cette photo sont trop complexes pour que le pilote de cette puce graphique puisse l’exporter. Supprimez certaines retouches (effets, réglages locaux) et exportez-la à nouveau, ou exportez-la sur un autre ordinateur.",
         "offline": "{{file}} est hors ligne : l'exportation nécessite le fichier RAW.",
+        "queuedByOlderVersion": "Cette exportation a été mise en file d’attente dans une ancienne version de Rawtonic. Relancez l’exportation.",
         "terminated": "L'exportation s'est arrêtée de façon inattendue.",
         "textureLimit": "L'image ({{width}} × {{height}} px) dépasse ce que cette carte graphique peut rendre ({{limit}} px par côté).",
         "unreadableRequest": "Les réglages enregistrés de cette exportation sont illisibles.",

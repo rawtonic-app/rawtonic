@@ -2167,16 +2167,17 @@ mod decoder_preferences_tests {
             choices,
             [
                 ExistingFiles::KeepBoth,
+                ExistingFiles::Ask,
                 ExistingFiles::Skip,
                 ExistingFiles::ReplaceIfChanged
             ]
         );
         let preset: ExportPreset = serde_json::from_value(payloads["preset"].clone()).unwrap();
-        assert_eq!(preset.existing_files.as_deref(), Some("replaceIfChanged"));
+        assert_eq!(preset.existing_files.as_deref(), Some("ask"));
         // Saved back as it came (the store rewrites every recipe).
         assert_eq!(
             serde_json::to_value(&preset).unwrap()["existingFiles"],
-            "replaceIfChanged"
+            "ask"
         );
         // A recipe saved before the choice keeps both.
         let mut older = payloads["settings"][0].clone();
