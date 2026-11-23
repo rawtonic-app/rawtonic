@@ -88,6 +88,12 @@ pub fn frames_in(
     })
 }
 
+/// Whether `frames` reads the file at `path` (a RAW whose frame some
+/// version changes), not answering all 0 without it.
+pub fn frames_read_file(path: &str) -> bool {
+    unchanged(path).is_none()
+}
+
 /// All 0 for a file no frame version changes.
 fn unchanged(path: &str) -> Option<Vec<u32>> {
     (!crate::formats::is_raw_file(path)

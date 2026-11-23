@@ -432,15 +432,19 @@ pub fn generate_thumbnail_data(
         preloaded_image,
         app_handle,
         &mut false,
+        None,
     )
 }
 
+/// `raw`: the mapping `ThumbnailCacheEntry::of` made of a never-edited RAW
+/// (`never_edited_raw`), read again instead of opening the file.
 fn generate_thumbnail_with_source(
     path_str: &str,
     gpu_context: Option<&GpuContext>,
     preloaded_image: Option<&DynamicImage>,
     app_handle: &AppHandle,
     embedded: &mut bool,
+    raw: Option<MappedRaw>,
 ) -> anyhow::Result<DynamicImage> {
     let (source_path, sidecar_path) = parse_virtual_path(path_str);
     let metadata: Option<ImageMetadata> = if is_cloud_placeholder(&sidecar_path) {
@@ -462,6 +466,7 @@ fn generate_thumbnail_with_source(
         preloaded_image,
         app_handle,
         embedded,
+        raw,
     )
 }
 
@@ -568,6 +573,7 @@ pub(crate) fn develop_thumbnail(
         preloaded_image,
         app_handle,
         &mut false,
+        None,
     )
 }
 
@@ -580,6 +586,7 @@ fn develop_thumbnail_with_source(
     preloaded_image: Option<&DynamicImage>,
     app_handle: &AppHandle,
     embedded: &mut bool,
+    raw: Option<MappedRaw>,
 ) -> anyhow::Result<DynamicImage> {
     let gpu = app_handle.state::<crate::state::gpu::GpuState>();
     let (source_path, _) = parse_virtual_path(path_str);
@@ -596,17 +603,17 @@ fn develop_thumbnail_with_source(
 
     let settings = crate::state::settings::current(app_handle);
     let always_decode_raw = settings.always_decode_raw_thumbnails.unwrap_or(false);
-    // A never-edited RAW that may show its camera JPEG: mapped once, before
-    // the proxy check and the develop defaults read it (`map_raw`). Not a
-    // cloud placeholder, which reading downloads: the proxy check answers
-    // for it from its previews, and the JPEG maps it below only without a
-    // proxy, as before.
+    // A never-edited RAW that may show its camera JPEG: mapped once (or
+    // the cache entry's mapping, `raw`), before the proxy check and the
+    // develop defaults read it (`map_raw`). Not a cloud placeholder, which
+    // reading downloads: the proxy check answers for it from its previews,
+    // and the JPEG maps it below only without a proxy, as before.
     let mapped = (is_raw
         && adjustments.is_null()
         && preloaded_image.is_none()
         && !always_decode_raw
         && !is_cloud_placeholder(&source_path))
-    .then(|| map_raw(&source_path))
+    .then(|| raw.or_else(|| map_raw(&source_path)))
     .flatten();
     if let Some(raw) = &mapped {
         prime_never_edited_raw(raw, &source_path_str, gpu_context.is_some());
@@ -1600,13 +1607,57 @@ fn thumbnail_files_exist(directory: &Path, hash: &str) -> bool {
 }
 
 fn embedded_thumbnail_allowed(path_str: &str, adjustments: &[u8], settings: &AppSettings) -> bool {
+    embedded_thumbnail_allowed_with(path_str, adjustments, settings, None)
+}
+
+/// `embedded_thumbnail_allowed`, with `raw` the caller's mapping of the
+/// readable RAW (`never_edited_raw`): its proxy check needs no open.
+fn embedded_thumbnail_allowed_with(
+    path_str: &str,
+    adjustments: &[u8],
+    settings: &AppSettings,
+    raw: Option<&MappedRaw>,
+) -> bool {
     let (source, _) = parse_virtual_path(path_str);
-    (adjustments.is_empty() || adjustments == b"null")
-        && is_raw_file(&source)
-        && !settings.always_decode_raw_thumbnails.unwrap_or(false)
+    let stands_for = |source: &Path| match raw {
+        Some(_) => crate::preview_proxy::stands_for_readable(source, &serde_json::Value::Null),
+        None => crate::preview_proxy::stands_for(source, &serde_json::Value::Null),
+    };
+    never_edited_raw_thumbnail(&source, adjustments, settings)
         && rawtonic_engine::develop_defaults::for_path(&source).is_none()
-        && !(crate::preview_proxy::stands_for(&source, &serde_json::Value::Null)
+        && !(stands_for(&source)
             && crate::preview_proxy::standard_header_is_current(&source, settings))
+}
+
+/// Whether the RAW `source` with recipe `adjustments` (bytes) is never
+/// edited and may show its camera JPEG.
+fn never_edited_raw_thumbnail(source: &Path, adjustments: &[u8], settings: &AppSettings) -> bool {
+    (adjustments.is_empty() || adjustments == b"null")
+        && is_raw_file(source)
+        && !settings.always_decode_raw_thumbnails.unwrap_or(false)
+}
+
+/// A never-edited RAW whose thumbnail checks read the file (its frames,
+/// `source_frame::frames_read_file`, or its camera while develop defaults
+/// are set), mapped once (`map_raw`) for them and for the thumbnail made
+/// after, with frames and camera read through it. Not a cloud placeholder
+/// (reading downloads it).
+fn never_edited_raw(
+    path_str: &str,
+    adjustments: &[u8],
+    settings: &AppSettings,
+) -> Option<MappedRaw> {
+    let (source, _) = parse_virtual_path(path_str);
+    let source_str = source.to_string_lossy();
+    let reads = rawtonic_engine::source_frame::frames_read_file(&source_str)
+        || !rawtonic_engine::develop_defaults::current().is_empty();
+    let raw = (reads
+        && never_edited_raw_thumbnail(&source, adjustments, settings)
+        && !is_cloud_placeholder(&source))
+    .then(|| map_raw(&source))
+    .flatten()?;
+    prime_never_edited_raw(&raw, &source_str, true);
+    Some(raw)
 }
 
 /// Track one current developed recipe per photo/copy. Only strict cache file
@@ -1650,6 +1701,9 @@ struct ThumbnailCacheEntry {
     /// under `lut_missing_hash`, which no lookup asks for, so the next
     /// lookup develops it again (with the LUT once it loads).
     lut_missing: bool,
+    /// A never-edited RAW's mapping (`never_edited_raw`), for the thumbnail
+    /// made after the lookup.
+    raw: Option<MappedRaw>,
 }
 
 /// The key of a tile developed while its recipe's LUT did not load: a hash
@@ -1712,11 +1766,14 @@ impl ThumbnailCacheEntry {
                 thumbnail_hash_before_refreshes(path_str, &adjustments_bytes)
             });
         let embedded_hash = embedded_thumbnail_hash(path_str);
+        // After the opens above (no reads yet): every later read of the
+        // file goes through this mapping.
+        let raw = never_edited_raw(path_str, &adjustments_bytes, settings);
         let selected = preferred_thumbnail_hash(
             thumb_cache_dir,
             &cache_hash,
             embedded_hash.as_deref(),
-            embedded_thumbnail_allowed(path_str, &adjustments_bytes, settings),
+            embedded_thumbnail_allowed_with(path_str, &adjustments_bytes, settings, raw.as_ref()),
         );
         Some(Self {
             developed_hash: cache_hash.clone(),
@@ -1727,6 +1784,7 @@ impl ThumbnailCacheEntry {
             is_edited,
             lut,
             lut_missing: false,
+            raw,
         })
     }
 
@@ -1842,6 +1900,7 @@ pub(crate) fn generate_single_thumbnail_and_cache(
         preloaded_image,
         app_handle,
         &mut embedded,
+        entry.raw.take(),
     );
     // The render took the recipe's LUT from the same cache.
     entry.lut_missing = entry.lut.as_deref().is_some_and(|lut| {
@@ -2316,8 +2375,14 @@ pub fn get_cached_or_generate_thumbnail_image(
         return Ok(image);
     }
     let mut embedded = false;
-    let image =
-        generate_thumbnail_with_source(path_str, gpu_context, None, app_handle, &mut embedded)?;
+    let image = generate_thumbnail_with_source(
+        path_str,
+        gpu_context,
+        None,
+        app_handle,
+        &mut embedded,
+        entry.raw.take(),
+    )?;
     if let Err(error) = entry.save(path_str, &image, embedded, &settings) {
         log::warn!("Thumbnail of {path_str} not cached: {error:#}");
     }
@@ -2419,6 +2484,7 @@ mod source_preview_tests {
             is_edited: None,
             lut: Some(lut.to_str().unwrap().to_string()),
             lut_missing: true,
+            raw: None,
         };
         let image = image::DynamicImage::new_rgb8(8, 8);
         let settings = crate::AppSettings::default();
@@ -2458,6 +2524,7 @@ mod source_preview_tests {
             is_edited: None,
             lut: None,
             lut_missing: false,
+            raw: None,
         };
         let image = image::DynamicImage::new_rgb8(8, 8);
         let settings = crate::AppSettings::default();
@@ -2520,6 +2587,7 @@ mod source_preview_tests {
             is_edited: None,
             lut: None,
             lut_missing: false,
+            raw: None,
         };
         entry
             .save(path, &image::DynamicImage::new_rgb8(8, 8), true, &settings)
