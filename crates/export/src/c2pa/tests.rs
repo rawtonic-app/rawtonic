@@ -1067,7 +1067,7 @@ mod export {
 
     #[test]
     fn an_export_that_cannot_be_signed_is_not_written() {
-        let (_dir, identity) = identity();
+        let (_dir, _identity) = identity();
         let (result, file) = export("jpg", &settings(true), None, &json!({}));
         assert_eq!(result.unwrap_err(), PROVENANCE_NEEDS_IDENTITY);
         assert!(file.is_none());
