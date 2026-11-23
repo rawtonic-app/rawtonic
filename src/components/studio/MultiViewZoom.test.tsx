@@ -10,7 +10,7 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
 import { useSessionBar } from '../session/sessionBar';
 import { Invokes, type AppSettings, type ImageFile } from '../ui/AppProperties';
-import type { SharedZoom } from '../../utils/multiView';
+import type { CellZoomsPayload, SharedZoom } from '../../utils/multiView';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve(true)) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
@@ -270,6 +270,54 @@ describe('individual zoom (zoom lock off)', () => {
     );
     expect(editorHandle.current.resetTransform).toHaveBeenCalled();
     expect(useMultiViewStore.getState().cellZooms['/s/a.CR3'].scale).toBeCloseTo(0.5);
+  });
+});
+
+const layoutCalls = () =>
+  vi
+    .mocked(invoke)
+    .mock.calls.filter(([command]) => command === Invokes.SetMultiView)
+    .map(([, args]) => args as { primary: string | null; zooms: CellZoomsPayload | null });
+
+describe('switching the primary', () => {
+  const switchTo = (rerender: (ui: React.ReactElement) => void, path: string) => {
+    act(() => open(path));
+    rerender(
+      <MultiViewStage
+        files={files}
+        onOpen={(path) => open(path)}
+        onRate={vi.fn()}
+        transformWrapperRef={editorHandle as never}
+      >
+        <div data-testid="editor" />
+      </MultiViewStage>
+    );
+  };
+
+  it.each([false, true])("sends the outgoing primary's zoom with the layout itself (zoom lock %s)", (zoomLock) => {
+    useMultiViewStore.setState({ zoomLock });
+    const { rerender } = stage();
+    // b, the primary, at 1:1 in the editor.
+    Object.assign(transform, oneToOne());
+    runFrame();
+    const zoomsBefore = zoomCalls().length;
+    switchTo(rerender, '/s/a.CR3');
+    // The layout that makes a the primary carries b's 1:1 before any
+    // zoom call: sent after it, b's cell showed its last frame to fit
+    // until its own render (G74, WMV3).
+    const layout = layoutCalls().find((call) => call.primary === '/s/a.CR3')!;
+    expect(layout).toBeDefined();
+    expect(zoomCalls()).toHaveLength(zoomsBefore);
+    const zoomOfB = zoomLock ? layout.zooms!.zoom : layout.zooms!.cells!['/s/b.CR3'];
+    expect(zoomOfB!.scale).toBeCloseTo(1);
+    expect(zoomOfB!.center[0]).toBeCloseTo(0.5);
+    if (zoomLock) expect(layout.zooms!.cells).toBeNull();
+    else expect(layout.zooms!.cells!['/s/a.CR3']).toBeUndefined();
+    // The zoom sent next agrees with it (natively a repeat is ignored).
+    runFrame();
+    const next = zoomCalls().at(-1)!;
+    if (zoomLock) expect(next.zoom!.scale).toBeCloseTo(1);
+    else expect(next.cells!['/s/b.CR3'].scale).toBeCloseTo(1);
   });
 });
 

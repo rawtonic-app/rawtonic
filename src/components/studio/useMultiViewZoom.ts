@@ -10,11 +10,13 @@ import type { TransformWrapperHandle } from '../panel/Editor';
 import {
   cycleCellZoom,
   fitScaleOf,
+  layoutZooms,
   panCell,
   sameZoom,
   sharedZoomOf,
   transformOfZoom,
   zoomCell,
+  type CellZoomsPayload,
   type SharedZoom
 } from '../../utils/multiView';
 
@@ -44,10 +46,7 @@ const DRAG_SLOP = 4;
 
 /** What the native side is told: the shared zoom (lock on) or each other
  * cell's own zoom (lock off). */
-interface ZoomPayload {
-  zoom: SharedZoom | null;
-  cells: Record<string, SharedZoom> | null;
-}
+type ZoomPayload = CellZoomsPayload;
 
 function samePayload(a: ZoomPayload | undefined, b: ZoomPayload): boolean {
   if (!a || !sameZoom(a.zoom, b.zoom) || (a.cells === null) !== (b.cells === null)) return false;
@@ -201,14 +200,7 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
           setPrimaryZoom(zoom);
         }
       }
-      const payload: ZoomPayload = zoomLock
-        ? { zoom: primaryZoomRef.current, cells: null }
-        : {
-            zoom: null,
-            cells: Object.fromEntries(
-              Object.entries(store.cellZooms).filter(([path]) => path !== primary && shown.includes(path))
-            )
-          };
+      const payload = layoutZooms(zoomLock, primaryZoomRef.current, null, store.cellZooms, primary, shown);
       if (!samePayload(sent, payload)) {
         sent = payload;
         if (useSettingsStore.getState().osPlatform !== 'linux') {
@@ -340,10 +332,23 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
     );
   };
 
+  /** The zooms to send with a layout that has `next` as the primary: the
+   * photograph leaving the primary keeps the zoom it is shown at, whether
+   * or not the switch above has stored it yet. */
+  const zoomsFor = (next: string | null): ZoomPayload =>
+    layoutZooms(
+      live.current.zoomLock,
+      primaryZoomRef.current,
+      previousPrimary.current,
+      useMultiViewStore.getState().cellZooms,
+      next,
+      live.current.shown
+    );
+
   // Each cell's zoom for the badges: the primary's own, the shared one with
   // the lock, else the cell's own.
   const zoomOf = (path: string): SharedZoom | null =>
     path === primary ? primaryZoom : zoomLock ? primaryZoom : (cellZooms[path] ?? null);
 
-  return { zoomOf, cellHandlers, onWheel, onPinch, cellSizes };
+  return { zoomOf, cellHandlers, onWheel, onPinch, cellSizes, zoomsFor };
 }

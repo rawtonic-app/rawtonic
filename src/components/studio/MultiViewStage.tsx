@@ -23,6 +23,7 @@ import {
   orderedSelection,
   packGrid,
   stepPrimary,
+  type CellZoomsPayload,
   type GridCell
 } from '../../utils/multiView';
 import { useMultiViewZoom } from './useMultiViewZoom';
@@ -281,6 +282,8 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
   const recipeRevision = useMultiViewStore((s) => s.recipeRevision);
   const revision = `${recipeRevision}|${thumbnails}`;
   const wasActive = useRef(false);
+  /** The zooms a layout carries (set below, from useMultiViewZoom). */
+  const zoomsForRef = useRef<((primary: string | null) => CellZoomsPayload) | null>(null);
   useEffect(() => {
     if (osPlatform === 'linux') return;
     if (!active) {
@@ -295,7 +298,10 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
     const dpr = window.devicePixelRatio || 1;
     const stage = { x: box.left, y: box.top, width: box.width, height: box.height };
     const cells = cellAreas(shown, grid, stage, dpr);
-    invoke<boolean>(Invokes.SetMultiView, { primary, cells })
+    // The zooms go with the layout: the photograph leaving the primary
+    // keeps its zoom from the first frame (useMultiViewZoom).
+    const zooms = zoomsForRef.current?.(primary) ?? null;
+    invoke<boolean>(Invokes.SetMultiView, { primary, cells, zooms })
       .then((shownNatively) => {
         if (shownNatively === false) setUnavailable(true);
       })
@@ -372,7 +378,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
       ),
     [shown, grid, box.left, box.top]
   );
-  const { zoomOf, cellHandlers, onWheel, onPinch } = useMultiViewZoom({
+  const { zoomOf, cellHandlers, onWheel, onPinch, zoomsFor } = useMultiViewZoom({
     active,
     primary,
     shown,
@@ -380,6 +386,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
     shownSize,
     transformWrapperRef
   });
+  zoomsForRef.current = zoomsFor;
   const onWheelRef = useRef(onWheel);
   onWheelRef.current = onWheel;
   const onPinchRef = useRef(onPinch);

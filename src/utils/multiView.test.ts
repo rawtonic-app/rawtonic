@@ -22,7 +22,9 @@ import {
   panCell,
   cycleCellZoom,
   fitScaleOf,
-  MAX_CELL_ZOOM
+  MAX_CELL_ZOOM,
+  layoutZooms,
+  type SharedZoom
 } from './multiView';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from './adjustments';
 
@@ -301,5 +303,19 @@ describe('expectedCells', () => {
   it('keeps the pinned reference first', () => {
     const cells = expectedCells(listed, ['a', 'b'], 'a', 'd', box, 1.5, 0, 1);
     expect(cells.map((c) => c.path)).toEqual(['d', 'b']);
+  });
+});
+
+describe('layoutZooms', () => {
+  const z = (scale: number): SharedZoom => ({ scale, center: [0.5, 0.5] });
+  const shown = ['a', 'b', 'c'];
+  it('gives the outgoing primary the zoom it was shown at, before or after it is stored', () => {
+    expect(layoutZooms(false, z(1), 'a', { c: z(2) }, 'b', shown)).toEqual({ zoom: null, cells: { a: z(1), c: z(2) } });
+    // Already stored (the switch ran first): the store holds it.
+    expect(layoutZooms(false, null, 'b', { a: z(1), b: z(3) }, 'b', shown)).toEqual({ zoom: null, cells: { a: z(1) } });
+  });
+  it('leaves out cells no longer shown and shares the zoom with the lock', () => {
+    expect(layoutZooms(false, null, null, { gone: z(1) }, 'a', shown)).toEqual({ zoom: null, cells: {} });
+    expect(layoutZooms(true, z(1), 'a', { c: z(2) }, 'b', shown)).toEqual({ zoom: z(1), cells: null });
   });
 });
