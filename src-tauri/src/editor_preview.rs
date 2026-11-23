@@ -3660,8 +3660,9 @@ pub(crate) async fn activate_photo(
         );
         return Ok(Activation::None);
     };
-    // Only previews made for the recipe's decode variant stand in (a virtual
-    // copy's may differ from its master's, `preview_proxy::stands_for`).
+    // Only previews that stand for the recipe's decode variant stand in (a
+    // virtual copy's may differ from its master's,
+    // `preview_proxy::stands_for_variant`).
     let wanted = crate::image_loader::decode_variant(
         &adjustments
             .clone()
@@ -3669,7 +3670,7 @@ pub(crate) async fn activate_photo(
             .unwrap_or_else(|| crate::exif_processing::load_sidecar(&sidecar_path).adjustments),
         &source_path.to_string_lossy(),
     );
-    if wanted != crate::image_loader::stored_decode_variant(&source_path.to_string_lossy()) {
+    if !crate::preview_proxy::may_stand_for_variant(&source_path, wanted) {
         #[cfg(feature = "performance-profiling")]
         log::info!(
             "[PERF] {}",
@@ -3717,6 +3718,18 @@ pub(crate) async fn activate_photo(
                 );
                 return Ok(show_still(&app_handle, &path, viewport, never_edited).await);
             };
+            if !crate::preview_proxy::stands_for_variant(
+                &source_path,
+                wanted,
+                crate::preview_proxy::variant_of_key(&proxy.key.decoder),
+            ) {
+                #[cfg(feature = "performance-profiling")]
+                log::info!(
+                    "[PERF] {}",
+                    serde_json::json!({ "stage": "activate_photo_skipped", "reason": "other decode variant" })
+                );
+                return Ok(Activation::None);
+            }
             state
                 .source
                 .proxy_memory

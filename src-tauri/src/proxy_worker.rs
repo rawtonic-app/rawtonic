@@ -768,10 +768,11 @@ fn prepare(
     {
         // Stored already (or all there is): keep it in memory for an
         // instant activation.
-        // Only for a photograph of the previews' decode variant (a virtual
-        // copy's may differ from its master's).
+        // Only for a photograph the previews stand for (a virtual copy's
+        // decode variant may differ from its master's,
+        // `preview_proxy::stands_for_variant`).
         let wanted = crate::image_loader::stored_decode_variant(path);
-        if wanted != crate::image_loader::stored_decode_variant(&source.to_string_lossy()) {
+        if !preview_proxy::may_stand_for_variant(&source, wanted) {
             return;
         }
         let in_memory = state
@@ -781,7 +782,15 @@ fn prepare(
             .unwrap_or_else(|e| e.into_inner())
             .get(path, wanted)
             .is_some();
-        if !in_memory && let Some(proxy) = preview_proxy::read(&source, &settings) {
+        if !in_memory
+            && let Some(proxy) = preview_proxy::read(&source, &settings).filter(|proxy| {
+                preview_proxy::stands_for_variant(
+                    &source,
+                    wanted,
+                    preview_proxy::variant_of_key(&proxy.key.decoder),
+                )
+            })
+        {
             state
                 .source
                 .proxy_memory

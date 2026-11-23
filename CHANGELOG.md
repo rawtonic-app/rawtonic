@@ -13,6 +13,7 @@
 
 ### Fixes
 
+- **A virtual copy saved with an older render version opens offline again after an update.** When an update changed how a never-edited master develops its RAW, its virtual copies saved before could no longer open while the original was offline ("reconnect the RAW"), although the stored previews were made for exactly their version. A stored preview now stands for the render version it was made for: such a copy opens on it offline, in the editor, the grid and the multi view alike. The master keeps showing its older previews offline, marked as offline previews, until the RAW is back; nothing is exported from them.
 - **A virtual copy with another decode variant than its master (e.g. the multi-scale colour noise filter) now gets its refreshed grid tile at once.** Its tile is developed from the RAW, but kept its old look until the master's preview was renewed; and with the original offline and only the master's preview rebuilt, the copy's tile went blank. It now keeps its old tile offline and renews online. Exports are unchanged.
 
 - **HDR merges with ghost removal: far fewer dark specks around moving sun glints, and High keeps more of the darkest frame** (new merges; merged files you saved stay as they are). Measured on real sunrise brackets with glints on water and on test brackets with a known answer, next to Capture One 16.9.1's HDR merge of the same brackets.

@@ -391,37 +391,75 @@ fn content_sample(source: &Path) -> Option<String> {
     Some(hasher.finalize().to_hex()[..32].to_string())
 }
 
-/// Whether the proxies of the RAW `source` (made for its master recipe's
-/// decode variant, `header_is_current`) stand for a photograph of it shown
-/// with `recipe`: a virtual copy whose recipe asks for another variant
-/// (colour noise filter, dead-photosite test) must not be shown from them.
-pub fn stands_for(source: &Path, recipe: &serde_json::Value) -> bool {
+/// The one rule for whether a stored proxy stands for a photograph (PXV1,
+/// notes: parity-gaps/G11-color-editor.md): a proxy records the decode
+/// variant it was made for (its key, `variant_of_key`) and stands for a
+/// recipe that asks for exactly that variant (`wanted`), online and
+/// offline. Online only proxies made for the master recipe's variant are
+/// read (`header_is_current`), so there this is the master's variant.
+/// Offline a proxy of any variant is read: a virtual copy saved at an older
+/// render version opens on previews made at that version, also after a
+/// variant bump moved its never-edited master on. The master's own variant
+/// keeps the previews there are (PVX2: offline keeps the old ones until
+/// the RAW is back; they are preview data, marked offline, never
+/// exported), so a photograph never goes blank for a newer engine.
+pub fn stands_for_variant(source: &Path, wanted: DecodeVariant, made_for: DecodeVariant) -> bool {
+    made_for == wanted
+        || wanted == crate::image_loader::stored_decode_variant(&source.to_string_lossy())
+}
+
+/// Whether a stored proxy of `source` may stand for `wanted` before it is
+/// read (`stands_for_variant` decides on the proxy read): the master's
+/// variant, or any while the RAW is offline.
+pub fn may_stand_for_variant(source: &Path, wanted: DecodeVariant) -> bool {
+    wanted == crate::image_loader::stored_decode_variant(&source.to_string_lossy())
+        || !source_available(source)
+}
+
+/// The decode variant the stored proxy of `kind` of `source` records (read
+/// from its header only).
+fn recorded_variant(source: &Path, kind: ProxyKind) -> Option<DecodeVariant> {
+    read_header(&proxy_path_of(source, kind)?).map(|header| variant_of_key(&header.key.decoder))
+}
+
+/// Whether the proxy of `kind` of the RAW `source` stands for a photograph
+/// of it shown with `recipe` (`stands_for_variant`): a virtual copy whose
+/// recipe asks for another variant (colour noise filter, dead-photosite
+/// test, render version) than the previews were made for must not be shown
+/// from them.
+pub fn stands_for(source: &Path, recipe: &serde_json::Value, kind: ProxyKind) -> bool {
     // Offline, the frames the file's versions develop are the ones its
     // previews keep (`source_frame::frames` reads the registered facts).
     if source_facts::registered(&source.to_string_lossy()).is_none() {
         prepare_offline(source);
     }
-    let source = source.to_string_lossy();
-    crate::image_loader::decode_variant(recipe, &source)
-        == crate::image_loader::stored_decode_variant(&source)
+    let wanted = crate::image_loader::decode_variant(recipe, &source.to_string_lossy());
+    wanted == crate::image_loader::stored_decode_variant(&source.to_string_lossy())
+        || (!source_available(source) && recorded_variant(source, kind) == Some(wanted))
 }
 
-/// `stands_for` from the recipes alone: no file is read, the registered
-/// facts are not touched (a cloud file stays undownloaded while a grid is
-/// browsed). The frame is left out, so a copy of another frame counts as
-/// standing here; this answers "no" only where `stands_for` does too. None
-/// when it cannot be told without a download (the master's sidecar is an
-/// evicted cloud file): callers take the side that shows no blank tile.
+/// `stands_for` of the Standard proxy from the recipes alone: the RAW is
+/// not read, the registered facts are not touched (a cloud file stays
+/// undownloaded while a grid is browsed). The frame is left out, so a copy
+/// of another frame counts as standing here; this answers "no" only where
+/// `stands_for` does too. None when it cannot be told without a download
+/// (the master's sidecar is an evicted cloud file): callers take the side
+/// that shows no blank tile.
 pub(crate) fn stands_for_by_recipe(source: &Path, recipe: &serde_json::Value) -> Option<bool> {
     let (path, sidecar) = crate::file_management::parse_virtual_path(&source.to_string_lossy());
     if crate::file_management::is_cloud_placeholder(&sidecar) {
         return None;
     }
-    let path = path.to_string_lossy();
+    let path_str = path.to_string_lossy();
     let master = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+    let wanted = crate::image_loader::decode_variant_for_frame(recipe, &path_str, 0);
     Some(
-        crate::image_loader::decode_variant_for_frame(recipe, &path, 0)
-            == crate::image_loader::decode_variant_for_frame(&master, &path, 0),
+        wanted == crate::image_loader::decode_variant_for_frame(&master, &path_str, 0)
+            // Offline: the variant the proxy records (its header, a local
+            // cache file; the RAW is only looked at, not read).
+            || (!source_available(&path)
+                && recorded_variant(&path, ProxyKind::Standard)
+                    .is_some_and(|made_for| DecodeVariant { frame: 0, ..made_for } == wanted)),
     )
 }
 
@@ -2721,6 +2759,88 @@ pub(crate) mod tests {
         }
     }
 
+    /// PXV1: a proxy stands for the decode variant recorded in it. Previews
+    /// made at render version 15 for a never-edited master: after the bump
+    /// to 16 the master asks for another variant, and a virtual copy saved
+    /// at 15 must still open offline from them (it was refused: the check
+    /// compared with the master's current variant). The master itself keeps
+    /// its old previews offline (shown as offline preview data, PVX2) and
+    /// never gets them online, where a stale proxy is not read; a copy of
+    /// a third variant is shown from neither kind.
+    #[test]
+    fn an_offline_copy_opens_on_the_previews_made_for_its_render_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let path = photo.to_string_lossy().to_string();
+        let at = |version: u64| serde_json::json!({ "exposure": 0.5, "renderVersion": version });
+        let variant_at =
+            |version: u64| crate::image_loader::decode_variant_for_frame(&at(version), &path, 0);
+        let (v15, master) = (
+            variant_at(15),
+            crate::image_loader::stored_decode_variant(&path),
+        );
+        assert_ne!(
+            v15, master,
+            "the bump changed the never-edited master's variant"
+        );
+        assert_eq!(master, NEW_EDIT);
+        let settings = AppSettings::default();
+        let image = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(80, 60, |x, y| {
+            image::Rgb([x as f32 / 80.0, y as f32 / 60.0, 0.25])
+        }));
+        write(&photo, &image, 40, &settings, v15, None).unwrap();
+        write_full(&photo, &image, &settings, v15, None).unwrap();
+        let kinds = [ProxyKind::Standard, ProxyKind::Full];
+        // Online: the stale previews are not read, and stand for the master
+        // only (a copy at 15 decodes the RAW).
+        assert!(read(&photo, &settings).is_none());
+        for kind in kinds {
+            assert!(!stands_for(&photo, &at(15), kind));
+            assert!(stands_for(&photo, &serde_json::Value::Null, kind));
+        }
+        assert_eq!(stands_for_by_recipe(&photo, &at(15)), Some(false));
+        assert!(!may_stand_for_variant(&photo, v15));
+        fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
+        source_facts::forget(&path);
+        // Offline: what `image_loader::open_offline` reads, and what it may
+        // show it for.
+        let standard = read(&photo, &settings).expect("the old Standard preview offline");
+        let full = read_kind(&photo, ProxyKind::Full, &settings).expect("the old 1:1 preview");
+        assert!(may_stand_for_variant(&photo, v15));
+        for key in [&standard.key, &full.key] {
+            let made_for = variant_of_key(&key.decoder);
+            assert_eq!(made_for, v15);
+            // The copy at 15 (failed before PXV1) and the master.
+            assert!(stands_for_variant(&photo, v15, made_for));
+            assert!(stands_for_variant(&photo, master, made_for));
+            // A copy at 14 (another dead-photosite test): neither.
+            assert!(!stands_for_variant(&photo, variant_at(14), made_for));
+        }
+        // The multi view and the thumbnails decide alike.
+        for kind in kinds {
+            assert!(stands_for(&photo, &at(15), kind));
+            assert!(stands_for(&photo, &serde_json::Value::Null, kind));
+            assert!(!stands_for(&photo, &at(14), kind));
+        }
+        assert_eq!(stands_for_by_recipe(&photo, &at(15)), Some(true));
+        assert_eq!(stands_for_by_recipe(&photo, &at(14)), Some(false));
+        // Only the 1:1 preview renewed (for the master) before going offline:
+        // the copy at 15 still has its Standard one, not the 1:1.
+        fs::rename(dir.path().join("elsewhere.NEF"), &photo).unwrap();
+        write_full(&photo, &image, &settings, master, None).unwrap();
+        fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
+        source_facts::forget(&path);
+        assert!(stands_for(&photo, &at(15), ProxyKind::Standard));
+        assert!(!stands_for(&photo, &at(15), ProxyKind::Full));
+        let full = read_kind(&photo, ProxyKind::Full, &settings).unwrap();
+        assert!(!stands_for_variant(
+            &photo,
+            v15,
+            variant_of_key(&full.key.decoder)
+        ));
+        source_facts::forget(&path);
+    }
+
     /// Offline and cold (nothing registered), a virtual copy of an edit from
     /// before the key stands for its master's previews of a new edit where
     /// the previews' facts say both frame versions develop the file alike.
@@ -2744,8 +2864,12 @@ pub(crate) mod tests {
                 });
             }
             source_facts::forget(&photo.to_string_lossy());
-            assert_eq!(stands_for(&photo, &legacy), shared, "{frames:?}");
-            assert!(stands_for(&photo, &frame_one_edit()));
+            assert_eq!(
+                stands_for(&photo, &legacy, ProxyKind::Standard),
+                shared,
+                "{frames:?}"
+            );
+            assert!(stands_for(&photo, &frame_one_edit(), ProxyKind::Full));
             source_facts::forget(&photo.to_string_lossy());
         }
     }
