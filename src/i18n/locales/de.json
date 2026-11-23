@@ -80,7 +80,6 @@
       "running": "Nichts läuft gerade."
     },
     "export": {
-      "done": "{{label}} exportiert ({{existing}})",
       "failed_one": "{{count}} Foto nicht exportiert: {{label}}",
       "failed_other": "{{count}} Fotos nicht exportiert: {{label}}",
       "interrupted": "Export unterbrochen: {{label}}",
@@ -3771,7 +3770,9 @@
           "replaced_one": "{{count}} ersetzt",
           "replaced_other": "{{count}} ersetzt",
           "skipped_one": "{{count}} übersprungen",
-          "skipped_other": "{{count}} übersprungen"
+          "skipped_other": "{{count}} übersprungen",
+          "written_one": "{{count}} geschrieben",
+          "written_other": "{{count}} geschrieben"
         },
         "exportedTo": "Exportiert nach:",
         "failed": "{{failed}} von {{total}} fehlgeschlagen",
@@ -4134,6 +4135,7 @@
       "diffractionTitle": "Schärft die Unschärfe kleiner Blenden nach Blendenzahl und Pixelgröße nach",
       "distortion": "Verzeichnung",
       "enable": "Profilkorrekturen aktivieren",
+      "importedCorrection": "Importierte Korrektur",
       "lookingUp": "Objektiv wird gesucht…",
       "make": "Hersteller",
       "manualVignetting": "Objektiv-Vignettierung",

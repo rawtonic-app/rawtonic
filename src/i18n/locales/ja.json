@@ -74,7 +74,6 @@
       "running": "実行中の処理はありません。"
     },
     "export": {
-      "done": "{{label}} を書き出しました（{{existing}}）",
       "failed_other": "{{count}} 枚の写真を書き出せませんでした: {{label}}",
       "interrupted": "書き出しが中断されました: {{label}}",
       "nothingExported": "書き出しはありません — {{existing}} ({{label}})",
@@ -3664,7 +3663,8 @@
         "existing": {
           "keptBoth_other": "{{count}} 件を新しい名前で",
           "replaced_other": "{{count}} 件置き換え",
-          "skipped_other": "{{count}} 件スキップ"
+          "skipped_other": "{{count}} 件スキップ",
+          "written_other": "{{count}} 件書き出し"
         },
         "exportedTo": "書き出し先:",
         "failed": "{{total}} 枚中 {{failed}} 枚が失敗",
@@ -4021,6 +4021,7 @@
       "diffractionTitle": "絞り値と画素サイズに基づいて、小絞りによるぼけを補正します",
       "distortion": "ゆがみ",
       "enable": "プロファイル補正を使用",
+      "importedCorrection": "読み込んだ補正",
       "lookingUp": "レンズを検索しています…",
       "make": "メーカー",
       "manualVignetting": "レンズ周辺光量",

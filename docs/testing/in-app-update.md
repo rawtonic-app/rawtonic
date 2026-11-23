@@ -52,6 +52,7 @@ Install or place N as a user would (AppImage anywhere writable; the Windows setu
 | Case | Do | Expect |
 |---|---|---|
 | Happy path | Install update → wait → Restart now | progress with percent and MB; "ready to install"; the app restarts and About shows N+1; the session, its edits and the RAW unchanged (SHA-256 before/after); the feed log shows `latest.json` and the package fetched once each, **nothing before the click** |
+| Photo without a library | start N with a scratch RAW copy as its only argument (no library open), edit it, Restart now | N+1 opens that photo again in Develop with the edit; the RAW's SHA-256 unchanged; `reopen-after-restart.json` in the app's config folder is gone after the start |
 | Nothing before the click | start N, dismiss nothing, wait a minute | the feed log shows only `/releases.json` |
 | Edits are saved | change a slider, Restart now at once | after the restart the change is there |
 | Exports running | start a long export, Restart now | "Exports or Imports Are Running", Keep Working installs nothing; Restart Anyway updates |

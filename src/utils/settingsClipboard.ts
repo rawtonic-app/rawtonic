@@ -107,11 +107,33 @@ export function chosenSettings(
     else if (key in MISSING_RESPONSES) chosen[key] = MISSING_RESPONSES[key];
     else chosen[key] = null;
   }
+  // The Lens Correction group carries an imported polynomial distortion
+  // (Capture One's Generic profile, no lens named) with its parameters: they
+  // are the correction itself, not lens data the destination resolves. For
+  // any other lens choice the destination's own parameters are resolved for
+  // it, so a stale polynomial goes.
+  if (keys.includes('lensCorrectionMode')) {
+    if (hasImportedPolynomial(source)) chosen.lensDistortionParams = structuredClone(source.lensDistortionParams);
+    // The camera's own data travels as it always did.
+    else if (source.lensCorrectionMode !== 'camera') chosen.lensDistortionParams = null;
+  }
   const ids = new Set(layerIds);
   const layers = (source.masks ?? []).filter((layer: MaskContainer) => ids.has(layer.id));
   if (layers.length > 0) chosen.masks = structuredClone(layers);
   // Whites without the tone version, and Blacks: as the amount they render.
   return withPortableWhites(chosen as Partial<Adjustments>, source, sourceIsRaw);
+}
+
+/** Whether `adjustments` hold a polynomial distortion an import wrote: manual
+ * lens mode, no lens named, `lensDistortionParams` model 0 (the Lens tool's
+ * "Imported correction"). */
+export function hasImportedPolynomial(adjustments: Adjustments): boolean {
+  return (
+    adjustments.lensCorrectionMode === 'manual' &&
+    !adjustments.lensMaker &&
+    !adjustments.lensModel &&
+    adjustments.lensDistortionParams?.model === 0
+  );
 }
 
 /** The processing versions a new edit gets (`initialAdjustmentsFor`), RAW

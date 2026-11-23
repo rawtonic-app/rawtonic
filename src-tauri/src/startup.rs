@@ -672,6 +672,14 @@ pub(crate) fn frontend_ready(
         }
     }
 
+    // The restart's note served this start (or a newer launch file won).
+    if is_first_run
+        && let Ok(dir) = app_handle.path().app_config_dir()
+        && let Err(e) = crate::restart_reopen::forget(&dir)
+    {
+        log::warn!("Could not remove the restart note: {e}");
+    }
+
     #[cfg(windows)]
     if is_first_run {
         tauri::async_runtime::spawn_blocking(move || {

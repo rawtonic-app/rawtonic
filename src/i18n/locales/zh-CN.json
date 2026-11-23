@@ -74,7 +74,6 @@
       "running": "没有进行中的任务。"
     },
     "export": {
-      "done": "已导出 {{label}}（{{existing}}）",
       "failed_other": "{{count}} 张照片未能导出：{{label}}",
       "interrupted": "导出已中断：{{label}}",
       "nothingExported": "没有导出任何照片 — {{existing}} ({{label}})",
@@ -3664,7 +3663,8 @@
         "existing": {
           "keptBoth_other": "{{count}} 张使用新名称",
           "replaced_other": "已替换 {{count}} 张",
-          "skipped_other": "已跳过 {{count}} 张"
+          "skipped_other": "已跳过 {{count}} 张",
+          "written_other": "已写入 {{count}} 张"
         },
         "exportedTo": "导出到：",
         "failed": "{{failed}}/{{total}} 失败",
@@ -4021,6 +4021,7 @@
       "diffractionTitle": "根据光圈值和像素尺寸锐化小光圈造成的模糊",
       "distortion": "畸变",
       "enable": "启用配置文件校正",
+      "importedCorrection": "已导入的校正",
       "lookingUp": "正在查找镜头…",
       "make": "品牌",
       "manualVignetting": "镜头暗角",

@@ -85,7 +85,7 @@ fn collide_photo(
     // Read (a LUT's file, say) only once a name is found taken: an export to
     // an empty folder hashes nothing.
     let inputs = std::cell::OnceCell::new();
-    let inputs = || inputs.get_or_init(|| photo_inputs(pinned, settings, is_raw));
+    let inputs = || inputs.get_or_init(|| photo_inputs(pinned, settings, &source_path, is_raw));
     let photo_key = rawtonic_export::existing_files::photo_key(
         item.image_path_str,
         pinned.source_identity.as_deref(),
@@ -321,9 +321,14 @@ mod tests {
         inputs: Option<&str>,
     ) {
         let settings = crate::app_settings::AppSettings::default();
-        let pinned = pin_photos(&request.paths, None, None, None)
-            .unwrap()
-            .remove(0);
+        let pinned = pin_photos(
+            &request.paths,
+            request.current_edit_path.as_deref(),
+            request.current_edit_adjustments.as_ref(),
+            request.library.directory(),
+        )
+        .unwrap()
+        .remove(0);
         let key = rawtonic_export::existing_files::photo_key(
             &request.paths[0],
             pinned.source_identity.as_deref(),
@@ -337,7 +342,8 @@ mod tests {
             output_format: request.output_format.clone(),
             tracking: None,
         };
-        let hash = target_inputs_hash(&photo_inputs(&pinned, &settings, true), &target);
+        let source = Path::new(&request.paths[0]);
+        let hash = target_inputs_hash(&photo_inputs(&pinned, &settings, source, true), &target);
         let bytes = std::fs::read(output).unwrap();
         records
             .record_written(
@@ -351,6 +357,47 @@ mod tests {
                 },
             )
             .unwrap();
+    }
+
+    #[test]
+    fn closing_develop_after_replacing_a_numbered_export_does_not_change_its_inputs() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.NEF");
+        rawtonic_fs::atomic_write(&raw, b"original RAW").unwrap();
+        let records = ExportRecords::open(&dir.path().join("records.sqlite")).unwrap();
+        let mut request = request(dir.path(), &raw, "{orig_base}-edited");
+        request.current_edit_path = Some(request.paths[0].clone());
+        request.current_edit_adjustments = Some(serde_json::json!({"exposure": 1}));
+        std::fs::create_dir(dir.path().join("web")).unwrap();
+        let slot = dir.path().join("web/a-edited.jpg");
+        let numbered = dir.path().join("web/a-edited_1.jpg");
+        rawtonic_fs::atomic_write(&slot, b"foreign file").unwrap();
+        rawtonic_fs::atomic_write(&numbered, b"export before edit").unwrap();
+        record_at_slot(&records, &request, &numbered, &slot, Some("old inputs"));
+        assert_eq!(
+            summary(std::slice::from_ref(&request), &records)
+                .changed_own
+                .count,
+            1
+        );
+
+        rawtonic_fs::atomic_write(&numbered, b"export after edit").unwrap();
+        record_at_slot(&records, &request, &numbered, &slot, None);
+        let mut saved = request.current_edit_adjustments.take().unwrap();
+        request.current_edit_path = None;
+        rawtonic_engine::recipe_frame::stamp(&mut saved, 8256, 5504);
+        rawtonic_engine::lens_recipe::stamp_loaded_lens_profile(&mut saved);
+        saved[rawtonic_engine::image_processing::LIBRARY_LABEL_KEY] = serde_json::json!("");
+        rawtonic_fs::atomic_write(
+            &crate::exif_processing::get_primary_sidecar_path(&raw),
+            serde_json::json!({"version": 1, "adjustments": saved}).to_string(),
+        )
+        .unwrap();
+
+        let repeated = summary(&[request], &records);
+        assert_eq!(repeated.changed_own.count, 0);
+        assert_eq!(repeated.unchanged_own.names, ["a-edited_1.jpg"]);
+        assert_eq!(std::fs::read(&slot).unwrap(), b"foreign file");
     }
 
     /// Before anything renders, the plan counts what the names meet: our
