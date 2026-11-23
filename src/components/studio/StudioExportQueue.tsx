@@ -40,6 +40,8 @@ function describeJobState(job: ExportJob): string {
     case 'paused':
       return i18n.t('studio.export.queue.paused', counts);
     case 'failed':
+      // An admission failure can leave every photo complete (proof sheet).
+      if (!job.failed) return job.error ? renderErrorMessage(job.error) : i18n.t('studio.export.errors.couldNotStart');
       return i18n.t('studio.export.queue.failed', {
         failed: job.failed,
         total: job.total

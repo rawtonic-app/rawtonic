@@ -13,6 +13,7 @@
 
 ### Fixes
 
+- The export queue explains why a proof sheet could not start, even when all its photos have already rendered.
 - **Before/After: a snapshot of an older edit is no longer shown through the wrong preview while a photo opens.** For DNGs with a lens warp per colour plane (e.g. some drone and action-camera files), the Before of a snapshot saved with an older render version could briefly show the new per-plane warp until the full decode arrived; it now waits for the decode.
 
 - **Photo merges: fewer dropped panorama frames, sharper focus stacks, cleaner HDR ghosts** (new merges; merged files you saved stay as they are). Measured against RapidRAW 1.7.1's rewritten merge engine on test sets with a known answer and on real brackets and panoramas; each change takes the better of the two approaches.

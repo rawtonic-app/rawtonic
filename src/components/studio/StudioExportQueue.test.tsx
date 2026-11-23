@@ -44,6 +44,25 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+it('shows a failed proof sheet’s reason even when its photo finished', async () => {
+  items = [item(0, { state: 'done', output: '/cache/sheet/0.jpg' })];
+  const failedSheet = {
+    ...job({ label: 'Proof sheet', state: 'failed', total: 1 }),
+    error: 'This export was queued by an older version of Rawtonic: export it again.'
+  };
+  useProcessStore.getState().setExportQueue({ jobs: [failedSheet], held: false });
+  render(<ExportQueuePanel onClose={() => {}} />);
+
+  const reason = 'This export was queued in an older version of Rawtonic. Export it again.';
+  expect(screen.getByText(reason)).toBeTruthy();
+  expect(screen.queryByText('0 of 1 failed')).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: '1 photo' }));
+  const photos = await screen.findByRole('list', { name: 'Photos of Proof sheet' });
+  expect(within(photos).getByText('Done')).toBeTruthy();
+  expect(screen.getByText(reason)).toBeTruthy();
+});
+
 it('says what each photo is doing, AI Denoise with its share done', () => {
   expect(describeExportItem({ ...item(0, { state: 'running' }), stage: 'denoising', fraction: 0.423 })).toBe(
     'AI Denoise 42 %'
