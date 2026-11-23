@@ -3499,7 +3499,7 @@
         "intro": "为整个导出选择一次。",
         "kind": {
           "changedOwn": "之前的导出，之后照片或设置已改变：{{number}}",
-          "other": "其他文件（不是这张照片的导出）：{{number}}",
+          "other": "其他文件，或带蒙版文件的导出（不会替换）：{{number}}",
           "unchangedOwn": "之前的导出，之后没有改动：{{number}}"
         },
         "more": "另有 {{number}} 个",

@@ -3761,7 +3761,7 @@
         "intro": "Tria una vegada per a tota l'exportació.",
         "kind": {
           "changedOwn": "Exportació anterior, foto o ajustos canviats des d’aleshores: {{number}}",
-          "other": "Altres fitxers (no són una exportació d’aquesta foto): {{number}}",
+          "other": "Altres fitxers o exportacions amb fitxers de màscara (no se substitueixen): {{number}}",
           "unchangedOwn": "Exportació anterior, sense canvis des d’aleshores: {{number}}"
         },
         "more": "i {{number}} més",

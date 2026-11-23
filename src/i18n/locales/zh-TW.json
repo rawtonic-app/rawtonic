@@ -3499,7 +3499,7 @@
         "intro": "為整個匯出選擇一次。",
         "kind": {
           "changedOwn": "先前的匯出，之後照片或設定已變更：{{number}}",
-          "other": "其他檔案（不是這張照片的匯出）：{{number}}",
+          "other": "其他檔案，或帶遮罩檔案的匯出（不會取代）：{{number}}",
           "unchangedOwn": "先前的匯出，之後沒有變動：{{number}}"
         },
         "more": "另有 {{number}} 個",

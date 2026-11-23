@@ -3601,7 +3601,7 @@
         "intro": "Choose once for this whole export.",
         "kind": {
           "changedOwn": "Earlier export, photo or settings changed since: {{number}}",
-          "other": "Other files (not an export of this photo): {{number}}",
+          "other": "Other files, or exports with mask files (not replaced): {{number}}",
           "unchangedOwn": "Earlier export, nothing changed since: {{number}}"
         },
         "more": "and {{number}} more",

@@ -3920,7 +3920,7 @@
         "intro": "Wybierz raz dla całego eksportu.",
         "kind": {
           "changedOwn": "Wcześniejszy eksport, zdjęcie lub ustawienia zmienione od tego czasu: {{number}}",
-          "other": "Inne pliki (to nie eksport tego zdjęcia): {{number}}",
+          "other": "Inne pliki lub eksporty z plikami masek (nie są zastępowane): {{number}}",
           "unchangedOwn": "Wcześniejszy eksport, od tego czasu bez zmian: {{number}}"
         },
         "more": "i {{number}} więcej",

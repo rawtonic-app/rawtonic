@@ -3761,7 +3761,7 @@
         "intro": "Scegli una volta per l'intera esportazione.",
         "kind": {
           "changedOwn": "Esportazione precedente, foto o impostazioni cambiate da allora: {{number}}",
-          "other": "Altri file (non un’esportazione di questa foto): {{number}}",
+          "other": "Altri file o esportazioni con file di maschera (non sostituiti): {{number}}",
           "unchangedOwn": "Esportazione precedente, nulla è cambiato da allora: {{number}}"
         },
         "more": "e altri {{number}}",

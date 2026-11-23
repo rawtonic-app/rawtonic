@@ -3761,7 +3761,7 @@
         "intro": "Choisissez une fois pour tout l'export.",
         "kind": {
           "changedOwn": "Export précédent, photo ou réglages modifiés depuis : {{number}}",
-          "other": "Autres fichiers (pas un export de cette photo) : {{number}}",
+          "other": "Autres fichiers ou exports avec fichiers de masque (non remplacés) : {{number}}",
           "unchangedOwn": "Export précédent, rien n’a changé depuis : {{number}}"
         },
         "more": "et {{number}} autres",

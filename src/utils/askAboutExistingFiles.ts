@@ -11,13 +11,15 @@ type Request = { exportSettings: { existingFiles?: string }; isExplicitFilePath?
  * once for the whole run: Keep both, Skip or Replace if changed. The answer
  * replaces "ask" in those recipes, so the queue only ever sees the three
  * choices. Returns null when the question was cancelled: nothing is queued.
- * A file the photographer just named in Save As is not asked about (the
- * save panel did, and only Keep both can write it): it goes as Keep both. */
+ * A file the photographer just named in Save As is not asked about (the save
+ * panel did): it goes as Replace if changed, which replaces their own earlier
+ * export, leaves an unchanged one, and numbers the new file beside any other
+ * file; Keep both would fail on a name that is taken. */
 export async function askAboutExistingFiles<T extends Request>(requests: T[]): Promise<T[] | null> {
   const isAsking = (request: Request) => request.exportSettings.existingFiles === 'ask';
   const named = (request: T) =>
     isAsking(request) && request.isExplicitFilePath
-      ? { ...request, exportSettings: { ...request.exportSettings, existingFiles: 'keepBoth' } }
+      ? { ...request, exportSettings: { ...request.exportSettings, existingFiles: 'replaceIfChanged' } }
       : request;
   requests = requests.map(named);
   const asking = requests.filter(isAsking);

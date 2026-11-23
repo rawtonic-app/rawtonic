@@ -5,8 +5,8 @@
 //! library lists as a photo, is only reported: Replace if changed never
 //! replaces it (`rawtonic_export::existing_files`).
 use crate::export_processing::{
-    ExportTarget, PhotoItem, Planned, known_libraries, mask_file_paths, open_export_records,
-    photo_inputs, pin_photos, plan_output_path, previous_export, target_inputs_hash,
+    ExportTarget, PhotoItem, Planned, known_libraries, mask_file_paths, photo_inputs, pin_photos,
+    plan_output_path, previous_export, target_inputs_hash,
 };
 use crate::export_queue::ExportRequest;
 use rawtonic_export::existing_files::{ExistingFiles, ExportRecords, Outcome, Previous};
@@ -142,7 +142,13 @@ fn collide_photo(
                 continue;
             }
         };
-        let hash = target_inputs_hash(inputs(), target);
+        // Compared only against what an export recorded for the name; any
+        // other file is "other" whatever the inputs are.
+        let hash = if matches!(previous(&existing), Previous::Export(_)) {
+            target_inputs_hash(inputs(), target)
+        } else {
+            String::new()
+        };
         let masks = if target.export_settings.export_masks {
             mask_layers
         } else {
@@ -164,18 +170,9 @@ fn collide_photo(
             Planned::Write {
                 kept: Some(kept), ..
             } => {
-                // An own export of this photo that Replace if changed cannot
-                // replace (it has mask files beside it) is still its export.
-                let own = masks > 0
-                    && matches!(previous(&existing), Previous::Export(recorded)
-                        if recorded.is_export_of(&existing, photo));
-                if own {
-                    summary.changed_own.add(&occupied);
-                } else {
-                    summary.other.add(&occupied);
-                    if kept == Outcome::KeptOriginal {
-                        summary.originals += 1;
-                    }
+                summary.other.add(&occupied);
+                if kept == Outcome::KeptOriginal {
+                    summary.originals += 1;
                 }
             }
             _ => {}
@@ -263,14 +260,13 @@ pub async fn plan_export_collisions(
     crate::provenance::pin_signers(&app_handle, &mut requests)?;
     tauri::async_runtime::spawn_blocking(move || {
         let settings = crate::state::settings::current(&app_handle);
-        // No records file yet (nothing was ever exported): nothing is
-        // recorded, and asking creates none.
-        let records = app_handle
-            .path()
-            .app_data_dir()
-            .ok()
-            .filter(|dir| rawtonic_export::existing_files::records_path(dir).exists())
-            .and_then(|_| open_export_records(&app_handle));
+        // Only read, and only what is there: asking creates, recovers and
+        // initializes no records file; the export the answer queues does.
+        let records = app_handle.path().app_data_dir().ok().and_then(|dir| {
+            ExportRecords::open_existing_read_only(&rawtonic_export::existing_files::records_path(
+                &dir,
+            ))
+        });
         plan_collisions(
             &requests,
             &settings,
@@ -388,10 +384,10 @@ mod tests {
         assert_eq!(names, ["a-edited.jpg"]);
     }
 
-    /// With separate mask files (which Replace if changed never replaces) an
-    /// earlier export of this photo is still counted as its own; a lone mask
-    /// file left in the folder is what the question names, not the missing
-    /// main file.
+    /// An export with separate mask files is never replaced (Replace if
+    /// changed keeps both), so it is not offered as a changed export of its
+    /// own but counted with the files that stay; a lone mask file left in
+    /// the folder is what the question names, not the missing main file.
     #[test]
     fn an_export_with_mask_files_is_counted_by_what_is_on_disk() {
         let dir = tempfile::tempdir().unwrap();
@@ -421,10 +417,10 @@ mod tests {
         let found = summary(std::slice::from_ref(&request), &records);
         assert_eq!(
             (found.changed_own.count, found.other.count),
-            (1, 0),
+            (0, 1),
             "{found:?}"
         );
-        assert_eq!(found.changed_own.names, vec!["a-edited.jpg".to_string()]);
+        assert_eq!(found.other.names, vec!["a-edited.jpg".to_string()]);
 
         std::fs::remove_file(&own).unwrap();
         std::fs::remove_file(&mask_alpha).unwrap();

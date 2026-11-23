@@ -3601,7 +3601,7 @@
         "intro": "Einmal für den ganzen Export wählen.",
         "kind": {
           "changedOwn": "Früherer Export, Foto oder Einstellungen seitdem geändert: {{number}}",
-          "other": "Andere Dateien (kein Export dieses Fotos): {{number}}",
+          "other": "Andere Dateien oder Exporte mit Maskendateien (werden nicht ersetzt): {{number}}",
           "unchangedOwn": "Früherer Export, seitdem nichts geändert: {{number}}"
         },
         "more": "und {{number}} weitere",
