@@ -212,6 +212,9 @@ pub struct ColorNoiseView {
     /// The corrected base the last preview frame rendered from (`note_shown`),
     /// None when it rendered from its own base.
     shown: Mutex<Option<Weak<DynamicImage>>>,
+    /// On integrated GPUs, the last build's uploaded input for the next
+    /// build of the same photograph and geometry (`on_gpu`).
+    kept_input: rawtonic_gpu::gpu_processing::color_noise_view::KeptInput,
 }
 
 /// Keeps `item` last in `list` of at most [`KEPT`], dropping the oldest.
@@ -227,6 +230,7 @@ impl ColorNoiseView {
     pub fn clear(&self) {
         lock_recover(&self.inputs).clear();
         lock_recover(&self.corrected).clear();
+        self.kept_input.clear();
         self.revision.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -591,16 +595,62 @@ fn pool() -> &'static rayon::ThreadPool {
 /// bandwidth and is no Radeon 680M: the 1 s guard decides there.
 const APPLE_SILICON: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
 
-/// The GPU build of `wanted`'s render input and when it started (after the
-/// pass's pipelines are ready: their compile is no build's time); None when
-/// a newer frame came meanwhile (`stop`; its final frame wants again),
-/// for recipes the GPU pass does not take and on errors (logged).
+/// A GPU build's render input, when it started (after the pass's
+/// pipelines are ready: their compile is no build's time) and whether its
+/// time counts for the guard.
+struct GpuBuild {
+    input: Rgb32FImage,
+    started: std::time::Instant,
+    timed: bool,
+}
+
+/// The key of `wanted`'s uploaded input: its photograph and geometry.
+fn kept_key(wanted: &Wanted) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    wanted.path.hash(&mut hasher);
+    (Weak::as_ptr(&wanted.source) as usize).hash(&mut hasher);
+    wanted.key.geometry.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Whether a build of `needed` bytes fits what the app may still take
+/// (`memory_pressure::work_headroom`); logs when it does not.
+fn fits_headroom(needed: u64) -> bool {
+    let room = crate::memory_pressure::work_headroom();
+    let fits = room.is_some_and(|room| needed <= room);
+    if !fits {
+        log::info!(
+            "Colour noise view: not built, {} MB wanted, room {:?} MB",
+            needed >> 20,
+            room.map(|r| r >> 20)
+        );
+    }
+    fits
+}
+
+/// The GPU build of `wanted`'s render input; None when a newer frame came
+/// meanwhile (`stop`; its final frame wants again), when an integrated
+/// GPU's memory has no room for it, for recipes the GPU pass does not take
+/// and on errors (logged).
+///
+/// On an integrated GPU (outside Apple silicon) or under a compile limit
+/// the graphics memory is the machine's own: there a build runs only when
+/// its memory (`color_noise_view::transient_bytes`) fits what the app may
+/// still take (`memory_pressure::work_headroom`), and its uploaded input is
+/// kept for the next build of the photograph and geometry, so that typed
+/// Color, Detail and Smoothness changes skip the upload, the build's
+/// largest part (a Radeon 680M laptop: 1.9–2.9 s and +1.07–1.68 GB of
+/// private memory per build with the upload, WTPX5B; notes:
+/// benchmark-results/tpx8-2026-11-22/REPORT.md). The build with the upload
+/// that is then kept does not count for the 1 s guard there: the changes
+/// after it do (photographs too large to keep count every build).
 fn on_gpu(
     app: &tauri::AppHandle,
     source: &Arc<DynamicImage>,
     wanted: &Wanted,
     stop: &(dyn Fn() -> bool + Sync),
-) -> Option<(Option<Rgb32FImage>, std::time::Instant)> {
+) -> Option<GpuBuild> {
     use rawtonic_gpu::gpu_processing::color_noise_view;
     let gpu = app.state::<crate::state::gpu::GpuState>();
     let integrated = lock_recover(&gpu.adapter)
@@ -608,14 +658,14 @@ fn on_gpu(
         .is_some_and(|(_, adapter)| {
             adapter.get_info().device_type == wgpu::DeviceType::IntegratedGpu
         });
-    if (integrated && !APPLE_SILICON) || rawtonic_gpu::gpu_processing::compiles_limited() {
-        // On a Radeon 680M laptop (integrated, compile limit) the GPU build
-        // took 1.9–2.9 s on opening a 24 MP photo and 0.86–1.12 s per typed
-        // change, with +1.07–1.68 GB of private memory (WTPX5B): over the
-        // bar from the first build, so it never runs there; an RTX 3080
-        // takes 0.5–0.6 s with the warp and edge-fringe pass (G17/TPX7).
-        TOO_SLOW.store(true, Ordering::Relaxed);
-        log::info!("Colour noise view: off on this GPU (integrated or compile-limited)");
+    let shared_memory =
+        (integrated && !APPLE_SILICON) || rawtonic_gpu::gpu_processing::compiles_limited();
+    let develop = app.state::<crate::state::develop::DevelopSession>();
+    let kept = &develop.color_noise_view.kept_input;
+    let key = kept_key(wanted);
+    let uploads = !shared_memory || !kept.holds(key);
+    let needed = color_noise_view::transient_bytes(source.width(), source.height(), uploads);
+    if shared_memory && !fits_headroom(needed) {
         return None;
     }
     let context = crate::gpu_processing::get_or_init_gpu_context(&gpu, app)
@@ -632,6 +682,10 @@ fn on_gpu(
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
+    // Again after the waits: an export may have started meanwhile.
+    if shared_memory && !fits_headroom(needed) {
+        return None;
+    }
     let started = std::time::Instant::now();
     let input = color_noise_view::reduced_render_input(
         &context,
@@ -641,10 +695,21 @@ fn on_gpu(
         wanted.dims,
         stop,
         &|work| pool().install(work),
+        // Budgeted for a build from the kept upload: none if it went
+        // meanwhile (a memory release); the next frame wants again.
+        shared_memory.then_some((kept, key, !uploads)),
     )
     .inspect_err(|e| log::warn!("Colour noise view: GPU build failed: {e}"))
     .ok()??;
-    Some((Some(input), started))
+    Some(GpuBuild {
+        input,
+        started,
+        // A build whose upload is kept is the photograph's first; one too
+        // large to keep uploads every time and counts.
+        timed: !(shared_memory
+            && uploads
+            && color_noise_view::keeps_input_of(source.width(), source.height())),
+    })
 }
 
 fn build(app: &tauri::AppHandle, wanted: Wanted) {
@@ -664,26 +729,31 @@ fn build(app: &tauri::AppHandle, wanted: Wanted) {
         return;
     };
     let (w, h) = wanted.dims;
-    let Some((input, started)) = on_gpu(app, &source, &wanted, &|| !current(&wanted.frame)) else {
+    let Some(GpuBuild {
+        input,
+        started,
+        timed,
+    }) = on_gpu(app, &source, &wanted, &|| !current(&wanted.frame))
+    else {
         return;
     };
     log::info!(
-        "Colour noise view: render input of {}x{} at {}x{} in {:.0} ms",
+        "Colour noise view: render input of {}x{} at {}x{} in {:.0} ms{}",
         source.width(),
         source.height(),
         w,
         h,
-        started.elapsed().as_secs_f64() * 1000.0
+        started.elapsed().as_secs_f64() * 1000.0,
+        if timed { "" } else { " (with its upload)" }
     );
     let megapixels = f64::from(source.width()) * f64::from(source.height()) / 1e6;
-    if note_build_time(started.elapsed().as_secs_f64() * 1000.0 * 24.0 / megapixels.max(1.0)) {
+    if timed
+        && note_build_time(started.elapsed().as_secs_f64() * 1000.0 * 24.0 / megapixels.max(1.0))
+    {
         TOO_SLOW.store(true, Ordering::Relaxed);
         log::warn!("Colour noise view: too slow here, off for this session");
     }
     drop(source);
-    let Some(input) = input else {
-        return;
-    };
     view.store(&wanted, input);
     // The build's buffers go back.
     pool().broadcast(|_| rawtonic_runtime::allocator::release_freed_memory());
@@ -825,6 +895,21 @@ mod tests {
         assert!(!note_build_time(1100.0));
         assert!(note_build_time(1200.0));
         SLOW_BUILDS.store(0, Ordering::Relaxed);
+    }
+
+    /// A background mask run's release keeps the fit view's render inputs
+    /// (and the kept upload with them); other releases drop them (TPX8).
+    #[test]
+    fn a_mask_runs_release_keeps_the_render_inputs() {
+        let develop = crate::state::develop::DevelopSession::default();
+        let source = image(8, 8);
+        let view = &develop.color_noise_view;
+        let wanted = wanted_for(&source, recipe(25), None, (4, 4));
+        view.store(&wanted, Rgb32FImage::new(4, 4));
+        develop.release_rebuildable(true);
+        assert_eq!(lock_recover(&view.inputs).len(), 1);
+        develop.release_rebuildable(false);
+        assert!(lock_recover(&view.inputs).is_empty());
     }
 
     #[test]

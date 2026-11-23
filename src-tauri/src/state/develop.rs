@@ -194,7 +194,13 @@ impl DevelopSession {
     ///
     /// The warped mask image is kept when `keep_warp`: a background mask run
     /// holds it for its own run anyway (dropping the cache's reference frees
-    /// nothing) and the next frame's masks need it again.
+    /// nothing) and the next frame's masks need it again. Such a run keeps
+    /// the fit view's colour noise inputs too (`ColorNoiseView`: the
+    /// render inputs and, on integrated GPUs, the kept upload of about
+    /// 0.19 GB at 24 MP): the subject mask computed ahead when a photo opens
+    /// on a Radeon 680M dropped them, so the first typed Color change
+    /// uploaded again (1.69–1.75 s instead of 0.76–0.85 s; notes:
+    /// benchmark-results/tpx8-2026-11-22/REPORT.md).
     pub fn release_rebuildable(&self, keep_warp: bool) {
         lock_recover(&self.decoded_image_cache).clear();
         lock_recover(&self.reusable_previews).clear();
@@ -205,7 +211,9 @@ impl DevelopSession {
         }
         *lock_recover(&self.patched_warped_cache) = None;
         *lock_recover(&self.full_transformed_cache) = None;
-        self.color_noise_view.clear();
+        if !keep_warp {
+            self.color_noise_view.clear();
+        }
     }
 
     /// Drops what `scope` makes stale. Takes each cache's lock alone, one
