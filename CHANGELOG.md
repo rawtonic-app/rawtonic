@@ -13,6 +13,7 @@
 
 ### Fixes
 
+- Slider edits made while a colour target is still being measured keep their values and Undo history.
 - The export queue explains why a proof sheet could not start, even when all its photos have already rendered.
 - **Before/After: a snapshot of an older edit is no longer shown through the wrong preview while a photo opens.** For DNGs with a lens warp per colour plane (e.g. some drone and action-camera files), the Before of a snapshot saved with an older render version could briefly show the new per-plane warp until the full decode arrived; it now waits for the decode.
 
