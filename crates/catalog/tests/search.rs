@@ -122,6 +122,41 @@ fn found(lib: &Library, value: Value) -> Vec<String> {
     names(lib.search(&rule(value)).unwrap())
 }
 
+/// "Contains the whole words": a word of a name is a space-separated word;
+/// in a camera or lens name a word in square brackets is that word (as
+/// Lightroom reads `[IF]`), in a file name brackets are part of it.
+#[test]
+fn whole_words_keep_brackets_in_file_names_and_drop_them_around_lens_words() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = Library::create(&tmp.path().join("Job"), "Job", Mode::Session).unwrap();
+    let capture = lib.directory.join("Capture");
+    fs::create_dir_all(&capture).unwrap();
+    for (name, lens) in [
+        ("[FINAL] IMG_0001.CR3", "Zoom [IF] IMG[1]"),
+        ("[[FINAL]] IMG_0001.CR3", "Zoom IMG1"),
+        ("FINAL IMG_0001.CR3", ""),
+    ] {
+        let path = capture.join(name);
+        fs::write(&path, name.as_bytes()).unwrap();
+        let id = lib.add_asset(&path).unwrap().id;
+        let facts = CaptureFacts {
+            lens: (!lens.is_empty()).then(|| lens.into()),
+            ..CaptureFacts::default()
+        };
+        lib.record_facts(&id, &facts).unwrap();
+    }
+    let words = |field: &str, value: &str| {
+        found(&lib, json!({"field": field, "op": "words", "value": value}))
+    };
+    assert_eq!(words("filename", "[FINAL]"), ["[FINAL] IMG_0001.CR3"]);
+    assert_eq!(words("filename", "[[FINAL]]"), ["[[FINAL]] IMG_0001.CR3"]);
+    assert_eq!(words("filename", "FINAL"), ["FINAL IMG_0001.CR3"]);
+    assert_eq!(words("lens", "IF"), ["[FINAL] IMG_0001.CR3"]);
+    assert!(words("lens", "[IF]").is_empty());
+    assert_eq!(words("lens", "IMG[1]"), ["[FINAL] IMG_0001.CR3"]);
+    assert_eq!(words("lens", "IMG1"), ["[[FINAL]] IMG_0001.CR3"]);
+}
+
 #[test]
 fn text_finds_part_of_any_word_in_any_searchable_field() {
     let d = tempfile::tempdir().unwrap();
