@@ -3746,6 +3746,28 @@
         "ratioHeight": "Altura da proporção",
         "ratioWidth": "Largura da proporção"
       },
+      "collision": {
+        "cancel": "Cancelar",
+        "choice": {
+          "keepBoth": "Manter ambos",
+          "replaceIfChanged": "Substituir se alterado",
+          "skip": "Pular"
+        },
+        "hint": {
+          "keepBoth": "Cada arquivo novo recebe um nome novo. Nada é sobrescrito.",
+          "replaceIfChanged": "Substitui as suas próprias exportações que mudaram. As que não mudaram são puladas. Os outros arquivos ficam e o arquivo novo recebe um nome novo.",
+          "skip": "Os arquivos existentes ficam como estão; essas fotos não são exportadas de novo."
+        },
+        "intro": "Escolha uma vez para toda a exportação.",
+        "kind": {
+          "changedOwn": "Exportação anterior, foto ou ajustes alterados desde então: {{number}}",
+          "other": "Outros arquivos ou exportações com arquivos de máscara (não são substituídos): {{number}}",
+          "unchangedOwn": "Exportação anterior, sem alterações desde então: {{number}}"
+        },
+        "more": "e mais {{number}}",
+        "originals": "Destes, fotos de uma biblioteca, nunca substituídas: {{number}}",
+        "title": "Já existem arquivos com estes nomes"
+      },
       "destination": {
         "aria": "Destino da exportação",
         "choose": "Escolher uma pasta…",
@@ -3756,11 +3778,13 @@
         },
         "existing": "Se um arquivo existir",
         "existingChoice": {
+          "ask": "Perguntar",
           "keepBoth": "Manter ambos (novo nome)",
           "replaceIfChanged": "Substituir se alterado",
           "skip": "Pular"
         },
         "existingHint": {
+          "ask": "Antes de exportar, pergunta uma vez o que fazer se já existirem arquivos com estes nomes. Nada é processado nem gravado até você responder.",
           "keepBoth": "O novo arquivo recebe um nome numerado; nada é sobrescrito.",
           "replaceIfChanged": "Substitui a exportação anterior do Rawtonic de uma foto com este nome somente se a edição ou as configurações mudaram; fotos sem alterações são puladas. Qualquer outro arquivo (originais, JPEGs da câmera, arquivos editados em outro lugar) é mantido e o novo arquivo recebe um nome numerado.",
           "skip": "Fotos cujo arquivo já existe não são exportadas."

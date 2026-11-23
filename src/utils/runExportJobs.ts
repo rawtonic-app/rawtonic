@@ -16,6 +16,7 @@ import { photoWritesAndStepsSettled } from './photoWrites';
 import { readJobName } from './exportJob';
 import { joinPath } from './path';
 import { usableSessionFolder } from './sessionFolders';
+import { askAboutExistingFiles } from './askAboutExistingFiles';
 
 /** The library an export is submitted from, as `export_images` takes it:
  * always stated, so an export from no library never takes one opened later. */
@@ -119,7 +120,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
       );
     // Queued together, the recipes run as one export: each photograph is
     // developed once for all of them.
-    const requests: Record<string, unknown>[] = [];
+    const asked: Record<string, unknown>[] = [];
     for (const job of planned) {
       const destination = await destinationFor(
         job.draft,
@@ -135,7 +136,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
         const { id } = job.recipe;
         changeRecipes((current) => current.map((r) => (r.id === id ? { ...r, lastExportPath: destination.path } : r)));
       }
-      requests.push({
+      asked.push({
         paths,
         displayLabel: exportJobLabel(
           job.recipe?.name ?? t('studio.export.dialogs.customName'),
@@ -153,6 +154,10 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
         library: submittedFrom(session)
       });
     }
+    // "If a file exists: Ask": one question for the run, before anything is
+    // queued; cancelling it queues nothing and says nothing.
+    const requests = await askAboutExistingFiles(asked as Parameters<typeof askAboutExistingFiles>[0]);
+    if (!requests) return 0;
     const started = requests.length;
     if (started) {
       if (!queued)

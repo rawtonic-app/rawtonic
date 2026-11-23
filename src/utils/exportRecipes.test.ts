@@ -374,7 +374,7 @@ it('keeps the "If a file exists" choice in a recipe, saved only when not the def
   expect(JSON.parse(JSON.stringify(plain))).not.toHaveProperty('existingFiles');
   expect(draftFromPreset(plain).existingFiles).toBe('keepBoth');
   expect(exportSettingsFromDraft(DEFAULT_RECIPE_DRAFT).settings.existingFiles).toBe('keepBoth');
-  for (const existingFiles of ['skip', 'replaceIfChanged'] as const) {
+  for (const existingFiles of ['skip', 'replaceIfChanged', 'ask'] as const) {
     const saved = presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, existingFiles }, 'r2', 'Web');
     expect(saved.existingFiles).toBe(existingFiles);
     expect(draftFromPreset(saved).existingFiles).toBe(existingFiles);

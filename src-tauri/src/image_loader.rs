@@ -537,10 +537,11 @@ pub async fn load_image_proxy(
     {
         return Ok(None);
     }
-    // Only previews made for this photograph's decode variant (a virtual
-    // copy's may differ from its master's) stand in until the decode.
+    // Only previews that stand for this photograph's decode variant (a
+    // virtual copy's may differ from its master's, `stands_for_variant`)
+    // stand in until the decode.
     let wanted = stored_decode_variant(&path);
-    if wanted != stored_decode_variant(&source_path_str) {
+    if !crate::preview_proxy::may_stand_for_variant(&source_path, wanted) {
         return Ok(None);
     }
     let remembered = state
@@ -553,11 +554,19 @@ pub async fn load_image_proxy(
         Some(loaded)
     } else {
         let read_path = path.clone();
+        let read_source = source_path.clone();
         let proxy = tokio::task::spawn_blocking(move || {
-            crate::preview_proxy::read(&source_path, &settings)
+            crate::preview_proxy::read(&read_source, &settings)
         })
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .filter(|proxy| {
+            crate::preview_proxy::stands_for_variant(
+                &source_path,
+                wanted,
+                crate::preview_proxy::variant_of_key(&proxy.key.decoder),
+            )
+        });
         proxy.map(|proxy| {
             state
                 .source
@@ -1756,12 +1765,19 @@ async fn open_offline(
     stored_exif: Option<HashMap<String, String>>,
     settings: &AppSettings,
 ) -> Result<Option<LoadImageResult>, String> {
-    // The previews stand for the master recipe's decode variant: a virtual
-    // copy of another one cannot be shown from them.
+    // A preview stands for the decode variant it was made for
+    // (`preview_proxy::stands_for_variant`): a virtual copy of another one
+    // cannot be shown from it.
     let wanted = stored_decode_variant(path);
-    if wanted != stored_decode_variant(&source.to_string_lossy()) {
-        return Err(OTHER_VARIANT_OFFLINE.to_string());
-    }
+    let stands = |key: &crate::preview_proxy::ProxyKey| {
+        crate::preview_proxy::stands_for_variant(
+            source,
+            wanted,
+            crate::preview_proxy::variant_of_key(&key.decoder),
+        )
+    };
+    // Some preview was there but stands for another variant.
+    let mut other_variant = false;
     let exif = crate::session_bridge::with_capture_override(
         source,
         crate::exif_processing::read_rrexif_sidecar(source)
@@ -1778,7 +1794,12 @@ async fn open_offline(
         )
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())?
+    .filter(|full| {
+        let fits = stands(&full.key);
+        other_variant |= !fits;
+        fits
+    });
     if let Some(full) = full {
         let proxy_frame = crate::preview_proxy::variant_of_key(&full.key.decoder).frame;
         let (width, height) = full.image.dimensions();
@@ -1851,6 +1872,11 @@ async fn open_offline(
             })
             .await
             .map_err(|e| e.to_string())?
+            .filter(|proxy| {
+                let fits = stands(&proxy.key);
+                other_variant |= !fits;
+                fits
+            })
             .map(|proxy| {
                 state
                     .source
@@ -1862,7 +1888,11 @@ async fn open_offline(
         }
     };
     let Some(standard) = standard else {
-        return Ok(None);
+        return if other_variant {
+            Err(OTHER_VARIANT_OFFLINE.to_string())
+        } else {
+            Ok(None)
+        };
     };
     let proxy_frame = standard.made_for.map_or(0, |made_for| made_for.frame);
     if state.source.load_image_generation.load(Ordering::SeqCst) != generation {
