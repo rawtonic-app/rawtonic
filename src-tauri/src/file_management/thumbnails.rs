@@ -1639,6 +1639,7 @@ fn keep_tile_of_unavailable_original(
     // develops nothing without downloading it): its old tile stays.
     if crate::preview_proxy::source_available(source)
         || (!is_cloud_placeholder(source)
+            && !proxy_lacks_camera_defaults(&rawtonic_engine::develop_defaults::current(), recipe)
             && crate::preview_proxy::stands_for_by_recipe(source, recipe) == Some(true))
         || thumbnail_files_exist(directory, &new)
     {
@@ -1648,6 +1649,16 @@ fn keep_tile_of_unavailable_original(
         .into_iter()
         .find(|old| *old != new && thumbnail_files_exist(directory, old))
         .unwrap_or(new)
+}
+
+/// A tile developed from a proxy while the original is unavailable cannot
+/// carry a never-edited photo's camera defaults (its camera is read from the
+/// original), so it does not replace one cached while it was readable.
+fn proxy_lacks_camera_defaults(
+    defaults: &rawtonic_engine::develop_defaults::DevelopDefaults,
+    recipe: &serde_json::Value,
+) -> bool {
+    !defaults.cameras.is_empty() && rawtonic_engine::develop_defaults::follows_defaults(recipe)
 }
 
 fn thumbnail_files_exist(directory: &Path, hash: &str) -> bool {
@@ -3910,6 +3921,28 @@ mod face_retouch_thumbnail_tests {
         // stays instead of a blank.
         assert_eq!(key(&copy), old);
         std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    /// A never-edited photo with camera defaults set cannot get them from a
+    /// proxy while its original is offline (CID1 review round 3): its old
+    /// tile stays; an edited one, or without camera defaults, renews.
+    #[test]
+    fn a_proxy_does_not_replace_a_tile_with_camera_defaults_of_an_offline_original() {
+        use rawtonic_engine::develop_defaults::{CameraDefaults, DevelopDefaults};
+        let mut defaults = DevelopDefaults::default();
+        let never_edited = serde_json::Value::Null;
+        let edited = serde_json::json!({ "exposure": 0.5 });
+        assert!(!proxy_lacks_camera_defaults(&defaults, &never_edited));
+        defaults.cameras.push(CameraDefaults {
+            make: "Canon".into(),
+            model: "EOS R5".into(),
+            serial: None,
+            name: None,
+            settings: Default::default(),
+            inherit: false,
+        });
+        assert!(proxy_lacks_camera_defaults(&defaults, &never_edited));
+        assert!(!proxy_lacks_camera_defaults(&defaults, &edited));
     }
 
     /// An evicted cloud original is not developed for a tile, so a preview
