@@ -3746,6 +3746,28 @@
         "ratioHeight": "Hauteur du rapport",
         "ratioWidth": "Largeur du rapport"
       },
+      "collision": {
+        "cancel": "Annuler",
+        "choice": {
+          "keepBoth": "Conserver les deux",
+          "replaceIfChanged": "Remplacer si modifié",
+          "skip": "Ignorer"
+        },
+        "hint": {
+          "keepBoth": "Chaque nouveau fichier reçoit un nouveau nom. Rien n’est écrasé.",
+          "replaceIfChanged": "Remplace vos propres exports modifiés. Les exports inchangés sont ignorés. Les autres fichiers restent, et le nouveau fichier reçoit un nouveau nom.",
+          "skip": "Les fichiers existants restent tels quels ; ces photos ne sont pas exportées de nouveau."
+        },
+        "intro": "Choisissez une fois pour tout l'export.",
+        "kind": {
+          "changedOwn": "{{number}} d’un export précédent, mais la photo ou les réglages ont changé",
+          "other": "{{number}} autres fichiers (pas un export de cette photo)",
+          "unchangedOwn": "{{number}} d’un export précédent, rien n’a changé depuis"
+        },
+        "more": "et {{number}} autres",
+        "originals": "{{number}} sont des photos d’une bibliothèque. Elles ne sont jamais remplacées.",
+        "title": "Des fichiers portant ces noms existent déjà"
+      },
       "destination": {
         "aria": "Destination de l'exportation",
         "choose": "Choisir un dossier…",
@@ -3756,11 +3778,13 @@
         },
         "existing": "Si un fichier existe",
         "existingChoice": {
+          "ask": "Demander",
           "keepBoth": "Conserver les deux (nouveau nom)",
           "replaceIfChanged": "Remplacer si modifié",
           "skip": "Ignorer"
         },
         "existingHint": {
+          "ask": "Avant l'export, demande une fois quoi faire si des fichiers de ces noms existent déjà. Rien n'est calculé ni écrit avant votre réponse.",
           "keepBoth": "Le nouveau fichier reçoit un nom numéroté ; rien n'est jamais écrasé.",
           "replaceIfChanged": "Remplace l'export Rawtonic précédent d'une photo sous ce nom uniquement si sa retouche ou ses réglages ont changé ; les photos inchangées sont ignorées. Tout autre fichier (originaux, JPEG de l'appareil, fichiers retouchés ailleurs) est conservé et le nouveau fichier reçoit un nom numéroté.",
           "skip": "Les photos dont le fichier existe déjà ne sont pas exportées."

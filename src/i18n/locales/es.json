@@ -3746,6 +3746,28 @@
         "ratioHeight": "Alto de la proporción",
         "ratioWidth": "Ancho de la proporción"
       },
+      "collision": {
+        "cancel": "Cancelar",
+        "choice": {
+          "keepBoth": "Conservar ambos",
+          "replaceIfChanged": "Reemplazar si cambió",
+          "skip": "Omitir"
+        },
+        "hint": {
+          "keepBoth": "Cada archivo nuevo recibe un nombre nuevo. No se sobrescribe nada.",
+          "replaceIfChanged": "Reemplaza tus propias exportaciones que han cambiado. Las que no cambiaron se omiten. Los demás archivos se quedan y el archivo nuevo recibe un nombre nuevo.",
+          "skip": "Los archivos existentes se quedan como están; esas fotos no se vuelven a exportar."
+        },
+        "intro": "Elige una vez para toda la exportación.",
+        "kind": {
+          "changedOwn": "{{number}} de una exportación anterior, pero la foto o los ajustes han cambiado",
+          "other": "{{number}} otros archivos (no son una exportación de esta foto)",
+          "unchangedOwn": "{{number}} de una exportación anterior, sin cambios desde entonces"
+        },
+        "more": "y {{number}} más",
+        "originals": "{{number}} son fotos de una biblioteca. Esas nunca se reemplazan.",
+        "title": "Ya existen archivos con estos nombres"
+      },
       "destination": {
         "aria": "Destino de exportación",
         "choose": "Elegir una carpeta…",
@@ -3756,11 +3778,13 @@
         },
         "existing": "Si un archivo existe",
         "existingChoice": {
+          "ask": "Preguntar",
           "keepBoth": "Conservar ambos (nombre nuevo)",
           "replaceIfChanged": "Reemplazar si cambió",
           "skip": "Omitir"
         },
         "existingHint": {
+          "ask": "Antes de exportar, pregunta una vez qué hacer si ya existen archivos con estos nombres. No se procesa ni se escribe nada hasta que respondas.",
           "keepBoth": "El archivo nuevo recibe un nombre numerado; nunca se sobrescribe nada.",
           "replaceIfChanged": "Reemplaza la exportación anterior de Rawtonic de una foto con este nombre solo si su edición o sus ajustes cambiaron; las fotos sin cambios se omiten. Cualquier otro archivo (originales, JPEG de la cámara, archivos editados en otro programa) se conserva y el archivo nuevo recibe un nombre numerado.",
           "skip": "Las fotos cuyo archivo ya existe no se exportan."

@@ -3586,6 +3586,28 @@
         "ratioHeight": "Verhältnis Höhe",
         "ratioWidth": "Verhältnis Breite"
       },
+      "collision": {
+        "cancel": "Abbrechen",
+        "choice": {
+          "keepBoth": "Beide behalten",
+          "replaceIfChanged": "Ersetzen, wenn geändert",
+          "skip": "Überspringen"
+        },
+        "hint": {
+          "keepBoth": "Jede neue Datei bekommt einen neuen Namen. Nichts wird überschrieben.",
+          "replaceIfChanged": "Ersetzt Ihre eigenen, geänderten Exporte. Unveränderte werden übersprungen. Andere Dateien bleiben, und die neue Datei bekommt einen neuen Namen.",
+          "skip": "Vorhandene Dateien bleiben, wie sie sind; diese Fotos werden nicht noch einmal exportiert."
+        },
+        "intro": "Einmal für den ganzen Export wählen.",
+        "kind": {
+          "changedOwn": "{{number}} aus einem früheren Export, aber Foto oder Einstellungen haben sich geändert",
+          "other": "{{number}} andere Dateien (kein Export dieses Fotos)",
+          "unchangedOwn": "{{number}} aus einem früheren Export, seitdem nichts geändert"
+        },
+        "more": "und {{number}} weitere",
+        "originals": "{{number}} davon sind Fotos in einer Bibliothek. Diese werden nie ersetzt.",
+        "title": "Dateien mit diesen Namen existieren schon"
+      },
       "destination": {
         "aria": "Exportziel",
         "choose": "Ordner auswählen…",
@@ -3596,11 +3618,13 @@
         },
         "existing": "Wenn eine Datei existiert",
         "existingChoice": {
+          "ask": "Fragen",
           "keepBoth": "Beide behalten (neuer Name)",
           "replaceIfChanged": "Ersetzen, wenn geändert",
           "skip": "Überspringen"
         },
         "existingHint": {
+          "ask": "Fragt vor dem Export einmal, was geschehen soll, wenn Dateien mit diesen Namen schon existieren. Bis zu Ihrer Antwort wird nichts berechnet oder geschrieben.",
           "keepBoth": "Die neue Datei bekommt einen nummerierten Namen; nichts wird überschrieben.",
           "replaceIfChanged": "Ersetzt den eigenen früheren Rawtonic-Export eines Fotos unter diesem Namen nur, wenn sich Bearbeitung oder Einstellungen geändert haben; unveränderte Fotos werden übersprungen. Jede andere Datei (Originale, Kamera-JPEGs, anderswo bearbeitete Dateien) bleibt erhalten, und die neue Datei bekommt einen nummerierten Namen.",
           "skip": "Fotos, deren Datei schon existiert, werden nicht exportiert."

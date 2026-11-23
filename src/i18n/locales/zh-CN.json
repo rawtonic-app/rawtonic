@@ -3484,6 +3484,28 @@
         "ratioHeight": "比例高度",
         "ratioWidth": "比例宽度"
       },
+      "collision": {
+        "cancel": "取消",
+        "choice": {
+          "keepBoth": "保留两者",
+          "replaceIfChanged": "有更改时替换",
+          "skip": "跳过"
+        },
+        "hint": {
+          "keepBoth": "每个新文件都使用新名称，不会覆盖任何文件。",
+          "replaceIfChanged": "替换你自己已改变的导出；没有改变的会跳过。其他文件保持不动，新文件使用新名称。",
+          "skip": "现有文件保持原样，这些照片不再重新导出。"
+        },
+        "intro": "为整个导出选择一次。",
+        "kind": {
+          "changedOwn": "{{number}} 个来自之前的导出，但照片或设置已改变",
+          "other": "{{number}} 个其他文件（不是这张照片的导出）",
+          "unchangedOwn": "{{number}} 个来自之前的导出，之后没有改动"
+        },
+        "more": "另有 {{number}} 个",
+        "originals": "其中 {{number}} 个是图库中的照片，永远不会被替换。",
+        "title": "已存在同名文件"
+      },
       "destination": {
         "aria": "导出目标位置",
         "choose": "选择文件夹…",
@@ -3494,11 +3516,13 @@
         },
         "existing": "如果文件已存在",
         "existingChoice": {
+          "ask": "询问",
           "keepBoth": "保留两者（新名称）",
           "replaceIfChanged": "有更改时替换",
           "skip": "跳过"
         },
         "existingHint": {
+          "ask": "导出前，如果已存在同名文件，只询问一次该怎么办。在你回答之前，不会处理或写入任何内容。",
           "keepBoth": "新文件使用带编号的名称；绝不覆盖任何文件。",
           "replaceIfChanged": "仅当照片的编辑或设置有更改时，才替换该名称下这张照片自己之前的 Rawtonic 导出；未更改的照片将被跳过。其他任何文件（原片、相机 JPEG、在别处编辑过的文件）都会保留，新文件使用带编号的名称。",
           "skip": "文件已存在的照片不会导出。"

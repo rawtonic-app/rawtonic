@@ -30,6 +30,10 @@ pub enum ExistingFiles {
     KeepBoth,
     Skip,
     ReplaceIfChanged,
+    /// The Export form asks once per run (`export_collisions`) and sends
+    /// the answer as one of the three above. Reaching an export itself
+    /// (an older queue, a headless run) it never overwrites: Keep both.
+    Ask,
 }
 
 impl ExistingFiles {
@@ -39,6 +43,11 @@ impl ExistingFiles {
             "keep-both" => Ok(Self::KeepBoth),
             "skip" => Ok(Self::Skip),
             "replace-if-changed" => Ok(Self::ReplaceIfChanged),
+            "ask" => Err(
+                "ask needs a person to answer, and the command line never asks \
+                 (keep-both, skip, replace-if-changed)"
+                    .to_string(),
+            ),
             other => Err(format!(
                 "unknown value {other:?} (keep-both, skip, replace-if-changed)"
             )),
@@ -227,7 +236,7 @@ where
         return Decision::Write;
     }
     match policy {
-        ExistingFiles::KeepBoth => Decision::Number { reported: None },
+        ExistingFiles::KeepBoth | ExistingFiles::Ask => Decision::Number { reported: None },
         ExistingFiles::Skip => Decision::Skip(Outcome::SkippedExists),
         ExistingFiles::ReplaceIfChanged => match previous().into() {
             Previous::Original => Decision::Number {
@@ -500,6 +509,7 @@ mod tests {
             ExistingFiles::KeepBoth,
             ExistingFiles::Skip,
             ExistingFiles::ReplaceIfChanged,
+            ExistingFiles::Ask,
         ] {
             let previous = || -> Option<Recorded> { panic!("no record is read for a free name") };
             assert_eq!(
@@ -544,6 +554,40 @@ mod tests {
                 "i"
             ),
             Decision::Number { reported: None }
+        );
+    }
+
+    /// "Ask" is answered by the Export form before the queue; one that
+    /// reaches an export anyway (an older queue, a headless run) overwrites
+    /// nothing and reads no record, and the command line has no way to ask.
+    #[test]
+    fn ask_reaching_an_export_keeps_both_and_the_command_line_rejects_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.jpg");
+        fs::write(&path, b"someone's").unwrap();
+        let never = || -> Option<Recorded> { panic!("not read") };
+        assert_eq!(
+            decide(
+                ExistingFiles::Ask,
+                &path,
+                true,
+                false,
+                false,
+                never,
+                "s",
+                "i"
+            ),
+            Decision::Number { reported: None }
+        );
+        let error = ExistingFiles::parse("ask").unwrap_err();
+        assert!(error.contains("never asks"), "{error}");
+        assert!(
+            error.contains("keep-both, skip, replace-if-changed"),
+            "{error}"
+        );
+        assert_eq!(
+            serde_json::from_str::<ExistingFiles>("\"ask\"").unwrap(),
+            ExistingFiles::Ask
         );
     }
 

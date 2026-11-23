@@ -3746,6 +3746,28 @@
         "ratioHeight": "Alçada de la proporció",
         "ratioWidth": "Amplada de la proporció"
       },
+      "collision": {
+        "cancel": "Cancel·la",
+        "choice": {
+          "keepBoth": "Conserva tots dos",
+          "replaceIfChanged": "Substitueix si ha canviat",
+          "skip": "Omet"
+        },
+        "hint": {
+          "keepBoth": "Cada fitxer nou rep un nom nou. No se sobreescriu res.",
+          "replaceIfChanged": "Substitueix les teves pròpies exportacions que han canviat. Les que no han canviat s’ometen. Els altres fitxers es queden i el fitxer nou rep un nom nou.",
+          "skip": "Els fitxers existents es queden tal com són; aquestes fotos no tornen a exportar-se."
+        },
+        "intro": "Tria una vegada per a tota l'exportació.",
+        "kind": {
+          "changedOwn": "{{number}} d’una exportació anterior, però la foto o els ajustos han canviat",
+          "other": "{{number}} altres fitxers (no són una exportació d’aquesta foto)",
+          "unchangedOwn": "{{number}} d’una exportació anterior, sense canvis des d’aleshores"
+        },
+        "more": "i {{number}} més",
+        "originals": "{{number}} són fotos d’una biblioteca. Aquestes mai se substitueixen.",
+        "title": "Ja hi ha fitxers amb aquests noms"
+      },
       "destination": {
         "aria": "Destinació de l'exportació",
         "choose": "Tria una carpeta…",
@@ -3756,11 +3778,13 @@
         },
         "existing": "Si un fitxer existeix",
         "existingChoice": {
+          "ask": "Pregunta",
           "keepBoth": "Conserva tots dos (nom nou)",
           "replaceIfChanged": "Substitueix si ha canviat",
           "skip": "Omet"
         },
         "existingHint": {
+          "ask": "Abans d'exportar, pregunta una vegada què fer si ja hi ha fitxers amb aquests noms. No es processa ni s'escriu res fins que responguis.",
           "keepBoth": "El fitxer nou rep un nom numerat; mai no se sobreescriu res.",
           "replaceIfChanged": "Substitueix l'exportació anterior de Rawtonic d'una foto amb aquest nom només si n'ha canviat l'edició o la configuració; les fotos sense canvis s'ometen. Qualsevol altre fitxer (originals, JPEG de la càmera, fitxers editats en un altre lloc) es conserva i el fitxer nou rep un nom numerat.",
           "skip": "Les fotos el fitxer de les quals ja existeix no s'exporten."

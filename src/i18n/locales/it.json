@@ -3746,6 +3746,28 @@
         "ratioHeight": "Altezza proporzione",
         "ratioWidth": "Larghezza proporzione"
       },
+      "collision": {
+        "cancel": "Annulla",
+        "choice": {
+          "keepBoth": "Mantieni entrambi",
+          "replaceIfChanged": "Sostituisci se modificato",
+          "skip": "Salta"
+        },
+        "hint": {
+          "keepBoth": "Ogni nuovo file riceve un nuovo nome. Nulla viene sovrascritto.",
+          "replaceIfChanged": "Sostituisce le tue esportazioni modificate. Quelle invariate vengono saltate. Gli altri file restano e il nuovo file riceve un nuovo nome.",
+          "skip": "I file esistenti restano come sono; queste foto non vengono esportate di nuovo."
+        },
+        "intro": "Scegli una volta per l'intera esportazione.",
+        "kind": {
+          "changedOwn": "{{number}} da un’esportazione precedente, ma la foto o le impostazioni sono cambiate",
+          "other": "{{number}} altri file (non un’esportazione di questa foto)",
+          "unchangedOwn": "{{number}} da un’esportazione precedente, da allora nulla è cambiato"
+        },
+        "more": "e altri {{number}}",
+        "originals": "{{number}} sono foto di una libreria. Queste non vengono mai sostituite.",
+        "title": "Esistono già file con questi nomi"
+      },
       "destination": {
         "aria": "Destinazione di esportazione",
         "choose": "Scegli una cartella…",
@@ -3756,11 +3778,13 @@
         },
         "existing": "Se un file esiste",
         "existingChoice": {
+          "ask": "Chiedi",
           "keepBoth": "Mantieni entrambi (nuovo nome)",
           "replaceIfChanged": "Sostituisci se modificato",
           "skip": "Salta"
         },
         "existingHint": {
+          "ask": "Prima di esportare, chiede una volta cosa fare se esistono già file con questi nomi. Finché non rispondi non viene elaborato né scritto nulla.",
           "keepBoth": "Il nuovo file riceve un nome numerato; nulla viene mai sovrascritto.",
           "replaceIfChanged": "Sostituisce la precedente esportazione Rawtonic di una foto con questo nome solo se la modifica o le impostazioni sono cambiate; le foto invariate vengono saltate. Ogni altro file (originali, JPEG della fotocamera, file modificati altrove) viene mantenuto e il nuovo file riceve un nome numerato.",
           "skip": "Le foto il cui file esiste già non vengono esportate."
