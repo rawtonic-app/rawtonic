@@ -566,6 +566,19 @@ impl<'a> Compiler<'a> {
 
     /// A text column compared as a whole, ignoring case.
     fn text_column(&mut self, column: &str, op: Op, value: &Value) -> Result<String> {
+        self.text_column_of(column, op, value, false)
+    }
+
+    /// `text_column`; `name`: the text is a camera or lens name, in which a
+    /// word in square brackets is that word (`[IF]` is `IF`, as Lightroom
+    /// reads lens names).
+    fn text_column_of(
+        &mut self,
+        column: &str,
+        op: Op,
+        value: &Value,
+        name: bool,
+    ) -> Result<String> {
         let coalesced = format!("coalesce({column},'')");
         Ok(match op {
             Op::Words => {
@@ -577,14 +590,21 @@ impl<'a> Compiler<'a> {
                     .into_iter()
                     .map(|word| {
                         // A word is a whole space-separated word of the
-                        // field, or one in square brackets (`[IF]` is `IF`,
-                        // not `[IF]`; `IMG[1]` is not `IMG1`).
+                        // field; in a name also one in square brackets
+                        // (`[IF]` is `IF`, not `[IF]`; `IMG[1]` is not `IMG1`).
+                        let whole = format!(
+                            "instr(' ' || rawtonic_fold({coalesced}) || ' ', ' ' || rawtonic_fold(?) || ' ') > 0"
+                        );
+                        if !name {
+                            self.push(word);
+                            return whole;
+                        }
                         let bracketed = word.starts_with('[') && word.ends_with(']');
                         self.push(word.clone());
                         self.push(word);
                         let plain = if bracketed { "0" } else { "1" };
                         format!(
-                            "(({plain} AND instr(' ' || rawtonic_fold({coalesced}) || ' ', ' ' || rawtonic_fold(?) || ' ') > 0) OR \
+                            "(({plain} AND {whole}) OR \
                              instr(' ' || rawtonic_fold({coalesced}) || ' ', ' [' || rawtonic_fold(?) || '] ') > 0)"
                         )
                     })
@@ -822,9 +842,9 @@ impl<'a> Compiler<'a> {
                     value,
                 )
             }
-            Field::Camera => self.text_column("a.camera", op, value),
-            Field::Make => self.text_column("a.make", op, value),
-            Field::Lens => self.text_column("a.lens", op, value),
+            Field::Camera => self.text_column_of("a.camera", op, value, true),
+            Field::Make => self.text_column_of("a.make", op, value, true),
+            Field::Lens => self.text_column_of("a.lens", op, value, true),
             Field::Keyword => match op {
                 Op::Is | Op::IsNot => {
                     // A keyword and every keyword under it (`Animals` finds a

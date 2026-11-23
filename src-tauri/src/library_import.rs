@@ -210,47 +210,34 @@ pub fn smart_rule_gap(rules: &SmartRules) -> Option<String> {
     })
 }
 
-/// How far the catalog lets an exposure time differ from a rule's
-/// (`Tolerance::Relative` of `Field::Exposure`, `crates/catalog/src/query.rs`).
-const EXPOSURE_TOLERANCE: f64 = 0.03;
-
 /// Lightroom compares aperture, focal length and shutter speed within
 /// ±0.01 of its own unit (measured, SMR2): the aperture value `Av =
 /// 2·log2(f-number)`, millimetres, and the time value `Tv = log2(1/seconds)`
 /// of a shutter speed. For a shutter speed greater means a longer time and a
 /// range runs from the shorter to the longer time. Written as the catalog's
-/// f-number, millimetre and second bounds.
+/// f-number, millimetre and second bounds. An exposure time carries the
+/// catalog's own 3 % camera-rounding tolerance instead of Lightroom's
+/// ±0.7 %: the two differ only for a value between a camera's shutter
+/// speeds (a third of a stop is 26 %), and the rule stays readable in the
+/// smart-album editor as the time Lightroom's value stands for.
 fn exposure_rule(criteria: &str, operation: &str, value: f64, value2: Option<f64>) -> Option<Rule> {
-    const TOLERANCE: f64 = 0.01;
-    let (field, at): (Field, fn(f64) -> f64) = match criteria {
-        "aperture" => (Field::Aperture, |av| (av / 2.0).exp2()),
-        "focalLength" => (Field::FocalLength, |mm| mm),
-        _ => (Field::Exposure, |tv| (-tv).exp2()),
+    let (field, tolerance, at): (Field, f64, fn(f64) -> f64) = match criteria {
+        "aperture" => (Field::Aperture, 0.01, |av| (av / 2.0).exp2()),
+        "focalLength" => (Field::FocalLength, 0.01, |mm| mm),
+        _ => (Field::Exposure, 0.0, |tv| (-tv).exp2()),
     };
     // The catalog's smallest and largest value Lightroom takes as `x`.
-    let low = |x: f64| at(x - TOLERANCE).min(at(x + TOLERANCE));
-    let high = |x: f64| at(x - TOLERANCE).max(at(x + TOLERANCE));
-    // The catalog lets an exposure time differ by 3 % (camera rounding)
-    // on top of what a rule says; Lightroom's ±0.01 time values are the
-    // whole tolerance here, so the catalog's is taken off the bounds.
-    let (below, above) = if field == Field::Exposure {
-        (1.0 - EXPOSURE_TOLERANCE, 1.0 + EXPOSURE_TOLERANCE)
-    } else {
-        (1.0, 1.0)
-    };
+    let low = |x: f64| at(x - tolerance).min(at(x + tolerance));
+    let high = |x: f64| at(x - tolerance).max(at(x + tolerance));
     let one = |op: Op, v: f64| Rule::Condition {
         field,
         op,
-        value: json!(match op {
-            Op::Lt | Op::Ge => v / below,
-            _ => v / above,
-        }),
+        value: json!(v),
     };
-    // Two bounds, not a `between`: the catalog widens each end of that by
-    // 3 % of its own number, which would swap a narrow range's ends.
-    let within = |from: f64, to: f64| Rule::Group {
-        combine: Combine::All,
-        rules: vec![one(Op::Ge, from), one(Op::Le, to)],
+    let within = |from: f64, to: f64| Rule::Condition {
+        field,
+        op: Op::Between,
+        value: json!([from, to]),
     };
     Some(match operation {
         "==" => within(low(value), high(value)),
@@ -3397,7 +3384,9 @@ mod tests {
         let tv = |seconds: f64| (1.0 / seconds).log2();
         assert_eq!(one("shutterSpeed", "==", 6.64), ["f56.CR2", "f63.CR2"]);
         assert_eq!(one("shutterSpeed", "==", tv(0.8)), ["f9.CR2"]);
-        assert_eq!(one("shutterSpeed", "==", 6.6), Vec::<String>::new());
+        // Off Lightroom's ±0.01 but within the catalog's 3 % (see
+        // `exposure_rule`): 6.6 is 1/97 s.
+        assert_eq!(one("shutterSpeed", "==", 6.3), Vec::<String>::new());
         assert_eq!(one("shutterSpeed", "==", 6.65), ["f56.CR2", "f63.CR2"]);
         assert_eq!(one("shutterSpeed", ">", 6.64), ["f8.CR2", "f9.CR2"]);
         assert_eq!(

@@ -257,6 +257,14 @@ fn every_field_compares_as_documented() {
             vec!["DSC00123.ARW", "DSC00124.ARW"],
         ),
         (
+            json!({"field":"filename","op":"words","value":"DSC00123.arw"}),
+            vec!["DSC00123.ARW"],
+        ),
+        (
+            json!({"field":"filename","op":"words","value":"DSC00123"}),
+            vec![],
+        ),
+        (
             json!({"field":"filename","op":"is","value":"scan.jpg"}),
             vec!["scan.jpg"],
         ),
