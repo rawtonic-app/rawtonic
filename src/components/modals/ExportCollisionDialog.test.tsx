@@ -11,10 +11,10 @@ afterEach(() => {
 });
 
 const summary: CollisionSummary = {
-  total: 9,
+  total: 11,
   unchangedOwn: { count: 2, names: ['a.jpg', 'b.jpg'] },
   changedOwn: { count: 1, names: ['c.jpg'] },
-  other: { count: 6, names: ['d.jpg', 'e.jpg', 'f.jpg', 'g.jpg', 'h.jpg'] },
+  other: { count: 8, names: ['d.jpg', 'e.jpg', 'f.jpg', 'g.jpg', 'h.jpg', 'i.jpg', 'j.jpg'] },
   originals: 1
 };
 
@@ -45,9 +45,11 @@ describe('ExportCollisionDialog', () => {
     ask();
     const kinds = screen.getByTestId('collision-kinds');
     expect(kinds.textContent).toContain('Earlier export, nothing changed since: 2');
+    expect(kinds.textContent).toContain('a.jpg, b.jpg');
     expect(kinds.textContent).toContain('Earlier export, photo or settings changed since: 1');
-    expect(kinds.textContent).toContain('Other files, or exports with mask files (not replaced): 6');
-    expect(kinds.textContent).toContain('d.jpg, e.jpg, f.jpg, g.jpg, h.jpg and 1 more');
+    expect(kinds.textContent).toContain('Other files, or exports with mask files (not replaced): 8');
+    expect(kinds.textContent).toContain('d.jpg, e.jpg, f.jpg, g.jpg, h.jpg and 3 more');
+    expect(kinds.textContent).not.toContain('i.jpg');
     expect(screen.getByRole('dialog').textContent).toContain('Photos in a library among them, never replaced: 1');
   });
 

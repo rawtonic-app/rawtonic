@@ -84,6 +84,7 @@
       "failed_one": "{{count}} photo did not export: {{label}}",
       "failed_other": "{{count}} photos did not export: {{label}}",
       "interrupted": "Export interrupted: {{label}}",
+      "nothingExported": "Nothing exported — {{existing}} ({{label}})",
       "running": "Exporting {{label}}",
       "waiting": "Waiting to export {{label}}"
     },

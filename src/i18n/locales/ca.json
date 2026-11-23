@@ -94,6 +94,7 @@
       "failed_many": "{{count}} fotos no s’han exportat: {{label}}",
       "failed_other": "{{count}} fotos no s’han exportat: {{label}}",
       "interrupted": "Exportació interrompuda: {{label}}",
+      "nothingExported": "No s’ha exportat res — {{existing}} ({{label}})",
       "running": "S’està exportant {{label}}",
       "waiting": "Esperant per exportar {{label}}"
     },
