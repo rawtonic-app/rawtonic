@@ -2088,6 +2088,7 @@
       "importSmartAlbumsSkipped": "因規則沒有對應項而略過的智慧型收藏夾：{{n}}。",
       "importStacks_other": "已匯入 {{count}} 個堆疊",
       "importUnconvertedSettings": "包含無法轉換的設定的已匯入編輯：{{n}} 個。",
+      "importUnsavedEdits": "有些編輯尚未儲存（{{n}}）。請在儲存後再次匯入，以免匯入覆寫它們。",
       "importWarnings_other": "{{count}} 張照片已匯入，但有警告。{{error}}",
       "ingestCancelled": "匯入已取消",
       "ingested_other": "已拷貝並驗證 {{count}} 張照片",

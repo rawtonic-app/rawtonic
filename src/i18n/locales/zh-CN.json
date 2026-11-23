@@ -2088,6 +2088,7 @@
       "importSmartAlbumsSkipped": "因规则没有对应项而略过的智能收藏夹：{{n}}。",
       "importStacks_other": "已导入 {{count}} 个堆叠",
       "importUnconvertedSettings": "包含无法转换的设置的已导入编辑：{{n}} 个。",
+      "importUnsavedEdits": "有些编辑尚未保存（{{n}}）。请在保存后再次导入，以免导入覆盖它们。",
       "importWarnings_other": "{{count}} 张照片已导入，但有警告。{{error}}",
       "ingestCancelled": "导入已取消",
       "ingested_other": "已复制并校验 {{count}} 张照片",

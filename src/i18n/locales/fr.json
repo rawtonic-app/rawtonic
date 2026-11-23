@@ -2285,6 +2285,7 @@
       "importStacks_many": "{{count}} piles importées",
       "importStacks_other": "{{count}} piles importées",
       "importUnconvertedSettings": "Retouches importées avec des réglages qui n’ont pas pu être convertis : {{n}}.",
+      "importUnsavedEdits": "Certaines retouches ne sont pas encore enregistrées ({{n}}). Importez de nouveau une fois qu’elles le sont, pour que l’import ne les écrase pas.",
       "importWarnings_one": "{{count}} photo a été importée avec un avertissement. {{error}}",
       "importWarnings_many": "{{count}} photos ont été importées avec des avertissements. {{error}}",
       "importWarnings_other": "{{count}} photos ont été importées avec des avertissements. {{error}}",

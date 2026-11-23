@@ -2166,6 +2166,7 @@
       "importStacks_one": "{{count}} stack imported",
       "importStacks_other": "{{count}} stacks imported",
       "importUnconvertedSettings": "Imported edits with settings that could not be converted: {{n}}.",
+      "importUnsavedEdits": "Some edits are not saved yet ({{n}}). Import again once they are saved, so the import cannot overwrite them.",
       "importWarnings_one": "{{count}} photo was imported with a warning. {{error}}",
       "importWarnings_other": "{{count}} photos were imported with warnings. {{error}}",
       "ingestCancelled": "Import cancelled",

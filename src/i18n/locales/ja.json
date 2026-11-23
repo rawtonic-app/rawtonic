@@ -2088,6 +2088,7 @@
       "importSmartAlbumsSkipped": "対応するルールがないため省略したスマートコレクション: {{n}}。",
       "importStacks_other": "スタック {{count}} 件を読み込みました",
       "importUnconvertedSettings": "変換できなかった設定を含む読み込み済みの編集: {{n}} 件。",
+      "importUnsavedEdits": "保存されていない編集があります（{{n}}）。保存されてからもう一度読み込んでください。読み込みで上書きされないようにするためです。",
       "importWarnings_other": "{{count}} 枚の写真を警告付きで読み込みました。{{error}}",
       "ingestCancelled": "取り込みをキャンセルしました",
       "ingested_other": "{{count}} 枚の写真をコピーして検証しました",

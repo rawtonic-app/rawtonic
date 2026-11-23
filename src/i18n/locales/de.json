@@ -2166,6 +2166,7 @@
       "importStacks_one": "{{count}} Stapel importiert",
       "importStacks_other": "{{count}} Stapel importiert",
       "importUnconvertedSettings": "Importierte Bearbeitungen mit Einstellungen, die nicht konvertiert werden konnten: {{n}}.",
+      "importUnsavedEdits": "Einige Bearbeitungen sind noch nicht gespeichert ({{n}}). Importieren Sie erneut, sobald sie gespeichert sind, damit der Import sie nicht überschreibt.",
       "importWarnings_one": "{{count}} Foto wurde mit einer Warnung importiert. {{error}}",
       "importWarnings_other": "{{count}} Fotos wurden mit Warnungen importiert. {{error}}",
       "ingestCancelled": "Import abgebrochen",

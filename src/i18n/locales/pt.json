@@ -2285,6 +2285,7 @@
       "importStacks_many": "{{count}} pilhas importadas",
       "importStacks_other": "{{count}} pilhas importadas",
       "importUnconvertedSettings": "Edições importadas com definições que não foi possível converter: {{n}}.",
+      "importUnsavedEdits": "Algumas edições ainda não foram guardadas ({{n}}). Importe de novo quando estiverem guardadas, para que a importação não as substitua.",
       "importWarnings_one": "{{count}} foto foi importada com um aviso. {{error}}",
       "importWarnings_many": "{{count}} fotos foram importadas com avisos. {{error}}",
       "importWarnings_other": "{{count}} fotos foram importadas com avisos. {{error}}",

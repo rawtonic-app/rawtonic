@@ -421,14 +421,8 @@ fn escape(text: &str) -> String {
 
 /// Rawtonic adjustments for another editor's settings, or `None`.
 pub fn translate(develop: &Develop) -> Option<Value> {
-    converted(develop).filter(|a| a.as_object().is_some_and(|a| !a.is_empty()))
-}
-
-/// The other editor's settings converted (empty: its defaults), None when
-/// the converter failed on them.
-fn converted(develop: &Develop) -> Option<Value> {
-    Some(match develop {
-        Develop::None => json!({}),
+    let adjustments = match develop {
+        Develop::None => return None,
         Develop::LightroomXmp(xmp) => {
             crate::preset_converter::convert_xmp_to_preset(xmp)
                 .ok()?
@@ -443,7 +437,11 @@ fn converted(develop: &Develop) -> Option<Value> {
                 .ok()?
                 .adjustments
         }
-    })
+    };
+    adjustments
+        .as_object()
+        .is_some_and(|a| !a.is_empty())
+        .then_some(adjustments)
 }
 
 fn import_warnings(photo: &Photo) -> Vec<String> {
@@ -716,7 +714,9 @@ fn settle_reimport(
 ) {
     if let Some(change) = imported.change {
         match follow_sidecar(catalog, asset, &change) {
-            Ok(true) => {}
+            Ok(true) => report.recipe_changes.push(change),
+            // Changed beside the photo between the check and the write: the
+            // library's update stays, but no Undo step writes over that file.
             Ok(false) => report.errors.push(format!(
                 "{}: the editor settings file beside the photo was changed elsewhere since; \
                  left as it is (the library holds the imported edit)",
@@ -724,9 +724,11 @@ fn settle_reimport(
                     .sidecar_path()
                     .display()
             )),
-            Err(e) => report.errors.push(format!("{}: {e}", photo.path.display())),
+            Err(e) => {
+                report.errors.push(format!("{}: {e}", photo.path.display()));
+                report.recipe_changes.push(change);
+            }
         }
-        report.recipe_changes.push(change);
     }
     if imported.kept_with_newer {
         match import_newer_copy(catalog, asset, source_name, photo, copy) {
@@ -874,9 +876,9 @@ enum Reimport {
 /// The rule: `record` is what the last import wrote to the version (none:
 /// never imported by a build that records it), `own` its recipe here,
 /// `source` the other editor's settings by digest (`source_digest`),
-/// `incoming` the recipe made of them (None: nothing to translate),
-/// `defaults` whether those settings are the other editor's defaults
-/// (`source_at_defaults`). "Changed here" is told from the recorded digest,
+/// `incoming` the recipe made of them (None: nothing to translate, which
+/// never clears an edit: the reader cannot tell a reset there from settings
+/// it could not read). "Changed here" is told from the recorded digest,
 /// never from times; settings unchanged there (by their own digest) write
 /// nothing, whatever a newer translation would make of them.
 fn reimport(
@@ -884,7 +886,6 @@ fn reimport(
     own: Option<&Value>,
     source: &str,
     incoming: Option<&Value>,
-    defaults: bool,
 ) -> Reimport {
     if !own.is_some_and(is_edit) {
         return Reimport::Apply;
@@ -895,22 +896,44 @@ fn reimport(
         return Reimport::Same;
     }
     match record {
-        Some(r) if r.source == source => Reimport::Keep,
-        // A reset to defaults there resets an edit unchanged here; settings
-        // that failed to translate never do.
-        Some(r) if r.stored == own && (incoming.is_some() || defaults) => Reimport::Apply,
         _ if !incoming.is_some_and(is_edit) => Reimport::Keep,
+        Some(r) if r.source == source => Reimport::Keep,
+        Some(r) if r.stored == own => Reimport::Apply,
         Some(r) if r.translated == new => Reimport::Keep,
         _ => Reimport::KeepWithNewer,
     }
 }
 
-/// Whether the other editor's settings for a photo or copy are its
-/// defaults, read and converted without an error and without layers (not
-/// settings that could not be converted).
-fn source_at_defaults(photo: &Photo) -> bool {
-    photo.capture_one_layers.is_empty()
-        && converted(&photo.develop).is_some_and(|a| a.as_object().is_some_and(|m| m.is_empty()))
+/// `reimport` for an edit whose derived sidecar beside the photograph may
+/// hold another edit than the library (`sidecar`, from `sidecar_edit`):
+/// one another catalog over the same folder (or another program) saved
+/// there, which the editor reads for a photograph that is online. It is
+/// the photographer's too: the library's edit is never replaced then, and
+/// changed settings there come in as a new virtual copy instead.
+fn reimport_here(
+    record: Option<&ImportRecord>,
+    own: Option<&Value>,
+    sidecar: Option<Value>,
+    source: &str,
+    incoming: Option<&Value>,
+) -> Reimport {
+    let own = match (&sidecar, own) {
+        (Some(edit), own) if !own.is_some_and(is_edit) => Some(edit),
+        (_, own) => own,
+    };
+    match reimport(record, own, source, incoming) {
+        Reimport::Apply if sidecar.is_some() => Reimport::KeepWithNewer,
+        rule => rule,
+    }
+}
+
+/// The edit in the derived sidecar beside the photograph at `path` (a
+/// copy's for `copy`) when it is another than the library's `own`.
+fn sidecar_edit(path: &Path, copy: Option<&str>, own: Option<&Value>) -> Option<Value> {
+    let sidecar = path.with_file_name(photo_ref::sidecar_name(path, copy));
+    let state: Value = serde_json::from_slice(&std::fs::read(sidecar).ok()?).ok()?;
+    let edit = state.get("adjustments")?;
+    (edit_digest(Some(edit)) != edit_digest(own)).then(|| edit.clone())
 }
 
 /// Whether a recipe holds an edit (more than the colour label metadata
@@ -928,14 +951,37 @@ fn digest_of(value: &impl Serialize) -> String {
     rawtonic_fs::hex(&sha2::Sha256::digest(bytes)[..])
 }
 
-/// The other editor's settings for a photo or copy, by digest.
+/// The other editor's settings for a photo or copy, by digest: its
+/// settings, its Capture One layers and their painted coverage (the
+/// rasters' values, which their serialized form leaves out).
 fn source_digest(photo: &Photo) -> String {
-    digest_of(&(&photo.develop, &photo.capture_one_layers))
+    use rawtonic_interop::capture_one_masks::{Coverage, Mask};
+    use sha2::Digest;
+    let mut digest = sha2::Sha256::new();
+    digest.update(
+        serde_json::to_vec(&(&photo.develop, &photo.capture_one_layers)).unwrap_or_default(),
+    );
+    for layer in &photo.capture_one_layers {
+        let raster = match &layer.mask {
+            Mask::Raster { raster, .. }
+            | Mask::LumaRange {
+                base: Coverage::Raster { raster },
+                ..
+            } => raster,
+            _ => continue,
+        };
+        match raster.values() {
+            Some(values) => digest.update(&values),
+            None => digest.update(b"unreadable"),
+        }
+    }
+    rawtonic_fs::hex(&digest.finalize()[..])
 }
 
 /// A recipe by digest as far as it is the photographer's edit: without the
-/// colour label (metadata), the AI mask data a model computes when the
-/// photo is opened and the generated ids of masks, layers and patches (each
+/// colour label (metadata), the data of AI masks a model computes when the
+/// photo is opened (`has_ai_masks_on_open`; painted and other masks' data
+/// stays) and the generated ids of masks, layers and patches (each
 /// translation makes new ones); no edit is `{}`.
 fn edit_digest(adjustments: Option<&Value>) -> String {
     let mut edit = adjustments
@@ -945,7 +991,25 @@ fn edit_digest(adjustments: Option<&Value>) -> String {
     if let Some(map) = edit.as_object_mut() {
         map.remove("colorLabel");
     }
-    strip_key(&mut edit, "maskDataBase64");
+    if let Some(layers) = edit
+        .get_mut(masks::MASKS.name())
+        .and_then(Value::as_array_mut)
+    {
+        for sub in layers
+            .iter_mut()
+            .filter_map(|layer| layer.get_mut(masks::SUB_MASKS.name()))
+            .filter_map(Value::as_array_mut)
+            .flatten()
+        {
+            if matches!(
+                sub["type"].as_str(),
+                Some("ai-foreground" | "ai-sky" | "ai-landscape")
+            ) && let Some(parameters) = sub.get_mut("parameters").and_then(Value::as_object_mut)
+            {
+                parameters.remove("maskDataBase64");
+            }
+        }
+    }
     strip_key(&mut edit, "id");
     digest_of(&edit)
 }
@@ -1019,39 +1083,6 @@ type LensOf<'a> = &'a dyn Fn(
     (f64, f64),
 )>;
 
-/// The recipe a new edit of the photo at `path` starts with: the current
-/// render, fringe and lateral CA versions and every tool's response a new
-/// edit gets (`initialAdjustmentsFor` in the editor), and for a RAW the
-/// newest source frame. An import's translated settings go on top of it.
-fn new_edit_base(path: &Path) -> Value {
-    let is_raw = crate::formats::is_raw_file(path);
-    let mut base = json!({});
-    rawtonic_engine::image_processing::apply_render_default(&mut base);
-    rawtonic_engine::edge_fringe::apply_default(&mut base, true, is_raw);
-    rawtonic_engine::lateral_ca::apply_default(&mut base, true, is_raw);
-    // The tone sliders' and every other tool's response a new edit gets:
-    // without the keys an import rendered lowered Highlights several times
-    // darker than the other editor and Clarity, noise reduction, Defringe
-    // and grain with their first responses (notes:
-    // benchmark-results/hl-highlights-2026-11-01, lc3-lr-import-2026-11-01).
-    if let Some(map) = base.as_object_mut() {
-        map.extend(rawtonic_engine::image_processing::new_edit_responses(
-            is_raw,
-        ));
-        // The other editor's geometry (spots, masks, red eyes; Lightroom
-        // keeps it normalised in the camera's frame of the raw) is that of
-        // the newest frame of the RAW (`source_frame`): the edit is made on
-        // it, as a new edit would be.
-        if is_raw {
-            map.insert(
-                rawtonic_engine::source_frame::KEY.to_string(),
-                json!(rawtonic_engine::source_frame::VERSION),
-            );
-        }
-    }
-    base
-}
-
 /// `recipe_for` with the photo's lens correction from `lens`.
 fn recipe_for_with(
     develop: &Develop,
@@ -1079,16 +1110,34 @@ fn recipe_for_with(
     if !edited && c1_layers.is_empty() {
         return None;
     }
-    let base = new_edit_base(path);
+    let is_raw = crate::formats::is_raw_file(path);
+    let mut base = json!({});
+    rawtonic_engine::image_processing::apply_render_default(&mut base);
+    rawtonic_engine::edge_fringe::apply_default(&mut base, true, is_raw);
+    rawtonic_engine::lateral_ca::apply_default(&mut base, true, is_raw);
+    // The tone sliders' and every other tool's response a new edit gets
+    // (`initialAdjustmentsFor` in the editor): without the keys an import
+    // rendered lowered Highlights several times darker than the other editor
+    // and Clarity, noise reduction, Defringe and grain with their first
+    // responses (notes: benchmark-results/hl-highlights-2026-11-01,
+    // lc3-lr-import-2026-11-01).
+    if let Some(map) = base.as_object_mut() {
+        map.extend(rawtonic_engine::image_processing::new_edit_responses(
+            is_raw,
+        ));
+    }
     if let (Some(map), Some(base)) = (adjustments.as_object_mut(), base.as_object()) {
         for (key, value) in base {
             map.entry(key.clone()).or_insert_with(|| value.clone());
         }
-        // The edit is made on the RAW's newest frame, whatever it says.
-        if let Some(frame) = base.get(rawtonic_engine::source_frame::KEY) {
+        // The other editor's geometry (spots, masks, red eyes; Lightroom keeps
+        // it normalised in the camera's frame of the raw) is that of the
+        // newest frame of the RAW (`source_frame`): the edit is made on it,
+        // as a new edit would be.
+        if is_raw {
             map.insert(
                 rawtonic_engine::source_frame::KEY.to_string(),
-                frame.clone(),
+                json!(rawtonic_engine::source_frame::VERSION),
             );
         }
     }
@@ -1610,24 +1659,17 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
                 Some(version) => catalog.imported_recipe(version)?,
                 None => None,
             };
-            let rule = reimport(
+            let rule = reimport_here(
                 record.as_ref(),
                 own.as_ref(),
+                sidecar_edit(&asset.path, None, own.as_ref()),
                 &source_digest(photo),
                 adjustments.as_ref(),
-                source_at_defaults(photo),
             );
             if rule != Reimport::Apply {
                 contents.editor_state = None;
                 imported.translated = false;
                 imported.kept_with_newer = rule == Reimport::KeepWithNewer;
-            } else if adjustments.is_none() && own.as_ref().is_some_and(is_edit) {
-                // Reset to defaults there: the edit starts over as a new one.
-                contents.editor_state = Some(json!({
-                    "version": crate::image_processing::ImageMetadata::default().version,
-                    "rating": photo.metadata.rating,
-                    "adjustments": new_edit_base(&photo.path),
-                }));
             }
             catalog.apply_contents(&asset.id, &contents)?;
             (asset.id, rule, Some(own))
@@ -1818,29 +1860,21 @@ fn reimport_copy(
         .and_then(|state| state.get("adjustments").cloned());
     let recipe = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path);
     let incoming = recipe.as_ref().map(|(adjustments, _)| adjustments.clone());
-    let rule = reimport(
+    let rule = reimport_here(
         catalog.imported_recipe(&version)?.as_ref(),
         own.as_ref(),
+        sidecar_edit(&catalog.asset(asset)?.path, Some(copy), own.as_ref()),
         &source_digest(photo),
         incoming.as_ref(),
-        source_at_defaults(photo),
     );
     match rule {
         Reimport::Apply => {
-            match (state, recipe) {
-                (Some(mut state), Some((adjustments, clipped))) => {
-                    imported.translated = true;
-                    imported.ai_masks = has_ai_masks_on_open(&adjustments);
-                    imported.crops_clipped = usize::from(clipped);
-                    state["adjustments"] = adjustments;
-                    catalog.save_copy_state(asset, copy, &state)?;
-                }
-                // Reset to defaults there: the copy's edit starts over.
-                (Some(mut state), None) if own.as_ref().is_some_and(is_edit) => {
-                    state["adjustments"] = new_edit_base(&photo.path);
-                    catalog.save_copy_state(asset, copy, &state)?;
-                }
-                _ => {}
+            if let (Some(mut state), Some((adjustments, clipped))) = (state, recipe) {
+                imported.translated = true;
+                imported.ai_masks = has_ai_masks_on_open(&adjustments);
+                imported.crops_clipped = usize::from(clipped);
+                state["adjustments"] = adjustments;
+                catalog.save_copy_state(asset, copy, &state)?;
             }
             let stored = catalog
                 .copy_state(asset, copy)?
@@ -1974,8 +2008,9 @@ pub async fn library_import(
     source: String,
     directory: String,
     relinks: Vec<Relink>,
+    app_handle: tauri::AppHandle,
 ) -> Result<ImportReport, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    let report = tauri::async_runtime::spawn_blocking(move || {
         let (mut lib, _) = read_source(Path::new(&source))?;
         for relink in &relinks {
             lib.relink(&relink.from, &relink.to);
@@ -1987,7 +2022,17 @@ pub async fn library_import(
         report
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    // Tiles of edits brought up to date show them.
+    crate::file_management::refresh_thumbnails(
+        app_handle,
+        report
+            .recipe_changes
+            .iter()
+            .map(|change| change.path.clone())
+            .collect(),
+    );
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -4364,12 +4409,13 @@ ProcessVersion = "15.4" }}"#,
         assert_eq!(fs::read(&raw).unwrap(), b"raf");
     }
 
-    /// C1RI1 review: a reset to defaults in the other editor resets an edit
-    /// unchanged here (undoable); settings unchanged there write nothing
-    /// even when their translation differs (new mask ids, a newer
-    /// converter); a sidecar another catalog changed is never replaced.
+    /// C1RI1 review: settings unchanged there write nothing even when their
+    /// translation differs (new mask ids, a newer converter); nothing to
+    /// translate there never clears an edit; an edit another catalog saved
+    /// in the sidecar beside the photo counts as the photographer's: never
+    /// replaced, never in the Undo step.
     #[test]
-    fn a_reimport_resets_with_the_source_and_leaves_unchanged_sources_and_foreign_sidecars() {
+    fn a_reimport_leaves_unchanged_sources_defaults_and_foreign_sidecars_alone() {
         // The rule alone: the same settings there, a translation that
         // differs only in generated ids or by a newer converter.
         let with_id = |id: &str, ev: f64| json!({"exposure": ev, "masks": [{"id": id, "subMasks": [{"id": id}]}]});
@@ -4380,43 +4426,22 @@ ProcessVersion = "15.4" }}"#,
         };
         let own = with_id("a", 0.5);
         assert_eq!(
-            reimport(
-                Some(&record),
-                Some(&own),
-                "s1",
-                Some(&with_id("b", 0.5)),
-                false
-            ),
+            reimport(Some(&record), Some(&own), "s1", Some(&with_id("b", 0.5)),),
             Reimport::Same
         );
         assert_eq!(
-            reimport(
-                Some(&record),
-                Some(&own),
-                "s1",
-                Some(&with_id("b", 0.6)),
-                false
-            ),
+            reimport(Some(&record), Some(&own), "s1", Some(&with_id("b", 0.6)),),
             Reimport::Keep
         );
         assert_eq!(
-            reimport(
-                Some(&record),
-                Some(&own),
-                "s2",
-                Some(&with_id("b", 0.6)),
-                false
-            ),
+            reimport(Some(&record), Some(&own), "s2", Some(&with_id("b", 0.6)),),
             Reimport::Apply
         );
-        // Settings that failed to convert never reset an edit.
+        // Nothing to translate there never clears an edit (a reset cannot
+        // be told from settings the reader could not read).
         assert_eq!(
-            reimport(Some(&record), Some(&own), "s2", None, false),
+            reimport(Some(&record), Some(&own), "s2", None),
             Reimport::Keep
-        );
-        assert_eq!(
-            reimport(Some(&record), Some(&own), "s2", None, true),
-            Reimport::Apply
         );
 
         let tmp = tempfile::tempdir().unwrap();
@@ -4426,13 +4451,8 @@ ProcessVersion = "15.4" }}"#,
         import_into(&catalog, &one_photo(&raw, exposure_in("c1", 0.5))).unwrap();
         let asset = catalog.asset_at(&raw).unwrap().unwrap().id;
         let reset = import_into(&catalog, &one_photo(&raw, Develop::CaptureOne(vec![]))).unwrap();
-        let state = catalog.editor_state(&asset).unwrap().unwrap();
-        assert!(state["adjustments"].get("exposure").is_none(), "{reset:?}");
-        let mut base = new_edit_base(&raw);
-        base["colorLabel"] = state["adjustments"]["colorLabel"].clone();
-        assert_eq!(state["adjustments"], base);
-        assert_eq!(reset.recipe_changes.len(), 1, "{reset:?}");
-        assert_eq!(reset.recipe_changes[0].before["exposure"], json!(0.5));
+        assert_eq!(exposure_of(&catalog, &asset), json!(0.5), "{reset:?}");
+        assert!(reset.recipe_changes.is_empty(), "{reset:?}");
 
         // A copy whose sidecar another catalog over the same folder changed:
         // the library follows the import, the sidecar stays, and it is said.
@@ -4456,17 +4476,13 @@ ProcessVersion = "15.4" }}"#,
         let report = import_into(&catalog, &source(1.5)).unwrap();
         assert_eq!(
             catalog.copy_state(&asset, &copy).unwrap().unwrap()["adjustments"]["exposure"],
-            json!(1.5),
+            json!(1.0),
             "{report:?}"
         );
         assert_eq!(fs::read(&sidecar).unwrap(), foreign);
-        assert!(
-            report
-                .errors
-                .iter()
-                .any(|e| e.contains("changed elsewhere since; left as it is")),
-            "{report:?}"
-        );
+        assert!(report.recipe_changes.is_empty(), "{report:?}");
+        assert_eq!(report.edits_kept.len(), 1, "{report:?}");
+        assert_eq!(catalog.copies(&asset).unwrap().len(), 2);
         assert_eq!(fs::read(&raw).unwrap(), b"raf");
     }
 }

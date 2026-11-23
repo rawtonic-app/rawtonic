@@ -2088,6 +2088,7 @@
       "importSmartAlbumsSkipped": "대응하는 규칙이 없어 제외된 스마트 컬렉션: {{n}}.",
       "importStacks_other": "스택 {{count}}개를 가져왔습니다",
       "importUnconvertedSettings": "변환할 수 없는 설정이 포함된 가져온 편집: {{n}}개.",
+      "importUnsavedEdits": "아직 저장되지 않은 편집이 있습니다({{n}}). 저장된 뒤 다시 가져오세요. 가져오기가 덮어쓰지 않도록 하기 위해서입니다.",
       "importWarnings_other": "사진 {{count}}장을 경고와 함께 가져왔습니다. {{error}}",
       "ingestCancelled": "가져오기 취소됨",
       "ingested_other": "사진 {{count}}장을 복사하고 검증했습니다",

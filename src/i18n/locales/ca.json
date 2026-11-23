@@ -2285,6 +2285,7 @@
       "importStacks_many": "{{count}} piles importades",
       "importStacks_other": "{{count}} piles importades",
       "importUnconvertedSettings": "Edicions importades amb ajustos que no s’han pogut convertir: {{n}}.",
+      "importUnsavedEdits": "Algunes edicions encara no s’han desat ({{n}}). Torna a importar quan estiguin desades, perquè la importació no les sobreescrigui.",
       "importWarnings_one": "{{count}} foto s’ha importat amb un avís. {{error}}",
       "importWarnings_many": "{{count}} fotos s’han importat amb avisos. {{error}}",
       "importWarnings_other": "{{count}} fotos s’han importat amb avisos. {{error}}",

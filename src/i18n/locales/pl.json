@@ -2403,6 +2403,7 @@
       "importStacks_many": "{{count}} stosów zaimportowanych",
       "importStacks_other": "{{count}} stosu zaimportowanego",
       "importUnconvertedSettings": "Zaimportowane edycje z ustawieniami, których nie udało się przekonwertować: {{n}}.",
+      "importUnsavedEdits": "Niektóre edycje nie są jeszcze zapisane ({{n}}). Zaimportuj ponownie, gdy zostaną zapisane, aby import ich nie nadpisał.",
       "importWarnings_one": "{{count}} zdjęcie zaimportowano z ostrzeżeniem. {{error}}",
       "importWarnings_few": "{{count}} zdjęcia zaimportowano z ostrzeżeniami. {{error}}",
       "importWarnings_many": "{{count}} zdjęć zaimportowano z ostrzeżeniami. {{error}}",

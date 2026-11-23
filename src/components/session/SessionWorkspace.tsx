@@ -1213,7 +1213,11 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       noteTool('ingest');
       // Edits made in Develop count as the photographer's before the import
       // compares them, and no editor keeps a recipe it brings up to date.
-      await closeOpenPhotoForLibraryWrite();
+      const unsaved = await closeOpenPhotoForLibraryWrite();
+      if (unsaved) {
+        setError(t('session.toasts.importUnsavedEdits', { n: unsaved }));
+        return;
+      }
       const report = await invoke<ImportReport>(Invokes.LibraryImport, {
         source: importSource.trim(),
         directory: session.directory,
