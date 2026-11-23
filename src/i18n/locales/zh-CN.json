@@ -77,6 +77,7 @@
       "done": "已导出 {{label}}（{{existing}}）",
       "failed_other": "{{count}} 张照片未能导出：{{label}}",
       "interrupted": "导出已中断：{{label}}",
+      "nothingExported": "没有导出任何照片 — {{existing}} ({{label}})",
       "running": "正在导出 {{label}}",
       "waiting": "等待导出：{{label}}"
     },

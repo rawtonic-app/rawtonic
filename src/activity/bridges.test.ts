@@ -120,6 +120,31 @@ it('ends the task of an export that finished well (its files are reported once w
   expect(entry('export:j1')).toBeUndefined();
 });
 
+it.each([
+  ['en', 'Nothing exported — 1 skipped (a.jpg)'],
+  ['de', 'Nichts exportiert — 1 übersprungen (a.jpg)']
+])('says nothing was exported when a Save As was skipped (%s)', async (language, title) => {
+  await i18n.changeLanguage(language);
+  try {
+    const run = job({ label: 'a.jpg', total: 1 });
+    useProcessStore.getState().setExportQueue({ jobs: [run], held: false });
+    useProcessStore.getState().setExportQueue({ jobs: [{ ...run, state: 'done', done: 1, skipped: 1 }], held: false });
+    expect(entry('export:j1')?.title).toBe(title);
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
+
+it('keeps the skipped, replaced and renamed counts on a mixed export', () => {
+  const run = job({});
+  useProcessStore.getState().setExportQueue({ jobs: [run], held: false });
+  useProcessStore.getState().setExportQueue({
+    jobs: [{ ...run, state: 'done', done: 3, skipped: 1, replaced: 1, keptBoth: 1 }],
+    held: false
+  });
+  expect(entry('export:j1')?.title).toBe('Exported 3 photos as JPG (1 skipped · 1 replaced · 1 kept as a new name)');
+});
+
 it('keeps a failed paste until dismissed: a later paste of other values says nothing about it', async () => {
   await submitPhotoWrite(['/a.dng', '/b.dng'], async () => ['/b.dng'], { kind: 'paste', failedOf: (failed) => failed });
   await act(async () => {});

@@ -5,7 +5,8 @@
 //! * **Skip**: the photo is not exported for that recipe; decided before
 //!   its source is decoded, and reported.
 //! * **Replace if changed**: the taken file is replaced only when it is a
-//!   previous Rawtonic export of the same photo at the same path, still
+//!   previous Rawtonic export of the same photo for this requested name,
+//!   including the numbered name the export was given, still
 //!   byte for byte as Rawtonic wrote it, and the export's inputs (recipe,
 //!   library metadata, export settings, app version) differ from the ones
 //!   recorded for it; unchanged, the export is skipped. Any other file
@@ -192,7 +193,7 @@ pub enum Decision {
 
 /// What is known of the file at an output's name.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Previous {
+enum Previous {
     /// Nothing recorded for it.
     Unknown,
     /// A photo of a library: never replaced.
@@ -214,7 +215,7 @@ impl From<Option<Recorded>> for Previous {
 /// are never replaced), `previous` what was recorded for the file at
 /// `path`, `source` the photo and `inputs` this export's [`inputs_hash`].
 #[allow(clippy::too_many_arguments)]
-pub fn decide<P>(
+fn decide<'a, P>(
     policy: ExistingFiles,
     path: &Path,
     exists: bool,
@@ -222,7 +223,7 @@ pub fn decide<P>(
     mask_files: bool,
     previous: impl FnOnce() -> P,
     source: &str,
-    inputs: &str,
+    inputs: impl FnOnce() -> &'a str,
 ) -> Decision
 where
     P: Into<Previous>,
@@ -243,15 +244,7 @@ where
                 reported: Some(Outcome::KeptOriginal),
             },
             Previous::Export(previous) if previous.is_export_of(path, source) => {
-                if previous.inputs == inputs {
-                    Decision::Skip(Outcome::SkippedUnchanged)
-                } else if mask_files {
-                    Decision::Number {
-                        reported: Some(Outcome::KeptBoth),
-                    }
-                } else {
-                    Decision::Replace(previous)
-                }
+                own_export_decision(previous, inputs(), mask_files)
             }
             _ => Decision::Number {
                 reported: Some(Outcome::KeptBoth),
@@ -260,15 +253,97 @@ where
     }
 }
 
-const RECORDS_VERSION: u32 = 1;
+fn own_export_decision(record: Recorded, inputs: &str, mask_files: bool) -> Decision {
+    if record.inputs == inputs {
+        Decision::Skip(Outcome::SkippedUnchanged)
+    } else if mask_files {
+        Decision::Number {
+            reported: Some(Outcome::KeptBoth),
+        }
+    } else {
+        Decision::Replace(record)
+    }
+}
+
+/// The records and library-photo guard shared by export and its preflight.
+pub struct History<'a> {
+    pub records: &'a dyn Fn() -> Option<&'a ExportRecords>,
+    pub is_original: &'a dyn Fn(&Path) -> bool,
+}
+
+impl History<'_> {
+    /// Returns the path the decision applies to. If the requested path is
+    /// occupied, check the same photo's recorded siblings for this slot
+    /// before choosing a new number. A free requested name is used as usual.
+    #[allow(clippy::too_many_arguments)]
+    pub fn decide<'a>(
+        &self,
+        policy: ExistingFiles,
+        slot: &Path,
+        exists: bool,
+        used: bool,
+        mask_files: bool,
+        source: &str,
+        inputs: impl Fn() -> &'a str,
+        unavailable: impl Fn(&Path) -> bool,
+    ) -> (PathBuf, Decision) {
+        let direct = decide(
+            policy,
+            slot,
+            exists,
+            used,
+            mask_files,
+            || {
+                if (self.is_original)(slot) {
+                    return Previous::Original;
+                }
+                let record = (!source.is_empty())
+                    .then(|| (self.records)())
+                    .flatten()
+                    .and_then(|records| {
+                        records
+                            .at_slot(slot)
+                            .unwrap_or_else(|e| record_read_failed(slot, e))
+                    });
+                Previous::from(record)
+            },
+            source,
+            &inputs,
+        );
+        if policy == ExistingFiles::ReplaceIfChanged
+            && !source.is_empty()
+            && matches!(direct, Decision::Number { .. })
+            && let Some(records) = (self.records)()
+            && let Some((path, record)) = records
+                .find_numbered(slot, source, |path| {
+                    !unavailable(path) && !(self.is_original)(path)
+                })
+                .unwrap_or_else(|e| record_read_failed(slot, e))
+        {
+            let decision = own_export_decision(record, inputs(), mask_files);
+            if !matches!(decision, Decision::Number { .. }) {
+                return (path, decision);
+            }
+        }
+        (slot.to_path_buf(), direct)
+    }
+}
+
+fn record_read_failed<T>(path: &Path, error: anyhow::Error) -> Option<T> {
+    log::warn!("Export records: reading {} failed: {error}", path.display());
+    None
+}
+
+const RECORDS_VERSION: u32 = 2;
 /// `PRAGMA application_id` of an export records file ("RTXR"): any other
 /// database is refused before anything is written to it.
 const RECORDS_APPLICATION_ID: i32 = 0x5254_5852;
 
-/// The record of the files exports wrote (output path → photo, inputs,
-/// size, SHA-256), for Replace if changed. One connection per thread.
+/// The record of the files exports wrote (output path → requested path,
+/// photo, inputs, size, SHA-256). One connection per thread.
 pub struct ExportRecords {
     conn: Connection,
+    version: u32,
 }
 
 /// The key a file is recorded under: its folder resolved (symlinks, `..`)
@@ -288,18 +363,31 @@ fn key(path: &Path) -> String {
 }
 
 fn initialize_records(conn: &Connection) -> Result<()> {
-    let tx = conn.unchecked_transaction()?;
-    tx.execute_batch(&format!(
-        "PRAGMA application_id={RECORDS_APPLICATION_ID};
-         CREATE TABLE IF NOT EXISTS records(
-           output TEXT PRIMARY KEY,
-           source TEXT NOT NULL,
-           inputs TEXT NOT NULL,
-           size INTEGER NOT NULL,
-           sha256 TEXT NOT NULL,
-           recorded_ms INTEGER NOT NULL);
-         PRAGMA user_version={RECORDS_VERSION};"
-    ))?;
+    // Check the version under the write lock so concurrent openers cannot
+    // both try to add the same column.
+    let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
+    let version: u32 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if version == 0 {
+        tx.execute_batch(&format!(
+            "PRAGMA application_id={RECORDS_APPLICATION_ID};
+             CREATE TABLE IF NOT EXISTS records(
+               output TEXT PRIMARY KEY,
+               source TEXT NOT NULL,
+               inputs TEXT NOT NULL,
+               size INTEGER NOT NULL,
+               sha256 TEXT NOT NULL,
+               recorded_ms INTEGER NOT NULL);"
+        ))?;
+    }
+    if version < RECORDS_VERSION {
+        // The old record proved the file's bytes, but never said whether
+        // its name was requested or assigned. Only exact matches can use it.
+        tx.execute_batch(&format!(
+            "ALTER TABLE records ADD COLUMN slot TEXT;
+             CREATE INDEX records_by_slot ON records(slot, source, recorded_ms DESC, output);
+             PRAGMA user_version={RECORDS_VERSION};"
+        ))?;
+    }
     tx.commit()?;
     Ok(())
 }
@@ -315,7 +403,7 @@ impl ExportRecords {
     /// has confirmed anything: nothing is created, initialized, recovered
     /// or written. `None` when there is no usable records file (missing,
     /// empty from an interrupted first export, another database, another
-    /// version), which reads as nothing recorded.
+    /// newer version), which reads as nothing recorded.
     pub fn open_existing_read_only(path: &Path) -> Option<Self> {
         let meta = fs::symlink_metadata(path).ok()?;
         if !meta.is_file() || meta.len() == 0 {
@@ -333,7 +421,8 @@ impl ExportRecords {
         let version: u32 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .ok()?;
-        (id == RECORDS_APPLICATION_ID && version == RECORDS_VERSION).then_some(Self { conn })
+        (id == RECORDS_APPLICATION_ID && (1..=RECORDS_VERSION).contains(&version))
+            .then_some(Self { conn, version })
     }
 
     pub fn open(path: &Path) -> Result<Self> {
@@ -430,32 +519,72 @@ impl ExportRecords {
             version <= RECORDS_VERSION,
             "The export records are from a newer Rawtonic (version {version})"
         );
-        if version == 0 {
-            // Older versions could leave our header but stop before writing
-            // the table and schema version.
+        if version < RECORDS_VERSION {
             initialize_records(&conn)?;
         }
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            version: RECORDS_VERSION,
+        })
     }
 
     /// What was recorded for the file at `output`.
     pub fn get(&self, output: &Path) -> Result<Option<Recorded>> {
+        self.get_matching(output, false)
+    }
+
+    fn at_slot(&self, output: &Path) -> Result<Option<Recorded>> {
+        self.get_matching(output, self.version >= 2)
+    }
+
+    fn get_matching(&self, output: &Path, same_slot: bool) -> Result<Option<Recorded>> {
+        let sql = if same_slot {
+            "SELECT source, inputs, size, sha256 FROM records
+             WHERE output=?1 AND (slot=?1 OR slot IS NULL)"
+        } else {
+            "SELECT source, inputs, size, sha256 FROM records WHERE output=?1"
+        };
         Ok(self
             .conn
-            .query_row(
-                "SELECT source, inputs, size, sha256 FROM records WHERE output=?",
-                [key(output)],
-                |r| {
-                    Ok(Recorded {
-                        source: r.get(0)?,
-                        inputs: r.get(1)?,
-                        size: r.get::<_, i64>(2)? as u64,
-                        sha256: r.get(3)?,
-                    })
-                },
-            )
+            .query_row(sql, [key(output)], |row| read_record(row, 0))
             .optional()?)
+    }
+
+    /// The latest usable sibling of this photo and slot. The output name
+    /// comes from a record, never from a guessed suffix. Use the caller's
+    /// spelling of the directory for reservations and the actual write.
+    fn find_numbered(
+        &self,
+        slot: &Path,
+        source: &str,
+        eligible: impl Fn(&Path) -> bool,
+    ) -> Result<Option<(PathBuf, Recorded)>> {
+        if self.version < 2 {
+            return Ok(None);
+        }
+        let slot_key = key(slot);
+        let mut query = self.conn.prepare_cached(
+            "SELECT output, source, inputs, size, sha256 FROM records
+             WHERE slot=?1 AND source=?2 AND output<>?1 ORDER BY recorded_ms DESC, output",
+        )?;
+        let mut rows = query.query(params![slot_key, source])?;
+        while let Some(row) = rows.next()? {
+            let output: String = row.get(0)?;
+            let output = Path::new(&output);
+            if output.parent() != Path::new(&slot_key).parent() {
+                continue;
+            }
+            let Some(name) = output.file_name() else {
+                continue;
+            };
+            let path = slot.with_file_name(name);
+            let record = read_record(row, 1)?;
+            if eligible(&path) && record.is_export_of(&path, source) {
+                return Ok(Some((path, record)));
+            }
+        }
+        Ok(None)
     }
 
     /// Records the file at `output` as it is now as the export of `source`
@@ -466,6 +595,7 @@ impl ExportRecords {
         let sha256 = rawtonic_fs::sha256_hex_read(&mut file)?;
         self.record_written(
             output,
+            output,
             source,
             inputs,
             &crate::output::Written { size, sha256 },
@@ -473,11 +603,12 @@ impl ExportRecords {
     }
 
     /// Records `written`, the file an export of `source` with `inputs`
-    /// published at `output` (its size and SHA-256 as written, not as the
-    /// path holds now).
+    /// published at `output` for the requested path `slot` (its size and
+    /// SHA-256 as written, not as the path holds now).
     pub fn record_written(
         &self,
         output: &Path,
+        slot: &Path,
         source: &str,
         inputs: &str,
         written: &crate::output::Written,
@@ -486,15 +617,30 @@ impl ExportRecords {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as i64);
+        let slot_key = key(slot);
+        let output = if output == slot {
+            slot_key.clone()
+        } else {
+            key(output)
+        };
         self.conn.execute(
-            "INSERT INTO records(output, source, inputs, size, sha256, recorded_ms)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO records(output, source, inputs, size, sha256, recorded_ms, slot)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(output) DO UPDATE SET source=?2, inputs=?3, size=?4, sha256=?5,
-               recorded_ms=?6",
-            params![key(output), source, inputs, size as i64, sha256, now],
+               recorded_ms=?6, slot=?7",
+            params![output, source, inputs, size as i64, sha256, now, slot_key],
         )?;
         Ok(())
     }
+}
+
+fn read_record(row: &rusqlite::Row<'_>, first: usize) -> rusqlite::Result<Recorded> {
+    Ok(Recorded {
+        source: row.get(first)?,
+        inputs: row.get(first + 1)?,
+        size: row.get::<_, i64>(first + 2)? as u64,
+        sha256: row.get(first + 3)?,
+    })
 }
 
 /// The export records file of an app data folder.
@@ -506,6 +652,126 @@ pub fn records_path(app_data: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn records_upgrade_from_v1_without_losing_exact_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("records.sqlite");
+        let slot = dir.path().join("frame.jpg");
+        let output = dir.path().join("frame_1.jpg");
+        fs::write(&output, b"export").unwrap();
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(&format!(
+            "PRAGMA application_id={RECORDS_APPLICATION_ID};
+             PRAGMA user_version=1;
+             CREATE TABLE records(output TEXT PRIMARY KEY, source TEXT NOT NULL,
+               inputs TEXT NOT NULL, size INTEGER NOT NULL, sha256 TEXT NOT NULL,
+               recorded_ms INTEGER NOT NULL);"
+        ))
+        .unwrap();
+        conn.execute(
+            "INSERT INTO records VALUES(?1, 'photo', 'v1', 6, ?2, 0)",
+            params![key(&output), rawtonic_fs::sha256_hex(b"export")],
+        )
+        .unwrap();
+        drop(conn);
+
+        let before = fs::read(&path).unwrap();
+        let read_only = ExportRecords::open_existing_read_only(&path).unwrap();
+        assert!(read_only.at_slot(&output).unwrap().is_some());
+        drop(read_only);
+        assert_eq!(fs::read(&path).unwrap(), before);
+
+        let records = ExportRecords::open(&path).unwrap();
+        let version: u32 = records
+            .conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        assert!(
+            records
+                .at_slot(&output)
+                .unwrap()
+                .unwrap()
+                .is_export_of(&output, "photo")
+        );
+        assert!(
+            records
+                .find_numbered(&slot, "photo", |_| true)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn numbered_exports_require_a_matching_slot_photo_and_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("records.sqlite");
+        let slot = dir.path().join("frame.jpg");
+        let sibling = dir.path().join("frame_2.jpg");
+        fs::write(&slot, b"foreign").unwrap();
+        fs::write(&sibling, b"export").unwrap();
+        let records = ExportRecords::open(&db).unwrap();
+        let written = crate::output::Written {
+            size: 6,
+            sha256: rawtonic_fs::sha256_hex(b"export"),
+        };
+        // An explicitly requested numbered name belongs to its own slot.
+        records.record(&sibling, "photo", "v1").unwrap();
+        assert!(
+            records
+                .find_numbered(&slot, "photo", |_| true)
+                .unwrap()
+                .is_none()
+        );
+        records
+            .record_written(&sibling, &slot, "photo", "v1", &written)
+            .unwrap();
+        drop(records);
+
+        let records = ExportRecords::open_existing_read_only(&db).unwrap();
+        let plan = |path: &Path, source: &str, inputs: &str, protected: bool, used: bool| {
+            History {
+                records: &|| Some(&records),
+                is_original: &|path| protected && path == sibling,
+            }
+            .decide(
+                ExistingFiles::ReplaceIfChanged,
+                path,
+                true,
+                false,
+                false,
+                source,
+                || inputs,
+                |path| used && path == sibling,
+            )
+        };
+        assert_eq!(
+            plan(&slot, "photo", "v1", false, false),
+            (sibling.clone(), Decision::Skip(Outcome::SkippedUnchanged))
+        );
+        let (path, decision) = plan(&slot, "photo", "v2", false, false);
+        assert_eq!(path, sibling);
+        assert!(matches!(decision, Decision::Replace(_)));
+        for (path, source, protected, used) in [
+            (&slot, "other photo", false, false),
+            (&slot, "photo", true, false),
+            (&slot, "photo", false, true),
+            (&sibling, "photo", false, false),
+        ] {
+            assert!(matches!(
+                plan(path, source, "v2", protected, used).1,
+                Decision::Number { .. }
+            ));
+        }
+        // Same size, different digest, even though its record still exists.
+        fs::write(&sibling, b"edited").unwrap();
+        assert!(matches!(
+            plan(&slot, "photo", "v2", false, false).1,
+            Decision::Number { .. }
+        ));
+        assert_eq!(fs::read(&slot).unwrap(), b"foreign");
+    }
 
     fn decide_for(
         policy: ExistingFiles,
@@ -522,7 +788,7 @@ mod tests {
             false,
             || records.get(path).unwrap(),
             source,
-            inputs,
+            || inputs,
         )
     }
 
@@ -538,11 +804,11 @@ mod tests {
         ] {
             let previous = || -> Option<Recorded> { panic!("no record is read for a free name") };
             assert_eq!(
-                decide(policy, &path, false, false, false, previous, "s", "i"),
+                decide(policy, &path, false, false, false, previous, "s", || "i"),
                 Decision::Write
             );
             assert_eq!(
-                decide(policy, &path, true, true, false, || None, "s", "i"),
+                decide(policy, &path, true, true, false, || None, "s", || "i"),
                 Decision::Number { reported: None }
             );
         }
@@ -563,7 +829,7 @@ mod tests {
                 false,
                 never,
                 "s",
-                "i"
+                || "i"
             ),
             Decision::Skip(Outcome::SkippedExists)
         );
@@ -576,7 +842,7 @@ mod tests {
                 false,
                 never,
                 "s",
-                "i"
+                || "i"
             ),
             Decision::Number { reported: None }
         );
@@ -600,7 +866,7 @@ mod tests {
                 false,
                 never,
                 "s",
-                "i"
+                || "i"
             ),
             Decision::Number { reported: None }
         );
@@ -718,7 +984,7 @@ mod tests {
                 true,
                 || records.get(&path).unwrap(),
                 photo,
-                "v2"
+                || "v2"
             ),
             Decision::Number {
                 reported: Some(Outcome::KeptBoth)
@@ -811,7 +1077,7 @@ mod tests {
                 false,
                 || Previous::Original,
                 "s",
-                "v2"
+                || "v2"
             ),
             Decision::Number {
                 reported: Some(Outcome::KeptOriginal)
