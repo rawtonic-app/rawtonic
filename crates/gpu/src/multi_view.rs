@@ -1342,10 +1342,31 @@ mod tests {
             sampler: &gpu.sampler,
             empty_overlay: &gpu.empty,
         };
+        // "a" has a sharp region (green) beside its whole frame (red).
+        multi.upload(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "a",
+            1,
+            CellExtent {
+                shown: [30.0, 20.0],
+                region: Some([10.0, 5.0, 10.0, 10.0]),
+            },
+            CellLayer::Region,
+            10,
+            10,
+            &solid(10, 10, [0, 255, 0]),
+        );
+        assert!(multi.region_of("a").is_some());
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 35, 50), [0, 255, 0]), "region drawn");
         // "a" has its own render placed for the zoom: it stays, red and
-        // enlarged, not the live frame shown to fit.
+        // enlarged, not the live frame shown to fit; the region, which may
+        // predate edits, is released.
         multi.adopt_live_frame(&gpu.device, &gpu.queue, &bindings, "a", &source, 16, 16);
         assert_eq!(multi.texture_key("a"), Some(1));
+        assert_eq!(multi.region_of("a"), None);
         let pixels = present(&gpu, &multi, None);
         assert!(close(pixel(&pixels, 35, 50), [255, 0, 0]));
         // Above the fitted image (letterbox), only the enlarged frame is red.
