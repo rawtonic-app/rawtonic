@@ -939,18 +939,17 @@ pub(crate) fn measure_preview(
         return;
     }
     let (source, _) = parse_virtual_path(path);
-    // A recipe of another decode variant is not shown from the previews.
-    if !crate::preview_proxy::stands_for(&source, recipe, crate::preview_proxy::ProxyKind::Full) {
-        return;
-    }
-    if crate::preview_proxy::full_key(&source, settings)
+    if crate::preview_proxy::full_key(&source, settings, Some(recipe))
         .is_some_and(|key| known_measures(path, recipe, MeasuredOn::Preview(&key)).is_some())
     {
         return;
     }
-    let Some(proxy) =
-        crate::preview_proxy::read_kind(&source, crate::preview_proxy::ProxyKind::Full, settings)
-    else {
+    let Some(proxy) = crate::preview_proxy::read_kind(
+        &source,
+        crate::preview_proxy::ProxyKind::Full,
+        settings,
+        Some(recipe),
+    ) else {
         return;
     };
     if proxy.image.width() == proxy.full_width {
@@ -1034,23 +1033,14 @@ fn load_source(
         };
         return Ok((image, 1.0, facts, "decoded"));
     }
-    // The previews stand for the decode variant they were made for
-    // (`preview_proxy::stands_for`); a cell of another one decodes.
-    let proxy_fits = !is_raw
-        || crate::preview_proxy::stands_for(
-            &source_path,
-            recipe,
-            crate::preview_proxy::ProxyKind::Standard,
-        );
+    let wanted = crate::image_loader::decode_variant(recipe, &source_str);
+    let proxy_fits = !is_raw || crate::preview_proxy::may_stand_for_variant(&source_path, wanted);
     if let Some(proxy) = state
         .source
         .proxy_memory
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(
-            path,
-            crate::image_loader::decode_variant(recipe, &source_path.to_string_lossy()),
-        )
+        .get(path, wanted)
         .filter(|_| proxy_fits)
     {
         let scale = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
@@ -1063,21 +1053,20 @@ fn load_source(
         return Ok((proxy.image, scale, facts, "proxy-memory"));
     }
     let settings = crate::state::settings::current(app_handle);
-    if is_raw && let Some(found) = preview_on_disk(&source_path, recipe, proxy_fits, &settings) {
+    if is_raw && let Some(found) = preview_on_disk(&source_path, recipe, &settings) {
         return Ok(found);
     }
     decode(&source_path, &source_str, is_raw, &settings, recipe)
 }
 
 /// A RAW cell's source from the previews on disk (`load_source`): the
-/// Standard one when it stands for `recipe` (`standard_fits`), else,
-/// offline, a 1:1 preview made for the recipe's variant (the Standard one
+/// Standard one when it stands for `recipe`, else offline a 1:1 preview
+/// made for the recipe's variant and frame (the Standard one
 /// may have been renewed for the master's since, PXV1): the RAW cannot be
 /// decoded then.
 fn preview_on_disk(
     source_path: &Path,
     recipe: &serde_json::Value,
-    standard_fits: bool,
     settings: &crate::app_settings::AppSettings,
 ) -> Option<(Arc<DynamicImage>, f32, Facts, &'static str)> {
     let found = |proxy: crate::preview_proxy::Proxy, how| {
@@ -1090,20 +1079,24 @@ fn preview_on_disk(
         };
         (Arc::new(proxy.image), scale, facts, how)
     };
-    if standard_fits && let Some(proxy) = crate::preview_proxy::read(source_path, settings) {
+    if let Some(proxy) = crate::preview_proxy::read_kind(
+        source_path,
+        crate::preview_proxy::ProxyKind::Standard,
+        settings,
+        Some(recipe),
+    ) {
         return Some(found(proxy, "proxy-disk"));
     }
-    if crate::preview_proxy::source_available(source_path)
-        || !crate::preview_proxy::stands_for(
-            source_path,
-            recipe,
-            crate::preview_proxy::ProxyKind::Full,
-        )
-    {
+    if crate::preview_proxy::source_available(source_path) {
         return None;
     }
-    crate::preview_proxy::read_kind(source_path, crate::preview_proxy::ProxyKind::Full, settings)
-        .map(|proxy| found(proxy, "proxy-1:1"))
+    crate::preview_proxy::read_kind(
+        source_path,
+        crate::preview_proxy::ProxyKind::Full,
+        settings,
+        Some(recipe),
+    )
+    .map(|proxy| found(proxy, "proxy-1:1"))
 }
 
 fn decode(
@@ -2170,15 +2163,11 @@ fn load_full_source(
         return Ok((image, 1.0, facts, "decoded", None));
     }
     if is_raw
-        && crate::preview_proxy::stands_for(
-            &source_path,
-            recipe,
-            crate::preview_proxy::ProxyKind::Full,
-        )
         && let Some(proxy) = crate::preview_proxy::read_kind(
             &source_path,
             crate::preview_proxy::ProxyKind::Full,
             settings,
+            Some(recipe),
         )
     {
         let scale = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
@@ -2487,15 +2476,7 @@ fn prepare_region_from_rows(
     let (full_w, full_h) = match &decoded {
         Some(image) => image.dimensions(),
         None if !known.is_raw => return Err("not a RAW"),
-        None if !crate::preview_proxy::stands_for(
-            &source_path,
-            recipe,
-            crate::preview_proxy::ProxyKind::Full,
-        ) =>
-        {
-            return Err("the 1:1 preview is of another decode variant");
-        }
-        None => crate::preview_proxy::full_size(&source_path, &settings)
+        None => crate::preview_proxy::full_size(&source_path, &settings, Some(recipe))
             .ok_or("no current 1:1 preview")?,
     };
     let mut facts = Facts {
@@ -2509,11 +2490,13 @@ fn prepare_region_from_rows(
     let mut preview_key = None;
     let measures = match &decoded {
         Some(decoded) => note_measures(path, recipe, decoded, MeasuredOn::Decode(decoded), true),
-        None => crate::preview_proxy::full_key(&source_path, &settings).and_then(|key| {
-            let measures = known_measures(path, recipe, MeasuredOn::Preview(&key));
-            preview_key = Some(key);
-            measures
-        }),
+        None => {
+            crate::preview_proxy::full_key(&source_path, &settings, Some(recipe)).and_then(|key| {
+                let measures = known_measures(path, recipe, MeasuredOn::Preview(&key));
+                preview_key = Some(key);
+                measures
+            })
+        }
     };
     let plan = region_plan(facts, area, zoom, recipe, measures)?;
     let (image, kind, read_ms) = match decoded {
@@ -2528,9 +2511,14 @@ fn prepare_region_from_rows(
             )
         }
         None => {
-            let read =
-                crate::preview_proxy::read_full_rows(&source_path, &settings, plan.rows, plan.cols)
-                    .ok_or("no current 1:1 preview")?;
+            let read = crate::preview_proxy::read_full_rows(
+                &source_path,
+                &settings,
+                plan.rows,
+                plan.cols,
+                Some(recipe),
+            )
+            .ok_or("no current 1:1 preview")?;
             if !rows_fit_measures(measures.is_some(), preview_key.as_ref(), &read.key) {
                 return Err("1:1 preview changed while planning");
             }
@@ -3102,11 +3090,7 @@ fn region_source_ready(
     // the zoom's scale, which takes as much memory as a decode.
     zoom.scale >= 1.0
         && (in_memory
-            || (crate::preview_proxy::stands_for(
-                &source_path,
-                recipe,
-                crate::preview_proxy::ProxyKind::Full,
-            ) && crate::preview_proxy::has_full(&source_path, &settings)))
+            || crate::preview_proxy::full_key(&source_path, &settings, Some(recipe)).is_some())
 }
 
 /// The kept region base of `path` that still covers what its cell `area`
@@ -4370,7 +4354,6 @@ mod tests {
     /// one; a copy of a third variant from neither.
     #[test]
     fn an_offline_copy_cell_falls_back_to_its_matching_one_to_one_preview() {
-        use crate::preview_proxy::ProxyKind;
         let dir = tempfile::tempdir().unwrap();
         let session = dir.path().join("Job");
         std::fs::create_dir_all(session.join("Capture")).unwrap();
@@ -4395,9 +4378,7 @@ mod tests {
         std::fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
         rawtonic_engine::source_facts::forget(&path);
         let cell = |recipe: &serde_json::Value| {
-            let standard_fits =
-                crate::preview_proxy::stands_for(&photo, recipe, ProxyKind::Standard);
-            preview_on_disk(&photo, recipe, standard_fits, &settings).map(|found| found.3)
+            preview_on_disk(&photo, recipe, &settings).map(|found| found.3)
         };
         assert_eq!(cell(&at(15)), Some("proxy-1:1"));
         assert_eq!(cell(&serde_json::Value::Null), Some("proxy-disk"));
@@ -4680,14 +4661,14 @@ mod tests {
             ..Default::default()
         };
         let current = |settings: &crate::app_settings::AppSettings| {
-            crate::preview_proxy::full_key(&photo, settings)
+            crate::preview_proxy::full_key(&photo, settings, None)
                 .and_then(|key| known_measures(&path, &recipe, MeasuredOn::Preview(&key)))
         };
         // The preview as the master's stored recipe has it.
         let variant = crate::image_loader::stored_decode_variant(&path);
         crate::preview_proxy::write_full(&photo, &image, &settings, variant, None).unwrap();
         assert!(crate::preview_proxy::has_full(&photo, &settings));
-        let first_key = crate::preview_proxy::full_key(&photo, &settings).unwrap();
+        let first_key = crate::preview_proxy::full_key(&photo, &settings, None).unwrap();
         measure_preview(&path, &recipe, &settings);
         assert!(current(&settings).is_some_and(|m| m.fringe.is_some()));
         // Rebuilt with other decoder settings: the current preview has none.
@@ -4695,7 +4676,8 @@ mod tests {
         assert_eq!(current(&other), None);
         assert_eq!(current(&settings), None);
         // Rows read after a rebuild do not fit measures planned before it.
-        let rows = crate::preview_proxy::read_full_rows(&photo, &other, (0, 4), (0, 4)).unwrap();
+        let rows =
+            crate::preview_proxy::read_full_rows(&photo, &other, (0, 4), (0, 4), None).unwrap();
         assert!(!rows_fit_measures(true, Some(&first_key), &rows.key));
         assert!(rows_fit_measures(true, Some(&rows.key), &rows.key));
         assert!(rows_fit_measures(false, None, &rows.key));
@@ -4737,21 +4719,36 @@ mod tests {
         let settings = crate::app_settings::AppSettings::default();
         let mut recipe = frame_one_edit();
         recipe["fringeVersion"] = serde_json::json!(2);
+        let mut copy = recipe.clone();
+        copy["sourceFrameVersion"] = 0.into();
         for (frame, shown) in [(0, false), (1, true)] {
             let directory = tempfile::tempdir().unwrap();
             let photo = offline_cr3(directory.path(), recipe.clone(), frame);
             let path = photo.to_string_lossy().to_string();
             measure_preview(&path, &recipe, &settings);
-            let measured = crate::preview_proxy::full_key(&photo, &settings)
+            let measured = crate::preview_proxy::full_key(&photo, &settings, None)
                 .and_then(|key| known_measures(&path, &recipe, MeasuredOn::Preview(&key)));
             assert_eq!(measured.is_some(), shown);
             assert_eq!(
-                crate::preview_proxy::full_size(&photo, &settings).is_some(),
+                crate::preview_proxy::full_size(&photo, &settings, None).is_some(),
                 shown
             );
             assert_eq!(
-                crate::preview_proxy::read_full_rows(&photo, &settings, (0, 4), (0, 4)).is_some(),
+                crate::preview_proxy::read_full_rows(&photo, &settings, (0, 4), (0, 4), None)
+                    .is_some(),
                 shown
+            );
+            assert_eq!(preview_on_disk(&photo, &copy, &settings).is_some(), !shown);
+            assert_eq!(
+                crate::preview_proxy::read_full_rows(
+                    &photo,
+                    &settings,
+                    (0, 4),
+                    (0, 4),
+                    Some(&copy)
+                )
+                .is_some(),
+                !shown
             );
         }
     }
@@ -4776,7 +4773,7 @@ mod tests {
             "lensDistortionParams": {"k1": -0.05}, "colorNoiseReduction": 25, "colorNoiseVersion": 9});
         // Warm: measured by the background work after the preview was made.
         measure_preview(&path, &recipe, &settings);
-        let key = crate::preview_proxy::full_key(&photo, &settings).unwrap();
+        let key = crate::preview_proxy::full_key(&photo, &settings, None).unwrap();
         let warm = known_measures(&path, &recipe, MeasuredOn::Preview(&key)).expect("measured");
         // Cold (restart): a region measures the preview it reads.
         REGION_MEASURES
@@ -4789,6 +4786,7 @@ mod tests {
             &photo,
             crate::preview_proxy::ProxyKind::Full,
             &settings,
+            None,
         )
         .unwrap();
         assert_eq!(proxy.key, key);
