@@ -80,24 +80,24 @@ pub fn prefetch(path: &Path) {
             let Ok(len) = file.metadata().map(|m| m.len()) else {
                 return;
             };
-            prefetch_chunks(len, &|at| {
-                read_chunk(&file, at, &mut vec![0; PREFETCH_CHUNK]).is_ok()
-            });
+            prefetch_chunks(len, &|at, buf| read_chunk(&file, at, buf).is_ok());
         });
 }
 
-/// Calls `read(offset)` for each chunk of a file of `len` bytes, from
-/// `PREFETCH_THREADS` threads, each chunk once; a thread stops when its read
-/// reports failure.
-fn prefetch_chunks(len: u64, read: &(dyn Fn(u64) -> bool + Sync)) {
+/// Calls `read(offset, buffer)` for each chunk of a file of `len` bytes, from
+/// `PREFETCH_THREADS` threads, each chunk once, each thread with one buffer
+/// of a chunk's size for all its reads; a thread stops when its read reports
+/// failure.
+fn prefetch_chunks(len: u64, read: &(dyn Fn(u64, &mut [u8]) -> bool + Sync)) {
     let chunk = PREFETCH_CHUNK as u64;
     let next = std::sync::atomic::AtomicU64::new(0);
     std::thread::scope(|scope| {
         for _ in 0..PREFETCH_THREADS {
             scope.spawn(|| {
+                let mut buf = vec![0; PREFETCH_CHUNK];
                 loop {
                     let at = next.fetch_add(chunk, std::sync::atomic::Ordering::Relaxed);
-                    if at >= len || !read(at) {
+                    if at >= len || !read(at, &mut buf) {
                         return;
                     }
                 }
@@ -184,7 +184,7 @@ mod tests {
         let chunk = PREFETCH_CHUNK as u64;
         for len in [chunk - 1, chunk, 5 * chunk + 7, 40 * chunk] {
             let seen = Mutex::new(Vec::new());
-            prefetch_chunks(len, &|at| {
+            prefetch_chunks(len, &|at, _| {
                 seen.lock().unwrap().push(at);
                 true
             });
@@ -201,7 +201,7 @@ mod tests {
     fn a_failing_read_stops_only_its_thread() {
         let chunk = PREFETCH_CHUNK as u64;
         let seen = Mutex::new(Vec::new());
-        prefetch_chunks(30 * chunk, &|at| {
+        prefetch_chunks(30 * chunk, &|at, _| {
             seen.lock().unwrap().push(at);
             at != chunk
         });
