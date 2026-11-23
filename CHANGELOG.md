@@ -4,6 +4,7 @@
 
 ### Highlights
 
+- **Open iPhone HEIC photos on macOS.** HEIC and HEIF files (iPhone `.heic`, Canon, Sony and Fujifilm `.hif`) now open, import and export like JPEGs. macOS decodes them with its own HEVC decoder, so Rawtonic bundles no codec. 10-bit files keep their full depth, Display P3 colour is kept (including colours outside sRGB), the photo is turned the way the file says, and the capture date and camera come from its EXIF. The import dialog previews use the file's own thumbnail. HDR photos with a gain map show their standard (SDR) image; the HDR part is not used yet. On Windows and Linux such a file now says "can't be opened on this system yet" instead of being skipped.
 - **Export: "If a file exists" — Keep both, Skip or Replace if changed.** A new choice in the Export panel's Destination, saved with each export recipe (and `rawtonic export --on-conflict keep-both|skip|replace-if-changed`).
   - **Keep both** (the default) works as before: the new file gets a numbered name (`photo_1.jpg`) and nothing is written over.
   - **Skip** leaves out every photo whose file already exists. This is decided before the photo is decoded or rendered, so re-exporting a folder only renders the new photos. The queue and Activity say how many were skipped.

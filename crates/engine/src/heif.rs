@@ -46,7 +46,15 @@ pub fn is_heif(bytes: &[u8]) -> bool {
     bytes
         .get(8..12)
         .into_iter()
-        .chain(bytes.get(16..end).unwrap_or(&[]).as_chunks::<4>().0.iter().map(|b| &b[..]))
+        .chain(
+            bytes
+                .get(16..end)
+                .unwrap_or(&[])
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| &b[..]),
+        )
         .any(|brand| BRANDS.iter().any(|known| &known[..] == brand))
 }
 
@@ -117,13 +125,20 @@ fn to_working_space(bytes: &[u8], decoded: imageio::Decoded) -> DynamicImage {
     })
 }
 
+/// HEIC files written by ImageIO for other crates' tests (no photographs
+/// in the repository).
+#[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
+pub mod test_support {
+    pub use super::imageio::encode_heic;
+}
+
 #[cfg(target_os = "macos")]
 pub(crate) mod imageio {
     //! The macOS ImageIO / Core Graphics calls (C API, linked from the
     //! system frameworks).
 
     use std::ffi::c_void;
-    use std::ptr::{NonNull, null, null_mut};
+    use std::ptr::{NonNull, null};
 
     use anyhow::{Result, anyhow, bail};
     use image::{DynamicImage, ImageBuffer};
@@ -154,6 +169,7 @@ pub(crate) mod imageio {
         fn CFDataGetLength(data: CFTypeRef) -> isize;
         fn CFDataGetBytePtr(data: CFTypeRef) -> *const u8;
         fn CFNumberCreate(allocator: CFTypeRef, kind: isize, value: *const c_void) -> CFTypeRef;
+        #[cfg(test)]
         fn CFNumberGetValue(number: CFTypeRef, kind: isize, value: *mut c_void) -> bool;
         fn CFDictionaryCreate(
             allocator: CFTypeRef,
@@ -163,6 +179,7 @@ pub(crate) mod imageio {
             key_callbacks: *const Callbacks,
             value_callbacks: *const Callbacks,
         ) -> CFTypeRef;
+        #[cfg(test)]
         fn CFDictionaryGetValue(dictionary: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
     }
 
@@ -173,6 +190,7 @@ pub(crate) mod imageio {
         static kCGImageSourceCreateThumbnailFromImageAlways: CFTypeRef;
         static kCGImageSourceCreateThumbnailWithTransform: CFTypeRef;
         static kCGImageSourceThumbnailMaxPixelSize: CFTypeRef;
+        #[cfg(any(test, feature = "test-support"))]
         static kCGImagePropertyOrientation: CFTypeRef;
         fn CGImageSourceCreateWithData(data: CFTypeRef, options: CFTypeRef) -> CFTypeRef;
         fn CGImageSourceGetCount(source: CFTypeRef) -> usize;
@@ -187,6 +205,7 @@ pub(crate) mod imageio {
             index: usize,
             options: CFTypeRef,
         ) -> CFTypeRef;
+        #[cfg(test)]
         fn CGImageSourceCopyPropertiesAtIndex(
             source: CFTypeRef,
             index: usize,
@@ -221,7 +240,7 @@ pub(crate) mod imageio {
     const BLEND_COPY: i32 = 17;
     const ALPHA_PREMULTIPLIED_LAST: u32 = 1;
     const FLOAT_COMPONENTS: u32 = 1 << 8;
-    const BYTE_ORDER_16_LITTLE: u32 = 4 << 12;
+    const BYTE_ORDER_16_LITTLE: u32 = 1 << 12;
     const BYTE_ORDER_32_LITTLE: u32 = 2 << 12;
 
     /// An owned Core Foundation object (Create/Copy rule), released on drop.
@@ -308,8 +327,9 @@ pub(crate) mod imageio {
     pub(crate) fn decode(bytes: &[u8]) -> Result<Decoded> {
         let (source, index) = source(bytes)?;
         // SAFETY: a valid image source and index.
-        let image = Cf::new(unsafe { CGImageSourceCreateImageAtIndex(source.get(), index, null()) })
-            .ok_or_else(|| anyhow!("The system could not decode this HEIF file"))?;
+        let image =
+            Cf::new(unsafe { CGImageSourceCreateImageAtIndex(source.get(), index, null()) })
+                .ok_or_else(|| anyhow!("The system could not decode this HEIF file"))?;
         Ok(Decoded {
             pixels: pixels(&image)?,
         })
@@ -375,7 +395,8 @@ pub(crate) mod imageio {
     /// (float) per component, premultiplied RGBA, in `space`.
     fn draw(image: &Cf, space: CFTypeRef, bits: usize) -> Option<(usize, usize, Vec<u8>)> {
         // SAFETY: a valid CGImage.
-        let (width, height) = unsafe { (CGImageGetWidth(image.get()), CGImageGetHeight(image.get())) };
+        let (width, height) =
+            unsafe { (CGImageGetWidth(image.get()), CGImageGetHeight(image.get())) };
         if width == 0 || height == 0 {
             return None;
         }
@@ -389,7 +410,15 @@ pub(crate) mod imageio {
         // SAFETY: the buffer holds `height` rows of `row` bytes and outlives
         // the context, which is released before it is returned.
         let context = Cf::new(unsafe {
-            CGBitmapContextCreate(buffer.as_mut_ptr().cast(), width, height, bits, row, space, info)
+            CGBitmapContextCreate(
+                buffer.as_mut_ptr().cast(),
+                width,
+                height,
+                bits,
+                row,
+                space,
+                info,
+            )
         })?;
         let rect = CGRect {
             x: 0.0,
@@ -447,8 +476,9 @@ pub(crate) mod imageio {
         // Grey, or a space Core Graphics cannot draw into: converted by it
         // into extended linear sRGB (unclipped), then sRGB-encoded.
         // SAFETY: a constant colour space name.
-        let linear = Cf::new(unsafe { CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearSRGB) })
-            .ok_or_else(|| anyhow!("No extended sRGB colour space"))?;
+        let linear =
+            Cf::new(unsafe { CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearSRGB) })
+                .ok_or_else(|| anyhow!("No extended sRGB colour space"))?;
         let (width, height, buffer) = draw(image, linear.get(), 32)
             .ok_or_else(|| anyhow!("The system could not draw this HEIF image"))?;
         let values: Vec<f32> = buffer
@@ -474,7 +504,8 @@ pub(crate) mod imageio {
     pub(crate) fn reference_linear_srgb(bytes: &[u8]) -> Option<(usize, usize, Vec<[f32; 3]>)> {
         let (source, index) = source(bytes).ok()?;
         // SAFETY: a valid image source and index.
-        let image = Cf::new(unsafe { CGImageSourceCreateImageAtIndex(source.get(), index, null()) })?;
+        let image =
+            Cf::new(unsafe { CGImageSourceCreateImageAtIndex(source.get(), index, null()) })?;
         // SAFETY: a constant colour space name.
         let linear =
             Cf::new(unsafe { CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearSRGB) })?;
@@ -488,10 +519,10 @@ pub(crate) mod imageio {
         Some((width, height, pixels))
     }
 
-    #[cfg(test)]
-    pub(crate) use test_encode::encode_heic;
+    #[cfg(any(test, feature = "test-support"))]
+    pub use test_encode::encode_heic;
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     mod test_encode {
         //! HEIC files made by ImageIO at test time (no photographs in the
         //! repository).
@@ -524,7 +555,8 @@ pub(crate) mod imageio {
                 encoding: u32,
                 external: bool,
             ) -> CFTypeRef;
-            fn CFNumberCreate(allocator: CFTypeRef, kind: isize, value: *const c_void) -> CFTypeRef;
+            fn CFNumberCreate(allocator: CFTypeRef, kind: isize, value: *const c_void)
+            -> CFTypeRef;
         }
 
         #[link(name = "CoreGraphics", kind = "framework")]
@@ -535,7 +567,13 @@ pub(crate) mod imageio {
         fn string(text: &str) -> Cf {
             // SAFETY: UTF-8 bytes of `text` (encoding kCFStringEncodingUTF8).
             Cf::new(unsafe {
-                CFStringCreateWithBytes(null(), text.as_ptr(), text.len() as isize, 0x0800_0100, false)
+                CFStringCreateWithBytes(
+                    null(),
+                    text.as_ptr(),
+                    text.len() as isize,
+                    0x0800_0100,
+                    false,
+                )
             })
             .unwrap()
         }
@@ -543,13 +581,16 @@ pub(crate) mod imageio {
         /// A HEIC of `pixels` (16-bit RGB, row-major, `width` wide) in the
         /// named colour space (e.g. "kCGColorSpaceDisplayP3"), written by
         /// ImageIO at full quality with `orientation` (1–8); 16-bit input
-        /// gives a 10-bit file.
-        pub(crate) fn encode_heic(
+        /// gives a 10-bit file. `tags` are (ImageIO dictionary, key, text
+        /// value), e.g. ("{TIFF}", "Make", "Test") or ("{Exif}",
+        /// "DateTimeOriginal", "2026:11:23 10:00:00").
+        pub fn encode_heic(
             width: usize,
             height: usize,
             pixels: &[[u16; 3]],
             space: &str,
             orientation: i64,
+            tags: &[(&str, &str, &str)],
         ) -> Vec<u8> {
             let mut buffer: Vec<u8> = pixels
                 .iter()
@@ -585,17 +626,32 @@ pub(crate) mod imageio {
             .unwrap();
             let quality = 1.0f64;
             // SAFETY: reads one f64 (kCFNumberFloat64Type = 6).
-            let quality = Cf::new(unsafe { CFNumberCreate(null(), 6, (&raw const quality).cast()) })
-                .unwrap();
+            let quality =
+                Cf::new(unsafe { CFNumberCreate(null(), 6, (&raw const quality).cast()) }).unwrap();
             let orientation = number(orientation).unwrap();
+            // One dictionary per group ("{TIFF}", "{Exif}") of text tags.
+            let mut groups: Vec<(Cf, Cf)> = Vec::new();
+            let mut names: Vec<&str> = tags.iter().map(|t| t.0).collect();
+            names.sort_unstable();
+            names.dedup();
+            for group in names {
+                let entries: Vec<(Cf, Cf)> = tags
+                    .iter()
+                    .filter(|t| t.0 == group)
+                    .map(|t| (string(t.1), string(t.2)))
+                    .collect();
+                let pairs: Vec<_> = entries.iter().map(|(k, v)| (k.get(), v.get())).collect();
+                groups.push((string(group), dictionary(&pairs).unwrap()));
+            }
             // SAFETY: ImageIO constants and CF values.
-            let properties = dictionary(&unsafe {
-                [
+            let mut entries = unsafe {
+                vec![
                     (kCGImageDestinationLossyCompressionQuality, quality.get()),
                     (kCGImagePropertyOrientation, orientation.get()),
                 ]
-            })
-            .unwrap();
+            };
+            entries.extend(groups.iter().map(|(k, v)| (k.get(), v.get())));
+            let properties = dictionary(&entries).unwrap();
             // SAFETY: a valid destination, image and dictionary.
             unsafe {
                 CGImageDestinationAddImage(destination.get(), image.get(), properties.get());
