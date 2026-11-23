@@ -26,6 +26,7 @@ pub mod file_io;
 pub mod film_grain;
 pub mod formats;
 pub mod guided_perspective;
+pub mod heif;
 pub mod icc_profile;
 pub mod image_loader;
 pub mod image_processing;

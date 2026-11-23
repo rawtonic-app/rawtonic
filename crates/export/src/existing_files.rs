@@ -165,12 +165,22 @@ pub fn adjustments_for_hash(adjustments: &serde_json::Value, source: &Path) -> s
     let mut recipe = adjustments.clone();
     let unresolved_lens = lens_recipe::is_unresolved(&recipe);
     if let Some(map) = recipe.as_object_mut() {
-        map.remove(image_processing::LIBRARY_LABEL_KEY);
         // The library label is already covered by the exported metadata.
+        map.remove(image_processing::LIBRARY_LABEL_KEY);
         // Only an unresolved lens stamp changes what the renderer does.
         if !unresolved_lens {
             map.remove(lens_recipe::LENS_PROFILE_FOR);
         }
+    }
+    // Develop's aspect ratio selector is UI state. The crop's coordinates
+    // give the renderer its actual framing. Keep the key if removing it
+    // would make this stored recipe start over with new-edit defaults.
+    if let Some(aspect) = recipe
+        .as_object_mut()
+        .and_then(|map| map.remove("aspectRatio"))
+        && image_processing::is_new_recipe(&recipe)
+    {
+        recipe["aspectRatio"] = aspect;
     }
     // A frame stamp can suppress migration of an old camera TIFF's edit.
     // Its presence alone can also distinguish a saved edit from a new one.
@@ -1122,6 +1132,7 @@ mod tests {
         rawtonic_engine::recipe_frame::stamp(&mut saved, 8256, 5504);
         rawtonic_engine::lens_recipe::stamp_loaded_lens_profile(&mut saved);
         saved["colorLabel"] = json!("");
+        saved["aspectRatio"] = json!(4.0 / 3.0);
         assert_eq!(adjustments_for_hash(&saved, nef), recipe);
         assert_ne!(adjustments_for_hash(&saved, tiff), recipe);
 
@@ -1133,6 +1144,10 @@ mod tests {
             Value::Null
         );
         assert_eq!(adjustments_for_hash(&json!({}), nef), Value::Null);
+        assert_eq!(
+            adjustments_for_hash(&json!({"aspectRatio": 1.5}), nef),
+            json!({"aspectRatio": 1.5})
+        );
     }
 
     #[test]

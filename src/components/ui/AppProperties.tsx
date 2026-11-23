@@ -403,6 +403,7 @@ export enum Invokes {
   OpenWithPrefs = 'open_with_prefs',
   EditWithApps = 'edit_with_apps',
   EditWithSetRecipe = 'edit_with_set_recipe',
+  EditWithSetProgramSettings = 'edit_with_set_program_settings',
   EditWithStart = 'edit_with_start',
   EditWithFinish = 'edit_with_finish',
   EditWithInterrupted = 'edit_with_interrupted',

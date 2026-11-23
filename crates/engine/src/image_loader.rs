@@ -878,7 +878,7 @@ pub fn source_orientation(bytes: &[u8], path: &str) -> u16 {
                     .orientation
             })
             .or_else(|| crate::capture_info::crw_orientation(bytes))
-    } else if crate::avif::is_avif(bytes) {
+    } else if crate::avif::is_avif(bytes) || crate::heif::is_heif(bytes) {
         Some(crate::avif::orientation(bytes))
     } else {
         exif_orientation(bytes)
@@ -1106,6 +1106,17 @@ pub fn load_image_with_orientation(
         let orientation = Orientation::from_u16(decoded.orientation);
         let image = apply_orientation(crate::avif::to_working_space(decoded), orientation);
         return Ok(DynamicImage::ImageRgb32F(image.into_rgb32f()));
+    }
+
+    if crate::heif::is_heif(bytes) {
+        // As AVIF: the container's irot/imir apply, not the EXIF tag.
+        // Its errors say why (UNSUPPORTED on systems without a decoder).
+        let image = crate::heif::decode(bytes)?;
+        check_cancel()?;
+        let orientation = Orientation::from_u16(crate::avif::orientation(bytes));
+        return Ok(DynamicImage::ImageRgb32F(
+            apply_orientation(image, orientation).into_rgb32f(),
+        ));
     }
 
     // JPEG XL decodes through the image crate's hook, registered here so the

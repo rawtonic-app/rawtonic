@@ -238,7 +238,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | compact_str | 0.9.1 | MIT |
 | const-oid | 0.10.2 | Apache-2.0 OR MIT |
 | constant_time_eq | 0.4.2 | CC0-1.0 OR MIT-0 OR Apache-2.0 |
-| cookie | 0.18.2 | MIT OR Apache-2.0 |
+| cookie | 0.18.3 | MIT OR Apache-2.0 |
 | core-foundation | 0.10.1 | MIT OR Apache-2.0 |
 | core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 |
 | core-graphics | 0.25.0 | MIT OR Apache-2.0 |

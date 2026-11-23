@@ -621,6 +621,14 @@ fn primary_properties(bytes: &[u8]) -> Option<Properties> {
     Meta::parse(bytes)?.primary_properties()
 }
 
+/// The primary item's colour properties (`colr`: ICC profile, `nclx` code
+/// points) of any HEIF file, read from the container: the HEIC reader
+/// (heif.rs) colour-manages its decode as AVIF's.
+#[cfg(target_os = "macos")]
+pub(crate) fn primary_colour(bytes: &[u8]) -> (Option<Vec<u8>>, Option<Cicp>) {
+    primary_properties(bytes).map_or((None, None), |p| (p.icc, p.nclx))
+}
+
 /// The crop (x, y, width, height) of a clean aperture on a `width`×`height`
 /// image, if it lies on whole pixels inside the image (as libavif requires).
 fn clean_aperture(clap: [i64; 8], width: usize, height: usize) -> Option<[usize; 4]> {
