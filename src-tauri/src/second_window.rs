@@ -1218,36 +1218,45 @@ fn show_followed(app_handle: &tauri::AppHandle, context: &GpuContext, path: Stri
 /// The main window's device was lost and replaced (DVL2, `gpu_recovery`):
 /// the open window gets a surface on the new device and develops the
 /// photograph it showed again (a locked one stays), at its zoom.
-#[cfg(not(target_os = "linux"))]
 pub(crate) async fn after_device_recovered(app_handle: &tauri::AppHandle, context: &GpuContext) {
     if !OPEN.load(Ordering::SeqCst) {
         return;
     }
-    let Some(window) = app_handle.get_webview_window(LABEL) else {
-        return;
-    };
-    // Nothing presents from the lost device meanwhile.
-    if let Some(inner) = lock_recover(&INNER).as_mut() {
-        inner.display = None;
-        inner.device = None;
-    }
-    let display = match make_view(app_handle, context, &window).await {
-        Ok(display) => display,
-        Err(error) => {
-            log::warn!("Second Window: no surface on the new graphics device: {error}");
+    // Native display: a new surface on the new device (nothing presents
+    // from the lost one meanwhile). Linux: the page draws, its view stays.
+    #[cfg(not(target_os = "linux"))]
+    let display = {
+        let Some(window) = app_handle.get_webview_window(LABEL) else {
             return;
+        };
+        if let Some(inner) = lock_recover(&INNER).as_mut() {
+            inner.display = None;
+            inner.device = None;
+        }
+        match make_view(app_handle, context, &window).await {
+            Ok(display) => Some(display),
+            Err(error) => {
+                log::warn!("Second Window: no surface on the new graphics device: {error}");
+                return;
+            }
         }
     };
+    #[cfg(target_os = "linux")]
+    let display: Option<View> = None;
     bases().clear();
     {
         let mut guard = lock_recover(&INNER);
         let Some(inner) = guard.as_mut() else { return };
-        inner.display = Some(display);
+        if let Some(display) = display {
+            inner.display = Some(display);
+        }
         inner.device = Some(Arc::clone(&context.device));
         inner.whole = None;
         inner.region_failed = None;
-        // Shown again on the new surface (its cell, zoom and frames).
+        // Shown again on the new surface (its cell and frames), at the
+        // zoom and pan it had.
         if let Some(shown) = inner.shown.take() {
+            let zoom = inner.zoom;
             set_photo(
                 inner,
                 context,
@@ -1256,6 +1265,10 @@ pub(crate) async fn after_device_recovered(app_handle: &tauri::AppHandle, contex
                 shown.recipe,
                 shown.shown,
             );
+            inner.zoom = zoom;
+            if let Some(display) = inner.display.as_mut() {
+                display.set_multi_view_zoom(zoom);
+            }
         }
     }
     emit_state(app_handle);
