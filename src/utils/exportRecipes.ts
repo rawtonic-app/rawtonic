@@ -216,7 +216,7 @@ const hex = (value: string | undefined, fallback: string) =>
 
 /** Formats a provenance manifest (C2PA) can be written into (`c2pa::supports`). */
 export function provenanceFormat(format: string): boolean {
-  return ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'webp', 'avif'].includes(format.toLowerCase());
+  return ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'webp', 'avif', 'jxl'].includes(format.toLowerCase());
 }
 
 /** A recipe from the form. */

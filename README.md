@@ -176,7 +176,7 @@ The **Develop** room gives the photograph the space: a filmstrip (under the phot
   <a href="docs/images/readme-export.jpg"><img src="docs/images/readme-export.jpg" alt="Export dialog with three recipes ticked: high quality, web and a 16-bit Adobe RGB TIFF for print" width="860"></a>
 </p>
 
-Save **export recipes** for full-size delivery, web sizes, social media or TIFFs for retouching, and tick several to produce every version in one go, each with its own size, format, colour space, sharpening, watermark and folder. **Super Resolution** enlarges a photo 2× with an AI model as it is exported. The **export queue** survives a restart: resume an interrupted job and retry failed photographs when you are ready. **Provenance (C2PA)** can add a signed record of the source photo and kinds of edits to JPEG, PNG, TIFF, WebP and AVIF files. It is off by default and signing happens on your computer.
+Save **export recipes** for full-size delivery, web sizes, social media or TIFFs for retouching, and tick several to produce every version in one go, each with its own size, format, colour space, sharpening, watermark and folder. **Super Resolution** enlarges a photo 2× with an AI model as it is exported. The **export queue** survives a restart: resume an interrupted job and retry failed photographs when you are ready. **Provenance (C2PA)** can add a signed record of the source photo and kinds of edits to the main JPEG, PNG, TIFF, WebP, AVIF or JPEG XL file of an export. It is off by default and signing happens on your computer.
 
 ## What it does
 

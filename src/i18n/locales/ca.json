@@ -3877,13 +3877,13 @@
         "exporting": "S'està exportant {{current}} de {{total}}"
       },
       "provenance": {
-        "about": "Registra la foto de la qual s'ha revelat cada fitxer, els tipus d'edició i cada zona creada per un model generatiu, signat amb el vostre certificat. JPEG, PNG, TIFF, WebP i AVIF. No s'envia res.",
-        "add": "Signa un manifest de procedència a cada fitxer",
+        "about": "Registra la foto de la qual s'ha revelat cada fitxer, els tipus d'edició i cada zona creada per un model generatiu, signat amb el vostre certificat. JPEG, PNG, TIFF, WebP, AVIF i JPEG XL. No s'envia res. Les imatges de màscara separades no es signen.",
+        "add": "Signa un manifest de procedència al fitxer principal de cada exportació",
         "author": "Indica el creador de la foto com a autor",
-        "blocked": "La procedència (C2PA) no pot signar {{recipes}}: configureu un certificat de signatura vàlid i exporteu JPEG, PNG, TIFF, WebP o AVIF.",
+        "blocked": "La procedència (C2PA) no pot signar {{recipes}}: configureu un certificat de signatura vàlid i exporteu JPEG, PNG, TIFF, WebP, AVIF o JPEG XL.",
         "certificateFilter": "Certificat PKCS#12",
         "expired": "Aquest certificat no és vàlid ara (vàlid fins al {{until}}): no es poden signar exportacions amb ell. Importeu un certificat renovat o creeu-ne un de nou.",
-        "formatUnsupported": "Els fitxers {{format}} encara no poden portar un manifest de procedència. Trieu JPEG, PNG, TIFF, WebP o AVIF, o desactiveu l'opció.",
+        "formatUnsupported": "Els fitxers {{format}} encara no poden portar un manifest de procedència. Trieu JPEG, PNG, TIFF, WebP, AVIF o JPEG XL, o desactiveu l'opció.",
         "generate": "Crea un certificat en aquest ordinador",
         "import": "Importa el vostre certificat (.p12)…",
         "importConfirm": "Importa",

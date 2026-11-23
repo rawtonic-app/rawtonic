@@ -3877,13 +3877,13 @@
         "exporting": "Exportando {{current}} de {{total}}"
       },
       "provenance": {
-        "about": "Registra la foto de la que se reveló cada archivo, los tipos de edición y cada zona creada por un modelo generativo, firmado con su certificado. JPEG, PNG, TIFF, WebP y AVIF. No se envía nada.",
-        "add": "Firmar un manifiesto de procedencia en cada archivo",
+        "about": "Registra la foto de la que se reveló cada archivo, los tipos de edición y cada zona creada por un modelo generativo, firmado con su certificado. JPEG, PNG, TIFF, WebP, AVIF y JPEG XL. No se envía nada. Las imágenes de máscara separadas no se firman.",
+        "add": "Firmar un manifiesto de procedencia en el archivo principal de cada exportación",
         "author": "Nombrar al creador de la foto como autor",
-        "blocked": "La procedencia (C2PA) no puede firmar {{recipes}}: configure un certificado de firma válido y exporte JPEG, PNG, TIFF, WebP o AVIF.",
+        "blocked": "La procedencia (C2PA) no puede firmar {{recipes}}: configure un certificado de firma válido y exporte JPEG, PNG, TIFF, WebP, AVIF o JPEG XL.",
         "certificateFilter": "Certificado PKCS#12",
         "expired": "Este certificado no es válido ahora (válido hasta {{until}}): no se pueden firmar exportaciones con él. Importe un certificado renovado o cree uno nuevo.",
-        "formatUnsupported": "Los archivos {{format}} aún no pueden llevar un manifiesto de procedencia. Elija JPEG, PNG, TIFF, WebP o AVIF, o desactive la opción.",
+        "formatUnsupported": "Los archivos {{format}} aún no pueden llevar un manifiesto de procedencia. Elija JPEG, PNG, TIFF, WebP, AVIF o JPEG XL, o desactive la opción.",
         "generate": "Crear un certificado en este ordenador",
         "import": "Importar su certificado (.p12)…",
         "importConfirm": "Importar",
