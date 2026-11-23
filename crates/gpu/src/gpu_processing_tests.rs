@@ -20926,13 +20926,30 @@ fn fit_view_render_input_is_the_exports() {
                 (800, 104),
                 &|| false,
                 cpu,
-                Some((&kept, 7)),
+                Some((&kept, 7, false)),
             )
             .unwrap()
             .unwrap();
             assert_eq!(again.as_raw(), reduced.as_raw());
             assert!(kept.holds(7));
         }
+        // A build budgeted for the kept upload does not upload without it.
+        let global = get_all_adjustments_from_json(&recipe, true, Some(1)).global;
+        let empty = color_noise_view::KeptInput::default();
+        assert!(
+            color_noise_view::reduced_render_input(
+                &context,
+                &image,
+                &recipe,
+                &global,
+                (800, 104),
+                &|| false,
+                cpu,
+                Some((&empty, 7, true)),
+            )
+            .unwrap()
+            .is_none()
+        );
         let expected = rawtonic_engine::lanczos::resize_wide_gamut(&full, 800, 104);
         assert_eq!(reduced.as_raw(), expected.as_raw());
         assert!(input(&recipe, (800, 104), &|| true).is_none());
@@ -28602,7 +28619,7 @@ fn tpx8_fit_view_memory() {
                 size,
                 &|| false,
                 &|work| work(),
-                keep.then_some((&kept, 1)),
+                keep.then_some((&kept, 1, false)),
             )
             .unwrap()
             .unwrap();

@@ -243,11 +243,12 @@ pub const KEPT_INPUT_MAX_BYTES: u64 = 210 << 20;
 /// pass (whole source and warped frame on the GPU), else from a kept input
 /// (pyramid, level-1 rebuild in bands, band pass). Set from the largest
 /// Private Bytes rises per typed change on a Radeon 680M with 24 MP RAWs
-/// (TPX8, notes: benchmark-results/tpx8-2026-11-22/REPORT.md): 1.44 GB from
-/// a kept input (60 bytes per pixel), 1.72 GB with the upload (71 bytes per
-/// pixel); an upper bound, as other work shared that window. The build
-/// alone took 0.31 / 1.0–1.15 GB on an RTX 3080 (GPU counters plus
-/// resident memory).
+/// (TPX8, notes: benchmark-results/tpx8-2026-11-22/REPORT.md): 1,440 MiB
+/// (1.51 GB) from a kept input of 6048 x 4024 (62 bytes per pixel), 1,715
+/// MiB (1.80 GB) with the upload of 6000 x 4000 (75 bytes per pixel); an
+/// upper bound, as other work shared that window, with a margin of 6–7 %.
+/// The build alone took 0.31 / 1.0–1.15 GB on an RTX 3080 (GPU counters
+/// plus resident memory).
 pub fn transient_bytes(width: u32, height: u32, upload: bool) -> u64 {
     let pixels = u64::from(width) * u64::from(height);
     if upload {
@@ -258,8 +259,8 @@ pub fn transient_bytes(width: u32, height: u32, upload: bool) -> u64 {
 }
 
 /// [`transient_bytes`] per pixel.
-const UPLOAD_BYTES_PER_PIXEL: u64 = 72;
-const KEPT_BYTES_PER_PIXEL: u64 = 60;
+const UPLOAD_BYTES_PER_PIXEL: u64 = 80;
+const KEPT_BYTES_PER_PIXEL: u64 = 66;
 
 /// Uploads `source` as the export uploads its render input (export_processing
 /// `prepare_export_render`): the recipe's warp and edge-fringe pass at full
@@ -310,8 +311,9 @@ fn upload_render_input(
 /// size, or when `stop` returned true between two steps (a newer frame
 /// came: the caller wants again). It never runs beside a shader compile:
 /// each step waits for a running one. `cpu` runs the CPU work. `kept`:
-/// where the upload is kept for the next build, and the key of this
-/// photograph and geometry there.
+/// where the upload is kept for the next build, the key of this
+/// photograph and geometry there, and whether the build must take the kept
+/// upload (None when it is gone: its memory was budgeted without one).
 #[allow(clippy::too_many_arguments)]
 pub fn reduced_render_input(
     context: &GpuContext,
@@ -321,7 +323,7 @@ pub fn reduced_render_input(
     (width, height): (u32, u32),
     stop: &(dyn Fn() -> bool + Sync),
     cpu: CpuRunner<'_>,
-    kept: Option<(&KeptInput, u64)>,
+    kept: Option<(&KeptInput, u64, bool)>,
 ) -> Result<Option<image::Rgb32FImage>, String> {
     let mut global = *global;
     let versioned = color_noise_tuning(&global);
@@ -336,11 +338,15 @@ pub fn reduced_render_input(
     }
     // The kept input of this photograph and geometry, else a new upload
     // (the kept one freed first).
-    let generation = kept.map(|(kept, _)| kept.lock().generation);
-    let reused = kept.and_then(|(kept, key)| match kept.lock().input.take() {
+    let generation = kept.map(|(kept, _, _)| kept.lock().generation);
+    let reused = kept.and_then(|(kept, key, _)| match kept.lock().input.take() {
         Some((k, uploaded)) if k == key => Some(uploaded),
         _ => None,
     });
+    if reused.is_none() && kept.is_some_and(|(_, _, reuse_only)| reuse_only) {
+        return Ok(None);
+    }
+    let kept = kept.map(|(kept, key, _)| (kept, key));
     let uploaded = match reused {
         Some(uploaded) => uploaded,
         None => {

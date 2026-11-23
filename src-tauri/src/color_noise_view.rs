@@ -684,7 +684,9 @@ fn on_gpu(
         wanted.dims,
         stop,
         &|work| pool().install(work),
-        shared_memory.then_some((kept, key)),
+        // Budgeted for a build from the kept upload: none if it went
+        // meanwhile (a memory release); the next frame wants again.
+        shared_memory.then_some((kept, key, !uploads)),
     )
     .inspect_err(|e| log::warn!("Colour noise view: GPU build failed: {e}"))
     .ok()??;
