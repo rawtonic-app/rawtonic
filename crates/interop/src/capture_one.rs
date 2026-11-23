@@ -230,17 +230,7 @@ pub fn read(session_db: &Path) -> Result<Library> {
         let text = |i: usize| -> rusqlite::Result<String> {
             Ok(r.get::<_, Option<String>>(i)?.unwrap_or_default())
         };
-        // Capture One writes a hierarchy as `Parent|Child`, the library's
-        // stored form (levels trimmed, `rawtonic_metadata::keywords`).
-        let mut keywords: Vec<String> = Vec::new();
-        for keyword in text(7)?
-            .split([',', ';', '\n'])
-            .map(rawtonic_metadata::keywords::normalize)
-        {
-            if !keyword.is_empty() && !keywords.contains(&keyword) {
-                keywords.push(keyword);
-            }
-        }
+        let keywords = content_keywords(&text(7)?);
         let metadata = Metadata {
             rating: r
                 .get::<_, Option<i64>>(5)?
@@ -489,10 +479,96 @@ fn read_layers(
     Ok(out)
 }
 
+/// The keywords of a photograph from `ZVARIANTMETADATA.ZCONTENT_KEYWORDS`.
+///
+/// Capture One lists every keyword the photograph carries, separated by
+/// `,`; each entry is its path from the top, levels joined by `|`, followed
+/// by `||<n>` (`Animals|Dogs||1`; `n` counts the entries from 0, as seen in
+/// a Capture One 16.9.1 session). Applying a keyword also lists its ancestors
+/// as entries of their own (`Animals||0` beside `Animals|Dogs||1`); they add
+/// nothing to the path below them, so only the deepest entries are kept.
+/// Entries without the `||<n>` suffix (older sessions, hand-typed text) are
+/// plain paths; `;` and newlines separate as well. Not seen, so not handled:
+/// whether Capture One escapes a `,` or `|` inside a keyword's name (such a
+/// name splits at the comma).
+fn content_keywords(text: &str) -> Vec<String> {
+    use rawtonic_metadata::keywords::{is_within, levels, normalize};
+    let mut paths: Vec<String> = Vec::new();
+    for entry in text.split([',', ';', '\n']) {
+        let entry = entry.trim();
+        let path = match entry.rsplit_once("||") {
+            Some((path, index))
+                if !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()) =>
+            {
+                path
+            }
+            _ => entry,
+        };
+        let path = normalize(path);
+        if !path.is_empty() && !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    paths
+        .iter()
+        .filter(|path| {
+            !paths
+                .iter()
+                .any(|other| levels(other).count() > levels(path).count() && is_within(other, path))
+        })
+        .cloned()
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::capture_one_masks::tests as comask;
+
+    fn kw(text: &str) -> Vec<String> {
+        content_keywords(text)
+    }
+
+    /// The string of a C1R5 session (Capture One 16.9.1): tree Animals{Cats,
+    /// Dogs{Puppies}}, Clients{Germany}, Places; every ancestor is listed,
+    /// `||<n>` counts the entries from 0.
+    const C1R5: &str = "Animals||0,Animals|Dogs||1,Animals|Dogs|Puppies||2,Clients||3,Clients|Germany||4,Places||5";
+
+    #[test]
+    fn a_nested_tree_keeps_the_deepest_paths_without_the_index_suffix() {
+        assert_eq!(
+            kw(C1R5),
+            ["Animals|Dogs|Puppies", "Clients|Germany", "Places"]
+        );
+    }
+
+    #[test]
+    fn siblings_and_other_branches_stay_separate() {
+        assert_eq!(
+            kw("Animals||0,Animals|Cats||1,Animals|Dogs||2,Animals|Dogs|Puppies||3"),
+            ["Animals|Cats", "Animals|Dogs|Puppies"]
+        );
+        // A top-level keyword that is only a number is a keyword, not an index.
+        assert_eq!(kw("2024||0,Places||1"), ["2024", "Places"]);
+        // An ancestor listed after its child, other case.
+        assert_eq!(kw("animals|Dogs||0,Animals||1"), ["animals|Dogs"]);
+    }
+
+    #[test]
+    fn plain_and_older_strings_are_read_as_before() {
+        assert_eq!(
+            kw("beach, sunset, Places | Ascona,Places|Ascona"),
+            ["beach", "sunset", "Places|Ascona"]
+        );
+        assert_eq!(kw("a;b\nc"), ["a", "b", "c"]);
+        assert_eq!(kw(""), Vec::<String>::new());
+        assert_eq!(kw("||0"), Vec::<String>::new());
+        // Mixed: indexed and plain entries side by side.
+        assert_eq!(
+            kw("Animals||0,Animals|Dogs||1,beach"),
+            ["Animals|Dogs", "beach"]
+        );
+    }
 
     /// A session with one photograph whose variant has four layers: a
     /// linear gradient, a radial one, a painted mask (compressed tiles) and a
