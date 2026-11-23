@@ -3651,8 +3651,12 @@ mod tests {
         let swatch = "0.500000, 0.700000, 0.300000, 0.000000, 0.000000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.520000, 1.000000, 1.000000, 0.000000, 0.400000, 0.760000, 1.000000".to_string();
         let uniformities = |variance: &str| {
             let ranges = super::point_color_ranges_from(&[swatch.clone()], &[variance.to_string()]);
-            ["hueUniformity", "saturationUniformity", "lightnessUniformity"]
-                .map(|key| ranges[0][key].as_f64().unwrap())
+            [
+                "hueUniformity",
+                "saturationUniformity",
+                "lightnessUniformity",
+            ]
+            .map(|key| ranges[0][key].as_f64().unwrap())
         };
         assert_eq!(uniformities("-0.250000"), [25.0, 7.5, 3.75]);
         assert_eq!(uniformities("-0.500000"), [50.0, 15.0, 7.5]);
