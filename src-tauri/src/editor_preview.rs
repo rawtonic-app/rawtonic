@@ -3684,16 +3684,13 @@ pub(crate) async fn activate_photo(
         );
         return Ok(Activation::None);
     };
-    // Only previews that stand for the recipe's decode variant stand in (a
-    // virtual copy's may differ from its master's,
-    // `preview_proxy::stands_for_variant`).
-    let wanted = crate::image_loader::decode_variant(
-        &adjustments
-            .clone()
-            .filter(|a| a.is_object())
-            .unwrap_or_else(|| crate::exif_processing::load_sidecar(&sidecar_path).adjustments),
-        &source_path.to_string_lossy(),
-    );
+    // Only previews that stand for the recipe's decode variant and frame
+    // stand in.
+    let proxy_recipe = adjustments
+        .clone()
+        .filter(|a| a.is_object())
+        .unwrap_or_else(|| crate::exif_processing::load_sidecar(&sidecar_path).adjustments);
+    let wanted = crate::image_loader::decode_variant(&proxy_recipe, &source_path.to_string_lossy());
     if !crate::preview_proxy::may_stand_for_variant(&source_path, wanted) {
         #[cfg(feature = "performance-profiling")]
         log::info!(
@@ -3721,8 +3718,14 @@ pub(crate) async fn activate_photo(
         None => {
             let settings = crate::state::settings::current(&app_handle);
             let read_source = source_path.clone();
+            let never_edited = crate::embedded_still::never_edited(&proxy_recipe);
             let Some(proxy) = tokio::task::spawn_blocking(move || {
-                crate::preview_proxy::read(&read_source, &settings)
+                crate::preview_proxy::read_kind(
+                    &read_source,
+                    crate::preview_proxy::ProxyKind::Standard,
+                    &settings,
+                    Some(&proxy_recipe),
+                )
             })
             .await
             .map_err(|e| e.to_string())?
@@ -3732,28 +3735,8 @@ pub(crate) async fn activate_photo(
                     "[PERF] {}",
                     serde_json::json!({ "stage": "activate_photo_skipped", "reason": "no proxy" })
                 );
-                let never_edited = crate::embedded_still::never_edited(
-                    &adjustments
-                        .clone()
-                        .filter(|a| a.is_object())
-                        .unwrap_or_else(|| {
-                            crate::exif_processing::load_sidecar(&sidecar_path).adjustments
-                        }),
-                );
                 return Ok(show_still(&app_handle, &path, viewport, never_edited).await);
             };
-            if !crate::preview_proxy::stands_for_variant(
-                &source_path,
-                wanted,
-                crate::preview_proxy::variant_of_key(&proxy.key.decoder),
-            ) {
-                #[cfg(feature = "performance-profiling")]
-                log::info!(
-                    "[PERF] {}",
-                    serde_json::json!({ "stage": "activate_photo_skipped", "reason": "other decode variant" })
-                );
-                return Ok(Activation::None);
-            }
             state
                 .source
                 .proxy_memory
