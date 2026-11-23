@@ -1670,14 +1670,13 @@ impl ThumbnailCacheEntry {
         };
 
         let cache_hash = compute_thumbnail_cache_hash(path_str, &adjustments_bytes)?;
-        let cache_hash =
-            keep_tile_of_unavailable_original(
-                thumb_cache_dir,
-                &source_path,
-                &serde_json::from_slice(&adjustments_bytes).unwrap_or_default(),
-                cache_hash,
-                || thumbnail_hash_before_refreshes(path_str, &adjustments_bytes),
-            );
+        let cache_hash = keep_tile_of_unavailable_original(
+            thumb_cache_dir,
+            &source_path,
+            &serde_json::from_slice(&adjustments_bytes).unwrap_or_default(),
+            cache_hash,
+            || thumbnail_hash_before_refreshes(path_str, &adjustments_bytes),
+        );
         let embedded_hash = embedded_thumbnail_hash(path_str);
         let selected = preferred_thumbnail_hash(
             thumb_cache_dir,
@@ -3641,9 +3640,7 @@ mod face_retouch_thumbnail_tests {
 
     /// A session with a master (cross-bilateral colour noise filter) and a
     /// virtual copy (multi-scale), the master's proxy written and then stale.
-    fn session_with_a_copy_of_another_variant(
-        temp: &Path,
-    ) -> (PathBuf, String, Vec<u8>, Vec<u8>) {
+    fn session_with_a_copy_of_another_variant(temp: &Path) -> (PathBuf, String, Vec<u8>, Vec<u8>) {
         std::fs::write(temp.join("session.json"), br#"{"id":"copy-variant"}"#).unwrap();
         let source = temp.join("Capture/photo.RAF");
         std::fs::create_dir_all(source.parent().unwrap()).unwrap();
@@ -3652,7 +3649,10 @@ mod face_retouch_thumbnail_tests {
         let copy = br#"{"colorNoiseVersion":9,"lensCorrectionMode":"manual"}"#;
         std::fs::write(
             temp.join("Capture/photo.RAF.rrdata"),
-            format!(r#"{{"version":1,"rating":0,"adjustments":{}}}"#, String::from_utf8_lossy(master)),
+            format!(
+                r#"{{"version":1,"rating":0,"adjustments":{}}}"#,
+                String::from_utf8_lossy(master)
+            ),
         )
         .unwrap();
         let image = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
