@@ -1713,7 +1713,9 @@ fn thumbnail_files_exist(directory: &Path, hash: &str) -> bool {
 }
 
 fn embedded_thumbnail_allowed(path_str: &str, adjustments: &[u8], settings: &AppSettings) -> bool {
-    let (source, sidecar) = parse_virtual_path(path_str);
+    let (source, _) = parse_virtual_path(path_str);
+    // The header check reads the master's recipe (a virtual copy's too).
+    let (_, master_sidecar) = parse_virtual_path(&source.to_string_lossy());
     let header_current = || {
         crate::preview_proxy::standard_header_is_current(
             &source,
@@ -1725,7 +1727,7 @@ fn embedded_thumbnail_allowed(path_str: &str, adjustments: &[u8], settings: &App
     (adjustments.is_empty() || adjustments == b"null")
         && is_raw_file(&source)
         && !settings.always_decode_raw_thumbnails.unwrap_or(false)
-        && if is_cloud_placeholder(&sidecar) {
+        && if is_cloud_placeholder(&master_sidecar) {
             // The header check reads the master sidecar, which would download
             // an evicted one on the lookup worker: the camera first.
             !defaults_apply() && !header_current()
