@@ -106,6 +106,13 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration::sql(30, include_str!("../migrations/0030.sql")),
     // What an import from another editor last wrote to each version.
     Migration::sql(31, include_str!("../migrations/0031.sql")),
+    // The lens name an import from another editor gave each photograph.
+    Migration::with_columns(
+        32,
+        "assets",
+        &[("lens_import", "TEXT")],
+        include_str!("../migrations/0032.sql"),
+    ),
 ];
 
 /// The newest schema: the last migration's.

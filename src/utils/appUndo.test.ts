@@ -1,4 +1,6 @@
 import '../i18n';
+// @ts-expect-error node:timers/promises is untyped in the frontend tsconfig
+import { setImmediate } from 'node:timers/promises';
 import { fireEvent, render } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { notify as toast } from '../activity/notify';
@@ -481,42 +483,38 @@ it('settles an older pending edit before Library metadata undo so redo stays ava
 
 it('saves and undoes unrelated metadata while a move is still running', async () => {
   const { fileAction } = await import('./appUndo');
-  let finish!: (value: { id: string; kind: string }) => void;
+  const started = Promise.withResolvers<void>();
+  const move = Promise.withResolvers<{ id: string; kind: string }>();
   const moving = fileAction(
-    () =>
-      new Promise<{ id: string; kind: string }>((resolve) => {
-        finish = resolve;
-      }),
+    () => {
+      started.resolve();
+      return move.promise;
+    },
     'move',
     undefined,
     undefined,
     ['/other']
   );
-  await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
-  const blocked = catalogAction('rating', async () => changes.map((change) => ({ ...change, path: '/other/a.nef' })), [
-    '/other/a.nef'
-  ]);
-  let saved = false;
-  const rated = catalogAction(
-    'rating',
-    async () => {
-      saved = true;
-      return changes;
-    },
-    ['/a.nef']
-  );
+  await started.promise;
+  const saveOverlapping = vi.fn(async () => changes.map((change) => ({ ...change, path: '/other/a.nef' })));
+  const blocked = catalogAction('rating', saveOverlapping, ['/other/a.nef']);
+  const rated = catalogAction('rating', async () => changes, ['/a.nef']);
+  let undone: Promise<void> | undefined;
   try {
-    await vi.waitFor(() => expect(saved).toBe(true), { timeout: 100 });
-    await rated;
-    const undone = undo();
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('restore_culling', expect.anything()), { timeout: 100 });
-    await undone;
+    // All unblocked work uses resolved mocks. Let its microtasks drain while the move stays pending.
+    expect(await Promise.race([rated.then(() => 'saved'), setImmediate('blocked')])).toBe('saved');
+    undone = undo();
+    expect(await Promise.race([undone.then(() => 'undone'), setImmediate('blocked')])).toBe('undone');
+    expect(invoke).toHaveBeenCalledWith('restore_culling', {
+      values: [{ path: '/a.nef', value: changes[0].before }],
+      directory: '/job'
+    });
+    expect(saveOverlapping).not.toHaveBeenCalled();
   } finally {
-    finish({ id: 'move', kind: 'move' });
-    await moving;
-    await blocked;
-    await rated;
+    move.resolve({ id: 'move', kind: 'move' });
+    await Promise.all([moving, blocked, rated, undone]);
   }
+  expect(saveOverlapping).toHaveBeenCalledOnce();
 });
 it('names an off-screen photo in undo and redo notices without navigating', async () => {
   await catalogAction('rating', async () => changes);
@@ -587,7 +585,7 @@ it('waits when an undo target moves again after its receipt path became stale', 
   await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
   const undone = undo();
   try {
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await setImmediate();
     expect(invoke).not.toHaveBeenCalled();
   } finally {
     finish({ id: 'second', moves: [{ from: '/b.nef', to: '/c.nef' }] });

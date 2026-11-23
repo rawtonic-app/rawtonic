@@ -671,6 +671,7 @@ export function useImageProcessing(
   const developDeadPixel = sourceDevelop?.deadPixelAdjacent;
   const developDefectsIsolated = sourceDevelop?.defectsIsolated;
   const developDefectsTexture = sourceDevelop?.defectsTexture;
+  const developDefectsBlack = sourceDevelop?.defectsBlack;
   const developUnbiasedBlack = sourceDevelop?.unbiasedBlack;
   const developBorderBlack = sourceDevelop?.borderBlack;
   const developHighlightRatios = sourceDevelop?.highlightRatios;
@@ -692,6 +693,7 @@ export function useImageProcessing(
     const deadPixelAdjacent = developDeadPixel;
     const defectsIsolated = developDefectsIsolated;
     const defectsTexture = developDefectsTexture;
+    const defectsBlack = developDefectsBlack;
     const unbiasedBlack = developUnbiasedBlack;
     const borderBlack = developBorderBlack;
     const highlightRatios = developHighlightRatios;
@@ -705,6 +707,7 @@ export function useImageProcessing(
     const changesDeadTest = deadPixelAdjacent !== current.deadPixelAdjacent;
     const changesDefectTest = defectsIsolated !== current.defectsIsolated;
     const changesTextureRule = defectsTexture !== current.defectsTexture;
+    const changesBlackRule = defectsBlack !== current.defectsBlack;
     const changesBlack = unbiasedBlack !== current.unbiasedBlack;
     const changesBorderBlack = borderBlack !== current.borderBlack;
     const changesHighlights = highlightRatios !== current.highlightRatios;
@@ -723,6 +726,7 @@ export function useImageProcessing(
       deadPixelAdjacent,
       defectsIsolated,
       defectsTexture,
+      defectsBlack,
       unbiasedBlack,
       borderBlack,
       highlightRatios,
@@ -748,6 +752,7 @@ export function useImageProcessing(
             ...(deadPixelAdjacent === undefined ? {} : { deadPixelAdjacent }),
             ...(defectsIsolated === undefined ? {} : { defectsIsolated }),
             ...(defectsTexture === undefined ? {} : { defectsTexture }),
+            ...(defectsBlack === undefined ? {} : { defectsBlack }),
             ...(unbiasedBlack === undefined ? {} : { unbiasedBlack }),
             ...(borderBlack === undefined ? {} : { borderBlack }),
             ...(highlightRatios === undefined ? {} : { highlightRatios }),
@@ -789,6 +794,7 @@ export function useImageProcessing(
                   ...(!changesAiDenoise && changesDeadTest ? { deadPixelAdjacentFailed: deadPixelAdjacent } : {}),
                   ...(!changesAiDenoise && changesDefectTest ? { defectsIsolatedFailed: defectsIsolated } : {}),
                   ...(!changesAiDenoise && changesTextureRule ? { defectsTextureFailed: defectsTexture } : {}),
+                  ...(!changesAiDenoise && changesBlackRule ? { defectsBlackFailed: defectsBlack } : {}),
                   ...(!changesAiDenoise && changesBlack ? { unbiasedBlackFailed: unbiasedBlack } : {}),
                   ...(!changesAiDenoise && changesBorderBlack ? { borderBlackFailed: borderBlack } : {}),
                   ...(!changesAiDenoise && changesHighlights ? { highlightRatiosFailed: highlightRatios } : {}),
@@ -818,6 +824,7 @@ export function useImageProcessing(
     developDeadPixel,
     developDefectsIsolated,
     developDefectsTexture,
+    developDefectsBlack,
     developUnbiasedBlack,
     developBorderBlack,
     developHighlightRatios,

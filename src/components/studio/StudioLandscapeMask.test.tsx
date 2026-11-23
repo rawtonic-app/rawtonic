@@ -1,6 +1,6 @@
 import '../../i18n';
-import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import StudioLandscapeMask from './StudioLandscapeMask';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -19,10 +19,14 @@ vi.mock('@tauri-apps/api/core', () => ({
     ['architecture', 0]
   ])
 }));
-afterEach(() => {
-  cleanup();
+beforeEach(() => {
+  vi.mocked(invoke).mockClear();
   useEditorStore.setState({ selectedImage: null });
 });
+afterEach(cleanup);
+
+const checkbox = (name: RegExp) =>
+  screen.getByLabelText<HTMLInputElement>(name, { selector: 'input[type="checkbox"]' });
 
 function sub(parts: LandscapePart[]) {
   return {
@@ -45,19 +49,21 @@ it('a new landscape component selects nothing until parts are chosen', () => {
 it('ticking parts keeps their list order and clears the stale mask', () => {
   const setParameters = vi.fn();
   render(<StudioLandscapeMask sub={sub(['water'])} setParameters={setParameters} onInteraction={() => {}} />);
-  fireEvent.click(screen.getByRole('checkbox', { name: /^Mountains/ }));
+  fireEvent.click(checkbox(/^Mountains/));
   expect(setParameters).toHaveBeenLastCalledWith({ parts: ['mountains', 'water'], maskDataBase64: null });
-  fireEvent.click(screen.getByRole('checkbox', { name: /^Water/ }));
+  fireEvent.click(checkbox(/^Water/));
   expect(setParameters).toHaveBeenLastCalledWith({ parts: [], maskDataBase64: null });
 });
 
 it('marks the parts the photo does not have, but keeps them selectable', async () => {
   useEditorStore.setState({ selectedImage: { path: '/photo.raf' } as never });
-  render(<StudioLandscapeMask sub={sub([])} setParameters={() => {}} onInteraction={() => {}} />);
-  await screen.findByText('Choose the parts to select.');
-  const label = (name: RegExp) => screen.getByRole('checkbox', { name }).closest('label');
+  await act(async () => {
+    render(<StudioLandscapeMask sub={sub([])} setParameters={() => {}} onInteraction={() => {}} />);
+  });
+  expect(screen.getByText('Choose the parts to select.')).toBeTruthy();
+  const label = (name: RegExp) => checkbox(name).closest('label');
   expect(label(/^Vegetation/)?.textContent).toContain('(not found)');
-  expect((screen.getByRole('checkbox', { name: /^Vegetation/ }) as HTMLInputElement).disabled).toBe(false);
+  expect(checkbox(/^Vegetation/).disabled).toBe(false);
   expect(label(/^Mountains/)?.textContent).toBe('Mountains');
   expect(vi.mocked(invoke)).toHaveBeenCalledWith(
     'detect_landscape_parts',
@@ -68,10 +74,12 @@ it('marks the parts the photo does not have, but keeps them selectable', async (
 it('asks again when a part is ticked after the detection failed (offline on first use)', async () => {
   useEditorStore.setState({ selectedImage: { path: '/photo.raf' } as never });
   vi.mocked(invoke).mockRejectedValueOnce({ code: 'internal', message: 'offline' });
-  render(<StudioLandscapeMask sub={sub([])} setParameters={() => {}} onInteraction={() => {}} />);
-  await screen.findByRole('alert');
+  await act(async () => {
+    render(<StudioLandscapeMask sub={sub([])} setParameters={() => {}} onInteraction={() => {}} />);
+  });
+  expect(screen.getByRole('alert')).toBeTruthy();
   const calls = vi.mocked(invoke).mock.calls.length;
-  fireEvent.click(screen.getByRole('checkbox', { name: /^Mountains/ }));
-  await screen.findByText('Choose the parts to select.');
+  await act(async () => fireEvent.click(checkbox(/^Mountains/)));
+  expect(screen.getByText('Choose the parts to select.')).toBeTruthy();
   expect(vi.mocked(invoke).mock.calls.length).toBe(calls + 1);
 });

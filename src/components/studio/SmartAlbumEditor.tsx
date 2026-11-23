@@ -40,10 +40,12 @@ const FIELDS: { field: Field; kind: Kind }[] = [
   { field: 'camera', kind: 'name' },
   { field: 'make', kind: 'name' },
   { field: 'lens', kind: 'name' },
+  { field: 'lensImported', kind: 'name' },
   { field: 'iso', kind: 'number' },
   { field: 'focalLength', kind: 'number' },
   { field: 'aperture', kind: 'number' },
   { field: 'exposure', kind: 'number' },
+  { field: 'exposureExact', kind: 'number' },
   { field: 'captureDate', kind: 'date' },
   { field: 'importDate', kind: 'date' },
   { field: 'album', kind: 'album' },
@@ -58,6 +60,7 @@ const FIELDS: { field: Field; kind: Kind }[] = [
   { field: 'stacked', kind: 'bool' }
 ];
 const kindOf = (field: Field): Kind => FIELDS.find((f) => f.field === field)?.kind ?? 'text';
+const isExposure = (field: Field): boolean => field === 'exposure' || field === 'exposureExact';
 
 export const OPS: Record<Kind, Op[]> = {
   search: ['contains', 'containsAny', 'notContains'],
@@ -159,7 +162,7 @@ function valueFor(field: Field, op: Op, previous: unknown, albums: SessionAlbum[
       return typeof previous === 'string' ? previous : '';
     case 'number':
       if (typeof previous === 'number') return previous;
-      return field === 'rating' ? 3 : field === 'exposure' ? 1 / 250 : 0;
+      return field === 'rating' ? 3 : isExposure(field) ? 1 / 250 : 0;
     case 'date':
       return typeof previous === 'string' ? previous : today();
     case 'choice':
@@ -315,7 +318,9 @@ function ConditionEditor({ rule, albums, folder, onChange, onRemove }: RuleProps
         value={rule.field}
         onChange={(e) => setField(e.target.value as Field)}
       >
-        {FIELDS.map(({ field }) => (
+        {FIELDS.filter(
+          ({ field }) => rule.field === field || (field !== 'lensImported' && field !== 'exposureExact')
+        ).map(({ field }) => (
           <option key={field} value={field}>
             {t(`studio.library.smartAlbums.fields.${field}`)}
           </option>
@@ -355,12 +360,21 @@ function NumberInput({
   onChange: (v: number) => void;
   label: string;
 }) {
-  const shown = (v: unknown) => (field === 'exposure' ? formatExposure(Number(v)) : String(v ?? ''));
+  const shown = (v: unknown) => {
+    if (!isExposure(field)) return String(v ?? '');
+    const seconds = Number(v);
+    const formatted = formatExposure(seconds);
+    // Imported values are converted from stops. Shorten their decimal display
+    // while keeping the stored seconds until the photographer edits the input.
+    return field === 'exposureExact' && formatted && !formatted.includes('/')
+      ? String(Number(seconds.toPrecision(8)))
+      : formatted;
+  };
   const [text, setText] = useState(() => shown(value));
   // The rule's value changed from outside the typing (a rule above was
   // removed and this row now shows another rule): show it. While typing,
   // the value follows the text, so the text is kept as typed ("1/").
-  const parse = (t: string) => (t.trim() === '' ? NaN : field === 'exposure' ? parseExposure(t) : Number(t));
+  const parse = (t: string) => (t.trim() === '' ? NaN : isExposure(field) ? parseExposure(t) : Number(t));
   const typed = useRef(value);
   if (!Object.is(typed.current, value)) {
     typed.current = value;
@@ -375,8 +389,7 @@ function NumberInput({
       value={text}
       onChange={(e) => {
         setText(e.target.value);
-        // Text that is no number (yet: "1/", "abc") makes the rule
-        // incomplete, so what is saved is always what is shown.
+        // Text that is no number (yet: "1/", "abc") makes the rule incomplete.
         const n = parse(e.target.value);
         typed.current = n;
         onChange(n);

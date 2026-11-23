@@ -469,7 +469,7 @@ pub fn current_key(
 /// variant (`image_loader::load_base_image_from_bytes_for`): the multi-scale
 /// colour noise filter (no decode-time chroma clean-up) and, appended only
 /// when set so earlier proxies keep their key, the second or the isolation
-/// dead-photosite test (with or without its texture rule), a frame other than version 0's (`source_frame`),
+/// dead-photosite test (with or without its texture rules), a frame other than version 0's (`source_frame`),
 /// the unbiased blacks (`BlackLevels::Unbiased`, `UnbiasedBorder`), the ratio
 /// highlight rebuild (`HighlightRebuild::Ratios`) and a DNG lens warp of
 /// the camera planes (`WarpPlanes::Camera`).
@@ -484,6 +484,7 @@ fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
         DeadTest::Adjacent => key + ";dead=adjacent",
         DeadTest::Isolated => key + ";dead=isolated",
         DeadTest::IsolatedTexture => key + ";dead=texture",
+        DeadTest::IsolatedBlack => key + ";dead=black",
     };
     let key = if variant.frame > 0 {
         format!("{key};frame={}", variant.frame)
@@ -518,7 +519,9 @@ fn decoder_settings(decoder: &str) -> &str {
 pub(crate) fn variant_of_key(decoder: &str) -> DecodeVariant {
     DecodeVariant {
         multiscale: decoder.contains(";cnrms=1"),
-        dead_test: if decoder.contains(";dead=texture") {
+        dead_test: if decoder.contains(";dead=black") {
+            DeadTest::IsolatedBlack
+        } else if decoder.contains(";dead=texture") {
             DeadTest::IsolatedTexture
         } else if decoder.contains(";dead=isolated") {
             DeadTest::Isolated
@@ -1797,7 +1800,7 @@ pub(crate) mod frame_fixture {
 pub(crate) fn write_for_test(source: &Path, image: &DynamicImage, size: u32) {
     let variant = DecodeVariant {
         multiscale: true,
-        dead_test: DeadTest::IsolatedTexture,
+        dead_test: DeadTest::IsolatedBlack,
         frame: 0,
         black: BlackLevels::UnbiasedBorder,
         highlights: HighlightRebuild::Ratios,
@@ -1834,7 +1837,7 @@ pub(crate) mod tests {
     /// What a never-edited RAW's decode is made for.
     const NEW_EDIT: DecodeVariant = DecodeVariant {
         multiscale: true,
-        dead_test: DeadTest::IsolatedTexture,
+        dead_test: DeadTest::IsolatedBlack,
         frame: 0,
         black: BlackLevels::UnbiasedBorder,
         highlights: HighlightRebuild::Ratios,
@@ -2248,6 +2251,7 @@ pub(crate) mod tests {
                 DeadTest::Adjacent,
                 DeadTest::Isolated,
                 DeadTest::IsolatedTexture,
+                DeadTest::IsolatedBlack,
             ] {
                 for frame in [0, 1] {
                     for black in [

@@ -881,6 +881,9 @@ export interface LoadImageResult {
   /** ... with its rule for dead photosites in busy texture (`renderVersion`
    * 16); null for preview data. */
   defects_texture?: boolean | null;
+  /** ... with the rule for dead photosites at black and the colour-ratio
+   * repair (`renderVersion` 17); null for preview data. */
+  defects_black?: boolean | null;
   /** The `sourceFrameVersion` a first edit on what is shown carries when it
    * is not the newest (image_loader.rs `new_edit_frame`: offline, on
    * previews of an older frame); null otherwise. */
@@ -981,6 +984,12 @@ export interface SelectedImage {
   defectsTexture?: boolean;
   /** A texture rule the source failed to develop for (not retried). */
   defectsTextureFailed?: boolean;
+  /** The decoded source was developed with the rule for dead photosites at
+   * black and the colour-ratio repair (`defectsBlack` in
+   * src/utils/adjustments.ts); unknown for preview data. */
+  defectsBlack?: boolean;
+  /** That rule the source failed to develop for (not retried). */
+  defectsBlackFailed?: boolean;
   /** The decoded source was developed with unbiased blacks (`unbiasedBlack`
    * in src/utils/adjustments.ts); unknown for preview data. */
   unbiasedBlack?: boolean;

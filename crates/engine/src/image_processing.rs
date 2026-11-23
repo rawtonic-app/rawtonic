@@ -6456,9 +6456,13 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// isolation test (`image_loader::ISOLATED_DEFECT_RENDER_VERSION`), so the
 /// cores of sharp stars and thin lines keep their samples. 16 (2026-11-23)
 /// also repairs dead photosites in busy texture the isolation test leaves
-/// (`image_loader::TEXTURE_DEAD_RENDER_VERSION`).
+/// (`image_loader::TEXTURE_DEAD_RENDER_VERSION`). 17 (2026-11-23) also
+/// repairs dead photosites at black in dark texture where their neighbours
+/// stand clear of the photo's noise, and gives a dead photosite its
+/// neighbours' colour ratio
+/// (`image_loader::BLACK_DEAD_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 16;
+pub const RENDER_VERSION: u64 = 17;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the
@@ -7922,8 +7926,12 @@ pub const GRAIN_VERSION_KEY: &str = effects::GRAIN_VERSION.name();
 /// Boolean-model grains per dye layer in the negative's density, printed
 /// through a logistic print response (film_grain.rs, shader
 /// `apply_film_grain`); structures do not apply to it, `grainColor` sets the
-/// dye layers' independence. Recipes without the key keep version 1.
-pub const GRAIN_VERSION: u64 = 3;
+/// dye layers' independence. 4 (2026-11-23) is the same film grain with
+/// each density level's fluctuation made symmetric (as many dark as bright
+/// grains, no lone bright specks) and the shadows' grain raised towards the
+/// midtones' (`film_grain::symmetric_grain_tile`, shader
+/// `film_shadow_weight`). Recipes without the key keep version 1.
+pub const GRAIN_VERSION: u64 = 4;
 
 /// The recipe's grain version, 1 when missing, never newer than this
 /// renderer knows.

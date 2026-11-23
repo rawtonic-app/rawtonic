@@ -22,6 +22,8 @@ fn lightroom_catalog(dir: &Path, photos: &Path) -> std::path::PathBuf {
            image INTEGER, xmp NOT NULL DEFAULT '');
          CREATE TABLE Adobe_imageDevelopSettings (id_local INTEGER PRIMARY KEY, hasDevelopAdjustments INTEGER,
            hasDevelopAdjustmentsEx, image INTEGER, text);
+         CREATE TABLE AgInternedExifLens (id_local INTEGER PRIMARY KEY, value, searchIndex);
+         CREATE TABLE AgHarvestedExifMetadata (id_local INTEGER PRIMARY KEY, image INTEGER, lensRef INTEGER);
          CREATE TABLE AgLibraryIPTC (id_local INTEGER PRIMARY KEY, caption, copyright, image INTEGER NOT NULL DEFAULT 0);
          CREATE TABLE AgLibraryKeyword (id_local INTEGER PRIMARY KEY, id_global UNIQUE NOT NULL, name, parent INTEGER);
          CREATE TABLE AgLibraryKeywordImage (id_local INTEGER PRIMARY KEY, image INTEGER NOT NULL DEFAULT 0, tag INTEGER NOT NULL DEFAULT 0);
@@ -45,6 +47,8 @@ fn lightroom_catalog(dir: &Path, photos: &Path) -> std::path::PathBuf {
                                           (3,'i3',NULL,'',"Copy 1",1,0,5,1);
            INSERT INTO Adobe_imageDevelopSettings VALUES(1,1,1.0,1,'s = {}'),(2,0,0.0,2,'s = {}');
            INSERT INTO Adobe_AdditionalMetadata VALUES(2,'x2',2,'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="0.00"/></rdf:RDF></x:xmpmeta>');
+           INSERT INTO AgInternedExifLens VALUES(5,'EF50mm f/1.8',''),(6,' ','');
+           INSERT INTO AgHarvestedExifMetadata VALUES(1,1,5),(2,2,6),(3,3,NULL);
            INSERT INTO AgLibraryIPTC VALUES(1,'Grandpa at the table','(c) N',1);
            INSERT INTO Adobe_AdditionalMetadata VALUES(1,'x1',1,'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/" crs:Exposure2012="+0.50" crs:Contrast2012="+10" xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/" photoshop:City="Rome"><dc:title><rdf:Alt><rdf:li xml:lang="x-default">Summer</rdf:li></rdf:Alt></dc:title><dc:creator><rdf:Seq><rdf:li>Alex Example</rdf:li></rdf:Seq></dc:creator></rdf:Description></rdf:RDF></x:xmpmeta>');
            INSERT INTO AgLibraryKeyword VALUES(1,'k0',NULL,NULL),(2,'k1','Places',1),(3,'k2','Rome',2);
@@ -76,6 +80,11 @@ fn lightroom_photos_metadata_settings_and_collections() {
     let a = &lib.photos[0];
     assert_eq!(a.path, photos.join("2026/A.NEF"));
     assert_eq!(a.metadata.rating, 3);
+    // Lightroom's own lens name; empty where it records none, absent where
+    // it records nothing for the photograph.
+    assert_eq!(a.lens.as_deref(), Some("EF50mm f/1.8"));
+    assert_eq!(lib.photos[1].lens.as_deref(), Some(""), "blank name");
+    assert_eq!(lib.photos[2].lens.as_deref(), Some(""), "no lens");
     assert_eq!(a.metadata.label, "Red", "German label name");
     assert_eq!(a.metadata.flag, 1);
     assert_eq!(a.metadata.keywords, vec!["Places|Rome".to_string()]);

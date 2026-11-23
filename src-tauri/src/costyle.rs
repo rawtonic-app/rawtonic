@@ -281,23 +281,129 @@ fn levels(settings: &HashMap<String, String>) -> Option<Value> {
 }
 
 /// `x,y;x,y…` in 0–1 as Rawtonic curve points in 0–255.
+/// How Capture One draws a curve through its points, measured on a ramp
+/// (notes: benchmark-results/scr1-2026-11-23): two points are a line, three a
+/// parabola, four or more a natural cubic spline (zero curvature at the
+/// ends), all on the display values. The renderer draws a monotone cubic
+/// through its points instead, so the import hands it the control points
+/// plus samples of Capture One's curve (`CURVE_IMPORT_POINTS` in all).
+/// Points an imported curve holds at most: 12 follow Capture One's curve
+/// within 0.12 L* on average (0.5–1.6 L* at most; 16 would give 0.03–0.5) and
+/// leave four of the 16 slots for adding points in Develop (a curve that
+/// already has 12 or more source points keeps them all, so it may have fewer
+/// free slots or none).
+const CURVE_IMPORT_POINTS: usize = 12;
+
+fn capture_one_curve_at(points: &[(f64, f64)], x: f64) -> f64 {
+    let n = points.len();
+    if n == 2 {
+        let t = (x - points[0].0) / (points[1].0 - points[0].0);
+        return points[0].1 + t * (points[1].1 - points[0].1);
+    }
+    if n == 3 {
+        // Lagrange form of the parabola through the three points.
+        return (0..3)
+            .map(|i| {
+                let weight: f64 = (0..3)
+                    .filter(|&j| j != i)
+                    .map(|j| (x - points[j].0) / (points[i].0 - points[j].0))
+                    .product();
+                points[i].1 * weight
+            })
+            .sum();
+    }
+    // Natural cubic spline: the second-derivative coefficients `c` from the
+    // tridiagonal system (row i: h[i-1], 2(h[i-1]+h[i]), h[i]), by the
+    // Thomas algorithm; the end rows pin c to 0.
+    let h: Vec<f64> = points.windows(2).map(|w| w[1].0 - w[0].0).collect();
+    let mut diagonal = vec![1.0; n];
+    let mut upper = vec![0.0; n];
+    let mut rhs = vec![0.0; n];
+    for i in 1..n - 1 {
+        diagonal[i] = 2.0 * (h[i - 1] + h[i]);
+        upper[i] = h[i];
+        rhs[i] = 3.0
+            * ((points[i + 1].1 - points[i].1) / h[i] - (points[i].1 - points[i - 1].1) / h[i - 1]);
+    }
+    for i in 1..n {
+        let lower = if i < n - 1 { h[i - 1] } else { 0.0 };
+        let factor = lower / diagonal[i - 1];
+        diagonal[i] -= factor * upper[i - 1];
+        rhs[i] -= factor * rhs[i - 1];
+    }
+    let mut c = vec![0.0; n];
+    c[n - 1] = rhs[n - 1] / diagonal[n - 1];
+    for i in (0..n - 1).rev() {
+        c[i] = (rhs[i] - upper[i] * c[i + 1]) / diagonal[i];
+    }
+    let i = points.windows(2).position(|w| x <= w[1].0).unwrap_or(n - 2);
+    let dx = x - points[i].0;
+    let b = (points[i + 1].1 - points[i].1) / h[i] - h[i] * (2.0 * c[i] + c[i + 1]) / 3.0;
+    let d = (c[i + 1] - c[i]) / (3.0 * h[i]);
+    points[i].1 + b * dx + c[i] * dx * dx + d * dx * dx * dx
+}
+
+/// The curve's control points plus samples of Capture One's curve between
+/// them, at most `SHADER_CURVE_POINTS` in all (the samples go to the longer
+/// gaps). A line (two points) and a curve with that many points or more keep
+/// their own points.
+fn sampled_capture_one_curve(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    if points.len() == 2 {
+        return points.to_vec();
+    }
+    let budget = CURVE_IMPORT_POINTS;
+    let extra = budget.saturating_sub(points.len());
+    let span = points[points.len() - 1].0 - points[0].0;
+    let share = |i: usize| extra as f64 * (points[i + 1].0 - points[i].0) / span;
+    let mut per_gap: Vec<usize> = (0..points.len() - 1)
+        .map(|i| share(i).floor() as usize)
+        .collect();
+    // The samples the rounding left over go to the gaps that lost most.
+    let mut order: Vec<usize> = (0..per_gap.len()).collect();
+    order.sort_by(|&a, &b| (share(b) - share(b).floor()).total_cmp(&(share(a) - share(a).floor())));
+    for gap in order
+        .into_iter()
+        .take(extra - per_gap.iter().sum::<usize>())
+    {
+        per_gap[gap] += 1;
+    }
+    let mut out = vec![points[0]];
+    for (i, w) in points.windows(2).enumerate() {
+        for k in 1..=per_gap[i] {
+            let x = w[0].0 + (w[1].0 - w[0].0) * k as f64 / (per_gap[i] + 1) as f64;
+            out.push((x, capture_one_curve_at(points, x).clamp(0.0, 1.0)));
+        }
+        out.push(w[1]);
+    }
+    out
+}
+
 fn curve(value: &str) -> Option<Value> {
-    let points: Vec<Value> = value
+    let mut points: Vec<(f64, f64)> = value
         .split(';')
         .map(|p| {
             let xy = numbers(p, ',')?;
-            (xy.len() == 2).then(|| {
-                json!({
-                    "x": (xy[0].clamp(0.0, 1.0) * 255.0).round(),
-                    "y": (xy[1].clamp(0.0, 1.0) * 255.0).round(),
-                })
-            })
+            (xy.len() == 2).then(|| (xy[0].clamp(0.0, 1.0), xy[1].clamp(0.0, 1.0)))
         })
         .collect::<Option<_>>()?;
+    points.sort_by(|a, b| a.0.total_cmp(&b.0));
+    points.dedup_by(|later, earlier| later.0 == earlier.0);
+    let at = |v: f64| (v * 255.0).round();
     let identity = points.len() == 2
-        && points[0] == json!({"x": 0.0, "y": 0.0})
-        && points[1] == json!({"x": 255.0, "y": 255.0});
-    (points.len() >= 2 && !identity).then_some(Value::Array(points))
+        && (at(points[0].0), at(points[0].1)) == (0.0, 0.0)
+        && (at(points[1].0), at(points[1].1)) == (255.0, 255.0);
+    if points.len() < 2 || identity {
+        return None;
+    }
+    Some(Value::Array(
+        sampled_capture_one_curve(&points)
+            .into_iter()
+            .map(|(x, y)| {
+                let unit = |v: f64| (v * 255.0 * 100.0).round() / 100.0;
+                json!({"x": unit(x), "y": unit(y)})
+            })
+            .collect(),
+    ))
 }
 
 /// Linear sRGB to Oklab (L, chroma, hue in degrees).
@@ -381,11 +487,19 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
             continue;
         }
         let skin = f[2] == 2.0;
-        if !skin && f[2] != 1.0 {
+        // Field 2 is 0 for the ranges Capture One's Advanced tab writes (all
+        // C1R4 styles, 16.9.1) and 1 for the older test styles the fit below
+        // was made on; the Advanced ranges also take uniformity, which has no
+        // counterpart here (reported as partial).
+        let advanced = f[2] == 0.0;
+        if !skin && !advanced && f[2] != 1.0 {
             untranslated = true;
             continue;
         }
         let uniformity = skin && [f[14], f[16], f[17]].iter().any(|u| *u != 0.0);
+        if advanced && [f[14], f[16], f[17]].iter().any(|u| *u != 0.0) {
+            untranslated = true;
+        }
         if f[3] == 0.0 && f[4] == 0.0 && f[5] == 0.0 && !uniformity {
             continue;
         }
@@ -406,6 +520,7 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
         // asymmetric hue edges and the skin's picked target independently.
         untranslated |= skin
             || f[12] != 100.0
+            || (advanced && f[11] != -100.0)
             || (skin && (f[9] + f[10]).abs() > 1e-6)
             || !(0.0..=50.0).contains(&f[13])
             || !(-100.0..=100.0).contains(&f[11])
@@ -445,9 +560,13 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
             recipe_color::RANGE_CHROMA.name(): CE_CHROMA,
             recipe_color::RANGE_LIGHTNESS.name(): 0.5,
             recipe_color::RANGE_HUE_RANGE.name(): round((CE_WIDTH_SCALE * 0.5 * (above - below) + CE_WIDTH_OFFSET).clamp(5.0, 90.0)),
-            recipe_color::RANGE_CHROMA_RANGE.name(): round((100.0 - CE_CHROMA_FLOOR * (f[11] + 100.0)).clamp(0.0, 100.0)),
+            recipe_color::RANGE_CHROMA_RANGE.name(): if advanced {
+                100.0
+            } else {
+                round((100.0 - CE_CHROMA_FLOOR * (f[11] + 100.0)).clamp(0.0, 100.0))
+            },
             recipe_color::RANGE_LIGHTNESS_RANGE.name(): 100,
-            recipe_color::RANGE_SMOOTHNESS.name(): round((CE_SMOOTH_BASE + CE_SMOOTH_SCALE * f[13]).clamp(0.0, 100.0)),
+            recipe_color::RANGE_SMOOTHNESS.name(): round((CE_SMOOTH_BASE + CE_SMOOTH_SCALE * f[13] + if advanced { CE_SMOOTH_ADVANCED } else { 0.0 }).clamp(0.0, 100.0)),
             recipe_color::RANGE_HUE_SHIFT.name(): round((2.0 * CE_HUE_SCALE * turn).clamp(-100.0, 100.0)),
             recipe_color::RANGE_SATURATION.name(): round(saturation.clamp(-100.0, 100.0)),
             recipe_color::RANGE_LIGHTNESS_SHIFT.name(): round(lightness.clamp(-100.0, 100.0)),
@@ -494,6 +613,11 @@ const CE_WIDTH_SCALE: f64 = 0.941;
 const CE_WIDTH_OFFSET: f64 = 11.61;
 const CE_SMOOTH_BASE: f64 = 35.05;
 const CE_SMOOTH_SCALE: f64 = 0.719;
+// Advanced-tab ranges (field 2 = 0): Capture One's renders of the 14 C1R4
+// styles (office208) took the whole saturation window and a smoother edge
+// than the older field-2 = 1 fit: chroma range 100 and smoothness +21
+// (notes: benchmark-results/scr1-2026-11-23; held-out half of the styles).
+const CE_SMOOTH_ADVANCED: f64 = 21.0;
 const CE_HUE_SCALE: f64 = 0.958;
 const CE_SAT_UP: f64 = 0.705;
 const CE_SAT_POWER: f64 = 0.743;
@@ -850,9 +974,11 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
         adjustments.insert("levels".into(), levels);
     }
     // Capture One's RGB curve is Rawtonic's RGB curve and its Luma curve,
-    // which keeps saturation, the Luminance curve. Capture One applies its
-    // curves to gamma-1.8 values (notes: reference/point-curve.md), so they
-    // come over close, not exactly (`untranslated_settings` says so).
+    // which keeps saturation, the Luminance curve. On photographs Capture One
+    // evaluates its curves on a wider, gamma-1.8-like encoding than the
+    // display values the points are drawn on (notes: reference/point-curve.md,
+    // benchmark-results/scr1-2026-11-23), so they come over close, not
+    // exactly (`untranslated_settings` says so).
     let mut curves = Map::new();
     for (key, channel) in [
         ("GradationCurve", "luma"),
@@ -1362,7 +1488,17 @@ mod tests {
         assert_eq!(a["levels"]["red"]["inWhite"], json!(230.0));
         assert_eq!(a["levels"]["rgb"]["outBlack"], json!(5.0));
         assert!(a["levels"]["rgb"]["gamma"].as_f64().unwrap() > 1.3);
-        assert_eq!(a["curves"]["luma"][1], json!({"x": 128.0, "y": 140.0}));
+        // Three points are a parabola in Capture One: the samples lie on it
+        // (y = 0.05 + 1.05x − 0.1x² through (0, .05), (.5, .55), (1, 1)),
+        // the control points stay.
+        let luma = a["curves"]["luma"].as_array().unwrap();
+        assert_eq!(luma.len(), 12);
+        assert!(luma.contains(&json!({"x": 127.5, "y": 140.25})));
+        for p in luma {
+            let x = p["x"].as_f64().unwrap() / 255.0;
+            let y = p["y"].as_f64().unwrap() / 255.0;
+            assert!((y - (0.05 + 1.05 * x - 0.1 * x * x)).abs() < 0.0001);
+        }
         assert_eq!(a["curves"]["red"].as_array().unwrap().len(), 2);
         assert!(a["curves"].get("luminance").is_none());
     }
@@ -1376,12 +1512,17 @@ mod tests {
         let a = convert_costyle_to_preset(style, "luma")
             .unwrap()
             .adjustments;
-        assert_eq!(a["curves"]["luminance"].as_array().unwrap().len(), 5);
-        assert_eq!(a["curves"]["luminance"][1], json!({"x": 64.0, "y": 48.0}));
+        assert_eq!(a["curves"]["luminance"].as_array().unwrap().len(), 12);
+        assert!(
+            a["curves"]["luminance"]
+                .as_array()
+                .unwrap()
+                .contains(&json!({"x": 64.01, "y": 47.94}))
+        );
         assert_eq!(a["curves"]["luma"].as_array().unwrap().len(), 2);
         assert_eq!(
             rawtonic_engine::point_curve::luminance_points(&a["curves"]).len(),
-            5
+            12
         );
         // The import report says the curves come over only approximately;
         // neutral curves report nothing.
@@ -1390,6 +1531,78 @@ mod tests {
             super::untranslated_settings(r#"<SL><E K="GradationCurve" V="0,0;1,1"/></SL>"#)
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn curves_follow_capture_ones_interpolation_between_their_points() {
+        // Capture One draws four points as a natural cubic spline, which
+        // overshoots below black here; the renderer's monotone cubic would
+        // not (measured on a ramp: benchmark-results/scr1-2026-11-23).
+        let style = r#"<SL><E K="GradationCurve" V="0,0;0.3,0.1;0.6,0.9;1,1"/></SL>"#;
+        let a = convert_costyle_to_preset(style, "steep")
+            .unwrap()
+            .adjustments;
+        let luma = a["curves"]["luma"].as_array().unwrap();
+        assert_eq!(luma.len(), 12, "four of the 16 slots stay free for edits");
+        for control in [(76.5, 25.5), (153.0, 229.5), (0.0, 0.0), (255.0, 255.0)] {
+            assert!(luma.contains(&json!({"x": control.0, "y": control.1})));
+        }
+        // Spline value at x = 0.225 is 0.0009 (0.22 of 255); below its
+        // undershoot at x = 0.075…0.15 the curve is clipped to black.
+        assert!(luma.iter().any(|p| {
+            (p["x"].as_f64().unwrap() - 57.375).abs() < 0.01
+                && (p["y"].as_f64().unwrap() - 0.22).abs() < 0.01
+        }));
+        assert!(luma.contains(&json!({"x": 38.25, "y": 0.0})));
+        let xs: Vec<f64> = luma.iter().map(|p| p["x"].as_f64().unwrap()).collect();
+        assert!(xs.windows(2).all(|w| w[0] < w[1]));
+        assert!(
+            luma.iter()
+                .all(|p| (0.0..=255.0).contains(&p["y"].as_f64().unwrap()))
+        );
+    }
+
+    #[test]
+    fn lines_and_long_curves_keep_their_own_points() {
+        let line = r#"<SL><E K="GradationCurve" V="0,0.1;1,1"/></SL>"#;
+        let a = convert_costyle_to_preset(line, "line").unwrap().adjustments;
+        assert_eq!(a["curves"]["luma"].as_array().unwrap().len(), 2);
+        let many: Vec<String> = (0..20)
+            .map(|i| format!("{},{}", i as f64 / 19.0, (i as f64 / 19.0).powf(1.2)))
+            .collect();
+        let style = format!(r#"<SL><E K="GradationCurve" V="{}"/></SL>"#, many.join(";"));
+        let a = convert_costyle_to_preset(&style, "long")
+            .unwrap()
+            .adjustments;
+        assert_eq!(a["curves"]["luma"].as_array().unwrap().len(), 20);
+    }
+
+    #[test]
+    fn advanced_tab_ranges_are_translated_and_their_uniformity_reported() {
+        // Capture One 16.9.1's Advanced tab writes field 2 = 0 (fresh pick:
+        // hue ±20, saturation ±29.6, smoothness 20).
+        let (ranges, untranslated) =
+            super::color_editor_ranges("1,1,0,30,0,0,145,108,88,-20,20,-29.6,29.6,20,0,0,0,0");
+        assert!(untranslated, "the saturation window is not carried over");
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(ranges[0]["chromaRange"].as_f64(), Some(100.0));
+        let smoothness = ranges[0]["smoothness"].as_f64().unwrap();
+        assert!((smoothness - (35.05 + 0.719 * 20.0 + 21.0)).abs() < 0.01);
+        assert!(ranges[0]["hueShift"].as_f64().unwrap() > 50.0);
+        // Uniformity alone changes nothing here, and is said not to come over.
+        let (ranges, untranslated) =
+            super::color_editor_ranges("1,1,0,0,0,0,145,108,88,-20,20,-100,100,20,100,0,0,0");
+        assert!(ranges.is_empty());
+        assert!(untranslated);
+        // A restricted lower saturation bound is dropped too: reported.
+        let (ranges, untranslated) =
+            super::color_editor_ranges("1,1,0,30,0,0,145,108,88,-20,20,-50,100,20,0,0,0,0");
+        assert_eq!(ranges.len(), 1);
+        assert!(untranslated);
+        // An unknown field-2 value is still refused.
+        let (ranges, untranslated) =
+            super::color_editor_ranges("1,1,3,30,0,0,145,108,88,-20,20,-100,100,20,0,0,0,0");
+        assert!(ranges.is_empty() && untranslated);
     }
 
     #[test]

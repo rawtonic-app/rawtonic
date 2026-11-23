@@ -9790,7 +9790,8 @@ fn grain_frame_cost_probe() {
     // before GRN6, whose 4 x 4 grain blocks below 1080 px the other drag
     // modes take). Each frame changes Exposure; the time runs until the GPU
     // has finished the frame. Modes take turns, five frames each.
-    // `RAWTONIC_GRAIN_PROBE_SIZES=WxH,...` picks other sizes.
+    // `RAWTONIC_GRAIN_PROBE_SIZES=WxH,...` picks other sizes,
+    // `RAWTONIC_GRAIN_PROBE_VERSION=4` the film grain's version.
     let context = context();
     let _limit = DeviceCompileLimit::set(&context);
     let sizes: Vec<(u32, u32)> = std::env::var("RAWTONIC_GRAIN_PROBE_SIZES")
@@ -9814,7 +9815,11 @@ fn grain_frame_cost_probe() {
         }
         profile
     };
-    let film = json!({"grainAmount":40,"grainSize":25,"grainRoughness":50,"grainVersion":3});
+    let version: u32 = std::env::var("RAWTONIC_GRAIN_PROBE_VERSION")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3);
+    let film = json!({"grainAmount":40,"grainSize":25,"grainRoughness":50,"grainVersion":version});
     let modes = [
         ("basic", basic.clone()),
         (
@@ -9825,7 +9830,7 @@ fn grain_frame_cost_probe() {
         (
             "film_grain_colour",
             with(json!({"grainAmount":40,"grainSize":25,
-            "grainRoughness":50,"grainVersion":3,"grainColor":100})),
+            "grainRoughness":50,"grainVersion":version,"grainColor":100})),
         ),
         (
             "glow_halation",
@@ -9834,7 +9839,7 @@ fn grain_frame_cost_probe() {
         (
             "all",
             with(json!({"glowAmount":30,"halationAmount":30,"grainAmount":40,
-            "grainSize":25,"grainRoughness":50,"grainVersion":3})),
+            "grainSize":25,"grainRoughness":50,"grainVersion":version})),
         ),
     ];
     for (width, height) in sizes {
@@ -23712,6 +23717,113 @@ fn old_recipes_16_bit_exports_keep_the_legacy_detail_kernels() {
 
 #[test]
 #[ignore = "requires a native GPU adapter"]
+fn film_grain_is_symmetric_and_reaches_the_shadows() {
+    // Nine flat tone bands, film grain at the imported Harsh-like setting
+    // (Amount 98, Size 60, Roughness 0; the strongest skew in GRN7). Version
+    // 3's grain is bright specks (skew +0.4 at mid grey, up to +2 in the
+    // shadows) and fades to a sixth of its midtone strength at display 0.05;
+    // version 4 has as many dark as bright grains in every band and keeps
+    // a third of it in the shadows (notes:
+    // benchmark-results/grn8-2026-11-23/REPORT.md).
+    let levels = [0.004f32, 0.012, 0.03, 0.06, 0.1, 0.18, 0.3, 0.5, 0.75];
+    let (band, height) = (128u32, 512u32);
+    let width = band * levels.len() as u32;
+    let render = |profile: serde_json::Value| {
+        let data: Vec<f16> = (0..width * height)
+            .flat_map(|i| {
+                let v = f16::from_f32(levels[((i % width) / band) as usize]);
+                [v, v, v, f16::ONE]
+            })
+            .collect();
+        let context = context();
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let view = input_from(&context, width, height, &data);
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let flat = render(json!({}));
+    let luma = |p: &[u16], i: usize| {
+        0.2126 * p[i * 4] as f64 + 0.7152 * p[i * 4 + 1] as f64 + 0.0722 * p[i * 4 + 2] as f64
+    };
+    // Per band (8 px margins): display level of the flat render, grain σ and skew.
+    let bands = |pixels: &[u16]| -> Vec<(f64, f64, f64)> {
+        (0..levels.len() as u32)
+            .map(|b| {
+                let mut level = 0.0;
+                let grain: Vec<f64> = (0..height)
+                    .flat_map(|y| {
+                        (b * band + 8..(b + 1) * band - 8).map(move |x| (y * width + x) as usize)
+                    })
+                    .map(|i| {
+                        level += luma(&flat, i);
+                        luma(pixels, i) - luma(&flat, i)
+                    })
+                    .collect();
+                let n = grain.len() as f64;
+                let m = grain.iter().sum::<f64>() / n;
+                let var = grain.iter().map(|g| (g - m).powi(2)).sum::<f64>() / n;
+                let third = grain.iter().map(|g| (g - m).powi(3)).sum::<f64>() / n;
+                (level / n / 65535.0, var.sqrt(), third / var.powf(1.5))
+            })
+            .collect()
+    };
+    let setting = |version: u32| json!({"grainAmount": 98, "grainSize": 60, "grainRoughness": 0, "grainVersion": version});
+    let old = bands(&render(setting(3)));
+    let new = bands(&render(setting(4)));
+    let mid = |b: &[(f64, f64, f64)]| {
+        b.iter()
+            .min_by(|x, y| (x.0 - 0.5).abs().total_cmp(&(y.0 - 0.5).abs()))
+            .copied()
+            .unwrap()
+    };
+    let darkest = |b: &[(f64, f64, f64)]| {
+        *b.iter()
+            .find(|x| x.0 > 0.03 && x.0 < 0.1)
+            .expect("a band near display 0.05")
+    };
+    for ((level, sd_old, skew_old), (_, sd_new, skew_new)) in old.iter().zip(&new) {
+        println!(
+            "display {level:.3}: v3 σ {sd_old:.0} skew {skew_old:+.2} | v4 σ {sd_new:.0} skew {skew_new:+.2}"
+        );
+    }
+    // Version 3: the defects this version removes.
+    assert!(mid(&old).2 > 0.25, "v3 mid skew {:.2}", mid(&old).2);
+    assert!(darkest(&old).1 / mid(&old).1 < 0.25, "v3 shadows");
+    // Version 4: symmetric wherever the grain is not clipped by black or white.
+    for (level, _, skew) in &new {
+        if (0.1..0.9).contains(level) {
+            assert!(skew.abs() < 0.2, "display {level:.2}: v4 skew {skew:+.2}");
+        }
+    }
+    let shadows = darkest(&new).1 / mid(&new).1;
+    assert!(
+        (0.28..0.55).contains(&shadows),
+        "v4 shadows {shadows:.2} of mid"
+    );
+    // The midtones keep version 3's strength (Amount means what it did).
+    let ratio = mid(&new).1 / mid(&old).1;
+    assert!((ratio - 1.0).abs() < 0.08, "v4 / v3 mid σ {ratio:.3}");
+}
+
+#[test]
+#[ignore = "requires a native GPU adapter"]
 fn film_grain_at_half_size_is_the_full_size_grain_scaled_down() {
     // A flat mid-grey at full and at half size: film grain (`grainVersion`
     // 3) reads the tile over each pixel's footprint, so the half-size
@@ -23746,9 +23858,16 @@ fn film_grain_at_half_size_is_the_full_size_grain_scaled_down() {
         }
     };
     let (width, height) = (1024u32, 768u32);
-    for (size, roughness, colour) in [(25.0, 50.0, 0.0), (60.0, 75.0, 40.0), (10.0, 0.0, 0.0)] {
+    // Version 4 (symmetric tile, shadow weight, symmetric print) as well.
+    for (size, roughness, colour, version) in [
+        (25.0, 50.0, 0.0, 3),
+        (60.0, 75.0, 40.0, 3),
+        (10.0, 0.0, 0.0, 3),
+        (25.0, 50.0, 0.0, 4),
+        (60.0, 75.0, 40.0, 4),
+    ] {
         let recipe = json!({"grainAmount": 50, "grainSize": size, "grainRoughness": roughness,
-            "grainColor": colour, "grainVersion": 3});
+            "grainColor": colour, "grainVersion": version});
         let grain = |w: u32, h: u32| -> Vec<f64> {
             let flat = render(w, h, json!({}));
             let pixels = render(w, h, recipe.clone());
@@ -23780,7 +23899,7 @@ fn film_grain_at_half_size_is_the_full_size_grain_scaled_down() {
             .sum::<f64>()
             / (a * b * half.len() as f64);
         println!(
-            "size {size} roughness {roughness} colour {colour}: full {:.0}, full scaled down {a:.0}, half {b:.0}, correlation {correlation:.2}",
+            "v{version} size {size} roughness {roughness} colour {colour}: full {:.0}, full scaled down {a:.0}, half {b:.0}, correlation {correlation:.2}",
             sd(&full)
         );
         assert!(sd(&full) > 500.0, "no grain");
@@ -28044,6 +28163,10 @@ fn drag_frames_approximate_the_effects_and_settled_frames_stay_exact() {
                 with(json!({"glowAmount":60,"halationAmount":60})),
             ),
             ("film_grain", with(grain.clone())),
+            (
+                "symmetric_film_grain",
+                with(json!({"grainAmount":40,"grainSize":25,"grainRoughness":50,"grainVersion":4})),
+            ),
             (
                 "all_colour_grain",
                 with(

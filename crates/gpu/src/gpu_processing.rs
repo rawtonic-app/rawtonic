@@ -62,7 +62,7 @@ pub use idle_compile_child::idle_compiles_in_helpers;
 pub use idle_compiles::{
     IdleCompileMemoryGuard, set_before_export_compile, set_idle_compile_memory_guard,
 };
-pub use multi_view::{CellExtent, CellLayer, CellZoom, MultiView, MultiViewCell};
+pub use multi_view::{CellExtent, CellLayer, CellZoom, CellZooms, MultiView, MultiViewCell};
 use multi_view::{DisplayBindings, DisplayPass, PrimaryDraw, encode_display_pass};
 use preview_layers::{
     CURVE_LUT_SAMPLES, LAYER_SUMS_HEADER, LUMINANCE_LUT_WORDS, LayerSumsPlan, PreparedLayer,
@@ -3504,39 +3504,39 @@ impl WgpuDisplay {
     }
 
     /// Shows `cells` beside each other with `primary` as the live photograph
-    /// (no cells: back to the single view, releasing every cell texture).
-    /// When the primary changes, the old primary's live frame stays as its
-    /// cell's frame until that cell is rendered.
+    /// (no cells: back to the single view, releasing every cell texture),
+    /// zoomed to `zooms` in the same step (None: as they are). When the
+    /// primary changes, the old primary's live frame stays as its cell's
+    /// frame, where it was on screen, until that cell is rendered.
     pub fn set_multi_view(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         primary: Option<String>,
         cells: Vec<MultiViewCell>,
+        zooms: Option<CellZooms>,
     ) {
         if cells.is_empty() {
             self.multi.clear();
             return;
         }
         self.camera_cover = None;
-        let old_primary = self.multi.primary().map(str::to_string);
         let mut multi = std::mem::take(&mut self.multi);
-        multi.set_layout(primary.clone(), cells);
-        if let (Some(old), Some(frame)) = (old_primary, self.frame_path.as_deref())
-            && primary.as_deref() != Some(old.as_str())
-            && frame == old
-            && let Some((texture, width, height)) = &self.frame_texture
-        {
-            multi.adopt_live_frame(
-                device,
-                queue,
-                &self.bindings(),
-                &old,
+        // Where the live frame is drawn: its normal placement (not the
+        // crop-editing frame, not a split).
+        let placed =
+            (!self.frame_uncropped && self.split_x.is_none()).then_some(self.geometry.rect);
+        let live = match (self.frame_path.as_deref(), &self.frame_texture) {
+            (Some(path), Some((texture, width, height))) => Some(multi_view::LiveFrame {
+                path,
                 texture,
-                *width,
-                *height,
-            );
-        }
+                size: (*width, *height),
+                placed,
+                pixelated: self.latest_transform.pixelated > 0.5,
+            }),
+            _ => None,
+        };
+        multi.show(device, queue, &self.bindings(), primary, cells, zooms, live);
         self.multi = multi;
     }
 
@@ -4018,8 +4018,12 @@ fn off_global_pool<R: Send>(work: impl FnOnce() -> R + Send) -> R {
 /// calling thread (~0.1 s, once per process), so it neither waits for a pool
 /// nor, called from a worker, steals a queued render that needs the
 /// processor.
-fn film_grain_tile_data() -> Vec<u32> {
-    level_pairs(&rawtonic_engine::film_grain::grain_tile())
+fn film_grain_tile_data(symmetric: bool) -> Vec<u32> {
+    level_pairs(&if symmetric {
+        rawtonic_engine::film_grain::symmetric_grain_tile()
+    } else {
+        rawtonic_engine::film_grain::grain_tile()
+    })
 }
 
 /// The tile as the shader's `film_texel` reads it (G76/GRN1): per mip
@@ -4773,6 +4777,8 @@ pub struct GpuProcessor {
     /// Film grain's tile (`grainVersion` 3, rawtonic_engine::film_grain),
     /// made the first time a recipe needs it; `no_film_grain` stands in.
     film_grain_tile: std::sync::OnceLock<wgpu::Buffer>,
+    /// The symmetric tile of `grainVersion` 4, likewise.
+    symmetric_film_grain_tile: std::sync::OnceLock<wgpu::Buffer>,
     no_film_grain: wgpu::Buffer,
     ping_pong_view: wgpu::TextureView,
 
@@ -8934,6 +8940,7 @@ impl GpuProcessor {
             dummy_lut_sampler,
             no_lut_shaper,
             film_grain_tile: std::sync::OnceLock::new(),
+            symmetric_film_grain_tile: std::sync::OnceLock::new(),
             no_film_grain,
             ping_pong_view,
             tile_output_texture,
@@ -11573,16 +11580,22 @@ impl GpuProcessor {
                 )
             });
         let lut_shaper = lut_shaper.as_ref().unwrap_or(&self.no_lut_shaper);
+        let grain_version =
+            GrainVersion::from_uniform(request.adjustments.uniforms.global.grain_version);
         let film_grain =
-            if GrainVersion::from_uniform(request.adjustments.uniforms.global.grain_version).film()
-                && request.adjustments.uniforms.global.grain_amount > 0.0
-            {
-                self.film_grain_tile.get_or_init(|| {
+            if grain_version.film() && request.adjustments.uniforms.global.grain_amount > 0.0 {
+                let symmetric = grain_version.symmetric();
+                let tile = if symmetric {
+                    &self.symmetric_film_grain_tile
+                } else {
+                    &self.film_grain_tile
+                };
+                tile.get_or_init(|| {
                     create_buffer_init(
                         device,
                         &wgpu::util::BufferInitDescriptor {
                             label: Some("Film grain tile"),
-                            contents: bytemuck::cast_slice(&film_grain_tile_data()),
+                            contents: bytemuck::cast_slice(&film_grain_tile_data(symmetric)),
                             usage: wgpu::BufferUsages::STORAGE,
                         },
                     )
@@ -15540,7 +15553,7 @@ mod film_grain_tile_pool_tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         let (done, built) = mpsc::channel();
-        std::thread::spawn(move || done.send(super::film_grain_tile_data().len()).unwrap());
+        std::thread::spawn(move || done.send(super::film_grain_tile_data(false).len()).unwrap());
         let len = built.recv_timeout(Duration::from_secs(300));
         drop(held);
         assert!(
