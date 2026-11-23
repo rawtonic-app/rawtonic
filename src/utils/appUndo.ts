@@ -85,14 +85,7 @@ export interface KeywordLabel {
   keyword?: string;
 }
 export type BatchLabel =
-  | 'matchLight'
-  | 'paste'
-  | 'sync'
-  | 'reset'
-  | 'style'
-  | 'lensCorrection'
-  | 'apply'
-  | 'importEdits';
+  'matchLight' | 'paste' | 'sync' | 'reset' | 'style' | 'lensCorrection' | 'apply' | 'importEdits';
 interface Step {
   order: number;
   action: CullingValue['kind'] | 'recipes' | 'xmp' | 'captureTime' | 'stacks' | 'catalogImport' | 'keywords';
