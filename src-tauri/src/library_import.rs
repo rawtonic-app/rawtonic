@@ -492,6 +492,7 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                 report.ai_masks_on_open += usize::from(imported.ai_masks);
                 report.crops_clipped += imported.crops_clipped;
                 report.warnings.extend(import_warnings(photo));
+                report.warnings.extend(kept_warning(photo, &imported));
                 members.insert(photo.key.as_str(), Member::photo(asset.clone()));
                 assets.insert(photo.key.as_str(), asset);
             }
@@ -521,6 +522,7 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
                 report.ai_masks_on_open += usize::from(imported.ai_masks);
                 report.crops_clipped += imported.crops_clipped;
                 report.warnings.extend(import_warnings(photo));
+                report.warnings.extend(kept_warning(photo, &imported));
             }
             Err(e) => {
                 report.copies_skipped += 1;
@@ -733,6 +735,87 @@ struct Imported {
     ai_masks: bool,
     /// Edits (its own and its snapshots') whose crop was clipped.
     crops_clipped: usize,
+    /// The photograph's (or copy's) own edit was kept as it is although the
+    /// source carries a Capture One Generic Distortion for it: the line the
+    /// import summary names (`kept_edit_warning`).
+    kept_over_distortion: Option<&'static str>,
+}
+
+/// The settings a Generic Distortion import alone writes
+/// (`capture_one_lens`, `capture_one_chromatic_aberration`).
+const DISTORTION_ONLY_KEYS: [&str; 8] = [
+    "lensCorrectionMode",
+    "lensDistortionParams",
+    "lensDistortionAmount",
+    "lensVignetteAmount",
+    "lensMaker",
+    "lensModel",
+    "autoChromaticAberration",
+    "lensTcaEnabled",
+];
+
+/// The polynomial distortion of Capture One's Generic profile in a
+/// translated edit (`capture_one_lens`), if that is all the edit holds: such
+/// a lens-only import never replaces an edit the user made here.
+fn generic_distortion_only(adjustments: &Value) -> Option<&Value> {
+    let map = adjustments.as_object()?;
+    // Versions and the colour label come with every translated edit.
+    let own =
+        |k: &str| DISTORTION_ONLY_KEYS.contains(&k) || k.ends_with("Version") || k == "colorLabel";
+    if !map.keys().all(|k| own(k)) {
+        return None;
+    }
+    polynomial_of(adjustments)
+}
+
+/// The imported polynomial of a recipe (manual mode, no lens named).
+fn polynomial_of(adjustments: &Value) -> Option<&Value> {
+    let params = adjustments.get(lens::DISTORTION_PARAMS.name())?;
+    (adjustments.get(lens::CORRECTION_MODE.name())?.as_str() == Some("manual")
+        && params.get("model")?.as_u64() == Some(0)
+        && adjustments
+            .get(lens::MAKER.name())
+            .is_none_or(|v| v.is_null()))
+    .then_some(params)
+}
+
+/// Whether a stored recipe already applies `new` as it is imported: the same
+/// polynomial, switched on, at its full amount.
+fn applies_polynomial(stored: Option<&Value>, new: &Value) -> bool {
+    stored.is_some_and(|recipe| {
+        polynomial_of(recipe) == Some(new)
+            && recipe.get("lensDistortionEnabled") != Some(&json!(false))
+            && recipe
+                .get(lens::DISTORTION_AMOUNT.name())
+                .and_then(Value::as_f64)
+                .is_none_or(|amount| amount == 100.0)
+    })
+}
+
+/// Whether the catalog's photograph already carries an edit of the user's.
+fn has_own_edit(catalog: &Library, asset: &str) -> anyhow::Result<bool> {
+    Ok(catalog
+        .editor_state(asset)?
+        .and_then(|state| state.get("adjustments").cloned())
+        .and_then(|a| a.as_object().map(|m| !m.is_empty()))
+        .unwrap_or(false))
+}
+
+/// The line for an existing edit or copy kept over a Capture One
+/// Generic Distortion (decision G50S 2026-11-23: never replaced, never silent).
+const KEPT_EDIT: &str = "kept your existing edit; Capture One distortion not applied";
+const KEPT_COPY: &str = "kept your existing copy; Capture One distortion not applied";
+
+fn kept_warning(photo: &Photo, imported: &Imported) -> Option<String> {
+    imported
+        .kept_over_distortion
+        .map(|line| format!("{}: {line}", photo.path.display()))
+}
+
+/// Whether the source photo carries Generic Distortion as `capture_one_lens` imports it.
+fn source_has_generic_distortion(photo: &Photo) -> bool {
+    matches!(&photo.develop, Develop::CaptureOne(entries)
+        if capture_one_generic_distortion_k1(entries).is_some())
 }
 
 /// The Rawtonic recipe for one of the photo's edits in the other editor
@@ -1004,6 +1087,14 @@ fn capture_one_lens(entries: &[(String, String)], path: &Path, adjustments: &mut
     if map.contains_key(lens::CORRECTION_MODE.name()) {
         return;
     }
+    if let Some(k1) = capture_one_generic_distortion_k1(entries) {
+        map.insert(lens::CORRECTION_MODE.name().into(), json!("manual"));
+        map.insert(
+            lens::DISTORTION_PARAMS.name().into(),
+            json!({"model": 0, "k1": k1, "k2": 0.0, "k3": 0.0, "zoom": 1.0, "exact_zoom": true}),
+        );
+        return;
+    }
     let Some((distortion, falloff)) = capture_one_lens_amounts(entries) else {
         return;
     };
@@ -1048,6 +1139,35 @@ fn capture_one_lens_amounts(entries: &[(String, String)]) -> Option<(Option<f64>
     (amounts.0.is_some() || amounts.1.is_some()).then_some(amounts)
 }
 
+/// Rawtonic's polynomial distortion `k1` (model 0, radii in half
+/// diagonals) per percent of Capture One's Generic Distortion. Measured
+/// on Capture One 16.9.1 renders of two cameras (notes:
+/// benchmark-results/g50s-2026-11-23): the Generic profile moves the
+/// picture by a pure cubic of the radius, 0.0012 of the half diagonal per
+/// percent at r = 1, with no framing zoom (the frame keeps its size).
+/// Geometry against Capture One's frames (Hide Distorted Areas off): 0.7–3.4
+/// px rms over interior patches of a 7360 px wide frame, 2.5–3.2 px on a
+/// 3648 px one (the best of Rawtonic's other distortion controls: 15–66 px).
+const CAPTURE_ONE_GENERIC_K1_PER_PERCENT: f64 = -0.0012;
+
+/// The `k1` of Capture One's Generic Distortion above 0 (0–100 %) with the
+/// Generic profile, which holds no data of the lens: the photo then has no
+/// lens profile either, as in Capture One. None for other lenses and at 0
+/// (Rawtonic's default correction stays, `capture_one_lens_report`).
+fn capture_one_generic_distortion_k1(entries: &[(String, String)]) -> Option<f64> {
+    capture_one_entry(entries, "LensIdGuid").filter(|v| is_generic_lens(v))?;
+    let amount = capture_one_entry(entries, "LensGeoAbr")?
+        .split('|')
+        .nth(1)?
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|v| v.is_finite() && *v > 0.0)?
+        .min(100.0);
+    // Rounded to the amount's hundred-thousandths: no float dust in recipes.
+    Some((amount * CAPTURE_ONE_GENERIC_K1_PER_PERCENT * 1e5).round() / 1e5)
+}
+
 /// The `LensIdGuid` of Capture One's "Generic" lens profile, the one it
 /// uses for a lens it has no profile of: seen the same on Olympus, Canon,
 /// Leaf and DNG files of Capture One 16.6–16.9 (notes:
@@ -1084,20 +1204,30 @@ fn capture_one_shadows_report(entries: &[(String, String)]) -> Option<String> {
 /// The import report's lines for Capture One's lens settings Rawtonic does
 /// not take over as they are: the Generic profile (the photo keeps
 /// Rawtonic's default correction for its lens, never a lens profile picked
-/// in its place) with the amounts set on it, which have no measured
-/// equivalent on Rawtonic's sliders; and an analysed chromatic aberration
+/// in its place, unless its Distortion above 0 is carried as a polynomial
+/// distortion, `capture_one_generic_distortion_k1`, which is nothing left
+/// out) with the amounts set on it that have no measured equivalent on
+/// Rawtonic's sliders; and an analysed chromatic aberration
 /// curve (Rawtonic measures the photo's own CA instead).
 fn capture_one_lens_report(entries: &[(String, String)]) -> Vec<String> {
     let mut out = Vec::new();
     if capture_one_entry(entries, "LensIdGuid").is_some_and(is_generic_lens) {
-        out.push(
-            "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies"
-                .to_string(),
-        );
+        // A Distortion that came over as a polynomial is no setting left
+        // out: nothing to report for it.
+        let distortion_carried = capture_one_generic_distortion_k1(entries).is_some();
+        if !distortion_carried {
+            out.push(
+                "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies"
+                    .to_string(),
+            );
+        }
         for (key, name) in [
             ("LensGeoAbr", "Distortion"),
             ("LensLightFallOff", "Light Falloff"),
         ] {
+            if key == "LensGeoAbr" && distortion_carried {
+                continue;
+            }
             let amount = capture_one_entry(entries, key)
                 .and_then(|v| v.split('|').nth(1))
                 .and_then(|v| v.trim().parse::<f64>().ok())
@@ -1269,6 +1399,7 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
         crops_clipped: recipe
             .as_ref()
             .map_or(0, |(_, clipped)| usize::from(*clipped)),
+        kept_over_distortion: None,
     };
     let adjustments = recipe.map(|(adjustments, _)| adjustments);
     // The photograph, its translated edit and its metadata are stored in one
@@ -1287,6 +1418,21 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
     };
     let id = match catalog.asset_at(&photo.path)? {
         Some(asset) => {
+            let mut contents = contents;
+            // A lens-only Capture One import never replaces what the user
+            // edited here (the importer keeps existing variants as they are).
+            if let Some(new) = adjustments.as_ref().and_then(generic_distortion_only)
+                && has_own_edit(catalog, &asset.id)?
+            {
+                contents.editor_state = None;
+                imported.translated = false;
+                let own = catalog
+                    .editor_state(&asset.id)?
+                    .and_then(|state| state.get("adjustments").cloned());
+                if !applies_polynomial(own.as_ref(), new) {
+                    imported.kept_over_distortion = Some(KEPT_EDIT);
+                }
+            }
             catalog.apply_contents(&asset.id, &contents)?;
             asset.id
         }
@@ -1387,7 +1533,20 @@ fn import_copy(
             {
                 publish_new(&sidecar, &serde_json::to_vec_pretty(&state)?)?;
             }
-            return Ok((Imported::default(), candidate));
+            let mut kept = Imported::default();
+            if source_has_generic_distortion(photo)
+                && let Some((incoming, _)) =
+                    recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path)
+                && let Some(new) = polynomial_of(&incoming)
+            {
+                let stored = catalog
+                    .copy_state(asset, &candidate)?
+                    .and_then(|state| state.get("adjustments").cloned());
+                if !applies_polynomial(stored.as_ref(), new) {
+                    kept.kept_over_distortion = Some(KEPT_COPY);
+                }
+            }
+            return Ok((kept, candidate));
         }
         if !sidecar_of(&candidate).exists() {
             id = Some(candidate);
@@ -1404,6 +1563,7 @@ fn import_copy(
         crops_clipped: recipe
             .as_ref()
             .map_or(0, |(_, clipped)| usize::from(*clipped)),
+        kept_over_distortion: None,
     };
     let mut state = json!({
         "version": crate::image_processing::ImageMetadata::default().version,
@@ -1617,20 +1777,55 @@ mod tests {
         fs::write(&raw, b"not a raw").unwrap();
         // No lens profile in Capture One: no amounts to put on one.
         assert_eq!(capture_one_lens_amounts(&generic), None);
+        // G50S: its Distortion 30 is a pure radial cubic about the frame's
+        // centre without any framing zoom, measured on Capture One's renders
+        // as 0.0012 of the half diagonal per percent: Rawtonic's polynomial
+        // model with k1 = −0.0012 × amount at zoom 1 and no lens profile.
         let mut adjustments = json!({});
         capture_one_lens(&generic, &raw, &mut adjustments);
-        assert_eq!(adjustments, json!({}), "the default lens correction stays");
         assert_eq!(
-            capture_one_lens_report(&generic),
+            adjustments,
+            json!({
+                "lensCorrectionMode": "manual",
+                "lensDistortionParams": {
+                    "model": 0, "k1": -0.036, "k2": 0.0, "k3": 0.0,
+                    "zoom": 1.0, "exact_zoom": true
+                }
+            })
+        );
+        // Nothing to report: the Distortion came over (a Light Falloff of 0
+        // is no setting).
+        assert!(capture_one_lens_report(&generic).is_empty());
+        // Light Falloff on the Generic profile has no equivalent: reported.
+        let with_falloff = entries(&[
+            ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),
+            ("LensGeoAbr", "|30.0|1"),
+            ("LensLightFallOff", "|20.0|1"),
+        ]);
+        assert_eq!(
+            capture_one_lens_report(&with_falloff),
             [
-                "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies",
-                "Capture One's Distortion 30 with the Generic profile not carried (no measured equivalent)",
+                "Capture One's Light Falloff 20 with the Generic profile not carried (no measured equivalent)"
             ]
         );
-        let warnings =
-            import_warnings(&photo("1", raw.clone(), Develop::CaptureOne(generic), None));
-        assert_eq!(warnings.len(), 2, "{warnings:?}");
-        assert!(warnings[0].starts_with(&raw.display().to_string()));
+        // Out of range values are clamped to the slider's 0…100.
+        let mut clamped = json!({});
+        capture_one_lens(
+            &entries(&[
+                ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),
+                ("LensGeoAbr", "|250.0|1"),
+            ]),
+            &raw,
+            &mut clamped,
+        );
+        assert_eq!(clamped["lensDistortionParams"]["k1"], json!(-0.12));
+        let warnings = import_warnings(&photo(
+            "1",
+            raw.clone(),
+            Develop::CaptureOne(generic.clone()),
+            None,
+        ));
+        assert!(warnings.is_empty(), "{warnings:?}");
         // A Generic profile left at 0 is said once, with nothing left out.
         let untouched = entries(&[
             ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),
@@ -1638,6 +1833,13 @@ mod tests {
             ("LensLightFallOff", "|0|1"),
         ]);
         assert_eq!(capture_one_lens_report(&untouched).len(), 1);
+        let mut kept = json!({});
+        capture_one_lens(&untouched, &raw, &mut kept);
+        assert_eq!(
+            kept,
+            json!({}),
+            "Distortion 0: the default lens correction stays"
+        );
         // A lens profile of Capture One's own reports nothing.
         let profiled = entries(&[
             ("LensIdGuid", "P"),
@@ -3306,6 +3508,117 @@ ProcessVersion = "15.4" }}"#,
         let (source, kind) = read_source(&catalog).unwrap();
         assert_eq!(kind, "captureOne");
         assert_eq!(source.name, "Wedding.2026");
+    }
+
+    /// G50S decisions 1 and 3: a Capture One import whose only translated
+    /// setting is Generic Distortion never replaces an edit the user made
+    /// here, and keeps an existing copy: each said in the summary. A photo
+    /// without an edit of the user's gets the distortion.
+    #[test]
+    fn a_generic_distortion_import_never_replaces_the_users_edit_or_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Cat"), "Cat", Mode::Catalog).unwrap();
+        let raw = tmp.path().join("a.RAF");
+        fs::write(&raw, b"raf").unwrap();
+        let source = |generic: bool| Source {
+            name: "s".into(),
+            photos: vec![
+                photo(
+                    "1",
+                    raw.clone(),
+                    Develop::CaptureOne(if generic { generic_entries() } else { vec![] }),
+                    None,
+                ),
+                photo(
+                    "2",
+                    raw.clone(),
+                    Develop::CaptureOne(if generic { generic_entries() } else { vec![] }),
+                    Some("1"),
+                ),
+            ],
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        fn generic_entries() -> Vec<(String, String)> {
+            [
+                ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),
+                ("LensGeoAbr", "|40.0|1"),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+        }
+        // Imported before without Generic Distortion: the master carries a
+        // user's edit afterwards, the copy exists.
+        import_into(&catalog, &source(false)).unwrap();
+        let asset = catalog.asset_at(&raw).unwrap().unwrap().id;
+        let edit = json!({"version": 1, "rating": 0, "tags": [],
+            "adjustments": {"exposure": 0.7}});
+        catalog.save_editor_state(&asset, &edit).unwrap();
+        let report = import_into(&catalog, &source(true)).unwrap();
+        let kept = catalog.editor_state(&asset).unwrap().unwrap();
+        assert_eq!(kept["adjustments"]["exposure"], json!(0.7), "{report:?}");
+        assert!(kept["adjustments"].get("lensDistortionParams").is_none());
+        assert_eq!(report.with_settings, 0, "{report:?}");
+        let path = raw.display();
+        assert!(
+            report.warnings.contains(&format!(
+                "{path}: kept your existing edit; Capture One distortion not applied"
+            )),
+            "{:?}",
+            report.warnings
+        );
+        assert!(
+            report.warnings.contains(&format!(
+                "{path}: kept your existing copy; Capture One distortion not applied"
+            )),
+            "{:?}",
+            report.warnings
+        );
+        // A photo without an edit of the user's gets the distortion.
+        let fresh = tmp.path().join("b.RAF");
+        fs::write(&fresh, b"raf").unwrap();
+        let only = Source {
+            name: "t".into(),
+            photos: vec![photo(
+                "1",
+                fresh.clone(),
+                Develop::CaptureOne(generic_entries()),
+                None,
+            )],
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        import_into(&catalog, &only).unwrap();
+        let id = catalog.asset_at(&fresh).unwrap().unwrap().id;
+        let state = catalog.editor_state(&id).unwrap().unwrap();
+        assert_eq!(
+            state["adjustments"]["lensDistortionParams"]["k1"],
+            json!(-0.048)
+        );
+        // The user rescaled or switched it off since: kept, and said.
+        let mut state = catalog.editor_state(&id).unwrap().unwrap();
+        state["adjustments"]["lensDistortionAmount"] = json!(50.0);
+        catalog.save_editor_state(&id, &state).unwrap();
+        // (A lens-only reimport keeps the master as it is.)
+        let rescaled = import_into(&catalog, &only).unwrap();
+        assert!(
+            rescaled
+                .warnings
+                .iter()
+                .any(|w| w.contains("kept your existing edit")),
+            "{rescaled:?}"
+        );
+        state["adjustments"]["lensDistortionAmount"] = json!(100.0);
+        catalog.save_editor_state(&id, &state).unwrap();
+        // Repeated: the same distortion is already there, nothing to say.
+        let again = import_into(&catalog, &only).unwrap();
+        assert!(
+            again.warnings.iter().all(|w| !w.contains("kept your")),
+            "{again:?}"
+        );
     }
 
     #[test]

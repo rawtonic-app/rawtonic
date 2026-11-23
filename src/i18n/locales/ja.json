@@ -4021,6 +4021,7 @@
       "diffractionTitle": "絞り値と画素サイズに基づいて、小絞りによるぼけを補正します",
       "distortion": "ゆがみ",
       "enable": "プロファイル補正を使用",
+      "importedCorrection": "読み込んだ補正",
       "lookingUp": "レンズを検索しています…",
       "make": "メーカー",
       "manualVignetting": "レンズ周辺光量",

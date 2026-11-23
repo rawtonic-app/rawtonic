@@ -4307,6 +4307,7 @@
       "diffractionTitle": "Compense le flou des petites ouvertures selon l'ouverture et la taille des pixels",
       "distortion": "Distorsion",
       "enable": "Activer les corrections de profil",
+      "importedCorrection": "Correction importée",
       "lookingUp": "Recherche de l'objectif…",
       "make": "Marque",
       "manualVignetting": "Vignetage de l’objectif",

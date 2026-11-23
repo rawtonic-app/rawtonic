@@ -51,6 +51,7 @@ import {
   RESPONSES_CHOSEN,
   RESPONSE_KEYS,
   chosenSettings,
+  hasImportedPolynomial,
   joinedLayers,
   newEditResponses,
   pasteInto,
@@ -650,6 +651,8 @@ function lensChoice(recipe: Adjustments): unknown[] {
 function withPastedLensUnresolved(next: Adjustments, current: Adjustments, pasted: Partial<Adjustments>): Adjustments {
   if (!LENS_CHOICE_KEYS.some((key) => key in pasted)) return next;
   if (sameAdjustmentValue(lensChoice(next), lensChoice(current))) return next;
+  // An imported polynomial distortion is the correction itself: nothing to resolve for this photograph.
+  if (hasImportedPolynomial(next)) return next;
   return { ...next, lensDistortionParams: null, lensProfileFor: LENS_UNRESOLVED };
 }
 

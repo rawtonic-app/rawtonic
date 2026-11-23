@@ -4307,6 +4307,7 @@
       "diffractionTitle": "Compensa la sfocatura dei diaframmi chiusi in base al numero f e alla dimensione dei pixel",
       "distortion": "Distorsione",
       "enable": "Attiva correzioni del profilo",
+      "importedCorrection": "Correzione importata",
       "lookingUp": "Ricerca dell'obiettivo…",
       "make": "Marca",
       "manualVignetting": "Vignettatura dell’obiettivo",

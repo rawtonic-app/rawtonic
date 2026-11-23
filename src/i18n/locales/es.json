@@ -4307,6 +4307,7 @@
       "diffractionTitle": "Compensa el desenfoque de las aperturas pequeñas según el número f y el tamaño de píxel",
       "distortion": "Distorsión",
       "enable": "Activar correcciones de perfil",
+      "importedCorrection": "Corrección importada",
       "lookingUp": "Buscando la lente…",
       "make": "Marca",
       "manualVignetting": "Viñeteo del objetivo",
