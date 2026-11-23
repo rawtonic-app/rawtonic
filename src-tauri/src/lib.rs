@@ -455,6 +455,7 @@ fn start(args: Vec<String>) {
             storage::start_maintenance(app_handle.clone());
             if let Ok(cache_dir) = app_handle.path().app_cache_dir() {
                 preview_proxy::set_outside_sessions_dir(cache_dir.join("previews"));
+                rawtonic_engine::camera_store::set_dir(&cache_dir);
                 crate::exif_processing::initialize_cache_dir(cache_dir);
             }
 

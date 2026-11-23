@@ -14,6 +14,7 @@ pub mod cache_utils;
 pub mod calibration;
 pub mod camera_crop;
 pub mod camera_profile;
+pub mod camera_store;
 pub mod color_grading;
 pub mod color_noise;
 pub mod develop_defaults;
