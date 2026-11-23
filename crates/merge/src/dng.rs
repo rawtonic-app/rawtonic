@@ -145,7 +145,10 @@ fn calibrations(color: &ImageColor) -> Vec<(Illuminant, Vec<f32>)> {
         Illuminant::D75 | Illuminant::Shade => 7504,
         _ => 4000,
     };
-    list.sort_by_key(|(i, _)| temperature(i));
+    // Ties (e.g. two illuminants without a listed temperature) by the
+    // illuminant's code: the map's order is random, and the written file
+    // must not change from one merge of the same photos to the next.
+    list.sort_by_key(|(i, _)| (temperature(i), *i));
     if list.len() > 2 {
         // Keep the warmest and D65 (or the coolest).
         let last = list
@@ -255,4 +258,79 @@ pub fn encode_linear_dng(image: &Rgb32FImage, meta: &DngMeta) -> Result<Vec<u8>>
     }
     dng.close()?;
     Ok(buf.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The whole encoded DNG of an image whose camera has two illuminants
+    /// with the same temperature key is byte-identical for fresh maps and
+    /// every thread count.
+    #[test]
+    fn encoded_dng_bytes_are_identical_run_to_run() {
+        let (w, h) = (300u32, 200u32);
+        let image = Rgb32FImage::from_fn(w, h, |x, y| {
+            let v = ((x * 7 + y * 13) % 97) as f32 / 97.0;
+            image::Rgb([v, 0.5 * v, 1.0 - v])
+        });
+        let encode = |threads: usize| {
+            let color = ImageColor {
+                camera_to_srgb: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                wb: [1.0; 4],
+                calibrations: [
+                    (Illuminant::Flash, vec![0.5f32; 9]),
+                    (Illuminant::IsoStudioTungsten, vec![0.25f32; 9]),
+                ]
+                .into_iter()
+                .collect(),
+                unit_calibration: None,
+            };
+            let meta = DngMeta {
+                color: Some(&color),
+                metadata: None,
+                keep_lens: true,
+                baseline_exposure: Some(0.5),
+                preview: None,
+                software: "test",
+            };
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap()
+                .install(|| encode_linear_dng(&image, &meta).unwrap())
+        };
+        let first = encode(1);
+        for threads in [1, 2, 8, 8, 8, 8, 8, 8] {
+            assert!(encode(threads) == first, "{threads} threads");
+        }
+    }
+
+    /// Calibrations come from a `HashMap` whose order differs per map; the
+    /// chosen matrices and their order must not.
+    #[test]
+    fn calibrations_do_not_depend_on_map_order() {
+        let entries = [
+            (Illuminant::Flash, 1.0f32),
+            (Illuminant::IsoStudioTungsten, 2.0),
+            (Illuminant::Fluorescent, 3.0),
+            (Illuminant::Daylight, 4.0),
+            (Illuminant::FineWeather, 5.0),
+        ];
+        let pick = |n: usize| {
+            let color = ImageColor {
+                camera_to_srgb: [[0.0; 3]; 3],
+                wb: [1.0; 4],
+                calibrations: entries[..n].iter().map(|&(i, v)| (i, vec![v; 9])).collect(),
+                unit_calibration: None,
+            };
+            calibrations(&color)
+        };
+        for n in [2, 3, 5] {
+            let first = pick(n);
+            for _ in 0..64 {
+                assert_eq!(pick(n), first, "{n} illuminants");
+            }
+        }
+    }
 }
