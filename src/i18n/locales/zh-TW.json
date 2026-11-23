@@ -4555,6 +4555,18 @@
             "isNot": "不直接位於",
             "notContains": "不位於其中或其下"
           },
+          "name": {
+            "contains": "包含以下全部",
+            "containsAny": "包含以下任一",
+            "empty": "為空",
+            "endsWith": "結尾為",
+            "is": "為",
+            "isNot": "不為",
+            "notContains": "不包含以下任何",
+            "notEmpty": "不為空",
+            "startsWith": "開頭為",
+            "words": "包含這些詞"
+          },
           "number": {
             "between": "介於",
             "empty": "無值",

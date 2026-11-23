@@ -4688,6 +4688,18 @@
             "isNot": "is not directly in",
             "notContains": "is not in or below"
           },
+          "name": {
+            "contains": "contains all of",
+            "containsAny": "contains any of",
+            "empty": "is empty",
+            "endsWith": "ends with",
+            "is": "is",
+            "isNot": "is not",
+            "notContains": "contains none of",
+            "notEmpty": "is not empty",
+            "startsWith": "starts with",
+            "words": "contains the whole words"
+          },
           "number": {
             "between": "is between",
             "empty": "has no value",
