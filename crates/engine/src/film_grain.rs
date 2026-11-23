@@ -289,20 +289,29 @@ pub fn symmetric_grain_tile() -> Vec<u32> {
     tile(true)
 }
 
-/// A level's fluctuation with a distribution symmetric about zero, the
+/// Level `k`'s fluctuation with a distribution symmetric about zero, the
 /// texels keeping their order: the texel of rank i gets the value of rank i
 /// of the differences (a - b) / sqrt 2 of the level's values a and those of
 /// a fixed random pairing b — the distribution of the difference of two
-/// independent grains, symmetric by construction, with the level's variance
-/// and half its excess kurtosis. The map is monotone, so where a grain lies,
-/// where it is strongest and the spectrum stay nearly as they were; only the
-/// lighter levels' sparse bright grains lose their long tail and the dark
-/// side gains one. Sorting and arithmetic only, so it is the same on every
-/// platform.
-fn symmetric(level: &[f32], seed: u64) -> Vec<f32> {
+/// independent grains, with the level's variance and half its excess
+/// kurtosis — averaged with its mirror image, so exactly symmetric. The map
+/// is monotone, so where a grain lies, where it is strongest and the
+/// spectrum stay nearly as they were; only the lighter levels' sparse bright
+/// grains lose their long tail and the dark side gains one.
+///
+/// The lighter levels have many texels with the same value (no grain
+/// within the blur's reach: 46 % of the lightest level). Their order comes
+/// from the denser levels, where grains of the next sensitivities lie (the
+/// grain structure a slightly denser tone shows there), and only then from
+/// a hash of the texel: an order by position would give the earliest rows
+/// the darkest values, a ramp across the tile that shows as broad mottling
+/// in near-black areas. Sorting and arithmetic only, so it is the same on
+/// every platform.
+fn symmetric(levels: &[Vec<f32>], k: usize, seed: u64) -> Vec<f32> {
+    let level = &levels[k];
     let n = level.len();
-    let mut pairing: Vec<u32> = (0..n as u32).collect();
     let mut rng = SplitMix(seed);
+    let mut pairing: Vec<u32> = (0..n as u32).collect();
     for i in (1..n).rev() {
         let j = (rng.next() % (i as u64 + 1)) as usize;
         pairing.swap(i, j);
@@ -314,15 +323,20 @@ fn symmetric(level: &[f32], seed: u64) -> Vec<f32> {
         })
         .collect();
     target.sort_by(f64::total_cmp);
+    let shuffle: Vec<u64> = (0..n).map(|_| rng.next()).collect();
     let mut order: Vec<u32> = (0..n as u32).collect();
     order.sort_by(|&a, &b| {
-        level[a as usize]
-            .total_cmp(&level[b as usize])
+        let (a, b) = (a as usize, b as usize);
+        levels[k..]
+            .iter()
+            .map(|denser| denser[a].total_cmp(&denser[b]))
+            .find(|o| o.is_ne())
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(shuffle[a].cmp(&shuffle[b]))
             .then(a.cmp(&b))
     });
     let mut out = vec![0.0f32; n];
     for (rank, &i) in order.iter().enumerate() {
-        // The middle of the target and its mirror: exactly symmetric.
         out[i as usize] = (0.5 * (target[rank] - target[n - 1 - rank])) as f32;
     }
     out
@@ -330,22 +344,22 @@ fn symmetric(level: &[f32], seed: u64) -> Vec<f32> {
 
 fn tile(symmetric_levels: bool) -> Vec<u32> {
     let grains = grains();
-    let levels: Vec<Vec<f32>> = coverage(&grains)
+    let mut levels: Vec<Vec<f32>> = coverage(&grains)
         .iter()
-        .enumerate()
-        .map(|(k, level)| {
+        .map(|level| {
             let mut b = blur(level);
             let mean = (b.iter().map(|&v| v as f64).sum::<f64>() / b.len() as f64) as f32;
             for v in &mut b {
                 *v -= mean;
             }
-            if symmetric_levels {
-                symmetric(&b, 0x7379_6d00 + k as u64)
-            } else {
-                b
-            }
+            b
         })
         .collect();
+    if symmetric_levels {
+        levels = (0..LEVELS)
+            .map(|k| symmetric(&levels, k, 0x7379_6d00 + k as u64))
+            .collect();
+    }
     let mut mips = vec![levels];
     for side in mip_sides().into_iter().skip(1) {
         let prev = mips.last().unwrap();
@@ -459,6 +473,30 @@ mod tests {
                 (sd_after / sd_before - 1.0).abs() < 0.01,
                 "level {level}: sd {sd_after} vs {sd_before}"
             );
+            // No broad variation the grains do not have (GRN8 review: ties
+            // ordered by position put a ramp across the tile): the spread of
+            // 32 x 32 block means stays at version 3's.
+            let blocks = |v: &[f32]| {
+                let means: Vec<f64> = (0..(TILE / 32) * (TILE / 32))
+                    .map(|b| {
+                        let (by, bx) = (b / (TILE / 32) * 32, b % (TILE / 32) * 32);
+                        (0..32 * 32)
+                            .map(|i| v[(by + i / 32) * TILE + bx + i % 32] as f64)
+                            .sum::<f64>()
+                            / 1024.0
+                    })
+                    .collect();
+                let m = means.iter().sum::<f64>() / means.len() as f64;
+                (means.iter().map(|x| (x - m).powi(2)).sum::<f64>() / means.len() as f64).sqrt()
+            };
+            let (broad_before, broad_after) = (blocks(&before), blocks(&after));
+            println!(
+                "level {level}: skew {skew_before:+.3} -> {skew_after:+.3}, block-mean sd {broad_before:.5} -> {broad_after:.5}"
+            );
+            assert!(
+                broad_after < broad_before * 1.25 + sd_before * 0.005,
+                "level {level}: block means {broad_after:.5} vs {broad_before:.5}"
+            );
             // Monotone: the grains stay where they were.
             let mut order: Vec<usize> = (0..texels).collect();
             order.sort_by(|&a, &b| before[a].total_cmp(&before[b]));
@@ -474,7 +512,7 @@ mod tests {
             hash = (hash ^ u64::from(*w)).wrapping_mul(0x100_0000_01b3);
         }
         assert_eq!(
-            hash, 0x2760_4765_256b_c22a,
+            hash, 0xb2f0_9a46_6b92_e6b3,
             "symmetric tile checksum {hash:#x}"
         );
     }
