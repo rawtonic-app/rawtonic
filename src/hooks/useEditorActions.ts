@@ -1043,19 +1043,7 @@ export async function writeRecipeRepair(
 ): Promise<string[]> {
   const { selectedImage } = useEditorStore.getState();
   const keys = new Set(paths.map(photoWriteKey));
-  if (selectedImage && keys.has(photoWriteKey(selectedImage.path))) {
-    flushSliderDraft();
-    scheduleUnsavedEditorRecipe();
-    debouncedSave.flush();
-    debouncedSetHistory.flush();
-    if (useUIStore.getState().activeView === 'editor') {
-      useLibraryStore.getState().setLibrary({ libraryActivePath: selectedImage.path });
-      useUIStore.getState().setUI({ activeView: 'library', slideDirection: 1 });
-    }
-    useEditorStore
-      .getState()
-      .setEditor({ selectedImage: null, zoom: 1, showOriginal: false, toolBefore: null, previewOverride: null });
-  }
+  if (selectedImage && keys.has(photoWriteKey(selectedImage.path))) closeOpenPhoto(selectedImage.path);
   paths.forEach((path) => globalImageCache.delete(path));
   const { changes, failed } = await recipeWrite(
     paths,
@@ -1067,6 +1055,46 @@ export async function writeRecipeRepair(
   recipeWritten(written, null);
   await showWrittenRecipes(written);
   return failed;
+}
+
+/** Closes the photograph open in Develop with its edits written (to the
+ * Library, its tile active), so no editor holds an older recipe of it. */
+function closeOpenPhoto(path: string) {
+  flushSliderDraft();
+  scheduleUnsavedEditorRecipe();
+  debouncedSave.flush();
+  debouncedSetHistory.flush();
+  if (useUIStore.getState().activeView === 'editor') {
+    useLibraryStore.getState().setLibrary({ libraryActivePath: path });
+    useUIStore.getState().setUI({ activeView: 'library', slideDirection: 1 });
+  }
+  useEditorStore
+    .getState()
+    .setEditor({ selectedImage: null, zoom: 1, showOriginal: false, toolBefore: null, previewOverride: null });
+}
+
+/** Before a library write that may change any photograph's recipe (a
+ * Lightroom or Capture One import): the photograph open in Develop is
+ * closed and its edits written first, so the write sees them as the
+ * photographer's and no editor keeps an older recipe of it. */
+export async function closeOpenPhotoForLibraryWrite(): Promise<void> {
+  const { selectedImage } = useEditorStore.getState();
+  if (!selectedImage) return;
+  closeOpenPhoto(selectedImage.path);
+  await (photoWritesSettled(selectedImage.path) ?? Promise.resolve()).catch(() => undefined);
+}
+
+/** Recipes a library write outside the editor changed (`paths`): cached
+ * images and unsaved copies of them are dropped, thumbnails hear of them
+ * and the Library's active photograph shows them. */
+export async function recipesChangedOutside(paths: string[]): Promise<void> {
+  if (!paths.length) return;
+  paths.forEach((path) => {
+    globalImageCache.delete(path);
+    unsavedRecipes.delete(path);
+  });
+  recipeWritten(paths, null);
+  await showWrittenRecipes(paths);
 }
 
 registerRecipeWriter(writeRecipeValues, replaceRecipes);

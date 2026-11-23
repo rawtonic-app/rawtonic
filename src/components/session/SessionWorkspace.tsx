@@ -100,6 +100,7 @@ import { Status } from '../ui/ExportImportProperties';
 import { Trans, useTranslation } from 'react-i18next';
 import i18n from 'i18next';
 import { invokeInOrder } from '../../utils/catalogWrites';
+import { closeOpenPhotoForLibraryWrite, recipesChangedOutside } from '../../hooks/useEditorActions';
 import {
   catalogAction,
   followLibraryMove,
@@ -1210,6 +1211,9 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     setError('');
     try {
       noteTool('ingest');
+      // Edits made in Develop count as the photographer's before the import
+      // compares them, and no editor keeps a recipe it brings up to date.
+      await closeOpenPhotoForLibraryWrite();
       const report = await invoke<ImportReport>(Invokes.LibraryImport, {
         source: importSource.trim(),
         directory: session.directory,
@@ -1237,6 +1241,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
         { autoClose: 8000 }
       );
       importedRecipesAction(report.recipeChanges ?? []);
+      await recipesChangedOutside((report.recipeChanges ?? []).map((change) => change.path));
       if (report.editsKept?.length)
         notify.warning(t('session.toasts.importEditsKept', { n: report.editsKept.length }), {
           detail: report.editsKept.join('\n'),
