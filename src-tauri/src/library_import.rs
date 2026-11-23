@@ -1004,6 +1004,14 @@ fn capture_one_lens(entries: &[(String, String)], path: &Path, adjustments: &mut
     if map.contains_key(lens::CORRECTION_MODE.name()) {
         return;
     }
+    if let Some(k1) = capture_one_generic_distortion_k1(entries) {
+        map.insert(lens::CORRECTION_MODE.name().into(), json!("manual"));
+        map.insert(
+            lens::DISTORTION_PARAMS.name().into(),
+            json!({"model": 0, "k1": k1, "k2": 0.0, "k3": 0.0, "zoom": 1.0, "exact_zoom": true}),
+        );
+        return;
+    }
     let Some((distortion, falloff)) = capture_one_lens_amounts(entries) else {
         return;
     };
@@ -1048,6 +1056,34 @@ fn capture_one_lens_amounts(entries: &[(String, String)]) -> Option<(Option<f64>
     (amounts.0.is_some() || amounts.1.is_some()).then_some(amounts)
 }
 
+/// Rawtonic's polynomial distortion `k1` (model 0, radii in half
+/// diagonals) per percent of Capture One's Generic Distortion. Measured
+/// on Capture One 16.9.1 renders of two cameras (notes:
+/// benchmark-results/g50s-2026-11-23): the Generic profile moves the
+/// picture by a pure cubic of the radius, 0.0012 of the half diagonal per
+/// percent at r = 1, with no framing zoom (the frame keeps its size).
+/// Geometry against Capture One's frames: 0.7–3.4 px rms over a 7360 px
+/// wide frame (the best of Rawtonic's other distortion controls: 15–66 px).
+const CAPTURE_ONE_GENERIC_K1_PER_PERCENT: f64 = -0.0012;
+
+/// The `k1` of Capture One's Generic Distortion above 0 (0–100 %) with the
+/// Generic profile, which holds no data of the lens: the photo then has no
+/// lens profile either, as in Capture One. None for other lenses and at 0
+/// (Rawtonic's default correction stays, `capture_one_lens_report`).
+fn capture_one_generic_distortion_k1(entries: &[(String, String)]) -> Option<f64> {
+    capture_one_entry(entries, "LensIdGuid").filter(|v| is_generic_lens(v))?;
+    let amount = capture_one_entry(entries, "LensGeoAbr")?
+        .split('|')
+        .nth(1)?
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|v| v.is_finite() && *v > 0.0)?
+        .min(100.0);
+    // Rounded to the amount's hundred-thousandths: no float dust in recipes.
+    Some((amount * CAPTURE_ONE_GENERIC_K1_PER_PERCENT * 1e5).round() / 1e5)
+}
+
 /// The `LensIdGuid` of Capture One's "Generic" lens profile, the one it
 /// uses for a lens it has no profile of: seen the same on Olympus, Canon,
 /// Leaf and DNG files of Capture One 16.6–16.9 (notes:
@@ -1084,20 +1120,33 @@ fn capture_one_shadows_report(entries: &[(String, String)]) -> Option<String> {
 /// The import report's lines for Capture One's lens settings Rawtonic does
 /// not take over as they are: the Generic profile (the photo keeps
 /// Rawtonic's default correction for its lens, never a lens profile picked
-/// in its place) with the amounts set on it, which have no measured
-/// equivalent on Rawtonic's sliders; and an analysed chromatic aberration
+/// in its place; its Distortion above 0 is carried as a polynomial
+/// distortion, `capture_one_generic_distortion_k1`) with the amounts set on
+/// it that have no measured equivalent on Rawtonic's sliders; and an analysed chromatic aberration
 /// curve (Rawtonic measures the photo's own CA instead).
 fn capture_one_lens_report(entries: &[(String, String)]) -> Vec<String> {
     let mut out = Vec::new();
     if capture_one_entry(entries, "LensIdGuid").is_some_and(is_generic_lens) {
-        out.push(
+        let distortion = capture_one_generic_distortion_k1(entries).is_some();
+        let mut not_carried = Vec::new();
+        out.push(if distortion {
+            let amount = capture_one_entry(entries, "LensGeoAbr")
+                .and_then(|v| v.split('|').nth(1))
+                .and_then(|v| v.trim().parse::<f64>().ok())
+                .unwrap_or_default()
+                .min(100.0);
+            format!(
+                "Capture One's Generic lens profile: its Distortion {amount} is carried as a polynomial distortion without a lens profile"
+            )
+        } else {
             "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies"
-                .to_string(),
-        );
-        for (key, name) in [
-            ("LensGeoAbr", "Distortion"),
-            ("LensLightFallOff", "Light Falloff"),
-        ] {
+                .to_string()
+        });
+        if !distortion {
+            not_carried.push(("LensGeoAbr", "Distortion"));
+        }
+        not_carried.push(("LensLightFallOff", "Light Falloff"));
+        for (key, name) in not_carried {
             let amount = capture_one_entry(entries, key)
                 .and_then(|v| v.split('|').nth(1))
                 .and_then(|v| v.trim().parse::<f64>().ok())
@@ -1617,19 +1666,44 @@ mod tests {
         fs::write(&raw, b"not a raw").unwrap();
         // No lens profile in Capture One: no amounts to put on one.
         assert_eq!(capture_one_lens_amounts(&generic), None);
+        // G50S: its Distortion 30 is a pure radial cubic about the frame's
+        // centre without any framing zoom, measured on Capture One's renders
+        // as 0.0012 of the half diagonal per percent: Rawtonic's polynomial
+        // model with k1 = −0.0012 × amount at zoom 1 and no lens profile.
         let mut adjustments = json!({});
         capture_one_lens(&generic, &raw, &mut adjustments);
-        assert_eq!(adjustments, json!({}), "the default lens correction stays");
+        assert_eq!(
+            adjustments,
+            json!({
+                "lensCorrectionMode": "manual",
+                "lensDistortionParams": {
+                    "model": 0, "k1": -0.036, "k2": 0.0, "k3": 0.0,
+                    "zoom": 1.0, "exact_zoom": true
+                }
+            })
+        );
         assert_eq!(
             capture_one_lens_report(&generic),
-            [
-                "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies",
-                "Capture One's Distortion 30 with the Generic profile not carried (no measured equivalent)",
-            ]
+            ["Capture One's Generic lens profile: its Distortion 30 is carried as a polynomial distortion without a lens profile"]
         );
-        let warnings =
-            import_warnings(&photo("1", raw.clone(), Develop::CaptureOne(generic), None));
-        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        // Out of range values are clamped to the slider's 0…100.
+        let mut clamped = json!({});
+        capture_one_lens(
+            &entries(&[
+                ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),
+                ("LensGeoAbr", "|250.0|1"),
+            ]),
+            &raw,
+            &mut clamped,
+        );
+        assert_eq!(clamped["lensDistortionParams"]["k1"], json!(-0.12));
+        let warnings = import_warnings(&photo(
+            "1",
+            raw.clone(),
+            Develop::CaptureOne(generic.clone()),
+            None,
+        ));
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert!(warnings[0].starts_with(&raw.display().to_string()));
         // A Generic profile left at 0 is said once, with nothing left out.
         let untouched = entries(&[
@@ -1638,6 +1712,9 @@ mod tests {
             ("LensLightFallOff", "|0|1"),
         ]);
         assert_eq!(capture_one_lens_report(&untouched).len(), 1);
+        let mut kept = json!({});
+        capture_one_lens(&untouched, &raw, &mut kept);
+        assert_eq!(kept, json!({}), "Distortion 0: the default lens correction stays");
         // A lens profile of Capture One's own reports nothing.
         let profiled = entries(&[
             ("LensIdGuid", "P"),
