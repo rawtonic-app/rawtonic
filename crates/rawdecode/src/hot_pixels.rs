@@ -845,17 +845,7 @@ mod tests {
         store: impl Fn(f32) -> T + Sync,
     ) -> usize {
         if dead_test.isolated() {
-            let black = dead_test == DeadTest::IsolatedBlack;
-            super::hot_pixels_reference::isolated(
-                data,
-                width,
-                active,
-                cfa,
-                dead_test.texture(),
-                black,
-                level,
-                store,
-            )
+            super::hot_pixels_reference::isolated(data, width, active, cfa, dead_test, level, store)
         } else {
             super::hot_pixels_reference::suppress(
                 data, width, active, cfa, wb, dead_test, level, store,

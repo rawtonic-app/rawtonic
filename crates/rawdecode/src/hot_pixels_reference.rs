@@ -5,8 +5,8 @@
 //! `repair_hot_pixels` (`src-tauri/src/decode/hot_pixels.rs`, commit
 //! `63b415758`, Copyright Timon Käch, AGPL-3.0-or-later), every sample
 //! tested on its own, adapted to `suppress`'s levels, active area and CFA;
-//! with `texture` it is the reference of `DeadTest::IsolatedTexture`, with
-//! `black` too of `DeadTest::IsolatedBlack`.
+//! with its texture rules also of `DeadTest::IsolatedTexture` and
+//! `DeadTest::IsolatedBlack`.
 
 use super::*;
 
@@ -101,12 +101,13 @@ pub fn isolated<T: Copy + Send + Sync>(
     width: usize,
     active: (usize, usize, usize, usize),
     cfa: &CFA,
-    texture: bool,
-    black: bool,
+    dead_test: DeadTest,
     level: impl Fn(T) -> f32 + Sync,
     store: impl Fn(f32) -> T + Sync,
 ) -> usize {
     const REACH: isize = 2;
+    let texture = dead_test.texture();
+    let black = dead_test == DeadTest::IsolatedBlack;
     let period = [cfa.width, cfa.height].map(|p| if p % 2 == 0 { p.max(2) } else { 2 * p });
     let mut offsets: Vec<(isize, isize)> = (-REACH..=REACH)
         .flat_map(|dy| (-REACH..=REACH).map(move |dx| (dx, dy)))
