@@ -22,7 +22,7 @@ use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Contents, HotFolderConfig, ImportKind, Library};
 use rawtonic_fs::Canonical;
 use rawtonic_ingest::hot_folder::{DEFAULT_SETTLE, HotFolder};
-use rawtonic_ingest::metadata::ImportMetadata;
+use rawtonic_ingest::metadata::MetadataPreset;
 use rawtonic_metadata::culling::Rating;
 use rawtonic_recipe::lens;
 use rawtonic_recipe::masks;
@@ -65,7 +65,7 @@ pub struct NextCaptureMetadata {
     /// The regular import's metadata preset (creator, copyright, usage
     /// terms, contact, keywords), applied to every capture by the same
     /// rules: it fills empty fields, `overwrite` lists those it replaces.
-    pub import: Option<ImportMetadata>,
+    pub import: Option<MetadataPreset>,
 }
 
 impl NextCaptureMetadata {
@@ -87,11 +87,11 @@ impl NextCaptureMetadata {
         }
         // Per-photo ratings belong to one import dialog, not to a watch.
         let import = self.import.map(|mut import| {
-            import.ratings.clear();
+            import.metadata.ratings.clear();
             import
         });
         if let Some(import) = &import {
-            import.validate().map_err(|e| e.to_string())?;
+            import.metadata.validate().map_err(|e| e.to_string())?;
         }
         Ok(Self {
             rating: self.rating,
@@ -262,7 +262,10 @@ fn next_contents(
         // The preset merges with what the file itself carries, as in an
         // import; the keywords typed beside it join its own.
         Some(import) => {
-            let (metadata, note) = import.for_capture(source, meta.rating, &meta.keywords)?;
+            let (metadata, note) =
+                import
+                    .metadata
+                    .for_capture(source, meta.rating, &meta.keywords)?;
             if let Some(note) = note {
                 log::warn!("Hot folder: {}: {note}", source.display());
             }
@@ -323,7 +326,7 @@ pub fn ingest_capture(
     let recorded = earlier.and_then(|copy| {
         rawtonic_ingest::record_earlier_copy(lib, source, copy, contents.as_ref()).transpose()
     });
-    let result = match recorded.unwrap_or_else(|| {
+    let mut result = match recorded.unwrap_or_else(|| {
         rawtonic_ingest::import_capture(lib, source, template, sequence, contents.as_ref(), cancel)
     }) {
         Ok(result) => result,
@@ -339,6 +342,21 @@ pub fn ingest_capture(
             );
         }
     };
+    // A sidecar copied from beside the file replaces the metadata stored with
+    // the capture (it is adopted wholesale, `register_with_sidecar`): the
+    // preset then goes on top of it, by the import's rules, with the file
+    // the library holds.
+    if result.sidecar.is_some()
+        && result.error.is_none()
+        && !result.skipped
+        && let Some(import) = &settings.metadata.import
+        && let Err(e) =
+            rawtonic_ingest::metadata::apply_to_copy(lib, &mut result, &import.metadata, &|| {
+                Box::new(crate::session_bridge::write_turn())
+            })
+    {
+        log::warn!("Hot folder: import metadata of {}: {e:#}", source.display());
+    }
     let imported = Imported {
         source: source.into(),
         destination: result.destination.clone(),
@@ -355,6 +373,13 @@ pub fn ingest_capture(
         // The derived editor sidecar and XMP, as after an edit; the library
         // already holds the adjustments and metadata.
         crate::session_bridge::rederive(lib, &asset);
+        // Metadata that the editor's own state does not carry (creator,
+        // copyright, contact) reaches the XMP sidecar all the same.
+        if contents.editor_state.is_none()
+            && let Err(e) = lib.sync_xmp(&asset)
+        {
+            log::warn!("XMP pending for {}: {e}", source.display());
+        }
         // A preset's AI selections are computed for the capture now, not
         // when it is first opened (`selection_queue`).
         if contents
@@ -1529,7 +1554,11 @@ mod tests {
         let metadata = NextCaptureMetadata {
             rating: 2,
             keywords: vec!["studio".into()],
-            import: Some(import),
+            import: Some(MetadataPreset {
+                id: "m1".into(),
+                name: "Rights".into(),
+                metadata: import,
+            }),
         }
         .cleaned()
         .unwrap();
@@ -1568,12 +1597,101 @@ mod tests {
         bad.iptc.insert("headline".into(), "x".into());
         assert!(
             NextCaptureMetadata {
-                import: Some(bad),
+                import: Some(MetadataPreset {
+                    id: String::new(),
+                    name: String::new(),
+                    metadata: bad
+                }),
                 ..Default::default()
             }
             .cleaned()
             .is_err()
         );
+    }
+
+    /// A rights-only preset (no rating, keywords or adjustments) reaches the
+    /// XMP sidecar, keeps its preset identity through the library's stored
+    /// configuration, and lands on top of the sidecar a camera card brought.
+    #[test]
+    fn a_rights_only_preset_reaches_the_sidecar_and_goes_over_a_card_sidecar() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = session(tmp.path());
+        let hot = tmp.path().join("Hot");
+        fs::create_dir(&hot).unwrap();
+        let preset: MetadataPreset = serde_json::from_value(json!({
+            "id": "m1", "name": "Rights", "creator": "Ada", "copyright": "(c) Ada",
+        }))
+        .unwrap();
+        let metadata = NextCaptureMetadata {
+            import: Some(preset),
+            ..Default::default()
+        }
+        .cleaned()
+        .unwrap();
+        let settings = CaptureSettings {
+            next_capture: NextCapture::Defaults,
+            metadata,
+        };
+        let stored: CaptureSettings =
+            serde_json::from_value(serde_json::to_value(&settings).unwrap()).unwrap();
+        let kept = stored.metadata.import.as_ref().unwrap();
+        assert_eq!((kept.id.as_str(), kept.name.as_str()), ("m1", "Rights"));
+        let cancel = AtomicBool::new(false);
+
+        fs::write(hot.join("A.ARW"), b"plain").unwrap();
+        let (shown, asset) = ingest_capture(
+            &lib,
+            &hot.join("A.ARW"),
+            "{orig}",
+            1,
+            &settings,
+            None,
+            None,
+            &cancel,
+        );
+        let asset = asset.unwrap_or_else(|| panic!("{shown:?}"));
+        assert_eq!(lib.metadata(&asset).unwrap().creator, "Ada");
+        let xmp = fs::read_to_string(
+            rawtonic_metadata::sidecar_path(&shown.destination.unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert!(xmp.contains("Ada") && xmp.contains("(c) Ada"), "{xmp}");
+
+        // The card's sidecar (its own creator) is adopted; the preset fills
+        // what it leaves empty.
+        fs::write(hot.join("B.ARW"), b"with sidecar").unwrap();
+        let card = rawtonic_metadata::Metadata {
+            creator: "Card Owner".into(),
+            ..Default::default()
+        };
+        fs::write(
+            hot.join("B.xmp"),
+            rawtonic_metadata::export_xmp(&card, "test").unwrap(),
+        )
+        .unwrap();
+        let (shown, asset) = ingest_capture(
+            &lib,
+            &hot.join("B.ARW"),
+            "{orig}",
+            2,
+            &settings,
+            None,
+            None,
+            &cancel,
+        );
+        let asset = asset.unwrap_or_else(|| panic!("{shown:?}"));
+        let meta = lib.metadata(&asset).unwrap();
+        assert_eq!(meta.creator, "Card Owner");
+        assert_eq!(meta.copyright, "(c) Ada");
+        let xmp = fs::read_to_string(
+            shown
+                .destination
+                .as_ref()
+                .map(|d| d.with_extension("xmp"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(xmp.contains("(c) Ada"), "{xmp}");
     }
     #[test]
     fn folders_inside_the_session_are_refused() {

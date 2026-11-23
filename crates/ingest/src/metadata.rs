@@ -29,9 +29,13 @@ pub struct ImportMetadata {
     pub ratings: BTreeMap<PathBuf, u8>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MetadataPreset {
+    /// Empty for an unsaved preset (a watch started from a new, unsaved
+    /// preset keeps its values without an identity).
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub name: String,
     #[serde(flatten)]
     pub metadata: ImportMetadata,
@@ -259,7 +263,7 @@ pub(crate) fn warn(result: &mut crate::ImportResult, note: String) {
 /// atomic XMP writer keep both sides recoverable if sidecar sync fails.
 /// Catalog errors are returned (the job stops and is resumed later); what
 /// the preset cannot add to this photograph is a warning on its result.
-pub(crate) fn apply_to_copy(
+pub fn apply_to_copy(
     library: &Library,
     result: &mut crate::ImportResult,
     preset: &ImportMetadata,
