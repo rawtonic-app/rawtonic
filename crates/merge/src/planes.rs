@@ -4,6 +4,39 @@
 use image::Rgb32FImage;
 use rayon::prelude::*;
 
+/// Items per chunk of [`det_sum`] and [`det_fold`]. Fixed, so the order of
+/// floating-point additions depends neither on the thread count nor on
+/// rayon's work stealing (a plain `par_iter().sum()` or `fold/reduce`
+/// groups additions differently run to run, which made merges differ in a
+/// few pixels).
+pub const REDUCE_CHUNK: usize = 4096;
+
+/// Sum of `f` over `items`, bit-identical for every run and thread count:
+/// each fixed-size chunk is summed in order, then the chunk sums in order.
+pub fn det_sum<T: Sync>(items: &[T], f: impl Fn(&T) -> f64 + Sync) -> f64 {
+    let partial: Vec<f64> = items
+        .par_chunks(REDUCE_CHUNK)
+        .map(|c| c.iter().map(&f).sum::<f64>())
+        .collect();
+    partial.iter().sum()
+}
+
+/// A parallel fold with a deterministic order: each fixed-size chunk is
+/// folded in order from `init()`, then the chunk results are merged in
+/// order with `merge`.
+pub fn det_fold<T: Sync, A: Send>(
+    items: &[T],
+    init: impl Fn() -> A + Sync,
+    fold: impl Fn(A, &T) -> A + Sync,
+    merge: impl Fn(A, A) -> A,
+) -> A {
+    let partial: Vec<A> = items
+        .par_chunks(REDUCE_CHUNK)
+        .map(|c| c.iter().fold(init(), &fold))
+        .collect();
+    partial.into_iter().fold(init(), merge)
+}
+
 #[derive(Clone, Debug)]
 pub struct Plane {
     pub w: usize,
@@ -90,7 +123,7 @@ impl Plane {
     }
 
     pub fn mean(&self) -> f64 {
-        let s: f64 = self.data.par_iter().map(|&v| v as f64).sum();
+        let s = det_sum(&self.data, |&v| v as f64);
         s / self.data.len().max(1) as f64
     }
 
