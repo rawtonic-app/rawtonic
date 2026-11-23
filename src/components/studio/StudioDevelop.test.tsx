@@ -141,11 +141,18 @@ describe('Develop tool contracts', () => {
     for (const tabName of ['Adjustments', 'Detail']) {
       fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: tabName }));
       openGroups();
+      const controls = screen.getAllByRole<HTMLInputElement>('slider');
       for (const [label, min, max, step, initial] of expected) {
-        const controls = screen.queryAllByRole('slider', {
-          name: label
-        }) as HTMLInputElement[];
-        if (controls.some((s) => +s.min === min && +s.max === max && +s.step === step && +s.value === initial))
+        if (
+          controls.some(
+            (s) =>
+              s.getAttribute('aria-label') === label &&
+              +s.min === min &&
+              +s.max === max &&
+              +s.step === step &&
+              +s.value === initial
+          )
+        )
           found.add(label);
       }
     }

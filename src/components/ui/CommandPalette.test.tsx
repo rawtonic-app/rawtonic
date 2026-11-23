@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import CommandPalette from './CommandPalette';
 import { registerAppCommands, runAppCommand, notifyAppCommandsChanged } from '../../utils/appCommands';
@@ -77,7 +77,9 @@ it('opens through the rebindable table key, searches and runs the registered han
   act(() => {
     runAppCommand('command_palette');
   });
-  expect(screen.getAllByRole('option')[0].textContent).toContain('Small JPEG');
+  const list = screen.getByRole('listbox');
+  expect(within(list).getByRole('option', { selected: true })).toBe(list.firstElementChild);
+  expect(list.firstElementChild?.textContent).toContain('Small JPEG');
   press('Escape');
   expect(screen.queryByRole('dialog')).toBeNull();
 });
@@ -93,9 +95,10 @@ it('finds scopes by each search keyword and toggles them from the palette', () =
       runAppCommand('command_palette');
     });
     const search = screen.getByRole('combobox');
+    const results = within(screen.getByRole('listbox'));
     for (const keyword of ['scopes', 'waveform', 'parade', 'vectorscope', 'histogram']) {
       fireEvent.change(search, { target: { value: keyword } });
-      const match = screen.getAllByRole('option')[0];
+      const match = results.getByRole('option', { selected: true });
       expect(match.textContent).toContain('appMenu.items.show_scopes');
       expect(match.querySelector('kbd')?.textContent).toBe('A');
     }
@@ -105,7 +108,9 @@ it('finds scopes by each search keyword and toggles them from the palette', () =
       runAppCommand('command_palette');
     });
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'histogram' } });
-    expect(screen.getAllByRole('option')[0].textContent).toContain('appMenu.items.hide_scopes');
+    expect(within(screen.getByRole('listbox')).getByRole('option', { selected: true }).textContent).toContain(
+      'appMenu.items.hide_scopes'
+    );
     press('Enter');
     expect(useEditorStore.getState().isWaveformVisible).toBe(false);
   } finally {
