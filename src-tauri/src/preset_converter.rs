@@ -1750,8 +1750,8 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                     // (c ∪ b · (1 − e) is one value in either order).
                     let additive = |item: &roxmltree::Node| {
                         let a = |n: &str| item.attribute((CRS_NS, n));
+                        // Add commutes whatever the component's inversion.
                         matches!(a("MaskBlendMode"), None | Some("0"))
-                            && a("MaskInverted") != Some("true")
                             && a("MaskValue")
                                 .and_then(|v| v.parse::<f64>().ok())
                                 .is_none_or(|v| v > 0.0 || a("What") == Some("Mask/Aggregate"))
@@ -3503,7 +3503,13 @@ mod tests {
             .map(|s| s["type"].as_str().unwrap().to_string())
             .collect();
         assert_eq!(types, ["brush", "brush", "linear"]);
-        // After a component that subtracts, or inverted: left out and named.
+        // After an inverted component: Add commutes, still first.
+        let inverted_before = after_gradient.replace(
+            r#"crs:What="Mask/Gradient" crs:MaskValue="1""#,
+            r#"crs:What="Mask/Gradient" crs:MaskInverted="true" crs:MaskValue="1""#,
+        );
+        assert_eq!(subs_of(&inverted_before).len(), 3);
+        // After a component that subtracts: left out and named.
         let after_subtract = after_gradient.replace(
             r#"crs:What="Mask/Gradient" crs:MaskValue="1""#,
             r#"crs:What="Mask/Gradient" crs:MaskBlendMode="1" crs:MaskValue="0""#,
