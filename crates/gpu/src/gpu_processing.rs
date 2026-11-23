@@ -7129,12 +7129,25 @@ pub fn wait_for_running_compiles(what: &str) {
         .then(|| (SlotWanted::new(), EndsAwaited::new()));
     // A compile that waits for a slot is not signalled on `freed` while it
     // waits, so this looks again every 250 ms.
+    let mut told = started;
     while state.0 > 0 || compiles_pending() || awaits_variant() {
         state = COMPILE_LIMIT
             .freed
             .wait_timeout(state, std::time::Duration::from_millis(250))
             .unwrap_or_else(|e| e.into_inner())
             .0;
+        // A wait that goes on is told (WDVL2: an export waited for good
+        // without a line in the log).
+        if told.elapsed() >= std::time::Duration::from_secs(10) {
+            told = std::time::Instant::now();
+            log::warn!(
+                "GPU {what}: waiting {:.0} s for shader compiles (slots held {}, compiles pending {}, an idle worker compiles an export's variant {})",
+                started.elapsed().as_secs_f64(),
+                state.0,
+                compiles_pending(),
+                awaits_variant()
+            );
+        }
     }
     drop(state);
     drop(wants);
@@ -7163,7 +7176,8 @@ pub fn compiles_limited() -> bool {
 
 /// A compile slot for an idle compile (`idle_compiles`), only while no other
 /// heavy compile waits for one or runs: those go first. `None` if one does.
-fn background_compile_slot(what: &str) -> Option<CompileSlot> {
+/// `awaited`: an export or a frame waits for the worker's job (its variant).
+fn background_compile_slot(what: &str, awaited: bool) -> Option<CompileSlot> {
     let mut state = COMPILE_LIMIT
         .state
         .lock()
@@ -7174,9 +7188,11 @@ fn background_compile_slot(what: &str) -> Option<CompileSlot> {
     // it stopped the helper of the last one, and a new one started at once
     // took the slot again before the export saw it free. WDVL1: an export
     // retried after a lost device waited for 5 min while the helper
-    // restarted 80 times a second. (A frame waiting for a slot does not
-    // hold them: its own variant may compile in one.)
-    let ends_awaited = ENDS_AWAITED.load(std::sync::atomic::Ordering::SeqCst) > 0;
+    // restarted 80 times a second. A job an export or a frame waits for
+    // starts all the same: the export waiting for the compiles to end waits
+    // for it too (WDVL2: with two export lanes, one waited for the compiles
+    // and the other for its variant, which no worker then compiled).
+    let ends_awaited = !awaited && ENDS_AWAITED.load(std::sync::atomic::Ordering::SeqCst) > 0;
     if heavy || ends_awaited || state.0 > 0 || state.1.is_some_and(|max| state.0 >= max) {
         return None;
     }
