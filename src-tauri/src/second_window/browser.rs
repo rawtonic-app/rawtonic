@@ -22,7 +22,7 @@ use serde::Serialize;
 use tauri::Emitter;
 use uuid::Uuid;
 
-use crate::gpu_processing::{CellExtent, CellLayer, CellZoom, MultiViewCell};
+use crate::gpu_processing::{CellExtent, CellLayer, CellZoom, CellZooms, MultiViewCell};
 use crate::state::lock::lock_recover;
 
 /// Sent to the second window's page whenever a frame it shows changes.
@@ -127,6 +127,7 @@ impl BrowserView {
         _queue: &wgpu::Queue,
         _primary: Option<String>,
         cells: Vec<MultiViewCell>,
+        _zooms: Option<CellZooms>,
     ) {
         self.show(cells.into_iter().next().map(|cell| cell.path));
     }
