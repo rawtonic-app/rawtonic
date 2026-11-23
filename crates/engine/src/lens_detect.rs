@@ -119,16 +119,32 @@ impl LensDetection {
     }
 }
 
-/// Whether a lens name states its aperture ("EF50mm f/1.2L USM", "FE
-/// 24-70mm F2.8 GM", "Summicron-M 1:2/50"): a name that does not ("24-70mm",
-/// "----") does not identify the lens, so the maker note is read too.
-pub fn names_aperture(name: &str) -> bool {
-    name_spec(name).1.is_some()
+/// Whether a lens name identifies the lens: it states focal length and
+/// aperture and has a word beyond them ("EF50mm f/1.2L USM", "FE 85mm
+/// F1.8", "Summicron-M 1:2/50"). One that does not ("24-70mm",
+/// "24-70mm f/2.8", "55mmF1.4", "----") fits several lenses: the maker note
+/// is read too, and no lens is picked by the name alone.
+pub fn identifies_lens(name: &str) -> bool {
+    let (focal, aperture) = name_spec(name);
+    if focal.is_none() || aperture.is_none() {
+        return false;
+    }
+    let (focal_re, aperture_re, leica_re) = spec_patterns();
+    let rest = leica_re.replace_all(name, " ");
+    let rest = focal_re.replace_all(&rest, " ");
+    let rest = aperture_re.replace_all(&rest, " ");
+    rest.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|word| !word.eq_ignore_ascii_case("mm"))
+        .map(str::len)
+        .sum::<usize>()
+        >= 2
 }
 
-/// The focal range and widest aperture a lens name states: "24-70mm
-/// f/2.8", "17-55mm F2.8", "EF50mm f/1.2L", Leica's "1:2.8-4/24-90".
-pub fn name_spec(name: &str) -> (Option<(f32, f32)>, Option<f32>) {
+fn spec_patterns() -> (
+    &'static regex::Regex,
+    &'static regex::Regex,
+    &'static regex::Regex,
+) {
     use std::sync::OnceLock;
     static FOCAL: OnceLock<regex::Regex> = OnceLock::new();
     static APERTURE: OnceLock<regex::Regex> = OnceLock::new();
@@ -137,12 +153,20 @@ pub fn name_spec(name: &str) -> (Option<(f32, f32)>, Option<f32>) {
         regex::Regex::new(r"(?i)(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?\s*mm").unwrap()
     });
     let aperture = APERTURE.get_or_init(|| {
-        regex::Regex::new(r"(?:^|[^A-Za-z]|mm)[fF]\s*/?\s*(\d+(?:\.\d+)?)").unwrap()
+        regex::Regex::new(r"(?:^|[^A-Za-z]|mm)[fF]\s*/?\s*(\d+(?:\.\d+)?)(?:\s*-\s*\d+(?:\.\d+)?)?")
+            .unwrap()
     });
     let leica = LEICA.get_or_init(|| {
         regex::Regex::new(r"1\s*:\s*(\d+(?:\.\d+)?)(?:\s*-\s*\d+(?:\.\d+)?)?\s*/\s*(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?")
             .unwrap()
     });
+    (focal, aperture, leica)
+}
+
+/// The focal range and widest aperture a lens name states: "24-70mm
+/// f/2.8", "17-55mm F2.8", "EF50mm f/1.2L", Leica's "1:2.8-4/24-90".
+pub fn name_spec(name: &str) -> (Option<(f32, f32)>, Option<f32>) {
+    let (focal, aperture, leica) = spec_patterns();
     let num = |m: Option<regex::Match>| m.and_then(|m| m.as_str().parse::<f32>().ok());
     let range = |a: Option<f32>, b: Option<f32>| {
         let a = a.filter(|v| *v > 0.0)?;
@@ -288,7 +312,13 @@ fn named(db: &LensDatabase, lens: &Lens) -> (String, String) {
 pub fn detect_lens(db: &LensDatabase, facts: &LensFacts) -> LensDetection {
     let crop = body_crop_factor(db, &facts.maker, &facts.camera_model, facts.frame_crop);
     if !facts.candidates.is_empty() {
-        return from_candidates(db, facts, crop);
+        let found = from_candidates(db, facts, crop);
+        // Nothing the maker note names is in Lensfun as a lens (a compact's
+        // own lens is listed for its camera): the name and the camera's
+        // mount as without it.
+        if found.lens.is_some() || !found.candidates.is_empty() {
+            return found;
+        }
     }
     if let Some(found) = from_name(db, facts) {
         return found;
@@ -369,13 +399,48 @@ fn from_candidates(db: &LensDatabase, facts: &LensFacts, crop: Option<f32>) -> L
     {
         return LensDetection::picked(named(db, lens));
     }
-    let mut candidates: Vec<(String, String)> = Vec::new();
-    for lenses in found
-        .iter()
-        .map(|(_, lenses)| lenses.as_slice())
-        .chain(std::iter::once(spelled_otherwise.as_slice()))
+    // The one lens the maker note names, without a Lensfun entry of its
+    // very name: looked up by that name as an EXIF name would be (it
+    // identifies the lens and must agree with the facts).
+    if let [(name, lenses)] = found.as_slice()
+        && lenses.is_empty()
     {
-        for lens in lenses {
+        let (focal, aperture) = name_spec(name);
+        let by_name = LensFacts {
+            lens_name: (*name).to_string(),
+            focal_range: focal.or(facts.focal_range),
+            max_aperture: aperture.or(facts.max_aperture),
+            candidates: Vec::new(),
+            ..facts.clone()
+        };
+        if let Some(found) = from_name(db, &by_name)
+            && found.lens.is_some()
+        {
+            return found;
+        }
+    }
+    // Each physical lens once: of its calibrations the one for the photo's
+    // frame (`best_calibration`).
+    let mut lenses: Vec<&Lens> = found
+        .iter()
+        .flat_map(|(_, lenses)| lenses.iter().copied())
+        .chain(spelled_otherwise.iter().copied())
+        .collect();
+    lenses.dedup_by(|a, b| std::ptr::eq(*a, *b));
+    let mut candidates: Vec<(String, String)> = Vec::new();
+    let mut seen: Vec<(String, String)> = Vec::new();
+    for lens in &lenses {
+        let identity = (lens.get_maker(), lens.get_canonical_model_name());
+        if seen.contains(&identity) {
+            continue;
+        }
+        let variants: Vec<&Lens> = lenses
+            .iter()
+            .copied()
+            .filter(|other| (other.get_maker(), other.get_canonical_model_name()) == identity)
+            .collect();
+        seen.push(identity);
+        if let Some(lens) = best_calibration(&variants, crop) {
             let entry = named(db, lens);
             if !candidates.contains(&entry) {
                 candidates.push(entry);
@@ -431,7 +496,7 @@ fn from_name(db: &LensDatabase, facts: &LensFacts) -> Option<LensDetection> {
     }
     let mounts = mounts_for_camera(db, facts);
     let mounts = mounts.as_deref();
-    if names_aperture(name) {
+    if identifies_lens(name) {
         let best = |query: &str| find_lens_by_fuzzy_model(db, &facts.maker, query);
         let hit = best(name).or_else(|| without_model_code(name).and_then(best));
         if let Some((maker, model)) = &hit
@@ -508,8 +573,7 @@ mod tests {
         let found = detect(&[
             ("Make", "NIKON CORPORATION"),
             ("Model", "NIKON D800"),
-            ("LensMake", "Nikon"),
-            ("LensModel", "AF-S Zoom-Nikkor 24-70mm f/2.8G ED"),
+            (LENS_CANDIDATES, "Nikon AF-S Zoom-Nikkor 24-70mm f/2.8G ED"),
             ("FocalLength", "24"),
             ("FocalLengthIn35mmFilm", "24 mm"),
             ("MaxApertureValue", "3 EV"),
@@ -528,8 +592,8 @@ mod tests {
         let found = detect(&[
             ("Make", "Canon"),
             ("Model", "Canon EOS-1Ds Mark III"),
-            ("LensMake", "Canon"),
-            ("LensModel", "EF 50mm f/1.2L USM"),
+            (LENS_CANDIDATES, "Canon EF 50mm f/1.2L USM"),
+            (MAKER_NOTE_LENS_READ, "1"),
             ("FocalLength", "50"),
             ("FNumber", "f/1.2"),
         ]);
@@ -563,6 +627,13 @@ mod tests {
             "{found:?}"
         );
         assert!(!makers.contains(&"Canon"), "{found:?}");
+        // One entry per physical lens: the Sigma's calibration for the
+        // 650D's APS-C frame only.
+        assert_eq!(
+            makers.iter().filter(|m| **m == "Sigma").count(),
+            1,
+            "{found:?}"
+        );
     }
 
     /// The same photo by names alone (an EXIF map cached before the maker
@@ -582,6 +653,38 @@ mod tests {
         ]);
         assert_eq!(found.lens, None);
         assert!(!found.candidates.is_empty());
+    }
+
+    /// A compact whose maker note names its own lens (rawler's fixed-lens
+    /// key) still gets the lens Lensfun lists for the camera.
+    #[test]
+    fn a_compacts_own_lens_comes_through_its_camera() {
+        let found = detect(&[
+            ("Make", "Canon"),
+            ("Model", "Canon PowerShot SX60 HS"),
+            (LENS_CANDIDATES, "Canon PowerShot SX60 HS"),
+            (MAKER_NOTE_LENS_READ, "1"),
+        ]);
+        assert!(
+            found
+                .lens
+                .as_ref()
+                .is_some_and(|(_, model)| model.contains("SX60")),
+            "{found:?}"
+        );
+    }
+
+    /// A name with focal length and aperture but nothing else ("24-70mm
+    /// f/2.8") fits Canon's 24-70 f/2.8L and L II alike: no pick.
+    #[test]
+    fn a_generic_full_name_picks_nothing() {
+        let found = detect(&[
+            ("Make", "Canon"),
+            ("Model", "Canon EOS 5D Mark III"),
+            ("LensModel", "24-70mm f/2.8"),
+        ]);
+        assert_eq!(found.lens, None);
+        assert!(found.candidates.len() > 1, "{found:?}");
     }
 
     /// One maker-note lens for a name without an aperture (EOS 6D Mark II,
@@ -662,7 +765,25 @@ mod tests {
             name_spec("AF-S DX Nikkor 18-140mm"),
             (Some((18.0, 140.0)), None)
         );
-        assert!(!names_aperture("----"));
+        assert!(!identifies_lens("----"));
+        for weak in [
+            "24-70mm",
+            "24-70mm f/2.8",
+            "55mmF1.4",
+            "E 60mm F2.8",
+            "100-300mm F4.5-5.6",
+        ] {
+            assert!(!identifies_lens(weak), "{weak}");
+        }
+        for full in [
+            "EF50mm f/1.2L USM",
+            "FE 85mm F1.8",
+            "XF35mmF1.4 R",
+            "Summicron-M 1:2/50",
+            "50mm F1.8 II",
+        ] {
+            assert!(identifies_lens(full), "{full}");
+        }
         assert_eq!(parse_specification("24-70 mm"), (Some((24.0, 70.0)), None));
         assert_eq!(
             parse_specification("15-45 mm, f/3.5-6.3"),

@@ -371,7 +371,10 @@ pub fn is_unresolved(recipe: &Value) -> bool {
 }
 
 /// Before rendering a recipe saved while its photo could not be read: its
-/// lens parameters resolved now, from the photo's EXIF. An error when that
+/// lens parameters resolved now, from the photo's EXIF — with the current
+/// detection and database (it stored no lens to keep): an Auto edit of an
+/// ambiguous lens renders without a profile rather than with the guess an
+/// earlier release made (decision LNS1, 2026-11-23; notes: parity-gaps/G71). An error when that
 /// still cannot be done, rather than rendering missing or another lens's
 /// parameters.
 pub fn resolve_unresolved(

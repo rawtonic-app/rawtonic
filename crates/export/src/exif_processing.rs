@@ -667,7 +667,7 @@ pub fn needs_maker_note_lens(path: &str, map: &HashMap<String, String>) -> bool 
         && !map.contains_key(lens_detect::MAKER_NOTE_LENS_READ)
         && !map
             .get("LensModel")
-            .is_some_and(|name| lens_detect::names_aperture(name))
+            .is_some_and(|name| lens_detect::identifies_lens(name))
 }
 
 /// `add_maker_note_lens` for an EXIF map cached before it existed
@@ -683,19 +683,20 @@ pub fn add_maker_note_lens_from_shared(
 }
 
 /// The lens the maker note names (rawler's lens ID tables) where the EXIF
-/// tags do not identify it: no LensModel (older bodies write it only in the
-/// maker note: Nikon's lens data, Canon's LensType) — then it becomes
-/// LensModel/LensMake — or one without an aperture ("24-70mm", third-party
-/// lenses on Canon) — then `LensCandidates` names it, or the lenses an ID
-/// shared by several fits. Read only for such a name: a full EXIF name
-/// needs no maker note.
+/// tags do not identify it (`lens_detect::identifies_lens`): no LensModel
+/// (older bodies name the lens only in the maker note: Nikon's lens data,
+/// Canon's LensType) or a generic one ("24-70mm", third-party lenses on
+/// Canon). It goes to `LensCandidates` — the one lens, or the lenses an ID
+/// shared by several fits — a key for lens detection only: LensModel and
+/// LensMake stay the file's, so exported metadata does not change. A name
+/// that identifies the lens reads no maker note.
 fn add_maker_note_lens(
     map: &mut HashMap<String, String>,
     raw_metadata: &dyn Fn() -> Option<RawMetadata>,
 ) {
     if map
         .get("LensModel")
-        .is_some_and(|name| lens_detect::names_aperture(name))
+        .is_some_and(|name| lens_detect::identifies_lens(name))
     {
         return;
     }
@@ -707,12 +708,6 @@ fn add_maker_note_lens(
         "1".to_string(),
     );
     let names = match &metadata.lens {
-        Some(lens) if !map.contains_key("LensModel") => {
-            map.insert("LensModel".to_string(), lens.lens_model.trim().to_string());
-            map.entry("LensMake".to_string())
-                .or_insert_with(|| lens.lens_make.trim().to_string());
-            return;
-        }
         Some(lens) => vec![lens.lens_name.trim().to_string()],
         None => metadata
             .lens_candidates
@@ -2747,8 +2742,12 @@ mod tests {
         };
         let mut d800 = HashMap::from([("Make".to_string(), "NIKON CORPORATION".to_string())]);
         super::add_maker_note_lens(&mut d800, &with_lens);
-        assert_eq!(d800["LensModel"], "AF-S Zoom-Nikkor 24-70mm f/2.8G ED");
-        assert_eq!(d800["LensMake"], "Nikon");
+        assert_eq!(
+            d800[LENS_CANDIDATES],
+            "Nikon AF-S Zoom-Nikkor 24-70mm f/2.8G ED"
+        );
+        // Detection only: the exported LensModel/LensMake stay the file's.
+        assert!(!d800.contains_key("LensModel") && !d800.contains_key("LensMake"));
         assert!(!super::needs_maker_note_lens("a.NEF", &d800));
 
         let shared = || {

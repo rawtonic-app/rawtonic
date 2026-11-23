@@ -494,9 +494,12 @@ impl<'a> Cr2Decoder<'a> {
       None
     };
     match self.makernote.as_ref().and_then(|mn| mn.get_entry(Cr2MakernoteTag::CameraSettings)) {
+      // Rawtonic patch (LNS1): a CameraSettings record too short for the
+      // LensType is no lens data (the EXIF map now reads it for photos
+      // whose EXIF names no lens), never a panic.
       Some(Entry {
         value: Value::Short(settings), ..
-      }) => {
+      }) if settings.len() > 22 => {
         let lens_info = settings[22];
         debug!("Lens Info tag: {}", lens_info);
         let resolver = LensResolver::new()
@@ -1056,7 +1059,8 @@ pub(crate) fn canon_lens_info(settings: &[u16]) -> Option<[Rational; 4]> {
     .get(26)
     .map(|raw| canon_ev(*raw as i16))
     .map(|ev| 2f64.powf(ev / 2.0))
-    .filter(|f| f.is_finite() && (0.5..=64.0).contains(f) && settings[26] != 0)
+    .filter(|f| f.is_finite() && (0.5..=64.0).contains(f))
+    .filter(|_| settings.get(26).is_some_and(|raw| *raw != 0))
     .map(|f| Rational::new((f * 100.0).round() as u32, 100))
     .unwrap_or(Rational::new(0, 1));
   if short == 0 && aperture.n == 0 {

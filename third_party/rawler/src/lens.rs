@@ -498,6 +498,14 @@ mod tests {
     assert_eq!(names, ["Sigma 24-70mm f/2.8 IF EX DG HSM", "Tamron SP 24-70mm f/2.8 Di VC USD"]);
   }
 
+  /// Rawtonic patch (LNS1): a CameraSettings record without the lens
+  /// fields gives no lens info.
+  #[test]
+  fn short_camera_settings_give_no_lens_info() {
+    assert_eq!(crate::decoders::cr2::canon_lens_info(&[0u16; 20]), None);
+    assert_eq!(crate::decoders::cr2::canon_lens_info(&[]), None);
+  }
+
   /// Rawtonic patch (LNS1): a lens the ID names alone is not narrowed away.
   #[test]
   fn single_lens_id_resolves_without_lens_info() {
