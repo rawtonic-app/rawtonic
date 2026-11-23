@@ -13,6 +13,8 @@
 
 ### Fixes
 
+- **Restart now for an update reopens a photo you opened on its own.** A photo opened from the command line, with "Open with" or from the Finder while no library was open came back as an empty start screen after the update's restart (on Windows always, since the setup restarts Rawtonic without the file). Rawtonic now notes that photo's path in its own settings folder before the update installs and opens it again at the next start; the photo file itself is never touched. A library reopens by itself as before.
+
 - **Before/After: a snapshot of an older edit is no longer shown through the wrong preview while a photo opens.** For DNGs with a lens warp per colour plane (e.g. some drone and action-camera files), the Before of a snapshot saved with an older render version could briefly show the new per-plane warp until the full decode arrived; it now waits for the decode.
 
 - **Photo merges: fewer dropped panorama frames, sharper focus stacks, cleaner HDR ghosts** (new merges; merged files you saved stay as they are). Measured against RapidRAW 1.7.1's rewritten merge engine on test sets with a known answer and on real brackets and panoramas; each change takes the better of the two approaches.

@@ -440,6 +440,7 @@ pub fn start_new_instance<R: Runtime>(app: &AppHandle<R>) {
     let started = tauri::process::current_binary(&env).and_then(|binary| {
         std::process::Command::new(binary)
             .args(env.args_os.iter().skip(1))
+            .env(crate::restart_reopen::RESTARTED_ENV, "1")
             .spawn()
     });
     if let Err(e) = started {

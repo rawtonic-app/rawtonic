@@ -103,6 +103,7 @@ mod qa_control;
 mod qa_crash;
 mod recipe_frame;
 mod red_eye;
+mod restart_reopen;
 mod scope_analytics;
 mod scope_images;
 mod second_window;
@@ -416,16 +417,28 @@ fn start(args: Vec<String>) {
 
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
             {
+                // A restart's note is taken (and removed) at every start
+                // with a window; headless runs leave it for that start.
+                let noted = (!is_headless)
+                    .then(|| app.path().app_config_dir().ok())
+                    .flatten()
+                    .and_then(|dir| restart_reopen::take(&dir));
+                let restarted = restart_reopen::restarted(|name| std::env::var_os(name));
                 match launch_req.clone() {
                     LaunchRequest::EditSession(session) => {
                         log::info!("Initial launch with external edit session for: {}", session.source);
                         *state::lock::lock_recover(&startup_state.pending_edit_session) = Some(session);
                     }
-                    LaunchRequest::OpenFile(path) => {
-                        log::info!("Initial open: Storing path {} for later.", path);
-                        *state::lock::lock_recover(&startup_state.initial_file_path) = Some(path);
+                    other => {
+                        let launch = match other {
+                            LaunchRequest::OpenFile(path) => Some(path),
+                            _ => None,
+                        };
+                        if let Some(path) = restart_reopen::choose(launch, restarted, noted) {
+                            log::info!("Initial open: Storing path {} for later.", path);
+                            *state::lock::lock_recover(&startup_state.initial_file_path) = Some(path);
+                        }
                     }
-                    _ => {}
                 }
             }
 
