@@ -600,6 +600,7 @@ fn run(
                     }
                 }
                 rawtonic_rawdecode::gpu_submit::submit(
+                    device,
                     queue,
                     "edge fringe",
                     0,
@@ -782,6 +783,7 @@ fn run(
                     },
                 );
                 rawtonic_rawdecode::gpu_submit::submit(
+                    device,
                     queue,
                     "edge fringe",
                     0,
@@ -805,7 +807,13 @@ fn run(
                 0,
                 ((x1 - x0) * (y1 - y0) * 12) as u64,
             );
-            rawtonic_rawdecode::gpu_submit::submit(queue, "edge fringe", 0, Some(encoder.finish()));
+            rawtonic_rawdecode::gpu_submit::submit(
+                device,
+                queue,
+                "edge fringe",
+                0,
+                Some(encoder.finish()),
+            );
             if let Some(previous) = pending.replace((slot, [x0, y0, x1, y1]))
                 && let Target::Data(data) = &mut target
             {

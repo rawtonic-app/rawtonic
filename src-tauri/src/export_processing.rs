@@ -1557,6 +1557,9 @@ fn device_after_loss(
                 "Export: exporting again on the new graphics device after {:?}",
                 started.elapsed()
             );
+            // As at the export's start: the new device's idle compiles take
+            // the shown photo's variant first, which the export waits for.
+            rawtonic_gpu::gpu_processing::export_of_shown_photo_starts();
             return Some(Arc::new(current));
         }
         std::thread::sleep(std::time::Duration::from_millis(100));

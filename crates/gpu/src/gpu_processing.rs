@@ -154,6 +154,9 @@ pub fn processing_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDesc
     }
     // Used only once the app opens a cache file (`pipeline_cache::open`).
     required_features |= crate::pipeline_cache::device_features(adapter);
+    // Each render submission's own GPU time, for the watchdog's log
+    // (`gpu_submit::time_on_gpu`).
+    required_features |= adapter.features() & rawtonic_rawdecode::gpu_submit::TIMING_FEATURES;
     wgpu::DeviceDescriptor {
         label: Some("Processing Device"),
         required_features,
@@ -556,7 +559,13 @@ fn submit_and_wait(
     encoder: wgpu::CommandEncoder,
 ) -> Result<(), String> {
     let (tx, done) = std::sync::mpsc::channel();
-    gpu_submit::submit(&context.queue, label, pixels, Some(encoder.finish()));
+    gpu_submit::submit(
+        &context.device,
+        &context.queue,
+        label,
+        pixels,
+        Some(encoder.finish()),
+    );
     context.queue.on_submitted_work_done(move || {
         let _ = tx.send(());
     });
@@ -833,6 +842,7 @@ impl GpuPyramid {
         });
         encoder.copy_buffer_to_buffer(&blocks, 0, &readback, 0, total);
         gpu_submit::submit(
+            &context.device,
             &context.queue,
             "colour noise measurement",
             u64::from(width) * u64::from(height),
@@ -1027,6 +1037,7 @@ impl GpuPyramid {
             16,
         );
         gpu_submit::submit(
+            &context.device,
             &context.queue,
             "colour noise coarsest level",
             0,
@@ -1266,6 +1277,7 @@ impl ChromaGpu {
             &pyramid.levels[0],
         );
         gpu_submit::submit(
+            &context.device,
             &context.queue,
             "colour noise pack",
             0,
@@ -1404,6 +1416,7 @@ impl ChromaGpu {
             pass.dispatch_workgroups(source.width.div_ceil(16), source.height.div_ceil(16), 1);
         }
         gpu_submit::submit(
+            &context.device,
             &context.queue,
             "colour noise energy",
             u64::from(source.width) * u64::from(source.height),
@@ -1511,6 +1524,7 @@ impl ChromaGpu {
         );
         self.encode_pack(context, pipelines, &mut encoder, &level1, &rebuilt);
         gpu_submit::submit(
+            &context.device,
             &context.queue,
             "colour noise rebuild",
             0,
@@ -3529,7 +3543,7 @@ impl WgpuDisplay {
             multi.then_some(&self.multi),
             primary,
         );
-        gpu_submit::submit(queue, "display draw", 0, Some(encoder.finish()));
+        gpu_submit::submit(device, queue, "display draw", 0, Some(encoder.finish()));
         queue.present(output);
         // Handed to the window server, not yet on screen. Pointer
         // sessions in the webview log join these by wall-clock time.
@@ -3832,7 +3846,7 @@ fn begin_texture_readback(
         size,
     );
 
-    gpu_submit::submit(queue, "readback copy", 0, Some(encoder.finish()));
+    gpu_submit::submit(device, queue, "readback copy", 0, Some(encoder.finish()));
     let (tx, mapped) = std::sync::mpsc::channel();
     buffer
         .slice(..)
@@ -6989,6 +7003,27 @@ impl Drop for SlotWanted {
     }
 }
 
+/// Exports waiting for the compiles to end (`wait_for_running_compiles`)
+/// without an idle worker compiling their variant: no idle compile starts
+/// meanwhile (`background_compile_slot`).
+static ENDS_AWAITED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Counts in `ENDS_AWAITED` while it lives.
+struct EndsAwaited;
+
+impl EndsAwaited {
+    fn new() -> Self {
+        ENDS_AWAITED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for EndsAwaited {
+    fn drop(&mut self) {
+        ENDS_AWAITED.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// Whether a compile or an export waits for a compile slot now.
 fn slot_wanted() -> bool {
     SLOT_WANTED.load(std::sync::atomic::Ordering::SeqCst) > 0
@@ -7090,7 +7125,8 @@ pub fn wait_for_running_compiles(what: &str) {
     // (`export_of_shown_photo_starts`): then the export waits for that, and
     // the worker stops any other helper itself.
     let awaits_variant = idle_compiles::export_awaits_variant;
-    let wants = ((state.0 > 0 || compiles_pending()) && !awaits_variant()).then(SlotWanted::new);
+    let wants = ((state.0 > 0 || compiles_pending()) && !awaits_variant())
+        .then(|| (SlotWanted::new(), EndsAwaited::new()));
     // A compile that waits for a slot is not signalled on `freed` while it
     // waits, so this looks again every 250 ms.
     while state.0 > 0 || compiles_pending() || awaits_variant() {
@@ -7134,7 +7170,14 @@ fn background_compile_slot(what: &str) -> Option<CompileSlot> {
         .unwrap_or_else(|e| e.into_inner());
     // Small and tiny creations run beside it (`CompileWeight`).
     let heavy = HEAVY_PENDING.load(std::sync::atomic::Ordering::SeqCst) > 0;
-    if heavy || state.0 > 0 || state.1.is_some_and(|max| state.0 >= max) {
+    // Nor while an export waits for the compiles to end (`ENDS_AWAITED`):
+    // it stopped the helper of the last one, and a new one started at once
+    // took the slot again before the export saw it free. WDVL1: an export
+    // retried after a lost device waited for 5 min while the helper
+    // restarted 80 times a second. (A frame waiting for a slot does not
+    // hold them: its own variant may compile in one.)
+    let ends_awaited = ENDS_AWAITED.load(std::sync::atomic::Ordering::SeqCst) > 0;
+    if heavy || ends_awaited || state.0 > 0 || state.1.is_some_and(|max| state.0 >= max) {
         return None;
     }
     state.0 += 1;
@@ -9674,6 +9717,7 @@ impl GpuProcessor {
             pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
         }
         gpu_submit::submit(
+            device,
             queue,
             "layer sums",
             u64::from(width) * u64::from(height),
@@ -11968,7 +12012,7 @@ impl GpuProcessor {
                 cpass.dispatch_workgroups(FLARE_MAP_SIZE / 16, FLARE_MAP_SIZE / 16, 1);
             }
 
-            gpu_submit::submit(queue, "flare", 0, Some(encoder.finish()));
+            gpu_submit::submit(device, queue, "flare", 0, Some(encoder.finish()));
         }
 
         // Display frames cache the detail stage with the blurs when every tile
@@ -12365,6 +12409,7 @@ impl GpuProcessor {
                     }
 
                     gpu_submit::submit(
+                        device,
                         queue,
                         "tile blur",
                         u64::from(input_width) * u64::from(blurred_rows),
@@ -12782,6 +12827,7 @@ impl GpuProcessor {
                         );
                     }
                     gpu_submit::submit(
+                        device,
                         queue,
                         "tile detail",
                         u64::from(tile_width) * u64::from(tile_height),
@@ -13048,6 +13094,7 @@ impl GpuProcessor {
                     }
                 }
                 gpu_submit::submit(
+                    device,
                     queue,
                     "tile passes",
                     tile_pixels,
@@ -13086,6 +13133,7 @@ impl GpuProcessor {
                                 );
                             }
                             gpu_submit::submit(
+                                device,
                                 queue,
                                 "tile encode",
                                 u64::from(tile_width) * u64::from(tile_height),
@@ -15301,7 +15349,13 @@ fn render_dynamic_image(
     }
 
     if submit_final_encoder {
-        gpu_submit::submit(queue, "render finish", 0, Some(final_encoder.finish()));
+        gpu_submit::submit(
+            device,
+            queue,
+            "render finish",
+            0,
+            Some(final_encoder.finish()),
+        );
     }
 
     if let Some(analytics) = analytics_config {

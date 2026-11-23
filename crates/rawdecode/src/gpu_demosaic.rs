@@ -345,7 +345,7 @@ fn run(
                 1,
             );
         }
-        crate::gpu_submit::submit(queue, "demosaic pad", 0, Some(encoder.finish()));
+        crate::gpu_submit::submit(device, queue, "demosaic pad", 0, Some(encoder.finish()));
     }
     drop(raw_buffer);
     let scratch = |label: &str, floats: usize| {
@@ -486,7 +486,7 @@ fn run(
             (rows * width * 3 * 4) as u64,
         );
         let submission =
-            crate::gpu_submit::submit(queue, "demosaic band", 0, Some(encoder.finish()));
+            crate::gpu_submit::submit(device, queue, "demosaic band", 0, Some(encoder.finish()));
         if let Some(previous) = pending.replace((index, first, rows, submission)) {
             finish(&mut rgb, previous)?;
         }

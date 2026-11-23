@@ -1834,6 +1834,76 @@ mod tests {
         std::process::exit(i32::from(result.is_err()));
     }
 
+    /// An export that waits for the compiles to end without having named its
+    /// variant (`export_starts`; WDVL1: an export retried on the device the
+    /// app started after a loss) stops the running idle helper once and
+    /// goes on: no new helper starts while it waits (it stopped one 80
+    /// times a second and waited 5 min on a Radeon 680M).
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit and idle helper, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
+    fn an_export_waiting_for_compiles_stops_the_idle_helper_once() {
+        if !alone("an_export_waiting_for_compiles_stops_the_idle_helper_once") {
+            return;
+        }
+        use super::super::idle_compile_child::STOPS;
+        use super::super::preview_tests::get_all_adjustments_from_json;
+        use std::time::Instant;
+        let exe = std::env::current_exe().unwrap();
+        // Every helper only sleeps: the idle job never finishes by itself.
+        super::super::set_idle_compile_helper(Box::new(move |job, folder| {
+            std::process::Command::new(&exe)
+                .args([
+                    "--exact",
+                    "gpu_processing::idle_compiles::tests::idle_helper_process",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env(
+                    "RAWTONIC_TEST_IDLE_HELPER",
+                    format!("slow|{job}|{}", folder.display()),
+                )
+                .stdout(std::process::Stdio::null())
+                .spawn()
+        }));
+        let cache = tempfile::tempdir().unwrap();
+        let context =
+            GpuContext::headless_with_pipeline_cache_of(Some(cache.path()), TEST_BUILD).unwrap();
+        if crate::pipeline_cache::file_name_of(&context.device).is_none() {
+            eprintln!("SKIP: no pipeline cache on this backend, so no idle helpers");
+            return;
+        }
+        set_compile_limit(Some(1));
+        let processor = GpuProcessor::new(context, 256, 256).unwrap();
+        let idle = Arc::clone(&processor.idle_compiles.as_ref().unwrap().0);
+        let photo = get_all_adjustments_from_json(
+            &serde_json::Value::Object(crate::image_processing::new_edit_responses(true)),
+            true,
+            Some(3),
+        );
+        processor.preview_pipeline(&photo, true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while idle.lock().running.is_none() {
+            assert!(Instant::now() < deadline, "an idle helper starts");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let stops = STOPS.load(Ordering::SeqCst);
+        let started = Instant::now();
+        let (done, waited) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            super::super::wait_for_running_compiles("export (test)");
+            let _ = done.send(());
+        });
+        let finished = waited.recv_timeout(Duration::from_secs(10)).is_ok();
+        let waited = started.elapsed();
+        let stopped = STOPS.load(Ordering::SeqCst) - stops;
+        assert!(
+            finished,
+            "the export still waits after {waited:?} ({stopped} helpers stopped)"
+        );
+        assert!(stopped <= 2, "{stopped} helpers stopped for one export");
+        eprintln!("the export waited {waited:?}, {stopped} helper(s) stopped");
+    }
+
     /// Under a compile limit idle compiles run in a helper process: a frame
     /// that needs another variant than the running job stops the helper at
     /// once instead of waiting for it (G76/WCC11: 17–39 s on a Radeon 680M),

@@ -780,6 +780,7 @@ impl MultiView {
             },
         );
         rawtonic_rawdecode::gpu_submit::submit(
+            device,
             queue,
             "multi view frame copy",
             0,

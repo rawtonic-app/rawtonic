@@ -478,6 +478,7 @@ impl UploadedFrame<'_> {
                 let mut encoder = device.create_command_encoder(&Default::default());
                 warp.encode(&mut encoder, row0, rows, &frame, row0);
                 rawtonic_rawdecode::gpu_submit::submit(
+                    device,
                     queue,
                     "warp band",
                     0,
@@ -531,7 +532,7 @@ pub fn read_every_fourth_row(
             row_bytes,
         );
     }
-    rawtonic_rawdecode::gpu_submit::submit(queue, "warp rows", 0, Some(encoder.finish()));
+    rawtonic_rawdecode::gpu_submit::submit(device, queue, "warp rows", 0, Some(encoder.finish()));
     map(device, &readback, |bytes| {
         bytemuck::cast_slice(bytes).to_vec()
     })
@@ -807,6 +808,7 @@ impl<'a> Prepared<'a> {
             self.encode(&mut encoder, row0, rows, &slot.output, 0);
             encoder.copy_buffer_to_buffer(&slot.output, 0, &slot.readback, 0, bytes);
             rawtonic_rawdecode::gpu_submit::submit(
+                device,
                 queue,
                 "warp read back",
                 0,
@@ -837,7 +839,13 @@ impl<'a> Prepared<'a> {
         });
         let mut encoder = device.create_command_encoder(&Default::default());
         encoder.copy_buffer_to_buffer(&self.missed, 0, &readback, 0, 4);
-        rawtonic_rawdecode::gpu_submit::submit(queue, "warp check", 0, Some(encoder.finish()));
+        rawtonic_rawdecode::gpu_submit::submit(
+            device,
+            queue,
+            "warp check",
+            0,
+            Some(encoder.finish()),
+        );
         let missed: u32 = map(device, &readback, |bytes| {
             bytemuck::pod_read_unaligned(&bytes[..4])
         })?;
