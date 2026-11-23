@@ -5,8 +5,8 @@
 //! library lists as a photo, is only reported: Replace if changed never
 //! replaces it (`rawtonic_export::existing_files`).
 use crate::export_processing::{
-    ExportTarget, PhotoItem, Planned, known_libraries, open_export_records, photo_inputs,
-    pin_photos, plan_output_path, previous_export, target_inputs_hash,
+    ExportTarget, PhotoItem, Planned, known_libraries, mask_file_paths, open_export_records,
+    photo_inputs, pin_photos, plan_output_path, previous_export, target_inputs_hash,
 };
 use crate::export_queue::ExportRequest;
 use rawtonic_export::existing_files::{ExistingFiles, ExportRecords, Outcome, Previous};
@@ -14,6 +14,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use tauri::Manager;
 
 /// File names listed per kind in the question; the counts hold all.
 const NAMES_SHOWN: usize = 5;
@@ -81,7 +82,10 @@ fn collide_photo(
 ) -> Result<(), String> {
     let (source_path, _) = crate::file_management::parse_virtual_path(item.image_path_str);
     let is_raw = crate::formats::is_raw_file(&source_path);
-    let inputs = photo_inputs(pinned, settings, is_raw);
+    // Read (a LUT's file, say) only once a name is found taken: an export to
+    // an empty folder hashes nothing.
+    let inputs = std::cell::OnceCell::new();
+    let inputs = || inputs.get_or_init(|| photo_inputs(pinned, settings, is_raw));
     let photo_key = rawtonic_export::existing_files::photo_key(
         item.image_path_str,
         pinned.source_identity.as_deref(),
@@ -98,7 +102,6 @@ fn collide_photo(
         let capture = target.export_settings.naming_needs_capture().then(|| {
             crate::export_processing::naming_capture(&source_path, pinned.metadata.as_ref())
         });
-        let hash = target_inputs_hash(&inputs, target);
         let previous = |path: &Path| match &photo_key {
             Some(_) => previous(path),
             None => Previous::Unknown,
@@ -114,7 +117,7 @@ fn collide_photo(
             output_format: target.output_format.clone(),
             tracking: None,
         };
-        let plan = |policy: ExistingFiles, used: &Mutex<HashSet<PathBuf>>| {
+        let plan = |policy: ExistingFiles, used: &Mutex<HashSet<PathBuf>>, hash: &str| {
             plan_output_path(
                 &as_asked(policy),
                 item,
@@ -124,33 +127,55 @@ fn collide_photo(
                 mask_layers,
                 used,
                 photo,
-                &hash,
+                hash,
                 &previous,
                 false,
             )
         };
-        match plan(ExistingFiles::ReplaceIfChanged, used)? {
+        // The recipe's own name, and whether anything is at it (its mask
+        // files too): Skip names it, nothing is hashed or read for it.
+        let existing = match plan(ExistingFiles::Skip, &Mutex::new(HashSet::new()), "")? {
+            Planned::Skip { path, .. } => path,
+            Planned::Write { .. } => {
+                // Free: only the name is reserved, as the export does.
+                plan(ExistingFiles::ReplaceIfChanged, used, "")?;
+                continue;
+            }
+        };
+        let hash = target_inputs_hash(inputs(), target);
+        let masks = if target.export_settings.export_masks {
+            mask_layers
+        } else {
+            0
+        };
+        // What is on disk: the main file, else a mask file of its family.
+        let occupied = std::iter::once(existing.clone())
+            .chain((0..masks).flat_map(|layer| mask_file_paths(&existing, layer)))
+            .find(|path| path.exists())
+            .unwrap_or_else(|| existing.clone());
+        match plan(ExistingFiles::ReplaceIfChanged, used, &hash)? {
             Planned::Skip {
-                path,
                 outcome: Outcome::SkippedUnchanged,
-            } => summary.unchanged_own.add(&path),
-            Planned::Write {
-                path,
-                replace: Some(_),
                 ..
-            } => summary.changed_own.add(&path),
+            } => summary.unchanged_own.add(&occupied),
+            Planned::Write {
+                replace: Some(_), ..
+            } => summary.changed_own.add(&occupied),
             Planned::Write {
                 kept: Some(kept), ..
             } => {
-                // The file that stays is the recipe's own name, which the
-                // same plan under Skip names (its new file is the numbered one).
-                let existing = match plan(ExistingFiles::Skip, &Mutex::new(HashSet::new()))? {
-                    Planned::Skip { path, .. } => path,
-                    Planned::Write { path, .. } => path,
-                };
-                summary.other.add(&existing);
-                if kept == Outcome::KeptOriginal {
-                    summary.originals += 1;
+                // An own export of this photo that Replace if changed cannot
+                // replace (it has mask files beside it) is still its export.
+                let own = masks > 0
+                    && matches!(previous(&existing), Previous::Export(recorded)
+                        if recorded.is_export_of(&existing, photo));
+                if own {
+                    summary.changed_own.add(&occupied);
+                } else {
+                    summary.other.add(&occupied);
+                    if kept == Outcome::KeptOriginal {
+                        summary.originals += 1;
+                    }
                 }
             }
             _ => {}
@@ -231,12 +256,21 @@ pub(crate) fn plan_collisions(
 /// queued, so the Export form asks once. Nothing is written.
 #[tauri::command]
 pub async fn plan_export_collisions(
-    requests: Vec<ExportRequest>,
+    mut requests: Vec<ExportRequest>,
     app_handle: tauri::AppHandle,
 ) -> Result<CollisionSummary, String> {
+    // As the queue reads them: a recipe that signs hashes with its signer.
+    crate::provenance::pin_signers(&app_handle, &mut requests)?;
     tauri::async_runtime::spawn_blocking(move || {
         let settings = crate::state::settings::current(&app_handle);
-        let records = open_export_records(&app_handle);
+        // No records file yet (nothing was ever exported): nothing is
+        // recorded, and asking creates none.
+        let records = app_handle
+            .path()
+            .app_data_dir()
+            .ok()
+            .filter(|dir| rawtonic_export::existing_files::records_path(dir).exists())
+            .and_then(|_| open_export_records(&app_handle));
         plan_collisions(
             &requests,
             &settings,
@@ -352,6 +386,60 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, ["a-edited.jpg"]);
+    }
+
+    /// With separate mask files (which Replace if changed never replaces) an
+    /// earlier export of this photo is still counted as its own; a lone mask
+    /// file left in the folder is what the question names, not the missing
+    /// main file.
+    #[test]
+    fn an_export_with_mask_files_is_counted_by_what_is_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.CR3");
+        rawtonic_fs::atomic_write(&raw, b"original RAW").unwrap();
+        let records = ExportRecords::open(&dir.path().join("records.sqlite")).unwrap();
+        let mut request = request(dir.path(), &raw, "{orig_base}-edited");
+        request.export_settings.export_masks = true;
+        request.current_edit_path = Some(raw.to_string_lossy().into_owned());
+        request.current_edit_adjustments = Some(serde_json::json!({
+            "masks": [{
+                "id": "m1", "name": "Mask", "visible": true, "invert": false, "opacity": 100,
+                "adjustments": {},
+                "subMasks": [{
+                    "id": "s1", "type": "radial", "visible": true, "invert": false,
+                    "mode": "additive", "parameters": {}
+                }]
+            }]
+        }));
+        std::fs::create_dir(dir.path().join("web")).unwrap();
+        let own = dir.path().join("web/a-edited.jpg");
+        let [mask_image, mask_alpha] = mask_file_paths(&own, 0);
+        for path in [&own, &mask_image, &mask_alpha] {
+            rawtonic_fs::atomic_write(path, b"export v1").unwrap();
+        }
+        record(&records, &request, &own, Some("old inputs"));
+        let found = summary(std::slice::from_ref(&request), &records);
+        assert_eq!(
+            (found.changed_own.count, found.other.count),
+            (1, 0),
+            "{found:?}"
+        );
+        assert_eq!(found.changed_own.names, vec!["a-edited.jpg".to_string()]);
+
+        std::fs::remove_file(&own).unwrap();
+        std::fs::remove_file(&mask_alpha).unwrap();
+        let found = summary(std::slice::from_ref(&request), &records);
+        assert_eq!(found.other.count, 1, "{found:?}");
+        assert_eq!(
+            found.other.names,
+            vec![
+                mask_image
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            ]
+        );
     }
 
     /// A file a library lists as a photo is reported as the other kind and

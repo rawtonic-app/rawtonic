@@ -49,6 +49,13 @@ it('asks once for all the recipes set to Ask and sends the answer in them only',
   expect(sent?.map((r) => r.exportSettings.existingFiles)).toEqual(['replaceIfChanged', 'skip', 'replaceIfChanged']);
 });
 
+it('a file named in Save As is not asked about: it goes as Keep both', async () => {
+  const named = { ...recipe('ask'), isExplicitFilePath: true };
+  const sent = await askAboutExistingFiles([named]);
+  expect(sent?.[0].exportSettings.existingFiles).toBe('keepBoth');
+  expect(invoke).not.toHaveBeenCalled();
+});
+
 it('cancelling the question queues nothing', async () => {
   vi.mocked(invoke).mockResolvedValue(some);
   const result = askAboutExistingFiles([recipe('ask')]);

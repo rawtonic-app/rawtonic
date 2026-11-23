@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { useEffect, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import Button from '../ui/Button';
@@ -16,10 +16,37 @@ export default function ExportCollisionDialog() {
   const pending = useExportCollisionStore((s) => s.pending);
   const answer = useExportCollisionStore((s) => s.answer);
   const keepBoth = useRef<HTMLButtonElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    if (!pending) return;
     // Keep both overwrites nothing: it is the one Enter reaches.
-    if (pending) keepBoth.current?.focus({ preventScroll: true });
-  }, [pending]);
+    keepBoth.current?.focus({ preventScroll: true });
+    // The question is modal: Escape cancels it and nothing behind it (the
+    // Export dialog) sees the key, and Tab stays among its buttons, so the
+    // question is never left open and out of reach.
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        answer(null);
+      } else if (e.key === 'Tab') {
+        const buttons = [...(dialog.current?.querySelectorAll('button') ?? [])];
+        if (!buttons.length) return;
+        const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        const next = e.shiftKey
+          ? at <= 0
+            ? buttons.length - 1
+            : at - 1
+          : at < 0 || at === buttons.length - 1
+            ? 0
+            : at + 1;
+        e.preventDefault();
+        buttons[next].focus();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [pending, answer]);
   if (!pending) return null;
   const { summary } = pending;
   const ANSWERS: [CollisionAnswer, string, string][] = [
@@ -44,16 +71,9 @@ export default function ExportCollisionDialog() {
     ],
     ['other', t('studio.export.collision.kind.other', { number: summary.other.count }), summary.other]
   ];
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      answer(null);
-    }
-  };
   return createPortal(
     <div className="studio-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="export-collision-title">
-      <div className="studio-dialog" onKeyDown={onKeyDown}>
+      <div className="studio-dialog" ref={dialog}>
         <h2 className="studio-dialog-title" id="export-collision-title">
           {t('studio.export.collision.title')}
         </h2>

@@ -1,5 +1,5 @@
 import '../../i18n';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import ExportCollisionDialog from './ExportCollisionDialog';
 import { useExportCollisionStore, type CollisionAnswer } from '../../store/useExportCollisionStore';
@@ -82,8 +82,29 @@ describe('ExportCollisionDialog', () => {
     await act(async () => {});
     expect(answer()).toBeNull();
     answer = ask();
-    fireEvent.keyDown(screen.getByRole('dialog').firstElementChild!, { key: 'Escape' });
+    // Anywhere on the page, as the Export dialog behind it would hear it.
+    fireEvent.keyDown(document.body, { key: 'Escape' });
     await act(async () => {});
     expect(answer()).toBeNull();
+  });
+
+  it('Escape does not reach the dialog behind it', () => {
+    const behind = vi.fn();
+    window.addEventListener('keydown', behind);
+    ask();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    window.removeEventListener('keydown', behind);
+    expect(behind).not.toHaveBeenCalled();
+  });
+
+  it('Tab stays among the buttons of the question', () => {
+    ask();
+    const buttons = screen.getAllByRole('button');
+    const last = buttons[buttons.length - 1];
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(document.activeElement).toBe(buttons[0]);
+    fireEvent.keyDown(buttons[0], { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
   });
 });

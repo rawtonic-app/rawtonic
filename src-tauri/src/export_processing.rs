@@ -892,7 +892,7 @@ fn export_masks_for_image(
 
 /// The separate files of mask layer `layer` beside a main export file:
 /// the layer's rendered image and its alpha.
-fn mask_file_paths(output_path: &Path, layer: usize) -> [std::path::PathBuf; 2] {
+pub(crate) fn mask_file_paths(output_path: &Path, layer: usize) -> [std::path::PathBuf; 2] {
     let output_dir = output_path.parent().unwrap_or(output_path);
     let stem = output_path
         .file_stem()

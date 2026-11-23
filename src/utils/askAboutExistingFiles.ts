@@ -3,16 +3,24 @@ import { Invokes } from '../components/ui/AppProperties';
 import type { CollisionSummary } from '../components/ui/ExportImportProperties';
 import { useExportCollisionStore } from '../store/useExportCollisionStore';
 
-type Request = { exportSettings: { existingFiles?: string } } & Record<string, unknown>;
+type Request = { exportSettings: { existingFiles?: string }; isExplicitFilePath?: boolean } & Record<string, unknown>;
 
 /** Settles the recipes set to "If a file exists: Ask" before an export is
  * queued: the backend finds what their file names meet (nothing is rendered,
  * written or created), and when there is something the photographer is asked
  * once for the whole run: Keep both, Skip or Replace if changed. The answer
  * replaces "ask" in those recipes, so the queue only ever sees the three
- * choices. Returns null when the question was cancelled: nothing is queued. */
+ * choices. Returns null when the question was cancelled: nothing is queued.
+ * A file the photographer just named in Save As is not asked about (the
+ * save panel did, and only Keep both can write it): it goes as Keep both. */
 export async function askAboutExistingFiles<T extends Request>(requests: T[]): Promise<T[] | null> {
-  const asking = requests.filter((request) => request.exportSettings.existingFiles === 'ask');
+  const isAsking = (request: Request) => request.exportSettings.existingFiles === 'ask';
+  const named = (request: T) =>
+    isAsking(request) && request.isExplicitFilePath
+      ? { ...request, exportSettings: { ...request.exportSettings, existingFiles: 'keepBoth' } }
+      : request;
+  requests = requests.map(named);
+  const asking = requests.filter(isAsking);
   if (!asking.length) return requests;
   const summary = await invoke<CollisionSummary>(Invokes.PlanExportCollisions, { requests: asking });
   // Nothing in the way: every choice writes the same files; Keep both is
@@ -20,8 +28,6 @@ export async function askAboutExistingFiles<T extends Request>(requests: T[]): P
   const answer = summary.total > 0 ? await useExportCollisionStore.getState().ask(summary) : 'keepBoth';
   if (!answer) return null;
   return requests.map((request) =>
-    request.exportSettings.existingFiles === 'ask'
-      ? { ...request, exportSettings: { ...request.exportSettings, existingFiles: answer } }
-      : request
+    isAsking(request) ? { ...request, exportSettings: { ...request.exportSettings, existingFiles: answer } } : request
   );
 }
