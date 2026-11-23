@@ -3919,12 +3919,12 @@
         },
         "intro": "Wybierz raz dla całego eksportu.",
         "kind": {
-          "changedOwn": "{{number}} z wcześniejszego eksportu, ale zdjęcie lub ustawienia się zmieniły",
-          "other": "{{number}} innych plików (to nie eksport tego zdjęcia)",
-          "unchangedOwn": "{{number}} z wcześniejszego eksportu, od tego czasu bez zmian"
+          "changedOwn": "Wcześniejszy eksport, zdjęcie lub ustawienia zmienione od tego czasu: {{number}}",
+          "other": "Inne pliki (to nie eksport tego zdjęcia): {{number}}",
+          "unchangedOwn": "Wcześniejszy eksport, od tego czasu bez zmian: {{number}}"
         },
         "more": "i {{number}} więcej",
-        "originals": "{{number}} z nich to zdjęcia z biblioteki. Te nigdy nie są zastępowane.",
+        "originals": "W tym zdjęcia z biblioteki, nigdy nie zastępowane: {{number}}",
         "title": "Pliki o tych nazwach już istnieją"
       },
       "destination": {

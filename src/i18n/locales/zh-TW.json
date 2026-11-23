@@ -3498,12 +3498,12 @@
         },
         "intro": "為整個匯出選擇一次。",
         "kind": {
-          "changedOwn": "{{number}} 個來自先前的匯出，但照片或設定已變更",
-          "other": "{{number}} 個其他檔案（不是這張照片的匯出）",
-          "unchangedOwn": "{{number}} 個來自先前的匯出，之後沒有變動"
+          "changedOwn": "先前的匯出，之後照片或設定已變更：{{number}}",
+          "other": "其他檔案（不是這張照片的匯出）：{{number}}",
+          "unchangedOwn": "先前的匯出，之後沒有變動：{{number}}"
         },
         "more": "另有 {{number}} 個",
-        "originals": "其中 {{number}} 個是資料庫中的照片，永遠不會被取代。",
+        "originals": "其中資料庫中的照片，永不取代：{{number}}",
         "title": "已有同名檔案"
       },
       "destination": {

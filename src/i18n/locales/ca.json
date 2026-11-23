@@ -3760,12 +3760,12 @@
         },
         "intro": "Tria una vegada per a tota l'exportació.",
         "kind": {
-          "changedOwn": "{{number}} d’una exportació anterior, però la foto o els ajustos han canviat",
-          "other": "{{number}} altres fitxers (no són una exportació d’aquesta foto)",
-          "unchangedOwn": "{{number}} d’una exportació anterior, sense canvis des d’aleshores"
+          "changedOwn": "Exportació anterior, foto o ajustos canviats des d’aleshores: {{number}}",
+          "other": "Altres fitxers (no són una exportació d’aquesta foto): {{number}}",
+          "unchangedOwn": "Exportació anterior, sense canvis des d’aleshores: {{number}}"
         },
         "more": "i {{number}} més",
-        "originals": "{{number}} són fotos d’una biblioteca. Aquestes mai se substitueixen.",
+        "originals": "D’aquests, fotos d’una biblioteca, mai substituïdes: {{number}}",
         "title": "Ja hi ha fitxers amb aquests noms"
       },
       "destination": {

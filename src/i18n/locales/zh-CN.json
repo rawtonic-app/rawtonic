@@ -3498,12 +3498,12 @@
         },
         "intro": "为整个导出选择一次。",
         "kind": {
-          "changedOwn": "{{number}} 个来自之前的导出，但照片或设置已改变",
-          "other": "{{number}} 个其他文件（不是这张照片的导出）",
-          "unchangedOwn": "{{number}} 个来自之前的导出，之后没有改动"
+          "changedOwn": "之前的导出，之后照片或设置已改变：{{number}}",
+          "other": "其他文件（不是这张照片的导出）：{{number}}",
+          "unchangedOwn": "之前的导出，之后没有改动：{{number}}"
         },
         "more": "另有 {{number}} 个",
-        "originals": "其中 {{number}} 个是图库中的照片，永远不会被替换。",
+        "originals": "其中图库中的照片，永不替换：{{number}}",
         "title": "已存在同名文件"
       },
       "destination": {

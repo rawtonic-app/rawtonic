@@ -3760,12 +3760,12 @@
         },
         "intro": "Scegli una volta per l'intera esportazione.",
         "kind": {
-          "changedOwn": "{{number}} da un’esportazione precedente, ma la foto o le impostazioni sono cambiate",
-          "other": "{{number}} altri file (non un’esportazione di questa foto)",
-          "unchangedOwn": "{{number}} da un’esportazione precedente, da allora nulla è cambiato"
+          "changedOwn": "Esportazione precedente, foto o impostazioni cambiate da allora: {{number}}",
+          "other": "Altri file (non un’esportazione di questa foto): {{number}}",
+          "unchangedOwn": "Esportazione precedente, nulla è cambiato da allora: {{number}}"
         },
         "more": "e altri {{number}}",
-        "originals": "{{number}} sono foto di una libreria. Queste non vengono mai sostituite.",
+        "originals": "Di cui foto di una libreria, mai sostituite: {{number}}",
         "title": "Esistono già file con questi nomi"
       },
       "destination": {

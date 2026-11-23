@@ -3600,12 +3600,12 @@
         },
         "intro": "Choose once for this whole export.",
         "kind": {
-          "changedOwn": "{{number}} from an earlier export, but the photo or settings have changed",
-          "other": "{{number}} other files (not an export of this photo)",
-          "unchangedOwn": "{{number}} from an earlier export, nothing has changed since"
+          "changedOwn": "Earlier export, photo or settings changed since: {{number}}",
+          "other": "Other files (not an export of this photo): {{number}}",
+          "unchangedOwn": "Earlier export, nothing changed since: {{number}}"
         },
         "more": "and {{number}} more",
-        "originals": "{{number}} of them are photos in a library. Those are never replaced.",
+        "originals": "Photos in a library among them, never replaced: {{number}}",
         "title": "Files with these names already exist"
       },
       "destination": {

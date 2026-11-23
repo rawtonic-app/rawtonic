@@ -3600,12 +3600,12 @@
         },
         "intro": "Einmal für den ganzen Export wählen.",
         "kind": {
-          "changedOwn": "{{number}} aus einem früheren Export, aber Foto oder Einstellungen haben sich geändert",
-          "other": "{{number}} andere Dateien (kein Export dieses Fotos)",
-          "unchangedOwn": "{{number}} aus einem früheren Export, seitdem nichts geändert"
+          "changedOwn": "Früherer Export, Foto oder Einstellungen seitdem geändert: {{number}}",
+          "other": "Andere Dateien (kein Export dieses Fotos): {{number}}",
+          "unchangedOwn": "Früherer Export, seitdem nichts geändert: {{number}}"
         },
         "more": "und {{number}} weitere",
-        "originals": "{{number}} davon sind Fotos in einer Bibliothek. Diese werden nie ersetzt.",
+        "originals": "Davon Fotos in einer Bibliothek, nie ersetzt: {{number}}",
         "title": "Dateien mit diesen Namen existieren schon"
       },
       "destination": {

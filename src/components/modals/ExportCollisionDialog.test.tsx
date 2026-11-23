@@ -44,11 +44,11 @@ describe('ExportCollisionDialog', () => {
   it('counts each kind, lists a few names and says how many more', () => {
     ask();
     const kinds = screen.getByTestId('collision-kinds');
-    expect(kinds.textContent).toContain('2 from an earlier export, nothing has changed since');
-    expect(kinds.textContent).toContain('1 from an earlier export, but the photo or settings have changed');
-    expect(kinds.textContent).toContain('6 other files');
+    expect(kinds.textContent).toContain('Earlier export, nothing changed since: 2');
+    expect(kinds.textContent).toContain('Earlier export, photo or settings changed since: 1');
+    expect(kinds.textContent).toContain('Other files (not an export of this photo): 6');
     expect(kinds.textContent).toContain('d.jpg, e.jpg, f.jpg, g.jpg, h.jpg and 1 more');
-    expect(screen.getByRole('dialog').textContent).toContain('1 of them are photos in a library');
+    expect(screen.getByRole('dialog').textContent).toContain('Photos in a library among them, never replaced: 1');
   });
 
   it('leaves out a kind that has no file', () => {
@@ -56,7 +56,7 @@ describe('ExportCollisionDialog', () => {
     act(() => {
       void useExportCollisionStore.getState().ask({ ...summary, unchangedOwn: { count: 0, names: [] } });
     });
-    expect(screen.getByTestId('collision-kinds').textContent).not.toContain('nothing has changed since');
+    expect(screen.getByTestId('collision-kinds').textContent).not.toContain('nothing changed since');
   });
 
   it.each([

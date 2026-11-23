@@ -3760,12 +3760,12 @@
         },
         "intro": "Elige una vez para toda la exportación.",
         "kind": {
-          "changedOwn": "{{number}} de una exportación anterior, pero la foto o los ajustes han cambiado",
-          "other": "{{number}} otros archivos (no son una exportación de esta foto)",
-          "unchangedOwn": "{{number}} de una exportación anterior, sin cambios desde entonces"
+          "changedOwn": "Exportación anterior, foto o ajustes cambiados desde entonces: {{number}}",
+          "other": "Otros archivos (no son una exportación de esta foto): {{number}}",
+          "unchangedOwn": "Exportación anterior, sin cambios desde entonces: {{number}}"
         },
         "more": "y {{number}} más",
-        "originals": "{{number}} son fotos de una biblioteca. Esas nunca se reemplazan.",
+        "originals": "De ellos, fotos de una biblioteca, nunca reemplazadas: {{number}}",
         "title": "Ya existen archivos con estos nombres"
       },
       "destination": {
