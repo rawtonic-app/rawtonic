@@ -13,6 +13,8 @@
 
 ### Fixes
 
+- The export queue explains why a proof sheet could not start, even when all its photos have already rendered.
+
 - **Photo merges: fewer dropped panorama frames, sharper focus stacks, cleaner HDR ghosts** (new merges; merged files you saved stay as they are). Measured against RapidRAW 1.7.1's rewritten merge engine on test sets with a known answer and on real brackets and panoramas; each change takes the better of the two approaches.
   - **Panorama:** a frame with little texture (a wall, a grey card or sky filling most of the view) gave too few matching points, so an overlapping frame could not be joined to it and was left out of the panorama (the merge summary listed it as "no overlap"). The point search now lowers its contrast threshold step by step when a frame gives too few points. On a three-frame test panorama whose middle frame is mostly a grey card, all three frames are now stitched (the outer frame next to the card was left out before), with the same coverage as RapidRAW's and sharper detail. Frames that give enough points at the normal threshold keep exactly the same points.
   - **Focus stack:** a small, bright detail that is sharp in one frame only (lettering, a stamen, an edge) could come from a blurred frame. On a five-frame test stack, the share of detailed areas at least 30 % less sharp than RapidRAW's result fell from 8.0 % to 0.1 %. The 99th percentile of the smoothed brightness error against the known answer fell from 0.63 to 0.14 EV (RapidRAW: 0.35).

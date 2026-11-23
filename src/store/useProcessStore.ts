@@ -26,6 +26,8 @@ export interface ExportJob {
   keptBoth?: number;
   /** The photos that did not export and the reasons (export_queue.rs). */
   failures: ExportFailure[];
+  /** Why the job itself could not run, independent of the photo counts. */
+  error?: string | null;
   /** An Edit With render: never resumed (Edit With is chosen again). */
   editWith?: boolean;
 }

@@ -3785,10 +3785,12 @@
       },
       "errors": {
         "batchFailed": "{{failed}} esportazioni su {{total}} non riuscite",
+        "couldNotStart": "Impossibile avviare l’esportazione. Riprova a esportare.",
         "gpuDeviceLost": "Impossibile elaborare questa foto su questo chip grafico: ha smesso di rispondere (memoria esaurita). Chiudi e riapri Rawtonic, poi esporta di nuovo questa foto.",
         "gpuMemory": "Memoria grafica insufficiente per questa foto. Chiudi gli altri programmi che usano la scheda grafica ed esporta di nuovo questa foto.",
         "gpuTooComplex": "Le modifiche di questa foto sono troppo complesse perché il driver di questo chip grafico possa esportarla. Rimuovi alcune modifiche (effetti, regolazioni locali) ed esportala di nuovo, oppure esportala su un altro computer.",
         "offline": "{{file}} è offline: per esportare serve il file RAW.",
+        "queuedByOlderVersion": "Questa esportazione è stata messa in coda con una versione precedente di Rawtonic. Esporta di nuovo.",
         "terminated": "L'esportazione si è interrotta inaspettatamente.",
         "textureLimit": "L'immagine ({{width}} × {{height}} px) è più grande di quanto questa scheda grafica possa elaborare ({{limit}} px per lato).",
         "unreadableRequest": "Impossibile leggere le impostazioni salvate di questa esportazione.",
