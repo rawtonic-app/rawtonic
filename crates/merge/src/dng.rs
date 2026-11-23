@@ -145,7 +145,10 @@ fn calibrations(color: &ImageColor) -> Vec<(Illuminant, Vec<f32>)> {
         Illuminant::D75 | Illuminant::Shade => 7504,
         _ => 4000,
     };
-    list.sort_by_key(|(i, _)| temperature(i));
+    // Ties (e.g. two illuminants without a listed temperature) by the
+    // illuminant's code: the map's order is random, and the written file
+    // must not change from one merge of the same photos to the next.
+    list.sort_by_key(|(i, _)| (temperature(i), *i));
     if list.len() > 2 {
         // Keep the warmest and D65 (or the coolest).
         let last = list
@@ -255,4 +258,37 @@ pub fn encode_linear_dng(image: &Rgb32FImage, meta: &DngMeta) -> Result<Vec<u8>>
     }
     dng.close()?;
     Ok(buf.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Calibrations come from a `HashMap` whose order differs per map; the
+    /// chosen matrices and their order must not.
+    #[test]
+    fn calibrations_do_not_depend_on_map_order() {
+        let entries = [
+            (Illuminant::Flash, 1.0f32),
+            (Illuminant::IsoStudioTungsten, 2.0),
+            (Illuminant::Fluorescent, 3.0),
+            (Illuminant::Daylight, 4.0),
+            (Illuminant::FineWeather, 5.0),
+        ];
+        let pick = |n: usize| {
+            let color = ImageColor {
+                camera_to_srgb: [[0.0; 3]; 3],
+                wb: [1.0; 4],
+                calibrations: entries[..n].iter().map(|&(i, v)| (i, vec![v; 9])).collect(),
+                unit_calibration: None,
+            };
+            calibrations(&color)
+        };
+        for n in [2, 3, 5] {
+            let first = pick(n);
+            for _ in 0..64 {
+                assert_eq!(pick(n), first, "{n} illuminants");
+            }
+        }
+    }
 }
