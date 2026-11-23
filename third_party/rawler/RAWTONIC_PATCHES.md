@@ -690,3 +690,17 @@ comparison):
   stitched and cropped, LinearizationTable, normalised, MapPolynomial per
   plane): 99.3-99.4 % of the samples identical, the rest within 3 codes
   (JPEG rounding), edge tiles and seams no worse than the interior.
+
+## Lens candidates of a shared Canon lens ID (LNS1, 2026-11-23)
+
+- `src/lens.rs`: `LensResolver` narrows several lenses sharing an ID by the
+  lens's own focal range and widest aperture (`with_lens_info`, until now
+  unused) — only when the ID fits more than one lens — and
+  `resolve_with_candidates` returns, where it still cannot tell them apart,
+  every lens it fits instead of none (the search split into `id_matches` and
+  `narrowed`; `resolve` unchanged otherwise).
+- `src/decoders/cr2.rs`, `src/decoders/cr3.rs`: Canon's CameraSettings lens
+  range and widest aperture (indices 23–26, `canon_lens_info`, Canon EV
+  decoding) go to the resolver; the candidates of an ambiguous LensType land
+  in the new `RawMetadata::lens_candidates` (empty for every other decoder).
+  Tests `shared_lens_id_gives_candidates`, `single_lens_id_resolves_without_lens_info`.

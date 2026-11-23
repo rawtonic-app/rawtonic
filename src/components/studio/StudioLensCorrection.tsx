@@ -29,7 +29,13 @@ export const LENS_PROFILE_OFF: Partial<Adjustments> = {
   lensVignetteEnabled: INITIAL_ADJUSTMENTS.lensVignetteEnabled
 };
 
-type Status = 'idle' | 'detecting' | 'not_found';
+type Status = 'idle' | 'detecting' | 'not_found' | 'ambiguous';
+
+/** `autodetect_lens`: the lens, or none and the lenses it could be. */
+interface LensDetection {
+  lens: [string, string] | null;
+  candidates: [string, string][];
+}
 
 /** The camera's own correction data for a RAW (`get_camera_lens_profile`). */
 interface CameraLensProfile {
@@ -51,6 +57,7 @@ export default function StudioLensCorrection() {
   const [makers, setMakers] = useState<string[]>([]);
   const [lenses, setLenses] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>('idle');
+  const [candidates, setCandidates] = useState<[string, string][]>([]);
   const [camera, setCamera] = useState<CameraLensProfile | null>(null);
   const cameraMode = adjustments.lensCorrectionMode === 'camera';
   const enabled = cameraMode
@@ -77,7 +84,10 @@ export default function StudioLensCorrection() {
       current = false;
     };
   }, [adjustments.lensMaker]);
-  useEffect(() => setStatus('idle'), [selectedImage?.path]);
+  useEffect(() => {
+    setStatus('idle');
+    setCandidates([]);
+  }, [selectedImage?.path]);
   // The frame the open photo develops (an edit from before the key: the
   // first), whose camera data apply to it.
   const frame = adjustments.sourceFrameVersion ?? 0;
@@ -128,14 +138,21 @@ export default function StudioLensCorrection() {
     };
     setStatus('detecting');
     try {
-      const found = await invoke<[string, string] | null>(Invokes.AutodetectLens, {
+      // The whole EXIF map: the lens's focal range and the maker note's lens
+      // ID weigh in; an ambiguous lens is offered, not guessed.
+      const found = await invoke<LensDetection | null>(Invokes.AutodetectLens, {
         maker: exif.Make,
         model: exif.LensModel ?? '',
-        cameraModel: exif.Model ?? ''
+        cameraModel: exif.Model ?? '',
+        exif
       });
       if (!stillOpen()) return;
-      if (!found) return setStatus('not_found');
-      const [maker, model] = found;
+      if (!found?.lens) {
+        const offered = found?.candidates ?? [];
+        setCandidates(offered);
+        return setStatus(offered.length ? 'ambiguous' : 'not_found');
+      }
+      const [maker, model] = found.lens;
       const distortion = await params(maker, model);
       if (!stillOpen()) return;
       setAdjustments((prev) => ({
@@ -149,6 +166,22 @@ export default function StudioLensCorrection() {
     } catch {
       if (stillOpen()) setStatus('not_found');
     }
+  };
+  // One of the lenses detection offered: chosen as by maker and model.
+  const chooseCandidate = async (maker: string, model: string) => {
+    const path = selectedImage?.path;
+    if (!path) return;
+    const distortion = await params(maker, model);
+    if (!isCurrentEditorImage(path)) return;
+    setAdjustments((prev) => ({
+      ...prev,
+      lensMaker: maker,
+      lensModel: model,
+      lensDistortionParams: distortion,
+      lensCorrectionMode: 'manual'
+    }));
+    setCandidates([]);
+    setStatus('idle');
   };
   const chooseMaker = (maker: string) =>
     setAdjustments((prev) => ({
@@ -224,6 +257,21 @@ export default function StudioLensCorrection() {
             ? t('studio.lens.notFound', { lens: exif.LensModel || exif.Model })
             : t('studio.lens.notFoundPhoto')}
         </p>
+      )}
+      {status === 'ambiguous' && candidates.length > 0 && (
+        <div className="studio-metadata-note">
+          <p>{t('studio.lens.ambiguous')}</p>
+          {candidates.map(([maker, model]) => (
+            <button
+              key={`${maker}\u0000${model}`}
+              className="studio-text-button"
+              disabled={!ready}
+              onClick={() => void chooseCandidate(maker, model)}
+            >
+              {`${maker} ${model}`}
+            </button>
+          ))}
+        </div>
       )}
       {cameraMode && enabled ? (
         <div className="studio-metadata-field">

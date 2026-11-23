@@ -343,7 +343,10 @@ impl<'a> Decoder for Cr2Decoder<'a> {
 
   fn raw_metadata(&self, _file: &RawSource, _params: &RawDecodeParams) -> Result<RawMetadata> {
     let exif = Exif::new(self.tiff.root_ifd())?;
-    let mdata = RawMetadata::new_with_lens(&self.camera, exif, self.get_lens_description()?.cloned());
+    // Rawtonic patch (LNS1): the lenses an ambiguous lens ID fits.
+    let (lens, candidates) = self.get_lens_description()?;
+    let mut mdata = RawMetadata::new_with_lens(&self.camera, exif, lens.cloned());
+    mdata.lens_candidates = candidates.into_iter().cloned().collect();
     Ok(mdata)
   }
 
@@ -479,7 +482,9 @@ impl<'a> Cr2Decoder<'a> {
   }
 
   /// Get lens description by analyzing TIFF tags and makernotes
-  fn get_lens_description(&self) -> Result<Option<&'static LensDescription>> {
+  // Rawtonic patch (LNS1): also the candidates of an ambiguous lens ID,
+  // narrowed by the lens's own focal range and widest aperture.
+  fn get_lens_description(&self) -> Result<(Option<&'static LensDescription>, Vec<&'static LensDescription>)> {
     let exif_lens_name = if let Some(Entry {
       value: Value::Ascii(lens_id), ..
     }) = self.exif.get_entry(ExifTag::LensModel)
@@ -500,13 +505,17 @@ impl<'a> Cr2Decoder<'a> {
           .with_lens_id((lens_info as u32, 0))
           .with_focal_len(self.get_focal_len()?)
           .with_mounts(&[CANON_CN_MOUNT.into(), CANON_EF_MOUNT.into()]);
-        return Ok(resolver.resolve());
+        let resolver = match canon_lens_info(settings) {
+          Some(info) => resolver.with_lens_info(info),
+          None => resolver,
+        };
+        return Ok(resolver.resolve_with_candidates());
       }
       _ => {
         log::warn!("Camera settings in makernote not found, no lens data available");
       }
     }
-    Ok(None)
+    Ok((None, Vec::new()))
   }
 
   /// Parse the Canon makernote IFD
@@ -1031,6 +1040,43 @@ fn sraw_white_for_iso(camera: &Camera, iso: Option<u32>) -> Option<u32> {
     let (low, high, white) = (run.first()?.as_integer()?, run.get(1)?.as_integer()?, run.get(2)?.as_integer()?);
     ((low..=high).contains(&iso)).then_some(white).and_then(|white| u32::try_from(white).ok())
   })
+}
+
+/// Rawtonic patch (LNS1): the lens's own focal range and widest aperture
+/// from Canon's CameraSettings (indices 23 MaxFocalLength, 24
+/// MinFocalLength, 25 FocalUnits per mm, 26 MaxAperture in Canon's EV
+/// units), as `LensResolver::with_lens_info` takes them (zero = not
+/// stated). Shared by CR2 and CR3, whose CameraSettings agree.
+pub(crate) fn canon_lens_info(settings: &[u16]) -> Option<[Rational; 4]> {
+  let units = settings.get(25).copied().filter(|u| *u > 0).unwrap_or(1) as u32;
+  let long = *settings.get(23)? as u32;
+  let short = *settings.get(24)? as u32;
+  let (short, long) = if short > 0 && long >= short { (short, long) } else { (0, 0) };
+  let aperture = settings
+    .get(26)
+    .map(|raw| canon_ev(*raw as i16))
+    .map(|ev| 2f64.powf(ev / 2.0))
+    .filter(|f| f.is_finite() && (0.5..=64.0).contains(f) && settings[26] != 0)
+    .map(|f| Rational::new((f * 100.0).round() as u32, 100))
+    .unwrap_or(Rational::new(0, 1));
+  if short == 0 && aperture.n == 0 {
+    return None;
+  }
+  Some([Rational::new(short, units), Rational::new(long, units), aperture, Rational::new(0, 1)])
+}
+
+/// Canon's EV encoding: 1/32 EV steps with thirds coded as 0x0c and 0x14.
+fn canon_ev(raw: i16) -> f64 {
+  let sign = if raw < 0 { -1.0 } else { 1.0 };
+  let value = (raw as i32).abs();
+  let frac = value & 0x1f;
+  let whole = (value - frac) as f64;
+  let frac = match frac {
+    0x0c => 32.0 / 3.0,
+    0x14 => 64.0 / 3.0,
+    other => other as f64,
+  };
+  sign * (whole + frac) / 32.0
 }
 
 #[cfg(test)]

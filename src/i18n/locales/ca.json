@@ -4314,6 +4314,7 @@
       "none": "Cap",
       "notFound": "No s'ha trobat cap perfil per a {{lens}}; tria l'objectiu a continuació.",
       "notFoundPhoto": "No s'ha trobat cap perfil per a aquesta foto; tria l'objectiu a continuació.",
+      "ambiguous": "Diversos objectius encaixen amb el que la foto diu del seu objectiu; tria el teu:",
       "profile": "Perfil",
       "removeCa": "Elimina l'aberració cromàtica",
       "removeCaTitle": "Mesura les franges vermelles i blaves de les vores d'aquesta foto i alinea els colors. La correcció de l'aberració cromàtica de les dades de l'objectiu es manté si la mesura no deixa clarament menys franges; desactivat manté la de les dades de l'objectiu",

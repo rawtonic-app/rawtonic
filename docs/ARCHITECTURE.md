@@ -555,7 +555,8 @@ the shown frame's `analytics_output` in its output space, with that space's luma
 histogram-overlap and skin exposure match, white balance carried relative to each photo's light,
 brackets/silhouettes/coloured light kept with a reason and confidence; app glue `src-tauri/src/series_match.rs` with
 face skin from `rawtonic_faces::face_skin`, writes through `set_recipe_values` as one undo step, UI
-`SeriesMatchDialog`), camera_profile, looks/colour tools, lens_correction + embedded_lens maths, edge_fringe (version 5:
+`SeriesMatchDialog`), camera_profile, looks/colour tools, lens_correction + embedded_lens maths, lens_detect (automatic lens
+detection from the EXIF map: name, focal range/aperture, maker-note `LensCandidates`; no pick when ambiguous), edge_fringe (version 5:
 `edge_fringe/gpu.rs` + `src/shaders/edge_fringe.wgsl`, registered device, no CPU fallback), warp_gpu (the geometry warp
 of `renderVersion` 7 for every use, display and export alike: `src/shaders/warp.wgsl` on the same registered device; the
 CPU f32 warp only without a device or for frames beyond its storage buffers), lens_recipe (a recipe's lens parameters:

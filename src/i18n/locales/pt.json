@@ -4314,6 +4314,7 @@
       "none": "Nenhum",
       "notFound": "Nenhum perfil encontrado para {{lens}}; escolha a lente abaixo.",
       "notFoundPhoto": "Nenhum perfil encontrado para esta foto; escolha a lente abaixo.",
+      "ambiguous": "Várias lentes correspondem ao que a foto indica sobre a sua lente; escolha a sua:",
       "profile": "Perfil",
       "removeCa": "Remover aberração cromática",
       "removeCaTitle": "Mede as franjas vermelhas e azuis das bordas desta foto e alinha as cores. A correção de aberração cromática dos dados da lente é mantida, a menos que a medição deixe claramente menos franjas; desligado mantém a dos dados da lente",

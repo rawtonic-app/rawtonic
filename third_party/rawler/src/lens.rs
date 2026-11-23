@@ -222,9 +222,31 @@ impl LensResolver {
       }
     }
 
-    // If we have a lens id (common) then we can filter as much as possible
+    let matches = self.narrowed(self.id_matches());
+    match matches.len() {
+      1 => return Some(matches[0]),
+      c if c > 1 => {
+        log::warn!(
+          "Found multiple ({}) lens definitions, unable to determine which lens to use. {}",
+          c,
+          crate::ISSUE_HINT
+        );
+        for lens in matches {
+          log::debug!("Possible lens: {} {}", lens.lens_make, lens.lens_model);
+        }
+      }
+      _ => {}
+    }
 
-    let matches: Vec<&LensDescription> = LENSES_DB
+    None
+  }
+
+  /// Rawtonic patch (LNS1): the lenses the ID, mounts, make, model, focal
+  /// length and aperture fit (what `resolve` picks from when it has no
+  /// exact name or Nikon/Olympus ID).
+  fn id_matches(&self) -> Vec<&'static LensDescription> {
+    // If we have a lens id (common) then we can filter as much as possible
+    LENSES_DB
       .iter()
       .filter(|entry| self.mounts.as_ref().is_none_or(|mounts| mounts.contains(&entry.mount)))
       .filter(|entry| {
@@ -247,23 +269,41 @@ impl LensResolver {
           .as_ref()
           .is_none_or(|ap| *ap >= entry.aperture_range[0] || *ap <= entry.aperture_range[1])
       })
-      .collect();
-    match matches.len() {
-      1 => return Some(matches[0]),
-      c if c > 1 => {
-        log::warn!(
-          "Found multiple ({}) lens definitions, unable to determine which lens to use. {}",
-          c,
-          crate::ISSUE_HINT
-        );
-        for lens in matches {
-          log::debug!("Possible lens: {} {}", lens.lens_make, lens.lens_model);
-        }
-      }
-      _ => {}
-    }
+      .collect()
+  }
 
-    None
+  /// Rawtonic patch (LNS1): several lenses sharing one ID (Canon's LensType
+  /// of third-party lenses) narrowed to those with the lens's own focal
+  /// range and widest aperture where it states them (`with_lens_info`;
+  /// zero = not stated). A single match is never narrowed away.
+  fn narrowed(&self, matches: Vec<&'static LensDescription>) -> Vec<&'static LensDescription> {
+    let Some(info) = self.lens_info.filter(|_| matches.len() > 1) else {
+      return matches;
+    };
+    let stated = |r: &Rational| r.n > 0 && r.d > 0;
+    let as_f = |r: &Rational| r.n as f64 / r.d as f64;
+    matches
+      .into_iter()
+      .filter(|entry| !(stated(&info[0]) && stated(&info[1])) || (entry.focal_range[0] == info[0] && entry.focal_range[1] == info[1]))
+      .filter(|entry| {
+        !stated(&info[2]) || {
+          let wide = as_f(&entry.aperture_range[0]);
+          wide > 0.0 && (wide - as_f(&info[2])).abs() <= 0.06 * as_f(&info[2])
+        }
+      })
+      .collect()
+  }
+
+  /// Rawtonic patch (LNS1): the lens, or when the search parameters fit
+  /// several lenses and none can be told apart, all of them (no guess).
+  pub fn resolve_with_candidates(&self) -> (Option<&'static LensDescription>, Vec<&'static LensDescription>) {
+    match self.resolve() {
+      Some(lens) => (Some(lens), Vec::new()),
+      None => {
+        let candidates = self.narrowed(self.id_matches());
+        (None, if candidates.len() > 1 { candidates } else { Vec::new() })
+      }
+    }
   }
 }
 
@@ -428,5 +468,45 @@ mod tests {
         [Rational::new(aperture[0].0, aperture[0].1), Rational::new(aperture[1].0, aperture[1].1)]
       );
     }
+  }
+
+  /// Rawtonic patch (LNS1): Canon LensType 137 is Sigma's 24-70 f/2.8 IF EX
+  /// DG HSM, Tamron's SP 24-70 f/2.8 VC USD and other lenses; the lens's
+  /// own range (24-70 mm, f/2.83 from CameraSettings) leaves the two, which
+  /// stay candidates rather than a guess.
+  #[test]
+  fn shared_lens_id_gives_candidates() {
+    let mut settings = vec![0u16; 40];
+    settings[22] = 137;
+    settings[23] = 70;
+    settings[24] = 24;
+    settings[25] = 1;
+    settings[26] = 96;
+    let info = crate::decoders::cr2::canon_lens_info(&settings).expect("lens info");
+    assert_eq!(info[0], Rational::new(24, 1));
+    assert_eq!(info[1], Rational::new(70, 1));
+    assert_eq!(info[2], Rational::new(283, 100));
+    let resolver = LensResolver::new()
+      .with_lens_id((137, 0))
+      .with_focal_len(Some(Rational::new(24, 1)))
+      .with_mounts(&["cn-mount".into(), "ef-mount".into()])
+      .with_lens_info(info);
+    let (lens, candidates) = resolver.resolve_with_candidates();
+    assert!(lens.is_none());
+    let mut names: Vec<&str> = candidates.iter().map(|l| l.lens_name.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["Sigma 24-70mm f/2.8 IF EX DG HSM", "Tamron SP 24-70mm f/2.8 Di VC USD"]);
+  }
+
+  /// Rawtonic patch (LNS1): a lens the ID names alone is not narrowed away.
+  #[test]
+  fn single_lens_id_resolves_without_lens_info() {
+    let lens = LensResolver::new()
+      .with_lens_id((241, 0))
+      .with_mounts(&["ef-mount".into()])
+      .with_lens_info([Rational::new(0, 1), Rational::new(0, 1), Rational::new(0, 1), Rational::new(0, 1)])
+      .resolve()
+      .expect("EF 50 f/1.2L");
+    assert_eq!(lens.lens_model, "EF 50mm f/1.2L USM");
   }
 }
