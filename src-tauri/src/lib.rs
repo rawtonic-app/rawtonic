@@ -417,12 +417,13 @@ fn start(args: Vec<String>) {
 
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
             {
-                // A restart's note is taken (and removed) at every start
-                // with a window; headless runs leave it for that start.
+                // A restart's note, read by every start with a window and
+                // removed once the window asked for its launch file
+                // (`frontend_ready`); headless runs leave it.
                 let noted = (!is_headless)
                     .then(|| app.path().app_config_dir().ok())
                     .flatten()
-                    .and_then(|dir| restart_reopen::take(&dir));
+                    .and_then(|dir| restart_reopen::read(&dir));
                 let restarted = restart_reopen::restarted(|name| std::env::var_os(name));
                 match launch_req.clone() {
                     LaunchRequest::EditSession(session) => {

@@ -329,7 +329,7 @@ pub async fn update_install(
             log::warn!("Update {version}: install failed: {kind:?}");
             // The app keeps running: no restart takes the note.
             if let Some(dir) = &config_dir {
-                let _ = crate::restart_reopen::remember(dir, None);
+                let _ = crate::restart_reopen::forget(dir);
             }
             if !matches!(kind, UpdateFailure::NotRestored { .. }) {
                 *crate::state::lock::lock_recover(&state.ready) = Some((update, bytes));
