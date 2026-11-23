@@ -9,8 +9,7 @@
 //! notes: benchmark-results/lns1-2026-11-23/REPORT.md
 use crate::lens_correction::{
     Lens, LensDatabase, body_crop_factor, camera_mounts, find_lens_by_camera_mount,
-    find_lens_by_fuzzy_model, lens_result, lenses_for_maker, normalized_lens_name,
-    without_model_code,
+    find_lens_by_fuzzy_model, lens_result, normalized_lens_name, without_model_code,
 };
 use std::collections::HashMap;
 
