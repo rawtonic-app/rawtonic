@@ -286,8 +286,12 @@ fn levels(settings: &HashMap<String, String>) -> Option<Value> {
 /// parabola, four or more a natural cubic spline (zero curvature at the
 /// ends), all on the display values. The renderer draws a monotone cubic
 /// through its points instead, so the import hands it the control points
-/// plus samples of Capture One's curve, 16 in all (the renderer's limit per
-/// channel).
+/// plus samples of Capture One's curve (`CURVE_IMPORT_POINTS` in all).
+/// Points an imported curve holds at most: 12 follow Capture One's curve
+/// within 0.12 L* on average (0.5–1.6 L* at most; 16 would give 0.03–0.5) and
+/// leave four of the 16 slots for adding points in Develop.
+const CURVE_IMPORT_POINTS: usize = 12;
+
 fn capture_one_curve_at(points: &[(f64, f64)], x: f64) -> f64 {
     let n = points.len();
     if n == 2 {
@@ -345,7 +349,7 @@ fn sampled_capture_one_curve(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
     if points.len() == 2 {
         return points.to_vec();
     }
-    let budget = rawtonic_engine::point_curve::SHADER_CURVE_POINTS;
+    let budget = CURVE_IMPORT_POINTS;
     let extra = budget.saturating_sub(points.len());
     let span = points[points.len() - 1].0 - points[0].0;
     let share = |i: usize| extra as f64 * (points[i + 1].0 - points[i].0) / span;
@@ -514,6 +518,7 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
         // asymmetric hue edges and the skin's picked target independently.
         untranslated |= skin
             || f[12] != 100.0
+            || (advanced && f[11] != -100.0)
             || (skin && (f[9] + f[10]).abs() > 1e-6)
             || !(0.0..=50.0).contains(&f[13])
             || !(-100.0..=100.0).contains(&f[11])
@@ -1485,7 +1490,7 @@ mod tests {
         // (y = 0.05 + 1.05x − 0.1x² through (0, .05), (.5, .55), (1, 1)),
         // the control points stay.
         let luma = a["curves"]["luma"].as_array().unwrap();
-        assert_eq!(luma.len(), 16);
+        assert_eq!(luma.len(), 12);
         assert!(luma.contains(&json!({"x": 127.5, "y": 140.25})));
         for p in luma {
             let x = p["x"].as_f64().unwrap() / 255.0;
@@ -1505,7 +1510,7 @@ mod tests {
         let a = convert_costyle_to_preset(style, "luma")
             .unwrap()
             .adjustments;
-        assert_eq!(a["curves"]["luminance"].as_array().unwrap().len(), 16);
+        assert_eq!(a["curves"]["luminance"].as_array().unwrap().len(), 12);
         assert!(
             a["curves"]["luminance"]
                 .as_array()
@@ -1515,7 +1520,7 @@ mod tests {
         assert_eq!(a["curves"]["luma"].as_array().unwrap().len(), 2);
         assert_eq!(
             rawtonic_engine::point_curve::luminance_points(&a["curves"]).len(),
-            16
+            12
         );
         // The import report says the curves come over only approximately;
         // neutral curves report nothing.
@@ -1536,14 +1541,14 @@ mod tests {
             .unwrap()
             .adjustments;
         let luma = a["curves"]["luma"].as_array().unwrap();
-        assert_eq!(luma.len(), 16);
+        assert_eq!(luma.len(), 12, "four of the 16 slots stay free for edits");
         for control in [(76.5, 25.5), (153.0, 229.5), (0.0, 0.0), (255.0, 255.0)] {
             assert!(luma.contains(&json!({"x": control.0, "y": control.1})));
         }
-        // Spline value at x = 0.24 is 0.0149 (3.81 of 255); below its
-        // undershoot at x = 0.06…0.18 the curve is clipped to black.
-        assert!(luma.contains(&json!({"x": 61.2, "y": 3.81})));
-        assert!(luma.contains(&json!({"x": 30.6, "y": 0.0})));
+        // Spline value at x = 0.225 is 0.0009 (0.22 of 255); below its
+        // undershoot at x = 0.075…0.15 the curve is clipped to black.
+        assert!(luma.contains(&json!({"x": 57.38, "y": 0.22})));
+        assert!(luma.contains(&json!({"x": 38.25, "y": 0.0})));
         let xs: Vec<f64> = luma.iter().map(|p| p["x"].as_f64().unwrap()).collect();
         assert!(xs.windows(2).all(|w| w[0] < w[1]));
         assert!(
@@ -1583,6 +1588,11 @@ mod tests {
         let (ranges, untranslated) =
             super::color_editor_ranges("1,1,0,0,0,0,145,108,88,-20,20,-100,100,20,100,0,0,0");
         assert!(ranges.is_empty());
+        assert!(untranslated);
+        // A restricted lower saturation bound is dropped too: reported.
+        let (ranges, untranslated) =
+            super::color_editor_ranges("1,1,0,30,0,0,145,108,88,-20,20,-50,100,20,0,0,0,0");
+        assert_eq!(ranges.len(), 1);
         assert!(untranslated);
         // An unknown field-2 value is still refused.
         let (ranges, untranslated) =
