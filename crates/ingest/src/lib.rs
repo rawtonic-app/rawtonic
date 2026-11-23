@@ -1591,6 +1591,7 @@ pub fn record_earlier_copy(
 /// with the content hash the copy was verified with (Synchronize Folder
 /// proves moves with it) and, in the same transaction, `contents` and its
 /// `companion` (a file beside it).
+#[allow(clippy::too_many_arguments)]
 fn register(
     library: &Library,
     source: &Path,
