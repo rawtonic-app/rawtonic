@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import i18n from 'i18next';
 import { notify } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
+import type { ExportJob } from '../store/useProcessStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { exportSettingsFromDraft, subfolderName, type RecipeDraft } from './exportRecipes';
 import { sourceOf } from '../entities/photo/photoRef';
@@ -32,17 +33,22 @@ export function exportJobLabel(
     .join(' · ');
 }
 
-/** What "If a file exists" did in a job: "2 skipped · 1 replaced"; empty
- * when every photo was simply written. */
-export function describeExistingFiles(job: { skipped?: number; replaced?: number; keptBoth?: number }): string {
+/** The mutually exclusive outcomes of the photos the queue marks done. */
+export function describeCompletedExports({
+  done,
+  skipped = 0,
+  replaced = 0,
+  keptBoth = 0
+}: Pick<ExportJob, 'done' | 'skipped' | 'replaced' | 'keptBoth'>): string {
   return (
     [
-      ['skipped', job.skipped],
-      ['replaced', job.replaced],
-      ['keptBoth', job.keptBoth]
+      ['written', done - skipped - replaced - keptBoth],
+      ['skipped', skipped],
+      ['replaced', replaced],
+      ['keptBoth', keptBoth]
     ] as const
   )
-    .filter(([, count]) => (count ?? 0) > 0)
+    .filter(([, count]) => count > 0)
     .map(([key, count]) => i18n.t(`studio.export.queue.existing.${key}`, { count }))
     .join(' · ');
 }

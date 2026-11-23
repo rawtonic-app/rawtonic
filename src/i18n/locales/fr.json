@@ -89,7 +89,6 @@
       "running": "Aucune tâche en cours."
     },
     "export": {
-      "done": "{{label}} exporté ({{existing}})",
       "failed_one": "{{count}} photo non exportée : {{label}}",
       "failed_many": "{{count}} photos non exportées : {{label}}",
       "failed_other": "{{count}} photos non exportées : {{label}}",
@@ -3936,7 +3935,10 @@
           "replaced_other": "{{count}} remplacées",
           "skipped_one": "{{count}} ignorée",
           "skipped_many": "{{count}} ignorées",
-          "skipped_other": "{{count}} ignorées"
+          "skipped_other": "{{count}} ignorées",
+          "written_one": "{{count}} exportée",
+          "written_many": "{{count}} exportées",
+          "written_other": "{{count}} exportées"
         },
         "exportedTo": "Exporté vers :",
         "failed": "{{failed}} sur {{total}} en échec",
@@ -4305,6 +4307,7 @@
       "diffractionTitle": "Compense le flou des petites ouvertures selon l'ouverture et la taille des pixels",
       "distortion": "Distorsion",
       "enable": "Activer les corrections de profil",
+      "importedCorrection": "Correction importée",
       "lookingUp": "Recherche de l'objectif…",
       "make": "Marque",
       "manualVignetting": "Vignetage de l’objectif",
