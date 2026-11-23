@@ -45,7 +45,7 @@ it('queues an export from its library once the recipes being saved are written',
   await vi.waitFor(() => expect(saves.flush).toHaveBeenCalled());
   expect(vi.mocked(invoke)).not.toHaveBeenCalled();
   // Another library opens while the saves finish, showing the same
-  // photograph with its own edit: the export stays A's, with A's edit.
+  // photograph with its own edit. The backend reads the saved edit from A.
   useLibraryStore.setState({ sessionDirectory: '/Shoots/B', rootPaths: ['/Shoots/B'] });
   useEditorStore.setState({ adjustments: { exposure: 2 } as never });
   saved();
@@ -57,7 +57,7 @@ it('queues an export from its library once the recipes being saved are written',
     library: { library: '/Shoots/A' },
     baseOriginFolders: ['/Shoots/A'],
     currentEditPath: '/p/a.NEF',
-    currentEditAdjustments: { exposure: 1 }
+    currentEditAdjustments: null
   });
 });
 
