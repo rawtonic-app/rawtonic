@@ -55,54 +55,71 @@ fn entries(dirs: &Dirs) -> Vec<Entry> {
 /// The programs that open every one of `files`, and the default program of
 /// the first.
 pub fn apps_for(files: &[&Path]) -> (Vec<AppChoice>, Option<String>) {
-    let dirs = Dirs::from_env();
-    apps_in(&dirs, files)
+    apps_in(&Dirs::from_env(), files, false)
 }
 
-fn apps_in(dirs: &Dirs, files: &[&Path]) -> (Vec<AppChoice>, Option<String>) {
+pub fn edit_apps_for(file: &Path) -> (Vec<AppChoice>, Option<String>) {
+    apps_in(&Dirs::from_env(), &[file], true)
+}
+
+fn apps_in(dirs: &Dirs, files: &[&Path], edit_with: bool) -> (Vec<AppChoice>, Option<String>) {
     let entries = entries(dirs);
     let assoc = desktop::Associations::read(dirs);
     let (globs, subclasses) = (mime_db(dirs, "globs2"), mime_db(dirs, "subclasses"));
     let aliases = mime_db(dirs, "aliases");
-    let mut common: Option<Vec<String>> = None;
+    let mut common: Option<Vec<(&Entry, bool)>> = None;
     let mut default = None;
     for (i, file) in files.iter().enumerate() {
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned());
         let types = name
             .map(|n| desktop::mime_types_of(&n, &globs))
             .unwrap_or_default();
-        let Some(first) = types.first() else {
-            common = Some(Vec::new());
-            continue;
-        };
-        let family = desktop::mime_family(first, &subclasses, &aliases);
+        let family = types
+            .first()
+            .map(|first| desktop::mime_family(first, &subclasses, &aliases))
+            .unwrap_or_default();
         let (apps, def) = desktop::apps_for_family(&family, &entries, &assoc);
-        let ids: Vec<String> = apps.iter().map(|e| e.id.clone()).collect();
+        let mut choices: Vec<_> = apps.iter().map(|entry| (*entry, true)).collect();
+        if edit_with {
+            let mime_ids: HashSet<_> = apps.iter().map(|entry| entry.id.as_str()).collect();
+            choices.extend(
+                entries
+                    .iter()
+                    .filter(|entry| {
+                        !mime_ids.contains(entry.id.as_str())
+                            && entry.offers_raster_editing(&dirs.desktops)
+                            && !family.iter().any(|mime| assoc.is_removed(mime, &entry.id))
+                    })
+                    .map(|entry| (entry, false)),
+            );
+        }
         if i == 0 {
             default = def;
         }
         common = Some(match common {
-            None => ids,
+            None => choices,
             Some(before) => {
-                let these: HashSet<&String> = ids.iter().collect();
-                before.into_iter().filter(|id| these.contains(id)).collect()
+                let these: HashSet<_> = choices.iter().map(|(entry, _)| &entry.id).collect();
+                before
+                    .into_iter()
+                    .filter(|(entry, _)| these.contains(&entry.id))
+                    .collect()
             }
         });
     }
-    let ids = common.unwrap_or_default();
     let mut out = Vec::new();
     let mut default_path = None;
-    for id in &ids {
-        if let Some(entry) = entries.iter().find(|e| &e.id == id) {
-            let icon = entry
-                .icon
-                .as_deref()
-                .and_then(|i| desktop::icon_data_url(i, dirs));
-            if default.as_deref() == Some(entry.id.as_str()) {
-                default_path = Some(entry.path.to_string_lossy().into_owned());
-            }
-            out.push(desktop::choice(entry, icon));
+    for (entry, recommended) in common.unwrap_or_default() {
+        let icon = entry
+            .icon
+            .as_deref()
+            .and_then(|i| desktop::icon_data_url(i, dirs));
+        let mut choice = desktop::choice(entry, icon);
+        choice.recommended = recommended;
+        if recommended && default.as_deref() == Some(entry.id.as_str()) {
+            default_path = Some(choice.path.clone());
         }
+        out.push(choice);
     }
     (out, default_path)
 }
@@ -199,7 +216,7 @@ fn spawn(command: &[String]) -> Result<(), String> {
 /// Opens `files` in `program` in one launch (an entry that takes one file at
 /// a time: one launch per file). An executable the user picked is given the
 /// files as arguments.
-pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
+pub fn open(program: &str, files: &[PathBuf], edit_with: bool) -> Result<Launched, String> {
     let first = files.first().ok_or("No files to open.")?;
     if !is_desktop_file(program) {
         let mut command = vec![program.to_string()];
@@ -209,10 +226,8 @@ pub fn open(program: &str, files: &[PathBuf]) -> Result<Launched, String> {
     }
     let entry =
         read_entry(program).ok_or_else(|| format!("{program} is not an application entry."))?;
-    let listed = apps_for(&[first.as_path()])
-        .0
-        .iter()
-        .any(|a| a.path == program);
+    let choices = apps_in(&Dirs::from_env(), &[first.as_path()], edit_with);
+    let listed = choices.0.iter().any(|a| a.path == program);
     let desktop_file = PathBuf::from(program);
     let fields = Fields {
         name: &entry.name,
@@ -243,7 +258,7 @@ mod tests {
         fs::create_dir_all(system.join("mime")).unwrap();
         fs::write(
             system.join("mime/globs2"),
-            "50:image/x-nikon-nef:*.nef\n50:image/tiff:*.tif\n50:image/tiff:*.tiff\n",
+            "50:image/x-nikon-nef:*.nef\n50:image/tiff:*.tif\n50:image/tiff:*.tiff\n50:image/jpeg:*.jpg\n",
         )
         .unwrap();
         fs::write(
@@ -287,7 +302,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dirs = desktop_tree(tmp.path());
         let nef = Path::new("/p/A.NEF");
-        let (apps, default) = apps_in(&dirs, &[nef]);
+        let (apps, default) = apps_in(&dirs, &[nef], false);
         // Nearest type's programs first (the menu sorts them later).
         let names: Vec<_> = apps.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(names, ["Paint", "Zed Raw"]);
@@ -302,13 +317,106 @@ mod tests {
         );
         // Several types: only what opens all of them.
         let tif = Path::new("/p/B.tif");
-        let (apps, _) = apps_in(&dirs, &[nef, tif]);
+        let (apps, _) = apps_in(&dirs, &[nef, tif], false);
         assert_eq!(
             apps.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
             ["Paint"]
         );
         // An unknown type offers nothing.
-        assert!(apps_in(&dirs, &[Path::new("/p/x.unknown")]).0.is_empty());
+        assert!(
+            apps_in(&dirs, &[Path::new("/p/x.unknown")], false)
+                .0
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn edit_with_appends_visible_raster_editors_after_mime_handlers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut dirs = desktop_tree(tmp.path());
+        dirs.desktops = vec!["kde".into()];
+        let system = dirs.data[1].join("applications");
+        let write = |id: &str, fields: &str| {
+            fs::write(
+                system.join(format!("{id}.desktop")),
+                format!("[Desktop Entry]\nType=Application\nName={id}\n{fields}"),
+            )
+            .unwrap();
+        };
+        write(
+            "a-paint",
+            "Exec=paint %U\nCategories=Qt;Graphics;2DGraphics;RasterGraphics;\nOnlyShowIn=KDE;\n",
+        );
+        write(
+            "b-edit",
+            "Exec=edit %u\nCategories=Graphics;2DGraphics;\nKeywords=Image Editor;\n",
+        );
+        write(
+            "c-handler",
+            "Exec=handler %f\nMimeType=image/tiff;image/jpeg;\nCategories=Graphics;RasterGraphics;\n",
+        );
+        write("d-viewer", "Exec=viewer\nCategories=Graphics;\n");
+        write(
+            "e-no-file",
+            "Exec=paint %%F\nCategories=Graphics;RasterGraphics;\n",
+        );
+        write(
+            "f-no-display",
+            "Exec=paint %F\nCategories=Graphics;RasterGraphics;\nNoDisplay=true\n",
+        );
+        write(
+            "g-other-desktop",
+            "Exec=paint %F\nCategories=Graphics;RasterGraphics;\nOnlyShowIn=GNOME;\n",
+        );
+        write(
+            "h-not-here",
+            "Exec=paint %F\nCategories=Graphics;RasterGraphics;\nNotShowIn=KDE;\n",
+        );
+        write(
+            "i-hidden",
+            "Exec=paint %F\nCategories=Graphics;RasterGraphics;\nHidden=true\n",
+        );
+        write(
+            "j-viewer",
+            "Exec=viewer %F\nCategories=Graphics;2DGraphics;\nKeywords=Image Viewer;\n",
+        );
+        write("k-removed", "Exec=paint %F\nCategories=RasterGraphics;\n");
+        write("l-shadowed", "Exec=paint %F\nCategories=RasterGraphics;\n");
+        fs::write(
+            dirs.data[0].join("applications/l-shadowed.desktop"),
+            "[Desktop Entry]\nHidden=true\n",
+        )
+        .unwrap();
+        fs::write(
+            dirs.data[0].join("applications/mimeapps.list"),
+            "[Default Applications]\nimage/jpeg=c-handler.desktop;\nimage/tiff=c-handler.desktop;\n\
+             [Removed Associations]\nimage/jpeg=k-removed.desktop;\nimage/tiff=k-removed.desktop;\n",
+        )
+        .unwrap();
+
+        let jpeg = Path::new("/p/photo.jpg");
+        let (apps, default) = apps_in(&dirs, &[jpeg], true);
+        let choices: Vec<_> = apps
+            .iter()
+            .map(|a| (a.name.as_str(), a.recommended))
+            .collect();
+        assert_eq!(
+            choices,
+            [("c-handler", true), ("a-paint", false), ("b-edit", false)]
+        );
+        let handler = system.join("c-handler.desktop");
+        assert_eq!(default.as_deref().map(Path::new), Some(handler.as_path()));
+        let (apps, _) = apps_in(&dirs, &[Path::new("/p/photo.tiff")], true);
+        assert_eq!(
+            apps.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+            ["c-handler", "Paint", "a-paint", "b-edit"]
+        );
+
+        let (apps, _) = apps_in(&dirs, &[jpeg], false);
+        assert_eq!(
+            apps.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+            ["c-handler"]
+        );
     }
 
     #[test]
@@ -329,7 +437,7 @@ mod tests {
         assert!(check("/no/such/tool").is_err());
         let file = tmp.path().join("a b;touch pwned.tiff");
         assert_eq!(
-            open(program, std::slice::from_ref(&file)).unwrap(),
+            open(program, std::slice::from_ref(&file), false).unwrap(),
             Launched::Picked
         );
         for _ in 0..100 {

@@ -197,8 +197,12 @@ pub fn placed_parameters(
                         .collect();
                     let radius = stroke["radius"].as_f64()? * long;
                     (!points.is_empty() && radius > 0.0).then(|| {
-                        json!({
-                            masks::TOOL.name(): "brush",
+                        let mut line = json!({
+                            masks::TOOL.name(): if stroke["eraser"].as_bool() == Some(true) {
+                                "eraser"
+                            } else {
+                                "brush"
+                            },
                             masks::BRUSH_SIZE.name(): round(2.0 * radius),
                             masks::POINTS.name(): points,
                             masks::FEATHER.name(): 0.5,
@@ -211,7 +215,12 @@ pub fn placed_parameters(
                             masks::AUTO_MASK.name():
                                 stroke[masks::AUTO_MASK.name()].as_bool().unwrap_or(false),
                             masks::FRAME.name(): frame,
-                        })
+                        });
+                        // A stroke painted below value 1 (Lightroom's `MaskValue`).
+                        if let Some(opacity) = stroke[masks::OPACITY.name()].as_f64() {
+                            line[masks::OPACITY.name()] = json!(round(opacity));
+                        }
+                        line
                     })
                 })
                 .collect();
