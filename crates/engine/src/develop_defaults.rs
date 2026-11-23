@@ -153,6 +153,11 @@ pub struct CameraIdentity {
     /// The model as the file names it, none when it is `model`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_model: Option<String>,
+    /// The other names files of this camera carry (rawler's catalog, folded
+    /// to lower case): a camera default saved under one of them is this
+    /// camera's (`CameraDefaults::is_for`; the editor matches by them).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also_named: Vec<CameraName>,
 }
 
 impl CameraIdentity {
@@ -174,32 +179,82 @@ impl CameraIdentity {
 /// with similar names never meet; a camera added to the catalog later
 /// keeps its identity, as its files' names map to the same clean names.
 pub fn canonical_names(make: &str, model: &str) -> (String, String) {
-    type Names = HashMap<(String, String), (String, String)>;
-    static CATALOG: OnceLock<Names> = OnceLock::new();
-    let key = |make: &str, model: &str| (make.trim().to_lowercase(), model.trim().to_lowercase());
-    let catalog = CATALOG.get_or_init(|| {
-        let mut names = Names::new();
-        // Sorted, so a name two catalog entries share (none today) maps the
-        // same way every run.
+    catalog_names()
+        .one
+        .get(&folded(make, model))
+        .cloned()
+        .unwrap_or_else(|| (make.trim().to_string(), model.trim().to_string()))
+}
+
+/// Every other make and model the catalog gives the camera named `make` /
+/// `model` (`canonical_names`), so the editor finds an entry saved under
+/// any of them as the engine does (`CameraIdentity::also_named`).
+fn other_names(make: &str, model: &str) -> Vec<CameraName> {
+    catalog_names()
+        .all
+        .get(&folded(make, model))
+        .map(|names| {
+            names
+                .iter()
+                .filter(|name| !(same(&name.make, make) && same(&name.model, model)))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn folded(make: &str, model: &str) -> (String, String) {
+    (make.trim().to_lowercase(), model.trim().to_lowercase())
+}
+
+struct CatalogNames {
+    /// A file's make and model (folded) → the camera's one name.
+    one: HashMap<(String, String), (String, String)>,
+    /// The camera's one name (folded) → the file names giving it.
+    all: HashMap<(String, String), Vec<CameraName>>,
+}
+
+fn catalog_names() -> &'static CatalogNames {
+    static CATALOG: OnceLock<CatalogNames> = OnceLock::new();
+    CATALOG.get_or_init(|| {
+        let mut one = HashMap::new();
+        // The decoder looks a file's names up with mode "" first, then by
+        // its own mode: the "" entry names a file as the decoder does; a
+        // name only some modes list takes the first mode's in sorted order,
+        // the same every run.
         let mut cameras: Vec<_> = rawler::global_loader().get_cameras().iter().collect();
         cameras.sort_by(|a, b| a.0.cmp(b.0));
         for ((make, model, _mode), camera) in cameras {
             if camera.clean_make.trim().is_empty() && camera.clean_model.trim().is_empty() {
                 continue;
             }
-            names.entry(key(make, model)).or_insert_with(|| {
+            one.entry(folded(make, model)).or_insert_with(|| {
                 (
                     camera.clean_make.trim().to_string(),
                     camera.clean_model.trim().to_string(),
                 )
             });
         }
-        names
-    });
-    catalog
-        .get(&key(make, model))
-        .cloned()
-        .unwrap_or_else(|| (make.trim().to_string(), model.trim().to_string()))
+        let mut all: HashMap<(String, String), Vec<CameraName>> = HashMap::new();
+        for ((make, model), (one_make, one_model)) in &one {
+            let names = all.entry(folded(one_make, one_model)).or_default();
+            names.push(CameraName {
+                make: make.clone(),
+                model: model.clone(),
+            });
+        }
+        for names in all.values_mut() {
+            names.sort_by(|a, b| (&a.make, &a.model).cmp(&(&b.make, &b.model)));
+        }
+        CatalogNames { one, all }
+    })
+}
+
+/// A camera's make and model as a file or a settings entry names it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CameraName {
+    pub make: String,
+    pub model: String,
 }
 
 /// The defaults one photograph gets.
@@ -404,8 +459,16 @@ pub fn fingerprint() -> Option<Vec<u8>> {
     if defaults.is_empty() {
         return None;
     }
-    serde_json::to_vec(&*defaults).ok()
+    // With the rule that finds a camera's entry: renders cached under the
+    // same settings but an older rule may have taken another entry.
+    let mut bytes = CAMERA_MATCHING.as_bytes().to_vec();
+    bytes.extend(serde_json::to_vec(&*defaults).ok()?);
+    Some(bytes)
 }
+
+/// The rule matching a photo's camera to its entry (`entry_for`), part of
+/// `fingerprint`: change it when that rule changes.
+const CAMERA_MATCHING: &str = "camera-identity-1\n";
 
 /// Whether a recipe follows the defaults: new (`is_new_recipe`) and without
 /// its defaults decided (`KEY`).
@@ -491,6 +554,7 @@ fn identity(make: &str, model: &str, serial: Option<&str>) -> Option<CameraIdent
     let (one_make, one_model) = canonical_names(make, model);
     let differs = |file: &str, one: &str| (file != one).then(|| file.to_string());
     Some(CameraIdentity {
+        also_named: other_names(&one_make, &one_model),
         file_make: differs(make, &one_make),
         file_model: differs(model, &one_model),
         make: one_make,
@@ -812,6 +876,14 @@ mod tests {
         assert_eq!((&jpeg.make, &jpeg.model), (&raw.make, &raw.model));
         assert_eq!(jpeg.file_model.as_deref(), Some("Canon EOS R5"));
         assert_eq!(raw.file_model, None);
+        // The editor finds an entry saved under the JPEG's names by them.
+        assert!(
+            raw.also_named
+                .iter()
+                .any(|name| name.model == "canon eos r5"),
+            "{raw:?}"
+        );
+        assert_eq!(raw.also_named, jpeg.also_named);
         let nikon = identity("NIKON CORPORATION", "NIKON Z 6_2", None).unwrap();
         assert_eq!(
             (nikon.make.as_str(), nikon.model.as_str()),
@@ -940,6 +1012,18 @@ mod tests {
                 if folded(to.clone()) != clean {
                     wrong.push(format!("{from:?} -> {to:?}, not {clean:?}"));
                 }
+            }
+            // The editor's list of the camera's names holds every file name
+            // the engine maps to it.
+            let one = canonical_names(make, model);
+            let camera = identity(&one.0, &one.1, None).unwrap();
+            if !(same(make, &camera.make) && same(model, &camera.model))
+                && !camera
+                    .also_named
+                    .iter()
+                    .any(|n| same(&n.make, make) && same(&n.model, model))
+            {
+                wrong.push(format!("{make} / {model} not among {camera:?}'s names"));
             }
         }
         wrong.sort();

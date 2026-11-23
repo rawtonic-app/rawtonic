@@ -133,8 +133,9 @@ describe('develop defaults', () => {
 
   it("finds a camera's entry by its file's names first, else by its one name, and keeps an entry's names", () => {
     // A JPEG of the R5 (EXIF names) and its CR3 (clean names) are one camera.
-    const jpeg = { make: 'Canon', model: 'EOS R5', fileModel: 'Canon EOS R5' };
-    const raw = { make: 'Canon', model: 'EOS R5' };
+    const alsoNamed = [{ make: 'canon', model: 'canon eos r5' }];
+    const jpeg = { make: 'Canon', model: 'EOS R5', fileModel: 'Canon EOS R5', alsoNamed };
+    const raw = { make: 'Canon', model: 'EOS R5', alsoNamed };
     // An entry saved from the CR3 is the JPEG's too; saving keeps one entry.
     let d = withCameraDefault(NO_DEVELOP_DEFAULTS, raw, 'camera', { name: 'R', settings: { exposure: 0.9 } });
     d = withCameraToolDefault(d, jpeg, 'camera', { clarity: 10 });
@@ -155,6 +156,12 @@ describe('develop defaults', () => {
     const fromRaw = withCameraDefault(both, raw, 'camera', { name: 'R', settings: { exposure: 1 } });
     expect(fromRaw.cameras![0].settings).toEqual({ exposure: 0.4 });
     expect(fromRaw.cameras![1]).toMatchObject({ model: 'EOS R5', settings: { exposure: 1 } });
+    // The RAW's entry removed: the CR3 now takes the one saved from the JPEG
+    // (as the engine resolves it) and a tool saved from the CR3 joins it.
+    const jpegOnly = withoutCameraDefault(both, 1);
+    const joined = withCameraToolDefault(jpegOnly, raw, 'camera', { clarity: 10 });
+    expect(joined.cameras).toHaveLength(1);
+    expect(joined.cameras![0]).toMatchObject({ model: 'Canon EOS R5', settings: { exposure: 0.4, clarity: 10 } });
     // A similar body is another camera.
     const r5c = withCameraDefault(both, { make: 'Canon', model: 'EOS R5 C' }, 'camera', { name: 'C', settings: {} });
     expect(r5c.cameras).toHaveLength(3);

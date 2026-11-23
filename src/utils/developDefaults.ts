@@ -65,6 +65,9 @@ export interface CameraIdentity {
   serial?: string;
   fileMake?: string;
   fileModel?: string;
+  /** Other names files of this camera carry (rawler's catalog): an entry
+   * saved under one of them is this camera's. */
+  alsoNamed?: { make: string; model: string }[];
 }
 
 export interface ResolvedDefaults {
@@ -205,16 +208,18 @@ const same = (a: string | undefined, b: string | undefined) =>
   (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase();
 
 /** The camera's (body's) entry, as the backend's `entry_for` picks it: the
- * one saved under the names the photo's file gives first, else the one under
- * the camera's one name (loading the settings moves every other entry to it,
- * `canonicalize_camera_names`). */
+ * one saved under the names the photo's file gives first, else the first
+ * saved under any of the camera's names (its one name or `alsoNamed`). */
 const entryIndex = (defaults: DevelopDefaults, camera: CameraIdentity, level: 'camera' | 'body') => {
   const cameras = defaults.cameras ?? [];
   const atLevel = (entry: CameraDefaults) =>
     level === 'body' ? entry.serial?.trim() === camera.serial?.trim() : !entry.serial;
   const fileNamed = (entry: CameraDefaults) =>
     same(entry.make, camera.fileMake ?? camera.make) && same(entry.model, camera.fileModel ?? camera.model);
-  const named = (entry: CameraDefaults) => same(entry.make, camera.make) && same(entry.model, camera.model);
+  const named = (entry: CameraDefaults) =>
+    [{ make: camera.make, model: camera.model }, ...(camera.alsoNamed ?? [])].some(
+      (name) => same(entry.make, name.make) && same(entry.model, name.model)
+    );
   const exact = cameras.findIndex((entry) => atLevel(entry) && fileNamed(entry));
   return exact >= 0 ? exact : cameras.findIndex((entry) => atLevel(entry) && named(entry));
 };
