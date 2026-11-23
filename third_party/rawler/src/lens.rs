@@ -222,7 +222,7 @@ impl LensResolver {
       }
     }
 
-    let matches = self.narrowed(self.id_matches());
+    let matches = self.id_matches();
     match matches.len() {
       1 => return Some(matches[0]),
       c if c > 1 => {
@@ -275,7 +275,7 @@ impl LensResolver {
   /// Rawtonic patch (LNS1): several lenses sharing one ID (Canon's LensType
   /// of third-party lenses) narrowed to those with the lens's own focal
   /// range and widest aperture where it states them (`with_lens_info`;
-  /// zero = not stated). A single match is never narrowed away.
+  /// zero = not stated). Only for `resolve_with_candidates`.
   fn narrowed(&self, matches: Vec<&'static LensDescription>) -> Vec<&'static LensDescription> {
     let Some(info) = self.lens_info.filter(|_| matches.len() > 1) else {
       return matches;
@@ -294,14 +294,18 @@ impl LensResolver {
       .collect()
   }
 
-  /// Rawtonic patch (LNS1): the lens, or when the search parameters fit
-  /// several lenses and none can be told apart, all of them (no guess).
+  /// Rawtonic patch (LNS1): the lens `resolve` finds (unchanged, so the
+  /// metadata a decoder writes from it stays as before), or where it finds
+  /// none because the ID fits several lenses, those the lens's own range
+  /// and aperture leave — one or several — as candidates for lens
+  /// detection only.
   pub fn resolve_with_candidates(&self) -> (Option<&'static LensDescription>, Vec<&'static LensDescription>) {
     match self.resolve() {
       Some(lens) => (Some(lens), Vec::new()),
       None => {
-        let candidates = self.narrowed(self.id_matches());
-        (None, if candidates.len() > 1 { candidates } else { Vec::new() })
+        let matches = self.id_matches();
+        let candidates = if matches.len() > 1 { self.narrowed(matches) } else { Vec::new() };
+        (None, candidates)
       }
     }
   }
@@ -496,6 +500,24 @@ mod tests {
     let mut names: Vec<&str> = candidates.iter().map(|l| l.lens_name.as_str()).collect();
     names.sort();
     assert_eq!(names, ["Sigma 24-70mm f/2.8 IF EX DG HSM", "Tamron SP 24-70mm f/2.8 Di VC USD"]);
+  }
+
+  /// Rawtonic patch (LNS1): an ID the lens's range narrows to one lens
+  /// still resolves to none (the decoder's metadata stays as before); the
+  /// lens is a candidate.
+  #[test]
+  fn narrowed_to_one_lens_is_a_candidate_not_a_resolution() {
+    let info = [Rational::new(18, 1), Rational::new(35, 1), Rational::new(18, 10), Rational::new(0, 1)];
+    let resolver = LensResolver::new()
+      .with_lens_id((137, 0))
+      .with_focal_len(Some(Rational::new(24, 1)))
+      .with_mounts(&["cn-mount".into(), "ef-mount".into()])
+      .with_lens_info(info);
+    assert!(resolver.resolve().is_none());
+    let (lens, candidates) = resolver.resolve_with_candidates();
+    assert!(lens.is_none());
+    assert_eq!(candidates.len(), 1);
+    assert!(candidates[0].lens_name.starts_with("Sigma 18-35mm f/1.8 DC HSM"), "{}", candidates[0].lens_name);
   }
 
   /// Rawtonic patch (LNS1): a CameraSettings record without the lens

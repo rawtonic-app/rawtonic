@@ -328,6 +328,79 @@ pub fn detect_lens(db: &LensDatabase, facts: &LensFacts) -> LensDetection {
         .unwrap_or_default()
 }
 
+/// Lenses offered for the photographer to choose: each physical lens once
+/// (maker and canonical name), with its calibration for the photo's frame
+/// (`best_calibration`).
+fn offer(db: &LensDatabase, lenses: &[&Lens], crop: Option<f32>) -> Vec<(String, String)> {
+    let mut candidates: Vec<(String, String)> = Vec::new();
+    let mut seen: Vec<(String, String)> = Vec::new();
+    for lens in lenses {
+        let identity = (lens.get_maker(), lens.get_canonical_model_name());
+        if seen.contains(&identity) {
+            continue;
+        }
+        let variants: Vec<&Lens> = lenses
+            .iter()
+            .copied()
+            .filter(|other| (other.get_maker(), other.get_canonical_model_name()) == identity)
+            .collect();
+        seen.push(identity);
+        if let Some(lens) = best_calibration(&variants, crop) {
+            let entry = named(db, lens);
+            if !candidates.contains(&entry) {
+                candidates.push(entry);
+            }
+        }
+    }
+    candidates
+}
+
+/// The lenses of one maker the name fits best, and equally well (the
+/// fuzzy score without the length penalty), among those the photo's facts
+/// allow: more than one physical lens means the name does not tell them
+/// apart.
+fn equally_fitting<'a>(
+    db: &'a LensDatabase,
+    maker: &str,
+    name: &str,
+    facts: &LensFacts,
+) -> Vec<&'a Lens> {
+    use fuzzy_matcher::FuzzyMatcher;
+    let matcher = fuzzy_matcher::skim::SkimMatcherV2::default().ignore_case();
+    let query = name.trim();
+    let scored: Vec<(i64, &Lens)> = db
+        .lenses
+        .iter()
+        .filter(|lens| lens.get_maker().eq_ignore_ascii_case(maker))
+        .filter(|lens| {
+            lens.calibration.is_some() && !is_fixed_lens(lens) && consistent(lens, facts)
+        })
+        .filter_map(|lens| {
+            let score = matcher
+                .fuzzy_match(&lens.get_full_model_name(), query)
+                .max(matcher.fuzzy_match(&lens.get_canonical_model_name(), query))?;
+            Some((score, lens))
+        })
+        .collect();
+    let Some(top) = scored.iter().map(|(score, _)| *score).max() else {
+        return Vec::new();
+    };
+    let best: Vec<&Lens> = scored
+        .into_iter()
+        .filter(|(score, _)| *score == top)
+        .map(|(_, lens)| lens)
+        .collect();
+    let identities = best
+        .iter()
+        .map(|lens| lens.get_canonical_model_name())
+        .collect::<std::collections::BTreeSet<_>>();
+    if identities.len() > 1 {
+        best
+    } else {
+        Vec::new()
+    }
+}
+
 /// The Lensfun lenses of a maker-note candidate's maker whose focal range
 /// and widest aperture are the candidate's (both stated) and the photo's.
 fn same_spec_lenses<'a>(db: &'a LensDatabase, full_name: &str, facts: &LensFacts) -> Vec<&'a Lens> {
@@ -408,8 +481,10 @@ fn from_candidates(db: &LensDatabase, facts: &LensFacts, crop: Option<f32>) -> L
         let (focal, aperture) = name_spec(name);
         let by_name = LensFacts {
             lens_name: (*name).to_string(),
-            focal_range: focal.or(facts.focal_range),
-            max_aperture: aperture.or(facts.max_aperture),
+            // The photo's own facts first: a name that contradicts them is
+            // not taken (`consistent`), only offered.
+            focal_range: facts.focal_range.or(focal),
+            max_aperture: facts.max_aperture.or(aperture),
             candidates: Vec::new(),
             ..facts.clone()
         };
@@ -419,34 +494,12 @@ fn from_candidates(db: &LensDatabase, facts: &LensFacts, crop: Option<f32>) -> L
             return found;
         }
     }
-    // Each physical lens once: of its calibrations the one for the photo's
-    // frame (`best_calibration`).
-    let mut lenses: Vec<&Lens> = found
+    let lenses: Vec<&Lens> = found
         .iter()
         .flat_map(|(_, lenses)| lenses.iter().copied())
         .chain(spelled_otherwise.iter().copied())
         .collect();
-    lenses.dedup_by(|a, b| std::ptr::eq(*a, *b));
-    let mut candidates: Vec<(String, String)> = Vec::new();
-    let mut seen: Vec<(String, String)> = Vec::new();
-    for lens in &lenses {
-        let identity = (lens.get_maker(), lens.get_canonical_model_name());
-        if seen.contains(&identity) {
-            continue;
-        }
-        let variants: Vec<&Lens> = lenses
-            .iter()
-            .copied()
-            .filter(|other| (other.get_maker(), other.get_canonical_model_name()) == identity)
-            .collect();
-        seen.push(identity);
-        if let Some(lens) = best_calibration(&variants, crop) {
-            let entry = named(db, lens);
-            if !candidates.contains(&entry) {
-                candidates.push(entry);
-            }
-        }
-    }
+    let candidates = offer(db, &lenses, crop);
     LensDetection {
         lens: None,
         candidates,
@@ -505,6 +558,40 @@ fn from_name(db: &LensDatabase, facts: &LensFacts) -> Option<LensDetection> {
             && !is_fixed_lens(lens)
             && consistent(lens, facts)
         {
+            // A name two lenses of that maker fit equally well ("EF 24-70mm
+            // f/2.8": the f/2.8L and the f/2.8L II) names neither.
+            // Where one of them carries exactly the EXIF name ("FE 24-70mm
+            // F2.8 GM" beside the "GM II"), that one.
+            let tied = equally_fitting(db, &lens.get_maker(), name, facts);
+            if !tied.is_empty() {
+                let crop =
+                    body_crop_factor(db, &facts.maker, &facts.camera_model, facts.frame_crop);
+                let exact: Vec<&Lens> = tied
+                    .iter()
+                    .copied()
+                    .filter(|lens| {
+                        let maker = lens.get_maker();
+                        let wanted = normalized_lens_name(name, &maker);
+                        lens.model
+                            .iter()
+                            .any(|n| normalized_lens_name(&n.value, &maker) == wanted)
+                    })
+                    .collect();
+                let identities: std::collections::BTreeSet<String> = exact
+                    .iter()
+                    .map(|lens| lens.get_canonical_model_name())
+                    .collect();
+                if identities.len() != 1 {
+                    return Some(LensDetection {
+                        lens: None,
+                        candidates: offer(db, &tied, crop),
+                    });
+                }
+                if !identities.contains(&lens.get_canonical_model_name()) {
+                    return best_calibration(&exact, crop)
+                        .map(|lens| LensDetection::picked(named(db, lens)));
+                }
+            }
             return Some(LensDetection::picked((maker.clone(), model.clone())));
         }
     }
@@ -536,14 +623,8 @@ fn from_name(db: &LensDatabase, facts: &LensFacts) -> Option<LensDetection> {
     } else {
         on_mount
     };
-    let mut candidates: Vec<(String, String)> = Vec::new();
-    for lens in offered {
-        let maker_lenses = lenses_for_maker(db, &lens.get_maker());
-        let entry = (lens.get_maker(), lens.get_display_name(&maker_lenses));
-        if !candidates.contains(&entry) {
-            candidates.push(entry);
-        }
-    }
+    let crop = body_crop_factor(db, &facts.maker, &facts.camera_model, facts.frame_crop);
+    let candidates = offer(db, &offered, crop);
     (!candidates.is_empty()).then_some(LensDetection {
         lens: None,
         candidates,
@@ -653,6 +734,59 @@ mod tests {
         ]);
         assert_eq!(found.lens, None);
         assert!(!found.candidates.is_empty());
+        // One entry per physical lens: the Sigma once.
+        let sigmas = found
+            .candidates
+            .iter()
+            .filter(|(maker, model)| maker == "Sigma" && model.contains("IF EX DG HSM"))
+            .count();
+        assert_eq!(sigmas, 1, "{found:?}");
+    }
+
+    /// A mount prefix does not tell two generations apart: "EF 24-70mm
+    /// f/2.8" fits the f/2.8L and the f/2.8L II equally — offered; the full
+    /// name of one of them picks it.
+    #[test]
+    fn a_name_two_lenses_fit_equally_picks_neither() {
+        let found = detect(&[
+            ("Make", "Canon"),
+            ("Model", "Canon EOS 5D Mark III"),
+            ("LensModel", "EF 24-70mm f/2.8"),
+        ]);
+        assert_eq!(found.lens, None);
+        assert!(found.candidates.len() > 1, "{found:?}");
+        let found = detect(&[
+            ("Make", "Canon"),
+            ("Model", "Canon EOS 5D Mark III"),
+            ("LensModel", "EF24-70mm f/2.8L II USM"),
+        ]);
+        assert_eq!(
+            found.lens.map(|(_, model)| model.contains("II")),
+            Some(true)
+        );
+        // An exact name beside its successor's ("… GM II") picks its lens.
+        let found = detect(&[
+            ("Make", "SONY"),
+            ("Model", "ILCE-7RM2"),
+            ("LensModel", "FE 24-70mm F2.8 GM"),
+        ]);
+        assert_eq!(
+            found.lens,
+            Some(("Sony".into(), "FE 24-70mm f/2.8 GM".into()))
+        );
+    }
+
+    /// A maker-note lens whose aperture contradicts the EXIF name's is
+    /// offered, not applied.
+    #[test]
+    fn a_maker_note_lens_contradicting_the_exif_name_is_not_applied() {
+        let found = detect(&[
+            ("Make", "Canon"),
+            ("Model", "Canon EOS 5D Mark III"),
+            ("LensModel", "50mm f/1.8"),
+            (LENS_CANDIDATES, "Canon EF 50mm f/1.2L USM"),
+        ]);
+        assert_eq!(found.lens, None);
     }
 
     /// A compact whose maker note names its own lens (rawler's fixed-lens
