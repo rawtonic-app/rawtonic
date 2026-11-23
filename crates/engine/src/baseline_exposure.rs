@@ -498,8 +498,9 @@ pub use crate::capture_info::read_camera;
 /// metadata-only ("dummy") decode. Only for cameras whose Adobe value
 /// depends on the capture size (Phase One Sensor+, Sony α1 II Medium/Small).
 fn read_image_shape(path: &str) -> Option<(u32, bool)> {
-    // Import preview rendering can reach this through the base look; a file
-    // on a removable card is read, not mapped (`open_for_metadata`).
+    // Import preview rendering can reach this through the base look: read
+    // into memory or from the caller's buffer (`open_for_metadata`), never
+    // mapped here (a card pulled meanwhile must fail a read, not SIGBUS).
     let source = crate::capture_info::open_for_metadata(path)?;
     let decoder = rawler::get_decoder(&source).ok()?;
     let image = decoder

@@ -1084,24 +1084,51 @@ fn levels_at(data: &[u16], specular: usize) -> Option<(f32, u32)> {
     Some((black, white as u32))
 }
 
-/// A RAW opened to read its metadata (the by-path facts of the base look:
-/// camera, diffraction, image shape): mapped lazily, so only the parts the
-/// reader looks at are read from the disk or share. A whole-file read per
-/// fact cost 3–5 times the file over a network share (ING1: 495 MB for a
-/// 123 MB ARW, 7 s over a 110 MB/s link). On a memory card the file is read
-/// into memory instead (export adjustments may ask for the camera's base
-/// look while the source is still on the import card): a card pulled while
-/// a mapping is read raises SIGBUS and kills the app, where a read only
-/// fails.
-pub fn open_for_metadata(path: &str) -> Option<rawler::rawsource::RawSource> {
-    let file = std::path::Path::new(path);
-    if rawtonic_fs::volume::is_card(file) {
-        let bytes = std::fs::read(file).ok()?;
-        return Some(rawler::rawsource::RawSource::new_from_shared_vec(
-            std::sync::Arc::new(bytes),
-        ));
+/// A buffer a caller already holds of a whole RAW, as rawler reads it.
+pub type SharedBuf = std::sync::Arc<dyn AsRef<[u8]> + Send + Sync + std::panic::RefUnwindSafe>;
+
+thread_local! {
+    static HELD: std::cell::RefCell<Option<(String, SharedBuf)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `f` with `bytes`, the caller's own buffer of the RAW at `path` (its
+/// mapping, or on a card the bytes it read), standing in for the file in
+/// `open_for_metadata` on this thread: the by-path facts of the base look
+/// (camera, diffraction, image shape) then read the pages they look at from
+/// that buffer instead of reading the whole file again for each (ING1: 495 MB
+/// for a 123 MB ARW over a share, 7 s on a 110 MB/s link; on a card each
+/// would read the card again).
+pub fn with_held_source<R>(path: &str, bytes: SharedBuf, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<(String, SharedBuf)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            HELD.with(|held| *held.borrow_mut() = self.0.take());
+        }
     }
-    rawler::rawsource::RawSource::new_lazy(file).ok()
+    let _restore = Restore(HELD.with(|held| held.borrow_mut().replace((path.to_string(), bytes))));
+    f()
+}
+
+/// A RAW opened to read its metadata (the by-path facts of the base look:
+/// camera, diffraction, image shape): the buffer held for `path`
+/// (`with_held_source`) when there is one, else the file read into memory
+/// (never mapped: export adjustments may ask for the camera's base look
+/// while the source is still on a removable import card, and a card pulled
+/// while a mapping is read raises SIGBUS where a read only fails).
+pub fn open_for_metadata(path: &str) -> Option<rawler::rawsource::RawSource> {
+    let held = HELD.with(|held| {
+        held.borrow()
+            .as_ref()
+            .filter(|(held_path, _)| held_path == path)
+            .map(|(_, bytes)| bytes.clone())
+    });
+    if let Some(bytes) = held {
+        return Some(rawler::rawsource::RawSource::new_from_shared(bytes));
+    }
+    let bytes = std::fs::read(path).ok()?;
+    Some(rawler::rawsource::RawSource::new_from_shared_vec(
+        std::sync::Arc::new(bytes),
+    ))
 }
 
 /// Camera make, model and the model's base name (for regional aliases) as

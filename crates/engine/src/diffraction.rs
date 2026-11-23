@@ -115,7 +115,7 @@ pub(crate) fn sigmas_for_path(path: &str) -> Sigmas {
     };
     let sigmas = (|| {
         // This path also serves the import dialog's not-yet-imported RAW:
-        // read in place, except from a removable card (`open_for_metadata`).
+        // its buffer, else the file read into memory (`open_for_metadata`).
         let source = crate::capture_info::open_for_metadata(path)?;
         let decoder = rawler::get_decoder(&source).ok()?;
         let metadata = decoder

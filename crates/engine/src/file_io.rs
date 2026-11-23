@@ -56,54 +56,48 @@ pub fn read_file_mapped_with_metadata(path: &Path) -> Result<(Mmap, fs::Metadata
     Ok((mmap, metadata))
 }
 
-/// Share of a mapped file read ahead per request, and how many requests
-/// run at once. A mapping of a file on a network share is faulted in one
-/// read-around window at a time, a round trip each (13 MB/s of a 110 MB/s
-/// link, 7 of 40 on Wi-Fi: ING1); several large reads at once run at the
-/// link's speed.
+/// Size of a read-ahead request, and how many run at once. A mapping of a
+/// file on a network share is faulted in one read-around window at a time,
+/// a round trip each (13 MB/s of a 110 MB/s link, 7 of 40 on Wi-Fi: ING1);
+/// several large reads at once run at the link's speed.
 const PREFETCH_CHUNK: usize = 8 << 20;
 const PREFETCH_THREADS: usize = 4;
-/// A first chunk read faster than this (about 320 MB/s) is a local disk or
-/// a file already in memory: the mapping needs no help.
-const PREFETCH_LOCAL: std::time::Duration = std::time::Duration::from_millis(25);
 
 /// Reads `path` into the system's page cache in the background, in parallel
-/// and ahead of a mapping that is about to read all of it (a full decode),
-/// unless the first part reads fast (a local disk): the mapping's own reads
-/// then hit the cache instead of waiting one round trip each on a network
-/// share. Reads only, discards what it reads, never fails the caller.
+/// and ahead of a mapping that is about to read all of it (a full decode):
+/// the mapping's own reads then hit the cache instead of waiting one round
+/// trip each on a network share. Reads only, discards what it reads, never
+/// fails the caller. The decode reads every byte anyway; on a local disk
+/// this only reorders reads of a file that is cached or read at once.
 pub fn prefetch(path: &Path) {
     let path = path.to_path_buf();
     let _ = std::thread::Builder::new()
         .name("source-prefetch".into())
-        .spawn(move || prefetch_now(&path));
+        .spawn(move || {
+            let Ok(file) = fs::File::open(&path) else {
+                return;
+            };
+            let Ok(len) = file.metadata().map(|m| m.len()) else {
+                return;
+            };
+            prefetch_chunks(len, &|at| {
+                read_chunk(&file, at, &mut vec![0; PREFETCH_CHUNK]).is_ok()
+            });
+        });
 }
 
-fn prefetch_now(path: &Path) {
-    let Ok(file) = fs::File::open(path) else {
-        return;
-    };
-    let Ok(len) = file.metadata().map(|m| m.len()) else {
-        return;
-    };
+/// Calls `read(offset)` for each chunk of a file of `len` bytes, from
+/// `PREFETCH_THREADS` threads, each chunk once; a thread stops when its read
+/// reports failure.
+fn prefetch_chunks(len: u64, read: &(dyn Fn(u64) -> bool + Sync)) {
     let chunk = PREFETCH_CHUNK as u64;
-    if len <= chunk {
-        return;
-    }
-    let started = std::time::Instant::now();
-    if read_chunk(&file, 0, &mut vec![0; PREFETCH_CHUNK]).is_err()
-        || started.elapsed() < PREFETCH_LOCAL
-    {
-        return;
-    }
-    let next = std::sync::atomic::AtomicU64::new(chunk);
+    let next = std::sync::atomic::AtomicU64::new(0);
     std::thread::scope(|scope| {
         for _ in 0..PREFETCH_THREADS {
             scope.spawn(|| {
-                let mut buf = vec![0; PREFETCH_CHUNK];
                 loop {
                     let at = next.fetch_add(chunk, std::sync::atomic::Ordering::Relaxed);
-                    if at >= len || read_chunk(&file, at, &mut buf).is_err() {
+                    if at >= len || !read(at) {
                         return;
                     }
                 }
@@ -134,6 +128,7 @@ fn read_chunk(file: &fs::File, offset: u64, buf: &mut [u8]) -> std::io::Result<(
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::sync::Mutex;
 
     fn file_of(dir: &Path, name: &str, len: usize) -> std::path::PathBuf {
         let path = dir.join(name);
@@ -142,56 +137,99 @@ mod tests {
         path
     }
 
-    /// The metadata readers of the base look open a RAW the same way on a
-    /// disk (mapped) and on a card (read into memory): the same bytes.
+    /// The by-path facts of the base look read the buffer the caller holds
+    /// for that file (the import dialog's mapping) instead of the file, and
+    /// the file itself (read into memory) otherwise or after the call.
     #[test]
-    fn a_file_opened_for_metadata_has_its_bytes_on_a_disk_and_on_a_card() {
+    fn the_facts_of_a_file_read_the_buffer_held_for_it() {
         let dir = tempfile::tempdir().unwrap();
-        let disk = file_of(dir.path(), "A.ARW", 3 << 20);
-        let card_dir = dir.path().join("DCIM").join("100MSDCF");
-        fs::create_dir_all(&card_dir).unwrap();
-        let card = file_of(&card_dir, "A.ARW", 3 << 20);
-        for path in [&disk, &card] {
-            let source = crate::capture_info::open_for_metadata(path.to_str().unwrap()).unwrap();
-            assert_eq!(source.buf(), fs::read(path).unwrap(), "{}", path.display());
-        }
+        let path = file_of(dir.path(), "A.ARW", 3 << 20);
+        let other = file_of(dir.path(), "B.ARW", 1 << 20);
+        let (path, other) = (path.to_str().unwrap(), other.to_str().unwrap());
+        let from_disk = |p: &str| {
+            crate::capture_info::open_for_metadata(p)
+                .unwrap()
+                .buf()
+                .to_vec()
+        };
+        let on_disk = from_disk(path);
+        assert_eq!(on_disk, fs::read(path).unwrap());
+        let held: crate::capture_info::SharedBuf = std::sync::Arc::new(vec![7u8; 100]);
+        crate::capture_info::with_held_source(path, held, || {
+            assert_eq!(from_disk(path), vec![7u8; 100]);
+            assert_eq!(from_disk(other), fs::read(other).unwrap());
+        });
+        assert_eq!(from_disk(path), on_disk);
         assert!(crate::capture_info::open_for_metadata("/no/such/A.ARW").is_none());
-        let empty = file_of(dir.path(), "empty.ARW", 0);
-        // An empty file opens empty: no decoder takes it, as before.
-        let source = crate::capture_info::open_for_metadata(empty.to_str().unwrap());
-        assert!(source.is_none_or(|source| source.buf().is_empty()));
     }
 
-    /// The read-ahead reads a file of several chunks to its end without
-    /// touching it, and ignores a missing or small one.
+    /// A panic inside the call does not leave the buffer held.
     #[test]
-    fn prefetching_leaves_the_file_as_it_was() {
+    fn a_held_buffer_is_released_when_the_call_panics() {
         let dir = tempfile::tempdir().unwrap();
-        let big = file_of(dir.path(), "big.bin", 3 * PREFETCH_CHUNK + 12345);
-        let before = fs::read(&big).unwrap();
-        prefetch_now(&big);
-        prefetch_now(&file_of(dir.path(), "small.bin", 1000));
-        prefetch_now(&dir.path().join("missing.bin"));
-        assert_eq!(fs::read(&big).unwrap(), before);
+        let path = file_of(dir.path(), "A.ARW", 1000);
+        let path = path.to_str().unwrap();
+        let held: crate::capture_info::SharedBuf = std::sync::Arc::new(vec![1u8; 5]);
+        let _ = std::panic::catch_unwind(|| {
+            crate::capture_info::with_held_source(path, held, || panic!("decode failed"))
+        });
+        let source = crate::capture_info::open_for_metadata(path).unwrap();
+        assert_eq!(source.buf().len(), 1000);
     }
 
-    /// With a slow first chunk the parallel part reads every chunk once
-    /// (what a share's read does after the first chunk is slow).
+    /// The read-ahead visits every chunk of a file exactly once, also when
+    /// the start of the file is already in memory (every chunk is asked).
     #[test]
-    fn every_chunk_of_a_file_is_read_ahead_once() {
+    fn every_chunk_is_read_ahead_once() {
+        let chunk = PREFETCH_CHUNK as u64;
+        for len in [chunk - 1, chunk, 5 * chunk + 7, 40 * chunk] {
+            let seen = Mutex::new(Vec::new());
+            prefetch_chunks(len, &|at| {
+                seen.lock().unwrap().push(at);
+                true
+            });
+            let mut seen = seen.into_inner().unwrap();
+            seen.sort_unstable();
+            let expected: Vec<u64> = (0..len.div_ceil(chunk)).map(|i| i * chunk).collect();
+            assert_eq!(seen, expected, "{len}");
+        }
+    }
+
+    /// A failing read stops its thread; the others finish and none repeats a
+    /// chunk.
+    #[test]
+    fn a_failing_read_stops_only_its_thread() {
+        let chunk = PREFETCH_CHUNK as u64;
+        let seen = Mutex::new(Vec::new());
+        prefetch_chunks(30 * chunk, &|at| {
+            seen.lock().unwrap().push(at);
+            at != chunk
+        });
+        let mut seen = seen.into_inner().unwrap();
+        let count = seen.len();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), count);
+        assert!(seen.contains(&chunk) && count >= 4);
+    }
+
+    /// `read_chunk` fills a chunk from its offset and stops at the end of
+    /// the file; reading ahead changes nothing in the file.
+    #[test]
+    fn chunks_are_read_from_their_offsets() {
         let dir = tempfile::tempdir().unwrap();
-        let big = file_of(dir.path(), "big.bin", 5 * PREFETCH_CHUNK + 7);
+        let big = file_of(dir.path(), "big.bin", 2 * PREFETCH_CHUNK + 12345);
+        let expected = fs::read(&big).unwrap();
         let file = fs::File::open(&big).unwrap();
-        let mut seen = 0;
         let mut buf = vec![0; PREFETCH_CHUNK];
-        for chunk in 0..6u64 {
-            read_chunk(&file, chunk * PREFETCH_CHUNK as u64, &mut buf).unwrap();
-            let expected = fs::read(&big).unwrap();
-            let at = chunk as usize * PREFETCH_CHUNK;
+        for chunk in 0..3 {
+            let at = chunk * PREFETCH_CHUNK;
+            read_chunk(&file, at as u64, &mut buf).unwrap();
             let end = (at + PREFETCH_CHUNK).min(expected.len());
             assert_eq!(&buf[..end - at], &expected[at..end]);
-            seen += end - at;
         }
-        assert_eq!(seen, 5 * PREFETCH_CHUNK + 7);
+        prefetch(&big);
+        prefetch(&dir.path().join("missing.bin"));
+        assert_eq!(fs::read(&big).unwrap(), expected);
     }
 }

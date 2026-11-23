@@ -1313,12 +1313,17 @@ pub(crate) fn source_full_size_jpeg(
         }
         // The render reads all of the file: from a network share, ahead of
         // the mapping's page faults (`file_io::prefetch`). A card's file is
-        // in memory already.
+        // in memory already. The base look's by-path facts read the same
+        // buffer instead of the file again.
         if !read_import_into_memory(path) {
             rawtonic_engine::file_io::prefetch(path);
         }
         let started = std::time::Instant::now();
-        let image = render(bytes)?;
+        let held = path.to_string_lossy();
+        let image =
+            rawtonic_rawdecode::capture_info::with_held_source(&held, file.clone(), || {
+                render(bytes)
+            })?;
         let rendered = started.elapsed();
         let jpeg = encode_full_size(&image)?;
         log::info!(
