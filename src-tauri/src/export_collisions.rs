@@ -360,6 +360,33 @@ mod tests {
     }
 
     #[test]
+    fn resolved_develop_defaults_change_the_inputs_only_for_a_photo_that_follows_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.NEF");
+        rawtonic_fs::atomic_write(&raw, b"original RAW").unwrap();
+        let request = request(dir.path(), &raw, "{orig_base}-edited");
+        let mut pinned = pin_photos(&request.paths, None, None, None)
+            .unwrap()
+            .remove(0);
+        let mut settings = crate::app_settings::AppSettings::default();
+        let neutral = photo_inputs(&pinned, &settings, &raw, true);
+        settings.develop_defaults = Some(
+            serde_json::from_value(serde_json::json!({"global": {"settings": {"exposure": 1}}}))
+                .unwrap(),
+        );
+        let with_defaults = photo_inputs(&pinned, &settings, &raw, true);
+        assert_eq!(
+            with_defaults["developDefaults"],
+            serde_json::json!({"exposure": 1})
+        );
+        assert_ne!(with_defaults, neutral);
+        pinned.adjustments = serde_json::json!({"exposure": 0.5});
+        let edited = photo_inputs(&pinned, &settings, &raw, true);
+        settings.develop_defaults = None;
+        assert_eq!(photo_inputs(&pinned, &settings, &raw, true), edited);
+    }
+
+    #[test]
     fn closing_develop_after_replacing_a_numbered_export_does_not_change_its_inputs() {
         let dir = tempfile::tempdir().unwrap();
         let raw = dir.path().join("a.NEF");
@@ -388,6 +415,7 @@ mod tests {
         rawtonic_engine::recipe_frame::stamp(&mut saved, 8256, 5504);
         rawtonic_engine::lens_recipe::stamp_loaded_lens_profile(&mut saved);
         saved[rawtonic_engine::image_processing::LIBRARY_LABEL_KEY] = serde_json::json!("");
+        saved["aspectRatio"] = serde_json::json!(8256.0 / 5504.0);
         rawtonic_fs::atomic_write(
             &crate::exif_processing::get_primary_sidecar_path(&raw),
             serde_json::json!({"version": 1, "adjustments": saved}).to_string(),

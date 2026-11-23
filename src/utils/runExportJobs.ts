@@ -11,7 +11,7 @@ import { currentEditForExport, useEditorStore } from '../store/useEditorStore';
 import { exportSettingsFromDraft, savedRecipes, subfolderName, type RecipeDraft } from './exportRecipes';
 import { exportJobLabel } from './exportFeedback';
 import { noteTool } from '../components/contribute/usageStats';
-import { flushRecipeSaves } from '../hooks/useEditorActions';
+import { flushRecipeSaves, isOpenedRecipe } from '../hooks/useEditorActions';
 import { photoWritesAndStepsSettled } from './photoWrites';
 import { readJobName } from './exportJob';
 import { joinPath } from './path';
@@ -43,7 +43,13 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
   // being saved are written before it is queued.
   const flushing = Promise.all([flushRecipeSaves(), photoWritesAndStepsSettled()]).then(([unsaved]) => unsaved);
   const session = useLibraryStore.getState().sessionDirectory;
-  const openEdit = currentEditForExport(useEditorStore.getState());
+  const { currentEditPath, currentEditAdjustments } = currentEditForExport(useEditorStore.getState());
+  // Loading Develop fills in display defaults. Use the saved recipe and
+  // let the export apply its usual defaults until there is an actual edit.
+  const liveRecipe =
+    currentEditPath && currentEditAdjustments && !isOpenedRecipe(currentEditPath, currentEditAdjustments)
+      ? currentEditAdjustments
+      : null;
   const originFolders = useLibraryStore.getState().rootPaths;
   const jobName = readJobName(session);
   const status = useProcessStore.getState().exportState.status;
@@ -150,7 +156,8 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
         baseOriginFolders: originFolders,
         exportSettings: { ...job.settings, jobName, recipeName: job.recipe?.name ?? '' },
         outputFormat: job.outputFormat,
-        ...openEdit,
+        currentEditPath,
+        currentEditAdjustments: liveRecipe,
         library: submittedFrom(session)
       });
     }

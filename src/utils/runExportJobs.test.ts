@@ -16,7 +16,7 @@ vi.mock('../activity/notify', () => ({ notify: { success: vi.fn(), error: vi.fn(
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
 const saves = vi.hoisted(() => ({ flush: vi.fn(async (): Promise<string[]> => []) }));
-vi.mock('../hooks/useEditorActions', () => ({ flushRecipeSaves: saves.flush }));
+vi.mock('../hooks/useEditorActions', () => ({ flushRecipeSaves: saves.flush, isOpenedRecipe: () => false }));
 
 beforeEach(async () => {
   vi.mocked(invoke).mockReset();
