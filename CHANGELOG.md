@@ -15,6 +15,9 @@
 
 - **Edit With: each program keeps its own settings.** "Settings for <program>…" in the Edit With menu (the gear at a program's row, or Settings for a program in the menu bar's Edit With) sets that program's file format (TIFF, JPEG, PNG), bit depth, colour space, size (and whether to enlarge), JPEG quality and metadata (creator contact, GPS coordinates) — for example 16-bit ProPhoto TIFFs for GIMP or Photoshop and 8-bit sRGB JPEGs for a quick retouch app. A program without its own settings uses the default recipe, as before; its first save starts from that recipe, and "Use default recipe" goes back to it. The menu shows a program's own settings in its row. Kept in Rawtonic's settings folder, not in recipes or libraries; existing settings stay as they are.
 
+- **Canon CR3 photos decode faster.** Rawtonic now uses the current CR3 decoder of the open-source dnglab project. Reading the raw data of a CR3 takes less than half as long (five files of the EOS R5, R, R7, R6 Mark II and M6 Mark II on an M5 Pro: 34–63 ms instead of 75–144 ms), so opening a CR3 photo, decoding included, is 11–21 % faster (190–347 ms instead of 228–438 ms). The pixels are the same: all 110 raw.pixls.us CR3 samples (26 bodies, RAW and C-RAW) decode identically, and saved edits export as before. The new decoder also decodes the first lines of a tile that has another tile above it, which the old one left out; none of the sample files has such tiles.
+- **New cameras: Canon EOS Ra, Nikon D810A and Samsung GX-1S.** Their camera data come from dnglab, with Adobe's colour matrices. No sample file of these cameras was available, so they are not checked on real photos yet.
+
 ### Fixes
 
 - Export recipes saved with Super Resolution keep it after a restart (it was dropped when the settings were written).
