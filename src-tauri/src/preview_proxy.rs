@@ -409,18 +409,20 @@ pub fn stands_for(source: &Path, recipe: &serde_json::Value) -> bool {
 /// `stands_for` from the recipes alone: no file is read, the registered
 /// facts are not touched (a cloud file stays undownloaded while a grid is
 /// browsed). The frame is left out, so a copy of another frame counts as
-/// standing here; this answers "no" only where `stands_for` does too.
-pub(crate) fn stands_for_by_recipe(source: &Path, recipe: &serde_json::Value) -> bool {
+/// standing here; this answers "no" only where `stands_for` does too. None
+/// when it cannot be told without a download (the master's sidecar is an
+/// evicted cloud file): callers take the side that shows no blank tile.
+pub(crate) fn stands_for_by_recipe(source: &Path, recipe: &serde_json::Value) -> Option<bool> {
     let (path, sidecar) = crate::file_management::parse_virtual_path(&source.to_string_lossy());
-    // A master sidecar not downloaded yet is not read (a grid lookup must
-    // not wait for the cloud): the proxy is taken to stand for the recipe.
     if crate::file_management::is_cloud_placeholder(&sidecar) {
-        return true;
+        return None;
     }
     let path = path.to_string_lossy();
     let master = crate::exif_processing::load_sidecar(&sidecar).adjustments;
-    crate::image_loader::decode_variant_for_frame(recipe, &path, 0)
-        == crate::image_loader::decode_variant_for_frame(&master, &path, 0)
+    Some(
+        crate::image_loader::decode_variant_for_frame(recipe, &path, 0)
+            == crate::image_loader::decode_variant_for_frame(&master, &path, 0),
+    )
 }
 
 /// The key a proxy of `source` made now from a decode for `variant` would

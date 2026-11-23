@@ -168,7 +168,8 @@ fn cache_label(path_str: &str, source: &Path) -> String {
 /// at once (decided from the recipes, `stands_for_by_recipe`).
 fn display_copy_clamps(source: &Path, recipe: &serde_json::Value) -> bool {
     crate::preview_proxy::standard_display_copy_is_stale(source)
-        && crate::preview_proxy::stands_for_by_recipe(source, recipe)
+        // Unknown (an evicted master sidecar): the tile keeps its key.
+        && crate::preview_proxy::stands_for_by_recipe(source, recipe) != Some(false)
 }
 
 pub(crate) fn compute_thumbnail_cache_hash(
@@ -1577,7 +1578,7 @@ fn keep_tile_of_unavailable_original(
     // A proxy of another decode variant cannot show this recipe.
     if crate::preview_proxy::source_available(source)
         || (crate::preview_proxy::proxy_path(source).is_some_and(|p| p.is_file())
-            && crate::preview_proxy::stands_for_by_recipe(source, recipe))
+            && crate::preview_proxy::stands_for_by_recipe(source, recipe) == Some(true))
         || thumbnail_files_exist(directory, &new)
     {
         return new;
@@ -3747,6 +3748,39 @@ mod face_retouch_thumbnail_tests {
         // stays instead of a blank.
         assert_eq!(key(&copy), old);
         std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_offline_copy_with_an_evicted_master_sidecar_keeps_its_old_tile() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let (source, copy_path, _, copy) = session_with_a_copy_of_another_variant(temp.path());
+        let cache = temp.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        let new = compute_thumbnail_cache_hash(&copy_path, &copy).unwrap();
+        let old = thumbnail_hash_before_refreshes(&copy_path, &copy).unwrap();
+        for size in ["small", "medium"] {
+            std::fs::write(cache.join(format!("{old}_{size}.jpg")), b"tile").unwrap();
+        }
+        crate::file_management::simulate_cloud_placeholder(
+            &temp.path().join("Capture/photo.RAF.rrdata"),
+        );
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let offline = std::fs::File::open(&source).is_err();
+        let chosen = keep_tile_of_unavailable_original(
+            &cache,
+            &source,
+            &serde_json::from_slice(&copy).unwrap(),
+            new,
+            || older_tile_keys(&copy_path, &copy),
+        );
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
+        if offline {
+            // Whether the master's proxy fits is not known without the
+            // download: the cached tile stays, never a blank.
+            assert_eq!(chosen, old);
+        }
     }
 
     #[cfg(unix)]
