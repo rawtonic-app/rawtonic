@@ -1392,8 +1392,8 @@ pub async fn load_image(
 
             #[allow(clippy::type_complexity)]
             let result: Result<((Arc<DynamicImage>, Option<DecodeMeasures>), HashMap<String, String>), CommandError> =
-                (|| match read_file_mapped(Path::new(&path_clone)) {
-                    Ok(mmap) => {
+                (|| match rawtonic_engine::file_io::read_file_mapped_with_metadata(Path::new(&path_clone)) {
+                    Ok((mmap, file_metadata)) => {
                         if generation_tracker.load(Ordering::SeqCst) != my_generation {
                             return Err("Load cancelled".into());
                         }
@@ -1413,6 +1413,7 @@ pub async fn load_image(
                         let decoded = crate::baseline_exposure::decode_with_base_look(
                             &path_clone,
                             mmap.clone(),
+                            rawtonic_fs::FileStamp::from_metadata(&file_metadata),
                             || {
                                 load_base_image_measured_for(
                                     (*mmap).as_ref(),

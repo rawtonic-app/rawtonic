@@ -805,11 +805,14 @@ fn develop_thumbnail_with_source(
                 Cow::Borrowed(&proxy.image)
             } else {
                 let vec_guard;
-                let mapped = read_file_mapped(&source_path)
-                    .map(|mmap| -> image_loader::SharedBytes { Arc::new(mmap) });
+                let mapped = rawtonic_engine::file_io::read_file_mapped_with_metadata(&source_path)
+                    .map(|(mmap, metadata)| {
+                        let bytes: image_loader::SharedBytes = Arc::new(mmap);
+                        (bytes, rawtonic_fs::FileStamp::from_metadata(&metadata))
+                    });
 
                 let file_slice: &[u8] = match &mapped {
-                    Ok(mmap) => (**mmap).as_ref(),
+                    Ok((mmap, _)) => (**mmap).as_ref(),
                     Err(e) => {
                         if preloaded_image.is_none() {
                             log::warn!("Fallback read for {}: {}", source_path_str, e);
@@ -839,9 +842,10 @@ fn develop_thumbnail_with_source(
                 };
                 // The base look applied below reads the decode's mapping.
                 let img = match &mapped {
-                    Ok(mmap) if is_raw => crate::baseline_exposure::decode_with_base_look(
+                    Ok((mmap, stamp)) if is_raw => crate::baseline_exposure::decode_with_base_look(
                         &source_path_str,
                         mmap.clone(),
+                        *stamp,
                         decode,
                     ),
                     _ => decode(),

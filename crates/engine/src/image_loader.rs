@@ -20,6 +20,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::panic;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Instant;
@@ -669,21 +670,58 @@ pub fn is_nikon_high_efficiency(error: &anyhow::Error) -> bool {
     )
 }
 
-fn preview_fallbacks() -> &'static std::sync::Mutex<HashMap<String, PreviewFallback>> {
-    static FALLBACKS: OnceLock<std::sync::Mutex<HashMap<String, PreviewFallback>>> =
+struct RecordedFallback {
+    reason: PreviewFallback,
+    stamp: Option<rawtonic_fs::FileStamp>,
+}
+
+fn preview_fallbacks() -> &'static std::sync::Mutex<HashMap<String, RecordedFallback>> {
+    static FALLBACKS: OnceLock<std::sync::Mutex<HashMap<String, RecordedFallback>>> =
         OnceLock::new();
     FALLBACKS.get_or_init(Default::default)
+}
+
+thread_local! {
+    static DECODE_USED_PREVIEW: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Observe the fallback of this synchronous decode even when other threads
+/// are decoding the same file.
+pub(crate) fn observe_preview_fallback<T>(decode: impl FnOnce() -> T) -> (T, bool) {
+    struct Restore(Option<bool>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            DECODE_USED_PREVIEW.with(|used| {
+                used.set(self.0.map(|previous| previous || used.get() == Some(true)));
+            });
+        }
+    }
+    let _restore = Restore(DECODE_USED_PREVIEW.with(|used| used.replace(Some(false))));
+    let decoded = decode();
+    (
+        decoded,
+        DECODE_USED_PREVIEW.with(|used| used.get() == Some(true)),
+    )
 }
 
 /// Records whether the last full load of a RAW used its embedded preview
 /// (with the decode error) or developed the sensor data.
 pub fn note_preview_fallback(path: &str, reason: Option<PreviewFallback>) {
+    let update = reason.map(|reason| {
+        DECODE_USED_PREVIEW.with(|used| {
+            if used.get().is_some() {
+                used.set(Some(true));
+            }
+        });
+        let stamp = rawtonic_fs::FileStamp::read(Path::new(path)).ok();
+        RecordedFallback { reason, stamp }
+    });
     let mut fallbacks = preview_fallbacks()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    match reason {
-        Some(reason) => {
-            fallbacks.insert(path.to_string(), reason);
+    match update {
+        Some(fallback) => {
+            fallbacks.insert(path.to_string(), fallback);
         }
         None => {
             fallbacks.remove(path);
@@ -697,7 +735,7 @@ pub fn ensure_raw_developed(path: &str) -> Result<()> {
     let fallbacks = preview_fallbacks()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    match fallbacks.get(path) {
+    match fallbacks.get(path).map(|fallback| &fallback.reason) {
         Some(PreviewFallback::UnsupportedNikonHighEfficiency) => {
             Err(rawler::RawlerError::UnsupportedNikonHighEfficiency.into())
         }
@@ -717,7 +755,15 @@ pub fn preview_fallback_reason(path: &str) -> Option<PreviewFallback> {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(path)
-        .cloned()
+        .map(|fallback| fallback.reason.clone())
+}
+
+pub(crate) fn has_preview_fallback(path: &str, stamp: rawtonic_fs::FileStamp) -> bool {
+    preview_fallbacks()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(path)
+        .is_some_and(|fallback| fallback.stamp == Some(stamp))
 }
 
 pub fn classify_raw_develop_error(path: &str, err: anyhow::Error) -> anyhow::Error {

@@ -377,31 +377,49 @@ pub fn replace_existing(
 /// What tells a file at a path from one put there in its place: its size,
 /// modification time and file identity (device and inode on Unix, volume
 /// serial number and file index on Windows).
-#[derive(PartialEq, Eq)]
-struct FileStamp {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileStamp {
     len: u64,
     modified: Option<std::time::SystemTime>,
     id: Option<(u64, u64)>,
 }
 
 impl FileStamp {
-    fn of(path: &Path, meta: &fs::Metadata) -> Self {
+    /// Stamps the file named by `path` with metadata only, without opening
+    /// it to query its identity.
+    pub fn read(path: &Path) -> io::Result<Self> {
+        fs::metadata(path).map(|meta| Self::from_metadata(&meta))
+    }
+
+    /// Stamps the file described by `meta`, including its identity on Unix.
+    /// Use the open descriptor's metadata when stamping bytes read from it.
+    pub fn from_metadata(meta: &fs::Metadata) -> Self {
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+
         Self {
             len: meta.len(),
             modified: meta.modified().ok(),
-            id: file_id(path, meta),
+            #[cfg(unix)]
+            id: Some((meta.dev(), meta.ino())),
+            #[cfg(not(unix))]
+            id: None,
         }
+    }
+
+    fn of(_path: &Path, meta: &fs::Metadata) -> Self {
+        let stamp = Self::from_metadata(meta);
+        #[cfg(windows)]
+        let stamp = Self {
+            id: file_id(_path),
+            ..stamp
+        };
+        stamp
     }
 }
 
-#[cfg(unix)]
-fn file_id(_path: &Path, meta: &fs::Metadata) -> Option<(u64, u64)> {
-    use std::os::unix::fs::MetadataExt;
-    Some((meta.dev(), meta.ino()))
-}
-
 #[cfg(windows)]
-fn file_id(path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
+fn file_id(path: &Path) -> Option<(u64, u64)> {
     use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
@@ -425,11 +443,6 @@ fn file_id(path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
             (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
         )
     })
-}
-
-#[cfg(not(any(unix, windows)))]
-fn file_id(_path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
-    None
 }
 
 /// Renames `file` over `path`; on Windows retried while another program

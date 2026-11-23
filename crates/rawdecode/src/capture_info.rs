@@ -1103,6 +1103,27 @@ fn held(path: &str) -> Option<SharedBuf> {
     })
 }
 
+/// Whether this thread already holds the bytes for this path.
+pub fn has_held_source(path: &str) -> bool {
+    HELD.with(|held| {
+        held.borrow()
+            .as_ref()
+            .is_some_and(|(held_path, _)| held_path == path)
+    })
+}
+
+#[cfg(feature = "test-support")]
+thread_local! {
+    static METADATA_OPENS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts the RAW metadata reader's file open attempts on this thread since
+/// the last call. Reads from a held buffer do not open a file.
+#[cfg(feature = "test-support")]
+pub fn take_metadata_open_count() -> usize {
+    METADATA_OPENS.with(|count| count.replace(0))
+}
+
 /// Runs `f` keeping the first whole read of the RAW at `path`
 /// (`read_for_metadata`) on this thread for the rest of `f`: the base
 /// look's facts (camera ×2–3, image shape, IFD tags, diffraction, colour)
@@ -1135,6 +1156,8 @@ pub fn read_for_metadata(path: &str) -> Option<SharedBuf> {
     if let Some(bytes) = held(path) {
         return Some(bytes);
     }
+    #[cfg(feature = "test-support")]
+    METADATA_OPENS.with(|count| count.set(count.get() + 1));
     let bytes: SharedBuf = std::sync::Arc::new(std::fs::read(path).ok()?);
     if KEEP.with(|keep| keep.borrow().as_deref() == Some(path)) {
         HELD.with(|held| *held.borrow_mut() = Some((path.to_string(), bytes.clone())));
