@@ -245,10 +245,11 @@ pub const KEPT_INPUT_MAX_BYTES: u64 = 210 << 20;
 /// Private Bytes rises per typed change on a Radeon 680M with 24 MP RAWs
 /// (TPX8, notes: benchmark-results/tpx8-2026-11-22/REPORT.md): 1,440 MiB
 /// (1.51 GB) from a kept input of 6048 x 4024 (62 bytes per pixel), 1,715
-/// MiB (1.80 GB) with the upload of 6000 x 4000 (75 bytes per pixel); an
-/// upper bound, as other work shared that window, with a margin of 6–7 %.
-/// The build alone took 0.31 / 1.0–1.15 GB on an RTX 3080 (GPU counters
-/// plus resident memory).
+/// MiB (1.80 GB) with the upload of 6000 x 4000 (75 bytes per pixel),
+/// sampled every 0.45–0.5 s on earlier builds of this pass with other work
+/// in that window: estimates with a margin of 6–7 % over those samples, not
+/// validated near the cutoff (G17). The build alone took about 0.32 /
+/// 1.06–1.21 GB on an RTX 3080 (GPU counters plus resident memory).
 pub fn transient_bytes(width: u32, height: u32, upload: bool) -> u64 {
     let pixels = u64::from(width) * u64::from(height);
     if upload {

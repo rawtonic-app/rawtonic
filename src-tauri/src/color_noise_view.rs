@@ -614,6 +614,21 @@ fn kept_key(wanted: &Wanted) -> u64 {
     hasher.finish()
 }
 
+/// Whether a build of `needed` bytes fits what the app may still take
+/// (`memory_pressure::work_headroom`); logs when it does not.
+fn fits_headroom(needed: u64) -> bool {
+    let room = crate::memory_pressure::work_headroom();
+    let fits = room.is_some_and(|room| needed <= room);
+    if !fits {
+        log::info!(
+            "Colour noise view: not built, {} MB wanted, room {:?} MB",
+            needed >> 20,
+            room.map(|r| r >> 20)
+        );
+    }
+    fits
+}
+
 /// The GPU build of `wanted`'s render input; None when a newer frame came
 /// meanwhile (`stop`; its final frame wants again), when an integrated
 /// GPU's memory has no room for it, for recipes the GPU pass does not take
@@ -649,17 +664,9 @@ fn on_gpu(
     let kept = &develop.color_noise_view.kept_input;
     let key = kept_key(wanted);
     let uploads = !shared_memory || !kept.holds(key);
-    if shared_memory {
-        let needed = color_noise_view::transient_bytes(source.width(), source.height(), uploads);
-        let room = crate::memory_pressure::work_headroom();
-        if room.is_none_or(|room| needed > room) {
-            log::info!(
-                "Colour noise view: not built, {} MB wanted, room {:?} MB",
-                needed >> 20,
-                room.map(|r| r >> 20)
-            );
-            return None;
-        }
+    let needed = color_noise_view::transient_bytes(source.width(), source.height(), uploads);
+    if shared_memory && !fits_headroom(needed) {
+        return None;
     }
     let context = crate::gpu_processing::get_or_init_gpu_context(&gpu, app)
         .inspect_err(|e| log::warn!("Colour noise view: no GPU: {e}"))
@@ -674,6 +681,10 @@ fn on_gpu(
             return None;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    // Again after the waits: an export may have started meanwhile.
+    if shared_memory && !fits_headroom(needed) {
+        return None;
     }
     let started = std::time::Instant::now();
     let input = color_noise_view::reduced_render_input(
