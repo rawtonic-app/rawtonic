@@ -7,7 +7,6 @@
 
 use super::BitPump;
 use super::Result;
-use bitstream_io::BitRead;
 
 /// Adaptive Golomb-Rice decoder
 pub(super) struct RiceDecoder<'mdat> {
@@ -38,7 +37,10 @@ impl<'mdat> RiceDecoder<'mdat> {
   /// All 0-bits are consumed.
   #[inline(always)]
   pub(super) fn bitstream_zeros(&mut self) -> Result<u32> {
-    Ok(self.bitpump.read_unary::<1>()?)
+    let zeros = self.bitpump.consume_zerobits()?;
+    // The run ends with a 1-bit, which is not part of the next value
+    self.bitpump.consume_bits(1);
+    Ok(zeros)
   }
 
   /// Return the requested bits
@@ -47,7 +49,7 @@ impl<'mdat> RiceDecoder<'mdat> {
   #[inline(always)]
   pub(super) fn bitstream_get_bits(&mut self, bits: u32) -> Result<u32> {
     debug_assert!(bits <= 32);
-    Ok(self.bitpump.read_var(bits)?)
+    Ok(self.bitpump.get_bits(bits)?)
   }
 
   /// Golomb-Rice decoding
@@ -55,6 +57,7 @@ impl<'mdat> RiceDecoder<'mdat> {
   /// escape and esc_bits are used to interrupt decoding when
   /// a value is not encoded using Golomb-Rice but directly encoded
   /// by esc_bits bits.
+  #[inline(always)]
   fn rice_decode(&mut self, escape: u32, esc_bits: u32) -> Result<u32> {
     // q, quotient = n//m, with m = 2^k (Rice coding)
     let prefix = self.bitstream_zeros()?;
@@ -74,6 +77,7 @@ impl<'mdat> RiceDecoder<'mdat> {
   /// Sometimes adapting is based on the next coefficent (n) instead
   /// of current (x) coefficent. So you can disable it with `adapt_k`
   /// and update k later.
+  #[inline(always)]
   pub(super) fn adaptive_rice_decode(&mut self, adapt_k: bool, escape: u32, esc_bits: u32, k_max: u32) -> Result<u32> {
     let val = self.rice_decode(escape, esc_bits)?;
     if adapt_k {

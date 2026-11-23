@@ -9,4 +9,8 @@ active_area = [0, 0, 0, 0]
 crop_area = [16, 8, 16, 8]
 
 [cameras.color_matrix]
+# Rawtonic patch (RWL1): dnglab f6864db4 adds Adobe's A matrix here,
+# A = [1.2547, -0.4542, -0.0112, -0.7141, 1.4336, 0.3091, -0.0555, 0.0624, 1.1419].
+# Held back: with it the raw.pixls.us sample renders further from Camera Raw
+# (Oklab dE 0.80 -> 1.08, lightness 0.57 -> 0.97) and saved edits would change.
 D65 = [1.0829, -0.2838, -0.1115, -0.8339, 1.5817, 0.2696, -0.0837, 0.0680, 1.1939]

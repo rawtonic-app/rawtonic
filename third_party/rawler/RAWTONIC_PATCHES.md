@@ -704,3 +704,67 @@ comparison):
   decoding) go to the resolver; the candidates of an ambiguous LensType land
   in the new `RawMetadata::lens_candidates` (empty for every other decoder).
   Tests `shared_lens_id_gives_candidates`, `single_lens_id_resolves_without_lens_info`.
+
+## dnglab sync a85f7a16..163c08f3 (2026-11-23, RWL1, G01/G55)
+
+Taken over from [dnglab/dnglab](https://github.com/dnglab/dnglab) (same
+authors, LGPL-2.1), review in the notes (`reference/dnglab-2026-11-23-review.md`):
+
+- **CRX (Canon CR3) decoder:** `src/decompressors/crx/` is upstream's module
+  at `163c08f3` (slice-based wavelet and inverse quantization, vectorized line
+  transforms and CFA conversion via `multiversion`, subbands decoded ahead in
+  parallel, row-parallel CFA image, inlined Golomb-Rice decoding, and
+  `a780e888`: the first wavelet lines of a tile with a tile above are
+  decoded). Upstream reads the bit streams through its `Result`-based
+  `BitPumpMSB`; this copy's shared pumps are still the older infallible ones,
+  so `crx/bitpump.rs` holds a copy of upstream's big-endian pump for the CRX
+  decoder alone, and the `bitstream-io` dependency (only CRX used it) is gone.
+  Our damaged-file guards (RWH1) are re-applied: subband header size,
+  empty plane, band data outside the MDAT, quantization table too short,
+  header sizes clamped, median bits 1-20 (now checked in `CodecParams::new`),
+  and short band lines in the horizontal wavelet step read as zero-padded
+  (`idwt_53_line`; valid files take upstream's direct path, unit test
+  `short_band_lines_read_as_zero_padded`). Two inherited defects for
+  images split into several tile rows are patched (`tile_offset` stepped
+  rows by the tile width instead of the height; `WaveletTransform::getline`
+  returned a stale ring line when none was ready, which the last lines of a
+  tile with a tile below can reach: now an error). No CR3 sample has
+  several tile rows, so neither this nor upstream's tile-above fix is
+  tested on a real file (unit test `tile_rows_step_by_the_tile_height`).
+  Upstream's `multiversion` 0.9
+  bump is not taken: 0.8 builds the AVX-512 targets (checked for
+  x86_64-apple-darwin).
+  Measured: all 110 raw.pixls.us CR3 (26 bodies, RAW and C-RAW) decode
+  bit-identically to the previous decoder and to upstream; 375 mutated CR3
+  decodes (15 files × 25, `mutated_corpus_files_never_panic`) without a panic.
+- **Cameras:** `canon/ra.toml` (EOS Ra), `nikon/d810a.toml` (D810A),
+  `samsung/gx1s.toml` (GX-1S). No sample of these three exists on
+  raw.pixls.us or in our fixtures: the entries are unverified on real files.
+  Not taken because ours already cover the bodies with crops measured
+  against Adobe DNG Converter: `pentax/k2000.toml` (our K-m alias),
+  `nikon/1j4.toml`, `nikon/1s1.toml`, `minolta/5.toml`,
+  `minolta/dynax_5d.toml` (incl. the Alpha Sweet Digital alias),
+  `samsung/gx1l.toml` and the SAMSUNG TECHWIN routing (ours since
+  2026-10-05; upstream's crops differ from Adobe's on 1 S1, DiMAGE 5 and
+  Dynax 5D, and its Dynax 5D model names differ).
+- **Pentax colour matrices:** updated K-S2, K-m, K10D, K-1 Mark II D65 and A
+  matrices and added A matrices for 22 more bodies. They equal Adobe DNG
+  Converter's ColorMatrix1/2 within 0.002, which
+  `crates/rawdecode/src/camera_matrices.rs` already applied for these
+  bodies, so renders do not change (fingerprint of all 1,993 decodable
+  raw.pixls.us files: only the decoder's own matrix field of the Pentax
+  files differs). Held back: the A matrix of the *ist DL
+  (`pentax/istDL.toml`, kept as a comment), the one body our table lacks:
+  with it the raw.pixls.us sample's never-edited render moves further
+  from Camera Raw 18's default (Oklab dE 0.80 -> 1.08, lightness 0.57 ->
+  0.97; chroma ratio 0.949 -> 0.970), and saved edits would change.
+
+Not taken (review rows "Adopt"), because they build on upstream code this
+copy does not have: fractional DefaultCrop and DefaultUserCrop rendering,
+OpcodeList1 on long-integer/float data, black level from MaskedAreas when
+BlackLevel is absent (ours: when it is zero, above), ShadowScale/DefaultUserCrop
+on conversion, staggered-CFA demosaic and `--staggered keep`, DefaultScale
+and DNGBackwardVersion of the DNG writer (upstream's render pipeline, DNG
+converter and writer; Rawtonic develops through `rawtonic-rawdecode` and
+writes DNG only for merges), and the RAF orientation turn for S2Pro/GX680
+(`fuji_rotate_90cw`, an upstream camera hint our copy lacks).
