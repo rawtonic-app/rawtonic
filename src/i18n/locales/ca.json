@@ -3867,7 +3867,7 @@
         "exporting": "S'està exportant {{current}} de {{total}}"
       },
       "provenance": {
-        "about": "Registra la foto de la qual s'ha revelat cada fitxer, els tipus d'edició i cada zona creada per un model generatiu, signat amb el vostre certificat. JPEG, PNG, TIFF, WebP, AVIF i JPEG XL. No s'envia res.",
+        "about": "Registra la foto de la qual s'ha revelat cada fitxer, els tipus d'edició i cada zona creada per un model generatiu, signat amb el vostre certificat. JPEG, PNG, TIFF, WebP, AVIF i JPEG XL. No s'envia res. Les imatges de màscara separades no es signen.",
         "add": "Signa un manifest de procedència a cada fitxer",
         "author": "Indica el creador de la foto com a autor",
         "blocked": "La procedència (C2PA) no pot signar {{recipes}}: configureu un certificat de signatura vàlid i exporteu JPEG, PNG, TIFF, WebP, AVIF o JPEG XL.",

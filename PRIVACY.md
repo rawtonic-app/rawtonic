@@ -157,7 +157,7 @@ areas made by a generative AI tool also records that fact (IPTC Digital Source
 Type), as the EU AI Act requires.
 
 **Provenance (C2PA), off by default.** With Export > Provenance (C2PA) on, each
-JPEG, PNG, TIFF, WebP, AVIF or JPEG XL carries a signed manifest: Rawtonic's name and version, the file
+JPEG, PNG, TIFF, WebP, AVIF or JPEG XL (not mask images exported to their own files) carries a signed manifest: Rawtonic's name and version, the file
 name and type of the photograph it was developed from, the kinds of edits
 (opened, tone and colour, cropped, rotated, local adjustments, retouching,
 resized, border or watermark) and each area a generative model made, and,

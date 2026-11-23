@@ -3867,7 +3867,7 @@
         "exporting": "Exportando {{current}} de {{total}}"
       },
       "provenance": {
-        "about": "Regista a fotografia a partir da qual cada ficheiro foi revelado, os tipos de edição e cada área criada por um modelo generativo, assinado com o seu certificado. JPEG, PNG, TIFF, WebP, AVIF e JPEG XL. Nada é enviado.",
+        "about": "Regista a fotografia a partir da qual cada ficheiro foi revelado, os tipos de edição e cada área criada por um modelo generativo, assinado com o seu certificado. JPEG, PNG, TIFF, WebP, AVIF e JPEG XL. Nada é enviado. As imagens de máscara separadas não são assinadas.",
         "add": "Assinar um manifesto de proveniência em cada ficheiro",
         "author": "Indicar o criador da fotografia como autor",
         "blocked": "A proveniência (C2PA) não pode assinar {{recipes}}: configure um certificado de assinatura válido e exporte JPEG, PNG, TIFF, WebP, AVIF ou JPEG XL.",

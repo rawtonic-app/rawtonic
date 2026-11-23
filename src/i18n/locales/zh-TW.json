@@ -3603,7 +3603,7 @@
         "exporting": "正在匯出 {{current}}/{{total}}"
       },
       "provenance": {
-        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG、TIFF、WebP、AVIF 與 JPEG XL。不會傳送任何內容。",
+        "about": "記錄每個檔案沖洗自哪張相片、編輯的類型，以及生成模型建立的每個區域，並以您的憑證簽署。JPEG、PNG、TIFF、WebP、AVIF 與 JPEG XL。不會傳送任何內容。單獨輸出的遮罩影像不會被簽署。",
         "add": "在每個檔案中簽署來源清單",
         "author": "將相片的創作者列為作者",
         "blocked": "來源證明 (C2PA) 無法為 {{recipes}} 簽署：請設定有效的簽署憑證，並輸出為 JPEG、PNG、TIFF、WebP、AVIF 或 JPEG XL。",
