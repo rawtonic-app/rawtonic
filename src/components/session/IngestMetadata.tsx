@@ -52,9 +52,14 @@ export default function IngestMetadata({
   const prefix = useId();
   const settings = useSettingsStore((s) => s.appSettings);
   const presets = settings?.importMetadataPresets ?? [];
-  const [selected, setSelected] = useState('');
-  const [name, setName] = useState('');
-  const [keywords, setKeywords] = useState('');
+  // A value given from outside (a hot folder's saved preset) keeps the
+  // preset it was chosen from selected.
+  const given = value as Partial<ImportMetadataPreset> | null;
+  const [selected, setSelected] = useState(() =>
+    !given ? '' : given.id && presets.some((p) => p.id === given.id) ? given.id : 'new'
+  );
+  const [name, setName] = useState(given?.name ?? '');
+  const [keywords, setKeywords] = useState(given?.keywords?.join(', ') ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {

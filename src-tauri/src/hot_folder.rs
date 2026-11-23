@@ -2,7 +2,9 @@
 //! Import): photos that appear in a watched folder — written by tethering
 //! software, a card reader or another app — are copied into the session's
 //! Capture folder through the verified ingest once they are complete, and
-//! get the next-capture adjustments and metadata (rating, keywords), stored
+//! get the next-capture adjustments and metadata (rating, keywords and the
+//! regular import's metadata preset: creator, copyright, usage terms,
+//! contact, keywords), stored
 //! with the photograph in one transaction. While a hot folder runs, its
 //! captures form an import batch (Previous Import). The watched files are
 //! never moved or deleted; verified duplicates are skipped.
@@ -20,6 +22,7 @@ use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Contents, HotFolderConfig, ImportKind, Library};
 use rawtonic_fs::Canonical;
 use rawtonic_ingest::hot_folder::{DEFAULT_SETTLE, HotFolder};
+use rawtonic_ingest::metadata::ImportMetadata;
 use rawtonic_metadata::culling::Rating;
 use rawtonic_recipe::lens;
 use rawtonic_recipe::masks;
@@ -59,11 +62,15 @@ pub struct NextCaptureMetadata {
     /// 0 (none) to 5 stars.
     pub rating: u8,
     pub keywords: Vec<String>,
+    /// The regular import's metadata preset (creator, copyright, usage
+    /// terms, contact, keywords), applied to every capture by the same
+    /// rules: it fills empty fields, `overwrite` lists those it replaces.
+    pub import: Option<ImportMetadata>,
 }
 
 impl NextCaptureMetadata {
     fn is_empty(&self) -> bool {
-        self.rating == 0 && self.keywords.is_empty()
+        self.rating == 0 && self.keywords.is_empty() && self.import.is_none()
     }
 
     /// Trimmed keywords without empty ones or repeats; a rating of 0–5.
@@ -78,9 +85,18 @@ impl NextCaptureMetadata {
                 keywords.push(keyword.to_string());
             }
         }
+        // Per-photo ratings belong to one import dialog, not to a watch.
+        let import = self.import.map(|mut import| {
+            import.ratings.clear();
+            import
+        });
+        if let Some(import) = &import {
+            import.validate().map_err(|e| e.to_string())?;
+        }
         Ok(Self {
             rating: self.rating,
             keywords,
+            import,
         })
     }
 }
@@ -233,17 +249,34 @@ pub(crate) fn resolved(
 /// metadata.
 fn next_contents(
     lib: &Library,
+    source: &Path,
     settings: &CaptureSettings,
     previous: Option<&str>,
-) -> Option<Contents> {
+) -> anyhow::Result<Option<Contents>> {
     let adjustments = next_state(lib, &settings.next_capture, previous);
     let meta = &settings.metadata;
     if adjustments.is_none() && meta.is_empty() {
-        return None;
+        return Ok(None);
     }
+    let metadata = match &meta.import {
+        // The preset merges with what the file itself carries, as in an
+        // import; the keywords typed beside it join its own.
+        Some(import) => {
+            let (metadata, note) = import.for_capture(source, meta.rating, &meta.keywords)?;
+            if let Some(note) = note {
+                log::warn!("Hot folder: {}: {note}", source.display());
+            }
+            Some(metadata)
+        }
+        None => (!meta.is_empty()).then(|| rawtonic_metadata::Metadata {
+            rating: meta.rating,
+            keywords: meta.keywords.clone(),
+            ..Default::default()
+        }),
+    };
     // The editor marks keywords the user typed with `user:`.
     let tags: Vec<String> = meta.keywords.iter().map(|k| format!("user:{k}")).collect();
-    Some(Contents {
+    Ok(Some(Contents {
         editor_state: adjustments.map(|adjustments| {
             json!({
                 "version": crate::image_processing::ImageMetadata::default().version,
@@ -252,13 +285,9 @@ fn next_contents(
                 "adjustments": adjustments,
             })
         }),
-        metadata: (!meta.is_empty()).then(|| rawtonic_metadata::Metadata {
-            rating: meta.rating,
-            keywords: meta.keywords.clone(),
-            ..Default::default()
-        }),
+        metadata,
         ..Contents::default()
-    })
+    }))
 }
 
 /// Ingests one complete file with its next-capture adjustments and
@@ -277,7 +306,20 @@ pub fn ingest_capture(
     earlier: Option<&Path>,
     cancel: &AtomicBool,
 ) -> (Imported, Option<String>) {
-    let contents = next_contents(lib, settings, previous);
+    let contents = match next_contents(lib, source, settings, previous) {
+        Ok(contents) => contents,
+        Err(e) => {
+            return (
+                Imported {
+                    source: source.into(),
+                    destination: None,
+                    skipped: false,
+                    error: Some(format!("{e:#}")),
+                },
+                None,
+            );
+        }
+    };
     let recorded = earlier.and_then(|copy| {
         rawtonic_ingest::record_earlier_copy(lib, source, copy, contents.as_ref()).transpose()
     });
@@ -1143,6 +1185,7 @@ mod tests {
                 metadata: NextCaptureMetadata {
                     rating: 3,
                     keywords: vec!["studio".into()],
+                    import: None,
                 },
             };
             let cancel = AtomicBool::new(false);
@@ -1424,6 +1467,7 @@ mod tests {
         let metadata = NextCaptureMetadata {
             rating: 2,
             keywords: vec![" studio ".into(), "".into(), "studio".into(), "Acme".into()],
+            import: None,
         }
         .cleaned()
         .unwrap();
@@ -1452,7 +1496,80 @@ mod tests {
         assert!(
             NextCaptureMetadata {
                 rating: 6,
-                keywords: vec![]
+                keywords: vec![],
+                import: None
+            }
+            .cleaned()
+            .is_err()
+        );
+    }
+
+    /// The hot folder gives every capture the same IPTC preset as the
+    /// regular import (creator, copyright, usage terms, contact, keywords):
+    /// in the library and the XMP sidecar, the watched original untouched.
+    #[test]
+    fn captures_get_the_import_metadata_preset() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = session(tmp.path());
+        let hot = tmp.path().join("Hot");
+        fs::create_dir(&hot).unwrap();
+        let source = hot.join("A.ARW");
+        fs::write(&source, b"capture").unwrap();
+        let mut import = rawtonic_ingest::metadata::ImportMetadata {
+            creator: "Ada Photo".into(),
+            copyright: "(c) {year} Ada".into(),
+            keywords: vec!["wedding".into()],
+            include_creator_contact: true,
+            ..Default::default()
+        };
+        import.iptc.insert("usageTerms".into(), "Editorial".into());
+        import
+            .iptc
+            .insert("creatorEmail".into(), "ada@example.org".into());
+        let metadata = NextCaptureMetadata {
+            rating: 2,
+            keywords: vec!["studio".into()],
+            import: Some(import),
+        }
+        .cleaned()
+        .unwrap();
+        let settings = CaptureSettings {
+            next_capture: NextCapture::Defaults,
+            metadata,
+        };
+        let (shown, asset) = ingest_capture(
+            &lib,
+            &source,
+            "{orig}",
+            1,
+            &settings,
+            None,
+            None,
+            &AtomicBool::new(false),
+        );
+        let asset = asset.unwrap_or_else(|| panic!("{shown:?}"));
+        let meta = lib.metadata(&asset).unwrap();
+        assert_eq!(meta.rating, 2);
+        assert_eq!(meta.creator, "Ada Photo");
+        assert!(meta.copyright.starts_with("(c) 20") && meta.copyright.ends_with(" Ada"));
+        assert!(!meta.copyright.contains("{year}"));
+        assert_eq!(meta.iptc["usageTerms"], "Editorial");
+        assert_eq!(meta.iptc["creatorEmail"], "ada@example.org");
+        assert_eq!(meta.keywords, ["studio", "wedding"]);
+        let copy = shown.destination.unwrap();
+        let xmp = fs::read_to_string(rawtonic_metadata::sidecar_path(&copy).unwrap()).unwrap();
+        for needle in ["Ada Photo", "Editorial", "ada@example.org", "wedding"] {
+            assert!(xmp.contains(needle), "{needle} missing in the sidecar");
+        }
+        assert_eq!(fs::read(&source).unwrap(), b"capture");
+        assert!(rawtonic_metadata::sidecar_path(&source).is_none_or(|p| !p.exists()));
+        // Unsupported IPTC keys are refused when the hot folder is set up.
+        let mut bad = rawtonic_ingest::metadata::ImportMetadata::default();
+        bad.iptc.insert("headline".into(), "x".into());
+        assert!(
+            NextCaptureMetadata {
+                import: Some(bad),
+                ..Default::default()
             }
             .cleaned()
             .is_err()

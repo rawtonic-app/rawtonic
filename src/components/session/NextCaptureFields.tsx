@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next';
+import IngestMetadata from './IngestMetadata';
 import type { NextCaptureForm, PresetChoice } from './nextCapture';
 
 /** What new captures start with (Capture One's Next Capture Adjustments
- * and Metadata): adjustments, rating and keywords — for the hot folder and
+ * and Metadata): adjustments, rating, keywords and the import's metadata preset — for the hot folder and
  * the tether alike. */
 export default function NextCaptureFields({
   value,
@@ -57,6 +58,7 @@ export default function NextCaptureFields({
           onChange={(e) => onChange({ ...value, keywords: e.target.value })}
         />
       </label>
+      <IngestMetadata value={value.import} onChange={(next) => onChange({ ...value, import: next })} />
     </>
   );
 }

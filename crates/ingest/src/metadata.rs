@@ -108,6 +108,29 @@ impl ImportMetadata {
         }
     }
 
+    /// The metadata a captured photograph (hot folder, tether) is stored
+    /// with: what the file itself carries, then this preset by the import's
+    /// rules (fill-empty, `overwrite`, `{year}`), `keywords` typed beside it
+    /// and a `rating` of 1–5 (0 keeps the camera's). Reads `source` only.
+    /// The note says the keywords could not all be added (`merge`).
+    pub fn for_capture(
+        &self,
+        source: &Path,
+        rating: u8,
+        keywords: &[String],
+    ) -> Result<(Metadata, Option<String>)> {
+        let embedded = Self::embedded(source, source, None)?;
+        let mut metadata = Metadata {
+            keywords: keywords.to_vec(),
+            ..Metadata::default()
+        };
+        let note = self.merge(source, embedded, &mut metadata, false);
+        if rating > 0 {
+            metadata.rating = rating;
+        }
+        Ok((metadata, note))
+    }
+
     /// Whether this holds nothing but ratings: then only the rated
     /// photographs are touched, the others are imported as they come.
     fn ratings_only(&self) -> bool {
