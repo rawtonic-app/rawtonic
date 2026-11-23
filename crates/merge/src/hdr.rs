@@ -11,7 +11,8 @@
 //!   sensor white), which weighs each frame by its signal-to-noise ratio.
 //! - Deghosting compares each frame with the consensus of the frames closer
 //!   to the reference exposure and drops it where they disagree, so moving
-//!   things come from one frame only.
+//!   things come from one frame only. Where the reference itself is bright
+//!   (clean), frames are also compared with it pixel by pixel.
 //!
 //! The result keeps the reference frame's exposure (its midtones render as
 //! they do in the reference) with highlights above 1.0.
@@ -106,6 +107,13 @@ const NOISE_FLOOR: f32 = 0.004;
 /// Share of a pixel's luminance below which a colour channel's difference
 /// does not count as a ghost (`ghost_map`).
 const CHANNEL_FLOOR: f32 = 0.1;
+/// Working luminance of the reference from which every other frame must
+/// agree with it pixel by pixel (about two stops below where the sensor
+/// starts to saturate): there the reference alone is clean, and a frame that
+/// shows something else (a sun glint that moved on rippling water) left
+/// dark rims and specks around the glints that the low-resolution ghost map
+/// is too coarse to catch (notes: benchmark-results/mrg2-2026-11-23).
+const BRIGHT_REFERENCE: f32 = 0.2;
 const LOW_RES_TARGET: usize = 1500;
 const ALIGN_TARGET: usize = 2400;
 
@@ -197,6 +205,11 @@ fn low_res(view: &View, to_camera: &Matrix3<f32>, f: usize) -> LowRes {
 /// colour (red in deep green foliage) is mostly noise, so each channel's
 /// floor also includes a share of the pixel's luminance (`CHANNEL_FLOOR`):
 /// a colour change counts once it is a sizeable part of the brightness.
+/// The noise part of each channel's floor scales with how much the camera
+/// matrix amplifies sensor noise into that channel against luminance
+/// (`noise_gain`, from `channel_noise_gain`): with one floor for all, the
+/// noisier channels of the darkest frame read as ghosts in deep shadows
+/// (13–19 % of a static bracket's darkest frame at High).
 /// `cons_rgb` are the consensus sums over `cons_den`; `ratio` is the
 /// frame's exposure against the reference.
 fn ghost_map(
@@ -205,6 +218,7 @@ fn ghost_map(
     cons_den: &Plane,
     ratio: f32,
     threshold_ev: f32,
+    noise_gain: [f32; 3],
 ) -> Plane {
     let eps = NOISE_FLOOR * (1.0f32).max(1.0 / ratio);
     let mut g = Plane::new(frame.u.w, frame.u.h);
@@ -214,16 +228,38 @@ fn ghost_map(
             return;
         }
         let k: [f32; 3] = std::array::from_fn(|c| (cons_rgb[c].data[i] / cd).max(0.0));
-        let floor = eps + CHANNEL_FLOOR * luma(&k);
+        let share = CHANNEL_FLOOR * luma(&k);
         let e = (0..3)
             .map(|c| {
                 let v = frame.rgb[c].data[i].max(0.0) / ratio;
+                let floor = eps * noise_gain[c] + share;
                 ((v + floor) / (k[c] + floor)).log2().abs()
             })
             .fold(0.0f32, f32::max);
         *g = smoothstep(threshold_ev, 2.0 * threshold_ev, e);
     });
     gaussian_blur(&max_filter(&g, 3), 3.0).map(|v| v.clamp(0.0, 1.0))
+}
+
+/// Noise of each working channel relative to the noise of luminance, for
+/// equal noise in the camera channels: row norms of the camera → working
+/// matrix over the norm of its luminance row.
+fn channel_noise_gain(to_camera: &Matrix3<f32>) -> [f32; 3] {
+    let m = to_camera.try_inverse().unwrap_or_else(Matrix3::identity);
+    let l = nalgebra::RowVector3::new(0.2126f32, 0.7152, 0.0722) * m;
+    let ln = l.norm().max(1e-6);
+    std::array::from_fn(|c| m.row(c).norm() / ln)
+}
+
+/// The reference pixel's role for the frames merged after it: clipped or
+/// nearly (`INFINITY`), bright enough to judge other frames by (its
+/// luminance), or neither (0).
+fn reference_state(p: &[f32], to_camera: &Matrix3<f32>) -> f32 {
+    if usable(p, to_camera) < 1.0 {
+        return f32::INFINITY;
+    }
+    let l = luma(p);
+    if l >= BRIGHT_REFERENCE { l } else { 0.0 }
 }
 
 fn max_filter(p: &Plane, radius: usize) -> Plane {
@@ -529,6 +565,7 @@ pub fn merge_hdr(
     let f = wu.max(hu).div_ceil(LOW_RES_TARGET).max(1);
     let align_f = wu.max(hu).div_ceil(ALIGN_TARGET).max(1);
 
+    let noise_gain = channel_noise_gain(&to_camera);
     let ref_low = low_res(&View::new(&ref_frame.image, None), &to_camera, f);
     let (ref_y, ref_u) = (ref_low.y, ref_low.u);
     let ref_align = config
@@ -547,9 +584,11 @@ pub fn merge_hdr(
     let mut cons_rgb: [Plane; 3] = std::array::from_fn(|_| Plane::new(lw, lh));
     let mut cons_den = Plane::new(lw, lh);
     let mut ghost_union = config.deghost.threshold_ev().map(|_| Plane::new(lw, lh));
-    // With ghost removal: where the reference is clipped (set after it is
-    // merged), only frames that agree it is that bright are merged.
-    let mut ref_clipped: Option<Vec<bool>> = None;
+    // With ghost removal (set after the reference is merged): where the
+    // reference is clipped, only frames that agree it is that bright are
+    // merged; where it is bright, only frames that agree with it per pixel
+    // (`reference_state`).
+    let mut ref_state: Option<Vec<f32>> = None;
     let mut reports: Vec<Option<HdrFrameReport>> = vec![None; paths.len()];
 
     let mut ref_frame = Some(ref_frame);
@@ -654,7 +693,7 @@ pub fn merge_hdr(
 
         // Ghosts: disagreement with the consensus where both are usable.
         let ghost = match (config.deghost.threshold_ev(), is_ref) {
-            (Some(t), false) => Some(ghost_map(&low, &cons_rgb, &cons_den, ratio, t)),
+            (Some(t), false) => Some(ghost_map(&low, &cons_rgb, &cons_den, ratio, t, noise_gain)),
             _ => None,
         };
         let ghost_fraction = ghost.as_ref().map(|g| g.mean()).unwrap_or(0.0);
@@ -674,6 +713,7 @@ pub fn merge_hdr(
             0.0
         };
         let inv_ratio = 1.0 / ratio;
+        let ghost_ev = config.deghost.threshold_ev().unwrap_or(f32::INFINITY);
         let fx = lw as f32 / wu as f32;
         let fy = lh as f32 / hu as f32;
         num.par_chunks_mut(wu * 3)
@@ -685,8 +725,8 @@ pub fn merge_hdr(
                         continue;
                     };
                     let mut wgt = usable(&p, &to_camera);
-                    let clipped_ref = ref_clipped.as_ref().is_some_and(|c| c[y * wu + x]);
-                    if clipped_ref {
+                    let ref_px = ref_state.as_ref().map_or(0.0, |s| s[y * wu + x]);
+                    if ref_px == f32::INFINITY {
                         // A moving highlight (sun glints on water): a frame
                         // darker than the reference's clipping point there
                         // shows another moment, and with the reference
@@ -697,12 +737,19 @@ pub fn merge_hdr(
                         if cam.max() * inv_ratio < 0.9 * SATURATION_START {
                             continue;
                         }
-                    } else if let Some(g) = &ghost {
-                        wgt *= 1.0
-                            - g.sample_bilinear(
-                                (x as f32 + 0.5) * fx - 0.5,
-                                (y as f32 + 0.5) * fy - 0.5,
-                            );
+                    } else {
+                        if ref_px > 0.0
+                            && ((luma(&p) * inv_ratio).max(1e-6) / ref_px).log2().abs() > ghost_ev
+                        {
+                            continue;
+                        }
+                        if let Some(g) = &ghost {
+                            wgt *= 1.0
+                                - g.sample_bilinear(
+                                    (x as f32 + 0.5) * fx - 0.5,
+                                    (y as f32 + 0.5) * fy - 0.5,
+                                );
+                        }
                     }
                     let wgt = ratio * wgt.max(floor);
                     if wgt <= 0.0 {
@@ -738,11 +785,10 @@ pub fn merge_hdr(
         if is_ref {
             ref_meta = Some((frame.color.clone(), frame.metadata.clone()));
             if config.deghost.threshold_ev().is_some() {
-                // Clipped or nearly.
                 let raw: &[f32] = &frame.image;
-                ref_clipped = Some(
+                ref_state = Some(
                     raw.par_chunks_exact(3)
-                        .map(|p| usable(p, &to_camera) < 1.0)
+                        .map(|p| reference_state(p, &to_camera))
                         .collect(),
                 );
             }
@@ -870,6 +916,7 @@ mod tests {
             &cons_den,
             ratio,
             Deghost::Medium.threshold_ev().unwrap(),
+            [1.0; 3],
         );
         assert!(g.at(24, 24) > 0.95, "mover kept: ghost {}", g.at(24, 24));
         assert!(g.at(2, 2) < 0.01, "ground dropped: ghost {}", g.at(2, 2));
@@ -890,6 +937,7 @@ mod tests {
             &cons_den,
             1.0,
             Deghost::High.threshold_ev().unwrap(),
+            [1.0; 3],
         );
         assert!(g.data.iter().all(|&v| v < 0.01), "ghost {}", g.at(16, 16));
     }
@@ -903,7 +951,58 @@ mod tests {
         let cons_rgb = scene.map(|v| Plane::filled(w, h, v));
         let cons_den = Plane::filled(w, h, 1.0);
         let frame = flat(w, h, scene.map(|v| v * ratio * 1.05));
-        let g = ghost_map(&frame, &cons_rgb, &cons_den, ratio, 0.22);
+        let g = ghost_map(&frame, &cons_rgb, &cons_den, ratio, 0.22, [1.0; 3]);
         assert!(g.data.iter().all(|&v| v < 0.01));
+    }
+
+    /// A channel the camera matrix amplifies more carries more noise.
+    #[test]
+    fn channel_noise_gain_follows_the_matrix() {
+        let g = channel_noise_gain(&Matrix3::identity());
+        assert!((g[0] - g[1]).abs() < 1e-6 && (g[1] - g[2]).abs() < 1e-6);
+        // to_camera halves blue: camera → working doubles it.
+        let g = channel_noise_gain(&Matrix3::from_diagonal(&nalgebra::Vector3::new(
+            1.0, 1.0, 0.5,
+        )));
+        assert!((g[2] / g[0] - 2.0).abs() < 1e-5, "{g:?}");
+    }
+
+    /// Deep shadow of a static bracket's darkest frame (−2 EV): its blue
+    /// channel is off by sensor noise that the matrix amplified. With one
+    /// floor for every channel this is a ghost at High; with the channel's
+    /// own noise floor it is not, while a real change of that size in
+    /// luminance stays a ghost.
+    #[test]
+    fn amplified_channel_noise_is_no_ghost() {
+        let (w, h) = (32, 32);
+        let ratio = 0.25;
+        let scene = [0.006f32, 0.006, 0.006];
+        let cons_rgb = scene.map(|v| Plane::filled(w, h, v));
+        let cons_den = Plane::filled(w, h, 1.0);
+        let gain = [1.6, 1.4, 2.7];
+        let noisy = flat(w, h, [0.006 * ratio, 0.006 * ratio, 0.0]);
+        let high = Deghost::High.threshold_ev().unwrap();
+        let single = ghost_map(&noisy, &cons_rgb, &cons_den, ratio, high, [1.0; 3]);
+        assert!(single.at(16, 16) > 0.5, "premise: {}", single.at(16, 16));
+        let own = ghost_map(&noisy, &cons_rgb, &cons_den, ratio, high, gain);
+        assert!(
+            own.at(16, 16) < 0.01,
+            "noise is a ghost: {}",
+            own.at(16, 16)
+        );
+        let moved = flat(w, h, [0.03 * ratio, 0.03 * ratio, 0.03 * ratio]);
+        let g = ghost_map(&moved, &cons_rgb, &cons_den, ratio, high, gain);
+        assert!(g.at(16, 16) > 0.95, "change kept: {}", g.at(16, 16));
+    }
+
+    /// Clipped reference pixels, bright ones that judge other frames, and
+    /// darker ones left to the ghost map.
+    #[test]
+    fn reference_state_classifies_pixels() {
+        let id = Matrix3::identity();
+        assert_eq!(reference_state(&[0.9, 0.3, 0.3], &id), f32::INFINITY);
+        let l = reference_state(&[0.5, 0.5, 0.5], &id);
+        assert!((l - 0.5).abs() < 1e-6);
+        assert_eq!(reference_state(&[0.1, 0.1, 0.1], &id), 0.0);
     }
 }
