@@ -4626,6 +4626,7 @@
           "details": "Beliebiger Text außer Stichwörtern",
           "duplicate": "Duplikat (identische Bilddaten)",
           "exposure": "Belichtungszeit (s)",
+          "exposureExact": "Belichtungszeit (s, enge Toleranz)",
           "eyes": "Augen",
           "filename": "Dateiname",
           "fileType": "Dateityp",
@@ -4637,6 +4638,7 @@
           "keyword": "Stichwort",
           "label": "Farbmarkierung",
           "lens": "Objektiv",
+          "lensImported": "Objektiv (wie im importierten Katalog benannt)",
           "make": "Kamerahersteller",
           "offline": "Fehlendes Foto",
           "previousImport": "Im letzten Import",
@@ -4687,6 +4689,18 @@
             "is": "ist direkt in",
             "isNot": "ist nicht direkt in",
             "notContains": "ist nicht in oder unter"
+          },
+          "name": {
+            "contains": "enthält alle Wörter",
+            "containsAny": "enthält eines der Wörter",
+            "empty": "ist leer",
+            "endsWith": "endet mit",
+            "is": "ist",
+            "isNot": "ist nicht",
+            "notContains": "enthält keines der Wörter",
+            "notEmpty": "ist nicht leer",
+            "startsWith": "beginnt mit",
+            "words": "enthält die ganzen Wörter"
           },
           "number": {
             "between": "liegt zwischen",

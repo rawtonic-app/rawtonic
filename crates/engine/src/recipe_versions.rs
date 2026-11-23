@@ -111,6 +111,14 @@ impl RenderVersion {
         self.0 >= crate::image_loader::TEXTURE_DEAD_RENDER_VERSION
     }
 
+    /// Dead photosites at black in dark texture are repaired too where
+    /// their neighbours stand clear of the photo's noise, and dead
+    /// photosites take their neighbours' colour ratio
+    /// (`image_loader::DeadTest::IsolatedBlack`).
+    pub fn black_dead_test(self) -> bool {
+        self.0 >= crate::image_loader::BLACK_DEAD_RENDER_VERSION
+    }
+
     /// Colours outside the output space keep their hue.
     pub fn gamut_mapping(self) -> bool {
         self.0 >= ip::GAMUT_MAPPING_RENDER_VERSION
@@ -551,6 +559,9 @@ impl ColorGradingVersion {
 
 /// The film grain (`grainVersion` 3).
 pub const FILM_GRAIN_VERSION: u64 = 3;
+/// Film grain with as many dark as bright grains and its shadows raised
+/// (`grainVersion` 4).
+pub const SYMMETRIC_GRAIN_VERSION: u64 = 4;
 
 /// `lutVersion` (`lut::LUT_VERSION`): 1 when missing, never newer than this
 /// renderer knows.
@@ -603,6 +614,12 @@ impl GrainVersion {
     /// Film grain (Boolean-model grains per dye layer).
     pub fn film(self) -> bool {
         self.0 >= FILM_GRAIN_VERSION
+    }
+
+    /// Film grain from the symmetric tile (`film_grain::symmetric_grain_tile`)
+    /// with the shadow weight (shader `film_shadow_weight`).
+    pub fn symmetric(self) -> bool {
+        self.0 >= SYMMETRIC_GRAIN_VERSION
     }
 }
 

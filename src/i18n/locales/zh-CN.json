@@ -4494,6 +4494,7 @@
           "details": "除关键词外的任意文本",
           "duplicate": "重复项（图像数据相同）",
           "exposure": "快门速度（秒）",
+          "exposureExact": "快门速度（秒，较小容差）",
           "eyes": "眼睛",
           "filename": "文件名",
           "fileType": "文件类型",
@@ -4505,6 +4506,7 @@
           "keyword": "关键字",
           "label": "颜色标签",
           "lens": "镜头",
+          "lensImported": "镜头(导入目录中的名称)",
           "make": "相机品牌",
           "offline": "缺失的照片",
           "previousImport": "在上次导入中",
@@ -4554,6 +4556,18 @@
             "is": "直接位于",
             "isNot": "不直接位于",
             "notContains": "不位于其中或其下"
+          },
+          "name": {
+            "contains": "包含以下全部",
+            "containsAny": "包含以下任一",
+            "empty": "为空",
+            "endsWith": "结尾为",
+            "is": "为",
+            "isNot": "不为",
+            "notContains": "不包含以下任何",
+            "notEmpty": "不为空",
+            "startsWith": "开头为",
+            "words": "包含这些词"
           },
           "number": {
             "between": "介于",

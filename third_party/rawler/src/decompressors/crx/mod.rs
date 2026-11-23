@@ -5,36 +5,40 @@
 // Rewritten in Rust by Daniel Vogelbacher, based on logic found in
 // crx.cpp and documentation done by Laurent Clévy (https://github.com/lclevy/canon_cr3).
 
-// Crx is based on JPEG-LS from ITU T.78 and described in US patent US 2016/0323602 A1.
-// It has two modes:
-//  - Lossless compression
-//  - Lossy compression
-// For lossless (only LL band exists) and LL band from lossy compression,
-// prediction is used combined with adaptive Golomb-Rice entropy encoding for compression.
-// For lossy bands other than LL a special value rounding is introduced
-// into Golomb-Rice encoded values.
-//
-// LL band compression uses for the first image line run-length encoding
-// from JPEG-LS and adaptive Golomb-Rice encoding. For other lines,
-// MED (Median Edge Detection) is added to the encoding routines.
-//
-// For Lossy compression, image input is wavelet-transformed into subbands.
-// The LL band for low frequency part
-// The LH band for horizontal-direction frequency characteristic
-// The HL band for vertical-direction frequency characteristic
-// The HH band for oblique-direction frequency characteristic
-//
-// Transformation is directed by i, number of wavelet transformations.
-// Crx uses i=3, so the output is LL(3), LH(3), HL(3), HH(3), LH(2), HL(2), HH(2), LH(1), HL(1), HH(1)
-//
+//! Canon CRX decompressor.
+//!
+//! Crx is based on JPEG-LS from ITU T.78 and described in US patent US 2016/0323602 A1.
+//! It has two modes:
+//!  - Lossless compression
+//!  - Lossy compression
+//!
+//! For lossless (only LL band exists) and LL band from lossy compression,
+//! prediction is used combined with adaptive Golomb-Rice entropy encoding for compression.
+//! For lossy bands other than LL a special value rounding is introduced
+//! into Golomb-Rice encoded values.
+//!
+//! LL band compression uses for the first image line run-length encoding
+//! from JPEG-LS and adaptive Golomb-Rice encoding. For other lines,
+//! MED (Median Edge Detection) is added to the encoding routines.
+//!
+//! For Lossy compression, image input is wavelet-transformed into subbands.
+//! The LL band for low frequency part
+//! The LH band for horizontal-direction frequency characteristic
+//! The HL band for vertical-direction frequency characteristic
+//! The HH band for oblique-direction frequency characteristic
+//!
+//! Transformation is directed by i, number of wavelet transformations.
+//! Crx uses i=3, so the output is LL(3), LH(3), HL(3), HH(3), LH(2), HL(2), HH(2), LH(1), HL(1), HH(1)
 
 use self::{mdat::Tile, rice::RiceDecoder};
 use crate::formats::bmff::ext_cr3::cmp1::Cmp1Box;
-use bitstream_io::BitReader;
+// Rawtonic patch (RWL1): the CRX decoder's own copy of upstream's pump.
+use bitpump::{BitPumpError, BitPumpMSB};
 use log::debug;
-use std::io::Cursor;
+use std::collections::VecDeque;
 use thiserror::Error;
 
+mod bitpump;
 mod decoder;
 mod idwt;
 mod iquant;
@@ -58,7 +62,7 @@ const EX_COEF_NUM_TBL:[usize; 0x30*3] = [
     1, 1, 1, 2, 2, 1, 1, 0, 1, 1, 1, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
 /// BitPump for Big Endian bit streams
-type BitPump<'a> = BitReader<Cursor<&'a [u8]>, bitstream_io::BigEndian>;
+type BitPump<'a> = BitPumpMSB<'a>;
 
 /// Error variants for compressor
 #[derive(Debug, Error)]
@@ -78,6 +82,10 @@ pub enum CrxError {
   /// Error on internal cursor type
   #[error("I/O error")]
   Io(#[from] std::io::Error),
+
+  /// Error on reading a bitstream
+  #[error("Bitstream error: {}", _0)]
+  BitPump(#[from] BitPumpError),
 }
 
 /// Result type for Compressor results
@@ -154,6 +162,13 @@ impl CodecParams {
 
     assert!(tile_cols > 0);
     assert!(tile_rows > 0);
+
+    // Rawtonic patch (RWH1, moved here in RWL1 from the CFA conversion): a
+    // damaged header's sample depth is an error instead of shift overflows
+    // (CR3 stores 10 to 16 bits).
+    if cmp1.median_bits == 0 || cmp1.median_bits > 20 {
+      return Err(CrxError::General(format!("CRX: invalid median bits {}", cmp1.median_bits)));
+    }
 
     let params = Self {
       sample_precision: cmp1.n_bits as u8 + INCR_BIT_TABLE[4 * cmp1.enc_type as usize + 2] + 1,
@@ -373,6 +388,8 @@ struct BandParam<'mdat> {
   supports_partial: bool,
   /// Rice decoder, provides bit access to the MDAT stream
   rice: RiceDecoder<'mdat>,
+  /// Lines decoded ahead of the inverse wavelet transform
+  decoded_ahead: VecDeque<Result<Vec<i32>>>,
 }
 
 impl<'mdat> BandParam<'mdat> {

@@ -4823,6 +4823,7 @@
           "details": "Qualsiasi testo tranne le parole chiave",
           "duplicate": "Duplicato (dati immagine identici)",
           "exposure": "Tempo di posa (s)",
+          "exposureExact": "Tempo di posa (s, tolleranza ridotta)",
           "eyes": "Occhi",
           "filename": "Nome file",
           "fileType": "Tipo di file",
@@ -4834,6 +4835,7 @@
           "keyword": "Parola chiave",
           "label": "Etichetta colore",
           "lens": "Obiettivo",
+          "lensImported": "Obiettivo (nome del catalogo importato)",
           "make": "Produttore della fotocamera",
           "offline": "Foto mancante",
           "previousImport": "Nell’importazione precedente",
@@ -4885,6 +4887,18 @@
             "is": "è direttamente in",
             "isNot": "non è direttamente in",
             "notContains": "non è in né sotto"
+          },
+          "name": {
+            "contains": "contiene tutte le parole",
+            "containsAny": "contiene una delle parole",
+            "empty": "è vuoto",
+            "endsWith": "finisce con",
+            "is": "è",
+            "isNot": "non è",
+            "notContains": "non contiene nessuna delle parole",
+            "notEmpty": "non è vuoto",
+            "startsWith": "inizia con",
+            "words": "contiene le parole"
           },
           "number": {
             "between": "è tra",

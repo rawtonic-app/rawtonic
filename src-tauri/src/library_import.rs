@@ -114,8 +114,9 @@ pub struct ImportReport {
     pub copies_in_albums: Vec<String>,
     /// Smart albums imported on camera, lens, ISO or capture date: the
     /// catalog fills them as the background pass reads the files, and
-    /// camera and lens words are matched in the name the file states, not
-    /// as Lightroom does, so they can differ from Lightroom's.
+    /// camera words are matched in the name the file states, not as
+    /// Lightroom does, so they can differ from Lightroom's. (Lens rules use
+    /// Lightroom's own lens name for each photograph, kept by the import.)
     pub smart_albums_by_facts: Vec<String>,
     /// Edits here (photographs' and virtual copies') a repeated import
     /// brought up to date because they were still exactly as the last
@@ -188,11 +189,11 @@ pub fn smart_rule(rules: &SmartRules) -> Option<Rule> {
 
 /// What a smart collection's rules depend on that the catalog reads from
 /// the files after the import: `Some(note)` for camera, lens, ISO or
-/// capture date. The catalog finds camera and lens words anywhere in the
-/// name the file states, Lightroom whole words in names from its own
-/// tables, so those members can differ.
+/// capture date. Lightroom may name a camera differently from what the file
+/// states, so those members can differ (lens rules match Lightroom's own
+/// lens names, kept by the import).
 fn smart_rule_facts_note(rules: &SmartRules) -> Option<&'static str> {
-    const TEXT: &str = "filled as the files' capture data is read; camera and lens words match anywhere in the name the file states, Lightroom matches whole words in names from its own tables, so the members can differ";
+    const TEXT: &str = "filled as the files' capture data is read; Lightroom may name a camera differently from the file, so the members can differ";
     const FACTS: &str = "filled as the files' capture data is read";
     rules
         .rules
@@ -200,8 +201,10 @@ fn smart_rule_facts_note(rules: &SmartRules) -> Option<&'static str> {
         .filter_map(|rule| match rule {
             SmartRule::Group(group) => smart_rule_facts_note(group),
             SmartRule::Condition { criteria, .. } => match criteria.as_str() {
-                "camera" | "lens" => Some(TEXT),
-                "isoSpeedRating" | "captureTime" => Some(FACTS),
+                "camera" => Some(TEXT),
+                "isoSpeedRating" | "aperture" | "focalLength" | "shutterSpeed" | "captureTime" => {
+                    Some(FACTS)
+                }
                 _ => None,
             },
         })
@@ -226,6 +229,61 @@ pub fn smart_rule_gap(rules: &SmartRules) -> Option<String> {
         } => smart_condition(criteria, operation, value, value2, units.as_deref())
             .is_none()
             .then(|| format!("“{criteria}” ({operation})")),
+    })
+}
+
+/// Lightroom compares aperture and focal length within ±0.01 in aperture
+/// values (`Av = 2·log2(f-number)`) and millimetres (measured, SMR2).
+/// Translate those limits into the catalog's f-number and millimetre bounds.
+fn aperture_or_focal_length_rule(
+    criteria: &str,
+    operation: &str,
+    value: f64,
+    value2: Option<f64>,
+) -> Option<Rule> {
+    let (field, tolerance, at): (Field, f64, fn(f64) -> f64) = match criteria {
+        "aperture" => (Field::Aperture, 0.01, |av| (av / 2.0).exp2()),
+        "focalLength" => (Field::FocalLength, 0.01, |mm| mm),
+        _ => return None,
+    };
+    // The catalog's smallest and largest value Lightroom takes as `x`.
+    let low = |x: f64| at(x - tolerance).min(at(x + tolerance));
+    let high = |x: f64| at(x - tolerance).max(at(x + tolerance));
+    let one = |op: Op, v: f64| Rule::Condition {
+        field,
+        op,
+        value: json!(v),
+    };
+    let within = |from: f64, to: f64| Rule::Condition {
+        field,
+        op: Op::Between,
+        value: json!([from, to]),
+    };
+    Some(match operation {
+        "==" => within(low(value), high(value)),
+        // Not "none of equal": a photograph without the value is not
+        // different from it either.
+        "!=" => Rule::Group {
+            combine: Combine::Any,
+            rules: vec![one(Op::Lt, low(value)), one(Op::Gt, high(value))],
+        },
+        ">" => one(Op::Gt, high(value)),
+        ">=" => one(Op::Ge, low(value)),
+        "<" => one(Op::Lt, low(value)),
+        "<=" => one(Op::Le, high(value)),
+        // A range from the larger to the smaller value holds nothing in Lightroom.
+        "in" => {
+            let (from, to) = (low(value), high(value2?));
+            if from > to {
+                Rule::Group {
+                    combine: Combine::Any,
+                    rules: vec![],
+                }
+            } else {
+                within(from, to)
+            }
+        }
+        _ => return None,
     })
 }
 
@@ -296,11 +354,22 @@ fn smart_condition(
                 rules: in_either(op, words),
             };
             return match operation {
+                // Lightroom's "words": every word is a whole word of the name;
+                // "all": every word is part of it (measured, SMR2).
                 "words" | "all" => Some(Rule::Group {
                     combine: Combine::All,
                     rules: text(value)?
                         .split_whitespace()
-                        .map(|word| either(Op::Contains, word))
+                        .map(|word| {
+                            either(
+                                if operation == "words" {
+                                    Op::Words
+                                } else {
+                                    Op::Contains
+                                },
+                                word,
+                            )
+                        })
                         .collect(),
                 }),
                 "any" => Some(either(Op::ContainsAny, &text(value)?)),
@@ -324,6 +393,7 @@ fn smart_condition(
         // comparisons, as the catalog's.
         "lens" | "filename" => {
             let op = match operation {
+                "words" if criteria == "lens" => Op::Words,
                 "words" | "all" => Op::Contains,
                 "any" => Op::ContainsAny,
                 "noneOf" => Op::NotContains,
@@ -335,8 +405,11 @@ fn smart_condition(
                 "notEmpty" => Op::NotEmpty,
                 _ => return None,
             };
+            // Lightroom matches a lens rule against its own name for the lens
+            // (kept per photograph by the import), not against the name the
+            // file states.
             let field = if criteria == "lens" {
-                Field::Lens
+                Field::LensImported
             } else {
                 Field::Filename
             };
@@ -345,6 +418,33 @@ fn smart_condition(
                 _ => json!(text(value)?),
             };
             (field, op, value)
+        }
+        "aperture" | "focalLength" => {
+            return aperture_or_focal_length_rule(
+                criteria,
+                operation,
+                number(value)?,
+                number(value2),
+            );
+        }
+        "shutterSpeed" => {
+            // Lightroom stores Tv = log2(1/seconds), but orders by seconds:
+            // greater means a longer time, and a range starts at the shorter time.
+            let from = number(value)?;
+            let seconds = |tv: f64| (-tv).exp2();
+            let (op, value) = if operation == "in" {
+                let to = number(value2)?;
+                if from < to {
+                    return Some(Rule::Group {
+                        combine: Combine::Any,
+                        rules: vec![],
+                    });
+                }
+                (Op::Between, json!([seconds(from), seconds(to)]))
+            } else {
+                (compare(operation)?, json!(seconds(from)))
+            };
+            (Field::ExposureExact, op, value)
         }
         "isoSpeedRating" if operation == "in" => (
             Field::Iso,
@@ -1731,6 +1831,9 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
             (id, Reimport::Apply, None)
         }
     };
+    if let Some(lens) = &photo.lens {
+        catalog.set_imported_lens(&id, lens)?;
+    }
     let version = catalog.version_for(&id, None)?;
     if matches!(rule, Reimport::Apply | Reimport::Same)
         && let Some(version) = &version
@@ -2381,6 +2484,7 @@ mod tests {
                 ..Default::default()
             },
             develop,
+            lens: None,
             copy_of: copy_of.map(str::to_string),
             copy_name: None,
             snapshots: Vec::new(),
@@ -3334,11 +3438,11 @@ mod tests {
                 text("Canon EOS"),
                 json!({"combine": "all", "rules": [
                 {"combine": "any", "rules": [
-                    {"field": "camera", "op": "contains", "value": "Canon"},
-                    {"field": "make", "op": "contains", "value": "Canon"}]},
+                    {"field": "camera", "op": "words", "value": "Canon"},
+                    {"field": "make", "op": "words", "value": "Canon"}]},
                 {"combine": "any", "rules": [
-                    {"field": "camera", "op": "contains", "value": "EOS"},
-                    {"field": "make", "op": "contains", "value": "EOS"}]}]}),
+                    {"field": "camera", "op": "words", "value": "EOS"},
+                    {"field": "make", "op": "words", "value": "EOS"}]}]}),
             ),
             (
                 "camera",
@@ -3366,19 +3470,25 @@ mod tests {
                 "lens",
                 "words",
                 text("TAMRON"),
-                json!({"field": "lens", "op": "contains", "value": "TAMRON"}),
+                json!({"field": "lensImported", "op": "words", "value": "TAMRON"}),
+            ),
+            (
+                "lens",
+                "all",
+                text("TAMRON"),
+                json!({"field": "lensImported", "op": "contains", "value": "TAMRON"}),
             ),
             (
                 "lens",
                 "beginsWith",
                 text("EF"),
-                json!({"field": "lens", "op": "startsWith", "value": "EF"}),
+                json!({"field": "lensImported", "op": "startsWith", "value": "EF"}),
             ),
             (
                 "lens",
                 "notEmpty",
                 SmartValue::None,
-                json!({"field": "lens", "op": "notEmpty"}),
+                json!({"field": "lensImported", "op": "notEmpty"}),
             ),
             (
                 "filename",
@@ -3463,7 +3573,11 @@ mod tests {
             name: "LR".into(),
             photos: rows
                 .iter()
-                .map(|(name, ..)| photo(name, photos.join(name), Develop::None, None))
+                .map(|(name, _, lens, _)| {
+                    let mut p = photo(name, photos.join(name), Develop::None, None);
+                    p.lens = (!lens.is_empty()).then(|| lens.to_string());
+                    p
+                })
                 .collect(),
             albums: vec![],
             stacks: vec![],
@@ -3493,14 +3607,11 @@ mod tests {
             ..source
         };
         let report = import_into(&catalog, &source).unwrap();
-        // Camera and lens albums are named in the report (filled later,
-        // matched by text), the file-name album is not.
+        // Lens rules match Lightroom's own lens names, kept by the import,
+        // so neither the lens nor the file-name album waits for the files'
+        // capture data.
         assert!(report.warnings.is_empty(), "{report:?}");
-        assert_eq!(report.smart_albums_by_facts.len(), 1, "{report:?}");
-        assert!(
-            report.smart_albums_by_facts[0].starts_with("lens TAMRON: filled as"),
-            "{report:?}"
-        );
+        assert!(report.smart_albums_by_facts.is_empty(), "{report:?}");
         for (name, model, lens, iso) in rows {
             let id = catalog.asset_at(&photos.join(name)).unwrap().unwrap().id;
             let make = if model.starts_with("EOS") {
@@ -3559,6 +3670,393 @@ mod tests {
             members("isoSpeedRating", ">=", SmartValue::Number(800.0)),
             ["18b.CR2", "19c.DNG"]
         );
+    }
+
+    /// The photographs (names, sorted) a Lightroom criterion, operation and
+    /// its two values select.
+    type Members = Box<dyn Fn(&str, &str, SmartValue, SmartValue) -> Vec<String>>;
+
+    /// A catalog of photographs with the given capture facts and a closure
+    /// that lists the photographs a Lightroom criterion selects.
+    fn members_of_facts(
+        facts: &[(&str, rawtonic_catalog::CaptureFacts)],
+    ) -> (tempfile::TempDir, Members) {
+        // Lightroom's lens name is the file's, unless a test gives another.
+        let named: Vec<_> = facts
+            .iter()
+            .map(|(name, f)| (*name, f.clone(), f.lens.clone()))
+            .collect();
+        members_of_facts_named(&named)
+    }
+
+    /// `members_of_facts`, each photograph with the lens name its Lightroom
+    /// catalog holds (which need not be the name the file states).
+    fn members_of_facts_named(
+        facts: &[(&str, rawtonic_catalog::CaptureFacts, Option<String>)],
+    ) -> (tempfile::TempDir, Members) {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let photos = tmp.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        let source = Source {
+            name: "LR".into(),
+            photos: facts
+                .iter()
+                .map(|(name, _, lens)| {
+                    fs::write(photos.join(name), name).unwrap();
+                    let mut p = photo(name, photos.join(name), Develop::None, None);
+                    p.lens = lens.clone();
+                    p
+                })
+                .collect(),
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        import_into(&catalog, &source).unwrap();
+        for (name, facts, _) in facts {
+            let id = catalog.asset_at(&photos.join(name)).unwrap().unwrap().id;
+            catalog.record_facts(&id, facts).unwrap();
+        }
+        let members =
+            move |criteria: &str, operation: &str, value: SmartValue, value2: SmartValue| {
+                let rule = smart_rule(&SmartRules {
+                    combine: "intersect".into(),
+                    rules: vec![SmartRule::Condition {
+                        criteria: criteria.into(),
+                        operation: operation.into(),
+                        value,
+                        value2,
+                        units: None,
+                    }],
+                })
+                .unwrap_or_else(|| panic!("{criteria} {operation} does not translate"));
+                let album = catalog.create_smart_collection("t", None, &rule).unwrap();
+                let mut names: Vec<String> = catalog
+                    .collection_paths(&album.id)
+                    .unwrap()
+                    .iter()
+                    .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+                    .collect();
+                names.sort();
+                names
+            };
+        (tmp, Box::new(members))
+    }
+
+    /// Lightroom Classic 15.6, measured on a 43-photograph catalog (SMR2):
+    /// "words" for a camera or lens are whole words of the name (case
+    /// ignored; brackets around a word do not count), "any" and "none of"
+    /// find the text anywhere in it, "all" needs every word somewhere in it.
+    #[test]
+    fn lightroom_words_are_whole_words_of_the_camera_and_lens_names() {
+        use rawtonic_catalog::CaptureFacts;
+        let f = |model: &str, lens: &str| CaptureFacts {
+            make: Some("Canon".into()),
+            model: Some(model.into()),
+            lens: (!lens.is_empty()).then(|| lens.into()),
+            ..CaptureFacts::default()
+        };
+        let (_tmp, members) = members_of_facts(&[
+            ("a.CR2", f("EOS 6D Mark II", "EF-S18-55mm f/3.5-5.6 IS")),
+            (
+                "b.CR2",
+                f("EOS 600D", "TAMRON SP 90mm F/2.8 Di VC USD MACRO1:1 F017"),
+            ),
+            (
+                "c.PEF",
+                f("K-S2", "smc PENTAX-DA* 50-135mm F2.8 ED [IF] SDM"),
+            ),
+            ("d.DNG", f("M10", "Summicron-M 1:2/35 ASPH.")),
+            ("e.CR2", f("EOS-1Ds Mark II", "85.0 mm")),
+            ("f.NEF", f("D80", "")),
+        ]);
+        let text = |t: &str| SmartValue::Text(t.into());
+        let lens = |op: &str, word: &str| members("lens", op, text(word), SmartValue::None);
+        assert_eq!(lens("words", "EF-S18-55mm"), ["a.CR2"]);
+        assert_eq!(lens("words", "ef-s18-55mm f/3.5-5.6"), ["a.CR2"]);
+        assert_eq!(lens("words", "f/2.8"), ["b.CR2"]);
+        assert_eq!(lens("words", "90mm TAMRON"), ["b.CR2"]);
+        for part in [
+            "EF",
+            "18-55",
+            "50mm",
+            "TAM",
+            "Summicron",
+            "DA*",
+            "[IF]",
+            "1:2",
+        ] {
+            assert!(lens("words", part).is_empty(), "{part}");
+        }
+        assert_eq!(lens("words", "IF"), ["c.PEF"]);
+        assert_eq!(lens("words", "PENTAX-DA*"), ["c.PEF"]);
+        assert_eq!(lens("words", "Summicron-M"), ["d.DNG"]);
+        assert_eq!(lens("words", "mm"), ["e.CR2"]);
+        assert_eq!(lens("any", "tam"), ["b.CR2"]);
+        assert_eq!(lens("any", "mm").len(), 5);
+        // No lens at all is none of them.
+        assert_eq!(
+            lens("noneOf", "TAM"),
+            ["a.CR2", "c.PEF", "d.DNG", "e.CR2", "f.NEF"]
+        );
+        assert_eq!(
+            lens("noneOf", "18"),
+            ["b.CR2", "c.PEF", "d.DNG", "e.CR2", "f.NEF"]
+        );
+        // The camera's words are whole words of its name as well.
+        let camera = |op: &str, word: &str| members("camera", op, text(word), SmartValue::None);
+        assert_eq!(camera("words", "Mark II"), ["a.CR2", "e.CR2"]);
+        assert!(camera("words", "Mar").is_empty());
+        assert_eq!(camera("words", "EOS-1Ds"), ["e.CR2"]);
+        assert_eq!(camera("words", "EOS 6D"), ["a.CR2"]);
+        assert_eq!(camera("any", "Mar"), ["a.CR2", "e.CR2"]);
+        assert_eq!(camera("all", "Mar II"), ["a.CR2", "e.CR2"]);
+    }
+
+    /// Lightroom matches a lens rule against its own name for the lens, not
+    /// the name the file states (SMR2, Lightroom Classic 15.6: its names come
+    /// from its own tables, and from the focal range for a lens the file
+    /// does not name). The names below are the ones its catalog held for
+    /// these files.
+    #[test]
+    fn lightroom_lens_rules_match_the_lens_name_its_catalog_holds() {
+        use rawtonic_catalog::CaptureFacts;
+        let file = |lens: &str| CaptureFacts {
+            make: Some("Canon".into()),
+            lens: (!lens.is_empty()).then(|| lens.into()),
+            ..CaptureFacts::default()
+        };
+        let (_tmp, members) = members_of_facts_named(&[
+            // The file states a lens-database name, Lightroom its own.
+            (
+                "a.CR2",
+                file("EF 50mm f/1.8 II"),
+                Some("EF50mm f/1.8".into()),
+            ),
+            (
+                "b.CR2",
+                file("EF-S 18-55mm f/3.5-5.6 IS STM"),
+                Some("EF-S18-55mm f/4-5.6 IS STM".into()),
+            ),
+            // The file states only the focal range, Lightroom a full name.
+            (
+                "c.CR2",
+                file("17-50mm"),
+                Some("TAMRON SP 17-50mm F/2.8 DiII A16E".into()),
+            ),
+            // A compact camera: no lens text in the file, a range in Lightroom.
+            ("d.CR2", file(""), Some("6.1-30.5 mm".into())),
+            // Lightroom records it without a lens, whatever the file states.
+            ("e.CR2", file("EF 24mm f/2.8"), Some(String::new())),
+            // Ingested after the import: only the file's lens text exists.
+            ("f.CR2", file("EF 85mm f/1.8 USM"), None),
+        ]);
+        let text = |t: &str| SmartValue::Text(t.into());
+        let lens = |op: &str, word: &str| members("lens", op, text(word), SmartValue::None);
+        assert_eq!(lens("words", "EF50mm"), ["a.CR2"]);
+        // Only the photograph Lightroom never saw has "EF" as a word.
+        assert_eq!(lens("words", "EF"), ["f.CR2"]);
+        assert_eq!(lens("words", "EF-S18-55mm"), ["b.CR2"]);
+        assert_eq!(lens("words", "TAMRON 17-50mm"), ["c.CR2"]);
+        assert_eq!(lens("words", "6.1-30.5"), ["d.CR2"]);
+        assert_eq!(lens("==", "ef50mm f/1.8"), ["a.CR2"]);
+        assert_eq!(lens("beginsWith", "EF"), ["a.CR2", "b.CR2", "f.CR2"]);
+        assert_eq!(lens("endsWith", "STM"), ["b.CR2"]);
+        assert_eq!(lens("any", "tam"), ["c.CR2"]);
+        // A photograph Lightroom names no lens for is in "none of" and
+        // "empty"; one it never saw is read by the file's lens.
+        assert_eq!(lens("noneOf", "EF"), ["c.CR2", "d.CR2", "e.CR2"]);
+        assert_eq!(
+            members("lens", "empty", SmartValue::None, SmartValue::None),
+            ["e.CR2"]
+        );
+        assert_eq!(lens("words", "85mm"), ["f.CR2"]);
+        assert_eq!(lens("noneOf", "85mm").len(), 5);
+    }
+
+    /// A lens Lightroom now records as none replaces the name kept by an
+    /// earlier import; an unreadable lens (no record) leaves it; an album
+    /// edited here to other rules is never rewritten by a repeated import.
+    #[test]
+    fn a_repeated_import_updates_lens_names_and_keeps_edited_albums() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let photos = tmp.path().join("Photos");
+        fs::create_dir_all(&photos).unwrap();
+        fs::write(photos.join("a.CR2"), "a").unwrap();
+        let source = |lens: Option<&str>| {
+            let mut p = photo("a", photos.join("a.CR2"), Develop::None, None);
+            p.lens = lens.map(str::to_string);
+            Source {
+                name: "LR".into(),
+                photos: vec![p],
+                albums: vec![rawtonic_interop::Album {
+                    key: "1".into(),
+                    name: "Tamron".into(),
+                    parent: None,
+                    is_group: false,
+                    photos: vec![],
+                    smart: Some(SmartRules {
+                        combine: "intersect".into(),
+                        rules: vec![condition(
+                            "lens",
+                            "words",
+                            SmartValue::Text("TAMRON".into()),
+                        )],
+                    }),
+                }],
+                stacks: vec![],
+                not_read: NotRead::default(),
+            }
+        };
+        let tamron = |catalog: &Library| {
+            let albums = catalog.collections().unwrap();
+            let id = albums[0].id.clone();
+            (albums.len(), catalog.collection_paths(&id).unwrap().len())
+        };
+        import_into(&catalog, &source(Some("TAMRON SP 17-50mm"))).unwrap();
+        assert_eq!(tamron(&catalog), (1, 1));
+        // The same album again: no second one.
+        import_into(&catalog, &source(None)).unwrap();
+        assert_eq!(tamron(&catalog), (1, 1), "nothing read: the name stays");
+        // Lightroom records no lens any more.
+        import_into(&catalog, &source(Some(""))).unwrap();
+        assert_eq!(tamron(&catalog), (1, 0));
+        // The photographer changes the album's rules: a repeated import
+        // leaves it and adds Lightroom's beside it.
+        let own = Rule::Group {
+            combine: Combine::All,
+            rules: vec![Rule::Condition {
+                field: Field::Lens,
+                op: Op::Words,
+                value: json!("TAMRON"),
+            }],
+        };
+        let id = catalog.collections().unwrap()[0].id.clone();
+        catalog.set_collection_rules(&id, &own).unwrap();
+        import_into(&catalog, &source(Some(""))).unwrap();
+        let albums = catalog.collections().unwrap();
+        assert_eq!(albums.len(), 2);
+        assert_eq!(
+            albums.iter().find(|a| a.id == id).unwrap().rules.as_ref(),
+            Some(&own)
+        );
+    }
+
+    /// A square bracket is dropped at the edge of a word of a name, not inside it.
+    #[test]
+    fn a_bracket_inside_a_word_of_a_name_is_part_of_it() {
+        use rawtonic_catalog::CaptureFacts;
+        let f = |lens: &str| CaptureFacts {
+            lens: Some(lens.into()),
+            ..CaptureFacts::default()
+        };
+        let (_tmp, members) =
+            members_of_facts(&[("a.CR2", f("Zoom IMG[1] [IF]")), ("b.CR2", f("Zoom IMG1"))]);
+        let lens = |word: &str| {
+            members(
+                "lens",
+                "words",
+                SmartValue::Text(word.into()),
+                SmartValue::None,
+            )
+        };
+        assert_eq!(lens("IMG[1]"), ["a.CR2"]);
+        assert_eq!(lens("IMG1"), ["b.CR2"]);
+        assert_eq!(lens("IF"), ["a.CR2"]);
+        assert!(lens("[IF]").is_empty());
+    }
+
+    /// Lightroom Classic 15.6, measured (SMR2): aperture values are APEX
+    /// (`2·log2(f-number)`, f/8 = 6), shutter speeds time values
+    /// (`log2(1/seconds)`; greater is longer, a range runs from the shorter
+    /// to the longer time), focal lengths millimetres, and equal means
+    /// within 0.01 of that unit; ranges include both ends.
+    #[test]
+    fn lightroom_aperture_focal_length_and_shutter_criteria_select_as_lightroom_does() {
+        use rawtonic_catalog::CaptureFacts;
+        let f = |aperture: f64, focal: f64, exposure: f64| CaptureFacts {
+            aperture: Some(aperture),
+            focal_length: Some(focal),
+            exposure: Some(exposure),
+            ..CaptureFacts::default()
+        };
+        let (_tmp, members) = members_of_facts(&[
+            ("f8.CR2", f(8.0, 50.0, 1.0 / 50.0)),
+            ("f63.CR2", f(6.3, 15.067, 1.0 / 100.0)),
+            ("f56.CR2", f(5.6, 15.0, 1.0 / 100.0)),
+            ("f9.CR2", f(9.0, 8.898, 0.8)),
+            ("f28.CR2", f(2.8, 200.0, 1.0 / 400.0)),
+            // No aperture, focal length or shutter speed recorded.
+            ("none.CR2", CaptureFacts::default()),
+        ]);
+        let n = |v: f64| SmartValue::Number(v);
+        let one = |criteria: &str, op: &str, v: f64| members(criteria, op, n(v), SmartValue::None);
+        let range = |criteria: &str, a: f64, b: f64| members(criteria, "in", n(a), n(b));
+        // Aperture.
+        assert_eq!(one("aperture", "==", 6.0), ["f8.CR2"]);
+        assert_eq!(one("aperture", ">", 6.0), ["f9.CR2"]);
+        assert_eq!(one("aperture", ">=", 6.0), ["f8.CR2", "f9.CR2"]);
+        assert_eq!(one("aperture", "<", 6.0), ["f28.CR2", "f56.CR2", "f63.CR2"]);
+        assert_eq!(one("aperture", "==", 5.32), ["f63.CR2"]);
+        assert_eq!(one("aperture", "==", 5.3), Vec::<String>::new());
+        assert_eq!(one("aperture", "==", 4.97), ["f56.CR2"]);
+        assert_eq!(one("aperture", "==", 5.0), Vec::<String>::new());
+        assert_eq!(
+            range("aperture", 4.0, 6.0),
+            ["f56.CR2", "f63.CR2", "f8.CR2"]
+        );
+        assert!(range("aperture", 6.0, 4.0).is_empty());
+        assert_eq!(
+            one("aperture", "!=", 6.0),
+            ["f28.CR2", "f56.CR2", "f63.CR2", "f9.CR2"]
+        );
+        // Focal length.
+        assert_eq!(one("focalLength", "==", 15.0), ["f56.CR2"]);
+        assert_eq!(one("focalLength", "==", 15.07), ["f63.CR2"]);
+        assert!(one("focalLength", "==", 15.1).is_empty());
+        assert_eq!(one("focalLength", "==", 8.9), ["f9.CR2"]);
+        assert_eq!(
+            one("focalLength", ">", 15.0),
+            ["f28.CR2", "f63.CR2", "f8.CR2"]
+        );
+        assert_eq!(one("focalLength", "<", 15.07), ["f56.CR2", "f9.CR2"]);
+        assert_eq!(
+            range("focalLength", 15.0, 50.0),
+            ["f56.CR2", "f63.CR2", "f8.CR2"]
+        );
+        // Shutter speed.
+        let tv = |seconds: f64| (1.0 / seconds).log2();
+        assert_eq!(one("shutterSpeed", "==", 6.64), ["f56.CR2", "f63.CR2"]);
+        assert_eq!(one("shutterSpeed", "==", tv(0.8)), ["f9.CR2"]);
+        // Tv 6.6 (about 1/97 s) is outside Lightroom's ±0.01.
+        assert!(one("shutterSpeed", "==", 6.6).is_empty());
+        assert_eq!(one("shutterSpeed", "==", 6.65), ["f56.CR2", "f63.CR2"]);
+        assert_eq!(
+            one("shutterSpeed", "!=", 6.64),
+            ["f28.CR2", "f8.CR2", "f9.CR2"]
+        );
+        assert_eq!(
+            one("shutterSpeed", "<", 6.6),
+            ["f28.CR2", "f56.CR2", "f63.CR2"]
+        );
+        assert_eq!(one("shutterSpeed", ">", 6.64), ["f8.CR2", "f9.CR2"]);
+        assert_eq!(
+            one("shutterSpeed", ">=", 6.64),
+            ["f56.CR2", "f63.CR2", "f8.CR2", "f9.CR2"]
+        );
+        assert_eq!(one("shutterSpeed", "<", 6.64), ["f28.CR2"]);
+        assert_eq!(
+            one("shutterSpeed", "<=", 6.64),
+            ["f28.CR2", "f56.CR2", "f63.CR2"]
+        );
+        assert_eq!(
+            range("shutterSpeed", 6.64, 5.64),
+            ["f56.CR2", "f63.CR2", "f8.CR2"]
+        );
+        assert!(range("shutterSpeed", 5.64, 6.64).is_empty());
+        assert!(range("shutterSpeed", 6.64, 6.645).is_empty());
     }
 
     /// Capture One's raster masks (unrotated sensor frame) record the

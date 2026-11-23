@@ -11,7 +11,7 @@ import {
 } from './SmartAlbumEditor';
 import { RawStatus } from '../ui/AppProperties';
 import { useLibraryStore } from '../../store/useLibraryStore';
-import { filterAsRule } from '../../utils/librarySearch';
+import { filterAsRule, type Rule } from '../../utils/librarySearch';
 import { SESSION_ALBUMS_CHANGED } from './StudioAlbums';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -298,6 +298,25 @@ describe('rule rows', () => {
 });
 
 describe('range rows', () => {
+  it('shows imported shutter speeds in seconds and saves their precise values', async () => {
+    const value = 2 ** -6.6;
+    const rules: Rule = { combine: 'all', rules: [{ field: 'exposureExact', op: 'is', value }] };
+    render(<SmartAlbumEditorHost />);
+    act(() =>
+      useSmartAlbumEditor.getState().open({
+        id: 'imported',
+        name: 'Imported shutter',
+        parent: null,
+        rules
+      })
+    );
+    await settle();
+    const row = screen.getByRole('group', { name: 'Shutter speed (s, narrow tolerance)' });
+    expect((within(row).getByLabelText('Value') as HTMLInputElement).value).toBe('0.010308656');
+    await act(async () => fireEvent.click(screen.getByText('Save')));
+    expect(mockInvoke).toHaveBeenCalledWith('session_set_smart_album_rules', expect.objectContaining({ rules }));
+  });
+
   it('shows a range afresh when its field changes', async () => {
     render(<SmartAlbumEditorHost />);
     act(() =>

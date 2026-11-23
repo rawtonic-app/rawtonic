@@ -56,10 +56,18 @@ export interface DevelopDefaults {
   cameras?: CameraDefaults[];
 }
 
+/** A photo's camera (`develop_defaults::CameraIdentity`): one name for all
+ * its files (its RAW, DNG conversions and JPEG/HEIF name it alike), and the
+ * names its file gives when they differ. */
 export interface CameraIdentity {
   make: string;
   model: string;
   serial?: string;
+  fileMake?: string;
+  fileModel?: string;
+  /** Other names files of this camera carry (rawler's catalog): an entry
+   * saved under one of them is this camera's. */
+  alsoNamed?: { make: string; model: string }[];
 }
 
 export interface ResolvedDefaults {
@@ -199,13 +207,29 @@ export function toolDefaultSettings(current: Adjustments, keys: string[], isRaw:
 const same = (a: string | undefined, b: string | undefined) =>
   (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase();
 
-const entryIndex = (defaults: DevelopDefaults, camera: CameraIdentity, level: 'camera' | 'body') =>
-  (defaults.cameras ?? []).findIndex(
-    (entry) =>
-      same(entry.make, camera.make) &&
-      same(entry.model, camera.model) &&
-      (level === 'body' ? entry.serial?.trim() === camera.serial?.trim() : !entry.serial)
-  );
+/** The camera's (body's) entry, as the backend's `entry_for` picks it: the
+ * one saved under the names the photo's file gives first, else the first
+ * saved under any of the camera's names (its one name or `alsoNamed`). */
+const entryIndex = (defaults: DevelopDefaults, camera: CameraIdentity, level: 'camera' | 'body') => {
+  const cameras = defaults.cameras ?? [];
+  const atLevel = (entry: CameraDefaults) =>
+    level === 'body' ? entry.serial?.trim() === camera.serial?.trim() : !entry.serial;
+  const fileNamed = (entry: CameraDefaults) =>
+    same(entry.make, camera.fileMake ?? camera.make) && same(entry.model, camera.fileModel ?? camera.model);
+  const named = (entry: CameraDefaults) =>
+    [{ make: camera.make, model: camera.model }, ...(camera.alsoNamed ?? [])].some(
+      (name) => same(entry.make, name.make) && same(entry.model, name.model)
+    );
+  const exact = cameras.findIndex((entry) => atLevel(entry) && fileNamed(entry));
+  return exact >= 0 ? exact : cameras.findIndex((entry) => atLevel(entry) && named(entry));
+};
+
+/** An entry's camera names: an existing entry keeps the ones it was saved
+ * under, a new one takes the camera's one name. */
+const namesOf = (defaults: DevelopDefaults, at: number, camera: CameraIdentity) => {
+  const own = at >= 0 ? defaults.cameras?.[at] : undefined;
+  return own ? { make: own.make, model: own.model } : { make: camera.make, model: camera.model };
+};
 
 /** `defaults` with `set` as the global default (null: none). */
 export function withGlobalDefault(defaults: DevelopDefaults, set: DefaultSettingsSet | null): DevelopDefaults {
@@ -224,15 +248,14 @@ export function withCameraDefault(
   level: 'camera' | 'body',
   set: DefaultSettingsSet
 ): DevelopDefaults {
+  const at = entryIndex(defaults, camera, level);
   const entry: CameraDefaults = {
-    make: camera.make,
-    model: camera.model,
+    ...namesOf(defaults, at, camera),
     ...(level === 'body' && camera.serial ? { serial: camera.serial } : {}),
     ...set,
     inherit: false
   };
   const cameras = [...(defaults.cameras ?? [])];
-  const at = entryIndex(defaults, camera, level);
   if (at >= 0) cameras[at] = entry;
   else cameras.push(entry);
   return { ...defaults, cameras };
@@ -264,8 +287,7 @@ export function withCameraToolDefault(
   const at = entryIndex(defaults, camera, level);
   const own = at >= 0 ? cameras[at] : null;
   const entry: CameraDefaults = {
-    make: camera.make,
-    model: camera.model,
+    ...namesOf(defaults, at, camera),
     ...(level === 'body' && camera.serial ? { serial: camera.serial } : {}),
     ...(own?.name ? { name: own.name } : {}),
     settings: withKeptShadows(own?.settings ?? {}, structuredClone(settings)),

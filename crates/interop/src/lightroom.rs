@@ -86,6 +86,23 @@ pub fn read(catalog: &Path) -> Result<Library> {
         }
     }
 
+    // Lightroom's own name for each photograph's lens: empty where its
+    // catalog records the photograph without one, absent where the catalog
+    // has no record (or none of these tables).
+    let mut lenses: HashMap<i64, String> = HashMap::new();
+    if let Ok(mut q) = conn.prepare(
+        "SELECT e.image, l.value FROM AgHarvestedExifMetadata e
+         LEFT JOIN AgInternedExifLens l ON l.id_local = e.lensRef",
+    ) && let Ok(rows) = q.query_map([], |r| {
+        Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, Option<String>>(1)?))
+    }) {
+        for (image, name) in rows.flatten() {
+            if let Some(image) = image {
+                lenses.insert(image, name.unwrap_or_default().trim().to_string());
+            }
+        }
+    }
+
     let mut photos = Vec::new();
     let mut q = conn.prepare(
         "SELECT i.id_local, r.absolutePath, fo.pathFromRoot, f.baseName, f.extension,
@@ -190,6 +207,7 @@ pub fn read(catalog: &Path) -> Result<Library> {
             path,
             metadata,
             develop,
+            lens: lenses.remove(&id),
             copy_of: master.filter(|m| *m != id).map(|m| m.to_string()),
             copy_name: copy_name.filter(|n| !n.trim().is_empty()),
             uid: uid.filter(|u| !u.trim().is_empty()),

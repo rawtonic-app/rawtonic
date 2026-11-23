@@ -6,14 +6,12 @@
 // crx.cpp and documentation done by Laurent Clévy (https://github.com/lclevy/canon_cr3).
 
 use super::{
-  BandParam, CodecParams, CrxError, Result,
+  BandParam, BitPump, CodecParams, CrxError, Result,
   decoder::constrain,
   mdat::{Subband, Tile},
 };
 use crate::decompressors::crx::{decoder::error_code_signed, rice::RiceDecoder};
-use bitstream_io::BitReader;
 use log::warn;
-use std::io::Cursor;
 
 /// QStep table for QP [0,1,2,3,4,5]
 #[rustfmt::skip]
@@ -58,6 +56,14 @@ impl CodecParams {
 
   /// Decode line with inverse quantization
   pub(super) fn decode_line_with_iquantization(&self, band: &Subband, param: &mut BandParam, q_step: Option<&QStep>) -> super::Result<Vec<i32>> {
+    match param.decoded_ahead.pop_front() {
+      Some(line) => line,
+      None => self.decode_next_line(band, param, q_step),
+    }
+  }
+
+  /// Entropy decode and inverse quantize the next line of the subband bitstream
+  pub(super) fn decode_next_line(&self, band: &Subband, param: &mut BandParam, q_step: Option<&QStep>) -> super::Result<Vec<i32>> {
     if band.data_size == 0 {
       return Ok(Vec::new());
     }
@@ -75,33 +81,39 @@ impl CodecParams {
     match q_step {
       Some(q_step) => {
         // new version
-        // Rawtonic patch (RWH1): a damaged header whose subband geometry
-        // doesn't fit the quantization table is an error, not a panic.
+        // Rawtonic patch (RWH1, kept in RWL1): a damaged header whose subband
+        // geometry doesn't fit the quantization table is an error, not a panic.
         if band.col_start_addon + band.col_end_addon >= band.width || param.cur_line == 0 {
           return Err(CrxError::General("CRX: subband geometry doesn't fit".to_string()));
         }
+        let row_start = q_step.width * band.get_subband_row(param.cur_line - 1);
         let last_idx = (band.width - band.col_end_addon - band.col_start_addon - 1) >> band.level_shift;
-        let q_step_tbl_ptr = (q_step.width * band.get_subband_row(param.cur_line - 1))
+        let q_step_row = row_start
           .checked_add(last_idx)
           .filter(|&end| end < q_step.q_step_tbl.len())
-          .map(|_| &q_step.q_step_tbl[(q_step.width * band.get_subband_row(param.cur_line - 1))..])
+          .map(|_| &q_step.q_step_tbl[row_start..])
           .ok_or_else(|| CrxError::General("CRX: quantization table too short".to_string()))?;
+        // Quantization step of a value of the QStep table
+        let step = |q: u32| constrain(band.q_step_base + ((q * band.q_step_multi as u32) >> 3) as i32, 1, 0x168000);
+        let (start, rest) = param.decoded_buf_mut().split_at_mut(band.col_start_addon);
+        let (mid, end) = rest.split_at_mut(band.width - band.col_end_addon - band.col_start_addon);
 
-        for i in 0..band.col_start_addon {
-          let quant_val = band.q_step_base + ((q_step_tbl_ptr[0] * band.q_step_multi as u32) >> 3) as i32;
-          param.decoded_buf_mut()[i] *= constrain(quant_val, 1, 0x168000);
+        // The columns before the first QStep column take its step
+        if !start.is_empty() {
+          let step = step(q_step_row[0]);
+          start.iter_mut().for_each(|value| *value *= step);
         }
-
-        for i in band.col_start_addon..(band.width - band.col_end_addon) {
-          let idx = (i - band.col_start_addon) >> band.level_shift;
-          let quant_val = band.q_step_base + ((q_step_tbl_ptr[idx] * band.q_step_multi as u32) >> 3) as i32;
-          //eprintln!("{}", quant_val);
-          param.decoded_buf_mut()[i] *= constrain(quant_val, 1, 0x168000);
+        // Each QStep value covers 1 << level_shift columns
+        let cols = 1 << band.level_shift;
+        let q_values = &q_step_row[..mid.len().div_ceil(cols)];
+        for (chunk, &q) in mid.chunks_mut(cols).zip(q_values) {
+          let step = step(q);
+          chunk.iter_mut().for_each(|value| *value *= step);
         }
-
-        for i in (band.width - band.col_end_addon)..band.width {
-          let quant_val = band.q_step_base + ((q_step_tbl_ptr[last_idx] * band.q_step_multi as u32) >> 3) as i32;
-          param.decoded_buf_mut()[i] *= constrain(quant_val, 1, 0x168000);
+        // The columns after the last QStep column take its step
+        if !end.is_empty() {
+          let step = step(q_step_row[(mid.len() - 1) >> band.level_shift]);
+          end.iter_mut().for_each(|value| *value *= step);
         }
       }
       None => {
@@ -114,10 +126,8 @@ impl CodecParams {
         };
         // Optimization: if scale is 1, no multiplication is required
         if q_scale != 1 {
-          //println!("scale width: {}", band.width);
-          for i in 0..band.width {
-            param.decoded_buf_mut()[i] *= q_scale as i32;
-          }
+          let q_scale = q_scale as i32;
+          param.decoded_buf_mut().iter_mut().for_each(|value| *value *= q_scale);
         }
       }
     }
@@ -175,12 +185,12 @@ impl Tile {
         3 => {
           let mut q_step = QStep::new(qp_width, qp_height8);
           for qp_row in 0..qp_height8 {
-            let mut row0_idx = qp_width * std::cmp::min(4 * qp_row + 0, qp_height - 1);
-            let mut row1_idx = qp_width * std::cmp::min(4 * qp_row + 1, qp_height - 1);
-            let mut row2_idx = qp_width * std::cmp::min(4 * qp_row + 2, qp_height - 1);
-            let mut row3_idx = qp_width * std::cmp::min(4 * qp_row + 3, qp_height - 1);
-            for _qp_col in 0..qp_width {
-              let qp_sum = qp_table[row0_idx] + qp_table[row1_idx] + qp_table[row2_idx] + qp_table[row3_idx];
+            let row0_idx = qp_width * std::cmp::min(4 * qp_row + 0, qp_height - 1);
+            let row1_idx = qp_width * std::cmp::min(4 * qp_row + 1, qp_height - 1);
+            let row2_idx = qp_width * std::cmp::min(4 * qp_row + 2, qp_height - 1);
+            let row3_idx = qp_width * std::cmp::min(4 * qp_row + 3, qp_height - 1);
+            for qp_col in 0..qp_width {
+              let qp_sum = qp_table[row0_idx + qp_col] + qp_table[row1_idx + qp_col] + qp_table[row2_idx + qp_col] + qp_table[row3_idx + qp_col];
               let quant_val = if qp_sum.is_negative() {
                 (qp_sum + 3) / 4 // Round?
               } else {
@@ -190,10 +200,6 @@ impl Tile {
               let x = q_lookup(quant_val);
               //eprintln!("QSTEP 8: {:?}", x);
               q_step.q_step_tbl.push(x);
-              row0_idx += 1;
-              row1_idx += 1;
-              row2_idx += 1;
-              row3_idx += 1;
             }
           }
           debug_assert_eq!(q_step.q_step_tbl.len(), qp_width * qp_height8);
@@ -203,15 +209,13 @@ impl Tile {
         2 => {
           let mut q_step = QStep::new(qp_width, qp_height4);
           for qp_row in 0..qp_height4 {
-            let mut row0_idx = qp_width * std::cmp::min(2 * qp_row + 0, qp_height - 1);
-            let mut row1_idx = qp_width * std::cmp::min(2 * qp_row + 1, qp_height - 1);
-            for _qp_col in 0..qp_width {
-              let quant_val = (qp_table[row0_idx] + qp_table[row1_idx]) / 2;
+            let row0_idx = qp_width * std::cmp::min(2 * qp_row + 0, qp_height - 1);
+            let row1_idx = qp_width * std::cmp::min(2 * qp_row + 1, qp_height - 1);
+            for qp_col in 0..qp_width {
+              let quant_val = (qp_table[row0_idx + qp_col] + qp_table[row1_idx + qp_col]) / 2;
               let x = q_lookup(quant_val);
               //eprintln!("QSTEP 4: {:?}", x);
               q_step.q_step_tbl.push(x);
-              row0_idx += 1;
-              row1_idx += 1;
             }
           }
           debug_assert_eq!(q_step.q_step_tbl.len(), qp_width * qp_height4);
@@ -245,7 +249,7 @@ impl Tile {
       Some(qp_data) => {
         //println!("generate: size: {}", qp_data.mdat_qp_data_size);
         let mdat_qp = &data[self.data_offset..self.data_offset + qp_data.mdat_qp_data_size as usize];
-        let bitpump = BitReader::endian(Cursor::new(mdat_qp), bitstream_io::BigEndian);
+        let bitpump = BitPump::new(mdat_qp);
         let mut rice = RiceDecoder::new(bitpump);
 
         let qp_width = (self.plane_width >> 3) + if self.plane_width & 7 != 0 { 1 } else { 0 };

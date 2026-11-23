@@ -4626,6 +4626,7 @@
           "details": "Any text but keywords",
           "duplicate": "Duplicate (identical image data)",
           "exposure": "Shutter speed (s)",
+          "exposureExact": "Shutter speed (s, narrow tolerance)",
           "eyes": "Eyes",
           "filename": "File name",
           "fileType": "File type",
@@ -4637,6 +4638,7 @@
           "keyword": "Keyword",
           "label": "Color label",
           "lens": "Lens",
+          "lensImported": "Lens (as named in the imported catalog)",
           "make": "Camera maker",
           "offline": "Missing photo",
           "previousImport": "In the previous import",
@@ -4687,6 +4689,18 @@
             "is": "is directly in",
             "isNot": "is not directly in",
             "notContains": "is not in or below"
+          },
+          "name": {
+            "contains": "contains all of",
+            "containsAny": "contains any of",
+            "empty": "is empty",
+            "endsWith": "ends with",
+            "is": "is",
+            "isNot": "is not",
+            "notContains": "contains none of",
+            "notEmpty": "is not empty",
+            "startsWith": "starts with",
+            "words": "contains the whole words"
           },
           "number": {
             "between": "is between",

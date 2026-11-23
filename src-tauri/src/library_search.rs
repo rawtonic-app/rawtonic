@@ -421,6 +421,32 @@ mod tests {
     static PASS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
+    fn smart_album_ipc_round_trips_exact_exposure_rules() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Shutter speeds", Mode::Session).unwrap();
+        let directory = lib.directory.to_string_lossy().into_owned();
+        let payload = json!({"combine":"all","rules":[
+            {"field":"exposure","op":"is","value":0.01},
+            {"field":"exposureExact","op":"is","value":(-6.6_f64).exp2()}
+        ]});
+        let rules: Rule = serde_json::from_value(payload.clone()).unwrap();
+        let album = block_on(session_create_smart_album(
+            directory,
+            "Exposure".into(),
+            None,
+            rules,
+        ))
+        .unwrap();
+        let stored = lib
+            .collections()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.id == album.id)
+            .unwrap();
+        assert_eq!(serde_json::to_value(stored).unwrap()["rules"], payload);
+    }
+
+    #[test]
     fn filters_in_the_session_trash_keep_catalog_metadata() {
         let _one = PASS.lock().unwrap_or_else(|e| e.into_inner());
         let temp = tempfile::tempdir().unwrap();

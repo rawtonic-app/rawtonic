@@ -1,14 +1,26 @@
 import '../../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import RenameFileModal, { PREVIEW_ROWS, type RenamePlan } from './RenameFileModal';
 import { Invokes } from '../ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
-afterEach(cleanup);
-beforeEach(() => vi.mocked(invoke).mockReset());
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.mocked(invoke).mockReset();
+});
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+// Run the preview debounce and flush the mock IPC response before reading the DOM.
+const finishPreview = () =>
+  act(async () => {
+    await vi.runOnlyPendingTimersAsync();
+  });
 
 const photo = (from: string, to: string, extra: Partial<RenamePlan['photos'][number]> = {}) => ({
   from,
@@ -50,7 +62,8 @@ it('previews the final names, sidecars and notes and saves exactly that plan', a
   // A batch is named in the naming editor of import and export.
   const template = () => screen.getByLabelText('File Naming Template');
   fireEvent.change(template(), { target: { value: 'Job' } });
-  const list = await screen.findByTestId('rename-preview');
+  await finishPreview();
+  const list = screen.getByTestId('rename-preview');
   expect(invoke).toHaveBeenLastCalledWith(Invokes.PreviewRename, {
     paths: ['/s/A.NEF', '/s/B.NEF'],
     nameTemplate: 'Job',
@@ -66,14 +79,13 @@ it('previews the final names, sidecars and notes and saves exactly that plan', a
   expect(onSave).toHaveBeenCalledWith('Job', [...plan.photos[0].files, ...plan.photos[1].files], 1);
   // Later templates reuse the facts read for this opening.
   fireEvent.change(template(), { target: { value: 'Job2' } });
-  await waitFor(() =>
-    expect(invoke).toHaveBeenLastCalledWith(Invokes.PreviewRename, {
-      paths: ['/s/A.NEF', '/s/B.NEF'],
-      nameTemplate: 'Job2',
-      sequenceStart: 1,
-      refresh: false
-    })
-  );
+  await finishPreview();
+  expect(invoke).toHaveBeenLastCalledWith(Invokes.PreviewRename, {
+    paths: ['/s/A.NEF', '/s/B.NEF'],
+    nameTemplate: 'Job2',
+    sequenceStart: 1,
+    refresh: false
+  });
 });
 
 it('shows why a name cannot be taken and does not save', async () => {
@@ -81,7 +93,8 @@ it('shows why a name cannot be taken and does not save', async () => {
     photos: [photo('/s/A.NEF', '/s/B.NEF', { problems: [{ kind: 'occupied', path: '/s/B.NEF' }] })]
   });
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'B' } });
-  expect(await screen.findByText('B.NEF already exists.')).toBeTruthy();
+  await finishPreview();
+  expect(screen.getByText('B.NEF already exists.')).toBeTruthy();
   expect(screen.getByText('Nothing can be renamed until every problem above is solved.')).toBeTruthy();
   const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
   expect(save.disabled).toBe(true);
@@ -92,16 +105,19 @@ it('shows why a name cannot be taken and does not save', async () => {
 it('lists the first rows of a large batch and counts the rest', async () => {
   const paths = Array.from({ length: PREVIEW_ROWS + 7 }, (_, i) => `/s/P${i}.NEF`);
   open(paths, { photos: paths.map((p, i) => photo(p, `/s/Job_${i}.NEF`)) });
-  const list = await screen.findByTestId('rename-preview');
-  expect(within(list).getAllByRole('listitem')).toHaveLength(PREVIEW_ROWS);
+  await finishPreview();
+  const list = screen.getByTestId('rename-preview');
+  expect(list.querySelectorAll(':scope > li')).toHaveLength(PREVIEW_ROWS);
+  expect(list.lastElementChild?.textContent).toContain(`P${PREVIEW_ROWS - 1}.NEF`);
   expect(screen.getByText('More photos not listed: 7')).toBeTruthy();
 });
 
 it('cannot save when no name changes', async () => {
   open(['/s/A.NEF', '/s/B.NEF'], { photos: [photo('/s/A.NEF', '/s/A.NEF'), photo('/s/B.NEF', '/s/B.NEF')] });
-  expect(await screen.findByText('No name changes.')).toBeTruthy();
+  await finishPreview();
+  expect(screen.getByText('No name changes.')).toBeTruthy();
   expect(screen.getAllByText('keeps its name')).toHaveLength(2);
-  await waitFor(() => expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true));
+  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it('always lists a refused photo beyond the first rows', async () => {
@@ -109,8 +125,9 @@ it('always lists a refused photo beyond the first rows', async () => {
   const photos = paths.map((p, i) => photo(p, `/s/Job_${i}.NEF`));
   photos[PREVIEW_ROWS + 3].problems = [{ kind: 'occupied', path: '/s/Taken.NEF' }];
   open(paths, { photos });
-  const list = await screen.findByTestId('rename-preview');
-  expect(within(list).getAllByRole('listitem')).toHaveLength(PREVIEW_ROWS + 1);
+  await finishPreview();
+  const list = screen.getByTestId('rename-preview');
+  expect(list.querySelectorAll(':scope > li')).toHaveLength(PREVIEW_ROWS + 1);
   expect(screen.getByText('Taken.NEF already exists.')).toBeTruthy();
   expect(screen.getByText('More photos not listed: 6')).toBeTruthy();
 });

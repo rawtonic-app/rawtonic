@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, within } from '@te
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import StudioWorkspace from './StudioWorkspace';
 import StudioToolBar from './StudioToolBar';
+import { useQuickAdjust } from './useQuickAdjust';
 import { stepBrushSize, useStudioTools } from './useStudioTools';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useUIStore } from '../../store/useUIStore';
@@ -56,6 +57,7 @@ afterEach(() => {
   cleanup();
   debouncedSetHistory.cancel();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 const editor = () => useEditorStore.getState();
@@ -709,15 +711,18 @@ describe('Quick Adjust (Capture One)', () => {
   });
 
   it("adds up wheel steps that come faster than the drag's store commits", () => {
-    // As in the app: the preview renders the moves between commits as a draft.
+    // Both events fall in the same commit interval even on a busy host.
+    vi.useFakeTimers();
     const stop = registerSliderDraftRenderer(() => true);
     try {
-      workspace();
-      const photo = screen.getByTestId('photo');
+      const { result } = renderHook(() => useQuickAdjust(true));
+      const { container } = render(<div className="studio-viewer" />);
+      const photo = container.firstElementChild!;
       fireEvent.keyDown(document.body, { key: 'q', code: 'KeyQ' });
       fireEvent.wheel(photo, { deltaY: -100, clientX: 300, clientY: 200 });
       fireEvent.wheel(photo, { deltaY: -100, clientX: 300, clientY: 200 });
-      expect(screen.getByRole('status').textContent).toBe('Exposure+0.1');
+      expect(result.current?.value).toBeCloseTo(0.1);
+      expect(editor().adjustments.exposure).toBe(0);
       fireEvent.keyUp(document.body, { key: 'q', code: 'KeyQ' });
       expect(editor().adjustments.exposure).toBeCloseTo(0.1);
     } finally {

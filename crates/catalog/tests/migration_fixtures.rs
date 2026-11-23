@@ -65,7 +65,7 @@ fn register_functions(conn: &Connection) {
 }
 
 /// A database exactly as schema `version` created it: the scripts up to it
-/// (schema 22's, 23's, 27's and 28's columns were part of their scripts then).
+/// (schema 22's, 23's, 27's, 28's and 32's columns were part of their scripts then).
 fn schema_at(version: usize) -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     register_functions(&conn);
@@ -89,6 +89,9 @@ fn schema_at(version: usize) -> Connection {
                     "ALTER TABLE assets ADD COLUMN capture_subsec TEXT;
                      ALTER TABLE assets ADD COLUMN capture_offset TEXT;",
                 )
+                .unwrap(),
+            32 => conn
+                .execute_batch("ALTER TABLE assets ADD COLUMN lens_import TEXT;")
                 .unwrap(),
             _ => {}
         }
