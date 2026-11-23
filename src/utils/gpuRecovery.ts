@@ -19,8 +19,6 @@ export interface GpuRecovered {
 /** Calls `handler` after every recovery. Returns the stop. */
 export function onGpuRecovered(handler: (recovered: GpuRecovered) => void): () => void {
   // Without the native app (tests, `npm run dev`) there is no event.
-  const unlisten = listen<GpuRecovered>(GPU_DEVICE_RECOVERED, (event) => handler(event.payload)).catch(
-    () => undefined
-  );
+  const unlisten = listen<GpuRecovered>(GPU_DEVICE_RECOVERED, (event) => handler(event.payload)).catch(() => undefined);
   return () => void unlisten.then((stop) => stop?.());
 }
