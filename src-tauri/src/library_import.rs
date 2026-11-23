@@ -180,7 +180,9 @@ fn smart_rule_facts_note(rules: &SmartRules) -> Option<&'static str> {
             SmartRule::Group(group) => smart_rule_facts_note(group),
             SmartRule::Condition { criteria, .. } => match criteria.as_str() {
                 "camera" | "lens" => Some(TEXT),
-                "isoSpeedRating" | "captureTime" => Some(FACTS),
+                "isoSpeedRating" | "aperture" | "focalLength" | "shutterSpeed" | "captureTime" => {
+                    Some(FACTS)
+                }
                 _ => None,
             },
         })
@@ -208,6 +210,10 @@ pub fn smart_rule_gap(rules: &SmartRules) -> Option<String> {
     })
 }
 
+/// How far the catalog lets an exposure time differ from a rule's
+/// (`Tolerance::Relative` of `Field::Exposure`, `crates/catalog/src/query.rs`).
+const EXPOSURE_TOLERANCE: f64 = 0.03;
+
 /// Lightroom compares aperture, focal length and shutter speed within
 /// ±0.01 of its own unit (measured, SMR2): the aperture value `Av =
 /// 2·log2(f-number)`, millimetres, and the time value `Tv = log2(1/seconds)`
@@ -224,15 +230,27 @@ fn exposure_rule(criteria: &str, operation: &str, value: f64, value2: Option<f64
     // The catalog's smallest and largest value Lightroom takes as `x`.
     let low = |x: f64| at(x - TOLERANCE).min(at(x + TOLERANCE));
     let high = |x: f64| at(x - TOLERANCE).max(at(x + TOLERANCE));
+    // The catalog lets an exposure time differ by 3 % (camera rounding)
+    // on top of what a rule says; Lightroom's ±0.01 time values are the
+    // whole tolerance here, so the catalog's is taken off the bounds.
+    let (below, above) = if field == Field::Exposure {
+        (1.0 - EXPOSURE_TOLERANCE, 1.0 + EXPOSURE_TOLERANCE)
+    } else {
+        (1.0, 1.0)
+    };
     let one = |op: Op, v: f64| Rule::Condition {
         field,
         op,
-        value: json!(v),
+        value: json!(match op {
+            Op::Lt | Op::Ge => v / below,
+            _ => v / above,
+        }),
     };
-    let within = |from: f64, to: f64| Rule::Condition {
-        field,
-        op: Op::Between,
-        value: json!([from, to]),
+    // Two bounds, not a `between`: the catalog widens each end of that by
+    // 3 % of its own number, which would swap a narrow range's ends.
+    let within = |from: f64, to: f64| Rule::Group {
+        combine: Combine::All,
+        rules: vec![one(Op::Ge, from), one(Op::Le, to)],
     };
     Some(match operation {
         "==" => within(low(value), high(value)),
@@ -3293,6 +3311,30 @@ mod tests {
         assert_eq!(camera("all", "Mar II"), ["a.CR2", "e.CR2"]);
     }
 
+    /// A square bracket is dropped at the edge of a word of a name, not inside it.
+    #[test]
+    fn a_bracket_inside_a_word_of_a_name_is_part_of_it() {
+        use rawtonic_catalog::CaptureFacts;
+        let f = |lens: &str| CaptureFacts {
+            lens: Some(lens.into()),
+            ..CaptureFacts::default()
+        };
+        let (_tmp, members) =
+            members_of_facts(&[("a.CR2", f("Zoom IMG[1] [IF]")), ("b.CR2", f("Zoom IMG1"))]);
+        let lens = |word: &str| {
+            members(
+                "lens",
+                "words",
+                SmartValue::Text(word.into()),
+                SmartValue::None,
+            )
+        };
+        assert_eq!(lens("IMG[1]"), ["a.CR2"]);
+        assert_eq!(lens("IMG1"), ["b.CR2"]);
+        assert_eq!(lens("IF"), ["a.CR2"]);
+        assert!(lens("[IF]").is_empty());
+    }
+
     /// Lightroom Classic 15.6, measured (SMR2): aperture values are APEX
     /// (`2·log2(f-number)`, f/8 = 6), shutter speeds time values
     /// (`log2(1/seconds)`; greater is longer, a range runs from the shorter
@@ -3355,8 +3397,8 @@ mod tests {
         let tv = |seconds: f64| (1.0 / seconds).log2();
         assert_eq!(one("shutterSpeed", "==", 6.64), ["f56.CR2", "f63.CR2"]);
         assert_eq!(one("shutterSpeed", "==", tv(0.8)), ["f9.CR2"]);
-        // (The catalog also lets an exposure time differ by 3 %, camera rounding.)
-        assert_eq!(one("shutterSpeed", "==", 6.3), Vec::<String>::new());
+        assert_eq!(one("shutterSpeed", "==", 6.6), Vec::<String>::new());
+        assert_eq!(one("shutterSpeed", "==", 6.65), ["f56.CR2", "f63.CR2"]);
         assert_eq!(one("shutterSpeed", ">", 6.64), ["f8.CR2", "f9.CR2"]);
         assert_eq!(
             one("shutterSpeed", ">=", 6.64),

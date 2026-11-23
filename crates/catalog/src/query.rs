@@ -136,8 +136,8 @@ pub enum Op {
     /// Text: no word is part of the field. Album/folder: not in it.
     NotContains,
     /// Text of a name (camera, lens): every word is a whole word of the
-    /// field (words are separated by spaces; square brackets around a word
-    /// do not count), ignoring case. Lightroom's "contains words".
+    /// field (words are separated by spaces; square brackets at the edge of a
+    /// word do not count), ignoring case. Lightroom's "contains words".
     Words,
     /// Equal (text ignoring case; a keyword of the photograph; one of a
     /// list for flag, label, file type; a folder without its subfolders;
@@ -576,10 +576,16 @@ impl<'a> Compiler<'a> {
                 let parts: Vec<String> = words
                     .into_iter()
                     .map(|word| {
+                        // A word is a whole space-separated word of the
+                        // field, or one in square brackets (`[IF]` is `IF`,
+                        // not `[IF]`; `IMG[1]` is not `IMG1`).
+                        let bracketed = word.starts_with('[') && word.ends_with(']');
+                        self.push(word.clone());
                         self.push(word);
+                        let plain = if bracketed { "0" } else { "1" };
                         format!(
-                            "instr(' ' || rawtonic_fold(replace(replace({coalesced}, '[', ''), ']', '')) || ' ', \
-                             ' ' || rawtonic_fold(?) || ' ') > 0"
+                            "(({plain} AND instr(' ' || rawtonic_fold({coalesced}) || ' ', ' ' || rawtonic_fold(?) || ' ') > 0) OR \
+                             instr(' ' || rawtonic_fold({coalesced}) || ' ', ' [' || rawtonic_fold(?) || '] ') > 0)"
                         )
                     })
                     .collect();
