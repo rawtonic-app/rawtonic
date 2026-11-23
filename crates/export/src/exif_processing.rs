@@ -1608,21 +1608,18 @@ pub fn export_rights(
     kept
 }
 
-/// A fresh rights-only packet. Do not copy source EXIF or source XMP: these
-/// may carry camera identifiers and locations. Catalog rights avoid any source
-/// read; otherwise inspect just Artist/Copyright in the cached map or source.
-fn stripped_export_metadata(
-    source: &str,
-    generated: bool,
+/// What a stripped export keeps of the library metadata `metadata`:
+/// creator, copyright and usage terms, and the creator contact details only
+/// with `keep_creator_contact`; nothing else (no rating, keywords, captions
+/// or location fields).
+pub fn stripped_metadata(
+    metadata: rawtonic_metadata::Metadata,
     keep_creator_contact: bool,
-    exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
-    catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
-) -> Option<ExportMetadata> {
-    let mut kept = export_rights(source, exif_sidecar, catalog);
-    kept = rawtonic_metadata::Metadata {
-        creator: kept.creator,
-        copyright: kept.copyright,
-        iptc: kept
+) -> rawtonic_metadata::Metadata {
+    rawtonic_metadata::Metadata {
+        creator: metadata.creator,
+        copyright: metadata.copyright,
+        iptc: metadata
             .iptc
             .into_iter()
             .filter(|(key, _)| {
@@ -1635,7 +1632,42 @@ fn stripped_export_metadata(
             })
             .collect(),
         ..Default::default()
-    };
+    }
+}
+
+/// The library metadata (`metadata`) an export with these settings writes
+/// into its file, so a library that registers the file holds no more than
+/// the file does: all of it with `keep_metadata` (GPS is EXIF, never part of
+/// it), else [`stripped_metadata`]; nothing for a format that embeds none.
+pub fn embedded_library_metadata(
+    output_format: &str,
+    keep_metadata: bool,
+    keep_creator_contact: bool,
+    metadata: rawtonic_metadata::Metadata,
+) -> Option<rawtonic_metadata::Metadata> {
+    if !embeds_metadata(output_format) {
+        None
+    } else if keep_metadata {
+        Some(metadata)
+    } else {
+        Some(stripped_metadata(metadata, keep_creator_contact))
+    }
+}
+
+/// A fresh rights-only packet. Do not copy source EXIF or source XMP: these
+/// may carry camera identifiers and locations. Catalog rights avoid any source
+/// read; otherwise inspect just Artist/Copyright in the cached map or source.
+fn stripped_export_metadata(
+    source: &str,
+    generated: bool,
+    keep_creator_contact: bool,
+    exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
+    catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
+) -> Option<ExportMetadata> {
+    let kept = stripped_metadata(
+        export_rights(source, exif_sidecar, catalog),
+        keep_creator_contact,
+    );
     if kept.creator.trim().is_empty()
         && kept.copyright.trim().is_empty()
         && kept.iptc.values().all(|v| v.trim().is_empty())

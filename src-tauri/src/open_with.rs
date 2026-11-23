@@ -871,7 +871,7 @@ fn plan_edits(
     for (target, photos) in targets.iter_mut().zip(snapshots) {
         if let Some(photo) = photos.into_iter().next() {
             target.library = photo.owner;
-            target.metadata = photo.metadata;
+            target.metadata = recipe.embedded_library_metadata(photo.metadata);
         }
     }
     Ok((targets, jobs))
@@ -1926,6 +1926,135 @@ mod tests {
         fs::write(&unrelated, b"photo").unwrap();
         lib.add_asset(&unrelated).unwrap();
         assert!(link_render(&lib, &source.to_string_lossy(), &unrelated, None).is_err());
+    }
+
+    /// A photograph of a new session with the creator's contact details,
+    /// a place and a caption, its library and the session directory.
+    fn photo_with_private_metadata(tmp: &Path) -> (Library, PathBuf, PathBuf) {
+        use rawtonic_catalog::Mode;
+        let dir = tmp.join("S");
+        let lib = Library::create(&dir, "S", Mode::Session).unwrap();
+        let source = dir.join("Capture/A.NEF");
+        fs::write(&source, b"raw").unwrap();
+        let original = lib.add_asset(&source).unwrap();
+        let mut meta = lib.metadata(&original.id).unwrap();
+        meta.rating = 3;
+        meta.title = "Harbour".into();
+        meta.creator = "Ada".into();
+        meta.copyright = "(c) Ada".into();
+        for (key, value) in [
+            ("creatorEmail", "ada@example.org"),
+            ("creatorPhone", "+49 555 0100"),
+            ("city", "Kiel"),
+            ("usageTerms", "Editorial only"),
+        ] {
+            meta.iptc.insert(key.into(), value.into());
+        }
+        lib.set_metadata(&original.id, &meta).unwrap();
+        (lib, source, dir)
+    }
+
+    /// Plans, "renders" and registers the Edit With render of `source` with
+    /// `settings`, runs the XMP sync, and returns the render's registered
+    /// metadata and every sidecar text beside it.
+    fn register_render(
+        lib: &Library,
+        source: &Path,
+        dir: &Path,
+        settings: serde_json::Value,
+    ) -> (rawtonic_metadata::Metadata, String) {
+        let mut recipe = tiff_recipe(None, Some(dir));
+        recipe.export_settings = serde_json::from_value(settings).unwrap();
+        recipe.edit_with = Some(crate::export_queue::EditWithRun {
+            id: "run".into(),
+            program: "Editor".into(),
+            photos: vec![source.to_string_lossy().into_owned()],
+        });
+        let queue = Queue::new();
+        let (targets, jobs) = plan_edits(
+            vec![source.to_string_lossy().into_owned()],
+            recipe,
+            &queue.queue,
+            &|_| false,
+        )
+        .unwrap();
+        // The target kept for recovery and Try again holds the same.
+        let request = queue.request(&jobs[0]);
+        assert_eq!(request.edit_target.as_ref(), Some(&targets[0]));
+        let render = PathBuf::from(&targets[0].target);
+        fs::write(&render, b"tiff").unwrap();
+        link_render(lib, &targets[0].source, &render, targets[0].metadata.as_ref()).unwrap();
+        let edit = lib.asset_at(&render).unwrap().unwrap();
+        lib.sync_xmp(&edit.id).unwrap();
+        let mut sidecars = String::new();
+        for entry in fs::read_dir(render.parent().unwrap()).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp")) {
+                sidecars.push_str(&fs::read_to_string(&path).unwrap());
+            }
+        }
+        (lib.metadata(&edit.id).unwrap(), sidecars)
+    }
+
+    #[test]
+    fn a_render_registers_only_the_metadata_its_file_embeds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (lib, source, dir) = photo_with_private_metadata(tmp.path());
+        let original = std::fs::read(&source).unwrap();
+
+        // Metadata limited to the rights, creator contact details off.
+        let (got, sidecars) = register_render(
+            &lib,
+            &source,
+            &dir,
+            serde_json::json!({"jpegQuality": 90, "keepMetadata": false, "stripGps": true}),
+        );
+        assert_eq!((got.creator.as_str(), got.copyright.as_str()), ("Ada", "(c) Ada"));
+        assert_eq!(
+            got.iptc.get("usageTerms").map(String::as_str),
+            Some("Editorial only")
+        );
+        for key in ["creatorEmail", "creatorPhone", "city"] {
+            assert!(!got.iptc.contains_key(key), "{key} registered");
+        }
+        assert_eq!((got.rating, got.title.as_str()), (0, ""));
+        assert!(sidecars.contains("Ada"), "the sync wrote the render's sidecar");
+        for private in ["ada@example.org", "555 0100", "Kiel", "Harbour"] {
+            assert!(!sidecars.contains(private), "{private} in the sidecar");
+        }
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+    }
+
+    #[test]
+    fn a_render_registers_contact_details_and_all_metadata_only_when_its_file_has_them() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (lib, source, dir) = photo_with_private_metadata(tmp.path());
+        let (got, sidecars) = register_render(
+            &lib,
+            &source,
+            &dir,
+            serde_json::json!({"jpegQuality": 90, "keepMetadata": false, "stripGps": true, "keepCreatorContact": true}),
+        );
+        assert_eq!(
+            got.iptc.get("creatorEmail").map(String::as_str),
+            Some("ada@example.org")
+        );
+        assert!(!got.iptc.contains_key("city"));
+        assert!(sidecars.contains("ada@example.org") && !sidecars.contains("Kiel"));
+
+        // All metadata without GPS: the file has the library's fields, so
+        // the render is registered with them; GPS is never part of them.
+        let tmp = tempfile::tempdir().unwrap();
+        let (lib, source, dir) = photo_with_private_metadata(tmp.path());
+        let (got, sidecars) = register_render(
+            &lib,
+            &source,
+            &dir,
+            serde_json::json!({"jpegQuality": 90, "keepMetadata": true, "stripGps": true}),
+        );
+        assert_eq!((got.rating, got.title.as_str()), (3, "Harbour"));
+        assert_eq!(got.iptc.get("city").map(String::as_str), Some("Kiel"));
+        assert!(!sidecars.contains("GPS"));
     }
 
     #[test]
