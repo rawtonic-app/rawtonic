@@ -1478,6 +1478,10 @@ fn quick_source_preview(
     };
     let jpeg =
         |data: &[u8]| image::load_from_memory_with_format(data, image::ImageFormat::Jpeg).ok();
+    if rawtonic_engine::heif::is_heif(bytes) {
+        // The OS decoder's embedded thumbnail or scaled decode, oriented.
+        return rawtonic_engine::heif::preview(bytes, size);
+    }
     if !is_raw_file(path) {
         let image = image::ImageReader::new(Cursor::new(bytes))
             .with_guessed_format()

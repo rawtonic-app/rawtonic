@@ -35,6 +35,17 @@ export const RESIZE_MODES: ResizeMode[] = [
   'percentage'
 ];
 
+/** The unit of each resize mode's value. */
+export const RESIZE_UNITS: Record<ResizeMode, string> = {
+  longEdge: 'px',
+  shortEdge: 'px',
+  width: 'px',
+  height: 'px',
+  dimensions: 'px',
+  megapixels: 'MP',
+  percentage: '%'
+};
+
 /** The settings the Studio export form edits, as one value. */
 export interface RecipeDraft {
   /** Output extension: jpg, png, tiff, webp, jxl, avif or cube (the look as a 3D LUT). */
@@ -205,7 +216,7 @@ const hex = (value: string | undefined, fallback: string) =>
 
 /** Formats a provenance manifest (C2PA) can be written into (`c2pa::supports`). */
 export function provenanceFormat(format: string): boolean {
-  return ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'webp', 'avif'].includes(format.toLowerCase());
+  return ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'webp', 'avif', 'jxl'].includes(format.toLowerCase());
 }
 
 /** A recipe from the form. */

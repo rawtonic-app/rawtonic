@@ -237,3 +237,15 @@ export interface NativeDisplayState {
 export function windowClearOverNative(state: NativeDisplayState): boolean {
   return state.viewerOn && state.nativeRenderer && (state.firstFrame || state.holdingFrame || state.nativeMultiView);
 }
+
+/**
+ * Whether the Develop viewer paints its own background (and its loading
+ * veil) over the photograph's area. Not once a native frame shows the
+ * photograph, and never in the multi view with native cells: there the
+ * primary's cell keeps its own native frame (its render, a stand-in or the
+ * old primary's frame) until the new primary's first frame, and an opaque
+ * viewer blanked that cell for as long as the frame took.
+ */
+export function viewerPaintsBackground(state: { nativeFrame: boolean; nativeMultiView: boolean }): boolean {
+  return !state.nativeFrame && !state.nativeMultiView;
+}

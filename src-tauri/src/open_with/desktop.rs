@@ -1112,6 +1112,43 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "known XDG precedence gap: merged removals hide higher-priority desktop entries"]
+    fn a_system_mime_removal_does_not_hide_a_user_desktop_entry() {
+        let tmp = tempfile::tempdir().unwrap();
+        let user = tmp.path().join("user");
+        let system = tmp.path().join("system");
+        for dir in [&user, &system] {
+            fs::create_dir_all(dir.join("applications")).unwrap();
+            rawtonic_fs::atomic_write(
+                &dir.join("applications/editor.desktop"),
+                entry_text("MimeType=image/tiff;\n"),
+            )
+            .unwrap();
+        }
+        rawtonic_fs::atomic_write(
+            &system.join("applications/other.desktop"),
+            entry_text("MimeType=image/tiff;\n"),
+        )
+        .unwrap();
+        // XDG MIME Apps §3 scopes a removal to desktop files in the same
+        // directory or a directory later in the lookup order.
+        rawtonic_fs::atomic_write(
+            &system.join("applications/mimeapps.list"),
+            "[Removed Associations]\nimage/tiff=editor.desktop;other.desktop;\n",
+        )
+        .unwrap();
+        let dirs = Dirs {
+            data: vec![user.clone(), system],
+            ..Dirs::default()
+        };
+        let entries = all_entries(&dirs, &[], &[]);
+        let (apps, _) =
+            apps_for_family(&["image/tiff".into()], &entries, &Associations::read(&dirs));
+        let paths: Vec<_> = apps.iter().map(|app| &app.path).collect();
+        assert_eq!(paths, [&user.join("applications/editor.desktop")]);
+    }
+
+    #[test]
     fn reads_entries_from_the_directories_most_specific_first() {
         let tmp = tempfile::tempdir().unwrap();
         let (user, system) = (tmp.path().join("user"), tmp.path().join("sys"));

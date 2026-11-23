@@ -922,3 +922,10 @@ fn system_trashed_rows_do_not_resurface_in_synchronize_folder() {
         assert!(!lib.asset(&asset.id).unwrap().missing);
     }
 }
+
+#[test]
+fn camera_and_phone_heif_files_count_as_photos() {
+    for name in ["IMG_0001.HEIC", "A7C_0001.HIF", "photo.heif"] {
+        assert!(is_photo(Path::new(name)), "{name}");
+    }
+}
