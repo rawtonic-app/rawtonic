@@ -335,22 +335,29 @@ pub(crate) mod imageio {
         })
     }
 
-    /// `heif::preview`'s image: the embedded thumbnail when its short side
-    /// is at least `size / 2`, else the image scaled to `size`; oriented.
+    /// `heif::preview`'s image: the embedded thumbnail when there is one
+    /// whose short side is at least `size / 2`, else the image scaled to
+    /// `size` (one decode); oriented.
     pub(crate) fn preview(bytes: &[u8], size: u32) -> Option<Decoded> {
         let (source, index) = source(bytes).ok()?;
         let max = number(i64::from(size.max(1)))?;
-        let thumbnail = |always: bool| {
+        // `decode` false: only the file's embedded thumbnail (none is made
+        // from the image); true: the image scaled down.
+        let thumbnail = |decode: bool| {
             // SAFETY: ImageIO constants and CF values that outlive the call.
             let options = dictionary(&unsafe {
                 [
                     (
-                        if always {
-                            kCGImageSourceCreateThumbnailFromImageAlways
+                        kCGImageSourceCreateThumbnailFromImageIfAbsent,
+                        kCFBooleanFalse,
+                    ),
+                    (
+                        kCGImageSourceCreateThumbnailFromImageAlways,
+                        if decode {
+                            kCFBooleanTrue
                         } else {
-                            kCGImageSourceCreateThumbnailFromImageIfAbsent
+                            kCFBooleanFalse
                         },
-                        kCFBooleanTrue,
                     ),
                     (kCGImageSourceCreateThumbnailWithTransform, kCFBooleanTrue),
                     (kCGImageSourceThumbnailMaxPixelSize, max.get()),
