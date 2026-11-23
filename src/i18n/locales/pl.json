@@ -584,8 +584,10 @@
       "undo": "Cofnij"
     },
     "editWith": {
+      "cancel": "Anuluj",
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "closeLibraryFirst": "Zamknij otwartą sesję lub katalog, aby spróbować jeszcze raz: te zdjęcia edytowano poza biblioteką.",
+      "defaultRecipe": "Domyślny przepis",
       "failed": "Edycja za pomocą nie powiodła się: {{error}}",
       "generatedAreas": "Edycja za pomocą nie jest jeszcze dostępna dla zdjęć z wygenerowanymi obszarami: {{names}}",
       "interrupted": "„Edytuj w” w {{app}} zostało przerwane przy zamykaniu Rawtonic. Spróbuj ponownie, aby wyrenderować zdjęcia jeszcze raz.",
@@ -593,11 +595,19 @@
       "notLinked": "Wyrenderowano, ale nie dodano do biblioteki: {{error}}",
       "openIn": "Otwórz w",
       "openLibraryFirst": "Otwórz ponownie {{library}}, aby spróbować jeszcze raz: zdjęcia zostaną wywołane z ustawieniami, które tam mają.",
-      "recipe": "Przepis",
+      "ownSettings": "Te ustawienia są używane tylko dla {{app}}.",
+      "programSettings": "Ustawienia programu",
       "rendering": "Renderowanie dla {{app}}…",
+      "save": "Zapisz",
+      "settingsFailed": "Nie udało się zapisać ustawień: {{error}}",
+      "settingsFor": "Ustawienia dla {{app}}…",
+      "settingsTitle": "Ustawienia Edytuj za pomocą dla {{app}}",
       "someFailed": "Nie udało się wyrenderować zdjęć: {{failed}} z {{total}}.",
+      "stripGps": "Usuń współrzędne GPS",
       "tiffAdobe": "TIFF 16-bit · Adobe RGB",
-      "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB",
+      "useDefault": "Użyj domyślnego przepisu",
+      "usesDefault": "{{app}} używa domyślnego przepisu ({{recipe}}). Zapisanie nada mu własne ustawienia; pozostałe programy zachowują domyślny."
     },
     "merge": {
       "focusStack": "Stosowanie ostrości (Focus Stacking)",
@@ -4033,13 +4043,13 @@
         "exporting": "Eksportowanie {{current}} z {{total}}"
       },
       "provenance": {
-        "about": "Zapisuje, z którego zdjęcia wywołano każdy plik, rodzaje edycji i każdy obszar utworzony przez model generatywny, podpisane Twoim certyfikatem. JPEG, PNG, TIFF, WebP i AVIF. Nic nie jest wysyłane.",
-        "add": "Podpisz manifest pochodzenia w każdym pliku",
+        "about": "Zapisuje, z którego zdjęcia wywołano każdy plik, rodzaje edycji i każdy obszar utworzony przez model generatywny, podpisane Twoim certyfikatem. JPEG, PNG, TIFF, WebP, AVIF i JPEG XL. Nic nie jest wysyłane. Osobne obrazy masek nie są podpisywane.",
+        "add": "Podpisz manifest pochodzenia w głównym pliku każdego eksportu",
         "author": "Podaj twórcę zdjęcia jako autora",
-        "blocked": "Pochodzenie (C2PA) nie może podpisać: {{recipes}}. Skonfiguruj ważny certyfikat podpisu i eksportuj JPEG, PNG, TIFF, WebP lub AVIF.",
+        "blocked": "Pochodzenie (C2PA) nie może podpisać: {{recipes}}. Skonfiguruj ważny certyfikat podpisu i eksportuj JPEG, PNG, TIFF, WebP, AVIF lub JPEG XL.",
         "certificateFilter": "Certyfikat PKCS#12",
         "expired": "Ten certyfikat nie jest teraz ważny (ważny do {{until}}): nie można nim podpisywać eksportów. Zaimportuj odnowiony certyfikat lub utwórz nowy.",
-        "formatUnsupported": "Pliki {{format}} nie mogą jeszcze zawierać manifestu pochodzenia. Wybierz JPEG, PNG, TIFF, WebP lub AVIF albo wyłącz opcję.",
+        "formatUnsupported": "Pliki {{format}} nie mogą jeszcze zawierać manifestu pochodzenia. Wybierz JPEG, PNG, TIFF, WebP, AVIF lub JPEG XL albo wyłącz opcję.",
         "generate": "Utwórz certyfikat na tym komputerze",
         "import": "Importuj własny certyfikat (.p12)…",
         "importConfirm": "Importuj",
@@ -4472,6 +4482,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Do informacji zdjęcia o obiektywie pasuje kilka obiektywów; wybierz swój:",
       "aria": {
         "make": "Producent obiektywu",
         "model": "Model obiektywu"

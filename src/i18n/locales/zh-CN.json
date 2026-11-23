@@ -518,8 +518,10 @@
       "undo": "撤销"
     },
     "editWith": {
+      "cancel": "取消",
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "closeLibraryFirst": "请关闭当前打开的会话或目录后再试：这些照片是在资料库之外编辑的。",
+      "defaultRecipe": "默认配方",
       "failed": "编辑失败：{{error}}",
       "generatedAreas": "含有生成区域的照片暂不支持编辑方式：{{names}}",
       "interrupted": "退出 Rawtonic 时，在 {{app}} 中的“用其他应用编辑”被中断。重试可再次渲染这些照片。",
@@ -527,11 +529,19 @@
       "notLinked": "已渲染，但未添加到图库：{{error}}",
       "openIn": "打开于",
       "openLibraryFirst": "请重新打开 {{library}} 后再试：照片将按其中的编辑渲染。",
-      "recipe": "配方",
+      "ownSettings": "这些设置仅用于 {{app}}。",
+      "programSettings": "程序设置",
       "rendering": "正在为 {{app}} 渲染…",
+      "save": "保存",
+      "settingsFailed": "无法保存设置：{{error}}",
+      "settingsFor": "{{app}} 的设置…",
+      "settingsTitle": "{{app}} 的“编辑方式”设置",
       "someFailed": "{{total}} 张照片中有 {{failed}} 张无法渲染。",
+      "stripGps": "移除 GPS 坐标",
       "tiffAdobe": "TIFF 16 位 · Adobe RGB",
-      "tiffProPhoto": "TIFF 16 位 · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16 位 · ProPhoto RGB",
+      "useDefault": "使用默认配方",
+      "usesDefault": "{{app}} 使用默认配方（{{recipe}}）。保存后它将拥有自己的设置；其他程序保留默认配方。"
     },
     "merge": {
       "focusStack": "焦距合成",
@@ -3606,13 +3616,13 @@
         "exporting": "正在导出 {{current}}/{{total}}"
       },
       "provenance": {
-        "about": "记录每个文件冲洗自哪张照片、编辑的类型，以及生成模型创建的每个区域，并用您的证书签名。JPEG、PNG、TIFF、WebP 和 AVIF。不会发送任何内容。",
-        "add": "在每个文件中签署来源清单",
+        "about": "记录每个文件冲洗自哪张照片、编辑的类型，以及生成模型创建的每个区域，并用您的证书签名。JPEG、PNG、TIFF、WebP、AVIF 和 JPEG XL。不会发送任何内容。单独导出的蒙版图像不会被签名。",
+        "add": "在每次导出的主文件中签署来源清单",
         "author": "将照片的创作者署名为作者",
-        "blocked": "来源证明 (C2PA) 无法为 {{recipes}} 签名：请设置有效的签名证书，并导出为 JPEG、PNG、TIFF、WebP 或 AVIF。",
+        "blocked": "来源证明 (C2PA) 无法为 {{recipes}} 签名：请设置有效的签名证书，并导出为 JPEG、PNG、TIFF、WebP、AVIF 或 JPEG XL。",
         "certificateFilter": "PKCS#12 证书",
         "expired": "此证书当前无效（有效期至 {{until}}）：无法用它为导出签名。请导入续期的证书或新建一个。",
-        "formatUnsupported": "{{format}} 文件暂不能携带来源清单。请选择 JPEG、PNG、TIFF、WebP 或 AVIF，或关闭此选项。",
+        "formatUnsupported": "{{format}} 文件暂不能携带来源清单。请选择 JPEG、PNG、TIFF、WebP、AVIF 或 JPEG XL，或关闭此选项。",
         "generate": "在此电脑上创建证书",
         "import": "导入您的证书 (.p12)…",
         "importConfirm": "导入",
@@ -4012,6 +4022,7 @@
       }
     },
     "lens": {
+      "ambiguous": "有多个镜头符合此照片的镜头信息；请选择您的镜头：",
       "aria": {
         "make": "镜头品牌",
         "model": "镜头型号"

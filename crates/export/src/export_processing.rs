@@ -1785,7 +1785,7 @@ pub const PROVENANCE_NEEDS_IDENTITY: &str = "Provenance (C2PA) is on in this exp
 pub fn provenance_format_error(extension: &str) -> Option<String> {
     (!crate::c2pa::supports(extension)).then(|| {
         format!(
-            "Provenance (C2PA) cannot be written to {} files yet; export JPEG, PNG, TIFF, WebP or AVIF, or turn the option off.",
+            "Provenance (C2PA) cannot be written to {} files yet; export JPEG, PNG, TIFF, WebP, AVIF or JPEG XL, or turn the option off.",
             extension.to_uppercase()
         )
     })
@@ -1887,6 +1887,7 @@ fn with_provenance<'a>(
                 "png" => crate::c2pa::sign_png(&bytes, &plan, identity)?,
                 "webp" => crate::c2pa::sign_webp(&bytes, &plan, identity)?,
                 "avif" => crate::c2pa::sign_avif(&bytes, &plan, identity)?,
+                "jxl" => crate::c2pa::sign_jxl(&bytes, &plan, identity)?,
                 _ => crate::c2pa::sign_jpeg(&bytes, &plan, identity)?,
             })
         }

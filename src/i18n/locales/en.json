@@ -532,8 +532,10 @@
       "undo": "Undo"
     },
     "editWith": {
+      "cancel": "Cancel",
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "closeLibraryFirst": "Close the open session or catalog to try again: these photos were edited outside a library.",
+      "defaultRecipe": "Default recipe",
       "failed": "Edit With failed: {{error}}",
       "generatedAreas": "Edit With is not available for photos with generated areas yet: {{names}}",
       "interrupted": "Edit With in {{app}} was interrupted when Rawtonic quit. Try again to render the photos again.",
@@ -541,11 +543,19 @@
       "notLinked": "Rendered, but not added to the library: {{error}}",
       "openIn": "Open in",
       "openLibraryFirst": "Open {{library}} again to try again: its photos are rendered with the edits they have there.",
-      "recipe": "Recipe",
+      "ownSettings": "These settings are used only for {{app}}.",
+      "programSettings": "Settings for a program",
       "rendering": "Rendering for {{app}}…",
+      "save": "Save",
+      "settingsFailed": "The settings could not be saved: {{error}}",
+      "settingsFor": "Settings for {{app}}…",
+      "settingsTitle": "Edit With settings for {{app}}",
       "someFailed": "{{failed}} of {{total}} photographs could not be rendered.",
+      "stripGps": "Remove GPS coordinates",
       "tiffAdobe": "TIFF 16-bit · Adobe RGB",
-      "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB",
+      "useDefault": "Use default recipe",
+      "usesDefault": "{{app}} uses the default recipe ({{recipe}}). Saving gives it settings of its own; the other programs keep the default."
     },
     "merge": {
       "focusStack": "Focus stacking",
@@ -3710,13 +3720,13 @@
         "exporting": "Exporting {{current}} of {{total}}"
       },
       "provenance": {
-        "about": "Records the photograph each file was developed from, the kinds of edits and every area a generative model made, signed with your certificate. JPEG, PNG, TIFF, WebP and AVIF. Nothing is sent anywhere.",
-        "add": "Sign a provenance manifest into each file",
+        "about": "Records the photograph each file was developed from, the kinds of edits and every area a generative model made, signed with your certificate. JPEG, PNG, TIFF, WebP, AVIF and JPEG XL. Nothing is sent anywhere. Separate mask images are not signed.",
+        "add": "Sign a provenance manifest into the main file of each export",
         "author": "Name the photo's creator as author",
-        "blocked": "Provenance (C2PA) cannot sign {{recipes}}: set up a valid signing certificate and export JPEG, PNG, TIFF, WebP or AVIF.",
+        "blocked": "Provenance (C2PA) cannot sign {{recipes}}: set up a valid signing certificate and export JPEG, PNG, TIFF, WebP, AVIF or JPEG XL.",
         "certificateFilter": "PKCS#12 certificate",
         "expired": "This certificate is not valid now (valid until {{until}}): exports cannot be signed with it. Import a renewed certificate or make a new one.",
-        "formatUnsupported": "{{format}} files cannot carry a provenance manifest yet. Choose JPEG, PNG, TIFF, WebP or AVIF, or turn the option off.",
+        "formatUnsupported": "{{format}} files cannot carry a provenance manifest yet. Choose JPEG, PNG, TIFF, WebP, AVIF or JPEG XL, or turn the option off.",
         "generate": "Make a certificate on this computer",
         "import": "Import your certificate (.p12)…",
         "importConfirm": "Import",
@@ -4127,6 +4137,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Several lenses fit what the photo says about its lens; choose yours:",
       "aria": {
         "make": "Lens make",
         "model": "Lens model"

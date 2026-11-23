@@ -206,17 +206,12 @@ fn resolve_lens_choice(
 
         if mode == "auto" {
             if let Some(exif) = exif_data {
-                let exif_maker = exif.get("Make").map(|s| s.as_str()).unwrap_or("");
-                let exif_model = exif.get("LensModel").map(|s| s.as_str()).unwrap_or("");
-                let exif_camera_model = exif.get("Model").map(|s| s.as_str()).unwrap_or("");
                 {
+                    // Every lens fact of the photo (`lens_detect`): an
+                    // ambiguous lens gets no automatic pick.
+                    let facts = crate::lens_detect::LensFacts::from_exif(exif);
                     if let Some((detected_maker, detected_model)) =
-                        crate::lens_correction::find_best_lens_match(
-                            db,
-                            exif_maker,
-                            exif_model,
-                            exif_camera_model,
-                        )
+                        crate::lens_detect::detect_lens(db, &facts).lens
                     {
                         map.insert(
                             lens::MAKER.name().to_string(),
@@ -400,7 +395,10 @@ pub fn is_unresolved(recipe: &Value) -> bool {
 }
 
 /// Before rendering a recipe saved while its photo could not be read: its
-/// lens parameters resolved now, from the photo's EXIF. An error when that
+/// lens parameters resolved now, from the photo's EXIF — with the current
+/// detection and database (it stored no lens to keep): an Auto edit of an
+/// ambiguous lens renders without a profile rather than with the guess an
+/// earlier release made (decision LNS1, 2026-11-23; notes: parity-gaps/G71). An error when that
 /// still cannot be done, rather than rendering missing or another lens's
 /// parameters.
 pub fn resolve_unresolved(
@@ -819,5 +817,51 @@ mod tests {
             saved[LENS_PROFILE_FOR].as_str().unwrap(),
             &lens_profile_stamp(&other)
         ));
+    }
+
+    /// A saved Auto edit keeps the lens it was saved with when detection
+    /// would now find another or none (EOS 650D, a shared Canon LensType:
+    /// detection now offers candidates instead of Canon's 24-70 f/4L), so
+    /// its export does not change; only Auto applied again detects anew.
+    #[test]
+    fn a_saved_auto_edit_keeps_its_lens_when_detection_changes() {
+        let db = crate::lens_correction::embedded_lens_db();
+        let exif = Some(HashMap::from([
+            ("Make".to_string(), "Canon".to_string()),
+            ("Model".to_string(), "Canon EOS 650D".to_string()),
+            ("LensModel".to_string(), "24-70mm".to_string()),
+            ("LensSpecification".to_string(), "24-70 mm".to_string()),
+            ("FocalLength".to_string(), "24".to_string()),
+            (
+                crate::lens_detect::LENS_CANDIDATES.to_string(),
+                "Sigma 24-70mm f/2.8 IF EX DG HSM; Tamron SP 24-70mm f/2.8 Di VC USD".to_string(),
+            ),
+        ]));
+        let model = "EF 24-70mm f/4L IS USM (crop 1.6x)";
+        let params = lens_params_for_shot(&db, "Canon", model, exif.as_ref()).unwrap();
+        let mut saved = serde_json::json!({"lensCorrectionMode": "auto", "lensMaker": "Canon",
+            "lensModel": model, "lensDistortionParams": serde_json::to_value(params).unwrap()});
+        saved[LENS_PROFILE_FOR] = serde_json::json!(lens_profile_stamp(&saved));
+        let mut read_back: Value = serde_json::from_str(&saved.to_string()).unwrap();
+        let kept_params = read_back["lensDistortionParams"].clone();
+        let source = Path::new("/photos/IMG_3517.CR2");
+        resolve_lens_params_in_adjustments(
+            &mut read_back,
+            LensLookup::Keep { previous: None },
+            &exif,
+            Some(&db),
+            source,
+        );
+        assert_eq!(read_back["lensModel"], saved["lensModel"]);
+        assert_eq!(read_back["lensDistortionParams"], kept_params);
+        resolve_lens_params_in_adjustments(
+            &mut read_back,
+            LensLookup::Fresh,
+            &exif,
+            Some(&db),
+            source,
+        );
+        assert!(read_back.get("lensModel").is_none());
+        assert!(read_back.get("lensDistortionParams").is_none());
     }
 }

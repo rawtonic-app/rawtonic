@@ -77,7 +77,7 @@ pub fn is_photo(path: &Path) -> bool {
         .is_some_and(|ext| {
             [
                 "arw", "dng", "cr3", "cr2", "nef", "raf", "rw2", "orf", "pef", "jpg", "jpeg",
-                "png", "tif", "tiff", "heic", "heif", "webp", "avif", "jxl",
+                "png", "tif", "tiff", "heic", "heif", "hif", "webp", "avif", "jxl",
             ]
             .contains(&ext.as_str())
         })

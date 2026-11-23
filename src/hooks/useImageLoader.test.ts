@@ -18,15 +18,17 @@ import {
   INITIAL_ADJUSTMENTS
 } from '../utils/adjustments';
 import { Invokes } from '../components/ui/AppProperties';
-import { debouncedSave, waitForPendingMetadataSave } from './useEditorActions';
+import { debouncedSave, updateAdjustments, waitForPendingMetadataSave } from './useEditorActions';
 import { notify as toast } from '../activity/notify';
 import { adoptQueuedSelections } from '../utils/queuedSelections';
 import { historyOrders, nextUndoOrder, setHistoryOrders } from '../utils/undoOrder';
 import { editorRecipe } from '../utils/neverEdited';
+import { runExportJobs } from '../utils/runExportJobs';
+import { DEFAULT_RECIPE_DRAFT, exportSettingsFromDraft } from '../utils/exportRecipes';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
-vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
 
 type Pending = {
   command: string;
@@ -452,6 +454,62 @@ it('shows the draft its decode hands over before the decode is in', async () => 
   expect(state.selectedImage).toMatchObject({ isDecoded: true, width: 4000 });
   expect(state.adjustments.aspectRatio).toBe(4000 / 3000);
   expect(state.adjustments.exposure).toBe(1.5);
+});
+
+it('plans exports from the saved recipe when an untouched photo is opened and left in Develop', async () => {
+  const first = '/first.dng';
+  const second = '/second.dng';
+  const planned: Record<string, unknown>[] = [];
+  const saved: Record<string, unknown> = {};
+  const backend = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation((command, args) => {
+    if (command === Invokes.SaveMetadataAndUpdateThumbnail) {
+      const { path, adjustments } = args as { path: string; adjustments: unknown };
+      saved[path] = adjustments;
+      return Promise.resolve(undefined);
+    }
+    if (command === Invokes.PlanExportCollisions) {
+      planned.push((args as { requests: Record<string, unknown>[] }).requests[0]);
+      return Promise.resolve({ total: 0 });
+    }
+    if (command === Invokes.ExportImagesBatch) return Promise.resolve(undefined);
+    return backend(command, args);
+  });
+  const draft = { ...DEFAULT_RECIPE_DRAFT, where: 'original' as const, existingFiles: 'ask' as const };
+  const exportBoth = () => runExportJobs([{ recipe: null, draft, ...exportSettingsFromDraft(draft) }], [first, second]);
+
+  await expect(exportBoth()).resolves.toBe(1);
+  const previous = { current: null };
+  const renderRefs = {
+    previewJobIdRef: { current: 0 },
+    latestRenderedJobIdRef: { current: 0 },
+    currentResRef: { current: 0 }
+  };
+  renderHook(() => {
+    useImageLoader({ current: null });
+    useImageProcessing({ current: null }, previous, renderRefs);
+  });
+  await resolve(Invokes.LoadMetadata, first, { adjustments: null });
+  await act(async () => emitDraft!({ path: first, width: 4002, height: 3000, isRaw: true }));
+  await resolve(Invokes.LoadImage, first, nativeResult);
+  const { adjustments, history, historyIndex } = useEditorStore.getState();
+  expect(adjustments.aspectRatio).toBe(4000 / 3000);
+  expect(history[historyIndex]).toBe(adjustments);
+  await expect(exportBoth()).resolves.toBe(1);
+
+  act(() => useEditorStore.setState({ selectedImage: photo(second) }));
+  await resolve(Invokes.LoadMetadata, second, { adjustments: null });
+  await resolve(Invokes.LoadImage, second, nativeResult);
+  act(() => updateAdjustments({ exposure: 1 }));
+  await expect(exportBoth()).resolves.toBe(1);
+
+  expect(saved).toMatchObject({ [second]: { exposure: 1 } });
+  expect(saved).not.toHaveProperty([first]);
+  expect(planned).toMatchObject([
+    { currentEditPath: null, currentEditAdjustments: null },
+    { currentEditPath: first, currentEditAdjustments: null },
+    { currentEditPath: second, currentEditAdjustments: null }
+  ]);
 });
 
 it('keeps an offline photograph open on its preview and says which one', async () => {

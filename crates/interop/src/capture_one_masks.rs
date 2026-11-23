@@ -247,10 +247,10 @@ struct Record {
     unknown: bool,
 }
 
-/// One field: key, type byte and value bytes.
+/// One field, with no value when its declared length exceeds the file.
 struct Field<'a> {
     key: &'a str,
-    value: &'a [u8],
+    value: Option<&'a [u8]>,
 }
 
 fn varint(d: &[u8], mut i: usize) -> Option<(usize, usize)> {
@@ -295,14 +295,21 @@ fn field_at(d: &[u8], i: usize) -> Option<(Field<'_>, usize)> {
     // Containers (`MaskInfo`, `UserInfo`) hold fields; a map block, a
     // value. Padding precedes a length.
     if kind == 0x22 && *d.get(j)? == 0x00 {
-        return Some((Field { key, value: &[] }, j));
+        return Some((
+            Field {
+                key,
+                value: Some(&[]),
+            },
+            j,
+        ));
     }
     while *d.get(j)? == 0xff {
         j += 1;
     }
     let (n, j) = varint(d, j)?;
-    let value = d.get(j..j + n)?;
-    Some((Field { key, value }, j + n))
+    let value = d.get(j..)?.get(..n);
+    let next = value.map_or(j, |bytes| j + bytes.len());
+    Some((Field { key, value }, next))
 }
 
 fn floats(v: &[u8], n: usize) -> Option<Vec<f32>> {
@@ -367,11 +374,20 @@ impl MaskFile {
                 i += 1;
                 continue;
             };
+            let Some(value) = f.value else {
+                // Keep scanning for the next record or Blk, but this
+                // record contained an unreadable field.
+                if !in_blk && let Some(r) = current.as_mut() {
+                    r.unknown = true;
+                }
+                i = next;
+                continue;
+            };
             if in_blk {
                 match f.key {
                     "Idx" => {
                         sizes = Some(
-                            f.value
+                            value
                                 .as_chunks::<2>()
                                 .0
                                 .iter()
@@ -379,7 +395,7 @@ impl MaskFile {
                                 .collect(),
                         );
                     }
-                    "dat" => data = Some(f.value),
+                    "dat" => data = Some(value),
                     _ => {}
                 }
                 i = next;
@@ -389,7 +405,7 @@ impl MaskFile {
                 // The compressed tiles follow the last mask.
                 "Blk" => in_blk = true,
                 "Hdr" if file.frame == (0.0, 0.0) => {
-                    if let (Some(w), Some(h)) = (int_at(f.value, 1), int_at(f.value, 2)) {
+                    if let (Some(w), Some(h)) = (int_at(value, 1), int_at(value, 2)) {
                         file.frame = (w as f64, h as f64);
                     }
                 }
@@ -400,28 +416,28 @@ impl MaskFile {
                 _ => {
                     if let Some(r) = current.as_mut() {
                         match f.key {
-                            "Info" => r.uuid = String::from_utf8_lossy(f.value).into_owned(),
-                            "Name" => r.name = String::from_utf8_lossy(f.value).into_owned(),
-                            "MaskType" => r.mask_type = f.value.get(..4)?.try_into().ok(),
+                            "Info" => r.uuid = String::from_utf8_lossy(value).into_owned(),
+                            "Name" => r.name = String::from_utf8_lossy(value).into_owned(),
+                            "MaskType" => r.mask_type = value.get(..4)?.try_into().ok(),
                             // A shape field that does not read is a shape
                             // not read, never an empty mask.
                             "CompositeMask" => {
-                                r.composite = int_at(f.value, 0).map(|n| n as u32);
+                                r.composite = int_at(value, 0).map(|n| n as u32);
                                 r.unknown |= r.composite.is_none();
                             }
                             "LinearGradient" => {
-                                r.linear = floats(f.value, 5);
+                                r.linear = floats(value, 5);
                                 r.unknown |= r.linear.is_none();
                             }
                             "RadialGradient" => {
-                                r.radial = floats(f.value, 7).zip(int_at(f.value, 7));
+                                r.radial = floats(value, 7).zip(int_at(value, 7));
                                 r.unknown |= r.radial.is_none();
                             }
                             "LumaRange" => {
-                                r.luma = floats(f.value, 6).zip(int_at(f.value, 6));
+                                r.luma = floats(value, 6).zip(int_at(value, 6));
                                 r.unknown |= r.luma.is_none();
                             }
-                            "Map" => r.map = Some(f.value.to_vec()),
+                            "Map" => r.map = Some(value.to_vec()),
                             "UserInfo" | "CompParam" => {}
                             _ => r.unknown = true,
                         }
@@ -950,6 +966,19 @@ pub(crate) mod tests {
         assert!(matches!(f.mask("O"), Mask::Unsupported { .. }));
         // Nor is a gradient too short to read, nor a Luma Range alone.
         assert!(matches!(f.mask("S"), Mask::Unsupported { .. }));
+        // The shape length runs past EOF even though a Blk header follows.
+        let key = "LinearGradient";
+        let mut truncated = vec![key.len() as u8];
+        truncated.extend(key.as_bytes());
+        truncated.extend([0x00, 0x22, 0xff]);
+        truncated.extend(len(1024));
+        let f = MaskFile::parse(&file(&[
+            record(5, "E", 0, Vec::new()),
+            record(9, "T", 3, truncated),
+        ]))
+        .unwrap();
+        assert_eq!(f.mask("E"), Mask::Empty);
+        assert!(matches!(f.mask("T"), Mask::Unsupported { .. }));
         let mut range = f32s(&[60.0, 170.0, 30.0, 210.0, 0.0, 50.0]);
         range.extend(0i32.to_le_bytes());
         let lone = record(8, "R", 1, field("LumaRange", &range));

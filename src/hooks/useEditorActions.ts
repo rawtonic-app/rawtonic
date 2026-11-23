@@ -72,7 +72,7 @@ import {
   type CameraLens
 } from '../utils/neverEdited';
 import { cameraCropFor, withCameraCrop, type CameraCrops } from '../utils/cameraCrop';
-import { shownNotEdited } from '../utils/shownNotEdited';
+import { isUneditedTransition, markOpenedAspectRefinement, shownNotEdited } from '../utils/shownNotEdited';
 import {
   DEVELOP_DEFAULTS_KEY,
   DEVELOP_DEFAULTS_SETTINGS_KEY,
@@ -271,7 +271,7 @@ function scheduleUnsavedEditorRecipe() {
   const scheduled = readScheduledRecipe?.();
   const { selectedImage, adjustments } = useEditorStore.getState();
   if (!scheduled || !selectedImage?.isReady || scheduled.path !== selectedImage.path) return;
-  if (scheduled.adjustments !== adjustments && !shownNotEdited.has(adjustments))
+  if (scheduled.adjustments !== adjustments && !isUneditedTransition(scheduled.adjustments, adjustments))
     debouncedSave(selectedImage.path, adjustments);
 }
 
@@ -440,6 +440,13 @@ type OpenedRecipe = {
 let openedRecipe: ({ path: string } & OpenedRecipe) | null = null;
 export function rememberOpenedRecipe(path: string, opened: OpenedRecipe) {
   openedRecipe = { path, ...opened };
+}
+
+/** A proxy's default aspect can differ slightly from the full source's. */
+export function refineOpenedAspect(path: string, from: Adjustments, to: Adjustments, width: number, height: number) {
+  if (openedRecipe?.path !== path || openedRecipe.shown !== from) return;
+  markOpenedAspectRefinement(from, to);
+  rememberOpenedRecipe(path, { ...openedRecipe, shown: to, width, height });
 }
 
 /** The open photograph's develop defaults are now `photoDefaults` (they

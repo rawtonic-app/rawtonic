@@ -357,6 +357,7 @@ const FALLBACK_EXTENSIONS = [
   'tiff',
   'heic',
   'heif',
+  'hif',
   'webp',
   'avif',
   'jxl'

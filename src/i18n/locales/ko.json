@@ -518,8 +518,10 @@
       "undo": "실행 취소"
     },
     "editWith": {
+      "cancel": "취소",
       "cancelled": "{{cancelled}} cancelled, {{rendered}} rendered.",
       "closeLibraryFirst": "다시 시도하려면 열려 있는 세션이나 카탈로그를 닫으세요. 이 사진들은 라이브러리 밖에서 편집되었습니다.",
+      "defaultRecipe": "기본 레시피",
       "failed": "다음으로 편집 실패: {{error}}",
       "generatedAreas": "생성된 영역이 있는 사진은 아직 다음으로 편집할 수 없습니다: {{names}}",
       "interrupted": "Rawtonic이 종료되어 {{app}}에서 편집이 중단되었습니다. 다시 시도하면 사진을 다시 렌더링합니다.",
@@ -527,11 +529,19 @@
       "notLinked": "렌더링했지만 라이브러리에 추가하지 못했습니다: {{error}}",
       "openIn": "열 응용 프로그램",
       "openLibraryFirst": "다시 시도하려면 {{library}}을(를) 다시 여세요. 사진은 그곳의 편집 내용으로 렌더링됩니다.",
-      "recipe": "레시피",
+      "ownSettings": "이 설정은 {{app}}에만 사용됩니다.",
+      "programSettings": "프로그램별 설정",
       "rendering": "{{app}}용으로 렌더링 중…",
+      "save": "저장",
+      "settingsFailed": "설정을 저장할 수 없습니다: {{error}}",
+      "settingsFor": "{{app}} 설정…",
+      "settingsTitle": "{{app}}의 '다음으로 편집' 설정",
       "someFailed": "사진 {{total}}장 중 {{failed}}장을 렌더링할 수 없습니다.",
+      "stripGps": "GPS 좌표 제거",
       "tiffAdobe": "TIFF 16비트 · Adobe RGB",
-      "tiffProPhoto": "TIFF 16비트 · ProPhoto RGB"
+      "tiffProPhoto": "TIFF 16비트 · ProPhoto RGB",
+      "useDefault": "기본 레시피 사용",
+      "usesDefault": "{{app}}은(는) 기본 레시피({{recipe}})를 사용합니다. 저장하면 자체 설정이 생기며 다른 프로그램은 기본값을 유지합니다."
     },
     "merge": {
       "focusStack": "포커스 스태킹",
@@ -3606,13 +3616,13 @@
         "exporting": "내보내는 중 {{current}}/{{total}}"
       },
       "provenance": {
-        "about": "각 파일이 현상된 원본 사진, 편집 종류, 생성 모델이 만든 모든 영역을 기록하고 사용자의 인증서로 서명합니다. JPEG, PNG, TIFF, WebP 및 AVIF. 아무것도 전송되지 않습니다.",
-        "add": "각 파일에 출처 매니페스트 서명",
+        "about": "각 파일이 현상된 원본 사진, 편집 종류, 생성 모델이 만든 모든 영역을 기록하고 사용자의 인증서로 서명합니다. JPEG, PNG, TIFF, WebP, AVIF 및 JPEG XL. 아무것도 전송되지 않습니다. 별도의 마스크 이미지에는 서명되지 않습니다.",
+        "add": "각 내보내기의 주 파일에 출처 매니페스트 서명",
         "author": "사진 제작자를 저자로 표시",
-        "blocked": "출처 정보(C2PA)가 {{recipes}}에 서명할 수 없습니다. 유효한 서명 인증서를 설정하고 JPEG, PNG, TIFF, WebP 또는 AVIF로 내보내세요.",
+        "blocked": "출처 정보(C2PA)가 {{recipes}}에 서명할 수 없습니다. 유효한 서명 인증서를 설정하고 JPEG, PNG, TIFF, WebP, AVIF 또는 JPEG XL로 내보내세요.",
         "certificateFilter": "PKCS#12 인증서",
         "expired": "이 인증서는 지금 유효하지 않습니다(유효 기간: {{until}}까지). 이 인증서로는 내보내기에 서명할 수 없습니다. 갱신된 인증서를 가져오거나 새로 만드세요.",
-        "formatUnsupported": "{{format}} 파일은 아직 출처 매니페스트를 담을 수 없습니다. JPEG, PNG, TIFF, WebP 또는 AVIF를 선택하거나 옵션을 끄세요.",
+        "formatUnsupported": "{{format}} 파일은 아직 출처 매니페스트를 담을 수 없습니다. JPEG, PNG, TIFF, WebP, AVIF 또는 JPEG XL을 선택하거나 옵션을 끄세요.",
         "generate": "이 컴퓨터에서 인증서 만들기",
         "import": "내 인증서 가져오기 (.p12)…",
         "importConfirm": "가져오기",
@@ -4012,6 +4022,7 @@
       }
     },
     "lens": {
+      "ambiguous": "사진의 렌즈 정보에 맞는 렌즈가 여러 개입니다. 사용한 렌즈를 선택하세요:",
       "aria": {
         "make": "렌즈 제조사",
         "model": "렌즈 모델"
