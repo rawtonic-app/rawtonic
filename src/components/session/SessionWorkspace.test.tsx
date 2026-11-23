@@ -609,27 +609,25 @@ describe('restoring the last session', () => {
       });
     set();
     render(<SessionWorkspace onNavigate={onNavigate} />);
-    act(() => {
-      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
-    });
-    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('C:\\Users\\a\\raws 9', true));
+    const reopen = () =>
+      act(async () => {
+        expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
+      });
+    await reopen();
+    expect(onNavigate).toHaveBeenCalledWith('C:\\Users\\a\\raws 9', true);
     // The folder is gone: the library's own folder.
     folderThere = false;
     onNavigate.mockClear();
     set();
-    act(() => {
-      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
-    });
-    await waitFor(() => expect(onNavigate).toHaveBeenCalled());
+    await reopen();
+    expect(onNavigate).toHaveBeenCalledWith('C:\\Users\\a\\catalog 3\\Capture', true);
     expect(onNavigate).not.toHaveBeenCalledWith('C:\\Users\\a\\raws 9', true);
     // Another catalog folder is there: the library opens on it, not on an empty view.
     others = [{ path: 'D:\\Shots\\day 2', exists: true, photos: 4 }];
     onNavigate.mockClear();
     set();
-    act(() => {
-      expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
-    });
-    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('D:\\Shots\\day 2', true));
+    await reopen();
+    expect(onNavigate).toHaveBeenCalledWith('D:\\Shots\\day 2', true);
   });
 
   it('opens Missing Photos, highlighted, when no catalog folder is on disk, and keeps the saved folder', async () => {
@@ -680,10 +678,10 @@ describe('restoring the last session', () => {
     there = true;
     onNavigate.mockClear();
     onSelectAlbum.mockClear();
-    act(() => {
+    await act(async () => {
       expect(runAppCommand(`recent:${beta.directory}`)).toBe(true);
     });
-    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('D:\\Shots\\raws 9', true));
+    expect(onNavigate).toHaveBeenCalledWith('D:\\Shots\\raws 9', true);
     expect(onSelectAlbum).not.toHaveBeenCalled();
     info.mockRestore();
   });
