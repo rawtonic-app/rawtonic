@@ -98,7 +98,6 @@
       "running": "Nic nie jest w toku."
     },
     "export": {
-      "done": "Wyeksportowano {{label}} ({{existing}})",
       "failed_one": "{{count}} zdjęcie nie zostało wyeksportowane: {{label}}",
       "failed_few": "{{count}} zdjęcia nie zostały wyeksportowane: {{label}}",
       "failed_many": "{{count}} zdjęć nie zostało wyeksportowanych: {{label}}",
@@ -4100,7 +4099,11 @@
           "skipped_one": "{{count}} pominięte",
           "skipped_few": "{{count}} pominięte",
           "skipped_many": "{{count}} pominiętych",
-          "skipped_other": "{{count}} pominiętych"
+          "skipped_other": "{{count}} pominiętych",
+          "written_one": "{{count}} zapisane",
+          "written_few": "{{count}} zapisane",
+          "written_many": "{{count}} zapisanych",
+          "written_other": "{{count}} zapisanych"
         },
         "exportedTo": "Wyeksportowano do:",
         "failed": "Niepowodzenie: {{failed}} z {{total}}",
@@ -4476,6 +4479,7 @@
       "diffractionTitle": "Wyostrza rozmycie małych przysłon na podstawie liczby f i rozmiaru piksela",
       "distortion": "Dystorsja",
       "enable": "Włącz korekcje profilu",
+      "importedCorrection": "Zaimportowana korekcja",
       "lookingUp": "Wyszukiwanie obiektywu…",
       "make": "Producent",
       "manualVignetting": "Winietowanie obiektywu",

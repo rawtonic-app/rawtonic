@@ -42,6 +42,7 @@ use half::f16;
 use image::{DynamicImage, GenericImageView, Rgb32FImage};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::app_settings::AppSettings;
 use crate::image_loader::{
@@ -49,6 +50,7 @@ use crate::image_loader::{
 };
 use rawtonic_engine::proxy_codec::{self, Transfer};
 use rawtonic_engine::source_facts::{self, SourceFacts};
+use rawtonic_engine::source_frame;
 use std::collections::HashMap;
 
 const MAGIC: &[u8; 4] = b"RTPX";
@@ -361,7 +363,7 @@ pub fn proxy_path_of(source: &Path, kind: ProxyKind) -> Option<PathBuf> {
 /// cloud file waiting to be downloaded (reading that starts the download).
 /// Otherwise the photograph is offline and opens on its proxies.
 pub fn source_available(source: &Path) -> bool {
-    source_readable(source) && !crate::file_management::is_cloud_placeholder(source)
+    !crate::file_management::is_cloud_placeholder(source) && source_readable(source)
 }
 
 /// Whether the RAW exists and can be opened (a cloud file not downloaded
@@ -391,76 +393,54 @@ fn content_sample(source: &Path) -> Option<String> {
     Some(hasher.finalize().to_hex()[..32].to_string())
 }
 
-/// The one rule for whether a stored proxy stands for a photograph (PXV1,
-/// notes: parity-gaps/G11-color-editor.md): a proxy records the decode
-/// variant it was made for (its key, `variant_of_key`) and stands for a
-/// recipe that asks for exactly that variant (`wanted`), online and
-/// offline. Online only proxies made for the master recipe's variant are
-/// read (`header_is_current`), so there this is the master's variant.
-/// Offline a proxy of any variant is read: a virtual copy saved at an older
-/// render version opens on previews made at that version, also after a
-/// variant bump moved its never-edited master on. The master's own variant
-/// keeps the previews there are (PVX2: offline keeps the old ones until
-/// the RAW is back; they are preview data, marked offline, never
-/// exported), so a photograph never goes blank for a newer engine.
-pub fn stands_for_variant(source: &Path, wanted: DecodeVariant, made_for: DecodeVariant) -> bool {
-    made_for == wanted
+/// Whether a stored proxy of `source` may stand for `wanted` before it is
+/// read (`header_stands_for` decides on the proxy read): the master's
+/// variant, or any while the RAW is offline.
+pub fn may_stand_for_variant(source: &Path, wanted: DecodeVariant) -> bool {
+    !source_available(source)
         || wanted == crate::image_loader::stored_decode_variant(&source.to_string_lossy())
 }
 
-/// Whether a stored proxy of `source` may stand for `wanted` before it is
-/// read (`stands_for_variant` decides on the proxy read): the master's
-/// variant, or any while the RAW is offline.
-pub fn may_stand_for_variant(source: &Path, wanted: DecodeVariant) -> bool {
-    wanted == crate::image_loader::stored_decode_variant(&source.to_string_lossy())
-        || !source_available(source)
+fn master_recipe(source: &Path) -> Value {
+    let (_, sidecar) = crate::file_management::parse_virtual_path(&source.to_string_lossy());
+    crate::exif_processing::load_sidecar(&sidecar).adjustments
 }
 
-/// The decode variant the stored proxy of `kind` of `source` records (read
-/// from its header only).
-fn recorded_variant(source: &Path, kind: ProxyKind) -> Option<DecodeVariant> {
-    read_header(&proxy_path_of(source, kind)?).map(|header| variant_of_key(&header.key.decoder))
+/// Compatibility from the preview header. None when its header is absent
+/// or unreadable. This does not register facts for offline rendering.
+pub fn stands_for(source: &Path, recipe: &Value, kind: ProxyKind) -> Option<bool> {
+    let header = read_header(&proxy_path_of(source, kind)?)?;
+    Some(header_stands_for(
+        &header,
+        source,
+        kind,
+        recipe,
+        &master_recipe(source),
+        !source_available(source),
+    ))
 }
 
-/// Whether the proxy of `kind` of the RAW `source` stands for a photograph
-/// of it shown with `recipe` (`stands_for_variant`): a virtual copy whose
-/// recipe asks for another variant (colour noise filter, dead-photosite
-/// test, render version) than the previews were made for must not be shown
-/// from them.
-pub fn stands_for(source: &Path, recipe: &serde_json::Value, kind: ProxyKind) -> bool {
-    // Offline, the frames the file's versions develop are the ones its
-    // previews keep (`source_frame::frames` reads the registered facts).
-    if source_facts::registered(&source.to_string_lossy()).is_none() {
-        prepare_offline(source);
-    }
-    let wanted = crate::image_loader::decode_variant(recipe, &source.to_string_lossy());
-    wanted == crate::image_loader::stored_decode_variant(&source.to_string_lossy())
-        || (!source_available(source) && recorded_variant(source, kind) == Some(wanted))
+/// Standard proxy compatibility from its header and local recipes. With
+/// an evicted master sidecar, the grid keeps the older tile.
+pub(crate) fn stands_for_by_recipe(source: &Path, recipe: &Value) -> Option<bool> {
+    let header = read_header(&proxy_path(source)?)?;
+    standard_recipe_fits(&header, source, recipe)
 }
 
-/// `stands_for` of the Standard proxy from the recipes alone: the RAW is
-/// not read, the registered facts are not touched (a cloud file stays
-/// undownloaded while a grid is browsed). The frame is left out, so a copy
-/// of another frame counts as standing here; this answers "no" only where
-/// `stands_for` does too. None when it cannot be told without a download
-/// (the master's sidecar is an evicted cloud file): callers take the side
-/// that shows no blank tile.
-pub(crate) fn stands_for_by_recipe(source: &Path, recipe: &serde_json::Value) -> Option<bool> {
-    let (path, sidecar) = crate::file_management::parse_virtual_path(&source.to_string_lossy());
+fn standard_recipe_fits(header: &Header, source: &Path, recipe: &Value) -> Option<bool> {
+    let (_, sidecar) = crate::file_management::parse_virtual_path(&source.to_string_lossy());
     if crate::file_management::is_cloud_placeholder(&sidecar) {
         return None;
     }
-    let path_str = path.to_string_lossy();
     let master = crate::exif_processing::load_sidecar(&sidecar).adjustments;
-    let wanted = crate::image_loader::decode_variant_for_frame(recipe, &path_str, 0);
-    Some(
-        wanted == crate::image_loader::decode_variant_for_frame(&master, &path_str, 0)
-            // Offline: the variant the proxy records (its header, a local
-            // cache file; the RAW is only looked at, not read).
-            || (!source_available(&path)
-                && recorded_variant(&path, ProxyKind::Standard)
-                    .is_some_and(|made_for| DecodeVariant { frame: 0, ..made_for } == wanted)),
-    )
+    Some(header_stands_for(
+        header,
+        source,
+        ProxyKind::Standard,
+        recipe,
+        &master,
+        !source_available(source),
+    ))
 }
 
 /// The key a proxy of `source` made now from a decode for `variant` would
@@ -571,90 +551,115 @@ pub(crate) fn variant_of_key(decoder: &str) -> DecodeVariant {
     }
 }
 
-/// Whether previews made for frame `proxy_frame` (`DecodeVariant::frame`,
-/// ADR 0020) can show the RAW at `source` with its stored recipe `recipe`:
-/// any frame for a never-edited photograph (no coordinates to misplace; its
-/// first edit takes the frame shown, src/utils/sourceFrame.ts), else the
-/// recipe's own (a Reset's recipe states it: `source_frame::reset_recipe`). Which frame the recipe's version develops of the file is
-/// read from the previews' own `facts` when they keep it (offline nothing
-/// may be registered yet), else from the file or the registered facts;
-/// where nothing tells it, the version itself, so an edit waits for the RAW
-/// rather than show its coordinates on another frame. The one frame check
-/// of every preview read from disk (`header_is_current`: offline any other
-/// decode variant is read).
-fn frame_fits(
-    proxy_frame: u32,
-    recipe: &serde_json::Value,
-    facts: Option<&SourceFacts>,
-    source: &str,
-) -> bool {
-    use rawtonic_engine::source_frame;
-    if rawtonic_engine::image_processing::is_new_recipe(recipe)
+fn unframed(recipe: &Value) -> bool {
+    rawtonic_engine::image_processing::is_new_recipe(recipe)
         && recipe.get(source_frame::KEY).is_none()
-    {
-        return true;
-    }
-    let requested = source_frame::requested(recipe);
-    let wanted = match facts.and_then(|facts| facts.frames.as_deref()) {
-        Some(frames) if requested > 0 => {
-            source_frame::effective_in(frames, requested, &source_frame::extension_of(source))
-        }
-        _ => source_frame::effective(source, requested),
-    };
-    proxy_frame == wanted
 }
 
-/// Whether a proxy with `header` stands for `source` as it is now. Its key
-/// must match; a copy with another modification time still matches when its
-/// size and content sample do. A source that cannot be read (offline) is
-/// taken as unchanged: a proxy made with the current decoder is the last
-/// known state of the photograph, whatever decode variant it was made for
-/// (no decode can follow to replace it: previews made before a recipe reset
-/// or before never-edited photographs moved to a newer variant must still
-/// open), but of the stored recipe's frame (`frame_fits`). Online, the
-/// decode must also have been made for the decode variant of the
-/// photograph's stored (master) recipe.
-fn header_is_current(header: &Header, source: &Path, settings: &AppSettings) -> bool {
+/// Compare against the effective frame recorded with the proxy. Different
+/// recipe frame versions can describe the same camera crop and orientation.
+/// Online the cache belongs to the master variant. Offline an exact match
+/// can serve a copy, and the master's variant can keep an old preview if the
+/// frame fits. A never-edited photograph can take the preview's frame.
+fn header_stands_for(
+    header: &Header,
+    source: &Path,
+    kind: ProxyKind,
+    recipe: &Value,
+    master: &Value,
+    offline: bool,
+) -> bool {
     let source_str = source.to_string_lossy();
-    let recipe = crate::exif_processing::load_sidecar(
-        &crate::file_management::parse_virtual_path(&source_str).1,
-    )
-    .adjustments;
-    let variant = crate::image_loader::decode_variant(&recipe, &source_str);
-    let decoder_matches =
-        header.key.engine == ENGINE_VERSION && header.key.decoder == decoder_key(settings, variant);
-    // Only used offline (the RAW is missing or cannot be read), where the
-    // preview is all there is: one an earlier engine made still shows the
-    // photograph; it is rebuilt once the RAW is back (`decoder_matches`).
-    let settings_match = || {
-        header.key.engine <= ENGINE_VERSION
-            && decoder_settings(&header.key.decoder)
-                == decoder_settings(&decoder_key(settings, variant))
-            && frame_fits(
-                variant_of_key(&header.key.decoder).frame,
-                &recipe,
-                header.facts.as_ref(),
-                &source_str,
-            )
+    let extension = source_frame::extension_of(&source_str);
+    let sibling_frames;
+    let frames = if let Some(frames) = header
+        .facts
+        .as_ref()
+        .and_then(|facts| facts.frames.as_deref())
+        .filter(|frames| !frames.is_empty())
+    {
+        frames
+    } else if rawtonic_rawdecode::source_frame::may_change(&extension) {
+        // A legacy 1:1 or Standard header can use the other preview's
+        // frame facts when it describes the same original.
+        let sibling = match kind {
+            ProxyKind::Standard => ProxyKind::Full,
+            ProxyKind::Full => ProxyKind::Standard,
+        };
+        sibling_frames = proxy_path_of(source, sibling)
+            .and_then(|path| read_header(&path))
+            .filter(|other| {
+                other.key.file_size == header.key.file_size
+                    && other.key.modified_ns == header.key.modified_ns
+            })
+            .and_then(|other| other.facts?.frames)
+            .filter(|frames| !frames.is_empty());
+        sibling_frames.as_deref().unwrap_or(&[0])
+    } else {
+        &[0]
     };
-    let Some(key) = current_key(source, settings, variant) else {
-        return settings_match();
+    let variant = |recipe| {
+        let frame = source_frame::effective_in(frames, source_frame::requested(recipe), &extension);
+        crate::image_loader::decode_variant_for_frame(recipe, &source_str, frame)
     };
-    if header.key == key {
+    let made_for = variant_of_key(&header.key.decoder);
+    let wanted = variant(recipe);
+    let matching_frame = made_for.frame == wanted.frame;
+    if offline && made_for == wanted {
         return true;
     }
-    // Offline with its metadata still there (a cloud placeholder, a file
-    // that cannot be opened): the same file's preview, any variant.
+    wanted == variant(master)
+        && (matching_frame || (offline && unframed(recipe) && unframed(master)))
+}
+
+/// Check the original and decoder preferences of the selected proxy.
+/// Offline the requested recipe decides which frame fits, even if the
+/// master has since been edited in another frame.
+fn header_is_current(
+    header: &Header,
+    source: &Path,
+    kind: ProxyKind,
+    settings: &AppSettings,
+    recipe: Option<&Value>,
+) -> bool {
+    let master = master_recipe(source);
     if !source_available(source) {
-        return settings_match()
-            && header.key.file_size == key.file_size
-            && header.key.modified_ns == key.modified_ns;
+        return header.key.engine <= ENGINE_VERSION
+            && decoder_settings(&header.key.decoder)
+                == crate::image_loader::decode_preferences(settings)
+            && current_key(source, settings, variant_of_key(&header.key.decoder)).is_none_or(
+                |key| {
+                    header.key.file_size == key.file_size
+                        && header.key.modified_ns == key.modified_ns
+                },
+            )
+            && header_stands_for(
+                header,
+                source,
+                kind,
+                recipe.unwrap_or(&master),
+                &master,
+                true,
+            );
     }
-    decoder_matches
-        && header.key.file_size == key.file_size
-        && header.sample.is_some()
-        && !crate::file_management::is_cloud_placeholder(source)
-        && header.sample == content_sample(source)
+    let source_str = source.to_string_lossy();
+    // The live RAW can resolve frames even for a legacy header. Recipes
+    // that ask for the same frame version share it without a second probe.
+    if recipe.is_some_and(|recipe| !crate::image_loader::decode_alike(recipe, &master, &source_str))
+    {
+        return false;
+    }
+    let variant = crate::image_loader::decode_variant(&master, &source_str);
+    let Some(key) = current_key(source, settings, variant) else {
+        return false;
+    };
+    header.key == key
+        || (header.key.engine == key.engine
+            && header.key.decoder == key.decoder
+            && header.key.file_size == key.file_size
+            && header.sample.is_some()
+            && !crate::file_management::is_cloud_placeholder(source)
+            && header.sample == content_sample(source))
 }
 
 /// The proxy size for a viewer preview of `preview_dim` pixels.
@@ -858,7 +863,9 @@ fn read_u32(bytes: &[u8], at: &mut usize) -> Option<u32> {
 /// another format version).
 #[cfg(test)]
 pub fn decode(bytes: &[u8], key: &ProxyKey) -> Option<Proxy> {
-    decode_checked(bytes, |header| &header.key == key)
+    let (header, at) = parse_header(bytes)?;
+    (&header.key == key).then_some(())?;
+    decode_bands(&bytes[at..], header)
 }
 
 /// The header of the proxy in `bytes` and where its image starts.
@@ -882,11 +889,11 @@ fn parse_header(bytes: &[u8]) -> Option<(Header, usize)> {
     Some((header, at + header_len))
 }
 
-fn decode_checked(bytes: &[u8], accept: impl FnOnce(&Header) -> bool) -> Option<Proxy> {
-    let (header, mut at) = parse_header(bytes)?;
-    if !accept(&header) || header.width == 0 || header.height == 0 {
+fn decode_bands(bytes: &[u8], header: Header) -> Option<Proxy> {
+    if header.width == 0 || header.height == 0 {
         return None;
     }
+    let mut at = 0;
     let mut bands = Vec::new();
     let mut rows_total = 0u32;
     while rows_total < header.height {
@@ -928,33 +935,37 @@ fn decode_checked(bytes: &[u8], accept: impl FnOnce(&Header) -> bool) -> Option<
 /// Reads the Standard proxy of `source` if it exists and is current (or the
 /// source is offline and it was made with the current decoder).
 pub fn read(source: &Path, settings: &AppSettings) -> Option<Proxy> {
-    read_kind(source, ProxyKind::Standard, settings)
+    read_kind(source, ProxyKind::Standard, settings, None)
 }
 
 /// Reads the proxy of `kind` of `source`, as `read`. Reading counts as a
-/// use (automatic discarding goes by the last use).
-pub fn read_kind(source: &Path, kind: ProxyKind, settings: &AppSettings) -> Option<Proxy> {
+/// use (automatic discarding goes by the last use). Without an explicit
+/// recipe this reads for the master.
+pub fn read_kind(
+    source: &Path,
+    kind: ProxyKind,
+    settings: &AppSettings,
+    recipe: Option<&Value>,
+) -> Option<Proxy> {
     let path = proxy_path_of(source, kind)?;
     let _file_use = crate::storage_fs::pin_file(&path);
-    let bytes = fs::read(&path).ok()?;
-    let proxy = decode_checked(&bytes, |header| {
-        let current = header_is_current(header, source, settings);
-        if current && !source_available(source) {
-            register_facts(source, header);
-        }
-        current
-    })?;
+    let (header, bytes) = read_preview_payload(&path, source, kind, settings, recipe)?;
+    let proxy = decode_bands(&bytes, header)?;
     mark_used(&path);
     Some(proxy)
 }
 
 /// The size of the current 1:1 proxy of `source` (its full decode's), read
 /// from its header.
-pub fn full_size(source: &Path, settings: &AppSettings) -> Option<(u32, u32)> {
+pub fn full_size(
+    source: &Path,
+    settings: &AppSettings,
+    recipe: Option<&Value>,
+) -> Option<(u32, u32)> {
     let header = read_header(&proxy_path_of(source, ProxyKind::Full)?)?;
     (header.width == header.full_width
         && header.height == header.full_height
-        && header_is_current(&header, source, settings))
+        && header_is_current(&header, source, ProxyKind::Full, settings, recipe))
     .then_some((header.width, header.height))
 }
 
@@ -984,17 +995,12 @@ pub fn read_full_rows(
     settings: &AppSettings,
     rows: (u32, u32),
     cols: (u32, u32),
+    recipe: Option<&Value>,
 ) -> Option<ProxyRows> {
     let path = proxy_path_of(source, ProxyKind::Full)?;
     let _file_use = crate::storage_fs::pin_file(&path);
-    let bytes = fs::read(&path).ok()?;
-    let proxy = decode_rows(&bytes, rows, cols, |header| {
-        let current = header_is_current(header, source, settings);
-        if current && !source_available(source) {
-            register_facts(source, header);
-        }
-        current
-    })?;
+    let (header, bytes) = read_preview_payload(&path, source, ProxyKind::Full, settings, recipe)?;
+    let proxy = decode_rows(&bytes, header, rows, cols)?;
     mark_used(&path);
     Some(proxy)
 }
@@ -1003,14 +1009,12 @@ pub fn read_full_rows(
 /// that hold `rows`.
 fn decode_rows(
     bytes: &[u8],
+    header: Header,
     (start, end): (u32, u32),
     (left, right): (u32, u32),
-    accept: impl FnOnce(&Header) -> bool,
 ) -> Option<ProxyRows> {
-    let (header, mut at) = parse_header(bytes)?;
     // Only a whole-resolution proxy has the frame's rows.
-    if !accept(&header)
-        || header.width == 0
+    if header.width == 0
         || header.height == 0
         || header.width != header.full_width
         || header.height != header.full_height
@@ -1021,6 +1025,7 @@ fn decode_rows(
     {
         return None;
     }
+    let mut at = 0;
     let mut wanted = Vec::new();
     let mut row = 0u32;
     let mut row0 = None;
@@ -1193,7 +1198,10 @@ pub fn cached_camera(source: &Path) -> CachedCamera {
 
 /// The header of the proxy file at `path`, read without its image.
 fn read_header(path: &Path) -> Option<Header> {
-    let mut file = fs::File::open(path).ok()?;
+    read_header_from(&mut fs::File::open(path).ok()?)
+}
+
+fn read_header_from(file: &mut fs::File) -> Option<Header> {
     let mut head = vec![0u8; 12];
     file.read_exact(&mut head).ok()?;
     if &head[..4] != MAGIC
@@ -1202,17 +1210,58 @@ fn read_header(path: &Path) -> Option<Header> {
         return None;
     }
     let header_len = u32::from_le_bytes(head[8..12].try_into().ok()?) as usize;
+    if 12 + header_len as u64 > file.metadata().ok()?.len() {
+        return None;
+    }
     head.resize(12 + header_len, 0);
     file.read_exact(&mut head[12..]).ok()?;
     parse_header(&head).map(|(header, _)| header)
 }
 
+/// Validate before reading the pixels, using one open file in case another
+/// worker replaces the preview while it is being read.
+fn read_preview_payload(
+    path: &Path,
+    source: &Path,
+    kind: ProxyKind,
+    settings: &AppSettings,
+    recipe: Option<&Value>,
+) -> Option<(Header, Vec<u8>)> {
+    let mut file = fs::File::open(path).ok()?;
+    let header = read_header_from(&mut file)?;
+    if !header_is_current(&header, source, kind, settings, recipe) {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+    if !source_available(source) {
+        // Rendering a legacy preview can need the sibling's camera facts
+        // as well, especially the frame mappings used to accept it.
+        if header
+            .facts
+            .as_ref()
+            .is_none_or(|facts| facts.frames.is_none())
+            && source_facts::registered(&source.to_string_lossy()).is_none()
+        {
+            prepare_offline(source);
+        }
+        register_facts(source, &header);
+    }
+    Some((header, bytes))
+}
+
 /// Whether the Standard proxy's header passes the same source/engine checks
 /// as `read`, without loading/decompressing its pixels.
-pub(crate) fn standard_header_is_current(source: &Path, settings: &AppSettings) -> bool {
+pub(crate) fn standard_header_is_current(
+    source: &Path,
+    settings: &AppSettings,
+    recipe: &Value,
+) -> bool {
     proxy_path(source)
         .and_then(|path| read_header(&path))
-        .is_some_and(|header| header_is_current(&header, source, settings))
+        .is_some_and(|header| {
+            header_is_current(&header, source, ProxyKind::Standard, settings, Some(recipe))
+        })
 }
 
 /// The long edge of the Standard proxy stored for `source`, if current
@@ -1223,7 +1272,7 @@ pub fn stored_size(source: &Path, settings: &AppSettings) -> Option<u32> {
     // once the RAW can be decoded (a view or a build does); offline it is all
     // there is (`read` serves it either way).
     (header.is_current_encoding()
-        && header_is_current(&header, source, settings)
+        && header_is_current(&header, source, ProxyKind::Standard, settings, None)
         && !(header.display_copy_is_stale() && source_available(source)))
     .then_some(header.width.max(header.height))
 }
@@ -1232,28 +1281,28 @@ pub fn stored_size(source: &Path, settings: &AppSettings) -> Option<u32> {
 /// colours beyond sRGB (`DISPLAY_COPY`): what a thumbnail developed from it
 /// shows is the old display, so its key keeps the old salt until the proxy is
 /// made again.
-pub(crate) fn standard_display_copy_is_stale(source: &Path) -> bool {
+pub(crate) fn standard_display_copy_is_stale(source: &Path, recipe: &Value) -> bool {
     proxy_path(source)
         .and_then(|path| read_header(&path))
-        .is_some_and(|header| header.display_copy_is_stale())
+        .is_some_and(|header| {
+            header.display_copy_is_stale()
+                && standard_recipe_fits(&header, source, recipe) != Some(false)
+        })
 }
 
 /// Whether a current 1:1 proxy of `source` is stored (in the current
 /// encoding: building replaces a format 1 file).
 /// What the current 1:1 proxy of `source` was made from (its header's
 /// key), as reading it validates it; None without a current one.
-pub fn full_key(source: &Path, settings: &AppSettings) -> Option<ProxyKey> {
+pub fn full_key(source: &Path, settings: &AppSettings, recipe: Option<&Value>) -> Option<ProxyKey> {
     let header = read_header(&proxy_path_of(source, ProxyKind::Full)?)?;
-    (header.is_current_encoding() && header_is_current(&header, source, settings))
-        .then_some(header.key)
+    (header.is_current_encoding()
+        && header_is_current(&header, source, ProxyKind::Full, settings, recipe))
+    .then_some(header.key)
 }
 
 pub fn has_full(source: &Path, settings: &AppSettings) -> bool {
-    proxy_path_of(source, ProxyKind::Full)
-        .and_then(|path| read_header(&path))
-        .is_some_and(|header| {
-            header.is_current_encoding() && header_is_current(&header, source, settings)
-        })
+    full_key(source, settings, None).is_some()
 }
 
 /// Writes the Standard proxy of `source` from its full decode, at `size` on
@@ -1723,14 +1772,8 @@ pub(crate) mod frame_fixture {
         let metadata = serde_json::json!({ "version": 1, "rating": 0, "adjustments": recipe });
         fs::write(photo.with_file_name("A.CR3.rrdata"), metadata.to_string()).unwrap();
         let settings = AppSettings::default();
-        let variant = DecodeVariant {
-            multiscale: true,
-            dead_test: DeadTest::Adjacent,
-            frame,
-            black: BlackLevels::Unbiased,
-            highlights: HighlightRebuild::Ratios,
-            warp_planes: WarpPlanes::Output,
-        };
+        let variant =
+            crate::image_loader::decode_variant_for_frame(&recipe, &photo.to_string_lossy(), frame);
         let image = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(80, 60, |x, y| {
             image::Rgb([x as f32 / 80.0, y as f32 / 60.0, 0.25])
         }));
@@ -1761,6 +1804,13 @@ pub(crate) fn write_for_test(source: &Path, image: &DynamicImage, size: u32) {
         warp_planes: WarpPlanes::Output,
     };
     write(source, image, size, &AppSettings::default(), variant, None).unwrap();
+}
+
+#[cfg(test)]
+pub(crate) fn record_standard_frames_for_test(source: &Path, frames: Vec<u32>) {
+    tests::edit_header(&proxy_path(source).unwrap(), |header| {
+        header.facts.as_mut().unwrap().frames = Some(frames);
+    });
 }
 
 #[cfg(test)]
@@ -1887,7 +1937,7 @@ pub(crate) mod tests {
         for (p, q) in image.to_rgb32f().as_raw().iter().zip(read.as_raw()) {
             assert!((p - q).abs() <= p.abs() * 1e-3 + 1e-4);
         }
-        assert!(read_kind(&photo, ProxyKind::Full, &settings).is_some());
+        assert!(read_kind(&photo, ProxyKind::Full, &settings, None).is_some());
         // ...but not current: the next decode or build writes format 3.
         assert_eq!(stored_size(&photo, &settings), None);
         assert!(!has_full(&photo, &settings));
@@ -1961,7 +2011,7 @@ pub(crate) mod tests {
                 assert!((p[c] - q[c]).abs() <= largest * 0.03 + 1e-3, "{p:?} {q:?}");
             }
         }
-        assert!(read_kind(&photo, ProxyKind::Full, &settings).is_some());
+        assert!(read_kind(&photo, ProxyKind::Full, &settings, None).is_some());
         // ...but not current: replaced by format 3 at the next decode.
         assert_eq!(stored_size(&photo, &settings), None);
         assert!(!has_full(&photo, &settings));
@@ -2154,7 +2204,7 @@ pub(crate) mod tests {
         let one_to_one = proxy_path_of(&photo, ProxyKind::Full).unwrap();
         assert_ne!(standard, one_to_one);
         assert_eq!(standard.parent(), one_to_one.parent());
-        let read_full = read_kind(&photo, ProxyKind::Full, &settings).unwrap();
+        let read_full = read_kind(&photo, ProxyKind::Full, &settings, None).unwrap();
         assert_eq!(read_full.image.dimensions(), (400, 300));
         assert_eq!((read_full.full_width, read_full.full_height), (400, 300));
         assert_eq!(
@@ -2285,11 +2335,11 @@ pub(crate) mod tests {
         // Three bands of 256 rows and a short fourth.
         let full = gradient(64, 900);
         write_full(&photo, &full, &settings, NEW_EDIT, None).unwrap();
-        let whole = read_kind(&photo, ProxyKind::Full, &settings)
+        let whole = read_kind(&photo, ProxyKind::Full, &settings, None)
             .unwrap()
             .image
             .to_rgb32f();
-        let rows = read_full_rows(&photo, &settings, (300, 520), (0, 64)).unwrap();
+        let rows = read_full_rows(&photo, &settings, (300, 520), (0, 64), None).unwrap();
         // The second and third bands only, bit-identical to the whole decode.
         assert_eq!((rows.width, rows.height, rows.row0), (64, 900, 256));
         assert_eq!((rows.col0, rows.cols), (0, 64));
@@ -2300,23 +2350,23 @@ pub(crate) mod tests {
             &whole.as_raw()[256 * stride..768 * stride]
         );
         // Columns 10..30 of them.
-        let part = read_full_rows(&photo, &settings, (300, 520), (10, 30)).unwrap();
+        let part = read_full_rows(&photo, &settings, (300, 520), (10, 30), None).unwrap();
         assert_eq!((part.row0, part.col0, part.cols), (256, 10, 20));
         let expected: Vec<f32> = (256..768)
             .flat_map(|y| whole.as_raw()[y * stride + 30..y * stride + 90].to_vec())
             .collect();
         assert_eq!(part.pixels, expected);
-        assert_eq!(full_size(&photo, &settings), Some((64, 900)));
-        let last = read_full_rows(&photo, &settings, (899, 900), (0, 64)).unwrap();
+        assert_eq!(full_size(&photo, &settings, None), Some((64, 900)));
+        let last = read_full_rows(&photo, &settings, (899, 900), (0, 64), None).unwrap();
         assert_eq!((last.row0, last.pixels.len()), (768, 132 * stride));
-        assert!(read_full_rows(&photo, &settings, (10, 901), (0, 64)).is_none());
-        assert!(read_full_rows(&photo, &settings, (10, 10), (0, 64)).is_none());
-        assert!(read_full_rows(&photo, &settings, (10, 20), (5, 65)).is_none());
+        assert!(read_full_rows(&photo, &settings, (10, 901), (0, 64), None).is_none());
+        assert!(read_full_rows(&photo, &settings, (10, 10), (0, 64), None).is_none());
+        assert!(read_full_rows(&photo, &settings, (10, 20), (5, 65), None).is_none());
         // A Standard proxy has no full-resolution rows.
         write(&photo, &full, 300, &settings, NEW_EDIT, None).unwrap();
         discard_source(&photo, &[ProxyKind::Full]);
-        assert!(read_full_rows(&photo, &settings, (0, 10), (0, 64)).is_none());
-        assert_eq!(full_size(&photo, &settings), None);
+        assert!(read_full_rows(&photo, &settings, (0, 10), (0, 64), None).is_none());
+        assert_eq!(full_size(&photo, &settings, None), None);
     }
 
     #[test]
@@ -2353,7 +2403,7 @@ pub(crate) mod tests {
     }
 
     /// Rewrites the header of the proxy file at `path` with `edit`.
-    fn edit_header(path: &Path, edit: impl FnOnce(&mut Header)) {
+    pub(super) fn edit_header(path: &Path, edit: impl FnOnce(&mut Header)) {
         let bytes = fs::read(path).unwrap();
         let (mut header, at) = parse_header(&bytes).unwrap();
         edit(&mut header);
@@ -2385,17 +2435,17 @@ pub(crate) mod tests {
         let settings = AppSettings::default();
         write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
         assert_eq!(stored_size(&photo, &settings), Some(40));
-        assert!(!standard_display_copy_is_stale(&photo));
+        assert!(!standard_display_copy_is_stale(&photo, &Value::Null));
         // Made before reductions kept colours beyond sRGB: no marker.
         let path = proxy_path(&photo).unwrap();
         rewrite_header(&path, |header| header.display_copy = None);
-        assert!(standard_display_copy_is_stale(&photo));
+        assert!(standard_display_copy_is_stale(&photo, &Value::Null));
         // Online it is still shown, and made again by the next view or build.
         assert!(read(&photo, &settings).is_some());
         assert_eq!(stored_size(&photo, &settings), None);
         write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
         assert_eq!(stored_size(&photo, &settings), Some(40));
-        assert!(!standard_display_copy_is_stale(&photo));
+        assert!(!standard_display_copy_is_stale(&photo, &Value::Null));
         // Offline (nothing to decode from) the old preview is all there is.
         rewrite_header(&path, |header| header.display_copy = None);
         fs::remove_file(&photo).unwrap();
@@ -2484,7 +2534,7 @@ pub(crate) mod tests {
         prepare_offline(&photo);
         assert_eq!(gain(), Some(-1.0));
         source_facts::forget(&key);
-        read_kind(&photo, ProxyKind::Full, &settings);
+        read_kind(&photo, ProxyKind::Full, &settings, None);
         assert_eq!(gain(), Some(-1.0));
         fs::rename(&away, &photo).unwrap();
         prepare_offline(&photo);
@@ -2513,7 +2563,7 @@ pub(crate) mod tests {
         prepare_offline(&photo);
         assert_eq!(airlight(), Some(0.31));
         source_facts::forget(&key);
-        read_kind(&photo, ProxyKind::Full, &settings);
+        read_kind(&photo, ProxyKind::Full, &settings, None);
         assert_eq!(airlight(), Some(0.31));
         fs::rename(&away, &photo).unwrap();
         prepare_offline(&photo);
@@ -2542,7 +2592,7 @@ pub(crate) mod tests {
         prepare_offline(&photo);
         assert_eq!(source_facts::registered(&key).as_deref(), Some(&facts));
         source_facts::forget(&key);
-        read_kind(&photo, ProxyKind::Full, &settings).unwrap();
+        read_kind(&photo, ProxyKind::Full, &settings, None).unwrap();
         assert_eq!(source_facts::registered(&key).as_deref(), Some(&facts));
         // Back online: the file again.
         fs::rename(&away, &photo).unwrap();
@@ -2559,7 +2609,7 @@ pub(crate) mod tests {
         fs::rename(&photo, &away).unwrap();
         assert_eq!(prepare_offline(&photo), None);
         assert!(read(&photo, &settings).is_some());
-        assert!(read_kind(&photo, ProxyKind::Full, &settings).is_some());
+        assert!(read_kind(&photo, ProxyKind::Full, &settings, None).is_some());
         assert!(source_facts::registered(&key).is_none());
     }
 
@@ -2717,10 +2767,10 @@ pub(crate) mod tests {
         let readable = || {
             [
                 read(&photo, &settings).is_some(),
-                read_kind(&photo, ProxyKind::Full, &settings).is_some(),
-                read_full_rows(&photo, &settings, (0, 4), (0, 4)).is_some(),
+                read_kind(&photo, ProxyKind::Full, &settings, None).is_some(),
+                read_full_rows(&photo, &settings, (0, 4), (0, 4), None).is_some(),
                 has_full(&photo, &settings),
-                full_key(&photo, &settings).is_some(),
+                full_key(&photo, &settings, None).is_some(),
             ]
         };
         // An edit of frame 1 on previews of frame 0: none is read.
@@ -2795,8 +2845,11 @@ pub(crate) mod tests {
         // only (a copy at 15 decodes the RAW).
         assert!(read(&photo, &settings).is_none());
         for kind in kinds {
-            assert!(!stands_for(&photo, &at(15), kind));
-            assert!(stands_for(&photo, &serde_json::Value::Null, kind));
+            assert_eq!(stands_for(&photo, &at(15), kind), Some(false));
+            assert_eq!(
+                stands_for(&photo, &serde_json::Value::Null, kind),
+                Some(true)
+            );
         }
         assert_eq!(stands_for_by_recipe(&photo, &at(15)), Some(false));
         assert!(!may_stand_for_variant(&photo, v15));
@@ -2805,22 +2858,22 @@ pub(crate) mod tests {
         // Offline: what `image_loader::open_offline` reads, and what it may
         // show it for.
         let standard = read(&photo, &settings).expect("the old Standard preview offline");
-        let full = read_kind(&photo, ProxyKind::Full, &settings).expect("the old 1:1 preview");
+        let full =
+            read_kind(&photo, ProxyKind::Full, &settings, None).expect("the old 1:1 preview");
         assert!(may_stand_for_variant(&photo, v15));
         for key in [&standard.key, &full.key] {
-            let made_for = variant_of_key(&key.decoder);
-            assert_eq!(made_for, v15);
-            // The copy at 15 (failed before PXV1) and the master.
-            assert!(stands_for_variant(&photo, v15, made_for));
-            assert!(stands_for_variant(&photo, master, made_for));
-            // A copy at 14 (another dead-photosite test): neither.
-            assert!(!stands_for_variant(&photo, variant_at(14), made_for));
+            assert_eq!(variant_of_key(&key.decoder), v15);
         }
         // The multi view and the thumbnails decide alike.
         for kind in kinds {
-            assert!(stands_for(&photo, &at(15), kind));
-            assert!(stands_for(&photo, &serde_json::Value::Null, kind));
-            assert!(!stands_for(&photo, &at(14), kind));
+            assert_eq!(stands_for(&photo, &at(15), kind), Some(true));
+            assert_eq!(
+                stands_for(&photo, &serde_json::Value::Null, kind),
+                Some(true)
+            );
+            assert_eq!(stands_for(&photo, &at(14), kind), Some(false));
+            assert!(read_kind(&photo, kind, &settings, Some(&at(15))).is_some());
+            assert!(read_kind(&photo, kind, &settings, Some(&at(14))).is_none());
         }
         assert_eq!(stands_for_by_recipe(&photo, &at(15)), Some(true));
         assert_eq!(stands_for_by_recipe(&photo, &at(14)), Some(false));
@@ -2830,14 +2883,9 @@ pub(crate) mod tests {
         write_full(&photo, &image, &settings, master, None).unwrap();
         fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
         source_facts::forget(&path);
-        assert!(stands_for(&photo, &at(15), ProxyKind::Standard));
-        assert!(!stands_for(&photo, &at(15), ProxyKind::Full));
-        let full = read_kind(&photo, ProxyKind::Full, &settings).unwrap();
-        assert!(!stands_for_variant(
-            &photo,
-            v15,
-            variant_of_key(&full.key.decoder)
-        ));
+        assert_eq!(stands_for(&photo, &at(15), ProxyKind::Standard), Some(true));
+        assert_eq!(stands_for(&photo, &at(15), ProxyKind::Full), Some(false));
+        assert!(read_kind(&photo, ProxyKind::Full, &settings, Some(&at(15))).is_none());
         source_facts::forget(&path);
     }
 
@@ -2866,10 +2914,14 @@ pub(crate) mod tests {
             source_facts::forget(&photo.to_string_lossy());
             assert_eq!(
                 stands_for(&photo, &legacy, ProxyKind::Standard),
-                shared,
+                Some(shared),
                 "{frames:?}"
             );
-            assert!(stands_for(&photo, &frame_one_edit(), ProxyKind::Full));
+            assert_eq!(stands_for_by_recipe(&photo, &legacy), Some(shared));
+            assert_eq!(
+                stands_for(&photo, &frame_one_edit(), ProxyKind::Full),
+                Some(true)
+            );
             source_facts::forget(&photo.to_string_lossy());
         }
     }
@@ -3080,7 +3132,7 @@ pub(crate) mod tests {
             .unwrap()
             .set_modified(SystemTime::now() - Duration::from_secs(7200))
             .unwrap();
-        read_kind(&photo, ProxyKind::Full, &settings).unwrap();
+        read_kind(&photo, ProxyKind::Full, &settings, None).unwrap();
         assert_eq!(
             discard(
                 &previews,

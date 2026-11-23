@@ -60,9 +60,18 @@ export default function StudioLensCorrection() {
   const [candidates, setCandidates] = useState<[string, string][]>([]);
   const [camera, setCamera] = useState<CameraLensProfile | null>(null);
   const cameraMode = adjustments.lensCorrectionMode === 'camera';
+  // A polynomial distortion an import wrote (Capture One's Generic profile
+  // with Distortion above 0): no lens in the database, no camera data.
+  const importedMode =
+    adjustments.lensCorrectionMode === 'manual' &&
+    !adjustments.lensMaker &&
+    !adjustments.lensModel &&
+    adjustments.lensDistortionParams?.model === 0;
+  // The imported correction switched off keeps its parameters and amount.
+  const importedOff = importedMode && adjustments.lensDistortionEnabled === false;
   const enabled = cameraMode
     ? Boolean(adjustments.lensDistortionParams)
-    : Boolean(adjustments.lensMaker && adjustments.lensModel);
+    : importedMode || Boolean(adjustments.lensMaker && adjustments.lensModel);
   // Keeps its look while the next photograph loads (the tools are inert).
   const ready = useEditorStore(panelsShowReady);
   const exif = selectedImage?.exif ?? {};
@@ -110,6 +119,7 @@ export default function StudioLensCorrection() {
       lensModel: null,
       lensDistortionParams: profile.params,
       lensCorrectionMode: 'camera',
+      lensDistortionEnabled: true,
       cameraCaVersion: CAMERA_CA_VERSION,
       cameraGeometryVersion: CAMERA_GEOMETRY_VERSION
     }));
@@ -160,7 +170,8 @@ export default function StudioLensCorrection() {
         lensMaker: maker,
         lensModel: model,
         lensDistortionParams: distortion,
-        lensCorrectionMode: 'auto'
+        lensCorrectionMode: 'auto',
+        lensDistortionEnabled: true
       }));
       setStatus('idle');
     } catch {
@@ -178,7 +189,8 @@ export default function StudioLensCorrection() {
       lensMaker: maker,
       lensModel: model,
       lensDistortionParams: distortion,
-      lensCorrectionMode: 'manual'
+      lensCorrectionMode: 'manual',
+      lensDistortionEnabled: true
     }));
     setCandidates([]);
     setStatus('idle');
@@ -189,7 +201,9 @@ export default function StudioLensCorrection() {
       lensMaker: maker || null,
       lensModel: null,
       lensDistortionParams: null,
-      lensCorrectionMode: 'manual'
+      lensCorrectionMode: 'manual',
+      // A replacement lens starts on, whatever the imported correction was.
+      lensDistortionEnabled: true
     }));
   const chooseModel = async (model: string) => {
     const maker = adjustments.lensMaker;
@@ -201,7 +215,8 @@ export default function StudioLensCorrection() {
       ...prev,
       lensModel: model || null,
       lensDistortionParams: distortion,
-      lensCorrectionMode: 'manual'
+      lensCorrectionMode: 'manual',
+      lensDistortionEnabled: true
     }));
   };
   const amount = (
@@ -218,7 +233,7 @@ export default function StudioLensCorrection() {
       step={1}
       defaultValue={100}
       unit="%"
-      disabled={!ready || !enabled || unavailable}
+      disabled={!ready || !enabled || importedOff || unavailable}
       onChange={(value) => setAdjustments((prev) => ({ ...prev, [key]: value }))}
       onInteraction={(active) => setEditor({ isSliderDragging: active })}
     />
@@ -242,11 +257,17 @@ export default function StudioLensCorrection() {
       <label className="studio-check studio-lens-enable">
         <input
           type="checkbox"
-          checked={enabled}
+          checked={enabled && !importedOff}
           disabled={!ready || status === 'detecting'}
-          onChange={(e) =>
-            e.target.checked ? void enable() : setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }))
-          }
+          onChange={(e) => {
+            // The imported correction is switched, not deleted: off keeps
+            // it (and its amount) for On to bring back exactly.
+            if (importedMode) {
+              const on = e.target.checked;
+              return setAdjustments((prev) => ({ ...prev, lensDistortionEnabled: on }));
+            }
+            return e.target.checked ? void enable() : setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }));
+          }}
         />
         {t('studio.lens.enable')}
       </label>
@@ -273,7 +294,21 @@ export default function StudioLensCorrection() {
           ))}
         </div>
       )}
-      {cameraMode && enabled ? (
+      {importedMode ? (
+        <div className="studio-metadata-field">
+          <span>{t('studio.lens.profile')}</span>
+          <span className="studio-lens-profile">
+            {t('studio.lens.importedCorrection')}
+            <button
+              className="studio-text-button"
+              title={t('studio.lens.useDatabaseTitle')}
+              onClick={() => chooseMaker('')}
+            >
+              {t('studio.lens.useDatabase')}
+            </button>
+          </span>
+        </div>
+      ) : cameraMode && enabled ? (
         <div className="studio-metadata-field">
           <span>{t('studio.lens.profile')}</span>
           <span className="studio-lens-profile">

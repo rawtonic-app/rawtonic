@@ -195,6 +195,11 @@ fn resolve_lens_choice(
             }
             return true;
         }
+        // A polynomial distortion an import wrote (Capture One's Generic
+        // profile): no lens to look up, the parameters are the correction.
+        if mode == "manual" && imported_polynomial(map) {
+            return true;
+        }
         let Some(db) = lens_db else {
             return false;
         };
@@ -280,6 +285,25 @@ fn resolve_lens_choice(
         return true;
     }
     false
+}
+
+/// Whether `map` holds a polynomial distortion without a lens choice
+/// (`lensDistortionParams` model 0, no maker and model): what the Capture One
+/// import writes for its Generic profile's Distortion; the Lens tool shows it
+/// as the imported correction.
+fn imported_polynomial(map: &serde_json::Map<String, Value>) -> bool {
+    let named = |key: &str| {
+        map.get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|v| !v.is_empty())
+    };
+    !named(lens::MAKER.name())
+        && !named(lens::MODEL.name())
+        && map
+            .get(lens::DISTORTION_PARAMS.name())
+            .and_then(|p| p.get("model"))
+            .and_then(Value::as_u64)
+            == Some(0)
 }
 
 /// The lens's profile for the photo whose EXIF map is `exif` (the Lens
@@ -530,6 +554,41 @@ mod tests {
             Path::new("/photos/IMG_0001.CR2"),
         );
         recipe["lensDistortionParams"].clone()
+    }
+
+    /// A polynomial distortion an import wrote (Capture One's Generic
+    /// profile, `lensCorrectionMode` manual without a lens choice) is the
+    /// user's own correction: neither a fresh lookup, a save of a recipe
+    /// that was never saved before, nor a paste drops its parameters.
+    #[test]
+    fn an_imported_polynomial_distortion_survives_every_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let (db, _) = zoom_db(dir.path());
+        let polynomial = serde_json::json!({
+            "model": 0, "k1": -0.036, "k2": 0.0, "k3": 0.0, "zoom": 1.0, "exact_zoom": true
+        });
+        let imported = serde_json::json!({
+            "lensCorrectionMode": "manual", "lensDistortionParams": polynomial,
+        });
+        let source = Path::new("/photos/IMG_0001.CR2");
+        let exif = Some(HashMap::from([("Make".to_string(), "Canon".to_string())]));
+        let saves = [
+            LensLookup::Fresh,
+            LensLookup::Keep { previous: None },
+            LensLookup::Keep {
+                previous: Some(&imported),
+            },
+        ];
+        for lookup in saves {
+            let mut recipe = imported.clone();
+            resolve_lens_params_in_adjustments(&mut recipe, lookup, &exif, Some(&db), source);
+            assert_eq!(recipe["lensDistortionParams"], polynomial);
+            assert_ne!(recipe[LENS_PROFILE_FOR], LENS_UNRESOLVED);
+        }
+        // Without a lens database too (a photo opened before it loaded).
+        let mut recipe = imported.clone();
+        resolve_lens_params_in_adjustments(&mut recipe, LensLookup::Fresh, &exif, None, source);
+        assert_eq!(recipe["lensDistortionParams"], polynomial);
     }
 
     /// The vignetting row is the FNumber's: ApertureValue is APEX (6 = f/8)

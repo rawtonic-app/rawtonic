@@ -74,7 +74,6 @@
       "running": "실행 중인 작업이 없습니다."
     },
     "export": {
-      "done": "{{label}} 내보냄({{existing}})",
       "failed_other": "사진 {{count}}장을 내보내지 못했습니다: {{label}}",
       "interrupted": "내보내기 중단됨: {{label}}",
       "nothingExported": "내보낸 사진 없음 — {{existing}} ({{label}})",
@@ -3664,7 +3663,8 @@
         "existing": {
           "keptBoth_other": "{{count}}개 새 이름으로",
           "replaced_other": "{{count}}개 바꿈",
-          "skipped_other": "{{count}}개 건너뜀"
+          "skipped_other": "{{count}}개 건너뜀",
+          "written_other": "{{count}}개 내보냄"
         },
         "exportedTo": "내보낸 위치:",
         "failed": "{{total}}장 중 {{failed}}장 실패",
@@ -4022,6 +4022,7 @@
       "diffractionTitle": "조리개 값과 픽셀 크기에 따라 작은 조리개의 흐림을 보정합니다",
       "distortion": "왜곡",
       "enable": "프로필 보정 사용",
+      "importedCorrection": "가져온 보정",
       "lookingUp": "렌즈를 찾는 중…",
       "make": "제조사",
       "manualVignetting": "렌즈 비네팅",

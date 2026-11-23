@@ -1696,67 +1696,128 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
         let mut sub_masks = Vec::new();
         let mut supported = true;
         // Lightroom Classic 15 keeps a brush as a `Mask/Aggregate` of its
-        // strokes (`crs:Masks`: `Mask/Paint` items, erasers among them):
-        // an additive, not inverted aggregate (with erasers: the first
-        // component) stands for its items, which
-        // take over its switch (`MaskActive`) and opacity (`MaskValue`).
-        let mut items: Vec<(roxmltree::Node, bool, f64)> = Vec::new();
+        // strokes (`crs:Masks`: `Mask/Paint` items, erasers among them).
+        // Measured in Lightroom itself (MSK5, notes:
+        // benchmark-results/msk5-2026-11-23): an aggregate is one mask,
+        // painted in order (a stroke adds, an eraser takes away in
+        // proportion: a · (1 − e), a stroke below value 1 scales its own
+        // coverage); an eraser cuts only its own aggregate's strokes, and
+        // aggregates combine like any other component (hidden ones not at
+        // all). So it becomes ONE brush component whose lines keep that
+        // order, and the layer's Add / Subtract / Intersect laws apply to it.
+        // Its own `MaskValue` is ignored (Lightroom resets it to 1, or 0 for
+        // a subtraction, as it does for a gradient's or range's).
+        // Aggregates holding anything but strokes keep the flat path: their
+        // components stand in for it when it adds and does not erase.
+        let mut items: Vec<(roxmltree::Node, bool, Option<Vec<Value>>)> = Vec::new();
         for li in seq_items(correction, "CorrectionMasks") {
             let mask = described(li);
             let attr = |n: &str| mask.attribute((CRS_NS, n));
-            if attr("What") == Some("Mask/Aggregate") {
-                let children = seq_items(mask, "Masks");
-                // Its erasers subtract from everything before them once
-                // flattened: only right when nothing precedes the brush.
-                let erases = children.iter().any(|li| {
-                    described(*li)
-                        .attribute((CRS_NS, "MaskValue"))
+            if attr("What") != Some("Mask/Aggregate") {
+                items.push((mask, true, None));
+                continue;
+            }
+            let children = seq_items(mask, "Masks");
+            let plain = |child: roxmltree::Node| {
+                let attr = |n: &str| described(child).attribute((CRS_NS, n));
+                matches!(attr("MaskBlendMode"), None | Some("0"))
+                    && attr("MaskInverted") != Some("true")
+            };
+            if children
+                .iter()
+                .all(|c| described(*c).attribute((CRS_NS, "What")) == Some("Mask/Paint"))
+            {
+                if !children.iter().all(|c| plain(*c)) {
+                    supported = false;
+                    continue;
+                }
+                // An eraser with Auto Mask erases only across the colours its
+                // dabs sit on, which one brush's erasers (they ignore Auto
+                // Mask) cannot do: such a group stays the separate stroke
+                // components of before (the eraser an Intersect with Invert,
+                // colour-gated like a brush). That cuts everything before
+                // it, so it is right only as the first component.
+                let gated_eraser = children.iter().any(|c| {
+                    let c = described(*c);
+                    c.attribute((CRS_NS, "MaskValue"))
                         .and_then(|v| v.parse::<f64>().ok())
                         .is_some_and(|v| v <= 0.0)
+                        && lightroom_strokes(c).iter().any(|s| s["autoMask"] == true)
                 });
-                // Erasers cut the brush alone, so an aggregate with erasers
-                // after plain additive components goes first: coverage
-                // c ∪ (b · (1 − e)) is one value in either order (screen
-                // commutes), measured in Camera Raw.
-                // Hidden components count too: switching one back on in Develop
-                // must not change what an eraser cuts.
-                let after_additive = items.iter().all(|(item, _, _)| {
-                    let attr = |n: &str| item.attribute((CRS_NS, n));
-                    // A stroke with value 0 (an eraser) is not additive: an
-                    // earlier aggregate's erasers would cut this one's brush.
-                    let eraser = attr("MaskValue")
-                        .and_then(|v| v.parse::<f64>().ok())
-                        .is_some_and(|v| v <= 0.0);
-                    item.attribute((CRS_NS, "What")) != Some("Mask/Aggregate")
-                        && matches!(attr("MaskBlendMode"), None | Some("0"))
-                        && attr("MaskInverted") != Some("true")
-                        && !eraser
-                });
-                if matches!(attr("MaskBlendMode"), None | Some("0"))
-                    && attr("MaskInverted") != Some("true")
-                    && (items.is_empty() || !erases || after_additive)
-                {
+                if gated_eraser {
+                    // Its eraser cuts everything before it, so the group goes
+                    // first when only additive components precede it
+                    // (c ∪ b · (1 − e) is one value in either order).
+                    let additive = |item: &roxmltree::Node| {
+                        let a = |n: &str| item.attribute((CRS_NS, n));
+                        // Add commutes whatever the component's inversion.
+                        matches!(a("MaskBlendMode"), None | Some("0"))
+                            && a("MaskValue")
+                                .and_then(|v| v.parse::<f64>().ok())
+                                .is_none_or(|v| v > 0.0 || a("What") == Some("Mask/Aggregate"))
+                    };
+                    if !matches!(attr("MaskBlendMode"), None | Some("0"))
+                        || attr("MaskInverted") == Some("true")
+                        || !items.iter().all(|(item, _, _)| additive(item))
+                    {
+                        supported = false;
+                        continue;
+                    }
                     let active = attr("MaskActive") != Some("false");
-                    let value = attr("MaskValue")
+                    let flat: Vec<_> = children
+                        .into_iter()
+                        .map(|c| (described(c), active, None))
+                        .collect();
+                    items.splice(0..0, flat);
+                    continue;
+                }
+                let mut strokes = Vec::new();
+                for child in children {
+                    let child = described(child);
+                    if child.attribute((CRS_NS, "MaskActive")) == Some("false") {
+                        continue;
+                    }
+                    let value = child
+                        .attribute((CRS_NS, "MaskValue"))
                         .and_then(|v| v.parse::<f64>().ok())
                         .unwrap_or(1.0)
                         .clamp(0.0, 1.0);
-                    let flat = children
-                        .into_iter()
-                        .map(|li| (described(li), active, value));
-                    if erases {
-                        items.splice(0..0, flat);
-                    } else {
-                        items.extend(flat);
+                    let painted_strokes = lightroom_strokes(child);
+                    // An unreadable active stroke is a partial mask: named.
+                    if painted_strokes.is_empty() {
+                        supported = false;
                     }
-                } else {
-                    supported = false;
+                    for mut stroke in painted_strokes {
+                        if value <= 0.0 {
+                            stroke["eraser"] = json!(true);
+                        } else if value < 1.0 {
+                            stroke[masks::OPACITY.name()] = json!(value * 100.0);
+                        }
+                        strokes.push(stroke);
+                    }
+                }
+                if !strokes.is_empty() {
+                    items.push((mask, true, Some(strokes)));
+                }
+            } else if matches!(attr("MaskBlendMode"), None | Some("0"))
+                && attr("MaskInverted") != Some("true")
+                && children.iter().all(|c| {
+                    described(*c)
+                        .attribute((CRS_NS, "MaskValue"))
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .is_none_or(|v| v > 0.0)
+                })
+            {
+                // The aggregate's switch is the components' own.
+                let active = attr("MaskActive") != Some("false");
+                for child in children {
+                    items.push((described(child), active, None));
                 }
             } else {
-                items.push((mask, true, 1.0));
+                supported = false;
             }
         }
-        for (m_index, (mask, group_active, group_value)) in items.into_iter().enumerate() {
+        for (m_index, (mask, group_active, painted)) in items.into_iter().enumerate() {
             if !supported {
                 break;
             }
@@ -1807,6 +1868,10 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                         }
                     }
                 }
+                (Some("Mask/Aggregate"), _) if painted.is_some() => (
+                    "brush",
+                    json!({"lrNormalized": {"strokes": painted.clone().unwrap_or_default()}}),
+                ),
                 (Some("Mask/Paint"), _) => {
                     let strokes = lightroom_strokes(mask);
                     if strokes.is_empty() {
@@ -1863,7 +1928,8 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             // a full a · (1 − b). Zero stays the Intersect marker below.
             // Brush strokes, the masks computed from the photo and a direct
             // MaskBlendMode 2 (not measured) keep their value as opacity.
-            let value_ignored = matches!(kind, "linear" | "radial" | "luma-range")
+            let value_ignored = (matches!(kind, "linear" | "radial" | "luma-range")
+                || painted.is_some())
                 && matches!(blend, None | Some("0" | "1"));
             if value_ignored && value < 1.0 {
                 value = if blend == Some("1") && inverted {
@@ -1875,9 +1941,6 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
             // Lightroom writes Intersect as subtraction of the inverted
             // component: a · (1 − (1 − b)) = a · b. Zero is the subtract
             // marker in this encoding, so restore full component opacity.
-            // An eraser keeps its full strength whatever its aggregate's
-            // value is: the strength scales the inverted coverage that
-            // multiplies everything before it.
             let mut eraser = false;
             let (mode, invert) = match (blend, inverted, value) {
                 (Some("1"), true, 0.0 | 1.0) => {
@@ -1898,7 +1961,7 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                 // (unmeasured as Lightroom writes it: a hand-written Paint
                 // with blend 1 reads as an Add at value 1, half an erase at
                 // 0.5 in Camera Raw).
-                (Some("1"), false, v) if v >= 1.0 && group_value >= 1.0 => ("intersect", true),
+                (Some("1"), false, v) if v >= 1.0 => ("intersect", true),
                 (Some("1"), _, _) => ("subtractive", inverted),
                 (Some("2"), _, _) => ("intersect", inverted),
                 _ => ("additive", inverted),
@@ -1911,7 +1974,7 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                 masks::OPACITY.name(): if eraser {
                     100.0
                 } else {
-                    (value * group_value * 100.0).clamp(0.0, 100.0)
+                    (value * 100.0).clamp(0.0, 100.0)
                 },
                 "mode": mode,
                 // AI masks are computed, geometry placed, when a photo opens.
@@ -3245,7 +3308,9 @@ mod tests {
     }
 
     /// Lightroom Classic 15 wraps a brush's strokes in a `Mask/Aggregate`
-    /// (as its catalog stores them, LC task 2026-10-31).
+    /// (as its catalog stores them, LC task 2026-10-31). Measured in
+    /// Lightroom itself (MSK5, notes: benchmark-results/msk5-2026-11-23):
+    /// the aggregate is one mask painted in order, whatever its own value.
     #[test]
     fn lightroom_15_aggregate_brushes_become_masks() {
         let brush = |blend: &str, inverted: &str| {
@@ -3271,74 +3336,77 @@ mod tests {
  </rdf:Description></rdf:RDF></x:xmpmeta>"#
             )
         };
-        let (layers, skipped) = super::lightroom_masks(&brush("0", "false"));
-        assert!(skipped.is_empty());
-        // A brush switched off in Lightroom stays off; its opacity carries over.
-        let off = brush("0", "false").replace(
-            r#"crs:MaskInverted="false" crs:MaskValue="1""#,
-            r#"crs:MaskInverted="false" crs:MaskValue="0.5" crs:MaskActive="false""#,
-        );
-        let (off_layers, _) = super::lightroom_masks(&off);
-        let off_subs = off_layers[0]["subMasks"].as_array().unwrap();
-        assert!(off_subs.iter().all(|sub| sub["visible"] == json!(false)));
-        assert_eq!(off_subs[0]["opacity"], json!(50.0));
-        // An active aggregate below full value scales its strokes; its
-        // eraser keeps full strength (it multiplies everything before it).
-        let half = brush("0", "false").replace(
-            r#"crs:MaskInverted="false" crs:MaskValue="1""#,
-            r#"crs:MaskInverted="false" crs:MaskValue="0.5""#,
-        );
-        let (half_layers, _) = super::lightroom_masks(&half);
-        let half_subs = half_layers[0]["subMasks"].as_array().unwrap();
-        assert_eq!(half_subs[0]["opacity"], json!(50.0));
-        assert_eq!(half_subs[1]["opacity"], json!(100.0));
-        // Two aggregates with erasers: the second goes after the first's
-        // eraser, which would cut it: left out.
-        let single = brush("0", "false");
-        let aggregate = single
-            .split(r#"<rdf:li><rdf:Description crs:What="Mask/Aggregate""#)
-            .nth(1)
-            .unwrap()
-            .split("</crs:Masks>")
-            .next()
-            .unwrap();
-        let doubled = single.replacen(
-            "</crs:Masks>\n     </rdf:Description></rdf:li>",
-            &format!(
-                "</crs:Masks>\n     </rdf:Description></rdf:li>\n     <rdf:li><rdf:Description crs:What=\"Mask/Aggregate\"{aggregate}</crs:Masks>\n     </rdf:Description></rdf:li>"
-            ),
-            1,
-        );
-        assert_eq!(doubled.matches("Mask/Aggregate").count(), 2);
-        let (doubled_layers, doubled_skipped) = super::lightroom_masks(&doubled);
-        assert!(doubled_layers.is_empty() && doubled_skipped == vec!["Brush".to_string()]);
-        // A hidden brush's eraser would cut the other brush once it is
-        // switched on in Develop: still left out and named, never imported wrong.
-        let hidden = doubled.replacen(
-            r#"crs:MaskInverted="false" crs:MaskValue="1""#,
-            r#"crs:MaskInverted="false" crs:MaskValue="1" crs:MaskActive="false""#,
-            1,
-        );
-        let (hidden_layers, hidden_skipped) = super::lightroom_masks(&hidden);
-        assert!(hidden_layers.is_empty() && hidden_skipped == vec!["Brush".to_string()]);
-        let subs = layers[0]["subMasks"].as_array().unwrap();
-        assert_eq!(subs.len(), 2);
+        let subs_of = |xmp: &str| {
+            let (layers, skipped) = super::lightroom_masks(xmp);
+            assert!(skipped.is_empty(), "{skipped:?}");
+            layers[0]["subMasks"].as_array().unwrap().clone()
+        };
+        // One brush component, strokes and eraser in painting order.
+        let subs = subs_of(&brush("0", "false"));
+        assert_eq!(subs.len(), 1);
         assert_eq!(
             (subs[0]["type"].as_str(), subs[0]["mode"].as_str()),
             (Some("brush"), Some("additive"))
         );
-        assert_eq!(
-            subs[0]["parameters"]["lrNormalized"]["strokes"][0]["dabs"],
-            json!([[0.62, 0.5], [0.64, 0.51]])
-        );
-        // The eraser is Camera Raw's a · (1 − e): Intersect with the inverse.
-        assert_eq!(
-            (subs[1]["mode"].as_str(), subs[1]["invert"].as_bool()),
-            (Some("intersect"), Some(true)),
-            "the eraser"
-        );
-        assert_eq!(subs[1]["opacity"], json!(100.0));
+        let strokes = subs[0]["parameters"]["lrNormalized"]["strokes"]
+            .as_array()
+            .unwrap();
+        assert_eq!(strokes.len(), 2);
+        assert_eq!(strokes[0]["dabs"], json!([[0.62, 0.5], [0.64, 0.51]]));
+        assert!(strokes[0].get("eraser").is_none());
+        assert_eq!(strokes[1]["eraser"], json!(true));
         assert!(super::lightroom_subtract_warning(&brush("0", "false")).is_none());
+        // Lightroom resets an aggregate's value on loading (AG50 read back as
+        // 1) and renders it as if it were 1: ignored, switched off or on.
+        let half = brush("0", "false").replace(
+            r#"crs:MaskInverted="false" crs:MaskValue="1""#,
+            r#"crs:MaskInverted="false" crs:MaskValue="0.5""#,
+        );
+        assert_eq!(subs_of(&half)[0]["opacity"], json!(100.0));
+        let off = half.replace(
+            r#"crs:MaskValue="0.5""#,
+            r#"crs:MaskValue="0.5" crs:MaskActive="false""#,
+        );
+        assert_eq!(subs_of(&off)[0]["visible"], json!(false));
+        // A stroke below value 1 scales its own coverage (PV50: 0.5 · a).
+        let faint = brush("0", "false").replace(
+            r#"crs:MaskValue="1" crs:Radius="0.1""#,
+            r#"crs:MaskValue="0.5" crs:Radius="0.1""#,
+        );
+        assert_eq!(
+            subs_of(&faint)[0]["parameters"]["lrNormalized"]["strokes"][0]["opacity"],
+            json!(50.0)
+        );
+        // An aggregate that subtracts is a · (1 − b) with the whole
+        // aggregate (eraser inside) as b; Intersect is a · b (BRsE, BLi).
+        let subtract = subs_of(&brush("1", "false"));
+        assert_eq!(
+            (
+                subtract[0]["mode"].as_str(),
+                subtract[0]["invert"].as_bool()
+            ),
+            (Some("intersect"), Some(true))
+        );
+        assert_eq!(
+            subtract[0]["parameters"]["lrNormalized"]["strokes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        let intersect = subs_of(&brush("1", "true").replace(
+            r#"crs:MaskInverted="true" crs:MaskValue="1""#,
+            r#"crs:MaskInverted="true" crs:MaskValue="0""#,
+        ));
+        assert_eq!(
+            (
+                intersect[0]["mode"].as_str(),
+                intersect[0]["invert"].as_bool()
+            ),
+            (Some("intersect"), Some(false))
+        );
+        // After other components the aggregate keeps its place and its
+        // erasers cut only its own strokes (T1 below, measured).
         let gradient = r#"<rdf:li><rdf:Description crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.5" crs:ZeroY="0.5" crs:FullX="0.5" crs:FullY="0"/></rdf:li>
      <rdf:li><rdf:Description crs:What="Mask/Aggregate""#;
         let mixed = brush("0", "false").replacen(
@@ -3346,42 +3414,255 @@ mod tests {
             gradient,
             1,
         );
-        // After additive components its erasers cut the brush alone, so it
-        // goes first (c ∪ b·(1 − e) in either order, measured in Camera Raw).
-        let (layers, skipped) = super::lightroom_masks(&mixed);
-        assert!(skipped.is_empty());
-        let subs = layers[0]["subMasks"].as_array().unwrap();
-        let modes: Vec<_> = subs
+        let modes: Vec<_> = subs_of(&mixed)
             .iter()
-            .map(|s| (s["type"].as_str().unwrap(), s["mode"].as_str().unwrap()))
+            .map(|s| {
+                (
+                    s["type"].as_str().unwrap().to_string(),
+                    s["mode"].as_str().unwrap().to_string(),
+                )
+            })
             .collect();
         assert_eq!(
             modes,
             [
-                ("brush", "additive"),
-                ("brush", "intersect"),
-                ("linear", "additive")
+                ("linear".into(), "additive".into()),
+                ("brush".into(), "additive".into())
             ]
         );
-        // After a component that subtracts the order matters: left out.
+        // After a component that subtracts too.
         let after_subtract = mixed.replace(
             r#"crs:What="Mask/Gradient" crs:MaskValue="1""#,
-            r#"crs:What="Mask/Gradient" crs:MaskBlendMode="1" crs:MaskValue="1""#,
+            r#"crs:What="Mask/Gradient" crs:MaskBlendMode="1" crs:MaskValue="0""#,
+        );
+        assert_eq!(subs_of(&after_subtract).len(), 2);
+        // Two aggregates with erasers, the second hidden or not: two
+        // components, each with its own eraser.
+        let aggregate = brush("0", "false")
+            .split(r#"<rdf:li><rdf:Description crs:What="Mask/Aggregate""#)
+            .nth(1)
+            .unwrap()
+            .split("</crs:Masks>")
+            .next()
+            .unwrap()
+            .to_string();
+        let doubled = brush("0", "false").replacen(
+            "</crs:Masks>\n     </rdf:Description></rdf:li>",
+            &format!(
+                "</crs:Masks>\n     </rdf:Description></rdf:li>\n     <rdf:li><rdf:Description crs:What=\"Mask/Aggregate\"{aggregate}</crs:Masks>\n     </rdf:Description></rdf:li>"
+            ),
+            1,
+        );
+        assert_eq!(doubled.matches("Mask/Aggregate").count(), 2);
+        let both = subs_of(&doubled);
+        assert_eq!(both.len(), 2);
+        assert!(both.iter().all(|s| s["visible"] == json!(true)));
+        let hidden = doubled.replacen(
+            r#"crs:MaskInverted="false" crs:MaskValue="1""#,
+            r#"crs:MaskInverted="false" crs:MaskValue="1" crs:MaskActive="false""#,
+            1,
+        );
+        let visible: Vec<_> = subs_of(&hidden)
+            .iter()
+            .map(|s| s["visible"].clone())
+            .collect();
+        assert_eq!(visible, [json!(false), json!(true)]);
+        // An aggregate of other components: flat when it adds and does not erase.
+        let mixed_children = brush("0", "false").replacen(
+            r#"<rdf:li><rdf:Description crs:What="Mask/Paint" crs:MaskValue="0" crs:Radius="0.02" crs:Flow="1" crs:CenterWeight="0">
+        <crs:Dabs><rdf:Seq><rdf:li>d 0.63 0.50</rdf:li></rdf:Seq></crs:Dabs>
+       </rdf:Description></rdf:li>"#,
+            r#"<rdf:li><rdf:Description crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.5" crs:ZeroY="0.5" crs:FullX="0.5" crs:FullY="0"/></rdf:li>"#,
+            1,
+        );
+        assert_eq!(subs_of(&mixed_children).len(), 2);
+        // An eraser with Auto Mask stays separate stroke components, the
+        // eraser an Intersect with Invert gated like a brush (as before); the
+        // group goes first when only additive components precede it.
+        let auto_eraser = brush("0", "false").replace(
+            "<rdf:li>d 0.63 0.50</rdf:li>",
+            "<rdf:li>M 0.63 0.50</rdf:li>",
+        );
+        let subs = subs_of(&auto_eraser);
+        assert_eq!(subs.len(), 2);
+        assert_eq!(
+            (subs[1]["mode"].as_str(), subs[1]["invert"].as_bool()),
+            (Some("intersect"), Some(true))
+        );
+        assert_eq!(
+            subs[1]["parameters"]["lrNormalized"]["strokes"][0]["autoMask"],
+            json!(true)
+        );
+        let after_gradient = auto_eraser.replacen(
+            r#"<rdf:li><rdf:Description crs:What="Mask/Aggregate""#,
+            gradient,
+            1,
+        );
+        let types: Vec<_> = subs_of(&after_gradient)
+            .iter()
+            .map(|s| s["type"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(types, ["brush", "brush", "linear"]);
+        // After an inverted component: Add commutes, still first.
+        let inverted_before = after_gradient.replace(
+            r#"crs:What="Mask/Gradient" crs:MaskValue="1""#,
+            r#"crs:What="Mask/Gradient" crs:MaskInverted="true" crs:MaskValue="1""#,
+        );
+        assert_eq!(subs_of(&inverted_before).len(), 3);
+        // After a component that subtracts: left out and named.
+        let after_subtract = after_gradient.replace(
+            r#"crs:What="Mask/Gradient" crs:MaskValue="1""#,
+            r#"crs:What="Mask/Gradient" crs:MaskBlendMode="1" crs:MaskValue="0""#,
         );
         let (layers, skipped) = super::lightroom_masks(&after_subtract);
         assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
-        let no_eraser = mixed.replace(
-            r#"crs:MaskValue="0" crs:Radius="0.02""#,
-            r#"crs:MaskValue="1" crs:Radius="0.02""#,
+        let inverted_group = auto_eraser.replace(
+            r#"crs:MaskInverted="false" crs:MaskValue="1""#,
+            r#"crs:MaskInverted="true" crs:MaskValue="1""#,
         );
-        let (layers, skipped) = super::lightroom_masks(&no_eraser);
-        assert!(skipped.is_empty());
-        assert_eq!(layers[0]["subMasks"].as_array().unwrap().len(), 3);
-        // An aggregate that subtracts or is inverted is not flattened.
-        for (blend, inverted) in [("1", "false"), ("0", "true")] {
-            let (layers, skipped) = super::lightroom_masks(&brush(blend, inverted));
-            assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
-        }
+        let (layers, skipped) = super::lightroom_masks(&inverted_group);
+        assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
+        // An active stroke without readable dabs is named, not dropped.
+        let no_dabs = brush("0", "false").replace("<rdf:li>d 0.63 0.50</rdf:li>", "");
+        let (layers, skipped) = super::lightroom_masks(&no_dabs);
+        assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
+        let erasing = mixed_children.replace(
+            r#"crs:What="Mask/Gradient" crs:MaskValue="1""#,
+            r#"crs:What="Mask/Gradient" crs:MaskValue="0""#,
+        );
+        let (layers, skipped) = super::lightroom_masks(&erasing);
+        assert!(layers.is_empty() && skipped == vec!["Brush".to_string()]);
+    }
+
+    /// Two erasing brush groups, one hidden, then both on: Lightroom's own
+    /// rendering (MSK5, X-T30 and X-T5, 1500 px, coverage read back like
+    /// MSK3) is screen(group 1, group 2) with each eraser cutting only its
+    /// own group: law error 0.0000 on both photos, hidden group = the other
+    /// one alone, no group = nothing. The importer used to leave the layer out.
+    #[test]
+    fn lightroom_erasing_groups_combine_like_lightroom_renders_them() {
+        use rawtonic_engine::mask_generation::{PhotoGeometry, generate_layer_mask};
+        use rawtonic_engine::masks::MaskDefinition;
+        let (w, h) = (96u32, 64u32);
+        let stroke = |points: &[(f64, f64)], radius: f64, value: f64| {
+            // A dab every 0.2 radius along the polyline (the measured spacing).
+            let step = 0.2 * radius * f64::from(w);
+            let mut dabs = vec![points[0]];
+            let mut carried = 0.0;
+            for pair in points.windows(2) {
+                let (dx, dy) = (
+                    (pair[1].0 - pair[0].0) * f64::from(w),
+                    (pair[1].1 - pair[0].1) * f64::from(h),
+                );
+                let length = dx.hypot(dy);
+                let mut at = step - carried;
+                while at <= length {
+                    dabs.push((
+                        pair[0].0 + (pair[1].0 - pair[0].0) * at / length,
+                        pair[0].1 + (pair[1].1 - pair[0].1) * at / length,
+                    ));
+                    at += step;
+                }
+                carried = length - (at - step);
+            }
+            let dabs: String = dabs
+                .iter()
+                .map(|(x, y)| format!("<rdf:li>d {x:.6} {y:.6}</rdf:li>"))
+                .collect();
+            format!(
+                r#"<rdf:li><rdf:Description crs:What="Mask/Paint" crs:MaskValue="{value}" crs:Radius="{radius}" crs:Flow="1" crs:CenterWeight="0"><crs:Dabs><rdf:Seq>{dabs}</rdf:Seq></crs:Dabs></rdf:Description></rdf:li>"#
+            )
+        };
+        let group = |active: bool, strokes: &[String]| {
+            format!(
+                r#"<rdf:li><rdf:Description crs:What="Mask/Aggregate" crs:MaskBlendMode="0" crs:MaskInverted="false" crs:MaskValue="1" crs:MaskActive="{active}"><crs:Masks><rdf:Seq>{}</rdf:Seq></crs:Masks></rdf:Description></rdf:li>"#,
+                strokes.concat()
+            )
+        };
+        // MSK5's geometry: brush 1 upper, eraser 1 across it, brush 2 lower
+        // and eraser 2 across both brushes.
+        let g1 = [
+            stroke(&[(0.18, 0.33), (0.62, 0.33)], 0.09, 1.0),
+            stroke(&[(0.40, 0.15), (0.40, 0.60)], 0.05, 0.0),
+        ];
+        let g2 = [
+            stroke(&[(0.38, 0.58), (0.82, 0.58)], 0.09, 1.0),
+            stroke(&[(0.56, 0.15), (0.56, 0.75)], 0.05, 0.0),
+        ];
+        let layer_of = |groups: String| -> MaskDefinition {
+            let xmp = format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"><crs:MaskGroupBasedCorrections><rdf:Seq><rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="m" crs:LocalExposure2012="-0.375"><crs:CorrectionMasks><rdf:Seq>{groups}</rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li></rdf:Seq></crs:MaskGroupBasedCorrections></rdf:Description></rdf:RDF></x:xmpmeta>"#
+            );
+            let (layers, skipped) = super::lightroom_masks(&xmp);
+            assert!(skipped.is_empty(), "{skipped:?}");
+            let mut adjustments = json!({ "masks": layers });
+            assert!(super::place_lightroom_geometry(
+                &mut adjustments,
+                f64::from(w),
+                f64::from(h),
+                1
+            ));
+            serde_json::from_value(adjustments["masks"][0].clone()).unwrap()
+        };
+        let coverage = |layer: &MaskDefinition| -> Vec<f32> {
+            let bitmap = generate_layer_mask(
+                layer,
+                w,
+                h,
+                1.0,
+                (0.0, 0.0),
+                &PhotoGeometry::default(),
+                None,
+            )
+            .unwrap();
+            match bitmap.wide().map(<[u16]>::to_vec) {
+                Some(wide) => wide.iter().map(|v| f32::from(*v) / 65535.0).collect(),
+                None => bitmap
+                    .into_bytes()
+                    .pixels()
+                    .map(|p| f32::from(p[0]) / 255.0)
+                    .collect(),
+            }
+        };
+        let one = coverage(&layer_of(group(true, &g1)));
+        let two = coverage(&layer_of(group(true, &g2)));
+        let both = coverage(&layer_of(group(true, &g1) + &group(true, &g2)));
+        let second_hidden = coverage(&layer_of(group(true, &g1) + &group(false, &g2)));
+        let first_hidden = coverage(&layer_of(group(false, &g1) + &group(true, &g2)));
+        let none = coverage(&layer_of(group(false, &g1) + &group(false, &g2)));
+        let worst = |x: &[f32], y: &[f32]| {
+            x.iter()
+                .zip(y)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0, f32::max)
+        };
+        let screen: Vec<f32> = one.iter().zip(&two).map(|(a, b)| a + b - a * b).collect();
+        assert!(
+            worst(&both, &screen) <= 4.0 / 255.0,
+            "screen(g1, g2): {}",
+            worst(&both, &screen)
+        );
+        assert!(worst(&second_hidden, &one) <= 4.0 / 255.0, "hidden second");
+        assert!(worst(&first_hidden, &two) <= 4.0 / 255.0, "hidden first");
+        assert!(none.iter().all(|v| *v <= 1.0 / 255.0), "both hidden");
+        // Eraser 2 crosses brush 1 and leaves it (LR: 0.768 before and after),
+        // eraser 1 crosses brush 2 and leaves it (0.846): the groups are
+        // not one flat sequence.
+        let at = |c: &[f32], x: f64, y: f64| {
+            c[(y * f64::from(h)) as usize * w as usize + (x * f64::from(w)) as usize]
+        };
+        assert!(
+            at(&both, 0.56, 0.33) > 0.5
+                && (at(&both, 0.56, 0.33) - at(&one, 0.56, 0.33)).abs() <= 4.0 / 255.0
+        );
+        assert!(
+            at(&both, 0.40, 0.58) > 0.5
+                && (at(&both, 0.40, 0.58) - at(&two, 0.40, 0.58)).abs() <= 4.0 / 255.0
+        );
+        assert!(
+            at(&both, 0.40, 0.33) < 0.05 && at(&both, 0.56, 0.58) < 0.05,
+            "each eraser cuts its own group"
+        );
     }
 
     #[test]

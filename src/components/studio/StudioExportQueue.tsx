@@ -12,7 +12,7 @@ import {
   type ExportItemLive,
   type ExportJob
 } from '../../store/useProcessStore';
-import { describeExistingFiles, outputFolder } from '../../utils/exportFeedback';
+import { describeCompletedExports, outputFolder } from '../../utils/exportFeedback';
 import { renderErrorMessage } from '../../utils/renderErrors';
 import { exportTimeLeft, splitTimeLeft } from '../../utils/exportTimeLeft';
 import { Invokes } from '../ui/AppProperties';
@@ -21,9 +21,12 @@ import { sourceOf } from '../../entities/photo/photoRef';
 
 /** What a queued job's state means for the photographer. */
 export function describeExportJob(job: ExportJob): string {
-  const existing = describeExistingFiles(job);
   const described = describeJobState(job);
-  return existing && (job.state === 'done' || job.state === 'failed') ? `${described} · ${existing}` : described;
+  // A job-level failure (such as an unassembled proof sheet) can have
+  // staged files but no exported photos to count.
+  const completed =
+    job.state === 'done' || (job.state === 'failed' && job.failed > 0) ? describeCompletedExports(job) : '';
+  return completed ? `${described} · ${completed}` : described;
 }
 
 function describeJobState(job: ExportJob): string {
@@ -191,8 +194,9 @@ function ExportJobRow({ job, held, full }: { job: ExportJob; held: boolean; full
   ];
   const running = job.state === 'running';
   const now = useNow(running && full);
-  const finished = items ? items.filter((item) => item.state === 'done').length : job.done;
-  const failed = items ? items.filter((item) => item.state === 'failed').length : job.failed;
+  const liveItems = job.state === 'done' || job.state === 'failed' ? undefined : items;
+  const finished = liveItems ? liveItems.filter((item) => item.state === 'done').length : job.done;
+  const failed = liveItems ? liveItems.filter((item) => item.state === 'failed').length : job.failed;
   const toggle = () => {
     if (!open) void loadExportItems(job.id);
     setOpen(!open);
@@ -219,9 +223,7 @@ function ExportJobRow({ job, held, full }: { job: ExportJob; held: boolean; full
           {job.label}
           <small>
             {/* The job's counts change only between runs; its photos live. */}
-            {pausing
-              ? t('studio.export.queue.pausing')
-              : describeExportJob(items ? { ...job, done: finished, failed } : job)}
+            {pausing ? t('studio.export.queue.pausing') : describeExportJob({ ...job, done: finished, failed })}
             {running && full && ` · ${describeTimeLeft(items ? exportTimeLeft(items, now) : null)}`}
             {folders.map((folder) => (
               <span key={folder} style={{ display: 'block', overflowWrap: 'anywhere' }}>

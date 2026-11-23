@@ -89,7 +89,6 @@
       "running": "Nulla in corso."
     },
     "export": {
-      "done": "{{label}} esportato ({{existing}})",
       "failed_one": "{{count}} foto non esportata: {{label}}",
       "failed_many": "{{count}} foto non esportate: {{label}}",
       "failed_other": "{{count}} foto non esportate: {{label}}",
@@ -3936,7 +3935,10 @@
           "replaced_other": "{{count}} sostituite",
           "skipped_one": "{{count}} saltata",
           "skipped_many": "{{count}} saltate",
-          "skipped_other": "{{count}} saltate"
+          "skipped_other": "{{count}} saltate",
+          "written_one": "{{count}} esportata",
+          "written_many": "{{count}} esportate",
+          "written_other": "{{count}} esportate"
         },
         "exportedTo": "Esportato in:",
         "failed": "{{failed}} di {{total}} non riuscite",
@@ -4306,6 +4308,7 @@
       "diffractionTitle": "Compensa la sfocatura dei diaframmi chiusi in base al numero f e alla dimensione dei pixel",
       "distortion": "Distorsione",
       "enable": "Attiva correzioni del profilo",
+      "importedCorrection": "Correzione importata",
       "lookingUp": "Ricerca dell'obiettivo…",
       "make": "Marca",
       "manualVignetting": "Vignettatura dell’obiettivo",

@@ -74,7 +74,6 @@
       "running": "沒有進行中的工作。"
     },
     "export": {
-      "done": "已匯出 {{label}}（{{existing}}）",
       "failed_other": "{{count}} 張照片未能輸出：{{label}}",
       "interrupted": "輸出已中斷：{{label}}",
       "nothingExported": "沒有匯出任何照片 — {{existing}} ({{label}})",
@@ -3664,7 +3663,8 @@
         "existing": {
           "keptBoth_other": "{{count}} 張使用新名稱",
           "replaced_other": "已取代 {{count}} 張",
-          "skipped_other": "已略過 {{count}} 張"
+          "skipped_other": "已略過 {{count}} 張",
+          "written_other": "已寫入 {{count}} 張"
         },
         "exportedTo": "匯出至：",
         "failed": "{{failed}}/{{total}} 失敗",
@@ -4022,6 +4022,7 @@
       "diffractionTitle": "依光圈值和像素尺寸銳化小光圈造成的模糊",
       "distortion": "變形",
       "enable": "啟用描述檔校正",
+      "importedCorrection": "已匯入的校正",
       "lookingUp": "正在尋找鏡頭…",
       "make": "品牌",
       "manualVignetting": "鏡頭暗角",

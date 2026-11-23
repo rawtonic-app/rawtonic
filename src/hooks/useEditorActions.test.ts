@@ -1281,6 +1281,26 @@ describe('styles', () => {
     await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
   });
 
+  it('keeps a pasted imported polynomial distortion on the open photo, resolved', async () => {
+    const { result } = renderHook(useEditorActions);
+    const own = {
+      ...useEditorStore.getState().adjustments,
+      lensCorrectionMode: 'auto',
+      lensMaker: 'Mine',
+      lensModel: 'Own lens'
+    };
+    useEditorStore.setState({ adjustments: own as never, history: [own as never], historyIndex: 0 });
+    const polynomial = { model: 0, k1: -0.036, k2: 0, k3: 0, zoom: 1, exact_zoom: true };
+    applyStyle(
+      result,
+      { lensCorrectionMode: 'manual', lensMaker: null, lensModel: null, lensDistortionParams: polynomial },
+      'poly'
+    );
+    expect(recipe()).toMatchObject({ lensCorrectionMode: 'manual', lensDistortionParams: polynomial });
+    expect(recipe().lensProfileFor).not.toBe('unresolved');
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
+  });
+
   it("applies a partial curve with every channel, so it is still the style's after reopening", async () => {
     const { result } = renderHook(useEditorActions);
     applyStyle(
