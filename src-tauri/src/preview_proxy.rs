@@ -2921,6 +2921,43 @@ pub(crate) mod tests {
         source_facts::forget(&path);
     }
 
+    /// CRD5: online, a Standard preview of the file as it is now (same size
+    /// and time) whose facts know every frame version gives the header check
+    /// its frames, so the RAW is not read for them (here it cannot be: a read
+    /// would answer the requested version itself). Facts that miss a version
+    /// leave the file to decide.
+    #[test]
+    fn a_current_header_gives_its_frames_without_reading_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("Job");
+        fs::create_dir_all(session.join("Capture")).unwrap();
+        fs::write(session.join("session.json"), "{}").unwrap();
+        fs::write(session.join("session.sqlite"), "").unwrap();
+        let photo = session.join("Capture").join("A.CR3");
+        fs::write(&photo, b"raw bytes").unwrap();
+        let recipe = frame_fixture::frame_one_edit();
+        let metadata = serde_json::json!({ "version": 1, "rating": 0, "adjustments": recipe });
+        fs::write(photo.with_file_name("A.CR3.rrdata"), metadata.to_string()).unwrap();
+        let settings = AppSettings::default();
+        let variant =
+            crate::image_loader::decode_variant_for_frame(&recipe, &photo.to_string_lossy(), 0);
+        let image = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(80, 60, |x, y| {
+            image::Rgb([x as f32 / 80.0, y as f32 / 60.0, 0.25])
+        }));
+        write(&photo, &image, 40, &settings, variant, None).unwrap();
+        let every = source_frame::VERSION as usize + 1;
+        let mut changed = vec![0; every];
+        changed[1] = 1;
+        for (frames, current) in [(vec![0; every], true), (changed, false), (vec![0], false)] {
+            record_standard_frames_for_test(&photo, frames.clone());
+            assert_eq!(
+                standard_header_is_current(&photo, &settings, &recipe),
+                current,
+                "{frames:?}"
+            );
+        }
+    }
+
     /// Offline and cold (nothing registered), a virtual copy of an edit from
     /// before the key stands for its master's previews of a new edit where
     /// the previews' facts say both frame versions develop the file alike.

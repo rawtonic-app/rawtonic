@@ -163,6 +163,44 @@ mod tests {
         assert!(crate::capture_info::open_for_metadata("/no/such/A.ARW").is_none());
     }
 
+    /// Inside `with_source_kept` the first whole read of a file stands for
+    /// it until the scope ends (one read for all of a base look's facts,
+    /// CRD5); nested scopes keep it, other files and a held buffer are
+    /// untouched, and nothing is kept afterwards.
+    #[test]
+    fn a_kept_source_is_read_once_per_scope() {
+        use crate::capture_info::{read_for_metadata, with_held_source, with_source_kept};
+        let dir = tempfile::tempdir().unwrap();
+        let path = file_of(dir.path(), "A.ARW", 1000);
+        let other = file_of(dir.path(), "B.ARW", 10);
+        let (path, other) = (path.to_str().unwrap(), other.to_str().unwrap());
+        let read = |p: &str| (*read_for_metadata(p).unwrap()).as_ref().to_vec();
+        let first = fs::read(path).unwrap();
+        with_source_kept(path, || {
+            assert_eq!(read(path), first);
+            // A second read of the file would see this.
+            fs::write(path, b"changed").unwrap();
+            assert_eq!(read(path), first);
+            with_source_kept(path, || assert_eq!(read(path), first));
+            assert_eq!(read(path), first);
+            assert_eq!(read(other), fs::read(other).unwrap());
+        });
+        assert_eq!(read(path), b"changed");
+        let held: crate::capture_info::SharedBuf = std::sync::Arc::new(vec![7u8; 3]);
+        with_held_source(path, held, || {
+            with_source_kept(path, || assert_eq!(read(path), vec![7u8; 3]));
+            assert_eq!(read(path), vec![7u8; 3]);
+        });
+        let _ = std::panic::catch_unwind(|| {
+            with_source_kept(path, || {
+                let _ = read(path);
+                panic!("fact failed")
+            })
+        });
+        fs::write(path, b"again").unwrap();
+        assert_eq!(read(path), b"again");
+    }
+
     /// A panic inside the call does not leave the buffer held.
     #[test]
     fn a_held_buffer_is_released_when_the_call_panics() {
