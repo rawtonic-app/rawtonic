@@ -730,7 +730,7 @@ pub fn merge_hdr(
         // them): the usable weight and colour of the samples that merged,
         // and whether any was rejected at full resolution. Such cells
         // enter the consensus with what merged, not with their average.
-        let bands: Vec<(Vec<Vec<f32>>, Vec<[f32; 4]>, Vec<bool>)> = num
+        let bands: Vec<MergeBand> = num
             .par_chunks_mut(wu * 3 * f)
             .zip(den.par_chunks_mut(wu * f))
             .enumerate()
@@ -912,6 +912,11 @@ pub fn merge_hdr(
         ghost_mask: ghost_union,
     })
 }
+
+/// One low-res row of the merge loop: the bright-reference rejections per
+/// full-res row (summed per low-res column), and per low-res cell the merged
+/// sums and whether a sample was rejected (`MergedCells`).
+type MergeBand = (Vec<Vec<f32>>, Vec<[f32; 4]>, Vec<bool>);
 
 /// What merged of one frame per low-res cell: the usable weight and the
 /// weighted colour summed over the cell's pixels (`f`×`f` of the `w`×`h`
