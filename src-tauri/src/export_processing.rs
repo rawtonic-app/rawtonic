@@ -2,7 +2,7 @@
 //! queue, its Tauri commands and events, sidecar and session access and the
 //! metadata embedding stay here; the render and encoders live in the crate.
 use rawtonic_export::existing_files::{
-    self, Decision, ExistingFiles, ExportRecords, Outcome, Previous, Recorded,
+    self, Decision, ExistingFiles, ExportRecords, History, Outcome, Recorded,
 };
 pub use rawtonic_export::export_processing::*;
 use rawtonic_export::file_export::require_local_tiff;
@@ -1638,27 +1638,6 @@ pub(crate) fn known_libraries(
         .collect()
 }
 
-/// What is known of the file at `path`: an original when a known library
-/// lists it as a photo, else what an export recorded for it.
-pub(crate) fn previous_export(
-    path: &Path,
-    known_libraries: &[std::path::PathBuf],
-    records: Option<&ExportRecords>,
-) -> Previous {
-    if crate::session_bridge::is_library_photo(path, known_libraries) {
-        return Previous::Original;
-    }
-    records
-        .and_then(|records| match records.get(path) {
-            Ok(recorded) => recorded,
-            Err(e) => {
-                log::warn!("Export records: reading {} failed: {e}", path.display());
-                None
-            }
-        })
-        .into()
-}
-
 /// What decides a photo's exports besides each recipe, for Replace if
 /// changed: the photo as queued (its recipe, library metadata, corrected
 /// capture time and the original's file), the preferences the render reads
@@ -1719,6 +1698,7 @@ pub(crate) enum Planned {
     /// ([`Outcome::KeptBoth`], [`Outcome::KeptOriginal`]).
     Write {
         path: std::path::PathBuf,
+        slot: std::path::PathBuf,
         replace: Option<Recorded>,
         kept: Option<Outcome>,
     },
@@ -1753,15 +1733,14 @@ impl Planned {
 /// The file a recipe writes for a photo: its name from the recipe's
 /// template, in the recipe's folder, never over another output of this run
 /// and over an existing file only as the recipe's "If a file exists"
-/// choice allows (`existing_files::decide`: by default a numbered name).
+/// choice allows (`History::decide`: by default a numbered name).
 /// With separate mask files the name holds for its `mask_layers` layers'
 /// files too, which are reserved with it: recipes of photos exported side
 /// by side would otherwise take the name of a mask file not written yet.
 /// `source` is the photo (a virtual copy's path), `inputs` this export's
-/// `existing_files::inputs_hash`, `previous` reads what was recorded for a
-/// file.
+/// `existing_files::inputs_hash`, and `history` reads previous exports.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_output_path(
+pub(crate) fn plan_output_path<'a>(
     target: &ExportTarget,
     item: &PhotoItem,
     source_path: &Path,
@@ -1770,8 +1749,8 @@ pub(crate) fn plan_output_path(
     mask_layers: usize,
     used_paths: &Mutex<std::collections::HashSet<std::path::PathBuf>>,
     source: &str,
-    inputs: &str,
-    previous: &dyn Fn(&Path) -> Previous,
+    inputs: impl Fn() -> &'a str,
+    history: &History<'_>,
     create_folders: bool,
 ) -> Result<Planned, String> {
     let export_settings = &target.export_settings;
@@ -1797,7 +1776,8 @@ pub(crate) fn plan_output_path(
     let new_filename = format!("{}.{}", new_stem, target.output_format);
 
     let beside_original = export_settings.destination_type.as_deref() == Some("originalFolder");
-    let mut output_path = if !beside_original && target.is_explicit_file_path && total_paths == 1 {
+    let explicit = target.is_explicit_file_path && total_paths == 1;
+    let slot = if !beside_original && explicit {
         output_folder_path.to_path_buf()
     } else {
         let dir = export_directory(
@@ -1833,79 +1813,30 @@ pub(crate) fn plan_output_path(
             .collect::<Vec<_>>()
     };
 
-    // A file the user named (Save As): decided as for any file; Keep both and
-    // Replace if changed finding a file there number the new one beside it
-    // (never a failure at the write after the render).
-    if target.is_explicit_file_path && total_paths == 1 {
-        let exists = output_path.exists();
-        let decision = existing_files::decide(
-            policy,
-            &output_path,
-            exists,
-            false,
-            mask_layers > 0,
-            || previous(&output_path),
-            source,
-            inputs,
-        );
-        return Ok(match decision {
-            Decision::Skip(outcome) => Planned::Skip {
-                path: output_path,
-                outcome,
-            },
-            Decision::Replace(recorded) => Planned::Write {
-                path: output_path,
-                replace: Some(recorded),
-                kept: None,
-            },
-            Decision::Number { reported } => {
-                let stem = output_path
-                    .file_stem()
-                    .map(|stem| stem.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                let extension = output_path
-                    .extension()
-                    .map(|ext| ext.to_string_lossy().into_owned())
-                    .unwrap_or(extension);
-                let mut used = used_paths.lock().unwrap();
-                let mut counter = 1;
-                let mut numbered = output_path.clone();
-                while family(&numbered)
-                    .iter()
-                    .any(|path| path.exists() || used.contains(path))
-                {
-                    numbered = output_path.with_file_name(format!("{stem}_{counter}.{extension}"));
-                    counter += 1;
-                }
-                used.extend(family(&numbered));
-                Planned::Write {
-                    path: numbered,
-                    replace: None,
-                    kept: reported,
-                }
-            }
-            Decision::Write => Planned::Write {
-                path: output_path,
-                replace: None,
-                kept: None,
-            },
-        });
-    }
-
     let mut used = used_paths.lock().unwrap();
-    let exists = family(&output_path).iter().any(|path| path.exists());
-    let taken = family(&output_path).iter().any(|path| used.contains(path));
-    let (replace, kept) = match existing_files::decide(
+    let taken = |path: &Path| family(path).iter().any(|path| used.contains(path));
+    // Save As checks the file the user named. Numbered names still reserve
+    // their entire family, as they do for folder exports.
+    let exists = if explicit {
+        slot.exists()
+    } else {
+        family(&slot).iter().any(|path| path.exists())
+    };
+    let (mut output_path, decision) = history.decide(
         policy,
-        &output_path,
+        &slot,
         exists,
-        taken,
+        !explicit && taken(&slot),
         mask_layers > 0,
-        || previous(&output_path),
         source,
         inputs,
-    ) {
+        taken,
+    );
+    let (replace, kept) = match decision {
         Decision::Skip(outcome) => {
+            if outcome == Outcome::SkippedUnchanged && output_path != slot {
+                used.extend(family(&output_path));
+            }
             return Ok(Planned::Skip {
                 path: output_path,
                 outcome,
@@ -1914,25 +1845,32 @@ pub(crate) fn plan_output_path(
         Decision::Write => (None, None),
         Decision::Replace(recorded) => (Some(recorded), None),
         Decision::Number { reported } => {
-            let parent_dir = output_path
-                .parent()
-                .unwrap_or(std::path::Path::new(""))
-                .to_path_buf();
+            let (stem, extension) = if explicit {
+                (
+                    slot.file_stem().unwrap_or_default().to_string_lossy(),
+                    slot.extension()
+                        .map_or_else(|| extension.as_str().into(), |ext| ext.to_string_lossy()),
+                )
+            } else {
+                (new_stem.as_str().into(), extension.as_str().into())
+            };
             let mut counter = 1;
             while family(&output_path)
                 .iter()
                 .any(|path| path.exists() || used.contains(path))
             {
-                let incremented_filename = format!("{}_{}.{}", new_stem, counter, extension);
-                output_path = parent_dir.join(&incremented_filename);
+                output_path = slot.with_file_name(format!("{stem}_{counter}.{extension}"));
                 counter += 1;
             }
             (None, reported)
         }
     };
-    used.extend(family(&output_path));
+    if !explicit || output_path != slot {
+        used.extend(family(&output_path));
+    }
     Ok(Planned::Write {
         path: output_path,
+        slot,
         replace,
         kept,
     })
@@ -2171,7 +2109,7 @@ fn export_photo(
     let inputs = |target: usize| {
         inputs_of[target]
             .get_or_init(|| hash_inputs(target))
-            .clone()
+            .as_str()
     };
     // The photo as its exports are recorded: its path and its original's
     // file, so another photo put at the same path is never taken for it.
@@ -2187,9 +2125,10 @@ fn export_photo(
             .get_or_init(|| open_export_records(app_handle))
             .as_ref()
     };
-    // The previous export recorded at `path`, unless the file there is an
-    // original by now (added to a library, or edited as a photo).
-    let previous = |path: &Path| previous_export(path, &known_libraries, records());
+    let history = History {
+        records: &records,
+        is_original: &|path| crate::session_bridge::is_library_photo(path, &known_libraries),
+    };
     // Named as before for every choice: the name may need the capture date
     // or facts (read from the original when the snapshot has none).
     let file_date = pinned.naming_date(original_path);
@@ -2208,6 +2147,7 @@ fn export_photo(
             .count();
     let plan_target = |target: usize| {
         planned.once(target, || {
+            let inputs = inputs(target);
             plan_output_path(
                 &targets[target],
                 &item,
@@ -2217,11 +2157,8 @@ fn export_photo(
                 mask_layers,
                 used_paths,
                 photo,
-                &inputs(target),
-                &|path| match &photo_key {
-                    Some(_) => previous(path),
-                    None => Previous::Unknown,
-                },
+                || inputs,
+                &history,
                 true,
             )
         })
@@ -2269,18 +2206,19 @@ fn export_photo(
     // reported.
     let published = |target: usize, output_path: &Path, written: Option<Written>| {
         planned.published(target);
-        if let (Some(records), Some(photo), Some(written)) =
-            (records(), photo_key.as_deref(), written.as_ref())
-            && let Err(e) = records.record_written(output_path, photo, &inputs(target), written)
+        let plan = planned.get(target);
+        if let Some(Planned::Write { slot, .. }) = &plan
+            && let (Some(records), Some(photo), Some(written)) =
+                (records(), photo_key.as_deref(), written.as_ref())
+            && let Err(e) =
+                records.record_written(output_path, slot, photo, inputs(target), written)
         {
             log::warn!(
                 "Export records: recording {} failed: {e}",
                 output_path.display()
             );
         }
-        let outcome = planned
-            .get(target)
-            .map_or(Outcome::Written, |planned| planned.outcome());
+        let outcome = plan.map_or(Outcome::Written, |planned| planned.outcome());
         if outcome != Outcome::Written {
             report_outcome(target, outcome, output_path);
         }
@@ -3476,7 +3414,7 @@ fn estimate_sizes(
 #[cfg(test)]
 mod tests {
     use super::{
-        ExportTarget, PhotoItem, PlannedFiles, Previous, crashed_export_error, export_in_turn,
+        ExportTarget, History, PhotoItem, PlannedFiles, crashed_export_error, export_in_turn,
         is_open_edit, render_groups_for_streaming_tiffs,
     };
 
@@ -3500,8 +3438,11 @@ mod tests {
             mask_layers,
             used,
             item.image_path_str,
-            "inputs",
-            &|_| Previous::Unknown,
+            || "inputs",
+            &History {
+                records: &|| None,
+                is_original: &|_| false,
+            },
             true,
         )
         .map(|planned| planned.path().to_path_buf())
@@ -4317,8 +4258,11 @@ mod tests {
                 0,
                 &used,
                 "a.CR3",
-                "inputs",
-                &|_| Previous::Unknown,
+                || "inputs",
+                &History {
+                    records: &|| None,
+                    is_original: &|_| false,
+                },
                 true,
             )
         };
@@ -4458,7 +4402,10 @@ mod tests {
                 explicit_vc: None,
                 total_paths: 1,
             };
-            let previous = |path: &Path| Previous::from(records.get(path).unwrap());
+            let history = History {
+                records: &|| Some(&records),
+                is_original: &|_| false,
+            };
             plan_with(
                 target,
                 &item,
@@ -4468,8 +4415,8 @@ mod tests {
                 0,
                 &used,
                 item.image_path_str,
-                inputs,
-                &previous,
+                || inputs,
+                &history,
                 true,
             )
             .unwrap()
@@ -4489,6 +4436,30 @@ mod tests {
         let planned = plan(&replace, &raw, "v1");
         assert_eq!(planned.outcome(), Outcome::KeptBoth);
         assert_eq!(planned.path(), dir.path().join("a_1.jpg"));
+        let numbered = planned.path().to_path_buf();
+        rawtonic_fs::atomic_write(&numbered, b"numbered v1").unwrap();
+        records
+            .record_written(
+                &numbered,
+                &partner,
+                raw_key,
+                "v1",
+                &super::Written {
+                    size: b"numbered v1".len() as u64,
+                    sha256: rawtonic_fs::sha256_hex(b"numbered v1"),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            plan(&replace, &raw, "v1"),
+            Planned::Skip {
+                path: numbered.clone(),
+                outcome: Outcome::SkippedUnchanged,
+            }
+        );
+        let changed = plan(&replace, &raw, "v2");
+        assert_eq!(changed.outcome(), Outcome::Replaced);
+        assert_eq!(changed.path(), numbered);
 
         // Our own export, recorded: unchanged → skipped, changed → replaced.
         let export = target("replaceIfChanged", "{orig_base}-edited");
@@ -4497,6 +4468,7 @@ mod tests {
             plan(&export, &raw, "v1"),
             Planned::Write {
                 path: own.clone(),
+                slot: own.clone(),
                 replace: None,
                 kept: None
             }
@@ -4527,7 +4499,7 @@ mod tests {
             .unwrap();
         assert_eq!(std::fs::read(&own).unwrap(), b"export v2");
         records
-            .record_written(&own, raw_key, "v2", &written)
+            .record_written(&own, &own, raw_key, "v2", &written)
             .unwrap();
         assert_eq!(
             plan(&export, &raw, "v2").outcome(),
@@ -4560,7 +4532,7 @@ mod tests {
         save_as.export_settings.destination_type = None;
         save_as.output_folder_or_file = partner.to_string_lossy().into_owned();
         let planned = plan(&save_as, &raw, "v1");
-        assert_eq!(planned.outcome(), Outcome::KeptBoth);
+        assert_eq!(planned.outcome(), Outcome::SkippedUnchanged);
         assert_eq!(planned.path(), dir.path().join("a_1.jpg"));
         save_as.export_settings.existing_files = ExistingFiles::Skip;
         assert_eq!(plan(&save_as, &raw, "v1").outcome(), Outcome::SkippedExists);
@@ -4570,7 +4542,7 @@ mod tests {
         for choice in [ExistingFiles::KeepBoth, ExistingFiles::Ask] {
             save_as.export_settings.existing_files = choice;
             let planned = plan(&save_as, &raw, "v1");
-            assert_eq!(planned.path(), dir.path().join("a_1.jpg"), "{choice:?}");
+            assert_eq!(planned.path(), dir.path().join("a_2.jpg"), "{choice:?}");
             assert_eq!(planned.outcome(), Outcome::Written);
         }
         // A free Save As name is used as it is.
