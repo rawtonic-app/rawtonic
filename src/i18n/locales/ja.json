@@ -77,6 +77,7 @@
       "done": "{{label}} を書き出しました（{{existing}}）",
       "failed_other": "{{count}} 枚の写真を書き出せませんでした: {{label}}",
       "interrupted": "書き出しが中断されました: {{label}}",
+      "nothingExported": "書き出しはありません — {{existing}} ({{label}})",
       "running": "書き出し中: {{label}}",
       "waiting": "書き出し待ち: {{label}}"
     },

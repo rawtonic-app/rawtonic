@@ -104,6 +104,7 @@
       "failed_many": "{{count}} фото не экспортировано: {{label}}",
       "failed_other": "{{count}} фото не экспортировано: {{label}}",
       "interrupted": "Экспорт прерван: {{label}}",
+      "nothingExported": "Ничего не экспортировано — {{existing}} ({{label}})",
       "running": "Экспорт: {{label}}",
       "waiting": "Ожидает экспорта: {{label}}"
     },

@@ -104,6 +104,7 @@
       "failed_many": "{{count}} zdjęć nie zostało wyeksportowanych: {{label}}",
       "failed_other": "{{count}} zdjęć nie zostało wyeksportowanych: {{label}}",
       "interrupted": "Eksport przerwany: {{label}}",
+      "nothingExported": "Nic nie wyeksportowano — {{existing}} ({{label}})",
       "running": "Eksportowanie: {{label}}",
       "waiting": "Czeka na eksport: {{label}}"
     },
