@@ -1983,13 +1983,22 @@ mod tests {
         assert_eq!(request.edit_target.as_ref(), Some(&targets[0]));
         let render = PathBuf::from(&targets[0].target);
         fs::write(&render, b"tiff").unwrap();
-        link_render(lib, &targets[0].source, &render, targets[0].metadata.as_ref()).unwrap();
+        link_render(
+            lib,
+            &targets[0].source,
+            &render,
+            targets[0].metadata.as_ref(),
+        )
+        .unwrap();
         let edit = lib.asset_at(&render).unwrap().unwrap();
         lib.sync_xmp(&edit.id).unwrap();
         let mut sidecars = String::new();
         for entry in fs::read_dir(render.parent().unwrap()).unwrap() {
             let path = entry.unwrap().path();
-            if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp")) {
+            if path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
+            {
                 sidecars.push_str(&fs::read_to_string(&path).unwrap());
             }
         }
@@ -2009,7 +2018,10 @@ mod tests {
             &dir,
             serde_json::json!({"jpegQuality": 90, "keepMetadata": false, "stripGps": true}),
         );
-        assert_eq!((got.creator.as_str(), got.copyright.as_str()), ("Ada", "(c) Ada"));
+        assert_eq!(
+            (got.creator.as_str(), got.copyright.as_str()),
+            ("Ada", "(c) Ada")
+        );
         assert_eq!(
             got.iptc.get("usageTerms").map(String::as_str),
             Some("Editorial only")
@@ -2018,7 +2030,10 @@ mod tests {
             assert!(!got.iptc.contains_key(key), "{key} registered");
         }
         assert_eq!((got.rating, got.title.as_str()), (0, ""));
-        assert!(sidecars.contains("Ada"), "the sync wrote the render's sidecar");
+        assert!(
+            sidecars.contains("Ada"),
+            "the sync wrote the render's sidecar"
+        );
         for private in ["ada@example.org", "555 0100", "Kiel", "Harbour"] {
             assert!(!sidecars.contains(private), "{private} in the sidecar");
         }

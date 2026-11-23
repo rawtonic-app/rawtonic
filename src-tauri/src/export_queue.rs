@@ -1422,12 +1422,17 @@ mod tests {
             completed_target(&job(json!({}))).unwrap().metadata,
             Some(stripped)
         );
-        let contact = completed_target(&job(json!({"keepMetadata": false, "keepCreatorContact": true})))
+        let contact = completed_target(&job(
+            json!({"keepMetadata": false, "keepCreatorContact": true}),
+        ))
+        .unwrap()
+        .metadata
+        .unwrap();
+        assert!(contact.iptc.contains_key("creatorEmail") && !contact.iptc.contains_key("city"));
+        let all = completed_target(&job(json!({"keepMetadata": true})))
             .unwrap()
             .metadata
             .unwrap();
-        assert!(contact.iptc.contains_key("creatorEmail") && !contact.iptc.contains_key("city"));
-        let all = completed_target(&job(json!({"keepMetadata": true}))).unwrap().metadata.unwrap();
         assert_eq!(all.iptc.get("city").map(String::as_str), Some("Kiel"));
     }
 
