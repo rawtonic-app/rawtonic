@@ -4834,6 +4834,7 @@
           "keyword": "Palavra-chave",
           "label": "Rótulo de cor",
           "lens": "Lente",
+          "lensImported": "Objetiva (nome do catálogo importado)",
           "make": "Fabricante da câmera",
           "offline": "Foto ausente",
           "previousImport": "Na importação anterior",

@@ -18,6 +18,7 @@ export type Field =
   | 'camera'
   | 'make'
   | 'lens'
+  | 'lensImported'
   | 'fileType'
   | 'rating'
   | 'flag'

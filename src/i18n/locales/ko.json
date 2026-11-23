@@ -4505,6 +4505,7 @@
           "keyword": "키워드",
           "label": "색상 레이블",
           "lens": "렌즈",
+          "lensImported": "렌즈(가져온 카탈로그의 이름)",
           "make": "카메라 제조사",
           "offline": "누락된 사진",
           "previousImport": "이전 가져오기에 포함",

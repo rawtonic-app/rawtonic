@@ -43,6 +43,10 @@ pub struct Photo {
     pub path: PathBuf,
     pub metadata: Metadata,
     pub develop: Develop,
+    /// The lens as the editor names it (Lightroom's own lens name, which
+    /// its smart collections on lenses match), when its catalog has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lens: Option<String>,
     /// For a virtual copy (Lightroom) or a further variant (Capture One):
     /// the key of the photograph it belongs to.
     pub copy_of: Option<String>,

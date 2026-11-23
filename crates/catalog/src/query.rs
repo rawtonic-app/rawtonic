@@ -73,6 +73,10 @@ pub enum Field {
     /// Camera maker (`SONY`, `Canon`).
     Make,
     Lens,
+    /// The lens as the editor an import came from names it (Lightroom's own
+    /// lens name, kept per photograph by the import): what smart albums
+    /// imported from Lightroom match their lens rules against.
+    LensImported,
     /// File type category (`raw`, `dng`, `jpeg`, `heif`, `tiff`, `png`,
     /// `other`).
     FileType,
@@ -845,6 +849,7 @@ impl<'a> Compiler<'a> {
             Field::Camera => self.text_column_of("a.camera", op, value, true),
             Field::Make => self.text_column_of("a.make", op, value, true),
             Field::Lens => self.text_column_of("a.lens", op, value, true),
+            Field::LensImported => self.text_column_of("a.lens_import", op, value, true),
             Field::Keyword => match op {
                 Op::Is | Op::IsNot => {
                     // A keyword and every keyword under it (`Animals` finds a

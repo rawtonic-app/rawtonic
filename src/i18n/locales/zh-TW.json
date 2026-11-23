@@ -4505,6 +4505,7 @@
           "keyword": "關鍵字",
           "label": "顏色標籤",
           "lens": "鏡頭",
+          "lensImported": "鏡頭(匯入目錄中的名稱)",
           "make": "相機品牌",
           "offline": "遺失的照片",
           "previousImport": "在上次匯入中",
