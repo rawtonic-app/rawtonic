@@ -727,10 +727,16 @@ authors, LGPL-2.1), review in the notes (`reference/dnglab-2026-11-23-review.md`
   2026-10-05; upstream's crops differ from Adobe's on 1 S1, DiMAGE 5 and
   Dynax 5D, and its Dynax 5D model names differ).
 - **Pentax colour matrices:** updated K-S2, K-m, K10D, K-1 Mark II D65 and A
-  matrices and added A matrices for 23 more bodies. They equal Adobe DNG
+  matrices and added A matrices for 22 more bodies. They equal Adobe DNG
   Converter's ColorMatrix1/2 within 0.002, which
   `crates/rawdecode/src/camera_matrices.rs` already applied for these
-  bodies, so renders do not change.
+  bodies, so renders do not change (fingerprint of all 1,993 decodable
+  raw.pixls.us files: only the decoder's own matrix field of the Pentax
+  files differs). Held back: the A matrix of the *ist DL
+  (`pentax/istDL.toml`, kept as a comment), the one body our table lacks:
+  with it the raw.pixls.us sample's never-edited render moves further
+  from Camera Raw 18's default (Oklab dE 0.80 -> 1.08, lightness 0.57 ->
+  0.97; chroma ratio 0.949 -> 0.970), and saved edits would change.
 
 Not taken (review rows "Adopt"), because they build on upstream code this
 copy does not have: fractional DefaultCrop and DefaultUserCrop rendering,
