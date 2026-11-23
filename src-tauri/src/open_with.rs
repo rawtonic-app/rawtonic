@@ -988,6 +988,76 @@ pub fn link_render(
     Ok(())
 }
 
+/// `current` (a render's library metadata) without what `registered`
+/// (what an earlier build registered for it) holds and `embedded` (what its
+/// file embeds) does not: only a field still at the registered value
+/// changes, so the user's later edits of the render stay. An IPTC field
+/// becomes an explicit empty value, which also clears it in the sidecar.
+fn without_unembedded(
+    mut current: rawtonic_metadata::Metadata,
+    registered: &rawtonic_metadata::Metadata,
+    embedded: &rawtonic_metadata::Metadata,
+) -> rawtonic_metadata::Metadata {
+    fn repair<T: PartialEq + Clone>(current: &mut T, registered: &T, embedded: &T) {
+        if current == registered && registered != embedded {
+            *current = embedded.clone();
+        }
+    }
+    repair(&mut current.rating, &registered.rating, &embedded.rating);
+    repair(&mut current.label, &registered.label, &embedded.label);
+    repair(&mut current.flag, &registered.flag, &embedded.flag);
+    repair(
+        &mut current.keywords,
+        &registered.keywords,
+        &embedded.keywords,
+    );
+    repair(&mut current.title, &registered.title, &embedded.title);
+    repair(
+        &mut current.description,
+        &registered.description,
+        &embedded.description,
+    );
+    repair(&mut current.creator, &registered.creator, &embedded.creator);
+    repair(
+        &mut current.copyright,
+        &registered.copyright,
+        &embedded.copyright,
+    );
+    for (key, value) in &registered.iptc {
+        let kept = embedded.iptc.get(key).cloned().unwrap_or_default();
+        if current.iptc.get(key) == Some(value) && *value != kept {
+            current.iptc.insert(key.clone(), kept);
+        }
+    }
+    current
+}
+
+/// Repairs the render of `target` when an earlier build registered it
+/// with `registered`, the photo's full metadata, although its file embeds
+/// only `target.metadata` ([`without_unembedded`]). Nothing for a render the
+/// library does not list.
+pub(crate) fn repair_render_metadata(
+    target: &EditTarget,
+    registered: &rawtonic_metadata::Metadata,
+) -> Result<(), String> {
+    let Some(dir) = &target.library else {
+        return Ok(());
+    };
+    let embedded = target.metadata.clone().unwrap_or_default();
+    crate::session_bridge::with_library_blocking(Path::new(dir), |lib| {
+        let failed = |e: rawtonic_catalog::CatalogError| format!("{e:#}");
+        let Some(render) = lib.asset_at(Path::new(&target.target)).map_err(failed)? else {
+            return Ok(());
+        };
+        let current = lib.metadata(&render.id).map_err(failed)?;
+        let repaired = without_unembedded(current.clone(), registered, &embedded);
+        if repaired != current {
+            lib.set_metadata(&render.id, &repaired).map_err(failed)?;
+        }
+        Ok(())
+    })
+}
+
 pub(crate) fn link_renders(items: &[EditTarget]) -> EditWithResult {
     let mut result = EditWithResult {
         linked: 0,
@@ -1939,6 +2009,7 @@ mod tests {
         let original = lib.add_asset(&source).unwrap();
         let mut meta = lib.metadata(&original.id).unwrap();
         meta.rating = 3;
+        meta.flag = 1;
         meta.title = "Harbour".into();
         meta.creator = "Ada".into();
         meta.copyright = "(c) Ada".into();
@@ -2070,6 +2141,81 @@ mod tests {
         assert_eq!((got.rating, got.title.as_str()), (3, "Harbour"));
         assert_eq!(got.iptc.get("city").map(String::as_str), Some("Kiel"));
         assert!(!sidecars.contains("GPS"));
+        // The pick flag stays with the photograph: the file has none.
+        assert_eq!(got.flag, 0);
+    }
+
+    #[test]
+    fn a_render_an_earlier_build_registered_with_everything_loses_what_its_file_lacks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (lib, source, dir) = photo_with_private_metadata(tmp.path());
+        let original = lib.asset_at(&source).unwrap().unwrap();
+        let full = lib.metadata(&original.id).unwrap();
+        // The earlier build registered the stripped render with everything,
+        // and its sidecar was synced so.
+        let render = dir.join("Capture/A_edit.tiff");
+        fs::write(&render, b"tiff").unwrap();
+        link_render(&lib, &source.to_string_lossy(), &render, Some(&full)).unwrap();
+        let edit = lib.asset_at(&render).unwrap().unwrap();
+        lib.sync_xmp(&edit.id).unwrap();
+        // The user retitled the render since.
+        let mut retitled = lib.metadata(&edit.id).unwrap();
+        retitled.title = "Harbour, retouched".into();
+        lib.set_metadata(&edit.id, &retitled).unwrap();
+        drop(lib);
+
+        let target = EditTarget {
+            source: source.to_string_lossy().into_owned(),
+            target: render.to_string_lossy().into_owned(),
+            library: Some(dir.to_string_lossy().into_owned()),
+            metadata: rawtonic_export::exif_processing::embedded_library_metadata(
+                "tiff",
+                false,
+                false,
+                full.clone(),
+            ),
+        };
+        repair_render_metadata(&target, &full).unwrap();
+        // Idempotent: a second recovery changes nothing more.
+        repair_render_metadata(&target, &full).unwrap();
+
+        let lib = Library::open(&dir).unwrap();
+        let got = lib.metadata(&edit.id).unwrap();
+        assert_eq!(got.title, "Harbour, retouched", "the user's edit stays");
+        assert_eq!((got.rating, got.flag), (0, 0));
+        assert_eq!(
+            (got.creator.as_str(), got.copyright.as_str()),
+            ("Ada", "(c) Ada")
+        );
+        for key in ["creatorEmail", "creatorPhone", "city"] {
+            assert!(
+                got.iptc.get(key).is_none_or(|value| value.is_empty()),
+                "{key} still registered"
+            );
+        }
+        lib.sync_xmp(&edit.id).unwrap();
+        let sidecar = fs::read_dir(dir.join("Capture"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
+            })
+            .map(|path| fs::read_to_string(path).unwrap())
+            .collect::<String>();
+        assert!(sidecar.contains("Harbour, retouched"));
+        for private in ["ada@example.org", "555 0100", "Kiel"] {
+            assert!(!sidecar.contains(private), "{private} in the sidecar");
+        }
+        // A render the library does not list is left alone.
+        let elsewhere = EditTarget {
+            target: dir
+                .join("Capture/B_edit.tiff")
+                .to_string_lossy()
+                .into_owned(),
+            ..target
+        };
+        repair_render_metadata(&elsewhere, &full).unwrap();
     }
 
     #[test]

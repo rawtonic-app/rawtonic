@@ -718,6 +718,18 @@ fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<InterruptedE
             log::warn!("Recovering Edit With: {problem}");
         }
     }
+    // A render an earlier build registered with the photo's full metadata
+    // loses what its file does not embed (later edits of it stay).
+    for job in &jobs {
+        if job.done == job.total
+            && job.total > 0
+            && edit_with_of(&job.request).is_some()
+            && let Some((target, snapshot)) = registered_before_the_rule(&job.request)
+            && let Err(e) = crate::open_with::repair_render_metadata(&target, &snapshot)
+        {
+            log::warn!("Recovering Edit With: {}: {e}", target.target);
+        }
+    }
     // Targets have been copied into the one-shot recovery notice. Old edit
     // rows, including fully completed orphan clicks, must not hold history forever.
     for job in jobs {
@@ -747,6 +759,19 @@ fn completed_target(request: &Value) -> Option<crate::open_with::EditTarget> {
         )
     });
     Some(target)
+}
+
+/// An Edit With job of a build that pinned the photo's full library
+/// metadata with its target: the target as [`completed_target`] reads it
+/// and the metadata that build registered.
+fn registered_before_the_rule(
+    request: &Value,
+) -> Option<(crate::open_with::EditTarget, rawtonic_metadata::Metadata)> {
+    let stored: Option<rawtonic_metadata::Metadata> =
+        serde_json::from_value(request.get("editTarget")?.get("metadata")?.clone()).ok()?;
+    let target = completed_target(request)?;
+    let stored = stored?;
+    (target.metadata.as_ref() != Some(&stored)).then_some((target, stored))
 }
 
 /// The Edit With runs the last quit cut short (each handed out once).
@@ -1429,6 +1454,15 @@ mod tests {
         .metadata
         .unwrap();
         assert!(contact.iptc.contains_key("creatorEmail") && !contact.iptc.contains_key("city"));
+        // Such a job's render gets repaired on recovery; one registered
+        // with what its file embeds needs none.
+        let (target, stored) =
+            registered_before_the_rule(&job(json!({"keepMetadata": false}))).unwrap();
+        assert_eq!(
+            (target.metadata.unwrap().iptc.len(), stored.iptc.len()),
+            (1, 3)
+        );
+        assert!(registered_before_the_rule(&job(json!({"keepMetadata": true}))).is_none());
         let all = completed_target(&job(json!({"keepMetadata": true})))
             .unwrap()
             .metadata

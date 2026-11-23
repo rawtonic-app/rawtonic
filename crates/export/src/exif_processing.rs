@@ -1637,17 +1637,21 @@ pub fn stripped_metadata(
 
 /// The library metadata (`metadata`) an export with these settings writes
 /// into its file, so a library that registers the file holds no more than
-/// the file does: all of it with `keep_metadata` (GPS is EXIF, never part of
-/// it), else [`stripped_metadata`]; nothing for a format that embeds none.
+/// the file does: with `keep_metadata` all of it but the culling flag and a
+/// Digital Source Type, which the export's XMP leaves out or sets itself
+/// (`export_xmp_with_source`; GPS is EXIF, never part of it), else
+/// [`stripped_metadata`]; nothing for a format that embeds none.
 pub fn embedded_library_metadata(
     output_format: &str,
     keep_metadata: bool,
     keep_creator_contact: bool,
-    metadata: rawtonic_metadata::Metadata,
+    mut metadata: rawtonic_metadata::Metadata,
 ) -> Option<rawtonic_metadata::Metadata> {
     if !embeds_metadata(output_format) {
         None
     } else if keep_metadata {
+        metadata.flag = 0;
+        metadata.iptc.remove("digitalSourceType");
         Some(metadata)
     } else {
         Some(stripped_metadata(metadata, keep_creator_contact))
@@ -2568,6 +2572,59 @@ mod tests {
     }
 
     use super::exif_datetime;
+
+    #[test]
+    fn what_a_library_registers_for_an_export_is_what_its_xmp_carries() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.jpg");
+        std::fs::write(&source, b"no exif").unwrap();
+        let library = rawtonic_metadata::Metadata {
+            rating: 4,
+            label: "Red".into(),
+            flag: 1,
+            creator: "Photographer".into(),
+            copyright: "All rights reserved".into(),
+            title: "Private title".into(),
+            description: "Private caption".into(),
+            keywords: vec!["Private keyword".into()],
+            iptc: [
+                ("creatorEmail".into(), "photo@example.invalid".into()),
+                ("usageTerms".into(), "Licensed use only".into()),
+                ("city".into(), "Private city".into()),
+            ]
+            .into(),
+            ..Default::default()
+        };
+        for (keep_metadata, contact) in [(true, false), (false, false), (false, true)] {
+            let catalog = || Some(library.clone());
+            let written = super::export_metadata_with(
+                source.to_str().unwrap(),
+                "tiff",
+                rawtonic_engine::output_color_space::OutputColorSpace::AdobeRgb,
+                keep_metadata,
+                true,
+                contact,
+                8,
+                8,
+                false,
+                &|| None,
+                &catalog,
+            )
+            .unwrap();
+            let (carried, _) = rawtonic_metadata::read_xmp(&written.xmp.unwrap()).unwrap();
+            let registered =
+                super::embedded_library_metadata("tiff", keep_metadata, contact, library.clone())
+                    .unwrap();
+            assert_eq!(
+                registered, carried,
+                "keep {keep_metadata}, contact {contact}"
+            );
+        }
+        assert_eq!(
+            super::embedded_library_metadata("dng", true, true, library),
+            None
+        );
+    }
 
     #[test]
     fn stripped_export_keeps_rights_and_contacts_but_no_camera_or_location() {
