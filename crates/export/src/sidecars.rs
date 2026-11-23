@@ -115,10 +115,8 @@ pub fn read_sidecar_text(path: &Path) -> Option<std::sync::Arc<str>> {
     {
         return kept;
     }
-    let text = path
-        .exists()
-        .then(|| std::fs::read_to_string(path).ok())
-        .flatten()
+    let text = std::fs::read_to_string(path)
+        .ok()
         .map(std::sync::Arc::<str>::from);
     KEPT.with(|kept| {
         if let Some(map) = kept.borrow_mut().as_mut() {
