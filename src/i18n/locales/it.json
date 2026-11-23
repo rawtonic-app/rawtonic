@@ -4293,6 +4293,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Diversi obiettivi corrispondono a ciò che la foto indica del suo obiettivo; scegli il tuo:",
       "aria": {
         "make": "Marca dell'obiettivo",
         "model": "Modello obiettivo"
@@ -4314,7 +4315,6 @@
       "none": "Nessuno",
       "notFound": "Nessun profilo trovato per {{lens}}; scegli l'obiettivo qui sotto.",
       "notFoundPhoto": "Nessun profilo trovato per questa foto; scegli l'obiettivo qui sotto.",
-      "ambiguous": "Diversi obiettivi corrispondono a ciò che la foto indica del suo obiettivo; scegli il tuo:",
       "profile": "Profilo",
       "removeCa": "Rimuovi l'aberrazione cromatica",
       "removeCaTitle": "Misura le frange rosse e blu dei bordi di questa foto e allinea i colori. La correzione dell'aberrazione cromatica dei dati dell'obiettivo resta, a meno che la misura lasci frange nettamente minori; disattivato mantiene quella dei dati dell'obiettivo",

@@ -4122,6 +4122,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Mehrere Objektive passen zu den Objektivangaben des Fotos; wähle deines:",
       "aria": {
         "make": "Objektivhersteller",
         "model": "Objektivmodell"
@@ -4143,7 +4144,6 @@
       "none": "Keiner",
       "notFound": "Kein Profil für {{lens}} gefunden; wähle das Objektiv unten aus.",
       "notFoundPhoto": "Kein Profil für dieses Foto gefunden; wähle das Objektiv unten aus.",
-      "ambiguous": "Mehrere Objektive passen zu den Objektivangaben des Fotos; wähle deines:",
       "profile": "Profil",
       "removeCa": "Chromatische Aberration entfernen",
       "removeCaTitle": "Misst die roten und blauen Farbsäume an den Kanten dieses Fotos und richtet die Farben aneinander aus. Die Korrektur der chromatischen Aberration aus Objektivdaten bleibt, wenn die Messung nicht deutlich weniger Säume lässt; aus behält die Korrektur der Objektivdaten",

@@ -4122,6 +4122,7 @@
       }
     },
     "lens": {
+      "ambiguous": "Several lenses fit what the photo says about its lens; choose yours:",
       "aria": {
         "make": "Lens make",
         "model": "Lens model"
@@ -4143,7 +4144,6 @@
       "none": "None",
       "notFound": "No profile found for {{lens}}; choose the lens below.",
       "notFoundPhoto": "No profile found for this photo; choose the lens below.",
-      "ambiguous": "Several lenses fit what the photo says about its lens; choose yours:",
       "profile": "Profile",
       "removeCa": "Remove chromatic aberration",
       "removeCaTitle": "Measures the red and blue fringes of this photo's edges and lines the colors up. Lens data with their own chromatic aberration correction are kept unless the measurement leaves clearly fewer fringes; off keeps the lens data's correction",
