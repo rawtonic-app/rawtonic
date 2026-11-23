@@ -620,7 +620,13 @@ export function useImageProcessing(
     const stopReady = onSharpenViewReady(() => useEditorStore.getState().sharpenView !== null, renderView);
     // A new GPU device after a lost one (utils/gpuRecovery): the frame
     // renders again on it; until then the window keeps the last frame.
-    const stopRecovered = onGpuRecovered(() => renderView());
+    // The split's before texture was on the lost device too.
+    const stopRecovered = onGpuRecovered(() => {
+      renderView();
+      const { splitView } = useEditorStore.getState();
+      const targetRes = currentResRef.current;
+      if (splitView && targetRes) requestSplitBefore(targetRes);
+    });
     return () => {
       unsubscribe();
       stopReady();

@@ -149,8 +149,28 @@ fn recover(app_handle: &tauri::AppHandle, lost: rawtonic_gpu::device_start::Lost
             return;
         }
     };
+    // The window surfaces are made on the main thread (AppKit's view and
+    // layer; wgpu panics making one elsewhere), as at start.
     #[cfg(not(target_os = "linux"))]
-    crate::gpu_processing::attach_display(&gpu, app_handle);
+    {
+        let (done, attached) = std::sync::mpsc::channel();
+        let app = app_handle.clone();
+        let sent = app_handle.run_on_main_thread(move || {
+            crate::gpu_processing::attach_display(&app.state::<GpuState>(), &app);
+            let _ = done.send(());
+        });
+        if sent.is_err() || attached.recv_timeout(Duration::from_secs(30)).is_err() {
+            log::error!("GPU recovery: the window display was not attached to the new device");
+        }
+    }
+    // `attach_display` replaces the context when the adapter cannot present.
+    let context = gpu.context().unwrap_or(context);
+    #[cfg(not(target_os = "linux"))]
+    {
+        tauri::async_runtime::block_on(crate::second_window::after_device_recovered(
+            app_handle, &context,
+        ));
+    }
     crate::gpu_processing::prewarm_gpu_processor(&gpu.processor, &context);
     let recovered = Recovered {
         lost: lost.generation,

@@ -1215,6 +1215,53 @@ fn show_followed(app_handle: &tauri::AppHandle, context: &GpuContext, path: Stri
     schedule(app_handle);
 }
 
+/// The main window's device was lost and replaced (DVL2, `gpu_recovery`):
+/// the open window gets a surface on the new device and develops the
+/// photograph it showed again (a locked one stays), at its zoom.
+#[cfg(not(target_os = "linux"))]
+pub(crate) async fn after_device_recovered(app_handle: &tauri::AppHandle, context: &GpuContext) {
+    if !OPEN.load(Ordering::SeqCst) {
+        return;
+    }
+    let Some(window) = app_handle.get_webview_window(LABEL) else {
+        return;
+    };
+    // Nothing presents from the lost device meanwhile.
+    if let Some(inner) = lock_recover(&INNER).as_mut() {
+        inner.display = None;
+        inner.device = None;
+    }
+    let display = match make_view(app_handle, context, &window).await {
+        Ok(display) => display,
+        Err(error) => {
+            log::warn!("Second Window: no surface on the new graphics device: {error}");
+            return;
+        }
+    };
+    bases().clear();
+    {
+        let mut guard = lock_recover(&INNER);
+        let Some(inner) = guard.as_mut() else { return };
+        inner.display = Some(display);
+        inner.device = Some(Arc::clone(&context.device));
+        inner.whole = None;
+        inner.region_failed = None;
+        // Shown again on the new surface (its cell, zoom and frames).
+        if let Some(shown) = inner.shown.take() {
+            set_photo(
+                inner,
+                context,
+                &shown.path,
+                shown.recipe_key,
+                shown.recipe,
+                shown.shown,
+            );
+        }
+    }
+    emit_state(app_handle);
+    schedule(app_handle);
+}
+
 /// The window is closing: its surface goes first, while the window lives.
 pub(crate) fn closing(app_handle: &tauri::AppHandle) {
     OPEN.store(false, Ordering::SeqCst);
