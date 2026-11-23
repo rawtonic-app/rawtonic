@@ -395,8 +395,9 @@ pub fn suppress<T: Copy + Send + Sync>(
             std::cmp::Ordering::Equal => centre,
             std::cmp::Ordering::Greater => sorted[i - 1],
         };
-        let half = (n + 1) / 2;
-        let with = if (n + 1).is_multiple_of(2) {
+        let count = n + 1;
+        let half = count / 2;
+        let with = if count.is_multiple_of(2) {
             0.5 * (merged(half - 1) + merged(half))
         } else {
             merged(half)
