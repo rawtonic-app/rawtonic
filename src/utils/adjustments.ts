@@ -440,11 +440,12 @@ export const NEW_GRAIN_STRUCTURE: GrainStructure = 'clumped';
 export const effectiveGrainStructure = (adjustments: Partial<Adjustments>): GrainStructure =>
   adjustments.grainStructure ?? ((adjustments.grainAmount ?? 0) > 0 ? 'even' : NEW_GRAIN_STRUCTURE);
 
-/** The grain new edits get (`image_processing::GRAIN_VERSION`): 3 is film
+/** The grain new edits get (`image_processing::GRAIN_VERSION`): 4 is film
+ * grain with as many dark as bright grains and stronger shadows, 3 film
  * grain (grains per dye layer in the negative's density, printed; Colour
  * instead of a structure), 2 the portable grain, the same on every GPU; 1
  * (missing key) the earlier one. */
-export const GRAIN_VERSION = 3;
+export const GRAIN_VERSION = 4;
 
 /** How a recipe reads its .cube (crates/engine/src/lut.rs `LUT_VERSION`): 2
  * over the domain the file names (`DOMAIN_MIN`/`DOMAIN_MAX`,

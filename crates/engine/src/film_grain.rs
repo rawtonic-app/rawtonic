@@ -278,16 +278,72 @@ pub fn mip_sides() -> Vec<usize> {
 /// `unpack2x16float`). The GPU crate rearranges it into planes of level
 /// pairs for the shader's `film_grain_tile` buffer (`level_pairs`).
 pub fn grain_tile() -> Vec<u32> {
+    tile(false)
+}
+
+/// The tile of `grainVersion` 4: the same grains, each level's fluctuation
+/// made symmetric about zero ([`symmetric`]) before the mips, so the grain
+/// has as many dark as bright grains of every strength (no lone bright
+/// specks; notes: benchmark-results/grn8-2026-11-23/REPORT.md).
+pub fn symmetric_grain_tile() -> Vec<u32> {
+    tile(true)
+}
+
+/// A level's fluctuation with a distribution symmetric about zero, the
+/// texels keeping their order: the texel of rank i gets the value of rank i
+/// of the differences (a - b) / sqrt 2 of the level's values a and those of
+/// a fixed random pairing b — the distribution of the difference of two
+/// independent grains, symmetric by construction, with the level's variance
+/// and half its excess kurtosis. The map is monotone, so where a grain lies,
+/// where it is strongest and the spectrum stay nearly as they were; only the
+/// lighter levels' sparse bright grains lose their long tail and the dark
+/// side gains one. Sorting and arithmetic only, so it is the same on every
+/// platform.
+fn symmetric(level: &[f32], seed: u64) -> Vec<f32> {
+    let n = level.len();
+    let mut pairing: Vec<u32> = (0..n as u32).collect();
+    let mut rng = SplitMix(seed);
+    for i in (1..n).rev() {
+        let j = (rng.next() % (i as u64 + 1)) as usize;
+        pairing.swap(i, j);
+    }
+    let mut target: Vec<f64> = (0..n)
+        .map(|i| {
+            (f64::from(level[i]) - f64::from(level[pairing[i] as usize]))
+                * std::f64::consts::FRAC_1_SQRT_2
+        })
+        .collect();
+    target.sort_by(f64::total_cmp);
+    let mut order: Vec<u32> = (0..n as u32).collect();
+    order.sort_by(|&a, &b| {
+        level[a as usize]
+            .total_cmp(&level[b as usize])
+            .then(a.cmp(&b))
+    });
+    let mut out = vec![0.0f32; n];
+    for (rank, &i) in order.iter().enumerate() {
+        // The middle of the target and its mirror: exactly symmetric.
+        out[i as usize] = (0.5 * (target[rank] - target[n - 1 - rank])) as f32;
+    }
+    out
+}
+
+fn tile(symmetric_levels: bool) -> Vec<u32> {
     let grains = grains();
     let levels: Vec<Vec<f32>> = coverage(&grains)
         .iter()
-        .map(|level| {
+        .enumerate()
+        .map(|(k, level)| {
             let mut b = blur(level);
             let mean = (b.iter().map(|&v| v as f64).sum::<f64>() / b.len() as f64) as f32;
             for v in &mut b {
                 *v -= mean;
             }
-            b
+            if symmetric_levels {
+                symmetric(&b, 0x7379_6d00 + k as u64)
+            } else {
+                b
+            }
         })
         .collect();
     let mut mips = vec![levels];
@@ -370,6 +426,57 @@ mod tests {
             let e: f64 = f64::exp(y);
             assert!((exp_portable(y) - e).abs() < e * 1e-9, "{y}");
         }
+    }
+
+    /// `grainVersion` 4's tile: every level as dark as it is bright (third
+    /// moment zero, where version 3's lighter levels are bright specks), with
+    /// version 3's strength per level and its grains in the same places
+    /// (the texels keep their order), the same on every platform.
+    #[test]
+    fn the_symmetric_tile_has_as_many_dark_as_bright_grains() {
+        let texels = TILE * TILE;
+        let old = grain_tile();
+        let tile = symmetric_grain_tile();
+        assert_eq!(tile.len(), old.len());
+        let moments = |v: &[f32]| {
+            let n = v.len() as f64;
+            let m = v.iter().map(|&x| x as f64).sum::<f64>() / n;
+            let var = v.iter().map(|&x| (x as f64 - m).powi(2)).sum::<f64>() / n;
+            let third = v.iter().map(|&x| (x as f64 - m).powi(3)).sum::<f64>() / n;
+            (var.sqrt(), third / var.powf(1.5))
+        };
+        for level in 0..LEVELS {
+            let before = level_values(&old, level, 0..texels);
+            let after = level_values(&tile, level, 0..texels);
+            let (sd_before, skew_before) = moments(&before);
+            let (sd_after, skew_after) = moments(&after);
+            // Version 3's lightest levels are sparse bright grains.
+            if level < 4 {
+                assert!(skew_before > 0.3, "level {level}: v3 skew {skew_before}");
+            }
+            assert!(skew_after.abs() < 0.01, "level {level}: skew {skew_after}");
+            assert!(
+                (sd_after / sd_before - 1.0).abs() < 0.01,
+                "level {level}: sd {sd_after} vs {sd_before}"
+            );
+            // Monotone: the grains stay where they were.
+            let mut order: Vec<usize> = (0..texels).collect();
+            order.sort_by(|&a, &b| before[a].total_cmp(&before[b]));
+            assert!(
+                order
+                    .windows(2)
+                    .all(|w| after[w[0]] <= after[w[1]] || before[w[0]] == before[w[1]]),
+                "level {level}: the map is not monotone"
+            );
+        }
+        let mut hash = 0xcbf2_9ce4_8422_2325u64;
+        for w in &tile {
+            hash = (hash ^ u64::from(*w)).wrapping_mul(0x100_0000_01b3);
+        }
+        assert_eq!(
+            hash, 0x2760_4765_256b_c22a,
+            "symmetric tile checksum {hash:#x}"
+        );
     }
 
     /// The tile is the same on every platform: a checksum over its words

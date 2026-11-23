@@ -1550,6 +1550,42 @@ fn apply_film_grain(rgb: vec3<f32>, coord: vec2<u32>) -> vec3<f32> {
     return rgb + (printed - vc);
 }
 
+// Film grain of `grainVersion` 4 (notes: benchmark-results/grn8-2026-11-23/
+// REPORT.md): version 3's grain, from the symmetric tile the renderer binds
+// for it, raised in the shadows and printed symmetrically. A step after
+// `apply_film_grain`, which stays as it was: a branch inside it changed the
+// GPU compiler's rounding of version 3's grain by one code in 0.0002 % of an
+// export's values. `grained` is version 3's result for `rgb`; the grain's
+// density is read back from it through the print response.
+//
+// The print's toe flattens grain towards black more than a photographer
+// expects from grain that should read in every tone (version 3 kept 0.17 of
+// the midtones' strength at display value 0.05): the density is raised below
+// mid grey by (4 l (1 - l))^-FILM_SHADOW_LIFT of the pixel's luminance l,
+// which undoes that share of the print's slope there (fitted on a tone
+// patch to a film-like midtone bump); mid grey and everything brighter keep
+// version 3's response. Printed symmetrically, half the print of the grain
+// minus half the print of its mirror image, so a dark grain prints as
+// strongly as an equal bright one in every tone (the curve alone would
+// stretch the bright grains below mid grey and the dark ones above).
+const FILM_SHADOW_LIFT: f32 = 0.42;
+const FILM_SHADOW_WEIGHT_MAX: f32 = 3.0;
+
+fn film_shadow_weight(l: f32) -> f32 {
+    let t = clamp(l, 0.002, 0.5);
+    return min(pow(4.0 * t * (1.0 - t), -FILM_SHADOW_LIFT), FILM_SHADOW_WEIGHT_MAX);
+}
+
+fn symmetric_film_print(rgb: vec3<f32>, grained: vec3<f32>) -> vec3<f32> {
+    let vc = clamp(rgb, vec3<f32>(0.002), vec3<f32>(0.998));
+    let x = log(vc / (1.0 - vc)) / FILM_PRINT_SLOPE;
+    let printed = clamp(grained - rgb + vc, vec3<f32>(1e-6), vec3<f32>(1.0 - 1e-6));
+    let d = (log(printed / (1.0 - printed)) / FILM_PRINT_SLOPE - x) * film_shadow_weight(get_luma(rgb));
+    let up = 1.0 / (1.0 + exp(-FILM_PRINT_SLOPE * (x + d)));
+    let down = 1.0 / (1.0 + exp(-FILM_PRINT_SLOPE * (x - d)));
+    return rgb + 0.5 * (up - down);
+}
+
 fn dither(coords: vec2<u32>) -> f32 {
     let p = vec2<f32>(coords);
     return fract(sin(dot(p, vec2<f32>(12.9898, 78.233))) * 43758.5453) - 0.5;
@@ -12206,7 +12242,11 @@ fn main(
             final_rgb = apply_portable_grain(final_rgb, absolute_coord);
         }
         if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version >= 3u) {
+            let film_base = final_rgb;
             final_rgb = apply_film_grain(final_rgb, absolute_coord);
+            if (adjustments.global.grain_version >= 4u) {
+                final_rgb = symmetric_film_print(film_base, final_rgb);
+            }
         }
     }
 

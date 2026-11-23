@@ -7926,8 +7926,12 @@ pub const GRAIN_VERSION_KEY: &str = effects::GRAIN_VERSION.name();
 /// Boolean-model grains per dye layer in the negative's density, printed
 /// through a logistic print response (film_grain.rs, shader
 /// `apply_film_grain`); structures do not apply to it, `grainColor` sets the
-/// dye layers' independence. Recipes without the key keep version 1.
-pub const GRAIN_VERSION: u64 = 3;
+/// dye layers' independence. 4 (2026-11-23) is the same film grain with
+/// each density level's fluctuation made symmetric (as many dark as bright
+/// grains, no lone bright specks) and the shadows' grain raised towards the
+/// midtones' (`film_grain::symmetric_grain_tile`, shader
+/// `film_shadow_weight`). Recipes without the key keep version 1.
+pub const GRAIN_VERSION: u64 = 4;
 
 /// The recipe's grain version, 1 when missing, never newer than this
 /// renderer knows.

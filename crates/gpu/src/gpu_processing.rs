@@ -4018,8 +4018,12 @@ fn off_global_pool<R: Send>(work: impl FnOnce() -> R + Send) -> R {
 /// calling thread (~0.1 s, once per process), so it neither waits for a pool
 /// nor, called from a worker, steals a queued render that needs the
 /// processor.
-fn film_grain_tile_data() -> Vec<u32> {
-    level_pairs(&rawtonic_engine::film_grain::grain_tile())
+fn film_grain_tile_data(symmetric: bool) -> Vec<u32> {
+    level_pairs(&if symmetric {
+        rawtonic_engine::film_grain::symmetric_grain_tile()
+    } else {
+        rawtonic_engine::film_grain::grain_tile()
+    })
 }
 
 /// The tile as the shader's `film_texel` reads it (G76/GRN1): per mip
@@ -4773,6 +4777,8 @@ pub struct GpuProcessor {
     /// Film grain's tile (`grainVersion` 3, rawtonic_engine::film_grain),
     /// made the first time a recipe needs it; `no_film_grain` stands in.
     film_grain_tile: std::sync::OnceLock<wgpu::Buffer>,
+    /// The symmetric tile of `grainVersion` 4, likewise.
+    symmetric_film_grain_tile: std::sync::OnceLock<wgpu::Buffer>,
     no_film_grain: wgpu::Buffer,
     ping_pong_view: wgpu::TextureView,
 
@@ -8934,6 +8940,7 @@ impl GpuProcessor {
             dummy_lut_sampler,
             no_lut_shaper,
             film_grain_tile: std::sync::OnceLock::new(),
+            symmetric_film_grain_tile: std::sync::OnceLock::new(),
             no_film_grain,
             ping_pong_view,
             tile_output_texture,
@@ -11573,16 +11580,22 @@ impl GpuProcessor {
                 )
             });
         let lut_shaper = lut_shaper.as_ref().unwrap_or(&self.no_lut_shaper);
+        let grain_version =
+            GrainVersion::from_uniform(request.adjustments.uniforms.global.grain_version);
         let film_grain =
-            if GrainVersion::from_uniform(request.adjustments.uniforms.global.grain_version).film()
-                && request.adjustments.uniforms.global.grain_amount > 0.0
-            {
-                self.film_grain_tile.get_or_init(|| {
+            if grain_version.film() && request.adjustments.uniforms.global.grain_amount > 0.0 {
+                let symmetric = grain_version.symmetric();
+                let tile = if symmetric {
+                    &self.symmetric_film_grain_tile
+                } else {
+                    &self.film_grain_tile
+                };
+                tile.get_or_init(|| {
                     create_buffer_init(
                         device,
                         &wgpu::util::BufferInitDescriptor {
                             label: Some("Film grain tile"),
-                            contents: bytemuck::cast_slice(&film_grain_tile_data()),
+                            contents: bytemuck::cast_slice(&film_grain_tile_data(symmetric)),
                             usage: wgpu::BufferUsages::STORAGE,
                         },
                     )
@@ -15540,7 +15553,7 @@ mod film_grain_tile_pool_tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         let (done, built) = mpsc::channel();
-        std::thread::spawn(move || done.send(super::film_grain_tile_data().len()).unwrap());
+        std::thread::spawn(move || done.send(super::film_grain_tile_data(false).len()).unwrap());
         let len = built.recv_timeout(Duration::from_secs(300));
         drop(held);
         assert!(
