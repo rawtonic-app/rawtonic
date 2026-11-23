@@ -771,18 +771,24 @@ fn follow_sidecar(catalog: &Library, asset: &str, change: &RecipeChange) -> anyh
     };
     let bytes = serde_json::to_vec_pretty(&state)?;
     let sidecar = photo.sidecar_path();
-    match std::fs::read(&sidecar) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => publish_new(&sidecar, &bytes)?,
+    let written = match std::fs::read(&sidecar) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => publish_new(&sidecar, &bytes),
         Err(e) => return Err(e.into()),
         Ok(current) => {
             let current: Value = serde_json::from_slice(&current).unwrap_or(Value::Null);
             if edit_digest(current.get("adjustments")) != edit_digest(Some(&change.before)) {
                 return Ok(false);
             }
-            rawtonic_fs::atomic_write(&sidecar, bytes)?;
+            rawtonic_fs::atomic_write(&sidecar, &bytes)
         }
+    };
+    match written {
+        Ok(()) => Ok(true),
+        // Failed after the new bytes were in place (the folder's sync): the
+        // file holds the update, as an editor save would judge it.
+        Err(_) if std::fs::read(&sidecar).is_ok_and(|now| now == bytes) => Ok(true),
+        Err(e) => Err(e),
     }
-    Ok(true)
 }
 
 /// The source's stacks over the photographs and copies imported
@@ -988,9 +994,15 @@ fn layer_rasters(
 }
 
 /// Whether a layer's coverage could not be read (a damaged or incomplete
-/// copy of the session's mask files): the translation lacks that layer.
+/// copy of the session's mask files: a raster tile, a mask record the
+/// reader did not understand or did not find): the translation lacks it.
 fn coverage_unreadable(photo: &Photo) -> bool {
-    layer_rasters(photo).any(|raster| raster.values().is_none())
+    use rawtonic_interop::capture_one_masks::Mask;
+    photo
+        .capture_one_layers
+        .iter()
+        .any(|layer| matches!(layer.mask, Mask::Unsupported { .. } | Mask::Missing))
+        || layer_rasters(photo).any(|raster| raster.values().is_none())
 }
 
 /// The other editor's settings for a photo or copy, by digest: its
@@ -4640,5 +4652,23 @@ ProcessVersion = "15.4" }}"#,
         );
         assert!(report.recipe_changes.is_empty(), "{report:?}");
         assert!(catalog.copies(&asset).unwrap().is_empty(), "{report:?}");
+        // The reader's other outcomes for a damaged or incomplete session:
+        // a mask record it did not understand, one it did not find.
+        for mask in [
+            Mask::Unsupported {
+                what: "damaged".into(),
+            },
+            Mask::Missing,
+        ] {
+            let mut source = layered(Raster::from_values(128, 128, &[200; 128 * 128]));
+            source.photos[0].capture_one_layers[0].mask = mask.clone();
+            let report = import_into(&catalog, &source).unwrap();
+            assert_eq!(
+                catalog.editor_state(&asset).unwrap().unwrap()["adjustments"],
+                before,
+                "{mask:?} {report:?}"
+            );
+            assert!(report.recipe_changes.is_empty(), "{mask:?} {report:?}");
+        }
     }
 }
