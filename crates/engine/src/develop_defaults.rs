@@ -134,7 +134,11 @@ impl DevelopDefaults {
     }
 }
 
-/// The camera a photograph was taken with, as its file names it.
+/// The camera a photograph was taken with: one name for all its files
+/// (`canonical_names`: its RAWs, their DNG conversions and its JPEG/HEIF
+/// name it alike), and the names its file gave before there was one
+/// (`file_make`/`file_model`, only when they differ), which a camera
+/// default saved under them is still found by first.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CameraIdentity {
@@ -142,6 +146,60 @@ pub struct CameraIdentity {
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serial: Option<String>,
+    /// The make as the file names it (a JPEG's EXIF, a RAW's decoder),
+    /// none when it is `make`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_make: Option<String>,
+    /// The model as the file names it, none when it is `model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_model: Option<String>,
+}
+
+impl CameraIdentity {
+    /// The names the photo's file gives its camera.
+    fn file_names(&self) -> (&str, &str) {
+        (
+            self.file_make.as_deref().unwrap_or(&self.make),
+            self.file_model.as_deref().unwrap_or(&self.model),
+        )
+    }
+}
+
+/// One camera's make and model for all its files: the clean names of
+/// rawler's camera catalog for any make and model the catalog knows (the
+/// names a camera writes into its RAW's TIFF/EXIF tags, which its JPEG and
+/// HEIF and its DNG conversions carry too; regional names stay their own),
+/// the names as given otherwise (a camera without RAW support, a phone).
+/// Exact names only, ignoring case and surrounding spaces, so two bodies
+/// with similar names never meet; a camera added to the catalog later
+/// keeps its identity, as its files' names map to the same clean names.
+pub fn canonical_names(make: &str, model: &str) -> (String, String) {
+    type Names = HashMap<(String, String), (String, String)>;
+    static CATALOG: OnceLock<Names> = OnceLock::new();
+    let key = |make: &str, model: &str| (make.trim().to_lowercase(), model.trim().to_lowercase());
+    let catalog = CATALOG.get_or_init(|| {
+        let mut names = Names::new();
+        // Sorted, so a name two catalog entries share (none today) maps the
+        // same way every run.
+        let mut cameras: Vec<_> = rawler::global_loader().get_cameras().iter().collect();
+        cameras.sort_by(|a, b| a.0.cmp(b.0));
+        for ((make, model, _mode), camera) in cameras {
+            if camera.clean_make.trim().is_empty() && camera.clean_model.trim().is_empty() {
+                continue;
+            }
+            names.entry(key(make, model)).or_insert_with(|| {
+                (
+                    camera.clean_make.trim().to_string(),
+                    camera.clean_model.trim().to_string(),
+                )
+            });
+        }
+        names
+    });
+    catalog
+        .get(&key(make, model))
+        .cloned()
+        .unwrap_or_else(|| (make.trim().to_string(), model.trim().to_string()))
 }
 
 /// The defaults one photograph gets.
@@ -159,8 +217,85 @@ fn same(a: &str, b: &str) -> bool {
 }
 
 impl CameraDefaults {
+    /// Its camera is `camera`: the same one by their names for all files
+    /// (`canonical_names`, so a default saved under names a file gave
+    /// before, e.g. an uncatalogued DNG's tags, still applies).
     fn is_for(&self, camera: &CameraIdentity) -> bool {
-        same(&self.make, &camera.make) && same(&self.model, &camera.model)
+        let (make, model) = canonical_names(&self.make, &self.model);
+        same(&make, &camera.make) && same(&model, &camera.model)
+    }
+
+    /// Saved under the very names the photo's file gives its camera.
+    fn is_named_as(&self, camera: &CameraIdentity) -> bool {
+        let (make, model) = camera.file_names();
+        same(&self.make, make) && same(&self.model, model)
+    }
+
+    fn level_matches(&self, serial: Option<&str>) -> bool {
+        match serial {
+            Some(serial) => self
+                .serial
+                .as_deref()
+                .is_some_and(|s| s.trim() == serial.trim()),
+            None => self.serial.is_none(),
+        }
+    }
+}
+
+/// The camera's (`serial` some: its body's) entry: the one saved under
+/// the names the photo's file gives first (two entries saved from its
+/// RAW and its JPEG before they shared an identity each keep theirs),
+/// else the first saved for the camera under any of its names.
+fn entry_for<'a>(
+    cameras: &'a [CameraDefaults],
+    camera: &CameraIdentity,
+    serial: Option<&str>,
+) -> Option<&'a CameraDefaults> {
+    let mut matching = cameras
+        .iter()
+        .filter(|entry| entry.level_matches(serial) && entry.is_for(camera));
+    let first = matching.next()?;
+    if first.is_named_as(camera) {
+        return Some(first);
+    }
+    Some(
+        matching
+            .find(|entry| entry.is_named_as(camera))
+            .unwrap_or(first),
+    )
+}
+
+impl DevelopDefaults {
+    /// Moves every camera entry saved under names a file gave its camera to
+    /// the camera's one name (`canonical_names`), so Preferences and the
+    /// editor see one entry per camera: the app's own settings only, on
+    /// load (a camera the catalog learnt since is renamed then). An entry
+    /// whose camera has another entry at its level keeps its names, so
+    /// `entry_for` still gives each file the one saved for it. True when
+    /// anything changed.
+    pub fn canonicalize_camera_names(&mut self) -> bool {
+        let identity = |entry: &CameraDefaults| {
+            let (make, model) = canonical_names(&entry.make, &entry.model);
+            (
+                make.to_lowercase(),
+                model.to_lowercase(),
+                entry.serial.as_deref().map(|s| s.trim().to_string()),
+            )
+        };
+        let keys: Vec<_> = self.cameras.iter().map(identity).collect();
+        let mut changed = false;
+        for (at, entry) in self.cameras.iter_mut().enumerate() {
+            if keys.iter().filter(|key| **key == keys[at]).count() > 1 {
+                continue;
+            }
+            let (make, model) = canonical_names(&entry.make, &entry.model);
+            if entry.make != make || entry.model != model {
+                entry.make = make;
+                entry.model = model;
+                changed = true;
+            }
+        }
+        changed
     }
 }
 
@@ -180,21 +315,11 @@ pub fn resolve(
     let mut chain: Vec<(&'static str, &Map<String, Value>, bool)> = Vec::new();
     if let Some(camera) = camera {
         if let Some(serial) = camera.serial.as_deref().filter(|s| !s.trim().is_empty())
-            && let Some(body) = defaults.cameras.iter().find(|entry| {
-                entry.is_for(camera)
-                    && entry
-                        .serial
-                        .as_deref()
-                        .is_some_and(|s| s.trim() == serial.trim())
-            })
+            && let Some(body) = entry_for(&defaults.cameras, camera, Some(serial))
         {
             chain.push((BODY, &body.settings, body.inherit));
         }
-        if let Some(model) = defaults
-            .cameras
-            .iter()
-            .find(|entry| entry.is_for(camera) && entry.serial.is_none())
-        {
+        if let Some(model) = entry_for(&defaults.cameras, camera, None) {
             chain.push((CAMERA, &model.settings, model.inherit));
         }
     }
@@ -288,9 +413,10 @@ pub fn follows_defaults(recipe: &Value) -> bool {
     crate::image_processing::is_new_recipe(recipe) && recipe.get(KEY).is_none()
 }
 
-/// The camera of the photograph at `path`: a RAW's make and model as the
-/// decoder names them (rawler's clean names) and its serial number, other
-/// files' from their EXIF. Read once per file size and modification time.
+/// The camera of the photograph at `path` (`CameraIdentity`): from a
+/// RAW's make and model as the decoder names them (rawler's clean names
+/// for a catalogued camera, an uncatalogued DNG's tags) and its serial
+/// number, other files' from their EXIF. Read once per file size and modification time.
 pub fn camera_of(path: &Path) -> Option<CameraIdentity> {
     type Cache = Mutex<HashMap<PathBuf, (u64, std::time::SystemTime, Option<CameraIdentity>)>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
@@ -362,9 +488,13 @@ fn identity(make: &str, model: &str, serial: Option<&str>) -> Option<CameraIdent
     if make.is_empty() && model.is_empty() {
         return None;
     }
+    let (one_make, one_model) = canonical_names(make, model);
+    let differs = |file: &str, one: &str| (file != one).then(|| file.to_string());
     Some(CameraIdentity {
-        make: make.to_string(),
-        model: model.to_string(),
+        file_make: differs(make, &one_make),
+        file_model: differs(model, &one_model),
+        make: one_make,
+        model: one_model,
         serial: serial
             .map(str::trim)
             .filter(|s| !s.is_empty())
@@ -443,6 +573,7 @@ mod tests {
             make: "Nikon".into(),
             model: "Z 9".into(),
             serial: serial.map(str::to_string),
+            ..Default::default()
         }
     }
 
@@ -528,7 +659,7 @@ mod tests {
         let other = CameraIdentity {
             make: "Canon".into(),
             model: "EOS R5".into(),
-            serial: None,
+            ..Default::default()
         };
         let global = resolve(&d, true, Some(&other)).unwrap();
         assert_eq!(global.levels, ["global"]);
@@ -636,5 +767,265 @@ mod tests {
         assert!(d.cameras[0].inherit);
         assert!(!d.is_empty());
         assert!(DevelopDefaults::default().is_empty());
+    }
+
+    fn model_default(make: &str, model: &str, exposure: f64) -> CameraDefaults {
+        CameraDefaults {
+            make: make.into(),
+            model: model.into(),
+            serial: None,
+            name: None,
+            settings: settings(json!({ "exposure": exposure })),
+            inherit: false,
+        }
+    }
+
+    fn exposure_for(
+        defaults: &DevelopDefaults,
+        is_raw: bool,
+        camera: &CameraIdentity,
+    ) -> Option<f64> {
+        resolve(defaults, is_raw, Some(camera)).and_then(|r| r.settings["exposure"].as_f64())
+    }
+
+    /// RWL1: adding a camera to rawler's catalog turns its DNGs' names from
+    /// their tags ("NIKON CORPORATION" / "NIKON D810A") into the catalog's
+    /// clean names; a camera default saved before keeps applying.
+    #[test]
+    fn a_dng_of_a_newly_catalogued_camera_keeps_its_saved_default() {
+        let defaults = DevelopDefaults {
+            raw_only: true,
+            global: None,
+            cameras: vec![model_default("NIKON CORPORATION", "NIKON D810A", 0.7)],
+        };
+        let dng = identity("Nikon", "D810A", None).unwrap();
+        assert_eq!(exposure_for(&defaults, true, &dng), Some(0.7));
+    }
+
+    /// One body is one camera whichever file names it: a JPEG's EXIF names
+    /// and its RAW's clean names give the same identity, so a default set
+    /// from either applies to both when "RAW files only" is off.
+    #[test]
+    fn a_jpeg_and_a_raw_of_one_body_are_one_camera() {
+        let jpeg = identity("Canon", "Canon EOS R5", Some("012345")).unwrap();
+        let raw = identity("Canon", "EOS R5", Some("012345")).unwrap();
+        assert_eq!((&jpeg.make, &jpeg.model), (&raw.make, &raw.model));
+        assert_eq!(jpeg.file_model.as_deref(), Some("Canon EOS R5"));
+        assert_eq!(raw.file_model, None);
+        let nikon = identity("NIKON CORPORATION", "NIKON Z 6_2", None).unwrap();
+        assert_eq!(
+            (nikon.make.as_str(), nikon.model.as_str()),
+            ("Nikon", "Z 6 2")
+        );
+
+        let from_jpeg = DevelopDefaults {
+            raw_only: false,
+            global: None,
+            cameras: vec![model_default("Canon", "Canon EOS R5", 0.4)],
+        };
+        assert_eq!(exposure_for(&from_jpeg, true, &raw), Some(0.4));
+        assert_eq!(exposure_for(&from_jpeg, false, &jpeg), Some(0.4));
+        // "RAW files only" keeps the JPEG neutral.
+        let raw_only = DevelopDefaults {
+            raw_only: true,
+            ..from_jpeg
+        };
+        assert_eq!(exposure_for(&raw_only, false, &jpeg), None);
+        assert_eq!(exposure_for(&raw_only, true, &raw), Some(0.4));
+    }
+
+    /// Exact names only: bodies whose names start alike stay apart, and a
+    /// camera the catalog does not know keeps its own names.
+    #[test]
+    fn two_bodies_with_similar_names_stay_apart() {
+        let defaults = DevelopDefaults {
+            raw_only: false,
+            global: None,
+            cameras: vec![
+                model_default("Canon", "EOS R5", 0.1),
+                model_default("NIKON CORPORATION", "NIKON Z 6", 0.2),
+            ],
+        };
+        for (make, model) in [
+            ("Canon", "Canon EOS R5 C"),
+            ("Canon", "EOS R5 C"),
+            ("Canon", "Canon EOS R6"),
+            ("NIKON CORPORATION", "NIKON Z 6_2"),
+            ("Nikon", "Z 6 2"),
+            ("Apple", "iPhone 15 Pro"),
+        ] {
+            let camera = identity(make, model, None).unwrap();
+            assert_eq!(
+                exposure_for(&defaults, true, &camera),
+                None,
+                "{make} {model}"
+            );
+        }
+        assert_eq!(
+            exposure_for(
+                &defaults,
+                true,
+                &identity("NIKON CORPORATION", "NIKON Z 6", None).unwrap()
+            ),
+            Some(0.2)
+        );
+        let phone = identity("Apple", "iPhone 15 Pro", None).unwrap();
+        assert_eq!(
+            (phone.make.as_str(), phone.model.as_str(), phone.file_model),
+            ("Apple", "iPhone 15 Pro", None)
+        );
+    }
+
+    /// Defaults saved for one body from its JPEG (EXIF names) and from its
+    /// RAW (clean names) before they shared an identity: each file keeps
+    /// the one saved from its kind, and loading keeps both names.
+    #[test]
+    fn entries_saved_from_a_jpeg_and_a_raw_of_one_body_each_keep_their_files() {
+        let mut defaults = DevelopDefaults {
+            raw_only: false,
+            global: None,
+            cameras: vec![
+                model_default("Canon", "Canon EOS R5", 0.4),
+                model_default("Canon", "EOS R5", 0.9),
+                model_default("NIKON CORPORATION", "NIKON D810A", 0.7),
+            ],
+        };
+        assert!(defaults.canonicalize_camera_names());
+        let names: Vec<_> = defaults
+            .cameras
+            .iter()
+            .map(|c| (c.make.as_str(), c.model.as_str()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("Canon", "Canon EOS R5"),
+                ("Canon", "EOS R5"),
+                ("Nikon", "D810A")
+            ]
+        );
+        assert!(!defaults.canonicalize_camera_names());
+        let jpeg = identity("Canon", "Canon EOS R5", None).unwrap();
+        let raw = identity("Canon", "EOS R5", None).unwrap();
+        assert_eq!(exposure_for(&defaults, false, &jpeg), Some(0.4));
+        assert_eq!(exposure_for(&defaults, true, &raw), Some(0.9));
+        // A DNG converted from the R5 (its tags are the EXIF names; the
+        // decoder gives the clean ones) is the RAW.
+        let dng = identity("Canon", "EOS R5", None).unwrap();
+        assert_eq!(exposure_for(&defaults, true, &dng), Some(0.9));
+    }
+
+    /// Every catalogued camera's clean names are their own identity, and
+    /// the names a camera's files carry map to them (ignoring case, as
+    /// identities are compared: the catalog spells a few makes both ways).
+    #[test]
+    fn the_catalogs_clean_names_are_their_own_identity() {
+        let folded = |(make, model): (String, String)| (make.to_lowercase(), model.to_lowercase());
+        let mut wrong = Vec::new();
+        for ((make, model, _), camera) in rawler::global_loader().get_cameras() {
+            let clean = folded((
+                camera.clean_make.trim().to_string(),
+                camera.clean_model.trim().to_string(),
+            ));
+            for (from, to) in [
+                (
+                    (camera.clean_make.as_str(), camera.clean_model.as_str()),
+                    canonical_names(&camera.clean_make, &camera.clean_model),
+                ),
+                (
+                    (make.as_str(), model.as_str()),
+                    canonical_names(make, model),
+                ),
+            ] {
+                if folded(to.clone()) != clean {
+                    wrong.push(format!("{from:?} -> {to:?}, not {clean:?}"));
+                }
+            }
+        }
+        wrong.sort();
+        wrong.dedup();
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// The broad check of a catalog sync: every photo under
+    /// `RAWTONIC_RAW_FIXTURES` whose camera's identity is not the names its
+    /// file gives (a JPEG's EXIF names, an uncatalogued DNG's tags), one
+    /// line each, and how many files and cameras were read.
+    /// `RAWTONIC_RAW_FIXTURES=… cargo test -p rawtonic-engine -- --ignored --nocapture identities_of_the_fixtures`
+    #[test]
+    #[ignore = "needs RAWTONIC_RAW_FIXTURES"]
+    fn identities_of_the_fixtures() {
+        let Some(root) = std::env::var_os("RAWTONIC_RAW_FIXTURES") else {
+            println!("SKIP: RAWTONIC_RAW_FIXTURES not set");
+            return;
+        };
+        let mut stack = vec![PathBuf::from(root)];
+        let (mut files, mut read) = (0, 0);
+        let mut cameras = std::collections::BTreeSet::new();
+        let mut changed = std::collections::BTreeSet::new();
+        let mut apart = std::collections::BTreeSet::new();
+        let mut exif_checked = 0;
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                let known = crate::formats::is_raw_file(&path)
+                    || ["jpg", "jpeg", "heic", "heif", "hif", "tif", "tiff"]
+                        .iter()
+                        .any(|ext| {
+                            path.extension()
+                                .is_some_and(|e| e.eq_ignore_ascii_case(ext))
+                        });
+                if !known {
+                    continue;
+                }
+                files += 1;
+                let Some(camera) = camera_of(&path) else {
+                    continue;
+                };
+                read += 1;
+                let (make, model) = camera.file_names();
+                let line = format!("{make} / {model}\t-> {} / {}", camera.make, camera.model);
+                cameras.insert((camera.make.clone(), camera.model.clone()));
+                if camera.file_make.is_some() || camera.file_model.is_some() {
+                    changed.insert(line);
+                }
+                // A RAW's own EXIF Make/Model tags (what its camera writes
+                // into its JPEG/HEIF too), where the EXIF reader reads them:
+                // they must give the RAW's identity.
+                if crate::formats::is_raw_file(&path)
+                    && let Some(exif) = camera_of_exif(&path)
+                {
+                    exif_checked += 1;
+                    if (exif.make.to_lowercase(), exif.model.to_lowercase())
+                        != (camera.make.to_lowercase(), camera.model.to_lowercase())
+                    {
+                        let (make, model) = exif.file_names();
+                        apart.insert(format!(
+                            "{make} / {model}\t-> {} / {}\tRAW {} / {}",
+                            exif.make, exif.model, camera.make, camera.model
+                        ));
+                    }
+                }
+            }
+        }
+        for line in &changed {
+            println!("CHANGED\t{line}");
+        }
+        for line in &apart {
+            println!("EXIF-APART\t{line}");
+        }
+        println!(
+            "files {files}, camera read {read}, cameras {}, changed names {}, RAWs with EXIF names {exif_checked}, EXIF names of another identity {}",
+            cameras.len(),
+            changed.len(),
+            apart.len()
+        );
     }
 }

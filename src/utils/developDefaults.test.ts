@@ -17,6 +17,7 @@ import {
   withGlobalDefault,
   withoutCameraDefault,
   withoutDevelopDefaults,
+  type DevelopDefaults,
   type ResolvedDefaults
 } from './developDefaults';
 import type { Preset } from '../components/ui/AppProperties';
@@ -128,6 +129,35 @@ describe('develop defaults', () => {
     expect(d.cameras![0]).toMatchObject({ inherit: false, settings: { clarity: 5 } });
     expect(withoutCameraDefault(d, 0).cameras).toHaveLength(1);
     expect(withGlobalDefault(d, null)).not.toHaveProperty('global');
+  });
+
+  it("finds a camera's entry by its file's names first, else by its one name, and keeps an entry's names", () => {
+    // A JPEG of the R5 (EXIF names) and its CR3 (clean names) are one camera.
+    const jpeg = { make: 'Canon', model: 'EOS R5', fileModel: 'Canon EOS R5' };
+    const raw = { make: 'Canon', model: 'EOS R5' };
+    // An entry saved from the CR3 is the JPEG's too; saving keeps one entry.
+    let d = withCameraDefault(NO_DEVELOP_DEFAULTS, raw, 'camera', { name: 'R', settings: { exposure: 0.9 } });
+    d = withCameraToolDefault(d, jpeg, 'camera', { clarity: 10 });
+    expect(d.cameras).toHaveLength(1);
+    expect(d.cameras![0]).toMatchObject({ make: 'Canon', model: 'EOS R5', settings: { exposure: 0.9, clarity: 10 } });
+    // Entries saved from each file kind before they shared an identity: each
+    // file updates its own, under its own names.
+    const both: DevelopDefaults = {
+      rawOnly: false,
+      cameras: [
+        { make: 'Canon', model: 'Canon EOS R5', settings: { exposure: 0.4 }, inherit: false },
+        { make: 'Canon', model: 'EOS R5', settings: { exposure: 0.9 }, inherit: false }
+      ]
+    };
+    const fromJpeg = withCameraDefault(both, jpeg, 'camera', { name: 'J', settings: { exposure: 0.5 } });
+    expect(fromJpeg.cameras![0]).toMatchObject({ model: 'Canon EOS R5', settings: { exposure: 0.5 } });
+    expect(fromJpeg.cameras![1].settings).toEqual({ exposure: 0.9 });
+    const fromRaw = withCameraDefault(both, raw, 'camera', { name: 'R', settings: { exposure: 1 } });
+    expect(fromRaw.cameras![0].settings).toEqual({ exposure: 0.4 });
+    expect(fromRaw.cameras![1]).toMatchObject({ model: 'EOS R5', settings: { exposure: 1 } });
+    // A similar body is another camera.
+    const r5c = withCameraDefault(both, { make: 'Canon', model: 'EOS R5 C' }, 'camera', { name: 'C', settings: {} });
+    expect(r5c.cameras).toHaveLength(3);
   });
 
   it('opens a never-edited photo with its defaults over the new edit; edited and neutral ones without', () => {
