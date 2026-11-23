@@ -111,8 +111,8 @@ impl RenderVersion {
         self.0 >= crate::image_loader::TEXTURE_DEAD_RENDER_VERSION
     }
 
-    /// The texture rules act only clear of the photo's noise, dead
-    /// photosites at black in dark texture are repaired too, and dead
+    /// Dead photosites at black in dark texture are repaired too where
+    /// their neighbours stand clear of the photo's noise, and dead
     /// photosites take their neighbours' colour ratio
     /// (`image_loader::DeadTest::IsolatedBlack`).
     pub fn black_dead_test(self) -> bool {

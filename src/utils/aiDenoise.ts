@@ -100,8 +100,8 @@ export interface SourceDevelop {
   /** With its rule for dead photosites in busy texture (`renderVersion` 16;
    * undefined: the stored recipe's). */
   defectsTexture?: boolean;
-  /** With the texture rules clear of the noise, the rule for dead
-   * photosites at black and the colour-ratio repair (`renderVersion` 17;
+  /** With the rule for dead photosites at black (clear of the noise) and
+   * the colour-ratio repair (`renderVersion` 17;
    * undefined: the stored recipe's). */
   defectsBlack?: boolean;
   /** With unbiased blacks (`renderVersion` 8; undefined: the stored

@@ -534,12 +534,15 @@ pub fn suppress<T: Copy + Send + Sync>(
     // `DeadTest::IsolatedBlack`'s level for a dead sample whose
     // same-colour median is `median`.
     let black = dead_test == DeadTest::IsolatedBlack;
-    let dead_level = |row: usize, col: usize, median: f32| -> f32 {
+    // None (no repair) when that is not a number, as around not-a-number
+    // neighbours of a float mosaic.
+    let dead_level = |row: usize, col: usize, median: f32| -> Option<f32> {
         if black {
             let same = &neighbours.same[neighbours.phase(row, col)];
-            colour_ratio_repair(cfa, same, row, col, at).unwrap_or(median)
+            Some(colour_ratio_repair(cfa, same, row, col, at).unwrap_or(median))
+                .filter(|v| v.is_finite())
         } else {
-            median
+            Some(median)
         }
     };
     // The median of the same-colour samples within two pixels of
@@ -613,11 +616,11 @@ pub fn suppress<T: Copy + Send + Sync>(
             return None;
         }
         let median = median_around(row, col, None);
-        Some(store(if hot {
-            median
+        if hot {
+            Some(store(median))
         } else {
-            dead_level(row, col, median)
-        }))
+            dead_level(row, col, median).map(&store)
+        }
     };
     // `DeadTest::IsolatedTexture`'s rule for a dark sample of level `v`
     // the isolation test left.
@@ -675,7 +678,7 @@ pub fn suppress<T: Copy + Send + Sync>(
         if spill * deviation.signum() > TEXTURE_SPILL * deviation.abs() {
             return None;
         }
-        Some(store(dead_level(row, col, replacement)))
+        dead_level(row, col, replacement).map(&store)
     };
     // `DeadTest::IsolatedBlack`'s rule for a sample at black: no other
     // sample within two pixels is dark against its own colour.
@@ -687,7 +690,7 @@ pub fn suppress<T: Copy + Send + Sync>(
                 return None;
             }
         }
-        Some(store(dead_level(row, col, median_around(row, col, None))))
+        dead_level(row, col, median_around(row, col, None)).map(&store)
     };
     let texture = dead_test.texture();
     // Only samples brighter than twice their brightest same-colour
@@ -1146,6 +1149,35 @@ mod tests {
             assert_eq!(run(test, &mut data), 0, "{test:?}");
             assert_eq!(data, line);
         }
+    }
+
+    /// A float mosaic whose red samples around a dead one are not numbers:
+    /// the repair leaves it rather than writing a not-a-number level.
+    #[test]
+    fn a_dead_sample_among_not_a_number_neighbours_stays_a_number() {
+        let cfa = bayer();
+        let (w, h) = (64, 64);
+        let mut data = vec![0.3f32; w * h];
+        for y in 26..39 {
+            for x in 26..39 {
+                if cfa.color_at(y, x) == 0 {
+                    data[y * w + x] = f32::NAN;
+                }
+            }
+        }
+        let at = 32 * w + 32;
+        data[at] = 0.0;
+        suppress(
+            &mut data,
+            w,
+            (0, 0, w, h),
+            &cfa,
+            [1.0; 4],
+            DeadTest::IsolatedBlack,
+            |v| v,
+            |v| v,
+        );
+        assert!(data[at].is_finite(), "{}", data[at]);
     }
 
     /// A frame of fine texture everywhere (a fabric close-up; the ramps

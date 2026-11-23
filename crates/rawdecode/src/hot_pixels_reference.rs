@@ -148,12 +148,14 @@ pub fn isolated<T: Copy + Send + Sync>(
         }
     };
     // A dead sample's level: the colour ratio of its neighbours under
-    // `black`, else (or without green around) their median.
-    let dead_level = |x: usize, y: usize| -> f32 {
-        black
+    // `black`, else (or without green around) their median; under `black`
+    // no repair when that is not a number.
+    let dead_level = |x: usize, y: usize| -> Option<f32> {
+        let level = black
             .then(|| colour_ratio_repair(cfa, site(x, y), y, x, |r, c| value(c, r)))
             .flatten()
-            .unwrap_or_else(|| median(x, y, None))
+            .unwrap_or_else(|| median(x, y, None));
+        (!black || level.is_finite()).then_some(level)
     };
     let repair = |x: usize, y: usize| -> Option<T> {
         if cfa.color_at(y, x) >= 3 {
@@ -197,11 +199,11 @@ pub fn isolated<T: Copy + Send + Sync>(
         {
             return None;
         }
-        Some(store(if hot {
-            median(x, y, None)
+        if hot {
+            Some(store(median(x, y, None)))
         } else {
-            dead_level(x, y)
-        }))
+            dead_level(x, y).map(&store)
+        }
     };
     // A dark sample in busy texture: darker than 0.4 of every same-colour
     // neighbour, isolated by the looser bound, no other dark sample around.
@@ -230,7 +232,7 @@ pub fn isolated<T: Copy + Send + Sync>(
                         }
                     }
                 }
-                return Some(store(dead_level(x, y)));
+                return dead_level(x, y).map(&store);
             }
         }
         let deviation = v - median(x, y, Some(v));
@@ -257,7 +259,7 @@ pub fn isolated<T: Copy + Send + Sync>(
         {
             return None;
         }
-        Some(store(dead_level(x, y)))
+        dead_level(x, y).map(&store)
     };
     let repair = |x: usize, y: usize| repair(x, y).or_else(|| textured(x, y));
     let (left, top, aw, ah) = active;

@@ -251,10 +251,10 @@ pub const ISOLATED_DEFECT_RENDER_VERSION: u64 = 15;
 /// benchmark-results/hot2-2026-11-23/).
 pub const TEXTURE_DEAD_RENDER_VERSION: u64 = 16;
 
-/// The render version from which the texture rules act only where the
-/// neighbours stand clear of the photo's noise, dead photosites at black in
-/// dark texture are repaired too, and dead photosites take the colour ratio
-/// of their neighbours (`DeadTest::IsolatedBlack`; notes:
+/// The render version from which dead photosites at black in dark texture
+/// are repaired too where their neighbours stand clear of the photo's noise
+/// (elsewhere the texture rule decides as in 16), and dead photosites take
+/// the colour ratio of their neighbours (`DeadTest::IsolatedBlack`; notes:
 /// benchmark-results/hot3-2026-11-23/).
 pub const BLACK_DEAD_RENDER_VERSION: u64 = 17;
 

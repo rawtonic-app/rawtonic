@@ -1776,8 +1776,8 @@ export const TEXTURE_DEAD_RENDER_VERSION = 16;
 export const defectsTexture = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
   (adjustments.renderVersion ?? 1) >= TEXTURE_DEAD_RENDER_VERSION;
 
-/** The render version from which the texture rules act only clear of the
- * photo's noise, dead photosites at black in dark texture are repaired too
+/** The render version from which dead photosites at black in dark texture
+ * are repaired too where their neighbours stand clear of the photo's noise,
  * and dead photosites take their neighbours' colour ratio
  * (crates/engine/src/image_loader.rs `BLACK_DEAD_RENDER_VERSION`). */
 export const BLACK_DEAD_RENDER_VERSION = 17;
